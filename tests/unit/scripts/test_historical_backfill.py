@@ -1263,3 +1263,80 @@ def test_load_perf_weights_returns_multipliers():
         assert 0.5 <= mult <= 1.5
         assert isinstance(size, int)
     assert result["vwap_deviation"][0] < result["momentum_burst"][0]
+
+
+# ---------------------------------------------------------------------------
+# Task 2: run_i7_and_persist passes calibration to aggregate()
+# ---------------------------------------------------------------------------
+
+
+def test_run_i7_and_persist_passes_calibration_to_aggregate():
+    """calibration_curves and perf_weights reach aggregate() when provided.
+
+    Stubs the I7 plugin loop to produce one raw signal so aggregate() is
+    actually called — the real plugins need rich features to fire.
+    """
+    from collections import deque
+    from datetime import UTC, datetime
+    from unittest.mock import MagicMock, patch
+
+    from production.scripts.historical_backfill import run_i7_and_persist
+
+    base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
+    bars = [
+        {
+            "timestamp": base,
+            "open": 5200.0,
+            "high": 5205.0,
+            "low": 5195.0,
+            "close": 5202.0,
+            "volume": 1000.0,
+        }
+        for _ in range(130)  # min_bars_for_tf("1m") == 120
+    ]
+    history = deque(bars, maxlen=200)
+    features = {"trend_regime": 0.5}
+
+    cal_curves = {("stub_plugin", "1m"): ([0.0, 1.0], [0.0, 1.0])}
+    perf_wts = {"stub_plugin": (1.0, 100)}
+
+    stub_signal = {"direction": 1, "setup_plugin": "stub_plugin", "confidence": 0.7}
+    mock_plugin = MagicMock()
+    mock_plugin.compute_full.return_value = stub_signal
+
+    captured = {}
+
+    def fake_aggregate(
+        signals,
+        *,
+        trend_regime=0.0,
+        features=None,
+        calibration_curves=None,
+        perf_weights=None,
+        **kwargs,
+    ):
+        captured["calibration_curves"] = calibration_curves
+        captured["perf_weights"] = perf_weights
+        from src.intelligence.trading.aggregator import AggregatedResult
+
+        return AggregatedResult(selected_signal=None, all_ranked=[])
+
+    with (
+        patch("production.scripts.historical_backfill.I7_PLUGINS", ["stub_plugin"]),
+        patch("production.scripts.historical_backfill.registry") as mock_registry,
+        patch("production.scripts.historical_backfill.aggregate", side_effect=fake_aggregate),
+    ):
+        mock_registry.get_pattern.return_value = mock_plugin
+        run_i7_and_persist(
+            history,
+            features,
+            "ESM6",
+            "1m",
+            base,
+            db_conn=None,
+            calibration_curves=cal_curves,
+            perf_weights=perf_wts,
+        )
+
+    assert captured.get("calibration_curves") == cal_curves
+    assert captured.get("perf_weights") == perf_wts
