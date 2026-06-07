@@ -1,8 +1,8 @@
 # Database — TimescaleDB Operations
 
-**Version:** 2.8
-**Last Updated:** 2026-05-28
-**Status:** Operational
+**Version:** 2.9
+**Last Updated:** 2026-06-07
+**Status:** current
 
 ---
 
@@ -10,7 +10,7 @@
 
 TimescaleDB operations: tables, migrations, backfill, compression, backup, and advanced gotchas for IndicAgent's cold storage layer.
 
-**Architecture:** Real-time pipeline never touches the database directly. Only `feature_writer_service` and `llm_writer_service` write to TimescaleDB via Kafka consumers.
+**Architecture:** Real-time pipeline never touches the database directly. Writers consume Kafka topics and persist to TimescaleDB: `indicagent-feature-writer`, `indicagent-signal-writer`, `indicagent-lifecycle-writer`, `indicagent-lineage-writer`, `indicagent-ctx-writer`, `indicagent-llm-writer`, `indicagent-swarm-ledger-writer`, `indicagent-signal-metrics-writer`.
 
 ---
 
@@ -18,19 +18,23 @@ TimescaleDB operations: tables, migrations, backfill, compression, backup, and a
 
 | Table | Purpose | Retention |
 |-------|---------|-----------|
-| `market_data_ohlcv` | Raw OHLCV — ground truth, backfill only | Forever |
+| `market_data_ohlcv` | Raw OHLCV — ground truth, never wipe | Forever |
 | `intelligence_features` | Full feature vectors per bar (ML training dataset) | Forever |
-| `signal_ledger` | I7 signals + lifecycle outcomes | Forever |
+| `signal_ledger` | I7 signals — fire-time fields | Forever |
+| `signal_outcomes` | Mutable lifecycle fields (activation, exit, pnl_r) — JOIN via `signal_id` | Forever |
+| `macro_features` | Macro/cross-asset feature vectors per bar | Forever |
 | `llm_calls` | Full LLM audit log per call | Forever |
 | `llm_model_scores` | Per-model win rate / avg pnl_r (refreshed 15min) | Forever |
 | `setup_performance` | Per-setup rolling 30d stats (sample_size ≥ 30 gate) | Forever |
 | `signal_lineage` | Swarm lineage events per signal | Forever |
 | `signal_ai_enrichment` | Swarm aggregate adjustments | Forever |
-| `qualitative_context` | Qualitative context events and snapshots | Forever |
-| `shadow_registry` | Shadow governance state for plugins/agents | Forever |
-| `plugin_states` | Plugin checkpoint state per symbol/timeframe | Forever |
+| `shadow_registry` | Shadow governance enrollment + eval stats per plugin/agent | Forever |
+| `cis_weights` | CIS calibration weights | Rebuilt nightly |
+| `swarm_agent_weights` | Swarm agent performance weights | Rebuilt weekly |
 
-**Never delete signal/feature data.** Every row is a labeled training sample. Storage is cheap; losing labeled data is permanent.
+**Never delete `market_data_ohlcv`.** Every bar is a labeled training sample. All downstream tables can be rebuilt from bar data via replay.
+
+**Checkpoint files** (not DB): `cache/pipeline_checkpoint.json` (plugin states + Kalman), `cache/bar_replay_checkpoint.json` (live replay cursor). These are in-process state only — delete to force cold restart.
 
 ### Key Columns
 
@@ -60,7 +64,7 @@ PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "<query>"
 
 ## Migrations
 
-Migrations live in `production/migrations/` and are numbered sequentially.
+Migrations live in `db/migrations/` and are numbered sequentially.
 
 ### Apply all migrations (first-time setup)
 
@@ -91,13 +95,47 @@ SELECT version FROM schema_migrations ORDER BY applied_at DESC LIMIT 1;
 
 ## Backfill and Gap-Fill
 
-### Full reseed (pipeline_reset)
+### Full pipeline reset (data_reset.py)
 
-Stops services, wipes intelligence data for selected symbols, fetches all TF depths from IBKR, replays I1→I7:
+Wipes all intelligence-derived tables and re-runs full fetch + replay. Use when signal logic, stop/target geometry, or lifecycle logic changes substantially enough that historical P&L is no longer trustworthy.
 
 ```bash
-.venv/bin/python production/scripts/pipeline_reset.py [--dry-run] [--keep-ohlcv] [--symbols SYM,SYM]
+# Dry run — prints row counts, exits without touching data
+python production/scripts/data_reset.py
+
+# Full reset: wipe + fetch + replay (stop pipeline first)
+sudo systemctl stop indicagent-intelligence-pipeline
+python production/scripts/data_reset.py --confirm
+
+# Wipe only — skip re-fetch and replay
+python production/scripts/data_reset.py --confirm --wipe-only
+
+# More workers for faster replay
+python production/scripts/data_reset.py --confirm --workers 8
 ```
+
+**Tables wiped** (bar data preserved): `intelligence_features`, `signal_ledger`, `signal_outcomes`, `signal_lineage`, `signal_transform_log`, `signal_metrics*`, `signal_ai_enrichment`, `macro_features`, `llm_calls`, `llm_model_scores`, `setup_performance`, `swarm_agent_weights`, `cis_weights`, `tod_multipliers`, `confidence_calibration`, `calibration_curves`, `drift_monitor`, `drift_state`, `pattern_reliability`, `transform_graduation`, `ml_discovery_runs`, `memory_*`. Shadow registry enrollment kept; eval stats reset.
+
+### Lifecycle replay (lifecycle_replay.py)
+
+Evaluates signal outcomes for all signals that lack them, by replaying `market_data_ohlcv` bars chronologically. Run after any full replay to compute pnl_r, mae, mfe, exit_reason.
+
+```bash
+# Normal run — fills in missing outcomes only
+python -u production/scripts/lifecycle_replay.py --workers 8
+
+# Reset + replay (for corrupt outcomes — stop pipeline first)
+sudo systemctl stop indicagent-intelligence-pipeline
+python -u production/scripts/lifecycle_replay.py --reset --confirm --workers 8
+
+# Dry run to verify schema compatibility
+python -u production/scripts/lifecycle_replay.py --symbols ESM6 --timeframes 5m --dry-run
+
+# Specific symbols only
+python -u production/scripts/lifecycle_replay.py --reset --confirm --symbols ESM6,NQM6
+```
+
+**After replay:** `setup_performance` and `swarm_agent_weights` are empty — they repopulate on next scheduled runs (nightly ml-training at 11pm; weekly ml-orchestrator on Monday).
 
 ### Gap-fill after downtime
 
@@ -314,7 +352,7 @@ WHERE application_name LIKE 'Columnstore%';
 REFRESH MATERIALIZED VIEW signal_stats_daily;
 ```
 
-`signal_performance_segmented` not in `pipeline_reset.py` — must TRUNCATE separately when doing a full clear.
+`signal_ledger_full` is a view (joins `signal_ledger` + `signal_outcomes`) — cannot be TRUNCATEd. Query it for full lifecycle state; write to the underlying tables directly.
 
 ---
 
@@ -343,7 +381,7 @@ PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c \
 
 # Latest signals
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c \
-  "SELECT symbol, timeframe, MAX(fired_at) as last_signal FROM signal_ledger \
+  "SELECT symbol, timeframe, MAX(timestamp) as last_signal FROM signal_ledger \
    GROUP BY symbol, timeframe ORDER BY last_signal DESC LIMIT 5"
 ```
 

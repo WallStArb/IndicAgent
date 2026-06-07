@@ -40,7 +40,7 @@ adjusted_confidence = calibrated_confidence × swarm_multiplier
 
 **Latency:** All LLM agents have `latency_budget_ms = 120,000` (120s). `ml_scorer_v1` is 50ms (local model). With gemma4 at the current quantization level, p50 LLM latency is ~47-52s — well within budget. Agents run non-blocking: swarm analysis is a confidence overlay, not a signal gate.
 
-**Mandatory attribute:** Every `BaseAIAgent` subclass declares `prompt_version` from its `ACTIVE_VERSION` constant. Auto-injected into `llm_calls` for prompt A/B testing across the swarm.
+**Mandatory attribute:** Every `BaseAIWorker` subclass declares `prompt_version` from its `ACTIVE_VERSION` constant. Auto-injected into `llm_calls` for prompt A/B testing across the swarm.
 
 ## Invariants
 
@@ -63,7 +63,7 @@ When designing a swarm intelligence system:
 
 ## See Also
 
-- Implementation: `docs/intelligence/intelligence-ai.md` — BaseAIAgent protocol, shadow governance, LLM audit trail
+- Implementation: `docs/intelligence/intelligence-ai.md` — BaseAIWorker protocol, shadow governance, LLM audit trail
 - Calibration: `docs/intelligence/intelligence-foundation.md` — calibration chain, swarm overlay position
 - Code: `services/alpha_swarm_agent.py`, `src/intelligence/ai/alpha/`
 - Related concept: `docs/concepts/adaptive-intelligence.md` — how shadow governance gates swarm agents

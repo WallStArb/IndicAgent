@@ -366,7 +366,7 @@ The following schemas were defined in earlier versions but have been superseded 
     "key_factors": list,              # Primary intelligence factors
     "confidence": float,              # AI confidence in insight
     "evidence_sources": list,         # Source intelligence tiers/patterns
-    "market_context": dict,           # Current market environment
+    "market_context": dict,           # Current regime
     "actionable_intelligence": dict,  # Specific actionable insights
     "risk_assessment": dict,          # Risk evaluation
     "model_metadata": {               # AI processing metadata
@@ -492,8 +492,8 @@ VOLUME_TYPE = int                                  # Volume as integer
 
 ### **Current Status**
 - **`bar.v1`** - Operational. The `source` field distinguishes: `tick_derived` (provisional bar published at :00 from live ticks), `authoritative` (correction published at :05 from reqHistoricalData), `ibkr_live` (legacy)
-- **`IntelligenceEvent`** - Operational. Published by `IntelligencePipelineComputeAgent` to `intelligence.journal` with full I1-I6 tiered JSONB
-- **`SignalEvent`** - Operational. Published by `IntelligencePipelineComputeAgent` to `intelligence.i7.signals` with all ranked I7 signals
+- **`IntelligenceEvent`** - Operational. Published by `IntelligencePipeline` to `intelligence.journal` with full I1-I6 tiered JSONB
+- **`SignalEvent`** - Operational. Published by `IntelligencePipeline` to `intelligence.i7.signals` with all ranked I7 signals
 - **`narrative.v1`** - Operational. Published by `AINarrativeService` to `narratives:SYMBOL:TF`; cached to `narrative:SYMBOL:TF:latest` hash with 90s TTL
 
 ### **Schema Gaps (Future Implementation)**

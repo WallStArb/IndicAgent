@@ -1,6 +1,6 @@
 # Agents Operations — Service Mesh, DAG Topology & Lifecycle Management
 
-**Version:** 2.8.0 | **Status:** Operational | **Last Updated:** 2026-05-29
+**Version:** 2.8.0 | **Status:** current | **Last Updated:** 2026-05-29
 
 ---
 
@@ -16,7 +16,7 @@ This document describes how the system of agents is managed: the service auditor
 
 ### Why the Service Auditor Exists
 
-systemd provides process liveness (WatchdogSec kills hung processes). Prometheus provides metrics and lag. Neither alone gives graduated, DAG-aware response. The `ServiceAuditorAgent` adds the third layer: it reads both systemd unit state and Prometheus consumer-lag metrics, then applies a graduated response policy — DEGRADED (log), RESTART (systemctl), ESCALATE (DLQ + stop retrying) — in dependency order.
+systemd provides process liveness (WatchdogSec kills hung processes). Prometheus provides metrics and lag. Neither alone gives graduated, DAG-aware response. The `ServiceAuditor` adds the third layer: it reads both systemd unit state and Prometheus consumer-lag metrics, then applies a graduated response policy — DEGRADED (log), RESTART (systemctl), ESCALATE (DLQ + stop retrying) — in dependency order.
 
 Without the auditor, a crash in `indicagent-bar-aggregator` would cascade: `indicagent-intelligence-pipeline` would keep running but receive no bars, look healthy to systemd, and silently produce no output. The auditor detects the lag stall and restarts the right service in the right order.
 
@@ -164,22 +164,22 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_aggregator_agent":          "indicagent-bar-aggregator",
     "intelligence_pipeline_agent":   "indicagent-intelligence-pipeline",
     "feature_writer_agent":          "indicagent-feature-writer",
-    "SignalTrackerComputeAgent":      "indicagent-signal-tracker-compute",
+    "SignalTracker":      "indicagent-signal-tracker-compute",
     "signal_writer_agent":           "indicagent-signal-writer",
     "llm_writer_agent":              "indicagent-llm-writer",
-    "CrossAssetComputeAgent":        "indicagent-cross-asset",
+    "CrossAssetAnalyzer":        "indicagent-cross-asset",
     "bar_auditor_agent":             "indicagent-bar-auditor",
     "provider_merger_agent":         "indicagent-provider-merger",
     "lifecycle_writer_agent":        "indicagent-lifecycle-writer",
     "lineage_writer_agent":          "indicagent-lineage-writer",
     "signal_metrics_compute":        "indicagent-signal-metrics-compute",
     "signal_metrics_writer":         "indicagent-signal-metrics-writer",
-    "AlphaSwarmComputeAgent":        "indicagent-alpha-swarm",
-    "NarrativeGroupComputeAgent":    "indicagent-narrative-compute",
+    "AlphaSwarm":        "indicagent-alpha-swarm",
+    "NarrativeSwarm":    "indicagent-narrative-compute",
     "swarm_ledger_writer":           "indicagent-swarm-ledger-writer",
-    "MacroComputeAgent":             "indicagent-macro-compute",
+    "MacroAnalyzer":             "indicagent-macro-compute",
     "signal_auditor_agent":          "indicagent-signal-auditor",
-    "GraduationComputeAgent":        "indicagent-graduation-compute",
+    "GraduationAnalyzer":        "indicagent-graduation-compute",
     "graduation_writer_agent":       "indicagent-graduation-writer",
     "ctx_writer_agent":              "indicagent-ctx-writer",
     "bar_replay_provider":           "indicagent-bar-replay",
@@ -196,23 +196,23 @@ Each daemon service exposes OTel metrics via its assigned port. All ports are sc
 
 | Service | systemd unit suffix | Metrics port |
 |---------|---------------------|-------------|
-| IBKRProviderAgent | `ibkr-provider` | `:9129` |
-| ProviderMergerAgent | `provider-merger` | `:9130` |
-| BarAggregatorComputeAgent | `bar-aggregator` | `:9120` |
-| BarWriterAgent | `bar-writer` | `:9121` |
-| BarAuditorAgent | `bar-auditor` | `:9123` |
+| IBKRProvider | `ibkr-provider` | `:9129` |
+| ProviderMerger | `provider-merger` | `:9130` |
+| BarAggregator | `bar-aggregator` | `:9120` |
+| BarWriter | `bar-writer` | `:9121` |
+| BarAuditor | `bar-auditor` | `:9123` |
 | CrossAssetService | `cross-asset` | `:9118` |
-| IntelligencePipelineComputeAgent | `intelligence-pipeline` | `:9125` |
-| FeatureWriterAgent | `feature-writer` | `:9116` |
-| FeatureSnapshotWriterAgent | `feature-snapshot-writer` | `:9132` |
-| ParityAuditorAgent | `parity-auditor` | `:9133` |
-| SignalWriterAgent | `signal-writer` | `:9119` |
-| SignalTrackerComputeAgent | `signal-tracker-compute` | `:9115` |
-| SignalAuditorAgent | `signal-auditor` | `:9128` |
-| SignalMetricsComputeAgent | `signal-metrics-compute` | `:9126` |
-| NarrativeGroupComputeAgent | `narrative-compute` | `:9113` |
-| LLMWriterAgent | `llm-writer` | `:9117` |
-| ServiceAuditorAgent | `service-auditor` | `:9131` |
+| IntelligencePipeline | `intelligence-pipeline` | `:9125` |
+| FeatureWriter | `feature-writer` | `:9116` |
+| FeatureSnapshotWriter | `feature-snapshot-writer` | `:9132` |
+| ParityAuditor | `parity-auditor` | `:9133` |
+| SignalWriter | `signal-writer` | `:9119` |
+| SignalTracker | `signal-tracker-compute` | `:9115` |
+| SignalAuditor | `signal-auditor` | `:9128` |
+| SignalMetricsAnalyzer | `signal-metrics-compute` | `:9126` |
+| NarrativeSwarm | `narrative-compute` | `:9113` |
+| LLMWriter | `llm-writer` | `:9117` |
+| ServiceAuditor | `service-auditor` | `:9131` |
 
 Services absent from this table (API, dashboard, timer-based oneshots) do not expose dedicated metrics ports — their health is determined by systemd unit state only.
 
@@ -258,7 +258,7 @@ Set the threshold to the maximum acceptable consumer lag in messages. Compute ag
 "indicagent-my-new-service": 500,
 ```
 
-**Step 3: Add to `_AGENT_ID_TO_UNIT` (if it is a `BaseWriterAgent`).**
+**Step 3: Add to `_AGENT_ID_TO_UNIT` (if it is a `BaseWriter`).**
 
 The key must exactly match the `name=` argument passed to `super().__init__()` in the service's constructor. This is how the auditor maps a Prometheus label to a systemd unit.
 
@@ -366,6 +366,6 @@ curl -s 'http://localhost:9090/api/v1/query?query=agent_last_message_timestamp_s
 ## See Also
 
 - `docs/agents/agents-foundation.md` — BaseAgent contract, liveness signals, OODA loop rationale
-- `docs/agents/agents-writers.md` — BaseWriterAgent and the persistence pattern
+- `docs/agents/agents-writers.md` — BaseWriter and the persistence pattern
 - `services/service_auditor_agent.py` — `_DAG_ORDER`, `_LAG_THRESHOLDS`, `_AGENT_ID_TO_UNIT` (authoritative source)
 - `docs/platform/platform-foundation.md` (planned) — infrastructure layer design

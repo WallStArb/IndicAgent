@@ -562,7 +562,7 @@ The following renames are established by this spec. They represent the delta bet
 | `BaseWriterAgent` | `BaseWriter` | Role suffix complete without `Agent` |
 | `BaseProviderAgent` | `BaseProvider` | Same |
 | `BaseAIAgent` | `BaseAIWorker` | Interim — see Section 7 architectural note |
-| `BaseGroupService` | `BaseSwarmCoordinator` | Names the actual coordination role |
+| `BaseGroupCoordinator` | `BaseSwarmCoordinator` | Names the actual coordination role |
 | `AgentContext` | `WorkerContext` | `Agent` retired; `Worker` passes portability test |
 | `AgentProtocol` | `AIWorkerProtocol` | Consistent with `BaseAIWorker` prefix |
 
@@ -677,7 +677,7 @@ Also update `agentAge["AlphaSwarmComputeAgent"]` key reference on line 213.
 
 The rename phase touches every service file, class name, and import in the codebase simultaneously.
 
-**Sequencing decision (2026-05-30):** The rename executes before Phase 095 (Pydantic AI Agent Execution Layer). Phase 095 directly touches the Ring 0 infrastructure being renamed — `BaseAIAgent`, `BaseGroupService`, `AgentContext` — and introduces new evaluators that must be named correctly from day one. Writing 095 code against old names would compound the debt. The foundation must be correct before anything built on top of it can be trusted.
+**Sequencing decision (2026-05-30):** The rename executes before Phase 095 (Pydantic AI Agent Execution Layer). Phase 095 directly touches the Ring 0 infrastructure being renamed — `BaseAIAgent`, `BaseGroupCoordinator`, `AgentContext` — and introduces new evaluators that must be named correctly from day one. Writing 095 code against old names would compound the debt. The foundation must be correct before anything built on top of it can be trusted.
 
 **Atomic rename:** All renames in Section 9 execute in a single phase on a feature branch. Incremental rename across multiple PRs creates a window where CI checks fail and vocabulary is contradictory. The branch merges only when all checks pass.
 

@@ -42,7 +42,7 @@ The fitness dataset — `signal_ledger` — is the continuous learning signal fo
 
 **Performance multipliers:** Rolling 30-day Sharpe and win rate per (setup_plugin, timeframe, symbol, regime). Sharpe-normalized rank produces `perf_multiplier` in [0.5, 1.5]. Gate: N < 30 → `perf_multiplier = 1.0` (neutral). No data = no advantage, not penalized.
 
-**eAI genome mutations (v2.8):** `BaseAIAgent` subclasses with a `genome` parameter dict. Reproductive operators (mutation, crossover, selection) are applied between evaluation cycles. Shadow governance handles statistical gating before any mutant agent affects production.
+**eAI genome mutations (v2.8):** `BaseAIWorker` subclasses with a `genome` parameter dict. Reproductive operators (mutation, crossover, selection) are applied between evaluation cycles. Shadow governance handles statistical gating before any mutant agent affects production.
 
 **Key substrate (live now):**
 - `shadow_registry` table — auto-enrollment, state tracking

@@ -35,7 +35,7 @@ Plugins declare:
 
 **Registration:** Plugins self-register by being added to `TIER_I1`..`TIER_I7` lists in `src/intelligence/register_plugins.py`. This is the only coupling point between a plugin and the rest of the system.
 
-**Shell-plugin separation:** `IntelligencePipelineComputeAgent` executes the DAG but contains no market intelligence logic. It handles state management, wave execution, error isolation, and metrics — not RSI or BOS or FVG computation.
+**Shell-plugin separation:** `IntelligencePipeline` executes the DAG but contains no market intelligence logic. It handles state management, wave execution, error isolation, and metrics — not RSI or BOS or FVG computation.
 
 **Error isolation:** Each plugin runs inside try/except. A plugin that raises is skipped for that bar; the pipeline continues. A plugin must return `None` outputs (not raise) when inputs are insufficient or warmup is incomplete.
 

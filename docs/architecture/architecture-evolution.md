@@ -23,30 +23,30 @@ Established core data-layer patterns:
 ### v2.1 — Agentic DAG Refactor
 Introduced strict agent role separation:
 - `BaseAgent` unification — lifecycle, OTel Golden Signals, graceful SIGTERM drain for every service
-- Dedicated WriterAgents — DB-ignorant compute principle enforced across the board
-- `BaseProviderAgent` + adapter pattern — adding a data source = one subclass, nothing downstream changes
-- `ProviderMergerAgent` — multi-provider failover and routing abstraction
+- Dedicated Writers — DB-ignorant compute principle enforced across the board
+- `BaseProvider` + adapter pattern — adding a data source = one subclass, nothing downstream changes
+- `ProviderMerger` — multi-provider failover and routing abstraction
 
 ### v2.2 — Unified Intelligence Pipeline
 Consolidated I1-I7 into a single in-process agent:
-- `IntelligencePipelineComputeAgent` — eliminated Kafka hops between tiers (I6→I7 is direct dependency)
+- `IntelligencePipeline` — eliminated Kafka hops between tiers (I6→I7 is direct dependency)
 - State checkpointing to compacted topic — eliminates warmup on restart
 - I1 + I7 tiers parallelized via `asyncio.gather` + ThreadPoolExecutor — ~60% latency reduction
-- `SignalWriterAgent` — dedicated persistence agent for `signal_ledger`
+- `SignalWriter` — dedicated persistence agent for `signal_ledger`
 - Identified I2-I6 sequential bottleneck (73% of latency) — batch processing is the planned fix
 
 ### v2.3 — Swarm Foundation + ML Infrastructure
-- `AlphaSwarmComputeAgent` + `LineageWriterAgent` — lineage-first swarm foundation; per-agent predictions persist to `signal_lineage`
+- `AlphaSwarm` + `LineageWriter` — lineage-first swarm foundation; per-agent predictions persist to `signal_lineage`
 - LLM layer extracted into standalone `llm_providers.py` module
 - `BarIntelligenceRecord` — atomic per-bar record on `intelligence.journal` (Phase 44.3 / PIPE-06); single INSERT per bar replaces two-phase UPSERT
 - Nightly `roll-batch` timer — automated futures roll detection and front-month promotion (replaces 24/7 roll-compute daemon)
-- `SignalTrackerComputeAgent` + `LifecycleWriterAgent` — signal lifecycle compute/writer split; tracker is now DB-ignorant
+- `SignalTracker` + `LifecycleWriter` — signal lifecycle compute/writer split; tracker is now DB-ignorant
 - ML timer agents: `MLDataQualityAgent`, `MLDiscoveryAgent`, `MLOrchestratorAgent`
 
 ### v2.4 — Observability Hardening
-- `ServiceAuditorAgent` — pipeline health monitor and self-healer; publishes to `system.health.events`
-- `FeatureSnapshotWriterAgent` + `ParityAuditorAgent` — shadow dual-write with 60-cycle parity certification
-- `SignalAuditorAgent` + `SignalMetricsComputeAgent` + `SignalMetricsWriterAgent` — signal coverage + performance metric pipeline
+- `ServiceAuditor` — pipeline health monitor and self-healer; publishes to `system.health.events`
+- `FeatureSnapshotWriter` + `ParityAuditor` — shadow dual-write with 60-cycle parity certification
+- `SignalAuditor` + `SignalMetricsAnalyzer` + `SignalMetricsWriter` — signal coverage + performance metric pipeline
 - DLQ topics standardized across all payload-parsing agents (Plan 067-07)
 - `bar_id` UUID traceability end-to-end from bar ingestion through signal generation (Phase 68-03)
 
@@ -72,7 +72,7 @@ Consolidated I1-I7 into a single in-process agent:
 | Roll Batch | `production/scripts/roll_batch.py` | `indicagent-roll-batch` (timer, 8pm) | — | Calendar-based futures roll detection + front-month promotion |
 | Intelligence Pipeline | `intelligence_pipeline_agent.py` | `indicagent-intelligence-pipeline` | :9125 | I1-I7 unified, in-process |
 | Signal Writer | `signal_writer_agent.py` | `indicagent-signal-writer` | :9119 | Writes `signal_ledger` (batch) |
-| Signal Tracker | `signal_tracker_compute_agent.py` | `indicagent-signal-tracker-compute` | :9115 | Signal lifecycle compute (DB-ignorant); publishes transitions to LifecycleWriterAgent |
+| Signal Tracker | `signal_tracker_compute_agent.py` | `indicagent-signal-tracker-compute` | :9115 | Signal lifecycle compute (DB-ignorant); publishes transitions to LifecycleWriter |
 | Lifecycle Writer | `lifecycle_writer_agent.py` | `indicagent-lifecycle-writer` | — | Persists signal lifecycle transitions to `signal_outcomes` |
 | Signal Metrics Compute | `signal_metrics_compute_agent.py` | `indicagent-signal-metrics-compute` | :9126 | Timer-triggered signal performance metrics |
 | Signal Metrics Writer | `signal_metrics_writer_agent.py` | `indicagent-signal-metrics-writer` | :9127 | Persists signal metrics to DB |
@@ -104,14 +104,14 @@ Consolidated I1-I7 into a single in-process agent:
 │                              LAYER 1: DATA                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  IBKR TWS → IBKRProviderAgent (market.bars.raw.ibkr)                        │
+│  IBKR TWS → IBKRProvider (market.bars.raw.ibkr)                        │
 │                              ↓                                               │
-│                    ProviderMergerAgent                                      │
+│                    ProviderMerger                                      │
 │                    (failover, routing)                                      │
 │                              ↓                                               │
 │                    market.bars (canonical 1m)                               │
 │                              ↓                                               │
-│           BarAggregatorComputeAgent (market.bars.htf)                       │
+│           BarAggregator (market.bars.htf)                       │
 │                    (1m → 5m/15m/1h/4h/1d)                                   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -120,7 +120,7 @@ Consolidated I1-I7 into a single in-process agent:
 │                           LAYER 2-3: INTELLIGENCE                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│           IntelligencePipelineComputeAgent                                  │
+│           IntelligencePipeline                                  │
 │           (I1→I7 unified, IN-PROCESS)                                      │
 │                                                                             │
 │  ┌────────────────────────────────────────────────────────────────────┐   │
@@ -158,9 +158,9 @@ Consolidated I1-I7 into a single in-process agent:
 │                           LAYER 4: PERSISTENCE                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  FeatureWriterAgent → intelligence_features (DB)                           │
-│  SignalWriterAgent → signal_ledger (DB)                                    │
-│  SignalTrackerAgent → lifecycle updates (DB via LifecycleWriterAgent)      │
+│  FeatureWriter → intelligence_features (DB)                           │
+│  SignalWriter → signal_ledger (DB)                                    │
+│  SignalTracker → lifecycle updates (DB via LifecycleWriter)      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       ↓
@@ -204,16 +204,16 @@ Consolidated I1-I7 into a single in-process agent:
 
 | Role | Class | Base | File |
 |------|-------|------|------|
-| Provider | `IBKRProviderAgent` | `BaseProviderAgent` | `services/ibkr_provider_agent.py` |
-| Merger | `ProviderMergerAgent` | `BaseAgent` | `services/provider_merger_agent.py` |
-| Compute | `IntelligencePipelineComputeAgent` | `BaseAgent` | `services/intelligence_pipeline_agent.py` |
-| Compute | `BarAggregatorComputeAgent` | `BaseAgent` | `services/bar_aggregator_agent.py` |
-| Auditor | `BarAuditorAgent` | `BaseAgent` | `services/bar_auditor_agent.py` |
-| Auditor | `ParityAuditorAgent` | `BaseAgent` | `services/parity_auditor_agent.py` |
-| Writer | `BarWriterAgent` | `BaseAgent` | `services/bar_writer_agent.py` |
-| Writer | `FeatureWriterAgent` | `BaseAgent` | `services/feature_writer_agent.py` |
-| Writer | `SignalWriterAgent` | `BaseAgent` | `services/signal_writer_agent.py` |
-| Tracker | `SignalTrackerComputeAgent` | `BaseAgent` | `services/signal_tracker_compute_agent.py` |
+| Provider | `IBKRProvider` | `BaseProvider` | `services/ibkr_provider_agent.py` |
+| Merger | `ProviderMerger` | `BaseAgent` | `services/provider_merger_agent.py` |
+| Compute | `IntelligencePipeline` | `BaseAgent` | `services/intelligence_pipeline_agent.py` |
+| Compute | `BarAggregator` | `BaseAgent` | `services/bar_aggregator_agent.py` |
+| Auditor | `BarAuditor` | `BaseAgent` | `services/bar_auditor_agent.py` |
+| Auditor | `ParityAuditor` | `BaseAgent` | `services/parity_auditor_agent.py` |
+| Writer | `BarWriter` | `BaseAgent` | `services/bar_writer_agent.py` |
+| Writer | `FeatureWriter` | `BaseAgent` | `services/feature_writer_agent.py` |
+| Writer | `SignalWriter` | `BaseAgent` | `services/signal_writer_agent.py` |
+| Tracker | `SignalTracker` | `BaseAgent` | `services/signal_tracker_compute_agent.py` |
 
 ## Intelligence Tiers
 
@@ -245,7 +245,7 @@ Signal status strings: `"pending"`, `"active"`, `"regime_suppressed"` — raw st
 
 ## Key Principles
 
-1. **Database Ignorance** — Compute agents never touch DB. Persistence is decoupled via WriterAgents.
+1. **Database Ignorance** — Compute agents never touch DB. Persistence is decoupled via Writers.
 2. **Typed Event Bus** — All intelligence flows through `IntelligenceEvent` with tiered JSONB.
 3. **Graceful Degradation** — DLQ topics, circuit breakers, and shadow modes for new features.
 4. **Instrument Everything** — OTel SDK + Grafana for all Golden Signals (`prometheus_client` removed).
@@ -310,7 +310,7 @@ Signal status strings: `"pending"`, `"active"`, `"regime_suppressed"` — raw st
 |--------|----------------|-------------|-----------|
 | **Extensibility** | Hardcoded indicators, core changes required | Plugin-native: empty container, add via registration | Zero risk to existing functionality |
 | **Execution Ordering** | Manual config, maintenance burden | Emerges from plugin inputs/outputs (Kahn's algorithm) | Circular deps detected at startup |
-| **Database Coupling** | DB in critical path, latency sensitive | Compute agents DB-ignorant, async WriterAgents | DB outage = zero impact on hot path |
+| **Database Coupling** | DB in critical path, latency sensitive | Compute agents DB-ignorant, async Writers | DB outage = zero impact on hot path |
 | **Provider Switching** | Hardcoded, invasive | Merger pattern isolates all downstream consumers | Add/remove providers without changes |
 | **Signal Selection** | Ad-hoc, opaque | CIS requires 3/6 evidence buckets agree | Full transparency, provable quality |
 | **Feature Promotion** | Deploy to production, hope for best | Shadow mode with p < 0.05 statistical gates | No production losses from unproven features |
@@ -321,13 +321,13 @@ Signal status strings: `"pending"`, `"active"`, `"regime_suppressed"` — raw st
 
 **Convergence Gate (StreamMerger):** All tiered outputs (I1, I3, I4, SMC) join into a single, unified `intelligence.journal` entry before persistence. Guarantees atomicity — no partial writes, no orphaned tiers.
 
-**Provider Isolation:** `ProviderMergerAgent` subscribes to `market.bars.raw.<provider>` topics and routes canonical bars to `market.bars`. Downstream consumers never know provider topology changed. Adding a data source = one subclass.
+**Provider Isolation:** `ProviderMerger` subscribes to `market.bars.raw.<provider>` topics and routes canonical bars to `market.bars`. Downstream consumers never know provider topology changed. Adding a data source = one subclass.
 
 **Shadow Mode Infrastructure:** Every feature runs in shadow before production. `shadow_promotion_ready` gates require statistical significance (p < 0.05, N ≥ 100) before production eligibility.
 
 **Evidence-Graded Signals:** CIS (Confluence Intelligence Score) fires only when 3 of 6 independent evidence buckets agree. Single dominant bucket cannot override. Full attribution logged per signal.
 
-**Hot/Warm/Cold Separation:** Compute agents (hot) → Redpanda (warm) → WriterAgents (cold). Database latency never affects hot path. Service restart resumes from committed offset — nothing lost.
+**Hot/Warm/Cold Separation:** Compute agents (hot) → Redpanda (warm) → Writers (cold). Database latency never affects hot path. Service restart resumes from committed offset — nothing lost.
 
 ---
 

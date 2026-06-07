@@ -20,7 +20,7 @@ Guidelines for working with AI coding tools without losing momentum, burning con
 - **One Variable at a Time:** When improving an algo, change exactly one thing per session. Multiple changes make causality impossible — you won't know what worked.
 - **Shadow First:** Any change that could affect signal output lives in shadow mode until it proves itself. Working code always beats better code until there's evidence.
 
-## How You Work with the Agent
+## How You Work with the service
 
 - **Be the Architect:** You own the intent. The agent owns the syntax. Never let those swap.
 - **Commit Early:** If it works, commit it. Improvements happen *on top of* commits, not instead of them.

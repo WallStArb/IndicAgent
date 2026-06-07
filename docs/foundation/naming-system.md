@@ -33,7 +33,7 @@ This is the single criterion. The three governing tests are tools for applying i
 Write the name on a whiteboard in a mathematics seminar. Would a quant immediately understand what the object IS? `SkepticEvaluator` passes. `SkepticComputeAgent` fails. `context` passes. `ctx` fails.
 
 **The Survival Test**
-If you replaced the implementation tomorrow — swap the LLM for a neural net, swap Kafka for a message queue — would the name still be correct? `BarAggregator` survives. `BarAggregatorComputeAgent` does not — `Compute` describes mechanism.
+If you replaced the implementation tomorrow — swap the LLM for a neural net, swap Kafka for a message queue — would the name still be correct? `BarAggregator` survives. `BarAggregator` does not — `Compute` describes mechanism.
 
 **The Portability Test** *(Ring 0 only)*
 Could this name be extracted into a shared library and used unchanged in a credit risk system or options pricing engine? `BaseDaemon` passes. `AIContext` fails — it names a trading intelligence construct.
@@ -42,7 +42,7 @@ Could this name be extracted into a shared library and used unchanged in a credi
 
 - **Mechanism words:** `Compute`, `Process`, `Handle`, `Manage`, `Execute`
 - **Unearned role words:** `Agent` on a component that is called, not autonomous
-- **`Base*` on domain objects:** `BaseMultiplierAgent` implies a non-base exists. `Evaluator` (abstract) is simply the type.
+- **`Base*` on domain objects:** `BaseGroupCoordinator` implies a non-base exists. `Evaluator` (abstract) is simply the type.
 - **Code abbreviations:** `ctx`, `cfg`, `msg`, `sig`
 - **Three unrelated semantic units:** three related words in a compound (`RegimeCoherenceAnalyzer`) are fine — the smell is *unrelated* concepts. The CI advisory check flags four or more PascalCase segments.
 

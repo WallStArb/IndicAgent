@@ -19,7 +19,7 @@ No agent calls another directly. Redpanda (Kafka-compatible) is the sole, durabl
 
 ## 3. Hot Path Never Touches the Database
 
-The real-time pipeline (I1-I7) is DB-ignorant. Persistence is strictly asynchronous — decoupled via dedicated WriterAgents (`FeatureWriterAgent`, `SignalWriterAgent`, `LifecycleWriterAgent`). A TimescaleDB outage has zero impact on intelligence computation or signal generation latency.
+The real-time pipeline (I1-I7) is DB-ignorant. Persistence is strictly asynchronous — decoupled via dedicated Writers (`FeatureWriter`, `SignalWriter`, `LifecycleWriter`). A TimescaleDB outage has zero impact on intelligence computation or signal generation latency.
 
 ## 4. Topological Orchestration
 
@@ -41,7 +41,7 @@ Every signal is evidence-graded. No signal fires without cross-tier confluence. 
 
 ## 8. Self-Correcting Pipeline
 
-Drift detection (KS/CUSUM), performance monitoring, and model-weight backfilling are baked into the live loop. `ServiceAuditorAgent` monitors pipeline health and triggers restarts on threshold breach. `ParityAuditorAgent` certifies feature writes after 60 clean parity cycles. The system validates its own integrity and self-adjusts without human intervention.
+Drift detection (KS/CUSUM), performance monitoring, and model-weight backfilling are baked into the live loop. `ServiceAuditor` monitors pipeline health and triggers restarts on threshold breach. `ParityAuditor` certifies feature writes after 60 clean parity cycles. The system validates its own integrity and self-adjusts without human intervention.
 
 ## 9. Never Drop Data That Could Contain Signal
 
@@ -51,9 +51,9 @@ Storage is the cheapest thing we own. Every signal outcome, feature vector, and 
 
 The agentic DAG has seven structural invariants. These are not guidelines — violating any one of them breaks the guarantees that make the rest of the system work. Every new service and every code review must verify these hold.
 
-1. **`ProviderMergerAgent` is the sole writer to `market.bars`.** All downstream agents are isolated from provider topology. Adding a new data source means adding a ProviderAgent — zero downstream changes.
-2. **I1–I7 runs entirely in-process.** `IntelligencePipelineComputeAgent` computes all 132 plugins in-memory before publishing. Kafka is a sink, not an inter-stage pipe. No I6→I7 Kafka hop.
-3. **No ComputeAgent touches the database.** Only `WriterAgent`, `TrackerAgent`, and `AuditorAgent` perform DB operations. A ComputeAgent that queries the DB is a DAG violation.
+1. **`ProviderMerger` is the sole writer to `market.bars`.** All downstream agents are isolated from provider topology. Adding a new data source means adding a Provider — zero downstream changes.
+2. **I1–I7 runs entirely in-process.** `IntelligencePipeline` computes all 132 plugins in-memory before publishing. Kafka is a sink, not an inter-stage pipe. No I6→I7 Kafka hop.
+3. **No hot-path compute touches the database.** Only Writer, Tracker, and Auditor services perform DB operations. A hot-path daemon that queries the DB is a DAG violation.
 4. **All topic keys via `stream_keys.py`.** No hardcoded topic strings anywhere in the codebase.
 5. **No agent calls another agent directly.** Topics are the only coupling. Point-to-point calls make topology invisible, create restart dependencies, and break the restart-from-offset guarantee.
 6. **All timestamps UTC.** Every bar, event, and DB write uses timezone-aware UTC datetimes. `datetime.now(UTC)` only — never `datetime.now()` or `datetime.utcnow()`.
@@ -63,4 +63,4 @@ The agentic DAG has seven structural invariants. These are not guidelines — vi
 
 ## 10. Shadow Before Production
 
-No model, strategy, or feature goes to production without statistically significant evidence (p < 0.05, sufficient N). `FeatureSnapshotWriterAgent` dual-writes to a shadow table; `ParityAuditorAgent` compares for 60 clean cycles before certifying. New I7 plugins run with `IS_SHADOW=True` until their regime-conditional win rate is proven.
+No model, strategy, or feature goes to production without statistically significant evidence (p < 0.05, sufficient N). `FeatureSnapshotWriter` dual-writes to a shadow table; `ParityAuditor` compares for 60 clean cycles before certifying. New I7 plugins run with `IS_SHADOW=True` until their regime-conditional win rate is proven.

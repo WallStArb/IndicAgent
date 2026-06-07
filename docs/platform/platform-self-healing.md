@@ -97,12 +97,12 @@ async def _watchdog_notify(self) -> None:
 
 ## Consumer Stall Detection
 
-`ServiceAuditorAgent` monitors all services for stalled consumers and triggers restarts.
+`ServiceAuditor` monitors all services for stalled consumers and triggers restarts.
 
 ### Detection Logic
 
 ```python
-# In ServiceAuditorAgent
+# In ServiceAuditor
 _STALL_THRESHOLD_SECONDS = 120  # Lowered from 360 in Phase 108
 
 async def _fetch_stalled_agents(self) -> list[str]:
@@ -233,7 +233,7 @@ No Kafka publish — OTel gauge is the signal, Grafana alert fires when gauge > 
 
 ## End-to-End Latency Tracking
 
-`IntelligencePipelineComputeAgent` tracks bar arrival → signal enqueue latency.
+`IntelligencePipeline` tracks bar arrival → signal enqueue latency.
 
 ### Histogram
 

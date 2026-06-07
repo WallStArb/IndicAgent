@@ -119,7 +119,7 @@ docs/intelligence/
 
 **From `ai-tech-stack.md`:**
 - LLM Provider Chain section (Ollama local)
-- Agent Framework section (BaseAIAgent, BaseGroupService)
+- Agent Framework section (BaseAIAgent, BaseGroupCoordinator)
 - Swarm Agents table
 
 **New content:**
@@ -198,7 +198,7 @@ Each doc follows this structure:
 
 **Version:** 1.0.0
 **Last Updated:** <date>
-**Status:** Operational
+**Status:** current
 **Milestone:** v2.8
 
 ---
