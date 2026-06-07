@@ -49,7 +49,7 @@ import structlog as _structlog
 
 from src.observability.metrics import STOP_BUFFER_MULT_DISTRIBUTION
 
-from .plugin_utils import _fval
+from .plugin_utils import _fval, validate_stop_against_zone
 from .zone_engine import (
     MAX_STOP_ATR_MULTIPLIER_BY_TF,
     MAX_STOP_ATR_MULTIPLIER_DEFAULT,
@@ -1013,36 +1013,18 @@ def frame_trade(
     # Renaissance validation gate: stops must be OUTSIDE entry zone
     # Long: stop < zone_low; Short: stop > zone_high
     # Violations cause stopped_at_entry outcomes (dead-on-arrival signals)
-    if direction == 1:  # Long
-        if stop >= zone_low - EPSILON_TOLERANCE:
-            # Stop is at or above zone_low - INSIDE zone
-            # Renaissance fix: use proven fallback multiplier (no arbitrary constants)
-            corrected_stop = zone_low - (atr * ATR_STOP_FALLBACK_MULTIPLIER)
-            _logger.warning(
-                "stop_inside_zone_corrected",
-                setup_type=setup_type,
-                original_stop=stop,
-                corrected_stop=corrected_stop,
-                zone_low=zone_low,
-                zone_high=zone_high,
-            )
-            stop = corrected_stop
-            stop_type = "zone_corrected"
-    else:  # Short
-        if stop <= zone_high + EPSILON_TOLERANCE:
-            # Stop is at or below zone_high - INSIDE zone
-            # Renaissance fix: use proven fallback multiplier (no arbitrary constants)
-            corrected_stop = zone_high + (atr * ATR_STOP_FALLBACK_MULTIPLIER)
-            _logger.warning(
-                "stop_inside_zone_corrected",
-                setup_type=setup_type,
-                original_stop=stop,
-                corrected_stop=corrected_stop,
-                zone_low=zone_low,
-                zone_high=zone_high,
-            )
-            stop = corrected_stop
-            stop_type = "zone_corrected"
+    # Delegates to validate_stop_against_zone() for single-source-of-truth correction
+    original_stop = stop
+    stop = validate_stop_against_zone(
+        zone_low=zone_low,
+        zone_high=zone_high,
+        stop_loss=stop,
+        direction=direction,
+        atr=atr,
+        plugin_name=setup_type,
+    )
+    if stop != original_stop:
+        stop_type = "zone_corrected"
 
     risk = abs(resolved_entry - stop)
     if risk <= EPSILON_TOLERANCE:

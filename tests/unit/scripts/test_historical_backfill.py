@@ -1445,3 +1445,97 @@ def test_assert_backfill_integrity_fails_on_duplicate_signal_ids(capsys):
     captured = capsys.readouterr()
     assert "INTEGRITY FAIL" in captured.out
     assert "duplicate signal_ids" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Signal ID determinism
+# ---------------------------------------------------------------------------
+
+
+def test_signal_id_determinism():
+    """make_signal_id() produces identical output for identical inputs.
+
+    This is critical for backfill integrity — signals must have stable IDs
+    across runs so that lifecycle outcomes can be back-filled correctly.
+    """
+    from datetime import UTC, datetime
+
+    from src.intelligence.trading.signal_schema import make_signal_id
+
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
+
+    # Generate two IDs with identical inputs
+    id1 = make_signal_id(
+        symbol="ESM6",
+        feature_ts_ns=int(ts.timestamp() * 1e9),
+        feature_tf="1m",
+        open_=5200.0,
+        high=5205.0,
+        low=5195.0,
+        close=5202.0,
+        volume=1000.0,
+        setup_plugin="vwap_deviation",
+        direction=1,
+    )
+    id2 = make_signal_id(
+        symbol="ESM6",
+        feature_ts_ns=int(ts.timestamp() * 1e9),
+        feature_tf="1m",
+        open_=5200.0,
+        high=5205.0,
+        low=5195.0,
+        close=5202.0,
+        volume=1000.0,
+        setup_plugin="vwap_deviation",
+        direction=1,
+    )
+
+    assert id1 == id2, "Signal IDs must be deterministic for identical inputs"
+
+    # Different inputs produce different IDs
+    id3 = make_signal_id(
+        symbol="ESM6",
+        feature_ts_ns=int(ts.timestamp() * 1e9),
+        feature_tf="1m",
+        open_=5200.0,
+        high=5205.0,
+        low=5195.0,
+        close=5202.0,
+        volume=1000.0,
+        setup_plugin="vwap_deviation",
+        direction=-1,  # Different direction
+    )
+    assert id1 != id3, "Signal IDs must differ for different inputs"
+
+
+def test_signal_id_uniqueness_across_signals():
+    """Signal IDs are unique across the full signal space.
+
+    Tests that different combinations of (symbol, ts, tf, ohlcv, plugin, direction)
+    produce unique IDs — no collisions in the hash space.
+    """
+    from datetime import UTC, datetime
+
+    from src.intelligence.trading.signal_schema import make_signal_id
+
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
+    ids = set()
+
+    # Generate 100 unique signals with varying parameters
+    for i in range(100):
+        sig_id = make_signal_id(
+            symbol=f"ESM{i % 10}",
+            feature_ts_ns=int((ts.timestamp() + i) * 1e9),
+            feature_tf=["1m", "5m", "15m"][i % 3],
+            open_=5200.0 + i,
+            high=5205.0 + i,
+            low=5195.0 + i,
+            close=5202.0 + i,
+            volume=1000.0 + i,
+            setup_plugin=["vwap_deviation", "momentum_breakout", "squeeze_expansion"][i % 3],
+            direction=1 if i % 2 == 0 else -1,
+        )
+        ids.add(sig_id)
+
+    # All IDs should be unique
+    assert len(ids) == 100, f"Expected 100 unique IDs, got {len(ids)}"
