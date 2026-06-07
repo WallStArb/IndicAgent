@@ -3,6 +3,11 @@
 Fires when price enters a fresh/tested S/D zone and shows rejection.
 Highest confidence when the full ICT Act 1-2-3 model is confirmed:
   sweep (Act 1) → FVG displacement (Act 2) → zone retest (Act 3).
+
+Renaissance principles:
+- Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
+- Zone correction prevents stopped_at_entry outcomes
+- Tick-size validation at emission gate
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
-from .trade_framer import TradeFrame, targets_from_floats
+from .trade_framer import frame_trade
 
 
 @dataclass
@@ -96,15 +101,6 @@ class SupplyDemandSetupPlugin:
 
         entry = float(close[-1])
         supporting: list[str] = [f"{'demand' if direction == 1 else 'supply'}_zone_entry"]
-
-        # Stop: beyond distal zone edge with buffer
-        stop = (zone_low - atr * 0.25) if direction == 1 else (zone_high + atr * 0.25)
-
-        # T1: proximal zone edge
-        t1 = zone_high if direction == 1 else zone_low
-        # T2: 2.5R from entry
-        risk = abs(entry - stop)
-        t2 = entry + risk * 2.5 if direction == 1 else entry - risk * 2.5
 
         # Confidence scoring — continuous base from freshness (replaces 3-step tiers)
         confidence = 0.35 + 0.23 * linear_ramp(freshness, 0.40, 1.0)
@@ -191,22 +187,14 @@ class SupplyDemandSetupPlugin:
         confidence = compose_confidence(confidence)
 
         sig_type = "supply_demand_long" if direction == 1 else "supply_demand_short"
-        _targets = [round(t1, 2), round(t2, 2)]
-        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(_targets, entry, stop)
-        _stop_type = "demand_zone" if direction == 1 else "supply_zone"
-        _tf = TradeFrame(
-            entry=entry,
-            entry_type="at_close",
-            stop=stop,
-            stop_type=_stop_type,
-            targets=_t_objs,
-            rr_t1=_rr_t1,
-            rr_t2=_rr_t2,
-            zone_low=zone_low,
-            zone_high=zone_high,
-        )
+
+        # Renaissance: Use frame_trade() for structural stop hierarchy
+        tf = frame_trade(sig_type, direction, entry, features, atr, regime_type=self.regime_type)
+        if not tf.viable:
+            return no_signal()
+
         return make_signal_from_frame(
-            _tf,
+            tf,
             symbol="",
             timeframe="",
             timestamp="",

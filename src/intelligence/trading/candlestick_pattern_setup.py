@@ -1,4 +1,10 @@
-"""I7 CandlestickPatternSetup — confluence-gated candlestick setup consuming I5 outputs."""
+"""I7 CandlestickPatternSetup — confluence-gated candlestick setup consuming I5 outputs.
+
+Renaissance principles:
+- Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
+- Zone correction prevents stopped_at_entry outcomes
+- Tick-size validation at emission gate
+"""
 
 from __future__ import annotations
 
@@ -13,7 +19,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
-from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
+from .trade_framer import frame_trade
 
 # Module-level constants — static across all bars, extracted from hot path.
 _FALLBACK_WEIGHTS: dict[str, float] = {
@@ -105,8 +111,6 @@ class CandlestickPatternSetupPlugin:
     regime_threshold: float = 0.5
     volume_boost_ratio: float = 1.3
     sr_proximity_atr: float = 0.3
-    atr_stop_mult: float = 1.5
-    atr_target_mults: tuple = (2.0, 3.5, 5.0)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -264,12 +268,6 @@ class CandlestickPatternSetupPlugin:
 
         # CNDL-03: Signal fields
         entry = float(close[-1])
-        if direction == 1:
-            stop = entry - atr * self.atr_stop_mult
-            targets = [round(entry + atr * m, 2) for m in self.atr_target_mults]
-        else:
-            stop = entry + atr * self.atr_stop_mult
-            targets = [round(entry - atr * m, 2) for m in self.atr_target_mults]
 
         # Confidence: +0.10 per confirming factor (volume, S/R).
         # sr_confirms is True for hammer/shooting_star (sr_auto) and for explicit proximity.
@@ -299,20 +297,13 @@ class CandlestickPatternSetupPlugin:
         signal_type = f"candlestick_{pattern_name}_{suffix}"
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
-        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, entry, float(stop))
-        _tf = TradeFrame(
-            entry=entry,
-            entry_type="at_close",
-            stop=float(stop),
-            stop_type="atr",
-            targets=_t_objs,
-            rr_t1=_rr_t1,
-            rr_t2=_rr_t2,
-            zone_low=entry - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-            zone_high=entry + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-        )
+        # Renaissance: Use frame_trade() for structural stop hierarchy
+        tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
+        if not tf.viable:
+            return no_signal()
+
         return make_signal_from_frame(
-            _tf,
+            tf,
             symbol=frames.get("symbol", ""),
             timeframe=features.get("timeframe", ""),
             timestamp=features.get("timestamp", ""),

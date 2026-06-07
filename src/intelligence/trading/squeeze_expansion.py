@@ -1,4 +1,10 @@
-"""I7 SqueezeExpansion setup detection plugin."""
+"""I7 SqueezeExpansion setup detection plugin.
+
+Renaissance principles:
+- Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
+- Zone correction prevents stopped_at_entry outcomes
+- Tick-size validation at emission gate
+"""
 
 from __future__ import annotations
 
@@ -14,7 +20,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
-from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
+from .trade_framer import frame_trade
 
 
 @dataclass
@@ -115,27 +121,6 @@ class SqueezeExpansionPlugin:
         # Entry
         entry = float(close[-1])
 
-        # Stop loss
-        if direction == 1:
-            stop = min(bb_lower, entry - atr * 1.5) if bb_lower > 0 else entry - atr * 1.5
-        else:
-            stop = max(bb_upper, entry + atr * 1.5) if bb_upper > 0 else entry + atr * 1.5
-
-        # Targets: measured move from squeeze range
-        measured_move = bb_upper - bb_lower if bb_upper > bb_lower else atr * 2.0
-        if direction == 1:
-            targets = [
-                round(entry + measured_move * 0.5, 2),
-                round(entry + measured_move, 2),
-                round(entry + measured_move * 1.5, 2),
-            ]
-        else:
-            targets = [
-                round(entry - measured_move * 0.5, 2),
-                round(entry - measured_move, 2),
-                round(entry - measured_move * 1.5, 2),
-            ]
-
         # Confidence scoring
         # Squeeze bars duration (0.3): longer squeeze = stronger, cap at 30 bars
         squeeze_bars_score = min(1.0, squeeze_bars / 30.0) if squeeze_bars > 0 else 0.0
@@ -184,20 +169,13 @@ class SqueezeExpansionPlugin:
         signal_type = "squeeze_long" if direction == 1 else "squeeze_short"
         regime_ctx = "expansion_bullish" if direction == 1 else "expansion_bearish"
 
-        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, entry, stop)
-        _tf = TradeFrame(
-            entry=entry,
-            entry_type="at_close",
-            stop=stop,
-            stop_type="atr",
-            targets=_t_objs,
-            rr_t1=_rr_t1,
-            rr_t2=_rr_t2,
-            zone_low=entry - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-            zone_high=entry + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-        )
+        # Renaissance: Use frame_trade() for structural stop hierarchy
+        tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
+        if not tf.viable:
+            return no_signal()
+
         return make_signal_from_frame(
-            _tf,
+            tf,
             symbol="",
             timeframe="",
             timestamp="",

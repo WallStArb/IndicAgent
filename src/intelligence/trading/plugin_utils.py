@@ -77,6 +77,94 @@ def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
         return default
 
 
+def validate_stop_against_zone(
+    *,
+    zone_low: float,
+    zone_high: float,
+    stop_loss: float,
+    direction: int,
+    atr: float | None = None,
+    plugin_name: str = "unknown",
+) -> float:
+    """Validate that stop loss is OUTSIDE the entry zone.
+
+    Renaissance invariant: Every signal must have a non-zero trading window.
+    Stops inside zones cause "stopped_at_entry" outcomes — dead-on-arrival signals.
+
+    Args:
+        zone_low: Entry zone low bound.
+        zone_high: Entry zone high bound.
+        stop_loss: Proposed stop loss price.
+        direction: +1 for long, -1 for short.
+        atr: Optional ATR value for auto-correction (recommended).
+        plugin_name: Plugin name for error messages.
+
+    Returns:
+        Validated stop loss price (may be auto-corrected if ATR provided).
+
+    Raises:
+        ValueError: If stop is inside zone AND no ATR provided for correction,
+                    or if correction would exceed 1.5 ATR (extreme misconfiguration).
+
+    Examples:
+        >>> validate_stop_against_zone(zone_low=100.0, zone_high=100.5, stop_loss=99.9, direction=1, atr=1.0)
+        99.9  # Valid - stop below zone for long
+        >>> validate_stop_against_zone(zone_low=100.0, zone_high=100.5, stop_loss=100.05, direction=1, atr=1.0)
+        99.75  # Auto-corrected - stop was inside zone, moved 1.25 ATR below zone_low
+    """
+    epsilon = 1e-9
+
+    if direction == 1:  # Long
+        if stop_loss < zone_low - epsilon:
+            return stop_loss  # Valid: stop below zone
+
+        # Stop is at or above zone_low - INSIDE zone
+        if atr is None:
+            raise ValueError(
+                f"{plugin_name}: stop_loss {stop_loss} >= zone_low {zone_low} "
+                f"(inside entry zone [{zone_low}, {zone_high}]). "
+                f"Provide ATR for auto-correction or fix stop placement logic."
+            )
+
+        # Auto-correct: place stop 1.25 ATR below zone_low
+        corrected_stop = zone_low - (atr * 1.25)
+        correction_distance = zone_low - corrected_stop
+
+        if correction_distance > atr * 1.5:
+            raise ValueError(
+                f"{plugin_name}: stop correction too extreme ({correction_distance:.2f} ATR). "
+                f"Original stop {stop_loss}, zone [{zone_low}, {zone_high}]. "
+                f"Review plugin stop calculation logic."
+            )
+
+        return corrected_stop
+
+    else:  # Short (direction == -1)
+        if stop_loss > zone_high + epsilon:
+            return stop_loss  # Valid: stop above zone
+
+        # Stop is at or below zone_high - INSIDE zone
+        if atr is None:
+            raise ValueError(
+                f"{plugin_name}: stop_loss {stop_loss} <= zone_high {zone_high} "
+                f"(inside entry zone [{zone_low}, {zone_high}]). "
+                f"Provide ATR for auto-correction or fix stop placement logic."
+            )
+
+        # Auto-correct: place stop 1.25 ATR above zone_high
+        corrected_stop = zone_high + (atr * 1.25)
+        correction_distance = corrected_stop - zone_high
+
+        if correction_distance > atr * 1.5:
+            raise ValueError(
+                f"{plugin_name}: stop correction too extreme ({correction_distance:.2f} ATR). "
+                f"Original stop {stop_loss}, zone [{zone_low}, {zone_high}]. "
+                f"Review plugin stop calculation logic."
+            )
+
+        return corrected_stop
+
+
 def emit_signal(
     trade_frame: TradeFrame,
     *,

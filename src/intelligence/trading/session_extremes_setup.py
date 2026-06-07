@@ -1,4 +1,10 @@
-"""I7 SessionExtremesSetup — fade setups triggered by price approaching Asian session extremes."""
+"""I7 SessionExtremesSetup — fade setups triggered by price approaching Asian session extremes.
+
+Renaissance principles:
+- Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
+- Zone correction prevents stopped_at_entry outcomes
+- Tick-size validation at emission gate
+"""
 
 from __future__ import annotations
 
@@ -13,7 +19,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
-from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
+from .trade_framer import frame_trade
 
 
 @dataclass
@@ -128,12 +134,6 @@ class SessionExtremesSetupPlugin:
 
         # Entry, stop, targets
         entry_price = asian_high if near_high else asian_low
-        stop_loss = entry_price - direction * 1.5 * atr
-        targets = [
-            round(entry_price + direction * 1.0 * atr, 2),
-            round(entry_price + direction * 2.0 * atr, 2),
-            round(entry_price + direction * 3.0 * atr, 2),
-        ]
 
         raw_conf = 0.45 + 0.15 * len(supporting)
         raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
@@ -152,26 +152,21 @@ class SessionExtremesSetupPlugin:
         regime_ctx = f"session_extreme_{session_ctx}"
         supporting.append(f"session:{session_ctx}")
 
+        # Renaissance: Use frame_trade() for structural stop hierarchy
+        tf = frame_trade(
+            signal_type, direction, entry_price, features, atr, regime_type=self.regime_type
+        )
+        if not tf.viable:
+            return no_signal()
+
         features_snapshot = capture_signal_features(
             features,
             direction,
             "session",
             confidence,
         )
-        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, entry_price, stop_loss)
-        _tf = TradeFrame(
-            entry=entry_price,
-            entry_type="at_limit",
-            stop=stop_loss,
-            stop_type="atr",
-            targets=_t_objs,
-            rr_t1=_rr_t1,
-            rr_t2=_rr_t2,
-            zone_low=entry_price - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-            zone_high=entry_price + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-        )
         signal = make_signal_from_frame(
-            _tf,
+            tf,
             symbol=symbol,
             timeframe=features.get("timeframe", ""),
             timestamp=features.get("timestamp", ""),

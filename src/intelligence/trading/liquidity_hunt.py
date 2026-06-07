@@ -3,6 +3,11 @@
 Gates on smc_LiquidityPools significance >= 0.60 AND smc_LiquiditySweeps reclaim.
 Only fires when the sweep was at a meaningful institutional level — not random swings.
 Direction: BSL sweep → short, SSL sweep → long.
+
+Renaissance principles:
+- Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
+- Zone correction prevents stopped_at_entry outcomes
+- Tick-size validation at emission gate
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
-from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
+from .trade_framer import frame_trade
 
 
 @dataclass
@@ -103,24 +108,11 @@ class LiquidityHuntPlugin:
         entry = float(close[-1])
         supporting: list[str] = ["named_pool_reclaimed"]
 
-        # Stop: beyond swept level with small buffer
-        if direction == -1:
-            stop = swept_level + atr * 0.30
-        else:
-            stop = swept_level - atr * 0.30
-
-        # Targets
-        if direction == -1:
-            t1 = entry - atr * 1.5
-            t2 = entry - atr * 3.0
-            # T2 refinement: use ssl_level as natural target if closer than 3R
-            if ssl_level > 0 and ssl_level < entry - atr * 1.0:
-                t2 = ssl_level
-        else:
-            t1 = entry + atr * 1.5
-            t2 = entry + atr * 3.0
-            if bsl_level > 0 and bsl_level > entry + atr * 1.0:
-                t2 = bsl_level
+        # Renaissance: Use frame_trade() for structural stop hierarchy
+        sig_type = "liquidity_hunt_long" if direction == 1 else "liquidity_hunt_short"
+        tf = frame_trade(sig_type, direction, entry, features, atr, regime_type=self.regime_type)
+        if not tf.viable:
+            return no_signal()
 
         # Confidence scoring
         confidence = 0.55
@@ -191,22 +183,8 @@ class LiquidityHuntPlugin:
         confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
         confidence = compose_confidence(confidence)
 
-        sig_type = "liquidity_hunt_long" if direction == 1 else "liquidity_hunt_short"
-        _targets = [round(t1, 2), round(t2, 2)]
-        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(_targets, entry, stop)
-        _tf = TradeFrame(
-            entry=entry,
-            entry_type="at_close",
-            stop=stop,
-            stop_type="sweep_level",
-            targets=_t_objs,
-            rr_t1=_rr_t1,
-            rr_t2=_rr_t2,
-            zone_low=entry - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-            zone_high=entry + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-        )
         return make_signal_from_frame(
-            _tf,
+            tf,
             symbol=frames.get("symbol", ""),
             timeframe=features.get("timeframe", ""),
             timestamp=features.get("timestamp", ""),

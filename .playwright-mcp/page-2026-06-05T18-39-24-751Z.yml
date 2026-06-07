@@ -1,0 +1,400 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - main [ref=e3]:
+      - generic [ref=e889]:
+        - generic [ref=e890]:
+          - generic [ref=e891]:
+            - generic [ref=e892]:
+              - img [ref=e893]
+              - generic [ref=e899]: IndicAgent
+            - button "Futures 17 4↑ 12↓" [ref=e901] [cursor=pointer]:
+              - generic [ref=e902]: Futures
+              - generic [ref=e903]: "17"
+              - generic [ref=e904]:
+                - generic [ref=e905]: 4↑
+                - generic [ref=e906]: 12↓
+              - img [ref=e907]
+          - generic [ref=e909]:
+            - generic [ref=e910]:
+              - button "1m" [ref=e911]
+              - button "5m" [ref=e912]
+              - button "15m" [ref=e913]
+              - button "1H" [ref=e914]
+              - button "4H" [ref=e915]
+              - button "1D" [ref=e916]
+            - generic [ref=e918]:
+              - button "Grid view — all instruments" [ref=e919]:
+                - img [ref=e920]
+              - button "Focus view — watchlist + detail" [ref=e925]:
+                - img [ref=e926]
+            - generic [ref=e930]: Live
+        - generic [ref=e931]:
+          - generic [ref=e932]:
+            - img [ref=e933]
+            - generic [ref=e935]: Signals
+          - generic [ref=e936]:
+            - button "ES 64% @ 7433.50 5m" [ref=e937]:
+              - img [ref=e938]
+              - generic [ref=e941]: ES
+              - generic [ref=e942]: 64%
+              - generic [ref=e943]: "@ 7433.50"
+              - generic [ref=e944]: 5m
+            - button "YM 51% @ 51122.00 5m" [ref=e945]:
+              - img [ref=e946]
+              - generic [ref=e949]: YM
+              - generic [ref=e950]: 51%
+              - generic [ref=e951]: "@ 51122.00"
+              - generic [ref=e952]: 5m
+        - generic [ref=e953]:
+          - complementary [ref=e954]:
+            - button "‹ 17" [ref=e955]:
+              - generic [ref=e956]: ‹
+              - generic [ref=e957]: "17"
+            - generic [ref=e958]:
+              - button "ES 7427.25 S" [ref=e959]:
+                - generic [ref=e960]: ES
+                - generic [ref=e961]: "7427.25"
+                - generic [ref=e962]: S
+              - button "NQ 29194.00" [ref=e963]:
+                - generic [ref=e964]: NQ
+                - generic [ref=e965]: "29194.00"
+              - button "RTY 2836.80" [ref=e966]:
+                - generic [ref=e967]: RTY
+                - generic [ref=e968]: "2836.80"
+              - button "YM 51114.00 S" [ref=e969]:
+                - generic [ref=e970]: YM
+                - generic [ref=e971]: "51114.00"
+                - generic [ref=e972]: S
+              - button "CL 90.6200" [ref=e973]:
+                - generic [ref=e974]: CL
+                - generic [ref=e975]: "90.6200"
+              - button "NG 3.2230" [ref=e976]:
+                - generic [ref=e977]: NG
+                - generic [ref=e978]: "3.2230"
+              - button "GC 4329.50" [ref=e979]:
+                - generic [ref=e980]: GC
+                - generic [ref=e981]: "4329.50"
+              - button "SI 68.2150" [ref=e982]:
+                - generic [ref=e983]: SI
+                - generic [ref=e984]: "68.2150"
+              - button "HG 6.2670" [ref=e985]:
+                - generic [ref=e986]: HG
+                - generic [ref=e987]: "6.2670"
+              - button "VX 18.8500" [ref=e988]:
+                - generic [ref=e989]: VX
+                - generic [ref=e990]: "18.8500"
+              - button "ZN 109.344" [ref=e991]:
+                - generic [ref=e992]: ZN
+                - generic [ref=e993]: "109.344"
+              - button "ZF" [ref=e994]:
+                - generic [ref=e995]: ZF
+              - button "ZB 112.219" [ref=e996]:
+                - generic [ref=e997]: ZB
+                - generic [ref=e998]: "112.219"
+              - button "ZT 103.090" [ref=e999]:
+                - generic [ref=e1000]: ZT
+                - generic [ref=e1001]: "103.090"
+              - button "ZS" [ref=e1002]:
+                - generic [ref=e1003]: ZS
+              - button "ZC" [ref=e1004]:
+                - generic [ref=e1005]: ZC
+              - button "ZW" [ref=e1006]:
+                - generic [ref=e1007]: ZW
+          - main [ref=e1008]:
+            - generic [ref=e1011]:
+              - generic [ref=e1012]:
+                - generic [ref=e1013]:
+                  - generic [ref=e1014]: E-mini S&P 500
+                  - generic [ref=e1015]: ES
+                  - generic [ref=e1016]: ES
+                - generic [ref=e1017]:
+                  - generic [ref=e1018]:
+                    - button "1m" [ref=e1019] [cursor=pointer]
+                    - button "5m" [ref=e1020] [cursor=pointer]
+                    - button "15m" [ref=e1021] [cursor=pointer]
+                    - button "1H" [ref=e1022] [cursor=pointer]
+                    - button "4H" [ref=e1023] [cursor=pointer]
+                    - button "1D" [ref=e1024] [cursor=pointer]
+                  - button "S 64% ★" [ref=e1025]:
+                    - generic [ref=e1026]: S
+                    - generic [ref=e1027]: 64%
+                    - generic [ref=e1028]: ★
+                  - button "Open intelligence detail" [ref=e1029]:
+                    - img [ref=e1030]
+              - generic [ref=e1035]:
+                - generic [ref=e1036]: "7427.25"
+                - generic [ref=e1037]: 14:39:00
+                - generic [ref=e1038]: 14:30→14:35
+              - button "Drill down into short signal details" [ref=e1040] [cursor=pointer]:
+                - generic [ref=e1041]:
+                  - img [ref=e1042]
+                  - generic [ref=e1045]: SHORT
+                  - generic [ref=e1046]: "@ 7433.50"
+                  - generic [ref=e1047]: (64% Lvn Breakout Short)
+                  - generic [ref=e1048]: "| SL: 7573.73"
+                  - img [ref=e1049]
+              - generic [ref=e1051]:
+                - generic [ref=e1052]:
+                  - generic [ref=e1054]:
+                    - generic [ref=e1055]: MTM
+                    - generic [ref=e1056]:
+                      - generic [ref=e1057]:
+                        - generic [ref=e1058]:
+                          - generic [ref=e1059]: RSI
+                          - generic [ref=e1060]: "28.1"
+                        - generic:
+                          - generic: Relative Strength Index (0–100). Momentum oscillator measuring speed and magnitude of price moves.
+                          - generic: 28.1 — Oversold. Selling may be exhausted; potential bounce.
+                      - generic [ref=e1061]:
+                        - generic [ref=e1062]:
+                          - generic [ref=e1063]: MACD
+                          - generic [ref=e1064]: "-11.57"
+                        - generic:
+                          - generic: MACD (12/26/9). Difference between 12-EMA and 26-EMA, smoothed by a 9-EMA signal line.
+                          - generic: Histogram negative — bearish momentum building.
+                      - generic [ref=e1065]:
+                        - generic [ref=e1066]:
+                          - generic [ref=e1067]: Stoch
+                          - generic [ref=e1068]: 8/8
+                        - generic:
+                          - generic: Stochastic Oscillator (14,3). Compares close to the 14-bar range. K=fast line, D=3-bar smoothed.
+                          - generic: K 8 — Oversold. Watch for K crossing above D as entry signal.
+                      - generic [ref=e1069]:
+                        - generic [ref=e1070]:
+                          - generic [ref=e1071]: CCI
+                          - generic [ref=e1072]: "-147"
+                        - generic:
+                          - generic: Commodity Channel Index. Measures deviation from average price. ±100 are key thresholds.
+                          - generic: "-147 — Below −100: oversold / strong down-trend."
+                      - generic [ref=e1073]:
+                        - generic [ref=e1074]:
+                          - generic [ref=e1075]: W%R
+                          - generic [ref=e1076]: "-92"
+                        - generic:
+                          - generic: Williams %R (−100 to 0). Inverted oscillator — readings near 0 are overbought, near −100 are oversold.
+                          - generic: "-92 — Oversold territory (near −100)."
+                      - generic [ref=e1077]:
+                        - generic [ref=e1078]:
+                          - generic [ref=e1079]: ROC
+                          - generic [ref=e1080]: "-0.31%"
+                        - generic:
+                          - generic: Rate of Change (14-period). % price change over 14 bars. Positive = price higher than 14 bars ago; negative = lower.
+                          - generic: "-0.31% — Price lower than 14 bars ago. Negative momentum."
+                  - generic [ref=e1082]:
+                    - generic [ref=e1083]: TRND
+                    - generic [ref=e1084]:
+                      - generic [ref=e1085]:
+                        - generic [ref=e1086]:
+                          - generic [ref=e1087]: ADX
+                          - generic [ref=e1088]: "39.3"
+                        - generic:
+                          - generic: Average Directional Index (0–100). Measures trend strength — not direction. Values >25 = trending; <20 = ranging or weak trend.
+                          - generic: 39.3 — Trending market. Trend-following setups favoured.
+                      - generic [ref=e1089]:
+                        - generic [ref=e1090]:
+                          - generic [ref=e1091]: +DI/−DI
+                          - generic [ref=e1092]: 13.0/41.8
+                        - generic:
+                          - generic: +DI vs −DI (Directional Indicators). +DI > −DI = bullish directional pressure; −DI > +DI = bearish. Crossovers signal potential trend changes.
+                          - generic: −DI 41.8 > +DI 13.0 — Bearish directional bias.
+                      - generic [ref=e1093]:
+                        - generic [ref=e1094]:
+                          - generic [ref=e1095]: ST
+                          - generic [ref=e1096]: ▼
+                        - generic:
+                          - generic: Supertrend. ATR-based ratcheting band that flips only on price crossover. Bullish = price above band; bearish = price below band.
+                          - generic: Bearish (band at 7455.27) — price is below the supertrend band.
+                  - generic [ref=e1098]:
+                    - generic [ref=e1099]: VOL
+                    - generic [ref=e1100]:
+                      - generic [ref=e1101]:
+                        - generic [ref=e1102]:
+                          - generic [ref=e1103]: ATR
+                          - generic [ref=e1104]: "7.99"
+                        - generic:
+                          - generic: Average True Range (14). Measures bar-to-bar volatility in price points. Higher = wider moves expected.
+                      - generic [ref=e1105]:
+                        - generic [ref=e1106]:
+                          - generic [ref=e1107]: BB
+                          - generic [ref=e1108]: 7434–7481
+                        - generic:
+                          - generic: Bollinger Bands (20 SMA ± 2σ). Shows lower–upper boundary. Price near upper band = extended; near lower = depressed.
+                      - generic [ref=e1109]:
+                        - generic [ref=e1110]:
+                          - generic [ref=e1111]: SMA20
+                          - generic [ref=e1112]: "7475"
+                        - generic:
+                          - generic: SMA 20. Simple Moving Average over 20 bars. Short-term trend reference — price above = near-term bullish bias.
+                      - generic [ref=e1113]:
+                        - generic [ref=e1114]:
+                          - generic [ref=e1115]: SMA50
+                          - generic [ref=e1116]: "7519"
+                        - generic:
+                          - generic: SMA 50. Simple Moving Average over 50 bars. Medium-term trend. Key institutional reference level.
+                      - generic [ref=e1117]:
+                        - generic [ref=e1118]:
+                          - generic [ref=e1119]: EMA13
+                          - generic [ref=e1120]: "7460"
+                        - generic:
+                          - generic: EMA 13. Fast exponential moving average. Reacts quickly to momentum shifts; crossover with EMA 21 signals short-term entries.
+                      - generic [ref=e1121]:
+                        - generic [ref=e1122]:
+                          - generic [ref=e1123]: EMA21
+                          - generic [ref=e1124]: "7473"
+                        - generic:
+                          - generic: EMA 21. Fibonacci exponential moving average. Trend confirmation; acts as dynamic support/resistance.
+                  - generic [ref=e1126]:
+                    - generic [ref=e1127]: VLME
+                    - generic [ref=e1128]:
+                      - generic [ref=e1129]:
+                        - generic [ref=e1130]:
+                          - generic [ref=e1131]: MFI
+                          - generic [ref=e1132]: "25.3"
+                        - generic:
+                          - generic: Money Flow Index (0–100). Volume-weighted RSI — measures buying vs. selling pressure.
+                          - generic: 25.3 — Neutral flow. No volume-pressure extreme.
+                      - generic [ref=e1133]:
+                        - generic [ref=e1134]:
+                          - generic [ref=e1135]: OBV
+                          - generic [ref=e1136]: "-45337"
+                        - generic:
+                          - generic: On-Balance Volume. Cumulative volume flow indicator. Rising OBV = accumulation; falling = distribution.
+                      - generic [ref=e1137]:
+                        - generic [ref=e1138]:
+                          - generic [ref=e1139]: VWAP
+                          - generic [ref=e1140]: "7497.67"
+                        - generic:
+                          - generic: Volume Weighted Average Price. Session fair value — heavily referenced by institutional traders for entries and exits.
+                      - generic [ref=e1141]:
+                        - generic [ref=e1142]:
+                          - generic [ref=e1143]: AO
+                          - generic [ref=e1144]: "-25.35"
+                        - generic:
+                          - generic: Awesome Oscillator. SMA(5) minus SMA(34) of bar midpoints. Positive = bullish momentum; negative = bearish; zero crosses signal momentum shifts.
+                          - generic: "-25.35 — Negative. Bearish momentum below zero line."
+                      - generic [ref=e1145]:
+                        - generic [ref=e1146]:
+                          - generic [ref=e1147]: AC
+                          - generic [ref=e1148]: "-7.25"
+                        - generic:
+                          - generic: Accelerator Oscillator (AO minus its 5-bar SMA). Leading indicator — turns before AO. Positive and rising = accelerating bullish momentum.
+                          - generic: "-7.25 — Negative. Momentum decelerating or bearish."
+                - generic [ref=e1151]:
+                  - generic [ref=e1152]: I3
+                  - generic [ref=e1153]:
+                    - generic [ref=e1154]:
+                      - generic [ref=e1155]: ▼
+                      - generic [ref=e1156]: downtrend
+                      - generic [ref=e1157]: (1.00)
+                    - generic [ref=e1159]:
+                      - generic [ref=e1160]: Int
+                      - generic [ref=e1165]: "100"
+                    - generic [ref=e1166]:
+                      - generic [ref=e1168]: S
+                      - generic [ref=e1169]: "7282.87"
+                      - generic [ref=e1170]: ×0
+                    - generic [ref=e1171]:
+                      - generic [ref=e1173]: R
+                      - generic [ref=e1174]: "7474.25"
+                      - generic [ref=e1175]: ×1
+                    - generic [ref=e1176]:
+                      - generic [ref=e1177]: POC
+                      - generic [ref=e1178]: "7621.90"
+                    - generic [ref=e1179]:
+                      - generic [ref=e1180]: Fib
+                      - generic [ref=e1181]: "0.236"
+                      - generic [ref=e1182]: "7452.84"
+                    - generic [ref=e1183]:
+                      - generic [ref=e1184]: Eng
+                      - generic [ref=e1185]: 65%
+                      - generic [ref=e1186]: ↓
+                - generic [ref=e1189]:
+                  - generic [ref=e1190]: I4
+                  - generic [ref=e1191]:
+                    - generic [ref=e1193]:
+                      - generic [ref=e1194]: Vol
+                      - generic [ref=e1195]: normal
+                    - generic [ref=e1196]:
+                      - generic [ref=e1197]: Trend
+                      - generic [ref=e1198]: Strong▼
+                    - generic [ref=e1199]:
+                      - generic [ref=e1200]: Mom
+                      - generic [ref=e1201]: "-0.8"
+                    - generic [ref=e1202]:
+                      - generic [ref=e1203]: H
+                      - generic [ref=e1204]: "0.48"
+                    - generic [ref=e1205]:
+                      - generic [ref=e1206]: VWAP
+                      - generic [ref=e1207]: "-1.9σ"
+                - generic [ref=e1210]:
+                  - generic [ref=e1211]: I5
+                  - generic [ref=e1212]:
+                    - generic [ref=e1213]:
+                      - text: CMF Div
+                      - generic [ref=e1214]: 1%
+                    - generic [ref=e1215]: Pin Bar
+                    - generic [ref=e1216]:
+                      - generic [ref=e1217]: MRConf
+                      - generic [ref=e1219]: "+0.50"
+                - generic [ref=e1221]:
+                  - generic [ref=e1222]:
+                    - generic [ref=e1223]: SMC
+                    - generic [ref=e1224]:
+                      - generic [ref=e1225]:
+                        - text: FVG
+                        - generic [ref=e1226]: 12 open
+                      - generic [ref=e1227]:
+                        - text: OB
+                        - generic [ref=e1228]: 100%
+                      - generic [ref=e1229]:
+                        - text: Sweep
+                        - generic [ref=e1230]: 0.03%
+                      - generic [ref=e1231]:
+                        - generic [ref=e1232]: CP
+                        - generic [ref=e1233]: 1%
+                  - generic [ref=e1234]:
+                    - generic [ref=e1235]: HMM
+                    - generic [ref=e1236]: TREND↑
+                    - generic [ref=e1237]: 60%
+                    - generic [ref=e1238]: 7b
+                  - generic [ref=e1239]:
+                    - generic [ref=e1240]: KZ
+                    - generic [ref=e1241]: ny_pm
+                    - generic [ref=e1242]: 10m in
+                  - generic [ref=e1243]:
+                    - generic [ref=e1244]: AMD
+                    - generic [ref=e1245]: distribution
+                  - generic [ref=e1246]:
+                    - generic [ref=e1247]: LIQ
+                    - generic [ref=e1248]: SSL 7450.00
+                    - generic [ref=e1249]: BSL 7562.00
+                    - generic [ref=e1250]: DISC
+                - generic [ref=e1253]:
+                  - generic [ref=e1254]: CTF
+                  - generic [ref=e1255]:
+                    - generic [ref=e1259]: "-0.81"
+                    - generic [ref=e1260]: 3/4 TFs
+                    - generic [ref=e1261]: 1H
+        - generic [ref=e1262]:
+          - generic [ref=e1263]: "Last update: 2:39:21 PM"
+          - generic [ref=e1264]: 5M · 17 symbols · IndicAgent v0.2
+    - navigation [ref=e372]:
+      - link "Dashboard" [ref=e373] [cursor=pointer]:
+        - /url: /dashboard
+        - img [ref=e374]
+        - generic [ref=e379]: Dashboard
+      - link "Signals" [ref=e380] [cursor=pointer]:
+        - /url: /signals
+        - img [ref=e381]
+        - generic [ref=e383]: Signals
+      - link "System" [ref=e384] [cursor=pointer]:
+        - /url: /dashboard/observability
+        - img [ref=e385]
+        - generic [ref=e388]: System
+      - link "AI Swarm" [ref=e389] [cursor=pointer]:
+        - /url: /dashboard/ai
+        - img [ref=e391]
+        - generic [ref=e403]: AI Swarm
+  - button "Open Next.js Dev Tools" [ref=e409] [cursor=pointer]:
+    - img [ref=e410]
+  - alert [ref=e888]

@@ -1,4 +1,10 @@
-"""I7 Momentum Breakout setup detection plugin."""
+"""I7 Momentum Breakout setup detection plugin.
+
+Renaissance principles:
+- Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
+- Zone correction prevents stopped_at_entry outcomes
+- Tick-size validation at emission gate
+"""
 
 from __future__ import annotations
 
@@ -14,7 +20,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
-from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
+from .trade_framer import frame_trade
 
 
 @dataclass
@@ -47,8 +53,6 @@ class MomentumBreakoutPlugin:
     roc_period: int = 14
     roc_threshold: float = 0.3
     volume_expansion_threshold: float = 1.5
-    atr_stop_multiplier: float = 1.0
-    atr_target_multipliers: tuple = (1.5, 3.0)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -114,18 +118,6 @@ class MomentumBreakoutPlugin:
 
         entry = price
 
-        # Stop at broken structure level (now acts as S/R)
-        if direction == 1:
-            stop = structure_level - atr * self.atr_stop_multiplier
-        else:
-            stop = structure_level + atr * self.atr_stop_multiplier
-
-        # Targets
-        targets = [
-            round(entry + atr * m, 2) if direction == 1 else round(entry - atr * m, 2)
-            for m in self.atr_target_multipliers
-        ]
-
         # ── Confidence ──
         roc_score = min(1.0, (abs(roc) - self.roc_threshold) / self.roc_threshold)
         vol_score = min(
@@ -174,21 +166,13 @@ class MomentumBreakoutPlugin:
         signal_type = "momentum_breakout_long" if direction == 1 else "momentum_breakout_short"
         regime_ctx = "breakout_bullish" if direction == 1 else "breakout_bearish"
 
-        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, entry, stop)
-        _stop_type = "sr_support" if direction == 1 else "sr_resistance"
-        _tf = TradeFrame(
-            entry=entry,
-            entry_type="at_close",
-            stop=stop,
-            stop_type=_stop_type,
-            targets=_t_objs,
-            rr_t1=_rr_t1,
-            rr_t2=_rr_t2,
-            zone_low=entry - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-            zone_high=entry + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-        )
+        # Renaissance: Use frame_trade() for structural stop hierarchy
+        tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
+        if not tf.viable:
+            return no_signal()
+
         return make_signal_from_frame(
-            _tf,
+            tf,
             symbol=frames.get("symbol", ""),
             timeframe=features.get("timeframe", ""),
             timestamp=features.get("timestamp", ""),

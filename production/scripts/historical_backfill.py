@@ -63,6 +63,7 @@ from collections import defaultdict, deque
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import psycopg2
 import psycopg2.extras
@@ -796,8 +797,6 @@ def _build_ledger_entries(
                 direction=direction,
             )
         else:
-            from uuid import uuid4
-
             sid = str(uuid4())
 
         entries.append(

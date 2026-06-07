@@ -7,13 +7,25 @@ tunnel: abcb8d19-f3dd-4897-8091-d090a8facb94
 credentials-file: /root/.cloudflared/abcb8d19-f3dd-4897-8091-d090a8facb94.json
 
 ingress:
+  # Observability
+  - hostname: grafana.indicagent.com
+    service: http://localhost:3001
+  - hostname: alert.indicagent.com
+    service: http://localhost:9093
+  - hostname: prom.indicagent.com
+    service: http://localhost:9090
   # Backend API + SSE stream
   - hostname: api.indicagent.com
     service: http://localhost:8000
+  # Main dashboard
   - hostname: indicagent.com
     service: http://localhost:3000
   - hostname: www.indicagent.com
     service: http://localhost:3000
   - hostname: dash.indicagent.com
     service: http://localhost:3000
+  # SSH access
+  - hostname: ssh.indicagent.com
+    service: ssh://localhost:22
+  # Catch-all
   - service: http_status:404
