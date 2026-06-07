@@ -67,8 +67,7 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
-from src.intelligence.trading.signal_schema import make_signal_id
-
+# Set up sys.path BEFORE importing from src
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -91,6 +90,7 @@ from src.intelligence.register_plugins import register_all_plugins
 from src.intelligence.schemas import FEATURE_SCHEMA_VERSION
 from src.intelligence.setup_performance_updater import _compute_perf_multipliers
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
+from src.intelligence.trading.signal_schema import make_signal_id
 from src.observability.metrics import flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.persistence.repository.signal_ledger_repository import LedgerEntry
@@ -2082,6 +2082,7 @@ def main() -> None:
                 deleted_features = cur.rowcount
 
                 # Delete lifecycle state first, then fire-time rows (no FK cascade)
+                # Delete outcomes that have matching ledger entries
                 cur.execute(
                     """
                     DELETE FROM signal_outcomes
@@ -2091,12 +2092,21 @@ def main() -> None:
                 """,
                     (symbol_values,),
                 )
+                # Delete ledger entries
                 cur.execute(
                     """
                     DELETE FROM signal_ledger
                     WHERE symbol = ANY(%s);
                 """,
                     (symbol_values,),
+                )
+                # Delete any orphaned outcomes (defensive: catches outcomes without ledger entries)
+                # signal_outcomes has no symbol column, so we delete ALL orphans globally
+                cur.execute(
+                    """
+                    DELETE FROM signal_outcomes
+                    WHERE signal_id NOT IN (SELECT signal_id FROM signal_ledger);
+                """,
                 )
                 deleted_signals = cur.rowcount
 
