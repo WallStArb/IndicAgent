@@ -467,26 +467,36 @@ async def _process_symbol_tf(
         last_bar: dict | None = None
         live_sids: set[str] = set()  # signals currently being evaluated
 
-        # 3. Fetch bars into memory and run processing phase on a dedicated connection
+        # Sorted pointer for O(N+M) signal activation instead of O(N×M).
+        # signals is already ORDER BY timestamp ASC from the query.
+        sorted_sids: list[str] = [str(s["signal_id"]) for s in signals]
+        activation_ptr: int = 0
+
+        # 3. Stream bars from DB — cursor avoids loading the full bar history into memory.
+        # For large (symbol, tf) pairs (1m/ES over 1 year = 100k+ bars) conn.fetch()
+        # allocates the full result set. Cursor prefetches in pages of 1000, keeping
+        # memory flat regardless of history depth.
         conn = await db.pool.acquire()
         try:
             await conn.execute("BEGIN")
-            bars = await conn.fetch(
-                """SELECT timestamp, open, high, low, close
-                   FROM market_data_ohlcv
-                   WHERE symbol = $1 AND timeframe = $2
-                     AND timestamp >= $3
-                   ORDER BY timestamp ASC""",
-                symbol,
-                timeframe,
-                min_ts,
-            )
+            # Session-scoped — set once per connection, not per flush batch.
+            await conn.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
         except Exception:
             await db.pool.release(conn)
             raise
 
         # 4. Stream bars and evaluate signals
-        for bar_row in bars:
+        async for bar_row in conn.cursor(
+            """SELECT timestamp, open, high, low, close
+               FROM market_data_ohlcv
+               WHERE symbol = $1 AND timeframe = $2
+                 AND timestamp >= $3
+               ORDER BY timestamp ASC""",
+            symbol,
+            timeframe,
+            min_ts,
+            prefetch=1000,
+        ):
             bar = dict(bar_row)
             bar_ts = bar["timestamp"]
             if bar_ts.tzinfo is None:
@@ -495,30 +505,30 @@ async def _process_symbol_tf(
             last_bar = bar
 
             # Activate signals that fired before this bar (signal fires on bar N close,
-            # first evaluable bar is N+1). Skip already-resolved signals (outcome set).
-            for sid, sig in sig_map.items():
-                if (
-                    sid not in live_sids
-                    and sig.get("outcome") is None
-                    and sig["timestamp"] < bar_ts
-                ):
+            # first evaluable bar is N+1). Pointer advances monotonically through the
+            # timestamp-sorted list — O(N+M) total instead of O(N×M) per-bar full scan.
+            while activation_ptr < len(sorted_sids):
+                sid = sorted_sids[activation_ptr]
+                sig = sig_map[sid]
+                if sig["timestamp"] >= bar_ts:
+                    break
+                if sid not in live_sids:
                     live_sids.add(sid)
                     mep = sig.get("market_entry_price")
                     if mep is None:
-                        # No stored entry price — use bar N+1 open as fill approximation
                         market_entry_prices[sid] = float(bar["open"])
                         gap = compute_gap_bars(sig["timestamp"], bar_ts, tf_secs)
                         sig["_replay_gap_bars"] = gap
                         if gap > 0:
                             stats["gaps"] += 1
                     else:
-                        # Signal generator already recorded the intended entry price
                         market_entry_prices[sid] = float(mep)
                     market_activated_at[sid] = bar_ts
+                activation_ptr += 1
 
             resolved_this_bar: set[str] = set()
 
-            for sid in list(live_sids):
+            for sid in live_sids:
                 sig = sig_map[sid]
                 bars_el = int((bar_ts - sig["timestamp"]).total_seconds() / tf_secs)
                 sig_eval = {**sig, "bars_elapsed": bars_el, "point_value": 1.0}
@@ -885,9 +895,6 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
                 )
             )
 
-    # Must be set per-transaction — timescaledb decompression limit is transaction-scoped.
-    await conn.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
-
     if zone_exits:
         # Build VALUES clause manually for zone_exits
         values_clause = ",".join(
@@ -1034,10 +1041,10 @@ async def _verify_replay(db: DatabaseManager, symbols: list[str], timeframes: li
 
     if issues:
         for issue in issues:
-            logger.warning("VERIFY ISSUE: %s", issue)
-        logger.warning(
-            "VERIFY: %d issue(s) found — investigate before trusting downstream data",
-            len(issues),
+            logger.error("VERIFY ISSUE: %s", issue)
+        raise RuntimeError(
+            f"VERIFY FAILED: {len(issues)} issue(s) — downstream data is untrustworthy. "
+            "Fix issues and re-run lifecycle_replay before consuming signal_outcomes."
         )
     else:
         logger.info("VERIFY: all checks passed — data is clean")
@@ -1052,7 +1059,7 @@ async def main_async():
     parser.add_argument("--validate", action="store_true", help="Run validation first")
     parser.add_argument("--dry-run", action="store_true", help="Compute but don't write")
     parser.add_argument(
-        "--batch-size", type=int, default=500, help="DB flush every N pending writes"
+        "--batch-size", type=int, default=2000, help="DB flush every N pending writes"
     )
     parser.add_argument(
         "--commit-every",
@@ -1060,7 +1067,7 @@ async def main_async():
         default=1000,
         help="Commit after every N resolved signals per pair",
     )
-    parser.add_argument("--workers", type=int, default=4, help="Concurrency level (default: 4)")
+    parser.add_argument("--workers", type=int, default=8, help="Concurrency level (default: 8)")
     parser.add_argument(
         "--force",
         action="store_true",
