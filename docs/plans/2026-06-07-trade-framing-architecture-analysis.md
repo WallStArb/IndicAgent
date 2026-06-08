@@ -1,7 +1,30 @@
 # Trade Framing Architecture: Renaissance Council Analysis
 
-**Date:** 2026-06-07  
-**Question:** Should trade framing (stop/target/zone resolution) be embedded in signal generation (I7 plugins) or separated into a distinct service?  
+**Date:** 2026-06-07
+**Status:** archived
+**Type:** Architecture Decision Record
+**Last Updated:** 2026-06-08
+**Resolution:** All action items completed — see "Resolution Summary" below
+**Council Verdict:** Keep current embedded architecture — signal generation + trade framing are semantically inseparable
+
+---
+
+## Resolution Summary (2026-06-08)
+
+All required actions from this ADR have been completed:
+
+1. ✅ **Zone validation fix** — Implemented in `trade_framer.py` (original work)
+2. ✅ **Document invariant** — Added "Signal Generation Invariant" to `docs/foundation/foundation-design-principles.md` as Principle 12
+3. ✅ **Clarify emit_signal() contract** — Updated docstring to explain Signal Generation Invariant requirement
+
+**Archival reason:** This ADR documented a decision to maintain the current architecture. The decision has been implemented and documented. The invariant is now part of the foundation principles. This document is preserved for historical reference.
+
+---
+
+## THE QUESTION
+
+Should trade framing (stop/target/zone resolution) be embedded in signal generation (I7 plugins) or separated into a distinct service?
+
 **Context:** 118K signals with stops inside zones → every I7 plugin calls frame_trade() → Should this be refactored?
 
 ---
