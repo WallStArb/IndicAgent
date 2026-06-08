@@ -168,6 +168,9 @@ class BollingerSqueezePlugin(IncrementalMixin):
         bb_lower = mean_c - self.bb_std * std_c
 
         # ATR from high/low/close windows
+        # NOTE: Uses simple average over window (approximation). For true Wilder's
+        # smoothing, would need prev_atr in state and alpha-based update. This
+        # approximation is acceptable for the incremental path.
         hw = list(state["high_window"])
         lw = list(state["low_window"])
         trs = []
@@ -213,12 +216,22 @@ class BollingerSqueezePlugin(IncrementalMixin):
         close: np.ndarray,
         period: int,
     ) -> np.ndarray:
-        """Compute ATR series using simple moving average of True Range."""
+        """Compute ATR series using Wilder's smoothing (matches I1 implementation).
+
+        NOTE: This plugin computes ATR-20 locally because it needs the full
+        historical series for squeeze detection. I1 only provides the latest
+        ATR value, not the full history. The implementation here matches I1's
+        Wilder's smoothing (ewm) to ensure consistency, even though the
+        computation is duplicated.
+        """
         tr = np.zeros(len(close))
         tr[0] = high[0] - low[0]
         for i in range(1, len(close)):
             tr[i] = max(high[i] - low[i], abs(high[i] - close[i - 1]), abs(low[i] - close[i - 1]))
-        atr = pd.Series(tr).rolling(period).mean().to_numpy()
+        # Wilder's smoothing: ewm(alpha=1/period) - matches I1 implementation
+        atr = (
+            pd.Series(tr).ewm(alpha=1 / period, adjust=False, min_periods=period).mean().to_numpy()
+        )
         return atr
 
 

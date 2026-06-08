@@ -62,6 +62,7 @@ class I1Indicators(BaseModel):
     rsi_14: float | None = None
     # ATRPlugin
     atr_14: float | None = None
+    atr_20: float | None = None  # Standard Keltner Channels period
     # MACDPlugin
     macd_12_26_9: float | None = None
     macd_signal_12_26_9: float | None = None

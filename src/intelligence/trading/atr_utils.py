@@ -29,7 +29,30 @@ def get_atr(features: dict[str, Any]) -> float | None:
     Returns:
         Positive float ATR value, or None.
     """
-    val = features.get("atr_14")
+    return get_atr_with_period(features, period=14)
+
+
+def get_atr_with_period(features: dict[str, Any], period: int = 14) -> float | None:
+    """Return ATR for specific period (14 or 20) from I1 features.
+
+    Returns None when:
+    - Requested period field is missing
+    - value is None
+    - value cannot be cast to float
+    - value is <= 0
+
+    Args:
+        features: I1 features dict (frames["i1"] or similar)
+        period: ATR period to retrieve (must be 14 or 20)
+
+    Returns:
+        Positive float ATR value, or None.
+    """
+    if period not in (14, 20):
+        raise ValueError(f"Unsupported ATR period: {period}. Must be 14 or 20.")
+
+    field = f"atr_{period}"
+    val = features.get(field)
     if val is None:
         return None
     try:
@@ -56,15 +79,27 @@ def get_atr_with_floor(features: dict[str, Any], symbol: str) -> float | None:
     return atr if atr >= min_tick else None
 
 
-def get_atr_with_floor_from_frames(frames: dict[str, Any]) -> float | None:
-    """Get tick-floored ATR from the plugin_input frames dict.
+def get_atr_with_floor_from_frames(frames: dict[str, Any], period: int = 14) -> float | None:
+    """Get tick-floored ATR for specific period from the plugin_input frames dict.
 
     Reads symbol from frames["symbol"] (set by executor) and ATR from
-    frames["i1"]. Call this in compute_full() instead of get_atr_with_floor()
-    to correctly apply the instrument tick-size floor.
+    frames["i1"]["atr_{period}"]. Call this in compute_full() instead of
+    get_atr_with_floor() to correctly apply the instrument tick-size floor.
+
+    Args:
+        frames: plugin_input dict from compute_full()
+        period: ATR period to retrieve (14 or 20)
 
     Returns None when ATR is None or below the instrument's minimum tick.
     """
+    if period not in (14, 20):
+        raise ValueError(f"Unsupported ATR period: {period}. Must be 14 or 20.")
+
     symbol = frames.get("symbol") or frames.get("__symbol__", "")
     i1 = frames.get("i1") or {}
-    return get_atr_with_floor(i1, symbol)
+    atr = get_atr_with_period(i1, period)
+    if atr is None:
+        return None
+
+    min_tick = get_tick_size(symbol)
+    return atr if atr >= min_tick else None

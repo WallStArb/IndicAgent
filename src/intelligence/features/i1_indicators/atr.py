@@ -45,7 +45,7 @@ class ATRPlugin(IncrementalMixin):
 
     def __post_init__(self) -> None:
         if not self.periods:
-            self.periods = [14]
+            self.periods = [14, 20]  # ATR-14 for I7 stops, ATR-20 for I5 bollinger_squeeze
         self.outputs = frozenset({f"atr_{p}" for p in self.periods})
 
     def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
