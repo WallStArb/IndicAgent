@@ -705,7 +705,7 @@ async def _process_symbol_tf(
                                     "signal_quality": None,
                                     "mae": z_trans.mae,
                                     "mfe": z_trans.mfe,
-                                    "bars_in_trade": None,
+                                    "bars_in_trade": z_bit,
                                     "outcome": z_outcome,
                                 },
                             )
