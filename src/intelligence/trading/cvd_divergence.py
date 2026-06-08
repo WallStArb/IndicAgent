@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
@@ -24,7 +25,9 @@ from .state_utils import reset_consecutive_state, track_consecutive_state
 from .trade_framer import frame_trade
 
 _CONFIRMATION_BARS: int = 3
-_CVD_DIV_THRESHOLD: float = 0.0  # any nonzero divergence qualifies
+_CVD_DIV_THRESHOLD: float = (
+    0.002  # conservative floor; eliminates float noise (empirical value derived in Phase 117.5)
+)
 _OFI_DUAL_THRESHOLD: float = 1.0  # OFI must also diverge at this level for dual flag
 
 
@@ -87,8 +90,8 @@ class CVDDivergencePlugin:
             return no_signal()
 
         cvd_div = float(cvd_div)
-        if cvd_div == 0.0:
-            # Zero CVD divergence invalidates any accumulated confirmation count
+        if abs(cvd_div) < _CVD_DIV_THRESHOLD:
+            # Sub-threshold CVD divergence invalidates any accumulated confirmation count
             reset_consecutive_state(frames, self._state)
             return no_signal()
 
@@ -129,6 +132,16 @@ class CVDDivergencePlugin:
         if dual_divergence:
             raw_conf += 0.10
         raw_conf += extra_bars * 0.05
+
+        # I6 ctf_score contribution (additive)
+        ctf_score = float(features.get("ctf_score", 0.0))
+        if abs(ctf_score) > 0.3:
+            raw_conf += 0.15 * min(1.0, abs(ctf_score) / 0.7)
+
+        # HMM regime contribution (additive, centered at 0.5 neutral)
+        regime_w = hmm_regime_weight(features, "up" if direction == 1 else "down")
+        raw_conf += 0.10 * (regime_w - 0.5)
+
         confidence = compose_confidence(raw_conf)
 
         sig_type = signal_type_for_direction("cvd_divergence", direction)
@@ -149,6 +162,8 @@ class CVDDivergencePlugin:
             supporting.append(f"cvd_slope_5bar={float(cvd_slope):.1f}")
         if dual_divergence:
             supporting.append("dual_divergence_confirmed")
+        if abs(ctf_score) > 0.3:
+            supporting.append(f"ctf_score={ctf_score:.3f}")
 
         # exhaustion: not applicable — spike/divergence signals are regime-independent;
         # Phase 49 will learn gate behavior from shadow data
