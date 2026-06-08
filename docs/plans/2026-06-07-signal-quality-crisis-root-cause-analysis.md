@@ -1,8 +1,10 @@
 # Signal-to-Noise Crisis: Root Cause Analysis & Production Hardening Plan
 
-**Date**: 2026-06-07  
-**Status**: Investigation Complete, Blueprint Approved  
-**Authors**: Renaissance Council (Engineering + Architecture + Quant)  
+**Date**: 2026-06-07
+**Status**: under-review
+**Type**: Root Cause Analysis
+**Last Updated:** 2026-06-08
+**Authors**: Renaissance Council (Engineering + Architecture + Quant)
 **Scope**: System-level root cause analysis of signal generation over-abundance
 
 ---
@@ -65,6 +67,64 @@ We are NOT trying to reduce signal volume — that's a side effect.
 - ❌ NOT about filtering noise better (CIS gates already do this correctly)
 - ❌ NOT about reducing volume (that's a side effect of stopping noise creation)
 - ❌ NOT about deleting signal concepts (all 30 ideas are sound)
+
+---
+
+## COUNCIL ANALYTICAL REVIEW (2026-06-08)
+
+> A first-principles review by the Renaissance Council identified three analytical problems in this document that affect execution ordering. The setup-by-setup analysis and directional fixes remain valid. The specific threshold values and enforcement mechanisms require revision.
+
+### Problem 1: "Noise" Is Measured by a Proxy, Not Ground Truth
+
+**The circular reasoning trap:**
+
+"Selection rate" measures "did the CIS aggregator pick this signal as the best available at that moment." It does NOT measure "would this have been a profitable trade." The aggregator is a winner-take-all ranker — when 50 signals fire simultaneously, 49 are "rejected" regardless of their absolute quality.
+
+The analysis concludes 99.8% noise from selection rates. But we have **zero pnl_r data on unselected signals** — they never activated, so we cannot know if they had edge. We are inferring signal quality from the aggregator's opinion, and the aggregator's opinion is weighted on the same flawed confidence formulas we are criticizing. This is circular.
+
+**What this means for the plan**: Specific threshold values (`MIN_OFI_MAGNITUDE=500`, `min_gap_atr_mult=0.3→0.8`, etc.) throughout this document are directionally reasonable guesses, not empirically derived constants. They must be derived from outcome data before being shipped to production.
+
+### Problem 2: Two Distinct Problem Categories — Different Response Required
+
+**Category A — Pipeline bugs (deterministic, fix immediately, no data needed):**
+
+| Bug | Evidence | Why It's a Bug, Not a Calibration Issue |
+|-----|----------|-----------------------------------------|
+| PatternCompletion phantom data | `pattern_detections` JSONB = zero rows across 2.2M `intelligence_features` | DAG invariant violated — I5 output is not reaching DB |
+| Stop losses inside entry zones | 793 `stopped_at_entry` signals | Deterministic: stop ≤ zone_low for longs is always wrong — **FIXED** (`validate_stop_against_zone()` in `plugin_utils.py`, called from `trade_framer.py:1018`) |
+| `_CVD_DIV_THRESHOLD = 0.0` in `cvd_divergence.py` | Any nonzero float fires — `0.0001` and `100.0` treated identically | Deterministic: a threshold of zero is not a threshold; magnitude semantics entirely absent |
+| I6 fetched but silently discarded in 4 plugins | `ofi_continuation`, `cvd_divergence`, `gap_analysis_setup`, `divergence_stack` all do `frames.get("i6") or {}` then never reference `ctf_score`, `ctf_structure`, or `ctf_trend` | Code already has the data — it is dropped on the floor every bar |
+| `ofi_spike` / `cvd_spike` don't fetch I6 at all | No `frames.get("i6")` in either plugin | These two don't even pull the data |
+| `hmm_regime` used for logging only, not weighting | All 6 plugins read `features.get("hmm_regime")` to build `regime_context` string, then stop — none call `hmm_regime_weight()` | Regime is recorded but has zero influence on whether the signal fires or what confidence it receives |
+
+These are correctness defects. They fire before any of the v2.9 phase work begins.
+
+**Category B — Calibration questions (need empirical data before fixing):**
+
+| Question | Why Data Is Needed |
+|----------|-------------------|
+| What OFI magnitude separates signal from noise? | 500 is a guess — market-derived threshold could be 200 or 2000 |
+| What gap ATR multiple filters constant firing? | 0.8 is a guess |
+| Does I6 integration improve profitability or just selection rate? | The I6 correlation may be selection bias (see Problem 3) |
+| What minimum consecutive bars makes OFI "sustained"? | 10 is a guess |
+
+Category B fixes must be preceded by empirical data collection. See Phase 117.5 in the revised implementation roadmap below.
+
+### Problem 3: I6 Confluence Correlation Is Likely Selection Bias
+
+The analysis states: "I6 integration → 83% selection, No I6 → 0.19% selection. Correlation is PERFECT."
+
+But the CIS aggregator is weighted on I6 confluence scores. Of course I6-integrated signals get selected more — they directly satisfy the selection criterion. This is not evidence that I6 integration improves trading profitability. It is evidence that I6-integrated signals score higher on an I6-weighted aggregator.
+
+**The correct conclusion**: I6 integration should be added to all 21 setups because it provides cross-timeframe confirmation (sound architectural principle), NOT because selection rate correlation proves it improves profitability. The profitability case requires outcome data.
+
+### Problem 4: Architectural Enforcement Must Be Empirically Grounded
+
+The "Mandatory Pattern 1: Minimum 4 Confidence Factors" enforcement (base class `ArchitectureViolation`) is premature. GOOD setups happen to have 4+ factors. That does not mean 4 factors causes quality — it correlates with careful implementation. Mandating 4 factors in a base class without empirical backing is cargo-cult architecture that will be gamed (trivial dummy factors to satisfy the check).
+
+**Revised position**: Enforce I6 integration (architectural — cross-timeframe confirmation is a sound principle). Do NOT enforce a specific factor count at the base class level. Let the empirical validation gate (shadow mode, p<0.05) enforce quality.
+
+---
 
 **What this IS**:
 - ✅ About stopping noise creation at the source (I7 signal generation logic)
@@ -943,82 +1003,118 @@ class ShadowModeValidator(BaseAgent):
 
 ## Part V: Implementation Roadmap
 
-### Phase 1: Immediate (This Sprint) — Fix Data Pipeline
+> **REVISED 2026-06-08**: Reordered to fix deterministic bugs first, collect empirical data before guessing at thresholds, and weave in the schema migration at the lifecycle replay junction.
 
-**Goal**: Add validation gates to catch silent failures.
+### Phase 0: Immediate Hotfixes (Before v2.9 Phases Begin)
 
-1. **Deploy FeatureParityAuditor** (Week 1)
-   - Validate I5 pattern fields persisted to DB
-   - Validate I1 microstructure fields not NULL
-   - Alert on mismatch (catches PatternCompletion bug immediately)
+**Goal**: Fix Category A deterministic bugs. These are correctness defects, not calibration questions. They do not require empirical data or shadow validation.
 
-2. **Deploy ConfidenceCalibrationMonitor** (Week 1)
-   - Compute confidence → selection correlation per setup
-   - Alert if correlation < 0.3 (catches OFIContinuation meaningless formula)
+1. **Fix PatternCompletion phantom data** — DAG invariant violation. I5 pattern detection fields (`dt_db_confidence`, `hs_confidence`, `tri_confidence`) are not being persisted to `pattern_detections` JSONB column in `intelligence_features`. Investigate `feature_writer` → `FeatureParityAuditor` is the long-term guard, but the write-path bug must be fixed first. Impact: 795K phantom signals immediately stop.
 
-3. **Enforce 6 GOOD patterns** (Week 1-2)
-   - Add base class validation for multi-factor confidence (min 4 factors)
-   - Add base class validation for I6 confluence (mandatory)
-   - Code review gate: reject PRs violating any pattern
+2. ~~**Fix stop losses inside entry zones**~~ — **DONE**. `validate_stop_against_zone()` added to `src/intelligence/trading/plugin_utils.py`, called from `trade_framer.py:1018` immediately after zone bounds are resolved. Auto-corrects violations using 2.0 ATR buffer; raises `ValueError` for extreme misconfiguration (>3x ATR inside zone). Logs every correction via structlog for ongoing monitoring.
 
-4. **REFACTOR top 5 setups** (Week 2)
-   - trad_OFIContinuation: Add magnitude threshold, multi-factor confidence
-   - trad_PatternCompletion: Fix data flow bug, raise threshold 0.50→0.70
-   - trad_AnchoredVWAPReversion: Keep as-is (logic sound)
-   - trad_GapAnalysisSetup: Tighten threshold 0.3→0.8 ATR
-   - trad_CVDDivergence: Add magnitude threshold
+3. **Fix `_CVD_DIV_THRESHOLD = 0.0` in `cvd_divergence.py`** — the threshold constant is literally zero, meaning any nonzero float qualifies as a divergence. This is a deterministic bug: a threshold of zero is not a threshold. Set to a meaningful nonzero floor (derive from data in Phase 1.5; for now use a conservative starting value that eliminates floating-point noise without over-filtering).
 
-**Expected outcome**: 
-- PatternCompletion bug caught immediately
-- OFIContinuation flagged for meaningless formula
-- Early validation gates prevent future broken data flow
+4. **Wire I6 into the 6 high-volume broken plugins** — `ofi_continuation`, `cvd_divergence`, `gap_analysis_setup`, `divergence_stack` already fetch `frames.get("i6")` into `features` but never read `ctf_score`, `ctf_structure`, or `ctf_trend`. `ofi_spike` and `cvd_spike` don't fetch I6 at all. Add `ctf_score` as a confidence contributor and optional gate to all 6. No empirical data needed — the values are already present; the code just discards them.
 
-### Phase 2: Next Sprint — Refactor Remaining Setups
+5. **Wire `hmm_regime_weight()` into confidence for all 6 plugins** — all 6 read `features.get("hmm_regime")` only to build a logging string. Replace with `hmm_regime_weight(features, self.regime_type)` as a weighted confidence factor. Regime already influences which signals reach live trading via the aggregator's regime gate; it should also influence confidence at the source.
 
-**Goal**: Apply 6 GOOD patterns to all 21 NEEDS_REFACTOR setups.
+---
 
-1. **REFACTOR remaining 16 setups** (Week 3-4)
-   - Apply same pattern: fix implementation, keep idea
-   - Each setup: multi-factor confidence + I6 confluence + strict gates
-   - Shadow mode deployment for all
+### Phase 1 (v2.9 Phase 117): Pipeline Validation + SignalProbeAuditor
 
-2. **Shadow mode validation** (Week 5-6)
-   - All refactored setups run in shadow mode
-   - Validate: p<0.05, N≥100, win rate>50%, correlation>0.3
-   - Promote to production only when proven
+**Goal**: Add validation gates AND collect ground truth outcome data on unselected signals.
 
-3. **IMPROVE 3 MODERATE setups** (Week 4)
-   - trad_VWAPDeviation: Add zone friction penalties
-   - trad_MomentumBreakout: Strengthen gates
-   - trad_FVGFill: Multi-factor confidence
+1. **Deploy FeatureParityAuditor** — validate I5 pattern fields persisted to DB; validate I1 microstructure fields not NULL; alert on mismatch; runs on 5-minute systemd timer.
 
-**Expected outcome**:
-- All 30 setups follow Renaissance design patterns
-- I6 confluence mandatory (architecturally enforced)
-- Confidence formulas calibrated (correlation tracked)
+2. **Deploy ConfidenceCalibrationMonitor** — compute `CORR(confidence, was_selected)` per setup; alert if correlation < 0.3 with N≥100.
 
-### Phase 3: Following Sprint — Replay and Validate
+3. **Deploy SignalProbeAuditor (NEW — CRITICAL)** — randomly samples 1% of unselected signals from each NEEDS_REFACTOR setup and force-activates them in a shadow execution path (no live impact). Records simulated outcomes (pnl_r, mae, mfe) using bar data. This generates the ground truth data required for empirical threshold derivation in Phase 1.5.
 
-**Goal**: Validate overall system health after refactors.
+   ```python
+   class SignalProbeAuditor:
+       """Force-activates a random sample of unselected signals to measure
+       their outcome distribution. Answers: 'Do these signals have edge,
+       independent of the aggregator's opinion?'
+       """
+       SAMPLE_RATE = 0.01  # 1% of unselected signals per setup
+       MIN_SAMPLE_N = 100   # Minimum per setup before threshold derivation
+   ```
 
-1. **REPLAY signal ledger** (Week 7)
-   - Replay with corrected setup list
-   - Compare: before vs after metrics
+4. **Enforce I6 integration at base class** — add validation that I7 plugins provide `ctf_score` to `compute_full()`. Raise `ArchitectureViolation` if absent. **Do NOT** enforce a minimum factor count (see Problem 4 in Council Review above).
 
-2. **VALIDATE success metrics** (Week 7-8)
-   - Selection rate: 24% → 40% target
-   - Signal volume: 7.85M → 4.0M target
-   - All setups: correlation > 0.3
+5. **Code review gate** — CI pre-commit hook rejects new I7 plugins without I6 integration.
 
-3. **PRODUCTION hardening** (Week 8)
-   - ParityAuditor runs continuously
-   - ConfidenceCalibrationMonitor runs continuously
-   - Alerts page on-call on data integrity violations
+**Data collection window**: Run for 2-3 weeks of market time. SignalProbeAuditor needs ≥100 activations per NEEDS_REFACTOR setup before Phase 1.5 can proceed.
 
-**Expected outcome**:
-- Production-grade pipeline with validation gates
-- Zero silent failures (parity auditor catches all)
-- All setups empirically validated (shadow mode proven)
+---
+
+### Phase 1.5 (v2.9 Phase 117.5 — NEW): Empirical Threshold Derivation
+
+**Goal**: Derive magnitude thresholds and gate conditions from probe outcome data, not intuition.
+
+1. **Analyze SignalProbeAuditor results per setup:**
+   - Plot win rate vs OFI magnitude quartile → derive `MIN_OFI_MAGNITUDE` from where win rate crosses 50%
+   - Plot win rate vs gap size → derive `min_gap_atr_mult` from data
+   - Plot win rate vs consecutive bar count → derive minimum bar threshold
+
+2. **Publish derivation report** — one page per NEEDS_REFACTOR setup showing the empirically derived threshold vs the original guess, with N and confidence interval.
+
+3. **Update threshold constants in this document** — replace guessed values (`MIN_OFI_MAGNITUDE=500`, `min_gap_atr_mult=0.8`, etc.) with data-derived values before Phase 2 begins.
+
+**Gate**: Phase 2 (top 5 refactors) does not begin until each setup's threshold is derived from ≥100 probe activations OR the probe shows the setup has near-zero edge (in which case the setup is moved to shadow-only with zero modifications until more data accumulates).
+
+---
+
+### Phase 2 (v2.9 Phase 118): Top 5 Setup Refactoring
+
+**Goal**: Refactor the 5 highest-volume NEEDS_REFACTOR setups using Phase 1.5 empirically derived thresholds.
+
+1. **trad_OFIContinuation** — add `MIN_OFI_MAGNITUDE` (from data), multi-factor confidence, I6 integration
+2. **trad_PatternCompletion** — data flow bug already fixed (Phase 0); raise confidence threshold (from data); restrict regime
+3. **trad_AnchoredVWAPReversion** — logic sound per original analysis; add I6 integration only
+4. **trad_GapAnalysisSetup** — tighten `min_gap_atr_mult` (from data); add I6 integration
+5. **trad_CVDDivergence** — add `MIN_CVD_DIVERGENCE` (from data); tighten confirmation bars (from data); add I6
+
+All 5 deploy `shadow_only=True`. Thresholds are from data, not guesses.
+
+---
+
+### Phase 3 (v2.9 Phase 119): Remaining 16 Setup Refactoring
+
+**Goal**: Apply the same empirical pattern to all 16 remaining NEEDS_REFACTOR setups.
+
+Same protocol: use Phase 1.5 derived thresholds where available; where probe data is still accumulating, add I6 integration and structural fixes only, leave magnitude thresholds at conservative values until data arrives.
+
+---
+
+### Phase 4 (v2.9 Phase 120): Shadow Mode Validation
+
+All 21 refactored setups run shadow_only=True. Promotion criteria: p<0.05, N≥100, win_rate>50%, calibration_correlation>0.3. Note: this now validates that the empirically-derived thresholds work in production, not that our guesses were right.
+
+---
+
+### Phase 4.5 (v2.10 Phases 123-125, woven in before replay): Schema Migration
+
+**Goal**: Migrate to 3-table schema before lifecycle replay so replay writes into the clean architecture.
+
+- Phase 123: 3-table decision recorded (confirmed), cardinality defined (1:1 enforced at application layer, schema allows 1:many), numeric type standardization (`NUMERIC` for all prices/PnL)
+- Phase 124: DB migration — drop `signal_ledger`, create `signal_events` + `trade_framing` + `trade_execution`
+- Phase 125: Rewrite SignalWriter, lifecycle_writer, all queries
+
+**Why here**: Lifecycle replay (Phase 121) regenerates all signal outcomes anyway. Migrating before the replay means we replay directly into the clean schema rather than migrating 4M+ rows after the fact.
+
+---
+
+### Phase 5 (v2.9 Phase 121): Lifecycle Replay
+
+Replay signal ledger with corrected setups. Writes into 3-table schema. Compare before/after: total signals, SNR per setup, selection rate.
+
+---
+
+### Phase 6 (v2.9 Phase 122): Production Hardening
+
+FeatureParityAuditor + ConfidenceCalibrationMonitor + SignalProbeAuditor running continuously. All 30 setups validated.
 
 ---
 

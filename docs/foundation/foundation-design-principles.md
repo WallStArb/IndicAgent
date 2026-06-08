@@ -2,7 +2,7 @@
 
 **Version:** 2.8
 **Status:** current
-**Last Updated:** 2026-04-21
+**Last Updated:** 2026-06-08
 **Tags:** architecture, design-principles, plugin-system, event-driven, pipeline, extensibility
 
 > The North Star for all development and architectural decisions. When in doubt about a design choice, check it against these principles first.
@@ -60,6 +60,18 @@ The agentic DAG has seven structural invariants. These are not guidelines — vi
 7. **Scaling via systemd + Prometheus lag.** No Kubernetes HPA. Consumer lag monitored via `persistence_consumer_lag` metric.
 
 **Canonical reference:** `docs/architecture/architecture-dag-topology.md` — full system map with Mermaid diagram, agent taxonomy, and topic registry.
+
+## 12. Signal Generation Invariant
+
+**Pattern:** I7 plugins emit fully-framed signals only.
+
+Every signal MUST include: stops, targets, zones, invalidation. Trade framing (`frame_trade()`) is called by the plugin during signal detection, not by a separate service. There is no "raw signal" intermediate state — this would be invalid per Renaissance data quality principles.
+
+**Why:** A signal without stops/targets/zones cannot be evaluated by lifecycle services, executed, or persisted. Forcing a separation creates artificial intermediate state that violates the "every signal has a non-zero trading window" invariant.
+
+**Enforcement:** `signal_schema.py` validation gate rejects incomplete signals. All 37 I7 plugins use `frame_trade()` (directly or via `detect_spike_signal()`).
+
+**See also:** `docs/plans/2026-06-07-trade-framing-architecture-analysis.md` — Renaissance council analysis affirming embedded framing as correct architecture.
 
 ## 10. Shadow Before Production
 
