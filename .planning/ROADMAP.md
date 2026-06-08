@@ -20,7 +20,10 @@
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104-109 (shipped 2026-05-29)
-- 🚧 **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103, 110-116 (in progress)
+- ✅ **v2.8 AI Platform — Part 1** — Phases 094-095, 106-108, 110-116 (shipped 2026-06-08)
+- 🚧 **v2.9 Signal Quality Renaissance** — Phases 117-122 (next milestone — prerequisite for v2.8 completion)
+- 📋 **v2.10 Data Architecture Evolution** — Phases 123-125 (conditional, depends on ADR decision)
+- ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (blocked until v2.9 completes)
 
 ## Phases
 
@@ -866,9 +869,36 @@ Plans:
 </details>
 
 <details>
-<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103, 110-116) — IN PROGRESS</summary>
+<summary>✅ v2.8 AI Platform — Part 1 (Phases 094-095, 106-108, 110-116) — SHIPPED 2026-06-08</summary>
 
-**Milestone Goal**: Execute the AI platform stack with measurable evidence gates at every layer (Phases 094-099), then build evolvable agent infrastructure (Phases 101-103, 114). Naming and infrastructure alignment (110-113) completed. Each dependency earns its place before the next is added.
+**Milestone Goal (Part 1)**: Execute foundational AI platform stack (LiteLLM, Pydantic AI), infrastructure hardening, naming alignment, SR consensus, framing audit, and Occam's razor foundation. Part 2 (genetic operators, remaining AI platform) is blocked until v2.9 Signal Quality Renaissance completes.
+
+**Completed Phases (Part 1)**:
+- Phase 094: LiteLLM + Instructor Structured Output ✅
+- Phase 095: Pydantic AI Agent Execution Layer ✅
+- Phase 106: Foundation Hardening ✅
+- Phase 107: Infrastructure Hygiene ✅
+- Phase 107.5: Signal Lifecycle Architecture Fix ✅
+- Phase 108: Self-Healing Hardening ✅ (6/7 plans, 108-07 deferred)
+- Phase 109: Config Foundation & Self-Healing Engine ✅
+- Phase 110: Renaissance Rename ✅
+- Phase 111: Full Naming Alignment ✅
+- Phase 112: Intelligence Pipeline Signal Integrity ✅
+- Phase 113: Architecture Hardening ✅
+- Phase 114: Occam's Razor — Complexity-Aware Model Selection ✅ (4/4 plans written, 0 executed)
+- Phase 115: Framing Audit Trail ✅
+- Phase 116: SR Consensus — Multi-Method Support/Resistance ✅
+
+**Blocked Phases (Part 2 — requires v2.9 first)**:
+- Phase 096: Agent Registry — BLOCKED until signal quality fixed (trains on noisy signals)
+- Phase 097: Zep Episodic Memory — SHIPPED but needs v2.9 for quality data
+- Phase 098: DSPy Offline Prompt Optimizer — BLOCKED until signal quality fixed
+- Phase 099: Guardrails AI Validation — BLOCKED until parse failure rate measured
+- Phase 101: Composite Fitness Function — BLOCKED until signal quality fixed (fitness on noisy data)
+- Phase 102: Genetic Infrastructure — BLOCKED until v2.9 completes
+- Phase 103: Reproductive Operators — BLOCKED until v2.9 completes
+
+**Rationale for Blocking**: Phases 096-103 depend on high-quality signal data. Current state: 21 setups fire 4.46M noise signals (99.8% noise rate). Training ML models, evolving agents, or measuring fitness on corrupted data produces garbage results. v2.9 Signal Quality Renaissance fixes this root cause.
 
 **Design principles (Renaissance standard):**
 
@@ -1430,6 +1460,363 @@ Plans:
 
 - `SIGNAL_SCHEMA_VERSION` bump ships at end of Wave 2 (1-F + 2-C) — NOT in Wave 1; see spec 0-C
 - `pytest tests/unit/ -q` passes; `ruff check .` clean after each wave
+
+</details>
+
+---
+
+<details>
+<summary>🚧 v2.9 Signal Quality Renaissance (Phases 117-122) — NEXT MILESTONE</summary>
+
+**Milestone Goal:** Stop creating 4.46M noise signals (57% of total) by fixing the 21 NEEDS_REFACTOR implementations that fire 99.8% noise, while preserving all 30 sound trading concepts. Target: improve signal-to-noise ratio from 0.2% → 40%+ for high-volume setups.
+
+**Execution order:** v2.8 Part 1 (complete) → v2.9 → v2.8 Part 2 (resume)
+
+**Rationale:** v2.8 Part 2 (genetic operators, remaining AI platform) depends on high-quality signal data. Current state: 21 setups fire 4.46M noise signals (99.8% noise rate). Training ML models, evolving agents, or measuring fitness on corrupted data produces garbage results.
+
+**Design principles (Renaissance standard):**
+- Fix BAD INPUTS — upstream features produce unvalidated data that I7 setups consume
+- Enforce GOOD PATTERNS — multi-factor confidence, I6 confluence, strict gates, continuous regime weighting
+- Add validation gates — ParityAuditor catches data flow bugs before they create noise
+- Earn promotion through proof — shadow mode validates setups don't create noise (p<0.05, sufficient N)
+
+**Reference:** `docs/plans/2026-06-07-signal-quality-crisis-root-cause-analysis.md`
+
+**Success Metrics (Before → After):**
+- Total signals: 7.85M → 4.0M target
+- Selection rate: 24% → 40% target
+- NEEDS_REFACTOR SNR: 0.19% → 40%+ target
+- trad_OFIContinuation: 1.59M → ~250K, 0.18% → 15-25% SNR
+- trad_PatternCompletion: 795K → ~95K, 0.15% → 15-25% SNR
+- Pattern detection bug: 795K phantom signals → 0
+- Confidence calibration: NOT TRACKED → tracked per setup
+
+---
+
+### Phase 117: PatternCompletion Fix + Data Pipeline Validation
+
+**Goal:** Fix the PatternCompletion phantom data bug (795K signals on non-existent data), then build the validation infrastructure that prevents it happening again. The auditor is the regression guard for the bug just fixed, not a detector for a known-unfixed bug.
+
+**Depends on**: Phase 116 (SR Consensus)
+**Requirements**: VAL-01, VAL-02, VAL-03, VAL-04, VAL-05
+**Success Criteria** (what must be TRUE):
+
+  1. PatternCompletion write-path bug fixed: `pattern_detections` JSONB in `intelligence_features` contains dt_db_confidence, hs_confidence, tri_confidence fields on live bars (query confirms non-zero row count within 1 hour of fix deploy)
+  2. FeatureParityAuditor runs every 5 minutes via systemd timer; validates I5 pattern fields (dt_db_confidence, hs_confidence, tri_confidence) exist in intelligence_features; alerts on 100% NULL
+  3. ConfidenceCalibrationMonitor computes CORR(confidence, was_selected) per setup; publishes metric `signal_confidence_calibration{setup_plugin}`; alerts if correlation < 0.3 with N>=100
+  4. Base class validation enforces I6 confluence (ctf_score) present; plugins without ctf_score raise ArchitectureViolation unless `requires_i6_confluence=False` (factor-count enforcement removed per Council review — cargo-cult architecture)
+  5. Zero CI violations: new I7 plugins without I6 integration fail code review gate
+
+**Plans**: 4 plans in 3 waves
+
+Plans:
+
+**Wave 1** — Fix the bug (prerequisite for everything else)
+
+- [ ] 117-01-PLAN.md — Investigate feature_writer write path for I5 pattern fields; fix so pattern_detections JSONB is populated; confirm with live query
+
+**Wave 2** *(depends on Wave 1)* — Detection infrastructure
+
+- [ ] 117-02-PLAN.md — FeatureParityAuditor: audit_i5_patterns() + audit_i1_microstructure() + systemd timer + stream keys + OTel metrics
+- [ ] 117-03-PLAN.md — ConfidenceCalibrationMonitor: compute_calibration() + metric publishing + alerting logic + systemd timer
+
+**Wave 3** *(depends on Wave 2)* — Architectural enforcement
+
+- [ ] 117-04-PLAN.md — PatternPlugin._validate_i6_confluence() + ArchitectureViolation exception + CI pre-commit hook + documentation update
+
+---
+
+### Phase 118: Top 5 Setup Refactoring
+
+**Goal:** Refactor the 5 highest-volume NEEDS_REFACTOR setups (OFIContinuation 1.59M, PatternCompletion 795K, GapAnalysis 331K, CVDDivergence 250K, DivergenceStack 181K) — fix implementations, keep sound ideas. Expected: eliminate ~3.5M noise signals.
+
+**Depends on**: Phase 117
+**Requirements**: REFACTOR-01, REFACTOR-02, REFACTOR-03, REFACTOR-04, REFACTOR-05
+**Success Criteria** (what must be TRUE):
+
+  1. trad_OFIContinuation: magnitude threshold (MIN_OFI_MAGNITUDE=500), multi-factor confidence (4 factors), I6 confluence integration, MIN_CONSECUTIVE_BARS=10
+  2. trad_PatternCompletion: data flow bug fixed (pattern fields persisted to DB), confidence_threshold 0.50→0.70, regime_type "any"→"trend"
+  3. trad_GapAnalysisSetup: min_gap_atr_mult 0.3→0.8, I6 confluence integration
+  4. trad_CVDDivergence: MIN_CVD_DIVERGENCE=0.5 threshold, _CONFIRMATION_BARS 3→5, I6 confluence integration
+  5. trad_DivergenceStack: multi-factor confidence replaces single-factor formula, I6 confluence integration
+  6. All 5 setups run shadow_only=True; no production promotion until Phase 120 validation passes
+  7. Golden-file parity tests confirm outputs unchanged for equivalent inputs (only noise filtered)
+
+**Plans**: 5 plans (one per setup, serial)
+
+Plans:
+
+- [ ] 118-01-PLAN.md — trad_OFIContinuation refactor: magnitude threshold + multi-factor confidence + I6 + regime
+- [ ] 118-02-PLAN.md — trad_PatternCompletion refactor: fix data flow + threshold + regime + I6
+- [ ] 118-03-PLAN.md — trad_GapAnalysisSetup refactor: threshold + I6 + regime
+- [ ] 118-04-PLAN.md — trad_CVDDivergence refactor: magnitude threshold + confirmation bars + I6
+- [ ] 118-05-PLAN.md — trad_DivergenceStack refactor: multi-factor confidence + I6
+
+---
+
+### Phase 119: Remaining 16 Setup Refactoring
+
+**Goal:** Apply 6 GOOD patterns to all 16 remaining NEEDS_REFACTOR setups (OFIDivergence, OFISpike, CVDSpike, CandlestickPatternSetup, FailedBreakout, LiquidityHunt, DeltaExhaustion, SessionExtremesSetup, LVNBreakout, ORB15, ORB30, SecondLegContinuation, VCP, VWAPReclaim, DualDivergence, VWAPDeviation, MomentumBreakout). Expected: eliminate remaining ~1M noise signals.
+
+**Depends on**: Phase 118
+**Requirements**: REFACTOR-06, REFACTOR-07, REFACTOR-08
+**Success Criteria** (what must be TRUE):
+
+  1. All 16 setups follow 6 GOOD patterns: multi-factor confidence (min 4 factors), I6 confluence, strict dual gates, continuous hmm_regime_weight, early gate optimization, zone friction penalties
+  2. Confidence formulas use weighted composite (not single-factor meaningless formulas)
+  3. regime_type declared ("trend" | "mean_reversion" | "any"); hmm_regime_weight() applied for continuous weighting
+  4. Early gate optimization: cheap regime/I6 checks before expensive OHLCV extraction
+  5. All 16 setups run shadow_only=True
+  6. `validate_tier()` confirms all I7 plugins have multi-factor confidence and I6 integration
+
+**Plans**: 4 plans in 2 waves
+
+Plans:
+
+**Wave 1** — Refactor 8 easy setups (parallelizable)
+
+- [ ] 119-01-PLAN.md — Refactor Group 1 (8 setups): OFIDivergence, OFISpike, CVDSpike, CandlestickPatternSetup, FailedBreakout, LiquidityHunt, DeltaExhaustion, SessionExtremesSetup
+
+**Wave 2** *(depends on Wave 1)* — Refactor 8 remaining setups
+
+- [ ] 119-02-PLAN.md — Refactor Group 2 (8 setups): LVNBreakout, ORB15, ORB30, SecondLegContinuation, VCP, VWAPReclaim, DualDivergence, VWAPDeviation, MomentumBreakout
+- [ ] 119-03-PLAN.md — validate_tier() enforcement + CI gate + regression tests
+- [ ] 119-04-PLAN.md — Documentation update + CLAUDE.md 6 GOOD patterns reference
+
+---
+
+### Phase 120: Shadow Mode Validation
+
+**Goal:** All 21 refactored setups run in shadow mode until empirically validated. Promotion criteria: p<0.05 (binomial test), N>=100, win_rate>50%, confidence_calibration>0.3.
+
+**Depends on**: Phase 119
+**Requirements**: SHADOW-01, SHADOW-02, SHADOW-03
+**Success Criteria** (what must be TRUE):
+
+  1. ShadowModeValidator runs weekly via systemd timer; queries signal_ledger_shadow for all refactored setups
+  2. Promotion criteria enforced: total>=100, selection_rate>=5%, p_value<0.05 (binomial test vs 50% baseline), avg_pnl_r>0, calibration_correlation>0.3
+  3. Setups passing promotion are updated: shadow_registry.shadow_only=False + notification event
+  4. Setups failing promotion remain shadow_only=True; failure reasons logged (insufficient N, low selection, not significant, negative expectancy, poor calibration)
+  5. Grafana dashboard shows shadow mode metrics: N, selection_rate, p_value, avg_pnl_r, calibration per setup
+
+**Plans**: 3 plans in 3 waves
+
+Plans:
+
+**Wave 1** — ShadowModeValidator infrastructure
+
+- [ ] 120-01-PLAN.md — ShadowModeValidator class + promotion criteria methods + binomial test logic + OTel metrics
+
+**Wave 2** *(depends on Wave 1)* — Systemd integration
+
+- [ ] 120-02-PLAN.md — Systemd timer (weekly Mon 07:00 UTC) + service unit + stream keys + state persistence
+
+**Wave 3** *(depends on Wave 2)* — Dashboard + alerting
+
+- [ ] 120-03-PLAN.md — Grafana dashboard + promotion alert (Telegram/Discord) + documentation
+
+---
+
+### Phase 121: Lifecycle Replay & Validation
+
+**Goal:** Replay signal ledger with corrected setup list. Compare before/after metrics: total signals, selection rate, SNR per setup. Validate overall system health.
+
+**Depends on**: Phase 120
+**Requirements**: REPLAY-01, REPLAY-02
+**Success Criteria** (what must be TRUE):
+
+  1. Lifecycle replay completes with corrected setups; signal_ledger populated with replay outcomes
+  2. Before/after comparison report shows: total signals 7.85M→4.0M target, selection rate 24%→40%, NEEDS_REFACTOR SNR 0.19%→40%+
+  3. All 30 setups have calibration_correlation>0.3 (confidence predicts selection)
+  4. trad_OFIContinuation: 1.59M→~250K signals, 0.18%→15-25% SNR
+  5. trad_PatternCompletion: 795K→~95K signals, 0.15%→15-25% SNR
+  6. Zero "stopped_at_entry" outcomes (stop losses outside zones validated)
+
+**Plans**: 2 plans in 2 waves
+
+Plans:
+
+**Wave 1** — Replay execution
+
+- [ ] 121-01-PLAN.md — Lifecycle replay with corrected setups + signal_ledger repopulation + outcome backfill
+
+**Wave 2** *(depends on Wave 1)* — Validation report
+
+- [ ] 121-02-PLAN.md — Before/after comparison report + SNR per setup + calibration validation + documentation
+
+---
+
+### Phase 122: Production Hardening
+
+**Goal:** ParityAuditor runs continuously; alerts page on-call on data integrity violations. ConfidenceCalibrationMonitor runs continuously. All 30 setups empirically validated.
+
+**Depends on**: Phase 121
+**Requirements**: HARDEN-01, HARDEN-02, HARDEN-03
+**Success Criteria** (what must be TRUE):
+
+  1. FeatureParityAuditor runs continuously (5min timer); zero silent failures; alerts within 60s on data integrity violations
+  2. ConfidenceCalibrationMonitor runs continuously (5min timer); alerts if calibration<0.3 with N>=100
+  3. ShadowAuditor runs continuously (15min timer); validates shadow mode integrity; flags setups that should graduate
+  4. All 30 setups have validation passed: multi-factor confidence, I6 confluence, calibration>0.3
+  5. ServiceAuditor integrates parity/calibration/shadow alerts; unified alerting to Telegram/Discord
+
+**Plans**: 2 plans in 2 waves
+
+Plans:
+
+**Wave 1** — Continuous auditors
+
+- [ ] 122-01-PLAN.md — FeatureParityAuditor + ConfidenceCalibrationMonitor continuous deployment + alerting integration
+
+**Wave 2** *(depends on Wave 1)* — ServiceAuditor integration
+
+- [ ] 122-02-PLAN.md — ShadowAuditor integration + ServiceAuditor unified alerting + runbook documentation
+
+</details>
+
+---
+
+<details>
+<summary>📋 v2.10 Data Architecture Evolution (Phases 123-125) — CONDITIONAL</summary>
+
+**Milestone Goal:** Decide on signal/trade separation architecture (2-table vs 3-table), define cardinality rules, and execute database migration if approved. Clean-start migration available (non-production environment).
+
+**Execution order:** v2.9 → v2.10 (if ADR approved) → v2.8 Part 2 (resume)
+
+**Status:** CONDITIONAL — requires Renaissance council decision in Phase 123. If 2-table approach rejected, milestone ends after Phase 123.
+
+**Design decision:** This milestone addresses DATA LAYER separation (database schema), not compute layer. Signal generation + trade framing remain embedded at compute layer per Principle 12 (Signal Generation Invariant) — settled in `docs/plans/archive/2026-06-07-trade-framing-architecture-analysis.md`.
+
+**Reference:** `docs/ideas/2026-06-08-signal-trade-separation-architecture.md`
+
+**Architecture Options:**
+- **2-table (simplified)**: signal_events (7.5M) + trades (1.88M with framing+execution combined)
+- **3-table (proposed)**: signal_events (7.5M) + trade_framing (1.88M) + trade_execution (1.88M)
+
+---
+
+### Phase 123: Signal/Trade Separation Decision
+
+**Goal:** Renaissance council decision on 2-table vs 3-table architecture. Define cardinality (1:1 vs 1:many rules). Define numeric type standardization. Decision recorded in ADR.
+
+**Depends on**: Phase 122
+**Requirements**: ARCH-01, ARCH-02, ARCH-03
+**Success Criteria** (what must be TRUE):
+
+  1. ADR `docs/ideas/2026-06-08-signal-trade-separation-architecture-ADR.md` created with decision: 2-table or 3-table
+  2. Cardinality defined: Can 1 signal have multiple trades? Can 1 trade have multiple executions (partial fills, scale-outs)?
+  3. Numeric type standardization: Use NUMERIC everywhere for prices/PnL (recommended) vs mixed types — decision recorded
+  4. Cross-AI review concerns addressed: was_selected lifecycle coupling, JSONB governance, execution lifecycle modeling, versioning completeness, indexing strategy
+  5. If 2-table approved: signal_events (7.5M) + trades (1.88M with framing+execution combined)
+  6. If 3-table approved: signal_events (7.5M) + trade_framing (1.88M) + trade_execution (1.88M)
+
+**Plans**: 2 plans (council decision + documentation)
+
+Plans:
+
+- [ ] 123-01-PLAN.md — Renaissance council decision: 2-table vs 3-table + cardinality definition + numeric type standardization
+- [ ] 123-02-PLAN.md — ADR creation + cross-AI review response + documentation update
+
+---
+
+### Phase 124: Database Migration (Conditional)
+
+**Goal:** Execute database migration if Phase 123 approves separation. Drop old tables (clean-start), create new schema, add indexes for query performance.
+
+**Depends on**: Phase 123 (conditional — executes ONLY IF separation approved)
+**Requirements**: MIGRATE-01, MIGRATE-02, MIGRATE-03
+**Success Criteria** (what must be TRUE):
+
+  1. Old schema dropped: DROP TABLE IF EXISTS signal_ledger CASCADE; DROP TABLE IF EXISTS signal_outcomes CASCADE
+  2. New schema created per ADR decision (2-table or 3-table variant)
+  3. Indexes created: signal_events (timestamp DESC), (symbol, timestamp DESC); trade_execution (signal_id), (framing_id), (exit_at), (outcome, exit_at)
+  4. BRIN indexes on timestamp columns for time-series compression
+  5. CHECK constraints enforce cardinality and data quality rules
+  6. signal_ledger_full view created for backward compatibility (materialized or regular view per decision)
+  7. Migration script idempotent; rollback procedure documented; pg_dump backup at /tmp/indicagent-pre-migration-*.dump
+
+**Plans**: 3 plans in 3 waves
+
+Plans:
+
+**Wave 1** — Schema creation
+
+- [ ] 124-01-PLAN.md — DDL migration: signal_events + trade_framing + trade_execution (or 2-table variant) + indexes + constraints
+
+**Wave 2** *(depends on Wave 1)* — View + rollback
+
+- [ ] 124-02-PLAN.md — signal_ledger_full view + rollback DDL + backup verification
+
+**Wave 3** *(depends on Wave 2)* — Verification
+
+- [ ] 124-03-PLAN.md — Migration verification + constraint validation + index performance test + documentation
+
+---
+
+### Phase 125: Script Rewriting (Conditional)
+
+**Goal:** Rewrite all scripts to use new schema: SignalWriter, lifecycle_writer, queries. Update dashboard API to use new table structure or signal_ledger_full view.
+
+**Depends on**: Phase 124 (conditional — executes ONLY IF migration approved)
+**Requirements**: REWRITE-01, REWRITE-02, REWRITE-03
+**Success Criteria** (what must be TRUE):
+
+  1. SignalWriter writes to signal_events (and trade_framing/trade_execution if selected); no signal_ledger direct writes
+  2. lifecycle_writer reads from signal_events, writes to trade_execution
+  3. All queries updated to use new tables or signal_ledger_full view
+  4. Dashboard /api/signals/active continues to return fire-time fields (via LATERAL jsonb_array_elements if needed)
+  5. LATERAL JOIN latency monitored (target <500ms p95 for dashboard queries)
+  6. All affected services restart cleanly; systemctl status shows all active
+  7. Integration tests verify end-to-end signal flow: detection → framing → execution → query
+
+**Plans**: 3 plans in 3 waves
+
+Plans:
+
+**Wave 1** — Writer migrations
+
+- [ ] 125-01-PLAN.md — SignalWriter rewrite: signal_events + trade_framing/trade_execution writes + tests
+
+**Wave 2** *(depends on Wave 1)* — Lifecycle + queries
+
+- [ ] 125-02-PLAN.md — lifecycle_writer rewrite + query migrations (all signal_ledger queries updated) + tests
+
+**Wave 3** *(depends on Wave 2)* — Dashboard + verification
+
+- [ ] 125-03-PLAN.md — Dashboard API update + LATERAL JOIN performance verification + service restart + end-to-end integration test
+
+**Cross-cutting constraints (v2.10):**
+
+- `pytest tests/unit/ -q` passes with zero failures after each phase
+- `ruff check .` passes with zero warnings
+- Database migrations are idempotent and rollback-safe
+- Integration tests verify end-to-end signal flow
+
+</details>
+
+---
+
+<details>
+<summary>⏸️ v2.8 AI Platform — Part 2 (Phases 096-099, 101-103) — BLOCKED UNTIL v2.9</summary>
+
+**Status:** BLOCKED until v2.9 Signal Quality Renaissance completes.
+
+**Blocked Phases:**
+- Phase 096: Agent Registry — BLOCKED until signal quality fixed (trains on noisy signals)
+- Phase 098: DSPy Offline Prompt Optimizer — BLOCKED until signal quality fixed
+- Phase 099: Guardrails AI Validation — BLOCKED until parse failure rate measured
+- Phase 101: Composite Fitness Function — BLOCKED until signal quality fixed (fitness on noisy data)
+- Phase 102: Genetic Infrastructure — BLOCKED until v2.9 completes
+- Phase 103: Reproductive Operators — BLOCKED until v2.9 completes
+
+**Unblocked Phases (can ship anytime):**
+- Phase 097: Zep Episodic Memory — ✅ SHIPPED 2026-06-06 (needs v2.9 for quality data)
+
+**Rationale:** Phases 096-103 depend on high-quality signal data. Current state: 21 setups fire 4.46M noise signals (99.8% noise rate). Training ML models, evolving agents, or measuring fitness on corrupted data produces garbage results. v2.9 Signal Quality Renaissance fixes this root cause.
+
+</details>
+
+---
 
 ## Backlog
 
