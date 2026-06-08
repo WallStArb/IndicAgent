@@ -453,11 +453,11 @@ def _check_zone_activation(
     bar_time: Any = None,
 ) -> Transition | None:
     """Zone-aware activation: bar range must overlap the entry zone."""
-    # D-01: Temporal guard -- never activate on a bar from before the signal was fired
-    if signal_timestamp is not None and bar_time is not None:
-        sig_ts = signal_timestamp if isinstance(signal_timestamp, datetime) else None
-        bar_ts = bar_time if isinstance(bar_time, datetime) else None
-        if sig_ts is not None and bar_ts is not None and bar_ts < sig_ts:
+    # D-01: Temporal guard -- never activate on same-or-earlier bar (signal did not exist yet)
+    # Signals fired at bar T close cannot use bar T's price action (temporal bias).
+    # Activation and exit evaluation must start at bar T+1.
+    if isinstance(signal_timestamp, datetime) and isinstance(bar_time, datetime):
+        if bar_time <= signal_timestamp:
             return None
 
     bar_overlaps_zone = low <= zone_high and high >= zone_low
