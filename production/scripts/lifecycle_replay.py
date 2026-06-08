@@ -472,10 +472,12 @@ async def _process_symbol_tf(
         sorted_sids: list[str] = [str(s["signal_id"]) for s in signals]
         activation_ptr: int = 0
 
-        # 3. Stream bars from DB — cursor avoids loading the full bar history into memory.
-        # For large (symbol, tf) pairs (1m/ES over 1 year = 100k+ bars) conn.fetch()
-        # allocates the full result set. Cursor prefetches in pages of 1000, keeping
-        # memory flat regardless of history depth.
+        # 3. Stream bars from DB — client-side batching avoids asyncpg cursor issues.
+        # Server-side cursors in asyncpg require specific transaction handling that
+        # was causing "cursor cannot be created outside of a transaction" errors.
+        # Client-side LIMIT/OFFSET batching is slower but more reliable.
+        BATCH_SIZE = 1000
+        offset = 0
         conn = await db.pool.acquire()
         try:
             await conn.execute("BEGIN")
@@ -485,226 +487,256 @@ async def _process_symbol_tf(
             await db.pool.release(conn)
             raise
 
-        # 4. Stream bars and evaluate signals
-        async for bar_row in conn.cursor(
-            """SELECT timestamp, open, high, low, close
-               FROM market_data_ohlcv
-               WHERE symbol = $1 AND timeframe = $2
-                 AND timestamp >= $3
-               ORDER BY timestamp ASC""",
-            symbol,
-            timeframe,
-            min_ts,
-            prefetch=1000,
-        ):
-            bar = dict(bar_row)
-            bar_ts = bar["timestamp"]
-            if bar_ts.tzinfo is None:
-                bar_ts = bar_ts.replace(tzinfo=UTC)
-            bar["timestamp"] = bar_ts
-            last_bar = bar
+        # 4. Stream bars and evaluate signals using client-side batching
+        while True:
+            bars = await conn.fetch(
+                """SELECT timestamp, open, high, low, close
+                   FROM market_data_ohlcv
+                   WHERE symbol = $1 AND timeframe = $2
+                     AND timestamp >= $3
+                   ORDER BY timestamp ASC
+                   LIMIT $4 OFFSET $5""",
+                symbol,
+                timeframe,
+                min_ts,
+                BATCH_SIZE,
+                offset,
+            )
 
-            # Activate signals that fired before this bar (signal fires on bar N close,
-            # first evaluable bar is N+1). Pointer advances monotonically through the
-            # timestamp-sorted list — O(N+M) total instead of O(N×M) per-bar full scan.
-            while activation_ptr < len(sorted_sids):
-                sid = sorted_sids[activation_ptr]
-                sig = sig_map[sid]
-                if sig["timestamp"] >= bar_ts:
-                    break
-                if sid not in live_sids:
-                    live_sids.add(sid)
-                    mep = sig.get("market_entry_price")
-                    if mep is None:
-                        market_entry_prices[sid] = float(bar["open"])
-                        gap = compute_gap_bars(sig["timestamp"], bar_ts, tf_secs)
-                        sig["_replay_gap_bars"] = gap
-                        if gap > 0:
-                            stats["gaps"] += 1
-                    else:
-                        market_entry_prices[sid] = float(mep)
-                    market_activated_at[sid] = bar_ts
-                activation_ptr += 1
+            if not bars:
+                break  # No more bars
 
-            resolved_this_bar: set[str] = set()
+            for bar_row in bars:
+                bar = dict(bar_row)
+                bar_ts = bar["timestamp"]
+                if bar_ts.tzinfo is None:
+                    bar_ts = bar_ts.replace(tzinfo=UTC)
+                bar["timestamp"] = bar_ts
+                last_bar = bar
 
-            for sid in live_sids:
-                sig = sig_map[sid]
-                bars_el = int((bar_ts - sig["timestamp"]).total_seconds() / tf_secs)
-                sig_eval = {**sig, "bars_elapsed": bars_el, "point_value": 1.0}
+                # Activate signals that fired before this bar (signal fires on bar N close,
+                # enter at close_price, first evaluable bar is N+1). Option A: realistic
+                # entry at signal close, evaluation starts next bar. Pointer advances
+                # monotonically through the timestamp-sorted list — O(N+M) total.
+                while activation_ptr < len(sorted_sids):
+                    sid = sorted_sids[activation_ptr]
+                    sig = sig_map[sid]
+                    if sig["timestamp"] >= bar_ts:
+                        break
+                    if sid not in live_sids:
+                        live_sids.add(sid)
+                        mep = sig.get("market_entry_price")
+                        entry_price = sig.get("entry_price")
+                        if mep is None:
+                            # Option A: Use signal's entry_price (bar T close), not bar open
+                            # This is the realistic entry price — we enter at the close that
+                            # triggered the signal, not the next bar's open.
+                            if entry_price is not None:
+                                market_entry_prices[sid] = float(entry_price)
+                            else:
+                                # Fallback: should not happen with well-formed signals
+                                market_entry_prices[sid] = float(bar["open"])
+                                stats["gaps"] += 1
+                        else:
+                            market_entry_prices[sid] = float(mep)
+                        # Track activation time, but evaluation starts on NEXT bar (T+1)
+                        market_activated_at[sid] = bar_ts
+                    activation_ptr += 1
 
-                # ── Market track ──
-                # Evaluates from market_entry_price using stop_loss/target_1/target_2.
-                # Runs independently of zone track — signal can hit target on market
-                # track while still pending on zone track, or vice versa.
-                mep = market_entry_prices.get(sid)
-                if mep is not None and not sig.get("_market_resolved"):
-                    m_mae = market_mae_acc.get(sid, 0.0)
-                    m_mfe = market_mfe_acc.get(sid, 0.0)
+                resolved_this_bar: set[str] = set()
+
+                for sid in live_sids:
+                    sig = sig_map[sid]
+
+                    # Option A: Skip evaluation on the entry bar. We entered at the close of
+                    # the signal bar (T), so the earliest we can evaluate is the next bar (T+1).
+                    # market_activated_at holds the entry timestamp - skip if this is entry bar.
+                    m_entry_at = market_activated_at.get(sid)
+                    if m_entry_at is not None and bar_ts == m_entry_at:
+                        # This is the entry bar - skip evaluation, move to next signal
+                        continue
+
+                    bars_el = int((bar_ts - sig["timestamp"]).total_seconds() / tf_secs)
+                    sig_eval = {**sig, "bars_elapsed": bars_el, "point_value": 1.0}
+
+                    # ── Market track ──
+                    # Evaluates from market_entry_price using stop_loss/target_1/target_2.
+                    # Runs independently of zone track — signal can hit target on market
+                    # track while still pending on zone track, or vice versa.
+                    mep = market_entry_prices.get(sid)
+                    if mep is not None and not sig.get("_market_resolved"):
+                        m_mae = market_mae_acc.get(sid, 0.0)
+                        m_mfe = market_mfe_acc.get(sid, 0.0)
+                        try:
+                            m_trans = evaluate_market_entry(
+                                sig_eval,
+                                market_entry_price=mep,
+                                high=float(bar["high"]),
+                                low=float(bar["low"]),
+                                close=float(bar["close"]),
+                                current_mae=m_mae,
+                                current_mfe=m_mfe,
+                            )
+                        except Exception as exc:
+                            logger.warning("market eval error %s: %s", sid, exc)
+                            m_trans = None
+                            stats["errors"] += 1
+
+                        if m_trans and m_trans.outcome is not None:
+                            m_entry_at = market_activated_at.get(sid)
+                            m_bit = (
+                                int((bar_ts - m_entry_at).total_seconds() / tf_secs)
+                                if m_entry_at
+                                else 0
+                            )
+                            m_outcome = m_trans.outcome
+                            stats["market"][m_outcome] = stats["market"].get(m_outcome, 0) + 1
+                            pending_writes.append(
+                                (
+                                    "market",
+                                    sid,
+                                    {
+                                        "_ts": sig["timestamp"],
+                                        "market_entry_at": m_entry_at,
+                                        "market_entry_exit_price": m_trans.exit_price,
+                                        "market_entry_exit_at": bar_ts,
+                                        "market_entry_pnl_r": m_trans.pnl_r,
+                                        "market_entry_mae": m_trans.mae,
+                                        "market_entry_mfe": m_trans.mfe,
+                                        "market_entry_bars_in_trade": m_bit,
+                                        "market_entry_outcome": m_outcome,
+                                        "market_entry_gap_bars": sig.get("_replay_gap_bars"),
+                                    },
+                                )
+                            )
+                            sig["_market_resolved"] = True
+                        elif m_trans:
+                            # Still open — accumulate running MAE/MFE in R-multiples
+                            risk = abs(mep - float(sig["stop_loss"]))
+                            if risk > 0:
+                                direction = sig["direction"]
+                                cpnl = (float(bar["close"]) - mep) * direction / risk
+                                market_mae_acc[sid] = min(m_mae, cpnl)
+                                market_mfe_acc[sid] = max(m_mfe, cpnl)
+
+                    # ── Zone track ──
+                    # Evaluates entry zone activation, then stop/target from zone entry price.
+                    # regime_suppressed signals are treated as active for zone evaluation
+                    # (suppression only affects signal selection, not outcome tracking).
+                    z_mae = zone_mae.get(sid, 0.0)
+                    z_mfe = zone_mfe.get(sid, 0.0)
+                    z_status = "active" if zone_activated.get(sid) else sig.get("status", "pending")
+                    sig_eval["status"] = (
+                        "active"
+                        if (z_status == "regime_suppressed" or zone_activated.get(sid))
+                        else z_status
+                    )
+
                     try:
-                        m_trans = evaluate_market_entry(
+                        z_trans = evaluate_signal(
                             sig_eval,
-                            market_entry_price=mep,
                             high=float(bar["high"]),
                             low=float(bar["low"]),
                             close=float(bar["close"]),
-                            current_mae=m_mae,
-                            current_mfe=m_mfe,
+                            current_mae=z_mae,
+                            current_mfe=z_mfe,
                         )
                     except Exception as exc:
-                        logger.warning("market eval error %s: %s", sid, exc)
-                        m_trans = None
+                        logger.warning("zone eval error %s: %s", sid, exc)
+                        z_trans = None
                         stats["errors"] += 1
 
-                    if m_trans and m_trans.outcome is not None:
-                        m_entry_at = market_activated_at.get(sid)
-                        m_bit = (
-                            int((bar_ts - m_entry_at).total_seconds() / tf_secs)
-                            if m_entry_at
-                            else 0
-                        )
-                        m_outcome = m_trans.outcome
-                        stats["market"][m_outcome] = stats["market"].get(m_outcome, 0) + 1
+                    if z_trans is None:
+                        # No state change this bar — accumulate MAE/MFE if active
+                        if zone_activated.get(sid):
+                            entry = float(sig["entry_price"])
+                            stop = float(sig["stop_loss"])
+                            risk = abs(entry - stop)
+                            if risk > 0:
+                                direction = sig["direction"]
+                                cpnl = (float(bar["close"]) - entry) * direction / risk
+                                zone_mae[sid] = min(z_mae, cpnl)
+                                zone_mfe[sid] = max(z_mfe, cpnl)
+                        continue
+
+                    if z_trans.new_status == "active":
+                        # Signal entered the zone — record activation and reset MAE/MFE
+                        zone_activated[sid] = True
+                        zone_activated_at[sid] = bar_ts
                         pending_writes.append(
                             (
-                                "market",
+                                "activation",
                                 sid,
                                 {
                                     "_ts": sig["timestamp"],
-                                    "market_entry_at": m_entry_at,
-                                    "market_entry_exit_price": m_trans.exit_price,
-                                    "market_entry_exit_at": bar_ts,
-                                    "market_entry_pnl_r": m_trans.pnl_r,
-                                    "market_entry_mae": m_trans.mae,
-                                    "market_entry_mfe": m_trans.mfe,
-                                    "market_entry_bars_in_trade": m_bit,
-                                    "market_entry_outcome": m_outcome,
-                                    "market_entry_gap_bars": sig.get("_replay_gap_bars"),
+                                    "activation_price": z_trans.activation_price,
+                                    "zone_entry_pct": z_trans.zone_entry_pct,
+                                    "bars_to_activation": z_trans.bars_to_activation,
+                                    "activated_at": bar_ts,
                                 },
                             )
                         )
-                        sig["_market_resolved"] = True
-                    elif m_trans:
-                        # Still open — accumulate running MAE/MFE in R-multiples
-                        risk = abs(mep - float(sig["stop_loss"]))
-                        if risk > 0:
-                            direction = sig["direction"]
-                            cpnl = (float(bar["close"]) - mep) * direction / risk
-                            market_mae_acc[sid] = min(m_mae, cpnl)
-                            market_mfe_acc[sid] = max(m_mfe, cpnl)
-
-                # ── Zone track ──
-                # Evaluates entry zone activation, then stop/target from zone entry price.
-                # regime_suppressed signals are treated as active for zone evaluation
-                # (suppression only affects signal selection, not outcome tracking).
-                z_mae = zone_mae.get(sid, 0.0)
-                z_mfe = zone_mfe.get(sid, 0.0)
-                z_status = "active" if zone_activated.get(sid) else sig.get("status", "pending")
-                sig_eval["status"] = (
-                    "active"
-                    if (z_status == "regime_suppressed" or zone_activated.get(sid))
-                    else z_status
-                )
-
-                try:
-                    z_trans = evaluate_signal(
-                        sig_eval,
-                        high=float(bar["high"]),
-                        low=float(bar["low"]),
-                        close=float(bar["close"]),
-                        current_mae=z_mae,
-                        current_mfe=z_mfe,
-                    )
-                except Exception as exc:
-                    logger.warning("zone eval error %s: %s", sid, exc)
-                    z_trans = None
-                    stats["errors"] += 1
-
-                if z_trans is None:
-                    # No state change this bar — accumulate MAE/MFE if active
-                    if zone_activated.get(sid):
-                        entry = float(sig["entry_price"])
-                        stop = float(sig["stop_loss"])
-                        risk = abs(entry - stop)
-                        if risk > 0:
-                            direction = sig["direction"]
-                            cpnl = (float(bar["close"]) - entry) * direction / risk
-                            zone_mae[sid] = min(z_mae, cpnl)
-                            zone_mfe[sid] = max(z_mfe, cpnl)
-                    continue
-
-                if z_trans.new_status == "active":
-                    # Signal entered the zone — record activation and reset MAE/MFE
-                    zone_activated[sid] = True
-                    zone_activated_at[sid] = bar_ts
-                    pending_writes.append(
-                        (
-                            "activation",
-                            sid,
-                            {
-                                "_ts": sig["timestamp"],
-                                "activation_price": z_trans.activation_price,
-                                "zone_entry_pct": z_trans.zone_entry_pct,
-                                "bars_to_activation": z_trans.bars_to_activation,
-                                "activated_at": bar_ts,
-                            },
+                        zone_mae[sid] = 0.0
+                        zone_mfe[sid] = 0.0
+                    else:
+                        # Zone exit — classify outcome and mark resolved
+                        z_outcome = z_trans.outcome
+                        if z_outcome is None:
+                            z_bit = int(
+                                (bar_ts - zone_activated_at.get(sid, bar_ts)).total_seconds()
+                                / tf_secs
+                            )
+                            z_outcome = _classify_stop_outcome(z_mfe, z_bit)
+                        stats["zone"][z_outcome] = stats["zone"].get(z_outcome, 0) + 1
+                        stats["processed"] += 1
+                        pending_writes.append(
+                            (
+                                "zone_exit",
+                                sid,
+                                {
+                                    "_ts": sig["timestamp"],
+                                    "status": z_trans.new_status,
+                                    "exit_at": bar_ts,
+                                    "exit_price": z_trans.exit_price,
+                                    "exit_reason": z_trans.exit_reason,
+                                    "pnl_ticks": z_trans.pnl_ticks,
+                                    "pnl_r": z_trans.pnl_r,
+                                    "pnl_dollars": z_trans.pnl_dollars,
+                                    "signal_quality": None,
+                                    "mae": z_trans.mae,
+                                    "mfe": z_trans.mfe,
+                                    "bars_in_trade": None,
+                                    "outcome": z_outcome,
+                                },
+                            )
                         )
-                    )
-                    zone_mae[sid] = 0.0
-                    zone_mfe[sid] = 0.0
-                else:
-                    # Zone exit — classify outcome and mark resolved
-                    z_outcome = z_trans.outcome
-                    if z_outcome is None:
-                        z_bit = int(
-                            (bar_ts - zone_activated_at.get(sid, bar_ts)).total_seconds() / tf_secs
-                        )
-                        z_outcome = _classify_stop_outcome(z_mfe, z_bit)
-                    stats["zone"][z_outcome] = stats["zone"].get(z_outcome, 0) + 1
-                    stats["processed"] += 1
-                    pending_writes.append(
-                        (
-                            "zone_exit",
-                            sid,
-                            {
-                                "_ts": sig["timestamp"],
-                                "status": z_trans.new_status,
-                                "exit_at": bar_ts,
-                                "exit_price": z_trans.exit_price,
-                                "exit_reason": z_trans.exit_reason,
-                                "pnl_ticks": z_trans.pnl_ticks,
-                                "pnl_r": z_trans.pnl_r,
-                                "pnl_dollars": z_trans.pnl_dollars,
-                                "signal_quality": None,
-                                "mae": z_trans.mae,
-                                "mfe": z_trans.mfe,
-                                "bars_in_trade": None,
-                                "outcome": z_outcome,
-                            },
-                        )
-                    )
-                    resolved_this_bar.add(sid)
+                        resolved_this_bar.add(sid)
 
-            live_sids -= resolved_this_bar
+                live_sids -= resolved_this_bar
 
-            # Flush batch to DB (no commit yet — commit happens below on threshold)
-            if len(pending_writes) >= batch_size:
-                if not dry_run:
-                    await _flush_writes(conn, pending_writes)
-                pending_writes.clear()
-                # Incremental commit: durable progress every commit_every resolved signals.
-                # Without this, killing the process loses all work since pair start.
-                if not dry_run and stats["processed"] % commit_every < batch_size:
-                    await conn.execute("COMMIT")
-                    await conn.execute("BEGIN")
-                    logger.info(
-                        "%s %s: committed %d resolved so far",
-                        symbol,
-                        timeframe,
-                        stats["processed"],
-                    )
+                # Flush batch to DB (no commit yet — commit happens below on threshold)
+                if len(pending_writes) >= batch_size:
+                    if not dry_run:
+                        await _flush_writes(conn, pending_writes)
+                    pending_writes.clear()
+                    # Incremental commit: durable progress every commit_every resolved signals.
+                    # Without this, killing the process loses all work since pair start.
+                    if not dry_run and stats["processed"] % commit_every < batch_size:
+                        await conn.execute("COMMIT")
+                        await conn.execute("BEGIN")
+                        logger.info(
+                            "%s %s: committed %d resolved so far",
+                            symbol,
+                            timeframe,
+                            stats["processed"],
+                        )
+
+            # Increment offset for next batch
+            offset += BATCH_SIZE
 
         # 5. End of bars — resolve remaining live signals (TTL expired)
+        # Flush counter for this loop to prevent accumulating > batch_size writes
+        ttl_flush_counter = 0
         if last_bar and live_sids:
             for sid in live_sids:
                 sig = sig_map[sid]
@@ -795,6 +827,16 @@ async def _process_symbol_tf(
                             },
                         )
                     )
+                # Incremental flush during TTL resolution to prevent exceeding
+                # PostgreSQL's 32767 parameter limit when many signals expire together
+                ttl_flush_counter += (
+                    2 if (mep is not None and not sig.get("_market_resolved")) else 1
+                )
+                if ttl_flush_counter >= batch_size and len(pending_writes) > 0:
+                    if not dry_run:
+                        await _flush_writes(conn, pending_writes)
+                    pending_writes.clear()
+                    ttl_flush_counter = 0
 
         # 6. Final flush + commit
         if pending_writes and not dry_run:
@@ -841,6 +883,9 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
     All updates match on (signal_id, timestamp) — timestamp is included because
     signal_ledger is a TimescaleDB hypertable partitioned by timestamp, so including
     it in the WHERE clause enables chunk pruning and avoids full-table scans.
+
+    To avoid exceeding PostgreSQL's 32767 parameter limit, writes are chunked
+    into smaller batches within each write type.
     """
     activations, zone_exits, markets = [], [], []
     for kind, sid, data in writes:
@@ -895,63 +940,77 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
                 )
             )
 
+    # Chunk size for each write type to stay under PostgreSQL's 32767 parameter limit
+    # zone_exit: 14 params per row → max 2000 rows = 28000 params
+    # market: 11 params per row → max 2500 rows = 27500 params
+    # activation: 6 params per row → max 4000 rows = 24000 params
+    ZONE_CHUNK = 1500
+    MARKET_CHUNK = 2000
+    ACTIVATION_CHUNK = 4000
+
     if zone_exits:
-        # Build VALUES clause manually for zone_exits
-        values_clause = ",".join(
-            f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::text, ${i+3}::timestamptz, ${i+4}::float, ${i+5}::text, ${i+6}::float, ${i+7}::float, ${i+8}::float, ${i+9}::float, ${i+10}::float, ${i+11}::float, ${i+12}::int, ${i+13}::text)"
-            for i in range(1, len(zone_exits) * 14 + 1, 14)
-        )
-        flat_values = [v for row in zone_exits for v in row]
-        await conn.execute(
-            f"""UPDATE signal_outcomes AS sl
-               SET status=v.status, exit_at=v.exit_at, exit_price=v.exit_price,
-                   exit_reason=v.exit_reason, pnl_ticks=v.pnl_ticks, pnl_r=v.pnl_r,
-                   pnl_dollars=v.pnl_dollars, signal_quality=v.signal_quality,
-                   mae=v.mae, mfe=v.mfe, bars_in_trade=v.bars_in_trade, outcome=v.outcome
-               FROM (VALUES {values_clause}) AS v(signal_id, ts, status, exit_at, exit_price,
-                   exit_reason, pnl_ticks, pnl_r, pnl_dollars, signal_quality,
-                   mae, mfe, bars_in_trade, outcome)
-               WHERE sl.signal_id = v.signal_id""",
-            *flat_values,
-        )
+        # Process in chunks to avoid exceeding PostgreSQL's 32767 parameter limit
+        for chunk_start in range(0, len(zone_exits), ZONE_CHUNK):
+            chunk = zone_exits[chunk_start : chunk_start + ZONE_CHUNK]
+            values_clause = ",".join(
+                f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::text, ${i+3}::timestamptz, ${i+4}::float, ${i+5}::text, ${i+6}::float, ${i+7}::float, ${i+8}::float, ${i+9}::float, ${i+10}::float, ${i+11}::float, ${i+12}::int, ${i+13}::text)"
+                for i in range(1, len(chunk) * 14 + 1, 14)
+            )
+            flat_values = [v for row in chunk for v in row]
+            await conn.execute(
+                f"""UPDATE signal_outcomes AS sl
+                   SET status=v.status, exit_at=v.exit_at, exit_price=v.exit_price,
+                       exit_reason=v.exit_reason, pnl_ticks=v.pnl_ticks, pnl_r=v.pnl_r,
+                       pnl_dollars=v.pnl_dollars, signal_quality=v.signal_quality,
+                       mae=v.mae, mfe=v.mfe, bars_in_trade=v.bars_in_trade, outcome=v.outcome
+                   FROM (VALUES {values_clause}) AS v(signal_id, ts, status, exit_at, exit_price,
+                       exit_reason, pnl_ticks, pnl_r, pnl_dollars, signal_quality,
+                       mae, mfe, bars_in_trade, outcome)
+                   WHERE sl.signal_id = v.signal_id""",
+                *flat_values,
+            )
 
     if markets:
-        # Build VALUES clause manually for markets
-        values_clause = ",".join(
-            f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::timestamptz, ${i+3}::float, ${i+4}::timestamptz, ${i+5}::float, ${i+6}::float, ${i+7}::float, ${i+8}::int, ${i+9}::text, ${i+10}::int)"
-            for i in range(1, len(markets) * 11 + 1, 11)
-        )
-        flat_values = [v for row in markets for v in row]
-        await conn.execute(
-            f"""UPDATE signal_outcomes AS sl
-               SET market_entry_at=v.entry_at, market_entry_exit_price=v.exit_price,
-                   market_entry_exit_at=v.exit_at, market_entry_pnl_r=v.pnl_r,
-                   market_entry_mae=v.mae, market_entry_mfe=v.mfe,
-                   market_entry_bars_in_trade=v.bars_in_trade,
-                   market_entry_outcome=v.outcome, market_entry_gap_bars=v.gap_bars
-               FROM (VALUES {values_clause}) AS v(signal_id, ts, entry_at, exit_price,
-                   exit_at, pnl_r, mae, mfe, bars_in_trade, outcome, gap_bars)
-               WHERE sl.signal_id = v.signal_id""",
-            *flat_values,
-        )
+        # Process in chunks to avoid exceeding PostgreSQL's 32767 parameter limit
+        for chunk_start in range(0, len(markets), MARKET_CHUNK):
+            chunk = markets[chunk_start : chunk_start + MARKET_CHUNK]
+            values_clause = ",".join(
+                f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::timestamptz, ${i+3}::float, ${i+4}::timestamptz, ${i+5}::float, ${i+6}::float, ${i+7}::float, ${i+8}::int, ${i+9}::text, ${i+10}::int)"
+                for i in range(1, len(chunk) * 11 + 1, 11)
+            )
+            flat_values = [v for row in chunk for v in row]
+            await conn.execute(
+                f"""UPDATE signal_outcomes AS sl
+                   SET market_entry_at=v.entry_at, market_entry_exit_price=v.exit_price,
+                       market_entry_exit_at=v.exit_at, market_entry_pnl_r=v.pnl_r,
+                       market_entry_mae=v.mae, market_entry_mfe=v.mfe,
+                       market_entry_bars_in_trade=v.bars_in_trade,
+                       market_entry_outcome=v.outcome, market_entry_gap_bars=v.gap_bars
+                   FROM (VALUES {values_clause}) AS v(signal_id, ts, entry_at, exit_price,
+                       exit_at, pnl_r, mae, mfe, bars_in_trade, outcome, gap_bars)
+                   WHERE sl.signal_id = v.signal_id""",
+                *flat_values,
+            )
 
     if activations:
-        # Build VALUES clause manually for activations
-        values_clause = ",".join(
-            f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::timestamptz, ${i+3}::float, ${i+4}::float, ${i+5}::int)"
-            for i in range(1, len(activations) * 6 + 1, 6)
-        )
-        flat_values = [v for row in activations for v in row]
-        await conn.execute(
-            f"""UPDATE signal_outcomes AS sl
-               SET status='active', activated_at=v.activated_at,
-                   activation_price=v.activation_price, zone_entry_pct=v.zone_entry_pct,
-                   bars_to_activation=v.bars_to_activation
-               FROM (VALUES {values_clause}) AS v(signal_id, ts, activated_at,
-                   activation_price, zone_entry_pct, bars_to_activation)
-               WHERE sl.signal_id = v.signal_id""",
-            *flat_values,
-        )
+        # Process in chunks to avoid exceeding PostgreSQL's 32767 parameter limit
+        for chunk_start in range(0, len(activations), ACTIVATION_CHUNK):
+            chunk = activations[chunk_start : chunk_start + ACTIVATION_CHUNK]
+            values_clause = ",".join(
+                f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::timestamptz, ${i+3}::float, ${i+4}::float, ${i+5}::int)"
+                for i in range(1, len(chunk) * 6 + 1, 6)
+            )
+            flat_values = [v for row in chunk for v in row]
+            await conn.execute(
+                f"""UPDATE signal_outcomes AS sl
+                   SET status='active', activated_at=v.activated_at,
+                       activation_price=v.activation_price, zone_entry_pct=v.zone_entry_pct,
+                       bars_to_activation=v.bars_to_activation
+                   FROM (VALUES {values_clause}) AS v(signal_id, ts, activated_at,
+                       activation_price, zone_entry_pct, bars_to_activation)
+                   WHERE sl.signal_id = v.signal_id""",
+                *flat_values,
+            )
 
 
 async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
