@@ -189,9 +189,15 @@ def _record_to_insert_params(
         event.bar.model_dump(),  # $7 bar
         event.i1.model_dump(),  # $8 technical_indicators
         market_ctx,  # $9 market_context (+ cross_asset)
-        event.i3.model_dump(exclude_none=True),  # $10 pattern_detections
-        event.i4.model_dump(exclude_none=True),  # $11 regime_features
-        event.i5.model_dump(exclude_none=True),  # $12 confluence_scores
+        event.i5.model_dump(
+            exclude_none=True
+        ),  # $10 pattern_detections (I5Patterns: dt_db_confidence, hs_confidence, tri_confidence)
+        event.i3.model_dump(
+            exclude_none=True
+        ),  # $11 regime_features (I3Structure: swing_high, nearest_resistance, trend structure, session levels)
+        event.i4.model_dump(
+            exclude_none=True
+        ),  # $12 confluence_scores (I4Context: GARCH, Kalman, AVWAP, VP, SessionContext)
         event.smc.model_dump(exclude_none=True),  # $13 smc
         event.i6.model_dump(exclude_none=True),  # $14 cross_timeframe_context
         [s.model_dump() for s in record.ranked_signals],  # $15 trading_signals
