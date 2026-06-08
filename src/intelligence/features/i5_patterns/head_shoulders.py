@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.trading.atr_utils import get_atr_with_period
 from src.intelligence.utils import find_peaks, find_troughs
 
 
@@ -31,7 +32,6 @@ class HeadShouldersPlugin:
     min_swing_bars: int = 8
     shoulder_sym_pct: float = 0.05
     head_extend_pct: float = 0.03
-    atr_period: int = 14
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -60,7 +60,11 @@ class HeadShouldersPlugin:
             raw_troughs, low, self.amplitude_thr, self.min_swing_bars, keep_max=False
         )
 
-        atr = self._compute_atr(high, low, close, self.atr_period)
+        # Read ATR-14 from I1 (single source of truth)
+        i1 = frames.get("i1") or {}
+        atr = get_atr_with_period(i1, period=14)
+        if atr is None:
+            atr = 1.0  # Fallback to continue pattern detection (matches original behavior)
         current_close = float(close[-1])
         current_bar = len(close) - 1
 
@@ -224,27 +228,6 @@ class HeadShouldersPlugin:
                 elif not keep_max and prices[idx] < prices[prev_idx]:
                     filtered[-1] = idx
         return filtered
-
-    @staticmethod
-    def _compute_atr(
-        high: np.ndarray,
-        low_price: np.ndarray,
-        close: np.ndarray,
-        period: int,
-    ) -> float:
-        n = min(period, len(close) - 1)
-        if n < 1:
-            return 1.0
-        trs = []
-        start = max(1, len(close) - n)
-        for i in range(start, len(close)):
-            tr = max(
-                high[i] - low_price[i],
-                abs(high[i] - close[i - 1]),
-                abs(low_price[i] - close[i - 1]),
-            )
-            trs.append(tr)
-        return sum(trs) / len(trs) if trs else 1.0
 
 
 plugin = HeadShouldersPlugin()
