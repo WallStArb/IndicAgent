@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
@@ -238,6 +239,17 @@ class DivergenceStackPlugin:
             raw_div_conf, supporting_factors = apply_exhaustion_guard(
                 features, raw_div_conf, supporting_factors
             )
+
+            # I6 ctf_score contribution (additive)
+            ctf_score = float(features.get("ctf_score", 0.0))
+            if abs(ctf_score) > 0.3:
+                raw_div_conf += 0.15 * min(1.0, abs(ctf_score) / 0.7)
+                supporting_factors.append(f"ctf_score={ctf_score:.3f}")
+
+            # HMM regime contribution (additive, centered at 0.5 neutral)
+            regime_w = hmm_regime_weight(features, "up" if direction == 1 else "down")
+            raw_div_conf += 0.10 * (regime_w - 0.5)
+
             confidence = compose_confidence(raw_div_conf)
 
             signal = make_signal_from_frame(
