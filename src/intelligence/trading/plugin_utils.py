@@ -210,6 +210,11 @@ def emit_signal(
 ) -> dict[str, Any]:
     """Build and validate a signal dict from a TradeFrame.
 
+    **Signal Generation Invariant:** This function requires a fully-formed TradeFrame
+    (stops, targets, zones already computed). Trade framing happens at I7 plugin
+    detection time via `frame_trade()`, not at the service boundary. There is no
+    "raw signal" intermediate state per Renaissance data quality principles.
+
     Calls validate_signal() at construction and raises ValueError on failure
     — invalid signals never enter the pipeline.
 
