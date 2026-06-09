@@ -15,7 +15,7 @@ import numpy as np
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -135,9 +135,9 @@ class GapAnalysisSetupPlugin:
 
         # GAP-03: 4-factor intrinsic confidence — each factor clamped to [0, 1] before weighting
         # geo_score: 0.0 at the 0.8 ATR gate, 1.0 at 2.5+ ATR gaps
-        geo_score = min(1.0, max(0.0, (gap_size_atr - 0.8) / 1.7))
+        geo_score = clamp01((gap_size_atr - 0.8) / 1.7)
         # vol_score: 0.0 at 1x average volume, 1.0 at 3x average volume
-        vol_score = min(1.0, max(0.0, (vol_ratio - 1.0) / 2.0))
+        vol_score = clamp01((vol_ratio - 1.0) / 2.0)
         # timing_score: early-session gaps are more meaningful; floors at 0.2 so a valid
         # later-session gap is down-weighted but never rejected (Codex MEDIUM concern).
         # When I4 SessionContext is absent, default to neutral 0.5 (no penalty).

@@ -15,7 +15,7 @@ import numpy as np
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -118,15 +118,11 @@ class MomentumBreakoutPlugin:
         entry = price
 
         # ── Confidence ──
-        roc_score = min(1.0, max(0.0, (abs(roc) - self.roc_threshold) / self.roc_threshold))
-        vol_score = min(
-            1.0,
-            max(
-                0.0,
-                (volume_ratio - self.volume_expansion_threshold) / self.volume_expansion_threshold,
-            ),
+        roc_score = clamp01((abs(roc) - self.roc_threshold) / self.roc_threshold)
+        vol_score = clamp01(
+            (volume_ratio - self.volume_expansion_threshold) / self.volume_expansion_threshold
         )
-        break_margin = min(1.0, max(0.0, abs(price - structure_level) / atr))
+        break_margin = clamp01(abs(price - structure_level) / atr)
 
         raw_conf = 0.40 * roc_score + 0.35 * vol_score + 0.25 * break_margin
 

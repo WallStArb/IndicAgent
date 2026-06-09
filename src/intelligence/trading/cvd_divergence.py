@@ -17,7 +17,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .state_utils import reset_consecutive_state, track_consecutive_state
@@ -135,14 +135,14 @@ class CVDDivergencePlugin:
         # Confidence — 4-factor intrinsic gradient (Phase 118)
         # Factor 1: divergence magnitude — 0.0 at threshold, 1.0 at upper_ref (p90)
         span = max(1e-9, _CVD_DIV_UPPER_REF - _CVD_DIV_THRESHOLD)
-        div_mag_score = min(1.0, max(0.0, (abs(cvd_div) - _CVD_DIV_THRESHOLD) / span))
+        div_mag_score = clamp01((abs(cvd_div) - _CVD_DIV_THRESHOLD) / span)
 
         # Factor 2: dual divergence confirmation (full weight when both CVD and price diverge)
         dual_score = 1.0 if dual_divergence else 0.3  # gradient-exempt — categorical gate
 
         # Factor 3: persistence beyond minimum bars — 0.0 at bar 5, 1.0 at bar 10
         extra_bars = max(0, count - _CONFIRMATION_BARS)
-        persistence_score = min(1.0, max(0.0, extra_bars / 5.0))
+        persistence_score = clamp01(extra_bars / 5.0)
 
         # Factor 4: CVD slope alignment with is-None guard
         cvd_slope_raw = features.get("cvd_slope_5bar")

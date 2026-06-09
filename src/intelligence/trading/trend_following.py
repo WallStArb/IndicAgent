@@ -7,7 +7,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -94,9 +94,9 @@ class TrendFollowingPlugin:
             return no_signal()
 
         raw_conf = (
-            0.45 * min(1.0, max(0.0, trend_conf))
-            + 0.35 * min(1.0, max(0.0, abs(trend_strength)))
-            + 0.20 * min(1.0, max(0.0, abs(swing_pattern)))
+            0.45 * clamp01(trend_conf)
+            + 0.35 * clamp01(abs(trend_strength))
+            + 0.20 * clamp01(abs(swing_pattern))
         )
 
         supporting = []

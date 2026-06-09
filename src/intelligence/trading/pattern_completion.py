@@ -13,7 +13,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -121,10 +121,11 @@ class PatternCompletionPlugin:
         # strength_score: distance above the gate normalised to [0, 1].
         # convergence_score: agreement of multiple independent pattern detectors.
         # direction_purity: unanimity of direction votes across all candidates.
-        pattern_score = min(1.0, max(0.0, best_confidence))
-        strength_score = min(1.0, max(0.0, (best_confidence - 0.70) / 0.30))
-        convergence_score = min(1.0, max(0.0, len(candidates) / 3.0))
-        if len(candidates) > 1:
+        n_candidates = len(candidates)
+        pattern_score = clamp01(best_confidence)
+        strength_score = clamp01((best_confidence - 0.70) / 0.30)
+        convergence_score = clamp01(n_candidates / 3.0)
+        if n_candidates > 1:
             direction_purity = 1.0 if all(d == direction for _, d, _ in candidates) else 0.4
         else:
             direction_purity = 0.7  # single pattern — neutral conviction
@@ -140,7 +141,7 @@ class PatternCompletionPlugin:
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
         supporting = [pattern_name]
-        if len(candidates) > 1:
+        if n_candidates > 1:
             supporting.append("multiple_patterns")
 
         signal = make_signal_from_frame(
@@ -161,7 +162,7 @@ class PatternCompletionPlugin:
         # the i7 JSONB bucket of intelligence_features as typed ML features.
         signal["pattern_name"] = pattern_name
         signal["pattern_raw_confidence"] = round(best_confidence, 4)
-        signal["pattern_count"] = len(candidates)
+        signal["pattern_count"] = n_candidates
 
         return signal
 

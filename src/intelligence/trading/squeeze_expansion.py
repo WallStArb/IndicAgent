@@ -15,7 +15,7 @@ import numpy as np
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -122,13 +122,13 @@ class SqueezeExpansionPlugin:
 
         # Confidence scoring
         # Squeeze bars duration (0.35): longer squeeze = stronger, cap at 30 bars
-        squeeze_bars_score = min(1.0, max(0.0, squeeze_bars / 30.0)) if squeeze_bars > 0 else 0.0
+        squeeze_bars_score = clamp01(squeeze_bars / 30.0)
 
         # Volume expansion ratio (0.35): cap at 3x
-        vol_expansion_score = min(1.0, max(0.0, (volume_ratio - 1.0) / 2.0))
+        vol_expansion_score = clamp01((volume_ratio - 1.0) / 2.0)
 
         # Momentum clarity (0.30): abs(momentum_bias), capped at 1.0
-        momentum_score = min(1.0, max(0.0, abs(momentum_bias)))
+        momentum_score = clamp01(abs(momentum_bias))
 
         raw_conf = 0.35 * squeeze_bars_score + 0.35 * vol_expansion_score + 0.30 * momentum_score
 
@@ -138,10 +138,6 @@ class SqueezeExpansionPlugin:
         supporting.append(f"volume_{volume_ratio:.1f}x_expansion")
         if abs(momentum_bias) >= 0.5:
             supporting.append("strong_momentum")
-        if trend_regime != 0.0 and (
-            (trend_regime > 0 and direction == 1) or (trend_regime < 0 and direction == -1)
-        ):
-            supporting.append("regime_aligned")
 
         confidence = compose_confidence(raw_conf)
 

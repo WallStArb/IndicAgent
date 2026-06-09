@@ -17,7 +17,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .state_utils import track_consecutive_state
@@ -28,20 +28,14 @@ _MIN_CONSECUTIVE_BARS: int = 10
 # Phase 118 starting defaults from 90-day p75/p90 distribution — shadow mode will refine.
 # DB query returned no rows (OFI not written to intelligence_features in historical data);
 # using documented starting values from RCA analysis.
-_MIN_OFI_MAGNITUDE_DEFAULT: float = 500.0
-_MIN_OFI_MAGNITUDE: dict[str, float] = {
-    "ES": 500.0,
-    "NQ": 200.0,
-    "CL": 1000.0,
-    "GC": 500.0,
+# Each entry: (p75_magnitude_gate, p90_upper_ref)
+_OFI_PARAMS: dict[str, tuple[float, float]] = {
+    "ES": (500.0, 2000.0),
+    "NQ": (200.0, 800.0),
+    "CL": (1000.0, 4000.0),
+    "GC": (500.0, 2000.0),
 }
-_OFI_MAG_UPPER_REF_DEFAULT: float = 2000.0
-_OFI_MAG_UPPER_REF: dict[str, float] = {
-    "ES": 2000.0,
-    "NQ": 800.0,
-    "CL": 4000.0,
-    "GC": 2000.0,
-}
+_OFI_PARAMS_DEFAULT: tuple[float, float] = (500.0, 2000.0)
 
 
 @dataclass
@@ -117,7 +111,7 @@ class OFIContinuationPlugin:
             return no_signal()
 
         # Gate: require minimum OFI magnitude (trivial flow imbalances rejected)
-        mag_threshold = _MIN_OFI_MAGNITUDE.get(symbol, _MIN_OFI_MAGNITUDE_DEFAULT)
+        mag_threshold, upper_ref = _OFI_PARAMS.get(symbol, _OFI_PARAMS_DEFAULT)
         if abs(ofi_ewma) < mag_threshold:
             return no_signal()
 
@@ -141,10 +135,8 @@ class OFIContinuationPlugin:
         # ofi_ewma_5 confirmed emitted by I1 ofi.py (ofi_ewma_5 key, line 110);
         # using primary 4-factor formula with alignment_score.
 
-        upper_ref = _OFI_MAG_UPPER_REF.get(symbol, _OFI_MAG_UPPER_REF_DEFAULT)
-        magnitude_score = min(
-            1.0,
-            max(0.0, (abs(ofi_ewma) - mag_threshold) / max(1e-9, upper_ref - mag_threshold)),
+        magnitude_score = clamp01(
+            (abs(ofi_ewma) - mag_threshold) / max(1e-9, upper_ref - mag_threshold)
         )
 
         ofi_ewma5 = features.get("ofi_ewma_5")
@@ -155,11 +147,11 @@ class OFIContinuationPlugin:
         else:
             alignment_score = 0.65  # neutral fallback when ofi_ewma_5 missing
 
-        persistence_score = min(1.0, max(0.0, (count - _MIN_CONSECUTIVE_BARS) / 10.0))
+        persistence_score = clamp01((count - _MIN_CONSECUTIVE_BARS) / 10.0)
 
         rel_vol = features.get("rel_volume")
         rel_vol = float(rel_vol) if rel_vol is not None else 1.0
-        volume_score = min(1.0, max(0.0, (rel_vol - 1.0) / 1.5))
+        volume_score = clamp01((rel_vol - 1.0) / 1.5)
 
         # Weighted sum — weights sum to 1.0; all factors clamped to [0,1] before entry
         raw_conf = (
