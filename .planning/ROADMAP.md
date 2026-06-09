@@ -1517,8 +1517,8 @@ Plans:
 
 **Wave 2** *(depends on Wave 1)* — Detection infrastructure
 
-- [ ] 117-02-PLAN.md — FeatureParityAuditor: audit_i5_patterns() + audit_i1_microstructure() + systemd timer + stream keys + OTel metrics
-- [ ] 117-03-PLAN.md — ConfidenceCalibrationMonitor: compute_calibration() + metric publishing + alerting logic + systemd timer
+- [x] 117-02-PLAN.md — FeatureParityAuditor: audit_i5_patterns() + audit_i1_microstructure() + systemd timer + stream keys + OTel metrics
+- [x] 117-03-PLAN.md — ConfidenceCalibrationMonitor: compute_calibration() + metric publishing + alerting logic + systemd timer
 
 **Wave 3** *(depends on Wave 2)* — Architectural enforcement
 
