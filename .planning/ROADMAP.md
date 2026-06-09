@@ -874,6 +874,7 @@ Plans:
 **Milestone Goal (Part 1)**: Execute foundational AI platform stack (LiteLLM, Pydantic AI), infrastructure hardening, naming alignment, SR consensus, framing audit, and Occam's razor foundation. Part 2 (genetic operators, remaining AI platform) is blocked until v2.9 Signal Quality Renaissance completes.
 
 **Completed Phases (Part 1)**:
+
 - Phase 094: LiteLLM + Instructor Structured Output ✅
 - Phase 095: Pydantic AI Agent Execution Layer ✅
 - Phase 106: Foundation Hardening ✅
@@ -890,6 +891,7 @@ Plans:
 - Phase 116: SR Consensus — Multi-Method Support/Resistance ✅
 
 **Blocked Phases (Part 2 — requires v2.9 first)**:
+
 - Phase 096: Agent Registry — BLOCKED until signal quality fixed (trains on noisy signals)
 - Phase 097: Zep Episodic Memory — SHIPPED but needs v2.9 for quality data
 - Phase 098: DSPy Offline Prompt Optimizer — BLOCKED until signal quality fixed
@@ -1274,7 +1276,6 @@ Plans:
 - [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
 - [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
-
 ### Phase 115: Framing Audit Trail
 
 **Goal**: Capture the full stop/target framing decision audit trail — adaptive buffer multiplier, stop basis, structural distance, and plugin regime type — in `TradeFrame`, signal dict, and `signal_ledger`. Wire `regime_type` to all 26 `frame_trade()` call sites so Hurst tightening is live for all plugins.
@@ -1340,7 +1341,6 @@ Plans:
   4. Round number candidates derived from price-magnitude grid (`10^floor(log10(price))`) — instrument-agnostic, zero configuration
   5. `sr_support_dist_pct = 2.0` pattern (synthetic fallback signature) drops to near zero in `intelligence_features`
   6. All existing unit tests pass; new unit tests cover ATR clustering, TF lookback selection, round number grid, consensus output with and without candidates
-
 
 **Plans:** 3/3 plans complete
 
@@ -1429,6 +1429,7 @@ Plans:
 **Depends on**: Phase 112
 
 Plans:
+
 - [x] 113-01-PLAN.md — All 12 tasks (SSE hardening + architecture review findings)
 
 ---
@@ -1475,6 +1476,7 @@ Plans:
 **Rationale:** v2.8 Part 2 (genetic operators, remaining AI platform) depends on high-quality signal data. Current state: 21 setups fire 4.46M noise signals (99.8% noise rate). Training ML models, evolving agents, or measuring fitness on corrupted data produces garbage results.
 
 **Design principles (Renaissance standard):**
+
 - Fix BAD INPUTS — upstream features produce unvalidated data that I7 setups consume
 - Enforce GOOD PATTERNS — multi-factor confidence, I6 confluence, strict gates, continuous regime weighting
 - Add validation gates — ParityAuditor catches data flow bugs before they create noise
@@ -1483,6 +1485,7 @@ Plans:
 **Reference:** `docs/plans/2026-06-07-signal-quality-crisis-root-cause-analysis.md`
 
 **Success Metrics (Before → After):**
+
 - Total signals: 7.85M → 4.0M target
 - Selection rate: 24% → 40% target
 - NEEDS_REFACTOR SNR: 0.19% → 40%+ target
@@ -1556,6 +1559,11 @@ Plans:
 - [ ] 118-03-PLAN.md — trad_GapAnalysisSetup refactor: threshold + intrinsic confidence from gap geometry
 - [ ] 118-04-PLAN.md — trad_CVDDivergence refactor: magnitude threshold + confirmation bars + intrinsic confidence
 - [ ] 118-05-PLAN.md — trad_DivergenceStack refactor: multi-factor intrinsic confidence
+
+**Cross-cutting constraints:**
+
+- Final confidence flows through compose_confidence(raw_conf)
+- shadow_only = True is set
 
 ---
 
@@ -1695,6 +1703,7 @@ Plans:
 **Reference:** `docs/ideas/2026-06-08-signal-trade-separation-architecture.md`
 
 **Architecture Options:**
+
 - **2-table (simplified)**: signal_events (7.5M) + trades (1.88M with framing+execution combined)
 - **3-table (proposed)**: signal_events (7.5M) + trade_framing (1.88M) + trade_execution (1.88M)
 
@@ -1807,6 +1816,7 @@ Plans:
 **Status:** BLOCKED until v2.9 Signal Quality Renaissance completes.
 
 **Blocked Phases:**
+
 - Phase 096: Agent Registry — BLOCKED until signal quality fixed (trains on noisy signals)
 - Phase 098: DSPy Offline Prompt Optimizer — BLOCKED until signal quality fixed
 - Phase 099: Guardrails AI Validation — BLOCKED until parse failure rate measured
@@ -1815,6 +1825,7 @@ Plans:
 - Phase 103: Reproductive Operators — BLOCKED until v2.9 completes
 
 **Unblocked Phases (can ship anytime):**
+
 - Phase 097: Zep Episodic Memory — ✅ SHIPPED 2026-06-06 (needs v2.9 for quality data)
 
 **Rationale:** Phases 096-103 depend on high-quality signal data. Current state: 21 setups fire 4.46M noise signals (99.8% noise rate). Training ML models, evolving agents, or measuring fitness on corrupted data produces garbage results. v2.9 Signal Quality Renaissance fixes this root cause.
