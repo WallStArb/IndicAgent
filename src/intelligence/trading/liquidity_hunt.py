@@ -12,15 +12,12 @@ Renaissance principles:
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -117,9 +114,6 @@ class LiquidityHuntPlugin:
 
         # Confidence scoring
         confidence = 0.55
-        # Continuous HMM regime weight: trending regime boosts (regime_type="trend")
-        trending_w = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
-        confidence += 0.10 * trending_w
 
         if significance >= 1.00:
             confidence += 0.12
@@ -131,57 +125,6 @@ class LiquidityHuntPlugin:
             confidence += 0.05
             supporting.append("equal_levels_3plus")
 
-        price_in_premium = float(features.get("price_in_premium", -1))
-        if direction == -1 and price_in_premium == 1.0:
-            confidence += 0.06
-            supporting.append("premium_aligned")
-        elif direction == 1 and price_in_premium == 0.0:
-            confidence += 0.06
-            supporting.append("discount_aligned")
-
-        # fvg_type/ob_type are explicitly reset to 0.0 by their plugins when inactive,
-        # so matching direction (±1) is sufficient — no separate detection flag needed.
-        fvg_type = float(features.get("fvg_type", 0.0))
-        if fvg_type == float(direction):
-            confidence += 0.08
-            supporting.append("fvg_aligned")
-
-        ob_type = float(features.get("ob_type", 0.0))
-        if ob_type == float(direction):
-            confidence += 0.06
-            supporting.append("order_block_aligned")
-
-        choch = float(features.get("choch_detected", 0.0))
-        bos = float(features.get("bos_detected", 0.0))
-        bos_dir = float(features.get("bos_direction", 0.0))
-        if choch == 1.0:
-            confidence += 0.10
-            supporting.append("choch_confirmed")
-        elif bos == 1.0 and bos_dir == float(direction):
-            confidence += 0.05
-            supporting.append("bos_confirmed")
-
-        ctf = float(features.get("ctf_score", 0.0))
-        if abs(ctf) > 0.3 and math.copysign(1, ctf) == direction:
-            confidence += 0.05
-            supporting.append("ctf_aligned")
-
-        in_demand = float(features.get("in_demand_zone", 0.0))
-        in_supply = float(features.get("in_supply_zone", 0.0))
-        if direction == -1 and in_supply == 1.0:
-            confidence += 0.05
-            supporting.append("supply_zone_aligned")
-        elif direction == 1 and in_demand == 1.0:
-            confidence += 0.05
-            supporting.append("demand_zone_aligned")
-        if direction == -1 and in_demand == 1.0:
-            confidence -= 0.10
-            supporting.append("penalty_demand_zone_opposing")
-        elif direction == 1 and in_supply == 1.0:
-            confidence -= 0.10
-            supporting.append("penalty_supply_zone_opposing")
-
-        confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
         confidence = compose_confidence(confidence)
 
         return make_signal_from_frame(
