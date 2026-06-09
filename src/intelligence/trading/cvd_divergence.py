@@ -91,14 +91,14 @@ class CVDDivergencePlugin:
             return no_signal()
 
         cvd_div = float(cvd_div)
-        if abs(cvd_div) < _CVD_DIV_THRESHOLD:
-            # Sub-threshold CVD divergence invalidates any accumulated confirmation count
-            reset_consecutive_state(frames, self._state)
-            return no_signal()
-
         symbol = frames.get("__symbol__", "_")
         tf = frames.get("__timeframe__", "_")
         state_key = f"{symbol}_{tf}"
+
+        if abs(cvd_div) < _CVD_DIV_THRESHOLD:
+            # Sub-threshold CVD divergence invalidates any accumulated confirmation count
+            reset_consecutive_state(frames, self._state, state_key)
+            return no_signal()
 
         cvd_div_sign = 1 if cvd_div > 0 else -1
         _, count = track_consecutive_state(frames, self._state, state_key, cvd_div_sign, "div_sign")
