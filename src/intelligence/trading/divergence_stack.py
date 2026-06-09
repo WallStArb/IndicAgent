@@ -90,6 +90,7 @@ class DivergenceStackPlugin:
             "cmf_divergence_magnitude",
         }
     )
+    min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"signal", "divergence"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
@@ -106,7 +107,7 @@ class DivergenceStackPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
-        if df is None or len(df) < 20:
+        if df is None or len(df) < self.min_lookback:
             return no_signal()
 
         symbol = frames.get("symbol", "_")
