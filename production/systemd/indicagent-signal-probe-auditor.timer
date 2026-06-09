@@ -1,0 +1,10 @@
+[Unit]
+Description=Signal Probe Auditor Timer — daily at 03:30
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+Unit=indicagent-signal-probe-auditor.service
+
+[Install]
+WantedBy=timers.target
