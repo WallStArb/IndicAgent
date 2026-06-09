@@ -16,10 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import default_compute_next, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -53,6 +51,7 @@ class DivergenceStackPlugin:
     """
 
     name: str = "trad_DivergenceStack"
+    shadow_only: bool = True
     regime_type: str = "any"
     requires_i6_confluence: bool = True
     outputs: frozenset[str] = frozenset(
@@ -237,21 +236,51 @@ class DivergenceStackPlugin:
             supporting = [name for name, s in per_input_scores.items() if s > 0]
             supporting_factors = [f"div_{name}" for name in supporting]
 
-            raw_div_conf = weighted_score / DIVERGENCE_CONFIDENCE_NORM
-            raw_div_conf, supporting_factors = apply_exhaustion_guard(
-                features, raw_div_conf, supporting_factors
+            # 4-factor intrinsic composite — each factor clamped [0, 1] before weighting.
+            # Weights: 0.40 + 0.25 + 0.20 + 0.15 = 1.00 exactly.
+
+            # Factor 1 — base weighted score (normalized by practical 3-signal max)
+            base_score = min(1.0, max(0.0, weighted_score / DIVERGENCE_CONFIDENCE_NORM))
+
+            # Factor 2 — direction purity (1.0 = unanimous, 0.5 = perfectly split)
+            total_active_weight = bull_weight + bear_weight
+            if total_active_weight > 0:
+                purity_score = min(
+                    1.0, max(0.0, max(bull_weight, bear_weight) / total_active_weight)
+                )
+            else:
+                purity_score = 0.5
+
+            # Factor 3 — breadth: how many inputs agree beyond the minimum gate
+            breadth_range = 5 - DIVERGENCE_MIN_AGREEING
+            if breadth_range > 0:
+                breadth_score = min(
+                    1.0, max(0.0, (n_agreeing - DIVERGENCE_MIN_AGREEING) / breadth_range)
+                )
+            else:
+                breadth_score = 1.0
+
+            # Factor 4 — freshness persistence: most-recently-confirmed active component.
+            # Freshness, not max-age — a stale stack (all inputs aging out) is lower quality
+            # than one with a component just confirmed this bar. We invert the MINIMUM age so
+            # that a freshly-confirmed input (min_age small) scores high.
+            active_ages = [
+                state.get(f"{inp_name}_age", 0)
+                for inp_name in per_input_scores
+                if per_input_scores[inp_name] > 0 and state.get(f"{inp_name}_age", 0) > 0
+            ]
+            if active_ages:
+                min_active_age = min(active_ages)
+                persistence_score = min(1.0, max(0.0, 1.0 - min_active_age / 10.0))
+            else:
+                persistence_score = 0.5
+
+            raw_div_conf = (
+                0.40 * base_score
+                + 0.25 * purity_score
+                + 0.20 * breadth_score
+                + 0.15 * persistence_score
             )
-
-            # I6 ctf_score contribution (additive)
-            ctf_score = float(features.get("ctf_score", 0.0))
-            if abs(ctf_score) > 0.3:
-                raw_div_conf += 0.15 * min(1.0, abs(ctf_score) / 0.7)
-                supporting_factors.append(f"ctf_score={ctf_score:.3f}")
-
-            # HMM regime contribution (additive, centered at 0.5 neutral)
-            regime_w = hmm_regime_weight(features, "up" if direction == 1 else "down")
-            raw_div_conf += 0.10 * (regime_w - 0.5)
-
             confidence = compose_confidence(raw_div_conf)
 
             signal = make_signal_from_frame(

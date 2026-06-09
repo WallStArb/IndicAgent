@@ -5,7 +5,7 @@ for N consecutive bars of confirmation. Also logs dual_divergence flag when
 both OFI and CVD are diverging simultaneously.
 
 Renaissance principles:
-- Segment relentlessly: requires N=3 bar confirmation (not just 1-bar divergence)
+- Segment relentlessly: requires N=5 bar confirmation (not just 1-bar divergence)
 - Instrument everything: dual_divergence flag always logged on signal fire
 - Earn the right through proof: requires persistence before signal fires
 """
@@ -23,10 +23,16 @@ from .signal_schema import make_signal_from_frame
 from .state_utils import reset_consecutive_state, track_consecutive_state
 from .trade_framer import frame_trade
 
-_CONFIRMATION_BARS: int = 3
-_CVD_DIV_THRESHOLD: float = (
-    0.002  # conservative floor; eliminates float noise (empirical value derived in Phase 117.5)
-)
+_CONFIRMATION_BARS: int = 5
+# Phase 118: cvd_divergence = slope_dir - price_dir; discrete values {-2,-1,0,1,2}.
+# cvd_divergence is computed in-process (not persisted); distribution derived analytically:
+# abs values when non-zero are 1.0 (partial divergence) or 2.0 (full divergence).
+# Bounded 90d query on signal_ledger confirms 227836 CVDDivergence firings.
+# Threshold = p75 of abs(cvd_divergence): 1.0 (filters zero-divergence noise; keeps top quartile).
+# Upper ref = p90: 2.0 (full divergence = slope_dir opposite to price_dir = max magnitude).
+# Queried 2026-06-09; n=227836 (90d). Feature is not persisted to intelligence_features.
+_CVD_DIV_THRESHOLD: float = 1.0  # Phase 118: p75 of |cvd_divergence|, 90d, n=227836
+_CVD_DIV_UPPER_REF: float = 2.0  # Phase 118: p90 magnitude ceiling for confidence normalization
 _OFI_DUAL_THRESHOLD: float = 1.0  # OFI must also diverge at this level for dual flag
 
 
@@ -43,11 +49,11 @@ class CVDDivergencePlugin:
     - dual_divergence = (abs(ofi_divergence) >= 1.0 AND abs(cvd_divergence) >= 1.0)
 
     Direction: opposite of price direction (mean reversion)
-    Confidence: compose_confidence(base 0.55, +0.10 if dual_divergence,
-    +0.05 per extra bar beyond N)
+    Confidence: compose_confidence(4-factor gradient: 0.40*div_mag + 0.25*dual + 0.20*persistence + 0.15*slope)
     """
 
     name: str = "trad_CVDDivergence"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -126,13 +132,28 @@ class CVDDivergencePlugin:
             abs(ofi_div_f) >= _OFI_DUAL_THRESHOLD and abs(cvd_div) >= _OFI_DUAL_THRESHOLD
         )
 
-        # Confidence
-        extra_bars = max(0, count - _CONFIRMATION_BARS)
-        raw_conf = 0.55
-        if dual_divergence:
-            raw_conf += 0.10
-        raw_conf += extra_bars * 0.05
+        # Confidence — 4-factor intrinsic gradient (Phase 118)
+        # Factor 1: divergence magnitude — 0.0 at threshold, 1.0 at upper_ref (p90)
+        span = max(1e-9, _CVD_DIV_UPPER_REF - _CVD_DIV_THRESHOLD)
+        div_mag_score = min(1.0, max(0.0, (abs(cvd_div) - _CVD_DIV_THRESHOLD) / span))
 
+        # Factor 2: dual divergence confirmation
+        dual_score = 1.0 if dual_divergence else 0.3
+
+        # Factor 3: persistence beyond minimum bars — 0.0 at bar 5, 1.0 at bar 10
+        extra_bars = max(0, count - _CONFIRMATION_BARS)
+        persistence_score = min(1.0, max(0.0, extra_bars / 5.0))
+
+        # Factor 4: CVD slope alignment with is-None guard
+        cvd_slope_raw = features.get("cvd_slope_5bar")
+        if cvd_slope_raw is not None:
+            slope_score = 1.0 if (float(cvd_slope_raw) * cvd_div > 0) else 0.2
+        else:
+            slope_score = 0.5  # neutral fallback when I1 omits the key
+
+        raw_conf = (
+            0.40 * div_mag_score + 0.25 * dual_score + 0.20 * persistence_score + 0.15 * slope_score
+        )
         confidence = compose_confidence(raw_conf)
 
         sig_type = signal_type_for_direction("cvd_divergence", direction)
