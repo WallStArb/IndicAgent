@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
@@ -74,7 +75,20 @@ def detect_spike_signal(
     entry = float(close[-1])
 
     direction = 1 if spike_z > 0 else -1
-    confidence = compose_confidence(0.50 + abs(spike_z) * 0.05)
+
+    # Build raw confidence then fold in I6/HMM contributions (additive)
+    raw = 0.50 + abs(spike_z) * 0.05
+
+    # I6 ctf_score contribution
+    ctf_score = float(features.get("ctf_score", 0.0))
+    if abs(ctf_score) > 0.3:
+        raw += 0.15 * min(1.0, abs(ctf_score) / 0.7)
+
+    # HMM regime contribution (additive, centered at 0.5 neutral)
+    regime_w = hmm_regime_weight(features, "up" if direction == 1 else "down")
+    raw += 0.10 * (regime_w - 0.5)
+
+    confidence = compose_confidence(raw)
 
     sig_type = signal_type_for_direction(signal_name_prefix, direction)
     tf = frame_trade(sig_type, direction, entry, features, atr, regime_type=regime_type)
@@ -86,6 +100,8 @@ def detect_spike_signal(
     supporting: list[str] = [
         f"{spike_feature_key}={spike_z:.3f}",
     ]
+    if abs(ctf_score) > 0.3:
+        supporting.append(f"ctf_score={ctf_score:.3f}")
 
     # Exhaustion not applicable — spike signals are regime-independent;
     # Phase 49 will learn gate behavior from shadow data
