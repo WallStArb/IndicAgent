@@ -83,17 +83,18 @@ def _frames(df, features: dict) -> dict:
 
 
 def _scenario_ofi_continuation():
-    """OFIContinuation fires after 5 bars of sustained directional OFI."""
+    """OFIContinuation fires after 10 bars of sustained directional OFI (Phase 118: raised from 5)."""
     from src.intelligence.trading.ofi_continuation import OFIContinuationPlugin
 
     close = np.linspace(5000.0, 5010.0, 25)
     df = make_ohlcv(close)
-    features = {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0, "atr_14": 2.0}
+    # Phase 118: MIN_CONSECUTIVE_BARS=10, MIN_OFI_MAGNITUDE_DEFAULT=500 — both must be satisfied.
+    features = {"ofi_ewma_20": 600.0, "ofi_ewma_5": 600.0, "atr_14": 2.0}
 
     def _fire(extra: dict) -> dict:
         plugin = OFIContinuationPlugin()
         f = {**features, **extra}
-        for _ in range(4):
+        for _ in range(9):
             plugin.compute_full(_frames(df, f))
         return plugin.compute_full(_frames(df, f))
 
@@ -275,15 +276,15 @@ def _scenario_liquidity_hunt():
 
 
 def _scenario_gap_analysis_setup():
-    """GapAnalysisSetup fires when gap > 0.3*ATR in open vs prior close."""
+    """GapAnalysisSetup fires when gap > 0.8*ATR in open vs prior close (Phase 118: raised from 0.3)."""
     from src.intelligence.trading.gap_analysis_setup import GapAnalysisSetupPlugin
 
     n = 100
     atr = 10.0
     close = np.linspace(5000, 5200, n)
     df = make_ohlcv(close)
-    # Inject a bullish gap: open[-1] = close[-2] + 0.5*ATR
-    df.at[df.index[-1], "open"] = float(df["close"].iloc[-2]) + 0.5 * atr
+    # Inject a bullish gap: open[-1] = close[-2] + 1.0*ATR (Phase 118: must exceed 0.8*ATR gate)
+    df.at[df.index[-1], "open"] = float(df["close"].iloc[-2]) + 1.0 * atr
     features = {
         "atr_14": atr,
         "swing_high": 5500.0,
@@ -530,8 +531,8 @@ def test_extrinsic_still_captured_in_features_snapshot():
     close = np.linspace(5000.0, 5010.0, 25)
     df = make_ohlcv(close)
     features = {
-        "ofi_ewma_20": 150.0,
-        "ofi_ewma_5": 120.0,
+        "ofi_ewma_20": 600.0,
+        "ofi_ewma_5": 600.0,
         "atr_14": 2.0,
         "ctf_score": 0.8,
         "ctf_trend_alignment": 0.7,
@@ -539,7 +540,7 @@ def test_extrinsic_still_captured_in_features_snapshot():
     }
 
     plugin = OFIContinuationPlugin()
-    for _ in range(4):
+    for _ in range(9):
         plugin.compute_full(_frames(df, features))
     result = plugin.compute_full(_frames(df, features))
 
