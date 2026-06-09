@@ -133,10 +133,24 @@ class GapAnalysisSetupPlugin:
             entry_type = "at_pullback"
             entry = float(open_[-1] + (-direction * 0.25 * atr))
 
-        # GAP-03: Confidence
-        base = min(1.0, gap_size_atr / 2.0)
-        if high_volume:
-            base += 0.15
+        # GAP-03: 4-factor intrinsic confidence — each factor clamped to [0, 1] before weighting
+        # geo_score: 0.0 at the 0.8 ATR gate, 1.0 at 2.5+ ATR gaps
+        geo_score = min(1.0, max(0.0, (gap_size_atr - 0.8) / 1.7))
+        # vol_score: 0.0 at 1x average volume, 1.0 at 3x average volume
+        vol_score = min(1.0, max(0.0, (vol_ratio - 1.0) / 2.0))
+        # timing_score: early-session gaps are more meaningful; floors at 0.2 so a valid
+        # later-session gap is down-weighted but never rejected (Codex MEDIUM concern).
+        # When I4 SessionContext is absent, default to neutral 0.5 (no penalty).
+        # Use an explicit is-None guard: 0 is a legitimate value at the open and must not
+        # be treated as missing data (do NOT use `or 30.0`).
+        if bars_since is not None:
+            timing_score = max(0.2, 1.0 - float(bars_since) / 30.0)
+        else:
+            timing_score = 0.5  # I4 SessionContext unavailable — neutral, no penalty; shadow mode will generate monitoring data
+        # type_score: continuation gaps have stronger directional conviction than fade gaps
+        type_score = 0.8 if bias == "continuation" else 0.5
+        # Weighted sum (coefficients sum to 1.0)
+        raw_conf = 0.40 * geo_score + 0.25 * vol_score + 0.20 * timing_score + 0.15 * type_score
 
         # Supporting factors
         supporting: list[str] = []
@@ -146,7 +160,7 @@ class GapAnalysisSetupPlugin:
             supporting.append("volume_confirm")
         supporting.append(f"{bias}_bias")
 
-        confidence = compose_confidence(base)
+        confidence = compose_confidence(raw_conf)
 
         bias_abbr = "cont" if bias == "continuation" else "fade"
         signal_type = f"gap_{bias_abbr}_{'long' if direction == 1 else 'short'}"
