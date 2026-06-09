@@ -22,6 +22,7 @@ import structlog
 
 from src.config.settings import Settings
 from src.core.database_manager import create_pool as create_db_pool
+from src.core.service_utils import setup_service_logging
 from src.observability.metrics import (
     CONFIDENCE_CALIBRATION_ALERTS_TOTAL,
     JOB_COMPLETED_TOTAL,
@@ -29,6 +30,7 @@ from src.observability.metrics import (
     flush_and_shutdown_metrics,
 )
 
+setup_service_logging("logs/confidence_calibration_monitor.log")
 logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
