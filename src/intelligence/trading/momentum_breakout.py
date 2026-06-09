@@ -14,10 +14,8 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -120,26 +118,17 @@ class MomentumBreakoutPlugin:
         entry = price
 
         # ── Confidence ──
-        roc_score = min(1.0, (abs(roc) - self.roc_threshold) / self.roc_threshold)
+        roc_score = min(1.0, max(0.0, (abs(roc) - self.roc_threshold) / self.roc_threshold))
         vol_score = min(
             1.0,
-            (volume_ratio - self.volume_expansion_threshold) / self.volume_expansion_threshold,
+            max(
+                0.0,
+                (volume_ratio - self.volume_expansion_threshold) / self.volume_expansion_threshold,
+            ),
         )
         break_margin = min(1.0, max(0.0, abs(price - structure_level) / atr))
 
-        trend_regime = features.get("trend_regime", 0.0)
-        regime_aligns = (direction == 1 and trend_regime > 0) or (
-            direction == -1 and trend_regime < 0
-        )
-        # Continuous regime score from HMM probabilities (replaces 3-step)
-        if regime_aligns:
-            regime_score = max(
-                hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down")
-            )
-        else:
-            regime_score = 0.1
-
-        raw_conf = 0.35 * roc_score + 0.30 * vol_score + 0.20 * break_margin + 0.15 * regime_score
+        raw_conf = 0.40 * roc_score + 0.35 * vol_score + 0.25 * break_margin
 
         # Supporting factors
         supporting = [
@@ -147,21 +136,6 @@ class MomentumBreakoutPlugin:
             f"volume_{volume_ratio:.1f}x_expansion",
             "structure_break_long" if direction == 1 else "structure_break_short",
         ]
-        if regime_aligns and abs(trend_regime) >= 0.3:
-            supporting.append("trend_regime_aligned")
-
-        # Zone friction penalty
-        in_supply = float(features.get("in_supply_zone", 0.0))
-        in_demand = float(features.get("in_demand_zone", 0.0))
-        supply_str = float(features.get("supply_strength", 0.0))
-        demand_str = float(features.get("demand_strength", 0.0))
-        if direction == 1 and in_supply == 1.0:
-            raw_conf -= 0.12 * supply_str
-            supporting.append("penalty_supply_zone_friction")
-        elif direction == -1 and in_demand == 1.0:
-            raw_conf -= 0.12 * demand_str
-            supporting.append("penalty_demand_zone_friction")
-        raw_conf, supporting = apply_exhaustion_guard(features, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
 
         signal_type = "momentum_breakout_long" if direction == 1 else "momentum_breakout_short"
