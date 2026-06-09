@@ -1009,43 +1009,33 @@ class ShadowModeValidator(BaseAgent):
 
 **Goal**: Fix Category A deterministic bugs. These are correctness defects, not calibration questions. They do not require empirical data or shadow validation.
 
-1. **Fix PatternCompletion phantom data** — DAG invariant violation. I5 pattern detection fields (`dt_db_confidence`, `hs_confidence`, `tri_confidence`) are not being persisted to `pattern_detections` JSONB column in `intelligence_features`. Investigate `feature_writer` → `FeatureParityAuditor` is the long-term guard, but the write-path bug must be fixed first. Impact: 795K phantom signals immediately stop.
+1. ~~**Fix PatternCompletion phantom data**~~ — **DONE (Phase 117, plan 117-01)**. 3-way column swap in `services/feature_writer.py` `_record_to_insert_params` corrected: I5 patterns → `pattern_detections`, I3 structure → `regime_features`, I4 context → `confluence_scores`. 5-test regression suite pins the mapping. `FeatureParityAuditor` deployed as the long-term guard (5-minute timer, raises alert on NULL `pattern_detections` fields).
 
 2. ~~**Fix stop losses inside entry zones**~~ — **DONE**. `validate_stop_against_zone()` added to `src/intelligence/trading/plugin_utils.py`, called from `trade_framer.py:1018` immediately after zone bounds are resolved. Auto-corrects violations using 2.0 ATR buffer; raises `ValueError` for extreme misconfiguration (>3x ATR inside zone). Logs every correction via structlog for ongoing monitoring.
 
-3. **Fix `_CVD_DIV_THRESHOLD = 0.0` in `cvd_divergence.py`** — the threshold constant is literally zero, meaning any nonzero float qualifies as a divergence. This is a deterministic bug: a threshold of zero is not a threshold. Set to a meaningful nonzero floor (derive from data in Phase 1.5; for now use a conservative starting value that eliminates floating-point noise without over-filtering).
+3. ~~**Fix `_CVD_DIV_THRESHOLD = 0.0` in `cvd_divergence.py`**~~ — **DONE (Phase 117, plan 117-00)**. Set to `0.002` (conservative floor eliminating floating-point noise). Gate comparison changed from `if cvd_div == 0.0:` to `if abs(cvd_div) < _CVD_DIV_THRESHOLD:` so the constant is now actually enforced.
 
-4. **Wire I6 into the 6 high-volume broken plugins** — `ofi_continuation`, `cvd_divergence`, `gap_analysis_setup`, `divergence_stack` already fetch `frames.get("i6")` into `features` but never read `ctf_score`, `ctf_structure`, or `ctf_trend`. `ofi_spike` and `cvd_spike` don't fetch I6 at all. Add `ctf_score` as a confidence contributor and optional gate to all 6. No empirical data needed — the values are already present; the code just discards them.
+4. ~~**Wire I6 into the 6 high-volume broken plugins**~~ — **DONE (Phase 117, plan 117-00)**. `ctf_score` wired as additive confidence contributor (`+= 0.15 * min(1.0, abs(ctf_score)/0.7)` when `abs(ctf_score) > 0.3`) in `cvd_divergence`, `ofi_continuation`, `gap_analysis_setup`, `divergence_stack`. `ofi_spike` and `cvd_spike` inherit the wiring via `detect_spike_signal` in `microstructure_utils.py`.
 
-5. **Wire `hmm_regime_weight()` into confidence for all 6 plugins** — all 6 read `features.get("hmm_regime")` only to build a logging string. Replace with `hmm_regime_weight(features, self.regime_type)` as a weighted confidence factor. Regime already influences which signals reach live trading via the aggregator's regime gate; it should also influence confidence at the source.
+5. ~~**Wire `hmm_regime_weight()` into confidence for all 6 plugins**~~ — **DONE (Phase 117, plan 117-00)**. `hmm_regime_weight(features, direction_str)` wired as centered confidence factor (`+= 0.10 * (regime_w - 0.5)`) in all 6 plugins. Regime now influences confidence at source, not just aggregator gating downstream.
 
 ---
 
-### Phase 1 (v2.9 Phase 117): Pipeline Validation + SignalProbeAuditor
+### Phase 1 (v2.9 Phase 117): Pipeline Validation + SignalProbeAuditor — **COMPLETE**
 
 **Goal**: Add validation gates AND collect ground truth outcome data on unselected signals.
 
-1. **Deploy FeatureParityAuditor** — validate I5 pattern fields persisted to DB; validate I1 microstructure fields not NULL; alert on mismatch; runs on 5-minute systemd timer.
+1. ~~**Deploy FeatureParityAuditor**~~ — **DONE**. Validates I5 pattern fields persisted to `pattern_detections`; runs on 5-minute systemd timer (`indicagent-feature-parity-auditor.timer`); emits `FEATURE_PARITY_NULL_FIELDS_TOTAL` OTel counter + `job_completed_total{job=feature-parity-auditor}`.
 
-2. **Deploy ConfidenceCalibrationMonitor** — compute `CORR(confidence, was_selected)` per setup; alert if correlation < 0.3 with N≥100.
+2. ~~**Deploy ConfidenceCalibrationMonitor**~~ — **DONE**. Computes `CORR(cis_score, was_selected::int)` per setup over 7-day window (gated N≥100); publishes `signal_confidence_calibration{setup_plugin}` OTel gauge; alerts when correlation < 0.3; runs on 30-minute timer (`indicagent-confidence-calibration-monitor.timer`).
 
-3. **Deploy SignalProbeAuditor (NEW — CRITICAL)** — randomly samples 1% of unselected signals from each NEEDS_REFACTOR setup and force-activates them in a shadow execution path (no live impact). Records simulated outcomes (pnl_r, mae, mfe) using bar data. This generates the ground truth data required for empirical threshold derivation in Phase 1.5.
+3. ~~**Deploy SignalProbeAuditor**~~ — **DONE**. Daily timer (`indicagent-signal-probe-auditor.timer`, 03:30 UTC); samples 1% of unselected NEEDS_REFACTOR signals from last 2 days; simulates activation+outcome from `market_data_ohlcv`; writes pnl_r/mae/mfe/bars_in_trade to `signal_probe_results` (migration 120); emits `job_completed_total{job=signal-probe-auditor}`. Ground truth accumulation has started.
 
-   ```python
-   class SignalProbeAuditor:
-       """Force-activates a random sample of unselected signals to measure
-       their outcome distribution. Answers: 'Do these signals have edge,
-       independent of the aggregator's opinion?'
-       """
-       SAMPLE_RATE = 0.01  # 1% of unselected signals per setup
-       MIN_SAMPLE_N = 100   # Minimum per setup before threshold derivation
-   ```
+4. ~~**Enforce I6 integration at base class**~~ — **DONE**. `requires_i6_confluence: ClassVar[bool]` added to `PatternPlugin`; `ArchitectureViolation` raised at startup validation if missing; all 36 TIER_I7 plugins backfilled.
 
-4. **Enforce I6 integration at base class** — add validation that I7 plugins provide `ctf_score` to `compute_full()`. Raise `ArchitectureViolation` if absent. **Do NOT** enforce a minimum factor count (see Problem 4 in Council Review above).
+5. ~~**Code review gate**~~ — **DONE**. Pre-commit check 9 (`check_i6_confluence_declaration`) rejects new/modified I7 plugins without the `requires_i6_confluence` declaration. Pytest sweep over all TIER_I7 plugins also enforces this.
 
-5. **Code review gate** — CI pre-commit hook rejects new I7 plugins without I6 integration.
-
-**Data collection window**: Run for 2-3 weeks of market time. SignalProbeAuditor needs ≥100 activations per NEEDS_REFACTOR setup before Phase 1.5 can proceed.
+**Data collection window**: Started 2026-06-08. SignalProbeAuditor needs ≥100 activations per NEEDS_REFACTOR setup before Phase 1.5 can proceed (~2-3 weeks of market time).
 
 ---
 
