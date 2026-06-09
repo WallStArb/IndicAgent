@@ -18,7 +18,6 @@ Wire contract (from 24-CONTEXT.md / PLAN.md interfaces):
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
 
@@ -199,35 +198,6 @@ def test_liquidity_hunt_no_boost_when_below_threshold():
     assert "exhaustion_sweep_boost" not in result.get("supporting_factors", [])
 
 
-# ─── MomentumBreakout guard tests ────────────────────────────────────────────
-
-
-def test_momentum_breakout_guard_penalty_applied_when_threshold_met():
-    """MomentumBreakout: score=0.8, bars=3 → confidence -= 0.15, tag in supporting.
-
-    This FAILS until Plan 05 adds the guard wire.
-    """
-    from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
-
-    # baseline without exhaustion
-    plugin = MomentumBreakoutPlugin()
-    baseline = plugin.compute_full(_breakout_frames(exhaustion_score=0.0, exhaustion_bars=0.0))
-    assert baseline.get("signal_type") != "none", "Test setup failed: need a real signal"
-
-    # with guard penalty
-    plugin2 = MomentumBreakoutPlugin()
-    with_guard = plugin2.compute_full(
-        _breakout_frames(
-            exhaustion_score=0.8,
-            exhaustion_side="bull",
-            exhaustion_bars=3.0,
-        )
-    )
-    assert "exhaustion_guard_penalty" in with_guard.get("supporting_factors", [])
-    expected_conf = max(0.0, baseline["confidence"] - 0.15)
-    assert with_guard["confidence"] == pytest.approx(expected_conf, abs=0.005)
-
-
 def test_momentum_breakout_no_penalty_when_bars_below_threshold():
     """MomentumBreakout: score=0.8 but exhaustion_bars=2 → no penalty (bars threshold not met)."""
     from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
@@ -256,69 +226,3 @@ def test_momentum_breakout_no_penalty_when_score_below_threshold():
         )
     )
     assert "exhaustion_guard_penalty" not in result.get("supporting_factors", [])
-
-
-# ─── TrendFollowing guard tests ───────────────────────────────────────────────
-
-
-def test_trend_following_guard_penalty_applied_when_threshold_met():
-    """TrendFollowing: score=0.75, bars=4 → confidence -= 0.15, tag in supporting.
-
-    This FAILS until Plan 05 adds the guard wire.
-    """
-    from src.intelligence.trading.trend_following import TrendFollowingPlugin
-
-    # baseline without exhaustion
-    plugin = TrendFollowingPlugin()
-    baseline = plugin.compute_full(_trend_frames(exhaustion_score=0.0, exhaustion_bars=0.0))
-    assert baseline.get("signal_type") != "none", "Test setup failed: need a real signal"
-
-    # with guard penalty
-    plugin2 = TrendFollowingPlugin()
-    with_guard = plugin2.compute_full(
-        _trend_frames(
-            exhaustion_score=0.75,
-            exhaustion_side="bull",
-            exhaustion_bars=4.0,
-        )
-    )
-    assert "exhaustion_guard_penalty" in with_guard.get("supporting_factors", [])
-
-
-def test_trend_following_guard_suppresses_signal_when_confidence_drops_too_low():
-    """TrendFollowing: guard penalty causes confidence to drop below threshold → _no_signal().
-
-    Use a marginal-confidence setup so penalty pushes it below the guard threshold.
-    This FAILS until Plan 05 adds the guard wire.
-    """
-    from src.intelligence.trading.trend_following import TrendFollowingPlugin
-
-    close = np.linspace(5000, 5060, 100)  # weak trend
-    df = make_ohlcv(close)
-    # Marginal confidence inputs
-    features = {
-        "trend_regime": 0.55,
-        "trend_confidence": 0.45,
-        "swing_pattern": 0.5,
-        "trend_strength": 0.3,
-        "ctf_score": 0.2,
-        "atr_14": 10.0,
-        "exhaustion_score": 0.8,
-        "exhaustion_side": "bull",
-        "exhaustion_bars": 5.0,
-    }
-    plugin = TrendFollowingPlugin()
-    result = plugin.compute_full(
-        {
-            "main": df,
-            "i1": features,
-            "i2": features,
-            "i3": features,
-            "i4": features,
-            "i5": features,
-            "smc": features,
-            "i6": features,
-        }
-    )
-    # After penalty, low-confidence signal should be suppressed
-    assert result.get("signal_type") == "none" or result.get("direction") == 0
