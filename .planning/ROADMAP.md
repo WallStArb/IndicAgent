@@ -1513,7 +1513,7 @@ Plans:
 
 **Wave 1** — Fix the bug (prerequisite for everything else)
 
-- [ ] 117-01-PLAN.md — Investigate feature_writer write path for I5 pattern fields; fix so pattern_detections JSONB is populated; confirm with live query
+- [x] 117-01-PLAN.md — Investigate feature_writer write path for I5 pattern fields; fix so pattern_detections JSONB is populated; confirm with live query
 
 **Wave 2** *(depends on Wave 1)* — Detection infrastructure
 
