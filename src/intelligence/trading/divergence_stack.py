@@ -16,10 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import default_compute_next, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -53,6 +51,7 @@ class DivergenceStackPlugin:
     """
 
     name: str = "trad_DivergenceStack"
+    shadow_only: bool = True
     regime_type: str = "any"
     requires_i6_confluence: bool = True
     outputs: frozenset[str] = frozenset(
@@ -238,20 +237,6 @@ class DivergenceStackPlugin:
             supporting_factors = [f"div_{name}" for name in supporting]
 
             raw_div_conf = weighted_score / DIVERGENCE_CONFIDENCE_NORM
-            raw_div_conf, supporting_factors = apply_exhaustion_guard(
-                features, raw_div_conf, supporting_factors
-            )
-
-            # I6 ctf_score contribution (additive)
-            ctf_score = float(features.get("ctf_score", 0.0))
-            if abs(ctf_score) > 0.3:
-                raw_div_conf += 0.15 * min(1.0, abs(ctf_score) / 0.7)
-                supporting_factors.append(f"ctf_score={ctf_score:.3f}")
-
-            # HMM regime contribution (additive, centered at 0.5 neutral)
-            regime_w = hmm_regime_weight(features, "up" if direction == 1 else "down")
-            raw_div_conf += 0.10 * (regime_w - 0.5)
-
             confidence = compose_confidence(raw_div_conf)
 
             signal = make_signal_from_frame(
