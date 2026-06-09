@@ -171,7 +171,7 @@ class CVDDivergencePlugin:
         signal = make_signal_from_frame(
             tf_result,
             symbol=frames.get("symbol", ""),
-            timeframe=features.get("timeframe", ""),
+            timeframe=tf,
             timestamp=features.get("timestamp", ""),
             signal_type=sig_type,
             setup_plugin=self.name,
