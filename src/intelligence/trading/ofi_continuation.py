@@ -137,7 +137,7 @@ class OFIContinuationPlugin:
         signal = make_signal_from_frame(
             tf_result,
             symbol=symbol,
-            timeframe=features.get("timeframe", tf),
+            timeframe=tf,
             timestamp=features.get("timestamp", ""),
             signal_type=sig_type,
             setup_plugin=self.name,
