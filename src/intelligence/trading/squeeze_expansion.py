@@ -14,10 +14,8 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -123,35 +121,16 @@ class SqueezeExpansionPlugin:
         entry = float(close[-1])
 
         # Confidence scoring
-        # Squeeze bars duration (0.3): longer squeeze = stronger, cap at 30 bars
-        squeeze_bars_score = min(1.0, squeeze_bars / 30.0) if squeeze_bars > 0 else 0.0
+        # Squeeze bars duration (0.35): longer squeeze = stronger, cap at 30 bars
+        squeeze_bars_score = min(1.0, max(0.0, squeeze_bars / 30.0)) if squeeze_bars > 0 else 0.0
 
-        # Volume expansion ratio (0.3): cap at 3x
-        vol_expansion_score = min(1.0, (volume_ratio - 1.0) / 2.0)
+        # Volume expansion ratio (0.35): cap at 3x
+        vol_expansion_score = min(1.0, max(0.0, (volume_ratio - 1.0) / 2.0))
 
-        # Momentum clarity (0.2): abs(momentum_bias), capped at 1.0
-        momentum_score = min(1.0, abs(momentum_bias))
+        # Momentum clarity (0.30): abs(momentum_bias), capped at 1.0
+        momentum_score = min(1.0, max(0.0, abs(momentum_bias)))
 
-        # Regime clarity (0.2): continuous HMM trending probability
-        if trend_regime != 0.0:
-            regime_agrees = (trend_regime > 0 and direction == 1) or (
-                trend_regime < 0 and direction == -1
-            )
-            if regime_agrees:
-                regime_score = 0.2 + 0.6 * max(
-                    hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down")
-                )
-            else:
-                regime_score = 0.2
-        else:
-            regime_score = 0.5
-
-        raw_conf = (
-            0.3 * squeeze_bars_score
-            + 0.3 * vol_expansion_score
-            + 0.2 * momentum_score
-            + 0.2 * regime_score
-        )
+        raw_conf = 0.35 * squeeze_bars_score + 0.35 * vol_expansion_score + 0.30 * momentum_score
 
         # Supporting factors
         supporting = []
@@ -164,7 +143,6 @@ class SqueezeExpansionPlugin:
         ):
             supporting.append("regime_aligned")
 
-        raw_conf, supporting = apply_exhaustion_guard(features, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
 
         signal_type = "squeeze_long" if direction == 1 else "squeeze_short"
