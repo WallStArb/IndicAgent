@@ -6,7 +6,7 @@
 -- Run with: PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -f production/migrations/120_signal_probe_results.sql
 
 CREATE TABLE IF NOT EXISTS signal_probe_results (
-    signal_id                uuid            NOT NULL,
+    signal_id                uuid            NOT NULL PRIMARY KEY,
     probed_at                timestamptz     NOT NULL DEFAULT now(),
     symbol                   text            NOT NULL,
     timeframe                text            NOT NULL,
@@ -21,14 +21,8 @@ CREATE TABLE IF NOT EXISTS signal_probe_results (
     sim_bars_in_trade        integer,
     sim_outcome              text,
     bars_forward             integer,
-    competing_signals_count  integer,
-
-    PRIMARY KEY (signal_id, probed_at)
+    competing_signals_count  integer
 );
-
--- Idempotency: fast lookup of already-probed signals by signal_id.
-CREATE UNIQUE INDEX IF NOT EXISTS signal_probe_results_signal_id_idx
-    ON signal_probe_results (signal_id);
 
 -- Phase 117.5 analysis: filter/aggregate by setup and time window.
 CREATE INDEX IF NOT EXISTS signal_probe_results_plugin_probed_idx
