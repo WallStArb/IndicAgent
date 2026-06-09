@@ -24,7 +24,7 @@ from src.config.settings import Settings
 from src.core.database_manager import create_pool as create_db_pool
 from src.observability.metrics import (
     JOB_COMPLETED_TOTAL,
-    _meter,
+    SIGNAL_PROBE_ACTIVATIONS_TOTAL,
     flush_and_shutdown_metrics,
 )
 
@@ -69,15 +69,6 @@ NEEDS_REFACTOR_SETUPS: frozenset[str] = frozenset(
         "trad_SecondLegContinuation",
         "trad_VCP",
     }
-)
-
-# ---------------------------------------------------------------------------
-# OTel metrics
-# ---------------------------------------------------------------------------
-
-SIGNAL_PROBE_ACTIVATIONS_TOTAL = _meter.create_counter(
-    "signal_probe_activations_total",
-    description="Simulated activations from SignalProbeAuditor, labeled by setup_plugin",
 )
 
 # ---------------------------------------------------------------------------

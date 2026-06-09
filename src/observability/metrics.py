@@ -306,6 +306,15 @@ CONFIDENCE_CALIBRATION_ALERTS_TOTAL = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
+# Signal probe auditor (Phase 117)
+# ---------------------------------------------------------------------------
+
+SIGNAL_PROBE_ACTIVATIONS_TOTAL = _meter.create_counter(
+    "signal_probe_activations_total",
+    description="Simulated activations from SignalProbeAuditor, labeled by setup_plugin",
+)
+
+# ---------------------------------------------------------------------------
 # Agent liveness
 # ---------------------------------------------------------------------------
 
