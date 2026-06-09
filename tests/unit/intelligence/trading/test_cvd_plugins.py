@@ -43,8 +43,8 @@ class TestCVDDivergence:
             "ofi_divergence": 0.0,
             "atr_14": 2.0,
         }
-        # Build up confirmation count (N=3 by default)
-        for _ in range(2):
+        # Build up confirmation count (N=5: Phase 118 raised from 3)
+        for _ in range(4):
             plugin.compute_full(_make_frames(close, features))
         result = plugin.compute_full(_make_frames(close, features))
         assert (
@@ -73,8 +73,8 @@ class TestCVDDivergence:
             "ofi_divergence": -1.2,  # both OFI and CVD diverging
             "atr_14": 2.0,
         }
-        # Build confirmation count
-        for _ in range(2):
+        # Build confirmation count (N=5: Phase 118 raised from 3)
+        for _ in range(4):
             plugin.compute_full(_make_frames(close, features))
         result = plugin.compute_full(_make_frames(close, features))
         assert result.get("direction") == -1
@@ -90,7 +90,7 @@ class TestCVDDivergence:
             "ofi_divergence": 0.3,  # OFI not strongly diverging
             "atr_14": 2.0,
         }
-        for _ in range(2):
+        for _ in range(4):
             plugin.compute_full(_make_frames(close, features))
         result = plugin.compute_full(_make_frames(close, features))
         if result.get("direction") == -1:
