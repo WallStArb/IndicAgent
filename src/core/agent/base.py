@@ -446,8 +446,9 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
         """Notify systemd watchdog — gated on liveness when max_idle_seconds > 0.
 
         When max_idle_seconds is 0 (default): pings unconditionally (backward-compatible).
-        When max_idle_seconds > 0: stops pinging once _last_message_ts goes stale,
-        allowing systemd's WatchdogSec to fire as a secondary restart backstop.
+        When max_idle_seconds > 0: suppresses pings only after max_idle_seconds of idle,
+        allowing _stall_watchdog to fire sys.exit(1) first; systemd WatchdogSec is the
+        secondary backstop if stall detection fails.
         No-op when NOTIFY_SOCKET or WATCHDOG_USEC is not set (direct run / tests).
         Notifies at half WatchdogSec interval to stay well within the deadline.
         """
@@ -459,10 +460,15 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
 
         notifier = sdnotify.SystemdNotifier()
         interval_s = usec / 2_000_000
+        # Suppress threshold must be >= max_idle_seconds so _stall_watchdog fires first.
+        # Using interval_s * 2 caused services with max_idle_seconds=300 to be killed by
+        # systemd after only 120s of idle (60s suppress + 60s WatchdogSec), defeating the
+        # 5-minute stall budget entirely.
+        stale_threshold = max(self.max_idle_seconds, interval_s * 2)
         while self.running:
             should_notify = True
             if self.max_idle_seconds > 0 and self._last_message_ts is not None:
-                should_notify = (time.monotonic() - self._last_message_ts) < interval_s * 2
+                should_notify = (time.monotonic() - self._last_message_ts) < stale_threshold
             if should_notify:
                 notifier.notify("WATCHDOG=1")
                 WATCHDOG_NOTIFY_TOTAL.add(1, self._last_msg_ts_attrs)
