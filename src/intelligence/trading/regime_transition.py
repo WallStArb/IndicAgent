@@ -46,6 +46,7 @@ class RegimeTransitionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "regime", "smc", "structure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "any"
+    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     cp_threshold: float = 0.5
     _state: dict = field(default_factory=dict)
 

@@ -40,6 +40,7 @@ class TrendFollowingPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "trend"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
+    requires_i6_confluence: bool = True
     regime_threshold: float = 0.5
     confidence_threshold: float = 0.4
     _state: dict = field(default_factory=dict)

@@ -48,6 +48,7 @@ class CHoCHReversalPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "smc", "structure", "regime"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "any"
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

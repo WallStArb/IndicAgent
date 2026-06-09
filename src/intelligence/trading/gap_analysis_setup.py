@@ -54,6 +54,7 @@ class GapAnalysisSetupPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "gap"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "any"
+    requires_i6_confluence: bool = True
     min_gap_atr_mult: float = 0.3
     continuation_atr_mult: float = 1.0
     volume_confirm_ratio: float = 1.5

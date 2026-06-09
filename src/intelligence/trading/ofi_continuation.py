@@ -58,6 +58,7 @@ class OFIContinuationPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "continuation", "ofi"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

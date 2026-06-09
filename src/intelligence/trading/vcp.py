@@ -70,6 +70,7 @@ class VCPPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "volatility", "contraction", "regime"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "trend"
+    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

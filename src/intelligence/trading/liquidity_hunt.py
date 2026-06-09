@@ -47,6 +47,7 @@ class LiquidityHuntPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "smc", "liquidity"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     MIN_SIGNIFICANCE: float = 0.60
