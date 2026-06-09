@@ -47,6 +47,7 @@ class SupplyDemandSetupPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "zones", "smc"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "any"
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     MIN_FRESHNESS: float = 0.40

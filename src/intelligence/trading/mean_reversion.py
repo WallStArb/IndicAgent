@@ -42,6 +42,7 @@ class MeanReversionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
+    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     regime_threshold: float = 0.4
     _state: dict = field(default_factory=dict)
 

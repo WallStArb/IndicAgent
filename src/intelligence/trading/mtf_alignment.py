@@ -41,6 +41,7 @@ class MTFAlignmentPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "multi_timeframe"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
+    requires_i6_confluence: bool = True
     ctf_score_threshold: float = 0.7
     min_timeframes_aligned: int = 2
     _state: dict = field(default_factory=dict)
