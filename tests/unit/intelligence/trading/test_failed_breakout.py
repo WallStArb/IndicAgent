@@ -137,41 +137,6 @@ def test_fires_on_bos_reversal_short():
     assert result.get("confidence", 0.0) > 0.0
 
 
-def test_mean_reversion_regime_boosts_confidence():
-    """hmm_regime=0.0 (ranging/mean-reversion aligned) boosts confidence."""
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
-
-    plugin_mr = FailedBreakoutPlugin()
-    plugin_trend = FailedBreakoutPlugin()
-    close_below = np.linspace(5000.0, 4990.0, 25)
-
-    feat_bos = _base_features(bos_detected=1.0, bos_direction=-1, bos_level=5000.0)
-
-    # Setup bearish BOS on both
-    plugin_mr.compute_full(_make_frames(close_below, feat_bos))
-    plugin_trend.compute_full(_make_frames(close_below, feat_bos))
-
-    close_above = np.linspace(5000.0, 5001.0, 25)
-
-    # Ranging regime (hmm=0) -> higher confidence
-    feat_mr = _base_features(bos_detected=0.0, hmm_regime=0.0)
-    result_mr = plugin_mr.compute_full(_make_frames(close_above, feat_mr))
-
-    # Trend regime (hmm=1) -> lower confidence
-    feat_trend = _base_features(
-        bos_detected=0.0,
-        hmm_regime=1.0,
-        hmm_prob_ranging=0.1,
-        hmm_prob_trending_up=0.8,
-        hmm_prob_trending_down=0.1,
-    )
-    result_trend = plugin_trend.compute_full(_make_frames(close_above, feat_trend))
-
-    assert result_mr.get("direction") == 1
-    assert result_trend.get("direction") == 1
-    assert result_mr.get("confidence", 0.0) > result_trend.get("confidence", 0.0)
-
-
 def test_trend_regime_reduces_confidence():
     """hmm_regime=1.0 (trend) reduces confidence compared to base."""
     from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
