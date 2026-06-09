@@ -94,6 +94,7 @@ _DAG_ORDER: dict[str, int] = {
     # Timer-triggered oneshot analytics (inactive between runs is correct — not failures)
     "indicagent-weight-updater": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-shadow-auditor": 8,  # oneshot: timer-triggered, not a daemon
+    "indicagent-signal-probe-auditor": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-ml-orchestrator": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-ml-data-quality": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-ml-discovery": 8,  # oneshot: timer-triggered, not a daemon
@@ -170,6 +171,7 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-timescaledb-ready",  # Type=oneshot, RemainAfterExit=yes; infra sentinel, inactive between boots is correct
         "indicagent-weight-updater",
         "indicagent-shadow-auditor",
+        "indicagent-signal-probe-auditor",
         "indicagent-ml-orchestrator",
         "indicagent-ml-data-quality",
         "indicagent-ml-discovery",
