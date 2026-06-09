@@ -49,8 +49,7 @@ class CVDDivergencePlugin:
     - dual_divergence = (abs(ofi_divergence) >= 1.0 AND abs(cvd_divergence) >= 1.0)
 
     Direction: opposite of price direction (mean reversion)
-    Confidence: compose_confidence(base 0.55, +0.10 if dual_divergence,
-    +0.05 per extra bar beyond N)
+    Confidence: compose_confidence(4-factor gradient: 0.40*div_mag + 0.25*dual + 0.20*persistence + 0.15*slope)
     """
 
     name: str = "trad_CVDDivergence"
@@ -133,13 +132,28 @@ class CVDDivergencePlugin:
             abs(ofi_div_f) >= _OFI_DUAL_THRESHOLD and abs(cvd_div) >= _OFI_DUAL_THRESHOLD
         )
 
-        # Confidence
-        extra_bars = max(0, count - _CONFIRMATION_BARS)
-        raw_conf = 0.55
-        if dual_divergence:
-            raw_conf += 0.10
-        raw_conf += extra_bars * 0.05
+        # Confidence — 4-factor intrinsic gradient (Phase 118)
+        # Factor 1: divergence magnitude — 0.0 at threshold, 1.0 at upper_ref (p90)
+        span = max(1e-9, _CVD_DIV_UPPER_REF - _CVD_DIV_THRESHOLD)
+        div_mag_score = min(1.0, max(0.0, (abs(cvd_div) - _CVD_DIV_THRESHOLD) / span))
 
+        # Factor 2: dual divergence confirmation
+        dual_score = 1.0 if dual_divergence else 0.3
+
+        # Factor 3: persistence beyond minimum bars — 0.0 at bar 5, 1.0 at bar 10
+        extra_bars = max(0, count - _CONFIRMATION_BARS)
+        persistence_score = min(1.0, max(0.0, extra_bars / 5.0))
+
+        # Factor 4: CVD slope alignment with is-None guard
+        cvd_slope_raw = features.get("cvd_slope_5bar")
+        if cvd_slope_raw is not None:
+            slope_score = 1.0 if (float(cvd_slope_raw) * cvd_div > 0) else 0.2
+        else:
+            slope_score = 0.5  # neutral fallback when I1 omits the key
+
+        raw_conf = (
+            0.40 * div_mag_score + 0.25 * dual_score + 0.20 * persistence_score + 0.15 * slope_score
+        )
         confidence = compose_confidence(raw_conf)
 
         sig_type = signal_type_for_direction("cvd_divergence", direction)
