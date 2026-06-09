@@ -6,10 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight, linear_ramp
+from ..utils.gradient_utils import linear_ramp
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -93,9 +92,6 @@ class LiquiditySweepReclaimPlugin:
         # Confidence scoring — base derived from sweep depth (continuous)
         sweep_depth_atr = float(features.get("sweep_depth_pct", 0.0))
         confidence = 0.40 + 0.20 * linear_ramp(sweep_depth_atr, 0.0, 2.0)
-        # Continuous HMM regime weight: ranging regime boosts mean-reversion setup
-        ranging_w = hmm_regime_weight(features, "ranging")
-        confidence += 0.10 * ranging_w
         supporting = ["sweep_reclaimed"]
 
         fvg_type = features.get("fvg_type", 0.0)
@@ -107,17 +103,6 @@ class LiquiditySweepReclaimPlugin:
         if ob_type == float(direction):
             confidence += 0.10
             supporting.append("order_block_confirmed")
-
-        ctf_score = features.get("ctf_score", 0.0)
-        if abs(ctf_score) > 0.3:
-            # Renaissance principle: weight by magnitude, not binary gate
-            # Stronger CTF alignment = larger boost (0.0 to 0.10 range)
-            ctf_boost = 0.05 * min(2.0, abs(ctf_score) / 0.5)
-            confidence += ctf_boost
-            if ctf_boost > 0.04:
-                supporting.append("strong_cross_timeframe_aligned")
-            else:
-                supporting.append("cross_timeframe_aligned")
 
         # Named pool significance boost
         sweep_type_val = features.get("sweep_type", 0.0)
@@ -132,7 +117,6 @@ class LiquiditySweepReclaimPlugin:
                 confidence += min(0.10, sig * 0.12)
                 supporting.append(f"named_bsl_level_{sig:.2f}")
 
-        confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
         confidence = compose_confidence(confidence)
 
         regime_context = "any"
