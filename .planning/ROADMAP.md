@@ -1526,31 +1526,36 @@ Plans:
 
 ---
 
-### Phase 118: Top 5 Setup Refactoring
+### Phase 118: Confidence Integrity + Top 5 Setup Refactoring
 
-**Goal:** Refactor the 5 highest-volume NEEDS_REFACTOR setups (OFIContinuation 1.59M, PatternCompletion 795K, GapAnalysis 331K, CVDDivergence 250K, DivergenceStack 181K) — fix implementations, keep sound ideas. Expected: eliminate ~3.5M noise signals.
+**Goal:** First, strip all signal-extrinsic modifiers from I7 confidence across all affected plugins (clean training data foundation). Then refactor the 5 highest-volume NEEDS_REFACTOR setups (OFIContinuation 1.59M, PatternCompletion 795K, GapAnalysis 331K, CVDDivergence 250K, DivergenceStack 181K) with correct intrinsic-only confidence. Expected: eliminate ~3.5M noise signals and establish clean ML training data.
 
 **Depends on**: Phase 117
 **Requirements**: REFACTOR-01, REFACTOR-02, REFACTOR-03, REFACTOR-04, REFACTOR-05
+**Architecture principle**: Confidence = signal-intrinsic quality only (pattern magnitude, persistence, structural quality). Extrinsic factors (HMM regime, CTF/I6 scores, exhaustion state, zone context, SMC events) travel in `capture_signal_features()` and are NOT applied to confidence. The SignalContextEnricher (future phase) learns these relationships from outcome data empirically. See `docs/ideas/signal-07-signal-context-enricher.md`.
+
 **Success Criteria** (what must be TRUE):
 
-  1. trad_OFIContinuation: magnitude threshold (MIN_OFI_MAGNITUDE=500), multi-factor confidence (4 factors), I6 confluence integration, MIN_CONSECUTIVE_BARS=10
+  0. Wave 0 complete: all extrinsic confidence modifiers stripped from all affected I7 plugins per `docs/plans/2026-06-08-confidence-intrinsic-cleanup.md` — no `hmm_regime_weight`, `apply_exhaustion_boost/guard`, CTF boosts, or zone penalties remaining in any confidence formula; momentum_breakout/squeeze_expansion/trend_following composites restructured to intrinsic-only; a parametrized contract test proves extrinsic-only perturbation leaves confidence unchanged
+  1. trad_OFIContinuation: magnitude threshold (MIN_OFI_MAGNITUDE=500), multi-factor intrinsic confidence (magnitude + persistence + EWMA alignment + rel_volume), MIN_CONSECUTIVE_BARS=10; I6 CTF data in capture_signal_features() only
   2. trad_PatternCompletion: data flow bug fixed (pattern fields persisted to DB), confidence_threshold 0.50→0.70, regime_type "any"→"trend"
-  3. trad_GapAnalysisSetup: min_gap_atr_mult 0.3→0.8, I6 confluence integration
-  4. trad_CVDDivergence: MIN_CVD_DIVERGENCE=0.5 threshold, _CONFIRMATION_BARS 3→5, I6 confluence integration
-  5. trad_DivergenceStack: multi-factor confidence replaces single-factor formula, I6 confluence integration
-  6. All 5 setups run shadow_only=True; no production promotion until Phase 120 validation passes
-  7. Golden-file parity tests confirm outputs unchanged for equivalent inputs (only noise filtered)
+  3. trad_GapAnalysisSetup: min_gap_atr_mult 0.3→0.8; intrinsic confidence from gap geometry (gap size, ATR ratio, session timing); I6 CTF data in capture_signal_features() only
+  4. trad_CVDDivergence: empirical divergence threshold, _CONFIRMATION_BARS 3→5; intrinsic confidence from divergence magnitude and persistence; I6 CTF data in capture_signal_features() only
+  5. trad_DivergenceStack: multi-factor intrinsic confidence (divergence depth, alignment count, persistence); I6 CTF data in capture_signal_features() only
+  6. All 5 refactored setups run shadow_only=True; no production promotion until Phase 120 validation passes
+  7. Unit tests green; grep confirms zero hmm_regime_weight/exhaustion/zone/CTF calls in confidence path across all I7 plugins
 
-**Plans**: 5 plans (one per setup, serial)
+**Plans**: 7 plans (Wave 0 deletion sweep + Wave 0 restructure/contract-test + one per setup, serial)
 
 Plans:
 
-- [ ] 118-01-PLAN.md — trad_OFIContinuation refactor: magnitude threshold + multi-factor confidence + I6 + regime
-- [ ] 118-02-PLAN.md — trad_PatternCompletion refactor: fix data flow + threshold + regime + I6
-- [ ] 118-03-PLAN.md — trad_GapAnalysisSetup refactor: threshold + I6 + regime
-- [ ] 118-04-PLAN.md — trad_CVDDivergence refactor: magnitude threshold + confirmation bars + I6
-- [ ] 118-05-PLAN.md — trad_DivergenceStack refactor: multi-factor confidence + I6
+- [ ] 118-00-PLAN.md — Wave 0a: Strip extrinsic confidence modifiers (mechanical deletion) across 12 affected I7 plugins
+- [ ] 118-00b-PLAN.md — Wave 0b: Composite restructures (momentum_breakout, squeeze_expansion, trend_following) + parametrized extrinsic-contract test
+- [ ] 118-01-PLAN.md — trad_OFIContinuation refactor: magnitude threshold + intrinsic multi-factor confidence
+- [ ] 118-02-PLAN.md — trad_PatternCompletion refactor: fix data flow + threshold + regime
+- [ ] 118-03-PLAN.md — trad_GapAnalysisSetup refactor: threshold + intrinsic confidence from gap geometry
+- [ ] 118-04-PLAN.md — trad_CVDDivergence refactor: magnitude threshold + confirmation bars + intrinsic confidence
+- [ ] 118-05-PLAN.md — trad_DivergenceStack refactor: multi-factor intrinsic confidence
 
 ---
 
