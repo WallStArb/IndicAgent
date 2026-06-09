@@ -43,14 +43,13 @@ async def _run_audit(pool: asyncpg.Pool) -> list[str]:
             "SELECT COUNT(*) FROM intelligence_features WHERE ts >= NOW() - INTERVAL '1 hour'"
         )
 
-    if total == 0:
-        logger.info("feature_parity_audit.no_recent_rows")
-        FEATURE_PARITY_NULL_FIELDS_TOTAL.set(0, {})
-        FEATURE_PARITY_AUDITS_RUN_TOTAL.add(1, {})
-        return []
+        if total == 0:
+            logger.info("feature_parity_audit.no_recent_rows")
+            FEATURE_PARITY_NULL_FIELDS_TOTAL.set(0, {})
+            FEATURE_PARITY_AUDITS_RUN_TOTAL.add(1, {})
+            return []
 
-    violations: list[str] = []
-    async with pool.acquire() as conn:
+        violations: list[str] = []
         for field in _EXPECTED_FIELDS:
             count: int = await conn.fetchval(
                 "SELECT COUNT(*) FILTER (WHERE pattern_detections ? $1)"
