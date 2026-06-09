@@ -95,6 +95,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-weight-updater": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-shadow-auditor": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-feature-parity-auditor": 8,  # oneshot: timer-triggered, not a daemon
+    "indicagent-confidence-calibration-monitor": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-signal-probe-auditor": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-ml-orchestrator": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-ml-data-quality": 8,  # oneshot: timer-triggered, not a daemon
