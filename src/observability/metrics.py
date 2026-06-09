@@ -280,6 +280,19 @@ SHADOW_TAIL_GATE_DB_ERROR = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
+# Feature parity auditor (Phase 117)
+# ---------------------------------------------------------------------------
+
+FEATURE_PARITY_NULL_FIELDS_TOTAL = point_gauge(
+    "feature_parity_null_fields_total",
+    "Count of expected pattern fields that are 100% NULL in intelligence_features over the last hour",
+)
+FEATURE_PARITY_AUDITS_RUN_TOTAL = _meter.create_counter(
+    "feature_parity_audits_run_total",
+    description="Feature-parity audit runs completed",
+)
+
+# ---------------------------------------------------------------------------
 # Agent liveness
 # ---------------------------------------------------------------------------
 

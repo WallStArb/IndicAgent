@@ -1,0 +1,10 @@
+[Unit]
+Description=Feature Parity Auditor Timer — every 5 minutes
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+Unit=indicagent-feature-parity-auditor.service
+
+[Install]
+WantedBy=timers.target
