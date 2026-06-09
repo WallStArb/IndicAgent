@@ -52,6 +52,7 @@ class VWAPDeviationPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "vwap", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
+    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     sigma_threshold: float = 2.0
     _state: dict = field(default_factory=dict)
 

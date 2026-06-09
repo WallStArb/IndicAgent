@@ -49,6 +49,7 @@ class FVGFillPlugin:
     # signal_generator_service passes current-TF OHLCV regardless. ".*" makes intent clear.
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "mean_reversion"
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

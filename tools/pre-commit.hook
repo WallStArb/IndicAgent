@@ -11,6 +11,7 @@
 #   6. Duplicate test names — same test function in multiple files within a directory
 #   7. Ring 0 boundary check — src/core/ and src/observability/ must not import domain layers
 #   8. Glossary enforcement — banned synonyms blocked in .py and .md files
+#   9. I6 confluence declaration — new/modified I7 plugins must declare requires_i6_confluence
 #
 # Log: .git/hooks/pre-commit.log (all runs with timestamps)
 
@@ -35,7 +36,7 @@ FAILURES=0
 #             Protocol base classes (class.*Protocol), abstract bases
 # -----------------------------------------------------------------------------
 check_plugin_class_naming() {
-    echo "[1/8] Plugin class naming check..."
+    echo "[1/9] Plugin class naming check..."
 
     # Find intelligence layer Python files in this commit
     # Exclude: schemas.py (canonical bus schemas — not plugin classes)
@@ -83,7 +84,7 @@ check_plugin_class_naming() {
 # Pattern: ^[a-z][a-z0-9_]*\.py$ (all lowercase with underscores)
 # -----------------------------------------------------------------------------
 check_plugin_file_naming() {
-    echo "[2/8] Plugin file naming check..."
+    echo "[2/9] Plugin file naming check..."
 
     VIOLATIONS=$(git diff --cached --name-only --diff-filter=ACM | \
         grep -E '^src/intelligence/.*\.py$' | \
@@ -116,7 +117,7 @@ check_plugin_file_naming() {
 #             (infrastructure files, not plugins)
 # -----------------------------------------------------------------------------
 check_regime_type_declaration() {
-    echo "[3/8] I7 regime_type check..."
+    echo "[3/9] I7 regime_type check..."
 
     # Find I7 plugin files in this commit (exclude infrastructure files)
     I7_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
@@ -162,7 +163,7 @@ check_regime_type_declaration() {
 # Re-stages any files ruff modifies so the commit includes the fixes.
 # -----------------------------------------------------------------------------
 check_ruff_lint() {
-    echo "[4/8] Ruff lint check..."
+    echo "[4/9] Ruff lint check..."
 
     CHANGED_PY_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
         grep -E '\.py$' || true)
@@ -231,7 +232,7 @@ check_ruff_lint() {
 # Blocks if black is not available.
 # -----------------------------------------------------------------------------
 check_black_format() {
-    echo "[5/8] Black format check..."
+    echo "[5/9] Black format check..."
 
     CHANGED_PY_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
         grep -E '\.py$' || true)
@@ -285,7 +286,7 @@ check_black_format() {
 # Allowlist: tools/duplicate_test_allowlist.txt (structural boilerplate exemptions)
 # -----------------------------------------------------------------------------
 check_duplicate_tests() {
-    echo "[6/8] Duplicate test names check..."
+    echo "[6/9] Duplicate test names check..."
 
     PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
     if [ ! -x "$PYTHON_BIN" ]; then
@@ -320,7 +321,7 @@ check_duplicate_tests() {
 # Pattern: enforces that Ring 0 infrastructure never imports Ring 1+ domain code
 # -----------------------------------------------------------------------------
 check_ring0_boundary() {
-    echo "[7/8] Ring 0 boundary check..."
+    echo "[7/9] Ring 0 boundary check..."
 
     RING0_VIOLATIONS=$(grep -rn \
       "from src\.intelligence\|from src\.providers\|from src\.self_healing\|from services" \
@@ -346,7 +347,7 @@ check_ring0_boundary() {
 # Blocks on any banned term (active, deprecated, or retired) in prose or identifiers
 # -----------------------------------------------------------------------------
 check_glossary_terms() {
-    echo "[8/8] Glossary enforcement check..."
+    echo "[8/9] Glossary enforcement check..."
 
     CHANGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
         grep -E '\.(py|md)$' | \
@@ -397,6 +398,54 @@ check_glossary_terms() {
 }
 
 # -----------------------------------------------------------------------------
+# Check 9: I6 confluence declaration — new/modified I7 plugins must declare
+#           requires_i6_confluence
+#
+# Scope: Files in src/intelligence/trading/*.py (I7 plugins only)
+# Requirement: Must contain 'requires_i6_confluence' declaration
+# Exclusions: infrastructure + utility modules that are not PatternPlugin classes
+# -----------------------------------------------------------------------------
+check_i6_confluence_declaration() {
+    echo "[9/9] I6 confluence requirement check..."
+
+    # Find I7 plugin files in this commit (exclude infrastructure and utility files)
+    I7_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
+        grep -E '^src/intelligence/trading/[a-z][a-z0-9_]*\.py$' | \
+        grep -vE '(signal_ledger|lifecycle_tracker|lifecycle_transitions|trade_framer|signal_aggregator|cis_scorer|weight_updater|confidence_calibrator|plugin_utils|atr_utils|state_utils|confidence_utils|microstructure_utils|volume_profile_utils|exhaustion_utils|signal_schema|position_sizer|aggregator|__init__)\.py$' || true)
+
+    if [ -z "$I7_FILES" ]; then
+        echo "  OK No I7 trading plugins changed"
+        return 0
+    fi
+
+    FAILURES_LOCAL=0
+    for file in $I7_FILES; do
+        if [ -f "${REPO_ROOT}/${file}" ]; then
+            # Check if the file defines a Plugin class (skip non-plugin files)
+            if ! grep -q '^class.*Plugin' "${REPO_ROOT}/${file}" 2>/dev/null; then
+                continue  # Not a plugin file, skip
+            fi
+
+            # Check for requires_i6_confluence declaration
+            if ! grep -qE 'requires_i6_confluence\s*[:=]' "${REPO_ROOT}/${file}"; then
+                echo "  FAILED: I7 plugin missing requires_i6_confluence declaration"
+                echo "    File: ${file}"
+                echo "    Remediation: Add 'requires_i6_confluence: bool = True'"
+                echo "      (or False with TODO comment if I6 not yet integrated)"
+                FAILURES_LOCAL=$((FAILURES_LOCAL + 1))
+            fi
+        fi
+    done
+
+    if [ $FAILURES_LOCAL -gt 0 ]; then
+        return 1
+    fi
+
+    echo "  OK All I7 plugins declare requires_i6_confluence"
+    return 0
+}
+
+# -----------------------------------------------------------------------------
 # Run all checks — all must pass for commit to proceed
 # -----------------------------------------------------------------------------
 check_plugin_class_naming || FAILURES=$((FAILURES + 1))
@@ -407,6 +456,7 @@ check_black_format || FAILURES=$((FAILURES + 1))
 check_duplicate_tests || FAILURES=$((FAILURES + 1))
 check_ring0_boundary || FAILURES=$((FAILURES + 1))
 check_glossary_terms || FAILURES=$((FAILURES + 1))
+check_i6_confluence_declaration || FAILURES=$((FAILURES + 1))
 
 echo "=== Pre-commit checks completed: $(date -Iseconds) ==="
 

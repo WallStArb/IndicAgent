@@ -50,6 +50,7 @@ class MomentumBreakoutPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "breakout", "momentum"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
+    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     roc_period: int = 14
     roc_threshold: float = 0.3
     volume_expansion_threshold: float = 1.5

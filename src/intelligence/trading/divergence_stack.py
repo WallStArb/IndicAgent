@@ -54,6 +54,7 @@ class DivergenceStackPlugin:
 
     name: str = "trad_DivergenceStack"
     regime_type: str = "any"
+    requires_i6_confluence: bool = True
     outputs: frozenset[str] = frozenset(
         {
             # Signal fields

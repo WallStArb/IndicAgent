@@ -51,6 +51,7 @@ class SqueezeExpansionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "squeeze", "volatility"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
+    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     volume_expansion_threshold: float = 1.3
     _state: dict = field(default_factory=dict)
 
