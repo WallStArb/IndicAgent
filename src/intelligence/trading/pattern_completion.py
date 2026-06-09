@@ -1,6 +1,6 @@
 """trad_PatternCompletion — Chart pattern completion evidence-contributor.
 
-Gates on any I5 pattern confidence > 0.5.
+Gates on any I5 pattern confidence > 0.70.
 Checks dt_db (double top/bottom), hs (head and shoulders), then triangle.
 Takes highest-confidence pattern if multiple fire.
 Evidence contributor for CIS bucket scorer — Phase B input.
@@ -14,7 +14,6 @@ from typing import Any
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -24,9 +23,10 @@ from .trade_framer import frame_trade
 class PatternCompletionPlugin:
     """I7 evidence contributor: fires when a high-confidence chart pattern completes.
 
-    Gate: any pattern confidence > 0.5
+    Gate: any pattern confidence > 0.70 (raised from 0.50 in Phase 118)
     Priority: dt_db first, then hs, then triangle (take highest-confidence)
-    Confidence: pattern_confidence * 0.9 (scale to signal-quality range)
+    Confidence: 4-factor intrinsic composite (pattern_score, strength_score,
+                convergence_score, direction_purity) — no extrinsic modifiers.
     """
 
     name: str = "trad_PatternCompletion"
@@ -46,9 +46,13 @@ class PatternCompletionPlugin:
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "pattern", "structure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
-    regime_type: str = "any"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
-    confidence_threshold: float = 0.5
+    # extrinsic eligibility gate (aggregator regime filter) — NOT a confidence modifier;
+    # confidence stays intrinsic. The aggregator suppresses this plugin when
+    # hmm_regime indicates a ranging market; that is correct and intentional.
+    regime_type: str = "trend"
+    requires_i6_confluence: bool = True
+    confidence_threshold: float = 0.70
+    shadow_only: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -112,18 +116,34 @@ class PatternCompletionPlugin:
         stop = tf.stop
         targets = [round(t.price, 2) for t in tf.targets]
 
-        # Scale confidence to signal-quality range
-        supporting = [pattern_name]
+        # 4-factor intrinsic confidence — each factor clamped [0, 1] before weighting.
+        # pattern_score: raw I5 confidence (already above 0.70 gate).
+        # strength_score: distance above the gate normalised to [0, 1].
+        # convergence_score: agreement of multiple independent pattern detectors.
+        # direction_purity: unanimity of direction votes across all candidates.
+        pattern_score = min(1.0, max(0.0, best_confidence))
+        strength_score = min(1.0, max(0.0, (best_confidence - 0.70) / 0.30))
+        convergence_score = min(1.0, max(0.0, len(candidates) / 3.0))
         if len(candidates) > 1:
-            supporting.append("multiple_patterns")
+            direction_purity = 1.0 if all(d == direction for _, d, _ in candidates) else 0.4
+        else:
+            direction_purity = 0.7  # single pattern — neutral conviction
 
-        raw_conf = best_confidence * 0.9
-        raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
+        raw_conf = (
+            0.45 * pattern_score
+            + 0.25 * strength_score
+            + 0.20 * convergence_score
+            + 0.10 * direction_purity
+        )
         confidence = compose_confidence(raw_conf)
 
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
-        return make_signal_from_frame(
+        supporting = [pattern_name]
+        if len(candidates) > 1:
+            supporting.append("multiple_patterns")
+
+        signal = make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),
             timeframe=features.get("timeframe", ""),
@@ -136,6 +156,14 @@ class PatternCompletionPlugin:
             supporting_factors=supporting,
             features_snapshot=capture_signal_features(features, direction, "smc", confidence),
         )
+
+        # Persist structured pattern fields into the signal dict so they land in
+        # the i7 JSONB bucket of intelligence_features as typed ML features.
+        signal["pattern_name"] = pattern_name
+        signal["pattern_raw_confidence"] = round(best_confidence, 4)
+        signal["pattern_count"] = len(candidates)
+
+        return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return self.compute_full(windows)
