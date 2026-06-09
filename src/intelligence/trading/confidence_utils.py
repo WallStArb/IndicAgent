@@ -29,6 +29,11 @@ CONF_CEIL: float = 0.95
 """Maximum allowed confidence for any I7 signal."""
 
 
+def clamp01(x: float) -> float:
+    """Clamp x to [0.0, 1.0]. Use for per-factor scoring before weighted sums."""
+    return clamp(x, 0.0, 1.0)
+
+
 def compose_confidence(raw: float) -> float:
     """Clamp raw confidence to the system ceiling [0.0, CONF_CEIL].
 

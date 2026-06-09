@@ -3,7 +3,7 @@
 **Date**: 2026-06-07
 **Status**: under-review
 **Type**: Root Cause Analysis
-**Last Updated:** 2026-06-08
+**Last Updated:** 2026-06-09
 **Authors**: Renaissance Council (Engineering + Architecture + Quant)
 **Scope**: System-level root cause analysis of signal generation over-abundance
 
@@ -617,22 +617,25 @@ raw_conf = 0.50 + abs(ofi_ewma_20) * 0.001  # Meaningless scale
 if count < _MIN_CONSECUTIVE_BARS:  # Any magnitude fires
     return no_signal()
 
-# AFTER (fixed):
-# Pattern G1: Multi-factor confidence (4 factors)
+# AFTER (fixed — Phase 118 intrinsic-only):
+# Extrinsic factors (ctf_score, hmm_regime_weight, zone friction) are captured
+# in the ML feature path but NOT used in confidence. Confidence = intrinsic quality only.
 raw_conf = (
-    0.35 * min(1.0, abs(ofi_ewma_20) / 1000.0) +  # OFI magnitude (capped)
-    0.25 * min(1.0, consecutive_bars / 10.0) +       # Persistence
-    0.20 * hmm_regime_weight(features, "trend") +   # Regime alignment (continuous)
-    0.20 * min(1.0, abs(features.get("ctf_score", 0.0)))  # I6 confluence
+    0.45 * min(1.0, abs(ofi_ewma_20) / 1000.0) +  # OFI magnitude (capped)
+    0.35 * min(1.0, consecutive_bars / 10.0) +       # Persistence
+    0.20 * ofi_direction_consistency,               # Signal consistency (intrinsic)
 )
 
 # Pattern G3: Strict dual gates
-MIN_OFI_MAGNITUDE = 500  # Magnitude threshold
+MIN_OFI_MAGNITUDE = 500  # Magnitude threshold (empirically derived)
 MIN_CONSECUTIVE_BARS = 10  # Tighten from 5
 if abs(ofi_ewma_20) < MIN_OFI_MAGNITUDE:
     return no_signal()  # Magnitude gate
 if consecutive_bars < MIN_CONSECUTIVE_BARS:
     return no_signal()  # Persistence gate
+
+# Extrinsic features captured for ML training (not confidence):
+capture_signal_features(features, direction, "microstructure", confidence)
 ```
 
 **Shadow mode validation**: Run with `IS_SHADOW=True` until p<0.05, N≥100, win rate>50%.
@@ -670,17 +673,19 @@ class FeatureParityAuditor:
 confidence_threshold: float = 0.5  # Noise floor
 regime_type: str = "any"  # Fires in all regimes
 
-# AFTER (fixed):
+# AFTER (fixed — Phase 118 intrinsic-only):
+# hmm_regime_weight, ctf_score, ctf_structure captured in ML features; NOT in confidence.
 confidence_threshold: float = 0.70  # Require high confidence
 regime_type: str = "trend"  # Only fire in trending regimes
 
-# Pattern G1: Multi-factor confidence
+# Confidence = intrinsic pattern quality only
 raw_conf = (
-    0.40 * best_confidence +  # Pattern quality
-    0.20 * hmm_regime_weight(features, "trend") +  # Regime alignment
-    0.20 * min(1.0, abs(features.get("ctf_structure", 0.0))) +  # I6 structure
-    0.20 * min(1.0, abs(features.get("ctf_score", 0.0)))  # I6 overall
+    0.50 * best_confidence +  # Primary pattern quality (intrinsic)
+    0.30 * pattern_completion_strength +  # How far pattern extended (intrinsic)
+    0.20 * min(1.0, pattern_age_bars / 20.0),  # Pattern maturity (intrinsic)
 )
+# Extrinsic features captured for ML (not confidence):
+capture_signal_features(features, direction, "pattern", confidence)
 ```
 
 #### 3. trad_AnchoredVWAPReversion (394K signals, 0.20% selected)
@@ -707,13 +712,19 @@ raw_conf = (
 # BEFORE (broken):
 min_gap_atr_mult: float = 0.3  # Too loose
 
-# AFTER (fixed):
-min_gap_atr_mult: float = 0.8  # Require meaningful gaps
+# AFTER (fixed — Phase 118 intrinsic-only):
+# ctf_score captured in ML features; NOT added to confidence.
+min_gap_atr_mult: float = 0.8  # Require meaningful gaps (0.8x ATR)
 
-# Add I6 confluence
-ctf_score = features.get("ctf_score", 0.0)
-if abs(ctf_score) > 0.3 and math.copysign(1, ctf_score) == direction:
-    confidence += 0.05 * min(1.0, abs(ctf_score) / 0.7)
+# Confidence = intrinsic 4-factor composite (geo + vol + timing + type)
+raw_conf = (
+    0.35 * geo_score +     # Gap magnitude quality (intrinsic)
+    0.30 * vol_score +     # Volume confirmation (intrinsic)
+    0.20 * timing_score +  # Session timing (intrinsic, floored at 0.2)
+    0.15 * type_score,     # Gap type quality (intrinsic)
+)
+# Extrinsic features captured for ML (not confidence):
+capture_signal_features(features, direction, "gap", confidence)
 ```
 
 #### 5. trad_CVDDivergence (250K signals, 0.05% selected)
@@ -731,56 +742,61 @@ if abs(ctf_score) > 0.3 and math.copysign(1, ctf_score) == direction:
 if cvd_div == 0.0:  # Any non-zero qualifies
     return no_signal()
 
-# AFTER (fixed):
-MIN_CVD_DIVERGENCE = 0.5  # Magnitude threshold
+# AFTER (fixed — Phase 118 intrinsic-only):
+# ctf_score captured in ML features; NOT added to confidence.
+MIN_CVD_DIVERGENCE = 0.002  # Magnitude threshold (empirically derived from data)
 if abs(cvd_div) < MIN_CVD_DIVERGENCE:
     return no_signal()
 
 # Tighten confirmation
 _CONFIRMATION_BARS: int = 5  # From 3
 
-# Add I6 confluence
-ctf_score = features.get("ctf_score", 0.0)
-if abs(ctf_score) > 0.3:
-    confidence += 0.08 * min(1.0, abs(ctf_score) / 0.7)
+# Confidence = intrinsic quality only (divergence magnitude + confirmation strength)
+raw_conf = (
+    0.50 * min(1.0, abs(cvd_div) / CVD_SCALE) +  # Divergence magnitude (intrinsic)
+    0.30 * min(1.0, confirmation_bars / 8.0) +    # Persistence (intrinsic)
+    0.20 * price_confirmation_score,              # Price action alignment (intrinsic)
+)
+# Extrinsic features captured for ML (not confidence):
+capture_signal_features(features, direction, "microstructure", confidence)
 ```
 
 ### Blueprint Part 2: Enforce Architectural Patterns (Mandatory for All I7)
 
 **Renaissance principle**: "Component reuse over duplication." Create a shared template that enforces correctness.
 
-#### Mandatory Pattern 1: Multi-Factor Confidence (Minimum 4 Factors)
+#### Mandatory Pattern 1: Intrinsic-Only Confidence (Phase 118 Decision)
 
-**Enforcement**: Base class validation
+> **REVISED (2026-06-09, Phase 118)**: Factor-count enforcement at the base class level was dropped (see Council Review Problem 4 above — cargo-cult architecture, gameable with trivial dummy factors). The mandate is now architectural separation: confidence = intrinsic signal quality only. Extrinsic factors (ctf_score, hmm_regime_weight, zone friction, exhaustion guards) are CAPTURED in the ML feature path but must NOT appear in the confidence formula. Quality is enforced by shadow mode promotion gates (p<0.05, N≥100), not by factor counts.
+
+**Enforcement**: Code review + contract test (test_i7_extrinsic_contract.py)
 ```python
 class PatternPlugin:
     def compute_full(self, frames):
-        confidence = self._compute_confidence(frames, direction)
+        # Confidence = weighted intrinsic factors only
+        # All factors must be measurable from the signal geometry itself,
+        # NOT from regime, confluence, or zone context.
+        raw_conf = self._compute_intrinsic_confidence(frames)
+        return compose_confidence(raw_conf)
         
-        # Validate: Minimum 4 factors
-        if len(self._confidence_factors) < 4:
-            raise ArchitectureViolation(
-                f"{self.name} must have minimum 4 confidence factors, "
-                f"has {len(self._confidence_factors)}"
-            )
-        
-        return compose_confidence(confidence)
+        # Extrinsic features captured separately for ML training:
+        capture_signal_features(features, direction, self._capture_domain, raw_conf)
 ```
 
-#### Mandatory Pattern 2: I6 Confluence Integration (Architecturally Required)
+#### Mandatory Pattern 2: I6 Confluence — Captured, Not Gated in Confidence
 
-**Enforcement**: Base class validation
+> **REVISED (2026-06-09, Phase 118)**: ctf_score and other I6 fields must be CAPTURED in the ML feature snapshot (via capture_signal_features) but must NOT appear in the confidence formula. The requires_i6_confluence ClassVar enforces that the plugin declares its stance; it does NOT mean ctf_score is a confidence factor. This was the pre-Phase-118 intent; the code examples in earlier sections of this doc incorrectly showed ctf_score additive in confidence formulas.
+
+**Enforcement**: requires_i6_confluence ClassVar + pre-commit hook (check 9) + contract test
 ```python
 class PatternPlugin:
-    requires_i6_confluence: bool = True  # MANDATORY for all I7
+    requires_i6_confluence: ClassVar[bool]  # MANDATORY declaration for all I7
     
     def compute_full(self, frames):
-        if self.requires_i6_confluence:
-            ctf_score = features.get("ctf_score")
-            if ctf_score is None:
-                raise ArchitectureViolation(
-                    f"{self.name} requires I6 confluence but ctf_score not provided"
-                )
+        # ctf_score is available in features — use it in capture, not confidence:
+        features = {**(frames.get("i6") or {}), ...}
+        capture_signal_features(features, direction, self._capture_domain, confidence)
+        # DO NOT: confidence += 0.20 * abs(features.get("ctf_score", 0.0))
 ```
 
 #### Mandatory Pattern 3: Strict Dual Gates (Minimum 2 Independent Conditions)
@@ -1058,15 +1074,18 @@ class ShadowModeValidator(BaseAgent):
 
 ### Phase 2 (v2.9 Phase 118): Top 5 Setup Refactoring
 
-**Goal**: Refactor the 5 highest-volume NEEDS_REFACTOR setups using Phase 1.5 empirically derived thresholds.
+> **REVISED (2026-06-09, Phase 118 plans finalized)**: The primary work is the extrinsic strip (Wave 0) applied system-wide before any individual setup refactor. Setup-specific refactors then build on the clean base. AnchoredVWAPReversion was removed from this phase (logic already sound); DivergenceStack (181K signals) was added as the 5th setup.
 
-1. **trad_OFIContinuation** — add `MIN_OFI_MAGNITUDE` (from data), multi-factor confidence, I6 integration
-2. **trad_PatternCompletion** — data flow bug already fixed (Phase 0); raise confidence threshold (from data); restrict regime
-3. **trad_AnchoredVWAPReversion** — logic sound per original analysis; add I6 integration only
-4. **trad_GapAnalysisSetup** — tighten `min_gap_atr_mult` (from data); add I6 integration
-5. **trad_CVDDivergence** — add `MIN_CVD_DIVERGENCE` (from data); tighten confirmation bars (from data); add I6
+**Wave 0 (Plans 00 + 00b — system-wide)**: Strip all extrinsic modifiers (hmm_regime_weight, apply_exhaustion_guard/boost, ctf_score in confidence, zone friction) from all I7 plugins that had them. Restructure 3 composite-formula plugins (momentum_breakout, squeeze_expansion, trend_following) onto intrinsic-only weights. Contract test (test_i7_extrinsic_contract.py) proves extrinsic perturbation leaves confidence unchanged across the full blast radius.
 
-All 5 deploy `shadow_only=True`. Thresholds are from data, not guesses.
+**Top 5 individual refactors (Plans 01-05 — intrinsic-only confidence, shadow_only=True)**:
+1. **trad_OFIContinuation** — intrinsic 3-factor: OFI magnitude + persistence + direction consistency; `MIN_OFI_MAGNITUDE` gate
+2. **trad_PatternCompletion** — intrinsic 3-factor: pattern quality + completion strength + maturity; raise confidence threshold 0.5→0.7; `regime_type="trend"`
+3. **trad_GapAnalysisSetup** — intrinsic 4-factor: geo + vol + timing + type; raise `min_gap_atr_mult` 0.3→0.8
+4. **trad_CVDDivergence** — intrinsic 3-factor: divergence magnitude + persistence + price confirmation; `_CVD_DIV_THRESHOLD` derived from distribution (not 0.0)
+5. **trad_DivergenceStack** — intrinsic confidence composite; structural refactor of stacking logic
+
+All 5 deploy `shadow_only=True`. Confidence formulas contain no extrinsic factors — ctf_score, regime weights, and zone context remain in ML feature capture only.
 
 ---
 
@@ -1081,6 +1100,35 @@ Same protocol: use Phase 1.5 derived thresholds where available; where probe dat
 ### Phase 4 (v2.9 Phase 120): Shadow Mode Validation
 
 All 21 refactored setups run shadow_only=True. Promotion criteria: p<0.05, N≥100, win_rate>50%, calibration_correlation>0.3. Note: this now validates that the empirically-derived thresholds work in production, not that our guesses were right.
+
+---
+
+### Phase 4.1 (post-Phase 120): Extrinsic Confidence Composite Layer
+
+**The idea:** Phase 118 stripped extrinsic factors (ctf_score, hmm_regime_weight, zone friction, exhaustion) from plugin confidence formulas. Those factors have genuine predictive value — they were just being applied in the wrong place, at the wrong time, with made-up weights. The correct architecture applies them as a single calibrated multiplier *after* intrinsic confidence is computed, at the aggregator layer.
+
+**Design:**
+```
+effective_confidence = intrinsic_confidence * extrinsic_multiplier(features)
+
+extrinsic_multiplier = softmax-normalized composite of:
+  - ctf_score          (I6 cross-timeframe confluence)
+  - hmm_regime_weight  (regime alignment probability)
+  - zone_friction      (supply/demand zone context)
+  - exhaustion_guard   (delta exhaustion penalty)
+```
+
+Weights are learned per plugin-family from `features_snapshot` + `signal_ledger` outcomes. `ConfluenceWeightProfile` in `confidence_utils.py` already has the placeholder structure (all 0.0 now — these are the Phase 49 weights).
+
+**Why this is better than inline additive:**
+- Intrinsic confidence is a clean, reproducible signal for ML training
+- Extrinsic composite can be retrained independently as the regime/zone models improve
+- A single application point (`aggregator.py` or a post-processing step before aggregator scoring) means one place to audit, test, and tune
+- Multiplier semantics: extrinsic context scales quality, it doesn't replace it (a 0.90-confidence signal in a perfect regime context stays near 0.90; it doesn't jump to 0.95 from arbitrary additive noise)
+
+**Phase dependency:** Requires Phase 120 shadow data (N≥100 per family, outcomes recorded) before `ConfluenceWeightProfile` weights can be trained. Connection to Phase 122 (production hardening) and the `ConfidenceCalibrationMonitor` CORR metric.
+
+**Files to update:** `confidence_utils.py` (fill non-zero weights in `FAMILY_PROFILES`), `aggregator.py` (apply composite before scoring), `confidence_calibration_monitor.py` (track calibration of effective vs intrinsic).
 
 ---
 
@@ -1241,40 +1289,33 @@ class RenaissanceSignalPlugin:
     # Pattern P2: I6 confluence architecturally mandatory
     requires_i6_confluence: bool = True
     
-    # Pattern P1: Multi-factor confidence (4 factors minimum)
+    # Pattern P1: Intrinsic-only confidence (Phase 118 decision)
+    # Confidence = signal geometry quality only. Extrinsic factors (regime, ctf_score,
+    # zone friction) are captured in the ML feature path — NOT used in confidence.
     def _compute_confidence(self, features: dict, direction: int, atr: float) -> float:
-        """Multi-factor confidence scoring — minimum 4 weighted factors."""
+        """Intrinsic confidence scoring — setup geometry only, no extrinsic factors."""
         
-        # Factor 1: Primary signal metric (setup-specific)
+        # Factor 1: Primary signal metric (setup-specific, intrinsic)
         factor1 = self._compute_primary_factor(features, direction)
         
-        # Factor 2: Regime alignment (continuous weighting)
-        regime_w = hmm_regime_weight(features, self.regime_type)
-        factor2 = 0.20 * regime_w
+        # Factor 2: Signal strength / magnitude (setup-specific, intrinsic)
+        factor2 = self._compute_magnitude_factor(features, direction)
         
-        # Factor 3: I6 confluence (architecturally mandatory)
-        ctf_score = features.get("ctf_score", 0.0)
-        if abs(ctf_score) > 0.3:
-            factor3 = 0.20 * min(1.0, abs(ctf_score) / 0.7)
-        else:
-            factor3 = 0.0
+        # Factor 3: Signal persistence / confirmation (setup-specific, intrinsic)
+        factor3 = self._compute_persistence_factor(features, direction)
         
-        # Factor 4: Structure quality (optional but recommended)
+        # Factor 4: Setup geometry quality (optional, intrinsic)
         factor4 = self._compute_structure_quality(features, direction)
         
         raw_conf = (
-            0.40 * factor1 +
-            0.20 * factor2 +
-            0.20 * factor3 +
-            0.20 * factor4
+            0.40 * min(1.0, max(0.0, factor1)) +
+            0.25 * min(1.0, max(0.0, factor2)) +
+            0.20 * min(1.0, max(0.0, factor3)) +
+            0.15 * min(1.0, max(0.0, factor4))
         )
         
-        # Pattern P6: Zone friction penalties (subtract for bad entries)
-        if direction == 1 and features.get("in_supply_zone") == 1.0:
-            raw_conf -= 0.12 * features.get("supply_strength", 0.0)
-        elif direction == -1 and features.get("in_demand_zone") == 1.0:
-            raw_conf -= 0.12 * features.get("demand_strength", 0.0)
-        
+        # Zone friction, regime weighting, ctf_score: captured in ML features,
+        # NOT subtracted/added here.
         return raw_conf
     
     # Pattern P5: Early gate optimization (cheap before expensive)

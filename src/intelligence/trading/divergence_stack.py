@@ -17,7 +17,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import default_compute_next, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -159,11 +159,13 @@ class DivergenceStackPlugin:
             DIVERGENCE_WEIGHTS[name] * score for name, score in per_input_scores.items()
         )
 
-        # Update divergence age tracking in state
+        # Update divergence age tracking in state; collect active ages in the same pass
+        active_ages: list[int] = []
         for name, score in per_input_scores.items():
             age_key = f"{name}_age"
             if score > 0:
                 state[age_key] = state.get(age_key, 0) + 1
+                active_ages.append(state[age_key])
             else:
                 state[age_key] = 0
 
@@ -240,38 +242,31 @@ class DivergenceStackPlugin:
             # Weights: 0.40 + 0.25 + 0.20 + 0.15 = 1.00 exactly.
 
             # Factor 1 — base weighted score (normalized by practical 3-signal max)
-            base_score = min(1.0, max(0.0, weighted_score / DIVERGENCE_CONFIDENCE_NORM))
+            base_score = clamp01(weighted_score / DIVERGENCE_CONFIDENCE_NORM)
 
             # Factor 2 — direction purity (1.0 = unanimous, 0.5 = perfectly split)
             total_active_weight = bull_weight + bear_weight
-            if total_active_weight > 0:
-                purity_score = min(
-                    1.0, max(0.0, max(bull_weight, bear_weight) / total_active_weight)
-                )
-            else:
-                purity_score = 0.5
+            purity_score = (
+                clamp01(max(bull_weight, bear_weight) / total_active_weight)
+                if total_active_weight > 0
+                else 0.5
+            )
 
             # Factor 3 — breadth: how many inputs agree beyond the minimum gate
             breadth_range = 5 - DIVERGENCE_MIN_AGREEING
-            if breadth_range > 0:
-                breadth_score = min(
-                    1.0, max(0.0, (n_agreeing - DIVERGENCE_MIN_AGREEING) / breadth_range)
-                )
-            else:
-                breadth_score = 1.0
+            breadth_score = (
+                clamp01((n_agreeing - DIVERGENCE_MIN_AGREEING) / breadth_range)
+                if breadth_range > 0
+                else 1.0
+            )
 
             # Factor 4 — freshness persistence: most-recently-confirmed active component.
             # Freshness, not max-age — a stale stack (all inputs aging out) is lower quality
             # than one with a component just confirmed this bar. We invert the MINIMUM age so
             # that a freshly-confirmed input (min_age small) scores high.
-            active_ages = [
-                state.get(f"{inp_name}_age", 0)
-                for inp_name in per_input_scores
-                if per_input_scores[inp_name] > 0 and state.get(f"{inp_name}_age", 0) > 0
-            ]
+            # active_ages was accumulated in the age-tracking loop above.
             if active_ages:
-                min_active_age = min(active_ages)
-                persistence_score = min(1.0, max(0.0, 1.0 - min_active_age / 10.0))
+                persistence_score = clamp01(1.0 - min(active_ages) / 10.0)
             else:
                 persistence_score = 0.5
 

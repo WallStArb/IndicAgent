@@ -17,8 +17,7 @@ import pandas as pd
 
 from src.intelligence.trading.ofi_continuation import (
     _MIN_CONSECUTIVE_BARS,
-    _MIN_OFI_MAGNITUDE,
-    _OFI_MAG_UPPER_REF,
+    _OFI_PARAMS,
     OFIContinuationPlugin,
 )
 
@@ -26,8 +25,7 @@ from src.intelligence.trading.ofi_continuation import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-_ES_THRESHOLD = _MIN_OFI_MAGNITUDE["ES"]  # 500.0
-_ES_UPPER_REF = _OFI_MAG_UPPER_REF["ES"]  # 2000.0
+_ES_THRESHOLD, _ES_UPPER_REF = _OFI_PARAMS["ES"]  # 500.0, 2000.0
 
 
 def _make_df(n: int = 30) -> pd.DataFrame:
