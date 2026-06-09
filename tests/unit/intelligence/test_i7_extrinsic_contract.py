@@ -137,7 +137,7 @@ def _scenario_ofi_divergence():
 
 
 def _scenario_cvd_divergence():
-    """CVDDivergence fires after 3 bars of opposing CVD vs price."""
+    """CVDDivergence fires after 5 bars of opposing CVD vs price (Phase 118: raised from 3)."""
     from src.intelligence.trading.cvd_divergence import CVDDivergencePlugin
 
     close = np.linspace(5000.0, 5010.0, 25)
@@ -152,7 +152,7 @@ def _scenario_cvd_divergence():
     def _fire(extra: dict) -> dict:
         plugin = CVDDivergencePlugin()
         f = {**features, **extra}
-        for _ in range(2):
+        for _ in range(4):
             plugin.compute_full(_frames(df, f))
         return plugin.compute_full(_frames(df, f))
 

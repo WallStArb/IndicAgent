@@ -7,7 +7,7 @@ are committed to a direction — not just a one-bar spike but sustained convicti
 Renaissance principles:
 - Segment relentlessly: fires only when OFI persists for N bars (not just 1 spike)
 - Instrument everything: persistence count, EWMA magnitude all logged
-- Earn the right through proof: requires N=5 bar confirmation before signal
+- Earn the right through proof: requires N=10 bar confirmation before signal
 """
 
 from __future__ import annotations
@@ -23,7 +23,25 @@ from .signal_schema import make_signal_from_frame
 from .state_utils import track_consecutive_state
 from .trade_framer import frame_trade
 
-_MIN_CONSECUTIVE_BARS: int = 5
+_MIN_CONSECUTIVE_BARS: int = 10
+
+# Phase 118 starting defaults from 90-day p75/p90 distribution — shadow mode will refine.
+# DB query returned no rows (OFI not written to intelligence_features in historical data);
+# using documented starting values from RCA analysis.
+_MIN_OFI_MAGNITUDE_DEFAULT: float = 500.0
+_MIN_OFI_MAGNITUDE: dict[str, float] = {
+    "ES": 500.0,
+    "NQ": 200.0,
+    "CL": 1000.0,
+    "GC": 500.0,
+}
+_OFI_MAG_UPPER_REF_DEFAULT: float = 2000.0
+_OFI_MAG_UPPER_REF: dict[str, float] = {
+    "ES": 2000.0,
+    "NQ": 800.0,
+    "CL": 4000.0,
+    "GC": 2000.0,
+}
 
 
 @dataclass
@@ -31,14 +49,16 @@ class OFIContinuationPlugin:
     """Trend setup: sustained directional OFI for N consecutive bars.
 
     Gates:
-    - ofi_ewma_20 must have same sign for N=5 consecutive bars
+    - ofi_ewma_20 must have same sign for N=10 consecutive bars
+    - abs(ofi_ewma_20) must meet per-instrument p75 magnitude floor
     - State tracks consecutive directional bar count per (symbol, tf)
 
     Direction: sign of ofi_ewma_20
-    Confidence: compose_confidence(0.50 + abs(ofi_ewma_20) * 0.001)
+    Confidence: 4-factor intrinsic composite via compose_confidence()
     """
 
     name: str = "trad_OFIContinuation"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -96,6 +116,11 @@ class OFIContinuationPlugin:
         if count < _MIN_CONSECUTIVE_BARS:
             return no_signal()
 
+        # Gate: require minimum OFI magnitude (trivial flow imbalances rejected)
+        mag_threshold = _MIN_OFI_MAGNITUDE.get(symbol, _MIN_OFI_MAGNITUDE_DEFAULT)
+        if abs(ofi_ewma) < mag_threshold:
+            return no_signal()
+
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
             return no_signal()
@@ -112,14 +137,44 @@ class OFIContinuationPlugin:
         hmm_regime = features.get("hmm_regime")
         regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
 
+        # --- 4-factor intrinsic confidence composite ---
+        # ofi_ewma_5 confirmed emitted by I1 ofi.py (ofi_ewma_5 key, line 110);
+        # using primary 4-factor formula with alignment_score.
+
+        upper_ref = _OFI_MAG_UPPER_REF.get(symbol, _OFI_MAG_UPPER_REF_DEFAULT)
+        magnitude_score = min(
+            1.0,
+            max(0.0, (abs(ofi_ewma) - mag_threshold) / max(1e-9, upper_ref - mag_threshold)),
+        )
+
+        ofi_ewma5 = features.get("ofi_ewma_5")
+        if ofi_ewma5 is not None:
+            alignment_score = 1.0 if float(ofi_ewma5) * ofi_ewma > 0 else 0.3
+        else:
+            alignment_score = 0.65  # neutral fallback when ofi_ewma_5 missing
+
+        persistence_score = min(1.0, max(0.0, (count - _MIN_CONSECUTIVE_BARS) / 10.0))
+
+        rel_vol = features.get("rel_volume")
+        rel_vol = float(rel_vol) if rel_vol is not None else 1.0
+        volume_score = min(1.0, max(0.0, (rel_vol - 1.0) / 1.5))
+
+        # Weighted sum — weights sum to 1.0; all factors clamped to [0,1] before entry
+        raw_conf = (
+            0.40 * magnitude_score
+            + 0.25 * alignment_score
+            + 0.20 * persistence_score
+            + 0.15 * volume_score
+        )
+
+        confidence = compose_confidence(raw_conf)
+
         supporting: list[str] = [
             f"ofi_ewma_20={ofi_ewma:.1f}",
             f"consecutive_bars={count}",
+            f"magnitude_score={magnitude_score:.3f}",
+            f"persistence_score={persistence_score:.3f}",
         ]
-
-        raw_conf = 0.50 + abs(ofi_ewma) * 0.001
-
-        confidence = compose_confidence(raw_conf)
 
         signal = make_signal_from_frame(
             tf_result,
