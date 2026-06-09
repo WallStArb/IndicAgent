@@ -23,10 +23,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -214,10 +212,7 @@ class ORB30Plugin:
 
         # ── Confidence ───────────────────────────────────────────────────────
         hmm_regime = float(features.get("hmm_regime", 0.0))
-        trending_w = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
         confidence = 0.50
-        # Continuous trending probability scales the ORB continuation boost
-        confidence += 0.10 * trending_w
         confidence += gap_boost
 
         regime_ctx = "bullish" if direction == 1 else "bearish"
@@ -253,7 +248,6 @@ class ORB30Plugin:
         if abs(gap_boost) > 0:
             supporting.append(f"gap_bias={gap_boost:+.2f}")
 
-        confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
         confidence = compose_confidence(confidence)
 
         signal = make_signal_from_frame(

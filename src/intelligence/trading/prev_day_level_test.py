@@ -21,10 +21,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -198,18 +196,7 @@ class PrevDayLevelTestPlugin:
 
         # ── Confidence ───────────────────────────────────────────────────────
         hmm_regime = float(features.get("hmm_regime", 0.0))
-        ranging_w = hmm_regime_weight(features, "ranging")
-        trending_w = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
         confidence = 0.50
-
-        if setup_variant == "fade":
-            # Ranging regime favours mean-reversion fade; trending penalises
-            confidence += 0.12 * ranging_w
-            confidence -= 0.05 * trending_w
-        else:  # continuation
-            # Trending regime favours continuation; ranging penalises
-            confidence += 0.12 * trending_w
-            confidence -= 0.05 * ranging_w
 
         # ── Regime context ───────────────────────────────────────────────────
         if hmm_regime == 1.0:
@@ -242,7 +229,6 @@ class PrevDayLevelTestPlugin:
             f"setup_variant={setup_variant}",
         ]
 
-        confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
         confidence = compose_confidence(confidence)
 
         signal = make_signal_from_frame(
