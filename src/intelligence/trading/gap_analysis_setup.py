@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+
 from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
@@ -104,8 +106,6 @@ class GapAnalysisSetupPlugin:
         gap_size_atr = abs(gap_size) / atr
 
         # GAP-02: Volume check
-        import numpy as np
-
         vol = df["volume"].to_numpy(dtype=float)
         if len(vol) > 21:
             vol_mean = np.mean(vol[-21:-1])
