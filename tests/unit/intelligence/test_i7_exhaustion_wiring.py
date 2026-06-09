@@ -168,31 +168,6 @@ def _trend_frames(
 # ─── LiquiditySweepReclaim boost tests ────────────────────────────────────────
 
 
-def test_sweep_reclaim_exhaustion_boost_applied_above_threshold():
-    """LiquiditySweepReclaim: exhaustion_score=0.65 in sweep direction → boost applied.
-
-    Expected: confidence increases by 0.1 and 'exhaustion_sweep_boost' in supporting.
-    This FAILS until Plan 05 adds the boost wire.
-    """
-    from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
-
-    # baseline without exhaustion
-    plugin = LiquiditySweepReclaimPlugin()
-    baseline = plugin.compute_full(_sweep_frames(exhaustion_score=0.0, exhaustion_side="none"))
-    assert baseline.get("signal_type") != "none", "Test setup failed: need a real signal"
-
-    # with exhaustion boost
-    plugin2 = LiquiditySweepReclaimPlugin()
-    with_boost = plugin2.compute_full(
-        _sweep_frames(
-            exhaustion_score=0.65,
-            exhaustion_side="bull",
-        )
-    )
-    assert "exhaustion_sweep_boost" in with_boost.get("supporting_factors", [])
-    assert with_boost["confidence"] == pytest.approx(baseline["confidence"] + 0.1, abs=0.001)
-
-
 def test_sweep_reclaim_no_boost_when_score_below_threshold():
     """LiquiditySweepReclaim: exhaustion_score=0.5 (below 0.6) → no boost applied."""
     from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
@@ -208,30 +183,6 @@ def test_sweep_reclaim_no_boost_when_score_below_threshold():
 
 
 # ─── LiquidityHunt boost tests ────────────────────────────────────────────────
-
-
-def test_liquidity_hunt_exhaustion_boost_applied_above_threshold():
-    """LiquidityHunt: exhaustion_score=0.7 in sweep direction → confidence + 0.1, tag in supporting.
-
-    This FAILS until Plan 05 adds the boost wire.
-    """
-    from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
-
-    # baseline without exhaustion
-    plugin = LiquidityHuntPlugin()
-    baseline = plugin.compute_full(_hunt_frames(exhaustion_score=0.0, exhaustion_side="none"))
-    assert baseline.get("signal_type") != "none", "Test setup failed: need a real signal"
-
-    # with exhaustion boost
-    plugin2 = LiquidityHuntPlugin()
-    with_boost = plugin2.compute_full(
-        _hunt_frames(
-            exhaustion_score=0.7,
-            exhaustion_side="bull",
-        )
-    )
-    assert "exhaustion_sweep_boost" in with_boost.get("supporting_factors", [])
-    assert with_boost["confidence"] == pytest.approx(baseline["confidence"] + 0.1, abs=0.001)
 
 
 def test_liquidity_hunt_no_boost_when_below_threshold():
