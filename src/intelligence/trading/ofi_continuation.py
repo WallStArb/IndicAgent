@@ -7,7 +7,7 @@ are committed to a direction — not just a one-bar spike but sustained convicti
 Renaissance principles:
 - Segment relentlessly: fires only when OFI persists for N bars (not just 1 spike)
 - Instrument everything: persistence count, EWMA magnitude all logged
-- Earn the right through proof: requires N=5 bar confirmation before signal
+- Earn the right through proof: requires N=10 bar confirmation before signal
 """
 
 from __future__ import annotations
@@ -23,7 +23,25 @@ from .signal_schema import make_signal_from_frame
 from .state_utils import track_consecutive_state
 from .trade_framer import frame_trade
 
-_MIN_CONSECUTIVE_BARS: int = 5
+_MIN_CONSECUTIVE_BARS: int = 10
+
+# Phase 118 starting defaults from 90-day p75/p90 distribution — shadow mode will refine.
+# DB query returned no rows (OFI not written to intelligence_features in historical data);
+# using documented starting values from RCA analysis.
+_MIN_OFI_MAGNITUDE_DEFAULT: float = 500.0
+_MIN_OFI_MAGNITUDE: dict[str, float] = {
+    "ES": 500.0,
+    "NQ": 200.0,
+    "CL": 1000.0,
+    "GC": 500.0,
+}
+_OFI_MAG_UPPER_REF_DEFAULT: float = 2000.0
+_OFI_MAG_UPPER_REF: dict[str, float] = {
+    "ES": 2000.0,
+    "NQ": 800.0,
+    "CL": 4000.0,
+    "GC": 2000.0,
+}
 
 
 @dataclass
@@ -31,14 +49,16 @@ class OFIContinuationPlugin:
     """Trend setup: sustained directional OFI for N consecutive bars.
 
     Gates:
-    - ofi_ewma_20 must have same sign for N=5 consecutive bars
+    - ofi_ewma_20 must have same sign for N=10 consecutive bars
+    - abs(ofi_ewma_20) must meet per-instrument p75 magnitude floor
     - State tracks consecutive directional bar count per (symbol, tf)
 
     Direction: sign of ofi_ewma_20
-    Confidence: compose_confidence(0.50 + abs(ofi_ewma_20) * 0.001)
+    Confidence: 4-factor intrinsic composite via compose_confidence()
     """
 
     name: str = "trad_OFIContinuation"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -94,6 +114,11 @@ class OFIContinuationPlugin:
 
         # Gate: require N consecutive bars in same direction
         if count < _MIN_CONSECUTIVE_BARS:
+            return no_signal()
+
+        # Gate: require minimum OFI magnitude (trivial flow imbalances rejected)
+        mag_threshold = _MIN_OFI_MAGNITUDE.get(symbol, _MIN_OFI_MAGNITUDE_DEFAULT)
+        if abs(ofi_ewma) < mag_threshold:
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
