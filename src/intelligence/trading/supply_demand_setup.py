@@ -12,15 +12,13 @@ Renaissance principles:
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight, linear_ramp
+from ..utils.gradient_utils import linear_ramp
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -109,10 +107,6 @@ class SupplyDemandSetupPlugin:
         # Zone strength adjustment
         confidence += (strength - 0.5) * 0.20
 
-        # Continuous HMM regime weight (regime_type="any")
-        ranging_w = hmm_regime_weight(features, "ranging")
-        confidence += 0.05 * ranging_w
-
         # Premium/discount alignment
         pip = float(features.get("price_in_premium", -1))
         if direction == 1 and pip == 0.0:
@@ -173,18 +167,6 @@ class SupplyDemandSetupPlugin:
             confidence += 0.05
             supporting.append("bos_confirmed")
 
-        ctf = float(features.get("ctf_score", 0.0))
-        if abs(ctf) > 0.3 and math.copysign(1, ctf) == direction:
-            # Renaissance principle: weight by magnitude, not binary gate
-            # Stronger CTF alignment = larger boost (0.0 to 0.10 range)
-            ctf_boost = 0.05 * min(2.0, abs(ctf) / 0.5)
-            confidence += ctf_boost
-            if ctf_boost > 0.04:
-                supporting.append("strong_ctf_aligned")
-            else:
-                supporting.append("ctf_aligned")
-
-        confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
         confidence = compose_confidence(confidence)
 
         sig_type = "supply_demand_long" if direction == 1 else "supply_demand_short"
