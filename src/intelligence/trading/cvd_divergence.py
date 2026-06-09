@@ -137,8 +137,8 @@ class CVDDivergencePlugin:
         span = max(1e-9, _CVD_DIV_UPPER_REF - _CVD_DIV_THRESHOLD)
         div_mag_score = min(1.0, max(0.0, (abs(cvd_div) - _CVD_DIV_THRESHOLD) / span))
 
-        # Factor 2: dual divergence confirmation
-        dual_score = 1.0 if dual_divergence else 0.3
+        # Factor 2: dual divergence confirmation (full weight when both CVD and price diverge)
+        dual_score = 1.0 if dual_divergence else 0.3  # gradient-exempt — categorical gate
 
         # Factor 3: persistence beyond minimum bars — 0.0 at bar 5, 1.0 at bar 10
         extra_bars = max(0, count - _CONFIRMATION_BARS)
@@ -147,7 +147,9 @@ class CVDDivergencePlugin:
         # Factor 4: CVD slope alignment with is-None guard
         cvd_slope_raw = features.get("cvd_slope_5bar")
         if cvd_slope_raw is not None:
-            slope_score = 1.0 if (float(cvd_slope_raw) * cvd_div > 0) else 0.2
+            slope_score = (
+                1.0 if (float(cvd_slope_raw) * cvd_div > 0) else 0.2
+            )  # gradient-exempt — alignment gate
         else:
             slope_score = 0.5  # neutral fallback when I1 omits the key
 

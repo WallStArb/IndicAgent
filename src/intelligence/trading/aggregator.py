@@ -52,6 +52,7 @@ TREND_SETUPS: frozenset[str] = frozenset(
         "trad_VCP",  # new — momentum/trend compression
         "trad_LVNBreakout",  # new — trend expansion through thin volume
         "trad_OFIContinuation",  # new — sustained directional OFI in trend
+        "trad_PatternCompletion",  # Phase 118: restricted to trend regime
     }
 )
 

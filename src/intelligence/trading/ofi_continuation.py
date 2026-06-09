@@ -149,7 +149,9 @@ class OFIContinuationPlugin:
 
         ofi_ewma5 = features.get("ofi_ewma_5")
         if ofi_ewma5 is not None:
-            alignment_score = 1.0 if float(ofi_ewma5) * ofi_ewma > 0 else 0.3
+            alignment_score = (
+                1.0 if float(ofi_ewma5) * ofi_ewma > 0 else 0.3
+            )  # gradient-exempt — direction alignment gate
         else:
             alignment_score = 0.65  # neutral fallback when ofi_ewma_5 missing
 
