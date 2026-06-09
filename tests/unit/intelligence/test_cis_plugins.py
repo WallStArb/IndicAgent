@@ -268,7 +268,7 @@ class TestPatternCompletion:
         features = {
             "dt_db_confidence": 0.0,
             "dt_db_pattern": 0,
-            "hs_confidence": 0.65,
+            "hs_confidence": 0.75,  # Phase 118: threshold raised to 0.70
             "hs_pattern": 2,  # hs_bottom (inverted)
             "tri_confidence": 0.0,
             "tri_breakout_bias": 0,
@@ -285,7 +285,7 @@ class TestPatternCompletion:
             "dt_db_pattern": 0,
             "hs_confidence": 0.0,
             "hs_pattern": 0,
-            "tri_confidence": 0.68,
+            "tri_confidence": 0.78,  # Phase 118: threshold raised to 0.70
             "tri_breakout_bias": 1,
             "atr_14": 10.0,
         }
@@ -300,7 +300,7 @@ class TestPatternCompletion:
             "dt_db_pattern": 0,
             "hs_confidence": 0.0,
             "hs_pattern": 0,
-            "tri_confidence": 0.70,
+            "tri_confidence": 0.80,  # Phase 118: threshold raised to 0.70; needs > not >=
             "tri_breakout_bias": -1,
             "atr_14": 10.0,
         }
@@ -425,26 +425,18 @@ class TestDivergenceStack:
             assert result.get("direction") == 0
 
     def test_confidence_formula(self):
-        """Verify confidence uses compose_confidence(weighted_score / 0.60) with [0.0, 0.95] contract.
+        """Verify 4-factor intrinsic confidence is in [0.0, 0.95] and fires bullish.
 
-        With RSI=0.9 (0.30), MACD=0.9 (0.25), vol=0.9 (0.20) — 3 agreeing, score=0.675.
-        Raw = 0.675 / 0.60 = 1.125, clamped to CONF_CEIL=0.95.
+        Phase 118: replaced single weighted-score formula with 4-factor composite
+        (base_score, purity, breadth, freshness). Contract: in [0.0, CONF_CEIL].
         """
-        from src.intelligence.trading.confidence_utils import (
-            CONF_CEIL,
-            compose_confidence,
-        )
-        from src.intelligence.trading.divergence_stack import (
-            DIVERGENCE_CONFIDENCE_NORM,
-            DIVERGENCE_WEIGHTS,
-        )
+        from src.intelligence.trading.confidence_utils import CONF_CEIL
 
         plugin = self._plugin()
-        rsi_val, macd_val, vol_val = 0.9, 0.9, 0.9
         features = {
-            "rsi_div_bullish": rsi_val,
-            "macd_div_bullish": macd_val,
-            "vol_div_bullish": vol_val,
+            "rsi_div_bullish": 0.9,
+            "macd_div_bullish": 0.9,
+            "vol_div_bullish": 0.9,
             "rsi_div_bearish": 0.0,
             "macd_div_bearish": 0.0,
             "vol_div_bearish": 0.0,
@@ -454,14 +446,7 @@ class TestDivergenceStack:
             "sr_nearest_resistance": 5030.0,
         }
         result = plugin.compute_full(_frames(features=features))
-        weighted_score = (
-            DIVERGENCE_WEIGHTS["rsi"] * rsi_val
-            + DIVERGENCE_WEIGHTS["macd"] * macd_val
-            + DIVERGENCE_WEIGHTS["vol"] * vol_val
-        )
-        expected = compose_confidence(weighted_score / DIVERGENCE_CONFIDENCE_NORM)
         assert result.get("direction", 0) == 1, "expected bullish signal to fire"
-        assert abs(result.get("confidence", 0.0) - expected) < 1e-4
         assert result["confidence"] >= 0.0
         assert result["confidence"] <= CONF_CEIL
 

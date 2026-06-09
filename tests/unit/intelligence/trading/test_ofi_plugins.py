@@ -33,14 +33,14 @@ class TestOFIContinuation:
         return OFIContinuationPlugin()
 
     def test_fires_on_sustained_directional_ofi(self):
-        """After 5 bars of positive ofi_ewma_20, plugin fires with direction=1."""
+        """After 10 bars of positive OFI above magnitude threshold, plugin fires with direction=1."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        # Call compute_full 5 times to build up consecutive count
-        for _ in range(4):
-            frames = _make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0, "atr_14": 2.0})
+        # Phase 118: MIN_CONSECUTIVE_BARS=10, MIN_OFI_MAGNITUDE_DEFAULT=500
+        for _ in range(9):
+            frames = _make_frames(close, {"ofi_ewma_20": 600.0, "ofi_ewma_5": 600.0, "atr_14": 2.0})
             plugin.compute_full(frames)
-        frames = _make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0, "atr_14": 2.0})
+        frames = _make_frames(close, {"ofi_ewma_20": 600.0, "ofi_ewma_5": 600.0, "atr_14": 2.0})
         result = plugin.compute_full(frames)
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}: {result}"
         assert result.get("confidence", 0) > 0
