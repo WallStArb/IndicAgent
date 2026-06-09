@@ -1,0 +1,10 @@
+[Unit]
+Description=Confidence Calibration Monitor Timer — every 30 minutes
+
+[Timer]
+OnCalendar=*:0/30
+Persistent=true
+Unit=indicagent-confidence-calibration-monitor.service
+
+[Install]
+WantedBy=timers.target

@@ -293,6 +293,19 @@ FEATURE_PARITY_AUDITS_RUN_TOTAL = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
+# Confidence calibration monitor (Phase 117)
+# ---------------------------------------------------------------------------
+
+SIGNAL_CONFIDENCE_CALIBRATION = point_gauge(
+    "signal_confidence_calibration",
+    "Per-setup correlation between cis_score and aggregator selection (was_selected)",
+)
+CONFIDENCE_CALIBRATION_ALERTS_TOTAL = _meter.create_counter(
+    "confidence_calibration_alerts_total",
+    description="Per-setup low-calibration alerts (correlation < 0.3 at N>=100)",
+)
+
+# ---------------------------------------------------------------------------
 # Agent liveness
 # ---------------------------------------------------------------------------
 
