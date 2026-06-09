@@ -306,46 +306,45 @@ async def _run_probe(pool: asyncpg.Pool) -> None:
     probe_records: list[tuple[Any, ...]] = []
     counts_per_setup: dict[str, int] = {}
 
-    async with pool.acquire() as conn:
-        for row in sample_rows:
-            sig = dict(row)
-            signal_id = sig["signal_id"]
-            symbol = sig["symbol"]
-            timeframe = sig["timeframe"]
-            setup_plugin = sig["setup_plugin"]
-            signal_timestamp = sig["signal_timestamp"]
+    for row in sample_rows:
+        sig = dict(row)
+        signal_id = sig["signal_id"]
+        symbol = sig["symbol"]
+        timeframe = sig["timeframe"]
+        setup_plugin = sig["setup_plugin"]
+        signal_timestamp = sig["signal_timestamp"]
 
+        async with pool.acquire() as conn:
             forward_bars = await _fetch_forward_bars(conn, symbol, timeframe, signal_timestamp)
-            sim = simulate_outcome(sig, forward_bars)
-
             competing = await _count_competing_signals(
                 conn, signal_id, symbol, timeframe, signal_timestamp
             )
+        sim = simulate_outcome(sig, forward_bars)
 
-            now = datetime.now(UTC)
-            probe_records.append(
-                (
-                    signal_id,
-                    now,
-                    symbol,
-                    timeframe,
-                    setup_plugin,
-                    sig["direction"],
-                    sim["sim_activated"],
-                    sim["sim_entry_price"],
-                    sim["sim_exit_price"],
-                    sim["sim_pnl_r"],
-                    sim["sim_mae"],
-                    sim["sim_mfe"],
-                    sim["sim_bars_in_trade"],
-                    sim["sim_outcome"],
-                    sim["bars_forward"],
-                    competing,
-                )
+        now = datetime.now(UTC)
+        probe_records.append(
+            (
+                signal_id,
+                now,
+                symbol,
+                timeframe,
+                setup_plugin,
+                sig["direction"],
+                sim["sim_activated"],
+                sim["sim_entry_price"],
+                sim["sim_exit_price"],
+                sim["sim_pnl_r"],
+                sim["sim_mae"],
+                sim["sim_mfe"],
+                sim["sim_bars_in_trade"],
+                sim["sim_outcome"],
+                sim["bars_forward"],
+                competing,
             )
+        )
 
-            if sim["sim_activated"]:
-                counts_per_setup[setup_plugin] = counts_per_setup.get(setup_plugin, 0) + 1
+        if sim["sim_activated"]:
+            counts_per_setup[setup_plugin] = counts_per_setup.get(setup_plugin, 0) + 1
 
     # Batch insert — ON CONFLICT DO NOTHING for idempotency (unique index on signal_id).
     async with pool.acquire() as conn:
