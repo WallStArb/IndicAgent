@@ -1522,7 +1522,7 @@ Plans:
 
 **Wave 3** *(depends on Wave 2)* — Architectural enforcement
 
-- [ ] 117-04-PLAN.md — PatternPlugin._validate_i6_confluence() + ArchitectureViolation exception + CI pre-commit hook + documentation update
+- [x] 117-04-PLAN.md — PatternPlugin._validate_i6_confluence() + ArchitectureViolation exception + CI pre-commit hook + documentation update
 
 ---
 
