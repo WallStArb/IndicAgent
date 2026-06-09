@@ -55,7 +55,8 @@ class GapAnalysisSetupPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "any"
     requires_i6_confluence: bool = True
-    min_gap_atr_mult: float = 0.3
+    shadow_only: bool = True
+    min_gap_atr_mult: float = 0.8
     continuation_atr_mult: float = 1.0
     volume_confirm_ratio: float = 1.5
     _state: dict = field(default_factory=dict)
