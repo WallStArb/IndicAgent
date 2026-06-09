@@ -236,7 +236,51 @@ class DivergenceStackPlugin:
             supporting = [name for name, s in per_input_scores.items() if s > 0]
             supporting_factors = [f"div_{name}" for name in supporting]
 
-            raw_div_conf = weighted_score / DIVERGENCE_CONFIDENCE_NORM
+            # 4-factor intrinsic composite — each factor clamped [0, 1] before weighting.
+            # Weights: 0.40 + 0.25 + 0.20 + 0.15 = 1.00 exactly.
+
+            # Factor 1 — base weighted score (normalized by practical 3-signal max)
+            base_score = min(1.0, max(0.0, weighted_score / DIVERGENCE_CONFIDENCE_NORM))
+
+            # Factor 2 — direction purity (1.0 = unanimous, 0.5 = perfectly split)
+            total_active_weight = bull_weight + bear_weight
+            if total_active_weight > 0:
+                purity_score = min(
+                    1.0, max(0.0, max(bull_weight, bear_weight) / total_active_weight)
+                )
+            else:
+                purity_score = 0.5
+
+            # Factor 3 — breadth: how many inputs agree beyond the minimum gate
+            breadth_range = 5 - DIVERGENCE_MIN_AGREEING
+            if breadth_range > 0:
+                breadth_score = min(
+                    1.0, max(0.0, (n_agreeing - DIVERGENCE_MIN_AGREEING) / breadth_range)
+                )
+            else:
+                breadth_score = 1.0
+
+            # Factor 4 — freshness persistence: most-recently-confirmed active component.
+            # Freshness, not max-age — a stale stack (all inputs aging out) is lower quality
+            # than one with a component just confirmed this bar. We invert the MINIMUM age so
+            # that a freshly-confirmed input (min_age small) scores high.
+            active_ages = [
+                state.get(f"{inp_name}_age", 0)
+                for inp_name in per_input_scores
+                if per_input_scores[inp_name] > 0 and state.get(f"{inp_name}_age", 0) > 0
+            ]
+            if active_ages:
+                min_active_age = min(active_ages)
+                persistence_score = min(1.0, max(0.0, 1.0 - min_active_age / 10.0))
+            else:
+                persistence_score = 0.5
+
+            raw_div_conf = (
+                0.40 * base_score
+                + 0.25 * purity_score
+                + 0.20 * breadth_score
+                + 0.15 * persistence_score
+            )
             confidence = compose_confidence(raw_div_conf)
 
             signal = make_signal_from_frame(
