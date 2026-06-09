@@ -63,6 +63,7 @@ class OFIDivergencePlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "divergence", "ofi", "price_discovery"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "any"
+    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     _state: dict = field(default_factory=dict)
     # peak_abs tracked separately — track_consecutive_state overwrites the full state entry
     _peak_abs: dict = field(default_factory=dict)

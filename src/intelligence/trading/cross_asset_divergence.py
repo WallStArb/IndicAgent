@@ -72,6 +72,7 @@ class CrossAssetDivergencePlugin:
 
     name: str = "trad_CrossAssetDivergence"
     regime_type: str = "any"
+    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",

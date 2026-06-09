@@ -61,6 +61,7 @@ class DualDivergencePlugin:
     )
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
+    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
