@@ -1554,11 +1554,11 @@ Plans:
 
 - [x] 118-00-PLAN.md — Wave 0a: Strip extrinsic confidence modifiers (mechanical deletion) across 12 affected I7 plugins
 - [x] 118-00b-PLAN.md — Wave 0b: Composite restructures (momentum_breakout, squeeze_expansion, trend_following) + parametrized extrinsic-contract test
-- [ ] 118-01-PLAN.md — trad_OFIContinuation refactor: magnitude threshold + intrinsic multi-factor confidence
-- [ ] 118-02-PLAN.md — trad_PatternCompletion refactor: fix data flow + threshold + regime
-- [ ] 118-03-PLAN.md — trad_GapAnalysisSetup refactor: threshold + intrinsic confidence from gap geometry
-- [ ] 118-04-PLAN.md — trad_CVDDivergence refactor: magnitude threshold + confirmation bars + intrinsic confidence
-- [ ] 118-05-PLAN.md — trad_DivergenceStack refactor: multi-factor intrinsic confidence
+- [x] 118-01-PLAN.md — trad_OFIContinuation refactor: magnitude threshold + intrinsic multi-factor confidence
+- [x] 118-02-PLAN.md — trad_PatternCompletion refactor: fix data flow + threshold + regime
+- [x] 118-03-PLAN.md — trad_GapAnalysisSetup refactor: threshold + intrinsic confidence from gap geometry
+- [x] 118-04-PLAN.md — trad_CVDDivergence refactor: magnitude threshold + confirmation bars + intrinsic confidence
+- [x] 118-05-PLAN.md — trad_DivergenceStack refactor: multi-factor intrinsic confidence
 
 **Cross-cutting constraints:**
 
