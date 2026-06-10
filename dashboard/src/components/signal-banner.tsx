@@ -24,7 +24,10 @@ export function SignalBanner({ signal, onDrillDown, isLoading }: SignalBannerPro
     () => signal ? deriveBarCloseIso(signal.bar_close_ts, signal.timestamp, signal.timeframe) : undefined,
     [signal?.bar_close_ts, signal?.timestamp, signal?.timeframe]
   );
-  const signalTimeStr = useMemo(() => fmtTimeHMS(signal?.signal_computed_at), [signal?.signal_computed_at]);
+  const signalTimeStr = useMemo(
+    () => fmtTimeHMS(signal?.signal_computed_at ?? signal?.timestamp),
+    [signal?.signal_computed_at, signal?.timestamp]
+  );
   const ttsS = useMemo(
     () => signal ? (pipelineLagS(signal.signal_computed_at, barCloseIso) ?? (signal.pipeline_lag_s ?? null)) : null,
     [signal?.signal_computed_at, barCloseIso, signal?.pipeline_lag_s]

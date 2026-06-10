@@ -26,7 +26,10 @@ export function RecentSignalCard({ signal, isSelected, onClick }: RecentSignalCa
     () => deriveBarCloseIso(signal.bar_close_ts, signal.timestamp, signal.timeframe),
     [signal.bar_close_ts, signal.timestamp, signal.timeframe]
   );
-  const signalTimeStr = useMemo(() => fmtTimeHMS(signal.signal_computed_at), [signal.signal_computed_at]);
+  const signalTimeStr = useMemo(
+    () => fmtTimeHMS(signal.signal_computed_at ?? signal.timestamp),
+    [signal.signal_computed_at, signal.timestamp]
+  );
   const ttsS = useMemo(
     () => pipelineLagS(signal.signal_computed_at, barCloseIso) ?? (signal.pipeline_lag_s ?? null),
     [signal.signal_computed_at, barCloseIso, signal.pipeline_lag_s]
