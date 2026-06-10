@@ -180,7 +180,7 @@ async def get_active_signals(
     """
     try:
         query = """
-            SELECT
+            SELECT DISTINCT ON (sl.symbol, sl.timeframe)
                 sl.signal_id,
                 sl.symbol,
                 sl.timeframe,
