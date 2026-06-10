@@ -354,6 +354,9 @@ def _scenario_momentum_breakout():
         "swing_high": 5010.0,
         "swing_low": 4990.0,
         "atr_14": 8.0,
+        "hmm_prob_trending_up": 0.70,  # continuous regime gate
+        "hmm_prob_trending_down": 0.10,
+        "ctf_score": 0.40,  # I6 gate
     }
 
     def _fire(extra: dict) -> dict:

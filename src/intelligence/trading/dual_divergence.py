@@ -11,12 +11,14 @@ Renaissance principles:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .state_utils import reset_consecutive_state, track_consecutive_state
@@ -25,6 +27,9 @@ from .trade_framer import frame_trade
 _CONFIRMATION_BARS: int = 3
 _OFI_DIV_THRESHOLD: float = 1.0  # minimum abs(ofi_divergence)
 _CVD_DIV_THRESHOLD: float = 1.0  # minimum abs(cvd_divergence)
+
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -36,12 +41,15 @@ class DualDivergencePlugin:
     - abs(cvd_divergence) >= 1.0
     - Both disagree with price direction for N=3 consecutive bars
     - Both divergence directions must agree with each other
+    - hmm_regime_weight(features, "ranging") >= 0.30 (mean_reversion: ranging gate)
+    - abs(ctf_score) >= 0.25 (I6 confluence gate)
 
     Direction: based on divergence direction (sign of ofi_divergence)
-    Confidence: compose_confidence(0.60 + abs(ofi_divergence) * 0.05 + abs(cvd_divergence) * 0.05)
+    Confidence: 4-factor composite (ofi_divergence, cvd_divergence, confirmation_bars, volume)
     """
 
     name: str = "trad_DualDivergence"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -61,7 +69,7 @@ class DualDivergencePlugin:
     )
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -99,6 +107,15 @@ class DualDivergencePlugin:
             reset_consecutive_state(frames, self._state)
             return no_signal()
 
+        # ── Gate 1: ranging regime gate (mean_reversion uses "ranging") ──────
+        if hmm_regime_weight(features, "ranging") < _MIN_REGIME_WEIGHT:
+            return no_signal()
+
+        # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
+            return no_signal()
+
         symbol = frames.get("__symbol__", "_")
         tf = frames.get("__timeframe__", "_")
         state_key = f"{symbol}_{tf}"
@@ -120,7 +137,29 @@ class DualDivergencePlugin:
         # Direction: sign of divergence (positive = bullish pressure vs price)
         direction = combined_sign
 
-        confidence = compose_confidence(0.60 + abs(ofi_div) * 0.05 + abs(cvd_div) * 0.05)
+        # ── 4-factor confidence composite (NO HMM probability) ───────────────
+        # ofi_divergence_score: magnitude of OFI divergence (tanh saturation)
+        ofi_divergence_score = clamp01(math.tanh(abs(ofi_div) / 3.0))
+
+        # cvd_divergence_score: magnitude of CVD divergence (tanh saturation)
+        cvd_divergence_score = clamp01(math.tanh(abs(cvd_div) / 3.0))
+
+        # confirmation_bars_score: how many bars confirmed (more = more persistent divergence)
+        confirmation_bars_score = clamp01((count - _CONFIRMATION_BARS) / 5.0)
+
+        # volume_score: relative volume (higher vol = more conviction behind divergence)
+        rel_vol = features.get("rel_volume")
+        volume_score = clamp01((float(rel_vol) - 1.0) / 1.5) if rel_vol is not None else 0.3
+
+        # Weights: 0.35 + 0.30 + 0.20 + 0.15 = 1.0
+        raw_conf = (
+            0.35 * ofi_divergence_score
+            + 0.30 * cvd_divergence_score
+            + 0.20 * confirmation_bars_score
+            + 0.15 * volume_score
+        )
+
+        confidence = compose_confidence(raw_conf)
 
         sig_type = signal_type_for_direction("dual_divergence", direction)
         tf_result = frame_trade(

@@ -19,8 +19,9 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -37,6 +38,9 @@ _RANGE_END = (9, 45)
 
 # Volume expansion threshold
 _VOL_EXPANSION_THRESHOLD: float = 1.5
+
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
 
 
 def _in_window(et_dt: datetime, start: tuple[int, int], end: tuple[int, int]) -> bool:
@@ -58,6 +62,7 @@ class ORB15Plugin:
     """
 
     name: str = "trad_ORB15"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -75,7 +80,7 @@ class ORB15Plugin:
     capability_tags: frozenset[str] = frozenset({"trading", "session", "breakout", "regime"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -97,6 +102,18 @@ class ORB15Plugin:
         tf = frames.get("__timeframe__", "")
 
         if df is None or len(df) < self.min_lookback:
+            return no_signal()
+
+        # ── Gate 1: continuous trending regime ────────────────────────────────
+        if (
+            hmm_regime_weight(features, "up") < _MIN_REGIME_WEIGHT
+            and hmm_regime_weight(features, "down") < _MIN_REGIME_WEIGHT
+        ):
+            return no_signal()
+
+        # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
             return no_signal()
 
         # ── Extract timestamp ────────────────────────────────────────────────
@@ -180,10 +197,12 @@ class ORB15Plugin:
         rel_volume = features.get("rel_volume")
         if rel_volume is not None and isinstance(rel_volume, (int, float)):
             vol_ok = float(rel_volume) >= _VOL_EXPANSION_THRESHOLD
+            volume_ratio = float(rel_volume)
         else:
             bar_volume = float(df["volume"].iloc[-1])
             avg_volume = float(df["volume"].mean())
             vol_ok = avg_volume > 0 and bar_volume >= _VOL_EXPANSION_THRESHOLD * avg_volume
+            volume_ratio = (bar_volume / avg_volume) if avg_volume > 0 else 0.0
 
         if not vol_ok:
             self._state[(symbol, tf)] = state
@@ -197,26 +216,40 @@ class ORB15Plugin:
             self._state[(symbol, tf)] = state
             return no_signal()
 
-        # ── Gap bias ─────────────────────────────────────────────────────────
-        gap_boost = 0.0
+        # ── Gap bias (gap_alignment_score factor) ─────────────────────────────
+        gap_alignment_score = 0.5  # neutral default
         pdc = features.get("prior_session_close")
         if pdc is not None and isinstance(pdc, (int, float)) and float(pdc) > 0:
             open_price = state.get("session_open") or float(df["open"].iloc[0])
             gap_pct = (open_price - float(pdc)) / float(pdc)
             if abs(gap_pct) > 0.001:
                 if (direction == 1 and gap_pct > 0) or (direction == -1 and gap_pct < 0):
-                    gap_boost = 0.10  # gap aligns with breakout direction
+                    gap_alignment_score = 0.80  # gap aligns with breakout direction
                 else:
-                    gap_boost = -0.05  # gap misaligns
+                    gap_alignment_score = 0.20  # gap misaligns
 
-        # ── Confidence ───────────────────────────────────────────────────────
-        hmm_regime = float(features.get("hmm_regime", 0.0))
-        confidence = 0.50
-        confidence += gap_boost
+        # ── 4-factor confidence composite (NO HMM probability) ───────────────
+        range_width = abs(orb_high - orb_low)
+
+        # Breakout margin vs ATR: how far beyond range did price close?
+        breakout_excess = abs(close_price - (orb_high if direction == 1 else orb_low))
+        breakout_margin_score = clamp01(breakout_excess / atr) if atr > 0 else 0.5
+
+        # Range quality: tighter opening range (relative to ATR) = cleaner setup
+        range_quality_score = clamp01(1.0 - range_width / (atr * 2.0)) if atr > 0 else 0.5
+
+        # Volume score: rel_volume expansion above threshold
+        volume_score = clamp01((volume_ratio - _VOL_EXPANSION_THRESHOLD) / _VOL_EXPANSION_THRESHOLD)
+
+        # Weights: 0.35 + 0.25 + 0.25 + 0.15 = 1.0
+        raw_conf = (
+            0.35 * breakout_margin_score
+            + 0.25 * range_quality_score
+            + 0.25 * volume_score
+            + 0.15 * gap_alignment_score
+        )
 
         regime_ctx = "bullish" if direction == 1 else "bearish"
-        if hmm_regime == 0.0:
-            regime_ctx = "ranging"
 
         # ── Trade frame ──────────────────────────────────────────────────────
         frame = frame_trade(
@@ -243,11 +276,14 @@ class ORB15Plugin:
             f"orb_low={orb_low:.2f}",
             f"close={close_price:.2f}",
             "volume_expansion_confirmed",
+            f"breakout_margin_score={breakout_margin_score:.3f}",
         ]
-        if abs(gap_boost) > 0:
-            supporting.append(f"gap_bias={gap_boost:+.2f}")
+        if abs(gap_alignment_score - 0.5) > 0.1:
+            supporting.append(
+                f"gap_alignment={'aligned' if gap_alignment_score > 0.5 else 'misaligned'}"
+            )
 
-        confidence = compose_confidence(confidence)
+        confidence = compose_confidence(raw_conf)
 
         signal = make_signal_from_frame(
             frame,

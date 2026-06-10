@@ -5,7 +5,7 @@ Fires when price has completed a significant swing (Leg 1) and has pulled back i
 
 Targets: 100%, 127.2%, 161.8% of Leg 1 amplitude beyond the entry.
 
-Requires: HMM trend regime (1.0 = bullish, 2.0 = bearish). No signal in ranging markets.
+Requires: continuous HMM trending regime gate (>= 0.30). No signal in weak trending markets.
 
 Renaissance principles:
 - Segment relentlessly: Fibonacci zone filters noise, targets measured moves precisely
@@ -19,8 +19,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
@@ -38,20 +39,25 @@ _TARGET_1618 = 1.618
 # Maximum swing age before data is considered stale
 _MAX_SWING_AGE_BARS = 50
 
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
+
 
 @dataclass
 class SecondLegContinuationPlugin:
     """I7 evidence contributor: fires on Fibonacci measured-move continuation setups.
 
-    Gate 1: hmm_regime must be 1.0 (bullish) or 2.0 (bearish) — no ranging markets.
-    Gate 2: swing amplitude >= 1.0×ATR.
-    Gate 3: close must be in 38.2%-61.8% retracement zone of Leg 1.
-    Gate 4: swing data not stale (both ages <= 50 bars).
+    Gate 1: hmm_regime_weight(up or down) >= 0.30 — continuous trending gate.
+    Gate 2: abs(ctf_score) >= 0.25 — I6 confluence gate.
+    Gate 3: swing amplitude >= 1.0×ATR.
+    Gate 4: close must be in 38.2%-61.8% retracement zone of Leg 1.
+    Gate 5: swing data not stale (both ages <= 50 bars).
 
     Targets computed as 100%, 127.2%, 161.8% of Leg 1 amplitude from entry.
     """
 
     name: str = "trad_SecondLegContinuation"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -69,7 +75,7 @@ class SecondLegContinuationPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "fibonacci", "continuation", "regime"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=60),)
     regime_type: str = "trend"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -87,19 +93,20 @@ class SecondLegContinuationPlugin:
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        # ── Price arrays ────────────────────────────────────────────────────
-        close = df["close"].to_numpy(dtype=float)
+        # ── Gate 1: continuous trending regime ────────────────────────────────
+        regime_up = hmm_regime_weight(features, "up")
+        regime_down = hmm_regime_weight(features, "down")
+        if regime_up < _MIN_REGIME_WEIGHT and regime_down < _MIN_REGIME_WEIGHT:
+            return no_signal()
+
+        # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
+            return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
             return no_signal()
-
-        # ── Regime gate ─────────────────────────────────────────────────────
-        hmm_regime = float(features.get("hmm_regime", 0.0))
-        if hmm_regime not in (1.0, 2.0):
-            return no_signal()
-
-        hmm_regime_prob = float(features.get("hmm_regime_prob", 0.0))
 
         # ── Swing data ──────────────────────────────────────────────────────
         swing_high_raw = features.get("swing_high")
@@ -133,15 +140,16 @@ class SecondLegContinuationPlugin:
         fib_low = swing_high - _FIB_618 * amplitude  # 61.8% retrace (closer to low)
         # fib_low < fib_high always for bullish setup
 
+        # ── Price arrays ────────────────────────────────────────────────────
+        close = df["close"].to_numpy(dtype=float)
         close_price = float(close[-1])
 
         if not (fib_low <= close_price <= fib_high):
             return no_signal()
 
-        # ── Direction ───────────────────────────────────────────────────────
-        # hmm_regime=1.0 → bullish trend → long continuation after pullback
-        # hmm_regime=2.0 → bearish trend → short continuation after bounce
-        direction = 1 if hmm_regime == 1.0 else -1
+        # ── Direction: dominant trending regime determines continuation ──────
+        # Use the stronger of up/down regime weight
+        direction = 1 if regime_up >= regime_down else -1
 
         # ── Entry: 50% retracement midpoint ─────────────────────────────────
         fib_50 = (swing_high + swing_low) / 2
@@ -176,16 +184,34 @@ class SecondLegContinuationPlugin:
 
         targets = [t1, t2, t3]
 
-        # ── Confidence ───────────────────────────────────────────────────────
-        raw_conf = 0.55
-        if hmm_regime_prob > 0.75:
-            raw_conf += 0.10
+        # ── 4-factor confidence composite (NO HMM probability) ───────────────
+        # leg_quality_score: amplitude vs ATR (larger measured move = higher quality)
+        leg_quality_score = clamp01((amplitude / atr - 1.0) / 3.0) if atr > 0 else 0.5
 
-        # Bonus if close is near 50% retracement (ideal entry)
-        dist_to_50 = abs(close_price - fib_50)
+        # momentum_persistence_score: how fresh are the swings? (lower age = higher score)
+        best_age = min(swing_high_age, swing_low_age)
+        momentum_persistence_score = clamp01(1.0 - best_age / _MAX_SWING_AGE_BARS)
+
+        # volume_alignment_score: volume expansion confirmation
+        rel_vol = features.get("rel_volume")
+        volume_alignment_score = (
+            clamp01((float(rel_vol) - 1.0) / 1.5) if rel_vol is not None else 0.3
+        )
+
+        # structure_quality_score: how close to the ideal 50% retracement entry?
         zone_width = fib_high - fib_low
-        if zone_width > 0 and dist_to_50 < 0.25 * zone_width:
-            raw_conf += 0.05
+        dist_to_50 = abs(close_price - fib_50)
+        structure_quality_score = (
+            clamp01(1.0 - dist_to_50 / (zone_width / 2.0)) if zone_width > 0 else 0.5
+        )
+
+        # Weights: 0.35 + 0.30 + 0.20 + 0.15 = 1.0
+        raw_conf = (
+            0.35 * leg_quality_score
+            + 0.30 * momentum_persistence_score
+            + 0.20 * volume_alignment_score
+            + 0.15 * structure_quality_score
+        )
 
         supporting = [
             f"swing_high={swing_high:.2f}",

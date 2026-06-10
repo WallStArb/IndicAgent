@@ -6,6 +6,15 @@ import numpy as np
 
 from tests.unit.intelligence.helpers import make_ohlcv
 
+# Gate-passing defaults for the dual gate
+_GATE_FEATURES = {
+    "hmm_prob_ranging": 0.65,
+    "hmm_prob_trending_up": 0.20,
+    "hmm_prob_trending_down": 0.15,
+    "ctf_score": 0.40,
+    "atr_14": 2.0,
+}
+
 
 def _make_frames(close_arr, features=None, symbol="ES", tf="1m"):
     df = make_ohlcv(np.array(close_arr, dtype=float))
@@ -35,10 +44,10 @@ class TestDualDivergence:
         close = np.linspace(5000.0, 5010.0, 25)
         # Both OFI and CVD diverging (bullish pressure vs price neutral/falling)
         features = {
+            **_GATE_FEATURES,
             "ofi_divergence": 1.8,
             "cvd_divergence": 1.2,
             "cvd_slope_5bar": 200.0,
-            "atr_14": 2.0,
         }
         # Build up N=3 confirmation bars
         for _ in range(2):
@@ -62,10 +71,10 @@ class TestDualDivergence:
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
         features = {
+            **_GATE_FEATURES,
             "ofi_divergence": -1.8,
             "cvd_divergence": -1.2,
             "cvd_slope_5bar": -200.0,
-            "atr_14": 2.0,
         }
         for _ in range(2):
             plugin.compute_full(_make_frames(close, features))
@@ -79,6 +88,7 @@ class TestDualDivergence:
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
         features = {
+            **_GATE_FEATURES,
             "ofi_divergence": 1.8,
             "cvd_divergence": 0.3,  # below 1.0 threshold
             "cvd_slope_5bar": 50.0,
@@ -93,6 +103,7 @@ class TestDualDivergence:
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
         features = {
+            **_GATE_FEATURES,
             "ofi_divergence": 0.3,  # below 1.0 threshold
             "cvd_divergence": 1.5,
             "cvd_slope_5bar": 200.0,
@@ -107,10 +118,49 @@ class TestDualDivergence:
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
         features = {
+            **_GATE_FEATURES,
             "ofi_divergence": 1.8,
             "cvd_divergence": 1.2,
             "cvd_slope_5bar": 200.0,
         }
+        result = plugin.compute_full(_make_frames(close, features))
+        assert result.get("direction") == 0
+
+    def test_no_signal_when_ranging_regime_below_threshold(self):
+        """hmm_prob_ranging below 0.30 → HMM gate blocks (ranging gate for mean_reversion)."""
+        plugin = self._make_plugin()
+        close = np.linspace(5000.0, 5010.0, 25)
+        features = {
+            "hmm_prob_ranging": 0.10,  # below 0.30
+            "hmm_prob_trending_up": 0.50,
+            "hmm_prob_trending_down": 0.40,
+            "ctf_score": 0.40,
+            "atr_14": 2.0,
+            "ofi_divergence": 1.8,
+            "cvd_divergence": 1.2,
+            "cvd_slope_5bar": 200.0,
+        }
+        for _ in range(3):
+            plugin.compute_full(_make_frames(close, features))
+        result = plugin.compute_full(_make_frames(close, features))
+        assert result.get("direction") == 0
+
+    def test_no_signal_when_ctf_below_threshold(self):
+        """abs(ctf_score) < 0.25 → CTF gate blocks."""
+        plugin = self._make_plugin()
+        close = np.linspace(5000.0, 5010.0, 25)
+        features = {
+            "hmm_prob_ranging": 0.65,
+            "hmm_prob_trending_up": 0.20,
+            "hmm_prob_trending_down": 0.15,
+            "ctf_score": 0.10,  # below 0.25
+            "atr_14": 2.0,
+            "ofi_divergence": 1.8,
+            "cvd_divergence": 1.2,
+            "cvd_slope_5bar": 200.0,
+        }
+        for _ in range(3):
+            plugin.compute_full(_make_frames(close, features))
         result = plugin.compute_full(_make_frames(close, features))
         assert result.get("direction") == 0
 
@@ -119,15 +169,21 @@ class TestDualDivergence:
         plugin = self._make_plugin()
         assert plugin.regime_type == "mean_reversion"
 
+    def test_shadow_only_and_requires_i6(self):
+        """shadow_only=True and requires_i6_confluence=True ClassVars."""
+        plugin = self._make_plugin()
+        assert plugin.shadow_only is True
+        assert plugin.requires_i6_confluence is True
+
     def test_supporting_factors_include_both_divergences(self):
         """Signal output should include ofi_divergence and cvd_divergence in supporting factors."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
         features = {
+            **_GATE_FEATURES,
             "ofi_divergence": 1.8,
             "cvd_divergence": 1.2,
             "cvd_slope_5bar": 200.0,
-            "atr_14": 2.0,
         }
         for _ in range(2):
             plugin.compute_full(_make_frames(close, features))

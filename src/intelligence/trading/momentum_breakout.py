@@ -14,11 +14,15 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
+
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -31,6 +35,7 @@ class MomentumBreakoutPlugin:
     """
 
     name: str = "trad_MomentumBreakout"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -48,17 +53,16 @@ class MomentumBreakoutPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "breakout", "momentum"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     roc_period: int = 14
     roc_threshold: float = 0.3
     volume_expansion_threshold: float = 1.5
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        result = extract_ohlcv(frames, self.min_lookback)
-        if result is None:
+        df = frames.get("main")
+        if df is None or len(df) < self.min_lookback:
             return no_signal()
-        open_, high, low, close = result
 
         features = {
             **(frames.get("i1") or {}),
@@ -70,7 +74,24 @@ class MomentumBreakoutPlugin:
             **(frames.get("i6") or {}),
         }
 
-        df = frames.get("main")
+        # ── Gate 1: continuous trending regime ────────────────────────────────
+        if (
+            hmm_regime_weight(features, "up") < _MIN_REGIME_WEIGHT
+            and hmm_regime_weight(features, "down") < _MIN_REGIME_WEIGHT
+        ):
+            return no_signal()
+
+        # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
+            return no_signal()
+
+        # ── OHLCV extraction (after dual gate) ───────────────────────────────
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         volume = df["volume"].to_numpy(dtype=float)
         price = float(close[-1])
 
@@ -117,7 +138,7 @@ class MomentumBreakoutPlugin:
 
         entry = price
 
-        # ── Confidence ──
+        # ── Confidence (3-factor, unchanged per plan) ──
         roc_score = clamp01((abs(roc) - self.roc_threshold) / self.roc_threshold)
         vol_score = clamp01(
             (volume_ratio - self.volume_expansion_threshold) / self.volume_expansion_threshold
