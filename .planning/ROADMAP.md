@@ -21,7 +21,7 @@
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104-109 (shipped 2026-05-29)
 - ✅ **v2.8 AI Platform — Part 1** — Phases 094-095, 106-108, 110-116 (shipped 2026-06-08)
-- 🚧 **v2.9 Signal Quality Renaissance** — Phases 117-122 (next milestone — prerequisite for v2.8 completion)
+- 🚧 **v2.9 Signal Quality Renaissance** — Phases 117-122 (in progress — 4/6 phases complete; prerequisite for v2.8 completion)
 - 📋 **v2.10 Data Architecture Evolution** — Phases 123-125 (conditional, depends on ADR decision)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (blocked until v2.9 completes)
 
@@ -1467,7 +1467,7 @@ Plans:
 ---
 
 <details>
-<summary>🚧 v2.9 Signal Quality Renaissance (Phases 117-122) — NEXT MILESTONE</summary>
+<summary>🚧 v2.9 Signal Quality Renaissance (Phases 117-122) — IN PROGRESS (4/6 complete)</summary>
 
 **Milestone Goal:** Stop creating 4.46M noise signals (57% of total) by fixing the 21 NEEDS_REFACTOR implementations that fire 99.8% noise, while preserving all 30 sound trading concepts. Target: improve signal-to-noise ratio from 0.2% → 40%+ for high-volume setups.
 
@@ -1483,6 +1483,15 @@ Plans:
 - Earn promotion through proof — shadow mode validates setups don't create noise (p<0.05, sufficient N)
 
 **Reference:** `docs/plans/2026-06-07-signal-quality-crisis-root-cause-analysis.md`
+
+**Phase Status:**
+
+- Phase 117: PatternCompletion Fix + Data Pipeline Validation ✅ COMPLETE 2026-06-08
+- Phase 118: Confidence Integrity + Top 5 Setup Refactoring ✅ COMPLETE 2026-06-09
+- Phase 119: Remaining 16 Setup Refactoring ✅ COMPLETE 2026-06-10
+- Phase 120: Shadow Mode Validation ✅ COMPLETE 2026-06-10
+- Phase 121: Lifecycle Replay & Validation — pending
+- Phase 122: Production Hardening — pending
 
 **Success Metrics (Before → After):**
 
