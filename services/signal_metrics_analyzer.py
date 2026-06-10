@@ -221,7 +221,6 @@ class SignalMetricsAnalyzer(BaseDaemon):
         self.logger.info("signal_metrics_analyzer.cycle rows=%d", len(rows))
 
         topic = topic_signal_metrics(self.settings.env_name)
-        now_iso = datetime.now(UTC).isoformat()
 
         # Publish DQ failures for NEW invalid rows only (dedup by signal_id + reason_code)
         new_dq_count = 0
@@ -257,7 +256,6 @@ class SignalMetricsAnalyzer(BaseDaemon):
                         "direction": row.get("direction"),
                         "hmm_regime": row.get("hmm_regime_at_fire"),
                         "setup_plugin": row.get("setup_plugin"),
-                        "created_at": now_iso,
                     },
                     key=f"dq_failure:{row.get('signal_id')}",
                 )
