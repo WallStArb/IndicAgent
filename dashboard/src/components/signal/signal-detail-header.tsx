@@ -24,8 +24,8 @@ export function SignalDetailHeader({ signal, dirColor }: SignalDetailHeaderProps
         hour12: false,
       })
     : "—";
-  const sigTimeStr = signal.signal_computed_at
-    ? new Date(signal.signal_computed_at).toLocaleTimeString([], {
+  const sigTimeStr = (signal.signal_computed_at ?? signal.timestamp)
+    ? new Date((signal.signal_computed_at ?? signal.timestamp)!).toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
