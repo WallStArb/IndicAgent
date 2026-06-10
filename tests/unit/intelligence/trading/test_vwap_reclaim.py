@@ -29,6 +29,9 @@ def _base_features(**kwargs):
         "atr_14": 5.0,
         "session_vwap": 5000.0,
         "rel_volume": 1.5,  # > 1.2 threshold
+        "hmm_prob_trending_up": 0.60,  # continuous regime gate (any: hmm_trending_weight >= 0.30)
+        "hmm_prob_trending_down": 0.10,
+        "ctf_score": 0.40,  # I6 gate (abs >= 0.25)
         # Structural levels for frame_trade
         "sr_nearest_support": 4980.0,
         "sr_nearest_resistance": 5020.0,

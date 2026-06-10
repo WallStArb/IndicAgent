@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
@@ -22,6 +23,9 @@ from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 _VOL_THRESHOLDS: dict[int, float] = {0: 2.0, 1: 2.0, 2: 2.5, 3: 3.0}
+
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -35,6 +39,7 @@ class VWAPDeviationPlugin:
     """
 
     name: str = "trad_VWAPDeviation"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -52,15 +57,14 @@ class VWAPDeviationPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "vwap", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     sigma_threshold: float = 2.0
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        result = extract_ohlcv(frames, self.min_lookback)
-        if result is None:
+        df = frames.get("main")
+        if df is None or len(df) < self.min_lookback:
             return no_signal()
-        open_, high, low, close = result
 
         features = {
             **(frames.get("i1") or {}),
@@ -75,14 +79,26 @@ class VWAPDeviationPlugin:
         # ── VWAP features ──
         vwap = features.get("vwap", 0.0)
         vwap_std = features.get("vwap_std", 0.0)
-        vwap_upper_1 = features.get("vwap_upper_1", 0.0)
-        vwap_lower_1 = features.get("vwap_lower_1", 0.0)
 
         # Gate: VWAP must be meaningful (session has volume)
         if vwap_std <= 0 or vwap <= 0:
             return no_signal()
 
-        df = frames.get("main")
+        # ── Gate 1: continuous ranging regime (mean_reversion uses "ranging") ──
+        if hmm_regime_weight(features, "ranging") < _MIN_REGIME_WEIGHT:
+            return no_signal()
+
+        # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
+            return no_signal()
+
+        # ── OHLCV extraction (after dual gate) ───────────────────────────────
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         volume = df["volume"].to_numpy(dtype=float)
         price = float(close[-1])
 
