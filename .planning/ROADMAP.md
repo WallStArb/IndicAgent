@@ -1594,7 +1594,7 @@ Plans:
 
 - [x] 119-02-PLAN.md — Refactor Group 2 (9 setups): LVNBreakout, ORB15, ORB30, SecondLegContinuation, VCP, VWAPReclaim, DualDivergence, VWAPDeviation, MomentumBreakout
 - [x] 119-03-PLAN.md — validate_tier() enforcement + CI gate + regression tests
-- [ ] 119-04-PLAN.md — Documentation update + CLAUDE.md 6 GOOD patterns reference
+- [x] 119-04-PLAN.md — Documentation update + CLAUDE.md 6 GOOD patterns reference
 
 ---
 
