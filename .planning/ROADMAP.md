@@ -1607,10 +1607,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
 
   1. ShadowModeValidator runs weekly via systemd timer; queries signal_ledger_shadow for all refactored setups
-  2. Promotion criteria enforced: total>=100, selection_rate>=5%, p_value<0.05 (binomial test vs 50% baseline), avg_pnl_r>0, calibration_correlation>0.3
+  2. Promotion criteria enforced: total>=100, win_rate>=50% (binomtest p<0.05 vs 50% baseline), avg_pnl_r>0, calibration_correlation>0.3
   3. Setups passing promotion are updated: shadow_registry.shadow_only=False + notification event
   4. Setups failing promotion remain shadow_only=True; failure reasons logged (insufficient N, low selection, not significant, negative expectancy, poor calibration)
-  5. Grafana dashboard shows shadow mode metrics: N, selection_rate, p_value, avg_pnl_r, calibration per setup
+  5. Grafana dashboard shows shadow mode metrics: N, win_rate, p_value, avg_pnl_r, calibration per setup
 
 **Plans**: 3 plans in 2 waves
 
