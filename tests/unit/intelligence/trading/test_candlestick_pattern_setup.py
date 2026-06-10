@@ -53,6 +53,10 @@ def base_features(
         "shooting_star_detected": shooting_star_detected,
         "atr_14": atr,
         "volume_sma_20": vol_sma,
+        # Phase 119: gate-passing values for dual gate
+        "ctf_score": 0.5,
+        "hmm_prob_trending_up": 0.6,
+        "hmm_prob_trending_down": 0.3,
     }
     if has_sr_proximity:
         close = df["close"].iloc[-1]

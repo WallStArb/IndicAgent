@@ -31,6 +31,12 @@ _SPIKE_GATE_FEATURES: dict = {
     "ctf_score": 0.5,
 }
 
+# DeltaExhaustion gate: hmm_prob_ranging >= 0.30 and abs(ctf_score) >= 0.25
+_EXHAUSTION_GATE_FEATURES: dict = {
+    "hmm_prob_ranging": 0.60,
+    "ctf_score": 0.5,
+}
+
 
 # ─── CVDDivergence ────────────────────────────────────────────────────────────
 
@@ -247,6 +253,7 @@ class TestDeltaExhaustion:
             {
                 "cvd_spike_z": cvd_spike_z,
                 "atr_14": atr,
+                **_EXHAUSTION_GATE_FEATURES,
             },
         )
 
@@ -255,7 +262,7 @@ class TestDeltaExhaustion:
         plugin = self._make_plugin()
         # Flat price with positive CVD spike (buying but no follow-through)
         close = np.full(25, 5000.0)
-        features = {"cvd_spike_z": 2.5, "atr_14": 10.0}
+        features = {"cvd_spike_z": 2.5, "atr_14": 10.0, **_EXHAUSTION_GATE_FEATURES}
         result = plugin.compute_full(_make_frames(close, features))
         assert (
             result.get("direction") == -1
@@ -296,7 +303,7 @@ class TestDeltaExhaustion:
         """Negative CVD spike but price doesn't drop → fires long (bullish exhaustion)."""
         plugin = self._make_plugin()
         close = np.full(25, 5000.0)
-        features = {"cvd_spike_z": -2.5, "atr_14": 10.0}
+        features = {"cvd_spike_z": -2.5, "atr_14": 10.0, **_EXHAUSTION_GATE_FEATURES}
         result = plugin.compute_full(_make_frames(close, features))
         assert (
             result.get("direction") == 1

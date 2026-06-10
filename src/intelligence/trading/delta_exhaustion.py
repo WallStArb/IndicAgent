@@ -16,14 +16,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 _SPIKE_Z_THRESHOLD: float = 1.5  # lower than OFI/CVD spike (1.5 vs 2.0 — captures more cases)
 _PRICE_FOLLOW_THRESHOLD: float = 0.3  # price must move < 0.3 ATR for exhaustion
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -35,11 +38,11 @@ class DeltaExhaustionPlugin:
     - abs(price_change) < 0.3 * atr (price fails to follow CVD direction)
 
     Direction: opposite of CVD spike direction (exhaustion → reversal)
-    Confidence: compose_confidence(
-    0.45 + abs(cvd_spike_z) * 0.05 + (1.0 - price_follow_ratio) * 0.10)
+    Confidence: 4-factor intrinsic composite via compose_confidence()
     """
 
     name: str = "trad_DeltaExhaustion"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -57,7 +60,7 @@ class DeltaExhaustionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "exhaustion", "cvd", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
@@ -81,6 +84,17 @@ class DeltaExhaustionPlugin:
         if abs(cvd_spike_z) <= _SPIKE_Z_THRESHOLD:
             return no_signal()
 
+        # ── Dual gate (before ATR / OHLCV access) ────────────────────────────
+        # Gate 1: mean_reversion regime gate — ranging probability >= threshold
+        if hmm_regime_weight(features, "ranging") < _MIN_REGIME_WEIGHT:
+            return no_signal()
+
+        # Gate 2: I6 ctf_score gate
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
+            return no_signal()
+
+        # ── ATR and OHLCV access (after dual gate) ───────────────────────────
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
             return no_signal()
@@ -108,9 +122,31 @@ class DeltaExhaustionPlugin:
         # Exhaustion: opposite of CVD direction
         direction = -cvd_direction
 
-        confidence = compose_confidence(
-            0.45 + abs(cvd_spike_z) * 0.05 + (1.0 - price_follow_ratio) * 0.10
+        # ── 4-factor intrinsic confidence composite ───────────────────────────
+        # cvd_z_score: spike magnitude above threshold
+        cvd_z_score = clamp01((abs(cvd_spike_z) - _SPIKE_Z_THRESHOLD) / 3.0)
+
+        # price_fail_score: how completely price failed to follow (1.0 = zero follow-through)
+        price_fail_score = clamp01(1.0 - price_follow_ratio / _PRICE_FOLLOW_THRESHOLD)
+
+        # hmm_mean_reversion_score: regime alignment magnitude as quality signal
+        # This is the regime ALIGNMENT factor — NOT exhaustion boost/guard (D-09 exempt)
+        hmm_mean_reversion_score = clamp01(
+            (hmm_regime_weight(features, "ranging") - _MIN_REGIME_WEIGHT)
+            / (1.0 - _MIN_REGIME_WEIGHT)
         )
+
+        # ctf_score_factor: CTF alignment strength (above gate = meaningful)
+        ctf_score_factor = clamp01((abs(ctf_score) - _MIN_CTF_SCORE) / (1.0 - _MIN_CTF_SCORE))
+
+        # Weights sum to 1.0
+        raw_conf = (
+            0.35 * cvd_z_score
+            + 0.30 * price_fail_score
+            + 0.20 * hmm_mean_reversion_score
+            + 0.15 * ctf_score_factor
+        )
+        confidence = compose_confidence(raw_conf)
 
         sig_type = signal_type_for_direction("delta_exhaustion", direction)
         tf = frame_trade(sig_type, direction, entry, features, atr, regime_type=self.regime_type)
