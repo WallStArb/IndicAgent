@@ -1588,7 +1588,7 @@ Plans:
 
 **Wave 1** — Refactor 8 easy setups (parallelizable)
 
-- [ ] 119-01-PLAN.md — Refactor Group 1 (8 setups): OFIDivergence, OFISpike, CVDSpike, CandlestickPatternSetup, FailedBreakout, LiquidityHunt, DeltaExhaustion, SessionExtremesSetup
+- [x] 119-01-PLAN.md — Refactor Group 1 (8 setups): OFIDivergence, OFISpike, CVDSpike, CandlestickPatternSetup, FailedBreakout, LiquidityHunt, DeltaExhaustion, SessionExtremesSetup
 
 **Wave 2** *(depends on Wave 1)* — Refactor 9 remaining setups + enforcement + docs
 
