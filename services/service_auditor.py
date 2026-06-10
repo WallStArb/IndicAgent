@@ -185,6 +185,8 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-memory-batch",  # Type=oneshot, timer-triggered nightly 21:00; D-06 jobs: memory-epoch/memory-regime/memory-backfill/memory-promote
         "indicagent-feature-validation",  # Type=oneshot, timer-triggered daily
         "indicagent-hmm-training",  # Type=oneshot, timer-triggered monthly
+        "indicagent-feature-parity-auditor",  # Type=oneshot, timer-triggered
+        "indicagent-confidence-calibration-monitor",  # Type=oneshot, timer-triggered
     }
 )
 
