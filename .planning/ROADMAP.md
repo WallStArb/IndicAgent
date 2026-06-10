@@ -1623,7 +1623,7 @@ Plans:
 
 **Wave 2** *(depends on 120-01)* — Operationalize + observe
 
-- [ ] 120-03-PLAN.md — systemd timer (Mon 07:00 UTC) + service unit + service_auditor registration + Grafana dashboard + cheatsheet docs
+- [x] 120-03-PLAN.md — systemd timer (Mon 07:00 UTC) + service unit + service_auditor registration + Grafana dashboard + cheatsheet docs
 
 ---
 
