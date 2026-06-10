@@ -8,7 +8,7 @@ Session reset: contraction list clears at the start of each new trading day (ET)
 
 Renaissance principles:
 - Segment relentlessly: VCP is definitionally a trend-regime setup; filters ranging markets
-- Earn the right through proof: requires >= 3 contractions + HMM prob >= 0.60 before firing
+- Earn the right through proof: requires >= 3 contractions + continuous HMM trending gate
 - Instrument everything: contraction_count and session_date captured in every signal
 """
 
@@ -20,8 +20,9 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
@@ -35,23 +36,26 @@ _MIN_CONTRACTIONS = 3
 # Volume expansion multiplier: expansion bar must have volume > last contraction × this
 _VOL_EXPANSION_MULT = 1.2
 
-# Minimum HMM regime probability
-_MIN_HMM_PROB = 0.60
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
 class VCPPlugin:
     """I7 evidence contributor: fires on VCP breakout after 3+ volatility contractions.
 
-    Gate 1: hmm_regime must be 1.0 (bullish) or 2.0 (bearish) with prob >= 0.60.
-    Gate 2: 3+ successive bars with decreasing H-L range AND declining volume.
-    Gate 3: expansion bar closes beyond prior bar's high/low (directional confirmation).
-    Gate 4: expansion bar volume > last contraction volume × 1.2.
+    Gate 1: hmm_regime_weight (up or down) >= 0.30 — continuous trending gate.
+    Gate 2: abs(ctf_score) >= 0.25 — I6 confluence gate (placed before OHLCV access).
+    Gate 3: 3+ successive bars with decreasing H-L range AND declining volume.
+    Gate 4: expansion bar closes beyond prior bar's high/low (directional confirmation).
+    Gate 5: expansion bar volume > last contraction volume × 1.2.
 
+    Direction: from dominant HMM trend direction (up_weight vs down_weight).
     Session reset: contraction list clears on new trading day (ET date change).
     """
 
     name: str = "trad_VCP"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -70,7 +74,7 @@ class VCPPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "volatility", "contraction", "regime"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "trend"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -106,14 +110,16 @@ class VCPPlugin:
                 if session_date != state.get("session_date"):
                     state = {"session_date": session_date, "contractions": []}
 
-        # ── Regime gate ──────────────────────────────────────────────────────
-        hmm_regime = float(features.get("hmm_regime", 0.0))
-        if hmm_regime not in (1.0, 2.0):
+        # ── Gate 1: continuous trending regime ────────────────────────────────
+        regime_up = hmm_regime_weight(features, "up")
+        regime_down = hmm_regime_weight(features, "down")
+        if regime_up < _MIN_REGIME_WEIGHT and regime_down < _MIN_REGIME_WEIGHT:
             self._state[(symbol, tf)] = state
             return no_signal()
 
-        hmm_regime_prob = float(features.get("hmm_regime_prob", 0.0))
-        if hmm_regime_prob < _MIN_HMM_PROB:
+        # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
             self._state[(symbol, tf)] = state
             return no_signal()
 
@@ -167,8 +173,8 @@ class VCPPlugin:
                 self._state[(symbol, tf)] = state
                 return no_signal()
 
-            # Direction from HMM
-            direction = 1 if hmm_regime == 1.0 else -1
+            # Direction: from dominant HMM trend direction (HMM used for DIRECTION only, not confidence)
+            direction = 1 if regime_up >= regime_down else -1
 
             # Breakout confirmation: close must break prior bar's high (long) or low (short)
             if direction == 1 and close_price <= prior_high:
@@ -201,12 +207,31 @@ class VCPPlugin:
                 self._state[(symbol, tf)] = state
                 return no_signal()
 
-            # ── Confidence ─────────────────────────────────────────────────
-            raw_conf = 0.50
-            if contraction_count >= 4:
-                raw_conf += 0.08
-            if hmm_regime_prob > 0.75:
-                raw_conf += 0.07
+            # ── 4-factor confidence composite (NO HMM probability) ───────────
+            # contraction_quality_score: number of contractions (more = stronger setup)
+            contraction_quality_score = clamp01((contraction_count - _MIN_CONTRACTIONS) / 4.0)
+
+            # volume_expansion_score: how much did volume expand vs last contraction?
+            volume_expansion_score = clamp01((bar_volume / max(last_vol, 1e-9) - 1.0) / 1.0)
+
+            # breakout_margin_score: how far did price close beyond prior bar's range?
+            if direction == 1:
+                margin = close_price - prior_high
+            else:
+                margin = prior_low - close_price
+            breakout_margin_score = clamp01(abs(margin) / atr) if atr > 0 else 0.5
+
+            # range_compression_score: how compressed was the bar range vs ATR?
+            # (tighter contraction = cleaner setup)
+            range_compression_score = clamp01(1.0 - bar_range / atr) if atr > 0 else 0.5
+
+            # Weights: 0.30 + 0.25 + 0.25 + 0.20 = 1.0
+            raw_conf = (
+                0.30 * contraction_quality_score
+                + 0.25 * volume_expansion_score
+                + 0.25 * breakout_margin_score
+                + 0.20 * range_compression_score
+            )
 
             supporting = [
                 f"contraction_count={contraction_count}",

@@ -42,6 +42,9 @@ def _base_features(**kwargs):
         "atr_14": 5.0,
         "hmm_regime": 0.0,
         "prior_session_close": 0.0,
+        "hmm_prob_trending_up": 0.70,  # continuous regime gate (>= 0.30)
+        "hmm_prob_trending_down": 0.10,
+        "ctf_score": 0.40,  # I6 gate (abs >= 0.25)
     }
     defaults.update(kwargs)
     return defaults

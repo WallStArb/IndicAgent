@@ -28,6 +28,9 @@ def _base_features(**kwargs):
         "atr_14": 50.0,
         "hmm_regime": 1.0,
         "hmm_regime_prob": 0.75,
+        "hmm_prob_trending_up": 0.75,  # continuous regime gate (>= 0.30)
+        "hmm_prob_trending_down": 0.10,
+        "ctf_score": 0.40,  # I6 gate (abs >= 0.25)
         "swing_high": 5100.0,
         "swing_low": 5000.0,
         "swing_high_age_bars": 10.0,
@@ -44,12 +47,16 @@ def _base_features(**kwargs):
 
 
 def test_no_signal_in_ranging_regime():
-    """hmm_regime=0.0 (ranging) -> no_signal (regime gate)."""
+    """Both hmm_prob_trending_up and _down below 0.30 -> no_signal (continuous regime gate)."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
 
     plugin = SecondLegContinuationPlugin()
     close = np.full(60, 5050.0)
-    features = _base_features(hmm_regime=0.0)
+    features = _base_features(
+        hmm_regime=0.0,
+        hmm_prob_trending_up=0.10,
+        hmm_prob_trending_down=0.10,
+    )
     result = plugin.compute_full(_make_frames(close, features))
     assert result.get("signal_type") == "none"
     assert result.get("direction") == 0
@@ -152,7 +159,7 @@ def test_fires_in_fib_zone_long():
 
 
 def test_fires_in_fib_zone_short():
-    """close in upper fib zone, hmm_regime=2.0 -> direction=-1."""
+    """close in fib zone with dominant down regime -> direction=-1."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
 
     plugin = SecondLegContinuationPlugin()
@@ -165,6 +172,8 @@ def test_fires_in_fib_zone_short():
         atr_14=50.0,
         hmm_regime=2.0,
         hmm_regime_prob=0.75,
+        hmm_prob_trending_up=0.10,  # override base: bearish regime
+        hmm_prob_trending_down=0.75,
         nearest_support=4750.0,
         nearest_resistance=5250.0,
     )
