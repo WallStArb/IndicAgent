@@ -33,8 +33,10 @@ def _base_features(**kwargs):
         "hmm_regime": 0.0,
         "hmm_regime_prob": 0.8,
         "hmm_prob_ranging": 0.8,
-        "hmm_prob_trending_up": 0.1,
-        "hmm_prob_trending_down": 0.1,
+        # Phase 119: gate-passing values — dual gate requires at least one of up/down >= 0.30
+        "hmm_prob_trending_up": 0.35,
+        "hmm_prob_trending_down": 0.35,
+        "ctf_score": 0.50,
         "atr_14": 5.0,
         "garch_vol_regime": 0.0,
     }
@@ -137,8 +139,9 @@ def test_fires_on_bos_reversal_short():
     assert result.get("confidence", 0.0) > 0.0
 
 
-def test_trend_regime_reduces_confidence():
-    """hmm_regime=1.0 (trend) reduces confidence compared to base."""
+def test_fires_in_trend_regime_when_gate_passes():
+    """hmm_regime=1.0 (trend, up >= 0.30) still fires — Phase 119 gate blocks only if BOTH
+    up AND down are below 0.30. With hmm_prob_trending_up=0.8, gate passes."""
     from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
 
     plugin = FailedBreakoutPlugin()
@@ -157,10 +160,9 @@ def test_trend_regime_reduces_confidence():
     )
     result = plugin.compute_full(_make_frames(close_above, feat_trend))
 
-    # Trend regime should reduce confidence below base 0.55
+    # Gate passes (up=0.8 >= 0.30) so signal fires; confidence is 4-factor composite
     assert result.get("direction") == 1
-    # With trend penalty -0.10 * trending_w, confidence should be below base
-    assert result.get("confidence", 1.0) < 0.60
+    assert result.get("confidence", 0.0) > 0.0
 
 
 def test_bos_level_persists_in_state():

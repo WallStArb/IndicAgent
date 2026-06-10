@@ -129,7 +129,13 @@ class TestOFIDivergence:
         """ofi_divergence = -1.8 for 2 bars → direction=-1 (price-discovery short)."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        frames = _make_frames(close, {"ofi_divergence": -1.8, "ofi_ewma_5": -0.5, "atr_14": 2.0})
+        features = {
+            "ofi_divergence": -1.8,
+            "ofi_ewma_5": -0.5,
+            "atr_14": 2.0,
+            **_SPIKE_GATE_FEATURES,
+        }
+        frames = _make_frames(close, features)
         plugin.compute_full(frames)  # bar 1 — no fire
         result = plugin.compute_full(frames)  # bar 2 — should fire
         assert (
@@ -146,7 +152,8 @@ class TestOFIDivergence:
         """ofi_divergence = 1.8 for 2 bars → direction=1 (price-discovery long)."""
         plugin = self._make_plugin()
         close = np.linspace(5010.0, 5000.0, 25)
-        frames = _make_frames(close, {"ofi_divergence": 1.8, "ofi_ewma_5": 0.5, "atr_14": 2.0})
+        features = {"ofi_divergence": 1.8, "ofi_ewma_5": 0.5, "atr_14": 2.0, **_SPIKE_GATE_FEATURES}
+        frames = _make_frames(close, features)
         plugin.compute_full(frames)  # bar 1
         result = plugin.compute_full(frames)  # bar 2
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}: {result}"

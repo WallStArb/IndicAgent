@@ -24,8 +24,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .state_utils import track_consecutive_state
@@ -33,6 +34,8 @@ from .trade_framer import frame_trade
 
 _MIN_DIVERGENCE: float = 1.5  # σ threshold — recalibrate from observed fire rate
 _MIN_PERSISTENCE: int = 2  # consecutive bars required before firing
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -41,10 +44,11 @@ class OFIDivergencePlugin:
 
     Gate: abs(ofi_divergence) >= 1.5 AND sign stable >= 2 bars.
     Direction: sign(ofi_divergence) — H1, price follows order flow.
-    Confidence: tanh-weighted magnitude + soft EWMA and regime factors.
+    Confidence: 4-factor intrinsic composite via compose_confidence().
     """
 
     name: str = "trad_OFIDivergence"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -62,7 +66,7 @@ class OFIDivergencePlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "divergence", "ofi", "price_discovery"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "any"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
     # peak_abs tracked separately — track_consecutive_state overwrites the full state entry
     _peak_abs: dict = field(default_factory=dict)
@@ -115,6 +119,16 @@ class OFIDivergencePlugin:
         if count < _MIN_PERSISTENCE:
             return no_signal()
 
+        # ── Dual gate (before OHLCV/ATR access) ─────────────────────────────
+        # Gate 1: regime gate (any-regime uses hmm_trending_weight)
+        if hmm_trending_weight(features) < _MIN_REGIME_WEIGHT:
+            return no_signal()
+
+        # Gate 2: I6 ctf_score gate
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
+            return no_signal()
+
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
             return no_signal()
@@ -122,34 +136,36 @@ class OFIDivergencePlugin:
         direction = div_sign
         close = float(df["close"].iloc[-1])
 
-        # ── Confidence: continuous, magnitude-weighted ────────────────────────
-        confidence = 0.42
-        confidence += 0.25 * math.tanh(peak_abs / 3.0)  # principled soft cap
-
+        # ── 4-factor intrinsic confidence composite ───────────────────────────
         ofi_ewma_5 = features.get("ofi_ewma_5")
         ofi_ewma_20 = features.get("ofi_ewma_20")
         v5 = float(ofi_ewma_5) if ofi_ewma_5 is not None else None
         v20 = float(ofi_ewma_20) if ofi_ewma_20 is not None else None
-        ewma5_sign = (1 if v5 > 0 else (-1 if v5 < 0 else 0)) if v5 is not None else 0
-        ewma20_sign = (1 if v20 > 0 else (-1 if v20 < 0 else 0)) if v20 is not None else 0
+        ewma5_aligned = (v5 is not None) and (1 if v5 > 0 else -1) == direction
+        ewma20_aligned = (v20 is not None) and (1 if v20 > 0 else -1) == direction
 
-        # Fast EWMA: soft factor (boost or reduce), NOT a hard gate
-        if ewma5_sign == direction:
-            confidence += 0.08
-        elif ewma5_sign != 0:
-            confidence -= 0.04
+        magnitude_score = clamp01(math.tanh(peak_abs / 3.0))
 
-        # Slow EWMA confirms sustained pressure
-        if ewma5_sign == ewma20_sign and ewma5_sign != 0:
-            confidence += 0.06
+        alignment_score = clamp01(
+            (1.0 if ewma5_aligned else 0.3) * 0.6 + (1.0 if ewma20_aligned else 0.3) * 0.4
+        )
 
-        rel_volume = features.get("rel_volume")
-        if rel_volume is not None and float(rel_volume) >= 1.5:
-            confidence += 0.06
+        persistence_score = clamp01((count - _MIN_PERSISTENCE) / 5.0)
 
-        hmm_regime = features.get("hmm_regime")
+        rel_vol = features.get("rel_volume")
+        if rel_vol is not None:
+            volume_score = clamp01((float(rel_vol) - 1.0) / 1.5)
+        else:
+            volume_score = 0.3
 
-        confidence = compose_confidence(confidence)
+        # Weights sum to 1.0
+        raw_conf = (
+            0.40 * magnitude_score
+            + 0.25 * alignment_score
+            + 0.20 * persistence_score
+            + 0.15 * volume_score
+        )
+        confidence = compose_confidence(raw_conf)
 
         # ── Trade frame ───────────────────────────────────────────────────────
         sig_type = signal_type_for_direction("ofi_divergence", direction)
@@ -159,6 +175,7 @@ class OFIDivergencePlugin:
         if not tf_frame.viable:
             return no_signal()
 
+        hmm_regime = features.get("hmm_regime")
         is_ranging = hmm_regime is not None and float(hmm_regime) == 0.0
         regime_context = "ranging" if is_ranging else "any"
 
@@ -176,8 +193,8 @@ class OFIDivergencePlugin:
             supporting.append(f"ofi_ewma_20={float(ofi_ewma_20):.4f}")
         if hmm_regime is not None:
             supporting.append(f"hmm_regime={hmm_regime}")
-        if rel_volume is not None:
-            supporting.append(f"rel_volume={float(rel_volume):.2f}")
+        if rel_vol is not None:
+            supporting.append(f"rel_volume={float(rel_vol):.2f}")
 
         signal = make_signal_from_frame(
             tf_frame,
