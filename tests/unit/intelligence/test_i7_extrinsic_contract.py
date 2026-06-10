@@ -125,6 +125,10 @@ def _scenario_ofi_divergence():
         "rel_volume": 1.8,
         "hmm_regime": 0.0,
         "atr_14": 2.0,
+        # Phase 119: dual gate requires hmm_trending_weight >= 0.30 and abs(ctf_score) >= 0.25
+        "hmm_prob_trending_up": 0.6,
+        "hmm_prob_trending_down": 0.3,
+        "ctf_score": 0.5,
     }
 
     def _fire(extra: dict) -> dict:
@@ -265,6 +269,10 @@ def _scenario_liquidity_hunt():
         "swing_low": 4880.0,
         "nearest_resistance": 5100.0,
         "nearest_support": 4880.0,
+        # Phase 119: dual gate (trend, direction-specific) — at least one side >= 0.30
+        "hmm_prob_trending_up": 0.3,
+        "hmm_prob_trending_down": 0.6,
+        "ctf_score": 0.5,
     }
 
     def _fire(extra: dict) -> dict:

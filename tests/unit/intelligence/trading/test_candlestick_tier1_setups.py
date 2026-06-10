@@ -32,6 +32,10 @@ class TestCandlestickTier1Patterns:
             # nearest_support within 0.3*ATR=3 of close=5000 → S/R confirms
             "nearest_support": 4998.0,
             "volume_sma_20": 1000.0,  # vol 1200 < 1.3*1000=1300 → volume does NOT confirm
+            # Phase 119: gate-passing values for dual gate
+            "ctf_score": 0.5,
+            "hmm_prob_trending_up": 0.6,
+            "hmm_prob_trending_down": 0.3,
         }
 
     def _bear_features(self, pattern_field: str) -> dict:
@@ -43,6 +47,10 @@ class TestCandlestickTier1Patterns:
             # nearest_resistance within 0.3*ATR=3 of close=5000 → S/R confirms
             "nearest_resistance": 5002.0,
             "volume_sma_20": 1000.0,
+            # Phase 119: gate-passing values for dual gate
+            "ctf_score": 0.5,
+            "hmm_prob_trending_up": 0.3,
+            "hmm_prob_trending_down": 0.6,
         }
 
     def _frames(self, f: dict) -> dict:
