@@ -126,6 +126,31 @@ IBKR_HOST="192.168.1.157"
 IBKR_PORT=7497
 ```
 
+## Shadow Mode Validation
+
+The shadow validator runs weekly (Mon 07:00 UTC) via `indicagent-shadow-validator.timer` and evaluates all 22 tracked I7 setups against a 5-gate promotion criteria.
+
+**5-Gate Promotion Criteria:**
+- Gate 1: N >= 100 resolved outcomes (sufficient sample)
+- Gate 2: win_rate >= 50% (positive outcome rate)
+- Gate 3: binomtest p < 0.05 one-sided vs 50% baseline (statistically significant)
+- Gate 4: avg_pnl_r > 0 (positive expectancy)
+- Gate 5: calibration_corr >= 0.3 (cis_score predicts profitable outcomes)
+
+**Grafana dashboard:** Shadow Mode Validation (http://localhost:3001) - per-setup N, win_rate, p_value, avg_pnl_r, calibration, and promoted status.
+
+```bash
+# Manual run (debugging / forced check)
+.venv/bin/python services/shadow_validator.py
+
+# Check timer status
+sudo systemctl status indicagent-shadow-validator.timer
+sudo systemctl list-timers indicagent-shadow-validator.timer
+
+# View last run logs
+tail -50 logs/shadow_validator.log
+```
+
 ## Kafka / Redpanda
 ```bash
 # Topics
