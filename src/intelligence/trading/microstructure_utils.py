@@ -10,14 +10,19 @@ from typing import Any
 
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import (
+    MIN_CTF_SCORE,
+    MIN_REGIME_WEIGHT,
+    capture_signal_features,
+    clamp01,
+    compose_confidence,
+    rel_volume_score,
+)
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 _SPIKE_THRESHOLD: float = 2.0
-_MIN_REGIME_WEIGHT: float = 0.30
-_MIN_CTF_SCORE: float = 0.25
 
 
 def detect_spike_signal(
@@ -66,16 +71,17 @@ def detect_spike_signal(
         return no_signal()
 
     spike_z = float(spike_z)
-    if abs(spike_z) <= _SPIKE_THRESHOLD:
+    abs_spike_z = abs(spike_z)
+    if abs_spike_z <= _SPIKE_THRESHOLD:
         return no_signal()
 
     # Gate 1: regime gate (spike signals are regime_type="any" — use hmm_trending_weight)
-    if hmm_trending_weight(features) < _MIN_REGIME_WEIGHT:
+    if hmm_trending_weight(features) < MIN_REGIME_WEIGHT:
         return no_signal()
 
     # Gate 2: I6 ctf_score gate — both gates precede any OHLCV access
     ctf_score = float(features.get("ctf_score") or 0.0)
-    if abs(ctf_score) < _MIN_CTF_SCORE:
+    if abs(ctf_score) < MIN_CTF_SCORE:
         return no_signal()
 
     atr = get_atr_with_floor_from_frames(frames)
@@ -89,19 +95,15 @@ def detect_spike_signal(
 
     # 4-factor intrinsic confidence composite — all gates passed, gates are NOT additive factors
     # volume_score sourced from features dict (not df["volume"]) to avoid OHLCV before gate
-    z_score_score = clamp01((abs(spike_z) - _SPIKE_THRESHOLD) / 3.0)
+    z_score_score = clamp01((abs_spike_z - _SPIKE_THRESHOLD) / 3.0)
 
-    rel_vol = features.get("rel_volume")
-    if rel_vol is not None:
-        volume_score = clamp01((float(rel_vol) - 1.0) / 1.5)
-    else:
-        volume_score = 0.3
+    volume_score = rel_volume_score(features)
 
-    ctf_factor = clamp01((abs(ctf_score) - _MIN_CTF_SCORE) / (1.0 - _MIN_CTF_SCORE))
+    ctf_factor = clamp01((abs(ctf_score) - MIN_CTF_SCORE) / (1.0 - MIN_CTF_SCORE))
 
     price_return_z = features.get("price_return_z")
     if price_return_z is not None:
-        persistence_score = clamp01(abs(spike_z) / max(1.0, abs(float(price_return_z))) - 1.0)
+        persistence_score = clamp01(abs_spike_z / max(1.0, abs(float(price_return_z))) - 1.0)
     else:
         persistence_score = 0.3
 
@@ -119,7 +121,7 @@ def detect_spike_signal(
     supporting: list[str] = [
         f"{spike_feature_key}={spike_z:.3f}",
     ]
-    if abs(ctf_score) > _MIN_CTF_SCORE:
+    if abs(ctf_score) > MIN_CTF_SCORE:
         supporting.append(f"ctf_score={ctf_score:.3f}")
 
     # Exhaustion not applicable — spike signals are regime-independent;

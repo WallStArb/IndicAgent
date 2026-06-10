@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from tests.unit.intelligence.helpers import make_ohlcv
+from tests.unit.intelligence.trading.conftest import SPIKE_GATE_FEATURES
 
 
 def _make_frames(close_arr, features=None, symbol="ES", tf="1m"):
@@ -25,11 +26,7 @@ def _make_frames(close_arr, features=None, symbol="ES", tf="1m"):
 
 # Minimal feature values that pass the CVDSpike dual gate (Phase 119):
 # hmm_trending_weight >= 0.30 and abs(ctf_score) >= 0.25.
-_SPIKE_GATE_FEATURES: dict = {
-    "hmm_prob_trending_up": 0.6,
-    "hmm_prob_trending_down": 0.6,
-    "ctf_score": 0.5,
-}
+_SPIKE_GATE_FEATURES = SPIKE_GATE_FEATURES
 
 # DeltaExhaustion gate: hmm_prob_ranging >= 0.30 and abs(ctf_score) >= 0.25
 _EXHAUSTION_GATE_FEATURES: dict = {

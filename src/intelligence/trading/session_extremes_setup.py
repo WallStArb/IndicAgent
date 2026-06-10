@@ -16,13 +16,16 @@ import numpy as np
 from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import (
+    MIN_CTF_SCORE,
+    MIN_REGIME_WEIGHT,
+    capture_signal_features,
+    clamp01,
+    compose_confidence,
+)
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
-
-_MIN_REGIME_WEIGHT: float = 0.30
-_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -90,12 +93,12 @@ class SessionExtremesSetupPlugin:
 
         # ── Dual gate (before OHLCV access) ─────────────────────────────────
         # Gate 1: mean_reversion regime gate — ranging probability >= threshold
-        if hmm_regime_weight(features, "ranging") < _MIN_REGIME_WEIGHT:
+        if hmm_regime_weight(features, "ranging") < MIN_REGIME_WEIGHT:
             return no_signal()
 
         # Gate 2: I6 ctf_score gate
         ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < _MIN_CTF_SCORE:
+        if abs(ctf_score) < MIN_CTF_SCORE:
             return no_signal()
 
         # ── ATR and price access (after dual gate) ───────────────────────────

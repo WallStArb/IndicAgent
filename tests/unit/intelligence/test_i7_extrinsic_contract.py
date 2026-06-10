@@ -34,11 +34,6 @@ from src.intelligence.register_plugins import _PHASE_119_PLUGINS
 from tests.unit.intelligence.helpers import make_ohlcv
 
 # Phase 119 refactored plugins: ctf_score is a gate (not a perturbable extrinsic) for these.
-# Assert the set has exactly 17 members - if this fails, update _PHASE_119_PLUGINS.
-assert len(_PHASE_119_PLUGINS) == 17, (
-    f"_PHASE_119_PLUGINS should have 17 members, got {len(_PHASE_119_PLUGINS)}: "
-    f"{sorted(_PHASE_119_PLUGINS)}"
-)
 
 # ---------------------------------------------------------------------------
 # Extrinsic perturbation keys — perturbing these must NOT change confidence
@@ -538,6 +533,13 @@ def test_extrinsic_perturbation_skipped_plugins(plugin_name, skip_reason):
 
 
 # ---------------------------------------------------------------------------
+def test_phase_119_plugins_count():
+    assert len(_PHASE_119_PLUGINS) == 17, (
+        f"_PHASE_119_PLUGINS should have 17 members, got {len(_PHASE_119_PLUGINS)}: "
+        f"{sorted(_PHASE_119_PLUGINS)}"
+    )
+
+
 # Test 2: confidence stays within [0.0, 0.95] for every fireable plugin
 # ---------------------------------------------------------------------------
 

@@ -16,15 +16,19 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
+from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import (
+    MIN_CTF_SCORE,
+    MIN_REGIME_WEIGHT,
+    capture_signal_features,
+    clamp01,
+    compose_confidence,
+    rel_volume_score,
+)
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
-
-_MIN_REGIME_WEIGHT: float = 0.30
-_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -72,15 +76,12 @@ class LiquidityHuntPlugin:
         # ── Dual gate (before OHLCV access) ─────────────────────────────────
         # Gate 1: trend regime gate (LiquidityHunt is regime_type="trend")
         # Use the direction-specific form: block only if BOTH up AND down are below threshold
-        if (
-            hmm_regime_weight(features, "up") < _MIN_REGIME_WEIGHT
-            and hmm_regime_weight(features, "down") < _MIN_REGIME_WEIGHT
-        ):
+        if hmm_trending_weight(features) < MIN_REGIME_WEIGHT:
             return no_signal()
 
         # Gate 2: I6 ctf_score gate
         ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < _MIN_CTF_SCORE:
+        if abs(ctf_score) < MIN_CTF_SCORE:
             return no_signal()
 
         bsl_sig = float(features.get("bsl_significance", 0.0))
@@ -122,8 +123,7 @@ class LiquidityHuntPlugin:
             return no_signal()
 
         # ── OHLCV access (after all gates) ───────────────────────────────────
-        close_arr = df["close"].to_numpy(dtype=float)
-        entry = float(close_arr[-1])
+        entry = float(df["close"].iloc[-1])
         supporting: list[str] = ["named_pool_reclaimed"]
 
         # Renaissance: Use frame_trade() for structural stop hierarchy
@@ -143,11 +143,7 @@ class LiquidityHuntPlugin:
         rejection_reclaim_strength = clamp01(sweep_distance / max(1e-9, atr))
 
         # volume_context: rel_volume confirmation
-        rel_vol = features.get("rel_volume")
-        if rel_vol is not None:
-            volume_context = clamp01((float(rel_vol) - 1.0) / 1.5)
-        else:
-            volume_context = 0.3
+        volume_context = rel_volume_score(features)
 
         # structure_quality: significant level type bonus
         if significance >= 1.00:

@@ -23,9 +23,15 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
+from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import (
+    MIN_CTF_SCORE,
+    MIN_REGIME_WEIGHT,
+    capture_signal_features,
+    clamp01,
+    compose_confidence,
+)
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -42,9 +48,6 @@ _RANGE_END = (10, 0)
 
 # Volume expansion threshold
 _VOL_EXPANSION_THRESHOLD: float = 1.5
-
-_MIN_REGIME_WEIGHT: float = 0.30
-_MIN_CTF_SCORE: float = 0.25
 
 
 def _in_window(et_dt: datetime, start: tuple[int, int], end: tuple[int, int]) -> bool:
@@ -109,15 +112,12 @@ class ORB30Plugin:
             return no_signal()
 
         # ── Gate 1: continuous trending regime ────────────────────────────────
-        if (
-            hmm_regime_weight(features, "up") < _MIN_REGIME_WEIGHT
-            and hmm_regime_weight(features, "down") < _MIN_REGIME_WEIGHT
-        ):
+        if hmm_trending_weight(features) < MIN_REGIME_WEIGHT:
             return no_signal()
 
         # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
         ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < _MIN_CTF_SCORE:
+        if abs(ctf_score) < MIN_CTF_SCORE:
             return no_signal()
 
         # ── Extract timestamp ────────────────────────────────────────────────
@@ -197,8 +197,8 @@ class ORB30Plugin:
         # ── Volume gate ──────────────────────────────────────────────────────
         rel_volume = features.get("rel_volume")
         if rel_volume is not None and isinstance(rel_volume, (int, float)):
-            vol_ok = float(rel_volume) >= _VOL_EXPANSION_THRESHOLD
             volume_ratio = float(rel_volume)
+            vol_ok = volume_ratio >= _VOL_EXPANSION_THRESHOLD
         else:
             bar_volume = float(df["volume"].iloc[-1])
             avg_volume = float(df["volume"].mean())
