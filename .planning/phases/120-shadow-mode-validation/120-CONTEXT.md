@@ -44,21 +44,23 @@ Build the automated promotion pipeline for the 21 refactored I7 setups. A new we
 
 ### D-02: Promotion Criteria — 5-Gate Sequential Check
 
-All 5 gates must pass for promotion. Short-circuit on first failure (cheapest checks first):
+All 5 gates must pass for promotion. Short-circuit on first failure (cheapest checks first).
+
+**IMPORTANT — why not `was_selected`:** Shadow signals are excluded from winner selection by design (`signal_processor.py` builds `eligible_ranked` from non-shadow only). Therefore `was_selected` is structurally always `False` for every shadow signal. Using it in Gates 2/3/5 would make promotion permanently impossible. All gates use `pnl_r`-based outcome metrics instead — consistent with the existing `shadow_auditor._check_promotion` pattern.
 
 ```python
-# Gate 1: Sufficient sample size
-if total < 100:
-    return False, "insufficient_n", f"{total} < 100"
+# Gate 1: Sufficient resolved outcomes
+if n_resolved < 100:
+    return False, "insufficient_n", f"{n_resolved} resolved < 100"
 
-# Gate 2: Selection rate (setup fires with meaningful frequency)
-selection_rate = selected / total  # was_selected=True / total shadow signals
-if selection_rate < 0.05:
-    return False, "low_selection_rate", f"{selection_rate:.2%} < 5%"
+# Gate 2: Win rate > 50% (setup produces positive outcomes more often than chance)
+win_rate = wins / n_resolved
+if win_rate < 0.5:
+    return False, "low_win_rate", f"{win_rate:.1%} < 50%"
 
-# Gate 3: Statistical significance (binomial test vs 50% baseline)
+# Gate 3: Statistical significance (binomial test on win rate vs 50% baseline)
 from scipy.stats import binomtest
-result = binomtest(selected, total, p=0.5, alternative='greater')
+result = binomtest(wins, n_resolved, p=0.5, alternative='greater')
 if result.pvalue >= 0.05:
     return False, "not_significant", f"p={result.pvalue:.3f} >= 0.05"
 
@@ -66,28 +68,29 @@ if result.pvalue >= 0.05:
 if avg_pnl_r <= 0:
     return False, "negative_expectancy", f"avg_pnl_r={avg_pnl_r:.3f}"
 
-# Gate 5: Confidence calibration (cis_score predicts selection)
-if calibration_corr < 0.3:
+# Gate 5: Confidence calibration (cis_score predicts profitable outcomes)
+if calibration_corr is None or calibration_corr < 0.3:
     return False, "poor_calibration", f"corr={calibration_corr:.3f} < 0.3"
 ```
+
+Where: `n_resolved` = resolved shadow outcomes (pnl_r IS NOT NULL), `wins` = COUNT(pnl_r > 0).
 
 **Note on scipy:** Use `binomtest` (not the deprecated `binom_test`). Import from `scipy.stats`.
 
 ---
 
-### D-03: `was_selected` and Calibration Columns
+### D-03: Outcome Metrics and Calibration Columns
 
-`was_selected` is an **existing boolean column** on `signal_ledger` — no new column or mapping needed.
+Shadow signals never have `was_selected=True` (they are excluded from winner selection by design). All promotion metrics derive from resolved `pnl_r` outcomes tracked by the lifecycle tracker.
 
-**Calibration metric:** `CORR(cis_score, was_selected::int)` — correlates the aggregator's composite intelligence score with actual selection outcome. `cis_score` is the right variable: it's what the aggregator computed to rank this signal, so its correlation with `was_selected` measures whether the scoring system is well-calibrated.
-
-**Selection rate query:**
+**Per-setup query:**
 ```sql
 SELECT
-  COUNT(*) FILTER (WHERE was_selected = true) as selected,
-  COUNT(*) as total,
-  AVG(so.pnl_r) FILTER (WHERE so.pnl_r IS NOT NULL) as avg_pnl_r,
-  CORR(sl.cis_score, sl.was_selected::int) as calibration_corr
+  COUNT(*) FILTER (WHERE so.pnl_r IS NOT NULL) AS n_resolved,
+  COUNT(*) FILTER (WHERE so.pnl_r > 0) AS wins,
+  AVG(so.pnl_r) FILTER (WHERE so.pnl_r IS NOT NULL) AS avg_pnl_r,
+  CORR(sl.cis_score, (so.pnl_r > 0)::int)
+    FILTER (WHERE so.pnl_r IS NOT NULL) AS calibration_corr
 FROM signal_ledger sl
 LEFT JOIN signal_outcomes so USING (signal_id)
 WHERE sl.setup_plugin = $1
@@ -95,7 +98,9 @@ WHERE sl.setup_plugin = $1
   AND sl.shadow_tracking_start_ts IS NOT NULL
 ```
 
-**Sampling window:** All signals since `shadow_tracking_start_ts` — maximize N, avoid arbitrary window cutoffs. No rolling 30-day window.
+**Calibration metric:** `CORR(cis_score, (pnl_r > 0)::int)` — does the aggregator's composite score predict profitable outcomes? Higher cis_score should correlate with pnl_r > 0. This is the correct signal: it measures whether the ranking system's confidence predicts actual edge, not selection (which is impossible for shadow signals).
+
+**Sampling window:** All signals since `shadow_tracking_start_ts` — maximize N. No rolling 30-day window.
 
 ---
 
@@ -142,17 +147,19 @@ _SHADOW_VALIDATION_SETUPS: frozenset[str] = frozenset({
     # Phase 118 (5 setups)
     "trad_OFIContinuation", "trad_PatternCompletion",
     "trad_GapAnalysisSetup", "trad_CVDDivergence", "trad_DivergenceStack",
-    # Phase 119 (16 setups — 17 incl. MomentumBreakout)
-    "trad_OFIDivergence", "trad_OFISpike", "trad_CVDSpike",
-    "trad_CandlestickPatternSetup", "trad_FailedBreakout",
-    "trad_LiquidityHunt", "trad_DeltaExhaustion", "trad_SessionExtremesSetup",
-    "trad_LVNBreakout", "trad_ORB15", "trad_ORB30",
-    "trad_SecondLegContinuation", "trad_VCP", "trad_VWAPReclaim",
-    "trad_DualDivergence", "trad_VWAPDeviation", "trad_MomentumBreakout",
+    # Phase 119 (17 setups — verified against _PHASE_119_PLUGINS in register_plugins.py)
+    "trad_OFISpike", "trad_CVDSpike", "trad_OFIDivergence",
+    "trad_FailedBreakout", "trad_CandlestickPatternSetup",
+    "trad_SessionExtremesSetup", "trad_LiquidityHunt", "trad_DeltaExhaustion",
+    "trad_LVNBreakout", "trad_VWAPReclaim", "trad_VWAPDeviation",
+    "trad_MomentumBreakout", "trad_ORB15", "trad_ORB30",
+    "trad_SecondLegContinuation", "trad_VCP", "trad_DualDivergence",
 })
+# Total: 22 (5 Phase 118 + 17 Phase 119). Verified against _PHASE_119_PLUGINS frozenset (register_plugins.py:667).
+assert len(_SHADOW_VALIDATION_SETUPS) == 22
 ```
 
-Verify the exact plugin names against `TIER_I7` in `register_plugins.py` during planning — names above are from Phase 118/119 context but must be verified against the actual frozenset constants.
+**Verified 2026-06-10 against `_PHASE_119_PLUGINS` in `register_plugins.py` — count is 22, not 21.** The original count of 21 was a data integrity error. All executor implementations must use `assert len == 22`.
 
 ---
 
@@ -163,10 +170,7 @@ Use existing alert infrastructure: publish to `topic_alert_requests` via `KafkaP
 ```python
 await producer.publish(msg={
     "severity": "CRITICAL",
-    "title": f"Shadow Promotion: {plugin_name}",
-    "body": f"Setup {plugin_name} passed 5-gate shadow validation. Promoted to live.\n"
-            f"N={total}, selection_rate={selection_rate:.1%}, p={pvalue:.3f}, "
-            f"avg_pnl_r={avg_pnl_r:.3f}, calibration={calibration_corr:.3f}",
+    "message": f"Shadow Promotion: {name}\nN={n_resolved}, win_rate={win_rate:.1%}, p={pvalue:.3f}, avg_pnl_r={avg_pnl_r:.3f}, calibration={calibration_corr:.3f}",
     "source": "shadow_validator",
 })
 ```
@@ -180,15 +184,15 @@ One Kafka publish per promoted setup. Kafka optional — if not available, log p
 New metrics in `src/observability/metrics.py`:
 
 ```python
-SHADOW_VALIDATION_N = create_gauge("shadow_validation_n", "Shadow signal count per setup", ["setup_plugin"])
-SHADOW_VALIDATION_SELECTION_RATE = create_gauge("shadow_validation_selection_rate", ..., ["setup_plugin"])
-SHADOW_VALIDATION_P_VALUE = create_gauge("shadow_validation_p_value", ..., ["setup_plugin"])
-SHADOW_VALIDATION_AVG_PNL_R = create_gauge("shadow_validation_avg_pnl_r", ..., ["setup_plugin"])
-SHADOW_VALIDATION_CALIBRATION = create_gauge("shadow_validation_calibration", ..., ["setup_plugin"])
-SHADOW_VALIDATION_PROMOTED = create_gauge("shadow_validation_promoted", "1=promoted, 0=shadow", ["setup_plugin"])
+SHADOW_VALIDATION_N = point_gauge("shadow_validation_n", "Resolved shadow outcome count per setup (weekly validator run)")
+SHADOW_VALIDATION_WIN_RATE = point_gauge("shadow_validation_win_rate", "Fraction of resolved shadow outcomes with pnl_r > 0")
+SHADOW_VALIDATION_P_VALUE = point_gauge("shadow_validation_p_value", "Binomial test p-value (win rate vs 50% baseline, one-sided)")
+SHADOW_VALIDATION_AVG_PNL_R = point_gauge("shadow_validation_avg_pnl_r", "Average pnl_r across resolved shadow outcomes")
+SHADOW_VALIDATION_CALIBRATION = point_gauge("shadow_validation_calibration", "CORR(cis_score, (pnl_r > 0)::int) — confidence predicts profitable outcomes")
+SHADOW_VALIDATION_PROMOTED = point_gauge("shadow_validation_promoted", "1=promoted to live this run, 0=still in shadow")
 ```
 
-Emit for ALL 21 setups on every weekly run (including those that don't promote — so Grafana shows the status).
+Emit for ALL 22 setups on every weekly run (including those that don't promote — so Grafana shows the status). Label key: `setup_plugin`.
 
 ---
 

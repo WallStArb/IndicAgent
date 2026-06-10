@@ -65,3 +65,23 @@ No divergent views (single reviewer).
 1. The plans are ready to execute as-is. All three concerns are LOW/MEDIUM and can be addressed during execution.
 2. Consider adding a `--dry-run` flag to Plan 01 Task 3 as a low-cost safety net for the first live run.
 3. Index verification for `signal_ledger(is_shadow, shadow_tracking_start_ts)` can be a one-line check added to Plan 01 Task 2 (or a note in the migration SQL).
+
+---
+
+## Post-Review First-Principles Audit (2026-06-10)
+
+**Two critical correctness issues identified and fixed before execution:**
+
+### Critical Finding 1: `was_selected` is structurally zero for all shadow signals
+
+Shadow signals are excluded from winner selection by design (`signal_processor.py:410-416` builds `eligible_ranked` from non-shadow only). `was_selected` is therefore permanently `False` for every shadow signal. Gates 2 (`selection_rate >= 5%`) and 3 (`binomtest(selected, total, p=0.5)`) would have returned permanent failures — every weekly run would log `low_selection_rate` for all setups and promote nothing, forever, with no visible error.
+
+**Fix:** All 5 gates now use `pnl_r`-based outcome metrics (n_resolved, wins, win_rate, avg_pnl_r, calibration on pnl_r>0), matching the pattern of the existing `shadow_auditor._check_promotion` and the roadmap text ("win_rate>50%"). The `shadow_transition_log` INSERT now uses semantically correct columns (win_rate stores actual win_rate).
+
+### Critical Finding 2: Setup count mismatch (22 names, assert 21)
+
+`_PHASE_119_PLUGINS` in `register_plugins.py:667` contains 17 entries (8 Wave-1 + 9 Wave-2). 5 Phase-118 + 17 Phase-119 = 22 total. The plans stated 21 and the `assert len == 21` would have crashed at module import.
+
+**Fix:** `_SHADOW_VALIDATION_SETUPS` hardcoded to 22 verified names; `assert len == 22`. Authoritative source `register_plugins.py:667` cited in comment.
+
+**Files updated:** `120-CONTEXT.md` (D-02, D-03, D-06, D-07, D-08), `120-01-PLAN.md` (Tasks 1+3 + must_haves), `120-03-PLAN.md` (Grafana verify command).
