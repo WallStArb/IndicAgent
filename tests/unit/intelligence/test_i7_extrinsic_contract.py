@@ -15,6 +15,12 @@ Wave 0 blast radius (15 plugins):
     failed_breakout, orb15, orb30, prev_day_level_test, choch_reversal,
     supply_demand_setup, liquidity_sweep_reclaim, liquidity_hunt, gap_analysis_setup
   118-00b restructures (3): momentum_breakout, squeeze_expansion, trend_following
+
+Phase 119 note: ctf_score is a mandatory gate (not an extrinsic) for the 17 Phase-119
+refactored plugins. Perturbing ctf_score for those plugins would flip the gate and change
+confidence, violating the test invariant. The perturbation set for Phase-119 plugins
+excludes ctf_score only; ctf_structure_alignment and ctf_trend_alignment remain perturbed.
+The [0.0, 0.95] confidence range assertion is unchanged.
 """
 
 from __future__ import annotations
@@ -24,7 +30,15 @@ import copy
 import numpy as np
 import pytest
 
+from src.intelligence.register_plugins import _PHASE_119_PLUGINS
 from tests.unit.intelligence.helpers import make_ohlcv
+
+# Phase 119 refactored plugins: ctf_score is a gate (not a perturbable extrinsic) for these.
+# Assert the set has exactly 17 members - if this fails, update _PHASE_119_PLUGINS.
+assert len(_PHASE_119_PLUGINS) == 17, (
+    f"_PHASE_119_PLUGINS should have 17 members, got {len(_PHASE_119_PLUGINS)}: "
+    f"{sorted(_PHASE_119_PLUGINS)}"
+)
 
 # ---------------------------------------------------------------------------
 # Extrinsic perturbation keys — perturbing these must NOT change confidence
@@ -476,7 +490,13 @@ _SKIPPED_IDS = [name for name, _ in _SKIPPED]
 
 @pytest.mark.parametrize("plugin_name,factory", _FIREABLE, ids=_FIREABLE_IDS)
 def test_extrinsic_perturbation_does_not_change_confidence(plugin_name, factory):
-    """Perturbing only extrinsic keys must leave confidence unchanged to float precision."""
+    """Perturbing only extrinsic keys must leave confidence unchanged to float precision.
+
+    For Phase-119 plugins, ctf_score is a mandatory gate (not a perturbable extrinsic):
+    it feeds the ctf_factor component in the 4-factor confidence composite, so perturbing
+    it would change confidence and violate the invariant. Only ctf_score is excluded;
+    ctf_structure_alignment and ctf_trend_alignment remain in the perturbation set.
+    """
     fire = factory()
 
     baseline = fire({})
@@ -485,8 +505,16 @@ def test_extrinsic_perturbation_does_not_change_confidence(plugin_name, factory)
     ), f"{plugin_name}: firing scenario did not produce a signal — check scenario factory"
     confidence_a = baseline["confidence"]
 
+    # For Phase-119 plugins, exclude ctf_score from perturbation (it is a gate, not extrinsic).
+    # ctf_structure_alignment and ctf_trend_alignment remain perturbed for all plugins.
+    perturbation_keys = {
+        k: v
+        for k, v in _EXTRINSIC_KEYS.items()
+        if not (k == "ctf_score" and plugin_name in _PHASE_119_PLUGINS)
+    }
+
     # Add/change only extrinsic keys — intrinsic inputs are identical
-    perturbed = fire(copy.deepcopy(_EXTRINSIC_KEYS))
+    perturbed = fire(copy.deepcopy(perturbation_keys))
 
     # The perturbed run may not fire if adding extrinsic keys changes a gate
     # (e.g. supply_demand_setup: if in_demand_zone AND in_supply_zone both 1.0, it returns no_signal)
