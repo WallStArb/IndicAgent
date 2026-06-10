@@ -13,14 +13,17 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 # Maximum bars after BOS detection to wait for close-back-through reversal
 _MAX_REVERSAL_BARS: int = 3
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -30,10 +33,11 @@ class FailedBreakoutPlugin:
     Gate: bos_detected == 1.0 (stores state), then close[-1] crosses back through
     bos_level on a subsequent bar within _MAX_REVERSAL_BARS.
 
-    Confidence: 0.55 base + 0.15 if ranging (mean_reversion aligned) - 0.10 if trend.
+    Confidence: 4-factor intrinsic composite via compose_confidence().
     """
 
     name: str = "trad_FailedBreakout"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -51,7 +55,7 @@ class FailedBreakoutPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "reversal", "structure", "regime"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -70,12 +74,6 @@ class FailedBreakoutPlugin:
 
         if df is None or len(df) < self.min_lookback:
             return {}
-
-        close = df["close"].to_numpy(dtype=float)
-
-        atr = get_atr_with_floor_from_frames(frames)
-        if atr is None:
-            return no_signal()
 
         state = self._state.get((symbol, tf), {})
 
@@ -115,8 +113,25 @@ class FailedBreakoutPlugin:
             self._state[(symbol, tf)] = state
             return no_signal()
 
+        # ── Dual gate (before OHLCV numeric access) ──────────────────────────
+        # Gate 1: direction-specific trend form — block only if BOTH up AND down are below threshold
+        if (
+            hmm_regime_weight(features, "up") < _MIN_REGIME_WEIGHT
+            and hmm_regime_weight(features, "down") < _MIN_REGIME_WEIGHT
+        ):
+            self._state[(symbol, tf)] = state
+            return no_signal()
+
+        # Gate 2: I6 ctf_score gate
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
+            self._state[(symbol, tf)] = state
+            return no_signal()
+
         # ── Reversal check ───────────────────────────────────────────────────
-        close_price = float(close[-1])
+        close_arr = df["close"].to_numpy(dtype=float)
+        close_price = float(close_arr[-1])
+
         if bos_direction == -1:
             # Bearish BOS (price broke below structure). Reversal = close back ABOVE bos_level
             reversal = close_price > bos_level
@@ -136,19 +151,45 @@ class FailedBreakoutPlugin:
             self._state[(symbol, tf)] = state
             return no_signal()
 
-        # ── Confidence ──────────────────────────────────────────────────────
-        hmm_regime = float(features.get("hmm_regime", 0.0))
-        confidence = 0.55
-        if hmm_regime == 0.0:
-            regime_ctx = "ranging"
-        elif hmm_regime in (1.0, 2.0):
-            regime_ctx = "bearish" if hmm_regime == 2.0 else "bullish"
-        else:
-            regime_ctx = "neutral"
+        atr = get_atr_with_floor_from_frames(frames)
+        if atr is None:
+            self._state[(symbol, tf)] = state
+            return no_signal()
 
         reversal_close_delta = abs(close_price - bos_level)
-
         entry = close_price
+
+        # ── 4-factor intrinsic confidence composite ───────────────────────────
+        # break_magnitude_score: how far price crossed back through BOS (reversal strength)
+        break_magnitude_score = clamp01(reversal_close_delta / max(1e-9, atr))
+
+        # rejection_strength_score: sooner reversal = stronger rejection (bars_since_bos=0 is best)
+        rejection_strength_score = clamp01(
+            (_MAX_REVERSAL_BARS - bars_since_bos) / _MAX_REVERSAL_BARS
+        )
+
+        # volume_score: rel_volume confirmation
+        rel_vol = features.get("rel_volume")
+        if rel_vol is not None:
+            volume_score = clamp01((float(rel_vol) - 1.0) / 1.5)
+        else:
+            volume_score = 0.3
+
+        # structure_quality_score: BOS level quality (bos_confidence from SMC if available)
+        bos_confidence = features.get("bos_confidence")
+        if bos_confidence is not None:
+            structure_quality_score = clamp01(float(bos_confidence))
+        else:
+            structure_quality_score = 0.5  # neutral fallback
+
+        # Weights sum to 1.0
+        raw_conf = (
+            0.35 * break_magnitude_score
+            + 0.30 * rejection_strength_score
+            + 0.20 * volume_score
+            + 0.15 * structure_quality_score
+        )
+        confidence = compose_confidence(raw_conf)
 
         # ── Trade frame ─────────────────────────────────────────────────────
         frame = frame_trade(
@@ -167,6 +208,14 @@ class FailedBreakoutPlugin:
         state.clear()
         self._state[(symbol, tf)] = state
 
+        hmm_regime = float(features.get("hmm_regime", 0.0))
+        if hmm_regime == 0.0:
+            regime_ctx = "ranging"
+        elif hmm_regime in (1.0, 2.0):
+            regime_ctx = "bearish" if hmm_regime == 2.0 else "bullish"
+        else:
+            regime_ctx = "neutral"
+
         supporting = [
             f"bos_level={bos_level:.2f}",
             f"bars_since_bos={bars_since_bos}",
@@ -175,8 +224,6 @@ class FailedBreakoutPlugin:
         ]
         if hmm_regime == 0.0:
             supporting.append("hmm_ranging_aligned")
-
-        confidence = compose_confidence(confidence)
 
         features_snapshot = capture_signal_features(
             features,

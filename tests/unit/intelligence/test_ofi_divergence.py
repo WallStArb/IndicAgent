@@ -16,6 +16,9 @@ def _make_frames(
     atr: float = 2.0,
     symbol: str = "ES",
     tf: str = "1m",
+    ctf_score: float = 0.5,
+    hmm_prob_trending_up: float = 0.6,
+    hmm_prob_trending_down: float = 0.3,
 ) -> dict:
     """Build a minimal frames dict for OFIDivergencePlugin.compute_full()."""
     closes = [5000.0 + i * 0.1 for i in range(n)]
@@ -37,6 +40,10 @@ def _make_frames(
         "hmm_regime": hmm_regime,
         "atr": atr,
         "atr_14": atr,
+        # Phase 119: gate-passing values for dual gate
+        "ctf_score": ctf_score,
+        "hmm_prob_trending_up": hmm_prob_trending_up,
+        "hmm_prob_trending_down": hmm_prob_trending_down,
     }
     return {
         "main": df,
