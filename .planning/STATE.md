@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Signal Quality Renaissance
 status: Phase 119 complete
-last_updated: "2026-06-10T19:35:46.539Z"
+last_updated: "2026-06-10T20:25:16.087Z"
 progress:
   total_phases: 6
   completed_phases: 3
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 119 — remaining-16-setup-refactoring
+**Current focus:** Phase 120 — shadow-mode-validation
 
 ## v2.8 AI Platform Phases (7/13 complete)
 

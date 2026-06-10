@@ -1618,8 +1618,8 @@ Plans:
 
 **Wave 1** *(parallel, disjoint files)* — Promotion validator + auditor SoC split
 
-- [ ] 120-01-PLAN.md — shadow_validator.py oneshot (5-gate promotion check + binomtest) + 6 OTel gauges + migration 121 signal_ledger_shadow view
-- [ ] 120-02-PLAN.md — shadow_auditor.py surgical removal of promotion path (becomes demotion-only)
+- [x] 120-01-PLAN.md — shadow_validator.py oneshot (5-gate promotion check + binomtest) + 6 OTel gauges + migration 121 signal_ledger_shadow view
+- [x] 120-02-PLAN.md — shadow_auditor.py surgical removal of promotion path (becomes demotion-only)
 
 **Wave 2** *(depends on 120-01)* — Operationalize + observe
 
