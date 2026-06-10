@@ -1,11 +1,12 @@
-"""ShadowAuditorAgent — timer-based automated shadow promotion/demotion.
+"""ShadowAuditorAgent — timer-based automated shadow demotion.
 
 Timer-triggered: indicagent-shadow-auditor.timer (every 30 minutes).
 One-shot: reads shadow_registry, runs statistical gates, writes transitions, exits.
 
-Promotion gate (D-05): n >= min_n AND bootstrap_ci_lower(pnl_r, ci_alpha) > min_ev_r
 Demotion gate (D-06): rolling EV[R] < demotion_threshold_ev_r for demotion_min_evaluations
                       consecutive audit cycles.
+
+Promotion is handled by shadow_validator.py (weekly, Plan 01 SoC split).
 """
 
 from __future__ import annotations
@@ -23,36 +24,15 @@ from src.core.database_manager import create_pool as create_db_pool
 from src.core.stats_utils import bootstrap_ci_lower
 from src.observability.metrics import (
     JOB_COMPLETED_TOTAL,
-    SHADOW_DAYS_TO_GATE,
-    SHADOW_EV_CI_LOWER,
-    SHADOW_EV_R,
-    SHADOW_N_RESOLVED,
-    SHADOW_PROMOTION_READY,
-    SHADOW_TAIL_GATE_DB_ERROR,
-    SHADOW_TAIL_RISK_BLOCKED,
-    SHADOW_WIN_RATE,
     flush_and_shutdown_metrics,
 )
 
 logger = structlog.get_logger(__name__)
 
-_WIN_OUTCOMES = {"target_1", "target_1_2", "target_full"}
-
-# ---------------------------------------------------------------------------
-# Tail-risk gate thresholds
-# ---------------------------------------------------------------------------
-
-TAIL_GATE_MIN_SKEWNESS: float = -2.0
-TAIL_GATE_MIN_RECOVERY: float = 0.5
-
 
 # ---------------------------------------------------------------------------
 # Pure gate functions — tested directly
 # ---------------------------------------------------------------------------
-
-
-def _should_promote(n: int, ci_lower: float, min_n: int, min_ev_r: float) -> bool:
-    return n >= min_n and ci_lower > min_ev_r
 
 
 def _should_demote(new_count: int, min_evaluations: int) -> bool:
@@ -61,20 +41,6 @@ def _should_demote(new_count: int, min_evaluations: int) -> bool:
 
 def _ev_r_below_threshold(ev_r: float, threshold: float) -> bool:
     return ev_r < threshold
-
-
-def _tail_risk_blocks_promotion(
-    skewness: float | None,
-    recovery_factor: float | None,
-    min_skewness: float,
-    min_recovery: float,
-) -> str | None:
-    """Return the name of the breached metric, or None if promotion is not blocked."""
-    if skewness is not None and skewness < min_skewness:
-        return "skewness"
-    if recovery_factor is not None and recovery_factor < min_recovery:
-        return "recovery_factor"
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -102,154 +68,10 @@ async def _run_audit(pool: asyncpg.Pool, env_name: str) -> None:
             logger.debug("shadow_audit_skip_swarm_agent", component_name=name)
             continue
 
-        if row["is_shadow"]:
-            await _check_promotion(pool, env_name, dict(row))
-        else:
+        if not row["is_shadow"]:
             await _check_demotion(pool, env_name, dict(row))
 
         logger.debug("shadow_audit_component_done", component_name=name, component_type=ctype)
-
-
-async def _check_promotion(
-    pool: asyncpg.Pool,
-    env_name: str,
-    row: dict[str, Any],
-) -> None:
-    name = row["component_name"]
-    ctype = row["component_type"]
-
-    async with pool.acquire() as conn:
-        signal_rows = await conn.fetch(
-            """
-            SELECT outcome, pnl_r, signal_computed_at
-            FROM signal_ledger_full
-            WHERE setup_plugin = $1
-              AND is_shadow = TRUE
-              AND outcome IS NOT NULL
-              AND outcome NOT IN ('never_activated', 'ttl_expired_behind')
-            """,
-            name,
-        )
-
-    n = len(signal_rows)
-    pnl_r_values = [float(r["pnl_r"]) for r in signal_rows if r["pnl_r"] is not None]
-    ev_r = sum(pnl_r_values) / len(pnl_r_values) if pnl_r_values else 0.0
-    win_rate = sum(1 for r in signal_rows if r["outcome"] in _WIN_OUTCOMES) / n if n > 0 else 0.0
-    ci_lower = bootstrap_ci_lower(pnl_r_values, alpha=row["ci_alpha"])
-
-    now = datetime.now(UTC)
-
-    # Update shadow_registry stats and fetch tail-risk metrics in a single connection.
-    metrics_row = None
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            UPDATE shadow_registry
-            SET last_eval_n=$1, last_eval_ev_r=$2, last_eval_ci_lower=$3,
-                last_eval_win_rate=$4, last_eval_at=$5
-            WHERE component_name=$6
-            """,
-            n,
-            ev_r,
-            ci_lower,
-            win_rate,
-            now,
-            name,
-        )
-        try:
-            metrics_row = await conn.fetchrow(
-                """
-                SELECT skewness, recovery_factor
-                FROM signal_metrics
-                WHERE setup_plugin = $1
-                  AND symbol = '*'
-                  AND entry_type = '*'
-                  AND track = 'market'
-                ORDER BY computed_at DESC
-                LIMIT 1
-                """,
-                name,
-            )
-        except Exception as error:
-            SHADOW_TAIL_GATE_DB_ERROR.add(1, {"plugin": name})
-            logger.warning("shadow_audit.tail_gate_db_error", plugin=name, error=str(error))
-
-    # OTel metrics — point gauges use .set() (point-in-time absolute values)
-    SHADOW_N_RESOLVED.set(n, {"plugin": name})
-    SHADOW_WIN_RATE.set(round(win_rate, 4), {"plugin": name})
-    SHADOW_EV_R.set(round(ev_r, 4), {"plugin": name})
-    ci_display = round(ci_lower, 4) if ci_lower != float("-inf") else float("-inf")
-    SHADOW_EV_CI_LOWER.set(ci_display, {"plugin": name})
-
-    # Days-to-gate estimate
-    recent_30d = sum(
-        1
-        for r in signal_rows
-        if r.get("signal_computed_at") is not None
-        and (
-            now - r["signal_computed_at"].replace(tzinfo=UTC)
-            if r["signal_computed_at"].tzinfo is None
-            else now - r["signal_computed_at"]
-        ).days
-        <= 30
-    )
-    if recent_30d > 0:
-        remaining = max(0, row["min_n"] - n)
-        days_to_gate = (remaining / recent_30d) * 30
-    else:
-        days_to_gate = float("inf")
-    SHADOW_DAYS_TO_GATE.set(
-        round(days_to_gate, 1) if days_to_gate != float("inf") else float("inf"), {"plugin": name}
-    )
-
-    # Tail-risk gate — blocks promotion when distribution shape is adverse.
-    # Skips when metrics_row is None (plugin too new) or when DB error occurred (fail-open).
-    if metrics_row is not None:
-        tail_block_reason = _tail_risk_blocks_promotion(
-            metrics_row["skewness"],
-            metrics_row["recovery_factor"],
-            TAIL_GATE_MIN_SKEWNESS,
-            TAIL_GATE_MIN_RECOVERY,
-        )
-        if tail_block_reason is not None:
-            SHADOW_TAIL_RISK_BLOCKED.add(1, {"plugin": name, "reason": tail_block_reason})
-            logger.info(
-                "shadow_audit.tail_risk_blocked",
-                plugin=name,
-                skewness=metrics_row["skewness"],
-                recovery_factor=metrics_row["recovery_factor"],
-            )
-            return
-
-    if _should_promote(n, ci_lower, row["min_n"], row["min_ev_r"]):
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE shadow_registry
-                SET is_shadow=FALSE, promoted_at=$1, demotion_consecutive_count=0
-                WHERE component_name=$2
-                """,
-                now,
-                name,
-            )
-            await conn.execute(
-                """
-                INSERT INTO shadow_transition_log
-                  (component_name, component_type, from_state, to_state,
-                   trigger_reason, n, ev_r, ci_lower, win_rate)
-                VALUES ($1, $2, 'shadow', 'live', 'promotion_gate_cleared', $3, $4, $5, $6)
-                """,
-                name,
-                ctype,
-                n,
-                ev_r,
-                ci_lower,
-                win_rate,
-            )
-        SHADOW_PROMOTION_READY.set(1, {"plugin": name})
-        logger.info("shadow_promoted", component_name=name, n=n, ci_lower=ci_lower)
-    else:
-        SHADOW_PROMOTION_READY.set(0, {"plugin": name})
 
 
 async def _check_demotion(
