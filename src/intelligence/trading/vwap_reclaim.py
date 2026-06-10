@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
@@ -28,6 +29,9 @@ _VOL_THRESHOLD: float = 1.2
 
 # Maximum bars to track on wrong side (prevents unbounded memory)
 _MAX_BARS_TRACKED: int = 20
+
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -46,6 +50,7 @@ class VWAPReclaimPlugin:
     """
 
     name: str = "trad_VWAPReclaim"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -63,7 +68,7 @@ class VWAPReclaimPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "any"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     regime_type: str = "any"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -92,6 +97,15 @@ class VWAPReclaimPlugin:
         if session_vwap is None:
             return no_signal()
         session_vwap = float(session_vwap)
+
+        # ── Gate 1: continuous regime gate (any-regime: hmm_trending_weight) ────
+        if hmm_trending_weight(features) < _MIN_REGIME_WEIGHT:
+            return no_signal()
+
+        # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
+            return no_signal()
 
         # ── Current position relative to VWAP ────────────────────────────────
         close = df["close"].to_numpy(dtype=float)
