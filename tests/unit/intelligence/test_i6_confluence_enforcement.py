@@ -10,7 +10,12 @@ import pytest
 
 from src.intelligence.plugins import registry
 from src.intelligence.plugins.base import ArchitectureViolation
-from src.intelligence.register_plugins import TIER_I7, register_all_plugins
+from src.intelligence.register_plugins import (
+    _I7_I6_EXEMPT,
+    _PHASE_119_PLUGINS,
+    TIER_I7,
+    register_all_plugins,
+)
 
 
 class TestI6ConfluenceEnforcement:
@@ -41,27 +46,71 @@ class TestI6ConfluenceEnforcement:
         except ArchitectureViolation as error:
             pytest.fail(f"validate_tier raised ArchitectureViolation unexpectedly: {error}")
 
-    def test_false_values_have_todo_rationale(self):
-        """Plugins with requires_i6_confluence=False should document the gap via a source comment.
+    @pytest.mark.parametrize(
+        "plugin_name",
+        [n for n in TIER_I7 if n not in _I7_I6_EXEMPT],
+    )
+    def test_requires_i6_confluence_true(self, plugin_name: str):
+        """Every TIER_I7 plugin NOT in _I7_I6_EXEMPT must have requires_i6_confluence=True.
 
-        This test verifies via import inspection that the value is intentionally False
-        (not accidentally missing or misspelled). The source TODO is a code-level convention
-        check enforced separately by the pre-commit hook (check 9).
+        Phase 119 mandates all in-scope I7 setups consume I6 cross-timeframe data.
+        Plugins in _I7_I6_EXEMPT are temporarily exempt - refactor them in a follow-up phase.
         """
-        false_plugins = [
-            name
-            for name in TIER_I7
-            if not getattr(registry.patterns.get(name), "requires_i6_confluence", True)
-        ]
-        # Confirm they are actual registered plugins (not None lookups)
-        for name in false_plugins:
-            plugin = registry.patterns.get(name)
-            assert plugin is not None, f"False plugin {name!r} not found in registry"
-            assert plugin.requires_i6_confluence is False
-        # At least some plugins should still have True (the 11 that use ctf_ scores)
-        true_plugins = [
-            name
-            for name in TIER_I7
-            if getattr(registry.patterns.get(name), "requires_i6_confluence", False) is True
-        ]
-        assert len(true_plugins) >= 1, "Expected at least one TIER_I7 plugin with requires_i6_confluence=True"
+        plugin = registry.patterns.get(plugin_name)
+        assert plugin is not None, f"I7 plugin {plugin_name!r} not found in registry"
+        assert getattr(plugin, "requires_i6_confluence", False) is True, (
+            f"Phase 119 invariant violated: I7 plugin {plugin_name!r} must have "
+            f"requires_i6_confluence=True. Either add the attribute or add the plugin "
+            f"to _I7_I6_EXEMPT with a follow-up phase TODO."
+        )
+
+    def test_validate_tier_rejects_false(self):
+        """validate_tier() must raise ArchitectureViolation when a non-exempt I7 plugin
+        has requires_i6_confluence=False — proves False (not just missing) is rejected.
+        """
+        # Pick a known non-exempt plugin and override its attribute
+        non_exempt_name = next(n for n in TIER_I7 if n not in _I7_I6_EXEMPT)
+        plugin = registry.patterns.get(non_exempt_name)
+        assert plugin is not None, f"Test setup: {non_exempt_name!r} not in registry"
+
+        original_value = plugin.requires_i6_confluence
+        try:
+            plugin.requires_i6_confluence = False  # type: ignore[misc]
+            with pytest.raises(
+                ArchitectureViolation, match="must have requires_i6_confluence=True"
+            ):
+                registry.validate_tier(TIER_I7, "I7")
+        finally:
+            plugin.requires_i6_confluence = original_value  # type: ignore[misc]
+
+    def test_exempt_plugins_are_known(self):
+        """_I7_I6_EXEMPT must have exactly 8 members; all must be in TIER_I7 and registered.
+
+        Pins the exemption set so it cannot silently grow or reference missing plugins.
+        """
+        assert len(_I7_I6_EXEMPT) == 8, (
+            f"_I7_I6_EXEMPT should have exactly 8 members, got {len(_I7_I6_EXEMPT)}: "
+            f"{sorted(_I7_I6_EXEMPT)}"
+        )
+        tier_set = set(TIER_I7)
+        for name in _I7_I6_EXEMPT:
+            assert name in tier_set, (
+                f"_I7_I6_EXEMPT member {name!r} is not in TIER_I7 - " f"remove it or update TIER_I7"
+            )
+            assert (
+                registry.patterns.get(name) is not None
+            ), f"_I7_I6_EXEMPT member {name!r} is not registered in registry"
+
+    @pytest.mark.parametrize("plugin_name", sorted(_PHASE_119_PLUGINS))
+    def test_shadow_only_declared(self, plugin_name: str):
+        """Every Phase-119 refactored plugin must have shadow_only=True.
+
+        Phase 119 mandates all newly refactored I7 plugins run in shadow mode
+        until they earn promotion through empirical proof (p<0.05, n>=100).
+        """
+        plugin = registry.patterns.get(plugin_name)
+        assert plugin is not None, f"Phase-119 plugin {plugin_name!r} not found in registry"
+        assert getattr(plugin, "shadow_only", False) is True, (
+            f"Phase-119 plugin {plugin_name!r} must have shadow_only=True. "
+            f"Set: shadow_only: bool = True as a ClassVar."
+        )
