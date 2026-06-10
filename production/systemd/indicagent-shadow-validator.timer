@@ -1,0 +1,10 @@
+[Unit]
+Description=Shadow Mode Validator Timer -- weekly 5-gate promotion check
+
+[Timer]
+OnCalendar=Mon *-*-* 07:00:00 UTC
+Persistent=true
+Unit=indicagent-shadow-validator.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=IndicAgent Shadow Mode Validator -- weekly 5-gate promotion script
+After=network.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
+
+[Service]
+Type=oneshot
+Restart=no
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/shadow_validator.py
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
