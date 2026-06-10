@@ -44,6 +44,9 @@ def _base_features(**kwargs):
         "atr_14": 5.0,
         "hmm_regime": 1.0,
         "hmm_regime_prob": 0.75,
+        "hmm_prob_trending_up": 0.75,  # continuous regime gate (>= 0.30)
+        "hmm_prob_trending_down": 0.10,
+        "ctf_score": 0.40,  # I6 gate (abs >= 0.25)
         "swing_low": 4900.0,
         "swing_high": 5200.0,
         "nearest_resistance": 5300.0,
@@ -82,23 +85,27 @@ def _run_contractions(plugin, n_contractions, symbol="ES", tf="1m", features=Non
 
 
 def test_no_signal_when_hmm_not_trend():
-    """hmm_regime=0.0 (ranging) -> no_signal."""
+    """Both hmm_prob_trending_up and _down below 0.30 -> no_signal (continuous regime gate)."""
     from src.intelligence.trading.vcp import VCPPlugin
 
     plugin = VCPPlugin()
-    features = _base_features(hmm_regime=0.0)
+    features = _base_features(
+        hmm_regime=0.0,
+        hmm_prob_trending_up=0.10,
+        hmm_prob_trending_down=0.10,
+    )
     frames = _make_frames_hl(5055.0, 5045.0, 500.0, features=features)
     result = plugin.compute_full(frames)
     assert result.get("signal_type") == "none"
     assert result.get("direction") == 0
 
 
-def test_no_signal_when_hmm_prob_below_060():
-    """hmm_regime=1.0, hmm_regime_prob=0.55 -> no_signal (prob gate)."""
+def test_no_signal_when_ctf_below_threshold():
+    """abs(ctf_score) < 0.25 -> no_signal (I6 ctf gate replaces old hmm_regime_prob gate)."""
     from src.intelligence.trading.vcp import VCPPlugin
 
     plugin = VCPPlugin()
-    features = _base_features(hmm_regime=1.0, hmm_regime_prob=0.55)
+    features = _base_features(ctf_score=0.10)  # abs < 0.25 threshold
     frames = _make_frames_hl(5055.0, 5045.0, 500.0, features=features)
     result = plugin.compute_full(frames)
     assert result.get("signal_type") == "none"
