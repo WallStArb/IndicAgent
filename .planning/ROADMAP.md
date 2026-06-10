@@ -1612,21 +1612,18 @@ Plans:
   4. Setups failing promotion remain shadow_only=True; failure reasons logged (insufficient N, low selection, not significant, negative expectancy, poor calibration)
   5. Grafana dashboard shows shadow mode metrics: N, selection_rate, p_value, avg_pnl_r, calibration per setup
 
-**Plans**: 3 plans in 3 waves
+**Plans**: 3 plans in 2 waves
 
 Plans:
 
-**Wave 1** — ShadowModeValidator infrastructure
+**Wave 1** *(parallel, disjoint files)* — Promotion validator + auditor SoC split
 
-- [ ] 120-01-PLAN.md — ShadowModeValidator class + promotion criteria methods + binomial test logic + OTel metrics
+- [ ] 120-01-PLAN.md — shadow_validator.py oneshot (5-gate promotion check + binomtest) + 6 OTel gauges + migration 121 signal_ledger_shadow view
+- [ ] 120-02-PLAN.md — shadow_auditor.py surgical removal of promotion path (becomes demotion-only)
 
-**Wave 2** *(depends on Wave 1)* — Systemd integration
+**Wave 2** *(depends on 120-01)* — Operationalize + observe
 
-- [ ] 120-02-PLAN.md — Systemd timer (weekly Mon 07:00 UTC) + service unit + stream keys + state persistence
-
-**Wave 3** *(depends on Wave 2)* — Dashboard + alerting
-
-- [ ] 120-03-PLAN.md — Grafana dashboard + promotion alert (Telegram/Discord) + documentation
+- [ ] 120-03-PLAN.md — systemd timer (Mon 07:00 UTC) + service unit + service_auditor registration + Grafana dashboard + cheatsheet docs
 
 ---
 
