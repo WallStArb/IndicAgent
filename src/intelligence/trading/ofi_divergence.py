@@ -26,7 +26,14 @@ from typing import Any
 from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import (
+    MIN_CTF_SCORE,
+    MIN_REGIME_WEIGHT,
+    capture_signal_features,
+    clamp01,
+    compose_confidence,
+    rel_volume_score,
+)
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .state_utils import track_consecutive_state
@@ -34,8 +41,6 @@ from .trade_framer import frame_trade
 
 _MIN_DIVERGENCE: float = 1.5  # σ threshold — recalibrate from observed fire rate
 _MIN_PERSISTENCE: int = 2  # consecutive bars required before firing
-_MIN_REGIME_WEIGHT: float = 0.30
-_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -121,12 +126,12 @@ class OFIDivergencePlugin:
 
         # ── Dual gate (before OHLCV/ATR access) ─────────────────────────────
         # Gate 1: regime gate (any-regime uses hmm_trending_weight)
-        if hmm_trending_weight(features) < _MIN_REGIME_WEIGHT:
+        if hmm_trending_weight(features) < MIN_REGIME_WEIGHT:
             return no_signal()
 
         # Gate 2: I6 ctf_score gate
         ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < _MIN_CTF_SCORE:
+        if abs(ctf_score) < MIN_CTF_SCORE:
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
@@ -152,11 +157,7 @@ class OFIDivergencePlugin:
 
         persistence_score = clamp01((count - _MIN_PERSISTENCE) / 5.0)
 
-        rel_vol = features.get("rel_volume")
-        if rel_vol is not None:
-            volume_score = clamp01((float(rel_vol) - 1.0) / 1.5)
-        else:
-            volume_score = 0.3
+        volume_score = rel_volume_score(features)
 
         # Weights sum to 1.0
         raw_conf = (
@@ -193,6 +194,7 @@ class OFIDivergencePlugin:
             supporting.append(f"ofi_ewma_20={float(ofi_ewma_20):.4f}")
         if hmm_regime is not None:
             supporting.append(f"hmm_regime={hmm_regime}")
+        rel_vol = features.get("rel_volume")
         if rel_vol is not None:
             supporting.append(f"rel_volume={float(rel_vol):.2f}")
 

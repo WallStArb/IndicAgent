@@ -16,16 +16,18 @@ import numpy as np
 from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import (
+    MIN_CTF_SCORE,
+    MIN_REGIME_WEIGHT,
+    capture_signal_features,
+    compose_confidence,
+)
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 _VOL_THRESHOLDS: dict[int, float] = {0: 2.0, 1: 2.0, 2: 2.5, 3: 3.0}
-
-_MIN_REGIME_WEIGHT: float = 0.30
-_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -85,12 +87,12 @@ class VWAPDeviationPlugin:
             return no_signal()
 
         # ── Gate 1: continuous ranging regime (mean_reversion uses "ranging") ──
-        if hmm_regime_weight(features, "ranging") < _MIN_REGIME_WEIGHT:
+        if hmm_regime_weight(features, "ranging") < MIN_REGIME_WEIGHT:
             return no_signal()
 
         # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
         ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < _MIN_CTF_SCORE:
+        if abs(ctf_score) < MIN_CTF_SCORE:
             return no_signal()
 
         # ── OHLCV extraction (after dual gate) ───────────────────────────────

@@ -28,10 +28,28 @@ from src.intelligence.utils.core import clamp
 CONF_CEIL: float = 0.95
 """Maximum allowed confidence for any I7 signal."""
 
+MIN_REGIME_WEIGHT: float = 0.30
+"""Minimum HMM regime weight for the dual gate across all I7 plugins."""
+
+MIN_CTF_SCORE: float = 0.25
+"""Minimum absolute I6 CTF score for the dual gate across all I7 plugins."""
+
 
 def clamp01(x: float) -> float:
     """Clamp x to [0.0, 1.0]. Use for per-factor scoring before weighted sums."""
     return clamp(x, 0.0, 1.0)
+
+
+def rel_volume_score(features: dict[str, Any], fallback: float = 0.3) -> float:
+    """Normalize rel_volume into a [0, 1] confidence factor.
+
+    Maps rel_volume=1.0 → 0.0 (no expansion), rel_volume=2.5 → 1.0 (strong expansion).
+    Returns fallback when rel_volume is absent.
+    """
+    rel_vol = features.get("rel_volume")
+    if rel_vol is None:
+        return fallback
+    return clamp01((float(rel_vol) - 1.0) / 1.5)
 
 
 def compose_confidence(raw: float) -> float:

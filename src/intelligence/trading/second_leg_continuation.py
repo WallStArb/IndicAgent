@@ -21,7 +21,14 @@ from typing import Any
 from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import (
+    MIN_CTF_SCORE,
+    MIN_REGIME_WEIGHT,
+    capture_signal_features,
+    clamp01,
+    compose_confidence,
+    rel_volume_score,
+)
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
@@ -38,9 +45,6 @@ _TARGET_1618 = 1.618
 
 # Maximum swing age before data is considered stale
 _MAX_SWING_AGE_BARS = 50
-
-_MIN_REGIME_WEIGHT: float = 0.30
-_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -96,12 +100,12 @@ class SecondLegContinuationPlugin:
         # ── Gate 1: continuous trending regime ────────────────────────────────
         regime_up = hmm_regime_weight(features, "up")
         regime_down = hmm_regime_weight(features, "down")
-        if regime_up < _MIN_REGIME_WEIGHT and regime_down < _MIN_REGIME_WEIGHT:
+        if regime_up < MIN_REGIME_WEIGHT and regime_down < MIN_REGIME_WEIGHT:
             return no_signal()
 
         # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
         ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < _MIN_CTF_SCORE:
+        if abs(ctf_score) < MIN_CTF_SCORE:
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
@@ -193,10 +197,7 @@ class SecondLegContinuationPlugin:
         momentum_persistence_score = clamp01(1.0 - best_age / _MAX_SWING_AGE_BARS)
 
         # volume_alignment_score: volume expansion confirmation
-        rel_vol = features.get("rel_volume")
-        volume_alignment_score = (
-            clamp01((float(rel_vol) - 1.0) / 1.5) if rel_vol is not None else 0.3
-        )
+        volume_alignment_score = rel_volume_score(features)
 
         # structure_quality_score: how close to the ideal 50% retracement entry?
         zone_width = fib_high - fib_low

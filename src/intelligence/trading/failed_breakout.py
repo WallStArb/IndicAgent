@@ -13,17 +13,22 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
+from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import (
+    MIN_CTF_SCORE,
+    MIN_REGIME_WEIGHT,
+    capture_signal_features,
+    clamp01,
+    compose_confidence,
+    rel_volume_score,
+)
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 # Maximum bars after BOS detection to wait for close-back-through reversal
 _MAX_REVERSAL_BARS: int = 3
-_MIN_REGIME_WEIGHT: float = 0.30
-_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -115,22 +120,18 @@ class FailedBreakoutPlugin:
 
         # ── Dual gate (before OHLCV numeric access) ──────────────────────────
         # Gate 1: direction-specific trend form — block only if BOTH up AND down are below threshold
-        if (
-            hmm_regime_weight(features, "up") < _MIN_REGIME_WEIGHT
-            and hmm_regime_weight(features, "down") < _MIN_REGIME_WEIGHT
-        ):
+        if hmm_trending_weight(features) < MIN_REGIME_WEIGHT:
             self._state[(symbol, tf)] = state
             return no_signal()
 
         # Gate 2: I6 ctf_score gate
         ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < _MIN_CTF_SCORE:
+        if abs(ctf_score) < MIN_CTF_SCORE:
             self._state[(symbol, tf)] = state
             return no_signal()
 
         # ── Reversal check ───────────────────────────────────────────────────
-        close_arr = df["close"].to_numpy(dtype=float)
-        close_price = float(close_arr[-1])
+        close_price = float(df["close"].iloc[-1])
 
         if bos_direction == -1:
             # Bearish BOS (price broke below structure). Reversal = close back ABOVE bos_level
@@ -169,11 +170,7 @@ class FailedBreakoutPlugin:
         )
 
         # volume_score: rel_volume confirmation
-        rel_vol = features.get("rel_volume")
-        if rel_vol is not None:
-            volume_score = clamp01((float(rel_vol) - 1.0) / 1.5)
-        else:
-            volume_score = 0.3
+        volume_score = rel_volume_score(features)
 
         # structure_quality_score: BOS level quality (bos_confidence from SMC if available)
         bos_confidence = features.get("bos_confidence")

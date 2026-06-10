@@ -18,7 +18,14 @@ from typing import Any
 from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import (
+    MIN_CTF_SCORE,
+    MIN_REGIME_WEIGHT,
+    capture_signal_features,
+    clamp01,
+    compose_confidence,
+    rel_volume_score,
+)
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .state_utils import reset_consecutive_state, track_consecutive_state
@@ -27,9 +34,6 @@ from .trade_framer import frame_trade
 _CONFIRMATION_BARS: int = 3
 _OFI_DIV_THRESHOLD: float = 1.0  # minimum abs(ofi_divergence)
 _CVD_DIV_THRESHOLD: float = 1.0  # minimum abs(cvd_divergence)
-
-_MIN_REGIME_WEIGHT: float = 0.30
-_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -94,9 +98,11 @@ class DualDivergencePlugin:
 
         ofi_div = float(ofi_div)
         cvd_div = float(cvd_div)
+        abs_ofi_div = abs(ofi_div)
+        abs_cvd_div = abs(cvd_div)
 
         # Both must exceed their thresholds
-        if abs(ofi_div) < _OFI_DIV_THRESHOLD or abs(cvd_div) < _CVD_DIV_THRESHOLD:
+        if abs_ofi_div < _OFI_DIV_THRESHOLD or abs_cvd_div < _CVD_DIV_THRESHOLD:
             return no_signal()
 
         # Both must agree in direction (both bearish or both bullish vs price)
@@ -108,12 +114,12 @@ class DualDivergencePlugin:
             return no_signal()
 
         # ── Gate 1: ranging regime gate (mean_reversion uses "ranging") ──────
-        if hmm_regime_weight(features, "ranging") < _MIN_REGIME_WEIGHT:
+        if hmm_regime_weight(features, "ranging") < MIN_REGIME_WEIGHT:
             return no_signal()
 
         # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
         ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < _MIN_CTF_SCORE:
+        if abs(ctf_score) < MIN_CTF_SCORE:
             return no_signal()
 
         symbol = frames.get("__symbol__", "_")
@@ -139,17 +145,16 @@ class DualDivergencePlugin:
 
         # ── 4-factor confidence composite (NO HMM probability) ───────────────
         # ofi_divergence_score: magnitude of OFI divergence (tanh saturation)
-        ofi_divergence_score = clamp01(math.tanh(abs(ofi_div) / 3.0))
+        ofi_divergence_score = clamp01(math.tanh(abs_ofi_div / 3.0))
 
         # cvd_divergence_score: magnitude of CVD divergence (tanh saturation)
-        cvd_divergence_score = clamp01(math.tanh(abs(cvd_div) / 3.0))
+        cvd_divergence_score = clamp01(math.tanh(abs_cvd_div / 3.0))
 
         # confirmation_bars_score: how many bars confirmed (more = more persistent divergence)
         confirmation_bars_score = clamp01((count - _CONFIRMATION_BARS) / 5.0)
 
         # volume_score: relative volume (higher vol = more conviction behind divergence)
-        rel_vol = features.get("rel_volume")
-        volume_score = clamp01((float(rel_vol) - 1.0) / 1.5) if rel_vol is not None else 0.3
+        volume_score = rel_volume_score(features)
 
         # Weights: 0.35 + 0.30 + 0.20 + 0.15 = 1.0
         raw_conf = (
