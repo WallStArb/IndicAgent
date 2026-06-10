@@ -430,6 +430,8 @@ def _resolve_entry(
     st = setup_type.lower()
     if st.startswith("sweep_reclaim") or st.startswith("liquidity_hunt"):
         return entry_price, "at_reclaim"
+    if st.startswith("session_extreme"):
+        return entry_price, "at_limit"
     if st.startswith("supply_demand"):
         if direction == 1:
             # Long: enter at demand zone proximal (zone high)
