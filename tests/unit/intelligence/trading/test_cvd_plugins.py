@@ -23,6 +23,15 @@ def _make_frames(close_arr, features=None, symbol="ES", tf="1m"):
     }
 
 
+# Minimal feature values that pass the CVDSpike dual gate (Phase 119):
+# hmm_trending_weight >= 0.30 and abs(ctf_score) >= 0.25.
+_SPIKE_GATE_FEATURES: dict = {
+    "hmm_prob_trending_up": 0.6,
+    "hmm_prob_trending_down": 0.6,
+    "ctf_score": 0.5,
+}
+
+
 # ─── CVDDivergence ────────────────────────────────────────────────────────────
 
 
@@ -142,10 +151,12 @@ class TestCVDSpike:
         return CVDSpikePlugin()
 
     def test_fires_when_cvd_spike_z_exceeds_2_positive(self):
-        """cvd_spike_z = 2.5 fires with direction=1."""
+        """cvd_spike_z = 2.5 fires with direction=1 (gate-passing HMM+CTF included)."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        result = plugin.compute_full(_make_frames(close, {"cvd_spike_z": 2.5, "atr_14": 2.0}))
+        result = plugin.compute_full(
+            _make_frames(close, {"cvd_spike_z": 2.5, "atr_14": 2.0, **_SPIKE_GATE_FEATURES})
+        )
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}"
         assert result.get("confidence", 0) > 0
         if result.get("direction") != 0:
@@ -161,10 +172,12 @@ class TestCVDSpike:
             ), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_fires_when_cvd_spike_z_exceeds_2_negative(self):
-        """cvd_spike_z = -2.5 fires with direction=-1."""
+        """cvd_spike_z = -2.5 fires with direction=-1 (gate-passing HMM+CTF included)."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        result = plugin.compute_full(_make_frames(close, {"cvd_spike_z": -2.5, "atr_14": 2.0}))
+        result = plugin.compute_full(
+            _make_frames(close, {"cvd_spike_z": -2.5, "atr_14": 2.0, **_SPIKE_GATE_FEATURES})
+        )
         assert result.get("direction") == -1
 
     def test_no_signal_below_threshold(self):
@@ -191,10 +204,14 @@ class TestCVDSpike:
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
         # Positive: direction 1
-        r_pos = plugin.compute_full(_make_frames(close, {"cvd_spike_z": 3.0, "atr_14": 2.0}))
+        r_pos = plugin.compute_full(
+            _make_frames(close, {"cvd_spike_z": 3.0, "atr_14": 2.0, **_SPIKE_GATE_FEATURES})
+        )
         assert r_pos.get("direction") == 1
         # Negative: direction -1
-        r_neg = plugin.compute_full(_make_frames(close, {"cvd_spike_z": -3.0, "atr_14": 2.0}))
+        r_neg = plugin.compute_full(
+            _make_frames(close, {"cvd_spike_z": -3.0, "atr_14": 2.0, **_SPIKE_GATE_FEATURES})
+        )
         assert r_neg.get("direction") == -1
 
     def test_no_signal_when_cvd_spike_z_missing(self):
