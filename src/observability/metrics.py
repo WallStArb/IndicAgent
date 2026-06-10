@@ -280,6 +280,35 @@ SHADOW_TAIL_GATE_DB_ERROR = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
+# Shadow validation metrics (Phase 120)
+# ---------------------------------------------------------------------------
+
+SHADOW_VALIDATION_N = point_gauge(
+    "shadow_validation_n",
+    "Resolved shadow outcome count per setup (weekly validator run)",
+)
+SHADOW_VALIDATION_WIN_RATE = point_gauge(
+    "shadow_validation_win_rate",
+    "Fraction of resolved shadow outcomes with pnl_r > 0",
+)
+SHADOW_VALIDATION_P_VALUE = point_gauge(
+    "shadow_validation_p_value",
+    "Binomial test p-value (win rate vs 50% baseline, one-sided)",
+)
+SHADOW_VALIDATION_AVG_PNL_R = point_gauge(
+    "shadow_validation_avg_pnl_r",
+    "Average pnl_r across resolved shadow outcomes",
+)
+SHADOW_VALIDATION_CALIBRATION = point_gauge(
+    "shadow_validation_calibration",
+    "CORR(cis_score, (pnl_r > 0)::int) — confidence predicts profitable outcomes",
+)
+SHADOW_VALIDATION_PROMOTED = point_gauge(
+    "shadow_validation_promoted",
+    "1=promoted to live this run, 0=still in shadow",
+)
+
+# ---------------------------------------------------------------------------
 # Feature parity auditor (Phase 117)
 # ---------------------------------------------------------------------------
 
