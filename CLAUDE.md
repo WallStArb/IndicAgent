@@ -120,6 +120,7 @@ Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - **Shadow governance:** `shadow_registry` DB table. Auto-enroll at startup. Promotion: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0`. Demotion: EV[R] < -0.05 for 3 consecutive cycles.
 - **I6→I7 confluence:** Every I7 must consume relevant `ctf_*` sub-scores
+- **I7 setup confidence integrity:** All I7 setups (except the documented `_I7_I6_EXEMPT` carve-out of 8 deferred plugins) follow the 6 GOOD patterns: 4-factor intrinsic confidence, dual regime+I6 gate before OHLCV extraction, `shadow_only=True`. Enforced by `validate_tier()` which raises `ArchitectureViolation` unless `requires_i6_confluence=True`. Full pattern spec: `docs/architecture/i7-setup-confidence-patterns.md`
 
 ## Adding an AI Agent
 
