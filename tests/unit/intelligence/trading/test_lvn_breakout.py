@@ -31,7 +31,10 @@ def _base_features_long(**kwargs):
     defaults = {
         "atr_14": 5.0,
         "in_lvn": 1.0,
-        "hmm_regime": 1,  # trending up
+        "hmm_regime": 1,  # trending up (for legacy code still reading it)
+        "hmm_prob_trending_up": 0.75,  # continuous regime gate (>= 0.30)
+        "hmm_prob_trending_down": 0.10,
+        "ctf_score": 0.40,  # I6 gate (abs >= 0.25)
         "rel_volume": 2.0,  # > 1.5 threshold
         "nearest_hvn_above": 5015.0,  # T1 target
         "nearest_hvn_below": 4985.0,
@@ -49,7 +52,10 @@ def _base_features_short(**kwargs):
     defaults = {
         "atr_14": 5.0,
         "in_lvn": 1.0,
-        "hmm_regime": 2,  # trending down
+        "hmm_regime": 2,  # trending down (for legacy code still reading it)
+        "hmm_prob_trending_up": 0.10,
+        "hmm_prob_trending_down": 0.75,  # continuous regime gate (>= 0.30)
+        "ctf_score": 0.40,  # I6 gate (abs >= 0.25)
         "rel_volume": 2.0,  # > 1.5 threshold
         "nearest_hvn_above": 5015.0,
         "nearest_hvn_below": 4985.0,  # T1 target for short
@@ -130,13 +136,17 @@ def test_no_signal_when_volume_insufficient():
 
 
 def test_no_signal_when_ranging_regime():
-    """hmm_regime=0 (ranging) → LVN breakout requires trending regime → no signal."""
+    """hmm_prob_trending_up and _down both low → not trending → no signal."""
     from src.intelligence.trading.lvn_breakout import LVNBreakoutPlugin
 
     plugin = LVNBreakoutPlugin()
     open_arr = np.full(25, 5000.0)
     close = np.linspace(5000.5, 5002.0, 25)
-    features = _base_features_long(hmm_regime=0)
+    features = _base_features_long(
+        hmm_regime=0,
+        hmm_prob_trending_up=0.10,
+        hmm_prob_trending_down=0.10,
+    )
     result = plugin.compute_full(_make_frames(close, features, open_arr=open_arr))
     assert result.get("direction") == 0
     assert result.get("confidence") == 0.0

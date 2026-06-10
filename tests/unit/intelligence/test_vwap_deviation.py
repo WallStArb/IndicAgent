@@ -17,6 +17,8 @@ def _features(price, vwap=5000.0, vwap_std=10.0, trend_regime=0.0):
         "vwap_lower_2": vwap - 2 * vwap_std,
         "trend_regime": trend_regime,
         "atr_14": 8.0,
+        "hmm_prob_ranging": 0.65,  # continuous regime gate (mean_reversion: ranging >= 0.30)
+        "ctf_score": 0.40,  # I6 gate (abs >= 0.25)
     }
 
 

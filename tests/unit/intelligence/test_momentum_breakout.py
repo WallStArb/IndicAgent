@@ -14,6 +14,9 @@ def _base_features(roc=0.5, swing_high=5010.0, swing_low=4990.0, trend_regime=0.
         "swing_low": swing_low,
         "trend_regime": trend_regime,
         "atr_14": 8.0,
+        "hmm_prob_trending_up": 0.70,  # continuous regime gate (>= 0.30)
+        "hmm_prob_trending_down": 0.10,
+        "ctf_score": 0.40,  # I6 gate (abs >= 0.25)
     }
 
 
@@ -196,7 +199,15 @@ class TestMomentumBreakout:
         volume[-1] = 2000.0
         df = make_ohlcv(close, volume)
         # Note: no roc_14 key — plugin must compute inline
-        features = {"swing_high": 5010.0, "swing_low": 4990.0, "trend_regime": 0.0, "atr_14": 8.0}
+        features = {
+            "swing_high": 5010.0,
+            "swing_low": 4990.0,
+            "trend_regime": 0.0,
+            "atr_14": 8.0,
+            "hmm_prob_trending_up": 0.70,
+            "hmm_prob_trending_down": 0.10,
+            "ctf_score": 0.40,
+        }
 
         plugin = MomentumBreakoutPlugin()
         result = plugin.compute_full(
