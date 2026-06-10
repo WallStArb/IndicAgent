@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Signal Quality Renaissance
 status: ready_to_plan
-last_updated: "2026-06-10T02:23:06.299Z"
+last_updated: "2026-06-10T08:15:42.334Z"
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 12
+  total_plans: 16
   completed_plans: 12
   percent: 33
 ---
