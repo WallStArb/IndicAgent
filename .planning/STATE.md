@@ -2,15 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Signal Quality Renaissance
-status: ready_to_plan
-last_updated: 2026-06-10T20:54:59.296Z
+status: in_progress
+last_updated: "2026-06-10T22:00:00.000Z"
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 19
-  completed_plans: 46
-  percent: 50
-stopped_at: Phase 120 complete (3/3) — ready to discuss Phase 121
+  completed_phases: 4
+  total_plans: 18
+  completed_plans: 18
+  percent: 67
 ---
 
 # Project State
@@ -45,6 +44,17 @@ See: .planning/PROJECT.md
 
 **Coverage:** 53/53 v2.8 requirements mapped + Phase 115 (5 FRAME reqs) + Phase 116 (3 SR reqs).
 
+## v2.9 Signal Quality Renaissance Phases (4/6 complete)
+
+| Phase | Name | Status |
+|-------|------|--------|
+| 117 | PatternCompletion Fix + Data Pipeline Validation | Complete (4/4 plans, 2026-06-08) |
+| 118 | Confidence Integrity + Top 5 Setup Refactoring | Complete (7/7 plans, 2026-06-09) |
+| 119 | Remaining 16 Setup Refactoring | Complete (4/4 plans, 2026-06-10) |
+| 120 | Shadow Mode Validation | Complete (3/3 plans, 2026-06-10) |
+| 121 | Lifecycle Replay & Validation | Pending |
+| 122 | Production Hardening | Pending |
+
 ## Evidence Gates
 
 | Gate | Condition | Blocks |
@@ -71,17 +81,15 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-### Last session (2026-06-08) — v2.9 Signal Quality Renaissance scoping
+### Last session (2026-06-10) — v2.9 Phases 117-120 complete
 
-RCA document updated with specific code-level findings:
+All four signal quality refactoring phases executed and verified:
 
-- `_CVD_DIV_THRESHOLD = 0.0` in cvd_divergence.py (any nonzero fires — deterministic bug)
-- 4 high-volume plugins fetch i6 frames but never read ctf_score/ctf_structure/ctf_trend
-- ofi_spike/cvd_spike don't fetch i6 at all
-- All 6 broken plugins use hmm_regime for logging only, never hmm_regime_weight()
+- Phase 117: PatternCompletion write-path bug fixed; FeatureParityAuditor + ConfidenceCalibrationMonitor deployed
+- Phase 118: Extrinsic confidence modifiers stripped across 12 I7 plugins; top 5 NEEDS_REFACTOR setups refactored to intrinsic-only confidence
+- Phase 119: All 16 remaining NEEDS_REFACTOR setups refactored; validate_tier() enforcement + CI gate added
+- Phase 120: ShadowModeValidator oneshot deployed (Mon 07:00 UTC); shadow_auditor.py SoC-split to demotion-only; migration 121 (signal_ledger_shadow view) applied; _ONESHOT_UNITS gap fixed in service_auditor.py
 
-Phase 0 stop-loss fix confirmed DONE: `validate_stop_against_zone()` in plugin_utils.py, called from trade_framer.py:1018.
+Key architectural decision: shadow signal `win_rate` (binomtest vs 50% baseline) replaces `selection_rate` — shadow signals can never have `was_selected=True` since they never enter the active aggregator pool.
 
-Phase 117 roadmap entry updated: combined PatternCompletion write-path fix with pipeline validation infrastructure (4 plans, 3 waves). Phase directory does not exist yet.
-
-**Resume:** `/clear` then `/gsd-plan-phase 117` in fresh context.
+**Resume:** `/clear` then `/gsd-discuss-phase 121` or `/gsd-plan-phase 121` in fresh context.
