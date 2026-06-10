@@ -1,9 +1,9 @@
 # Signal-to-Noise Crisis: Root Cause Analysis & Production Hardening Plan
 
 **Date**: 2026-06-07
-**Status**: under-review
+**Status**: in-progress
 **Type**: Root Cause Analysis
-**Last Updated:** 2026-06-09
+**Last Updated:** 2026-06-10
 **Authors**: Renaissance Council (Engineering + Architecture + Quant)
 **Scope**: System-level root cause analysis of signal generation over-abundance
 
@@ -1089,17 +1089,23 @@ All 5 deploy `shadow_only=True`. Confidence formulas contain no extrinsic factor
 
 ---
 
-### Phase 3 (v2.9 Phase 119): Remaining 16 Setup Refactoring
+### Phase 3 (v2.9 Phase 119): Remaining 16 Setup Refactoring — **COMPLETE**
 
 **Goal**: Apply the same empirical pattern to all 16 remaining NEEDS_REFACTOR setups.
 
-Same protocol: use Phase 1.5 derived thresholds where available; where probe data is still accumulating, add I6 integration and structural fixes only, leave magnitude thresholds at conservative values until data arrives.
+~~Same protocol: use Phase 1.5 derived thresholds where available; where probe data is still accumulating, add I6 integration and structural fixes only, leave magnitude thresholds at conservative values until data arrives.~~
+
+**DONE (Phase 119, 2026-06-10)**: All 16 remaining NEEDS_REFACTOR setups refactored across 4 plans. Dual HMM+CTF gate before OHLCV extraction, 4-factor intrinsic confidence composites (weights sum 1.0), `shadow_only=True`, `requires_i6_confluence=True` on every plugin. `ArchitectureViolation` enforcement added for `requires_i6_confluence` across 29 non-exempt I7 plugins; `_I7_I6_EXEMPT` (8 deferred) and `_PHASE_119_PLUGINS` (17) frozensets. ORB15 and ORB30 refactored. All 21 NEEDS_REFACTOR setups now in shadow mode.
 
 ---
 
-### Phase 4 (v2.9 Phase 120): Shadow Mode Validation
+### Phase 4 (v2.9 Phase 120): Shadow Mode Validation — **COMPLETE**
 
-All 21 refactored setups run shadow_only=True. Promotion criteria: p<0.05, N≥100, win_rate>50%, calibration_correlation>0.3. Note: this now validates that the empirically-derived thresholds work in production, not that our guesses were right.
+~~All 21 refactored setups run shadow_only=True. Promotion criteria: p<0.05, N≥100, win_rate>50%, calibration_correlation>0.3. Note: this now validates that the empirically-derived thresholds work in production, not that our guesses were right.~~
+
+**DONE (Phase 120, 2026-06-10)**: `services/shadow_validator.py` (315-line weekly oneshot) implements 5-gate sequential promotion check: (1) N≥100, (2) win_rate≥50% via binomtest p<0.05 vs 50% baseline, (3) avg_pnl_r>0, (4) calibration_corr>0.3, (5) low-variance guard. `shadow_auditor.py` stripped to demotion-only (SoC split). Systemd timer weekly Mon 07:00 UTC (`Persistent=true`). Grafana dashboard with 6 per-setup metrics. `signal_ledger_shadow` DB view live (15,914 rows).
+
+**Important correction from implementation**: Gate 2 is `win_rate >= 50%` (binomtest), NOT `selection_rate >= 5%`. Shadow signals have `was_selected` structurally always False — they never enter the active pool — so a selection_rate gate is permanently unpassable. The code example in Blueprint Part 4 below is stale on this point.
 
 ---
 
