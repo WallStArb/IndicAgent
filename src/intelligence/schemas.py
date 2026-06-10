@@ -1081,8 +1081,8 @@ class MetricsDQFailureEvent(BaseModel):
     entry_price: float | None = None
     stop_loss: float | None = None
     pnl_r: float | None = None
-    direction: str | None = None
-    hmm_regime: str | None = None
+    direction: int | None = None
+    hmm_regime: int | None = None
     setup_plugin: str | None = None
 
 
