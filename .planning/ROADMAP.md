@@ -1590,9 +1590,9 @@ Plans:
 
 - [ ] 119-01-PLAN.md — Refactor Group 1 (8 setups): OFIDivergence, OFISpike, CVDSpike, CandlestickPatternSetup, FailedBreakout, LiquidityHunt, DeltaExhaustion, SessionExtremesSetup
 
-**Wave 2** *(depends on Wave 1)* — Refactor 8 remaining setups
+**Wave 2** *(depends on Wave 1)* — Refactor 9 remaining setups + enforcement + docs
 
-- [ ] 119-02-PLAN.md — Refactor Group 2 (8 setups): LVNBreakout, ORB15, ORB30, SecondLegContinuation, VCP, VWAPReclaim, DualDivergence, VWAPDeviation, MomentumBreakout
+- [ ] 119-02-PLAN.md — Refactor Group 2 (9 setups): LVNBreakout, ORB15, ORB30, SecondLegContinuation, VCP, VWAPReclaim, DualDivergence, VWAPDeviation, MomentumBreakout
 - [ ] 119-03-PLAN.md — validate_tier() enforcement + CI gate + regression tests
 - [ ] 119-04-PLAN.md — Documentation update + CLAUDE.md 6 GOOD patterns reference
 
