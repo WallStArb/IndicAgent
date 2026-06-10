@@ -14,12 +14,15 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_boost
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
+
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -34,6 +37,7 @@ class SessionExtremesSetupPlugin:
     """
 
     name: str = "trad_SessionExtremesSetup"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -54,7 +58,7 @@ class SessionExtremesSetupPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "session"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     proximity_atr_mult: float = 0.3
     _state: dict = field(default_factory=dict)
 
@@ -72,18 +76,29 @@ class SessionExtremesSetupPlugin:
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        # SESS-01: Asian extremes must be available
+        # SESS-01: Asian extremes must be available (cheap, no OHLCV required)
         asian_high = features.get("asian_session_high")
         asian_low = features.get("asian_session_low")
         if not isinstance(asian_high, (int, float)) or not isinstance(asian_low, (int, float)):
             return no_signal()
 
-        # SESS-02: London or NY session only
+        # SESS-02: London or NY session only (cheap timing gate)
         session_london = float(features.get("session_london", 0.0))
         session_ny = float(features.get("session_ny", 0.0))
         if not (session_london or session_ny):
             return no_signal()
 
+        # ── Dual gate (before OHLCV access) ─────────────────────────────────
+        # Gate 1: mean_reversion regime gate — ranging probability >= threshold
+        if hmm_regime_weight(features, "ranging") < _MIN_REGIME_WEIGHT:
+            return no_signal()
+
+        # Gate 2: I6 ctf_score gate
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
+            return no_signal()
+
+        # ── ATR and price access (after dual gate) ───────────────────────────
         symbol = frames.get("symbol", "")
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
@@ -136,8 +151,32 @@ class SessionExtremesSetupPlugin:
         # Entry, stop, targets
         entry_price = asian_high if near_high else asian_low
 
-        raw_conf = 0.45 + 0.15 * len(supporting)
-        raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
+        # ── 4-factor intrinsic confidence composite ───────────────────────────
+        # level_proximity: how close price is to the extreme (closer = better)
+        level_proximity = clamp01(1.0 - (proximity_atr / self.proximity_atr_mult))
+
+        # rejection_strength: number of confirming factors as quality signal
+        rejection_strength = clamp01(len(supporting) / 3.0)
+
+        # session_timing_score: both sessions = best, single = moderate
+        if session_london and session_ny:
+            session_timing_score = 1.0
+        else:
+            session_timing_score = 0.65
+
+        # volume_context: volume spike = high confirmation
+        if vol_spike:
+            volume_context = clamp01((float(vol[-1]) / max(1e-9, vol_mean) - 1.0) / 1.0)
+        else:
+            volume_context = 0.25
+
+        # Weights sum to 1.0
+        raw_conf = (
+            0.35 * level_proximity
+            + 0.30 * rejection_strength
+            + 0.20 * session_timing_score
+            + 0.15 * volume_context
+        )
         confidence = compose_confidence(raw_conf)
 
         extreme = "high" if near_high else "low"

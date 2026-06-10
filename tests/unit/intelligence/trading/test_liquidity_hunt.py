@@ -26,7 +26,10 @@ class TestLiquidityHunt:
             "ob_type": 0.0,
             "bos_detected": 0.0,
             "choch_detected": 0.0,
-            "ctf_score": 0.0,
+            # Phase 119: gate-passing values (ctf_score was 0.0 which blocked the gate)
+            "ctf_score": 0.5,
+            "hmm_prob_trending_up": 0.6,
+            "hmm_prob_trending_down": 0.3,
             "atr_14": 10.0,
             "in_demand_zone": 0.0,
             "in_supply_zone": 0.0,
@@ -50,7 +53,10 @@ class TestLiquidityHunt:
             "ob_type": 0.0,
             "bos_detected": 0.0,
             "choch_detected": 0.0,
-            "ctf_score": 0.0,
+            # Phase 119: gate-passing values (ctf_score was 0.0 which blocked the gate)
+            "ctf_score": 0.5,
+            "hmm_prob_trending_up": 0.3,
+            "hmm_prob_trending_down": 0.6,
             "atr_14": 10.0,
             "in_demand_zone": 0.0,
             "in_supply_zone": 0.0,

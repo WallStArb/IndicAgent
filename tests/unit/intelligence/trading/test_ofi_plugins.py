@@ -23,6 +23,16 @@ def _make_frames(close_arr, features=None, symbol="ES", tf="1m"):
     }
 
 
+# Minimal feature values that pass the OFISpike/CVDSpike dual gate (Phase 119):
+# hmm_trending_weight >= 0.30 requires hmm_prob_trending_up or hmm_prob_trending_down >= 0.30;
+# abs(ctf_score) >= 0.25.
+_SPIKE_GATE_FEATURES: dict = {
+    "hmm_prob_trending_up": 0.6,
+    "hmm_prob_trending_down": 0.6,
+    "ctf_score": 0.5,
+}
+
+
 # ─── OFIContinuation ──────────────────────────────────────────────────────────
 
 
@@ -119,7 +129,13 @@ class TestOFIDivergence:
         """ofi_divergence = -1.8 for 2 bars → direction=-1 (price-discovery short)."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        frames = _make_frames(close, {"ofi_divergence": -1.8, "ofi_ewma_5": -0.5, "atr_14": 2.0})
+        features = {
+            "ofi_divergence": -1.8,
+            "ofi_ewma_5": -0.5,
+            "atr_14": 2.0,
+            **_SPIKE_GATE_FEATURES,
+        }
+        frames = _make_frames(close, features)
         plugin.compute_full(frames)  # bar 1 — no fire
         result = plugin.compute_full(frames)  # bar 2 — should fire
         assert (
@@ -136,7 +152,8 @@ class TestOFIDivergence:
         """ofi_divergence = 1.8 for 2 bars → direction=1 (price-discovery long)."""
         plugin = self._make_plugin()
         close = np.linspace(5010.0, 5000.0, 25)
-        frames = _make_frames(close, {"ofi_divergence": 1.8, "ofi_ewma_5": 0.5, "atr_14": 2.0})
+        features = {"ofi_divergence": 1.8, "ofi_ewma_5": 0.5, "atr_14": 2.0, **_SPIKE_GATE_FEATURES}
+        frames = _make_frames(close, features)
         plugin.compute_full(frames)  # bar 1
         result = plugin.compute_full(frames)  # bar 2
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}: {result}"
@@ -194,10 +211,10 @@ class TestOFISpike:
         return OFISpikePlugin()
 
     def test_fires_when_ofi_spike_z_exceeds_2_positive(self):
-        """ofi_spike_z = 2.5 fires with direction=1."""
+        """ofi_spike_z = 2.5 fires with direction=1 (gate-passing HMM+CTF included)."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        frames = _make_frames(close, {"ofi_spike_z": 2.5, "atr_14": 2.0})
+        frames = _make_frames(close, {"ofi_spike_z": 2.5, "atr_14": 2.0, **_SPIKE_GATE_FEATURES})
         result = plugin.compute_full(frames)
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}"
         assert result.get("confidence", 0) > 0
@@ -214,10 +231,10 @@ class TestOFISpike:
             ), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_fires_when_ofi_spike_z_exceeds_2_negative(self):
-        """ofi_spike_z = -2.5 fires with direction=-1."""
+        """ofi_spike_z = -2.5 fires with direction=-1 (gate-passing HMM+CTF included)."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        frames = _make_frames(close, {"ofi_spike_z": -2.5, "atr_14": 2.0})
+        frames = _make_frames(close, {"ofi_spike_z": -2.5, "atr_14": 2.0, **_SPIKE_GATE_FEATURES})
         result = plugin.compute_full(frames)
         assert result.get("direction") == -1
 
@@ -248,7 +265,7 @@ class TestOFISpike:
         # Plugin is stateless — either no _state attribute, or empty dict at class level
         # The key is that calling compute_full multiple times works without state
         close = np.linspace(5000.0, 5010.0, 25)
-        frames = _make_frames(close, {"ofi_spike_z": 2.5, "atr_14": 2.0})
+        frames = _make_frames(close, {"ofi_spike_z": 2.5, "atr_14": 2.0, **_SPIKE_GATE_FEATURES})
         r1 = plugin.compute_full(frames)
         r2 = plugin.compute_full(frames)
         assert r1.get("direction") == r2.get("direction") == 1

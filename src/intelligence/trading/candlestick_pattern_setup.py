@@ -14,9 +14,9 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
-from .exhaustion_utils import apply_exhaustion_boost
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -69,6 +69,9 @@ _PRIORITY_RANKS: dict[str, int] = {
 
 _SR_AUTO_PATTERNS: frozenset[str] = frozenset({"hammer", "shooting_star"})
 
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
+
 
 @dataclass
 class CandlestickPatternSetupPlugin:
@@ -90,6 +93,7 @@ class CandlestickPatternSetupPlugin:
     """
 
     name: str = "trad_CandlestickPatternSetup"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -108,18 +112,14 @@ class CandlestickPatternSetupPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "pattern", "structure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "any"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     regime_threshold: float = 0.5
     volume_boost_ratio: float = 1.3
     sr_proximity_atr: float = 0.3
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        result = extract_ohlcv(frames, self.min_lookback)
-        if result is None:
-            return no_signal()
-        open_, high, low, close = result
-
+        df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
             **(frames.get("i2") or {}),
@@ -129,7 +129,26 @@ class CandlestickPatternSetupPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
-        df = frames.get("main")
+
+        if df is None or len(df) < self.min_lookback:
+            return no_signal()
+
+        # ── Dual gate (before OHLCV access) ─────────────────────────────────
+        # Gate 1: regime gate (any-regime uses hmm_trending_weight)
+        if hmm_trending_weight(features) < _MIN_REGIME_WEIGHT:
+            return no_signal()
+
+        # Gate 2: I6 ctf_score gate
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
+            return no_signal()
+
+        # ── OHLCV access (after dual gate) ───────────────────────────────────
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         vol = df["volume"].to_numpy(dtype=float)
 
         atr = get_atr_with_floor_from_frames(frames)
@@ -224,7 +243,7 @@ class CandlestickPatternSetupPlugin:
         if not candidates:
             return no_signal()
 
-        # CNDL-02: Trend regime gate (mandatory)
+        # CNDL-02: Trend regime gate (mandatory; binary trend_regime check stays as quality filter)
         trend_regime = float(features.get("trend_regime", 0.0))
         if abs(trend_regime) < self.regime_threshold:
             return no_signal()
@@ -270,13 +289,33 @@ class CandlestickPatternSetupPlugin:
         # CNDL-03: Signal fields
         entry = float(close[-1])
 
-        # Confidence: +0.10 per confirming factor (volume, S/R).
-        # sr_confirms is True for hammer/shooting_star (sr_auto) and for explicit proximity.
-        raw_conf = base_conf
+        # ── 4-factor intrinsic confidence composite ───────────────────────────
+        # pattern_confidence: base weight from pattern_weights / fallback priors
+        pattern_confidence_score = clamp01(base_conf)
+
+        # body_ratio: measures candle body quality (close vs high-low range)
+        candle_high = float(high[-1])
+        candle_low = float(low[-1])
+        candle_range = candle_high - candle_low
+        candle_body = abs(float(close[-1]) - float(open_[-1]))
+        body_ratio = clamp01(candle_body / max(1e-9, candle_range))
+
+        # volume_confirmation: volume relative to SMA
         if volume_confirms:
-            raw_conf += 0.10
-        if sr_confirms:
-            raw_conf += 0.10
+            volume_confirmation = clamp01((float(vol[-1]) / max(1e-9, vol_sma20) - 1.0) / 1.0)
+        else:
+            volume_confirmation = 0.2  # below-average volume
+
+        # zone_proximity: S/R confirms = high quality; fallback for sr_auto patterns
+        zone_proximity = 0.7 if sr_confirms else 0.3
+
+        # Weights sum to 1.0
+        raw_conf = (
+            0.35 * pattern_confidence_score
+            + 0.25 * body_ratio
+            + 0.25 * volume_confirmation
+            + 0.15 * zone_proximity
+        )
 
         # confluence_score: mandatory trend factor + optional volume + optional S/R
         confluence_score = 1  # trend is mandatory
@@ -291,7 +330,6 @@ class CandlestickPatternSetupPlugin:
         if sr_confirms:
             supporting.append("sr_proximity")
 
-        raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
 
         suffix = "long" if direction == 1 else "short"

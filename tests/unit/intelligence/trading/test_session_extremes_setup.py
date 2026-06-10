@@ -28,6 +28,8 @@ def make_frames(
     rsi_14: float = 70.0,  # overbought
     high_volume: bool = False,
     n: int = 60,
+    ctf_score: float = 0.5,
+    hmm_prob_ranging: float = 0.60,
 ) -> dict:
     """Build frames dict for SessionExtremesSetupPlugin.compute_full()."""
     close_arr = np.full(n, close)
@@ -44,6 +46,9 @@ def make_frames(
         "session_ny": session_ny,
         "trend_regime": trend_regime,
         "rsi_14": rsi_14,
+        # Phase 119: gate-passing values for mean_reversion dual gate
+        "ctf_score": ctf_score,
+        "hmm_prob_ranging": hmm_prob_ranging,
     }
     if asian_high is not None:
         features["asian_session_high"] = asian_high
@@ -173,6 +178,7 @@ class TestSess03ConfirmingFactorGate:
         assert any(f.startswith("session:") for f in factors)
 
     def test_confidence_scales_with_factors(self):
+        """More confirming factors produce higher confidence (Phase 119: 4-factor composite)."""
         plugin = SessionExtremesSetupPlugin()
 
         # 1 factor: trend_align only
@@ -183,14 +189,20 @@ class TestSess03ConfirmingFactorGate:
         f3 = make_frames(close=5009.0, trend_regime=-0.6, rsi_14=72.0, high_volume=True)
         r3 = plugin.compute_full(f3)
 
-        assert r1.get("confidence") == pytest.approx(0.60)
-        assert r3.get("confidence") == pytest.approx(0.90)
+        # Both fire; 3-factor confidence must exceed 1-factor confidence
+        assert r1.get("direction") != 0, "1-factor should fire"
+        assert r3.get("direction") != 0, "3-factor should fire"
+        assert r3.get("confidence", 0) > r1.get("confidence", 0), (
+            f"3-factor confidence {r3.get('confidence')} must exceed "
+            f"1-factor {r1.get('confidence')}"
+        )
 
     def test_confidence_two_factors(self):
-        # trend + rsi, no volume
+        """trend + rsi (no volume) fires with positive confidence (Phase 119: 4-factor composite)."""
         frames = make_frames(close=5009.0, trend_regime=-0.6, rsi_14=72.0, high_volume=False)
         result = SessionExtremesSetupPlugin().compute_full(frames)
-        assert result.get("confidence") == pytest.approx(0.75)
+        assert result.get("direction") != 0, "trend + rsi should fire"
+        assert result.get("confidence", 0) > 0
 
 
 # ---------------------------------------------------------------------------

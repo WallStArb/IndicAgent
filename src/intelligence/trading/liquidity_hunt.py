@@ -16,11 +16,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
-from .plugin_utils import extract_ohlcv, no_signal
+from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
+
+_MIN_REGIME_WEIGHT: float = 0.30
+_MIN_CTF_SCORE: float = 0.25
 
 
 @dataclass
@@ -28,6 +32,7 @@ class LiquidityHuntPlugin:
     """I7 signal: sweep of named liquidity pool + reversal confirmation."""
 
     name: str = "trad_LiquidityHunt"
+    shadow_only: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -50,11 +55,7 @@ class LiquidityHuntPlugin:
     MIN_SIGNIFICANCE: float = 0.60
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        result = extract_ohlcv(frames, self.min_lookback)
-        if result is None:
-            return no_signal()
-        open_, high, low, close = result
-
+        df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
             **(frames.get("i2") or {}),
@@ -65,10 +66,27 @@ class LiquidityHuntPlugin:
             **(frames.get("i6") or {}),
         }
 
+        if df is None or len(df) < self.min_lookback:
+            return no_signal()
+
+        # ── Dual gate (before OHLCV access) ─────────────────────────────────
+        # Gate 1: trend regime gate (LiquidityHunt is regime_type="trend")
+        # Use the direction-specific form: block only if BOTH up AND down are below threshold
+        if (
+            hmm_regime_weight(features, "up") < _MIN_REGIME_WEIGHT
+            and hmm_regime_weight(features, "down") < _MIN_REGIME_WEIGHT
+        ):
+            return no_signal()
+
+        # Gate 2: I6 ctf_score gate
+        ctf_score = float(features.get("ctf_score") or 0.0)
+        if abs(ctf_score) < _MIN_CTF_SCORE:
+            return no_signal()
+
         bsl_sig = float(features.get("bsl_significance", 0.0))
         ssl_sig = float(features.get("ssl_significance", 0.0))
 
-        # Gate 1: sweep must be detected and reclaimed
+        # Gate 3: sweep must be detected and reclaimed
         sweep_detected = float(features.get("sweep_detected", 0.0))
         sweep_reclaimed = float(features.get("sweep_reclaimed", 0.0))
         if sweep_detected != 1.0 or sweep_reclaimed != 1.0:
@@ -83,7 +101,7 @@ class LiquidityHuntPlugin:
         if atr is None:
             return no_signal()
 
-        # Gate 3: sweep was at the named level (within ATR*0.75)
+        # Gate 4: sweep was at the named level (within ATR*0.75)
         tol = atr * 0.75
         hit_bsl = bsl_level > 0 and abs(sweep_level - bsl_level) <= tol
         hit_ssl = ssl_level > 0 and abs(sweep_level - ssl_level) <= tol
@@ -99,11 +117,13 @@ class LiquidityHuntPlugin:
         else:
             return no_signal()
 
-        # Gate 3b: swept level must be a named institutional level
+        # Gate 5: swept level must be a named institutional level
         if significance < self.MIN_SIGNIFICANCE:
             return no_signal()
 
-        entry = float(close[-1])
+        # ── OHLCV access (after all gates) ───────────────────────────────────
+        close_arr = df["close"].to_numpy(dtype=float)
+        entry = float(close_arr[-1])
         supporting: list[str] = ["named_pool_reclaimed"]
 
         # Renaissance: Use frame_trade() for structural stop hierarchy
@@ -112,20 +132,44 @@ class LiquidityHuntPlugin:
         if not tf.viable:
             return no_signal()
 
-        # Confidence scoring
-        confidence = 0.55
+        # ── 4-factor intrinsic confidence composite ───────────────────────────
+        # hunt_significance: how significant the swept institutional level is
+        hunt_significance = clamp01(
+            (significance - self.MIN_SIGNIFICANCE) / (1.0 - self.MIN_SIGNIFICANCE)
+        )
 
+        # rejection_reclaim_strength: how far price reclaimed through the swept level
+        sweep_distance = abs(entry - swept_level)
+        rejection_reclaim_strength = clamp01(sweep_distance / max(1e-9, atr))
+
+        # volume_context: rel_volume confirmation
+        rel_vol = features.get("rel_volume")
+        if rel_vol is not None:
+            volume_context = clamp01((float(rel_vol) - 1.0) / 1.5)
+        else:
+            volume_context = 0.3
+
+        # structure_quality: significant level type bonus
         if significance >= 1.00:
-            confidence += 0.12
+            structure_quality = 1.0
             supporting.append("pwh_pwl_level")
         elif significance >= 0.85:
-            confidence += 0.08
+            structure_quality = 0.75
             supporting.append("pdh_pdl_level")
         elif significance >= 0.75:
-            confidence += 0.05
+            structure_quality = 0.55
             supporting.append("equal_levels_3plus")
+        else:
+            structure_quality = 0.35
 
-        confidence = compose_confidence(confidence)
+        # Weights sum to 1.0
+        raw_conf = (
+            0.35 * hunt_significance
+            + 0.30 * rejection_reclaim_strength
+            + 0.20 * volume_context
+            + 0.15 * structure_quality
+        )
+        confidence = compose_confidence(raw_conf)
 
         return make_signal_from_frame(
             tf,
