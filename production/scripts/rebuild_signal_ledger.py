@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
-"""phase_121_orchestrate — single idempotent entry point for the Phase 121 D-01 sequence.
+"""rebuild_signal_ledger — idempotent orchestrator for full signal ledger rebuild.
 
-Executes the complete delete+regenerate+replay pipeline for the 22 shadow setups
-in strict stage order. Tracks completed stages in a JSON state file for
-deterministic resume after any crash.
+Executes the complete delete+regenerate+replay pipeline in strict stage order.
+Tracks completed stages in a JSON state file for deterministic resume after
+any crash or interruption.
 
 Stages (in order):
     1. snapshot    — capture before-snapshot before any deletes
     2. decompress  — decompress signal_ledger + market_data_ohlcv before bulk DML
-    3. clean       — delete 22 shadow setups' old noise signals via historical_backfill.py --clean
-    4. dry_run     — validate 14-column mapping with --workers 1 before full replay
-    5. replay      — run lifecycle_replay.py across all pending signals
+    3. clean       — delete old signals via historical_backfill.py --clean
+    4. dry_run     — validate column mapping with --workers 1 before full replay
+    5. replay      — run historical_backfill.py --replay-only across all symbols
     6. verify      — hard-fail if stopped_at_entry or orphan_ledger_rows > 0
     7. recompress  — recompress signal_ledger + market_data_ohlcv
 
 Usage:
-    .venv/bin/python production/scripts/phase_121_orchestrate.py
+    .venv/bin/python production/scripts/rebuild_signal_ledger.py
 
     On crash: re-run the same command — resumes from the last completed stage.
 
 RE-RUN SAFETY:
-    - before-snapshot JSON is immutable after creation (abort guard in before_snapshot script)
-    - lifecycle_replay.py is idempotent via ON CONFLICT DO NOTHING in _seed_orphan_outcomes
-    - Re-running phase_121_orchestrate.py is always safe
+    - before-snapshot JSON is immutable after creation (abort guard on file existence)
+    - historical_backfill.py is idempotent via ON CONFLICT DO NOTHING
+    - Re-running rebuild_signal_ledger.py is always safe
 """
 
 from __future__ import annotations
@@ -46,19 +46,23 @@ from src.observability.otel import OTelInitError, init_otel_providers
 # Stage names — order is enforced by the stage execution sequence
 STAGE_SNAPSHOT = "snapshot"
 STAGE_DECOMPRESS = "decompress"
+STAGE_DROP_INDEXES = "drop_indexes"
 STAGE_CLEAN = "clean"
 STAGE_DRY_RUN = "dry_run"
 STAGE_REPLAY = "replay"
 STAGE_VERIFY = "verify"
+STAGE_REBUILD_INDEXES = "rebuild_indexes"
 STAGE_RECOMPRESS = "recompress"
 
 _STAGE_ORDER = [
     STAGE_SNAPSHOT,
     STAGE_DECOMPRESS,
+    STAGE_DROP_INDEXES,
     STAGE_CLEAN,
     STAGE_DRY_RUN,
     STAGE_REPLAY,
     STAGE_VERIFY,
+    STAGE_REBUILD_INDEXES,
     STAGE_RECOMPRESS,
 ]
 
@@ -67,8 +71,42 @@ _STAGE_ORDER = [
 # market_data_ohlcv: 24 compressed chunks — bar reads during lifecycle replay decompress on fetch.
 _BULK_DML_TABLES = ("signal_ledger", "market_data_ohlcv")
 
-_STATE_PATH = _PROJECT_ROOT / "docs" / "plans" / "phase-121-orchestrate-state.json"
-_SNAPSHOT_PATH = _PROJECT_ROOT / "docs" / "plans" / "phase-121-before-snapshot.json"
+# Non-PK indexes to drop before bulk INSERT and rebuild after.
+# Each inserted row updates every live index. Dropping them before the replay eliminates
+# that write amplification. PKs are excluded — TimescaleDB requires them for chunk management.
+# Rebuilt after verify passes; pipeline is stopped so CONCURRENTLY is not needed.
+_DROP_INDEXES_SQL = [
+    "DROP INDEX IF EXISTS idx_signal_ledger_expires_at",
+    "DROP INDEX IF EXISTS idx_signal_ledger_setup_plugin",
+    "DROP INDEX IF EXISTS idx_signal_ledger_shadow",
+    "DROP INDEX IF EXISTS idx_signal_ledger_signal_id",
+    "DROP INDEX IF EXISTS idx_signal_ledger_stop_basis",
+    "DROP INDEX IF EXISTS idx_signal_ledger_symbol_tf",
+    "DROP INDEX IF EXISTS signal_ledger_timestamp_idx",
+    "DROP INDEX IF EXISTS idx_signal_outcomes_closed",
+    "DROP INDEX IF EXISTS idx_signal_outcomes_live",
+    "DROP INDEX IF EXISTS idx_signal_outcomes_pending_suppressed",
+    "DROP INDEX IF EXISTS idx_signal_outcomes_pnl",
+    "DROP INDEX IF EXISTS idx_signal_outcomes_status",
+]
+
+_REBUILD_INDEXES_SQL = [
+    "CREATE INDEX IF NOT EXISTS idx_signal_ledger_expires_at ON signal_ledger (expires_at) WHERE expires_at IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_signal_ledger_setup_plugin ON signal_ledger (setup_plugin)",
+    "CREATE INDEX IF NOT EXISTS idx_signal_ledger_shadow ON signal_ledger (is_shadow) WHERE is_shadow = true",
+    "CREATE INDEX IF NOT EXISTS idx_signal_ledger_signal_id ON signal_ledger (signal_id)",
+    "CREATE INDEX IF NOT EXISTS idx_signal_ledger_stop_basis ON signal_ledger (stop_basis) WHERE stop_basis IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_signal_ledger_symbol_tf ON signal_ledger (symbol, timeframe, timestamp DESC)",
+    "CREATE INDEX IF NOT EXISTS signal_ledger_timestamp_idx ON signal_ledger (timestamp DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_closed ON signal_outcomes (outcome, activated_at DESC) WHERE outcome IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_live ON signal_outcomes (signal_id, status) WHERE status = ANY(ARRAY['pending', 'active'])",
+    "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_pending_suppressed ON signal_outcomes (status, signal_id) WHERE status = ANY(ARRAY['pending', 'regime_suppressed'])",
+    "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_pnl ON signal_outcomes (pnl_r, outcome) WHERE pnl_r IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_signal_outcomes_status ON signal_outcomes (status) WHERE exit_at IS NULL",
+]
+
+_STATE_PATH = _PROJECT_ROOT / "docs" / "plans" / "signal-ledger-rebuild-state.json"
+_SNAPSHOT_PATH = _PROJECT_ROOT / "docs" / "plans" / "signal-ledger-snapshot.json"
 
 # Column-mapping error indicators to detect in lifecycle_replay.py dry-run output
 _DRY_RUN_ERROR_PATTERNS = [
@@ -229,6 +267,51 @@ async def _run_stage_decompress(state: dict) -> None:
     _mark_complete(state, STAGE_DECOMPRESS)
 
 
+async def _run_stage_drop_indexes(state: dict) -> None:
+    """Drop non-PK indexes on signal_ledger + signal_outcomes before bulk INSERT.
+
+    Each row inserted during replay updates every live index. With 12 non-PK btree
+    indexes across both tables, dropping them before the load and rebuilding after
+    cuts per-row write work by ~12x on the index side.
+    """
+    if STAGE_DROP_INDEXES in state["stages_complete"]:
+        print(f"Stage {STAGE_DROP_INDEXES}: already complete, skipping")
+        return
+
+    print(f"\n=== STAGE: {STAGE_DROP_INDEXES} ===")
+    settings = Settings()
+    db = DatabaseManager(settings.database_url)
+    await db.initialize()
+    try:
+        async with db.pool.acquire() as conn:
+            for sql in _DROP_INDEXES_SQL:
+                await conn.execute(sql)
+                print(f"  {sql}")
+    finally:
+        await db.close()
+    _mark_complete(state, STAGE_DROP_INDEXES)
+
+
+async def _run_stage_rebuild_indexes(state: dict) -> None:
+    """Rebuild non-PK indexes on signal_ledger + signal_outcomes after verify passes."""
+    if STAGE_REBUILD_INDEXES in state["stages_complete"]:
+        print(f"Stage {STAGE_REBUILD_INDEXES}: already complete, skipping")
+        return
+
+    print(f"\n=== STAGE: {STAGE_REBUILD_INDEXES} ===")
+    settings = Settings()
+    db = DatabaseManager(settings.database_url)
+    await db.initialize()
+    try:
+        async with db.pool.acquire() as conn:
+            for sql in _REBUILD_INDEXES_SQL:
+                await conn.execute(sql)
+                print(f"  done: {sql[:60]}...")
+    finally:
+        await db.close()
+    _mark_complete(state, STAGE_REBUILD_INDEXES)
+
+
 async def _run_stage_recompress(state: dict) -> None:
     """Recompress signal_ledger + market_data_ohlcv after verify passes."""
     if STAGE_RECOMPRESS in state["stages_complete"]:
@@ -272,20 +355,20 @@ async def _run_stage_snapshot(state: dict) -> None:
         )
 
     print(f"\n=== STAGE: {STAGE_SNAPSHOT} ===")
-    result = _run_subprocess([sys.executable, "production/scripts/phase_121_before_snapshot.py"])
+    result = _run_subprocess([sys.executable, "production/scripts/signal_ledger_snapshot.py"])
     if result.returncode != 0:
         raise RuntimeError(f"Stage '{STAGE_SNAPSHOT}' failed with exit code {result.returncode}")
     _mark_complete(state, STAGE_SNAPSHOT)
 
 
 async def _run_stage_clean(state: dict) -> None:
-    """STAGE_CLEAN: delete 22 shadow setups' old noise signals via historical_backfill --clean."""
+    """STAGE_CLEAN: delete old signals via historical_backfill --clean."""
     if STAGE_CLEAN in state["stages_complete"]:
         print(f"Stage {STAGE_CLEAN}: already complete, skipping")
         return
 
     print(f"\n=== STAGE: {STAGE_CLEAN} ===")
-    log_path = _PROJECT_ROOT / "logs" / "phase_121_clean.log"
+    log_path = _PROJECT_ROOT / "logs" / "signal_ledger_clean.log"
     result = _run_subprocess(
         [
             sys.executable,
@@ -306,53 +389,55 @@ async def _run_stage_clean(state: dict) -> None:
 
 
 async def _run_stage_dry_run(state: dict) -> None:
-    """STAGE_DRY_RUN: validate 14-column mapping on a small batch before full replay."""
+    """STAGE_DRY_RUN: smoke-test 2 days of replay before committing to the full run."""
     if STAGE_DRY_RUN in state["stages_complete"]:
         print(f"Stage {STAGE_DRY_RUN}: already complete, skipping")
         return
 
     print(f"\n=== STAGE: {STAGE_DRY_RUN} ===")
-    print("  Validating 14-column mapping with --workers 1 (fail-fast before bulk replay)...")
+    print("  Running 2-day smoke test with --workers 1 (fail-fast before bulk replay)...")
     result = _run_subprocess(
         [
             sys.executable,
-            "production/scripts/lifecycle_replay.py",
+            "production/scripts/historical_backfill.py",
+            "--replay-only",
             "--workers",
             "1",
-            "--dry-run",
-            "--force",
+            "--days",
+            "2",
+            "--use-precomputed-features",
         ]
     )
     output = result.stdout or ""
 
-    # Check for column-mapping errors in output
     found_errors = [p for p in _DRY_RUN_ERROR_PATTERNS if p in output]
     if found_errors or result.returncode != 0:
-        error_detail = f"Column-mapping errors detected: {found_errors}" if found_errors else ""
+        error_detail = f"errors detected: {found_errors}" if found_errors else ""
         raise RuntimeError(
             f"Stage '{STAGE_DRY_RUN}' failed — "
             f"exit_code={result.returncode} {error_detail}. "
-            "Fix the column mapping in lifecycle_replay.py Task 2 before re-running."
+            "Fix historical_backfill.py before re-running."
         )
     _mark_complete(state, STAGE_DRY_RUN)
 
 
 async def _run_stage_replay(state: dict) -> None:
-    """STAGE_REPLAY: run lifecycle_replay.py across all pending signals."""
-    # REPLAY is always re-run (lifecycle_replay.py is idempotent via ON CONFLICT DO NOTHING)
+    """STAGE_REPLAY: run historical_backfill.py --replay-only across all symbols."""
+    # REPLAY is always re-run (historical_backfill.py is idempotent via ON CONFLICT DO NOTHING)
     if STAGE_REPLAY in state["stages_complete"]:
         print(f"Stage {STAGE_REPLAY}: already complete, skipping")
         return
 
     print(f"\n=== STAGE: {STAGE_REPLAY} ===")
-    log_path = _PROJECT_ROOT / "logs" / "phase_121_replay.log"
+    log_path = _PROJECT_ROOT / "logs" / "signal_ledger_replay.log"
     result = _run_subprocess(
         [
             sys.executable,
-            "production/scripts/lifecycle_replay.py",
+            "production/scripts/historical_backfill.py",
+            "--replay-only",
             "--workers",
             "8",
-            "--force",
+            "--use-precomputed-features",
         ],
         log_path=log_path,
     )
@@ -437,10 +522,12 @@ async def main_async() -> int:
         _systemctl("stop", _PIPELINE_UNIT)
         _systemctl("stop", _SIGNAL_WRITER_UNIT)
         await _run_stage_decompress(state)
+        await _run_stage_drop_indexes(state)
         await _run_stage_clean(state)
         await _run_stage_dry_run(state)
         await _run_stage_replay(state)
         await _run_stage_verify(state)
+        await _run_stage_rebuild_indexes(state)
         await _run_stage_recompress(state)
     finally:
         _systemctl("start", _PIPELINE_UNIT)
@@ -455,16 +542,16 @@ async def main_async() -> int:
 
 def main() -> None:
     try:
-        init_otel_providers("phase-121-orchestrate")
+        init_otel_providers("rebuild-signal-ledger")
     except OTelInitError as error:
         print(f"[warn] OTel init failed — metrics disabled: {error}")
     exit_code = 1
     try:
         exit_code = asyncio.run(main_async())
-        JOB_COMPLETED_TOTAL.add(1, {"job": "phase-121-orchestrate", "status": "success"})
+        JOB_COMPLETED_TOTAL.add(1, {"job": "rebuild-signal-ledger", "status": "success"})
     except Exception as error:
         print(f"ERROR: {error}")
-        JOB_COMPLETED_TOTAL.add(1, {"job": "phase-121-orchestrate", "status": "failure"})
+        JOB_COMPLETED_TOTAL.add(1, {"job": "rebuild-signal-ledger", "status": "failure"})
     finally:
         flush_and_shutdown_metrics()
     sys.exit(exit_code)

@@ -713,30 +713,36 @@ INSERT INTO signal_ledger (
     stop_basis, stop_type_col, structural_stop_distance_atr,
     adaptive_buffer_mult, plugin_regime_type, stop_structure_age_bars,
     raw_confidence, calibrated_confidence
-) VALUES (
-    %s::uuid, %s, %s, %s,
-    %s, %s, %s,
-    %s, %s, TRUE,
-    %s,
-    %s, %s,
-    %s, %s,
-    %s,
-    %s, %s, %s::jsonb, %s, %s,
-    %s,
-    %s, %s::jsonb, %s,
-    NULL, %s,
-    %s,
-    %s, %s, %s,
-    %s, %s, %s,
-    %s, %s
-) ON CONFLICT DO NOTHING
+) VALUES %s
+ON CONFLICT DO NOTHING
 """
+
+# Per-row template: TRUE=is_backfill, NULL=pipeline_lag_ms are SQL literals, not params.
+_INSERT_SYNC_TEMPLATE = (
+    "(%s::uuid, %s, %s, %s,"
+    " %s, %s, %s,"
+    " %s, %s, TRUE,"
+    " %s,"
+    " %s, %s,"
+    " %s, %s,"
+    " %s,"
+    " %s, %s, %s::jsonb, %s, %s,"
+    " %s,"
+    " %s, %s::jsonb, %s,"
+    " NULL, %s,"
+    " %s,"
+    " %s, %s, %s,"
+    " %s, %s, %s,"
+    " %s, %s)"
+)
 
 _INSERT_OUTCOMES_SYNC_SQL = """
 INSERT INTO signal_outcomes (signal_id, status)
-VALUES (%s::uuid, %s)
+VALUES %s
 ON CONFLICT (signal_id) DO NOTHING
 """
+
+_INSERT_OUTCOMES_SYNC_TEMPLATE = "(%s::uuid, %s)"
 
 
 def _build_ledger_entries(
@@ -857,44 +863,40 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
     for e in entries:
         ledger_params.append(
             (
-                e.signal_id,  # signal_id
-                e.timestamp,  # timestamp
-                e.symbol,  # symbol
-                e.timeframe,  # timeframe
-                e.setup_plugin,  # setup_plugin
-                e.signal_type,  # signal_type
-                e.direction,  # direction
-                e.was_selected,  # was_selected
-                e.is_shadow,  # is_shadow
-                # is_backfill: TRUE literal in SQL
-                e.signal_computed_at,  # signal_computed_at
-                e.feature_ts,  # feature_ts
-                e.feature_tf,  # feature_tf
-                e.hmm_regime_at_fire,  # hmm_regime_at_fire
-                e.garch_sigma_at_fire,  # garch_sigma_at_fire
-                e.ttl_bars,  # ttl_bars
-                e.entry_price,  # entry_price
-                e.stop_loss,  # stop_loss
-                json.dumps(e.targets) if e.targets is not None else None,  # targets
-                e.entry_zone_low,  # entry_zone_low
-                e.entry_zone_high,  # entry_zone_high
-                e.market_entry_price,  # market_entry_price
-                e.cis_score,  # cis_score
-                (
-                    json.dumps(e.bucket_scores) if e.bucket_scores is not None else None
-                ),  # bucket_scores
-                e.weights_version,  # weights_version
-                # pipeline_lag_ms: NULL literal in SQL
-                e.expires_at,  # expires_at
-                e.feature_schema_version,  # feature_schema_version
-                e.stop_basis,  # stop_basis
-                e.stop_type_col,  # stop_type_col
-                e.structural_stop_distance_atr,  # structural_stop_distance_atr
-                e.adaptive_buffer_mult,  # adaptive_buffer_mult
-                e.plugin_regime_type,  # plugin_regime_type
-                e.stop_structure_age_bars,  # stop_structure_age_bars
-                e.raw_confidence,  # raw_confidence
-                e.calibrated_confidence,  # calibrated_confidence
+                e.signal_id,
+                e.timestamp,
+                e.symbol,
+                e.timeframe,
+                e.setup_plugin,
+                e.signal_type,
+                e.direction,
+                e.was_selected,
+                e.is_shadow,
+                e.signal_computed_at,
+                e.feature_ts,
+                e.feature_tf,
+                e.hmm_regime_at_fire,
+                e.garch_sigma_at_fire,
+                e.ttl_bars,
+                e.entry_price,
+                e.stop_loss,
+                json.dumps(e.targets) if e.targets is not None else None,
+                e.entry_zone_low,
+                e.entry_zone_high,
+                e.market_entry_price,
+                e.cis_score,
+                json.dumps(e.bucket_scores) if e.bucket_scores is not None else None,
+                e.weights_version,
+                e.expires_at,
+                e.feature_schema_version,
+                e.stop_basis,
+                e.stop_type_col,
+                e.structural_stop_distance_atr,
+                e.adaptive_buffer_mult,
+                e.plugin_regime_type,
+                e.stop_structure_age_bars,
+                e.raw_confidence,
+                e.calibrated_confidence,
             )
         )
         outcomes_params.append(
@@ -904,9 +906,11 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
             )
         )
     with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, _INSERT_SYNC_SQL, ledger_params, page_size=1000)
-        psycopg2.extras.execute_batch(
-            cur, _INSERT_OUTCOMES_SYNC_SQL, outcomes_params, page_size=1000
+        psycopg2.extras.execute_values(
+            cur, _INSERT_SYNC_SQL, ledger_params, template=_INSERT_SYNC_TEMPLATE
+        )
+        psycopg2.extras.execute_values(
+            cur, _INSERT_OUTCOMES_SYNC_SQL, outcomes_params, template=_INSERT_OUTCOMES_SYNC_TEMPLATE
         )
     conn.commit()
 
@@ -973,6 +977,40 @@ def _load_perf_weights(conn: Any) -> dict[str, tuple[float, int]]:
         for plugin, win_rate, avg_pnl_r, sample_size, sharpe_ratio in rows
     }
     return _compute_perf_multipliers(stats)
+
+
+def _load_precomputed_features(
+    conn: Any, symbol: str, since: datetime | None = None
+) -> dict[tuple[str, datetime], dict]:
+    """Load intelligence_features for symbol into (tf, ts) -> merged flat dict.
+
+    Used by --use-precomputed-features to skip I1-I6 recomputation entirely.
+    All six JSONB tier columns are merged into one flat dict per bar.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ts, tf,"
+            " technical_indicators, pattern_detections, regime_features,"
+            " confluence_scores, smc, cross_timeframe_context"
+            " FROM intelligence_features"
+            " WHERE symbol = %s AND (%s IS NULL OR ts >= %s)"
+            " ORDER BY ts ASC",
+            (symbol, since, since),
+        )
+        rows = cur.fetchall()
+
+    result: dict[tuple[str, datetime], dict] = {}
+    for ts, tf, ti, pd_det, rf, cs, smc_col, ctf in rows:
+        merged: dict = {}
+        for tier in (ti, pd_det, rf, cs, smc_col, ctf):
+            if not tier:
+                continue
+            if isinstance(tier, str):
+                tier = json.loads(tier)
+            merged.update(tier)
+        key_ts = ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
+        result[(tf, key_ts)] = merged
+    return result
 
 
 def run_i7_and_persist(
@@ -1399,6 +1437,7 @@ def replay_symbol(
     skip_signals: bool = False,
     calibration_curves: dict | None = None,
     perf_weights: dict | None = None,
+    precomputed_features: dict | None = None,
 ) -> dict[str, int]:
     """Replay bars for *symbol* through the I1→I7 pipeline.
 
@@ -1492,45 +1531,54 @@ def replay_symbol(
         if len(history) < min_bars_for_tf(tf):
             continue
 
-        # Build DataFrame once for this bar event — shared across I1, frames, and I7.
-        # Avoids 3 redundant constructions of the same 200-row deque per bar.
+        # Build DataFrame once — shared across I1, frames, and I7.
         df = pd.DataFrame(list(history))
-
-        # I1 — pass pre-built df
-        i1_features = run_i1_plugins(history, symbol, tf, plugin_states, df=df)
-        if not i1_features:
-            continue
-
-        # Build frames with cross-TF context (for I6 confluence).
-        # Because we process bars chronologically across all TFs, intelligence_cache
-        # here contains only intel from timestamps <= ts — no look-ahead.
-        frames: dict[str, Any] = {"main": df, "features": i1_features}
-        for other_tf in tf_hierarchy:
-            if other_tf == tf:
-                continue
-            other_key = f"{symbol}:{other_tf}"
-            if other_key in bar_histories and len(bar_histories[other_key]) >= 50:
-                frames[f"tf_{other_tf}"] = pd.DataFrame(list(bar_histories[other_key]))
-            cached = intelligence_cache.get(symbol, {}).get(other_tf)
-            if cached:
-                frames[f"intel_{other_tf}"] = cached
-
-        # I2 → I6
-        intelligence = run_analysis_pipeline(frames, intelligence_cache, symbol, tf, plugin_states)
-
-        # Merge all features for I7
-        all_features = {**i1_features, **intelligence}
-
-        # Build IntelligenceEvent and buffer for batch insert
-        event = _build_intelligence_event(bar, i1_features, intelligence, symbol, tf, ts)
         written_feature_ts: datetime | None = None
-        if event is not None:
-            feature_buffers[tf].append(_event_to_sync_params(event))
+
+        if precomputed_features is not None:
+            # Precomputed mode: skip I1-I6 entirely; features already in intelligence_features.
+            ts_utc = ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
+            all_features = precomputed_features.get((tf, ts_utc))
+            if not all_features:
+                continue
             written_feature_ts = ts
-            total_features_by_tf[tf] += 1
-            if len(feature_buffers[tf]) >= _FEATURE_BATCH_SIZE:
-                _insert_features_sync(db_conn, feature_buffers[tf])
-                feature_buffers[tf].clear()
+        else:
+            # I1 — pass pre-built df
+            i1_features = run_i1_plugins(history, symbol, tf, plugin_states, df=df)
+            if not i1_features:
+                continue
+
+            # Build frames with cross-TF context (for I6 confluence).
+            # Because we process bars chronologically across all TFs, intelligence_cache
+            # here contains only intel from timestamps <= ts — no look-ahead.
+            frames: dict[str, Any] = {"main": df, "features": i1_features}
+            for other_tf in tf_hierarchy:
+                if other_tf == tf:
+                    continue
+                other_key = f"{symbol}:{other_tf}"
+                if other_key in bar_histories and len(bar_histories[other_key]) >= 50:
+                    frames[f"tf_{other_tf}"] = pd.DataFrame(list(bar_histories[other_key]))
+                cached = intelligence_cache.get(symbol, {}).get(other_tf)
+                if cached:
+                    frames[f"intel_{other_tf}"] = cached
+
+            # I2 → I6
+            intelligence = run_analysis_pipeline(
+                frames, intelligence_cache, symbol, tf, plugin_states
+            )
+
+            # Merge all features for I7
+            all_features = {**i1_features, **intelligence}
+
+            # Build IntelligenceEvent and buffer for batch insert
+            event = _build_intelligence_event(bar, i1_features, intelligence, symbol, tf, ts)
+            if event is not None:
+                feature_buffers[tf].append(_event_to_sync_params(event))
+                written_feature_ts = ts
+                total_features_by_tf[tf] += 1
+                if len(feature_buffers[tf]) >= _FEATURE_BATCH_SIZE:
+                    _insert_features_sync(db_conn, feature_buffers[tf])
+                    feature_buffers[tf].clear()
 
         # I7 → signal_ledger (skipped in seed/warmup mode)
         if not skip_signals:
@@ -1594,18 +1642,23 @@ def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
     plugins, replays the symbol, commits, and closes.
 
     Args:
-        args: (symbol, db_url, timeframes, since_dt, skip_signals)
+        args: (symbol, db_url, timeframes, since_dt, skip_signals, use_precomputed)
 
     Returns:
         (symbol, total_signals, counts_by_tf)
     """
-    symbol, db_url, timeframes, since_dt, skip_signals = args
+    symbol, db_url, timeframes, since_dt, skip_signals, use_precomputed = args
     register_all_plugins()
     conn = psycopg2.connect(dsn=db_url)
     conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute("SET synchronous_commit = off")
     try:
         calibration_curves = _load_calibration_curves(conn, symbol=symbol)
         perf_weights = _load_perf_weights(conn)
+        precomputed = (
+            _load_precomputed_features(conn, symbol, since=since_dt) if use_precomputed else None
+        )
         counts = replay_symbol(
             symbol,
             conn,
@@ -1614,6 +1667,7 @@ def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
             skip_signals=skip_signals,
             calibration_curves=calibration_curves,
             perf_weights=perf_weights,
+            precomputed_features=precomputed,
         )
         return symbol, sum(counts.values()), counts
     finally:
@@ -1800,6 +1854,14 @@ def main() -> None:
         default=False,
         help="Fill gaps in existing market_data_ohlcv rows with synthetic flat bars. "
         "Idempotent — safe to re-run. Combines with --symbols to limit scope.",
+    )
+    parser.add_argument(
+        "--use-precomputed-features",
+        action="store_true",
+        default=False,
+        help="Skip I1-I6 recomputation; load stored intelligence_features rows and feed "
+        "them directly to I7. Use when only I7 plugins changed (phases 118-119). "
+        "5-10x faster than full replay. Requires intelligence_features to be current.",
     )
     args = parser.parse_args()
 
@@ -2185,10 +2247,17 @@ def main() -> None:
         grand_total = 0
 
         if args.workers == 1:
+            with db_conn.cursor() as cur:
+                cur.execute("SET synchronous_commit = off")
             perf_weights = _load_perf_weights(db_conn)
             for contract in contracts:
                 print(f"\n{contract.symbol}:")
                 calibration_curves = _load_calibration_curves(db_conn, symbol=contract.symbol)
+                precomputed = (
+                    _load_precomputed_features(db_conn, contract.symbol, since=since_dt)
+                    if args.use_precomputed_features
+                    else None
+                )
                 counts = replay_symbol(
                     contract.symbol,
                     db_conn,
@@ -2196,13 +2265,21 @@ def main() -> None:
                     since=since_dt,
                     calibration_curves=calibration_curves,
                     perf_weights=perf_weights,
+                    precomputed_features=precomputed,
                 )
                 symbol_total = sum(counts.values())
                 grand_total += symbol_total
                 print(f"  {contract.symbol} total: {symbol_total} signals")
         else:
             worker_args = [
-                (contract.symbol, settings.database_url, timeframes, since_dt, False)
+                (
+                    contract.symbol,
+                    settings.database_url,
+                    timeframes,
+                    since_dt,
+                    False,
+                    args.use_precomputed_features,
+                )
                 for contract in contracts
             ]
             print(f"  Spawning {args.workers} workers for {len(contracts)} symbols...")
