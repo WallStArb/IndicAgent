@@ -2,9 +2,18 @@
 """
 Lifecycle Replay Script — batch replay of historical signal outcomes.
 
-Version: 1.2
+Version: 1.3
 Status: current
-Last Updated: 2026-06-06
+Last Updated: 2026-06-10
+
+Phase 121 changes:
+    - No hardcoded date window defaults (--reset-before/--reset-after default to None)
+    - _seed_orphan_outcomes processes ALL signals regardless of timestamp
+    - SELECT now includes all 14 new schema columns (5 signal_ledger + 9 signal_outcomes)
+    - _verify_replay includes shadow signals (is_shadow = false filter removed)
+    - _verify_replay D-06: hard-fails on shadow_stopped_at_entry > 0 or orphan_ledger_rows > 0
+    - _assert_row_types helper for fail-fast asyncpg type contract validation
+    - Re-entry safe via ON CONFLICT DO NOTHING in _seed_orphan_outcomes
 
 Evaluates dual-track outcomes (zone track + market track) for all signals
 that lack outcomes, by replaying market_data_ohlcv bars chronologically
@@ -12,9 +21,9 @@ per (symbol, timeframe).
 
 Safety controls:
     - Advisory lock prevents concurrent replays
-    - Preflight seeds orphan signal_outcomes rows
+    - Preflight seeds orphan signal_outcomes rows (all timestamps, re-entry safe)
     - --confirm required for destructive --reset
-    - Post-replay verification catches data integrity issues
+    - Post-replay verification catches data integrity issues (shadow + orphan checks)
 
 Usage:
     # Full reset + replay of corrupt data (requires service stop first):
@@ -102,14 +111,17 @@ async def _check_service_quiescence() -> list[str]:
     return active
 
 
-async def _seed_orphan_outcomes(
-    conn, symbols: list[str], timeframes: list[str], cutoff: datetime
-) -> int:
-    """Seed missing signal_outcomes rows for signal_ledger entries in the repair window.
+async def _seed_orphan_outcomes(conn, symbols: list[str], timeframes: list[str]) -> int:
+    """Seed ALL missing signal_outcomes rows — no date window.
 
     Phase-104 split means every signal_ledger row MUST have a matching signal_outcomes row.
     If seeding was incomplete, INNER JOIN would silently skip these signals — the exact
     kind of silent data loss that destroys quant systems.
+
+    # ON CONFLICT DO NOTHING makes this safe for re-entry after a crash.
+    If lifecycle_replay.py crashes mid-run (after the advisory lock is released in the finally
+    block), simply re-run it — the seeding step will skip rows that already exist and the
+    worker pool will pick up only the signals that lack completed outcomes.
 
     Returns count of rows seeded.
     """
@@ -119,12 +131,9 @@ async def _seed_orphan_outcomes(
            FROM signal_ledger sl
            LEFT JOIN signal_outcomes so ON sl.signal_id = so.signal_id
            WHERE so.signal_id IS NULL
-             AND sl.timestamp >= '2026-05-21'
-             AND sl.timestamp < $1
-             AND sl.symbol = ANY($2)
-             AND sl.timeframe = ANY($3)
+             AND sl.symbol = ANY($1)
+             AND sl.timeframe = ANY($2)
            ON CONFLICT (signal_id) DO NOTHING""",
-        cutoff,
         symbols,
         timeframes,
     )
@@ -359,6 +368,37 @@ async def _fetch_work_queue(
         return [(row["symbol"], row["timeframe"], row["cnt"]) for row in rows]
 
 
+def _assert_row_types(row) -> None:
+    """Assert asyncpg type contracts for the 14 new schema columns on the first fetched row.
+
+    Called once before bulk processing to catch type mismatches immediately rather than
+    at row 1.5M. Raises RuntimeError (not AssertionError) so failures propagate to the
+    JOB_COMPLETED_TOTAL failure path and are not silently swallowed.
+    """
+    checks = [
+        # trailing_stop_price is JSONB — asyncpg returns as dict | None (never str)
+        ("trailing_stop_price", dict, row.get("trailing_stop_price")),
+        # shadow_tracking_start_ts is timestamptz — asyncpg returns datetime | None
+        ("shadow_tracking_start_ts", datetime, row.get("shadow_tracking_start_ts")),
+        # effective_ts is timestamptz — asyncpg returns datetime | None
+        ("effective_ts", datetime, row.get("effective_ts")),
+        # numeric columns — asyncpg returns float, int, or Decimal | None
+        ("staleness_score", (float, int), row.get("staleness_score")),
+        ("shadow_mae", (float, int), row.get("shadow_mae")),
+        ("shadow_mfe", (float, int), row.get("shadow_mfe")),
+    ]
+    for col_name, expected_types, val in checks:
+        if val is None:
+            continue  # NULL is always valid for nullable columns
+        try:
+            assert isinstance(val, expected_types), (
+                f"Col {col_name}: expected {expected_types}, got {type(val).__name__} "
+                "— check asyncpg config (JSONB must not be decoded as str)"
+            )
+        except AssertionError as error:
+            raise RuntimeError(str(error)) from error
+
+
 async def _process_symbol_tf(
     db: DatabaseManager,
     symbol: str,
@@ -401,6 +441,9 @@ async def _process_symbol_tf(
                           sl.is_shadow, sl.is_backfill,
                           sl.hmm_regime_at_fire, sl.garch_sigma_at_fire,
                           sl.was_selected,
+                          sl.stop_basis, sl.stop_type_col,
+                          sl.structural_stop_distance_atr, sl.adaptive_buffer_mult,
+                          sl.plugin_regime_type,
                           so.status, so.outcome, so.activated_at,
                           so.exit_at, so.exit_price, so.exit_reason,
                           so.pnl_ticks, so.pnl_r, so.pnl_dollars,
@@ -409,7 +452,11 @@ async def _process_symbol_tf(
                           so.market_entry_at, so.market_entry_exit_price,
                           so.market_entry_pnl_r, so.market_entry_mae, so.market_entry_mfe,
                           so.market_entry_bars_in_trade, so.market_entry_outcome,
-                          so.market_entry_gap_bars, so.market_entry_exit_at
+                          so.market_entry_gap_bars, so.market_entry_exit_at,
+                          so.trailing_stop_price, so.staleness_score,
+                          so.staleness_trigger_reason, so.chandelier_vol_source,
+                          so.shadow_tracking_start_ts, so.shadow_mae, so.shadow_mfe,
+                          so.shadow_outcome, so.effective_ts
                    FROM signal_ledger sl
                    JOIN signal_outcomes so ON sl.signal_id = so.signal_id
                    WHERE so.status IN ('pending', 'regime_suppressed')
@@ -421,6 +468,10 @@ async def _process_symbol_tf(
 
         if not signals:
             return stats
+
+        # Assert asyncpg type contracts on the first row before bulk processing.
+        # Fail fast on the first row rather than discovering a type mismatch at row 1.5M.
+        _assert_row_types(signals[0])
 
         min_ts = min(s["timestamp"] for s in signals)
         # Map by signal_id for O(1) lookup during bar evaluation
@@ -1043,13 +1094,24 @@ async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
     logger.info("VALIDATE %s %s: structural check passed", symbol, timeframe)
 
 
-async def _verify_replay(db: DatabaseManager, symbols: list[str], timeframes: list[str]) -> None:
-    """Post-replay integrity check.
+async def _verify_replay(
+    db: DatabaseManager,
+    symbols: list[str],
+    timeframes: list[str],
+    setups: list[str] | None = None,
+) -> None:
+    """Post-replay integrity check (D-06).
 
     Every non-regime signal should have an outcome. Every impossible
     combination should be flagged. Every orphan should be detected.
+    Shadow signals are included in all checks (is_shadow = false filter removed).
+    Hard-fails on: shadow stopped_at_entry > 0, orphan_ledger_rows > 0.
     Discrepancies are logged as warnings — investigate before trusting downstream data.
     """
+    from services.shadow_validator import _SHADOW_VALIDATION_SETUPS
+
+    shadow_setups = setups if setups is not None else list(_SHADOW_VALIDATION_SETUPS)
+
     async with db.pool.acquire() as conn:
         row = await conn.fetchrow(
             """SELECT
@@ -1066,25 +1128,45 @@ async def _verify_replay(db: DatabaseManager, symbols: list[str], timeframes: li
                      THEN 1 END) as missing_market_outcome,
                 COUNT(CASE WHEN so.outcome IN ('target_1','target_1_2','target_full')
                            AND so.pnl_r IS NULL
-                     THEN 1 END) as target_no_pnl
+                     THEN 1 END) as target_no_pnl,
+                COUNT(CASE WHEN so.outcome = 'stopped_at_entry'
+                           AND sl.is_shadow = true
+                           AND sl.setup_plugin = ANY($3)
+                     THEN 1 END) as shadow_stopped_at_entry
             FROM signal_ledger sl
             JOIN signal_outcomes so ON sl.signal_id = so.signal_id
             WHERE sl.symbol = ANY($1)
-              AND sl.timeframe = ANY($2)
-              AND sl.is_shadow = false""",
+              AND sl.timeframe = ANY($2)""",
+            symbols,
+            timeframes,
+            shadow_setups,
+        )
+        # Orphan check: signal_ledger rows with no matching signal_outcomes row
+        orphan_row = await conn.fetchrow(
+            """SELECT COUNT(*) as orphan_ledger_rows
+               FROM signal_ledger sl
+               LEFT JOIN signal_outcomes so ON sl.signal_id = so.signal_id
+               WHERE sl.symbol = ANY($1)
+                 AND sl.timeframe = ANY($2)
+                 AND so.signal_id IS NULL""",
             symbols,
             timeframes,
         )
 
+    orphan_ledger_rows = orphan_row["orphan_ledger_rows"]
+
     logger.info(
         "VERIFY: total=%d with_outcome=%d regime_no_outcome=%d "
-        "stale_unresolved=%d missing_market=%d target_no_pnl=%d",
+        "stale_unresolved=%d missing_market=%d target_no_pnl=%d "
+        "shadow_stopped_at_entry=%d orphan_ledger_rows=%d",
         row["total"],
         row["with_outcome"],
         row["regime_no_outcome"],
         row["stale_unresolved"],
         row["missing_market_outcome"],
         row["target_no_pnl"],
+        row["shadow_stopped_at_entry"],
+        orphan_ledger_rows,
     )
 
     issues = []
@@ -1097,6 +1179,16 @@ async def _verify_replay(db: DatabaseManager, symbols: list[str], timeframes: li
         )
     if row["target_no_pnl"] > 0:
         issues.append(f"{row['target_no_pnl']} target-hit signals with null pnl_r")
+    if row["shadow_stopped_at_entry"] > 0:
+        issues.append(
+            f"{row['shadow_stopped_at_entry']} shadow signals have stopped_at_entry outcome "
+            "(Phase 117 fix must eliminate all stopped_at_entry for shadow setups)"
+        )
+    if orphan_ledger_rows > 0:
+        issues.append(
+            f"{orphan_ledger_rows} signal_ledger rows without signal_outcomes row "
+            "(Phase 104 invariant violated)"
+        )
 
     if issues:
         for issue in issues:
@@ -1140,14 +1232,14 @@ async def main_async():
     parser.add_argument(
         "--reset-before",
         type=str,
-        default="2026-06-02T00:00:00Z",
-        help="ISO timestamp — only reset signals before this date (default: 2026-06-02)",
+        default=None,
+        help="ISO timestamp — only reset signals before this date (optional override; default: no upper bound)",
     )
     parser.add_argument(
         "--reset-after",
         type=str,
-        default="2026-05-21T00:00:00Z",
-        help="ISO timestamp — only reset signals after this date (default: 2026-05-21)",
+        default=None,
+        help="ISO timestamp — only reset signals after this date (optional override; default: no lower bound)",
     )
     parser.add_argument(
         "--confirm",
@@ -1195,9 +1287,8 @@ async def main_async():
                             ", ".join(active_services),
                         )
 
-                # 3. Seed orphan outcomes (idempotent)
-                cutoff = datetime(2026, 6, 2, 0, 0, 0, tzinfo=UTC)
-                orphans = await _seed_orphan_outcomes(preflight_conn, symbols, timeframes, cutoff)
+                # 3. Seed orphan outcomes (idempotent — safe for re-entry via ON CONFLICT DO NOTHING)
+                orphans = await _seed_orphan_outcomes(preflight_conn, symbols, timeframes)
                 if orphans > 0:
                     logger.info("Preflight: seeded %d orphan signal_outcomes rows", orphans)
                 else:
@@ -1213,12 +1304,20 @@ async def main_async():
                     "Run with --reset --confirm to proceed."
                 )
                 return
-            after = datetime.fromisoformat(args.reset_after.replace("Z", "+00:00"))
-            before = datetime.fromisoformat(args.reset_before.replace("Z", "+00:00"))
+            after = (
+                datetime.fromisoformat(args.reset_after.replace("Z", "+00:00"))
+                if args.reset_after
+                else None
+            )
+            before = (
+                datetime.fromisoformat(args.reset_before.replace("Z", "+00:00"))
+                if args.reset_before
+                else None
+            )
             logger.info(
                 "Reset window: [%s, %s) — about to wipe outcomes and truncate derived tables",
-                after.isoformat(),
-                before.isoformat(),
+                after.isoformat() if after else "unbounded",
+                before.isoformat() if before else "unbounded",
             )
             reset_stats = await _reset_corrupt_data(db, symbols, timeframes, after, before)
             logger.info("Reset complete: %s", reset_stats)
