@@ -179,6 +179,12 @@ async def get_active_signals(
     for signals with status in ('pending', 'active').
     """
     try:
+        # All columns sourced directly from signal_ledger — no LATERAL jsonb_array_elements.
+        # The LATERAL was expanding intelligence_features.trading_signals (~15 elements/row)
+        # and doing a linear scan per signal to find the matching signal_id, causing
+        # 9s mean latency at 750 calls/session. Fields that lived only in JSONB
+        # (confidence, regime_context, market_price_at_signal, ask/bid, zone_valid)
+        # are dropped; cis_score and the framing columns cover the same trading decisions.
         query = """
             SELECT DISTINCT ON (sl.symbol, sl.timeframe)
                 sl.signal_id,
@@ -187,21 +193,15 @@ async def get_active_signals(
                 sl.setup_plugin,
                 sl.signal_type,
                 sl.direction,
-                tf_sig.value->>'entry_price' AS entry_price,
-                tf_sig.value->>'stop_loss' AS stop_loss,
-                tf_sig.value->>'confidence' AS confidence,
+                sl.entry_price,
+                sl.stop_loss,
+                sl.cis_score,
+                sl.targets,
                 sl.status,
                 sl.was_selected,
-                tf_sig.value->>'cis_score' AS cis_score,
-                tf_sig.value->'targets' AS targets,
-                tf_sig.value->>'regime_context' AS regime_context,
-                tf_sig.value->>'stop_basis' AS stop_basis,
-                tf_sig.value->>'market_price_at_signal' AS market_price_at_signal,
-                tf_sig.value->>'ask_at_signal' AS ask_at_signal,
-                tf_sig.value->>'bid_at_signal' AS bid_at_signal,
-                tf_sig.value->>'entry_zone_low' AS entry_zone_low,
-                tf_sig.value->>'entry_zone_high' AS entry_zone_high,
-                tf_sig.value->>'zone_valid_at_signal' AS zone_valid_at_signal,
+                sl.stop_basis,
+                sl.entry_zone_low,
+                sl.entry_zone_high,
                 sl.signal_computed_at,
                 sl.feature_ts AS bar_close_ts,
                 sl.timestamp,
@@ -214,9 +214,6 @@ async def get_active_signals(
                 sp.avg_pnl_r  AS setup_avg_pnl_r
             FROM signal_ledger_full sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin AND sp.symbol = sl.symbol
-            LEFT JOIN intelligence_features f ON f.ts = sl.feature_ts AND f.symbol = sl.symbol AND f.tf = sl.feature_tf
-            LEFT JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
-                ON tf_sig.value->>'signal_id' = sl.signal_id::text
             WHERE sl.status IN ('pending', 'active')
               -- shadow signals included intentionally: dashboard observability (Phase 80)
               AND sl.timestamp >= NOW() - INTERVAL '7 days'
@@ -248,7 +245,7 @@ async def get_active_signals(
                     "direction": row["direction"],
                     "entry_price": entry,
                     "stop_loss": stop,
-                    "confidence": _f(row["confidence"]),
+                    "confidence": None,
                     "status": row["status"],
                     "was_selected": row["was_selected"],
                     "cis_score": _f(row["cis_score"]),
@@ -257,13 +254,13 @@ async def get_active_signals(
                     "profit_target_3": t3,
                     "risk_reward_ratio": rr,
                     "stop_type": _s(row["stop_basis"]),
-                    "regime_context": _s(row["regime_context"]),
-                    "market_price_at_signal": _f(row["market_price_at_signal"]),
-                    "ask_at_signal": _f(row["ask_at_signal"]),
-                    "bid_at_signal": _f(row["bid_at_signal"]),
+                    "regime_context": None,
+                    "market_price_at_signal": None,
+                    "ask_at_signal": None,
+                    "bid_at_signal": None,
                     "entry_zone_low": _f(row["entry_zone_low"]),
                     "entry_zone_high": _f(row["entry_zone_high"]),
-                    "zone_valid_at_signal": row["zone_valid_at_signal"],
+                    "zone_valid_at_signal": None,
                     "signal_computed_at": (
                         row["signal_computed_at"].isoformat()
                         if row["signal_computed_at"] is not None
@@ -284,7 +281,7 @@ async def get_active_signals(
                     "bucket_scores": _parse_jsonb(row["bucket_scores"], default=None),
                     "signal_tier": _compute_signal_tier(
                         row["was_selected"],
-                        _f(row["confidence"]),
+                        None,
                         _f(row["cis_score"]),
                     ),
                 }
