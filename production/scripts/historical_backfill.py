@@ -1759,6 +1759,17 @@ def main() -> None:
         help="Delete existing signals before replay (use with --replay-only to avoid duplicates)",
     )
     parser.add_argument(
+        "--setups",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated setup_plugin names to scope --clean deletion. "
+            "When provided, only deletes signal_ledger and signal_outcomes rows for these setups "
+            "(intelligence_features is NOT deleted). "
+            "Default: None (full-symbol clean)."
+        ),
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=8,
@@ -2067,53 +2078,92 @@ def main() -> None:
         if args.clean:
             print("  Cleaning up old signals for replayed symbols...")
             with db_conn.cursor() as cur:
-                # Delete signals AND intelligence_features for the symbols we're about to replay
-                # This allows re-running backfill on specific symbols cleanly
                 symbol_values = [c.symbol for c in contracts]
 
-                # Delete all intelligence_features rows for these symbols directly.
-                # The old subquery JOIN against signal_ledger only deleted rows that had
-                # a matching signal, orphaning feature rows for bars where I7 fired no signals.
-                cur.execute(
-                    "DELETE FROM intelligence_features WHERE symbol = ANY(%s)",
-                    (symbol_values,),
-                )
-                deleted_features = cur.rowcount
+                # Determine setup filter scope.
+                # When --setups is explicitly "ALL", fall back to full-symbol clean.
+                # Otherwise: if --setups provided, use that list; default scope is the
+                # 22 _SHADOW_VALIDATION_SETUPS frozenset (never hardcoded here).
+                if args.setups == "ALL":
+                    setup_filter: list[str] | None = None
+                elif args.setups is not None:
+                    setup_filter = [s.strip() for s in args.setups.split(",") if s.strip()]
+                else:
+                    # Default: scope to the 22 shadow validation setups
+                    from services.shadow_validator import _SHADOW_VALIDATION_SETUPS
 
-                # Delete lifecycle state first, then fire-time rows (no FK cascade)
-                # Delete outcomes that have matching ledger entries
-                cur.execute(
-                    """
-                    DELETE FROM signal_outcomes
-                    WHERE signal_id IN (
-                        SELECT signal_id FROM signal_ledger WHERE symbol = ANY(%s)
-                    );
-                """,
-                    (symbol_values,),
-                )
-                # Delete ledger entries
-                cur.execute(
-                    """
-                    DELETE FROM signal_ledger
-                    WHERE symbol = ANY(%s);
-                """,
-                    (symbol_values,),
-                )
-                # Delete any orphaned outcomes (defensive: catches outcomes without ledger entries)
-                # signal_outcomes has no symbol column, so we delete ALL orphans globally
-                cur.execute(
-                    """
-                    DELETE FROM signal_outcomes
-                    WHERE signal_id NOT IN (SELECT signal_id FROM signal_ledger);
-                """,
-                )
-                deleted_signals = cur.rowcount
+                    setup_filter = list(_SHADOW_VALIDATION_SETUPS)
 
-                db_conn.commit()
-                print(
-                    f"  Deleted {deleted_signals:,} signals + "
-                    f"{deleted_features:,} intelligence feature rows"
-                )
+                if setup_filter is not None:
+                    # Plugin-scoped clean: skip intelligence_features (no setup_plugin column;
+                    # per-bar feature vectors are shared across all 30 setups — deleting by
+                    # symbol would destroy the 8 GOOD control setups' feature data).
+                    print(
+                        f"  Plugin-scoped clean: {len(setup_filter)} setups, "
+                        f"{len(symbol_values)} symbols — intelligence_features NOT deleted"
+                    )
+                    # Delete outcomes first (no FK cascade), then ledger rows
+                    cur.execute(
+                        """DELETE FROM signal_outcomes
+                           WHERE signal_id IN (
+                               SELECT signal_id FROM signal_ledger
+                               WHERE symbol = ANY(%s) AND setup_plugin = ANY(%s)
+                           )""",
+                        (symbol_values, setup_filter),
+                    )
+                    deleted_outcomes = cur.rowcount
+                    cur.execute(
+                        """DELETE FROM signal_ledger
+                           WHERE symbol = ANY(%s) AND setup_plugin = ANY(%s)""",
+                        (symbol_values, setup_filter),
+                    )
+                    deleted_signals = cur.rowcount
+                    db_conn.commit()
+                    print(
+                        f"  Deleted {deleted_signals:,} signal_ledger rows + "
+                        f"{deleted_outcomes:,} signal_outcomes rows "
+                        f"(intelligence_features preserved)"
+                    )
+                else:
+                    # Full-symbol clean (legacy path, requires --setups ALL)
+                    # Delete signals AND intelligence_features for the symbols we're about to replay
+                    cur.execute(
+                        "DELETE FROM intelligence_features WHERE symbol = ANY(%s)",
+                        (symbol_values,),
+                    )
+                    deleted_features = cur.rowcount
+
+                    # Delete lifecycle state first, then fire-time rows (no FK cascade)
+                    cur.execute(
+                        """
+                        DELETE FROM signal_outcomes
+                        WHERE signal_id IN (
+                            SELECT signal_id FROM signal_ledger WHERE symbol = ANY(%s)
+                        );
+                    """,
+                        (symbol_values,),
+                    )
+                    cur.execute(
+                        """
+                        DELETE FROM signal_ledger
+                        WHERE symbol = ANY(%s);
+                    """,
+                        (symbol_values,),
+                    )
+                    # Delete any orphaned outcomes (defensive: catches outcomes without ledger entries)
+                    cur.execute(
+                        """
+                        DELETE FROM signal_outcomes
+                        WHERE signal_id NOT IN (SELECT signal_id FROM signal_ledger);
+                    """,
+                    )
+                    deleted_signals = cur.rowcount
+
+                    db_conn.commit()
+                    print(
+                        f"  Deleted {deleted_signals:,} signals + "
+                        f"{deleted_features:,} intelligence feature rows"
+                    )
 
         register_all_plugins()
         grand_total = 0
