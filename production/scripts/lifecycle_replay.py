@@ -529,8 +529,8 @@ async def _process_symbol_tf(
         # Cursor-based pagination (timestamp >) replaces OFFSET pagination — OFFSET
         # is O(N²) on a hypertable: each batch scans from chunk 0 to the offset row.
         BATCH_SIZE = 1000
-        # Subtract 1µs so the first batch uses strict > and covers min_ts exactly.
-        bar_cursor: datetime = min_ts - timedelta(microseconds=1)
+        # None → first batch uses >=min_ts; subsequent batches use >last_bar_ts.
+        bar_cursor: datetime | None = None
         conn = await db.pool.acquire()
         try:
             await conn.execute("BEGIN")
@@ -542,18 +542,32 @@ async def _process_symbol_tf(
 
         # 4. Stream bars and evaluate signals using client-side batching
         while True:
-            bars = await conn.fetch(
-                """SELECT timestamp, open, high, low, close
-                   FROM market_data_ohlcv
-                   WHERE symbol = $1 AND timeframe = $2
-                     AND timestamp > $3
-                   ORDER BY timestamp ASC
-                   LIMIT $4""",
-                symbol,
-                timeframe,
-                bar_cursor,
-                BATCH_SIZE,
-            )
+            if bar_cursor is None:
+                bars = await conn.fetch(
+                    """SELECT timestamp, open, high, low, close
+                       FROM market_data_ohlcv
+                       WHERE symbol = $1 AND timeframe = $2
+                         AND timestamp >= $3
+                       ORDER BY timestamp ASC
+                       LIMIT $4""",
+                    symbol,
+                    timeframe,
+                    min_ts,
+                    BATCH_SIZE,
+                )
+            else:
+                bars = await conn.fetch(
+                    """SELECT timestamp, open, high, low, close
+                       FROM market_data_ohlcv
+                       WHERE symbol = $1 AND timeframe = $2
+                         AND timestamp > $3
+                       ORDER BY timestamp ASC
+                       LIMIT $4""",
+                    symbol,
+                    timeframe,
+                    bar_cursor,
+                    BATCH_SIZE,
+                )
 
             if not bars:
                 break  # No more bars
