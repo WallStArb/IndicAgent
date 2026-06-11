@@ -179,12 +179,6 @@ async def get_active_signals(
     for signals with status in ('pending', 'active').
     """
     try:
-        # All columns sourced directly from signal_ledger — no LATERAL jsonb_array_elements.
-        # The LATERAL was expanding intelligence_features.trading_signals (~15 elements/row)
-        # and doing a linear scan per signal to find the matching signal_id, causing
-        # 9s mean latency at 750 calls/session. Fields that lived only in JSONB
-        # (confidence, regime_context, market_price_at_signal, ask/bid, zone_valid)
-        # are dropped; cis_score and the framing columns cover the same trading decisions.
         query = """
             SELECT DISTINCT ON (sl.symbol, sl.timeframe)
                 sl.signal_id,
@@ -197,7 +191,7 @@ async def get_active_signals(
                 sl.stop_loss,
                 sl.cis_score,
                 sl.targets,
-                sl.status,
+                so.status,
                 sl.was_selected,
                 sl.stop_basis,
                 sl.entry_zone_low,
@@ -205,16 +199,17 @@ async def get_active_signals(
                 sl.signal_computed_at,
                 sl.feature_ts AS bar_close_ts,
                 sl.timestamp,
-                sl.staleness_score,
-                sl.staleness_trigger_reason,
+                so.staleness_score,
+                so.staleness_trigger_reason,
                 sl.ttl_bars,
                 sl.hmm_regime_at_fire,
                 sl.bucket_scores,
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
-            FROM signal_ledger_full sl
+            FROM signal_ledger sl
+            JOIN signal_outcomes so ON sl.signal_id = so.signal_id
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin AND sp.symbol = sl.symbol
-            WHERE sl.status IN ('pending', 'active')
+            WHERE so.status IN ('pending', 'active')
               -- shadow signals included intentionally: dashboard observability (Phase 80)
               AND sl.timestamp >= NOW() - INTERVAL '7 days'
             ORDER BY sl.symbol, sl.timeframe, sl.signal_computed_at DESC
