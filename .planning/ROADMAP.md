@@ -1490,7 +1490,7 @@ Plans:
 - Phase 118: Confidence Integrity + Top 5 Setup Refactoring ✅ COMPLETE 2026-06-09
 - Phase 119: Remaining 16 Setup Refactoring ✅ COMPLETE 2026-06-10
 - Phase 120: Shadow Mode Validation ✅ COMPLETE 2026-06-10
-- Phase 121: Lifecycle Replay & Validation — pending (Wave 2 absorbs Phase 122 close-out tasks)
+- Phase 121: Lifecycle Replay & Validation 🚧 IN PROGRESS — Wave 1 complete (121-01 executed 2026-06-11; orchestrate running); Wave 2 pending
 - Phase 122: Production Hardening — absorbed into Phase 121; number recycled
 
 **Success Metrics (Before → After):**
@@ -1657,7 +1657,7 @@ Plans:
 
 **Wave 1** — Replay execution
 
-- [ ] 121-01-PLAN.md — Lifecycle replay with corrected setups + signal_ledger repopulation + outcome backfill
+- [x] 121-01-PLAN.md — Lifecycle replay with corrected setups + signal_ledger repopulation + outcome backfill (executed 2026-06-11; 5.18M noise signals deleted, before-snapshot captured, decompress+clean+replay stages running)
 
 **Wave 2** *(depends on Wave 1)* — Validation report
 

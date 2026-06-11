@@ -92,6 +92,8 @@ class LedgerEntry:
     adaptive_buffer_mult: float | None = None
     plugin_regime_type: str | None = None
     stop_structure_age_bars: int | None = None
+    raw_confidence: float | None = None
+    calibrated_confidence: float | None = None
     # Initial status for signal_outcomes seeding — NOT stored in signal_ledger
     status: SignalStatus = SignalStatus.PENDING
 
@@ -131,6 +133,8 @@ class LedgerEntry:
             self.adaptive_buffer_mult,  # $32
             self.plugin_regime_type,  # $33
             self.stop_structure_age_bars,  # $34
+            self.raw_confidence,  # $35
+            self.calibrated_confidence,  # $36
         )
 
 
@@ -153,7 +157,8 @@ INSERT INTO signal_ledger (
     pipeline_lag_ms, expires_at,
     feature_schema_version,
     stop_basis, stop_type_col, structural_stop_distance_atr,
-    adaptive_buffer_mult, plugin_regime_type, stop_structure_age_bars
+    adaptive_buffer_mult, plugin_regime_type, stop_structure_age_bars,
+    raw_confidence, calibrated_confidence
 ) VALUES (
     $1::uuid, $2, $3, $4,
     $5, $6, $7,
@@ -168,7 +173,8 @@ INSERT INTO signal_ledger (
     $26, $27,
     $28,
     $29, $30, $31,
-    $32, $33, $34
+    $32, $33, $34,
+    $35, $36
 )
 ON CONFLICT (signal_id, timestamp) DO NOTHING
 """

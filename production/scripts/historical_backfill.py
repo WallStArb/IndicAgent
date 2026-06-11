@@ -711,7 +711,8 @@ INSERT INTO signal_ledger (
     pipeline_lag_ms, expires_at,
     feature_schema_version,
     stop_basis, stop_type_col, structural_stop_distance_atr,
-    adaptive_buffer_mult, plugin_regime_type, stop_structure_age_bars
+    adaptive_buffer_mult, plugin_regime_type, stop_structure_age_bars,
+    raw_confidence, calibrated_confidence
 ) VALUES (
     %s::uuid, %s, %s, %s,
     %s, %s, %s,
@@ -726,7 +727,8 @@ INSERT INTO signal_ledger (
     NULL, %s,
     %s,
     %s, %s, %s,
-    %s, %s, %s
+    %s, %s, %s,
+    %s, %s
 ) ON CONFLICT DO NOTHING
 """
 
@@ -839,6 +841,8 @@ def _build_ledger_entries(
                 adaptive_buffer_mult=sig.get("adaptive_buffer_mult"),
                 plugin_regime_type=sig.get("plugin_regime_type"),
                 stop_structure_age_bars=sig.get("stop_structure_age_bars"),
+                raw_confidence=sig.get("pre_quality_confidence") or sig.get("confidence"),
+                calibrated_confidence=sig.get("calibrated_confidence"),
             )
         )
     return entries
@@ -889,6 +893,8 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
                 e.adaptive_buffer_mult,  # adaptive_buffer_mult
                 e.plugin_regime_type,  # plugin_regime_type
                 e.stop_structure_age_bars,  # stop_structure_age_bars
+                e.raw_confidence,  # raw_confidence
+                e.calibrated_confidence,  # calibrated_confidence
             )
         )
         outcomes_params.append(
