@@ -119,6 +119,7 @@ def _mark_complete(state: dict, stage: str) -> None:
 
 
 _PIPELINE_UNIT = "indicagent-intelligence-pipeline"
+_SIGNAL_WRITER_UNIT = "indicagent-signal-writer"
 
 
 def _systemctl(action: str, unit: str) -> None:
@@ -430,10 +431,11 @@ async def main_async() -> int:
 
     try:
         await _run_stage_snapshot(state)
-        # Stop live pipeline before deleting and regenerating shadow signals — prevents
-        # live-generated shadow rows from contaminating the backfill count and competes
-        # for DB resources during the replay. Always restarted in the finally block.
+        # Stop live pipeline and signal writer before clean/replay — prevents stale
+        # Kafka-buffered signals from being written during the clean window, and avoids
+        # contention on signal_ledger during the backfill INSERT. Both restarted in finally.
         _systemctl("stop", _PIPELINE_UNIT)
+        _systemctl("stop", _SIGNAL_WRITER_UNIT)
         await _run_stage_decompress(state)
         await _run_stage_clean(state)
         await _run_stage_dry_run(state)
@@ -442,6 +444,7 @@ async def main_async() -> int:
         await _run_stage_recompress(state)
     finally:
         _systemctl("start", _PIPELINE_UNIT)
+        _systemctl("start", _SIGNAL_WRITER_UNIT)
 
     print(
         f"\n=== Phase 121 D-01 sequence COMPLETE ==="
