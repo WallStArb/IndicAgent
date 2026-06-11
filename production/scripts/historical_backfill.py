@@ -2089,7 +2089,13 @@ def main() -> None:
                 elif args.setups is not None:
                     setup_filter = [s.strip() for s in args.setups.split(",") if s.strip()]
                 else:
-                    # Default: scope to the 22 shadow validation setups
+                    # Default: scope to the 22 shadow validation setups.
+                    # Add services/ to sys.path so shadow_validator's _path_bootstrap import works.
+                    import sys as _sys
+
+                    _services_dir = str(project_root / "services")
+                    if _services_dir not in _sys.path:
+                        _sys.path.insert(0, _services_dir)
                     from services.shadow_validator import _SHADOW_VALIDATION_SETUPS
 
                     setup_filter = list(_SHADOW_VALIDATION_SETUPS)
@@ -2102,6 +2108,10 @@ def main() -> None:
                         f"  Plugin-scoped clean: {len(setup_filter)} setups, "
                         f"{len(symbol_values)} symbols — intelligence_features NOT deleted"
                     )
+                    # Required for TimescaleDB compressed chunks: allow unlimited decompression
+                    # during DML. Without this, deletes across compressed hypertable chunks fail
+                    # with "tuple decompression limit exceeded".
+                    cur.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
                     # Delete outcomes first (no FK cascade), then ledger rows
                     cur.execute(
                         """DELETE FROM signal_outcomes
