@@ -526,9 +526,11 @@ async def _process_symbol_tf(
         # 3. Stream bars from DB — client-side batching avoids asyncpg cursor issues.
         # Server-side cursors in asyncpg require specific transaction handling that
         # was causing "cursor cannot be created outside of a transaction" errors.
-        # Client-side LIMIT/OFFSET batching is slower but more reliable.
+        # Cursor-based pagination (timestamp >) replaces OFFSET pagination — OFFSET
+        # is O(N²) on a hypertable: each batch scans from chunk 0 to the offset row.
         BATCH_SIZE = 1000
-        offset = 0
+        # Subtract 1µs so the first batch uses strict > and covers min_ts exactly.
+        bar_cursor: datetime = min_ts - timedelta(microseconds=1)
         conn = await db.pool.acquire()
         try:
             await conn.execute("BEGIN")
@@ -544,14 +546,13 @@ async def _process_symbol_tf(
                 """SELECT timestamp, open, high, low, close
                    FROM market_data_ohlcv
                    WHERE symbol = $1 AND timeframe = $2
-                     AND timestamp >= $3
+                     AND timestamp > $3
                    ORDER BY timestamp ASC
-                   LIMIT $4 OFFSET $5""",
+                   LIMIT $4""",
                 symbol,
                 timeframe,
-                min_ts,
+                bar_cursor,
                 BATCH_SIZE,
-                offset,
             )
 
             if not bars:
@@ -782,8 +783,8 @@ async def _process_symbol_tf(
                             stats["processed"],
                         )
 
-            # Increment offset for next batch
-            offset += BATCH_SIZE
+            # Advance cursor to last bar timestamp for next batch.
+            bar_cursor = bars[-1]["timestamp"]
 
         # 5. End of bars — resolve remaining live signals (TTL expired)
         # Flush counter for this loop to prevent accumulating > batch_size writes
