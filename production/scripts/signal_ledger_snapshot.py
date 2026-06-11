@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""phase_121_before_snapshot — capture per-setup signal metrics before any deletes.
+"""signal_ledger_snapshot — capture per-setup signal metrics before any deletes.
 
-Writes docs/plans/phase-121-before-snapshot.json as the authoritative "before"
-baseline for Wave 2 comparison report. Run ONCE before executing the D-01 clean+replay.
+Writes docs/plans/signal-ledger-snapshot.json as the authoritative "before"
+baseline for comparison after rebuild. Run ONCE before executing the clean+replay.
 
 Idempotent guard: will not overwrite an existing snapshot file.
 If the file already exists, the script aborts with a non-zero exit code.
@@ -37,7 +37,7 @@ from src.observability.otel import OTelInitError, init_otel_providers
 # Changing this would allow concurrent snapshot + delete operations.
 _REPLAY_LOCK_ID = 20260602
 
-_SNAPSHOT_PATH = _PROJECT_ROOT / "docs" / "plans" / "phase-121-before-snapshot.json"
+_SNAPSHOT_PATH = _PROJECT_ROOT / "docs" / "plans" / "signal-ledger-snapshot.json"
 
 
 async def _fetch_snapshot(conn) -> list:
@@ -146,14 +146,14 @@ async def _amain() -> int:
                 await conn.execute("SELECT pg_advisory_unlock($1)", _REPLAY_LOCK_ID)
 
         _write_snapshot(rows)
-        JOB_COMPLETED_TOTAL.add(1, {"job": "phase-121-before-snapshot", "status": "success"})
+        JOB_COMPLETED_TOTAL.add(1, {"job": "signal-ledger-snapshot", "status": "success"})
         return 0
     except SystemExit:
-        JOB_COMPLETED_TOTAL.add(1, {"job": "phase-121-before-snapshot", "status": "failure"})
+        JOB_COMPLETED_TOTAL.add(1, {"job": "signal-ledger-snapshot", "status": "failure"})
         raise
     except Exception as error:
         print(f"ERROR: {error}")
-        JOB_COMPLETED_TOTAL.add(1, {"job": "phase-121-before-snapshot", "status": "failure"})
+        JOB_COMPLETED_TOTAL.add(1, {"job": "signal-ledger-snapshot", "status": "failure"})
         return 1
     finally:
         await db.close()
@@ -161,7 +161,7 @@ async def _amain() -> int:
 
 def main() -> None:
     try:
-        init_otel_providers("phase-121-before-snapshot")
+        init_otel_providers("signal-ledger-snapshot")
     except OTelInitError as error:
         print(f"[warn] OTel init failed — metrics disabled: {error}")
     try:
