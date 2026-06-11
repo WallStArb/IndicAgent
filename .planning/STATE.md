@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Signal Quality Renaissance
 status: in_progress
-last_updated: "2026-06-11T07:55:47.554Z"
+last_updated: "2026-06-11T18:26:56.732Z"
 progress:
-  total_phases: 5
-  completed_phases: 4
-  total_plans: 21
-  completed_plans: 20
-  percent: 80
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -44,7 +44,7 @@ See: .planning/PROJECT.md
 
 **Coverage:** 53/53 v2.8 requirements mapped + Phase 115 (5 FRAME reqs) + Phase 116 (3 SR reqs).
 
-## v2.9 Signal Quality Renaissance Phases (4/6 complete)
+## v2.9 Signal Quality Renaissance Phases (4/5 complete; Phase 121 Wave 1 done)
 
 | Phase | Name | Status |
 |-------|------|--------|
@@ -52,7 +52,7 @@ See: .planning/PROJECT.md
 | 118 | Confidence Integrity + Top 5 Setup Refactoring | Complete (7/7 plans, 2026-06-09) |
 | 119 | Remaining 16 Setup Refactoring | Complete (4/4 plans, 2026-06-10) |
 | 120 | Shadow Mode Validation | Complete (3/3 plans, 2026-06-10) |
-| 121 | Lifecycle Replay & Validation | Pending (Wave 2 absorbs Phase 122 close-out tasks) |
+| 121 | Lifecycle Replay & Validation | In Progress — Wave 1 complete (1/2 plans, 2026-06-11); orchestrate running (stages: snapshot+decompress done, clean/replay/verify pending) |
 | 122 | Production Hardening | Absorbed into Phase 121 — number recycled |
 
 ## Evidence Gates
@@ -81,15 +81,17 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-### Last session (2026-06-10) — v2.9 Phases 117-120 complete
+### Last session (2026-06-11) — Phase 121 Wave 1 complete; orchestrate running
 
-All four signal quality refactoring phases executed and verified:
+Phase 121 Wave 1 executed: lifecycle replay infrastructure redesigned + D-01 sequence kicked off:
 
-- Phase 117: PatternCompletion write-path bug fixed; FeatureParityAuditor + ConfidenceCalibrationMonitor deployed
-- Phase 118: Extrinsic confidence modifiers stripped across 12 I7 plugins; top 5 NEEDS_REFACTOR setups refactored to intrinsic-only confidence
-- Phase 119: All 16 remaining NEEDS_REFACTOR setups refactored; validate_tier() enforcement + CI gate added
-- Phase 120: ShadowModeValidator oneshot deployed (Mon 07:00 UTC); shadow_auditor.py SoC-split to demotion-only; migration 121 (signal_ledger_shadow view) applied; _ONESHOT_UNITS gap fixed in service_auditor.py
+- `lifecycle_replay.py` redesigned to v1.3: removed hardcoded date windows, added 14 schema columns, shadow-inclusive integrity gate, `_assert_row_types` fail-fast
+- `historical_backfill.py` updated with `--setups` plugin-scoped clean filter (default: `_SHADOW_VALIDATION_SETUPS` frozenset)
+- `phase_121_before_snapshot.py` created; atomic before-snapshot captured: 7,446,342 total signals, 5,184,243 noise signals (22 shadow setups)
+- `phase_121_orchestrate.py` created (7-stage state machine); enhanced mid-session with decompress/recompress stages (TASK-1 from architecture review) to fix hours-long stall on compressed TimescaleDB chunks
+- D-01 sequence: 5,184,243 noise signals deleted; orchestrate at `stages_complete: [snapshot, decompress]` — clean/dry_run/replay/verify/recompress pending
 
-Key architectural decision: shadow signal `win_rate` (binomtest vs 50% baseline) replaces `selection_rate` — shadow signals can never have `was_selected=True` since they never enter the active aggregator pool.
+Architecture plan created: `docs/plans/2026-06-11-signal-replay-architecture-plan.md` — DAG violation (I1→I6 wasted in replay), random UUIDs, compression bottleneck, vectorization opportunity. TASK-2 (uuid4 fallbacks) and TASK-3 (feature_replay.py) are next-sprint items.
 
-**Resume:** `/clear` then `/gsd-discuss-phase 121` or `/gsd-plan-phase 121` in fresh context.
+**Resume:** Complete orchestrate first: `.venv/bin/python production/scripts/phase_121_orchestrate.py`
+Then: `/clear` then `/gsd-execute-phase 121` (Wave 2 — validation report)

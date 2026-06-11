@@ -6,11 +6,13 @@ in strict stage order. Tracks completed stages in a JSON state file for
 deterministic resume after any crash.
 
 Stages (in order):
-    1. snapshot  — capture before-snapshot before any deletes
-    2. clean     — delete 22 shadow setups' old noise signals via historical_backfill.py --clean
-    3. dry_run   — validate 14-column mapping with --workers 1 before full replay
-    4. replay    — run lifecycle_replay.py across all pending signals
-    5. verify    — hard-fail if stopped_at_entry or orphan_ledger_rows > 0
+    1. snapshot    — capture before-snapshot before any deletes
+    2. decompress  — decompress signal_ledger + market_data_ohlcv before bulk DML
+    3. clean       — delete 22 shadow setups' old noise signals via historical_backfill.py --clean
+    4. dry_run     — validate 14-column mapping with --workers 1 before full replay
+    5. replay      — run lifecycle_replay.py across all pending signals
+    6. verify      — hard-fail if stopped_at_entry or orphan_ledger_rows > 0
+    7. recompress  — recompress signal_ledger + market_data_ohlcv
 
 Usage:
     .venv/bin/python production/scripts/phase_121_orchestrate.py
@@ -27,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -42,12 +45,27 @@ from src.observability.otel import OTelInitError, init_otel_providers
 
 # Stage names — order is enforced by the stage execution sequence
 STAGE_SNAPSHOT = "snapshot"
+STAGE_DECOMPRESS = "decompress"
 STAGE_CLEAN = "clean"
 STAGE_DRY_RUN = "dry_run"
 STAGE_REPLAY = "replay"
 STAGE_VERIFY = "verify"
+STAGE_RECOMPRESS = "recompress"
 
-_STAGE_ORDER = [STAGE_SNAPSHOT, STAGE_CLEAN, STAGE_DRY_RUN, STAGE_REPLAY, STAGE_VERIFY]
+_STAGE_ORDER = [
+    STAGE_SNAPSHOT,
+    STAGE_DECOMPRESS,
+    STAGE_CLEAN,
+    STAGE_DRY_RUN,
+    STAGE_REPLAY,
+    STAGE_VERIFY,
+    STAGE_RECOMPRESS,
+]
+
+# Tables that must be decompressed before bulk DML and recompressed after.
+# signal_ledger: 51 compressed chunks — DELETE forces per-tuple decompression on write.
+# market_data_ohlcv: 24 compressed chunks — bar reads during lifecycle replay decompress on fetch.
+_BULK_DML_TABLES = ("signal_ledger", "market_data_ohlcv")
 
 _STATE_PATH = _PROJECT_ROOT / "docs" / "plans" / "phase-121-orchestrate-state.json"
 _SNAPSHOT_PATH = _PROJECT_ROOT / "docs" / "plans" / "phase-121-before-snapshot.json"
@@ -100,6 +118,26 @@ def _mark_complete(state: dict, stage: str) -> None:
     print(f"  Stage {stage}: COMPLETE (recorded)")
 
 
+_PIPELINE_UNIT = "indicagent-intelligence-pipeline"
+
+
+def _systemctl(action: str, unit: str) -> None:
+    """Stop or start a systemd unit via sudo. Warns but does not raise on failure."""
+    sudo_pass = os.environ.get("SUDO_PASS", "")
+    result = subprocess.run(
+        ["/usr/bin/sudo.ws", "-S", "systemctl", action, unit],
+        input=sudo_pass + "\n",
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"  [warn] systemctl {action} {unit} exited {result.returncode}: {result.stderr.strip()}"
+        )
+    else:
+        print(f"  systemctl {action} {unit}: OK")
+
+
 def _run_subprocess(cmd: list[str], log_path: Path | None = None) -> subprocess.CompletedProcess:
     """Run a subprocess, streaming output to stdout and optionally to a log file."""
     print(f"  Running: {' '.join(cmd)}")
@@ -125,6 +163,86 @@ def _run_subprocess(cmd: list[str], log_path: Path | None = None) -> subprocess.
         output = result.stdout or ""
         print(output, end="")
     return result
+
+
+async def _decompress_tables(db: DatabaseManager) -> None:
+    async with db.pool.acquire() as conn:
+        for table in _BULK_DML_TABLES:
+            chunks = await conn.fetch(
+                """SELECT chunk_schema, chunk_name
+                   FROM timescaledb_information.chunks
+                   WHERE hypertable_name = $1 AND is_compressed = true""",
+                table,
+            )
+            if not chunks:
+                print(f"  {table}: no compressed chunks — skipping")
+                continue
+            for chunk in chunks:
+                await conn.execute(
+                    "SELECT decompress_chunk($1, true)",
+                    f"{chunk['chunk_schema']}.{chunk['chunk_name']}",
+                )
+            print(f"  {table}: decompressed {len(chunks)} chunks")
+
+
+async def _recompress_tables(db: DatabaseManager) -> None:
+    async with db.pool.acquire() as conn:
+        for table in _BULK_DML_TABLES:
+            chunks = await conn.fetch(
+                """SELECT chunk_schema, chunk_name
+                   FROM timescaledb_information.chunks
+                   WHERE hypertable_name = $1 AND is_compressed = false""",
+                table,
+            )
+            if not chunks:
+                print(f"  {table}: no uncompressed chunks — skipping")
+                continue
+            for chunk in chunks:
+                await conn.execute(
+                    "SELECT compress_chunk($1)",
+                    f"{chunk['chunk_schema']}.{chunk['chunk_name']}",
+                )
+            print(f"  {table}: compressed {len(chunks)} chunks")
+
+
+async def _run_stage_decompress(state: dict) -> None:
+    """Decompress signal_ledger + market_data_ohlcv before bulk DML.
+
+    TimescaleDB forces per-tuple decompression during DELETE on compressed chunks,
+    turning a 6k-row delete into an hours-long operation. Explicit decompression
+    upfront is a deliberate operational step: compress=cold storage, decompress before
+    bulk replay. Recompressed in STAGE_RECOMPRESS after verify passes.
+    """
+    if STAGE_DECOMPRESS in state["stages_complete"]:
+        print(f"Stage {STAGE_DECOMPRESS}: already complete, skipping")
+        return
+
+    print(f"\n=== STAGE: {STAGE_DECOMPRESS} ===")
+    settings = Settings()
+    db = DatabaseManager(settings.database_url)
+    await db.initialize()
+    try:
+        await _decompress_tables(db)
+    finally:
+        await db.close()
+    _mark_complete(state, STAGE_DECOMPRESS)
+
+
+async def _run_stage_recompress(state: dict) -> None:
+    """Recompress signal_ledger + market_data_ohlcv after verify passes."""
+    if STAGE_RECOMPRESS in state["stages_complete"]:
+        print(f"Stage {STAGE_RECOMPRESS}: already complete, skipping")
+        return
+
+    print(f"\n=== STAGE: {STAGE_RECOMPRESS} ===")
+    settings = Settings()
+    db = DatabaseManager(settings.database_url)
+    await db.initialize()
+    try:
+        await _recompress_tables(db)
+    finally:
+        await db.close()
+    _mark_complete(state, STAGE_RECOMPRESS)
 
 
 async def _run_stage_snapshot(state: dict) -> None:
@@ -312,12 +430,18 @@ async def main_async() -> int:
 
     try:
         await _run_stage_snapshot(state)
+        # Stop live pipeline before deleting and regenerating shadow signals — prevents
+        # live-generated shadow rows from contaminating the backfill count and competes
+        # for DB resources during the replay. Always restarted in the finally block.
+        _systemctl("stop", _PIPELINE_UNIT)
+        await _run_stage_decompress(state)
         await _run_stage_clean(state)
         await _run_stage_dry_run(state)
         await _run_stage_replay(state)
         await _run_stage_verify(state)
-    except Exception:
-        raise
+        await _run_stage_recompress(state)
+    finally:
+        _systemctl("start", _PIPELINE_UNIT)
 
     print(
         f"\n=== Phase 121 D-01 sequence COMPLETE ==="

@@ -246,6 +246,8 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 adaptive_buffer_mult=sig.get("adaptive_buffer_mult"),
                 plugin_regime_type=sig.get("plugin_regime_type"),
                 stop_structure_age_bars=sig.get("stop_structure_age_bars"),
+                raw_confidence=sig.get("pre_quality_confidence") or sig.get("confidence"),
+                calibrated_confidence=sig.get("calibrated_confidence"),
             )
         )
     return entries
