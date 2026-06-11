@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Signal Quality Renaissance
 status: in_progress
-last_updated: "2026-06-10T22:05:16.169Z"
+last_updated: "2026-06-11T07:55:47.554Z"
 progress:
-  total_phases: 6
+  total_phases: 5
   completed_phases: 4
   total_plans: 21
-  completed_plans: 19
-  percent: 67
+  completed_plans: 20
+  percent: 80
 ---
 
 # Project State
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 121 — lifecycle replay & validation
+**Current focus:** Phase 121 — lifecycle-replay-validation
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
@@ -52,8 +52,8 @@ See: .planning/PROJECT.md
 | 118 | Confidence Integrity + Top 5 Setup Refactoring | Complete (7/7 plans, 2026-06-09) |
 | 119 | Remaining 16 Setup Refactoring | Complete (4/4 plans, 2026-06-10) |
 | 120 | Shadow Mode Validation | Complete (3/3 plans, 2026-06-10) |
-| 121 | Lifecycle Replay & Validation | Pending |
-| 122 | Production Hardening | Pending |
+| 121 | Lifecycle Replay & Validation | Pending (Wave 2 absorbs Phase 122 close-out tasks) |
+| 122 | Production Hardening | Absorbed into Phase 121 — number recycled |
 
 ## Evidence Gates
 
