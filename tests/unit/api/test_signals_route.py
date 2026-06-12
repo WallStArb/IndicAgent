@@ -70,10 +70,10 @@ def _features_row(**overrides):
     row.update(
         {
             "bar": '{"open": 5950.0, "close": 5951.5}',
-            "technical_indicators": '{"rsi_14": 62.5}',
-            "pattern_detections": None,
-            "regime_features": '{"garch_sigma": 0.5}',
-            "confluence_scores": None,
+            "i1": '{"rsi_14": 62.5}',
+            "i3": None,
+            "i4": '{"garch_sigma": 0.5}',
+            "i5": None,
             "smc": None,
             "cross_timeframe_context": None,
         }

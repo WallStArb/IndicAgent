@@ -136,22 +136,12 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
         else:
             signal["features"] = {
                 "bar": _parse_jsonb(row["bar"], default=None),
-                "i1": _parse_jsonb(
-                    row["technical_indicators"], default=None
-                ),  # Keep response key as i1 for dashboard compat
-                "i3": _parse_jsonb(
-                    row["pattern_detections"], default=None
-                ),  # Keep response key as i3 for dashboard compat
-                "i4": _parse_jsonb(
-                    row["regime_features"], default=None
-                ),  # Keep response key as i4 for dashboard compat
-                "i5": _parse_jsonb(
-                    row["confluence_scores"], default=None
-                ),  # Keep response key as i5 for dashboard compat
+                "i1": _parse_jsonb(row["i1"], default=None),
+                "i3": _parse_jsonb(row["i3"], default=None),
+                "i4": _parse_jsonb(row["i4"], default=None),
+                "i5": _parse_jsonb(row["i5"], default=None),
                 "smc": _parse_jsonb(row["smc"], default=None),
-                "i6": _parse_jsonb(
-                    row["cross_timeframe_context"], default=None
-                ),  # Keep response key as i6 for dashboard compat
+                "i6": _parse_jsonb(row["cross_timeframe_context"], default=None),
             }
     return signal
 
@@ -920,8 +910,8 @@ async def get_signal_detail(
         features = None
         if row["feature_ts"] is not None:
             feat_query = """
-                SELECT bar, technical_indicators, pattern_detections,
-                       regime_features, confluence_scores, smc, cross_timeframe_context
+                SELECT bar, i1, i5, i3,
+                       i4, smc, cross_timeframe_context
                 FROM intelligence_features
                 WHERE ts = $1 AND symbol = $2 AND tf = $3
             """
@@ -931,10 +921,10 @@ async def get_signal_detail(
             if feat_row is not None:
                 features = {
                     "bar": _parse_jsonb(feat_row["bar"], default=None),
-                    "i1": _parse_jsonb(feat_row["technical_indicators"], default=None),
-                    "i3": _parse_jsonb(feat_row["pattern_detections"], default=None),
-                    "i4": _parse_jsonb(feat_row["regime_features"], default=None),
-                    "i5": _parse_jsonb(feat_row["confluence_scores"], default=None),
+                    "i1": _parse_jsonb(feat_row["i1"], default=None),
+                    "i3": _parse_jsonb(feat_row["i3"], default=None),
+                    "i4": _parse_jsonb(feat_row["i4"], default=None),
+                    "i5": _parse_jsonb(feat_row["i5"], default=None),
                     "smc": _parse_jsonb(feat_row["smc"], default=None),
                     "i6": _parse_jsonb(feat_row["cross_timeframe_context"], default=None),
                 }
@@ -1020,8 +1010,8 @@ async def get_signals(
                        sl.entry_price, sl.stop_loss, sl.signal_quality AS confidence, sl.status,
                        sl.feature_ts, sl.feature_tf, sl.signal_computed_at,
                        sl.entry_zone_low, sl.entry_zone_high,
-                       f.bar, f.technical_indicators, f.pattern_detections,
-                       f.regime_features, f.confluence_scores, f.smc, f.cross_timeframe_context
+                       f.bar, f.i1, f.i5,
+                       f.i3, f.i4, f.smc, f.cross_timeframe_context
                 FROM signal_ledger_full sl
                 LEFT JOIN intelligence_features f
                   ON sl.symbol = f.symbol
