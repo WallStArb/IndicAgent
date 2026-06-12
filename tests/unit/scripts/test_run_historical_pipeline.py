@@ -813,17 +813,42 @@ class TestBuildLedgerEntries:
             resolution_method="sole",
         )
 
+    @staticmethod
+    def _make_bar():
+        from collections import deque
+
+        bar = {
+            "open": 5095.0,
+            "high": 5105.0,
+            "low": 5090.0,
+            "close": 5100.0,
+            "volume": 1000.0,
+        }
+        return deque([bar], maxlen=500)
+
     def test_returns_one_entry_per_ranked_signal(self):
         from production.scripts.run_historical_pipeline import _build_ledger_entries
 
         assert (
-            len(_build_ledger_entries(self._make_result(1), "ESH6", "5m", _ts_bf(9, 30), {})) == 1
+            len(
+                _build_ledger_entries(
+                    self._make_result(1),
+                    "ESH6",
+                    "5m",
+                    _ts_bf(9, 30),
+                    {},
+                    bar_history=self._make_bar(),
+                )
+            )
+            == 1
         )
 
     def test_selected_signal_has_was_selected_true(self):
         from production.scripts.run_historical_pipeline import _build_ledger_entries
 
-        entries = _build_ledger_entries(self._make_result(), "ESH6", "5m", _ts_bf(9, 30), {})
+        entries = _build_ledger_entries(
+            self._make_result(), "ESH6", "5m", _ts_bf(9, 30), {}, bar_history=self._make_bar()
+        )
         assert len([e for e in entries if e.was_selected]) == 1
 
     def test_empty_result_returns_empty_list(self):
@@ -1059,6 +1084,19 @@ class TestBuildLedgerEntriesFeatureTs:
             resolution_method="sole",
         )
 
+    @staticmethod
+    def _make_bar():
+        from collections import deque
+
+        bar = {
+            "open": 5095.0,
+            "high": 5105.0,
+            "low": 5090.0,
+            "close": 5100.0,
+            "volume": 1000.0,
+        }
+        return deque([bar], maxlen=500)
+
     def test_feature_ts_passes_through(self):
         from production.scripts.run_historical_pipeline import _build_ledger_entries
 
@@ -1071,6 +1109,7 @@ class TestBuildLedgerEntriesFeatureTs:
             {},
             feature_ts=feature_ts,
             feature_tf="1m",
+            bar_history=self._make_bar(),
         )
         assert (
             len(entries) == 1
@@ -1081,7 +1120,9 @@ class TestBuildLedgerEntriesFeatureTs:
     def test_feature_ts_defaults_to_none(self):
         from production.scripts.run_historical_pipeline import _build_ledger_entries
 
-        entries = _build_ledger_entries(self._make_result(), "ESH6", "1m", _ts_bf(9, 30), {})
+        entries = _build_ledger_entries(
+            self._make_result(), "ESH6", "1m", _ts_bf(9, 30), {}, bar_history=self._make_bar()
+        )
         assert len(entries) == 1 and entries[0].feature_ts is None
 
 
