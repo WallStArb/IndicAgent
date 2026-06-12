@@ -161,7 +161,7 @@ class HMMTrainer:
 
         Selects the columns needed to replicate HMMRegimePlugin._build_observation():
           - close price (from bar JSONB) for computing log returns + realized vol
-          - rsi_14, adx_14, atr_14, macd_histogram_12_26_9 from i1 JSONB for 5D observations
+          - rsi_14, adx_14, atr_14, macd_histogram_12_26_9 from technical_indicators JSONB for 5D observations
 
         Rows are ordered by ts ascending so that return sequences are chronologically correct.
         The WHERE clause uses is_backfill IS NOT TRUE (Phase 81 gate).
@@ -173,10 +173,10 @@ class HMMTrainer:
             SELECT
                 ts,
                 (bar->>'close')::float AS close,
-                (i1->>'rsi_14')::float AS rsi_14,
-                (i1->>'adx_14')::float AS adx_14,
-                (i1->>'atr_14')::float AS atr_14,
-                (i1->>'macd_histogram_12_26_9')::float AS macd_hist
+                (technical_indicators->>'rsi_14')::float AS rsi_14,
+                (technical_indicators->>'adx_14')::float AS adx_14,
+                (technical_indicators->>'atr_14')::float AS atr_14,
+                (technical_indicators->>'macd_histogram_12_26_9')::float AS macd_hist
             FROM intelligence_features
             WHERE tf = $1
               AND ts >= $2

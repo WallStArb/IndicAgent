@@ -53,11 +53,11 @@ class ComputationalCorrectnessValidator:
                    bar->>'high' as high,
                    bar->>'low' as low,
                    bar->>'volume' as volume,
-                   i1->>'rsi_14' as i1_rsi,
-                   i1->>'macd_12_26_9' as i1_macd,
-                   i1->>'atr_14' as i1_atr,
-                   i4->>'volatility' as i4_volatility,
-                   i4->>'vwap' as i4_vwap
+                   technical_indicators->>'rsi_14' as i1_rsi,
+                   technical_indicators->>'macd_12_26_9' as i1_macd,
+                   technical_indicators->>'atr_14' as i1_atr,
+                   confluence_scores->>'volatility' as i4_volatility,
+                   confluence_scores->>'vwap' as i4_vwap
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
               AND ts > NOW() - INTERVAL '%s hours'
