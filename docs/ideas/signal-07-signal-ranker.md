@@ -218,10 +218,36 @@ I7 plugins.
 10. Shadow governance: promote on holdout Sharpe `p < 0.05`, `N >= 1000`.
 
 **Phase 125 — Deprecate chain:**
-11. Remove `calibrator` stage from `SignalProcessor.process`.
-12. Remove `perf_multiplier` from `ranker.py`.
-13. Remove `calibration_curves` refresh loop from `CacheManager`.
-14. Drop `calibration_curves` and `tod_multipliers` tables (already empty).
+
+Code deleted:
+11. Delete `src/intelligence/pipeline/calibrator.py`.
+12. Delete `src/intelligence/pipeline/ranker.py`.
+13. Delete `src/intelligence/pipeline/tod_adjuster.py` (already removed from pipeline in prior refactor; file still exists).
+14. Remove `apply_calibration` call + import from `signal_processor.py`.
+15. Remove `rank_signals` call + import from `signal_processor.py`; replace with `SignalRanker.score()`.
+16. Remove `CacheSnapshot.calibration_curves` and `CacheSnapshot.perf_weights` fields.
+
+`CacheManager` cleanup:
+17. Remove `_load_calibration_curves()` and `_load_perf_weights()` methods.
+18. Remove `calibration_curves` and `perf_weights` properties.
+19. Remove `seed_calibration_curves()` and `seed_perf_weights()` seed methods.
+20. Remove those refresh loops from `start_refresh_loops()`.
+
+`IntelligencePipeline` cleanup:
+21. Remove `calibration_curves` and `perf_weights` from checkpoint assembly in `get_checkpoint_extra()`.
+
+`historical_backfill.py`:
+22. Replace `calibrated_confidence` with `ranking_score` in `_INSERT_SYNC_TEMPLATE`.
+
+DB migrations:
+23. Drop `calibration_curves` table.
+24. Drop `tod_multipliers` table (already empty).
+25. Drop `calibrated_confidence` column from `signal_ledger` once `ranking_score` is fully backfilled.
+
+Tests:
+26. Remove `calibration_curves={}` and `perf_weights={}` from all `CacheSnapshot` constructors.
+27. Remove all `mock.patch("...apply_calibration")` and `mock.patch("...rank_signals")` patches.
+28. Remove calibration curve load/seed tests from `test_cache_manager.py`.
 
 ---
 
