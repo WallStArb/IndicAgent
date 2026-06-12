@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import timedelta
-from uuid import uuid4
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
@@ -204,9 +203,15 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 expires_at_val = bar_ts + timedelta(seconds=ttl * tf_to_seconds(tf))
             except (OverflowError, TypeError):
                 expires_at_val = None
+        _raw_sid = sig.get("signal_id")
+        if not _raw_sid:
+            raise ValueError(
+                f"signal_writer: signal missing signal_id — "
+                f"setup_plugin={sig.get('setup_plugin')!r} symbol={sig.get('symbol')!r}"
+            )
         entries.append(
             LedgerEntry(
-                signal_id=str(sig.get("signal_id") or uuid4()),
+                signal_id=str(_raw_sid),
                 timestamp=bar_ts,
                 symbol=symbol,
                 timeframe=tf,

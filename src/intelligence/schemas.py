@@ -22,7 +22,7 @@ from __future__ import annotations
 import dataclasses
 from datetime import datetime
 from typing import Annotated, Literal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -960,8 +960,14 @@ def signal_dict_to_ranked(sig: dict) -> RankedSignal:
     All other keys pass through via extra="allow".
     """
     _cc = sig.get("calibrated_confidence")
+    _raw_sid = sig.get("signal_id")
+    if not _raw_sid:
+        raise ValueError(
+            f"signal_dict_to_ranked: signal missing signal_id field — "
+            f"setup_plugin={sig.get('setup_plugin')!r} direction={sig.get('direction')!r}"
+        )
     return RankedSignal(
-        signal_id=str(sig.get("signal_id") or uuid4()),
+        signal_id=str(_raw_sid),
         plugin=sig.get("setup_plugin", "unknown"),
         direction=int(sig.get("direction", 0)),
         raw_confidence=float(sig.get("pre_quality_confidence", sig.get("confidence", 0.0))),
