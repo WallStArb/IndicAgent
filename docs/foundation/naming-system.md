@@ -362,7 +362,7 @@ When a class is replaced:
 
 | Code | Permitted where |
 |------|----------------|
-| `i1`–`i8` | DB columns, topic strings, metric labels |
+| `i1`–`i8` | Topic strings, metric labels |
 | `smc` | Topic strings, JSONB keys |
 | `agent_id` | Metric labels, structlog fields (legacy family only) |
 
@@ -479,7 +479,7 @@ These do not change as part of any rename or refactor:
 - **DB table names** — `signal_ledger`, `intelligence_features`, `llm_calls` stay
 - **DB column quant codes** — `ts`, `tf`, `pnl_r`, `mae`, `mfe` stay
 - **Plugin naming** — `PascalCasePlugin` stays
-- **Intelligence tier codes** — `I1`–`I8` stay in code, docs, metrics, and directory names
+- **Intelligence tier codes** — `i1`–`i8` stay in topic strings, metric labels, and directory names; not permitted as DB column names
 - **Ring 0/1 `Base*` prefix** — `BaseDaemon`, `BaseWriter`, `BaseProvider`, `BaseAIWorker`, `BaseGroupCoordinator` keep `Base*`
 - **`agent_id` metric label and structlog field** — stays for operational compatibility
 - **Systemd unit names** — updated mechanically when class/file names change, never independently
