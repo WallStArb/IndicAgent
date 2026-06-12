@@ -985,13 +985,15 @@ def _load_precomputed_features(
     """Load intelligence_features for symbol into (tf, ts) -> merged flat dict.
 
     Used by --use-precomputed-features to skip I1-I6 recomputation entirely.
-    All six JSONB tier columns are merged into one flat dict per bar.
+    All eight JSONB tier columns (including i2 and market_context) are merged
+    into one flat dict per bar.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT ts, tf,"
             " technical_indicators, pattern_detections, regime_features,"
-            " confluence_scores, smc, cross_timeframe_context"
+            " confluence_scores, smc, cross_timeframe_context,"
+            " i2, market_context"
             " FROM intelligence_features"
             " WHERE symbol = %s AND (%s IS NULL OR ts >= %s)"
             " ORDER BY ts ASC",
@@ -1000,9 +1002,9 @@ def _load_precomputed_features(
         rows = cur.fetchall()
 
     result: dict[tuple[str, datetime], dict] = {}
-    for ts, tf, ti, pd_det, rf, cs, smc_col, ctf in rows:
+    for ts, tf, ti, pd_det, rf, cs, smc_col, ctf, i2_col, mkt_col in rows:
         merged: dict = {}
-        for tier in (ti, pd_det, rf, cs, smc_col, ctf):
+        for tier in (ti, pd_det, rf, cs, smc_col, ctf, i2_col, mkt_col):
             if not tier:
                 continue
             if isinstance(tier, str):
