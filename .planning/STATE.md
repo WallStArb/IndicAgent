@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 121 — lifecycle-replay-validation
+**Current focus:** Phase 122 — i2-tier-persistence-fix (planned 2026-06-12; Phase 121 Wave 2 still pending)
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
@@ -53,7 +53,7 @@ See: .planning/PROJECT.md
 | 119 | Remaining 16 Setup Refactoring | Complete (4/4 plans, 2026-06-10) |
 | 120 | Shadow Mode Validation | Complete (3/3 plans, 2026-06-10) |
 | 121 | Lifecycle Replay & Validation | In Progress — Wave 1 complete (1/2 plans, 2026-06-11); orchestrate running (stages: snapshot+decompress done, clean/replay/verify pending) |
-| 122 | Production Hardening | Absorbed into Phase 121 — number recycled |
+| 122 | I2 Tier Persistence Fix | Planned (4/4 plans, 2026-06-12) — ready to execute |
 
 ## Evidence Gates
 
