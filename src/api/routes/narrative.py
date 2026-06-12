@@ -122,7 +122,7 @@ def _build_context_from_row(row) -> SignalContext:
         ts=row["timestamp"],
         bar=bar_context,
         i1=_maybe_validate(I1Indicators, _parse_jsonb(row.get("i1"), default=None)),
-        i2=_maybe_validate(I2Events, _parse_jsonb(row.get("market_context"), default=None)),
+        i2=_maybe_validate(I2Events, _parse_jsonb(row.get("i2"), default=None)),
         i3=_maybe_validate(I3Structure, _parse_jsonb(row.get("i3"), default=None)),
         i4=_maybe_validate(I4Context, _parse_jsonb(row.get("i4"), default=None)),
         i5=_maybe_validate(I5Patterns, _parse_jsonb(row.get("i5"), default=None)),
@@ -160,7 +160,7 @@ _SIGNAL_QUERY = """
            tf_sig.value->'targets' AS targets,
            tf_sig.value->>'regime_type_at_fire' AS regime_type_at_fire,
            tf_sig.value->>'entry_type' AS entry_type,
-           f.bar, f.i1, f.market_context, f.i3,
+           f.bar, f.i1, f.i2, f.i3,
            f.i4, f.i5, f.smc, f.cross_timeframe_context
     FROM signal_ledger_full sl
     LEFT JOIN intelligence_features f
