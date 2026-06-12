@@ -1685,12 +1685,12 @@ Plans:
 **Plans:** 7 plans in 4 waves
 
 Plans:
-- [ ] 122-01-PLAN.md — I2Events schema contract (45 fields, extra="forbid") + validation enablement
-- [ ] 122-02-PLAN.md — Historical pipeline tiered output (run_analysis_pipeline 2-tuple, _build_intelligence_event, _load_precomputed_features)
-- [ ] 122-03-PLAN.md — Database migration 124 (add i2 column, backfill, clean market_context)
-- [ ] 122-04-PLAN.md — feature_writer i2 column split + historical sync INSERT tuple (13->14)
+- [x] 122-01-PLAN.md — I2Events schema contract (45 fields, extra="forbid") + validation enablement
+- [x] 122-02-PLAN.md — Historical pipeline tiered output (run_analysis_pipeline 2-tuple, _build_intelligence_event, _load_precomputed_features)
+- [x] 122-03-PLAN.md — Database migration 124 (add i2 column, backfill, clean market_context)
+- [x] 122-04-PLAN.md — feature_writer i2 column split + historical sync INSERT tuple (13->14)
 - [ ] 122-05-PLAN.md — Column rename migration 125 (i1/i3/i4/i5) + zone_engine ATR floor fix
-- [ ] 122-06-PLAN.md — Deterministic signal IDs: close uuid4() fallbacks in 5 files
+- [x] 122-06-PLAN.md — Deterministic signal IDs: close uuid4() fallbacks in 5 files
 - [ ] 122-07-PLAN.md — feature_replay.py: I7-only replay from intelligence_features
 
 </details>
