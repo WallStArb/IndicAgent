@@ -538,6 +538,7 @@ def run_analysis_pipeline(
     ]
 
     for plugin_names, tier_label in tier_sequence:
+        tier_key_lower = tier_label.lower()
         for name in plugin_names:
             try:
                 plugin = registry.get_pattern(name)
@@ -547,7 +548,6 @@ def run_analysis_pipeline(
                 plugin_states[state_key] = plugin._state  # write-back is load-bearing
                 if out:
                     intelligence.update(out)
-                    tier_key_lower = tier_label.lower()
                     tiered.setdefault(tier_key_lower, {}).update(out)
                     features.update(out)
                     frames["features"] = features
