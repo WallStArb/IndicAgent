@@ -565,8 +565,8 @@ def run_analysis_pipeline(
 _INSERT_FEATURE_SYNC_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
-    bar, technical_indicators, pattern_detections, regime_features,
-    confluence_scores, smc, cross_timeframe_context, i2
+    bar, i1, i5, i3,
+    i4, smc, cross_timeframe_context, i2
 ) VALUES %s
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """
@@ -642,8 +642,8 @@ def _event_to_sync_params(event: Any) -> tuple:
 
     Column order matches _INSERT_FEATURE_SYNC_SQL:
       ts, symbol, tf, platform, source, schema_version,
-      bar, technical_indicators, pattern_detections, regime_features,
-      confluence_scores, smc, cross_timeframe_context, i2
+      bar, i1, i5, i3,
+      i4, smc, cross_timeframe_context, i2
     """
     return (
         event.ts,  # datetime — psycopg2 native
@@ -653,10 +653,10 @@ def _event_to_sync_params(event: Any) -> tuple:
         event.source,
         event.schema_version,
         json.dumps(event.bar.model_dump()),  # bar
-        json.dumps(event.i1.model_dump()),  # technical_indicators
-        json.dumps(event.i3.model_dump(exclude_none=True)),  # pattern_detections
-        json.dumps(event.i4.model_dump(exclude_none=True)),  # regime_features
-        json.dumps(event.i5.model_dump(exclude_none=True)),  # confluence_scores
+        json.dumps(event.i1.model_dump()),  # i1
+        json.dumps(event.i5.model_dump(exclude_none=True)),  # i5
+        json.dumps(event.i3.model_dump(exclude_none=True)),  # i3
+        json.dumps(event.i4.model_dump(exclude_none=True)),  # i4
         json.dumps(event.smc.model_dump(exclude_none=True)),  # smc
         json.dumps(event.i6.model_dump(exclude_none=True)),  # cross_timeframe_context
         json.dumps(event.i2.model_dump(exclude_none=True)),  # i2
@@ -1002,8 +1002,8 @@ def _load_precomputed_features(
     with conn.cursor() as cur:
         cur.execute(
             "SELECT ts, tf,"
-            " technical_indicators, pattern_detections, regime_features,"
-            " confluence_scores, smc, cross_timeframe_context,"
+            " i1, i5, i3,"
+            " i4, smc, cross_timeframe_context,"
             " i2, market_context"
             " FROM intelligence_features"
             " WHERE symbol = %s AND (%s IS NULL OR ts >= %s)"
@@ -1013,9 +1013,9 @@ def _load_precomputed_features(
         rows = cur.fetchall()
 
     result: dict[tuple[str, datetime], dict] = {}
-    for ts, tf, ti, pd_det, rf, cs, smc_col, ctf, i2_col, mkt_col in rows:
+    for ts, tf, i1_data, i5_data, i3_data, i4_data, smc_col, ctf, i2_col, mkt_col in rows:
         merged: dict = {}
-        for tier in (ti, pd_det, rf, cs, smc_col, ctf, i2_col, mkt_col):
+        for tier in (i1_data, i5_data, i3_data, i4_data, smc_col, ctf, i2_col, mkt_col):
             if not tier:
                 continue
             if isinstance(tier, str):
