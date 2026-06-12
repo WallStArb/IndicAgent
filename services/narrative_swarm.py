@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-from uuid import uuid4
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
@@ -114,7 +113,12 @@ class NarrativeSwarm(BaseGroupCoordinator):
             return
 
         symbol = signal.symbol
-        signal_id = signal.signal_id or uuid4()
+        if not signal.signal_id:
+            raise ValueError(
+                f"narrative_swarm: signal missing signal_id — "
+                f"setup_plugin={getattr(signal, 'setup_plugin', None)!r}"
+            )
+        signal_id = signal.signal_id
         signal_dict = signal.model_dump()
 
         assert self._narrative_agent is not None
