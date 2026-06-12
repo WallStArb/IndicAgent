@@ -113,7 +113,6 @@ class TestI1ParallelExecution:
         snapshot = CacheSnapshot(
             perf_weights={},
             calibration_curves={},
-            tod_priors={},
             drift_penalties={},
             cis_weights={},
             cis_weights_version=0,
@@ -130,10 +129,6 @@ class TestI1ParallelExecution:
             ),
             patch(
                 "src.intelligence.pipeline.signal_processor.apply_regime_gate",
-                return_value=[],
-            ),
-            patch(
-                "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
                 return_value=[],
             ),
             # Phase 112 D-04: apply_calibration removed from signal_processor
@@ -191,7 +186,6 @@ class TestI7ParallelExecution:
         snapshot = CacheSnapshot(
             perf_weights={},
             calibration_curves={},
-            tod_priors={},
             drift_penalties={},
             cis_weights={},
             cis_weights_version=0,
@@ -208,10 +202,6 @@ class TestI7ParallelExecution:
             ),
             patch(
                 "src.intelligence.pipeline.signal_processor.apply_regime_gate",
-                return_value=[],
-            ),
-            patch(
-                "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
                 return_value=[],
             ),
             # Phase 112 D-04: apply_calibration removed from signal_processor

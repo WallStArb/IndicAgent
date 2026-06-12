@@ -29,7 +29,6 @@ def _make_pm(tmp_dir: str | None = None) -> tuple[PluginStateManager, pathlib.Pa
 
 _VALID_EXTRA = {
     "kalman_state": {},
-    "tod_priors": {},
     "last_bar_offset": {},
     "setup_last_fire": {},
 }
@@ -119,7 +118,6 @@ async def test_write_then_read_checkpoint_roundtrip():
     pm, path = _make_pm()
     extra_in = {
         "kalman_state": {"a": 1.0},
-        "tod_priors": {},
         "last_bar_offset": {"p:0": 42},
         "setup_last_fire": {},
     }

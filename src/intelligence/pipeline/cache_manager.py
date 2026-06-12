@@ -104,15 +104,15 @@ class CacheManager:
 
     Caches (properties):
         perf_weights, cis_weights, cis_kalman_params, calibration_curves,
-        drift_penalties, shadow_cache, tod_priors
+        drift_penalties, shadow_cache
 
     Lifecycle:
         1. Orchestrator calls enroll_all_plugins(conn)  -- shadow registry seeding
-        2. Orchestrator calls await load_initial()       -- eager load all 6 caches
-        3. Orchestrator calls start_refresh_loops()      -- returns 6 background Tasks
+        2. Orchestrator calls await load_initial()       -- eager load all 5 caches
+        3. Orchestrator calls start_refresh_loops()      -- returns 5 background Tasks
 
     Seed API (for tests and checkpoint restore):
-        seed_tod_priors, seed_perf_weights, seed_cis_weights, seed_calibration_curves,
+        seed_perf_weights, seed_cis_weights, seed_calibration_curves,
         seed_shadow_cache, seed_drift_penalties
 
     Symbol scoping (D-30):
@@ -144,7 +144,6 @@ class CacheManager:
         self._calibration_curves: dict = {}
         self._shadow_cache: dict[str, bool] = {}
         self._drift_penalties: dict = {}
-        self._tod_priors: dict = {}
 
         # CIS Kalman params loaded once from config file (no refresh loop per D-13)
         self._cis_kalman_params: dict = _load_cis_kalman_params()
@@ -200,11 +199,6 @@ class CacheManager:
     def shadow_cache(self) -> dict[str, bool]:
         """Shadow registry state keyed by component_name."""
         return self._shadow_cache
-
-    @property
-    def tod_priors(self) -> dict:
-        """TOD Bayesian multipliers keyed by (regime_type, tf, hour_et, symbol)."""
-        return self._tod_priors
 
     @property
     def cis_weights_version(self) -> int:
@@ -272,7 +266,6 @@ class CacheManager:
         return CacheSnapshot(
             perf_weights=self._perf_weights,
             calibration_curves=self._calibration_curves,
-            tod_priors=self._tod_priors,
             drift_penalties=self._drift_penalties,
             cis_weights=self._cis_weights,
             cis_weights_version=self._cis_weights_version,
@@ -285,14 +278,6 @@ class CacheManager:
     # ------------------------------------------------------------------
     # Public seed API (single contract for outside writers)
     # ------------------------------------------------------------------
-
-    def seed_tod_priors(self, priors: dict) -> None:
-        """Merge priors into tod_priors (preserves existing keys — Pitfall 7).
-
-        The DB loader also uses merge semantics so checkpoint values applied
-        AFTER load_initial() layer on top of the DB-loaded values correctly.
-        """
-        self._tod_priors = {**self._tod_priors, **priors}
 
     def seed_perf_weights(self, weights: dict) -> None:
         """Atomically replace perf_weights (no merge — fresh DB load wins)."""
@@ -339,7 +324,6 @@ class CacheManager:
         await self._refresh_drift_penalties()
         await self._load_cis_weights()
         await self._load_calibration_curves()
-        await self._load_tod_multipliers()
         await self._load_shadow_cache()  # caller must run enroll_all_plugins BEFORE invoking load_initial
 
     # ------------------------------------------------------------------
@@ -364,11 +348,11 @@ class CacheManager:
                 )
 
     def start_refresh_loops(self) -> list[asyncio.Task]:
-        """Create and return 6 background refresh Tasks at their configured intervals.
+        """Create and return 5 background refresh Tasks at their configured intervals.
 
         Intervals (seconds):
             perf_weights=3600, drift_penalties=14400, cis_weights=1800,
-            calibration_curves=1800, tod_multipliers=14400, shadow_cache=300
+            calibration_curves=1800, shadow_cache=300
 
         The loops sleep before reloading — this is correct ONLY because
         load_initial() has already populated the caches.
@@ -378,7 +362,6 @@ class CacheManager:
             asyncio.create_task(self._run_refresh_loop(self._refresh_drift_penalties, 14400)),
             asyncio.create_task(self._run_refresh_loop(self._load_cis_weights, 1800)),
             asyncio.create_task(self._run_refresh_loop(self._load_calibration_curves, 1800)),
-            asyncio.create_task(self._run_refresh_loop(self._load_tod_multipliers, 14400)),
             asyncio.create_task(self._run_refresh_loop(self._load_shadow_cache, 300)),
         ]
 
@@ -597,28 +580,3 @@ class CacheManager:
             self._calibration_curves = curves
         except Exception as error:
             self._logger.warning("calibration_curves.load_failed", error=str(error))
-
-    async def _load_tod_multipliers(self) -> None:
-        """Load TOD multipliers from tod_multipliers table.
-
-        MERGE semantics: self._tod_priors = {**self._tod_priors, **priors}
-        Preserves existing keys (Pitfall 7). Do NOT atomic-replace.
-        When self._symbol_filter is set, scopes to those symbols (D-30).
-        """
-        if self._db is None:
-            return
-        try:
-            base = "SELECT regime_type, tf, hour_et, symbol, multiplier FROM tod_multipliers"
-            if self._symbol_filter is not None:
-                rows = await self._db.execute_query(
-                    f"{base} WHERE symbol = ANY($1::text[])", list(self._symbol_filter)
-                )
-            else:
-                rows = await self._db.execute_query(base)
-            priors: dict = {}
-            for r in rows:
-                key = (r["regime_type"], r["tf"], r["hour_et"], r["symbol"])
-                priors[key] = float(r["multiplier"])
-            self._tod_priors = {**self._tod_priors, **priors}
-        except Exception as error:
-            self._logger.warning("tod_multipliers.load_failed", error=str(error))

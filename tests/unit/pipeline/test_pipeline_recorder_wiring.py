@@ -16,7 +16,6 @@ from src.intelligence.pipeline.calibrator import apply_calibration
 from src.intelligence.pipeline.quality_gate import apply_quality_gate
 from src.intelligence.pipeline.ranker import rank_signals
 from src.intelligence.pipeline.regime_gate import apply_regime_gate
-from src.intelligence.pipeline.tod_adjuster import apply_tod_adjustment
 
 # ---------------------------------------------------------------------------
 # quality_gate tests
@@ -91,48 +90,6 @@ async def test_regime_gate_records_multiplier_one_when_eligible():
     assert out[0]["regime_eligible"] is True
     call_kwargs = rec.record.await_args_list[0].kwargs
     assert call_kwargs["multiplier"] == 1.0
-
-
-# ---------------------------------------------------------------------------
-# tod_adjuster tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_tod_records_segment_includes_hour():
-    """segment_key must be '{regime_type}.{tf}.{hour_et}'."""
-    rec = AsyncMock()
-    sigs = [
-        {
-            "signal_id": "s1",
-            "confidence": 0.8,
-            "regime_type": "trend",
-            "regime_type_at_fire": "trend",
-        }
-    ]
-    await apply_tod_adjustment(sigs, {}, tf="5m", hour_et=14, recorder=rec)
-    assert rec.record.await_count == 1
-    call_kwargs = rec.record.await_args_list[0].kwargs
-    assert call_kwargs["transform_id"] == "tod"
-    assert call_kwargs["dag_order"] == 3
-    assert call_kwargs["segment_key"] == "trend.5m.14"
-
-
-@pytest.mark.asyncio
-async def test_tod_no_recorder_unchanged():
-    """No-recorder path: confidence multiplied by tod_multiplier."""
-    sigs = [
-        {
-            "signal_id": "s1",
-            "confidence": 1.0,
-            "regime_type": "any",
-            "regime_type_at_fire": "any",
-        }
-    ]
-    # hour_et=15 → prior 1.10 for "any"
-    out = await apply_tod_adjustment(sigs, {}, tf="1m", hour_et=15)
-    assert abs(out[0]["confidence"] - 1.1) < 1e-6
-    assert abs(out[0]["tod_multiplier"] - 1.1) < 1e-6
 
 
 # ---------------------------------------------------------------------------

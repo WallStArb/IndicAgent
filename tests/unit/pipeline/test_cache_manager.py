@@ -3,10 +3,10 @@
 Tests cover:
 - Initial state (empty dicts)
 - HMM regime label mapping
-- seed_* public API (merge vs atomic replace, version tracking)
-- Load method semantics (merge for tod_priors, atomic for others)
+- seed_* public API (atomic replace, version tracking)
+- Load method semantics (atomic for all loaders)
 - No CIS scorer calls
-- start_refresh_loops returns 6 Tasks
+- start_refresh_loops returns 5 Tasks
 - load_initial eagerness (HIGH finding 3 regression guard)
 - Shadow-cache-last ordering in load_initial (MEDIUM finding)
 - No enroll_all_plugins inside CacheManager (orchestrator-owned)
@@ -36,14 +36,13 @@ def make_cm(rows: list | None = None, on_instruments_changed=None) -> CacheManag
 
 
 def test_initial_caches_are_empty_dicts():
-    """All 6 cache properties are empty dicts on a fresh instance."""
+    """All 5 cache properties are empty dicts on a fresh instance."""
     cm = make_cm()
     assert cm.perf_weights == {}
     assert cm.cis_weights == {}
     assert cm.calibration_curves == {}
     assert cm.shadow_cache == {}
     assert cm.drift_penalties == {}
-    assert cm.tod_priors == {}
 
 
 # ---------------------------------------------------------------------------
@@ -74,14 +73,6 @@ def test_update_hmm_regime_drives_label():
 # ---------------------------------------------------------------------------
 # Seed API
 # ---------------------------------------------------------------------------
-
-
-def test_seed_tod_priors_merge_preserves_existing():
-    """seed_tod_priors merges — existing keys are preserved when seeding new ones."""
-    cm = make_cm()
-    cm.seed_tod_priors({"a": 1.0})
-    cm.seed_tod_priors({"b": 2.0})
-    assert cm.tod_priors == {"a": 1.0, "b": 2.0}
 
 
 def test_seed_perf_weights_atomic_replace():
@@ -162,30 +153,6 @@ def test_seed_drift_penalties_atomic_replace():
 
 
 @pytest.mark.asyncio
-async def test_load_tod_multipliers_merge_not_replace():
-    """_load_tod_multipliers uses merge semantics — existing keys survive a fresh load."""
-    cm = make_cm(
-        rows=[
-            {
-                "regime_type": "trend",
-                "tf": "1m",
-                "hour_et": 10,
-                "symbol": "*",
-                "multiplier": 1.2,
-            }
-        ]
-    )
-    # Pre-seed an existing prior
-    cm.seed_tod_priors({"existing_key": 0.8})
-
-    await cm._load_tod_multipliers()
-
-    # Both old and new key should be present (merge, not replace)
-    assert cm.tod_priors.get("existing_key") == 0.8
-    assert cm.tod_priors.get(("trend", "1m", 10, "*")) == 1.2
-
-
-@pytest.mark.asyncio
 async def test_load_perf_weights_atomic_replacement():
     """_load_perf_weights atomically replaces — stale seed data is gone after load."""
     cm = make_cm(
@@ -244,8 +211,8 @@ async def test_load_cis_weights_does_not_call_scorer():
 # ---------------------------------------------------------------------------
 
 
-def test_start_refresh_loops_returns_six_tasks():
-    """start_refresh_loops returns exactly 6 asyncio.Tasks."""
+def test_start_refresh_loops_returns_five_tasks():
+    """start_refresh_loops returns exactly 5 asyncio.Tasks."""
     cm = make_cm()
 
     async def _run():
@@ -265,7 +232,7 @@ def test_start_refresh_loops_returns_six_tasks():
     finally:
         loop.close()
 
-    assert len(tasks) == 6
+    assert len(tasks) == 5
     assert all(isinstance(t, asyncio.Task) for t in tasks)
 
 
@@ -275,7 +242,7 @@ def test_start_refresh_loops_returns_six_tasks():
 
 
 @pytest.mark.asyncio
-async def test_load_initial_invokes_all_six_loaders():
+async def test_load_initial_invokes_all_five_loaders():
     """load_initial must call every loader exactly once.
 
     Regression guard: if a future refactor removes a call from load_initial,
@@ -289,7 +256,6 @@ async def test_load_initial_invokes_all_six_loaders():
         "_refresh_drift_penalties",
         "_load_cis_weights",
         "_load_calibration_curves",
-        "_load_tod_multipliers",
         "_load_shadow_cache",
     ):
         original = getattr(cm, loader)
@@ -307,7 +273,6 @@ async def test_load_initial_invokes_all_six_loaders():
         "_refresh_drift_penalties",
         "_load_cis_weights",
         "_load_calibration_curves",
-        "_load_tod_multipliers",
         "_load_shadow_cache",
     ):
         assert (
@@ -330,7 +295,6 @@ async def test_load_initial_runs_shadow_cache_last():
         "_refresh_drift_penalties",
         "_load_cis_weights",
         "_load_calibration_curves",
-        "_load_tod_multipliers",
         "_load_shadow_cache",
     ):
         original = getattr(cm, loader)
@@ -343,7 +307,7 @@ async def test_load_initial_runs_shadow_cache_last():
 
     await cm.load_initial()
 
-    assert len(call_order) == 6
+    assert len(call_order) == 5
     assert (
         call_order[-1] == "_load_shadow_cache"
     ), f"_load_shadow_cache must be last in load_initial; got order: {call_order}"
