@@ -982,11 +982,11 @@ class TestEventToSyncParams:
             i6=I6Confluence(),
         )
 
-    def test_returns_13_tuple(self):
+    def test_returns_14_tuple(self):
 
         from production.scripts.run_historical_pipeline import _event_to_sync_params
 
-        assert len(_event_to_sync_params(self._make_event())) == 13
+        assert len(_event_to_sync_params(self._make_event())) == 14
 
     def test_first_element_is_datetime(self):
         from production.scripts.run_historical_pipeline import _event_to_sync_params

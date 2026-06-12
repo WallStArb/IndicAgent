@@ -64,7 +64,7 @@ _INSERT_FEATURE_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
     bar, technical_indicators, market_context, pattern_detections, regime_features,
-    confluence_scores, smc, cross_timeframe_context, trading_signals,
+    confluence_scores, smc, cross_timeframe_context, i2, trading_signals,
     bar_close_ts, i1_computed_at, computed_at,
     winner_plugin, winner_confidence, winner_direction,
     signals_evaluated, signals_after_quality, signals_after_regime,
@@ -77,14 +77,14 @@ INSERT INTO intelligence_features (
 VALUES (
     $1, $2, $3, $4, $5, $6,
     $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb,
-    $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb,
-    $16, $17, $18,
-    $19, $20, $21,
-    $22, $23, $24,
-    $25, $26,
-    $27, $28,
-    $29, $30, $31,
-    $32,
+    $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb,
+    $17, $18, $19,
+    $20, $21, $22,
+    $23, $24, $25,
+    $26, $27,
+    $28, $29,
+    $30, $31, $32,
+    $33,
     (
         SELECT jsonb_object_agg(event_type, ctx ORDER BY event_type)
         FROM ctx_snapshots
@@ -168,16 +168,14 @@ def _record_to_insert_params(
     expiry_map: dict[str, date] | None = None,
     cross_asset_snapshot: dict | None = None,
 ) -> tuple:
-    """Build a 32-element tuple of INSERT parameters for _INSERT_FEATURE_SQL."""
+    """Build a 33-element tuple of INSERT parameters for _INSERT_FEATURE_SQL."""
     event = record.intelligence
     days = _compute_days_to_expiry(event.symbol, event.ts, expiry_map or {})
     winner_dir = str(record.winner_direction) if record.winner_direction is not None else None
     session_type_val = normalize_session_type(record.session_type)
 
-    market_ctx = {
-        **event.i2.model_dump(exclude_none=True),
-        **(cross_asset_snapshot or {}),
-    }
+    i2_data = event.i2.model_dump(exclude_none=True)
+    market_ctx = cross_asset_snapshot or {}
 
     return (
         event.ts,  # $1 ts
@@ -188,7 +186,7 @@ def _record_to_insert_params(
         record.schema_version,  # $6 schema_version
         event.bar.model_dump(),  # $7 bar
         event.i1.model_dump(),  # $8 technical_indicators
-        market_ctx,  # $9 market_context (+ cross_asset)
+        market_ctx,  # $9 market_context (cross_asset only)
         event.i5.model_dump(
             exclude_none=True
         ),  # $10 pattern_detections (I5Patterns: dt_db_confidence, hs_confidence, tri_confidence)
@@ -200,24 +198,25 @@ def _record_to_insert_params(
         ),  # $12 confluence_scores (I4Context: GARCH, Kalman, AVWAP, VP, SessionContext)
         event.smc.model_dump(exclude_none=True),  # $13 smc
         event.i6.model_dump(exclude_none=True),  # $14 cross_timeframe_context
-        [s.model_dump() for s in record.ranked_signals],  # $15 trading_signals
-        event.bar_close_ts,  # $16 bar_close_ts
-        event.i1_computed_at,  # $17 i1_computed_at
-        event.computed_at,  # $18 computed_at
-        record.winner_plugin,  # $19 winner_plugin
-        record.winner_confidence,  # $20 winner_confidence
-        winner_dir,  # $21 winner_direction
-        record.signals_evaluated,  # $22 signals_evaluated
-        record.signals_after_quality,  # $23 signals_after_quality
-        record.signals_after_regime,  # $24 signals_after_regime
-        record.signals_after_tod,  # $25 signals_after_tod
-        record.signals_after_calibration,  # $26 signals_after_calibration
-        record.ledger_written,  # $27 ledger_written
-        record.pipeline_latency_ms,  # $28 pipeline_latency_ms
-        record.i7_computed_at,  # $29 i7_computed_at
-        session_type_val,  # $30 session_type
-        days,  # $31 days_to_expiry
-        event.feature_schema_version,  # $32 feature_schema_version (contamination boundary)
+        i2_data,  # $15 i2
+        [s.model_dump() for s in record.ranked_signals],  # $16 trading_signals
+        event.bar_close_ts,  # $17 bar_close_ts
+        event.i1_computed_at,  # $18 i1_computed_at
+        event.computed_at,  # $19 computed_at
+        record.winner_plugin,  # $20 winner_plugin
+        record.winner_confidence,  # $21 winner_confidence
+        winner_dir,  # $22 winner_direction
+        record.signals_evaluated,  # $23 signals_evaluated
+        record.signals_after_quality,  # $24 signals_after_quality
+        record.signals_after_regime,  # $25 signals_after_regime
+        record.signals_after_tod,  # $26 signals_after_tod
+        record.signals_after_calibration,  # $27 signals_after_calibration
+        record.ledger_written,  # $28 ledger_written
+        record.pipeline_latency_ms,  # $29 pipeline_latency_ms
+        record.i7_computed_at,  # $30 i7_computed_at
+        session_type_val,  # $31 session_type
+        days,  # $32 days_to_expiry
+        event.feature_schema_version,  # $33 feature_schema_version (contamination boundary)
     )
 
 
