@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""
-Alpha Validation Gate — validate_alpha.py
+"""Alpha Validation Gate — validate_alpha.py
+
+Version: 1.1
+Status: current
+Last Updated: 2026-06-12
 
 Statistical validation gate that all new alpha sources must clear before live promotion.
 "Earn the right through proof" — no indicator enters the live pipeline without passing
@@ -23,6 +26,8 @@ Usage:
         --field three_white_soldiers --promote
     python production/scripts/validate_alpha.py --plugin cmp_DerivativeOscillator \\
         --symbol-filter ESH6,NQH6
+    python production/scripts/validate_alpha.py --check-eligibility
+    python production/scripts/validate_alpha.py --check-eligibility --plugin cmp_DerivativeOscillator
 """
 
 from __future__ import annotations
@@ -833,6 +838,57 @@ async def run_validation(
 
 
 # ---------------------------------------------------------------------------
+# Eligibility check
+# ---------------------------------------------------------------------------
+
+
+async def _check_eligibility(plugin: str | None) -> None:
+    """Print resolved outcome counts — shows which plugins are ready for validate_alpha."""
+    from src.core.script_utils import get_script_db
+
+    settings = Settings()
+    db = await get_script_db(settings)
+
+    try:
+        all_plugins = list_known_plugins()
+        plugins_to_check = [plugin] if plugin else sorted(all_plugins.keys())
+
+        async with db.get_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT setup_plugin, count(*) AS resolved_n
+                FROM signal_ledger_full
+                WHERE setup_plugin = ANY($1)
+                  AND outcome IS NOT NULL
+                  AND outcome != 'never_activated'
+                GROUP BY setup_plugin
+                ORDER BY setup_plugin
+                """,
+                plugins_to_check,
+            )
+    finally:
+        await db.close()
+
+    counts = {r["setup_plugin"]: r["resolved_n"] for r in rows}
+
+    min_n = 30
+    print(f"\nValidate-alpha eligibility (requires N >= {min_n} resolved outcomes)\n")
+    eligible = []
+    for p in plugins_to_check:
+        n = counts.get(p, 0)
+        status = "ELIGIBLE" if n >= min_n else f"NOT YET ({min_n - n} more needed)"
+        print(f"  {p}: {n} resolved -> {status}")
+        if n >= min_n:
+            eligible.append(p)
+
+    if eligible:
+        print("\nReady to validate:")
+        for p in eligible:
+            print(f"  .venv/bin/python production/scripts/validate_alpha.py --plugin {p}")
+    print()
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -886,8 +942,21 @@ def main() -> None:
         action="store_true",
         help="List all discoverable plugins and exit.",
     )
+    parser.add_argument(
+        "--check-eligibility",
+        action="store_true",
+        help=(
+            "Show resolved outcome counts per plugin to determine validate_alpha readiness. "
+            "Use with --plugin to check a single plugin; omit --plugin to check all known plugins."
+        ),
+    )
 
     args = parser.parse_args()
+
+    # Eligibility check and exit
+    if args.check_eligibility:
+        asyncio.run(_check_eligibility(args.plugin if hasattr(args, "plugin") else None))
+        sys.exit(0)
 
     # List plugins and exit
     if args.list_plugins:

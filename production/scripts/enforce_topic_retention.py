@@ -1,5 +1,9 @@
 """Enforce Redpanda topic retention from the canonical spec.
 
+Version: 1.0
+Status: current
+Last Updated: 2026-06-12
+
 Idempotent — safe to run against a live cluster at any time. Does not delete
 or recreate topics. Only alters retention.ms where it diverges from spec.
 

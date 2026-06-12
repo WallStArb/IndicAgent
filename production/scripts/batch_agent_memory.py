@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """memory_batch -- nightly agent memory backfill and calibration promotion.
 
+Version: 1.0
+Status: current
+Last Updated: 2026-06-12
+
 Runs four steps in strict order; a failing step aborts subsequent steps.
 
 1. EpochJob         -- detect KS alarms; auto-increment epoch on 3+ consecutive alarms

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """memory_recall_benchmark -- reproducible p95 latency measurement for MemoryClient.recall().
 
+Version: 1.0
+Status: current
+Last Updated: 2026-06-06
+
 Measures end-to-end recall latency (embed + HNSW + rerank) over >=1000 calls
 against a seeded cohort in memory_episodes_labeled. Produces the MEM-04 evidence
 gate: p95 recall latency documented against the 50ms budget.

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """signal_ledger_snapshot — capture per-setup signal metrics before any deletes.
 
+Version: 1.0
+Status: current
+Last Updated: 2026-06-11
+
 Writes docs/plans/signal-ledger-snapshot.json as the authoritative "before"
 baseline for comparison after rebuild. Run ONCE before executing the clean+replay.
 

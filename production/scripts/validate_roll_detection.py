@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Offline validation of calendar + z-score roll detection against historical data.
 
+Version: 1.0
+Status: current
+Last Updated: 2026-04-29
+
 Per D-21: accuracy gate >= 90% detection rate, < 10% false positive rate.
 Uses market_data_5m view for cleaner volume signal (per D-21 spec).
 

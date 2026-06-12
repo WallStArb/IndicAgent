@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""
-Renaissance Pipeline Audit — Computational Correctness + Latency Tracking
+"""Renaissance Pipeline Audit — Computational Correctness + Latency Tracking
+
+Version: 1.0
+Status: current
+Last Updated: 2026-04-29
 
 Validates that every calculation in the pipeline is mathematically correct,
 tracks per-hop latency, and measures cross-tier consistency.

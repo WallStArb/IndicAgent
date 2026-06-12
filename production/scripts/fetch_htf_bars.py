@@ -2,6 +2,11 @@
 """One-shot HTF bar backfill: replay 1m bars from market_data_ohlcv through
 BarAccumulator and publish completed HTF bars to topic_market_bars_htf.
 
+Version: 1.0
+Status: current
+Last Updated: 2026-06-12
+
+
 Usage:
     .venv/bin/python production/scripts/fetch_htf_bars.py --hours 24
     .venv/bin/python production/scripts/fetch_htf_bars.py --since 2026-04-02 --until 2026-04-09

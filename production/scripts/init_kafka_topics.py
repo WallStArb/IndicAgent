@@ -1,5 +1,9 @@
 """Kafka topic specifications for IndicAgent pipeline.
 
+Version: 1.0
+Status: current
+Last Updated: 2026-06-12
+
 Each entry: (suffix, num_partitions, retention_ms, cleanup_policy)
 
 Retention tiers:
