@@ -1693,8 +1693,8 @@ Plans:
 - [x] 122-06-PLAN.md — Deterministic signal IDs: close uuid4() fallbacks in 5 files
 - [x] 122-07-PLAN.md — feature_replay.py: I7-only replay from intelligence_features
 - [ ] 122-08-PLAN.md — GAP: Apply migration 125 (rename legacy tier columns to i1/i3/i4/i5)
-- [ ] 122-09-PLAN.md — GAP: Fix feature_replay source literal + narrative i2 column reference
-- [ ] 122-10-PLAN.md — GAP: Fix 4 TestBuildLedgerEntries test regressions (add mock bar_history)
+- [x] 122-09-PLAN.md — GAP: Fix feature_replay source literal + narrative i2 column reference
+- [x] 122-10-PLAN.md — GAP: Fix 4 TestBuildLedgerEntries test regressions (add mock bar_history)
 
 </details>
 
