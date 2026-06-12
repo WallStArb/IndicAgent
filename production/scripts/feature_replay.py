@@ -145,7 +145,7 @@ def _reconstruct_intelligence_event(row: asyncpg.Record) -> IntelligenceEvent | 
             ts=row["ts"],
             symbol=row["symbol"],
             tf=row["tf"],
-            source="feature_replay",
+            source="backfill",
             bar=OHLCVBar(
                 o=float(bar_data.get("o", 0.0)),
                 h=float(bar_data.get("h", 0.0)),
