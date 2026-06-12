@@ -52,8 +52,8 @@ async def export_features(
     try:
         query = """
             SELECT ts, symbol, tf, platform, source, schema_version,
-                   bar, technical_indicators, pattern_detections, regime_features,
-                   confluence_scores, smc, cross_timeframe_context
+                   bar, i1, i5, i3,
+                   i4, smc, cross_timeframe_context
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
               AND ($3::timestamptz IS NULL OR ts >= $3)
@@ -72,16 +72,16 @@ async def export_features(
                 "source": row["source"],
                 "schema_version": row["schema_version"],
             }
-            for tier, new_key in [
+            for tier, col in [
                 ("bar", "bar"),
-                ("i1", "technical_indicators"),
-                ("i3", "pattern_detections"),
-                ("i4", "regime_features"),
-                ("i5", "confluence_scores"),
+                ("i1", "i1"),
+                ("i3", "i3"),
+                ("i4", "i4"),
+                ("i5", "i5"),
                 ("smc", "smc"),
                 ("i6", "cross_timeframe_context"),
             ]:
-                tier_data = _parse_jsonb(row[new_key], default={})
+                tier_data = _parse_jsonb(row[col], default={})
                 for k, v in tier_data.items():
                     record[f"{tier}_{k}"] = v
             records.append(record)
@@ -122,8 +122,8 @@ async def get_features(
     try:
         query = """
             SELECT ts, symbol, tf, platform, source, schema_version,
-                   bar, technical_indicators, pattern_detections, regime_features,
-                   confluence_scores, smc, cross_timeframe_context
+                   bar, i1, i5, i3,
+                   i4, smc, cross_timeframe_context
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
               AND ($3::timestamptz IS NULL OR ts >= $3)
@@ -146,22 +146,12 @@ async def get_features(
                     "source": row["source"],
                     "schema_version": row["schema_version"],
                     "bar": _parse_jsonb(row["bar"], default={}),
-                    "i1": _parse_jsonb(
-                        row["technical_indicators"], default={}
-                    ),  # Keep response key as i1 for dashboard compat
-                    "i3": _parse_jsonb(
-                        row["pattern_detections"], default={}
-                    ),  # Keep response key as i3 for dashboard compat
-                    "i4": _parse_jsonb(
-                        row["regime_features"], default={}
-                    ),  # Keep response key as i4 for dashboard compat
-                    "i5": _parse_jsonb(
-                        row["confluence_scores"], default={}
-                    ),  # Keep response key as i5 for dashboard compat
+                    "i1": _parse_jsonb(row["i1"], default={}),
+                    "i3": _parse_jsonb(row["i3"], default={}),
+                    "i4": _parse_jsonb(row["i4"], default={}),
+                    "i5": _parse_jsonb(row["i5"], default={}),
                     "smc": _parse_jsonb(row["smc"], default={}),
-                    "i6": _parse_jsonb(
-                        row["cross_timeframe_context"], default={}
-                    ),  # Keep response key as i6 for dashboard compat
+                    "i6": _parse_jsonb(row["cross_timeframe_context"], default={}),
                 }
             )
 

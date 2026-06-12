@@ -63,8 +63,8 @@ CONSUMER_NAME: str = "feature_writer_1"
 _INSERT_FEATURE_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
-    bar, technical_indicators, market_context, pattern_detections, regime_features,
-    confluence_scores, smc, cross_timeframe_context, i2, trading_signals,
+    bar, i1, market_context, i5, i3,
+    i4, smc, cross_timeframe_context, i2, trading_signals,
     bar_close_ts, i1_computed_at, computed_at,
     winner_plugin, winner_confidence, winner_direction,
     signals_evaluated, signals_after_quality, signals_after_regime,
@@ -185,17 +185,17 @@ def _record_to_insert_params(
         event.source,  # $5 source
         record.schema_version,  # $6 schema_version
         event.bar.model_dump(),  # $7 bar
-        event.i1.model_dump(),  # $8 technical_indicators
+        event.i1.model_dump(),  # $8 i1
         market_ctx,  # $9 market_context (cross_asset only)
         event.i5.model_dump(
             exclude_none=True
-        ),  # $10 pattern_detections (I5Patterns: dt_db_confidence, hs_confidence, tri_confidence)
+        ),  # $10 i5 (I5Patterns: dt_db_confidence, hs_confidence, tri_confidence)
         event.i3.model_dump(
             exclude_none=True
-        ),  # $11 regime_features (I3Structure: swing_high, nearest_resistance, trend structure, session levels)
+        ),  # $11 i3 (I3Structure: swing_high, nearest_resistance, trend structure, session levels)
         event.i4.model_dump(
             exclude_none=True
-        ),  # $12 confluence_scores (I4Context: GARCH, Kalman, AVWAP, VP, SessionContext)
+        ),  # $12 i4 (I4Context: GARCH, Kalman, AVWAP, VP, SessionContext)
         event.smc.model_dump(exclude_none=True),  # $13 smc
         event.i6.model_dump(exclude_none=True),  # $14 cross_timeframe_context
         i2_data,  # $15 i2
