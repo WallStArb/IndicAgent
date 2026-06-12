@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID
 
 import pytest
 
@@ -151,14 +150,13 @@ class TestPayloadToLedgerEntries:
         entries = _payload_to_ledger_entries(payload)
         assert entries[0].status == SignalStatus.PENDING
 
-    def test_missing_signal_id_gets_uuid(self):
+    def test_missing_signal_id_raises(self):
         from services.signal_writer import _payload_to_ledger_entries
 
         payload = _make_payload(n_signals=1)
         del payload["signals"][0]["signal_id"]
-        entries = _payload_to_ledger_entries(payload)
-        # Must be a valid UUID string
-        UUID(entries[0].signal_id)
+        with pytest.raises(ValueError, match="signal missing signal_id"):
+            _payload_to_ledger_entries(payload)
 
     def test_bar_ts_parsed_as_utc_datetime(self):
         from services.signal_writer import _payload_to_ledger_entries
