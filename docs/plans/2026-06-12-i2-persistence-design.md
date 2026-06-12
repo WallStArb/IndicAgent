@@ -154,7 +154,7 @@ Update the call site at line 1574:
 event = _build_intelligence_event(bar, i1_features, tiered, symbol, tf, ts)
 ```
 
-### E — Database migration (`production/migrations/124_add_i2_column.sql`)
+### E — Database migration (`db/migrations/124_add_i2_column.sql`)
 
 ```sql
 -- Add i2 column; default '{}' ensures existing rows are valid immediately (no table lock).
@@ -175,6 +175,10 @@ SET market_context = CASE
 END
 WHERE market_context != '{}'::jsonb;
 ```
+
+Migration goes in `db/migrations/` — canonical home for Phase 104+ per naming-system Section 10.
+`production/migrations/` is frozen at 123. Numbers 120 and 121 have pre-existing conflicts
+between the two directories; this migration uses 124 (one above the global max) as required.
 
 72,648 rows affected. The separation is unambiguous: `cross_asset` is always the only nested object
 in `market_context`; every other flat key is an I2 composite plugin output.
