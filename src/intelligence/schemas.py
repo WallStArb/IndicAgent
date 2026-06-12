@@ -99,21 +99,33 @@ class I1Indicators(BaseModel):
 class I2Events(BaseModel):
     """I2 composite indicator event outputs — crossovers, threshold crossings, extremes.
 
-    Plugins: evt_MACDEvents, evt_RSIEvents, evt_StochasticEvents, evt_ADXEvents, evt_VolumeEvents
-    MAComposite golden/death cross fields flow through I1Indicators (extra='allow').
+    Strict schema (extra="forbid"): 45 declared fields across 10 plugins.
+
+    Plugins and field counts:
+    - evt_RSIEvents (6): rsi_crossed_30_up, rsi_crossed_70_down, rsi_crossed_50_up,
+      rsi_crossed_50_down, rsi_extreme_reversal, rsi_bars_in_extreme
+    - evt_StochasticEvents (6): stoch_cross_bullish, stoch_cross_bearish,
+      stoch_oversold_reversal, stoch_overbought_reversal, stoch_both_oversold, stoch_both_overbought
+    - evt_ADXEvents (6): adx_trend_confirmed, adx_ranging_confirmed, di_cross_bullish,
+      di_cross_bearish, di_cross_bars_ago, di_spread
+    - evt_VolumeEvents (6): vol_spike, vol_drying, bb_upper_touch, bb_lower_touch,
+      bb_walking_upper, bb_walking_lower
+    - Bridge composites/DonchianPosition (1): donchian_position_20
+    - Bridge composites/OBVMomentum (1): obv_slope_sign
+    - cmp_MomentumAccel (9): rsi_accel, macd_accel, roc_accel, inflection_flag,
+      rsi_curvature, macd_hist_slope, price_accel, hma_slope, hma_accel
+    - cmp_DerivativeOscillator (4): deriv_osc, deriv_osc_signal,
+      deriv_osc_cross_bullish, deriv_osc_cross_bearish
+    - cmp_ExhaustionScore (3): exhaustion_score, exhaustion_side, exhaustion_bars
+    - cmp_AccelerationRegime (3): accel_regime, accel_score, accel_agreement
+
+    Note: evt_MACDEvents (8 fields) was removed — those fields belong to
+    I3Structure.struct_MACDEvents which uses I3 support/resistance data.
+
+    Total: 45 declared fields.
     """
 
-    model_config = ConfigDict(extra="allow")
-
-    # MACDEvents
-    macd_cross_bullish: float | None = None
-    macd_cross_bearish: float | None = None
-    macd_cross_bars_ago: float | None = None
-    macd_hist_positive: float | None = None
-    macd_hist_turning_up: float | None = None
-    macd_negative_support_test: float | None = None
-    macd_price_divergence_bullish: float | None = None
-    macd_price_divergence_bearish: float | None = None
+    model_config = ConfigDict(extra="forbid")
 
     # RSIEvents
     rsi_crossed_30_up: float | None = None
@@ -150,6 +162,33 @@ class I2Events(BaseModel):
     # Bridge composites — translate I1 price-relative outputs into directional signals
     donchian_position_20: float | None = None  # DonchianPosition composite
     obv_slope_sign: float | None = None  # OBVMomentum composite
+
+    # cmp_MomentumAccel (9 fields)
+    rsi_accel: float | None = None
+    macd_accel: float | None = None
+    roc_accel: float | None = None
+    inflection_flag: float | None = None
+    rsi_curvature: float | None = None
+    macd_hist_slope: float | None = None
+    price_accel: float | None = None
+    hma_slope: float | None = None
+    hma_accel: float | None = None
+
+    # cmp_DerivativeOscillator (4 fields)
+    deriv_osc: float | None = None
+    deriv_osc_signal: float | None = None
+    deriv_osc_cross_bullish: float | None = None
+    deriv_osc_cross_bearish: float | None = None
+
+    # cmp_ExhaustionScore (3 fields)
+    exhaustion_score: float | None = None
+    exhaustion_side: str | None = None
+    exhaustion_bars: float | None = None
+
+    # cmp_AccelerationRegime (3 fields)
+    accel_regime: str | None = None
+    accel_score: float | None = None
+    accel_agreement: float | None = None
 
 
 class I3Structure(BaseModel):
