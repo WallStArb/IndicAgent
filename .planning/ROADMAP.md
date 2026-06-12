@@ -1682,7 +1682,7 @@ Plans:
   6. `feature_writer` writes `i2` to dedicated column; `market_context` receives only cross-asset data
   7. `_load_precomputed_features` SELECT includes `i2` and `market_context`; `--use-precomputed-features` path complete for I7 signal generation
 
-**Plans:** 7 plans in 4 waves
+**Plans:** 10 plans (7 original + 3 gap-closure)
 
 Plans:
 - [x] 122-01-PLAN.md — I2Events schema contract (45 fields, extra="forbid") + validation enablement
@@ -1692,6 +1692,9 @@ Plans:
 - [x] 122-05-PLAN.md — Column rename migration 125 (i1/i3/i4/i5) + zone_engine ATR floor fix
 - [x] 122-06-PLAN.md — Deterministic signal IDs: close uuid4() fallbacks in 5 files
 - [x] 122-07-PLAN.md — feature_replay.py: I7-only replay from intelligence_features
+- [ ] 122-08-PLAN.md — GAP: Apply migration 125 (rename legacy tier columns to i1/i3/i4/i5)
+- [ ] 122-09-PLAN.md — GAP: Fix feature_replay source literal + narrative i2 column reference
+- [ ] 122-10-PLAN.md — GAP: Fix 4 TestBuildLedgerEntries test regressions (add mock bar_history)
 
 </details>
 
