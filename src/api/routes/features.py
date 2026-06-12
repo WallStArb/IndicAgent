@@ -52,8 +52,8 @@ async def export_features(
     try:
         query = """
             SELECT ts, symbol, tf, platform, source, schema_version,
-                   bar, i1, i5, i3,
-                   i4, smc, cross_timeframe_context
+                   bar, technical_indicators, pattern_detections, regime_features,
+                   confluence_scores, smc, cross_timeframe_context
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
               AND ($3::timestamptz IS NULL OR ts >= $3)
@@ -74,10 +74,10 @@ async def export_features(
             }
             for tier, col in [
                 ("bar", "bar"),
-                ("i1", "i1"),
-                ("i3", "i3"),
-                ("i4", "i4"),
-                ("i5", "i5"),
+                ("i1", "technical_indicators"),
+                ("i3", "regime_features"),
+                ("i4", "confluence_scores"),
+                ("i5", "pattern_detections"),
                 ("smc", "smc"),
                 ("i6", "cross_timeframe_context"),
             ]:
@@ -115,15 +115,15 @@ async def get_features(
     """Get paginated intelligence_features rows for a symbol and timeframe.
 
     Accepts both base symbols (ES) and contract codes (ESH6).
-    JSONB tier columns (bar, i1, i3, i4, i5, smc, i6) are returned as dicts.
+    JSONB tier columns (bar, technical_indicators, regime_features, confluence_scores, pattern_detections, smc, i6) are returned as dicts.
     Use from/to query params (ISO 8601) for date range filtering.
     """
     contract = _resolve_contract(symbol)
     try:
         query = """
             SELECT ts, symbol, tf, platform, source, schema_version,
-                   bar, i1, i5, i3,
-                   i4, smc, cross_timeframe_context
+                   bar, technical_indicators, pattern_detections, regime_features,
+                   confluence_scores, smc, cross_timeframe_context
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
               AND ($3::timestamptz IS NULL OR ts >= $3)
@@ -146,10 +146,10 @@ async def get_features(
                     "source": row["source"],
                     "schema_version": row["schema_version"],
                     "bar": _parse_jsonb(row["bar"], default={}),
-                    "i1": _parse_jsonb(row["i1"], default={}),
-                    "i3": _parse_jsonb(row["i3"], default={}),
-                    "i4": _parse_jsonb(row["i4"], default={}),
-                    "i5": _parse_jsonb(row["i5"], default={}),
+                    "i1": _parse_jsonb(row["technical_indicators"], default={}),
+                    "i3": _parse_jsonb(row["regime_features"], default={}),
+                    "i4": _parse_jsonb(row["confluence_scores"], default={}),
+                    "i5": _parse_jsonb(row["pattern_detections"], default={}),
                     "smc": _parse_jsonb(row["smc"], default={}),
                     "i6": _parse_jsonb(row["cross_timeframe_context"], default={}),
                 }

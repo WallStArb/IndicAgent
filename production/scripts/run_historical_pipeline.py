@@ -565,8 +565,8 @@ def run_analysis_pipeline(
 _INSERT_FEATURE_SYNC_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
-    bar, i1, i5, i3,
-    i4, smc, cross_timeframe_context, i2
+    bar, technical_indicators, pattern_detections, regime_features,
+    confluence_scores, smc, cross_timeframe_context, i2
 ) VALUES %s
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """
@@ -642,8 +642,8 @@ def _event_to_sync_params(event: Any) -> tuple:
 
     Column order matches _INSERT_FEATURE_SYNC_SQL:
       ts, symbol, tf, platform, source, schema_version,
-      bar, i1, i5, i3,
-      i4, smc, cross_timeframe_context, i2
+      bar, technical_indicators, pattern_detections, regime_features,
+      confluence_scores, smc, cross_timeframe_context, i2
     """
     return (
         event.ts,  # datetime — psycopg2 native
@@ -1002,8 +1002,8 @@ def _load_precomputed_features(
     with conn.cursor() as cur:
         cur.execute(
             "SELECT ts, tf,"
-            " i1, i5, i3,"
-            " i4, smc, cross_timeframe_context,"
+            " technical_indicators, pattern_detections, regime_features,"
+            " confluence_scores, smc, cross_timeframe_context,"
             " i2, market_context"
             " FROM intelligence_features"
             " WHERE symbol = %s AND (%s IS NULL OR ts >= %s)"
