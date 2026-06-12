@@ -83,7 +83,7 @@ Canonical registry: `_DAG_ORDER` in `services/service_auditor.py`. Never maintai
 
 - **DB queries:** `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "..."`. Plain `psql -U postgres` fails.
 - **Pipeline capacity:** sequential bar processing (`await _process_bar`), latency at `intelligence_pipeline_pipeline_latency_ms` gauge (`:8000/metrics`). Backfill replay throttled (`BAR_REPLAY_BARS_PER_SEC`) — not representative of live ceiling.
-- **Historical backfill:** `historical_backfill.py --client-id 40` (provider uses 35; default 56 exceeds `_MAX_CLIENT_ID=50`). Gotchas: `docs/gotchas.md`.
+- **Historical backfill:** `run_historical_pipeline.py --client-id 40` (provider uses 35; default 56 exceeds `_MAX_CLIENT_ID=50`). Gotchas: `docs/gotchas.md`.
 - **Lifecycle replay:** `lifecycle_replay.py` — re-run picks up where it left off. Gotchas: `docs/gotchas.md`.
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling

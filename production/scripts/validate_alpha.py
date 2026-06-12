@@ -43,7 +43,7 @@ from scipy.stats import pearsonr
 from statsmodels.tsa.stattools import adfuller
 
 # ---------------------------------------------------------------------------
-# Path setup — consistent with historical_backfill.py pattern
+# Path setup — consistent with run_historical_pipeline.py pattern
 # ---------------------------------------------------------------------------
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))

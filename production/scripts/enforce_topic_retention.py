@@ -17,7 +17,7 @@ import subprocess
 import sys
 from typing import NamedTuple
 
-from production.scripts.kafka_init_topics import (
+from production.scripts.init_kafka_topics import (
     _BUFFER_MS,
     _COMPACTED_TOPICS,
     get_topic_specs,

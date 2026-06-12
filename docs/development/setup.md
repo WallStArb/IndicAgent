@@ -93,7 +93,7 @@ bash production/scripts/db_verify.sh
 Creates all Kafka topics with correct retention tiers (hot/buffer/HTF):
 
 ```bash
-python3 production/scripts/kafka_init_topics.py
+python3 production/scripts/init_kafka_topics.py
 ```
 
 Topics are created with env prefix from `INDICAGENT_ENV` in `.env` (default: `dev`).
@@ -212,7 +212,7 @@ sudo systemctl restart indicagent-ibkr-provider
 | DB migrations (Phase 104+) | `db/migrations/0*.sql` |
 | Apply migrations | `production/scripts/db_setup.sh` |
 | Verify schema | `production/scripts/db_verify.sh` |
-| Init Redpanda topics | `production/scripts/kafka_init_topics.py` |
+| Init Redpanda topics | `production/scripts/init_kafka_topics.py` |
 | Systemd service templates | `production/systemd/` |
 | Env template | `.env.example` |
 

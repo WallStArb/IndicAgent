@@ -3,7 +3,7 @@
 resolved signal_ledger outcomes to run validate_alpha.py.
 
 Usage:
-    .venv/bin/python production/scripts/check_validate_alpha_eligibility.py
+    .venv/bin/python production/scripts/validate_alpha_eligibility.py
 """
 
 from __future__ import annotations

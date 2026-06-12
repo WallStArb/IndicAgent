@@ -17,17 +17,17 @@ Safety controls:
 
 Usage:
     # Dry run — see what will be wiped:
-    python production/scripts/data_reset.py
+    python production/scripts/reset_pipeline_data.py
 
     # Execute full reset:
     sudo systemctl stop indicagent-intelligence-pipeline
-    python production/scripts/data_reset.py --confirm
+    python production/scripts/reset_pipeline_data.py --confirm
 
     # Skip the backfill + lifecycle replay (just wipe):
-    python production/scripts/data_reset.py --confirm --wipe-only
+    python production/scripts/reset_pipeline_data.py --confirm --wipe-only
 
     # Wipe then replay with more workers:
-    python production/scripts/data_reset.py --confirm --workers 8
+    python production/scripts/reset_pipeline_data.py --confirm --workers 8
 """
 
 from __future__ import annotations
@@ -175,7 +175,7 @@ def _run_backfill(workers: int) -> None:
     cmd = [
         sys.executable,
         "-u",
-        str(project_root / "production/scripts/historical_backfill.py"),
+        str(project_root / "production/scripts/run_historical_pipeline.py"),
         "--replay-only",
         "--clean",
         "--workers",

@@ -3,8 +3,8 @@
 BarAccumulator and publish completed HTF bars to topic_market_bars_htf.
 
 Usage:
-    .venv/bin/python production/scripts/backfill_htf_bars.py --hours 24
-    .venv/bin/python production/scripts/backfill_htf_bars.py --since 2026-04-02 --until 2026-04-09
+    .venv/bin/python production/scripts/fetch_htf_bars.py --hours 24
+    .venv/bin/python production/scripts/fetch_htf_bars.py --since 2026-04-02 --until 2026-04-09
 
 The intelligence pipeline must be running — it will consume and persist the replayed bars.
 Run while the bar_aggregator service is stopped to avoid duplicate messages.

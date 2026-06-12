@@ -1,0 +1,15 @@
+{
+  "stages_complete": [
+    "snapshot",
+    "decompress",
+    "drop_indexes",
+    "clean",
+    "dry_run",
+    "replay",
+    "verify",
+    "rebuild_indexes",
+    "recompress"
+  ],
+  "started_at": "2026-06-11T08:03:57.311962+00:00",
+  "last_updated": "2026-06-12T00:38:20.439922+00:00"
+}

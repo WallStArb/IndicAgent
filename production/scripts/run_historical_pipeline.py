@@ -26,19 +26,19 @@ signal_ledger and intelligence_features.
 Replaces: production/scripts/simple_seeder.py (retired)
 
 Usage:
-    python production/scripts/historical_backfill.py
-    python production/scripts/historical_backfill.py --fetch-only
-    python production/scripts/historical_backfill.py --replay-only
-    python production/scripts/historical_backfill.py --symbols ESH6,NQH6
+    python production/scripts/run_historical_pipeline.py
+    python production/scripts/run_historical_pipeline.py --fetch-only
+    python production/scripts/run_historical_pipeline.py --replay-only
+    python production/scripts/run_historical_pipeline.py --symbols ESH6,NQH6
 
     # Per-contract mode (Renaissance-style raw data storage):
-    python production/scripts/historical_backfill.py --fetch-only --per-contract --symbols ESH6
+    python production/scripts/run_historical_pipeline.py --fetch-only --per-contract --symbols ESH6
 
     # Gap-fill: fetch last 2 days across ALL TFs (not just 1m), then replay only those 2 days:
-    python production/scripts/historical_backfill.py --fetch-only --symbols EURUSD,BTCUSD --days 2
-    python production/scripts/historical_backfill.py --replay-only --symbols EURUSD,BTCUSD --days 2
+    python production/scripts/run_historical_pipeline.py --fetch-only --symbols EURUSD,BTCUSD --days 2
+    python production/scripts/run_historical_pipeline.py --replay-only --symbols EURUSD,BTCUSD --days 2
 
-    python production/scripts/historical_backfill.py --replay-only --clean  # delete old signals
+    python production/scripts/run_historical_pipeline.py --replay-only --clean  # delete old signals
 
 --days behaviour:
     When provided, caps ALL timeframe fetch depths at that value (not just 1m).
@@ -1138,7 +1138,7 @@ async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
     DB errors per base symbol are caught and logged — other symbols continue.
 
     Usage:
-        python production/scripts/historical_backfill.py --seed-roll-chain
+        python production/scripts/run_historical_pipeline.py --seed-roll-chain
     """
     import structlog
 
