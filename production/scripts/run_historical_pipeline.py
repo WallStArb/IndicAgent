@@ -63,10 +63,10 @@ from collections import defaultdict, deque
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import psycopg2
 import psycopg2.extras
+import structlog
 
 # Set up sys.path BEFORE importing from src
 project_root = Path(__file__).parent.parent.parent
@@ -96,6 +96,8 @@ from src.observability.metrics import flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.persistence.repository.signal_ledger_repository import LedgerEntry
 from src.providers import IBKRProvider
+
+_logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Per-Contract Futures Storage — Renaissance-style canonical truth
@@ -806,7 +808,15 @@ def _build_ledger_entries(
                 direction=direction,
             )
         else:
-            sid = str(uuid4())
+            # last_bar is None — malformed signal with no bar data; cannot generate deterministic ID
+            _logger.warning(
+                "Skipping signal with no bar data — cannot generate deterministic signal_id",
+                symbol=symbol,
+                timeframe=timeframe,
+                setup_plugin=setup_plugin,
+                timestamp=str(timestamp),
+            )
+            continue
 
         entries.append(
             LedgerEntry(
