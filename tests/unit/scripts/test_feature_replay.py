@@ -12,10 +12,7 @@ architectural invariants that must never regress:
 import pathlib
 
 _SCRIPT = pathlib.Path("production/scripts/feature_replay.py")
-
-
-def _src() -> str:
-    return _SCRIPT.read_text()
+_SRC = _SCRIPT.read_text() if _SCRIPT.exists() else ""
 
 
 def test_script_exists() -> None:
@@ -24,7 +21,7 @@ def test_script_exists() -> None:
 
 def test_no_i16_compute_imports() -> None:
     """Forbidden: any I1-I6 compute pipeline function imported or called."""
-    src = _src()
+    src = _SRC
     forbidden = (
         "run_analysis_pipeline",
         "run_i7_and_persist",
@@ -37,12 +34,12 @@ def test_no_i16_compute_imports() -> None:
 
 def test_no_uuid4() -> None:
     """Deterministic IDs only — uuid4 fallback must not appear."""
-    assert "uuid4" not in _src(), "uuid4 found in feature_replay.py — use make_signal_id instead"
+    assert "uuid4" not in _SRC, "uuid4 found in feature_replay.py — use make_signal_id instead"
 
 
 def test_on_conflict_identity_columns_not_in_set() -> None:
     """ON CONFLICT SET clause must not overwrite identity columns."""
-    src = _src()
+    src = _SRC
     # Find the DO UPDATE SET block
     assert (
         "ON CONFLICT (signal_id, timestamp) DO UPDATE SET" in src
@@ -59,7 +56,7 @@ def test_on_conflict_identity_columns_not_in_set() -> None:
 
 def test_functional_column_names_in_select() -> None:
     """SELECT query must use functional column names (migration 126 reverted tier codes)."""
-    src = _src()
+    src = _SRC
     required_columns = (
         "technical_indicators",
         "regime_features",
@@ -75,7 +72,7 @@ def test_functional_column_names_in_select() -> None:
 
 def test_tier_code_db_columns_not_in_select() -> None:
     """Tier-code DB column names i1/i3/i4/i5 must not appear as DB column refs (migration 126)."""
-    src = _src()
+    src = _SRC
     # These were renamed to functional names in migration 126 — SQL must use functional names.
     # i2 is excluded because it was not renamed.
     for tier_col in ("i1", "i3", "i4", "i5"):
@@ -86,7 +83,7 @@ def test_tier_code_db_columns_not_in_select() -> None:
 
 def test_cli_flags_present() -> None:
     """All six CLI flags must be declared in the script."""
-    src = _src()
+    src = _SRC
     flags = (
         "--plugins",
         "--symbols",

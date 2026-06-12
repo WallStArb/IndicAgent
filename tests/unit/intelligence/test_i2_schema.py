@@ -28,38 +28,21 @@ def test_macd_events_outputs_has_new_accel_fields():
 
 # --- MACD fields removed from I2Events (migrated to I3Structure) ---
 
-
-def test_macd_cross_bullish_absent_from_i2events():
-    """macd_cross_bullish was removed from I2Events — belongs to I3Structure."""
-    assert "macd_cross_bullish" not in I2Events.model_fields
-
-
-def test_macd_cross_bearish_absent_from_i2events():
-    assert "macd_cross_bearish" not in I2Events.model_fields
-
-
-def test_macd_cross_bars_ago_absent_from_i2events():
-    assert "macd_cross_bars_ago" not in I2Events.model_fields
+_MACD_REMOVED_FIELDS = [
+    "macd_cross_bullish",
+    "macd_cross_bearish",
+    "macd_cross_bars_ago",
+    "macd_hist_positive",
+    "macd_hist_turning_up",
+    "macd_negative_support_test",
+    "macd_price_divergence_bullish",
+    "macd_price_divergence_bearish",
+]
 
 
-def test_macd_hist_positive_absent_from_i2events():
-    assert "macd_hist_positive" not in I2Events.model_fields
-
-
-def test_macd_hist_turning_up_absent_from_i2events():
-    assert "macd_hist_turning_up" not in I2Events.model_fields
-
-
-def test_macd_negative_support_test_absent_from_i2events():
-    assert "macd_negative_support_test" not in I2Events.model_fields
-
-
-def test_macd_price_divergence_bullish_absent_from_i2events():
-    assert "macd_price_divergence_bullish" not in I2Events.model_fields
-
-
-def test_macd_price_divergence_bearish_absent_from_i2events():
-    assert "macd_price_divergence_bearish" not in I2Events.model_fields
+@pytest.mark.parametrize("field", _MACD_REMOVED_FIELDS)
+def test_macd_field_absent_from_i2events(field: str) -> None:
+    assert field not in I2Events.model_fields
 
 
 def test_extra_field_raises_validation_error():
@@ -77,17 +60,6 @@ def test_macd_cross_bullish_raises_validation_error():
 # --- Composite plugin fields present ---
 
 
-def test_rsi_accel_present():
-    assert hasattr(I2Events(), "rsi_accel")
-
-
-def test_deriv_osc_present():
-    assert hasattr(I2Events(), "deriv_osc")
-
-
-def test_exhaustion_score_present():
-    assert hasattr(I2Events(), "exhaustion_score")
-
-
-def test_accel_regime_present():
-    assert hasattr(I2Events(), "accel_regime")
+@pytest.mark.parametrize("field", ["rsi_accel", "deriv_osc", "exhaustion_score", "accel_regime"])
+def test_composite_field_present(field: str) -> None:
+    assert hasattr(I2Events(), field)

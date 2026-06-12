@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import sys
 import time
 from datetime import UTC, datetime, timedelta
@@ -42,7 +41,8 @@ _project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_project_root))
 
 from src.config.settings import Settings, get_active_contracts
-from src.core.service_utils import TF_SECONDS, setup_service_logging
+from src.core.database_manager import create_pool
+from src.core.service_utils import TF_SECONDS, parse_iso_ts, setup_service_logging
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
 from src.intelligence.schemas import (
@@ -278,6 +278,14 @@ async def _replay_symbol_tf(
         garch_sigma = flat_features.get("garch_sigma")
         hmm_regime = flat_features.get("hmm_regime")
 
+        bar_o = float(bar_data.get("o", 0.0))
+        bar_h = float(bar_data.get("h", 0.0))
+        bar_l = float(bar_data.get("l", 0.0))
+        bar_c = float(bar_data.get("c", 0.0))
+        bar_v = float(bar_data.get("v", 0))
+        ts_ns = int(ts.timestamp() * 1e9)
+        signal_computed_at = datetime.now(UTC)
+
         entries: list[LedgerEntry] = []
         for sig in agg_result.all_ranked:
             rank = sig.get("composite_rank", 99)
@@ -287,13 +295,13 @@ async def _replay_symbol_tf(
 
             sid = make_signal_id(
                 symbol=symbol,
-                feature_ts_ns=int(ts.timestamp() * 1e9),
+                feature_ts_ns=ts_ns,
                 feature_tf=tf,
-                open_=float(bar_data.get("o", 0.0)),
-                high=float(bar_data.get("h", 0.0)),
-                low=float(bar_data.get("l", 0.0)),
-                close=float(bar_data.get("c", 0.0)),
-                volume=float(bar_data.get("v", 0)),
+                open_=bar_o,
+                high=bar_h,
+                low=bar_l,
+                close=bar_c,
+                volume=bar_v,
                 setup_plugin=setup_plugin,
                 direction=direction,
             )
@@ -318,7 +326,7 @@ async def _replay_symbol_tf(
                     was_selected=was_selected,
                     is_shadow=bool(sig.get("is_shadow", False)),
                     is_backfill=True,
-                    signal_computed_at=datetime.now(UTC),
+                    signal_computed_at=signal_computed_at,
                     feature_ts=ts,
                     feature_tf=tf,
                     hmm_regime_at_fire=(
@@ -333,7 +341,7 @@ async def _replay_symbol_tf(
                     targets=[float(t) for t in sig.get("targets", [])],
                     entry_zone_low=sig.get("zone_low"),
                     entry_zone_high=sig.get("zone_high"),
-                    market_entry_price=float(bar_data.get("c", 0.0)) or None,
+                    market_entry_price=bar_c or None,
                     cis_score=(
                         sig.get("filtered_cis_score")
                         if sig.get("filtered_cis_score") is not None
@@ -457,10 +465,7 @@ async def main() -> None:
         contracts = get_active_contracts(settings)
         symbols = [c.symbol for c in contracts]
 
-    # Resolve since
-    since: datetime | None = None
-    if args.since:
-        since = datetime.fromisoformat(args.since).replace(tzinfo=UTC)
+    since = parse_iso_ts(args.since)
 
     # Default timeframes (mirrors run_historical_pipeline DEFAULT_TIMEFRAMES)
     timeframes = ["1m", "5m", "15m", "1h", "4h", "1d"]
@@ -470,18 +475,8 @@ async def main() -> None:
         f"timeframes={timeframes} since={args.since} dry_run={args.dry_run} workers={args.workers}"
     )
 
-    # Create asyncpg pool with JSONB codecs (pattern from database_manager.py)
-    async def _setup_codecs(conn: asyncpg.Connection) -> None:
-        await conn.set_type_codec(
-            "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
-        )
-        await conn.set_type_codec(
-            "json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
-        )
-
-    pool = await asyncpg.create_pool(
+    pool = await create_pool(
         settings.database_url,
-        init=_setup_codecs,
         min_size=2,
         max_size=max(4, args.workers + 2),
     )
