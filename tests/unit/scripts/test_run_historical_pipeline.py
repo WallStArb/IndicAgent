@@ -326,7 +326,8 @@ def test_run_i7_and_persist_populates_cis_fields():
     with (
         patch("production.scripts.run_historical_pipeline.aggregate", return_value=cis_agg),
         patch(
-            "production.scripts.run_historical_pipeline._insert_signals_sync", side_effect=fake_insert
+            "production.scripts.run_historical_pipeline._insert_signals_sync",
+            side_effect=fake_insert,
         ),
         patch("production.scripts.run_historical_pipeline.registry", mock_registry),
     ):
@@ -612,7 +613,9 @@ def test_replay_worker_calls_replay_symbol_and_returns_tuple():
     ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
 
     with (
-        patch("production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn),
+        patch(
+            "production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn
+        ),
         patch("production.scripts.run_historical_pipeline.register_all_plugins") as mock_register,
         patch(
             "production.scripts.run_historical_pipeline.replay_symbol", return_value=fake_counts
@@ -647,7 +650,9 @@ def test_replay_worker_closes_connection_on_failure():
     mock_conn = MagicMock()
 
     with (
-        patch("production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn),
+        patch(
+            "production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn
+        ),
         patch("production.scripts.run_historical_pipeline.register_all_plugins"),
         patch(
             "production.scripts.run_historical_pipeline.replay_symbol",
@@ -691,7 +696,6 @@ def _ts_bf(hour, minute):
 class TestRunI1Plugins:
     def test_returns_empty_when_insufficient_bars(self):
         from production.scripts.run_historical_pipeline import run_i1_plugins
-
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -701,7 +705,6 @@ class TestRunI1Plugins:
 
     def test_returns_features_dict_when_enough_bars(self):
         from production.scripts.run_historical_pipeline import run_i1_plugins
-
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -718,7 +721,6 @@ class TestRunI1Plugins:
 
     def test_plugin_exception_does_not_propagate(self):
         from production.scripts.run_historical_pipeline import run_i1_plugins
-
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -798,7 +800,6 @@ class TestBuildLedgerEntries:
 
     def test_empty_result_returns_empty_list(self):
         from production.scripts.run_historical_pipeline import _build_ledger_entries
-
         from src.intelligence.trading.aggregator import AggregatedResult
 
         result = AggregatedResult(
@@ -861,7 +862,6 @@ class TestBuildIntelligenceEvent:
 
     def test_returns_intelligence_event_with_source_backfill(self):
         from production.scripts.run_historical_pipeline import _build_intelligence_event
-
         from src.intelligence.schemas import IntelligenceEvent
 
         register_all_plugins()
@@ -927,6 +927,7 @@ class TestEventToSyncParams:
     def _make_event(self):
         from src.intelligence.schemas import (
             I1Indicators,
+            I2Events,
             I3Structure,
             I4Context,
             I5Patterns,
@@ -943,6 +944,7 @@ class TestEventToSyncParams:
             source="backfill",
             bar=OHLCVBar(o=5100.0, h=5105.0, l=5095.0, c=5102.0, v=1000),
             i1=I1Indicators(rsi_14=55.0),
+            i2=I2Events(),
             i3=I3Structure(),
             i4=I4Context(),
             i5=I5Patterns(),
@@ -950,11 +952,11 @@ class TestEventToSyncParams:
             i6=I6Confluence(),
         )
 
-    def test_returns_13_tuple(self):
+    def test_returns_14_tuple(self):
 
         from production.scripts.run_historical_pipeline import _event_to_sync_params
 
-        assert len(_event_to_sync_params(self._make_event())) == 13
+        assert len(_event_to_sync_params(self._make_event())) == 14
 
     def test_first_element_is_datetime(self):
         from production.scripts.run_historical_pipeline import _event_to_sync_params
@@ -974,7 +976,10 @@ class TestInsertFeaturesSync:
         return _make_mock_conn()
 
     def test_calls_execute_values_with_correct_sql(self):
-        from production.scripts.run_historical_pipeline import _INSERT_FEATURE_SYNC_SQL, _insert_features_sync
+        from production.scripts.run_historical_pipeline import (
+            _INSERT_FEATURE_SYNC_SQL,
+            _insert_features_sync,
+        )
 
         mock_conn, mock_cursor = self._mock_conn()
         with patch("psycopg2.extras.execute_values") as mock_ev:
@@ -1075,7 +1080,6 @@ class TestCISColumnsInSQL:
 
     def test_insert_signals_sync_params_include_cis_nulls(self):
         from production.scripts.run_historical_pipeline import _insert_signals_sync
-
         from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
         entry = LedgerEntry(
@@ -1130,7 +1134,9 @@ class TestDetectGaps:
     def test_nyse_over_weekend_no_gaps(self):
         from production.scripts.run_historical_pipeline import detect_gaps
 
-        with patch("production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]):
+        with patch(
+            "production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]
+        ):
             gaps = detect_gaps(
                 self._mock_conn(),
                 "SPY",
@@ -1145,7 +1151,9 @@ class TestDetectGaps:
     def test_nyse_on_holiday_no_gaps(self):
         from production.scripts.run_historical_pipeline import detect_gaps
 
-        with patch("production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]):
+        with patch(
+            "production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]
+        ):
             gaps = detect_gaps(
                 self._mock_conn(),
                 "SPY",
@@ -1164,7 +1172,9 @@ class TestDetectGaps:
         mock_conn = self._mock_conn(
             [(datetime(2026, 1, 2, 15, 0, tzinfo=UTC),), (datetime(2026, 1, 2, 18, 0, tzinfo=UTC),)]
         )
-        with patch("production.scripts.run_historical_pipeline.generate_session_slots", return_value=slots):
+        with patch(
+            "production.scripts.run_historical_pipeline.generate_session_slots", return_value=slots
+        ):
             gaps = detect_gaps(
                 mock_conn,
                 "SPY",
