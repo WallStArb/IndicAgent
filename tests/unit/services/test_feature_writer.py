@@ -111,7 +111,7 @@ def test_parse_payload_returns_list_for_valid_record():
     assert isinstance(valid, list)
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 32
+    assert len(valid[0]) == 33
 
 
 def test_parse_payload_returns_none_for_invalid_json():
@@ -132,15 +132,15 @@ def test_parse_payload_returns_none_for_invalid_json():
 # ── _record_to_insert_params ──────────────────────────────────────────────────
 
 
-def test_record_to_insert_params_returns_32_tuple():
-    """_record_to_insert_params returns a 32-element tuple matching SQL columns."""
+def test_record_to_insert_params_returns_33_tuple():
+    """_record_to_insert_params returns a 33-element tuple matching SQL columns."""
     from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 32
+    assert len(params) == 33
 
 
 def test_record_to_insert_params_serializes_ranked_signals_to_list():
@@ -150,7 +150,7 @@ def test_record_to_insert_params_serializes_ranked_signals_to_list():
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
 
-    i7_value = params[14]
+    i7_value = params[15]
     assert isinstance(i7_value, list), "i7 must be a list for asyncpg JSONB"
     assert len(i7_value) == 1
     assert i7_value[0]["plugin"] == "trad_TrendFollowing"
@@ -165,8 +165,8 @@ def test_record_to_insert_params_uses_datetime_objects_for_timestamps():
 
     assert isinstance(params[0], datetime), f"ts must be datetime, got {type(params[0])}"
     assert isinstance(
-        params[28], datetime
-    ), f"i7_computed_at must be datetime, got {type(params[28])}"
+        params[29], datetime
+    ), f"i7_computed_at must be datetime, got {type(params[29])}"
 
 
 def test_record_to_insert_params_handles_none_winner_fields():
@@ -179,9 +179,9 @@ def test_record_to_insert_params_handles_none_winner_fields():
     record.winner_direction = None
     params = _record_to_insert_params(record)
 
-    assert params[18] is None, "winner_plugin should be None"
-    assert params[19] is None, "winner_confidence should be None"
-    assert params[20] is None, "winner_direction should be None"
+    assert params[19] is None, "winner_plugin should be None"
+    assert params[20] is None, "winner_confidence should be None"
+    assert params[21] is None, "winner_direction should be None"
 
 
 def test_record_to_insert_params_extracts_session_type_as_string():
@@ -192,7 +192,7 @@ def test_record_to_insert_params_extracts_session_type_as_string():
     record.session_type = "rth"
     params = _record_to_insert_params(record)
 
-    session_type_val = params[29]
+    session_type_val = params[30]
     assert isinstance(session_type_val, str), "session_type must be a string"
     assert session_type_val == "rth"
 
@@ -204,14 +204,14 @@ def test_record_to_insert_params_jsonb_columns_are_dicts_or_lists():
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
 
-    for idx in range(6, 14):
+    for idx in range(6, 15):
         value = params[idx]
         assert isinstance(value, dict), f"params[{idx}] must be a dict, got {type(value).__name__}"
 
-    i7_value = params[14]
+    i7_value = params[15]
     assert isinstance(
         i7_value, list
-    ), f"params[14] (i7) must be a list, got {type(i7_value).__name__}"
+    ), f"params[15] (i7) must be a list, got {type(i7_value).__name__}"
 
 
 # ── _flush_batch (via BaseWriter._do_flush) ──────────────────────────────
