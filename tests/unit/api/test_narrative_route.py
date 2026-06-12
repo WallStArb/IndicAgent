@@ -68,10 +68,10 @@ def _signal_row(overrides=None):
         "timestamp": datetime.now(UTC),
         "feature_tf": "15m",
         "bar": {"o": 5400.0, "h": 5410.0, "l": 5395.0, "c": 5405.0, "v": 12345},
-        "technical_indicators": {},
-        "pattern_detections": None,
-        "regime_features": {},
-        "confluence_scores": None,
+        "i1": {},
+        "i3": None,
+        "i4": {},
+        "i5": None,
         "smc": None,
         "cross_timeframe_context": None,
     }
@@ -290,9 +290,9 @@ class TestBuildContext:
 
         row = _signal_row(
             {
-                "technical_indicators": {"rsi_14": 55.2},
-                "pattern_detections": None,
-                "regime_features": None,
+                "i1": {"rsi_14": 55.2},
+                "i3": None,
+                "i4": None,
             }
         )
 

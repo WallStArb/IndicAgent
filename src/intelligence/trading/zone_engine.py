@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from src.intelligence.trading.atr_utils import get_atr
+from src.intelligence.trading.atr_utils import get_atr_with_floor
 from src.intelligence.trading.plugin_utils import _fval
 from src.observability.metrics import (
     ZONE_CANDIDATE_COUNT,
@@ -228,7 +228,10 @@ def collect_candidates(
     """Collect deduplicated structural price candidates strictly between stop and entry."""
     if direction not in _VP_DIRECTION:
         raise ValueError(f"zone_engine: direction must be 1 or -1, got {direction!r}")
-    atr = get_atr(features) or 0.5
+    symbol = features.get("symbol", "")
+    atr = get_atr_with_floor(features, symbol)
+    if atr is None:
+        return []
     if direction == 1:
         lo, hi = stop, entry
         specs = _SUPPORT_SPECS
