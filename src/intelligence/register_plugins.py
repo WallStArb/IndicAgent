@@ -102,7 +102,7 @@ from .context.volume_profile import plugin as volume_profile_plugin
 from .features.i3_structure.macd_events import plugin as macd_events_plugin
 from .features.i5_patterns.mtf_volatility import plugin as mtf_vol_plugin
 from .plugins import registry
-from .schemas import I3Structure, I4Context, I5Patterns, I6Confluence, SMCContext
+from .schemas import I2Events, I3Structure, I4Context, I5Patterns, I6Confluence, SMCContext
 from .trading.anchored_vwap_reversion import plugin as anchored_vwap_reversion_plugin
 from .trading.candlestick_pattern_setup import plugin as candlestick_pattern_setup_plugin
 from .trading.choch_reversal import plugin as choch_reversal_plugin
@@ -158,9 +158,25 @@ def validate_schema_coverage() -> None:
     if any plugin outputs a field not declared in its tier schema — catching the
     class of bug that silently breaks seed publish on service restart.
 
-    I1 and I2 are skipped (extra='allow').
+    I1 is skipped (extra='allow').
     """
     tier_checks: list[tuple[str, list, type]] = [
+        (
+            "I2",
+            [
+                rsi_events_plugin,
+                stoch_events_plugin,
+                adx_events_plugin,
+                volume_events_plugin,
+                donchian_pos_plugin,
+                obv_momentum_plugin,
+                momentum_accel_plugin,
+                deriv_osc_plugin,
+                exhaustion_score_plugin,
+                accel_regime_plugin,
+            ],
+            I2Events,
+        ),
         (
             "I3",
             [
