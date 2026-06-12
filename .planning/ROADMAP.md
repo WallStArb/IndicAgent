@@ -1665,31 +1665,30 @@ Plans:
 
 ---
 
-### Phase 122: Production Hardening
+### Phase 122: I2 Tier Persistence Fix
 
-**Goal:** ParityAuditor runs continuously; alerts page on-call on data integrity violations. ConfidenceCalibrationMonitor runs continuously. All 30 setups empirically validated.
+**Goal:** Eliminate the hidden training/production bias in `intelligence_features` — I2Events schema is fully declared (no extra="allow"), live and historical pipelines produce identical `i2` content, and `intelligence_features` gains a dedicated `i2` JSONB column separated from `market_context`.
 
 **Depends on**: Phase 121
-**Requirements**: HARDEN-01, HARDEN-02, HARDEN-03
+**Requirements**: I2-PERSIST-01, I2-PERSIST-02, I2-PERSIST-03, I2-PERSIST-04
+**Spec**: `docs/plans/2026-06-12-i2-persistence-design.md`
 **Success Criteria** (what must be TRUE):
 
-  1. FeatureParityAuditor runs continuously (5min timer); zero silent failures; alerts within 60s on data integrity violations
-  2. ConfidenceCalibrationMonitor runs continuously (5min timer); alerts if calibration<0.3 with N>=100
-  3. ShadowAuditor runs continuously (15min timer); validates shadow mode integrity; flags setups that should graduate
-  4. All 30 setups have validation passed: multi-factor confidence, I6 confluence, calibration>0.3
-  5. ServiceAuditor integrates parity/calibration/shadow alerts; unified alerting to Telegram/Discord
+  1. `I2Events` declares exactly 45 fields; `extra="forbid"` enforced; startup crashes on undeclared plugin output
+  2. `I2Events` contains zero MACD field declarations (those live in `I3Structure` with `extra="forbid"`)
+  3. `run_analysis_pipeline` returns `(intelligence_flat, tiered)` 2-tuple; `tiered["i2"]` contains only I2 plugin outputs
+  4. `_build_intelligence_event` constructs `i2=I2Events(**tiered.get("i2", {}))` — identical to live pipeline
+  5. `intelligence_features` table has `i2` JSONB column; live rows backfilled from `market_context`; `market_context` contains only `cross_asset` data
+  6. `feature_writer` writes `i2` to dedicated column; `market_context` receives only cross-asset data
+  7. `_load_precomputed_features` SELECT includes `i2` and `market_context`; `--use-precomputed-features` path complete for I7 signal generation
 
-**Plans**: 2 plans in 2 waves
+**Plans:** 4 plans
 
 Plans:
-
-**Wave 1** — Continuous auditors
-
-- [ ] 122-01-PLAN.md — FeatureParityAuditor + ConfidenceCalibrationMonitor continuous deployment + alerting integration
-
-**Wave 2** *(depends on Wave 1)* — ServiceAuditor integration
-
-- [ ] 122-02-PLAN.md — ShadowAuditor integration + ServiceAuditor unified alerting + runbook documentation
+- [ ] 122-01-PLAN.md — I2Events schema contract (45 fields, extra="forbid") + validation enablement
+- [ ] 122-02-PLAN.md — Historical pipeline tiered output (run_analysis_pipeline 2-tuple, _build_intelligence_event, _load_precomputed_features)
+- [ ] 122-03-PLAN.md — Database migration 124 (add i2 column, backfill, clean market_context)
+- [ ] 122-04-PLAN.md — feature_writer i2 column split + historical sync INSERT tuple (13->14)
 
 </details>
 
