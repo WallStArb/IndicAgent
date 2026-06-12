@@ -508,7 +508,7 @@ def run_analysis_pipeline(
     symbol: str,
     timeframe: str,
     plugin_states: dict[tuple[str, str, str], dict],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     """Run I2 → I3 → I4 → I5 → SMC → I6 plugins in tier order.
 
     Mutates frames["features"] in-place (same as market_analysis_service).
@@ -519,11 +519,12 @@ def run_analysis_pipeline(
             isolate stateful plugins (GARCH, HMM, Kalman) across symbols.
 
     Returns:
-        Merged intelligence dict from all tiers.
+        Tuple of (merged intelligence dict, per-tier output dict).
     """
     features = dict(frames.get("features", {}))
     frames["features"] = features
     intelligence: dict[str, Any] = {}
+    tiered: dict[str, dict[str, Any]] = {}
 
     tier_sequence = [
         (I2_PLUGINS, "I2"),
@@ -534,7 +535,7 @@ def run_analysis_pipeline(
         (I6_PLUGINS, "I6"),
     ]
 
-    for plugin_names, _ in tier_sequence:
+    for plugin_names, tier_label in tier_sequence:
         for name in plugin_names:
             try:
                 plugin = registry.get_pattern(name)
@@ -544,13 +545,15 @@ def run_analysis_pipeline(
                 plugin_states[state_key] = plugin._state  # write-back is load-bearing
                 if out:
                     intelligence.update(out)
+                    tier_key_lower = tier_label.lower()
+                    tiered.setdefault(tier_key_lower, {}).update(out)
                     features.update(out)
                     frames["features"] = features
             except Exception as error:
                 _log_plugin_error(name, symbol, timeframe, error)
 
     intelligence_cache.setdefault(symbol, {})[timeframe] = intelligence
-    return intelligence
+    return intelligence, tiered
 
 
 # ---------------------------------------------------------------------------
@@ -576,7 +579,7 @@ _INSERT_FEATURE_SYNC_TEMPLATE = (
 def _build_intelligence_event(
     bar: dict,
     i1_features: dict,
-    intelligence: dict,
+    tiered: dict[str, dict],
     symbol: str,
     tf: str,
     ts: datetime,
@@ -589,7 +592,7 @@ def _build_intelligence_event(
     Args:
         bar: dict with keys 'open', 'high', 'low', 'close', 'volume'
         i1_features: flat dict of I1 indicator outputs (extra='allow' model)
-        intelligence: merged flat dict from run_analysis_pipeline (all tiers)
+        tiered: per-tier output dict from run_analysis_pipeline — keys i2/i3/i4/i5/smc/i6
         symbol: contract symbol (e.g. 'ESH6')
         tf: timeframe string (e.g. '1m')
         ts: bar timestamp (timezone-aware datetime)
@@ -597,6 +600,7 @@ def _build_intelligence_event(
     try:
         from src.intelligence.schemas import (
             I1Indicators,
+            I2Events,
             I3Structure,
             I4Context,
             I5Patterns,
@@ -605,11 +609,6 @@ def _build_intelligence_event(
             OHLCVBar,
             SMCContext,
         )
-
-        def _pick(model_cls: Any, src: dict) -> dict:
-            """Filter src to only keys declared in model_cls.model_fields."""
-            fields = model_cls.model_fields.keys()
-            return {k: v for k, v in src.items() if k in fields}
 
         return IntelligenceEvent(
             ts=ts,
@@ -624,12 +623,13 @@ def _build_intelligence_event(
                 c=float(bar["close"]),
                 v=int(bar["volume"]),
             ),
-            i1=I1Indicators(**_pick(I1Indicators, i1_features)),
-            i3=I3Structure(**_pick(I3Structure, intelligence)),
-            i4=I4Context(**_pick(I4Context, intelligence)),
-            i5=I5Patterns(**_pick(I5Patterns, intelligence)),
-            smc=SMCContext(**_pick(SMCContext, intelligence)),
-            i6=I6Confluence(**_pick(I6Confluence, intelligence)),
+            i1=I1Indicators(**i1_features),
+            i2=I2Events(**tiered.get("i2", {})),
+            i3=I3Structure(**tiered.get("i3", {})),
+            i4=I4Context(**tiered.get("i4", {})),
+            i5=I5Patterns(**tiered.get("i5", {})),
+            smc=SMCContext(**tiered.get("smc", {})),
+            i6=I6Confluence(**tiered.get("i6", {})),
         )
     except Exception:
         return None
@@ -985,13 +985,15 @@ def _load_precomputed_features(
     """Load intelligence_features for symbol into (tf, ts) -> merged flat dict.
 
     Used by --use-precomputed-features to skip I1-I6 recomputation entirely.
-    All six JSONB tier columns are merged into one flat dict per bar.
+    All eight JSONB tier columns (including i2 and market_context) are merged
+    into one flat dict per bar.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT ts, tf,"
             " technical_indicators, pattern_detections, regime_features,"
-            " confluence_scores, smc, cross_timeframe_context"
+            " confluence_scores, smc, cross_timeframe_context,"
+            " i2, market_context"
             " FROM intelligence_features"
             " WHERE symbol = %s AND (%s IS NULL OR ts >= %s)"
             " ORDER BY ts ASC",
@@ -1000,9 +1002,9 @@ def _load_precomputed_features(
         rows = cur.fetchall()
 
     result: dict[tuple[str, datetime], dict] = {}
-    for ts, tf, ti, pd_det, rf, cs, smc_col, ctf in rows:
+    for ts, tf, ti, pd_det, rf, cs, smc_col, ctf, i2_col, mkt_col in rows:
         merged: dict = {}
-        for tier in (ti, pd_det, rf, cs, smc_col, ctf):
+        for tier in (ti, pd_det, rf, cs, smc_col, ctf, i2_col, mkt_col):
             if not tier:
                 continue
             if isinstance(tier, str):
@@ -1563,7 +1565,7 @@ def replay_symbol(
                     frames[f"intel_{other_tf}"] = cached
 
             # I2 → I6
-            intelligence = run_analysis_pipeline(
+            intelligence, tiered = run_analysis_pipeline(
                 frames, intelligence_cache, symbol, tf, plugin_states
             )
 
@@ -1571,7 +1573,7 @@ def replay_symbol(
             all_features = {**i1_features, **intelligence}
 
             # Build IntelligenceEvent and buffer for batch insert
-            event = _build_intelligence_event(bar, i1_features, intelligence, symbol, tf, ts)
+            event = _build_intelligence_event(bar, i1_features, tiered, symbol, tf, ts)
             if event is not None:
                 feature_buffers[tf].append(_event_to_sync_params(event))
                 written_feature_ts = ts
