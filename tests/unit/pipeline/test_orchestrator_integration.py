@@ -42,7 +42,6 @@ def _success_result():
             "signals_evaluated": 1,
             "signals_after_quality": 1,
             "signals_after_regime": 1,
-            "signals_after_tod": 1,
             "signals_after_calibration": 1,
             "i7_computed_at": datetime.now(UTC),
         },
@@ -61,7 +60,6 @@ def _dlq_result():
             "signals_evaluated": 1,
             "signals_after_quality": 0,
             "signals_after_regime": 0,
-            "signals_after_tod": 0,
             "signals_after_calibration": 0,
             "i7_computed_at": datetime.now(UTC),
         },
@@ -162,12 +160,11 @@ async def test_orchestrator_checkpoint_assembly_excludes_plugin_states():
     assert isinstance(extra, dict)
     assert "kalman_state" in extra
     assert "setup_last_fire" in extra
-    assert "tod_priors" in extra
     assert "last_bar_offset" in extra
     assert (
         "plugin_states" not in extra
     ), "HIGH finding 5 violated: plugin_states in checkpoint extra"
-    assert len(extra) == 4, f"Expected exactly 4 keys, got {list(extra.keys())}"
+    assert len(extra) == 3, f"Expected exactly 3 keys, got {list(extra.keys())}"
 
 
 @pytest.mark.asyncio
@@ -193,7 +190,6 @@ async def test_orchestrator_writes_checkpoint_via_state_manager_only():
         return_value={
             "kalman_state": {},
             "setup_last_fire": {},
-            "tod_priors": {},
             "last_bar_offset": {},
         }
     )

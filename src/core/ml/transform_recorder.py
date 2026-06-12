@@ -5,7 +5,7 @@ this module from production code. The class body below is retained verbatim so t
 historical migrations and tests can still inspect the old contract.
 
 Original purpose: async batch writer for signal_transform_log.
-Called by each pipeline transform stage (quality_gate, regime_gate, tod_adjuster,
+Called by each pipeline transform stage (quality_gate, regime_gate,
 calibrator, ranker) and swarm agents (skeptic, correlation, volume).
 Zero per-transform boilerplate: just call await recorder.record(...).
 Batched writes with configurable size + flush interval via asyncio.

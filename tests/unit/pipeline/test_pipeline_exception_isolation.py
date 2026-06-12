@@ -110,7 +110,6 @@ class TestExceptionIsolation:
         snapshot = CacheSnapshot(
             perf_weights={},
             calibration_curves={},
-            tod_priors={},
             drift_penalties={},
             cis_weights={},
             cis_weights_version=0,
@@ -127,10 +126,6 @@ class TestExceptionIsolation:
             ),
             patch(
                 "src.intelligence.pipeline.signal_processor.apply_regime_gate",
-                side_effect=lambda sigs, *a, **kw: sigs,
-            ),
-            patch(
-                "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
                 side_effect=lambda sigs, *a, **kw: sigs,
             ),
             # Phase 112 D-04: apply_calibration removed from signal_processor

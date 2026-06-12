@@ -186,10 +186,6 @@ class TestFullAgentState:
                     "P_est": np.array([[0.01, 0.0], [0.0, 0.01]]),
                 }
             },
-            "tod_priors": {
-                "('trend', '1m', 9)": 1.05,
-                "('mean_reversion', '1m', 14)": 0.95,
-            },
             "bar_history": {
                 "ESM6:1m": deque(
                     [{"open": 5100.0, "high": 5105.0, "low": 5098.0, "close": 5102.0}],
@@ -212,9 +208,6 @@ class TestFullAgentState:
             result["kalman_state"]["ESM6:1m"]["x_est"],
             np.array([0.5, 0.02]),
         )
-
-        # tod_priors (primitives)
-        assert result["tod_priors"]["('trend', '1m', 9)"] == 1.05
 
         # bar_history (deque)
         assert isinstance(result["bar_history"]["ESM6:1m"], deque)

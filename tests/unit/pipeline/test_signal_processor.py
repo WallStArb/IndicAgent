@@ -33,7 +33,6 @@ def _make_snapshot(**overrides) -> CacheSnapshot:
     defaults = {
         "perf_weights": {},
         "calibration_curves": {},
-        "tod_priors": {},
         "drift_penalties": {},
         "cis_weights": {},
         "cis_weights_version": 0,
@@ -251,10 +250,6 @@ async def test_process_returns_signal_processor_result_with_all_payloads_on_succ
             "src.intelligence.pipeline.signal_processor.apply_regime_gate",
             side_effect=lambda sigs, *a, **kw: sigs,
         ),
-        patch(
-            "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
-            side_effect=lambda sigs, *a, **kw: sigs,
-        ),
         # Phase 112 D-04: apply_calibration removed from signal_processor (moved to CISScorer)
         patch(
             "src.intelligence.pipeline.signal_processor.rank_signals",
@@ -327,10 +322,6 @@ async def test_process_consumes_cache_snapshot_not_cache_manager_reference():
         ),
         patch(
             "src.intelligence.pipeline.signal_processor.apply_regime_gate",
-            return_value=[],
-        ),
-        patch(
-            "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
             return_value=[],
         ),
         # Phase 112 D-04: apply_calibration removed from signal_processor
@@ -479,10 +470,6 @@ async def test_shadow_plugin_never_wins_even_with_highest_score():
         ),
         patch(
             "src.intelligence.pipeline.signal_processor.apply_regime_gate",
-            side_effect=lambda sigs, *a, **kw: sigs,
-        ),
-        patch(
-            "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
             side_effect=lambda sigs, *a, **kw: sigs,
         ),
         # Phase 112 D-04: apply_calibration removed from signal_processor

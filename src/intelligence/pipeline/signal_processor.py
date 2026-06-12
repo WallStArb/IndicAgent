@@ -29,7 +29,6 @@ from src.intelligence.pipeline.feature_flattening import (
 from src.intelligence.pipeline.quality_gate import apply_quality_gate
 from src.intelligence.pipeline.ranker import rank_signals
 from src.intelligence.pipeline.regime_gate import apply_regime_gate
-from src.intelligence.pipeline.tod_adjuster import apply_tod_adjustment
 from src.intelligence.pipeline.winner_selector import select_winner
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_schema import (
@@ -102,7 +101,6 @@ class CacheSnapshot:
 
     perf_weights: dict
     calibration_curves: dict
-    tod_priors: dict
     drift_penalties: dict
     cis_weights: dict
     cis_weights_version: int
@@ -264,7 +262,6 @@ class SignalProcessor:
                     "signals_evaluated": 0,
                     "signals_after_quality": 0,
                     "signals_after_regime": 0,
-                    "signals_after_tod": 0,
                     "signals_after_calibration": 0,
                     "i7_computed_at": i7_computed_at,
                 },
@@ -368,19 +365,8 @@ class SignalProcessor:
                 )
         _record_dropped("regime", quality_gated, regime_gated)
 
-        _stamp_pre("pre_tod_confidence", regime_gated)
-        tod_adjusted = await apply_tod_adjustment(
-            regime_gated,
-            cache_snapshot.tod_priors,
-            tf,
-            hour_et,
-            symbol=symbol,
-            recorder=self._transform_recorder,
-        )
-        _record_dropped("tod", regime_gated, tod_adjusted)
-
         ranked = await rank_signals(
-            tod_adjusted,
+            regime_gated,
             cache_snapshot.perf_weights,
             tf,
             symbol=symbol,
@@ -440,7 +426,6 @@ class SignalProcessor:
             "signals_evaluated": len(raw_signals),
             "signals_after_quality": len(quality_gated),
             "signals_after_regime": len(regime_gated),
-            "signals_after_tod": len(tod_adjusted),
             "signals_after_calibration": len(ranked),
             "i7_computed_at": i7_computed_at,
         }

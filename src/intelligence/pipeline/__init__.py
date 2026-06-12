@@ -24,13 +24,11 @@ from src.intelligence.pipeline.signal_processor import (
     SignalProcessorResult,
 )
 from src.intelligence.pipeline.state_manager import PluginStateManager
-from src.intelligence.pipeline.tod_adjuster import apply_tod_adjustment
 from src.intelligence.pipeline.winner_selector import select_winner
 
 __all__ = [
     "apply_quality_gate",
     "apply_regime_gate",
-    "apply_tod_adjustment",
     "apply_calibration",
     "rank_signals",
     "select_winner",

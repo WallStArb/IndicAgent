@@ -313,9 +313,6 @@ class IntelligencePipeline(BaseDaemon):
         listener_task.add_done_callback(self._background_tasks.discard)
         self.logger.info("intelligence_pipeline.instruments_listener_started")
 
-        if extra is not None:
-            self._cache_mgr.seed_tod_priors(extra.get("tod_priors", {}))
-
         self._executor = PluginExecutor(
             thread_pool=self._thread_pool,
             plugin_cache=self._plugin_cache,
@@ -710,7 +707,6 @@ class IntelligencePipeline(BaseDaemon):
         return {
             "kalman_state": self._sig_proc.get_kalman_state(),
             "setup_last_fire": self._sig_proc.get_setup_last_fire(),
-            "tod_priors": self._cache_mgr.tod_priors,
             "last_bar_offset": self._last_bar_offset,
         }
 

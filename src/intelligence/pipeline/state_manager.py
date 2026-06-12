@@ -48,7 +48,6 @@ _CHECKPOINT_PATH = Path("cache/pipeline_checkpoint.json")
 _CHECKPOINT_FIELDS: tuple[str, ...] = (
     "plugin_states",
     "kalman_state",
-    "tod_priors",
     "last_bar_offset",
     "setup_last_fire",
 )
@@ -190,7 +189,7 @@ class PluginStateManager:
         _restore_tuple_key).  Returns a dict containing the remaining
         _CHECKPOINT_FIELDS (excluding 'plugin_states') for the orchestrator to
         distribute to its own attributes:
-            {"kalman_state": ..., "tod_priors": ..., "last_bar_offset": ...,
+            {"kalman_state": ..., "last_bar_offset": ...,
              "setup_last_fire": ...}
 
         Returns None on file-miss or version mismatch.
