@@ -326,7 +326,8 @@ def test_run_i7_and_persist_populates_cis_fields():
     with (
         patch("production.scripts.run_historical_pipeline.aggregate", return_value=cis_agg),
         patch(
-            "production.scripts.run_historical_pipeline._insert_signals_sync", side_effect=fake_insert
+            "production.scripts.run_historical_pipeline._insert_signals_sync",
+            side_effect=fake_insert,
         ),
         patch("production.scripts.run_historical_pipeline.registry", mock_registry),
     ):
@@ -612,7 +613,9 @@ def test_replay_worker_calls_replay_symbol_and_returns_tuple():
     ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
 
     with (
-        patch("production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn),
+        patch(
+            "production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn
+        ),
         patch("production.scripts.run_historical_pipeline.register_all_plugins") as mock_register,
         patch(
             "production.scripts.run_historical_pipeline.replay_symbol", return_value=fake_counts
@@ -647,7 +650,9 @@ def test_replay_worker_closes_connection_on_failure():
     mock_conn = MagicMock()
 
     with (
-        patch("production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn),
+        patch(
+            "production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn
+        ),
         patch("production.scripts.run_historical_pipeline.register_all_plugins"),
         patch(
             "production.scripts.run_historical_pipeline.replay_symbol",
@@ -691,7 +696,6 @@ def _ts_bf(hour, minute):
 class TestRunI1Plugins:
     def test_returns_empty_when_insufficient_bars(self):
         from production.scripts.run_historical_pipeline import run_i1_plugins
-
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -701,7 +705,6 @@ class TestRunI1Plugins:
 
     def test_returns_features_dict_when_enough_bars(self):
         from production.scripts.run_historical_pipeline import run_i1_plugins
-
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -718,7 +721,6 @@ class TestRunI1Plugins:
 
     def test_plugin_exception_does_not_propagate(self):
         from production.scripts.run_historical_pipeline import run_i1_plugins
-
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -783,22 +785,46 @@ class TestBuildLedgerEntries:
             resolution_method="sole",
         )
 
+    @staticmethod
+    def _make_bar():
+        from collections import deque
+
+        bar = {
+            "open": 5095.0,
+            "high": 5105.0,
+            "low": 5090.0,
+            "close": 5100.0,
+            "volume": 1000.0,
+        }
+        return deque([bar], maxlen=500)
+
     def test_returns_one_entry_per_ranked_signal(self):
         from production.scripts.run_historical_pipeline import _build_ledger_entries
 
         assert (
-            len(_build_ledger_entries(self._make_result(1), "ESH6", "5m", _ts_bf(9, 30), {})) == 1
+            len(
+                _build_ledger_entries(
+                    self._make_result(1),
+                    "ESH6",
+                    "5m",
+                    _ts_bf(9, 30),
+                    {},
+                    bar_history=self._make_bar(),
+                )
+            )
+            == 1
         )
 
     def test_selected_signal_has_was_selected_true(self):
         from production.scripts.run_historical_pipeline import _build_ledger_entries
 
-        entries = _build_ledger_entries(self._make_result(), "ESH6", "5m", _ts_bf(9, 30), {})
+        entries = _build_ledger_entries(
+            self._make_result(), "ESH6", "5m", _ts_bf(9, 30), {}, bar_history=self._make_bar()
+        )
         assert len([e for e in entries if e.was_selected]) == 1
 
     def test_empty_result_returns_empty_list(self):
         from production.scripts.run_historical_pipeline import _build_ledger_entries
-
         from src.intelligence.trading.aggregator import AggregatedResult
 
         result = AggregatedResult(
@@ -861,7 +887,6 @@ class TestBuildIntelligenceEvent:
 
     def test_returns_intelligence_event_with_source_backfill(self):
         from production.scripts.run_historical_pipeline import _build_intelligence_event
-
         from src.intelligence.schemas import IntelligenceEvent
 
         register_all_plugins()
@@ -974,7 +999,10 @@ class TestInsertFeaturesSync:
         return _make_mock_conn()
 
     def test_calls_execute_values_with_correct_sql(self):
-        from production.scripts.run_historical_pipeline import _INSERT_FEATURE_SYNC_SQL, _insert_features_sync
+        from production.scripts.run_historical_pipeline import (
+            _INSERT_FEATURE_SYNC_SQL,
+            _insert_features_sync,
+        )
 
         mock_conn, mock_cursor = self._mock_conn()
         with patch("psycopg2.extras.execute_values") as mock_ev:
@@ -1024,6 +1052,19 @@ class TestBuildLedgerEntriesFeatureTs:
             resolution_method="sole",
         )
 
+    @staticmethod
+    def _make_bar():
+        from collections import deque
+
+        bar = {
+            "open": 5095.0,
+            "high": 5105.0,
+            "low": 5090.0,
+            "close": 5100.0,
+            "volume": 1000.0,
+        }
+        return deque([bar], maxlen=500)
+
     def test_feature_ts_passes_through(self):
         from production.scripts.run_historical_pipeline import _build_ledger_entries
 
@@ -1036,6 +1077,7 @@ class TestBuildLedgerEntriesFeatureTs:
             {},
             feature_ts=feature_ts,
             feature_tf="1m",
+            bar_history=self._make_bar(),
         )
         assert (
             len(entries) == 1
@@ -1046,7 +1088,9 @@ class TestBuildLedgerEntriesFeatureTs:
     def test_feature_ts_defaults_to_none(self):
         from production.scripts.run_historical_pipeline import _build_ledger_entries
 
-        entries = _build_ledger_entries(self._make_result(), "ESH6", "1m", _ts_bf(9, 30), {})
+        entries = _build_ledger_entries(
+            self._make_result(), "ESH6", "1m", _ts_bf(9, 30), {}, bar_history=self._make_bar()
+        )
         assert len(entries) == 1 and entries[0].feature_ts is None
 
 
@@ -1075,7 +1119,6 @@ class TestCISColumnsInSQL:
 
     def test_insert_signals_sync_params_include_cis_nulls(self):
         from production.scripts.run_historical_pipeline import _insert_signals_sync
-
         from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
         entry = LedgerEntry(
@@ -1130,7 +1173,9 @@ class TestDetectGaps:
     def test_nyse_over_weekend_no_gaps(self):
         from production.scripts.run_historical_pipeline import detect_gaps
 
-        with patch("production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]):
+        with patch(
+            "production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]
+        ):
             gaps = detect_gaps(
                 self._mock_conn(),
                 "SPY",
@@ -1145,7 +1190,9 @@ class TestDetectGaps:
     def test_nyse_on_holiday_no_gaps(self):
         from production.scripts.run_historical_pipeline import detect_gaps
 
-        with patch("production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]):
+        with patch(
+            "production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]
+        ):
             gaps = detect_gaps(
                 self._mock_conn(),
                 "SPY",
@@ -1164,7 +1211,9 @@ class TestDetectGaps:
         mock_conn = self._mock_conn(
             [(datetime(2026, 1, 2, 15, 0, tzinfo=UTC),), (datetime(2026, 1, 2, 18, 0, tzinfo=UTC),)]
         )
-        with patch("production.scripts.run_historical_pipeline.generate_session_slots", return_value=slots):
+        with patch(
+            "production.scripts.run_historical_pipeline.generate_session_slots", return_value=slots
+        ):
             gaps = detect_gaps(
                 mock_conn,
                 "SPY",
