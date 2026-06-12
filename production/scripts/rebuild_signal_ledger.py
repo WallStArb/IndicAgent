@@ -6,13 +6,16 @@ Tracks completed stages in a JSON state file for deterministic resume after
 any crash or interruption.
 
 Stages (in order):
-    1. snapshot    — capture before-snapshot before any deletes
-    2. decompress  — decompress signal_ledger + market_data_ohlcv before bulk DML
-    3. clean       — delete old signals via run_historical_pipeline.py --clean
-    4. dry_run     — validate column mapping with --workers 1 before full replay
-    5. replay      — run run_historical_pipeline.py --replay-only across all symbols
-    6. verify      — hard-fail if stopped_at_entry or orphan_ledger_rows > 0
-    7. recompress  — recompress signal_ledger + market_data_ohlcv
+    1. snapshot   — capture before-snapshot before any deletes
+    2. decompress — decompress signal_ledger + intelligence_features + market_data_ohlcv
+    3. clean      — DELETE signal_ledger, signal_outcomes, intelligence_features (direct SQL)
+    4. dry_run    — 2-day full I1-I7 smoke test (--workers 1) to catch errors before bulk run
+    5. replay     — full I1-I7 pipeline replay across all symbols; writes intelligence_features
+                    and signal_ledger from raw OHLCV bars
+    6. lifecycle  — run lifecycle_replay.py to fill outcome columns on all generated signals
+    7. verify     — hard-fail if stopped_at_entry or orphan_ledger_rows > 0
+    8. rebuild_indexes — recreate non-PK indexes dropped before bulk INSERT
+    9. recompress — recompress signal_ledger + intelligence_features + market_data_ohlcv
 
 Usage:
     .venv/bin/python production/scripts/rebuild_signal_ledger.py
@@ -50,6 +53,7 @@ STAGE_DROP_INDEXES = "drop_indexes"
 STAGE_CLEAN = "clean"
 STAGE_DRY_RUN = "dry_run"
 STAGE_REPLAY = "replay"
+STAGE_LIFECYCLE = "lifecycle"
 STAGE_VERIFY = "verify"
 STAGE_REBUILD_INDEXES = "rebuild_indexes"
 STAGE_RECOMPRESS = "recompress"
@@ -61,15 +65,17 @@ _STAGE_ORDER = [
     STAGE_CLEAN,
     STAGE_DRY_RUN,
     STAGE_REPLAY,
+    STAGE_LIFECYCLE,
     STAGE_VERIFY,
     STAGE_REBUILD_INDEXES,
     STAGE_RECOMPRESS,
 ]
 
 # Tables that must be decompressed before bulk DML and recompressed after.
-# signal_ledger: 51 compressed chunks — DELETE forces per-tuple decompression on write.
-# market_data_ohlcv: 24 compressed chunks — bar reads during lifecycle replay decompress on fetch.
-_BULK_DML_TABLES = ("signal_ledger", "market_data_ohlcv")
+# signal_ledger: compressed chunks — DELETE forces per-tuple decompression on write.
+# intelligence_features: compressed chunks — wiped in clean and rebuilt by replay.
+# market_data_ohlcv: compressed chunks — bar reads during lifecycle replay decompress on fetch.
+_BULK_DML_TABLES = ("signal_ledger", "intelligence_features", "market_data_ohlcv")
 
 # Non-PK indexes to drop before bulk INSERT and rebuild after.
 # Each inserted row updates every live index. Dropping them before the replay eliminates
@@ -362,30 +368,31 @@ async def _run_stage_snapshot(state: dict) -> None:
 
 
 async def _run_stage_clean(state: dict) -> None:
-    """STAGE_CLEAN: delete old signals via run_historical_pipeline --clean."""
+    """STAGE_CLEAN: truncate signal_ledger, signal_outcomes, and intelligence_features.
+
+    Direct SQL DELETE rather than calling run_historical_pipeline --clean, which
+    would run a full replay as a side-effect. We want a clean slate before the
+    dry_run smoke test.
+    """
     if STAGE_CLEAN in state["stages_complete"]:
         print(f"Stage {STAGE_CLEAN}: already complete, skipping")
         return
 
     print(f"\n=== STAGE: {STAGE_CLEAN} ===")
-    log_path = _PROJECT_ROOT / "logs" / "signal_ledger_clean.log"
-    result = _run_subprocess(
-        [
-            sys.executable,
-            "production/scripts/run_historical_pipeline.py",
-            "--replay-only",
-            "--clean",
-            "--use-precomputed-features",
-            "--workers",
-            "8",
-        ],
-        log_path=log_path,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Stage '{STAGE_CLEAN}' failed with exit code {result.returncode}. "
-            f"See {log_path} for details."
-        )
+    settings = Settings()
+    db = DatabaseManager(settings.database_url)
+    await db.initialize()
+    try:
+        async with db.pool.acquire() as conn:
+            # Order: outcomes first (FK), then ledger, then features (no FK).
+            r = await conn.execute("DELETE FROM signal_outcomes")
+            print(f"  signal_outcomes: {r}")
+            r = await conn.execute("DELETE FROM signal_ledger")
+            print(f"  signal_ledger: {r}")
+            r = await conn.execute("DELETE FROM intelligence_features")
+            print(f"  intelligence_features: {r}")
+    finally:
+        await db.close()
     _mark_complete(state, STAGE_CLEAN)
 
 
@@ -396,7 +403,9 @@ async def _run_stage_dry_run(state: dict) -> None:
         return
 
     print(f"\n=== STAGE: {STAGE_DRY_RUN} ===")
-    print("  Running 2-day smoke test with --workers 1 (fail-fast before bulk replay)...")
+    print(
+        "  Running 2-day full I1-I7 smoke test with --workers 1 (fail-fast before bulk replay)..."
+    )
     result = _run_subprocess(
         [
             sys.executable,
@@ -406,7 +415,6 @@ async def _run_stage_dry_run(state: dict) -> None:
             "1",
             "--days",
             "2",
-            "--use-precomputed-features",
         ]
     )
     output = result.stdout or ""
@@ -438,7 +446,6 @@ async def _run_stage_replay(state: dict) -> None:
             "--replay-only",
             "--workers",
             "8",
-            "--use-precomputed-features",
         ],
         log_path=log_path,
     )
@@ -448,6 +455,37 @@ async def _run_stage_replay(state: dict) -> None:
             f"See {log_path} for details. Re-run to resume (idempotent)."
         )
     _mark_complete(state, STAGE_REPLAY)
+
+
+async def _run_stage_lifecycle(state: dict) -> None:
+    """STAGE_LIFECYCLE: run lifecycle_replay.py to fill outcome columns on all signals.
+
+    lifecycle_replay.py reads signal_ledger rows and replays bar-by-bar lifecycle
+    events (entry fill, stop, target, expiry) against market_data_ohlcv, writing
+    pnl_r, exit_at, exit_reason, mae, mfe, and status into signal_outcomes.
+    Must run after STAGE_REPLAY so all signals exist before outcomes are computed.
+    """
+    if STAGE_LIFECYCLE in state["stages_complete"]:
+        print(f"Stage {STAGE_LIFECYCLE}: already complete, skipping")
+        return
+
+    print(f"\n=== STAGE: {STAGE_LIFECYCLE} ===")
+    log_path = _PROJECT_ROOT / "logs" / "signal_ledger_lifecycle.log"
+    result = _run_subprocess(
+        [
+            sys.executable,
+            "production/scripts/lifecycle_replay.py",
+            "--workers",
+            "8",
+        ],
+        log_path=log_path,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Stage '{STAGE_LIFECYCLE}' failed with exit code {result.returncode}. "
+            f"See {log_path} for details. Re-run to resume (idempotent)."
+        )
+    _mark_complete(state, STAGE_LIFECYCLE)
 
 
 async def _run_stage_verify(state: dict) -> None:
@@ -504,12 +542,13 @@ async def _run_stage_verify(state: dict) -> None:
 
 
 async def _purge_signals_before_replay(state: dict) -> None:
-    """Purge all signals inserted by the dry_run before the full replay.
+    """Purge all data inserted by the dry_run before the full replay.
 
-    dry_run inserts signals with random UUIDs. The full replay generates the same
-    bars again with different UUIDs. ON CONFLICT DO NOTHING means both sets coexist,
-    violating the was_selected=1 invariant. Purging here ensures the full replay
-    starts from a clean slate.
+    The dry_run runs the full I1-I7 pipeline for 2 days, writing both
+    intelligence_features and signal_ledger rows. Signals get random UUIDs;
+    the full replay generates the same bars with different UUIDs and ON CONFLICT
+    DO NOTHING leaves both sets coexisting. Purging everything here ensures the
+    full replay starts from a truly clean slate.
     """
     print("\n=== PRE-REPLAY PURGE ===")
     settings = Settings()
@@ -519,8 +558,11 @@ async def _purge_signals_before_replay(state: dict) -> None:
         async with db.pool.acquire() as conn:
             await conn.execute("DELETE FROM signal_outcomes")
             await conn.execute("DELETE FROM signal_ledger")
+            await conn.execute("DELETE FROM intelligence_features")
             row = await conn.fetchrow("SELECT COUNT(*) AS n FROM signal_ledger")
             print(f"  signal_ledger purged — {row['n']} rows remaining (expect 0)")
+            row = await conn.fetchrow("SELECT COUNT(*) AS n FROM intelligence_features")
+            print(f"  intelligence_features purged — {row['n']} rows remaining (expect 0)")
     finally:
         await db.close()
 
@@ -551,6 +593,7 @@ async def main_async() -> int:
         if STAGE_REPLAY not in state["stages_complete"]:
             await _purge_signals_before_replay(state)
         await _run_stage_replay(state)
+        await _run_stage_lifecycle(state)
         await _run_stage_verify(state)
         await _run_stage_rebuild_indexes(state)
         await _run_stage_recompress(state)
