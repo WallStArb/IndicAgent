@@ -561,7 +561,7 @@ _INSERT_FEATURE_SYNC_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
     bar, technical_indicators, pattern_detections, regime_features,
-    confluence_scores, smc, cross_timeframe_context
+    confluence_scores, smc, cross_timeframe_context, i2
 ) VALUES %s
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """
@@ -569,7 +569,7 @@ ON CONFLICT (ts, symbol, tf) DO NOTHING
 # Per-row template for execute_values — JSONB casts must be explicit per column.
 _INSERT_FEATURE_SYNC_TEMPLATE = (
     "(%s, %s, %s, %s, %s, %s,"
-    " %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb)"
+    " %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb)"
 )
 
 
@@ -597,6 +597,7 @@ def _build_intelligence_event(
     try:
         from src.intelligence.schemas import (
             I1Indicators,
+            I2Events,
             I3Structure,
             I4Context,
             I5Patterns,
@@ -625,6 +626,7 @@ def _build_intelligence_event(
                 v=int(bar["volume"]),
             ),
             i1=I1Indicators(**_pick(I1Indicators, i1_features)),
+            i2=I2Events(**_pick(I2Events, intelligence)),
             i3=I3Structure(**_pick(I3Structure, intelligence)),
             i4=I4Context(**_pick(I4Context, intelligence)),
             i5=I5Patterns(**_pick(I5Patterns, intelligence)),
@@ -636,12 +638,12 @@ def _build_intelligence_event(
 
 
 def _event_to_sync_params(event: Any) -> tuple:
-    """Serialize IntelligenceEvent to a 13-element tuple for psycopg2 batch insert.
+    """Serialize IntelligenceEvent to a 14-element tuple for psycopg2 batch insert.
 
     Column order matches _INSERT_FEATURE_SYNC_SQL:
       ts, symbol, tf, platform, source, schema_version,
       bar, technical_indicators, pattern_detections, regime_features,
-      confluence_scores, smc, cross_timeframe_context
+      confluence_scores, smc, cross_timeframe_context, i2
     """
     return (
         event.ts,  # datetime — psycopg2 native
@@ -657,6 +659,7 @@ def _event_to_sync_params(event: Any) -> tuple:
         json.dumps(event.i5.model_dump(exclude_none=True)),  # confluence_scores
         json.dumps(event.smc.model_dump(exclude_none=True)),  # smc
         json.dumps(event.i6.model_dump(exclude_none=True)),  # cross_timeframe_context
+        json.dumps(event.i2.model_dump(exclude_none=True)),  # i2
     )
 
 
@@ -668,7 +671,7 @@ def _insert_features_sync(conn: Any, rows: list) -> None:
 
     Args:
         conn: psycopg2 connection
-        rows: list of 13-element tuples from _event_to_sync_params()
+        rows: list of 14-element tuples from _event_to_sync_params()
     """
     if not rows:
         return
