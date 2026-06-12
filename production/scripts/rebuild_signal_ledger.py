@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """rebuild_signal_ledger — idempotent orchestrator for full signal ledger rebuild.
 
+Version: 1.0
+Status: current
+Last Updated: 2026-06-12
+
 Executes the complete delete+regenerate+replay pipeline in strict stage order.
 Tracks completed stages in a JSON state file for deterministic resume after
 any crash or interruption.
