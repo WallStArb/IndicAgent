@@ -326,7 +326,8 @@ def test_run_i7_and_persist_populates_cis_fields():
     with (
         patch("production.scripts.run_historical_pipeline.aggregate", return_value=cis_agg),
         patch(
-            "production.scripts.run_historical_pipeline._insert_signals_sync", side_effect=fake_insert
+            "production.scripts.run_historical_pipeline._insert_signals_sync",
+            side_effect=fake_insert,
         ),
         patch("production.scripts.run_historical_pipeline.registry", mock_registry),
     ):
@@ -612,7 +613,9 @@ def test_replay_worker_calls_replay_symbol_and_returns_tuple():
     ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
 
     with (
-        patch("production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn),
+        patch(
+            "production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn
+        ),
         patch("production.scripts.run_historical_pipeline.register_all_plugins") as mock_register,
         patch(
             "production.scripts.run_historical_pipeline.replay_symbol", return_value=fake_counts
@@ -647,7 +650,9 @@ def test_replay_worker_closes_connection_on_failure():
     mock_conn = MagicMock()
 
     with (
-        patch("production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn),
+        patch(
+            "production.scripts.run_historical_pipeline.psycopg2.connect", return_value=mock_conn
+        ),
         patch("production.scripts.run_historical_pipeline.register_all_plugins"),
         patch(
             "production.scripts.run_historical_pipeline.replay_symbol",
@@ -691,7 +696,6 @@ def _ts_bf(hour, minute):
 class TestRunI1Plugins:
     def test_returns_empty_when_insufficient_bars(self):
         from production.scripts.run_historical_pipeline import run_i1_plugins
-
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -701,7 +705,6 @@ class TestRunI1Plugins:
 
     def test_returns_features_dict_when_enough_bars(self):
         from production.scripts.run_historical_pipeline import run_i1_plugins
-
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -718,7 +721,6 @@ class TestRunI1Plugins:
 
     def test_plugin_exception_does_not_propagate(self):
         from production.scripts.run_historical_pipeline import run_i1_plugins
-
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -729,7 +731,7 @@ class TestRunI1Plugins:
 
 
 class TestRunAnalysisPipeline:
-    def test_returns_dict(self):
+    def test_returns_2_tuple(self):
         from production.scripts.run_historical_pipeline import run_analysis_pipeline
 
         register_all_plugins()
@@ -737,7 +739,11 @@ class TestRunAnalysisPipeline:
         result = run_analysis_pipeline(
             {"main": df, "features": {"rsi_14": 55.0, "atr_14": 2.5}}, {}, "ESH6", "5m", {}
         )
-        assert isinstance(result, dict)
+        assert isinstance(result, tuple) and len(result) == 2
+        flat, tiered = result
+        assert isinstance(flat, dict)
+        assert isinstance(tiered, dict)
+        assert "i2" in tiered
 
     def test_populates_intelligence_cache(self):
         from production.scripts.run_historical_pipeline import run_analysis_pipeline
@@ -745,7 +751,9 @@ class TestRunAnalysisPipeline:
         register_all_plugins()
         df = pd.DataFrame([_backfill_bar(_ts_bf(9, i)) for i in range(60)])
         cache: dict = {}
-        run_analysis_pipeline({"main": df, "features": {"rsi_14": 55.0}}, cache, "ESH6", "5m", {})
+        _, _ = run_analysis_pipeline(
+            {"main": df, "features": {"rsi_14": 55.0}}, cache, "ESH6", "5m", {}
+        )
         assert "ESH6" in cache and "5m" in cache["ESH6"]
 
     def test_plugin_exception_does_not_propagate(self):
@@ -754,7 +762,29 @@ class TestRunAnalysisPipeline:
         result = run_analysis_pipeline(
             {"main": pd.DataFrame(), "features": {}}, {}, "ESH6", "5m", {}
         )
-        assert isinstance(result, dict)
+        flat, tiered = result
+        assert isinstance(flat, dict)
+
+    def test_i2_tier_does_not_contain_macd_fields(self):
+        """I2 tier output must not contain MACD fields (they are in I3 tier)."""
+        from production.scripts.run_historical_pipeline import run_analysis_pipeline
+
+        register_all_plugins()
+        df = pd.DataFrame([_backfill_bar(_ts_bf(9, i)) for i in range(60)])
+        flat, tiered = run_analysis_pipeline(
+            {"main": df, "features": {"rsi_14": 55.0, "atr_14": 2.5}}, {}, "ESH6", "5m", {}
+        )
+        i2 = tiered.get("i2", {})
+        macd_i2_fields = [
+            "macd_cross_bullish",
+            "macd_cross_bearish",
+            "macd_cross_bars_ago",
+            "macd_hist_positive",
+            "macd_hist_turning_up",
+            "macd_negative_support_test",
+        ]
+        for field in macd_i2_fields:
+            assert field not in i2, f"{field} must not be in tiered['i2']"
 
 
 class TestBuildLedgerEntries:
@@ -798,7 +828,6 @@ class TestBuildLedgerEntries:
 
     def test_empty_result_returns_empty_list(self):
         from production.scripts.run_historical_pipeline import _build_ledger_entries
-
         from src.intelligence.trading.aggregator import AggregatedResult
 
         result = AggregatedResult(
@@ -861,14 +890,16 @@ class TestBuildIntelligenceEvent:
 
     def test_returns_intelligence_event_with_source_backfill(self):
         from production.scripts.run_historical_pipeline import _build_intelligence_event
-
         from src.intelligence.schemas import IntelligenceEvent
 
         register_all_plugins()
         result = _build_intelligence_event(
             {"open": 5100.0, "high": 5105.0, "low": 5095.0, "close": 5102.0, "volume": 1000},
             {"rsi_14": 55.0, "atr_14": 2.5, "macd_12_26_9": 0.3},
-            {"trend_direction": 1.0, "trend_strength": 0.7, "vol_regime": 0.5, "trend_regime": 1.0},
+            {
+                "i3": {"trend_direction": 1.0, "trend_strength": 0.7},
+                "i4": {"vol_regime": 0.5, "trend_regime": 1.0},
+            },
             "ESH6",
             "1m",
             _ts_bf(9, 30),
@@ -878,23 +909,22 @@ class TestBuildIntelligenceEvent:
             and isinstance(result, IntelligenceEvent)
             and result.source == "backfill"
         )
+        assert result.i2 is not None
 
     def test_i3_keys_filtered_before_construction(self):
         from production.scripts.run_historical_pipeline import _build_intelligence_event
 
-        intelligence = {
-            "trend_direction": 1.0,
-            "swing_high": 5110.0,
-            "garch_sigma": 0.02,
-            "vol_regime": 0.5,
-            "bos_detected": True,
-            "squeeze_active": 1.0,
-            "ctf_score": 0.8,
+        tiered = {
+            "i3": {"trend_direction": 1.0, "swing_high": 5110.0},
+            "i4": {"garch_sigma": 0.02, "vol_regime": 0.5},
+            "smc": {"bos_detected": True},
+            "i5": {"squeeze_active": 1.0},
+            "i6": {"ctf_score": 0.8},
         }
         result = _build_intelligence_event(
             {"open": 5100.0, "high": 5105.0, "low": 5095.0, "close": 5102.0, "volume": 1000},
             {"rsi_14": 55.0, "atr_14": 2.5, "macd_12_26_9": 0.3},
-            intelligence,
+            tiered,
             "ESH6",
             "1m",
             _ts_bf(9, 30),
@@ -927,6 +957,7 @@ class TestEventToSyncParams:
     def _make_event(self):
         from src.intelligence.schemas import (
             I1Indicators,
+            I2Events,
             I3Structure,
             I4Context,
             I5Patterns,
@@ -943,6 +974,7 @@ class TestEventToSyncParams:
             source="backfill",
             bar=OHLCVBar(o=5100.0, h=5105.0, l=5095.0, c=5102.0, v=1000),
             i1=I1Indicators(rsi_14=55.0),
+            i2=I2Events(),
             i3=I3Structure(),
             i4=I4Context(),
             i5=I5Patterns(),
@@ -974,7 +1006,10 @@ class TestInsertFeaturesSync:
         return _make_mock_conn()
 
     def test_calls_execute_values_with_correct_sql(self):
-        from production.scripts.run_historical_pipeline import _INSERT_FEATURE_SYNC_SQL, _insert_features_sync
+        from production.scripts.run_historical_pipeline import (
+            _INSERT_FEATURE_SYNC_SQL,
+            _insert_features_sync,
+        )
 
         mock_conn, mock_cursor = self._mock_conn()
         with patch("psycopg2.extras.execute_values") as mock_ev:
@@ -1075,7 +1110,6 @@ class TestCISColumnsInSQL:
 
     def test_insert_signals_sync_params_include_cis_nulls(self):
         from production.scripts.run_historical_pipeline import _insert_signals_sync
-
         from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
         entry = LedgerEntry(
@@ -1130,7 +1164,9 @@ class TestDetectGaps:
     def test_nyse_over_weekend_no_gaps(self):
         from production.scripts.run_historical_pipeline import detect_gaps
 
-        with patch("production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]):
+        with patch(
+            "production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]
+        ):
             gaps = detect_gaps(
                 self._mock_conn(),
                 "SPY",
@@ -1145,7 +1181,9 @@ class TestDetectGaps:
     def test_nyse_on_holiday_no_gaps(self):
         from production.scripts.run_historical_pipeline import detect_gaps
 
-        with patch("production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]):
+        with patch(
+            "production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]
+        ):
             gaps = detect_gaps(
                 self._mock_conn(),
                 "SPY",
@@ -1164,7 +1202,9 @@ class TestDetectGaps:
         mock_conn = self._mock_conn(
             [(datetime(2026, 1, 2, 15, 0, tzinfo=UTC),), (datetime(2026, 1, 2, 18, 0, tzinfo=UTC),)]
         )
-        with patch("production.scripts.run_historical_pipeline.generate_session_slots", return_value=slots):
+        with patch(
+            "production.scripts.run_historical_pipeline.generate_session_slots", return_value=slots
+        ):
             gaps = detect_gaps(
                 mock_conn,
                 "SPY",
