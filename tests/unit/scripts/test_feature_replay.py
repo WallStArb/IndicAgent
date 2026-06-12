@@ -57,27 +57,31 @@ def test_on_conflict_identity_columns_not_in_set() -> None:
         ), f"Identity column '{identity_col}' must not be in DO UPDATE SET clause"
 
 
-def test_new_column_names_only() -> None:
-    """Legacy column names from before migration 125 must not appear."""
+def test_functional_column_names_in_select() -> None:
+    """SELECT query must use functional column names (migration 126 reverted tier codes)."""
     src = _src()
-    legacy_names = (
+    required_columns = (
         "technical_indicators",
-        "pattern_detections",
         "regime_features",
         "confluence_scores",
+        "pattern_detections",
+        "i2",
+        "smc",
+        "cross_timeframe_context",
     )
-    for name in legacy_names:
-        assert (
-            name not in src
-        ), f"Legacy column name '{name}' found — use new names after migration 125"
-
-
-def test_select_uses_new_column_names() -> None:
-    """SELECT query must reference migration-125 column names."""
-    src = _src()
-    required_columns = ("i1", "i2", "i3", "i4", "i5", "smc", "cross_timeframe_context")
     for col in required_columns:
         assert col in src, f"Expected column '{col}' in _SELECT_FEATURES_SQL"
+
+
+def test_tier_code_db_columns_not_in_select() -> None:
+    """Tier-code DB column names i1/i3/i4/i5 must not appear as DB column refs (migration 126)."""
+    src = _src()
+    # These were renamed to functional names in migration 126 — SQL must use functional names.
+    # i2 is excluded because it was not renamed.
+    for tier_col in ("i1", "i3", "i4", "i5"):
+        assert (
+            f'row["{tier_col}"]' not in src
+        ), f'Tier-code column ref row["{tier_col}"] found — use functional name'
 
 
 def test_cli_flags_present() -> None:
