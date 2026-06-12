@@ -1,23 +1,37 @@
-# Phase 122: I2 Tier Persistence Fix - Context
+# Phase 122: I2 Tier Persistence + Data Layer Hardening - Context
 
-**Gathered:** 2026-06-12
-**Status:** Ready for planning
-**Source:** PRD Express Path (docs/plans/2026-06-12-i2-persistence-design.md)
+**Gathered:** 2026-06-12 (expanded 2026-06-12)
+**Status:** Partially planned — 4 plans exist (122-01 through 122-04); 3 new areas added
+**Source:** PRD Express Path (docs/plans/2026-06-12-i2-persistence-design.md) + architectural review
 
 <domain>
 ## Phase Boundary
 
-Fix three compounding failures that make `intelligence_features.i2` untrustworthy: I2Events schema has undeclared composite fields (19) and dead MACD declarations (8), the live and historical pipelines construct `i2` differently (tier-isolated vs flat-merged), and there is no dedicated `i2` column in `intelligence_features` (I2 data buried in `market_context`).
+This phase bundles four related data integrity and architectural hardening tracks. No new plugins, no new signals, no behavioral changes.
 
-This phase is a data integrity fix. No new plugins, no new signals, no behavioral changes — only schema correctness, pipeline symmetry, and clean column separation.
+**Track 1 — I2 Tier Persistence Fix (plans 122-01 through 122-04, already written):**
+Fix I2Events schema (45 fields, extra="forbid"), pipeline symmetry (live vs historical produce identical i2 content), and add dedicated `i2` JSONB column to `intelligence_features`.
 
-**Files touched:**
-- `src/intelligence/schemas.py` — I2Events schema (A)
-- `src/intelligence/register_plugins.py` — validation enablement (B)
-- `production/scripts/run_historical_pipeline.py` — tiered output (C + D + G + H)
-- `production/migrations/124_add_i2_column.sql` — new column + backfill (E)
-- `services/feature_writer.py` — column split (F)
-- `tests/unit/test_run_historical_pipeline.py` — test updates
+**Track 2 — intelligence_features column rename:**
+Rename legacy columns to match tier names: `technical_indicators→i1`, `pattern_detections→i5`, `regime_features→i3`, `confluence_scores→i4`. Column `cross_timeframe_context` (I6) and `smc` are already correct. Requires coordinated update of all read sites: `feature_writer.py`, `run_historical_pipeline.py`, `_load_precomputed_features`, dashboard API queries, and any direct SQL.
+
+**Track 3 — Deterministic signal IDs + feature_replay.py:**
+Close uuid4() fallback gaps in 5 files (TASK-2 from `docs/plans/2026-06-11-signal-replay-architecture-plan.md`). Build `feature_replay.py` — I7-only replay from intelligence_features, bypassing I1-I6 recompute (TASK-3). This reduces shadow signal regeneration from hours to minutes. Depends on Track 1 (_load_precomputed_features fix) and Track 2 (column names used in feature_replay.py SELECT).
+
+**Track 4 — zone_engine.py ATR floor fix:**
+`zone_engine.py:231` is the only remaining site in the I7 trading layer using raw `get_atr(features) or 0.5`. Replace with `get_atr_with_floor` logic (10 other I7 plugins already use `get_atr_with_floor_from_frames`). Non-trading compute plugins (I3/I5/SMC) intentionally use raw `get_atr` — no change needed there.
+
+**Files touched (new tracks):**
+- `production/migrations/125_rename_intelligence_features_columns.sql` — column rename (Track 2)
+- `services/feature_writer.py` — column name updates (Track 2)
+- `production/scripts/run_historical_pipeline.py` — column name updates + uuid4 fix (Tracks 2, 3)
+- `src/intelligence/schemas.py` — uuid4 fallback fix in signal_dict_to_ranked (Track 3)
+- `services/signal_writer.py` — uuid4 fallback fix (Track 3)
+- `services/alpha_swarm.py` — uuid4 fallback fix (Track 3)
+- `services/narrative_swarm.py` — uuid4 fallback fix (Track 3)
+- `production/scripts/feature_replay.py` — new script (Track 3)
+- `src/intelligence/trading/zone_engine.py` — ATR floor fix (Track 4)
+- Dashboard API queries — column name updates (Track 2)
 
 </domain>
 
@@ -104,11 +118,78 @@ Both columns are currently absent from the SELECT. Add both to the SELECT and me
 
 No sequencing risk: new column defaults to `'{}'` so any in-flight write during deploy window is correct.
 
+### D-11: intelligence_features column rename (Track 2)
+
+Migration `production/migrations/125_rename_intelligence_features_columns.sql`:
+```sql
+ALTER TABLE intelligence_features RENAME COLUMN technical_indicators TO i1;
+ALTER TABLE intelligence_features RENAME COLUMN pattern_detections TO i5;
+ALTER TABLE intelligence_features RENAME COLUMN regime_features TO i3;
+ALTER TABLE intelligence_features RENAME COLUMN confluence_scores TO i4;
+```
+`smc` and `cross_timeframe_context` (I6) are already correctly named. `market_context` (cross-asset) retains its name.
+
+After migration, update all read sites to use new column names:
+- `services/feature_writer.py` — `_INSERT_FEATURE_SQL`, `_UPDATE_MARKET_CTX_SQL` column references
+- `production/scripts/run_historical_pipeline.py` — `_INSERT_FEATURE_SYNC_SQL`, `_load_precomputed_features` SELECT
+- `src/api/` — any endpoint that reads `technical_indicators`, `pattern_detections`, `regime_features`, `confluence_scores` directly from `intelligence_features`
+- Dashboard queries if any reference these column names directly (check `dashboard/` directory)
+
+Migration is online DDL (column rename acquires brief lock in PostgreSQL but no table rewrite). Apply before deploying code that references new names.
+
+### D-12: Deterministic signal IDs — close uuid4() fallbacks (Track 3)
+
+Five sites have `or uuid4()` fallbacks that silently mask upstream omissions. Replace each with a loud failure:
+
+| File | Line | Fix |
+|------|------|-----|
+| `run_historical_pipeline.py:800` | `else: sid = str(uuid4())` when `last_bar is None` | Log warning + skip signal (malformed — no bar data) |
+| `src/intelligence/schemas.py:~925` | `signal_id=str(sig.get("signal_id") or uuid4())` in `signal_dict_to_ranked()` | Replace with `signal_id=str(sig["signal_id"])` + raise `ValueError` if missing |
+| `services/signal_writer.py:~209` | `signal_id=str(sig.get("signal_id") or uuid4())` | Same — raise `ValueError` with signal context |
+| `services/alpha_swarm.py:~491` | `signal_id = signal.signal_id or uuid4()` | Raise `ValueError` with signal_id field in message |
+| `services/narrative_swarm.py:~117` | `signal_id = signal.signal_id or uuid4()` | Same |
+
+After this fix: missing signal_id raises a loud, traceable error. No silent random IDs.
+
+### D-13: feature_replay.py — I7-only replay from intelligence_features (Track 3)
+
+New script: `production/scripts/feature_replay.py`
+
+Interface:
+```
+python production/scripts/feature_replay.py \
+    --plugins trad_FVGFill,trad_POCRejection,...
+    --symbols ESM6,NQM6,...         # default: all active contracts
+    --since 2025-01-01              # optional
+    --workers 8
+```
+
+Core design:
+- Reads `intelligence_features` rows (using new column names from D-11: `i1`, `i3`, `i4`, `i5`, `smc`, `cross_timeframe_context`, `i2`, `market_context`)
+- Reconstructs `IntelligenceEvent` from stored JSONB — inverse of `_build_intelligence_event`
+- Runs specified I7 plugins only — skips all I1-I6 compute
+- Upserts signal_ledger via `ON CONFLICT (signal_id, timestamp) DO UPDATE` using deterministic `make_signal_id(ts, symbol, tf, plugin_name, direction)`
+- `--shadow-setups` flag: reads `_SHADOW_VALIDATION_SETUPS` frozenset from run_historical_pipeline.py
+
+Depends on: D-09 (`_load_precomputed_features` including i2+market_context), D-11 (column rename), D-12 (uuid4 fallback elimination).
+
+Acceptance: signal counts within 1% of full pipeline re-run; runtime under 10 minutes for 22-plugin shadow set; idempotent.
+
+### D-14: zone_engine.py ATR floor fix (Track 4)
+
+`zone_engine.py:231` currently: `atr = get_atr(features) or 0.5`
+
+The hardcoded `0.5` fallback is instrument-agnostic and wrong for instruments with different tick sizes (e.g., NQ ticks at 0.25, VX at 0.05). Replace with `get_atr_with_floor(features, symbol)` where `symbol` must be threaded into the call site.
+
+Check how `zone_engine` is called — if `symbol` is not currently in scope at line 231, thread it from the calling plugin's `frames["symbol"]` down into the zone engine function signature.
+
+Note: the 22 raw `get_atr` usages in I3/I5/SMC compute plugins are intentional — those plugins measure structural distances, not trading stop distances, and do not need the tick-size floor.
+
 ### Claude's Discretion
 
-- Number of PLAN.md files and wave structure
-- Whether schema + validation enablement (A+B) are one plan or two
-- Whether G and H are bundled with C+D or separate
+- Whether Track 2 (column rename) and Track 4 (ATR fix) can be a single small plan
+- Wave assignment for Tracks 3 and 4 relative to the existing 4 plans
+- Whether feature_replay.py is one plan or split (uuid4 fixes + feature_replay.py)
 
 </decisions>
 
@@ -152,8 +233,9 @@ No sequencing risk: new column defaults to `'{}'` so any in-flight write during 
 <deferred>
 ## Deferred Ideas
 
-- Renaming `technical_indicators` / `pattern_detections` / `regime_features` / `confluence_scores` columns to tier names — correct direction but separate migration with dashboard and downstream query impact.
-- Backfilling historical rows via replay — historical rows correctly start with `i2='{}'` and will be populated on next replay run (no special handling needed in this phase).
+- Backfilling historical rows via replay — historical rows correctly start with `i2='{}'` and will be populated on next replay run via feature_replay.py (D-13).
+- Vectorized lifecycle evaluation (TASK-4 from replay architecture plan) — O(signals × bars) → numpy batch; separate phase, 3-4 day effort.
+- ATR fix for I3/I5/SMC compute plugins — intentionally using raw get_atr; tick-size floor is an I7 trading concern only.
 </deferred>
 
 ---
