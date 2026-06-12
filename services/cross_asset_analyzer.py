@@ -338,8 +338,8 @@ class CrossAssetAnalyzer(BaseDaemon):
                             rows = await conn.fetch(
                                 """
                                 SELECT
-                                    (i1->>'close')::float AS close,
-                                    (i1->>'volume')::float AS volume,
+                                    (technical_indicators->>'close')::float AS close,
+                                    (technical_indicators->>'volume')::float AS volume,
                                     computed_at
                                 FROM intelligence_features
                                 WHERE symbol LIKE $1 || '%'
