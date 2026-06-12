@@ -33,7 +33,6 @@ import signal as _signal
 import time
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
@@ -488,7 +487,12 @@ class AlphaSwarm(BaseGroupCoordinator):
         # Use tf from the parsed signal for consistency
         tf = signal.tf
 
-        signal_id = signal.signal_id or uuid4()
+        if not signal.signal_id:
+            raise ValueError(
+                f"alpha_swarm: signal missing signal_id — "
+                f"setup_plugin={getattr(signal, 'setup_plugin', None)!r}"
+            )
+        signal_id = signal.signal_id
         signal_dict = signal.model_dump()
 
         # Build context for enrichment (SMC tier for hmm_regime segment_key)
