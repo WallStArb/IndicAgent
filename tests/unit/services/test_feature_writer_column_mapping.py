@@ -149,4 +149,4 @@ def test_record_to_insert_params_returns_32_element_tuple():
     record = _make_record_with_sentinel_values()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 32, f"Expected 32 params, got {len(params)}"
+    assert len(params) == 33, f"Expected 33 params, got {len(params)}"
