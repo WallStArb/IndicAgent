@@ -1691,7 +1691,7 @@ Plans:
 - [x] 122-04-PLAN.md — feature_writer i2 column split + historical sync INSERT tuple (13->14)
 - [x] 122-05-PLAN.md — Column rename migration 125 (i1/i3/i4/i5) + zone_engine ATR floor fix
 - [x] 122-06-PLAN.md — Deterministic signal IDs: close uuid4() fallbacks in 5 files
-- [ ] 122-07-PLAN.md — feature_replay.py: I7-only replay from intelligence_features
+- [x] 122-07-PLAN.md — feature_replay.py: I7-only replay from intelligence_features
 
 </details>
 
