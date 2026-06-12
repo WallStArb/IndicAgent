@@ -5,9 +5,9 @@ Fetches named-contract 1d bars in 364-day chunks, iterating backward
 to cover up to 7 years. Uses ON CONFLICT DO NOTHING — safe to re-run.
 
 Usage:
-    python production/scripts/backfill_1d.py                  # 7 years
-    python production/scripts/backfill_1d.py --years 2        # 2 years
-    python production/scripts/backfill_1d.py --symbols SPY,QQQ --years 1
+    python production/scripts/fetch_1d_bars.py                  # 7 years
+    python production/scripts/fetch_1d_bars.py --years 2        # 2 years
+    python production/scripts/fetch_1d_bars.py --symbols SPY,QQQ --years 1
 """
 
 from __future__ import annotations

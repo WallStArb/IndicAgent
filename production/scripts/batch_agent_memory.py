@@ -11,8 +11,8 @@ Runs four steps in strict order; a failing step aborts subsequent steps.
 Runs via systemd timer at 21:00 (9pm). Idempotent. Safe to rerun.
 
 Usage:
-    python production/scripts/memory_batch.py           # normal run
-    python production/scripts/memory_batch.py --dry-run  # log only, no writes
+    python production/scripts/batch_agent_memory.py           # normal run
+    python production/scripts/batch_agent_memory.py --dry-run  # log only, no writes
 """
 
 from __future__ import annotations

@@ -530,7 +530,7 @@ Long-running or periodic operational scripts that are part of the deployed syste
 
 | Pattern | Example |
 |---------|---------|
-| `<verb>_<concept>.py` | `historical_backfill.py`, `lifecycle_replay.py` |
+| `<verb>_<concept>.py` | `run_historical_pipeline.py`, `lifecycle_replay.py` |
 | `<concept>_<verb>.sh` | `db_setup.sh`, `ensure_topics.sh` |
 
 One-off scripts used during a phase (data migrations, schema repairs, investigation queries) are deleted when the phase closes. They are not committed unless they are part of a repeatable production operation. If already committed and the job is done, delete on next cleanup pass.

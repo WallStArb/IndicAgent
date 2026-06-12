@@ -95,23 +95,23 @@ SELECT version FROM schema_migrations ORDER BY applied_at DESC LIMIT 1;
 
 ## Backfill and Gap-Fill
 
-### Full pipeline reset (data_reset.py)
+### Full pipeline reset (reset_pipeline_data.py)
 
 Wipes all intelligence-derived tables and re-runs full fetch + replay. Use when signal logic, stop/target geometry, or lifecycle logic changes substantially enough that historical P&L is no longer trustworthy.
 
 ```bash
 # Dry run — prints row counts, exits without touching data
-python production/scripts/data_reset.py
+python production/scripts/reset_pipeline_data.py
 
 # Full reset: wipe + fetch + replay (stop pipeline first)
 sudo systemctl stop indicagent-intelligence-pipeline
-python production/scripts/data_reset.py --confirm
+python production/scripts/reset_pipeline_data.py --confirm
 
 # Wipe only — skip re-fetch and replay
-python production/scripts/data_reset.py --confirm --wipe-only
+python production/scripts/reset_pipeline_data.py --confirm --wipe-only
 
 # More workers for faster replay
-python production/scripts/data_reset.py --confirm --workers 8
+python production/scripts/reset_pipeline_data.py --confirm --workers 8
 ```
 
 **Tables wiped** (bar data preserved): `intelligence_features`, `signal_ledger`, `signal_outcomes`, `signal_lineage`, `signal_transform_log`, `signal_metrics*`, `signal_ai_enrichment`, `macro_features`, `llm_calls`, `llm_model_scores`, `setup_performance`, `swarm_agent_weights`, `cis_weights`, `tod_multipliers`, `confidence_calibration`, `calibration_curves`, `drift_monitor`, `drift_state`, `pattern_reliability`, `transform_graduation`, `ml_discovery_runs`, `memory_*`. Shadow registry enrollment kept; eval stats reset.
@@ -143,11 +143,11 @@ Fetches only the missing recent bars and replays only that window. Safe — `ON 
 
 ```bash
 # Step 1: Fetch missing OHLCV bars
-.venv/bin/python production/scripts/historical_backfill.py \
+.venv/bin/python production/scripts/run_historical_pipeline.py \
   --fetch-only --symbols EURUSD,BTCUSD --days 2
 
 # Step 2: Replay only those 2 days through I1→I7
-.venv/bin/python production/scripts/historical_backfill.py \
+.venv/bin/python production/scripts/run_historical_pipeline.py \
   --replay-only --symbols EURUSD,BTCUSD --days 2
 ```
 
@@ -167,10 +167,10 @@ Re-runs I1→I7 from existing DB bars.
 
 ```bash
 # Idempotent — only fills gaps
-.venv/bin/python production/scripts/historical_backfill.py --replay-only --symbols SYM,SYM
+.venv/bin/python production/scripts/run_historical_pipeline.py --replay-only --symbols SYM,SYM
 
 # Clean re-generate — deletes existing signals then replays
-.venv/bin/python production/scripts/historical_backfill.py --replay-only --clean --symbols SYM,SYM
+.venv/bin/python production/scripts/run_historical_pipeline.py --replay-only --clean --symbols SYM,SYM
 ```
 
 ---

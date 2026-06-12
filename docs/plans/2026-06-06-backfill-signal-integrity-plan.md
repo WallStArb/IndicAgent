@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make `historical_backfill.py --replay-only --clean --workers 8` produce a provably clean signal_ledger where every signal_id is unique and `was_selected = TRUE` occurs at most once per (symbol, tf, bar_ts), with calibration and perf_weights threaded through the pipeline for structural parity with the live system.
+**Goal:** Make `run_historical_pipeline.py --replay-only --clean --workers 8` produce a provably clean signal_ledger where every signal_id is unique and `was_selected = TRUE` occurs at most once per (symbol, tf, bar_ts), with calibration and perf_weights threaded through the pipeline for structural parity with the live system.
 
-**Architecture:** Eight surgical changes to `production/scripts/historical_backfill.py`: two new DB loaders, calibration kwargs threaded through three function signatures, calibration loaded in both worker paths, and a post-run integrity gate that hard-fails on invariant violations. No schema changes, no live pipeline changes.
+**Architecture:** Eight surgical changes to `production/scripts/run_historical_pipeline.py`: two new DB loaders, calibration kwargs threaded through three function signatures, calibration loaded in both worker paths, and a post-run integrity gate that hard-fails on invariant violations. No schema changes, no live pipeline changes.
 
 **Tech Stack:** Python 3.11, psycopg2, `setup_performance_updater._compute_perf_multipliers` (reused from live pipeline), pytest with MagicMock for unit tests.
 
@@ -12,8 +12,8 @@
 
 ## File Map
 
-- **Modify:** `production/scripts/historical_backfill.py` — all eight changes
-- **Modify:** `tests/unit/scripts/test_historical_backfill.py` — new tests for loaders and integrity gate
+- **Modify:** `production/scripts/run_historical_pipeline.py` — all eight changes
+- **Modify:** `tests/unit/scripts/test_run_historical_pipeline.py` — new tests for loaders and integrity gate
 
 ---
 
@@ -22,12 +22,12 @@
 These two functions are the DB loading primitives. They are called once per worker after the connection opens. Both return empty dicts when their tables are empty — `aggregate()` handles `None` and `{}` identically.
 
 **Files:**
-- Modify: `tests/unit/scripts/test_historical_backfill.py`
-- Modify: `production/scripts/historical_backfill.py`
+- Modify: `tests/unit/scripts/test_run_historical_pipeline.py`
+- Modify: `production/scripts/run_historical_pipeline.py`
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `tests/unit/scripts/test_historical_backfill.py`:
+Add to `tests/unit/scripts/test_run_historical_pipeline.py`:
 
 ```python
 from unittest.mock import MagicMock, call
@@ -35,7 +35,7 @@ from unittest.mock import MagicMock, call
 
 def test_load_calibration_curves_empty_table():
     """Returns empty dict when calibration_curves table has no rows."""
-    from production.scripts.historical_backfill import _load_calibration_curves
+    from production.scripts.run_historical_pipeline import _load_calibration_curves
 
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value.fetchall.return_value = []
@@ -48,7 +48,7 @@ def test_load_calibration_curves_builds_two_tuple_key():
     
     Symbol-specific row beats global '*' row for the same (plugin, tf).
     """
-    from production.scripts.historical_backfill import _load_calibration_curves
+    from production.scripts.run_historical_pipeline import _load_calibration_curves
 
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value.fetchall.return_value = [
@@ -69,7 +69,7 @@ def test_load_calibration_curves_builds_two_tuple_key():
 
 def test_load_calibration_curves_skips_rows_missing_data():
     """Rows with missing breakpoints or values are silently skipped."""
-    from production.scripts.historical_backfill import _load_calibration_curves
+    from production.scripts.run_historical_pipeline import _load_calibration_curves
 
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value.fetchall.return_value = [
@@ -82,7 +82,7 @@ def test_load_calibration_curves_skips_rows_missing_data():
 
 def test_load_perf_weights_empty_table():
     """Returns empty dict when setup_performance has no eligible rows."""
-    from production.scripts.historical_backfill import _load_perf_weights
+    from production.scripts.run_historical_pipeline import _load_perf_weights
 
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value.fetchall.return_value = []
@@ -96,7 +96,7 @@ def test_load_perf_weights_returns_multipliers():
     _compute_perf_multipliers sorts by sharpe_ratio ascending. Best Sharpe
     gets lowest multiplier (sorts first under ascending adjusted_rank).
     """
-    from production.scripts.historical_backfill import _load_perf_weights
+    from production.scripts.run_historical_pipeline import _load_perf_weights
 
     conn = MagicMock()
     # Two plugins with sample_size >= 100
@@ -119,7 +119,7 @@ def test_load_perf_weights_returns_multipliers():
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-.venv/bin/pytest tests/unit/scripts/test_historical_backfill.py -k "load_calibration or load_perf" -v 2>&1 | tail -20
+.venv/bin/pytest tests/unit/scripts/test_run_historical_pipeline.py -k "load_calibration or load_perf" -v 2>&1 | tail -20
 ```
 
 Expected: `ImportError` or `AttributeError` — functions don't exist yet.
@@ -205,7 +205,7 @@ def _load_perf_weights(conn: Any) -> dict[str, tuple[float, int]]:
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-.venv/bin/pytest tests/unit/scripts/test_historical_backfill.py -k "load_calibration or load_perf" -v 2>&1 | tail -20
+.venv/bin/pytest tests/unit/scripts/test_run_historical_pipeline.py -k "load_calibration or load_perf" -v 2>&1 | tail -20
 ```
 
 Expected: all 5 tests `PASSED`.
@@ -221,7 +221,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add production/scripts/historical_backfill.py tests/unit/scripts/test_historical_backfill.py
+git add production/scripts/run_historical_pipeline.py tests/unit/scripts/test_run_historical_pipeline.py
 git commit -m "feat(backfill): add calibration and perf_weights loaders"
 ```
 
@@ -232,13 +232,13 @@ git commit -m "feat(backfill): add calibration and perf_weights loaders"
 `run_i7_and_persist` is the innermost call site that talks to `aggregate()`. Add the two new kwargs here and pass them through.
 
 **Files:**
-- Modify: `tests/unit/scripts/test_historical_backfill.py`
-- Modify: `production/scripts/historical_backfill.py:906-917` (function signature)
-- Modify: `production/scripts/historical_backfill.py:974` (aggregate call)
+- Modify: `tests/unit/scripts/test_run_historical_pipeline.py`
+- Modify: `production/scripts/run_historical_pipeline.py:906-917` (function signature)
+- Modify: `production/scripts/run_historical_pipeline.py:974` (aggregate call)
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `tests/unit/scripts/test_historical_backfill.py`:
+Add to `tests/unit/scripts/test_run_historical_pipeline.py`:
 
 ```python
 def test_run_i7_and_persist_passes_calibration_to_aggregate():
@@ -250,7 +250,7 @@ def test_run_i7_and_persist_passes_calibration_to_aggregate():
     from unittest.mock import MagicMock, patch
 
     sys.path.insert(0, str(Path(__file__).parents[3] / "production" / "scripts"))
-    from production.scripts.historical_backfill import run_i7_and_persist
+    from production.scripts.run_historical_pipeline import run_i7_and_persist
     from src.intelligence.register_plugins import register_all_plugins
 
     register_all_plugins()
@@ -282,7 +282,7 @@ def test_run_i7_and_persist_passes_calibration_to_aggregate():
         from src.intelligence.trading.aggregator import AggregatedResult
         return AggregatedResult(selected=None, all_ranked=[], active=[])
 
-    with patch("production.scripts.historical_backfill.aggregate", side_effect=fake_aggregate):
+    with patch("production.scripts.run_historical_pipeline.aggregate", side_effect=fake_aggregate):
         run_i7_and_persist(
             history, features, "ESM6", "1m", base, db_conn=None,
             calibration_curves=cal_curves, perf_weights=perf_wts,
@@ -295,7 +295,7 @@ def test_run_i7_and_persist_passes_calibration_to_aggregate():
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-.venv/bin/pytest tests/unit/scripts/test_historical_backfill.py -k "test_run_i7_and_persist_passes_calibration" -v 2>&1 | tail -15
+.venv/bin/pytest tests/unit/scripts/test_run_historical_pipeline.py -k "test_run_i7_and_persist_passes_calibration" -v 2>&1 | tail -15
 ```
 
 Expected: `TypeError` — unexpected keyword argument `calibration_curves`.
@@ -337,7 +337,7 @@ Replace the `aggregate(...)` call at line 974:
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-.venv/bin/pytest tests/unit/scripts/test_historical_backfill.py -k "test_run_i7_and_persist_passes_calibration" -v 2>&1 | tail -10
+.venv/bin/pytest tests/unit/scripts/test_run_historical_pipeline.py -k "test_run_i7_and_persist_passes_calibration" -v 2>&1 | tail -10
 ```
 
 Expected: `PASSED`.
@@ -353,7 +353,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add production/scripts/historical_backfill.py tests/unit/scripts/test_historical_backfill.py
+git add production/scripts/run_historical_pipeline.py tests/unit/scripts/test_run_historical_pipeline.py
 git commit -m "feat(backfill): thread calibration_curves and perf_weights into run_i7_and_persist"
 ```
 
@@ -364,27 +364,27 @@ git commit -m "feat(backfill): thread calibration_curves and perf_weights into r
 `replay_symbol` calls `run_i7_and_persist` in the event loop. Add the two kwargs and pass them through.
 
 **Files:**
-- Modify: `tests/unit/scripts/test_historical_backfill.py`
-- Modify: `production/scripts/historical_backfill.py:1314-1320` (signature)
-- Modify: `production/scripts/historical_backfill.py:1455-1466` (call site)
+- Modify: `tests/unit/scripts/test_run_historical_pipeline.py`
+- Modify: `production/scripts/run_historical_pipeline.py:1314-1320` (signature)
+- Modify: `production/scripts/run_historical_pipeline.py:1455-1466` (call site)
 
 - [ ] **Step 1: Locate all `run_i7_and_persist` call sites inside `replay_symbol`**
 
 ```bash
-grep -n "run_i7_and_persist" production/scripts/historical_backfill.py
+grep -n "run_i7_and_persist" production/scripts/run_historical_pipeline.py
 ```
 
 There are two: one in the event loop (~line 1455) and one in the buffered flush path. Both must receive the kwargs.
 
 - [ ] **Step 2: Write the failing test**
 
-Add to `tests/unit/scripts/test_historical_backfill.py`:
+Add to `tests/unit/scripts/test_run_historical_pipeline.py`:
 
 ```python
 def test_replay_symbol_threads_calibration_to_run_i7():
     """calibration_curves and perf_weights are forwarded to run_i7_and_persist."""
     from unittest.mock import patch, MagicMock
-    from production.scripts.historical_backfill import replay_symbol
+    from production.scripts.run_historical_pipeline import replay_symbol
 
     captured = {}
 
@@ -398,7 +398,7 @@ def test_replay_symbol_threads_calibration_to_run_i7():
 
     mock_conn = MagicMock()
     # Make fetch_bars return empty so replay_symbol exits early after the check
-    with patch("production.scripts.historical_backfill.fetch_bars", return_value=[]):
+    with patch("production.scripts.run_historical_pipeline.fetch_bars", return_value=[]):
         result = replay_symbol(
             "ESM6", mock_conn, ["1m"],
             calibration_curves=cal_curves,
@@ -412,7 +412,7 @@ def test_replay_symbol_threads_calibration_to_run_i7():
 - [ ] **Step 3: Run test to verify it fails**
 
 ```bash
-.venv/bin/pytest tests/unit/scripts/test_historical_backfill.py -k "test_replay_symbol_threads_calibration" -v 2>&1 | tail -10
+.venv/bin/pytest tests/unit/scripts/test_run_historical_pipeline.py -k "test_replay_symbol_threads_calibration" -v 2>&1 | tail -10
 ```
 
 Expected: `TypeError` — unexpected keyword argument `calibration_curves`.
@@ -457,7 +457,7 @@ Find every `run_i7_and_persist(` call inside `replay_symbol` (grep showed ~line 
 - [ ] **Step 6: Run tests to verify they pass**
 
 ```bash
-.venv/bin/pytest tests/unit/scripts/test_historical_backfill.py -k "calibration or perf_weights or load_calib or load_perf" -v 2>&1 | tail -15
+.venv/bin/pytest tests/unit/scripts/test_run_historical_pipeline.py -k "calibration or perf_weights or load_calib or load_perf" -v 2>&1 | tail -15
 ```
 
 Expected: all `PASSED`.
@@ -473,7 +473,7 @@ Expected: all green.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add production/scripts/historical_backfill.py tests/unit/scripts/test_historical_backfill.py
+git add production/scripts/run_historical_pipeline.py tests/unit/scripts/test_run_historical_pipeline.py
 git commit -m "feat(backfill): thread calibration through replay_symbol"
 ```
 
@@ -484,8 +484,8 @@ git commit -m "feat(backfill): thread calibration through replay_symbol"
 Both execution paths — the `ProcessPoolExecutor` multi-worker path and the `args.workers == 1` serial path — must load calibration before calling `replay_symbol`.
 
 **Files:**
-- Modify: `production/scripts/historical_backfill.py:1505-1526` (`_replay_worker`)
-- Modify: `production/scripts/historical_backfill.py:1973-1979` (single-worker path in `main`)
+- Modify: `production/scripts/run_historical_pipeline.py:1505-1526` (`_replay_worker`)
+- Modify: `production/scripts/run_historical_pipeline.py:1973-1979` (single-worker path in `main`)
 
 No new tests needed: the loaders are already tested in Task 1, and `replay_symbol` threading is tested in Task 3. The wiring here is structural.
 
@@ -543,7 +543,7 @@ Expected: all green.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add production/scripts/historical_backfill.py
+git add production/scripts/run_historical_pipeline.py
 git commit -m "feat(backfill): load calibration in worker and single-worker paths"
 ```
 
@@ -554,18 +554,18 @@ git commit -m "feat(backfill): load calibration in worker and single-worker path
 The integrity gate is the invariant enforcer. It runs automatically after every `--replay-only` run. If it passes, data is usable. If it fails, the run is invalid — fix and retry.
 
 **Files:**
-- Modify: `tests/unit/scripts/test_historical_backfill.py`
-- Modify: `production/scripts/historical_backfill.py` (new function + call in main)
+- Modify: `tests/unit/scripts/test_run_historical_pipeline.py`
+- Modify: `production/scripts/run_historical_pipeline.py` (new function + call in main)
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `tests/unit/scripts/test_historical_backfill.py`:
+Add to `tests/unit/scripts/test_run_historical_pipeline.py`:
 
 ```python
 def test_assert_backfill_integrity_passes_clean_data():
     """No violations → prints PASS and returns normally."""
     from unittest.mock import MagicMock, call
-    from production.scripts.historical_backfill import _assert_backfill_integrity
+    from production.scripts.run_historical_pipeline import _assert_backfill_integrity
 
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
@@ -582,7 +582,7 @@ def test_assert_backfill_integrity_fails_on_multiple_winners(capsys):
     """was_selected > 1 per bar → sys.exit(1)."""
     import pytest
     from unittest.mock import MagicMock
-    from production.scripts.historical_backfill import _assert_backfill_integrity
+    from production.scripts.run_historical_pipeline import _assert_backfill_integrity
     from datetime import UTC, datetime
 
     conn = MagicMock()
@@ -604,7 +604,7 @@ def test_assert_backfill_integrity_fails_on_duplicate_signal_ids(capsys):
     """Duplicate signal_ids → sys.exit(1) even if was_selected is clean."""
     import pytest
     from unittest.mock import MagicMock
-    from production.scripts.historical_backfill import _assert_backfill_integrity
+    from production.scripts.run_historical_pipeline import _assert_backfill_integrity
 
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
@@ -625,7 +625,7 @@ def test_assert_backfill_integrity_fails_on_duplicate_signal_ids(capsys):
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-.venv/bin/pytest tests/unit/scripts/test_historical_backfill.py -k "assert_backfill_integrity" -v 2>&1 | tail -10
+.venv/bin/pytest tests/unit/scripts/test_run_historical_pipeline.py -k "assert_backfill_integrity" -v 2>&1 | tail -10
 ```
 
 Expected: `ImportError` — `_assert_backfill_integrity` does not exist.
@@ -697,7 +697,7 @@ Find the line `print(f"\nStage 2 complete: {grand_total} total signals inserted 
 - [ ] **Step 5: Run tests to verify they pass**
 
 ```bash
-.venv/bin/pytest tests/unit/scripts/test_historical_backfill.py -k "assert_backfill_integrity" -v 2>&1 | tail -15
+.venv/bin/pytest tests/unit/scripts/test_run_historical_pipeline.py -k "assert_backfill_integrity" -v 2>&1 | tail -15
 ```
 
 Expected: all 3 tests `PASSED`.
@@ -713,7 +713,7 @@ Expected: all green.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add production/scripts/historical_backfill.py tests/unit/scripts/test_historical_backfill.py
+git add production/scripts/run_historical_pipeline.py tests/unit/scripts/test_run_historical_pipeline.py
 git commit -m "feat(backfill): add integrity gate asserting was_selected and signal_id invariants"
 ```
 
@@ -743,7 +743,7 @@ Record these numbers. After replay, `selected_count / distinct_bars` must be ≤
 - [ ] **Step 2: Run clean replay**
 
 ```bash
-python production/scripts/historical_backfill.py --replay-only --clean --workers 8
+python production/scripts/run_historical_pipeline.py --replay-only --clean --workers 8
 ```
 
 The script will:

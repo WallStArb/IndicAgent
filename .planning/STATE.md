@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Signal Quality Renaissance
 status: in_progress
-last_updated: "2026-06-11T18:26:56.732Z"
+last_updated: "2026-06-11T23:55:30.750Z"
 progress:
   total_phases: 2
   completed_phases: 2
@@ -86,7 +86,7 @@ See: .planning/PROJECT.md
 Phase 121 Wave 1 executed: lifecycle replay infrastructure redesigned + D-01 sequence kicked off:
 
 - `lifecycle_replay.py` redesigned to v1.3: removed hardcoded date windows, added 14 schema columns, shadow-inclusive integrity gate, `_assert_row_types` fail-fast
-- `historical_backfill.py` updated with `--setups` plugin-scoped clean filter (default: `_SHADOW_VALIDATION_SETUPS` frozenset)
+- `run_historical_pipeline.py` updated with `--setups` plugin-scoped clean filter (default: `_SHADOW_VALIDATION_SETUPS` frozenset)
 - `phase_121_before_snapshot.py` created; atomic before-snapshot captured: 7,446,342 total signals, 5,184,243 noise signals (22 shadow setups)
 - `phase_121_orchestrate.py` created (7-stage state machine); enhanced mid-session with decompress/recompress stages (TASK-1 from architecture review) to fix hours-long stall on compressed TimescaleDB chunks
 - D-01 sequence: 5,184,243 noise signals deleted; orchestrate at `stages_complete: [snapshot, decompress]` — clean/dry_run/replay/verify/recompress pending

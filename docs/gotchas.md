@@ -39,7 +39,7 @@ See `docs/operations/timescaledb-gotchas.md` for query/schema gotchas. `instrume
 
 ## Historical Backfill
 
-ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364` or `production/scripts/backfill_1d.py` which chunks automatically.
+ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364` or `production/scripts/fetch_1d_bars.py` which chunks automatically.
 
 ## Lifecycle Replay
 

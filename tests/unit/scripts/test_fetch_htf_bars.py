@@ -1,4 +1,4 @@
-"""Unit tests for backfill_htf_bars script."""
+"""Unit tests for fetch_htf_bars script."""
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
@@ -23,7 +23,7 @@ def _make_1m_bar(symbol="ES", ts=None, o=5100.0, h=5102.0, lo=5098.0, c=5101.0, 
 class TestBackfillHtfBarsScript:
     def test_build_bar_message_from_row(self):
         """Query row dict → BarMessage parses correctly."""
-        from production.scripts.backfill_htf_bars import _row_to_bar_message
+        from production.scripts.fetch_htf_bars import _row_to_bar_message
         from src.core.schemas.bar_message import BarMessage
 
         row = _make_1m_bar()
@@ -34,7 +34,7 @@ class TestBackfillHtfBarsScript:
 
     def test_accumulator_receives_bars_in_order(self):
         """Bars fed in ts order produce HTF bars at period boundaries."""
-        from production.scripts.backfill_htf_bars import _replay_bars
+        from production.scripts.fetch_htf_bars import _replay_bars
         from src.core.bar_accumulator import BarAccumulator
 
         acc = BarAccumulator()
@@ -48,7 +48,7 @@ class TestBackfillHtfBarsScript:
     @pytest.mark.asyncio
     async def test_publish_calls_producer_publish(self):
         """Each completed HTF bar is published to the htf topic."""
-        from production.scripts.backfill_htf_bars import _publish_htf_bars
+        from production.scripts.fetch_htf_bars import _publish_htf_bars
         from src.core.schemas.bar_message import BarMessage
 
         producer = AsyncMock()

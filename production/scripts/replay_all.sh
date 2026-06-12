@@ -6,4 +6,4 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/../.."
-.venv/bin/python production/scripts/historical_backfill.py --replay-only --days 21 --workers 4 "$@"
+.venv/bin/python production/scripts/run_historical_pipeline.py --replay-only --days 21 --workers 4 "$@"

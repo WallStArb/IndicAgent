@@ -8,9 +8,9 @@ any crash or interruption.
 Stages (in order):
     1. snapshot    — capture before-snapshot before any deletes
     2. decompress  — decompress signal_ledger + market_data_ohlcv before bulk DML
-    3. clean       — delete old signals via historical_backfill.py --clean
+    3. clean       — delete old signals via run_historical_pipeline.py --clean
     4. dry_run     — validate column mapping with --workers 1 before full replay
-    5. replay      — run historical_backfill.py --replay-only across all symbols
+    5. replay      — run run_historical_pipeline.py --replay-only across all symbols
     6. verify      — hard-fail if stopped_at_entry or orphan_ledger_rows > 0
     7. recompress  — recompress signal_ledger + market_data_ohlcv
 
@@ -21,7 +21,7 @@ Usage:
 
 RE-RUN SAFETY:
     - before-snapshot JSON is immutable after creation (abort guard on file existence)
-    - historical_backfill.py is idempotent via ON CONFLICT DO NOTHING
+    - run_historical_pipeline.py is idempotent via ON CONFLICT DO NOTHING
     - Re-running rebuild_signal_ledger.py is always safe
 """
 
@@ -362,7 +362,7 @@ async def _run_stage_snapshot(state: dict) -> None:
 
 
 async def _run_stage_clean(state: dict) -> None:
-    """STAGE_CLEAN: delete old signals via historical_backfill --clean."""
+    """STAGE_CLEAN: delete old signals via run_historical_pipeline --clean."""
     if STAGE_CLEAN in state["stages_complete"]:
         print(f"Stage {STAGE_CLEAN}: already complete, skipping")
         return
@@ -372,9 +372,10 @@ async def _run_stage_clean(state: dict) -> None:
     result = _run_subprocess(
         [
             sys.executable,
-            "production/scripts/historical_backfill.py",
+            "production/scripts/run_historical_pipeline.py",
             "--replay-only",
             "--clean",
+            "--use-precomputed-features",
             "--workers",
             "8",
         ],
@@ -399,7 +400,7 @@ async def _run_stage_dry_run(state: dict) -> None:
     result = _run_subprocess(
         [
             sys.executable,
-            "production/scripts/historical_backfill.py",
+            "production/scripts/run_historical_pipeline.py",
             "--replay-only",
             "--workers",
             "1",
@@ -416,14 +417,14 @@ async def _run_stage_dry_run(state: dict) -> None:
         raise RuntimeError(
             f"Stage '{STAGE_DRY_RUN}' failed — "
             f"exit_code={result.returncode} {error_detail}. "
-            "Fix historical_backfill.py before re-running."
+            "Fix run_historical_pipeline.py before re-running."
         )
     _mark_complete(state, STAGE_DRY_RUN)
 
 
 async def _run_stage_replay(state: dict) -> None:
-    """STAGE_REPLAY: run historical_backfill.py --replay-only across all symbols."""
-    # REPLAY is always re-run (historical_backfill.py is idempotent via ON CONFLICT DO NOTHING)
+    """STAGE_REPLAY: run run_historical_pipeline.py --replay-only across all symbols."""
+    # REPLAY is always re-run (run_historical_pipeline.py is idempotent via ON CONFLICT DO NOTHING)
     if STAGE_REPLAY in state["stages_complete"]:
         print(f"Stage {STAGE_REPLAY}: already complete, skipping")
         return
@@ -433,7 +434,7 @@ async def _run_stage_replay(state: dict) -> None:
     result = _run_subprocess(
         [
             sys.executable,
-            "production/scripts/historical_backfill.py",
+            "production/scripts/run_historical_pipeline.py",
             "--replay-only",
             "--workers",
             "8",
@@ -502,6 +503,28 @@ async def _run_stage_verify(state: dict) -> None:
     _mark_complete(state, STAGE_VERIFY)
 
 
+async def _purge_signals_before_replay(state: dict) -> None:
+    """Purge all signals inserted by the dry_run before the full replay.
+
+    dry_run inserts signals with random UUIDs. The full replay generates the same
+    bars again with different UUIDs. ON CONFLICT DO NOTHING means both sets coexist,
+    violating the was_selected=1 invariant. Purging here ensures the full replay
+    starts from a clean slate.
+    """
+    print("\n=== PRE-REPLAY PURGE ===")
+    settings = Settings()
+    db = DatabaseManager(settings.database_url)
+    await db.initialize()
+    try:
+        async with db.pool.acquire() as conn:
+            await conn.execute("DELETE FROM signal_outcomes")
+            await conn.execute("DELETE FROM signal_ledger")
+            row = await conn.fetchrow("SELECT COUNT(*) AS n FROM signal_ledger")
+            print(f"  signal_ledger purged — {row['n']} rows remaining (expect 0)")
+    finally:
+        await db.close()
+
+
 async def main_async() -> int:
     """Run the full D-01 sequence with stage-based resume."""
     state = _load_state()
@@ -525,6 +548,8 @@ async def main_async() -> int:
         await _run_stage_drop_indexes(state)
         await _run_stage_clean(state)
         await _run_stage_dry_run(state)
+        if STAGE_REPLAY not in state["stages_complete"]:
+            await _purge_signals_before_replay(state)
         await _run_stage_replay(state)
         await _run_stage_verify(state)
         await _run_stage_rebuild_indexes(state)

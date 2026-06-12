@@ -219,7 +219,7 @@ Kafka is not backed up by default — it's a transport buffer, not storage. For 
 
 ```bash
 # Recreate all topics
-python3 production/scripts/kafka_init_topics.py
+python3 production/scripts/init_kafka_topics.py
 ```
 
 ### Offset Reset
