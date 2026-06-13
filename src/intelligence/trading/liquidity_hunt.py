@@ -19,11 +19,11 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    MIN_CTF_SCORE,
-    MIN_REGIME_WEIGHT,
     capture_signal_features,
     clamp01,
     compose_confidence,
+    get_min_ctf_score,
+    get_min_regime_weight,
     rel_volume_score,
 )
 from .plugin_utils import no_signal
@@ -76,12 +76,12 @@ class LiquidityHuntPlugin:
         # ── Dual gate (before OHLCV access) ─────────────────────────────────
         # Gate 1: trend regime gate (LiquidityHunt is regime_type="trend")
         # Use the direction-specific form: block only if BOTH up AND down are below threshold
-        if hmm_trending_weight(features) < MIN_REGIME_WEIGHT:
+        if hmm_trending_weight(features) < get_min_regime_weight():
             return no_signal()
 
         # Gate 2: I6 ctf_score gate
         ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < MIN_CTF_SCORE:
+        if abs(ctf_score) < get_min_ctf_score():
             return no_signal()
 
         bsl_sig = float(features.get("bsl_significance", 0.0))

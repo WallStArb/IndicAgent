@@ -19,11 +19,11 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    MIN_CTF_SCORE,
-    MIN_REGIME_WEIGHT,
     capture_signal_features,
     clamp01,
     compose_confidence,
+    get_min_ctf_score,
+    get_min_regime_weight,
 )
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
@@ -90,12 +90,12 @@ class DeltaExhaustionPlugin:
 
         # ── Dual gate (before ATR / OHLCV access) ────────────────────────────
         # Gate 1: mean_reversion regime gate — ranging probability >= threshold
-        if hmm_regime_weight(features, "ranging") < MIN_REGIME_WEIGHT:
+        if hmm_regime_weight(features, "ranging") < get_min_regime_weight():
             return no_signal()
 
         # Gate 2: I6 ctf_score gate
         ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < MIN_CTF_SCORE:
+        if abs(ctf_score) < get_min_ctf_score():
             return no_signal()
 
         # ── ATR and OHLCV access (after dual gate) ───────────────────────────
@@ -136,11 +136,14 @@ class DeltaExhaustionPlugin:
         # hmm_mean_reversion_score: regime alignment magnitude as quality signal
         # This is the regime ALIGNMENT factor — NOT exhaustion boost/guard (D-09 exempt)
         hmm_mean_reversion_score = clamp01(
-            (hmm_regime_weight(features, "ranging") - MIN_REGIME_WEIGHT) / (1.0 - MIN_REGIME_WEIGHT)
+            (hmm_regime_weight(features, "ranging") - get_min_regime_weight())
+            / (1.0 - get_min_regime_weight())
         )
 
         # ctf_score_factor: CTF alignment strength (above gate = meaningful)
-        ctf_score_factor = clamp01((abs(ctf_score) - MIN_CTF_SCORE) / (1.0 - MIN_CTF_SCORE))
+        ctf_score_factor = clamp01(
+            (abs(ctf_score) - get_min_ctf_score()) / (1.0 - get_min_ctf_score())
+        )
 
         # Weights sum to 1.0
         raw_conf = (
