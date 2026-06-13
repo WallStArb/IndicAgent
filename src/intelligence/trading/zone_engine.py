@@ -41,44 +41,32 @@ def set_config_service(cfg: Any) -> None:
     _config_service = cfg
 
 
+def _cfg(key: str, default: float) -> float:
+    return _config_service.get_sync(key, default) if _config_service is not None else default
+
+
 def _cluster_radius_atr() -> float:
-    if _config_service is not None:
-        return _config_service.get_sync(
-            "feature.zone_engine.cluster_radius_atr", CLUSTER_RADIUS_ATR
-        )
-    return CLUSTER_RADIUS_ATR
+    return _cfg("feature.zone_engine.cluster_radius_atr", CLUSTER_RADIUS_ATR)
 
 
 def _zone_buffer_atr() -> float:
-    if _config_service is not None:
-        return _config_service.get_sync("feature.zone_engine.zone_buffer_atr", ZONE_BUFFER_ATR)
-    return ZONE_BUFFER_ATR
+    return _cfg("feature.zone_engine.zone_buffer_atr", ZONE_BUFFER_ATR)
 
 
 def _min_width_atr() -> float:
-    if _config_service is not None:
-        return _config_service.get_sync("feature.zone_engine.min_width_atr", MIN_ZONE_WIDTH_ATR)
-    return MIN_ZONE_WIDTH_ATR
+    return _cfg("feature.zone_engine.min_width_atr", MIN_ZONE_WIDTH_ATR)
 
 
 def _single_level_radius_atr() -> float:
-    if _config_service is not None:
-        return _config_service.get_sync(
-            "feature.zone_engine.single_level_radius_atr", SINGLE_LEVEL_RADIUS_ATR
-        )
-    return SINGLE_LEVEL_RADIUS_ATR
+    return _cfg("feature.zone_engine.single_level_radius_atr", SINGLE_LEVEL_RADIUS_ATR)
 
 
 def _strength_weight() -> float:
-    if _config_service is not None:
-        return _config_service.get_sync("weights.zone_engine.strength", _SINGLE_STRENGTH_WEIGHT)
-    return _SINGLE_STRENGTH_WEIGHT
+    return _cfg("weights.zone_engine.strength", _SINGLE_STRENGTH_WEIGHT)
 
 
 def _proximity_weight() -> float:
-    if _config_service is not None:
-        return _config_service.get_sync("weights.zone_engine.proximity", _SINGLE_PROXIMITY_WEIGHT)
-    return _SINGLE_PROXIMITY_WEIGHT
+    return _cfg("weights.zone_engine.proximity", _SINGLE_PROXIMITY_WEIGHT)
 
 
 # Maximum structural stop distance per TF — levels beyond this belong to a higher TF.
@@ -395,10 +383,12 @@ def _pick_single_best(
         return None
     best_score = -1.0
     best = None
+    sw = _strength_weight()
+    pw = _proximity_weight()
     for c in candidates:
         dist_atr = abs(c.price - entry) / atr if atr > EPSILON else 2.0
         proximity = max(0.0, 1.0 - dist_atr / 2.0)
-        score = c.strength * _strength_weight() + proximity * _proximity_weight()
+        score = c.strength * sw + proximity * pw
         if score > best_score:
             best_score = score
             best = c

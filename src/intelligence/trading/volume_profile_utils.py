@@ -8,12 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-# Minimum divergence confidence to count as reversal
-# Exported for use in plugins (avoid magic number duplication)
+# Fallback defaults used by the getter functions below; not imported directly by plugins.
 DIV_THRESHOLD = 0.3
-
-# Stochastic thresholds
-# Exported for use in plugins (avoid magic number duplication)
 STOCH_OVERSOLD = 30.0
 STOCH_OVERBOUGHT = 70.0
 
