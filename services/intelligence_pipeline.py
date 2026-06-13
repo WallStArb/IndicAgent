@@ -384,31 +384,151 @@ class IntelligencePipeline(BaseDaemon):
         ("threshold.pattern_completion.confidence_min", 0.70),
         ("threshold.vwap_reversion.sigma_min", 1.5),
         ("threshold.vwap_reversion.hurst_max", 0.55),
+        # --- migration 129: Tier A detection gates ---
+        ("threshold.global.min_regime_weight", 0.30),
+        ("threshold.global.min_ctf_score", 0.25),
+        ("threshold.volume_profile.div_min", 0.30),
+        ("threshold.volume_profile.stoch_oversold", 30.0),
+        ("threshold.volume_profile.stoch_overbought", 70.0),
+        ("threshold.hvn_rejection.proximity_atr", 0.30),
+        ("threshold.poc_rejection.proximity_atr", 0.30),
+        ("threshold.session_extremes.proximity_atr", 0.30),
+        ("threshold.session_extremes.rsi_oversold", 35.0),
+        ("threshold.session_extremes.rsi_overbought", 65.0),
+        ("threshold.liquidity_hunt.significance_min", 0.60),
+        ("threshold.gap_analysis.min_gap_atr", 0.80),
+        ("threshold.gap_analysis.continuation_atr", 1.00),
+        ("threshold.gap_analysis.volume_confirm_ratio", 1.50),
+        ("threshold.mtf_alignment.ctf_score_min", 0.70),
+        ("threshold.regime_transition.cp_min", 0.50),
+        ("threshold.dual_divergence.ofi_div_min", 1.00),
+        ("threshold.dual_divergence.cvd_div_min", 1.00),
+        ("threshold.orb.vol_expansion_mult", 1.50),
+        ("threshold.vcp.min_contractions", 3),
+        ("threshold.vcp.vol_expansion_mult", 1.20),
+        ("threshold.ofi_divergence.min_persistence_bars", 2),
+        ("threshold.aggregator.regime_tiebreak", 0.40),
+        ("feature.volume_zscore.window", 20),
+        # --- migration 129: Tier B weights ---
+        ("weights.gap_analysis.geo", 0.40),
+        ("weights.gap_analysis.vol", 0.25),
+        ("weights.gap_analysis.timing", 0.20),
+        ("weights.gap_analysis.type", 0.15),
+        ("weights.mean_reversion.rsi_extreme", 0.30),
+        ("weights.mean_reversion.div_score", 0.30),
+        ("weights.mean_reversion.vol_stability", 0.20),
+        ("weights.mean_reversion.sr_proximity", 0.20),
+        ("weights.momentum_breakout.roc", 0.40),
+        ("weights.momentum_breakout.vol", 0.35),
+        ("weights.momentum_breakout.break_margin", 0.25),
+        ("weights.squeeze_expansion.squeeze_bars", 0.35),
+        ("weights.squeeze_expansion.vol_expansion", 0.35),
+        ("weights.squeeze_expansion.momentum", 0.30),
+        ("weights.vwap_reclaim.vol", 0.30),
+        ("weights.vwap_reclaim.duration", 0.30),
+        ("weights.vwap_reclaim.trend_align", 0.20),
+        ("weights.vwap_reclaim.sr_proximity", 0.20),
+        ("weights.liquidity_sweep.base_conf", 0.40),
+        ("weights.liquidity_sweep.depth_scale", 0.20),
+        ("weights.supply_demand.base_conf", 0.35),
+        ("weights.supply_demand.freshness_scale", 0.23),
+        # --- migration 129: Tier C zone engine ---
+        ("feature.zone_engine.cluster_radius_atr", 0.50),
+        ("feature.zone_engine.zone_buffer_atr", 0.15),
+        ("feature.zone_engine.min_width_atr", 0.25),
+        ("feature.zone_engine.single_level_radius_atr", 0.25),
+        ("weights.zone_engine.strength", 0.60),
+        ("weights.zone_engine.proximity", 0.40),
     )
 
     async def _prewarm_threshold_config(self) -> None:
-        """Pre-warm config cache and inject ConfigService into the 4 configurable I7 plugins."""
+        """Pre-warm config cache and inject ConfigService into all configurable plugins."""
         assert self._config_service is not None
         for key, default in self._THRESHOLD_KEYS:
             await self._config_service.get(key, default)
+
+        # Inject into module-level utility singletons (shared helpers, not plugins).
+        from src.intelligence.trading import (  # noqa: PLC0415
+            aggregator,
+            confidence_utils,
+            volume_profile_utils,
+            zone_engine,
+        )
+
+        confidence_utils.set_config_service(self._config_service)
+        volume_profile_utils.set_config_service(self._config_service)
+        zone_engine.set_config_service(self._config_service)
+        aggregator.set_config_service(self._config_service)
 
         # Import the module-level plugin singletons and inject the config service.
         # Plugins call get_sync() in compute_full() — a pure dict lookup after pre-warm.
         from src.intelligence.trading.anchored_vwap_reversion import (  # noqa: PLC0415
             plugin as avwap_plugin,
         )
+        from src.intelligence.trading.dual_divergence import plugin as dd_plugin  # noqa: PLC0415
+        from src.intelligence.trading.gap_analysis_setup import (
+            plugin as gap_plugin,  # noqa: PLC0415
+        )
+        from src.intelligence.trading.hvn_rejection import plugin as hvn_plugin  # noqa: PLC0415
+        from src.intelligence.trading.liquidity_hunt import plugin as lh_plugin  # noqa: PLC0415
+        from src.intelligence.trading.liquidity_sweep_reclaim import (
+            plugin as lsr_plugin,  # noqa: PLC0415
+        )
+        from src.intelligence.trading.mean_reversion import plugin as mr_plugin  # noqa: PLC0415
+        from src.intelligence.trading.momentum_breakout import plugin as mb_plugin  # noqa: PLC0415
+        from src.intelligence.trading.mtf_alignment import plugin as mtf_plugin  # noqa: PLC0415
         from src.intelligence.trading.ofi_continuation import plugin as ofi_plugin  # noqa: PLC0415
+        from src.intelligence.trading.ofi_divergence import plugin as ofid_plugin  # noqa: PLC0415
+        from src.intelligence.trading.orb15 import plugin as orb15_plugin  # noqa: PLC0415
+        from src.intelligence.trading.orb30 import plugin as orb30_plugin  # noqa: PLC0415
         from src.intelligence.trading.pattern_completion import (  # noqa: PLC0415
             plugin as pattern_plugin,
         )
+        from src.intelligence.trading.poc_rejection import plugin as poc_plugin  # noqa: PLC0415
+        from src.intelligence.trading.regime_transition import plugin as rt_plugin  # noqa: PLC0415
+        from src.intelligence.trading.session_extremes_setup import (
+            plugin as se_plugin,  # noqa: PLC0415
+        )
+        from src.intelligence.trading.squeeze_expansion import plugin as sq_plugin  # noqa: PLC0415
+        from src.intelligence.trading.supply_demand_setup import (
+            plugin as sd_plugin,  # noqa: PLC0415
+        )
         from src.intelligence.trading.trend_following import plugin as tf_plugin  # noqa: PLC0415
+        from src.intelligence.trading.vcp import plugin as vcp_plugin  # noqa: PLC0415
+        from src.intelligence.trading.volume_zscore import plugin as vz_plugin  # noqa: PLC0415
+        from src.intelligence.trading.vwap_reclaim import plugin as vwap_r_plugin  # noqa: PLC0415
 
-        for p in (tf_plugin, ofi_plugin, avwap_plugin, pattern_plugin):
+        for p in (
+            tf_plugin,
+            ofi_plugin,
+            avwap_plugin,
+            pattern_plugin,
+            hvn_plugin,
+            poc_plugin,
+            se_plugin,
+            lh_plugin,
+            gap_plugin,
+            mtf_plugin,
+            rt_plugin,
+            dd_plugin,
+            ofid_plugin,
+            orb15_plugin,
+            orb30_plugin,
+            vcp_plugin,
+            vz_plugin,
+            mr_plugin,
+            mb_plugin,
+            sq_plugin,
+            vwap_r_plugin,
+            lsr_plugin,
+            sd_plugin,
+        ):
             p._config_service = self._config_service
 
         self.logger.info(
             "intelligence_pipeline.threshold_config_loaded",
-            keys=[k for k, _ in self._THRESHOLD_KEYS],
+            plugin_count=23,
+            key_count=len(self._THRESHOLD_KEYS),
         )
 
     async def _handle_config_update(self, payload: dict) -> None:
