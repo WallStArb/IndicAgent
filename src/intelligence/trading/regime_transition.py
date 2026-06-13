@@ -49,8 +49,15 @@ class RegimeTransitionPlugin:
     requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     cp_threshold: float = 0.5
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        cp_min = (
+            cfg.get_sync("threshold.regime_transition.cp_min", self.cp_threshold)
+            if cfg
+            else self.cp_threshold
+        )
         result = extract_ohlcv(frames, self.min_lookback)
         if result is None:
             return no_signal()
@@ -70,7 +77,7 @@ class RegimeTransitionPlugin:
         choch_detected = float(features.get("choch_detected", 0.0))
 
         # Gate: both changepoint AND CHoCH required
-        if cp_probability <= self.cp_threshold or choch_detected != 1.0:
+        if cp_probability <= cp_min or choch_detected != 1.0:
             return no_signal()
 
         choch_direction = int(features.get("choch_direction", 0))

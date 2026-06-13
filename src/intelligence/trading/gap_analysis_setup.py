@@ -60,8 +60,29 @@ class GapAnalysisSetupPlugin:
     continuation_atr_mult: float = 1.0
     volume_confirm_ratio: float = 1.5
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        min_gap_atr = (
+            cfg.get_sync("threshold.gap_analysis.min_gap_atr", self.min_gap_atr_mult)
+            if cfg
+            else self.min_gap_atr_mult
+        )
+        continuation_atr = (
+            cfg.get_sync("threshold.gap_analysis.continuation_atr", self.continuation_atr_mult)
+            if cfg
+            else self.continuation_atr_mult
+        )
+        volume_confirm_ratio = (
+            cfg.get_sync("threshold.gap_analysis.volume_confirm_ratio", self.volume_confirm_ratio)
+            if cfg
+            else self.volume_confirm_ratio
+        )
+        w_geo = cfg.get_sync("weights.gap_analysis.geo", 0.40) if cfg else 0.40
+        w_vol = cfg.get_sync("weights.gap_analysis.vol", 0.25) if cfg else 0.25
+        w_timing = cfg.get_sync("weights.gap_analysis.timing", 0.20) if cfg else 0.20
+        w_type = cfg.get_sync("weights.gap_analysis.type", 0.15) if cfg else 0.15
         result = extract_ohlcv(frames, self.min_lookback)
         if result is None:
             return no_signal()
@@ -99,7 +120,7 @@ class GapAnalysisSetupPlugin:
             return no_signal()
 
         # Minimum gap gate
-        if abs(gap_size) < self.min_gap_atr_mult * atr:
+        if abs(gap_size) < min_gap_atr * atr:
             return no_signal()
 
         gap_size_atr = abs(gap_size) / atr
@@ -113,10 +134,10 @@ class GapAnalysisSetupPlugin:
         else:
             vol_mean = 1.0
         vol_ratio = vol[-1] / vol_mean if vol_mean > 0 else 1.0
-        high_volume = vol_ratio >= self.volume_confirm_ratio  # 1.5x threshold
+        high_volume = vol_ratio >= volume_confirm_ratio
 
         # GAP-02: Bias classification
-        if gap_size_atr >= self.continuation_atr_mult and high_volume:
+        if gap_size_atr >= continuation_atr and high_volume:
             bias = "continuation"
         else:
             bias = "fade"
@@ -150,7 +171,9 @@ class GapAnalysisSetupPlugin:
         # type_score: continuation gaps have stronger directional conviction than fade gaps
         type_score = 0.8 if bias == "continuation" else 0.5
         # Weighted sum (coefficients sum to 1.0)
-        raw_conf = 0.40 * geo_score + 0.25 * vol_score + 0.20 * timing_score + 0.15 * type_score
+        raw_conf = (
+            w_geo * geo_score + w_vol * vol_score + w_timing * timing_score + w_type * type_score
+        )
 
         # Supporting factors
         supporting: list[str] = []
