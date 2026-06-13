@@ -6,7 +6,7 @@ architectural invariants that must never regress:
 1. No I1-I6 compute imports (DAG isolation)
 2. No uuid4 usage (deterministic signal IDs only)
 3. ON CONFLICT preserves identity columns (idempotency)
-4. New column names only (migration 125 compliance)
+4. New column names only (migrations 126+127 compliance)
 """
 
 import pathlib
@@ -55,30 +55,31 @@ def test_on_conflict_identity_columns_not_in_set() -> None:
 
 
 def test_functional_column_names_in_select() -> None:
-    """SELECT query must use functional column names (migration 126 reverted tier codes)."""
-    src = _SRC
+    """_SELECT_FEATURES_SQL must use functional DB column names (migrations 126+127)."""
+    from production.scripts.feature_replay import _SELECT_FEATURES_SQL
+
     required_columns = (
         "technical_indicators",
         "regime_features",
         "confluence_scores",
         "pattern_detections",
-        "i2",
+        "composite_events",
         "smc",
         "cross_timeframe_context",
     )
     for col in required_columns:
-        assert col in src, f"Expected column '{col}' in _SELECT_FEATURES_SQL"
+        assert col in _SELECT_FEATURES_SQL, f"Expected column '{col}' in _SELECT_FEATURES_SQL"
 
 
 def test_tier_code_db_columns_not_in_select() -> None:
-    """Tier-code DB column names i1/i3/i4/i5 must not appear as DB column refs (migration 126)."""
-    src = _SRC
-    # These were renamed to functional names in migration 126 — SQL must use functional names.
-    # i2 is excluded because it was not renamed.
-    for tier_col in ("i1", "i3", "i4", "i5"):
+    """Tier-code DB column names must not appear as DB column refs (migrations 126+127)."""
+    from production.scripts.feature_replay import _SELECT_FEATURES_SQL
+
+    # These are tier codes, not functional DB column names — must not appear in the SQL
+    for tier_col in ("i1", "i2", "i3", "i4", "i5"):
         assert (
-            f'row["{tier_col}"]' not in src
-        ), f'Tier-code column ref row["{tier_col}"] found — use functional name'
+            tier_col not in _SELECT_FEATURES_SQL
+        ), f"Tier-code column '{tier_col}' found in _SELECT_FEATURES_SQL — use functional name"
 
 
 def test_cli_flags_present() -> None:
