@@ -75,21 +75,29 @@ def check_reversal_gate(
     rsi_div_bearish = float(features.get("rsi_div_bearish", 0.0))
     stoch_k = float(features.get("stoch_k_14_3", 50.0))
 
+    div_threshold = get_div_threshold()
+    stoch_oversold = get_stoch_oversold()
+    stoch_overbought = get_stoch_overbought()
+
     if direction == 1:
-        rsi_div_ok = rsi_div_bullish > DIV_THRESHOLD
-        stoch_ok = stoch_k < STOCH_OVERSOLD
+        rsi_div_ok = rsi_div_bullish > div_threshold
+        stoch_ok = stoch_k < stoch_oversold
         reversal_ok = rsi_div_ok or stoch_ok
         reversal_strength = max(
             rsi_div_bullish,
-            (30.0 - stoch_k) / 30.0 if stoch_k < STOCH_OVERSOLD else 0.0,
+            (stoch_oversold - stoch_k) / stoch_oversold if stoch_k < stoch_oversold else 0.0,
         )
     else:  # direction == -1
-        rsi_div_ok = rsi_div_bearish > DIV_THRESHOLD
-        stoch_ok = stoch_k > STOCH_OVERBOUGHT
+        rsi_div_ok = rsi_div_bearish > div_threshold
+        stoch_ok = stoch_k > stoch_overbought
         reversal_ok = rsi_div_ok or stoch_ok
         reversal_strength = max(
             rsi_div_bearish,
-            (stoch_k - 70.0) / 30.0 if stoch_k > STOCH_OVERBOUGHT else 0.0,
+            (
+                (stoch_k - stoch_overbought) / (100.0 - stoch_overbought)
+                if stoch_k > stoch_overbought
+                else 0.0
+            ),
         )
 
     return reversal_ok, min(1.0, max(0.0, reversal_strength))

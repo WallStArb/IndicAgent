@@ -12,7 +12,7 @@ Renaissance principles:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
@@ -23,11 +23,11 @@ from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 from .volume_profile_utils import (
-    DIV_THRESHOLD,
-    STOCH_OVERBOUGHT,
-    STOCH_OVERSOLD,
     check_reversal_gate,
     format_reversal_supporting_factors,
+    get_div_threshold,
+    get_stoch_overbought,
+    get_stoch_oversold,
 )
 
 # Maximum ATR distance from HVN to qualify as "testing" the level
@@ -67,8 +67,15 @@ class HVNRejectionPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     regime_type: str = "mean_reversion"
     requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        proximity_atr = (
+            cfg.get_sync("threshold.hvn_rejection.proximity_atr", _HVN_PROXIMITY_ATR)
+            if cfg
+            else _HVN_PROXIMITY_ATR
+        )
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -102,12 +109,12 @@ class HVNRejectionPlugin:
         if hvn_above is not None:
             hvn_above = float(hvn_above)
             dist_above = abs(entry - hvn_above) / atr
-            near_hvn_above = dist_above < _HVN_PROXIMITY_ATR
+            near_hvn_above = dist_above < proximity_atr
 
         if hvn_below is not None:
             hvn_below = float(hvn_below)
             dist_below = abs(entry - hvn_below) / atr
-            near_hvn_below = dist_below < _HVN_PROXIMITY_ATR
+            near_hvn_below = dist_below < proximity_atr
 
         if not near_hvn_above and not near_hvn_below:
             return no_signal()
@@ -118,9 +125,13 @@ class HVNRejectionPlugin:
         stoch_k = float(features.get("stoch_k_14_3", 50.0))
 
         # Determine candidate directions
-        can_long = near_hvn_below and (rsi_div_bullish > DIV_THRESHOLD or stoch_k < STOCH_OVERSOLD)
+        div_threshold = get_div_threshold()
+        stoch_oversold = get_stoch_oversold()
+        stoch_overbought = get_stoch_overbought()
+
+        can_long = near_hvn_below and (rsi_div_bullish > div_threshold or stoch_k < stoch_oversold)
         can_short = near_hvn_above and (
-            rsi_div_bearish > DIV_THRESHOLD or stoch_k > STOCH_OVERBOUGHT
+            rsi_div_bearish > div_threshold or stoch_k > stoch_overbought
         )
 
         if not can_long and not can_short:
@@ -163,7 +174,7 @@ class HVNRejectionPlugin:
 
         # ── Confidence scoring ────────────────────────────────────────────────
         # Proximity to HVN: 0.3 weight
-        proximity_score = max(0.0, 1.0 - dist_atr / _HVN_PROXIMITY_ATR)
+        proximity_score = max(0.0, 1.0 - dist_atr / proximity_atr)
 
         # Reversal strength: 0.3 weight
         reversal_score = min(1.0, max(0.0, reversal_strength))
@@ -184,11 +195,11 @@ class HVNRejectionPlugin:
         )
 
         # ── Supporting factors ────────────────────────────────────────────────
-        rsi_div_ok = (direction == 1 and rsi_div_bullish > DIV_THRESHOLD) or (
-            direction == -1 and rsi_div_bearish > DIV_THRESHOLD
+        rsi_div_ok = (direction == 1 and rsi_div_bullish > div_threshold) or (
+            direction == -1 and rsi_div_bearish > div_threshold
         )
-        stoch_ok = (direction == 1 and stoch_k < STOCH_OVERSOLD) or (
-            direction == -1 and stoch_k > STOCH_OVERBOUGHT
+        stoch_ok = (direction == 1 and stoch_k < stoch_oversold) or (
+            direction == -1 and stoch_k > stoch_overbought
         )
 
         supporting: list[str] = [

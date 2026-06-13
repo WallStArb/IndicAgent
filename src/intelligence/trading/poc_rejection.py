@@ -11,7 +11,7 @@ Renaissance principles:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
@@ -22,11 +22,11 @@ from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 from .volume_profile_utils import (
-    DIV_THRESHOLD,
-    STOCH_OVERBOUGHT,
-    STOCH_OVERSOLD,
     check_reversal_gate,
     format_reversal_supporting_factors,
+    get_div_threshold,
+    get_stoch_overbought,
+    get_stoch_oversold,
 )
 
 # Maximum ATR distance from POC to qualify as "testing" the level
@@ -65,8 +65,15 @@ class POCRejectionPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     regime_type: str = "mean_reversion"
     requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        proximity_atr = (
+            cfg.get_sync("threshold.poc_rejection.proximity_atr", _POC_PROXIMITY_ATR)
+            if cfg
+            else _POC_PROXIMITY_ATR
+        )
         timeframe = frames.get("timeframe", "")
         if timeframe and timeframe not in ("1m", "5m", "15m"):
             return no_signal()
@@ -101,7 +108,7 @@ class POCRejectionPlugin:
         entry = float(close[-1])
 
         # ── Proximity gate ────────────────────────────────────────────────────
-        if abs(entry - poc_price) / atr >= _POC_PROXIMITY_ATR:
+        if abs(entry - poc_price) / atr >= proximity_atr:
             return no_signal()
 
         # ── Direction: long if below POC, short if above ──────────────────────
@@ -117,11 +124,15 @@ class POCRejectionPlugin:
         rsi_div_bullish = float(features.get("rsi_div_bullish", 0.0))
         rsi_div_bearish = float(features.get("rsi_div_bearish", 0.0))
         stoch_k = float(features.get("stoch_k_14_3", 50.0))
-        rsi_div_ok = (direction == 1 and rsi_div_bullish > DIV_THRESHOLD) or (
-            direction == -1 and rsi_div_bearish > DIV_THRESHOLD
+        div_threshold = get_div_threshold()
+        stoch_oversold = get_stoch_oversold()
+        stoch_overbought = get_stoch_overbought()
+
+        rsi_div_ok = (direction == 1 and rsi_div_bullish > div_threshold) or (
+            direction == -1 and rsi_div_bearish > div_threshold
         )
-        stoch_ok = (direction == 1 and stoch_k < STOCH_OVERSOLD) or (
-            direction == -1 and stoch_k > STOCH_OVERBOUGHT
+        stoch_ok = (direction == 1 and stoch_k < stoch_oversold) or (
+            direction == -1 and stoch_k > stoch_overbought
         )
 
         # ── Trade frame ───────────────────────────────────────────────────────
@@ -144,7 +155,7 @@ class POCRejectionPlugin:
 
         # ── Confidence scoring ────────────────────────────────────────────────
         # Proximity to POC: 0.3 weight — closer = higher conviction
-        dist_ratio = abs(entry - poc_price) / (atr * _POC_PROXIMITY_ATR)
+        dist_ratio = abs(entry - poc_price) / (atr * proximity_atr)
         proximity_score = max(0.0, 1.0 - dist_ratio)
 
         # Reversal strength: 0.3 weight
