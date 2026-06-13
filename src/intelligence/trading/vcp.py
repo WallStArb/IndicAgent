@@ -23,11 +23,11 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    MIN_CTF_SCORE,
-    MIN_REGIME_WEIGHT,
     capture_signal_features,
     clamp01,
     compose_confidence,
+    get_min_ctf_score,
+    get_min_regime_weight,
 )
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import no_signal
@@ -116,13 +116,13 @@ class VCPPlugin:
         # ── Gate 1: continuous trending regime ────────────────────────────────
         regime_up = hmm_regime_weight(features, "up")
         regime_down = hmm_regime_weight(features, "down")
-        if regime_up < MIN_REGIME_WEIGHT and regime_down < MIN_REGIME_WEIGHT:
+        if regime_up < get_min_regime_weight() and regime_down < get_min_regime_weight():
             self._state[(symbol, tf)] = state
             return no_signal()
 
         # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
         ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < MIN_CTF_SCORE:
+        if abs(ctf_score) < get_min_ctf_score():
             self._state[(symbol, tf)] = state
             return no_signal()
 

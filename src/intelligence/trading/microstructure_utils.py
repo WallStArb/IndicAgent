@@ -11,11 +11,11 @@ from typing import Any
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    MIN_CTF_SCORE,
-    MIN_REGIME_WEIGHT,
     capture_signal_features,
     clamp01,
     compose_confidence,
+    get_min_ctf_score,
+    get_min_regime_weight,
     rel_volume_score,
 )
 from .plugin_utils import no_signal, signal_type_for_direction
@@ -76,12 +76,12 @@ def detect_spike_signal(
         return no_signal()
 
     # Gate 1: regime gate (spike signals are regime_type="any" — use hmm_trending_weight)
-    if hmm_trending_weight(features) < MIN_REGIME_WEIGHT:
+    if hmm_trending_weight(features) < get_min_regime_weight():
         return no_signal()
 
     # Gate 2: I6 ctf_score gate — both gates precede any OHLCV access
     ctf_score = float(features.get("ctf_score") or 0.0)
-    if abs(ctf_score) < MIN_CTF_SCORE:
+    if abs(ctf_score) < get_min_ctf_score():
         return no_signal()
 
     atr = get_atr_with_floor_from_frames(frames)
@@ -99,7 +99,7 @@ def detect_spike_signal(
 
     volume_score = rel_volume_score(features)
 
-    ctf_factor = clamp01((abs(ctf_score) - MIN_CTF_SCORE) / (1.0 - MIN_CTF_SCORE))
+    ctf_factor = clamp01((abs(ctf_score) - get_min_ctf_score()) / (1.0 - get_min_ctf_score()))
 
     price_return_z = features.get("price_return_z")
     if price_return_z is not None:
@@ -121,7 +121,7 @@ def detect_spike_signal(
     supporting: list[str] = [
         f"{spike_feature_key}={spike_z:.3f}",
     ]
-    if abs(ctf_score) > MIN_CTF_SCORE:
+    if abs(ctf_score) > get_min_ctf_score():
         supporting.append(f"ctf_score={ctf_score:.3f}")
 
     # Exhaustion not applicable — spike signals are regime-independent;
