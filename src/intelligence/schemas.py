@@ -50,11 +50,14 @@ async def validate_intelligence_features_columns(conn: Any) -> None:
     Call at service startup or in integration test fixtures.
     Raises RuntimeError if any column is missing — silent wrong answers are worse than loud crashes.
     """
+    expected = list(TIER_DB_COLUMNS.values())
     rows = await conn.fetch(
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'intelligence_features'"
+        "SELECT column_name FROM information_schema.columns"
+        " WHERE table_name = 'intelligence_features' AND column_name = ANY($1)",
+        expected,
     )
     existing = {row["column_name"] for row in rows}
-    missing = [col for col in TIER_DB_COLUMNS.values() if col not in existing]
+    missing = sorted(set(expected) - existing)
     if missing:
         raise RuntimeError(
             f"intelligence_features missing expected columns: {missing}. " "Run pending migrations."
