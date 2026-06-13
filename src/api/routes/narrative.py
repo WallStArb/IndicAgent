@@ -160,8 +160,13 @@ _SIGNAL_QUERY = """
            tf_sig.value->'targets' AS targets,
            tf_sig.value->>'regime_type_at_fire' AS regime_type_at_fire,
            tf_sig.value->>'entry_type' AS entry_type,
-           f.bar, f.i1, f.composite_events, f.i3,
-           f.i4, f.i5, f.smc, f.cross_timeframe_context
+           f.bar,
+           f.technical_indicators AS i1,
+           f.composite_events,
+           f.regime_features AS i3,
+           f.confluence_scores AS i4,
+           f.pattern_detections AS i5,
+           f.smc, f.cross_timeframe_context
     FROM signal_ledger_full sl
     LEFT JOIN intelligence_features f
       ON sl.symbol = f.symbol
