@@ -64,8 +64,22 @@ class SessionExtremesSetupPlugin:
     requires_i6_confluence: bool = True
     proximity_atr_mult: float = 0.3
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        proximity_atr_mult = (
+            cfg.get_sync("threshold.session_extremes.proximity_atr", self.proximity_atr_mult)
+            if cfg
+            else self.proximity_atr_mult
+        )
+        rsi_oversold = (
+            cfg.get_sync("threshold.session_extremes.rsi_oversold", 35.0) if cfg else 35.0
+        )
+        rsi_overbought = (
+            cfg.get_sync("threshold.session_extremes.rsi_overbought", 65.0) if cfg else 65.0
+        )
+
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -111,8 +125,8 @@ class SessionExtremesSetupPlugin:
         close = float(df["close"].iloc[-1])
         dist_high = abs(close - asian_high) / atr
         dist_low = abs(close - asian_low) / atr
-        near_high = dist_high <= self.proximity_atr_mult
-        near_low = dist_low <= self.proximity_atr_mult
+        near_high = dist_high <= proximity_atr_mult
+        near_low = dist_low <= proximity_atr_mult
 
         if not (near_high or near_low):
             return no_signal()
@@ -143,7 +157,7 @@ class SessionExtremesSetupPlugin:
 
         rsi = features.get("rsi_14")
         rsi_extreme = isinstance(rsi, (int, float)) and (
-            (direction == -1 and rsi > 65) or (direction == 1 and rsi < 35)
+            (direction == -1 and rsi > rsi_overbought) or (direction == 1 and rsi < rsi_oversold)
         )
         if rsi_extreme:
             supporting.append("rsi_extreme")
@@ -156,7 +170,7 @@ class SessionExtremesSetupPlugin:
 
         # ── 4-factor intrinsic confidence composite ───────────────────────────
         # level_proximity: how close price is to the extreme (closer = better)
-        level_proximity = clamp01(1.0 - (proximity_atr / self.proximity_atr_mult))
+        level_proximity = clamp01(1.0 - (proximity_atr / proximity_atr_mult))
 
         # rejection_strength: number of confirming factors as quality signal
         rejection_strength = clamp01(len(supporting) / 3.0)
