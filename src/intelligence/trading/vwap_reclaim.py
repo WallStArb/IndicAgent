@@ -72,6 +72,7 @@ class VWAPReclaimPlugin:
     regime_type: str = "any"
     requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         timeframe = frames.get("timeframe", "")
@@ -221,7 +222,14 @@ class VWAPReclaimPlugin:
             )
         sr_prox = max(0.0, 1.0 - abs(entry - sr) / (atr * 3.0)) if sr > 0 and atr > 0 else 0.0
 
-        raw_conf = 0.30 * vol_score + 0.30 * duration_score + 0.20 * trend_align + 0.20 * sr_prox
+        cfg = self._config_service
+        w_vol = cfg.get_sync("weights.vwap_reclaim.vol", 0.30) if cfg else 0.30
+        w_duration = cfg.get_sync("weights.vwap_reclaim.duration", 0.30) if cfg else 0.30
+        w_trend = cfg.get_sync("weights.vwap_reclaim.trend_align", 0.20) if cfg else 0.20
+        w_sr = cfg.get_sync("weights.vwap_reclaim.sr_proximity", 0.20) if cfg else 0.20
+        raw_conf = (
+            w_vol * vol_score + w_duration * duration_score + w_trend * trend_align + w_sr * sr_prox
+        )
 
         # ── Supporting factors ────────────────────────────────────────────────
         side_label = "bars_below_vwap" if direction == 1 else "bars_above_vwap"

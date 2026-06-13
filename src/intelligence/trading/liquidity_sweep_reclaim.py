@@ -49,6 +49,7 @@ class LiquiditySweepReclaimPlugin:
     regime_type: str = "mean_reversion"
     requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         result = extract_ohlcv(frames, self.min_lookback)
@@ -89,8 +90,11 @@ class LiquiditySweepReclaimPlugin:
             return no_signal()
 
         # Confidence scoring
+        cfg = self._config_service
+        base_conf = cfg.get_sync("weights.liquidity_sweep.base_conf", 0.40) if cfg else 0.40
+        depth_scale = cfg.get_sync("weights.liquidity_sweep.depth_scale", 0.20) if cfg else 0.20
         sweep_depth_atr = float(features.get("sweep_depth_pct", 0.0))
-        confidence = 0.40 + 0.20 * linear_ramp(sweep_depth_atr, 0.0, 2.0)
+        confidence = base_conf + depth_scale * linear_ramp(sweep_depth_atr, 0.0, 2.0)
         supporting = ["sweep_reclaimed"]
 
         fvg_type = features.get("fvg_type", 0.0)
