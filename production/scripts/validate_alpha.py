@@ -95,7 +95,7 @@ def _discover_plugin_metadata(plugin_name: str) -> dict[str, Any] | None:
     # Map tier prefix to JSONB column
     tier_to_column: dict[str, str] = {
         "I1": "i1",
-        "I2": "i2",
+        "I2": "composite_events",
         "I3": "i3",
         "I4": "i4",
         "I5": "i5",
