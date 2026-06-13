@@ -47,6 +47,7 @@ class SupplyDemandSetupPlugin:
     regime_type: str = "any"
     requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     MIN_FRESHNESS: float = 0.40
 
@@ -102,7 +103,12 @@ class SupplyDemandSetupPlugin:
         supporting: list[str] = [f"{'demand' if direction == 1 else 'supply'}_zone_entry"]
 
         # Confidence scoring — continuous base from freshness (replaces 3-step tiers)
-        confidence = 0.35 + 0.23 * linear_ramp(freshness, 0.40, 1.0)
+        cfg = self._config_service
+        base_conf = cfg.get_sync("weights.supply_demand.base_conf", 0.35) if cfg else 0.35
+        freshness_scale = (
+            cfg.get_sync("weights.supply_demand.freshness_scale", 0.23) if cfg else 0.23
+        )
+        confidence = base_conf + freshness_scale * linear_ramp(freshness, 0.40, 1.0)
 
         # Zone strength adjustment
         confidence += (strength - 0.5) * 0.20
