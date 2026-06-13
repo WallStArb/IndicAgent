@@ -249,6 +249,19 @@ Every writer has a DLQ: `*.writer.dlq`. Route unparseable payloads here instead 
 
 - `market_data_ohlcv` — Raw OHLCV ground truth (keep forever). Time column: `timestamp`
 - `intelligence_features` — Full I1-I7 feature vectors per bar (ML training dataset, keep forever). Column name: `ts` (not `feature_ts`)
+
+  **Tier->DB column mapping** (`IntelligenceEvent` Python field -> `intelligence_features` JSONB column):
+
+  | Python field | DB column | Pydantic model |
+  |-------------|-----------|----------------|
+  | `i1` | `technical_indicators` | `I1Indicators` |
+  | `i2` | `composite_events` | `I2Events` |
+  | `i3` | `regime_features` | `I3Structure` |
+  | `i4` | `confluence_scores` | `I4Context` |
+  | `i5` | `pattern_detections` | `I5Patterns` |
+  | `smc` | `smc` | `SMCContext` |
+  | `i6` | `cross_timeframe_context` | `I6Confluence` |
+
 - `signal_ledger` — ALL I7 signals + lifecycle outcomes (keep forever). Key columns: `entry_zone_low`, `entry_zone_high`, `expires_at`, `exit_at`. Time column: `timestamp`
 - `signal_lineage` — Signal-affecting transforms and agent predictions (keep forever)
 - `llm_calls` — LLM audit log + outcomes (keep forever). Composite PK: `(call_id, called_at)`
