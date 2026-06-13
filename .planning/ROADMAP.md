@@ -1621,7 +1621,7 @@ Plans:
   4. Setups failing promotion remain shadow_only=True; failure reasons logged (insufficient N, low selection, not significant, negative expectancy, poor calibration)
   5. Grafana dashboard shows shadow mode metrics: N, win_rate, p_value, avg_pnl_r, calibration per setup
 
-**Plans**: 3 plans in 2 waves
+**Plans**: 4 plans in 2 waves
 
 Plans:
 
@@ -1662,6 +1662,7 @@ Plans:
 **Wave 2** *(depends on Wave 1)* — Pipeline hardening + validation report
 
 - [x] 121-03-PLAN.md — ATR hardening (I6 early-return guards, get_atr_valid) + MacroContextPlugin I4 wiring
+- [ ] 121-04-PLAN.md — Pre-replay capture refinement: add 5 MacroContextPlugin fields to capture_signal_features() + verify macro data flow into frames["cross_asset"]
 - [ ] 121-02-PLAN.md — Before/after comparison report + SNR per setup + calibration validation + documentation
 
 ---
