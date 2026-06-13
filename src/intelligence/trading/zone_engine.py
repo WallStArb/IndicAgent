@@ -32,6 +32,55 @@ DEDUP_TOLERANCE_ATR = 1.0  # wider than CLUSTER_RADIUS_ATR to suppress same-leve
 _SINGLE_STRENGTH_WEIGHT = 0.6
 _SINGLE_PROXIMITY_WEIGHT = 0.4
 _MAX_DIVERSITY_TIERS = 5  # distinct source_tiers possible in a consensus cluster
+
+_config_service: Any | None = None
+
+
+def set_config_service(cfg: Any) -> None:
+    global _config_service
+    _config_service = cfg
+
+
+def _cluster_radius_atr() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync(
+            "feature.zone_engine.cluster_radius_atr", CLUSTER_RADIUS_ATR
+        )
+    return CLUSTER_RADIUS_ATR
+
+
+def _zone_buffer_atr() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync("feature.zone_engine.zone_buffer_atr", ZONE_BUFFER_ATR)
+    return ZONE_BUFFER_ATR
+
+
+def _min_width_atr() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync("feature.zone_engine.min_width_atr", MIN_ZONE_WIDTH_ATR)
+    return MIN_ZONE_WIDTH_ATR
+
+
+def _single_level_radius_atr() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync(
+            "feature.zone_engine.single_level_radius_atr", SINGLE_LEVEL_RADIUS_ATR
+        )
+    return SINGLE_LEVEL_RADIUS_ATR
+
+
+def _strength_weight() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync("weights.zone_engine.strength", _SINGLE_STRENGTH_WEIGHT)
+    return _SINGLE_STRENGTH_WEIGHT
+
+
+def _proximity_weight() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync("weights.zone_engine.proximity", _SINGLE_PROXIMITY_WEIGHT)
+    return _SINGLE_PROXIMITY_WEIGHT
+
+
 # Maximum structural stop distance per TF — levels beyond this belong to a higher TF.
 # Used by trade_framer (stop cap) and sr_consensus (proximity gate radius).
 MAX_STOP_ATR_MULTIPLIER_BY_TF: dict[str, float] = {
@@ -310,7 +359,7 @@ def _find_clusters(candidates: list[ZoneCandidate], atr: float) -> list[list[Zon
         return []
     clusters: list[list[ZoneCandidate]] = []
     current = [candidates[0]]
-    radius = atr * CLUSTER_RADIUS_ATR
+    radius = atr * _cluster_radius_atr()
     for c in candidates[1:]:
         if abs(c.price - current[-1].price) <= radius:
             current.append(c)
@@ -349,7 +398,7 @@ def _pick_single_best(
     for c in candidates:
         dist_atr = abs(c.price - entry) / atr if atr > EPSILON else 2.0
         proximity = max(0.0, 1.0 - dist_atr / 2.0)
-        score = c.strength * _SINGLE_STRENGTH_WEIGHT + proximity * _SINGLE_PROXIMITY_WEIGHT
+        score = c.strength * _strength_weight() + proximity * _proximity_weight()
         if score > best_score:
             best_score = score
             best = c
@@ -357,7 +406,7 @@ def _pick_single_best(
 
 
 def _expand_to_min_width(low: float, high: float, atr: float) -> tuple[float, float]:
-    min_width = atr * MIN_ZONE_WIDTH_ATR
+    min_width = atr * _min_width_atr()
     if high - low < min_width:
         mid = (low + high) / 2
         low = mid - min_width / 2
@@ -400,8 +449,8 @@ def _resolve_zone(
     diverse = [cl for cl in clusters if _source_diversity(cl) >= 2]
     if diverse:
         best = max(diverse, key=lambda cl: _score_cluster(cl, atr))
-        low = best[0].price - atr * ZONE_BUFFER_ATR
-        high = best[-1].price + atr * ZONE_BUFFER_ATR
+        low = best[0].price - atr * _zone_buffer_atr()
+        high = best[-1].price + atr * _zone_buffer_atr()
         low, high = _expand_to_min_width(low, high, atr)
         names = "+".join(c.name for c in best)
         return ZoneResult(
@@ -416,7 +465,7 @@ def _resolve_zone(
     # Tier 2: Single best level
     best_single = _pick_single_best(candidates, entry, atr)
     if best_single is not None:
-        r = atr * SINGLE_LEVEL_RADIUS_ATR
+        r = atr * _single_level_radius_atr()
         low, high = _expand_to_min_width(best_single.price - r, best_single.price + r, atr)
         return ZoneResult(
             zone_low=low,

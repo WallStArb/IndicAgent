@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import src.intelligence.trading.aggregator as agg
 import src.intelligence.trading.confidence_utils as cu
 import src.intelligence.trading.volume_profile_utils as vpu
+import src.intelligence.trading.zone_engine as ze
 
 
 def _make_cfg(return_val):
@@ -19,6 +20,7 @@ def teardown_function():
     cu.set_config_service(None)
     vpu.set_config_service(None)
     agg.set_config_service(None)
+    ze.set_config_service(None)
 
 
 def test_get_min_regime_weight_returns_config_value():
@@ -66,3 +68,19 @@ def test_get_regime_tiebreak_returns_config_value():
 
 def test_get_regime_tiebreak_returns_constant_when_no_config():
     assert agg._get_regime_tiebreak() == agg._REGIME_TIEBREAK_THRESHOLD
+
+
+def test_zone_cluster_radius_returns_config_value():
+    ze.set_config_service(_make_cfg(0.75))
+    assert ze._cluster_radius_atr() == 0.75
+    ze.set_config_service(None)
+
+
+def test_zone_cluster_radius_returns_constant_when_no_config():
+    assert ze._cluster_radius_atr() == ze.CLUSTER_RADIUS_ATR
+
+
+def test_zone_strength_weight_returns_config_value():
+    ze.set_config_service(_make_cfg(0.7))
+    assert ze._strength_weight() == 0.7
+    ze.set_config_service(None)
