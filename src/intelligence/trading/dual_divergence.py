@@ -75,8 +75,20 @@ class DualDivergencePlugin:
     regime_type: str = "mean_reversion"
     requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        ofi_div_min = (
+            cfg.get_sync("threshold.dual_divergence.ofi_div_min", _OFI_DIV_THRESHOLD)
+            if cfg
+            else _OFI_DIV_THRESHOLD
+        )
+        cvd_div_min = (
+            cfg.get_sync("threshold.dual_divergence.cvd_div_min", _CVD_DIV_THRESHOLD)
+            if cfg
+            else _CVD_DIV_THRESHOLD
+        )
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -102,7 +114,7 @@ class DualDivergencePlugin:
         abs_cvd_div = abs(cvd_div)
 
         # Both must exceed their thresholds
-        if abs_ofi_div < _OFI_DIV_THRESHOLD or abs_cvd_div < _CVD_DIV_THRESHOLD:
+        if abs_ofi_div < ofi_div_min or abs_cvd_div < cvd_div_min:
             return no_signal()
 
         # Both must agree in direction (both bearish or both bullish vs price)

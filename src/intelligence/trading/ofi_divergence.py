@@ -75,8 +75,15 @@ class OFIDivergencePlugin:
     _state: dict = field(default_factory=dict)
     # peak_abs tracked separately — track_consecutive_state overwrites the full state entry
     _peak_abs: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        min_persistence = (
+            cfg.get_sync("threshold.ofi_divergence.min_persistence_bars", _MIN_PERSISTENCE)
+            if cfg
+            else _MIN_PERSISTENCE
+        )
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -121,7 +128,7 @@ class OFIDivergencePlugin:
         # ── Gate checks ──────────────────────────────────────────────────────
         if abs(ofi_div) < _MIN_DIVERGENCE:
             return no_signal()
-        if count < _MIN_PERSISTENCE:
+        if count < min_persistence:
             return no_signal()
 
         # ── Dual gate (before OHLCV/ATR access) ─────────────────────────────
@@ -155,7 +162,7 @@ class OFIDivergencePlugin:
             (1.0 if ewma5_aligned else 0.3) * 0.6 + (1.0 if ewma20_aligned else 0.3) * 0.4
         )
 
-        persistence_score = clamp01((count - _MIN_PERSISTENCE) / 5.0)
+        persistence_score = clamp01((count - min_persistence) / 5.0)
 
         volume_score = rel_volume_score(features)
 

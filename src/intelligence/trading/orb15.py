@@ -85,8 +85,15 @@ class ORB15Plugin:
     regime_type: str = "trend"
     requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        vol_expansion_threshold = (
+            cfg.get_sync("threshold.orb.vol_expansion_mult", _VOL_EXPANSION_THRESHOLD)
+            if cfg
+            else _VOL_EXPANSION_THRESHOLD
+        )
         timeframe = frames.get("timeframe", "")
         if timeframe and timeframe not in ("1m", "5m", "15m"):
             return no_signal()
@@ -197,11 +204,11 @@ class ORB15Plugin:
         rel_volume = features.get("rel_volume")
         if rel_volume is not None and isinstance(rel_volume, (int, float)):
             volume_ratio = float(rel_volume)
-            vol_ok = volume_ratio >= _VOL_EXPANSION_THRESHOLD
+            vol_ok = volume_ratio >= vol_expansion_threshold
         else:
             bar_volume = float(df["volume"].iloc[-1])
             avg_volume = float(df["volume"].mean())
-            vol_ok = avg_volume > 0 and bar_volume >= _VOL_EXPANSION_THRESHOLD * avg_volume
+            vol_ok = avg_volume > 0 and bar_volume >= vol_expansion_threshold * avg_volume
             volume_ratio = (bar_volume / avg_volume) if avg_volume > 0 else 0.0
 
         if not vol_ok:
@@ -239,7 +246,7 @@ class ORB15Plugin:
         range_quality_score = clamp01(1.0 - range_width / (atr * 2.0)) if atr > 0 else 0.5
 
         # Volume score: rel_volume expansion above threshold
-        volume_score = clamp01((volume_ratio - _VOL_EXPANSION_THRESHOLD) / _VOL_EXPANSION_THRESHOLD)
+        volume_score = clamp01((volume_ratio - vol_expansion_threshold) / vol_expansion_threshold)
 
         # Weights: 0.35 + 0.25 + 0.25 + 0.15 = 1.0
         raw_conf = (
