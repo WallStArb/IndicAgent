@@ -66,7 +66,7 @@ class TestI7Registration:
         total = len(registry.indicators) + len(registry.patterns)
         n_ind = len(registry.indicators)
         n_pat = len(registry.patterns)
-        assert total == 133, f"Expected 133, got {total} (indicators={n_ind}, patterns={n_pat})"
+        assert total == 134, f"Expected 134, got {total} (indicators={n_ind}, patterns={n_pat})"
 
     @pytest.mark.unit
     def test_all_i7_plugins_have_regime_type_attribute(self):

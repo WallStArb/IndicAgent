@@ -51,8 +51,10 @@ def score_fvg_alignment(
     Returns (aggregate_score, per_tf_contributions) for full auditability.
     """
     cur_price = features.get("close") or 0.0
-    atr = get_atr(features) or 0.0
-    if cur_trend == 0 or atr <= 0:
+    atr = get_atr(features)
+    if not atr:
+        return {}, {}
+    if cur_trend == 0:
         return 0.0, {}
 
     cur_tf_min = _TF_MINUTES.get(current_tf, 0)
@@ -97,8 +99,10 @@ def score_ob_alignment(
     Returns (aggregate_score, per_tf_contributions) for full auditability.
     """
     cur_price = features.get("close") or 0.0
-    atr = get_atr(features) or 0.0
-    if cur_trend == 0 or atr <= 0:
+    atr = get_atr(features)
+    if not atr:
+        return {}, {}
+    if cur_trend == 0:
         return 0.0, {}
 
     cur_tf_min = _TF_MINUTES.get(current_tf, 0)

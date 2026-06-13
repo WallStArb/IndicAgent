@@ -355,7 +355,8 @@ class I4Context(BaseModel):
     - VolumeProfile (18 fields, migrated from I5Patterns in Phase 34-02)
     - VIXRegime (2 fields)
     - CrossAssetContext (2 fields)
-    Total: 93 fields
+    - MacroContext (5 fields: yield_curve_slope, yield_curve_regime, ftq_score, ftq_regime, corr_z)
+    Total: 98 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -490,6 +491,14 @@ class I4Context(BaseModel):
     sr_resistance_confluence_score: float | None = None
     sr_support_dist_atr: float | None = None
     sr_resistance_dist_atr: float | None = None
+
+    # MacroContextPlugin outputs (Phase 121 Wave 2)
+    yield_curve_slope: float | None = None
+    yield_curve_regime: str | None = None
+    ftq_score: float | None = None
+    ftq_regime: str | None = None
+    # Stock-bond correlation z-score (MacroContextPlugin)
+    corr_z: float | None = None
 
 
 class I5Patterns(BaseModel):

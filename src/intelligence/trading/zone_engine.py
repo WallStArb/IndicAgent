@@ -229,7 +229,9 @@ def collect_candidates(
     if direction not in _VP_DIRECTION:
         raise ValueError(f"zone_engine: direction must be 1 or -1, got {direction!r}")
     symbol = features.get("symbol", "")
-    atr = get_atr_with_floor(features, symbol)
+    atr = get_atr_with_floor(
+        features, symbol
+    )  # symbol-variant API: frames not in scope here; symbol read from features dict
     if atr is None:
         return []
     if direction == 1:
