@@ -37,6 +37,25 @@ MIN_REGIME_WEIGHT: float = 0.30
 MIN_CTF_SCORE: float = 0.25
 """Minimum absolute I6 CTF score for the dual gate across all I7 plugins."""
 
+_config_service: Any | None = None
+
+
+def set_config_service(cfg: Any) -> None:
+    global _config_service
+    _config_service = cfg
+
+
+def get_min_regime_weight() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync("threshold.global.min_regime_weight", MIN_REGIME_WEIGHT)
+    return MIN_REGIME_WEIGHT
+
+
+def get_min_ctf_score() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync("threshold.global.min_ctf_score", MIN_CTF_SCORE)
+    return MIN_CTF_SCORE
+
 
 def clamp01(x: float) -> float:
     """Clamp x to [0.0, 1.0]. Use for per-factor scoring before weighted sums."""
