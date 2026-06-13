@@ -79,6 +79,7 @@ class VCPPlugin:
     regime_type: str = "trend"
     requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
@@ -91,6 +92,18 @@ class VCPPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        cfg = self._config_service
+        min_contractions = (
+            cfg.get_sync("threshold.vcp.min_contractions", _MIN_CONTRACTIONS)
+            if cfg
+            else _MIN_CONTRACTIONS
+        )
+        vol_expansion_mult = (
+            cfg.get_sync("threshold.vcp.vol_expansion_mult", _VOL_EXPANSION_MULT)
+            if cfg
+            else _VOL_EXPANSION_MULT
+        )
+
         symbol = frames.get("__symbol__", "")
         tf = frames.get("__timeframe__", "")
 
@@ -165,11 +178,11 @@ class VCPPlugin:
             self._state[(symbol, tf)] = state
             return no_signal()
 
-        if is_expansion and len(contractions) >= _MIN_CONTRACTIONS:
+        if is_expansion and len(contractions) >= min_contractions:
             # Potential expansion bar — check all gates
 
             # Volume expansion gate
-            if bar_volume <= last_vol * _VOL_EXPANSION_MULT:
+            if bar_volume <= last_vol * vol_expansion_mult:
                 # Volume not expanding enough — reset
                 contractions = [(bar_range, bar_volume)]
                 state["contractions"] = contractions
@@ -212,7 +225,7 @@ class VCPPlugin:
 
             # ── 4-factor confidence composite (NO HMM probability) ───────────
             # contraction_quality_score: number of contractions (more = stronger setup)
-            contraction_quality_score = clamp01((contraction_count - _MIN_CONTRACTIONS) / 4.0)
+            contraction_quality_score = clamp01((contraction_count - min_contractions) / 4.0)
 
             # volume_expansion_score: how much did volume expand vs last contraction?
             volume_expansion_score = clamp01((bar_volume / max(last_vol, 1e-9) - 1.0) / 1.0)

@@ -36,6 +36,22 @@ _REGIME_MAP: dict[str, list[int]] = {
 _CONFIDENCE_BOOST_PER_AGREE = 0.0
 _REGIME_TIEBREAK_THRESHOLD = 0.4
 
+_config_service: Any | None = None
+
+
+def set_config_service(cfg: Any) -> None:
+    global _config_service
+    _config_service = cfg
+
+
+def _get_regime_tiebreak() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync(
+            "threshold.aggregator.regime_tiebreak", _REGIME_TIEBREAK_THRESHOLD
+        )
+    return _REGIME_TIEBREAK_THRESHOLD
+
+
 # Trend setup names (I7 plugins that require a trending market for edge).
 # Mean-reversion setups: all TIER_I7 names NOT in this set.
 # Used by _build_all_ranked() to route hurst_trend_quality vs hurst_mr_quality.
@@ -361,11 +377,11 @@ def _aggregate_fallback(
             loser_group = longs
             method = "majority"
         else:
-            if trend_regime > _REGIME_TIEBREAK_THRESHOLD:
+            if trend_regime > _get_regime_tiebreak():
                 winner_group = longs
                 loser_group = shorts
                 method = "regime_tiebreak"
-            elif trend_regime < -_REGIME_TIEBREAK_THRESHOLD:
+            elif trend_regime < -_get_regime_tiebreak():
                 winner_group = shorts
                 loser_group = longs
                 method = "regime_tiebreak"
