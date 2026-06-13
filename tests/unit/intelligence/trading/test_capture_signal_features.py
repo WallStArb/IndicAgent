@@ -46,8 +46,7 @@ def test_capture_signal_features_all_fields_present() -> None:
     assert shadow["exhaustion_side"] == "bull"
     assert shadow["exhaustion_bars"] == 2.0
 
-    # Full key set: 8 confluence/meta + 4 I4 macro + 3 exhaustion + 2 CTF momentum
-    # + 2 CTF S/R + 2 CTF HMM regime + 2 CTF volatility + 2 CTF orderflow = 25 keys
+    # Full key set: 2 metadata + 16 I6 CTF + 9 I4 macro + 3 exhaustion = 30 keys
     expected_keys = {
         "profile",
         "existing_confidence",
@@ -64,6 +63,11 @@ def test_capture_signal_features_all_fields_present() -> None:
         "vix_z",
         "eq_spread_z",
         "eq_pairs_confirming",
+        "ftq_score",
+        "ftq_regime",
+        "yield_curve_slope",
+        "yield_curve_regime",
+        "corr_z",
         "ctf_momentum_divergence",
         "ctf_momentum_regime",
         "ctf_sr_confluence",
@@ -221,12 +225,42 @@ def test_new_fields_preserve_none_not_zero() -> None:
 
 
 def test_shadow_key_count_non_exempt_is_25() -> None:
-    """Non-exempt profile: 8 confluence/meta + 4 I4 macro + 3 exhaustion + 10 cross-TF = 25 keys."""
+    """Non-exempt profile: 2 metadata + 16 I6 CTF + 9 I4 macro + 3 exhaustion = 30 keys."""
     shadow = capture_signal_features({}, 1, "trend", 0.7)
-    assert len(shadow) == 25
+    assert len(shadow) == 30
 
 
 def test_shadow_key_count_exempt_is_25() -> None:
-    """exempt_exhaustion profile also has 25 keys (exhaustion fields are None, not absent)."""
+    """exempt_exhaustion profile also has 30 keys (exhaustion fields are None, not absent)."""
     shadow = capture_signal_features({}, 1, "exempt_exhaustion", 0.7)
-    assert len(shadow) == 25
+    assert len(shadow) == 30
+
+
+def test_macro_fields_present_when_provided() -> None:
+    """All 5 MacroContextPlugin fields are captured when present in features."""
+    features = {
+        "ftq_score": 0.72,
+        "ftq_regime": "risk_off",
+        "yield_curve_slope": -0.15,
+        "yield_curve_regime": "inverted",
+        "corr_z": 1.3,
+    }
+    shadow = capture_signal_features(features, 1, "trend", 0.7)
+
+    assert shadow["ftq_score"] == 0.72
+    assert shadow["ftq_regime"] == "risk_off"
+    assert shadow["yield_curve_slope"] == -0.15
+    assert shadow["yield_curve_regime"] == "inverted"
+    assert shadow["corr_z"] == 1.3
+
+
+def test_macro_fields_none_when_absent() -> None:
+    """Per D-06: absent MacroContextPlugin fields default to None, never 0.0."""
+    features = {"ctf_score": 0.5}  # no macro fields
+    shadow = capture_signal_features(features, 1, "trend", 0.7)
+
+    assert shadow["ftq_score"] is None
+    assert shadow["ftq_regime"] is None
+    assert shadow["yield_curve_slope"] is None
+    assert shadow["yield_curve_regime"] is None
+    assert shadow["corr_z"] is None
