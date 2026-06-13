@@ -2,7 +2,7 @@
 created: 2026-05-03T19:00:00.000Z
 title: "Qualitative Shadow Evaluation Gate (P-CTX-04)"
 area: qualitative
-priority: 14
+priority: 7
 resolves_phase: 89
 tier: validation
 files:

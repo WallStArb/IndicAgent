@@ -2,6 +2,7 @@
 created: 2026-05-25T09:00:00.000Z
 title: Macro & Cross-Asset Intelligence — Wire, Segment, Extend
 area: intelligence
+priority: 2
 files:
   - docs/ideas/macro-cross-asset-intelligence-improvements.md
 ---

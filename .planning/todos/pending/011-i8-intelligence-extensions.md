@@ -2,7 +2,7 @@
 created: 2026-05-03T18:00:00.000Z
 title: I8 Intelligence Extensions
 area: intelligence
-priority: 15
+priority: 8
 tier: feature
 files:
   - src/intelligence/ai/narrative/

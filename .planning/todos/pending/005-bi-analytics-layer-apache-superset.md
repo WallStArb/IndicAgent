@@ -2,6 +2,7 @@
 created: 2026-04-23T15:53:50.381Z
 title: BI Analytics Layer — Apache Superset
 area: tooling
+priority: 10
 files:
   - docs/ideas/bi-analytics-layer-design.md
 ---
