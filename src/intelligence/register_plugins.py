@@ -91,6 +91,7 @@ from .context.cross_asset_context import plugin as cross_asset_ctx_plugin
 from .context.garch_volatility import plugin as garch_vol_plugin
 from .context.hurst_exponent import plugin as hurst_plugin
 from .context.kalman_trend import plugin as kalman_trend_plugin
+from .context.macro_context import plugin as macro_ctx_plugin
 from .context.momentum_context import plugin as momentum_ctx_plugin
 from .context.session_context import plugin as session_ctx_plugin
 from .context.shannon_entropy import plugin as shannon_plugin
@@ -509,6 +510,7 @@ TIER_I4: list[str] = [
     volume_profile_plugin.name,  # "ctx_VolumeProfile"
     vix_regime_plugin.name,  # "ctx_VIXRegime" — Phase 46.1
     cross_asset_ctx_plugin.name,  # "ctx_CrossAssetContext" — Phase 46.1
+    macro_ctx_plugin.name,  # "ctx_MacroContext" — Phase 121 Wave 2
 ]
 
 TIER_I5: list[str] = [
