@@ -69,7 +69,7 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 _SELECT_FEATURES_SQL = """
-SELECT ts, symbol, tf, bar, technical_indicators, i2, regime_features, confluence_scores, pattern_detections, smc, cross_timeframe_context, market_context
+SELECT ts, symbol, tf, bar, technical_indicators, composite_events, regime_features, confluence_scores, pattern_detections, smc, cross_timeframe_context, market_context
 FROM intelligence_features
 WHERE symbol = $1 AND tf = $2
   AND ($3::timestamptz IS NULL OR ts >= $3)
@@ -154,7 +154,7 @@ def _reconstruct_intelligence_event(row: asyncpg.Record) -> IntelligenceEvent | 
                 v=int(bar_data.get("v", 0)),
             ),
             i1=I1Indicators(**(row["technical_indicators"] or {})),
-            i2=I2Events(**(row["i2"] or {})),
+            i2=I2Events(**(row["composite_events"] or {})),
             i3=I3Structure(**(row["regime_features"] or {})),
             i4=I4Context(**(row["confluence_scores"] or {})),
             i5=I5Patterns(**(row["pattern_detections"] or {})),
@@ -209,7 +209,7 @@ async def _replay_symbol_tf(
 
         bar_data = row["bar"] or {}
         i1_data = row["technical_indicators"] or {}
-        i2_data = row["i2"] or {}
+        i2_data = row["composite_events"] or {}
         i3_data = row["regime_features"] or {}
         i4_data = row["confluence_scores"] or {}
         i5_data = row["pattern_detections"] or {}
