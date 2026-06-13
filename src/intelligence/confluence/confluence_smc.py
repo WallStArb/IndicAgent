@@ -53,7 +53,7 @@ def score_fvg_alignment(
     cur_price = features.get("close") or 0.0
     atr = get_atr(features)
     if not atr:
-        return {}, {}
+        return 0.0, {}
     if cur_trend == 0:
         return 0.0, {}
 
@@ -101,7 +101,7 @@ def score_ob_alignment(
     cur_price = features.get("close") or 0.0
     atr = get_atr(features)
     if not atr:
-        return {}, {}
+        return 0.0, {}
     if cur_trend == 0:
         return 0.0, {}
 
