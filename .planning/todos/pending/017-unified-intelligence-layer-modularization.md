@@ -2,7 +2,7 @@
 created: 2026-05-03T19:00:00.000Z
 title: "Quant Pipeline Modularization (P-QUANT-01)"
 area: architecture
-priority: 13
+priority: 4
 resolves_phase: 88
 tier: refactoring
 files:

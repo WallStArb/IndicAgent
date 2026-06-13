@@ -2,7 +2,7 @@
 created: 2026-05-03T19:00:00.000Z
 title: "News Sentiment Provider Lane (P-CTX-05)"
 area: qualitative
-priority: 16
+priority: 9
 tier: feature
 files:
   - docs/ideas/qualitative-intelligence-layer.md

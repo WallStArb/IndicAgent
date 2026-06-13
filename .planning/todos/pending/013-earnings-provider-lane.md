@@ -2,7 +2,7 @@
 created: 2026-05-03T19:00:00.000Z
 title: "Earnings Provider Lane (P-CTX-03a)"
 area: qualitative
-priority: 11
+priority: 5
 resolves_phase: 89
 tier: feature
 files:

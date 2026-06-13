@@ -1,7 +1,17 @@
 # Phase 121: Lifecycle Replay & Validation - Context
 
 **Gathered:** 2026-06-10
-**Status:** Ready for planning
+**Status:** Wave 1 complete. Wave 2 = pipeline hardening (ATR + macro wiring) — next to execute. Wave 3 (validation report) deferred to Phase 126 — runs after v2.10 clean replay. Phase 126 Wave 2 carries the 121-02-PLAN.md spec.
+
+## Wave Summary
+
+| Wave | Scope | Status |
+|------|-------|--------|
+| Wave 1 | Replay infrastructure redesign + noise signal clean replay | Complete |
+| Wave 2 | Pipeline hardening: ATR validation (todo 020) + macro cross-asset P1 wiring (todo 018) | **Next** |
+| Wave 3 | Before/after validation report (121-02-PLAN.md) | Deferred → Phase 126 |
+
+**Why Wave 2 here:** These fixes must land before the Phase 126 clean replay so replayed data reflects correct ATR and macro context logic. Small enough (1-2 days) to ship as a wave rather than a separate phase.
 
 <domain>
 ## Phase Boundary
@@ -28,6 +38,71 @@ Phase 121 delivers a clean signal ledger for the 22 refactored I7 setups, plus a
 
 <decisions>
 ## Implementation Decisions
+
+### Wave 2: ATR Validation Hardening
+
+### D-07: I6 Confluence Functions — Early Return, Not Raise
+
+`confluence_smc.py` and `cross_tf_sr_confluence.py` use `get_atr(features) or 0.0` / `or 1.0` as the ATR value. This is silent data corruption — 0.0 ATR propagates into ratio calculations; 1.0 produces plausible-looking but wrong SR proximity scores.
+
+**Fix:** At the top of each function, guard: `atr = get_atr(features); if not atr: return {}`. Returns zero contribution to the I6 confluence score. Semantically correct: "no ATR data → no ATR-dependent score." Matches the established `CrossAssetContextPlugin` pattern (returns `{}` when data not ready).
+
+**Why NOT raise:** I6 confluence runs inside the pipeline executor. A raise would drop the entire bar's confluence computation on quiet/off-hours bars where ATR is legitimately unavailable. Early return is the correct contract for I6.
+
+---
+
+### D-08: Add `get_atr_valid(features)` to `atr_utils.py`
+
+Add a strict accessor that raises `ValueError` when ATR is None. Use this ONLY in I7 plugin `compute_full()` where `no_signal()` is the contract and a loud failure is correct behavior.
+
+**Not for I6** — I6 uses the early-return pattern from D-07. The distinction is: I7 should loudly fail (no signal emitted); I6 should gracefully degrade (zero contribution to score).
+
+---
+
+### D-09: zone_engine.py:232 — No Migration Needed
+
+`get_atr_with_floor(features, symbol)` at line 232 is already correct:
+- Symbol is read from `features.get("symbol", "")` — not a separate arg
+- `if atr is None:` check already exists at line 233
+- `frames` is not in scope at this callsite
+
+**Fix:** Add a clarifying comment only: `# symbol-variant API: frames not in scope here; symbol read from features dict`. Mark done — this is not a defect.
+
+---
+
+### Wave 2: Macro Cross-Asset P1 Wiring
+
+### D-10: One `MacroContextPlugin` (Not Three Thin Plugins)
+
+One data source (`frames["cross_asset"]`) = one DAG node. All 5 macro fields (ftq_score, ftq_regime, yield_curve_slope, yield_curve_regime, corr_z) arrive from the same merged frames key. Three separate plugins reading from the same source is complexity without SoC benefit.
+
+**File:** `src/intelligence/context/macro_context.py`
+**Class:** `MacroContextPlugin`
+**Tier:** I4 — register in `TIER_I4` in `register_plugins.py`
+
+`CrossAssetContextPlugin` (EQ_INDEX equity sector spreads) remains separate — different domain, different scope, different symbol-group guard.
+
+---
+
+### D-11: I4Context Field Changes
+
+`I4Context` already has `yield_curve_slope` and `yield_curve_regime` as orphaned fields (never populated). Required changes:
+
+1. **Uncomment** `ftq_score: float | None = None` and `ftq_regime: str | None = None` (lines 1065-1066 in `schemas.py`)
+2. **Add** `corr_z: float | None = None`
+3. Update the docstring field count (currently "Total: 93 fields") and add `MacroContext (5 fields)` to the plugin list
+
+Total new/activated fields: 5 (`yield_curve_slope`, `yield_curve_regime`, `ftq_score`, `ftq_regime`, `corr_z`).
+
+---
+
+### D-12: Storage via I4Context JSONB — No Migration
+
+Macro fields flow through `I4Context → event.i4.model_dump() → intelligence_features.i4` (JSONB). This is the standard I4 pattern — consistent with all 93 existing I4 fields. No DB migration needed.
+
+**Note on naming:** `i4` column name fails the whiteboard test (tier code, not functional). This is the open decision from MEMORY.md (phases 95-116 used functional names; Phase 122 reverted to tier codes). **Deferred to Phase 123 ADR scope** — column rename belongs in the v2.10 migration decision, not a mid-flight rename.
+
+---
 
 ### D-01: Wave 1 Scope — Renaissance-Grade Clean Replay
 
@@ -166,6 +241,20 @@ Same pattern as existing `_verify_replay()` — extend, don't replace.
 - `docs/foundation/principles.md` — "Instrument everything", "Earn promotion through proof", "Data quality over model complexity"
 - `CLAUDE.md` — `BaseWriter._parse_payload` return contract, asyncpg JSONB handling, UTC timestamp rules
 
+### Wave 2: ATR Hardening
+- `src/intelligence/trading/atr_utils.py` — add `get_atr_valid(features)` here (raises on None); existing `get_atr`, `get_atr_with_floor`, `get_atr_with_floor_from_frames` stay unchanged
+- `src/intelligence/confluence/confluence_smc.py` — D-07 fix: replace `or 0.0` with early-return guard
+- `src/intelligence/confluence/cross_tf_sr_confluence.py` — D-07 fix: replace `or 1.0` with early-return guard
+- `src/intelligence/trading/zone_engine.py:232` — D-09: comment-only, no code change
+
+### Wave 2: Macro Cross-Asset P1
+- `src/intelligence/schemas.py` — D-11: uncomment ftq_score/ftq_regime, add corr_z to I4Context
+- `src/intelligence/context/macro_context.py` — D-10: new MacroContextPlugin (create this file)
+- `src/intelligence/context/cross_asset_context.py` — reference: established pattern for `frames["cross_asset"]` reads and EQ_INDEX symbol guard
+- `src/intelligence/register_plugins.py` — `TIER_I4`: register MacroContextPlugin
+- `src/intelligence/pipeline/feature_pipeline_executor.py:207-210` — confirms macro_data is already merged into `frames["cross_asset"]`; no changes needed here
+- `services/intelligence_pipeline.py:460-470` — confirms ftq_score/ftq_regime/yield_curve fields already extracted from macro_signals topic into cache
+
 </canonical_refs>
 
 <code_context>
@@ -210,6 +299,9 @@ Same pattern as existing `_verify_replay()` — extend, don't replace.
 - **3-table schema migration** (signal_events + trade_framing + trade_execution) — RCA doc Phase 4.5, v2.10 Phases 123-125. The replay writes into existing schema; migration happens after.
 - **Extrinsic composite confidence layer** — softmax-normalized composite of ctf_score + hmm_regime_weight + zone_friction + exhaustion_guard. RCA doc Phase 4.1. Requires shadow outcome data (accumulating now).
 - **Per-symbol magnitude threshold tuning** — OFI/CVD thresholds derived from `signal_probe_results` data. Phase 117.5 in RCA doc. Data still accumulating.
+- **`intelligence_features` column rename** (`i4` → functional name, and `i1`/`i3`/`i5`): `i4` fails the whiteboard test — tier codes don't communicate intent. MEMORY.md open decision (phases 95-116 moved toward functional names; Phase 122 reverted). Fix in Phase 123 ADR — lock the functional column names before Phase 124 migration executes. Do not rename mid-flight before v2.10.
+- **Macro P2 (regime segmentation)** — `setup_performance` win rates segmented by `(yield_curve_regime, ftq_regime)` bucket; I7 signal gating by macro regime shadow-only, n≥100 gate. After P1 data accumulates.
+- **Macro P3 (new enrichment services)** — `StockBondCorrelationAgent`, VX term structure. After P1+P2 prove signal.
 
 </deferred>
 

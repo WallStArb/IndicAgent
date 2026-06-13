@@ -5,7 +5,8 @@ area: intelligence
 files:
   - src/intelligence/trading/zone_engine.py
   - docs/ideas/sr-zone-engine-improvements.md
-gate: n >= 500 signals with sr_support_confluence_score > 0 in signal_ledger
+priority: 3
+gate: n >= 500 signals with SR-plugin-sourced confluence score in signal_ledger (sr_support_confluence_score does not exist as a flat column — check bucket_scores JSONB or a derived metric when this gate is evaluated)
 ---
 
 ## Problem
