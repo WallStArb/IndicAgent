@@ -69,17 +69,17 @@ async def _backtest_async(
     conn = await asyncpg.connect(settings.database_url)
 
     try:
-        # Query intelligence_features for I1-I5 inputs.
-        # Column names are i2/i3/i4/i5 (JSONB), hmm_regime is inside smc JSONB.
+        # Query intelligence_features for I2-I5 inputs using functional column names
+        # (migrations 125-127 renamed tier-code columns). Aliases preserve row-access keys.
         query = """
             SELECT
                 ts,
                 symbol,
                 tf,
-                i2,
-                i3,
-                i4,
-                i5,
+                composite_events AS i2,
+                regime_features AS i3,
+                confluence_scores AS i4,
+                pattern_detections AS i5,
                 (smc->>'hmm_regime')::double precision AS hmm_regime
             FROM intelligence_features
             WHERE ts BETWEEN $1 AND $2
