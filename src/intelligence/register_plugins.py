@@ -208,6 +208,7 @@ def validate_schema_coverage() -> None:
                 volume_profile_plugin,
                 vix_regime_plugin,
                 cross_asset_ctx_plugin,
+                macro_ctx_plugin,
             ],
             I4Context,
         ),
@@ -357,6 +358,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(session_ctx_plugin)
     registry.register_pattern(vix_regime_plugin)
     registry.register_pattern(cross_asset_ctx_plugin)
+    registry.register_pattern(macro_ctx_plugin)
 
     registry.register_pattern(bos_choch_plugin)
     registry.register_pattern(fvg_plugin)
@@ -596,6 +598,7 @@ I4_WAVE_A: list[str] = [
     volume_profile_plugin.name,
     vix_regime_plugin.name,
     cross_asset_ctx_plugin.name,
+    macro_ctx_plugin.name,  # Phase 121 Wave 2
 ]
 I4_WAVE_B: list[str] = [
     kalman_trend_plugin.name,
