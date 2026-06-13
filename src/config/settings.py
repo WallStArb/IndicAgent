@@ -599,6 +599,63 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
         return []
 
 
+def get_all_futures_contracts(settings: Settings | None = None) -> list[Instrument]:
+    """Return Instruments for ALL futures contracts in contract_metadata (including rolled/expired).
+
+    Same as get_active_contracts() but queries without the is_front_month filter.
+    Use for replay/backtest passes that should cover rolled contract history.
+    Non-futures (equities, FX, crypto) are NOT included — call get_active_contracts() and
+    merge if needed.
+    """
+    import json as _json
+
+    s = settings or _default_settings()
+    try:
+        import psycopg2
+
+        with psycopg2.connect(s.database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT symbol, base, contract_details "
+                    "FROM instruments "
+                    "WHERE contract_details->>'asset_class' = 'futures'"
+                )
+                tmpl_rows = cur.fetchall()
+                cur.execute(
+                    "SELECT symbol, base_symbol, exchange "
+                    "FROM contract_metadata "
+                    "WHERE asset_class = 'futures'"
+                )
+                rows = cur.fetchall()
+
+        config_by_base: dict[str, Instrument] = {}
+        config_by_symbol: dict[str, Instrument] = {}
+        for tmpl_row in tmpl_rows:
+            cd = _json.loads(tmpl_row[2]) if isinstance(tmpl_row[2], str) else tmpl_row[2]
+            if cd is None:
+                continue
+            try:
+                inst = Instrument(**cd)
+                config_by_symbol[inst.symbol] = inst
+                if inst.base:
+                    config_by_base[inst.base] = inst
+            except Exception:
+                pass
+
+        return [
+            _build_instrument_from_db_row(row, config_by_base, config_by_symbol) for row in rows
+        ]
+
+    except Exception as error:
+        import structlog as _structlog
+
+        _structlog.get_logger(__name__).warning(
+            "get_all_futures_contracts.db_query_failed",
+            error=str(error),
+        )
+        return []
+
+
 def get_active_symbols(settings: Settings | None = None) -> list[str]:
     """Return active contract symbol strings (e.g. ['ESM6', 'NQM6', ...]).
 

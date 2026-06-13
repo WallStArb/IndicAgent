@@ -442,6 +442,7 @@ async def _run_stage_replay(state: dict) -> None:
             sys.executable,
             "production/scripts/run_historical_pipeline.py",
             "--replay-only",
+            "--include-rolled",
             "--workers",
             "8",
         ],

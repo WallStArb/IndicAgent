@@ -76,7 +76,7 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 
 from src.config.contracts import MONTH_CODE_TO_NUM, derive_roll_chain
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import Settings, get_active_contracts, get_all_futures_contracts
 from src.core.bar_normalizer import (
     SOURCE_DERIVED_1M,
     SOURCE_SYNTHETIC_FILL,
@@ -1849,6 +1849,15 @@ def main() -> None:
         "--replay-only", action="store_true", help="Only replay DB → signal_ledger, skip IBKR fetch"
     )
     parser.add_argument(
+        "--include-rolled",
+        action="store_true",
+        help=(
+            "Include rolled/expired futures contracts in replay (not just is_front_month=true). "
+            "Use with --replay-only to replay full roll-chain history. "
+            "Non-futures instruments are always included regardless of this flag."
+        ),
+    )
+    parser.add_argument(
         "--clean",
         action="store_true",
         help="Delete existing signals before replay (use with --replay-only to avoid duplicates)",
@@ -1918,7 +1927,15 @@ def main() -> None:
     timeframes = [t.strip() for t in args.timeframes.split(",") if t.strip()]
 
     # Filter contracts
-    contracts = get_active_contracts(settings)
+    if getattr(args, "include_rolled", False):
+        # All futures (rolled + front-month) + non-futures from get_active_contracts
+        all_futures = get_all_futures_contracts(settings)
+        active = get_active_contracts(settings)
+        futures_symbols = {c.symbol for c in all_futures}
+        non_futures = [c for c in active if c.symbol not in futures_symbols]
+        contracts = all_futures + non_futures
+    else:
+        contracts = get_active_contracts(settings)
     if args.symbols:
         wanted = {s.strip() for s in args.symbols.split(",") if s.strip()}
         # Match on full contract symbol (e.g. ESM6) OR base symbol (e.g. ES)
