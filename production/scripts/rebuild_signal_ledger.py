@@ -168,6 +168,8 @@ def _mark_complete(state: dict, stage: str) -> None:
 
 _PIPELINE_UNIT = "indicagent-intelligence-pipeline"
 _SIGNAL_WRITER_UNIT = "indicagent-signal-writer"
+_LIFECYCLE_WRITER_UNIT = "indicagent-lifecycle-writer"
+_SIGNAL_TRACKER_UNIT = "indicagent-signal-tracker-compute"
 
 
 def _systemctl(action: str, unit: str) -> None:
@@ -582,6 +584,8 @@ async def main_async() -> int:
         # contention on signal_ledger during the backfill INSERT. Both restarted in finally.
         _systemctl("stop", _PIPELINE_UNIT)
         _systemctl("stop", _SIGNAL_WRITER_UNIT)
+        _systemctl("stop", _LIFECYCLE_WRITER_UNIT)
+        _systemctl("stop", _SIGNAL_TRACKER_UNIT)
         await _run_stage_decompress(state)
         await _run_stage_drop_indexes(state)
         await _run_stage_clean(state)
@@ -596,6 +600,8 @@ async def main_async() -> int:
     finally:
         _systemctl("start", _PIPELINE_UNIT)
         _systemctl("start", _SIGNAL_WRITER_UNIT)
+        _systemctl("start", _LIFECYCLE_WRITER_UNIT)
+        _systemctl("start", _SIGNAL_TRACKER_UNIT)
 
     print(
         f"\n=== Phase 121 D-01 sequence COMPLETE ==="
