@@ -103,3 +103,17 @@ def get_atr_with_floor_from_frames(frames: dict[str, Any], period: int = 14) -> 
 
     min_tick = get_tick_size(symbol)
     return atr if atr >= min_tick else None
+
+
+def get_atr_valid(features: dict[str, Any]) -> float:
+    """Strict ATR accessor for I7 plugin use. Returns positive float ATR value.
+
+    Raises ValueError when ATR is None, zero, or negative. Use ONLY in I7
+    compute_full() where no_signal() is the correct failure contract. For I6,
+    use the early-return pattern (if not atr: return {}) instead — I6 must
+    gracefully degrade, not raise.
+    """
+    atr = get_atr(features)
+    if not atr:
+        raise ValueError(f"ATR unavailable or non-positive: {features.get('atr_14')!r}")
+    return atr
