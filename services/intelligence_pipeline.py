@@ -460,74 +460,17 @@ class IntelligencePipeline(BaseDaemon):
         zone_engine.set_config_service(self._config_service)
         aggregator.set_config_service(self._config_service)
 
-        # Import the module-level plugin singletons and inject the config service.
-        # Plugins call get_sync() in compute_full() — a pure dict lookup after pre-warm.
-        from src.intelligence.trading.anchored_vwap_reversion import (  # noqa: PLC0415
-            plugin as avwap_plugin,
-        )
-        from src.intelligence.trading.dual_divergence import plugin as dd_plugin  # noqa: PLC0415
-        from src.intelligence.trading.gap_analysis_setup import (
-            plugin as gap_plugin,  # noqa: PLC0415
-        )
-        from src.intelligence.trading.hvn_rejection import plugin as hvn_plugin  # noqa: PLC0415
-        from src.intelligence.trading.liquidity_hunt import plugin as lh_plugin  # noqa: PLC0415
-        from src.intelligence.trading.liquidity_sweep_reclaim import (
-            plugin as lsr_plugin,  # noqa: PLC0415
-        )
-        from src.intelligence.trading.mean_reversion import plugin as mr_plugin  # noqa: PLC0415
-        from src.intelligence.trading.momentum_breakout import plugin as mb_plugin  # noqa: PLC0415
-        from src.intelligence.trading.mtf_alignment import plugin as mtf_plugin  # noqa: PLC0415
-        from src.intelligence.trading.ofi_continuation import plugin as ofi_plugin  # noqa: PLC0415
-        from src.intelligence.trading.ofi_divergence import plugin as ofid_plugin  # noqa: PLC0415
-        from src.intelligence.trading.orb15 import plugin as orb15_plugin  # noqa: PLC0415
-        from src.intelligence.trading.orb30 import plugin as orb30_plugin  # noqa: PLC0415
-        from src.intelligence.trading.pattern_completion import (  # noqa: PLC0415
-            plugin as pattern_plugin,
-        )
-        from src.intelligence.trading.poc_rejection import plugin as poc_plugin  # noqa: PLC0415
-        from src.intelligence.trading.regime_transition import plugin as rt_plugin  # noqa: PLC0415
-        from src.intelligence.trading.session_extremes_setup import (
-            plugin as se_plugin,  # noqa: PLC0415
-        )
-        from src.intelligence.trading.squeeze_expansion import plugin as sq_plugin  # noqa: PLC0415
-        from src.intelligence.trading.supply_demand_setup import (
-            plugin as sd_plugin,  # noqa: PLC0415
-        )
-        from src.intelligence.trading.trend_following import plugin as tf_plugin  # noqa: PLC0415
-        from src.intelligence.trading.vcp import plugin as vcp_plugin  # noqa: PLC0415
-        from src.intelligence.trading.volume_zscore import plugin as vz_plugin  # noqa: PLC0415
-        from src.intelligence.trading.vwap_reclaim import plugin as vwap_r_plugin  # noqa: PLC0415
-
-        for p in (
-            tf_plugin,
-            ofi_plugin,
-            avwap_plugin,
-            pattern_plugin,
-            hvn_plugin,
-            poc_plugin,
-            se_plugin,
-            lh_plugin,
-            gap_plugin,
-            mtf_plugin,
-            rt_plugin,
-            dd_plugin,
-            ofid_plugin,
-            orb15_plugin,
-            orb30_plugin,
-            vcp_plugin,
-            vz_plugin,
-            mr_plugin,
-            mb_plugin,
-            sq_plugin,
-            vwap_r_plugin,
-            lsr_plugin,
-            sd_plugin,
-        ):
-            p._config_service = self._config_service
+        # Inject config service into all plugins that opted in via the _config_service field.
+        # Self-healing: as more plugins migrate, no changes here are needed.
+        plugin_count = 0
+        for p in self._plugin_cache.values():
+            if hasattr(p, "_config_service"):
+                p._config_service = self._config_service
+                plugin_count += 1
 
         self.logger.info(
             "intelligence_pipeline.threshold_config_loaded",
-            plugin_count=23,
+            plugin_count=plugin_count,
             key_count=len(self._THRESHOLD_KEYS),
         )
 

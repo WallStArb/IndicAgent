@@ -52,6 +52,10 @@ class VolumeZscorePlugin(IncrementalMixin):
     inputs: tuple = (InputSpec(symbol=".*", lookback=_WINDOW + 5),)
     _config_service: Any = field(default=None, compare=False, repr=False)
 
+    def _get_window(self) -> int:
+        cfg = self._config_service
+        return cfg.get_sync("feature.volume_zscore.window", _WINDOW) if cfg else _WINDOW
+
     def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         """Compute volume z-score from a full window DataFrame.
 
@@ -62,8 +66,7 @@ class VolumeZscorePlugin(IncrementalMixin):
             {"volume_z_score": float}. Returns {"volume_z_score": 0.0} if
             insufficient data.
         """
-        cfg = self._config_service
-        window = cfg.get_sync("feature.volume_zscore.window", _WINDOW) if cfg else _WINDOW
+        window = self._get_window()
 
         df = frames.get("main")
         if df is None or "volume" not in df.columns or len(df) < 2:
@@ -86,8 +89,7 @@ class VolumeZscorePlugin(IncrementalMixin):
         Returns:
             State dict with {vol_history: deque(_WINDOW)}.
         """
-        cfg = self._config_service
-        window = cfg.get_sync("feature.volume_zscore.window", _WINDOW) if cfg else _WINDOW
+        window = self._get_window()
 
         df = frames.get("main")
         if df is None or "volume" not in df.columns or len(df) < 2:
