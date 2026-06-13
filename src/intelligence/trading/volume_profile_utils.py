@@ -17,6 +17,33 @@ DIV_THRESHOLD = 0.3
 STOCH_OVERSOLD = 30.0
 STOCH_OVERBOUGHT = 70.0
 
+_config_service: Any | None = None
+
+
+def set_config_service(cfg: Any) -> None:
+    global _config_service
+    _config_service = cfg
+
+
+def get_div_threshold() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync("threshold.volume_profile.div_min", DIV_THRESHOLD)
+    return DIV_THRESHOLD
+
+
+def get_stoch_oversold() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync("threshold.volume_profile.stoch_oversold", STOCH_OVERSOLD)
+    return STOCH_OVERSOLD
+
+
+def get_stoch_overbought() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync(
+            "threshold.volume_profile.stoch_overbought", STOCH_OVERBOUGHT
+        )
+    return STOCH_OVERBOUGHT
+
 
 def check_reversal_gate(
     features: dict[str, Any],
