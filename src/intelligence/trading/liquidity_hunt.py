@@ -57,8 +57,16 @@ class LiquidityHuntPlugin:
     _state: dict = field(default_factory=dict)
 
     MIN_SIGNIFICANCE: float = 0.60
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        significance_min = (
+            cfg.get_sync("threshold.liquidity_hunt.significance_min", self.MIN_SIGNIFICANCE)
+            if cfg
+            else self.MIN_SIGNIFICANCE
+        )
+
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -119,7 +127,7 @@ class LiquidityHuntPlugin:
             return no_signal()
 
         # Gate 5: swept level must be a named institutional level
-        if significance < self.MIN_SIGNIFICANCE:
+        if significance < significance_min:
             return no_signal()
 
         # ── OHLCV access (after all gates) ───────────────────────────────────
@@ -134,9 +142,7 @@ class LiquidityHuntPlugin:
 
         # ── 4-factor intrinsic confidence composite ───────────────────────────
         # hunt_significance: how significant the swept institutional level is
-        hunt_significance = clamp01(
-            (significance - self.MIN_SIGNIFICANCE) / (1.0 - self.MIN_SIGNIFICANCE)
-        )
+        hunt_significance = clamp01((significance - significance_min) / (1.0 - significance_min))
 
         # rejection_reclaim_strength: how far price reclaimed through the swept level
         sweep_distance = abs(entry - swept_level)

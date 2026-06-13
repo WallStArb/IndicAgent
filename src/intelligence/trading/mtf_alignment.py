@@ -45,8 +45,16 @@ class MTFAlignmentPlugin:
     ctf_score_threshold: float = 0.7
     min_timeframes_aligned: int = 2
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        ctf_score_min = (
+            cfg.get_sync("threshold.mtf_alignment.ctf_score_min", self.ctf_score_threshold)
+            if cfg
+            else self.ctf_score_threshold
+        )
+
         result = extract_ohlcv(frames, self.min_lookback)
         if result is None:
             return no_signal()
@@ -66,7 +74,7 @@ class MTFAlignmentPlugin:
         ctf_timeframes_aligned = features.get("ctf_timeframes_aligned", 0.0)
 
         # Gate: score must exceed threshold AND multiple timeframes must agree
-        if abs(ctf_score) <= self.ctf_score_threshold:
+        if abs(ctf_score) <= ctf_score_min:
             return no_signal()
         if ctf_timeframes_aligned < self.min_timeframes_aligned:
             return no_signal()
