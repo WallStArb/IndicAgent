@@ -29,17 +29,17 @@ class FeatureSnapshotRepository:
     ) -> list[dict[str, Any]]:
         """Return recent rows from intelligence_features, newest first.
 
-        Each row has keys: ts, bar, technical_indicators, market_context, pattern_detections,
-        regime_features, confluence_scores, smc, cross_timeframe_context,
+        Each row has keys: ts, bar, technical_indicators, composite_events, market_context,
+        pattern_detections, regime_features, confluence_scores, smc, cross_timeframe_context,
         bar_close_ts, i1_computed_at, computed_at.
         Returns [] on query failure.
         """
         try:
             return await self._db.execute_query(
                 """
-                SELECT ts, bar, technical_indicators, market_context, pattern_detections,
-                       regime_features, confluence_scores, smc, cross_timeframe_context,
-                       bar_close_ts, i1_computed_at, computed_at
+                SELECT ts, bar, technical_indicators, composite_events, market_context,
+                       pattern_detections, regime_features, confluence_scores, smc,
+                       cross_timeframe_context, bar_close_ts, i1_computed_at, computed_at
                 FROM intelligence_features
                 WHERE symbol = $1 AND tf = $2
                   AND ts > NOW() - ($3 * INTERVAL '1 second')
