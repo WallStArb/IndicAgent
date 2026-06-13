@@ -17,7 +17,7 @@ Renaissance principle: compute once per bar, store once, consume everywhere.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 import numpy as np
@@ -50,6 +50,7 @@ class VolumeZscorePlugin(IncrementalMixin):
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volume"})
     inputs: tuple = (InputSpec(symbol=".*", lookback=_WINDOW + 5),)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         """Compute volume z-score from a full window DataFrame.
@@ -61,14 +62,16 @@ class VolumeZscorePlugin(IncrementalMixin):
             {"volume_z_score": float}. Returns {"volume_z_score": 0.0} if
             insufficient data.
         """
+        cfg = self._config_service
+        window = cfg.get_sync("feature.volume_zscore.window", _WINDOW) if cfg else _WINDOW
+
         df = frames.get("main")
         if df is None or "volume" not in df.columns or len(df) < 2:
             return {"volume_z_score": 0.0}
 
         volumes = df["volume"].to_numpy(copy=False)
 
-        # Build rolling window from the full series
-        history: deque = deque(maxlen=_WINDOW)
+        history: deque = deque(maxlen=window)
         for v in volumes:
             history.append(float(v))
 
@@ -83,12 +86,15 @@ class VolumeZscorePlugin(IncrementalMixin):
         Returns:
             State dict with {vol_history: deque(_WINDOW)}.
         """
+        cfg = self._config_service
+        window = cfg.get_sync("feature.volume_zscore.window", _WINDOW) if cfg else _WINDOW
+
         df = frames.get("main")
         if df is None or "volume" not in df.columns or len(df) < 2:
             return {}
 
         volumes = df["volume"].to_numpy(copy=False)
-        history: deque = deque(maxlen=_WINDOW)
+        history: deque = deque(maxlen=window)
         for v in volumes:
             history.append(float(v))
 

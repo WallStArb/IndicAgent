@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import src.intelligence.trading.aggregator as agg
 import src.intelligence.trading.confidence_utils as cu
 import src.intelligence.trading.volume_profile_utils as vpu
 
@@ -17,6 +18,7 @@ def _make_cfg(return_val):
 def teardown_function():
     cu.set_config_service(None)
     vpu.set_config_service(None)
+    agg.set_config_service(None)
 
 
 def test_get_min_regime_weight_returns_config_value():
@@ -54,3 +56,13 @@ def test_get_stoch_oversold_returns_config_value():
 def test_get_stoch_overbought_returns_config_value():
     vpu.set_config_service(_make_cfg(75.0))
     assert vpu.get_stoch_overbought() == 75.0
+
+
+def test_get_regime_tiebreak_returns_config_value():
+    agg.set_config_service(_make_cfg(0.55))
+    assert agg._get_regime_tiebreak() == 0.55
+    agg.set_config_service(None)
+
+
+def test_get_regime_tiebreak_returns_constant_when_no_config():
+    assert agg._get_regime_tiebreak() == agg._REGIME_TIEBREAK_THRESHOLD
