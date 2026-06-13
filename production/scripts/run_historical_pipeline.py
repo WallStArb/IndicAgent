@@ -566,7 +566,7 @@ _INSERT_FEATURE_SYNC_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
     bar, technical_indicators, pattern_detections, regime_features,
-    confluence_scores, smc, cross_timeframe_context, i2
+    confluence_scores, smc, cross_timeframe_context, composite_events
 ) VALUES %s
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """
@@ -643,7 +643,7 @@ def _event_to_sync_params(event: Any) -> tuple:
     Column order matches _INSERT_FEATURE_SYNC_SQL:
       ts, symbol, tf, platform, source, schema_version,
       bar, technical_indicators, pattern_detections, regime_features,
-      confluence_scores, smc, cross_timeframe_context, i2
+      confluence_scores, smc, cross_timeframe_context, composite_events
     """
     return (
         event.ts,  # datetime — psycopg2 native
@@ -996,7 +996,7 @@ def _load_precomputed_features(
     """Load intelligence_features for symbol into (tf, ts) -> merged flat dict.
 
     Used by --use-precomputed-features to skip I1-I6 recomputation entirely.
-    All eight JSONB tier columns (including i2 and market_context) are merged
+    All eight JSONB tier columns (including composite_events and market_context) are merged
     into one flat dict per bar.
     """
     with conn.cursor() as cur:
@@ -1004,7 +1004,7 @@ def _load_precomputed_features(
             "SELECT ts, tf,"
             " technical_indicators, pattern_detections, regime_features,"
             " confluence_scores, smc, cross_timeframe_context,"
-            " i2, market_context"
+            " composite_events, market_context"
             " FROM intelligence_features"
             " WHERE symbol = %s AND (%s IS NULL OR ts >= %s)"
             " ORDER BY ts ASC",
@@ -1013,9 +1013,9 @@ def _load_precomputed_features(
         rows = cur.fetchall()
 
     result: dict[tuple[str, datetime], dict] = {}
-    for ts, tf, i1_data, i5_data, i3_data, i4_data, smc_col, ctf, i2_col, mkt_col in rows:
+    for ts, tf, i1_data, i5_data, i3_data, i4_data, smc_col, ctf, ce_col, mkt_col in rows:
         merged: dict = {}
-        for tier in (i1_data, i5_data, i3_data, i4_data, smc_col, ctf, i2_col, mkt_col):
+        for tier in (i1_data, i5_data, i3_data, i4_data, smc_col, ctf, ce_col, mkt_col):
             if not tier:
                 continue
             if isinstance(tier, str):
