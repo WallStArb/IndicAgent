@@ -644,6 +644,19 @@ def _build_intelligence_event(
         return None
 
 
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively replace float NaN/Inf with None so json.dumps produces valid JSONB."""
+    import math
+
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
+
+
 def _event_to_sync_params(event: Any) -> tuple:
     """Serialize IntelligenceEvent to a 14-element tuple for psycopg2 batch insert.
 
@@ -659,14 +672,16 @@ def _event_to_sync_params(event: Any) -> tuple:
         event.platform,
         event.source,
         event.schema_version,
-        json.dumps(event.bar.model_dump()),  # bar
-        json.dumps(event.i1.model_dump()),  # i1
-        json.dumps(event.i5.model_dump(exclude_none=True)),  # i5
-        json.dumps(event.i3.model_dump(exclude_none=True)),  # i3
-        json.dumps(event.i4.model_dump(exclude_none=True)),  # i4
-        json.dumps(event.smc.model_dump(exclude_none=True)),  # smc
-        json.dumps(event.i6.model_dump(exclude_none=True)),  # cross_timeframe_context
-        json.dumps(event.i2.model_dump(exclude_none=True)),  # i2
+        json.dumps(_sanitize_for_json(event.bar.model_dump())),  # bar
+        json.dumps(_sanitize_for_json(event.i1.model_dump())),  # i1
+        json.dumps(_sanitize_for_json(event.i5.model_dump(exclude_none=True))),  # i5
+        json.dumps(_sanitize_for_json(event.i3.model_dump(exclude_none=True))),  # i3
+        json.dumps(_sanitize_for_json(event.i4.model_dump(exclude_none=True))),  # i4
+        json.dumps(_sanitize_for_json(event.smc.model_dump(exclude_none=True))),  # smc
+        json.dumps(
+            _sanitize_for_json(event.i6.model_dump(exclude_none=True))
+        ),  # cross_timeframe_context
+        json.dumps(_sanitize_for_json(event.i2.model_dump(exclude_none=True))),  # i2
     )
 
 
@@ -898,12 +913,16 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
                 e.ttl_bars,
                 e.entry_price,
                 e.stop_loss,
-                json.dumps(e.targets) if e.targets is not None else None,
+                json.dumps(_sanitize_for_json(e.targets)) if e.targets is not None else None,
                 e.entry_zone_low,
                 e.entry_zone_high,
                 e.market_entry_price,
                 e.cis_score,
-                json.dumps(e.bucket_scores) if e.bucket_scores is not None else None,
+                (
+                    json.dumps(_sanitize_for_json(e.bucket_scores))
+                    if e.bucket_scores is not None
+                    else None
+                ),
                 e.weights_version,
                 e.expires_at,
                 e.feature_schema_version,
