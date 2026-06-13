@@ -11,6 +11,7 @@ from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
+from .state_utils import deduplicate_event
 from .trade_framer import frame_trade
 
 
@@ -19,7 +20,9 @@ class LiquiditySweepReclaimPlugin:
     """Highest-conviction SMC setup: fires when a liquidity sweep is reclaimed.
 
     Gate: sweep_detected == 1.0 AND sweep_reclaimed == 1.0.
-    Optional confidence boosts from FVG, order block, and cross-timeframe confluence.
+    deduplicate_event: fires once per unique (sweep_level, sweep_type) identity,
+    with re-fire allowed after _DEDUP_MIN_BARS active-condition calls to handle
+    the same level being swept a second time in a session.
 
     Renaissance principles:
     - Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
@@ -65,13 +68,11 @@ class LiquiditySweepReclaimPlugin:
 
         sweep_detected = features.get("sweep_detected", 0.0)
         sweep_reclaimed = features.get("sweep_reclaimed", 0.0)
-
         if sweep_detected != 1.0 or sweep_reclaimed != 1.0:
             return no_signal()
 
         sweep_type = features.get("sweep_type", 0.0)
         sweep_level = features.get("sweep_level", 0.0)
-
         if sweep_type == 0.0:
             return no_signal()
 
@@ -82,14 +83,12 @@ class LiquiditySweepReclaimPlugin:
             return no_signal()
 
         entry = float(close[-1])
-
-        # Renaissance: Use frame_trade() for structural stop hierarchy
         signal_type = "sweep_reclaim_long" if direction == 1 else "sweep_reclaim_short"
         tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
         if not tf.viable:
             return no_signal()
 
-        # Confidence scoring — base derived from sweep depth (continuous)
+        # Confidence scoring
         sweep_depth_atr = float(features.get("sweep_depth_pct", 0.0))
         confidence = 0.40 + 0.20 * linear_ramp(sweep_depth_atr, 0.0, 2.0)
         supporting = ["sweep_reclaimed"]
@@ -104,14 +103,13 @@ class LiquiditySweepReclaimPlugin:
             confidence += 0.10
             supporting.append("order_block_confirmed")
 
-        # Named pool significance boost
         sweep_type_val = features.get("sweep_type", 0.0)
-        if sweep_type_val > 0:  # bullish sweep (SSL swept)
+        if sweep_type_val > 0:
             sig = float(features.get("ssl_significance", 0.0))
             if sig >= 0.60:
                 confidence += min(0.10, sig * 0.12)
                 supporting.append(f"named_ssl_level_{sig:.2f}")
-        elif sweep_type_val < 0:  # bearish sweep (BSL swept)
+        elif sweep_type_val < 0:
             sig = float(features.get("bsl_significance", 0.0))
             if sig >= 0.60:
                 confidence += min(0.10, sig * 0.12)
@@ -119,7 +117,15 @@ class LiquiditySweepReclaimPlugin:
 
         confidence = compose_confidence(confidence)
 
-        regime_context = "any"
+        # deduplicate_event: one fire per unique sweep identity.
+        # Re-fires after _DEDUP_MIN_BARS active-condition calls, covering the case
+        # where the same level is genuinely swept and reclaimed a second time.
+        symbol = frames.get("__symbol__", "_")
+        tf_key = frames.get("__timeframe__", "_")
+        state_key = f"{symbol}_{tf_key}"
+        event_id = (round(float(sweep_level), 4), int(sweep_type))
+        if not deduplicate_event(self._state, state_key, event_id):
+            return no_signal()
 
         return make_signal_from_frame(
             tf,
@@ -130,7 +136,7 @@ class LiquiditySweepReclaimPlugin:
             setup_plugin=self.name,
             direction=direction,
             confidence=confidence,
-            regime_context=regime_context,
+            regime_context="any",
             supporting_factors=supporting,
             features_snapshot=capture_signal_features(features, direction, "smc", confidence),
         )

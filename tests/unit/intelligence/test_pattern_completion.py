@@ -144,9 +144,9 @@ class TestConfidenceFormula:
             tri_breakout_bias=1,  # bullish
         )
 
-        plugin = PatternCompletionPlugin()
-        single_result = plugin.compute_full(_make_frames(single_features))
-        multi_result = plugin.compute_full(_make_frames(multi_features))
+        # Fresh instances: deduplicate_event fires once per zone per plugin instance
+        single_result = PatternCompletionPlugin().compute_full(_make_frames(single_features))
+        multi_result = PatternCompletionPlugin().compute_full(_make_frames(multi_features))
 
         assert single_result.get("direction") != 0, "Expected valid signal for single candidate"
         assert multi_result.get("direction") != 0, "Expected valid signal for multi candidate"

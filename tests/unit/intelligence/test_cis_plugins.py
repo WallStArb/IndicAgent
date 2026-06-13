@@ -191,8 +191,9 @@ class TestFVGFill:
             "fvg_bottom": 5000.0,
             "atr_14": 10.0,
         }
-        r_low = plugin.compute_full(_frames(features=feat_low))
-        r_high = plugin.compute_full(_frames(features=feat_high))
+        # Fresh instances: deduplicate_event fires once per zone per plugin instance
+        r_low = self._plugin().compute_full(_frames(features=feat_low))
+        r_high = self._plugin().compute_full(_frames(features=feat_high))
         assert r_high.get("confidence", 0) >= r_low.get("confidence", 0)
 
     def test_has_module_level_singleton(self):
