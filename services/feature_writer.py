@@ -64,7 +64,7 @@ _INSERT_FEATURE_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
     bar, technical_indicators, market_context, pattern_detections, regime_features,
-    confluence_scores, smc, cross_timeframe_context, i2, trading_signals,
+    confluence_scores, smc, cross_timeframe_context, composite_events, trading_signals,
     bar_close_ts, i1_computed_at, computed_at,
     winner_plugin, winner_confidence, winner_direction,
     signals_evaluated, signals_after_quality, signals_after_regime,
