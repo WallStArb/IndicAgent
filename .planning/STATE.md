@@ -3,14 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Signal Quality Renaissance
 status: in_progress
-last_updated: 2026-06-13T00:00:00.000Z
+last_updated: "2026-06-13T12:46:49.414Z"
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 31
-  completed_plans: 56
+  total_plans: 34
+  completed_plans: 32
   percent: 83
-stopped_at: Phase 121 Wave 2 (ATR hardening + macro cross-asset P1 wiring) is next. Wave 3 (validation report) deferred to Phase 126. Phases 117-122 complete. v2.9 closes when Phase 126 Wave 3 ships.
 ---
 
 # Project State
