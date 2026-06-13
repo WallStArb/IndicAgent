@@ -91,6 +91,7 @@ from .context.cross_asset_context import plugin as cross_asset_ctx_plugin
 from .context.garch_volatility import plugin as garch_vol_plugin
 from .context.hurst_exponent import plugin as hurst_plugin
 from .context.kalman_trend import plugin as kalman_trend_plugin
+from .context.macro_context import plugin as macro_ctx_plugin
 from .context.momentum_context import plugin as momentum_ctx_plugin
 from .context.session_context import plugin as session_ctx_plugin
 from .context.shannon_entropy import plugin as shannon_plugin
@@ -207,6 +208,7 @@ def validate_schema_coverage() -> None:
                 volume_profile_plugin,
                 vix_regime_plugin,
                 cross_asset_ctx_plugin,
+                macro_ctx_plugin,
             ],
             I4Context,
         ),
@@ -356,6 +358,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(session_ctx_plugin)
     registry.register_pattern(vix_regime_plugin)
     registry.register_pattern(cross_asset_ctx_plugin)
+    registry.register_pattern(macro_ctx_plugin)
 
     registry.register_pattern(bos_choch_plugin)
     registry.register_pattern(fvg_plugin)
@@ -509,6 +512,7 @@ TIER_I4: list[str] = [
     volume_profile_plugin.name,  # "ctx_VolumeProfile"
     vix_regime_plugin.name,  # "ctx_VIXRegime" — Phase 46.1
     cross_asset_ctx_plugin.name,  # "ctx_CrossAssetContext" — Phase 46.1
+    macro_ctx_plugin.name,  # "ctx_MacroContext" — Phase 121 Wave 2
 ]
 
 TIER_I5: list[str] = [
@@ -594,6 +598,7 @@ I4_WAVE_A: list[str] = [
     volume_profile_plugin.name,
     vix_regime_plugin.name,
     cross_asset_ctx_plugin.name,
+    macro_ctx_plugin.name,  # Phase 121 Wave 2
 ]
 I4_WAVE_B: list[str] = [
     kalman_trend_plugin.name,

@@ -107,7 +107,9 @@ class CrossTFSRConfluencePlugin:
             if not isinstance(support, (int, float)) or support == 0:
                 continue
 
-            atr = get_atr(intel) or 1.0
+            atr = get_atr(intel)
+            if not atr:
+                continue
 
             # Normalize distances to S/R in ATR units
             dist_to_resistance = (float(resistance) - close) / float(atr)
