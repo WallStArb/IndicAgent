@@ -1662,7 +1662,7 @@ Plans:
 **Wave 2** *(depends on Wave 1)* — Pipeline hardening + validation report
 
 - [x] 121-03-PLAN.md — ATR hardening (I6 early-return guards, get_atr_valid) + MacroContextPlugin I4 wiring
-- [ ] 121-04-PLAN.md — Pre-replay capture refinement: add 5 MacroContextPlugin fields to capture_signal_features() + verify macro data flow into frames["cross_asset"]
+- [x] 121-04-PLAN.md — Pre-replay capture refinement: add 5 MacroContextPlugin fields to capture_signal_features() + verify macro data flow into frames["cross_asset"]
 - [ ] 121-02-PLAN.md — Before/after comparison report + SNR per setup + calibration validation + documentation
 
 ---

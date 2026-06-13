@@ -114,6 +114,20 @@ Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
 
 **Gotchas:** `docs/operations/timescaledb-gotchas.md` — `instruments.symbol` = base, contract code in `contract_details`.
 
+## Parameter Store
+
+All tunable numeric values live in `config_state` under `<domain>.<concept>.<param>` — accessed via `ConfigService.get(key, default=X)`. Hard-coded numeric thresholds, weights, periods, or counts in `src/` are an architecture violation. Full spec: `docs/foundation/parameter-store.md`.
+
+**Namespaces:** `threshold.*` (plugin detection gates) · `weights.*` (confidence weights) · `feature.*` (indicator periods e.g. SMA/RSI/ATR) · `regime.*` · `shadow.*` · `signal.*` · `swarm.*` · `roll.*` · `ui.*` (dashboard preferences)
+
+**Parameter lifecycle:** seed → user/operator preference → ml_learned → user_override. Every write recorded in `config_history` with `changed_by` and `reason`. ML discovery writes learned values via `ConfigService.set(changed_by="ml_discovery", reason="n=N, p=P")` — outbox broadcasts hot reload without restart.
+
+**Adding a parameter:** (1) INSERT into `config_schema` + `config_state` in a migration; (2) load via `ConfigService.get()` at init; (3) remove the hard-coded constant. Description field must note provenance: `[initial_estimate]`, `[conventional]`, `[rca_analysis]`, or `[user_preference]`, and whether it is an ML learning target.
+
+**`ui.*` requires one-line change first:** add `"ui."` to `OPS_PREFIXES` in `src/config/config_service.py`.
+
+**Dashboard:** `/config/parameters` — view/edit all parameters, see full change history per key.
+
 ## Plugin System
 
 138 plugins across tiers I1–I7 (I1=29, I2=11, I3=9, I4=13, I5=16, SMC=16, I6=7, I7=37 incl. 2 aggregators). See `src/intelligence/CLAUDE.md` for tier details and LLM provider chain.
