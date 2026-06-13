@@ -9,11 +9,14 @@ The publication floor (0.12) is enforced exclusively by apply_quality_gate().
 
 capture_signal_features() captures I4 macro context + I6 ctf_* scores + exhaustion state into
 signal["features_snapshot"] for ML training — zero confidence modification.
-Shadow dict has 17 keys: 2 metadata (profile, existing_confidence) + 6 I6 confluence
+Shadow dict has 30 keys: 2 metadata (profile, existing_confidence) + 8 I6 CTF base+momentum
 (ctf_score, ctf_trend_alignment, ctf_structure_alignment, ctf_regime_agreement,
-ctf_fvg_alignment, ctf_ob_alignment) + 2 momentum divergence (ctf_momentum_divergence,
-ctf_momentum_regime) + 4 I4 macro context (vix_level, vix_z, eq_spread_z,
-eq_pairs_confirming) + 3 exhaustion fields.
+ctf_fvg_alignment, ctf_ob_alignment, ctf_momentum_divergence, ctf_momentum_regime) +
+8 I6 CTF extended (ctf_sr_confluence, ctf_sr_regime, ctf_hmm_regime_agreement,
+ctf_hmm_regime_label, ctf_volatility_divergence, ctf_volatility_regime,
+ctf_orderflow_alignment, ctf_orderflow_regime) + 9 I4 macro context (vix_level, vix_z,
+eq_spread_z, eq_pairs_confirming, ftq_score, ftq_regime, yield_curve_slope,
+yield_curve_regime, corr_z) + 3 exhaustion fields.
 ConfluenceWeightProfile holds placeholder weights (all 0.0) for each plugin family.
 Phase 49 fills non-zero values once XGBoost/logistic training produces learned weights.
 """
@@ -138,7 +141,7 @@ def capture_signal_features(
         existing_confidence: The plugin's current confidence value (unchanged by this call).
 
     Returns:
-        Shadow dict with 17 keys: 4 I4 macro context + 8 I6 confluence (incl. momentum divergence)
+        Shadow dict with 30 keys: 9 I4 macro context + 16 I6 CTF (8 base+momentum, 8 extended)
         + 3 exhaustion fields + 2 metadata.
     """
     shadow: dict[str, Any] = {
@@ -156,6 +159,14 @@ def capture_signal_features(
         "vix_z": features.get("vix_z"),  # float | None
         "eq_spread_z": features.get("eq_spread_z"),  # float | None
         "eq_pairs_confirming": features.get("eq_pairs_confirming"),  # float | None
+        # I4 macro regime context (Phase 121 Wave 2 / D-10 MacroContextPlugin):
+        # flight-to-quality, yield curve, stock-bond corr.
+        # Per D-06: None means data unavailable — never substitute 0.0.
+        "ftq_score": features.get("ftq_score"),  # float | None
+        "ftq_regime": features.get("ftq_regime"),  # str | None
+        "yield_curve_slope": features.get("yield_curve_slope"),  # float | None
+        "yield_curve_regime": features.get("yield_curve_regime"),  # str | None
+        "corr_z": features.get("corr_z"),  # float | None
     }
     # Cross-TF momentum divergence fields (Plan 64-01, D-13, D-14)
     # Captured as-is: divergence is float | None, regime is str | None
