@@ -58,6 +58,7 @@ import argparse
 import asyncio
 import concurrent.futures
 import json
+import math
 import sys
 from collections import defaultdict, deque
 from datetime import UTC, date, datetime, timedelta
@@ -547,9 +548,14 @@ def run_analysis_pipeline(
                 out = plugin.compute_full(frames)
                 plugin_states[state_key] = plugin._state  # write-back is load-bearing
                 if out:
-                    intelligence.update(out)
-                    tiered.setdefault(tier_key_lower, {}).update(out)
-                    features.update(out)
+                    # Strip private plugin keys (e.g. _state used by GARCH/HMM/Kalman
+                    # for state carry-over) before updating the typed tiered dict.
+                    # Pydantic schemas use extra="forbid", so _state causes ValidationError
+                    # in _build_intelligence_event and silently kills feature production.
+                    public_out = {k: v for k, v in out.items() if not k.startswith("_")}
+                    intelligence.update(public_out)
+                    tiered.setdefault(tier_key_lower, {}).update(public_out)
+                    features.update(public_out)
                     frames["features"] = features
             except Exception as error:
                 _log_plugin_error(name, symbol, timeframe, error)
@@ -633,7 +639,8 @@ def _build_intelligence_event(
             smc=SMCContext(**tiered.get("smc", {})),
             i6=I6Confluence(**tiered.get("i6", {})),
         )
-    except Exception:
+    except Exception as error:
+        print(f"  [feature_build_error] {symbol}/{tf}@{ts}: {type(error).__name__}: {error}")
         return None
 
 
@@ -1805,7 +1812,18 @@ def main() -> None:
         "--days",
         type=int,
         default=None,
-        help="Max days to fetch for ALL timeframes (default: per-TF config defaults).",
+        help="Max days to fetch/replay for ALL timeframes (default: per-TF config defaults).",
+    )
+    parser.add_argument(
+        "--min-bars",
+        type=int,
+        default=None,
+        dest="min_bars",
+        help=(
+            "Minimum bars per timeframe for replay. Derives lookback days from the slowest TF "
+            "(1d ≈ 5 bars/7 calendar days), ensuring all TFs have enough bars to exercise "
+            "plugins. Overrides --days. E.g. --min-bars 50 → ~70 calendar days."
+        ),
     )
     parser.add_argument(
         "--symbols",
@@ -2149,7 +2167,16 @@ def main() -> None:
         print("=== Stage 2: Intelligence Replay ===")
         # When --days is provided, limit replay to that window.
         # Full-history replay (default, no --days) uses since_dt=None to read all DB bars.
-        if args.days:
+        if args.min_bars:
+            # Derive lookback from slowest TF (1d ≈ 5 trading bars per 7 calendar days).
+            # All faster TFs will have more than min_bars in this window.
+            days_needed = math.ceil(args.min_bars * 7 / 5)
+            since_dt = datetime.now(UTC) - timedelta(days=days_needed)
+            print(
+                f"  --min-bars {args.min_bars}: {days_needed}d window "
+                f"(1d TF ≈ 5 bars/wk → {days_needed}d ≥ {args.min_bars} bars)"
+            )
+        elif args.days:
             since_dt = datetime.now(UTC) - timedelta(days=args.days)
             print(f"  Replaying bars since: {since_dt.date()} ({args.days}d)")
         else:
