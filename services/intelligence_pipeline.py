@@ -18,6 +18,7 @@ from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
+from src.config.config_service import ConfigService
 from src.config.settings import (
     get_active_contracts,
     get_settings,
@@ -32,6 +33,7 @@ from src.core.service_utils import min_bars_for_tf, normalize_session_type, pars
 from src.core.stream_keys import (
     TF_SECONDS,
     message_key,
+    topic_config_updates,
     topic_contract_updates,
     topic_cross_asset,
     topic_intelligence,
@@ -179,6 +181,7 @@ class IntelligencePipeline(BaseDaemon):
         self._thread_pool = ThreadPoolExecutor(max_workers=_workers, thread_name_prefix="intel_")
         THREAD_POOL_WORKERS.add(_workers)
 
+        self._config_service: ConfigService | None = None  # initialised in _setup()
         self._regime_prob_min: float = self.settings.regime_prob_min
         self._regime_prob_soft_max: float = self.settings.REGIME_PROB_SOFT_MAX
         self._regime_dur_min: int = self.settings.regime_dur_min
@@ -246,12 +249,17 @@ class IntelligencePipeline(BaseDaemon):
         self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
 
+        # ConfigService: shared pool, pre-warm threshold.* cache, inject into plugins.
+        self._config_service = ConfigService(self.settings.database_url, pool=self._db.pool)
+        await self._prewarm_threshold_config()
+
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
         await self._kafka_producer.start()
 
         self._contracts_topic = topic_contract_updates(self.settings.env_name)
+        self._config_updates_topic = topic_config_updates(self.settings.env_name)
         topics = [
             topic_market_bars(self.settings.env_name),
             topic_market_bars_htf(self.settings.env_name),
@@ -259,6 +267,7 @@ class IntelligencePipeline(BaseDaemon):
             topic_cross_asset(self.settings.env_name),
             topic_macro_signals(self.settings.env_name),
             self._contracts_topic,
+            self._config_updates_topic,
         ]
         self._kafka_consumer = KafkaConsumerClient(
             *topics,
@@ -362,6 +371,56 @@ class IntelligencePipeline(BaseDaemon):
             symbols=self._symbols,
             timeframes=self._timeframes,
         )
+
+    # Threshold keys owned by the 4 configurable I7 plugins.
+    _THRESHOLD_KEYS: tuple[tuple[str, Any], ...] = (
+        ("threshold.trend_following.regime_min", 0.5),
+        ("threshold.trend_following.confidence_min", 0.4),
+        ("threshold.ofi_continuation.min_bars", 10),
+        (
+            "threshold.ofi_continuation.magnitude_floors",
+            {"ES": 500, "NQ": 200, "CL": 1000, "GC": 500, "_default": 500},
+        ),
+        ("threshold.pattern_completion.confidence_min", 0.70),
+        ("threshold.vwap_reversion.sigma_min", 1.5),
+        ("threshold.vwap_reversion.hurst_max", 0.55),
+    )
+
+    async def _prewarm_threshold_config(self) -> None:
+        """Pre-warm config cache and inject ConfigService into the 4 configurable I7 plugins."""
+        assert self._config_service is not None
+        for key, default in self._THRESHOLD_KEYS:
+            await self._config_service.get(key, default)
+
+        # Import the module-level plugin singletons and inject the config service.
+        # Plugins call get_sync() in compute_full() — a pure dict lookup after pre-warm.
+        from src.intelligence.trading.anchored_vwap_reversion import (  # noqa: PLC0415
+            plugin as avwap_plugin,
+        )
+        from src.intelligence.trading.ofi_continuation import plugin as ofi_plugin  # noqa: PLC0415
+        from src.intelligence.trading.pattern_completion import (  # noqa: PLC0415
+            plugin as pattern_plugin,
+        )
+        from src.intelligence.trading.trend_following import plugin as tf_plugin  # noqa: PLC0415
+
+        for p in (tf_plugin, ofi_plugin, avwap_plugin, pattern_plugin):
+            p._config_service = self._config_service
+
+        self.logger.info(
+            "intelligence_pipeline.threshold_config_loaded",
+            keys=[k for k, _ in self._THRESHOLD_KEYS],
+        )
+
+    async def _handle_config_update(self, payload: dict) -> None:
+        """Hot-reload a config key: invalidate cache entry then re-fetch from DB."""
+        assert self._config_service is not None
+        key = payload.get("config_key")
+        if not key or not any(key.startswith(pfx) for pfx in ConfigService.OPS_PREFIXES):
+            return
+        self._config_service.invalidate(key)
+        default = next((d for k, d in self._THRESHOLD_KEYS if k == key), None)
+        await self._config_service.get(key, default)
+        self.logger.info("intelligence_pipeline.config_reloaded", config_key=key)
 
     async def _seed_bar_history_from_db(self) -> None:
         try:
@@ -482,6 +541,8 @@ class IntelligencePipeline(BaseDaemon):
                                 CONTRACTS_RELOAD_TOTAL.add(1, {"status": "failure"})
                                 self.logger.error("contracts_reload_failed", error=str(error))
                                 # Last-known-good preserved — no assignment on failure
+                        elif _topic == self._config_updates_topic:
+                            await self._handle_config_update(payload)
                         else:
                             bar = self._parse_bar(payload)
                             if bar is None:

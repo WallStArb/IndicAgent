@@ -92,6 +92,18 @@ class ConfigService:
         # str / string
         return value
 
+    def get_sync(self, key: str, default: Any = None) -> Any:
+        """Return a cached config value synchronously — no DB I/O.
+
+        MUST be called only after the cache has been pre-warmed via get().
+        Safe to call from synchronous hot-path code (e.g., plugin compute_full).
+        """
+        return self._cache.get(key, default)
+
+    def invalidate(self, key: str) -> None:
+        """Evict a key from the in-memory cache, forcing the next get() to re-fetch from DB."""
+        self._cache.pop(key, None)
+
     async def get(self, key: str, default: Any = None) -> Any:
         """Get a config value, using in-memory cache if available.
 

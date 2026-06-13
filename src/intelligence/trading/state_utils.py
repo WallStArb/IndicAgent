@@ -1,12 +1,13 @@
-"""State tracking utilities for I7 trading plugins.
-
-Shared consecutive state counter logic for plugins that need to track
-how many bars a condition has held true.
-"""
+"""State tracking utilities for I7 trading plugins."""
 
 from __future__ import annotations
 
 from typing import Any
+
+# Minimum active-condition bars between fires of the same event_id.
+# Prevents re-fire on the same persistent upstream event while allowing
+# re-fire when a genuinely new occurrence of the same structural event appears.
+_DEDUP_MIN_BARS: int = 20
 
 
 def track_consecutive_state(
@@ -65,6 +66,52 @@ def track_consecutive_state(
     state[state_key] = state_entry
 
     return current_value, count
+
+
+def onset_guard(state: dict, state_key: str, condition_active: bool) -> bool:
+    """Return True only on a False→True transition of condition_active.
+
+    Rearmed automatically when condition_active goes False.
+
+    PLACEMENT: call AFTER all downstream gates (ATR, frame_trade, confidence).
+    This ensures state is committed only when a signal will actually be emitted —
+    a transient infrastructure failure (ATR=None, frame not viable) cannot silently
+    consume the onset without producing a signal.
+    """
+    entry = state.setdefault(state_key, {})
+    was_active = entry.get("onset_active", False)
+    entry["onset_active"] = condition_active
+    return condition_active and not was_active
+
+
+def deduplicate_event(
+    state: dict,
+    state_key: str,
+    event_id: Any,
+    *,
+    min_bars_between_fires: int = _DEDUP_MIN_BARS,
+) -> bool:
+    """Return True only when event_id differs from last fired, or min_bars have elapsed.
+
+    Counts active-condition calls (not total bars). A new event_id always fires immediately.
+    The same event_id re-fires after min_bars_between_fires active-condition calls, allowing
+    re-occurrence of the same structural event (e.g., price sweeping the same level twice).
+
+    PLACEMENT: call AFTER all downstream gates, immediately before make_signal_from_frame.
+    """
+    entry = state.setdefault(state_key, {})
+    entry["call_count"] = entry.get("call_count", 0) + 1
+    call_count = entry["call_count"]
+
+    last_id = entry.get("last_event_id")
+    last_fire = entry.get("last_fire_call", call_count - min_bars_between_fires - 1)
+
+    if event_id == last_id and (call_count - last_fire) < min_bars_between_fires:
+        return False
+
+    entry["last_event_id"] = event_id
+    entry["last_fire_call"] = call_count
+    return True
 
 
 def reset_consecutive_state(

@@ -3,22 +3,31 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
+from .state_utils import onset_guard
 from .trade_framer import frame_trade
+
+if TYPE_CHECKING:
+    pass
+
+_REGIME_MIN_DEFAULT: float = 0.5
+_CONFIDENCE_MIN_DEFAULT: float = 0.4
 
 
 @dataclass
 class TrendFollowingPlugin:
-    """Trend-following setup: fires when regime = trending with structure confirmation.
+    """Trend-following setup: fires once per trend confirmation onset.
 
     Reads I4 trend_regime, I3 swing_pattern/trend_strength, I6 ctf_score from frames["features"].
     Entry at current price, stop ATR-based, targets at 1R/2R/3R.
+
+    onset_guard placed after ALL downstream gates — state commits only when signal emits.
     """
 
     name: str = "trad_TrendFollowing"
@@ -40,11 +49,22 @@ class TrendFollowingPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
     requires_i6_confluence: bool = True
-    regime_threshold: float = 0.5
-    confidence_threshold: float = 0.4
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        regime_min = (
+            cfg.get_sync("threshold.trend_following.regime_min", _REGIME_MIN_DEFAULT)
+            if cfg
+            else _REGIME_MIN_DEFAULT
+        )
+        confidence_min = (
+            cfg.get_sync("threshold.trend_following.confidence_min", _CONFIDENCE_MIN_DEFAULT)
+            if cfg
+            else _CONFIDENCE_MIN_DEFAULT
+        )
+
         features = {
             **(frames.get("i1") or {}),
             **(frames.get("i2") or {}),
@@ -55,17 +75,19 @@ class TrendFollowingPlugin:
             **(frames.get("i6") or {}),
         }
 
-        # OPTIMIZATION (Phase 48): Check regime gate BEFORE expensive OHLCV extraction
-        # TODO: Apply this pattern to remaining 34/36 I7 plugins (see mean_reversion.py for example)  # noqa: E501
-        # Pattern: Check cheap regime gates (dict lookups) before expensive extract_ohlcv() (numpy conversion)  # noqa: E501
-        # Estimated benefit: Skip ~144 numpy conversions per bar (80% early exit rate)
+        # OPTIMIZATION (Phase 48): cheap regime gate before expensive OHLCV extraction.
+        # onset_guard called here (before OHLCV) so it sees False when regime drops —
+        # enabling proper rearm. swing_pattern checked post-OHLCV but is a dict lookup.
         trend_regime = features.get("trend_regime", 0.0)
         trend_conf = features.get("trend_confidence", 0.0)
-
-        if abs(trend_regime) < self.regime_threshold or trend_conf < self.confidence_threshold:
+        symbol = frames.get("__symbol__", "_")
+        tf_key = frames.get("__timeframe__", "_")
+        state_key = f"{symbol}_{tf_key}"
+        regime_condition = abs(trend_regime) >= regime_min and trend_conf >= confidence_min
+        is_new_onset = onset_guard(self._state, state_key, regime_condition)
+        if not regime_condition or not is_new_onset:
             return no_signal()
 
-        # Regime gate passed - now extract OHLCV (expensive numpy conversion)
         result = extract_ohlcv(frames, self.min_lookback)
         if result is None:
             return no_signal()
@@ -86,10 +108,8 @@ class TrendFollowingPlugin:
             return no_signal()
 
         price = float(close[-1])
-        entry = price
-
         signal_type = signal_type_for_direction("trend", direction)
-        tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
+        tf = frame_trade(signal_type, direction, price, features, atr, regime_type=self.regime_type)
         if not tf.viable:
             return no_signal()
 
@@ -98,6 +118,9 @@ class TrendFollowingPlugin:
             + 0.35 * clamp01(abs(trend_strength))
             + 0.20 * clamp01(abs(swing_pattern))
         )
+        confidence = compose_confidence(raw_conf)
+        if confidence < confidence_min:
+            return no_signal()
 
         supporting = []
         if abs(trend_regime) >= 0.7:
@@ -107,12 +130,7 @@ class TrendFollowingPlugin:
         if abs(swing_pattern) >= 0.5:
             supporting.append("structure_confirmed")
 
-        confidence = compose_confidence(raw_conf)
-        if confidence < self.confidence_threshold:
-            return no_signal()
-
         regime_ctx = "bullish" if direction == 1 else "bearish"
-
         signal = make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),

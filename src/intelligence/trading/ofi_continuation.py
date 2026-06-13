@@ -1,41 +1,40 @@
 """trad_OFIContinuation — I7 trend setup consuming OFI I1 features.
 
-Fires when sustained directional Order Flow Imbalance persists over N consecutive bars.
-Segment: trend regime only. Idea: persistent directional OFI signals informed participants
-are committed to a direction — not just a one-bar spike but sustained conviction.
+Fires once per distinct OFI episode (onset of N-bar sustained directional flow).
+Segment: trend regime only.
 
 Renaissance principles:
 - Segment relentlessly: fires only when OFI persists for N bars (not just 1 spike)
 - Instrument everything: persistence count, EWMA magnitude all logged
-- Earn the right through proof: requires N=10 bar confirmation before signal
+- Earn the right through proof: requires N-bar confirmation before signal
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
-from .state_utils import track_consecutive_state
+from .state_utils import onset_guard, track_consecutive_state
 from .trade_framer import frame_trade
 
-_MIN_CONSECUTIVE_BARS: int = 10
+if TYPE_CHECKING:
+    pass
 
-# Phase 118 starting defaults from 90-day p75/p90 distribution — shadow mode will refine.
-# DB query returned no rows (OFI not written to intelligence_features in historical data);
-# using documented starting values from RCA analysis.
-# Each entry: (p75_magnitude_gate, p90_upper_ref)
-_OFI_PARAMS: dict[str, tuple[float, float]] = {
-    "ES": (500.0, 2000.0),
-    "NQ": (200.0, 800.0),
-    "CL": (1000.0, 4000.0),
-    "GC": (500.0, 2000.0),
+_MIN_BARS_DEFAULT: int = 10
+_MAGNITUDE_FLOORS_DEFAULT: dict[str, float] = {
+    "ES": 500.0,
+    "NQ": 200.0,
+    "CL": 1000.0,
+    "GC": 500.0,
+    "_default": 500.0,
 }
-_OFI_PARAMS_DEFAULT: tuple[float, float] = (500.0, 2000.0)
+# upper_ref = 4 * floor across all instruments (ratio is structurally stable)
+_UPPER_REF_MULTIPLIER: float = 4.0
 
 
 @dataclass
@@ -43,12 +42,11 @@ class OFIContinuationPlugin:
     """Trend setup: sustained directional OFI for N consecutive bars.
 
     Gates:
-    - ofi_ewma_20 must have same sign for N=10 consecutive bars
-    - abs(ofi_ewma_20) must meet per-instrument p75 magnitude floor
-    - State tracks consecutive directional bar count per (symbol, tf)
+    - ofi_ewma_20 must have same sign for N consecutive bars
+    - abs(ofi_ewma_20) must meet per-instrument floor
+    - onset_guard: fires only on the bar the streak first crosses N
 
-    Direction: sign of ofi_ewma_20
-    Confidence: 4-factor intrinsic composite via compose_confidence()
+    onset_guard placed after ALL downstream gates — state commits only when signal emits.
     """
 
     name: str = "trad_OFIContinuation"
@@ -72,8 +70,21 @@ class OFIContinuationPlugin:
     regime_type: str = "trend"
     requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        min_bars: int = (
+            cfg.get_sync("threshold.ofi_continuation.min_bars", _MIN_BARS_DEFAULT)
+            if cfg
+            else _MIN_BARS_DEFAULT
+        )
+        mag_floors: dict = (
+            cfg.get_sync("threshold.ofi_continuation.magnitude_floors", _MAGNITUDE_FLOORS_DEFAULT)
+            if cfg
+            else _MAGNITUDE_FLOORS_DEFAULT
+        )
+
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -100,19 +111,23 @@ class OFIContinuationPlugin:
         state_key = f"{symbol}_{tf}"
 
         current_dir = 1 if ofi_ewma > 0 else -1
-
-        # Update consecutive direction count
         direction, count = track_consecutive_state(
             frames, self._state, state_key, current_dir, "dir"
         )
 
-        # Gate: require N consecutive bars in same direction
-        if count < _MIN_CONSECUTIVE_BARS:
-            return no_signal()
+        mag_threshold = float(
+            mag_floors.get(
+                symbol, mag_floors.get("_default", _MAGNITUDE_FLOORS_DEFAULT["_default"])
+            )
+        )
+        upper_ref = mag_threshold * _UPPER_REF_MULTIPLIER
 
-        # Gate: require minimum OFI magnitude (trivial flow imbalances rejected)
-        mag_threshold, upper_ref = _OFI_PARAMS.get(symbol, _OFI_PARAMS_DEFAULT)
-        if abs(ofi_ewma) < mag_threshold:
+        # onset_guard: called unconditionally so it sees False when streak drops below
+        # min_bars or magnitude gate fails — enabling proper rearm on next episode.
+        onset_key = f"{state_key}_onset"
+        condition_active = count >= min_bars and abs(ofi_ewma) >= mag_threshold
+        is_new_onset = onset_guard(self._state, onset_key, condition_active)
+        if not condition_active or not is_new_onset:
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
@@ -120,7 +135,6 @@ class OFIContinuationPlugin:
             return no_signal()
 
         entry = float(df["close"].iloc[-1])
-
         sig_type = signal_type_for_direction("ofi_continuation", direction)
         tf_result = frame_trade(
             sig_type, direction, entry, features, atr, regime_type=self.regime_type
@@ -131,36 +145,26 @@ class OFIContinuationPlugin:
         hmm_regime = features.get("hmm_regime")
         regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
 
-        # --- 4-factor intrinsic confidence composite ---
-        # ofi_ewma_5 confirmed emitted by I1 ofi.py (ofi_ewma_5 key, line 110);
-        # using primary 4-factor formula with alignment_score.
-
         magnitude_score = clamp01(
             (abs(ofi_ewma) - mag_threshold) / max(1e-9, upper_ref - mag_threshold)
         )
-
         ofi_ewma5 = features.get("ofi_ewma_5")
         if ofi_ewma5 is not None:
-            alignment_score = (
-                1.0 if float(ofi_ewma5) * ofi_ewma > 0 else 0.3
-            )  # gradient-exempt — direction alignment gate
+            # gradient-exempt: binary alignment gate, not a continuous gradient
+            alignment_score = 1.0 if float(ofi_ewma5) * ofi_ewma > 0 else 0.3  # gradient-exempt
         else:
-            alignment_score = 0.65  # neutral fallback when ofi_ewma_5 missing
-
-        persistence_score = clamp01((count - _MIN_CONSECUTIVE_BARS) / 10.0)
-
+            alignment_score = 0.65
+        persistence_score = clamp01((count - min_bars) / max(1, min_bars))
         rel_vol = features.get("rel_volume")
         rel_vol = float(rel_vol) if rel_vol is not None else 1.0
         volume_score = clamp01((rel_vol - 1.0) / 1.5)
 
-        # Weighted sum — weights sum to 1.0; all factors clamped to [0,1] before entry
         raw_conf = (
             0.40 * magnitude_score
             + 0.25 * alignment_score
             + 0.20 * persistence_score
             + 0.15 * volume_score
         )
-
         confidence = compose_confidence(raw_conf)
 
         supporting: list[str] = [
@@ -172,7 +176,7 @@ class OFIContinuationPlugin:
 
         signal = make_signal_from_frame(
             tf_result,
-            symbol=symbol,
+            symbol=frames.get("symbol", ""),
             timeframe=tf,
             timestamp=features.get("timestamp", ""),
             signal_type=sig_type,

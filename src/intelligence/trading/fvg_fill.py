@@ -17,6 +17,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
+from .state_utils import deduplicate_event
 from .trade_framer import frame_trade
 
 
@@ -27,6 +28,10 @@ class FVGFillPlugin:
     Gate: fvg_type != 0 AND fvg_open_count >= 1.0
     Direction: +1 if fvg_type == 1 (bull FVG), -1 if fvg_type == -1 (bear FVG)
     Confidence: 0.5 + 0.3 * min(1.0, fvg_open_count / 3.0)
+
+    deduplicate_event: fires once per unique FVG zone (fvg_type, fvg_top, fvg_bottom).
+    A new zone (different boundaries) fires immediately. Same zone re-fires after
+    _DEDUP_MIN_BARS active-condition calls, handling a new fill attempt on an old zone.
     """
 
     name: str = "trad_FVGFill"
@@ -45,8 +50,6 @@ class FVGFillPlugin:
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "smc", "fvg", "institutional"})
-    # timeframe=".*" — InputSpec.timeframe is not enforced by the registry or service;
-    # signal_generator_service passes current-TF OHLCV regardless. ".*" makes intent clear.
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "mean_reversion"
     requires_i6_confluence: bool = True
@@ -70,8 +73,6 @@ class FVGFillPlugin:
 
         fvg_type = int(features.get("fvg_type", 0))
         fvg_open_count = float(features.get("fvg_open_count", 0.0))
-
-        # Gate: must have an open FVG with at least 1 open gap
         if fvg_type == 0 or fvg_open_count < 1.0:
             return no_signal()
 
@@ -81,13 +82,11 @@ class FVGFillPlugin:
 
         direction = 1 if fvg_type == 1 else -1
         entry = float(close[-1])
-
         signal_type = signal_type_for_direction("fvg_fill", direction)
         tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
         if not tf.viable:
             return no_signal()
 
-        # Confidence: 0.5 base + 0.3 * min(1.0, open_count/3.0)
         magnetism = min(1.0, fvg_open_count / 3.0)
         raw_conf = 0.5 + 0.3 * magnetism
 
@@ -102,19 +101,15 @@ class FVGFillPlugin:
         if fvg_top > 0 and fvg_bottom > 0:
             supporting.append("fvg_bounds_present")
 
-        # I6 confluence: FVG alignment across timeframes (Renaissance principle)
         ctf_fvg = float(features.get("ctf_fvg_alignment", 0.0))
         if ctf_fvg > 0.3:
-            # Weight by magnitude: stronger multi-TF FVG confluence = higher confidence
             fvg_boost = 0.08 * min(1.0, ctf_fvg / 0.7)
             raw_conf += fvg_boost
             if fvg_boost > 0.04:
                 supporting.append("multi_tf_fvg_aligned")
 
-        # I6 confluence: Order block alignment across timeframes
         ctf_ob = float(features.get("ctf_ob_alignment", 0.0))
         if ctf_ob > 0.3:
-            # Weight by magnitude: stronger multi-TF OB confluence = higher confidence
             ob_boost = 0.06 * min(1.0, ctf_ob / 0.7)
             raw_conf += ob_boost
             if ob_boost > 0.03:
@@ -123,8 +118,16 @@ class FVGFillPlugin:
         raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
 
-        regime_ctx = "bullish" if direction == 1 else "bearish"
+        # deduplicate_event: one fire per unique FVG zone (type, top, bottom).
+        # fvg_top/fvg_bottom are already rounded to 4dp by the upstream plugin.
+        symbol = frames.get("__symbol__", "_")
+        tf_key = frames.get("__timeframe__", "_")
+        state_key = f"{symbol}_{tf_key}"
+        event_id = (fvg_type, round(fvg_top, 4), round(fvg_bottom, 4))
+        if not deduplicate_event(self._state, state_key, event_id):
+            return no_signal()
 
+        regime_ctx = "bullish" if direction == 1 else "bearish"
         signal = make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),

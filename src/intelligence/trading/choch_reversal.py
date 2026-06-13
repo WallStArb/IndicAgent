@@ -15,6 +15,7 @@ from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
+from .state_utils import deduplicate_event
 from .trade_framer import frame_trade
 
 
@@ -24,7 +25,10 @@ class CHoCHReversalPlugin:
 
     Gate: choch_detected == 1.0
     Direction: from choch_direction (-1 or +1)
-    Confidence: 0.5 base + 0.2 if HMM regime aligns + 0.3 * abs(choch_direction)
+
+    deduplicate_event: fires once per unique (choch_direction, bos_level) identity.
+    A new structural break at a different level fires immediately. Same break
+    re-fires after _DEDUP_MIN_BARS active-condition calls.
     """
 
     name: str = "trad_CHoCHReversal"
@@ -80,13 +84,11 @@ class CHoCHReversalPlugin:
 
         direction = choch_direction
         entry = float(close[-1])
-
         signal_type = signal_type_for_direction("choch_reversal", direction)
         tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
         if not tf.viable:
             return no_signal()
 
-        # Confidence: 0.5 base + 0.3 * abs(direction)
         raw_conf = 0.5
         regime_ctx = "neutral"
         supporting = ["choch_detected"]
@@ -103,8 +105,18 @@ class CHoCHReversalPlugin:
             regime_ctx = "bearish"
 
         raw_conf += 0.3 * abs(direction)
-
         confidence = compose_confidence(raw_conf)
+
+        # deduplicate_event: one fire per unique structural break identity.
+        # bos_level changes when a new swing structure forms, distinguishing
+        # genuinely new CHoCH events from persistent lookback echoes.
+        symbol = frames.get("__symbol__", "_")
+        tf_key = frames.get("__timeframe__", "_")
+        state_key = f"{symbol}_{tf_key}"
+        bos_level = round(float(features.get("bos_level", 0.0)), 4)
+        event_id = (choch_direction, bos_level)
+        if not deduplicate_event(self._state, state_key, event_id):
+            return no_signal()
 
         signal = make_signal_from_frame(
             tf,
