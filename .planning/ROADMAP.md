@@ -1661,7 +1661,7 @@ Plans:
 
 **Wave 2** *(depends on Wave 1)* — Pipeline hardening + validation report
 
-- [ ] 121-03-PLAN.md — ATR hardening (I6 early-return guards, get_atr_valid) + MacroContextPlugin I4 wiring
+- [x] 121-03-PLAN.md — ATR hardening (I6 early-return guards, get_atr_valid) + MacroContextPlugin I4 wiring
 - [ ] 121-02-PLAN.md — Before/after comparison report + SNR per setup + calibration validation + documentation
 
 ---

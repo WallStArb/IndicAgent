@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Signal Quality Renaissance
 status: in_progress
-last_updated: "2026-06-13T12:46:49.414Z"
+last_updated: "2026-06-13T12:49:42.305Z"
 progress:
   total_phases: 6
   completed_phases: 5
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Milestone complete
+**Current focus:** Phase 121 — lifecycle-replay-validation
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
