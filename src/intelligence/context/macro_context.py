@@ -2,9 +2,11 @@
 
 Reads ftq_score, ftq_regime, yield_curve_slope, yield_curve_regime, and corr_z
 from frames['cross_asset'] (injected by FeaturePipelineService via macro_signals
-topic). Applies to ALL symbols — no EQ_INDEX guard needed (macro context is
-instrument-agnostic). Returns {} when cross_asset data not ready (same
-graceful-degradation contract as CrossAssetContextPlugin).
+topic). The plugin itself has no symbol guard, but its only data source
+(frames["cross_asset"]) is populated by FeaturePipelineService ONLY for EQ_INDEX
+contract symbols (where resolve_eq_index_base is not None, as defined in
+feature_pipeline_executor.py:205). In practice, macro fields are populated only
+for ES/NQ/RTY/YM contracts. Returns {} when cross_asset data not ready.
 
 Phase 121 Wave 2 (D-10): one plugin per data source.
 """
@@ -29,7 +31,9 @@ class MacroContextPlugin:
     """I4 macro context: flight-to-quality, yield curve slope, and stock-bond correlation.
 
     Reads frames["cross_asset"] injected by FeaturePipelineService from the
-    macro_signals topic. All symbols receive macro context — no symbol-group guard.
+    macro_signals topic. No symbol-group guard in the plugin itself, but its data source
+    (frames["cross_asset"]) is populated only for EQ_INDEX contract symbols in
+    feature_pipeline_executor.py:205 (ES/NQ/RTY/YM contracts).
     Returns {} when cross_asset data not ready.
     """
 
