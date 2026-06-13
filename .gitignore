@@ -321,3 +321,9 @@ COPILOT.md
 .planning/HANDOFF.json
 .planning/.continue-here*.md
 .worktrees/
+
+# Playwright MCP working directory (screenshots, YAMLs, console logs)
+.playwright-mcp/
+
+# Project root memory directory (local session artifacts)
+memory/
