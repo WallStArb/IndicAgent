@@ -1651,7 +1651,7 @@ Plans:
   5. trad_PatternCompletion: 795K→~95K signals, 0.15%→15-25% SNR
   6. Zero "stopped_at_entry" outcomes (stop losses outside zones validated)
 
-**Plans**: 2 plans in 2 waves
+**Plans**: 3 plans in 2 waves
 
 Plans:
 
@@ -1659,8 +1659,9 @@ Plans:
 
 - [x] 121-01-PLAN.md — Lifecycle replay with corrected setups + signal_ledger repopulation + outcome backfill (executed 2026-06-11; 5.18M noise signals deleted, before-snapshot captured, decompress+clean+replay stages running)
 
-**Wave 2** *(depends on Wave 1)* — Validation report
+**Wave 2** *(depends on Wave 1)* — Pipeline hardening + validation report
 
+- [ ] 121-03-PLAN.md — ATR hardening (I6 early-return guards, get_atr_valid) + MacroContextPlugin I4 wiring
 - [ ] 121-02-PLAN.md — Before/after comparison report + SNR per setup + calibration validation + documentation
 
 ---
