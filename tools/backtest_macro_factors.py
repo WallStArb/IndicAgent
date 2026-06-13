@@ -83,7 +83,7 @@ async def _load_signal_outcomes(
             sl.feature_ts,
             sl.pnl_r,
             COALESCE(
-                (ic.i4::jsonb->>'hmm_regime')::int,
+                (ic.smc->>'hmm_regime')::int,
                 0
             ) AS hmm_regime
         FROM signal_ledger sl

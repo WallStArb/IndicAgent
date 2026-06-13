@@ -21,13 +21,44 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.schemas.bar_message import SessionType
 from src.core.schemas.intelligence_journal import IntelligenceJournal, ProvenanceChain  # noqa: F401
+
+# Single source of truth for intelligence_features JSONB column names.
+# Migrations 125-127 renamed tier-code columns to functional names.
+# All tools/scripts querying intelligence_features MUST use these, not bare tier keys.
+TIER_DB_COLUMNS: dict[str, str] = {
+    "i1": "technical_indicators",
+    "i2": "composite_events",
+    "i3": "regime_features",
+    "i4": "confluence_scores",
+    "i5": "pattern_detections",
+    "i6": "cross_timeframe_context",
+    "i7": "trading_signals",
+    "smc": "smc",
+}
+
+
+async def validate_intelligence_features_columns(conn: Any) -> None:
+    """Assert every TIER_DB_COLUMNS value exists as a real column in intelligence_features.
+
+    Call at service startup or in integration test fixtures.
+    Raises RuntimeError if any column is missing — silent wrong answers are worse than loud crashes.
+    """
+    rows = await conn.fetch(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'intelligence_features'"
+    )
+    existing = {row["column_name"] for row in rows}
+    missing = [col for col in TIER_DB_COLUMNS.values() if col not in existing]
+    if missing:
+        raise RuntimeError(
+            f"intelligence_features missing expected columns: {missing}. " "Run pending migrations."
+        )
 
 
 class OHLCVBar(BaseModel):

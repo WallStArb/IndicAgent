@@ -55,6 +55,7 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
+from src.intelligence.schemas import TIER_DB_COLUMNS
 
 # ---------------------------------------------------------------------------
 # Plugin auto-discovery
@@ -92,18 +93,6 @@ def _discover_plugin_metadata(plugin_name: str) -> dict[str, Any] | None:
     Returns dict with: column, tier, signal_type, n_bars_by_tf, import_path, import_alias, register_fn
     Returns None if plugin not found.
     """
-    # Map tier prefix to JSONB column
-    tier_to_column: dict[str, str] = {
-        "I1": "i1",
-        "I2": "composite_events",
-        "I3": "i3",
-        "I4": "i4",
-        "I5": "i5",
-        "I6": "i6",
-        "I7": "i7",
-        "SMC": "smc",
-    }
-
     # Try to find plugin by name in tier lists
     from src.intelligence.register_plugins import (
         TIER_I1,
@@ -163,7 +152,7 @@ def _discover_plugin_metadata(plugin_name: str) -> dict[str, Any] | None:
             import_alias = f"{base_name}_plugin"
 
             return {
-                "column": tier_to_column[tier],
+                "column": TIER_DB_COLUMNS[tier.lower()],
                 "tier": tier,
                 "register_fn": register_fn,
                 "import_path": f".{subdir}.{base_name}",
