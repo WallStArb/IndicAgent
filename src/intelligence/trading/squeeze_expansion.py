@@ -52,6 +52,7 @@ class SqueezeExpansionPlugin:
     requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     volume_expansion_threshold: float = 1.3
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         result = extract_ohlcv(frames, self.min_lookback)
@@ -130,7 +131,11 @@ class SqueezeExpansionPlugin:
         # Momentum clarity (0.30): abs(momentum_bias), capped at 1.0
         momentum_score = clamp01(abs(momentum_bias))
 
-        raw_conf = 0.35 * squeeze_bars_score + 0.35 * vol_expansion_score + 0.30 * momentum_score
+        cfg = self._config_service
+        w_sq = cfg.get_sync("weights.squeeze_expansion.squeeze_bars", 0.35) if cfg else 0.35
+        w_vol = cfg.get_sync("weights.squeeze_expansion.vol_expansion", 0.35) if cfg else 0.35
+        w_mom = cfg.get_sync("weights.squeeze_expansion.momentum", 0.30) if cfg else 0.30
+        raw_conf = w_sq * squeeze_bars_score + w_vol * vol_expansion_score + w_mom * momentum_score
 
         # Supporting factors
         supporting = []

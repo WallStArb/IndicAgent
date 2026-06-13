@@ -61,6 +61,7 @@ class MomentumBreakoutPlugin:
     roc_threshold: float = 0.3
     volume_expansion_threshold: float = 1.5
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
@@ -145,7 +146,11 @@ class MomentumBreakoutPlugin:
         )
         break_margin = clamp01(abs(price - structure_level) / atr)
 
-        raw_conf = 0.40 * roc_score + 0.35 * vol_score + 0.25 * break_margin
+        cfg = self._config_service
+        w_roc = cfg.get_sync("weights.momentum_breakout.roc", 0.40) if cfg else 0.40
+        w_vol = cfg.get_sync("weights.momentum_breakout.vol", 0.35) if cfg else 0.35
+        w_margin = cfg.get_sync("weights.momentum_breakout.break_margin", 0.25) if cfg else 0.25
+        raw_conf = w_roc * roc_score + w_vol * vol_score + w_margin * break_margin
 
         # Supporting factors
         supporting = [
