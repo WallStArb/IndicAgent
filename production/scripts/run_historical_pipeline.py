@@ -1618,6 +1618,10 @@ def replay_symbol(
             )
             total_signals_by_tf[tf] += n
             if len(signal_buffers[tf]) >= _FEATURE_BATCH_SIZE:
+                # Flush features first — signals must never commit before their features.
+                if feature_buffers[tf]:
+                    _insert_features_sync(db_conn, feature_buffers[tf])
+                    feature_buffers[tf].clear()
                 _insert_signals_sync(db_conn, signal_buffers[tf])
                 signal_buffers[tf].clear()
 
