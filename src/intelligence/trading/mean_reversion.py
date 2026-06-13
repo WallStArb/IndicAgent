@@ -45,6 +45,7 @@ class MeanReversionPlugin:
     requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
     regime_threshold: float = 0.4
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         features = {
@@ -132,7 +133,12 @@ class MeanReversionPlugin:
         else:
             sr_prox = 0.0
 
-        raw_conf = 0.3 * rsi_extreme + 0.3 * div_score + 0.2 * vol_stability + 0.2 * sr_prox
+        cfg = self._config_service
+        w_rsi = cfg.get_sync("weights.mean_reversion.rsi_extreme", 0.30) if cfg else 0.30
+        w_div = cfg.get_sync("weights.mean_reversion.div_score", 0.30) if cfg else 0.30
+        w_vol = cfg.get_sync("weights.mean_reversion.vol_stability", 0.20) if cfg else 0.20
+        w_sr = cfg.get_sync("weights.mean_reversion.sr_proximity", 0.20) if cfg else 0.20
+        raw_conf = w_rsi * rsi_extreme + w_div * div_score + w_vol * vol_stability + w_sr * sr_prox
 
         # ── Supporting factors ──
         supporting = []
