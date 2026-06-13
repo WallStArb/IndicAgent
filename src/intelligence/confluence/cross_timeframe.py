@@ -104,12 +104,7 @@ class CrossTimeframeConfluencePlugin:
         fvg_score, fvg_tf_contribs = score_fvg_alignment(
             features, other_intel, current_tf, cur_trend
         )
-        # ATR early-return yields ({}, {}) — normalise to (0.0, {})
-        if not isinstance(fvg_score, float):
-            fvg_score = 0.0
         ob_score, ob_tf_contribs = score_ob_alignment(features, other_intel, current_tf, cur_trend)
-        if not isinstance(ob_score, float):
-            ob_score = 0.0
         i2_score = score_i2_events(features)
 
         # Weighted composite: positive = bullish confluence, negative = bearish

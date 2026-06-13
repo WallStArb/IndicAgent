@@ -17,6 +17,13 @@ from typing import Any
 from ..plugins import InputSpec
 
 
+def _to_float(val: Any) -> float | None:
+    try:
+        return float(val) if val is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass
 class MacroContextPlugin:
     """I4 macro context: flight-to-quality, yield curve slope, and stock-bond correlation.
@@ -40,41 +47,14 @@ class MacroContextPlugin:
         if not xa.get("ready"):
             return {}
 
-        # ftq_score — float or None
-        raw_ftq_score = xa.get("ftq_score")
-        try:
-            ftq_score = float(raw_ftq_score) if raw_ftq_score is not None else None
-        except (TypeError, ValueError):
-            ftq_score = None
-
-        # ftq_regime — string or None
         raw_ftq_regime = xa.get("ftq_regime")
-        ftq_regime = str(raw_ftq_regime) if raw_ftq_regime is not None else None
-
-        # yield_curve_slope — float or None
-        raw_ycs = xa.get("yield_curve_slope")
-        try:
-            yield_curve_slope = float(raw_ycs) if raw_ycs is not None else None
-        except (TypeError, ValueError):
-            yield_curve_slope = None
-
-        # yield_curve_regime — string or None
         raw_ycr = xa.get("yield_curve_regime")
-        yield_curve_regime = str(raw_ycr) if raw_ycr is not None else None
-
-        # corr_z — float or None
-        raw_corr_z = xa.get("corr_z")
-        try:
-            corr_z = float(raw_corr_z) if raw_corr_z is not None else None
-        except (TypeError, ValueError):
-            corr_z = None
-
         return {
-            "ftq_score": ftq_score,
-            "ftq_regime": ftq_regime,
-            "yield_curve_slope": yield_curve_slope,
-            "yield_curve_regime": yield_curve_regime,
-            "corr_z": corr_z,
+            "ftq_score": _to_float(xa.get("ftq_score")),
+            "ftq_regime": str(raw_ftq_regime) if raw_ftq_regime is not None else None,
+            "yield_curve_slope": _to_float(xa.get("yield_curve_slope")),
+            "yield_curve_regime": str(raw_ycr) if raw_ycr is not None else None,
+            "corr_z": _to_float(xa.get("corr_z")),
         }
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
