@@ -89,13 +89,14 @@ def _frames(df, features: dict) -> dict:
 
 
 def _scenario_ofi_continuation():
-    """OFIContinuation fires after 10 bars of sustained directional OFI (Phase 118: raised from 5)."""
+    """OFIContinuation fires on sustained OFI + volume spike structural trigger (Phase 124)."""
     from src.intelligence.trading.ofi_continuation import OFIContinuationPlugin
 
     close = np.linspace(5000.0, 5010.0, 25)
     df = make_ohlcv(close)
-    # Phase 118: MIN_CONSECUTIVE_BARS=10, MIN_OFI_MAGNITUDE_DEFAULT=500 — both must be satisfied.
-    features = {"ofi_ewma_20": 600.0, "ofi_ewma_5": 600.0, "atr_14": 2.0}
+    # Phase 124: requires structural trigger (acceleration OR volume spike) on top of sustained flow.
+    # volume_sma_20=400; make_ohlcv default volume=1000 → 2.5x spike satisfies _VOLUME_SPIKE_RATIO=2.0.
+    features = {"ofi_ewma_20": 600.0, "ofi_ewma_5": 600.0, "atr_14": 2.0, "volume_sma_20": 400.0}
 
     def _fire(extra: dict) -> dict:
         plugin = OFIContinuationPlugin()
@@ -405,31 +406,35 @@ def _scenario_squeeze_expansion():
 
 
 def _scenario_trend_following():
-    """TrendFollowing fires when trend_regime strong + swing_pattern confirms."""
+    """TrendFollowing fires on pullback-to-MA reversal structural event (Phase 124)."""
     from src.intelligence.trading.trend_following import TrendFollowingPlugin
 
     n = 100
     close = np.linspace(5000.0, 5200.0, n)
     df = make_ohlcv(close)
-    features = {
+    # Price=5200, sma_20 must be > price for 4 warmup bars then < price on fire bar.
+    # Warmup: SMA=5220 (above price 5200) for 4 bars → bars_below_sma=4 >= _PULLBACK_MIN_BARS-1=4
+    # Fire bar: SMA=5190 (below price 5200) → price > current_sma → pullback_reversal=True
+    warmup_features = {
         "trend_regime": 0.8,
         "trend_confidence": 0.75,
-        "swing_pattern": 1.0,
         "trend_strength": 0.7,
+        "swing_pattern": 1.0,  # required: direction==1 needs swing_pattern > 0
         "ctf_score": 0.6,
         "atr_14": 10.0,
-        "sma_20": 5180.0,
-        "ema_21": 5185.0,
+        "sma_20": 5220.0,  # SMA above price=5200 → price below SMA
         "swing_high": 5500.0,
         "swing_low": 4800.0,
         "nearest_resistance": 5500.0,
         "nearest_support": 4800.0,
     }
+    fire_features = {**warmup_features, "sma_20": 5190.0}  # SMA now below price → reversal
 
     def _fire(extra: dict) -> dict:
         plugin = TrendFollowingPlugin()
-        f = {**features, **extra}
-        return plugin.compute_full(_frames(df, f))
+        for _ in range(4):
+            plugin.compute_full(_frames(df, {**warmup_features, **extra}))
+        return plugin.compute_full(_frames(df, {**fire_features, **extra}))
 
     return _fire
 
@@ -561,6 +566,9 @@ def test_extrinsic_still_captured_in_features_snapshot():
         "ctf_trend_alignment": 0.7,
         "ctf_structure_alignment": 0.6,
     }
+
+    # Phase 124: add volume_sma_20 so volume spike structural trigger fires (1000/400 = 2.5x)
+    features["volume_sma_20"] = 400.0
 
     plugin = OFIContinuationPlugin()
     for _ in range(9):

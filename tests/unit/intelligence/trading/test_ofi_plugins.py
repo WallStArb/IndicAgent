@@ -40,14 +40,22 @@ class TestOFIContinuation:
         return OFIContinuationPlugin()
 
     def test_fires_on_sustained_directional_ofi(self):
-        """After 10 bars of positive OFI above magnitude threshold, plugin fires with direction=1."""
+        """After sustained OFI with a volume spike structural trigger, plugin fires direction=1."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        # Phase 118: MIN_CONSECUTIVE_BARS=10, MIN_OFI_MAGNITUDE_DEFAULT=500
+        # Phase 124: requires structural trigger (acceleration OR volume spike) on top of sustained flow.
+        # Use a 2.5x volume spike as the structural trigger (simplest path to firing).
+        base_features = {
+            "ofi_ewma_20": 600.0,
+            "ofi_ewma_5": 600.0,
+            "atr_14": 2.0,
+            "volume_sma_20": 400.0,
+        }
         for _ in range(9):
-            frames = _make_frames(close, {"ofi_ewma_20": 600.0, "ofi_ewma_5": 600.0, "atr_14": 2.0})
+            frames = _make_frames(close, base_features)
             plugin.compute_full(frames)
-        frames = _make_frames(close, {"ofi_ewma_20": 600.0, "ofi_ewma_5": 600.0, "atr_14": 2.0})
+        # Final bar: volume spike (df volume default 1000 vs volume_sma_20=400 → 2.5x)
+        frames = _make_frames(close, base_features)
         result = plugin.compute_full(frames)
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}: {result}"
         assert result.get("confidence", 0) > 0
