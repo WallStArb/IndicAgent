@@ -86,6 +86,8 @@ class AnchoredVWAPReversionPlugin:
     regime_type: str = "mean_reversion"
     requires_i6_confluence: bool = False  # exempt: see _I7_I6_EXEMPT in register_plugins.py
     _state: dict[str, VWAPReversionState] = field(default_factory=dict)
+    # Separate namespace for deduplicate_event (needs plain dict entries, not VWAPReversionState)
+    _dedup_state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
 
     def _get_state(self, symbol: str, tf: str) -> VWAPReversionState:
@@ -195,9 +197,10 @@ class AnchoredVWAPReversionPlugin:
             return no_signal()
 
         # deduplicate_event by (departure_sigma, reclaim_level): prevents re-fire on same
-        # displacement episode (same departure magnitude returning to same VWAP level)
+        # displacement episode (same departure magnitude returning to same VWAP level).
+        # Uses _dedup_state (plain dict) separate from _state (VWAPReversionState objects).
         event_id = (round(state.departure_sigma, 4), round(vwap, 4))
-        if not deduplicate_event(self._state, state_key, event_id):
+        if not deduplicate_event(self._dedup_state, state_key, event_id):
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
