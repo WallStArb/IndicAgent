@@ -74,7 +74,7 @@ IndicAgent is a real-time market intelligence platform that processes raw market
 │                          LAYER 4: PERSISTENCE                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  FeatureWriter → intelligence_features                                 │
-│  SignalWriter → signal_ledger                                          │
+│  SignalWriter → signal_events + trade_frames (3-table, Phase 128+)    │
 │  LifecycleWriter → signal_outcomes                                     │
 │  SignalMetricsWriter → signal_metrics tables                           │
 │  LLMWriter → llm_calls, llm_model_scores                                │
@@ -325,8 +325,10 @@ When a service stalls (no message for 60s), systemd auto-restarts.
 |-------|---------|-----------|
 | `market_data_ohlcv` | Raw OHLCV ground truth | Forever |
 | `intelligence_features` | Full I1-I7 feature vectors (ML training) | Forever |
-| `signal_ledger` | ALL I7 signals + fire-time fields | Forever |
-| `signal_outcomes` | Signal lifecycle state (status, pnl_r, mae, mfe) | Forever |
+| `signal_events` | Detection layer: one row per I7 plugin fire; ECL annotations + factor_scores + context_features (Phase 128+) | Forever |
+| `trade_frames` | Hypothesis layer: one row per entry_type per signal; counterfactual_pnl_r ML training target (Phase 128+) | Forever |
+| `trade_executions` | Execution layer: one row per live trade; actual_pnl_r (Phase 128+) | Forever |
+| `signal_ledger` | Legacy monolith (read-only during v2.10 migration, dropped Phase 129) | Transitional |
 | `signal_lineage` | Signal-affecting transforms and agent predictions | Forever |
 | `llm_calls` | LLM audit log + outcomes | Forever |
 | `llm_model_scores` | Per-model win rates | 15min refresh |

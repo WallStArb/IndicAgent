@@ -29,14 +29,14 @@ When introducing a new concept:
 
 ### `signal`
 
-A time-stamped, scored trade hypothesis with a defined entry, direction, and exit logic. Produced by I7 plugins. Persisted to `signal_ledger`. Has a lifecycle: `pending` → `active` → `expired` / `regime_suppressed`.
+A time-stamped, scored trade hypothesis with a defined entry, direction, and exit logic. Produced by I7 plugins. Persisted to `signal_events` (detection layer) with one or more corresponding `trade_frames` rows (hypothesis layer). Has a lifecycle: `pending` → `active` → `expired` / `regime_suppressed`.
 
 **Not:** a Kafka message, an OTel metric, or a statistical signal-to-noise ratio. When "signal" appears in those contexts, use the domain-specific term instead: `message`, `metric`, `edge`.
 
 **Banned:** (none)
 **Status:** active
 
-**Code surface:** `signal_ledger` table, `SignalTracker`, `SignalWriter`.
+**Code surface:** `signal_events` table (Phase 128+), `SignalTracker`, `SignalWriter`. Legacy: `signal_ledger` (read-only during v2.10 migration, dropped in Phase 129).
 
 ---
 
@@ -416,33 +416,38 @@ The system-wide registry of all tunable numeric values — detection thresholds,
 
 ---
 
-### `signal_events`
+### `detection layer`
 
-The detection layer table in the 3-table signal architecture. One row per pattern-fire event — when a plugin's intrinsic detection criteria were satisfied. Contains: `raw_confidence`, `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. Immutable after write (status excepted).
+The layer of the 3-table signal architecture that records the raw fact of a pattern firing — when a plugin's intrinsic detection criteria were satisfied. One row per signal fire event. Carries the intrinsic quality signal (`raw_confidence`, `factor_scores`) and the extrinsic market context at fire time (`ctf_score`, `zone_friction_score`, `context_features`). Immutable after write (status excepted).
 
-**Not:** a trade record. `signal_events` records that a pattern was detected. Whether a trade was framed or executed is recorded in `trade_frames` and `trade_executions`.
+**Not:** a trade record. The detection layer records that a pattern was detected, not that anything was done about it.
 
-**Banned:** "signal ledger" as the name for this table (legacy term for the monolith; the monolith is being decomposed).
+**Table:** `signal_events`
+**Banned:** "signal ledger" as the name for this concept (legacy monolith term).
 **Status:** active (Phase 128+)
 
 ---
 
-### `trade_frames`
+### `hypothesis layer`
 
-The hypothesis layer table. One row per entry_type hypothesis per signal event. Contains the trade specification (entry_price, stop_price, target_price, entry_type) and — critically — `counterfactual_pnl_r`: what would have happened if this hypothesis had been executed, measured against actual subsequent price action.
+The layer of the 3-table signal architecture that represents trade specifications derived from a detection event. One row per entry_type per signal — e.g. a single OFI divergence detection might produce an `at_close` frame and an `at_pullback` frame. Each frame is a falsifiable hypothesis: given this entry/stop/target, what would have happened?
 
-`counterfactual_pnl_r` is the ML training target. It is always populated by the CounterfactualTracker regardless of whether the trade was actually executed. This eliminates survivorship bias at the outcome layer — the model trains on all signal hypotheses, not just the executed subset.
+`counterfactual_pnl_r` is the hypothesis layer's primary output — the measured outcome of each frame against actual subsequent price action, regardless of execution. This is the ML training target.
 
-**Not:** an execution record. A frame is a hypothesis. Execution is in `trade_executions`.
+**Not:** an execution record. A hypothesis can exist without ever being executed.
 
+**Table:** `trade_frames`
 **Status:** active (Phase 128+)
 
 ---
 
-### `trade_executions`
+### `execution layer`
 
-The execution layer table. One row per live trade execution. Most `trade_frames` rows have zero corresponding rows here (not traded). Contains actual fill prices, actual pnl_r, and exit details. `actual_pnl_r` represents live performance; `counterfactual_pnl_r` (on `trade_frames`) represents what the model predicted. The gap between them is execution quality.
+The layer of the 3-table signal architecture that records live trade executions. One row per actual trade placed. Most hypothesis layer rows have zero corresponding execution rows — the vast majority of signal hypotheses are never executed. Contains actual fill prices, actual pnl_r, and exit details.
 
+The gap between `counterfactual_pnl_r` (hypothesis layer) and `actual_pnl_r` (execution layer) is execution quality — slippage, timing, and selection bias from the aggregator.
+
+**Table:** `trade_executions`
 **Status:** active (Phase 128+)
 
 ---
@@ -467,6 +472,19 @@ The daemon that measures `counterfactual_pnl_r` for every `trade_frames` row. Su
 **Architecture:** fully in-memory state; checkpointed to file on shutdown. No DB reads in the hot path — purely event-driven.
 
 **Status:** planned (Phase 130)
+
+---
+
+### `survivorship bias` (signal corpus)
+
+The corruption of the ML training set caused by systematically excluding certain signal outcomes. IndicAgent has two distinct survivorship bias layers, each with a different mechanism and fix:
+
+**Bias Layer 1 — emission suppression:** Extrinsic gates (CTF gate, zone friction gate, exhaustion guard) calling `no_signal()` before the signal is written to the ledger. The ML model never sees the suppressed cases — it cannot learn whether those setups were actually bad. The biased training set inflates the apparent quality of surviving signals. Fixed in Phase 123 (ECL boundary restoration).
+
+**Bias Layer 2 — null outcome variable:** `pnl_r = NULL` for all regime-suppressed and unfilled signals because no trade was executed. ML models trained on `WHERE pnl_r IS NOT NULL` exclude all suppressed signals — the model has never measured what a high-quality pattern firing in a poor regime actually produces. Fixed by `counterfactual_pnl_r` on `trade_frames` (Phase 127-129) + CounterfactualTracker daemon (Phase 130).
+
+**Banned:** (none)
+**Status:** Layer 1 fixed Phase 123; Layer 2 addressed Phase 127-130.
 
 ---
 
