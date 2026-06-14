@@ -166,13 +166,13 @@ Price action context above the indicator level: swing detection, S/R zones, Mark
 
 **I4 - Regime Classification**
 
-The statistical core. Six models answer distinct questions about market state:
+The statistical core. Six models answer distinct questions about the current regime:
 
 | Model | Question | Output |
 |-------|----------|--------|
 | **GARCH** | Is volatility expanding or contracting? | Volatility regime (low/normal/elevated/extreme) + sigma estimate |
 | **Kalman filter** | What is the true underlying trend, separate from noise? | Smooth trend slope - adapts to current signal-to-noise ratio |
-| **HMM** | Which hidden market state is most probable? | Probability *distribution* over 3 states - not just an argmax |
+| **HMM** | Which hidden regime is most probable? | Probability *distribution* over 3 states - not just an argmax |
 | **BOCPD** | Is a new regime beginning right now? | Changepoint probability per bar - detects transitions before HMM confirms |
 | **Hurst Exponent** | Is this market persistent or mean-reverting? | H-value + persistence class - gates signal direction vs. regime |
 | **Shannon Entropy** | How predictable is the current price series? | Entropy score - feeds CIS quality multiplier |
@@ -195,6 +195,12 @@ Institutional order flow analysis - the interpretation of price action as the fo
 **I7 - Trading Setups**
 
 Each plugin defines a trade thesis with entry, stop-loss, and take-profit logic: `TrendFollowing` · `MeanReversion` · `LiquiditySweepReclaim` · `SqueezeExpansion` · `VWAPDeviation` · `FVGFill` · `PatternCompletion` · `DivergenceStack` · `CHoCHReversal` · `OFIContinuation` · `OFIDivergence` · `CVDDivergence` · `CrossAssetDivergence` · `AnchoredVWAPReversion` · `POCRejection` · `ORB15` · `ORB30` · `VCP` - 36 setups in total.
+
+**Signal architecture uses two named systems:**
+
+**Extrinsic Confidence Layer (ECL)** — the set of extrinsic confidence vectors (CTF score, HMM regime weight, zone friction, exhaustion guard) that travel on each signal as observable metadata. ECL vectors annotate signals with market context; they are never gates that suppress emission and never inputs to the intrinsic confidence composite. The ECL boundary is a hard architectural invariant: intrinsic confidence = pattern-internal factors only; extrinsic context = ECL metadata. This keeps raw signals as uncontaminated training data regardless of downstream filtering. See `docs/architecture/setup-confidence-patterns.md`.
+
+**Adaptive Parameter Registry (APR)** — all detection thresholds, confidence weights, and indicator periods that govern signal generation live in the APR rather than in code. Parameters start as `[initial_estimate]` human priors and evolve as ML discovery writes calibrated values after p < 0.05. Hot-reload via Kafka outbox — no restarts required. The APR makes every parameter observable and learnable; hard-coded constants in signal plugins are an architecture violation. See `docs/foundation/parameter-store.md`.
 
 When multiple setups fire on the same bar, the **CIS scorer** adjudicates (see below). Selected signals pass two gates:
 1. **RR gate** - viable risk:reward based on zone quality and distance to target

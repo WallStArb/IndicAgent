@@ -1,8 +1,8 @@
-# I7 Setup Confidence Patterns
+# Setup Confidence Patterns
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** current
-**Last Updated:** 2026-06-10
+**Last Updated:** 2026-06-14
 
 ---
 
@@ -119,8 +119,10 @@ Four distinct concepts appear in I7 plugin code. They must not be confused or me
 |---|---|---|---|
 | Pre-entry GATE | Continuous probability or score threshold. Below threshold returns `no_signal()`. | Eligibility check - not in confidence | `hmm_regime_weight < 0.30` returns no_signal() |
 | CONFIDENCE FACTOR | Intrinsic signal-strength score, clamped to [0,1], weighted into the composite | IS confidence - the only inputs to `raw_conf` | `magnitude_score`, `persistence_score` |
-| CAPTURED EXTRINSIC FIELD | Written to `features_snapshot` via `capture_signal_features()` for ML training. Zero confidence modification. | Not in confidence - captured for Phase 49 XGBoost training | `ctf_score`, `vix_level`, `exhaustion_score` in snapshot |
+| EXTRINSIC CONFIDENCE VECTOR | A scored signal about market context (regime, I6 alignment, macro) — distinct from the pattern itself. Written to `features_snapshot` via `capture_signal_features()` for ML training. Zero confidence modification. | Not in confidence - captured for ML attribution and data-derived weight learning | `ctf_score`, `vix_level`, `exhaustion_score` in snapshot |
 | ZONE FRICTION PENALTY | Zone context from supply/demand proximity. Stripped from confidence in Phase 118 for trend/momentum/liquidity_hunt setups; retained as an intrinsic structural gate only for `SupplyDemandSetup`. | Not one of the 6 GOOD patterns. For `supply_demand_setup`: gates the entry zone, not a confidence factor. For all others: zone context is captured as extrinsic, not scored. | `supply_demand_setup.py` zone gate; captured but not scored in `trend_following.py` |
+
+**Extrinsic Confidence Layer (ECL)** is the architectural term for the collection of extrinsic confidence vectors that sit alongside the intrinsic confidence composite. "Layer" is a docs and architecture-discussion term only - it does not map to a class. If an ECL class is ever introduced, the naming system requires a role suffix: `ExtrinsicConfidenceEvaluator` or `ExtrinsicConfidenceAggregator`. `ExtrinsicConfidenceLayer` is not a valid class name.
 
 Zone friction is NOT one of the 6 GOOD patterns. It is a separate architectural concern handled differently per plugin family, documented separately in `test_i7_extrinsic_contract.py`.
 
@@ -304,4 +306,5 @@ HMM regime is gate-only. Direction selection may read `hmm_regime` (which direct
 - `src/intelligence/register_plugins.py` - `TIER_I7`, `_I7_I6_EXEMPT`, `_PHASE_119_PLUGINS`
 - `src/intelligence/plugins/base.py` - `validate_tier()`, `ArchitectureViolation`
 - `tests/unit/intelligence/test_i7_extrinsic_contract.py` - extrinsic vs intrinsic contract tests
+- `docs/architecture/setup-confidence-patterns.md` — this document (formerly `i7-setup-confidence-patterns.md`)
 - `.planning/phases/119-remaining-16-setup-refactoring/119-CONTEXT.md` - D-01, D-02, D-03, D-04 decisions

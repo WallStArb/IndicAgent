@@ -1,23 +1,36 @@
-# Parameter Store
+# Adaptive Parameter Registry (APR)
 
+**Canonical name:** Adaptive Parameter Registry (APR)
+**Informal alias:** param store (colloquial — acceptable in casual conversation, not in architecture docs or code comments)
 **Status:** Canonical reference
-**Phase introduced:** 109 (infrastructure), extended Phase 121+ (plugin thresholds)
+**Phase introduced:** 109 (infrastructure), extended Phase 121+ (plugin thresholds), Phase 125 (full Tier A migration)
 
 ---
 
 ## What It Is
 
-The Parameter Store is the system-wide home for all tunable numeric values -- detection thresholds, indicator periods, confidence weights, governance gates, and UX preferences. Every value that a human operator, ML discovery, or user might want to change without a code deployment lives here.
+The **Adaptive Parameter Registry (APR)** is the system-wide home for all tunable numeric values — detection thresholds, indicator periods, confidence weights, governance gates, and UX preferences. Every value that a human operator, ML discovery, or user might want to change without a code deployment lives here.
+
+"Adaptive" is the key distinction from a generic config store: APR parameters are not static configuration. They start as `[initial_estimate]` or `[conventional]` human opinions and evolve through evidence — ML discovery writes calibrated values back after sufficient sample sizes and p < 0.05. The full conversation between human judgment and empirical evidence is preserved in `config_history`.
 
 Hard-coded numeric constants anywhere in `src/` are an architecture violation unless they are structural (DAG topology, table schemas, ring counts) or genuinely invariant mathematical definitions (π, tick size, contract multipliers).
 
-The parameter lifecycle is:
+The APR parameter lifecycle is:
 
 ```
-seed → user_preference / operator_tuning → ml_learned → user_override → ml_learned again
+seed → operator_tuning → ml_learned → user_override → ml_learned again
 ```
 
 Every write is recorded in `config_history` with `changed_by` and `reason`. The full conversation between human judgment and empirical evidence is preserved.
+
+### Relationship to the ECL
+
+The Adaptive Parameter Registry and the Extrinsic Confidence Layer (ECL) are complementary systems:
+
+- **ECL** — governs what extrinsic context vectors (CTF score, HMM regime weight) travel on signals as observable metadata. Defines the boundary between intrinsic confidence and extrinsic annotation.
+- **APR** — governs the numeric thresholds and weights that control signal generation. Makes those thresholds visible and learnable by the ML optimization loop.
+
+ECL vectors like `threshold.global.min_ctf_score` and `threshold.global.min_regime_weight` live in the APR — they are observable APR parameters, not hard-coded opinions.
 
 ---
 
