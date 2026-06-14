@@ -1,7 +1,7 @@
 # Intelligence Plugins — I1-I7 Implementation Guide
 
-**Version:** 1.0.0
-**Last Updated:** 2026-05-28
+**Version:** 1.1.0
+**Last Updated:** 2026-06-14
 **Status:** current
 **Milestone:** v2.8 — AI Platform + Evolvable Agents
 
@@ -416,6 +416,45 @@ All live in `src/intelligence/trading/`:
 | `volume_profile_utils.py` | `check_reversal_gate()`, POC/HVN reversal detection |
 | `exhaustion_utils.py` | `apply_exhaustion_boost()`, `apply_exhaustion_guard()` |
 | `signal_schema.py` | `SIGNAL_SCHEMA_VERSION`, `make_signal()`, `validate_signal()` |
+
+### I7 Signal Output — factor_scores and context_features
+
+Every I7 plugin emits two additional dicts alongside `raw_confidence`. These are required fields on the signal payload as of Phase 123.
+
+**`factor_scores`** — the per-plugin intrinsic factor breakdown, collected before the weighted composite:
+
+```python
+# Collect before the composite line — keys are plugin-specific
+factor_scores = {
+    "ofi_divergence": round(ofi_divergence_score, 4),
+    "cvd_divergence": round(cvd_divergence_score, 4),
+    "confirmation":   round(confirmation_score, 4),
+    "volume":         round(volume_score, 4),
+}
+raw = 0.35 * ofi_divergence_score + 0.30 * cvd_divergence_score \
+    + 0.20 * confirmation_score + 0.15 * volume_score
+confidence = compose_confidence(raw)
+# Pass factor_scores=factor_scores to emit_signal
+```
+
+Values are pre-composite [0, 1] scores — not weights. This dict serves two purposes: immediate debuggability (confidence can be decomposed without re-running the plugin) and ML weight optimization (once `counterfactual_pnl_r` accumulates on `trade_frames`, the ML loop regresses each factor score against outcome to discover optimal composite weights, replacing the hand-coded constants in APR `weights.*`).
+
+`factor_scores` defaults to `{}` (empty dict) — never `None`. An empty dict means the plugin has not been updated yet; `NULL` in the DB means the field was not written at all. The distinction matters for coverage auditing.
+
+**`context_features`** — the full output of `capture_signal_features()`, a 30+ key dict of market context at signal fire time: CTF sub-scores, HMM regime state, volatility, session, zone proximity. This is the SignalRanker feature matrix — the ML model trains on `context_features` to predict `counterfactual_pnl_r`.
+
+```python
+# Every I7 compute_full() that calls capture_signal_features() must capture the return value:
+signal["context_features"] = capture_signal_features(signal, features)
+```
+
+Before Phase 123, `capture_signal_features()` wrote into `sig["_shadow"]` and never reached the Kafka payload — `context_features` was always `NULL` in the DB. As of Phase 123 the return value is written to `sig["context_features"]` directly. Any replay window before Phase 123 will have `context_features = NULL`.
+
+`context_features` defaults to `{}` — same convention as `factor_scores`.
+
+The key distinction between the two: `factor_scores` is intrinsic (what the plugin computed internally — WHY the pattern fired). `context_features` is extrinsic (the regime and market context at fire time — WHAT conditions existed when it fired). They answer different questions and feed different ML models.
+
+---
 
 ### I7 Regime Gate
 
