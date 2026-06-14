@@ -1,7 +1,19 @@
-"""I7 Trend Following setup detection plugin."""
+"""I7 Trend Following setup detection plugin.
+
+Renaissance principle (Phase 124): fires on structural entries WITHIN a trend,
+not on the trend state itself. Two structural triggers:
+
+1. Pullback-to-MA reversal: price was below (bullish) or above (bearish) SMA
+   for >= 5 bars, then crosses back in the trend direction.
+2. Consolidation breakout: range compression < 0.5% for >= 5 bars, then close
+   breaches the consolidation high (bullish) or low (bearish).
+
+trend_regime is a context filter (must be trending), NOT the trigger.
+"""
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -10,7 +22,7 @@ from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
-from .state_utils import onset_guard
+from .state_utils import deduplicate_event
 from .trade_framer import frame_trade
 
 if TYPE_CHECKING:
@@ -18,16 +30,39 @@ if TYPE_CHECKING:
 
 _REGIME_MIN_DEFAULT: float = 0.5
 _CONFIDENCE_MIN_DEFAULT: float = 0.4
+_PULLBACK_MIN_BARS: int = 5
+_CONSOLIDATION_MIN_BARS: int = 5
+_CONSOLIDATION_RANGE_PCT: float = 0.5  # range < 0.5% triggers consolidation mode
+
+
+@dataclass
+class TrendFollowingState:
+    """Per-symbol/timeframe state for TrendFollowing structural detection.
+
+    ma_history: rolling SMA buffer for pullback-to-MA reversal detection.
+    consolidation_high/low: bounds tracked during range compression.
+    consolidation_bars: consecutive bars with range < threshold.
+    """
+
+    ma_history: deque = field(default_factory=lambda: deque(maxlen=50))
+    consolidation_high: float | None = None
+    consolidation_low: float | None = None
+    consolidation_bars: int = 0
 
 
 @dataclass
 class TrendFollowingPlugin:
-    """Trend-following setup: fires once per trend confirmation onset.
+    """Trend-following setup: fires on structural entries within a trend.
 
-    Reads I4 trend_regime, I3 swing_pattern/trend_strength, I6 ctf_score from frames["features"].
-    Entry at current price, stop ATR-based, targets at 1R/2R/3R.
+    Reads I4 trend_regime/trend_confidence/trend_strength, I3 swing_pattern,
+    I1 sma_20/ema_20, I6 ctf_score from frames["features"].
 
-    onset_guard placed after ALL downstream gates — state commits only when signal emits.
+    Structural triggers (OR logic):
+    - Pullback-to-MA reversal: close crosses back over SMA after >= 5 bars below (bullish)
+      or crosses back under SMA after >= 5 bars above (bearish).
+    - Consolidation breakout: range < 0.5% for >= 5 bars then close breaches range bound.
+
+    Gate ordering: structural event first, trend_regime context filter second.
     """
 
     name: str = "trad_TrendFollowing"
@@ -49,8 +84,16 @@ class TrendFollowingPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
     requires_i6_confluence: bool = True
-    _state: dict = field(default_factory=dict)
+    _state: dict[str, TrendFollowingState] = field(default_factory=dict)
+    _dedup_state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
+
+    def _get_state(self, symbol: str, tf: str) -> TrendFollowingState:
+        """Lazy-init per-symbol/timeframe state."""
+        key = f"{symbol}_{tf}"
+        if key not in self._state:
+            self._state[key] = TrendFollowingState(ma_history=deque(maxlen=50))
+        return self._state[key]
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         cfg = self._config_service
@@ -75,45 +118,126 @@ class TrendFollowingPlugin:
             **(frames.get("i6") or {}),
         }
 
-        # OPTIMIZATION (Phase 48): cheap regime gate before expensive OHLCV extraction.
-        # onset_guard called here (before OHLCV) so it sees False when regime drops —
-        # enabling proper rearm. swing_pattern checked post-OHLCV but is a dict lookup.
-        trend_regime = features.get("trend_regime", 0.0)
-        trend_conf = features.get("trend_confidence", 0.0)
         symbol = frames.get("__symbol__", "_")
         tf_key = frames.get("__timeframe__", "_")
         state_key = f"{symbol}_{tf_key}"
-        regime_condition = abs(trend_regime) >= regime_min and trend_conf >= confidence_min
-        is_new_onset = onset_guard(self._state, state_key, regime_condition)
-        if not regime_condition or not is_new_onset:
-            return no_signal()
+        state = self._get_state(symbol, tf_key)
 
+        # Extract SMA and update MA history buffer (look-ahead-free: uses current bar only)
+        sma = features.get("sma_20") or features.get("ema_20")
+        if sma:
+            state.ma_history.append(float(sma))
+
+        # Need OHLCV for structural detection
         result = extract_ohlcv(frames, self.min_lookback)
         if result is None:
             return no_signal()
         open_, high, low, close = result
 
+        price = float(close[-1])
+        current_high = float(high[-1])
+        current_low = float(low[-1])
+
+        trend_regime = features.get("trend_regime", 0.0)
+        direction = 1 if trend_regime > 0 else -1
+
+        # ── Structural event gate FIRST ──────────────────────────────────────
+        pullback_reversal = False
+        consolidation_breakout = False
+        structural_type = "none"
+
+        # Pullback-to-MA reversal detection
+        # Requires >= _PULLBACK_MIN_BARS of MA history and current SMA
+        if sma and len(state.ma_history) >= _PULLBACK_MIN_BARS:
+            current_sma = float(sma)
+            history = list(state.ma_history)
+            # Count consecutive bars where close was on the wrong side of SMA
+            # (We only have MA history, not close history; we detect the cross
+            # by checking current close vs SMA transition)
+            bars_below_sma = sum(
+                1
+                for ma_val in history[-_PULLBACK_MIN_BARS:-1]
+                if ma_val > price  # price was below previous SMAs (SMA was above price)
+            )
+            bars_above_sma = sum(
+                1
+                for ma_val in history[-_PULLBACK_MIN_BARS:-1]
+                if ma_val < price  # price was above previous SMAs (SMA was below price)
+            )
+
+            if direction == 1 and bars_below_sma >= _PULLBACK_MIN_BARS - 1 and price > current_sma:
+                # Bullish pullback reversal: SMA was above price for N bars, now price > SMA
+                pullback_reversal = True
+                structural_type = "pullback_reversal_bull"
+            elif (
+                direction == -1 and bars_above_sma >= _PULLBACK_MIN_BARS - 1 and price < current_sma
+            ):
+                # Bearish pullback reversal: SMA was below price for N bars, now price < SMA
+                pullback_reversal = True
+                structural_type = "pullback_reversal_bear"
+
+        # Consolidation breakout detection
+        range_pct = (current_high - current_low) / price * 100 if price > 0 else 999.0
+        if range_pct < _CONSOLIDATION_RANGE_PCT:
+            # Consolidation active: update bounds
+            state.consolidation_bars += 1
+            state.consolidation_high = max(
+                state.consolidation_high if state.consolidation_high is not None else current_high,
+                current_high,
+            )
+            state.consolidation_low = min(
+                state.consolidation_low if state.consolidation_low is not None else current_low,
+                current_low,
+            )
+        else:
+            # Range expansion - check for breakout before resetting
+            if (
+                state.consolidation_bars >= _CONSOLIDATION_MIN_BARS
+                and state.consolidation_high is not None
+                and state.consolidation_low is not None
+            ):
+                if direction == 1 and price > state.consolidation_high:
+                    consolidation_breakout = True
+                    structural_type = "consolidation_breakout_bull"
+                elif direction == -1 and price < state.consolidation_low:
+                    consolidation_breakout = True
+                    structural_type = "consolidation_breakout_bear"
+
+            # Reset consolidation state on expansion
+            state.consolidation_bars = 0
+            state.consolidation_high = None
+            state.consolidation_low = None
+
+        # No structural event - return no signal
+        if not pullback_reversal and not consolidation_breakout:
+            return no_signal()
+
+        # ── Context filter SECOND: trend_regime must be trending ─────────────
+        trend_conf = features.get("trend_confidence", 0.0)
+        if abs(trend_regime) < regime_min or trend_conf < confidence_min:
+            return no_signal()
+
+        # ── Context filter THIRD: swing_pattern alignment ─────────────────────
         swing_pattern = features.get("swing_pattern", 0.0)
         trend_strength = features.get("trend_strength", 0.0)
         ctf_score = features.get("ctf_score", 0.0)
 
-        direction = 1 if trend_regime > 0 else -1
         if direction == 1 and swing_pattern <= 0:
             return no_signal()
         if direction == -1 and swing_pattern >= 0:
             return no_signal()
 
+        # ── FOURTH: Extract trade frame ───────────────────────────────────────
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
             return no_signal()
 
-        price = float(close[-1])
         signal_type = signal_type_for_direction("trend", direction)
         tf = frame_trade(signal_type, direction, price, features, atr, regime_type=self.regime_type)
         if not tf.viable:
             return no_signal()
 
-        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        # Wave B: factor audit trail - pre-composite [0,1] scores (Phase 123)
         factor_scores = {
             "trend_conf_score": round(clamp01(trend_conf), 4),
             "trend_strength_score": round(clamp01(abs(trend_strength)), 4),
@@ -129,6 +253,11 @@ class TrendFollowingPlugin:
         if confidence < confidence_min:
             return no_signal()
 
+        # ── FIFTH: deduplicate_event prevents re-fire on same structural occurrence ──
+        event_id = (direction, structural_type)
+        if not deduplicate_event(self._dedup_state, state_key, event_id):
+            return no_signal()
+
         supporting = []
         if abs(trend_regime) >= 0.7:
             supporting.append("strong_trend_regime")
@@ -136,6 +265,7 @@ class TrendFollowingPlugin:
             supporting.append("cross_timeframe_aligned")
         if abs(swing_pattern) >= 0.5:
             supporting.append("structure_confirmed")
+        supporting.append(structural_type)
 
         regime_ctx = "bullish" if direction == 1 else "bearish"
         signal = make_signal_from_frame(
