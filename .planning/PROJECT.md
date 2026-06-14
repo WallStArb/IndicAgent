@@ -261,29 +261,23 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
-## Current Milestone: v2.10 — Data Architecture Evolution (or v2.8 Part 2 after v2.10)
+## Current Milestone: v2.10 — Data Architecture Evolution
 
-**Goal:** Close structural debt from v2.7 audit, audit and fix shadow graduation blockers, then execute the AI platform stack with measurable evidence gates at every layer — each dependency earns its place before the next is added.
+**Goal:** Decide on signal/trade separation architecture (2-table vs 3-table), execute database migration if approved, rewrite all affected scripts, then run clean replay on empty tables and produce the deferred Phase 121 Wave 2 signal quality validation report.
 
-**Design principles (Renaissance standard):**
-- Every AI platform phase states the metric it must move — no phase ships without naming the measurement
-- Evidence gates between phases: 099 (Guardrails) only if Instructor parse failures stay > 1%; 102-103 (genetics) only if FIT-06 discriminative power gate passes
-- Compute costs counted: Zep RAM/latency documented before enabling; DSPy data gate (>=500 labeled rows per agent) verified before running
-- DAG discipline: no new Kafka topics without named producer-consumer pair; no new daemons without justification; compute is in-process
-- Shadow mode by default: all new agent behavior runs shadow_only=True until >= 100 inferences measured
+**Design principles:**
+- Signal generation + trade framing remain in-process (compute layer untouched per Principle 12 — Signal Generation Invariant)
+- Architecture decision is data layer only: how signal_ledger is decomposed into separate tables
+- All phases after 123 are conditional on ADR approval
+- Phase 126 closes the deferred Phase 121-02 obligation (bootstrap CI, Welch's t-test, RCA Part VI)
 
 **Target phases (in execution order):**
-- Phase 106: Foundation Hardening — DAG correctness, dead code, code reuse, queue backpressure, PluginCircuitBreaker (FOUND-01–06)
-- Phase 107: Infrastructure Hygiene — dead DB tables, shadow graduation unblock, metrics instrument audit (HYGIENE-01–04)
-- Phase 094: LiteLLM + Instructor — provider abstraction + structured output; parse failure rate measured before/after (LLM-INFRA, STRUCT-OUT)
-- Phase 095: Pydantic AI adapter — typed agent execution; Skeptic as reference implementation (AGENT-EXEC)
-- Phase 096: Agent Registry — YAML-driven instantiation; zero Python changes to add an agent (AGENT-REG)
-- Phase 097: Zep episodic memory — shadow mode recall quality gate; compute cost documented (MEM)
-- Phase 098: DSPy offline optimizer — data gate verified; A/B tested before any promotion (OPT)
-- Phase 099: Guardrails AI — conditional on post-Instructor parse failure rate > 1% (GUARD)
-- Phase 101: Composite Fitness Function — discriminative power gate gates all genetic work (FIT)
-- Phase 102: Genetic Infrastructure — gene bank + frozen archive (GENE; gated on FIT-06)
-- Phase 103: Reproductive Operators — mutation, recombination, LLM-directed (REPRO; gated on FIT-06)
+- Phase 123: Signal/Trade Separation Decision — ADR: 2-table vs 3-table; cardinality and numeric type rules (ARCH-01-03)
+- Phase 124: Database Migration — Drop old tables, create new schema, indexes, constraints (MIGRATE-01-03; conditional)
+- Phase 125: Script Rewriting — SignalWriter, lifecycle_writer, queries, dashboard API (REWRITE-01-03; conditional)
+- Phase 126: Clean Replay + Signal Quality Validation — Full replay on empty tables + Phase 121-02 deferred report (REPLAY-02; conditional)
+
+**After v2.10:** v2.8 Part 2 resumes — Phases 096-099, 101-103 (Agent Registry, DSPy, Guardrails, Fitness, Genetics)
 
 ---
 ## Evolution
