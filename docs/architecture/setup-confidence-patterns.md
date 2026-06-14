@@ -100,7 +100,9 @@ The `"any"` regime rule is critical - see Anti-patterns (Section 8) for what NOT
 
 ### Pattern 5 - Early gate optimization
 
-Cheap gate checks (HMM probability lookup, ctf_score float comparison) run before any expensive operations. The dual gate in Pattern 3 is the primary implementation. Additional domain-specific gates (z-score magnitude checks, consecutive bar counts) also run before OHLCV extraction.
+Cheap gate checks (HMM probability lookup) run before any expensive operations. The regime gate in Pattern 3 is the primary implementation. Additional domain-specific gates (z-score magnitude checks, consecutive bar counts) also run before OHLCV extraction.
+
+Note: `ctf_score float comparison` was a gate in the pre-Phase-123 CTF-gate pattern (now Anti-pattern 1). Post-Phase-123, `ctf_score` is only compared against `_MIN_CTF_SCORE` to compute the `ctf_confirmed` ECL annotation — it is never an emission gate.
 
 ### Pattern 6 - shadow_only=True until Phase 120
 
@@ -147,7 +149,7 @@ See `docs/foundation/glossary.md` for the full ECL definition and regime gate ex
 
 ## 5. ECL — Extrinsic Confidence Layer
 
-**ECL boundary invariant:** If a setup meets its intrinsic detection criteria, it fires. Always. No extrinsic vector suppresses signal emission.
+**ECL boundary invariant:** If a setup meets its intrinsic detection criteria, it fires. Always. No extrinsic vector suppresses signal emission. Only the HMM regime gate may suppress emission; all extrinsic confidence vectors (CTF, zone_friction, exhaustion) are annotations on the emitted signal, never gates.
 
 **Extrinsic confidence vectors (current):**
 - `ctf_score: float | None` — I6 cross-timeframe alignment score. `None` = I6 had no data at emit time (cold-start). `0.0` = genuine neutral alignment. These are different populations — never conflate them with `or 0.0`.
@@ -200,7 +202,7 @@ These plugins were refactored in Phase 118 and serve as reference implementation
 
 ### Phase 119 (17 plugins)
 
-Wave 1 (8 plugins) and Wave 2 (9 plugins) refactored in Phase 119:
+Wave 1 (8 plugins) and Wave 2 (9 plugins) refactored in Phase 119. These plugins originally had a dual HMM+CTF gate (regime gate plus a `ctf_score < threshold → no_signal()` emission suppressor). Phase 123 dissolved that category: the CTF gate was removed from all 17 plugins. They now follow the uniform pattern — single HMM regime gate before OHLCV, with `ctf_score`/`ctf_confirmed` as ECL annotations on the emitted signal. No structural difference remains between Phase 118 and Phase 119 plugins.
 
 | Plugin | File | regime_type | Notes |
 |---|---|---|---|
@@ -224,7 +226,7 @@ Wave 1 (8 plugins) and Wave 2 (9 plugins) refactored in Phase 119:
 
 ### Not yet I6-integrated (deferred)
 
-These 8 plugins are in `_I7_I6_EXEMPT` in `register_plugins.py`. They have `requires_i6_confluence = False` and do not have the dual gate or 4-factor confidence composite. They are deferred to a follow-up phase. `validate_tier()` exempts them explicitly.
+These 8 plugins are in `_I7_I6_EXEMPT` in `register_plugins.py`. They have `requires_i6_confluence = False` and do not yet have the single regime gate + I6 CTF ECL annotation or 4-factor confidence composite. They are deferred to a follow-up phase. `validate_tier()` exempts them explicitly.
 
 | Plugin | File |
 |---|---|
