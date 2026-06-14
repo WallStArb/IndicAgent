@@ -72,6 +72,7 @@ INSERT INTO intelligence_features (
     ledger_written, pipeline_latency_ms,
     i7_computed_at, session_type, days_to_expiry,
     feature_schema_version,
+    ctf_score, ctf_trend_alignment, ctf_structure_alignment, ctf_regime_agreement,
     ctx
 )
 VALUES (
@@ -85,6 +86,7 @@ VALUES (
     $28, $29,
     $30, $31, $32,
     $33,
+    $34, $35, $36, $37,
     (
         SELECT jsonb_object_agg(event_type, ctx ORDER BY event_type)
         FROM ctx_snapshots
@@ -93,7 +95,13 @@ VALUES (
           AND (valid_to IS NULL OR valid_to > $1)
     )
 )
-ON CONFLICT (ts, symbol, tf) DO NOTHING
+ON CONFLICT (ts, symbol, tf)
+DO UPDATE SET
+    ctf_score = EXCLUDED.ctf_score,
+    ctf_trend_alignment = EXCLUDED.ctf_trend_alignment,
+    ctf_structure_alignment = EXCLUDED.ctf_structure_alignment,
+    ctf_regime_agreement = EXCLUDED.ctf_regime_agreement
+WHERE intelligence_features.ctf_score IS NULL
 """
 
 # Pure UPDATE — no-op if the main bar row doesn't exist yet.
@@ -168,7 +176,7 @@ def _record_to_insert_params(
     expiry_map: dict[str, date] | None = None,
     cross_asset_snapshot: dict | None = None,
 ) -> tuple:
-    """Build a 33-element tuple of INSERT parameters for _INSERT_FEATURE_SQL."""
+    """Build a 37-element tuple of INSERT parameters for _INSERT_FEATURE_SQL."""
     event = record.intelligence
     days = _compute_days_to_expiry(event.symbol, event.ts, expiry_map or {})
     winner_dir = str(record.winner_direction) if record.winner_direction is not None else None
@@ -176,6 +184,15 @@ def _record_to_insert_params(
 
     i2_data = event.i2.model_dump(exclude_none=True)
     market_ctx = cross_asset_snapshot or {}
+
+    # Extract CTF sub-scores from I6Confluence using explicit None semantics:
+    # None = cold-start (I6 not computed), 0.0 = genuine neutral alignment.
+    # Never use `or 0.0` fallback — that collapses the meaningful None/0.0 distinction.
+    i6_dict = event.i6.model_dump(exclude_none=True)
+    ctf_score = i6_dict.get("ctf_score")
+    ctf_trend_alignment = i6_dict.get("ctf_trend_alignment")
+    ctf_structure_alignment = i6_dict.get("ctf_structure_alignment")
+    ctf_regime_agreement = i6_dict.get("ctf_regime_agreement")
 
     return (
         event.ts,  # $1 ts
@@ -217,6 +234,10 @@ def _record_to_insert_params(
         session_type_val,  # $31 session_type
         days,  # $32 days_to_expiry
         event.feature_schema_version,  # $33 feature_schema_version (contamination boundary)
+        ctf_score,  # $34 ctf_score (top-level; None = cold-start, 0.0 = genuine neutral)
+        ctf_trend_alignment,  # $35 ctf_trend_alignment
+        ctf_structure_alignment,  # $36 ctf_structure_alignment
+        ctf_regime_agreement,  # $37 ctf_regime_agreement
     )
 
 
