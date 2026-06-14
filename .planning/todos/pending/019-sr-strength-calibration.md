@@ -2,6 +2,7 @@
 created: 2026-06-05T22:00:00.000Z
 title: SR Strength Calibration — Regression-Fit zone_engine default_strength weights
 area: intelligence
+resolves_phase: 125
 files:
   - src/intelligence/trading/zone_engine.py
   - docs/ideas/sr-zone-engine-improvements.md
