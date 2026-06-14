@@ -227,7 +227,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 | at_limit / at_pullback entry types for 4 setups | Better RR than entering at current close | ✓ Good — momentum_breakout, squeeze, trend, mtf_alignment all use structural levels |
 | Signal aggregator selects one winner per bar | Simple and debuggable; may expose multiple signals per bar in v1.1 | ⚠️ Revisit — single winner may miss concurrent high-conviction setups |
 | Auth deferred until external consumer exists | No external consumers; auth adds complexity without benefit today | ✓ Correct deferral |
-| Regime-aware gating on all I7 plugins | Jim Simons: signals that ignore market state are noise — enforce hmm_regime + prob + duration gates | ✓ Good — regime_suppressed shadow signals accumulate counterfactual data for gate tuning |
+| Regime-aware gating on all I7 plugins | Jim Simons: signals that ignore regime are noise — enforce hmm_regime + prob + duration gates | ✓ Good — regime_suppressed shadow signals accumulate counterfactual data for gate tuning |
 | Shadow signals → signal_ledger (not discarded) | Cannot validate gate thresholds without observability into suppressed signals | ✓ Good — counterfactual MAE/MFE/outcome tracked, empirical gate tuning enabled |
 | Validated alpha via validate_alpha.py gate | Renaissance: discard unless statistically proven (Pearson r>0, p<0.05, N≥30) | ✓ Good — bootstrap policy for data-absent correct implementations; re-run after data accumulates |
 | Bootstrap policy for new plugins without live data | Chicken-and-egg: plugin must be registered before data accumulates; verdict=BOOTSTRAP + audit trail | ✓ Good — avoids permanently blocking correct implementations waiting for live data |
@@ -261,7 +261,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
-## Current Milestone: v2.8 — AI Platform & Evolvable Agents
+## Current Milestone: v2.10 — Data Architecture Evolution (or v2.8 Part 2 after v2.10)
 
 **Goal:** Close structural debt from v2.7 audit, audit and fix shadow graduation blockers, then execute the AI platform stack with measurable evidence gates at every layer — each dependency earns its place before the next is added.
 
@@ -304,4 +304,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-30 — Phase 111 (naming-alignment) complete. BaseDaemon auto-derives agent_id from class name; 5 service renames finished; 29 test files renamed; structlog event prefixes aligned; Ring 0 pre-commit enforcement hook added. All 4049 unit tests green.*
+*Last updated: 2026-06-13 after v2.9 milestone — Signal Quality Renaissance shipped. 5.18M noise signals deleted and replayed clean; 21 I7 setups refactored with intrinsic-only confidence; param store wired for 46 plugin constants; shadow promotion pipeline live.*

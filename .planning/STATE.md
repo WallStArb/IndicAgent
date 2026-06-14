@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.9
-milestone_name: Signal Quality Renaissance
-status: in_progress
-last_updated: "2026-06-13T18:54:11.593Z"
+milestone: v2.10
+milestone_name: Data Architecture Evolution
+status: planning
+last_updated: "2026-06-13T00:00:00.000Z"
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 121 — lifecycle-replay-validation
+**Current focus:** v2.9 SHIPPED — planning v2.10 Data Architecture Evolution
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
@@ -44,16 +44,16 @@ See: .planning/PROJECT.md
 
 **Coverage:** 53/53 v2.8 requirements mapped + Phase 115 (5 FRAME reqs) + Phase 116 (3 SR reqs).
 
-## v2.9 Signal Quality Renaissance Phases (4/5 complete; Phase 121 Wave 1 done)
+## v2.9 Signal Quality Renaissance — SHIPPED 2026-06-13
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 117 | PatternCompletion Fix + Data Pipeline Validation | Complete (4/4 plans, 2026-06-08) |
+| 117 | PatternCompletion Fix + Data Pipeline Validation | Complete (5/5 plans, 2026-06-08) |
 | 118 | Confidence Integrity + Top 5 Setup Refactoring | Complete (7/7 plans, 2026-06-09) |
 | 119 | Remaining 16 Setup Refactoring | Complete (4/4 plans, 2026-06-10) |
 | 120 | Shadow Mode Validation | Complete (3/3 plans, 2026-06-10) |
-| 121 | Lifecycle Replay & Validation | In Progress — Wave 1 complete (1/2 plans, 2026-06-11); orchestrate running (stages: snapshot+decompress done, clean/replay/verify pending) |
-| 122 | I2 Tier Persistence Fix | Planned (4/4 plans, 2026-06-12) — ready to execute |
+| 121 | Lifecycle Replay & Validation | Complete (3/4 plans, 2026-06-11); 121-02 report deferred to Phase 126 |
+| 122 | I2 Tier Persistence Fix + Param Store | Complete (10/10 plans, 2026-06-13) |
 
 ## Evidence Gates
 

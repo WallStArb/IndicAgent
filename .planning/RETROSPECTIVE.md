@@ -4,6 +4,54 @@
 
 ---
 
+## Milestone: v2.9 — Signal Quality Renaissance
+
+**Shipped:** 2026-06-13
+**Phases:** 6 (117, 118, 119, 120, 121, 122) | **Plans:** 32 complete (33 written; 121-02 deferred) | **Timeline:** 6 days (2026-06-07 → 2026-06-13)
+
+### What Was Built
+
+- PatternCompletion data bug fixed: pattern_detections JSONB was not being persisted; 795K phantom signals traced to missing write path; fixed + FeatureParityAuditor timer deployed
+- Extrinsic confidence strip: hmm_regime_weight, apply_exhaustion_boost, CTF boosts, zone penalties removed from all 36 I7 confidence formulas; confidence is now intrinsic-only (signal geometry, magnitude, persistence)
+- 21 NEEDS_REFACTOR setups refactored with 6 GOOD patterns: multi-factor intrinsic confidence, I6 confluence gate, dual gate (regime + CTF), continuous hmm_regime_weight, early gate optimization
+- Shadow promotion pipeline: ShadowValidator weekly oneshot (5-gate: binomtest p<0.05, N>=100, win_rate>50%, avg_pnl_r>0, calibration_corr>0.3); shadow_auditor becomes demotion-only
+- Signal ledger replay: 5.18M noise signals deleted; phase_121_orchestrate.py 7-stage state machine; clean replay from stored features; MacroContextPlugin 5-field enrichment
+- I2 tier persistence: I2Events schema 45 fields, extra="forbid"; intelligence_features i2 JSONB column; feature_replay.py I7-only replay path; 46 plugin constants wired to param store (migration 129)
+
+### What Worked
+
+- Root cause first: fixing upstream data bugs (PatternCompletion write path, CVD threshold enforcement) before refactoring downstream confidence formulas prevented cleaning up symptoms while root causes persisted
+- Intrinsic-only confidence principle: single architectural rule (confidence = signal geometry only) replaced dozens of ad-hoc adjustments and made the refactor mechanical across all 21 setups
+- Orchestrated replay (7-stage state machine with decompress/recompress): prevented hours-long stall on TimescaleDB compressed chunks; state persistence allowed safe interruption and resume
+- Shadow-only gate on all refactored setups: validation framework exists before promotion is possible; promotion criteria are statistical, not manual
+
+### What Was Inefficient
+
+- Phase 122 replanning: the param-store migration was planned as Phase 121 absorbed work, then expanded to 10 plans; earlier scoping would have set cleaner phase boundaries
+- Plan 121-02 (validation report) deferred: replay completed but the comparison report requires v2.10 clean-replay baseline for meaningful before/after; deferred work could have been scoped differently upfront
+- Feature_replay.py uuid4 fallbacks: architecture review identified 2 edge-case paths still using random UUIDs; flagged but not closed within v2.9
+
+### Patterns Established
+
+- Intrinsic confidence rule: I7 confidence is computed from signal geometry only; extrinsic context (HMM regime, I6 scores, macro state) travels via capture_signal_features() and is excluded from the confidence path
+- shadow-only promotion ceremony: all refactored setups require ShadowValidator 5-gate pass before shadow_registry.shadow_only can be set False; no manual promotion
+- Param store pattern: runtime-tunable constants use config-backed getters; no hardcoded thresholds in production code paths
+- Orchestrated replay pattern: 7-stage state machine with decompress → clean → replay → recompress; state persisted to disk to survive interruption
+
+### Key Lessons
+
+1. **Fix data bugs before refactoring consumers**: 795K phantom PatternCompletion signals came from a write-path bug, not a logic bug; fixing the write path first made the refactor correct from the start
+2. **Extrinsic modifiers in confidence formulas corrupt ML training data**: when HMM regime weight was inside confidence, it was impossible to learn HMM's marginal contribution from labeled outcomes - the label already reflected HMM's influence
+3. **Replay architecture needs a fast path**: I1-I6 full recompute in replay is a DAG violation and wastes hours; feature_replay.py from stored intelligence_features is the right pattern for I7-only re-evaluation
+4. **Plan deferred work explicitly**: "121-02 deferred to Phase 126" is cleaner than leaving an unchecked box; makes the deferral and its dependency (clean-replay baseline) explicit
+
+### Cost Observations
+
+- Sessions: ~6 sessions over 6 days
+- Notable: Phase 122 was the deepest single phase (10 plans, touching schema, write path, replay, and param store in sequence); factoring it into smaller milestones would have been cleaner
+
+---
+
 ## Milestone: v2.7 — Mathematical Correctness, Storage & Hardening
 
 **Shipped:** 2026-05-29
