@@ -14,7 +14,7 @@
 - ✅ **v1.9 I7 Alpha Engine** — Phases 31-38 (shipped 2026-03-18)
 - ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
-- ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
+- ✅ **v2.2 Operational Excellence** — Phases 53.1–58, 60–63 (shipped 2026-04-08)
 - ✅ **v2.3 ML Foundation** — Phases 64, 65, 66 (shipped 2026-05-14; Phase 64 03C USD strength deferred)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
@@ -22,7 +22,7 @@
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104-109 (shipped 2026-05-29)
 - ✅ **v2.8 AI Platform — Part 1** — Phases 094-095, 106-108, 110-116 (shipped 2026-06-08)
 - ✅ **v2.9 Signal Quality Renaissance** — Phases 117-122 (shipped 2026-06-13; 5.18M noise signals deleted, 21 setups refactored, param store wired)
-- 📋 **v2.10 Data Architecture Evolution** — Phases 123-129 (7 phases: ECL restoration + APR full migration (all 3 tiers) + clean replay + 3-table migration)
+- 📋 **v2.10 Data Architecture Evolution** — Phases 123-130 (8 phases: ECL restoration + APR full migration (all 3 tiers) + I7 signal hardening + clean replay + 3-table migration)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked — v2.9 complete; next after v2.10)
 
 ## Phases
@@ -196,9 +196,9 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [x] **Phase 52.2: BaseAgent Infrastructure + AgentRegistry** — TDD BaseAgent + AgentRegistry; renamed IndicatorService → IndicatorComputeAgent; fixed 4 broken tests; systemd unit — COMPLETE
 - [x] **Phase 52.3: Dual-Write Shadow Writer** — migration `051_feature_snapshots_shadow.sql`; `FeatureSnapshotWriterAgent` consuming `intelligence.journal` into shadow table; independent consumer group — COMPLETE 2026-03-27
 - [x] **Phase 52.4: SignalTrackerAgent Refactor** — renamed `SignalLifecycleService` → `SignalTrackerAgent`; extracted `SignalLedgerRepository`; inherited `BaseAgent`; retired `indicagent-signal-lifecycle.service` — COMPLETE 2026-03-27
-- [x] **Phase 52.5: Parity Auditor Agent** — `ParityAuditorAgent` 5-min timer; `FieldViolation` schema; `SHADOW_PARITY_CERTIFIED` gate (60 consecutive clean cycles); autonomous cutover evidence — COMPLETE 2026-03-28
-- [x] **Phase 52.6: BaseAgent + ProcessManifest Enhancement** — BaseAgent enhanced lifecycle contract (_setup/_teardown, tracer, topics, running); ProcessManifest replaces singleton AgentRegistry; all 4 pipeline agents migrated; `init_tracing()` wired — COMPLETE 2026-03-28
-- [x] **Phase 52.7: Grafana Tempo Infrastructure** — Tempo Docker service; OTLP HTTP :4318; Grafana datasource provisioned; `OTEL_EXPORTER_OTLP_ENDPOINT` in 5 agent systemd units; `PYTHONUNBUFFERED=1` completed — COMPLETE 2026-03-28
+- [x] **Phase 52.5: Parity Auditor Agent** — `ParityAuditorAgent` 5-min timer; `FieldViolation` schema; `SHADOW_PARITY_CERTIFIED` gate (60 consecutive clean cycles); autonomous cutover evidence — COMPLETE 2026-03-27
+- [x] **Phase 52.6: BaseAgent + ProcessManifest Enhancement** — BaseAgent enhanced lifecycle contract (_setup/_teardown, tracer, topics, running); ProcessManifest replaces singleton AgentRegistry; all 4 pipeline agents migrated; `init_tracing()` wired — COMPLETE 2026-03-27
+- [x] **Phase 52.7: Grafana Tempo Infrastructure** — Tempo Docker service; OTLP HTTP :4318; Grafana datasource provisioned; `OTEL_EXPORTER_OTLP_ENDPOINT` in 5 agent systemd units; `PYTHONUNBUFFERED=1` completed — COMPLETE 2026-03-27
 - [x] **Phase 52.8: Kafka Trace Propagation** — W3C `traceparent` inject/extract in `KafkaProducerClient`/`KafkaConsumerClient`; `_KafkaHeadersCarrier` OTel adapter; end-to-end bar journey traces visible in Grafana Tempo — COMPLETE 2026-03-28
 
 Full details: `.planning/milestones/v2.1-ROADMAP.md`
@@ -213,38 +213,15 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 **Execution order** (dependency-driven, reverse numeric — DAG built dependency-first):
 
 - [x] **Phase 53.3: RollComputeAgent + DataProviderAgent Rename** ✅ Complete 2026-03-28 — `RollComputeAgent` standalone on `topic_roll_events()`; `tws_daemon` → `DataProviderAgent`; port :9122
-  - [x] 053.3-01-PLAN.md — RollEvent schema + topic_roll_events stream key
-  - [x] 053.3-02-PLAN.md — DataProviderAgent rename + roll removal
-  - [x] 053.3-03-PLAN.md — RollComputeAgent implementation + test redirect
-  - [x] 053.3-04-PLAN.md — signal_generator_agent consumer migration + cleanup
 - [x] **Phase 53.2: BarAggregatorComputeAgent** ✅ Complete 2026-03-28 — `BarAccumulator` extracted into standalone `BarAggregatorComputeAgent`; `FeatureComputeAgent` now pure intelligence consumer; port :9120
-  - [x] 053.2-01-PLAN.md — is_flat_bar schema + BarAccumulator propagation + DataProviderAgent emission
-  - [x] 053.2-02-PLAN.md — BarAggregatorComputeAgent implementation + systemd unit
-  - [x] 053.2-03-PLAN.md — FCA simplification (remove BarAccumulator, add HTF subscription) + CLAUDE.md update
 - [x] **Phase 53.1: BarWriterAgent + BarAuditorAgent** ✅ Complete 2026-03-28 — `BarWriterAgent` decouples OHLCV persistence from compute path; `BarAuditorAgent` self-healing gap-fill loop; retires `gap_fill_service`; ports :9121/:9123
-  - [x] 053.1-01-PLAN.md — Shared schemas (topic_gap_requests, BarGapRequest) + BarWriterAgent implementation + tests
-  - [x] 053.1-02-PLAN.md — BarAuditorAgent + DataProviderAgent gap-requests loop + tests
-  - [x] 053.1-03-PLAN.md — FCA cleanup (remove _ohlcv_buffer) + systemd units + gap_fill_service retirement + CLAUDE.md
 - [x] **Phase 50: Roll Monitor + DualDivergence Graduation** ✅ Infrastructure Complete 2026-04-08 — market_data_5m view, FeatureWriterAgent→topic_roll_events, trad_DualDivergence shadow verified; graduation deferred to Phase 63
-  - [x] 50-PLAN.md — Infrastructure built (8/8 tasks executed 2026-04-02)
-  - [x] market_data_5m view created
-  - [x] FeatureWriterAgent wired to topic_roll_events
-  - [x] Roll premium computation verified (0.0 = gap unknown)
-  - [x] trad_DualDivergence shadow confirmed (IS_SHADOW=True)
-  - ⏸ D-21 validation blocked by schema mismatch → fix in Phase 63
-  - ⏸ RollComputeAgent graduation → handled by Phase 63
-  - ⏸ trad_DualDivergence promotion → handled in Phase 63-06 (IS_SHADOW=False, no stat gate needed — no real prod)
 - [x] **Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation** ✅ Complete 2026-03-28 — `BaseProviderAgent` + adapter pattern; `IBKRAdapter` wraps `IBKRProvider`; `ProviderMergerAgent` is canonical author of `market.bars` with auto-failover; ports :9129/:9130
 - [x] **Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline** ✅ Complete 2026-03-29 — `IntelligencePipelineComputeAgent` merges I1-I7 into single in-process pipeline; Kafka/DB are output sinks only; state checkpointing to compacted topic; `pre_quality_confidence`/`pre_calibration_confidence` on `signal_ledger`; port :9125
-  Design doc: `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
+Design doc: `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
 
-  - [x] 57-01-PLAN.md — Kafka infrastructure, signal_ledger migration, systemd unit scaffolding
-  - [x] 57-02-PLAN.md — I1-I6 in-process pipeline, state checkpointing, BarHistorySeeder warmup
-  - [x] 57-03-PLAN.md — I7 integration, confidence attribution, output queue, async drain
 - [x] **Phase 57.1: SignalWriterAgent — signal_generator_agent Retirement** — New `intelligence.i7.signals` topic; thin `SignalWriterAgent` (WriterAgent) consumes all ranked I7 signals → `signal_ledger`; fix winner publish to `topic_signals_aggregated`; retire `signal_generator_agent`
-  Design doc: `docs/plans/archive/2026-03-30-signal-writer-agent.md` (historical — file since removed)
-
-  - [x] 057.1-01-PLAN.md — stream key, pipeline publish fix, SignalWriterAgent, tests, systemd, retirement
+Design doc: `docs/plans/archive/2026-03-30-signal-writer-agent.md` (historical — file since removed)
 
 </details>
 
@@ -254,20 +231,20 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 **Milestone Goal:** Intelligence pipeline expansion (cross-TF confluence, gradient scoring), and the first swarm agent (SkepticAgent) on Phase 56 infrastructure.
 
 - [x] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 11 plans, shadow-only — COMPLETE 2026-04-11
-  Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
+Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
 
 - [x] **Phase 65: Gradient Audit** — 25+ binary fields converted, 8-function gradient_utils.py, CI scanner gate, 5/5 plans — COMPLETE 2026-04-24. Note: swing_amplitude_expanding companion (swing_amplitude_intensity) not implemented — minor gap, non-blocking.
 - [x] **Phase 64: I6 Confluence Expansion** — COMPLETE 2026-05-14. 5 new I6 cross-TF plugins (momentum divergence, S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) + MacroComputeAgent (yield curve + FTQ) + full pipeline integration. 03C USD strength deferred (low priority; YC+FTQ providing macro context).
-  Design doc: `docs/ideas/i6-confluence-expansion.md`
+Design doc: `docs/ideas/i6-confluence-expansion.md`
 
 - [x] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService with Skeptic, Correlation, and Volume agents. 16/16 truths verified, 43/43 tests passing — COMPLETE 2026-04-24. Operational gates pending: live service deploy + 30-day statistical validation (~May 25).
 
-  Plans:
+Plans:
 
-  - [x] 066-01-PLAN.md — Shared infrastructure: SwarmDispatchService + SwarmContext D-16 fix + SkepticAgent + systemd unit + tests
-  - [x] 066-02-PLAN.md — CorrelationAgent + VolumeAgent: pure compute classes + prompt registries + registry wiring
-  - [x] 066-03-PLAN.md — Validation framework: naive baseline + Pearson correlation with graduation gates
-  - [x] 066-04-PLAN.md — Integration tests: multi-agent dispatch, shared cache, context enrichment
+- [x] 066-01-PLAN.md — Shared infrastructure: SwarmDispatchService + SwarmContext D-16 fix + SkepticAgent + systemd unit + tests
+- [x] 066-02-PLAN.md — CorrelationAgent + VolumeAgent: pure compute classes + prompt registries + registry wiring
+- [x] 066-03-PLAN.md — Validation framework: naive baseline + Pearson correlation with graduation gates
+- [x] 066-04-PLAN.md — Integration tests: multi-agent dispatch, shared cache, context enrichment
 
 </details>
 
@@ -279,14 +256,14 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 **Execution order:** 63-06 → 68 → 67 (correctness before instrumentation — Renaissance principle)
 
 - [x] **Phase 68: Pipeline Hardening & Institutional Foundation** — Complete 2026-04-23
-  Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings wiring, numeric label, long bias, confidence boost pre-calibration), BaseWriterAgent + 5 writer migrations + write-path reliability (offset commit, DLQ, bounded buffer), end-to-end bar_id trace, full confidence attribution vector, TRUNCATE signal_ledger clean slate, symbol-keyed aggregate tables (6 tables).
-  Design doc: `docs/plans/2026-04-11-pipeline-hardening-design.md`
+Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings wiring, numeric label, long bias, confidence boost pre-calibration), BaseWriterAgent + 5 writer migrations + write-path reliability (offset commit, DLQ, bounded buffer), end-to-end bar_id trace, full confidence attribution vector, TRUNCATE signal_ledger clean slate, symbol-keyed aggregate tables (6 tables).
+Design doc: `docs/plans/2026-04-11-pipeline-hardening-design.md`
 
 - [x] **Phase 67: Observability, Alerting & Automation** ← COMPLETE 2026-04-23 (2/2 plans)
-  ✅ AlertingAgent (Plan 01) — centralized Kafka-to-Telegram/Discord dispatcher
-  ✅ Webhook removal (Plan 02) — service_auditor migrated to _send_alert(), SRP restored
-  Grafana alert rules (Telegram/Discord), `market_data_gaps` table + `bar_auditor_agent` write path, roll automation in `service_auditor_agent`, 4 code fixes (bootstrap retry, cache seeding, webhook dispatcher, crash counter), 3 dashboard rebuilds.
-  Design doc: `docs/plans/2026-04-12-observability-automation-design.md`
+✅ AlertingAgent (Plan 01) — centralized Kafka-to-Telegram/Discord dispatcher
+✅ Webhook removal (Plan 02) — service_auditor migrated to _send_alert(), SRP restored
+Grafana alert rules (Telegram/Discord), `market_data_gaps` table + `bar_auditor_agent` write path, roll automation in `service_auditor_agent`, 4 code fixes (bootstrap retry, cache seeding, webhook dispatcher, crash counter), 3 dashboard rebuilds.
+Design doc: `docs/plans/2026-04-12-observability-automation-design.md`
 
 </details>
 
@@ -296,55 +273,54 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 **Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path, harden AI/LLM layer, complete swarm intelligence, harden signal lifecycle, and add ML scoring + qualitative foundation. All 14 phases shipped.
 
 - [x] **Phase 69: Writer Agent Renaissance Refactor** — COMPLETE 2026-04-23
-  Shared consume loop in BaseWriterAgent, _create_consumer() helper, 5 Prometheus metrics, critical overflow alerts + backpressure, FeatureSnapshotWriterAgent migrated from BaseAgent to BaseWriterAgent. 3 writers removed duplicated _run(). 146 tests pass.
-  **Design doc:** `docs/plans/2026-04-13-basewriter-renaissance-refactor-design.md`
-  **Planning:** `.planning/phases/069-writer-renaissance-refactor/`
+Shared consume loop in BaseWriterAgent, _create_consumer() helper, 5 Prometheus metrics, critical overflow alerts + backpressure, FeatureSnapshotWriterAgent migrated from BaseAgent to BaseWriterAgent. 3 writers removed duplicated _run(). 146 tests pass.
+**Design doc:** `docs/plans/2026-04-13-basewriter-renaissance-refactor-design.md`
+**Planning:** `.planning/phases/069-writer-renaissance-refactor/`
 
 - [x] **Phase 71: BaseAgent Infrastructure Alignment** — COMPLETE 2026-04-14
-  Settings singleton in BaseAgent, auto init_tracing(), vestigial logging removal, default _report_consumer_lag(), LLMWriterService migrated to BaseWriterAgent.
-  **Design doc:** `docs/plans/2026-04-14-base-agent-infrastructure-alignment-design.md`
-  **Planning:** `.planning/phases/071-base-agent-infrastructure-alignment/`
+Settings singleton in BaseAgent, auto init_tracing(), vestigial logging removal, default _report_consumer_lag(), LLMWriterService migrated to BaseWriterAgent.
+**Design doc:** `docs/plans/2026-04-14-base-agent-infrastructure-alignment-design.md`
+**Planning:** `.planning/phases/071-base-agent-infrastructure-alignment/`
 
 - [x] **Phase 72: Signal Transform Log** — COMPLETE 2026-04-25
-  Phase 1 dual-write infrastructure: signal_transform_log hypertable, transform_graduation table, TransformRecorder batch writer, graduation.py validation module, GraduationComputeAgent + GraduationWriterAgent services, Kafka topics, and recorder calls wired into all 9 transforms (6 math + 3 swarm). Existing confidence-mutation behavior unchanged; log is write-only and graduation runs in shadow.
-  **Design spec:** `docs/plans/2026-04-24-signal-transform-log-design.md`
-  **Planning:** `.planning/phases/072-signal-transform-log-unified-alpha-modifier-architecture-add/`
+Phase 1 dual-write infrastructure: signal_transform_log hypertable, transform_graduation table, TransformRecorder batch writer, graduation.py validation module, GraduationComputeAgent + GraduationWriterAgent services, Kafka topics, and recorder calls wired into all 9 transforms (6 math + 3 swarm). Existing confidence-mutation behavior unchanged; log is write-only and graduation runs in shadow.
+**Design spec:** `docs/plans/2026-04-24-signal-transform-log-design.md`
+**Planning:** `.planning/phases/072-signal-transform-log-unified-alpha-modifier-architecture-add/`
 
 - [x] **Phase 73: AI LLM Layer B+ Architecture Refactor** — COMPLETE 2026-04-29 (7/7 plans shipped)
-  Fixes 10 structural defects in AI/LLM layer, creates universal AI agent infrastructure (`src/core/ai/`), reorganizes agents into mandate-based groups (`src/intelligence/ai/`), applies 6 LLM chain fixes, adds narrative TF gate, deletes dead `swarm_orchestrator_agent`, renames `swarm_dispatch_service` -> `alpha_swarm_agent`, merges shadow+transform into unified signal_lineage, and enforces import boundary discipline.
-  **Planning:** `.planning/phases/73-ai-llm-layer-b-architecture-refactor/`
+Fixes 10 structural defects in AI/LLM layer, creates universal AI agent infrastructure (`src/core/ai/`), reorganizes agents into mandate-based groups (`src/intelligence/ai/`), applies 6 LLM chain fixes, adds narrative TF gate, deletes dead `swarm_orchestrator_agent`, renames `swarm_dispatch_service` -> `alpha_swarm_agent`, merges shadow+transform into unified signal_lineage, and enforces import boundary discipline.
+**Planning:** `.planning/phases/73-ai-llm-layer-b-architecture-refactor/`
 
-  Plans:
+Plans:
 
-  - [x] 73-01-PLAN.md — Delete dead swarm_orchestrator + add Kafka topic functions (D-08, D-09, D-16, D-49) — COMPLETE 2026-04-29
-  - [x] 73-02-PLAN.md — Build src/core/ai/ infrastructure: 5 modules + TDD tests (D-18-22, D-30-31, D-42-45, D-51) — COMPLETE 2026-04-29
-  - [x] 73-03-PLAN.md — 6 LLM chain fixes: rate limiter, guardrails, auto-audit, real tokens, cache key (D-04-07, D-11-15, D-17) — COMPLETE 2026-04-29
-  - [x] 73-04-PLAN.md — Move agents to mandate-based groups + narrative TF gate (D-23-27, D-34, D-35) — COMPLETE 2026-04-29
-  - [x] 73-05-PLAN.md — Rename dispatch->alpha_swarm + refactor services to BaseGroupService (D-10, D-32, D-33, D-50) — COMPLETE 2026-04-29
-  - [x] 73-06-PLAN.md — Unified signal_lineage: hypertable, LineageRecorder, LineageWriterAgent (D-01-07 lineage, D-46-48) — COMPLETE 2026-04-29
-  - [x] 73-07-PLAN.md — Test migration, import boundary enforcement, cleanup, CLAUDE.md update (D-36-41, D-48, D-51)
+- [x] 73-01-PLAN.md — Delete dead swarm_orchestrator + add Kafka topic functions (D-08, D-09, D-16, D-49) — COMPLETE 2026-04-29
+- [x] 73-02-PLAN.md — Build src/core/ai/ infrastructure: 5 modules + TDD tests (D-18-22, D-30-31, D-42-45, D-51) — COMPLETE 2026-04-29
+- [x] 73-03-PLAN.md — 6 LLM chain fixes: rate limiter, guardrails, auto-audit, real tokens, cache key (D-04-07, D-11-15, D-17) — COMPLETE 2026-04-29
+- [x] 73-04-PLAN.md — Move agents to mandate-based groups + narrative TF gate (D-23-27, D-34, D-35) — COMPLETE 2026-04-29
+- [x] 73-05-PLAN.md — Rename dispatch->alpha_swarm + refactor services to BaseGroupService (D-10, D-32, D-33, D-50) — COMPLETE 2026-04-29
+- [x] 73-06-PLAN.md — Unified signal_lineage: hypertable, LineageRecorder, LineageWriterAgent (D-01-07 lineage, D-46-48) — COMPLETE 2026-04-29
+- [x] 73-07-PLAN.md — Test migration, import boundary enforcement, cleanup, CLAUDE.md update (D-36-41, D-48, D-51) — COMPLETE 2026-04-29
 - [x] **Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator** — COMPLETE 2026-04-26
-  Add state checkpointing to BarAggregatorComputeAgent following IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
-  **Planning:** `.planning/phases/74-barnormalizeragent-canonical-grid-completeness-service-for-t/`
+Add state checkpointing to BarAggregatorComputeAgent following IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
+**Planning:** `.planning/phases/74-barnormalizeragent-canonical-grid-completeness-service-for-t/`
 
 - [x] **Phase 76: Signal Lifecycle Labeling Fix & Activation Gate** — COMPLETE 2026-04-28
-  Fix 2,744 mislabeled signals (activated_at + never_activated), add temporal guard, bootstrap TTL sweep, activation probability gate, backfill SQL. 3 plans.
-  **Planning:** `.planning/phases/076-signal-lifecycle-labeling-activation-gate/`
+Fix 2,744 mislabeled signals (activated_at + never_activated), add temporal guard, bootstrap TTL sweep, activation probability gate, backfill SQL. 3 plans.
+**Planning:** `.planning/phases/076-signal-lifecycle-labeling-activation-gate/`
 
 - [x] **Phase 70: ML Scoring Model + AI-SEP-01 Table Decoupling** — COMPLETE 2026-05-13
-  LightGBM scoring layer (MLScorerMultiplierAgent, shadow_only=True), nightly MLTrainingComputeAgent (L8), AI-SEP-01 table decoupling (signal_ai_enrichment + intelligence_ai_enrichment tables), feature_builder.py with walk-forward CV, SHAP via MLflow, SIGUSR1 hot-reload. 4/4 plans shipped.
-  **Planning:** `.planning/phases/070-ml-scoring-model/`
-
+LightGBM scoring layer (MLScorerMultiplierAgent, shadow_only=True), nightly MLTrainingComputeAgent (L8), AI-SEP-01 table decoupling (signal_ai_enrichment + intelligence_ai_enrichment tables), feature_builder.py with walk-forward CV, SHAP via MLflow, SIGUSR1 hot-reload. 4/4 plans shipped.
+**Planning:** `.planning/phases/070-ml-scoring-model/`
 - [x] **Phase 75: Shadow Governance System** — COMPLETE (absorbed into Phase 77; shadow_registry migration 077, ShadowAuditorAgent service, features_snapshot rename, auto-enrollment)
 - [x] **Phase 77: OTel Observability Unification** — COMPLETE 2026-04-29 (4/4 plans)
-  Replace 24 per-process HTTP metrics servers + manual service registries with OTel Collector stack. One OTLP push pipeline, dynamic systemd service discovery, Alertmanager declarative rules, hot-path distributed tracing activation. Zero manual config maintenance.
-  Design doc: `docs/plans/2026-04-28-otel-observability-unification-design.md`
-  **Planning:** `.planning/phases/077-otel-observability-unification/`
+Replace 24 per-process HTTP metrics servers + manual service registries with OTel Collector stack. One OTLP push pipeline, dynamic systemd service discovery, Alertmanager declarative rules, hot-path distributed tracing activation. Zero manual config maintenance.
+Design doc: `docs/plans/2026-04-28-otel-observability-unification-design.md`
+**Planning:** `.planning/phases/077-otel-observability-unified/`
 
 - [x] **Phase 79: Signal Quality Fix — Zone Width + Entry Price** — COMPLETE 2026-05-03
-  Fix zero-width signal zones (entry==stop==target) caused by plugins building signal dicts manually instead of using `make_signal_from_frame()`. Add `signal_schema_version` (tracks `SIGNAL_SCHEMA_VERSION` constant, currently 'v2') and `entry_type` columns to signal_ledger. Add co-fire tracking (`co_fire_count`/`co_fire_partners`). Migrate all 36 I7 plugins to `make_signal_from_frame()`. Add signal quality metrics. Pre-v1 signals ('v0') are contaminated — ML training queries MUST filter `WHERE signal_schema_version >= 'v1'`.
-  Design spec: `docs/plans/2026-05-03-phase-79-signal-quality-fix-design.md`
-  **Planning:** `.planning/phases/079-signal-quality-fix/`
+Fix zero-width signal zones (entry==stop==target) caused by plugins building signal dicts manually instead of using `make_signal_from_frame()`. Add `signal_schema_version` (tracks `SIGNAL_SCHEMA_VERSION` constant, currently 'v2') and `entry_type` columns to signal_ledger. Add co-fire tracking (`co_fire_count`/`co_fire_partners`). Migrate all 36 I7 plugins to `make_signal_from_frame()`. Add signal quality metrics. Pre-v1 signals ('v0') are contaminated — ML training queries MUST filter `WHERE signal_schema_version >= 'v1'`.
+Design spec: `docs/plans/2026-05-03-phase-79-signal-quality-fix-design.md`
+**Planning:** `.planning/phases/079-signal-quality-fix/`
 
 **Success Criteria (Phases 69+71+72+73+75+76+77):**
 
@@ -373,7 +349,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ Phase 73: AI LLM Layer B+ Architecture Refactor (2026-04-29)
 - ✅ Phase 74: BarNormalizerAgent State Checkpointing (2026-04-26)
 - ✅ Phase 75: Shadow Governance System (2026-04-29, absorbed into Phase 77)
-- ✅ Phase 76: Signal Lifecycle Labeling Fix (2026-04-28)
+- ✅ Phase 76: Signal Lifecycle Labeling (2026-04-28)
 - ✅ Phase 77: OTel Observability Unification (2026-04-29)
 - ✅ Phase 78: I8 Alpha Feedback Loop (2026-05-03)
 - ✅ Phase 79: Signal Quality Fix — Zone Width + Entry Price (2026-05-03)
@@ -451,7 +427,7 @@ Refer to the archived file for detailed success criteria, requirements, and plan
   3. ✅ `tests/unit/service_tests/test_concurrent_lock_behavior.py` exists and passes
   4. 🗑 Requirements traceability dropped — housekeeping, no downstream impact
 
-### Phase 49.2: HMM Operational Fixes — observability, fallback logging, warm-up noise (INSERTED)
+### Phase 49.2: HMM Operational Fixes — INSERTED
 
 **Goal:** Make HMM regime gating observable and self-correcting — log 2D fallback, persist hmm_n_dims and hmm_warmed_up to intelligence_features JSONB, suppress warm-up noise via prob zeroing.
 **Requirements**: [HMM-01, HMM-02, HMM-03, HMM-04]
@@ -509,6 +485,7 @@ Plans:
 **Note**: Automated gap-fill moved to Phase 091.1 (BarAuditorAgent). Remaining undelivered items (deploy_dashboard.sh, /health endpoints) carry to v2.2 if needed.
 
 </details>
+
 <details>
 <summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-092) — SHIPPED 2026-05-20</summary>
 
@@ -557,6 +534,7 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
+
 **Wave 1**
 
 - [x] 093-01-PLAN.md — Test infrastructure (pandas-ta install, correctness/ package, conftest fixtures)
@@ -828,7 +806,7 @@ Plans:
 
 - [x] 104-04-PLAN.md — Create ml_signal_training hypertable + MLSignalTrainingMaterializeAgent + nightly systemd timer (02:00 UTC) + service_auditor registration; outcome backfill via ON CONFLICT DO UPDATE UPSERT (idempotent, handles late-resolving pnl_r/mae/mfe)
 
-**Success Criteria** (what must be TRUE):
+**Success Criteria** (all met):
 
   1. 9 hypertables have retention policies (timescaledb_information.jobs has 9+ policy_retention rows)
   2. 6 Kafka topics have retention.bytes=524288000 (no longer -1)
@@ -858,7 +836,7 @@ Plans:
 
 **Goal**: Fix 11 active bugs identified in the 2026-05-23 architectural audit — shadow signal suppression, data loss in persistence writers, stall watchdog wiring, and FeatureWriter ghost-run on DB failure.
 **Depends on**: Phase 104
-**Status**: ✅ Complete 2026-05-24 (5/5 plans)
+**Status**: ✅ Complete (5/5 plans)
 
 - [x] 105-01-PLAN.md — ctx_writer + llm_writer AttributeErrors, stall watchdog, dead topics (HF-2, HF-3, HF-6, HF-10, HF-11)
 - [x] 105-02-PLAN.md — feature_writer fail-fast, bar_writer liveness, swarm_ledger auto-commit (HF-4, HF-5, HF-7)
@@ -943,7 +921,6 @@ Plans:
 ### Phase 107: Infrastructure Hygiene
 
 **Goal**: Audit and close accumulated DB and observability debt before AI platform work begins. Fix silent data loss, standardize service patterns, eliminate dead code, and ensure metrics correctness across 9 measurable criteria organized into 3 waves.
-
 **Depends on**: Phase 106
 **Requirements**: HYGIENE-01, HYGIENE-02, HYGIENE-03, HYGIENE-04 (expanded to 9 criteria via Renaissance design)
 **Success Criteria** (what must be TRUE):
@@ -1018,6 +995,7 @@ Plans:
 **Plans:** 7/7 plans complete
 
 Plans:
+
 **Wave 1**
 
 - [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
@@ -1061,693 +1039,61 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [x] 109-02-PLAN.md — OutboxDispatcher + ConfigService HTTP API + config metrics + stream keys
+- [x] 109-02-PLAN.md — OutboxDispatcherAgent + topic_config_updates + ConfigService integration
+- [x] 109-03-PLAN.md — BaseAgent config snapshot + hot-reload subscription
+- [x] 109-04-PLAN.md — SelfHealingAgent + webhook receiver + SelfHealingEngine
+- [x] 109-05-PLAN.md — 15 runtime params migration + CLAUDE.md update
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [x] 109-03-PLAN.md — BaseAgent config reload pattern integration + systemd units
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [x] 109-04-PLAN.md — SelfHealingEngine + remediation strategies + ledger
-
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [x] 109-05-PLAN.md — SelfHealingAgent service + runtime params migration + cleanup (_LAG_THRESHOLDS, shadow_only)
-
-### Phase 094: LiteLLM + Instructor Structured Output — COMPLETE 2026-05-29
-
-**Goal**: Replace ~450 LOC of bespoke provider logic with LiteLLM configuration. Layer Instructor structured output on top to eliminate per-agent JSON parsing boilerplate. Parse failure rate measured before and after.
-**Depends on**: Phase 107
-**Requirements**: LLM-INFRA-01, LLM-INFRA-02, LLM-INFRA-03, LLM-INFRA-04, LLM-INFRA-05, STRUCT-OUT-01, STRUCT-OUT-02, STRUCT-OUT-03, STRUCT-OUT-04
-**Success Criteria** (what must be TRUE):
-
-  1. `OllamaProvider`, `OpenRouterProvider`, and `LLMChain` classes are deleted; `git grep` finds zero references; net LOC reduction >= 300 lines
-  2. `LLMProviderChain.generate()` signature is unchanged; `BaseGroupService` and all 4 swarm agents compile and pass existing tests without modification
-  3. Kafka audit callbacks, `SemanticCache`, and `TokenBudget` produce identical behavior before and after swap, verified by existing tests
-  4. `last_provider_id` and `last_token_usage` populate in `llm_calls` rows after migration
-  5. `llm_calls.parse_success` rate is measured before Phase 094 ships and after; result documented; if no improvement, STRUCT-OUT is flagged for review rather than silently promoted
-  6. Each agent declares one typed `BaseModel` result class; `_parse_multiplier_response` and `_validate_*_fields` boilerplate deleted; LOC reduction confirmed
-
-**Plans**: 3 plans — COMPLETE
-
-- [x] 094-01-PLAN.md — LiteLLMBackend implementation with multi-provider routing
-- [x] 094-02-PLAN.md — LLMProviderChain wire-up + legacy provider deletion
-- [x] 094-03-PLAN.md — Instructor structured output layer + agent migration
-
-### Phase 110: Renaissance Rename
-
-**Goal**: Align the entire codebase vocabulary with the Ring/taxonomy naming system. Retire `Agent` suffix from Ring 0 infrastructure and Ring 2 daemons. Rename Ring 1 AI evaluation classes to their mathematical object names. Update file names, systemd units, imports, and Ring 3 surface strings. Clean break — no compatibility aliases.
-**Depends on**: Phase 094
-**Requirements**: RENAME-01, RENAME-02, RENAME-03, RENAME-04
-**Success Criteria** (what must be TRUE):
-
-  1. `git grep -rn "BaseAgent\|BaseWriterAgent\|BaseProviderAgent\|BaseAIAgent\|BaseGroupService\|AgentContext\|AgentProtocol" src/core/` returns zero results; 7 Ring 0 base classes renamed per Section 9 of naming spec
-  2. All 9 Ring 1 AI evaluation classes renamed (e.g. `SkepticComputeAgent` → `SkepticEvaluator`); `AIContext` → `SignalContext`; `git grep` finds zero old Ring 1 names
-  3. All 33 Ring 2 daemon processes renamed per Section 9; file names updated (`_agent` suffix retired from Ring 2 files); `git grep -rn "ComputeAgent\|WriterAgent\|ProviderAgent\|AuditorAgent\|GroupService"` returns zero results in `services/`
-  4. systemd unit files, API imports, and dashboard display strings updated; `pytest tests/unit/ -q` passes with zero failures; `ruff check .` passes
-
-**Execution**: Atomic branch `rename/phase-110`; 4 waves executed sequentially (Ring 0 → Ring 1 → Ring 2 → file/systemd/imports); fast-forward merge to main when all criteria pass.
-
-**Plans**: 4 plans in 4 waves (sequential)
-
-Plans:
-**Wave 1**
-
-- [x] 110-01-PLAN.md — Wave 1: rename 5 Ring 0 base classes (BaseAgent→BaseDaemon, etc.)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 110-02-PLAN.md — Wave 2: rename Ring 1 AI evaluation layer + move Evaluator to src/core/ai/evaluator.py
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 110-03-PLAN.md — Wave 3: rename 33 Ring 2 daemon classes (agent_id labels preserved)
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [x] 110-04-PLAN.md — Wave 4: file renames, systemd ExecStart, API/Tier3 fixes, dashboard, CLAUDE.md
-
-**Cross-cutting constraints:**
-
-- pytest tests/unit/ passes with zero failures; ruff check . passes
-
-### Phase 111: Full Naming Alignment
-
-**Goal**: Complete the naming alignment work started in Phase 110 — fix all runtime surfaces (Prometheus labels, log paths, structlog event strings), rename 5 missing services, enforce the Ring 0 boundary in pre-commit, and clean up 29 test file names and 9 test class names. After this phase, `agent_id` labels, log file paths, and event strings all derive from class names automatically; no subclass can silently drift.
-**Depends on**: Phase 110
-**Requirements**: ALIGN-01, ALIGN-02, ALIGN-03, ALIGN-04
-**Success Criteria** (what must be TRUE):
-
-  1. `BaseDaemon.__init__` accepts `name: str | None = None`; when `None`, derives `agent_id` via `_to_snake_case(self.__class__.__name__)`; all 18 `name=` override calls removed from services; all 15 `setup_service_logging()` path overrides removed; all 2 `_AGENT_NAME` module constants deleted; hardcoded `"feature_writer_agent"` metric label fixed; 11 stale `_AGENT_ID_TO_UNIT` keys updated
-  2. 5 missing Phase 110 service renames complete (`DLQDrain`, `MLSignalTrainingMaterializer`, `shadow_auditor.py`, `self_healer.py`, `config_service.py`); `TEMPLATE_agent.py` → `TEMPLATE.py`; all systemd ExecStart paths updated; `pytest tests/unit/ -q` green; `ruff check .` clean
-  3. Structlog event string prefixes updated in all 20 affected files to match derived `agent_id` (e.g. `bar_aggregator_agent.` → `bar_aggregator.`); `grep -rn "_agent\." services/ src/` returns zero hits for stale prefixes
-  4. Ring 0 pre-commit hook added to `.git/hooks/pre-commit`; fires on deliberate `from src.intelligence` import in `src/core/`; `ctx` → `audit_context`/`context` local var cleanup in 2 files; 29 test file names + 9 test class names updated; CLAUDE.md log naming rule corrected; Grafana + alertmanager label values updated
-
-**Plans**: 4 plans in 4 waves (sequential)
-
-Plans:
-
-- [x] 111-01-PLAN.md — Wave 1: BaseDaemon auto-derive; remove name= overrides; remove logging overrides; delete _AGENT_NAME constants; fix metric label; update _AGENT_ID_TO_UNIT; Grafana + alertmanager
-- [x] 111-02-PLAN.md — Wave 2: 5 missing service renames + TEMPLATE rename; systemd ExecStart; 29 test file renames; 9 test class renames
-- [x] 111-03-PLAN.md — Wave 3: structlog event string prefix replacement across 20 files
-- [x] 111-04-PLAN.md — Wave 4: Ring 0 pre-commit hook; ctx → audit_context/context cleanup; CLAUDE.md updates
-
-**Cross-cutting constraints:**
-
-- pytest tests/unit/ passes with zero failures; ruff check . passes
-
-### Phase 095: Pydantic AI Agent Execution Layer — COMPLETE 2026-05-31
-
-**Goal**: Add a typed, validated LLM execution path to `BaseAIWorker` — a `WorkerContext` frozen dep container, an `LLMAdapter` (pydantic-ai `FunctionModel`) that routes through `LLMProviderChain` preserving circuit breaking and the `llm_calls` audit trail, and a `_run_typed()` method plus `result_type: ClassVar` opt-in — so every AI agent gets pydantic-ai's grammar-constrained structured output, validation, and retry for free. `SkepticEvaluator` is migrated straight to `_run_typed()` as the reference implementation (no parallel class, no feature gate).
-**Depends on**: Phase 094 (and sequenced after Phase 110 rename)
-**Requirements**: AGENT-EXEC-01, AGENT-EXEC-02, AGENT-EXEC-03, AGENT-EXEC-04, AGENT-EXEC-05
-**Success Criteria** (what must be TRUE):
-
-  1. `LLMAdapter` (`make_llm_adapter()`) is a pydantic-ai `FunctionModel` whose `request()` routes through `LLMProviderChain.generate()`, passing the `result_type` JSON schema as `response_format` and the audit_context; circuit breaking and the `llm_calls` trail are preserved (AGENT-EXEC-01)
-  2. `WorkerContext` frozen dataclass at `src/core/ai/worker_context.py` carries `signal_context`, `llm_chain`, `db_pool`, `memory_client`; Ring 0 boundary preserved via TYPE_CHECKING + `Any` (AGENT-EXEC-02)
-  3. `BaseAIWorker` has `result_type: ClassVar` and `_run_typed()` using pydantic-ai 1.0 API (`output_type=`, `result.output`), timeout from `self._timeout_s`, RuntimeError when `result_type is None` (AGENT-EXEC-03)
-  4. `SkepticEvaluator` runs via `_run_typed()` with `result_type=SkepticResult` and `agent_id="skeptic"`; transfer function and AlphaSwarm wiring unchanged; no `SkepticPydanticEvaluator`, no `ENABLE_PYDANTIC_SKEPTIC` gate (AGENT-EXEC-04)
-  5. `BaseAIWorker._llm_generate()` / `_llm_generate_structured()` are unmodified; unmigrated agents pass all existing tests (AGENT-EXEC-05)
-
-**Plans**: 5 plans — COMPLETE
-
-- [x] 095-01-PLAN.md — pydantic-ai dependency + WorkerContext frozen dataclass (Wave 1)
-- [x] 095-02-PLAN.md — response_format threading through chain.generate() + LiteLLMBackend (Wave 1)
-- [x] 095-03-PLAN.md — LLMAdapter FunctionModel bridge through LLMProviderChain (Wave 2)
-- [x] 095-04-PLAN.md — _run_typed() + result_type ClassVar on BaseAIWorker (Wave 3)
-- [x] 095-05-PLAN.md — SkepticEvaluator straight migration + alpha_swarm mapping (Wave 4)
-
-### Phase 096: Agent Registry
-
-**Goal**: Operators can add or reconfigure an agent by editing `agents.yaml` and restarting the service; no Python file changes, no deployment, no code review required.
-**Depends on**: Phase 095
-**Requirements**: AGENT-REG-01, AGENT-REG-02, AGENT-REG-03, AGENT-REG-04
-**Success Criteria** (what must be TRUE):
-
-  1. Adding a new entry to `agents.yaml` with valid fields and restarting the service instantiates the agent without any Python file changes
-  2. `AgentRegistry` is the sole construction path — no agent is instantiated anywhere else at startup
-  3. Starting the service with a spec missing a required field or pointing to a non-existent agent class fails fast with a descriptive error before any bar is processed
-  4. `shadow_registry` DB table remains the promotion/demotion authority; `agents.yaml` cannot force production promotion — that requires the statistical gate
-
-**Plans:** 7 plans in 3 waves
-
-Plans:
-
-- [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
-- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
-- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
-- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
-- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
-- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
-
-### Phase 097: Zep Episodic Memory
-
-**Goal**: Agents can recall past setups by regime, symbol, and setup type; memory is gated behind feature flag, compute cost documented before enabling, and validated for quality before production use.
-**Depends on**: Phase 096
-| 109. Config Foundation & Self-Healing Engine | v2.7 | 5/5 | Complete    | 2026-05-29 |
-**Evidence gate**: Zep RAM footprint vs available headroom documented; recall p95 latency <= 50ms (agent latency budget). If p95 > 50ms, feature stays disabled.
-**Success Criteria** (what must be TRUE):
-
-  1. `ZepMemoryClient` provides `recall(context: AIContext) -> list[Episode]` and `store(episode: Episode)`; agents receive it via `AgentDeps.memory_client`
-  2. Memory recall is scoped by `(regime_type, symbol, setup_type)` to surface contextually relevant past setups
-  3. `AGENT_MEMORY_ENABLED` flag is `False` by default; enabling it requires shadow-mode recall quality validation showing confidence stability improvement
-  4. Memory recall p95 latency is measured via OTel histogram and documented; must not exceed 50ms to remain within agent `latency_budget_ms`
-
-**Plans:** 9/9 plans complete
-
-Plans:
-
-- [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
-- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
-- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
-- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
-- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
-- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
-
-### Phase 098: DSPy Offline Prompt Optimizer
-
-**Goal**: DSPy reads labeled (prompt, result, outcome) data from `llm_calls`, compiles optimized prompts offline, and stores them for A/B testing. Data gate verified before running.
-**Depends on**: Phase 096
-**Requirements**: OPT-01, OPT-02, OPT-03, OPT-04
-**Data gate**: At least 500 resolved, labeled rows per agent in `llm_calls` (outcome IS NOT NULL) before running optimizer. If data gate not met, phase is deferred.
-**Success Criteria** (what must be TRUE):
-
-  1. `DSPyOptimizer` reads labeled (prompt, result, outcome) tuples from `llm_calls` where outcome is non-null; data gate (>= 500 rows per agent) verified before first run
-  2. Optimized prompts are stored in `prompt_versions` table; `prompt_version` field in `llm_calls` enables controlled A/B comparison
-  3. `DSPyOptimizer` runs as a timer-triggered batch job; it does not touch the live inference path; no new systemd daemon required
-  4. A/B comparison report shows measurable improvement (win rate delta, parse failure delta, calibrated_confidence delta) before any optimized prompt is promoted to default
-
-**Plans:** 7 plans in 3 waves
-
-Plans:
-
-- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
-- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
-- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
-- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
-- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
-- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
-
-### Phase 099: Guardrails AI Validation
-
-**Goal**: `GuardrailsAIValidator` drops in as a replacement for existing validators, reducing residual parse failures that Instructor cannot handle.
-**Depends on**: Phase 094
-**Requirements**: GUARD-01, GUARD-02, GUARD-03
-**Evidence gate (CONDITIONAL)**: This phase executes ONLY IF post-Instructor parse failure rate (STRUCT-OUT-03) remains above 1%. If Instructor brings parse failures below 1%, Phase 099 is deferred — adding another validation layer without evidence is waste.
-**Success Criteria** (what must be TRUE):
-
-  1. `GuardrailsAIValidator` implements the same interface as existing validators; zero call-site changes required
-  2. Custom `_validate_*_fields` methods are replaced by Guardrails AI validation; total custom validation LOC is lower than post-Instructor baseline
-  3. Guardrails AI latency overhead is measured; must not exceed 10ms p95 vs existing validator
-
-**Plans:** 7 plans in 3 waves
-
-Plans:
-
-- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
-- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
-- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
-- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
-- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
-- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
-
-### Phase 115: Framing Audit Trail
-
-**Goal**: Capture the full stop/target framing decision audit trail — adaptive buffer multiplier, stop basis, structural distance, and plugin regime type — in `TradeFrame`, signal dict, and `signal_ledger`. Wire `regime_type` to all 26 `frame_trade()` call sites so Hurst tightening is live for all plugins.
-**Depends on**: Phase 112 (Intelligence Pipeline Signal Integrity)
-**Requirements**: FRAME-01, FRAME-02, FRAME-03, FRAME-04, FRAME-05
-**Success Criteria** (what must be TRUE):
-
-  1. `TradeFrame` has `adaptive_buffer_mult` (float, default 1.0) and `plugin_regime_type` (str|None) fields; `__post_init__` guards `adaptive_buffer_mult > 0`
-  2. `make_signal_from_frame()` propagates `stop_basis`, `structural_stop_distance_atr`, `adaptive_buffer_mult`, `plugin_regime_type` into every signal dict
-  3. Acceptance grep: `grep -rn "frame_trade(" src/intelligence/trading/ | grep -v "def frame_trade|regime_type=|microstructure_utils|test_|trade_framer.py"` returns 0 results
-  4. Migration 119 adds 5 nullable columns to `signal_ledger` and recreates `signal_ledger_full` view to expose them; `LedgerEntry` and `_INSERT_SQL` updated to $33 parameters
-  5. `STOP_BUFFER_MULT_DISTRIBUTION` OTel histogram records per `{regime_type, stop_type}` on every `frame_trade()` call; structlog DEBUG event `adaptive_buffer_applied` fires when buffer ≠ 1.0
-
-**Plans**: 5 plans in 4 waves
-
-Plans:
-
-**Wave 1** — TradeFrame extension (independent)
-
-- [x] 115-01-PLAN.md — Extend TradeFrame with adaptive_buffer_mult + plugin_regime_type; extract multiplier before first _reject_frame() call; TDD
-
-**Wave 2** *(depends on Wave 1)* — Signal dict propagation
-
-- [x] 115-02-PLAN.md — Propagate 4 audit fields through make_signal_from_frame(); remove manual stop_basis injection in cross_asset_divergence.py; TDD
-
-**Wave 3** *(depends on Wave 2)* — Call site wiring
-
-- [x] 115-03-PLAN.md — Wire regime_type=self.regime_type to all 26 frame_trade() call sites (25 direct plugins + microstructure_utils); grep acceptance check
-
-**Wave 4** *(depends on Wave 3)* — Persistence + observability (parallel)
-
-- [x] 115-04-PLAN.md — Migration 119: add 5 columns to signal_ledger + recreate signal_ledger_full; update LedgerEntry + _INSERT_SQL (_to_row 33 params) + signal_writer; TDD
-- [x] 115-05-PLAN.md — STOP_BUFFER_MULT_DISTRIBUTION OTel histogram + structlog debug in frame_trade(); structlog.testing.capture_logs() tests
-
-### Phase 114: Occam's Razor — Complexity-Aware Model Selection
-
-**Goal**: Implement Renaissance-style complexity-aware model selection for shadow ML agents. Build simple baselines (linear/logistic/rule-based), run both complex and baseline models on identical 30-day signal data, and apply a paired bootstrap statistical test with complexity penalty. If the baseline wins or ties, the complex model is automatically rejected via `shadow_registry` update with structured reason codes and comprehensive audit trail.
-**Depends on**: Phase 096 (Agent Registry)
-**Requirements**: OCCAM-01, OCCAM-02, OCCAM-03, OCCAM-04
-**Success Criteria** (what must be TRUE):
-
-  1. `BaselineBuilder` protocol has explicit `fit()`, `predict()`, `metadata()` methods with typed signatures and fail-closed guards (NaN, zero-variance, insufficient data)
-  2. `OccamRazorEvaluator` uses paired bootstrap (timestamp-aligned return deltas) with explicit penalized decision rule: `penalized_delta = sharpe_delta - lambda * log1p(complexity_ratio)`
-  3. `shadow_registry` has `occam_status` (with CHECK constraint), `occam_ci_lower`, `occam_ci_upper`, `occam_sharpe_delta`, `occam_baseline_id`, `occam_rejected_at` columns
-  4. `AlphaSwarm._run_occam_razor_cycle()` evaluates shadow ML agents with idempotent rejection (WHERE guard on occam_status) and advisory lock for concurrent safety
-  5. Structured reason codes: `REJECTED_LOW_SHARPE`, `REJECTED_COMPLEXITY`, `REJECTED_TIE` (not free-text)
-  6. OTel metrics `OCCAM_REJECTIONS_TOTAL`, `OCCAM_EVALUATIONS_TOTAL`, `OCCAM_COMPLEXITY_RATIO`, `OCCAM_SHARPE_DELTA` emitted
-  7. Grafana dashboard `Occam's Razor` shows evaluations, rejections, complexity ratios
-  8. Golden dataset tests with deterministic assertions prove all decision paths
-
-**Plans**: 4 plans in 4 waves (revised per cross-AI review)
-
-### Phase 116: SR Consensus — Multi-Method Support/Resistance Synthesis
-
-**Goal**: Replace the single-method pivot-based SR plugin with a three-step system that produces clean, proximity-gated, multi-source confluenced support/resistance levels. Fix bad inputs at source, extend the existing zone_engine synthesis with missing candidate sources, then expose the result as a persistent I4 feature (`sr_nearest_support/resistance`) so all downstream consumers get real levels instead of fallbacks.
-**Depends on**: None (independent)
-**Spec**: `docs/plans/2026-06-05-sr-consensus.md`
-**Success Criteria** (what must be TRUE):
-
-  1. `struct_SupportResistance` uses ATR-proportional cluster radius (`atr * 0.5`) and TF-proportional lookback (5m=60bars, 1h=120bars); no `price * 0.98` synthetic fallback — returns `{}` when no real pivot found
-  2. `zone_engine._SUPPORT_SPECS/_RESISTANCE_SPECS` includes fib, prior session H/L, Asian session H/L, nearest HVN above/below, AVWAP bands, Keltner midline
-  3. `ctx_SRConsensus` (I4 Wave-B) outputs `sr_nearest_support`, `sr_nearest_resistance`, confluence scores, and dist_atr fields — all `None` when no level within TF cap, never synthetic
-  4. Round number candidates derived from price-magnitude grid (`10^floor(log10(price))`) — instrument-agnostic, zero configuration
-  5. `sr_support_dist_pct = 2.0` pattern (synthetic fallback signature) drops to near zero in `intelligence_features`
-  6. All existing unit tests pass; new unit tests cover ATR clustering, TF lookback selection, round number grid, consensus output with and without candidates
-
-**Plans:** 3/3 plans complete
-
-Plans:
-
-**Wave 1** — Fix struct_SupportResistance I3 inputs (independent)
-
-- [x] 116-01-PLAN.md — ATR-proportional clustering + TF-proportional lookback + volume-weighted strength + kill synthetic fallback; update SR plugin unit tests
-
-**Wave 2** *(depends on Wave 1)* — Extend zone_engine candidate synthesis
-
-- [x] 116-02-PLAN.md — Add 6 sources per direction to _SUPPORT/_RESISTANCE_SPECS + dist_atr HVN strength handler + collect_sr_candidates() proximity-gated function; extend zone_engine tests
-
-**Wave 3** *(depends on Wave 2)* — ctx_SRConsensus I4 Wave-B plugin
-
-- [x] 116-03-PLAN.md — 6 I4Context schema fields (schema-first) + ctx_SRConsensus plugin (round numbers + proximity gate + confluence) + 4-location registration + new unit test file
-
-### Phase 101: Composite Fitness Function
-
-**Goal**: Build rigorous fitness evaluation across 5 dimensions before enabling reproductive operators. Gate for Phases 102-103: composite score **standard deviation** across live agents must be >= 0.2 (FIT-06 discriminative-power gate; metric `fitness_population_stddev`).
-**Depends on**: Phase 099 (or Phase 094 if 099 is deferred)
-**Requirements**: FIT-01, FIT-02, FIT-03, FIT-04, FIT-05, FIT-06
-**Success Criteria** (what must be TRUE):
-
-  1. Bootstrap CI, Sharpe ratio, and win rate with statistical significance are computed per agent and stored in `agent_fitness` table; all three readable before Phase 102 begins
-  2. Novelty score (decorrelation from live agent population) is computed and stored per agent; prevents redundant agents from surviving selection
-  3. Calibration metric (confidence vs realized outcome alignment) is computed per agent via reliability diagram; stored in `agent_fitness`
-  4. Regime specificity performance (segmented by `hmm_regime` label) is computed per agent and stored
-  5. Efficiency metric (output quality / latency * tokens) is computed and stored; penalizes expensive agents with marginal edge
-  6. Cross-agent composite score **standard deviation (population stddev, `statistics.pstdev`) >= 0.2** across the live agent population; if stddev < 0.2, Phases 102-103 are blocked until the fitness function is revised. (Terminology note: prior drafts said "variance"; the gate is on **stddev**, gauge `fitness_population_stddev`, threshold `FITNESS_VARIANCE_GATE_THRESHOLD=0.2`. Stddev is the correct measure for bounded [0,1] composites where true variance 0.2 would be unattainable.)
-
-**Plans**: 6 plans
-
-- [ ] 101-01-PLAN.md — Foundation: agent_fitness hypertable + FITNESS_* Settings + OTel metrics + fitness package (wave 1)
-- [ ] 101-02-PLAN.md — Accuracy (FIT-01) + Calibration (FIT-03) calculators (wave 2)
-- [ ] 101-03-PLAN.md — Regime specificity (FIT-04) + Efficiency (FIT-05) calculators (wave 2)
-- [ ] 101-04-PLAN.md — Novelty (FIT-02) + geometric-mean Composite calculators (wave 2)
-- [ ] 101-05-PLAN.md — PromotionGate + DemotionGate pure classes (wave 2)
-- [ ] 101-06-PLAN.md — fitness_auditor oneshot + shadow_auditor refactor + FIT-06 variance gate + systemd (wave 3)
-
-### Phase 102: Genetic Infrastructure
-
-**Goal**: Build gene bank, frozen archive, and decomposition algorithms to extract best genome segments from demoted agents.
-**Depends on**: Phase 101 (FIT-06 discriminative power gate passed)
-**Requirements**: GENE-01, GENE-02, GENE-03, GENE-04
-**Evidence gate**: Phase 102 does not begin until FIT-06 composite score shows cross-agent **stddev >= 0.2** (`fitness_population_stddev`).
-**Success Criteria** (what must be TRUE):
-
-  1. `agent_genomes` TimescaleDB table exists with full genome serialization (prompt, config, tool set, `agent_id`); schema is versioned
-  2. Gene bank catalogs best-performing chromosome segments from demoted agents; queryable by segment type and historical fitness score
-  3. Decomposition algorithm extracts highest-fitness chromosomes from failed agents with documented extraction criteria; results are reproducible
-  4. Resurrection evaluation tests demoted agents against new data; candidates with fitness > promotion threshold are flagged for operator review — no automatic promotion
-
-**Plans**: 4 plans
-
-- [ ] 102-01-PLAN.md — Frozen archive (agent_genomes TimescaleDB table)
-- [ ] 102-02-PLAN.md — Gene bank extraction (best segment catalog)
-- [ ] 102-03-PLAN.md — Decomposition algorithms (chromosome extraction)
-- [ ] 102-04-PLAN.md — Resurrection evaluation (test demoted agents against new data)
-
-### Phase 103: Reproductive Operators
-
-**Goal**: Implement mutation, recombination, and LLM-directed operators to enable agent evolution. All offspring start shadow_only=True and require composite fitness >= parent before any promotion.
-**Depends on**: Phase 101 (FIT-06 gate passed) and Phase 102 (GENE-01–04 operational)
-**Requirements**: REPRO-01, REPRO-02, REPRO-03, REPRO-04
-**Evidence gate**: Phase 103 does not begin until FIT-06 gate passed and GENE-01–04 operational.
-**Success Criteria** (what must be TRUE):
-
-  1. Mutation operator applies perturbations to prompts, configs, and parameters; offspring are registered in `shadow_registry` as `shadow_only=True` — never auto-promoted
-  2. Recombination operator crosses two parent agents and creates offspring inheriting best chromosomes; offspring are evaluated via FIT composite score before any promotion
-  3. LLM-directed operator analyzes parent performance data from `llm_calls` and proposes targeted improvements; output is a candidate genome, not an auto-deployed agent
-  4. Adaptive operator selection tracks per-operator fitness improvement rate over >= 50 offspring and allocates budget proportionally to operator success rate
-
-**Plans**: 4 plans
-
-- [ ] 103-01-PLAN.md — Mutation operator (prompt nudges, parameter shifts)
-- [ ] 103-02-PLAN.md — Recombination operator (crossover between parents)
-- [ ] 103-03-PLAN.md — LLM-directed operator (analyze parent, propose improvements)
-- [ ] 103-04-PLAN.md — Adaptive operator selection (track which operators work best)
+- [x] 109-06-PLAN.md — Regression tests + full suite green
 
 </details>
-
-### Phase 113: Architecture Hardening
-
-**Goal**: Fix twelve correctness and integrity problems surfaced by the 2026-06-03 Renaissance first-principles architecture review: dead Redis SSE code, SSE drop telemetry, topic-indexed fan-out, content-addressed signal IDs (CRITICAL-01), in-process confidence calibration (CRITICAL-02), BaseWriter sentinel contract (HIGH-01), idempotent feature upserts (HIGH-03), DAG invariant CI enforcement (MEDIUM-01), live contract hot-reload (MEDIUM-02), setup_performance sample gate, and pipeline backpressure circuit breaker. CRITICAL-03 (shadow governance statistical gates) is addressed in Phase 101 CONTEXT.md.
-**Depends on**: Phase 112
-
-Plans:
-
-- [x] 113-01-PLAN.md — All 12 tasks (SSE hardening + architecture review findings)
-
----
-
-### Phase 112: Intelligence Pipeline Signal Integrity
-
-**Goal**: Establish a forensic contamination boundary and fix 22 data integrity defects across the intelligence pipeline and signal lifecycle — calibration category error, quality floor absence, PERF-03 incomplete migration, SETUP_PRIORITY static bias, lifecycle mutable dicts, backfill outcome labeling, MAE/MFE persistence, regime cache cold-start, wave isolation, dual-write legacy access, output queue starvation, and latency hot-path — so every row written after Phase 0 deploy carries a `feature_schema_version = 2` clean-data guarantee and downstream ML training operates on verified, uncontaminated data.
-**Depends on**: Phase 111
-**Requirements**: PIPE-INT-01, PIPE-INT-02, PIPE-INT-03, PIPE-INT-04, PIPE-INT-05
-**Success Criteria** (what must be TRUE):
-
-  1. Phase 0 atomic commit ships: `feature_schema_version = 2` in `IntelligenceEvent` + `intelligence_features` migration + `signal_ledger` migration + `signal_ledger_full` view updated + `CHECKPOINT_VERSION = 2` + `setup_performance` reset to neutral (perf_multiplier=1.0, sample_size=0 for all pre-fix rows)
-  2. Calibration routes correctly: `apply_calibration` removed from `SignalProcessor.process()`; applied to filtered CIS inside `CISScorer.score()`; `calibrated_confidence` stamped from `cis_result.calibrated_cis`; quality floor empirically derived from win_rate query with `SIGNAL_MIN_PUBLISHABLE_CONFIDENCE` setting; `SETUP_PRIORITY` dict removed from ranker and aggregator; `long_bias=False` with confidence secondary tiebreak; all ships atomically
-  3. PERF-03 migration complete: `_state_migration_complete: ClassVar[bool]` on `PatternPlugin`; `PluginExecutor.__init__` raises named `RuntimeError` for any incremental plugin without confirmation; all legacy plugins audited and migrated
-  4. Signal lifecycle integrity: `status` and `market_entry_price` moved to `SignalState` (no canonical dict mutations); MAE/MFE persisted via `MAE_MFE_UPDATE` transition; regime cache seeded from bootstrap; backfill signals routed to `SignalReplayAuditor` not `ttl_expired_behind`; consumer `auto_offset_reset = "earliest"`
-  5. Architecture and latency: `frames["features"]` dual-write eliminated; wave isolation regression test passes; output queue weighted-fair drain (5:1); serialization JSON anti-pattern fixed; ML training queries gated on `feature_schema_version >= 2`
-
-**Plans**: TBD (5 waves matching spec phases 0-4)
-
-Plans:
-
-- [x] 112-01-PLAN.md — Wave 1: Phase 0 forensic boundary (migrations, version markers, setup_performance reset, checkpoint flush)
-- [x] 112-02-PLAN.md — Wave 2: Phase 1A critical logic fixes (calibration routing, quality floor, field alias map, PERF-03 class attr + executor gate, long_bias=False + SETUP_PRIORITY removal) — ships atomically
-- [x] 112-03-PLAN.md — Wave 3: Phase 1B lifecycle fixes (CONCERN-02 mutable dicts, backfill routing, MAE/MFE persistence, regime cache, consumer offset reset)
-- [x] 112-04-PLAN.md — Wave 4: Phase 2 architecture (wave isolation docs + test, features dual-write elimination, output queue weighted-fair, health loop, circuit breakers, queue depth metrics)
-- [x] 112-05-PLAN.md — Wave 5: Phase 3+4 latency + data remediation (fast-path protocol, serialization fix, batch enqueue, tier deadlines, flat features, ML training filters, calibration retraining gate, setup_performance window gate)
-
-**Cross-cutting constraints:**
-
-- `SIGNAL_SCHEMA_VERSION` bump ships at end of Wave 2 (1-F + 2-C) — NOT in Wave 1; see spec 0-C
-- `pytest tests/unit/ -q` passes; `ruff check .` clean after each wave
-
-</details>
-
----
 
 <details>
-<summary>✅ v2.9 Signal Quality Renaissance (Phases 117-122) — SHIPPED 2026-06-13</summary>
-
-**Milestone Goal:** Stop creating 4.46M noise signals (57% of total) by fixing the 21 NEEDS_REFACTOR implementations that fire 99.8% noise, while preserving all 30 sound trading concepts. Target: improve signal-to-noise ratio from 0.2% → 40%+ for high-volume setups.
-
-**Execution order:** v2.8 Part 1 (complete) → v2.9 → v2.8 Part 2 (resume)
-
-**Rationale:** v2.8 Part 2 (genetic operators, remaining AI platform) depends on high-quality signal data. Current state: 21 setups fire 4.46M noise signals (99.8% noise rate). Training ML models, evolving agents, or measuring fitness on corrupted data produces garbage results.
-
-**Design principles (Renaissance standard):**
-
-- Fix BAD INPUTS — upstream features produce unvalidated data that I7 setups consume
-- Enforce GOOD PATTERNS — multi-factor confidence, I6 confluence, strict gates, continuous regime weighting
-- Add validation gates — ParityAuditor catches data flow bugs before they create noise
-- Earn promotion through proof — shadow mode validates setups don't create noise (p<0.05, sufficient N)
-
-**Reference:** `docs/plans/2026-06-07-signal-quality-crisis-root-cause-analysis.md`
-
-**Phase Status:**
-
-- Phase 117: PatternCompletion Fix + Data Pipeline Validation ✅ COMPLETE 2026-06-08
-- Phase 118: Confidence Integrity + Top 5 Setup Refactoring ✅ COMPLETE 2026-06-09
-- Phase 119: Remaining 16 Setup Refactoring ✅ COMPLETE 2026-06-10
-- Phase 120: Shadow Mode Validation ✅ COMPLETE 2026-06-10
-- Phase 121: Lifecycle Replay & Validation ✅ COMPLETE 2026-06-11 (121-02 report deferred to Phase 126)
-- Phase 122: I2 Tier Persistence Fix + Param Store Migration ✅ COMPLETE 2026-06-13 (10/10 plans)
-
-Full details: `.planning/milestones/v2.9-ROADMAP.md`
-
-**Success Metrics (Before → After):**
-
-- Total signals: 7.85M → 4.0M target
-- Selection rate: 24% → 40% target
-- NEEDS_REFACTOR SNR: 0.19% → 40%+ target
-- trad_OFIContinuation: 1.59M → ~250K, 0.18% → 15-25% SNR
-- trad_PatternCompletion: 795K → ~95K, 0.15% → 15-25% SNR
-- Pattern detection bug: 795K phantom signals → 0
-- Confidence calibration: NOT TRACKED → tracked per setup
-
----
-
-### Phase 117: PatternCompletion Fix + Data Pipeline Validation
-
-**Goal:** Fix the PatternCompletion phantom data bug (795K signals on non-existent data), then build the validation infrastructure that prevents it happening again. The auditor is the regression guard for the bug just fixed, not a detector for a known-unfixed bug.
-
-**Depends on**: Phase 116 (SR Consensus)
-**Requirements**: VAL-01, VAL-02, VAL-03, VAL-04, VAL-05
-**Success Criteria** (what must be TRUE):
-
-  1. PatternCompletion write-path bug fixed: `pattern_detections` JSONB in `intelligence_features` contains dt_db_confidence, hs_confidence, tri_confidence fields on live bars (query confirms non-zero row count within 1 hour of fix deploy)
-  2. FeatureParityAuditor runs every 5 minutes via systemd timer; validates I5 pattern fields (dt_db_confidence, hs_confidence, tri_confidence) exist in intelligence_features; alerts on 100% NULL
-  3. ConfidenceCalibrationMonitor computes CORR(confidence, was_selected) per setup; publishes metric `signal_confidence_calibration{setup_plugin}`; alerts if correlation < 0.3 with N>=100
-  4. Base class validation enforces I6 confluence (ctf_score) present; plugins without ctf_score raise ArchitectureViolation unless `requires_i6_confluence=False` (factor-count enforcement removed per Council review — cargo-cult architecture)
-  5. Zero CI violations: new I7 plugins without I6 integration fail code review gate
-
-**Plans**: 4 plans in 3 waves
-
-Plans:
-
-**Wave 1** — Fix the bug (prerequisite for everything else)
-
-- [x] 117-01-PLAN.md — Investigate feature_writer write path for I5 pattern fields; fix so pattern_detections JSONB is populated; confirm with live query
-
-**Wave 2** *(depends on Wave 1)* — Detection infrastructure
-
-- [x] 117-02-PLAN.md — FeatureParityAuditor: audit_i5_patterns() + audit_i1_microstructure() + systemd timer + stream keys + OTel metrics
-- [x] 117-03-PLAN.md — ConfidenceCalibrationMonitor: compute_calibration() + metric publishing + alerting logic + systemd timer
-
-**Wave 3** *(depends on Wave 2)* — Architectural enforcement
-
-- [x] 117-04-PLAN.md — PatternPlugin._validate_i6_confluence() + ArchitectureViolation exception + CI pre-commit hook + documentation update
-
----
-
-### Phase 118: Confidence Integrity + Top 5 Setup Refactoring
-
-**Goal:** First, strip all signal-extrinsic modifiers from I7 confidence across all affected plugins (clean training data foundation). Then refactor the 5 highest-volume NEEDS_REFACTOR setups (OFIContinuation 1.59M, PatternCompletion 795K, GapAnalysis 331K, CVDDivergence 250K, DivergenceStack 181K) with correct intrinsic-only confidence. Expected: eliminate ~3.5M noise signals and establish clean ML training data.
-
-**Depends on**: Phase 117
-**Requirements**: REFACTOR-01, REFACTOR-02, REFACTOR-03, REFACTOR-04, REFACTOR-05
-**Architecture principle**: Confidence = signal-intrinsic quality only (pattern magnitude, persistence, structural quality). Extrinsic factors (HMM regime, CTF/I6 scores, exhaustion state, zone context, SMC events) travel in `capture_signal_features()` and are NOT applied to confidence. The SignalContextEnricher (future phase) learns these relationships from outcome data empirically. See `docs/ideas/signal-07-signal-context-enricher.md`.
-
-**Success Criteria** (what must be TRUE):
-
-  0. Wave 0 complete: all extrinsic confidence modifiers stripped from all affected I7 plugins per `docs/plans/2026-06-08-confidence-intrinsic-cleanup.md` — no `hmm_regime_weight`, `apply_exhaustion_boost/guard`, CTF boosts, or zone penalties remaining in any confidence formula; momentum_breakout/squeeze_expansion/trend_following composites restructured to intrinsic-only; a parametrized contract test proves extrinsic-only perturbation leaves confidence unchanged
-  1. trad_OFIContinuation: magnitude threshold (MIN_OFI_MAGNITUDE=500), multi-factor intrinsic confidence (magnitude + persistence + EWMA alignment + rel_volume), MIN_CONSECUTIVE_BARS=10; I6 CTF data in capture_signal_features() only
-  2. trad_PatternCompletion: data flow bug fixed (pattern fields persisted to DB), confidence_threshold 0.50→0.70, regime_type "any"→"trend"
-  3. trad_GapAnalysisSetup: min_gap_atr_mult 0.3→0.8; intrinsic confidence from gap geometry (gap size, ATR ratio, session timing); I6 CTF data in capture_signal_features() only
-  4. trad_CVDDivergence: empirical divergence threshold, _CONFIRMATION_BARS 3→5; intrinsic confidence from divergence magnitude and persistence; I6 CTF data in capture_signal_features() only
-  5. trad_DivergenceStack: multi-factor intrinsic confidence (divergence depth, alignment count, persistence); I6 CTF data in capture_signal_features() only
-  6. All 5 refactored setups run shadow_only=True; no production promotion until Phase 120 validation passes
-  7. Unit tests green; grep confirms zero hmm_regime_weight/exhaustion/zone/CTF calls in confidence path across all I7 plugins
-
-**Plans**: 7 plans (Wave 0 deletion sweep + Wave 0 restructure/contract-test + one per setup, serial)
-
-Plans:
-
-- [x] 118-00-PLAN.md — Wave 0a: Strip extrinsic confidence modifiers (mechanical deletion) across 12 affected I7 plugins
-- [x] 118-00b-PLAN.md — Wave 0b: Composite restructures (momentum_breakout, squeeze_expansion, trend_following) + parametrized extrinsic-contract test
-- [x] 118-01-PLAN.md — trad_OFIContinuation refactor: magnitude threshold + intrinsic multi-factor confidence
-- [x] 118-02-PLAN.md — trad_PatternCompletion refactor: fix data flow + threshold + regime
-- [x] 118-03-PLAN.md — trad_GapAnalysisSetup refactor: threshold + intrinsic confidence from gap geometry
-- [x] 118-04-PLAN.md — trad_CVDDivergence refactor: magnitude threshold + confirmation bars + intrinsic confidence
-- [x] 118-05-PLAN.md — trad_DivergenceStack refactor: multi-factor intrinsic confidence
-
-**Cross-cutting constraints:**
-
-- Final confidence flows through compose_confidence(raw_conf)
-- shadow_only = True is set
-
----
-
-### Phase 119: Remaining 16 Setup Refactoring
-
-**Goal:** Apply 6 GOOD patterns to all 16 remaining NEEDS_REFACTOR setups (OFIDivergence, OFISpike, CVDSpike, CandlestickPatternSetup, FailedBreakout, LiquidityHunt, DeltaExhaustion, SessionExtremesSetup, LVNBreakout, ORB15, ORB30, SecondLegContinuation, VCP, VWAPReclaim, DualDivergence, VWAPDeviation, MomentumBreakout). Expected: eliminate remaining ~1M noise signals.
-
-**Depends on**: Phase 118
-**Requirements**: REFACTOR-06, REFACTOR-07, REFACTOR-08
-**Success Criteria** (what must be TRUE):
-
-  1. All 16 setups follow 6 GOOD patterns: multi-factor confidence (min 4 factors), I6 confluence, strict dual gates, continuous hmm_regime_weight, early gate optimization, zone friction penalties
-  2. Confidence formulas use weighted composite (not single-factor meaningless formulas)
-  3. regime_type declared ("trend" | "mean_reversion" | "any"); hmm_regime_weight() applied for continuous weighting
-  4. Early gate optimization: cheap regime/I6 checks before expensive OHLCV extraction
-  5. All 16 setups run shadow_only=True
-  6. `validate_tier()` confirms all I7 plugins have multi-factor confidence and I6 integration
-
-**Plans**: 4 plans in 2 waves
-
-Plans:
-
-**Wave 1** — Refactor 8 easy setups (parallelizable)
-
-- [x] 119-01-PLAN.md — Refactor Group 1 (8 setups): OFIDivergence, OFISpike, CVDSpike, CandlestickPatternSetup, FailedBreakout, LiquidityHunt, DeltaExhaustion, SessionExtremesSetup
-
-**Wave 2** *(depends on Wave 1)* — Refactor 9 remaining setups + enforcement + docs
-
-- [x] 119-02-PLAN.md — Refactor Group 2 (9 setups): LVNBreakout, ORB15, ORB30, SecondLegContinuation, VCP, VWAPReclaim, DualDivergence, VWAPDeviation, MomentumBreakout
-- [x] 119-03-PLAN.md — validate_tier() enforcement + CI gate + regression tests
-- [x] 119-04-PLAN.md — Documentation update + CLAUDE.md 6 GOOD patterns reference
-
----
-
-### Phase 120: Shadow Mode Validation
-
-**Goal:** All 21 refactored setups run in shadow mode until empirically validated. Promotion criteria: p<0.05 (binomial test), N>=100, win_rate>50%, confidence_calibration>0.3.
-
-**Depends on**: Phase 119
-**Requirements**: SHADOW-01, SHADOW-02, SHADOW-03
-**Success Criteria** (what must be TRUE):
-
-  1. ShadowModeValidator runs weekly via systemd timer; queries signal_ledger_shadow for all refactored setups
-  2. Promotion criteria enforced: total>=100, win_rate>=50% (binomtest p<0.05 vs 50% baseline), avg_pnl_r>0, calibration_correlation>0.3
-  3. Setups passing promotion are updated: shadow_registry.shadow_only=False + notification event
-  4. Setups failing promotion remain shadow_only=True; failure reasons logged (insufficient N, low selection, not significant, negative expectancy, poor calibration)
-  5. Grafana dashboard shows shadow mode metrics: N, win_rate, p_value, avg_pnl_r, calibration per setup
-
-**Plans**: 4 plans in 2 waves
-
-Plans:
-
-**Wave 1** *(parallel, disjoint files)* — Promotion validator + auditor SoC split
-
-- [x] 120-01-PLAN.md — shadow_validator.py oneshot (5-gate promotion check + binomtest) + 6 OTel gauges + migration 121 signal_ledger_shadow view
-- [x] 120-02-PLAN.md — shadow_auditor.py surgical removal of promotion path (becomes demotion-only)
-
-**Wave 2** *(depends on 120-01)* — Operationalize + observe
-
-- [x] 120-03-PLAN.md — systemd timer (Mon 07:00 UTC) + service unit + service_auditor registration + Grafana dashboard + cheatsheet docs
-
----
-
-### Phase 121: Lifecycle Replay & Validation
-
-**Goal:** Replay signal ledger with corrected setup list. Compare before/after metrics: total signals, selection rate, SNR per setup. Validate overall system health.
-
-**Depends on**: Phase 120
-**Requirements**: REPLAY-01, REPLAY-02
-**Success Criteria** (what must be TRUE):
-
-  1. Lifecycle replay completes with corrected setups; signal_ledger populated with replay outcomes
-  2. Before/after comparison report shows: total signals 7.85M→4.0M target, selection rate 24%→40%, NEEDS_REFACTOR SNR 0.19%→40%+
-  3. All 30 setups have calibration_correlation>0.3 (confidence predicts selection)
-  4. trad_OFIContinuation: 1.59M→~250K signals, 0.18%→15-25% SNR
-  5. trad_PatternCompletion: 795K→~95K signals, 0.15%→15-25% SNR
-  6. Zero "stopped_at_entry" outcomes (stop losses outside zones validated)
-
-**Plans**: 3 plans in 2 waves
-
-Plans:
-
-**Wave 1** — Replay execution
-
-- [x] 121-01-PLAN.md — Lifecycle replay with corrected setups + signal_ledger repopulation + outcome backfill (executed 2026-06-11; 5.18M noise signals deleted, before-snapshot captured, decompress+clean+replay stages running)
-
-**Wave 2** *(depends on Wave 1)* — Pipeline hardening + validation report
-
-- [x] 121-03-PLAN.md — ATR hardening (I6 early-return guards, get_atr_valid) + MacroContextPlugin I4 wiring
-- [x] 121-04-PLAN.md — Pre-replay capture refinement: add 5 MacroContextPlugin fields to capture_signal_features() + verify macro data flow into frames["cross_asset"]
-- [ ] 121-02-PLAN.md — Before/after comparison report + SNR per setup + calibration validation + documentation
-
----
-
-### Phase 122: I2 Tier Persistence Fix
-
-**Goal:** Eliminate the hidden training/production bias in `intelligence_features` — I2Events schema is fully declared (no extra="allow"), live and historical pipelines produce identical `i2` content, and `intelligence_features` gains a dedicated `i2` JSONB column separated from `market_context`.
-
-**Depends on**: Phase 121
-**Requirements**: I2-PERSIST-01, I2-PERSIST-02, I2-PERSIST-03, I2-PERSIST-04
-**Spec**: `docs/plans/2026-06-12-i2-persistence-design.md`
-**Success Criteria** (what must be TRUE):
-
-  1. `I2Events` declares exactly 45 fields; `extra="forbid"` enforced; startup crashes on undeclared plugin output
-  2. `I2Events` contains zero MACD field declarations (those live in `I3Structure` with `extra="forbid"`)
-  3. `run_analysis_pipeline` returns `(intelligence_flat, tiered)` 2-tuple; `tiered["i2"]` contains only I2 plugin outputs
-  4. `_build_intelligence_event` constructs `i2=I2Events(**tiered.get("i2", {}))` — identical to live pipeline
-  5. `intelligence_features` table has `i2` JSONB column; live rows backfilled from `market_context`; `market_context` contains only `cross_asset` data
-  6. `feature_writer` writes `i2` to dedicated column; `market_context` receives only cross-asset data
-  7. `_load_precomputed_features` SELECT includes `i2` and `market_context`; `--use-precomputed-features` path complete for I7 signal generation
-
-**Plans:** 10 plans (7 original + 3 gap-closure)
-
-Plans:
-- [x] 122-01-PLAN.md — I2Events schema contract (45 fields, extra="forbid") + validation enablement
-- [x] 122-02-PLAN.md — Historical pipeline tiered output (run_analysis_pipeline 2-tuple, _build_intelligence_event, _load_precomputed_features)
-- [x] 122-03-PLAN.md — Database migration 124 (add i2 column, backfill, clean market_context)
-- [x] 122-04-PLAN.md — feature_writer i2 column split + historical sync INSERT tuple (13->14)
-- [x] 122-05-PLAN.md — Column rename migration 125 (i1/i3/i4/i5) + zone_engine ATR floor fix
-- [x] 122-06-PLAN.md — Deterministic signal IDs: close uuid4() fallbacks in 5 files
-- [x] 122-07-PLAN.md — feature_replay.py: I7-only replay from intelligence_features
-- [ ] 122-08-PLAN.md — GAP: Apply migration 125 (rename legacy tier columns to i1/i3/i4/i5)
-- [x] 122-09-PLAN.md — GAP: Fix feature_replay source literal + narrative i2 column reference
-- [x] 122-10-PLAN.md — GAP: Fix 4 TestBuildLedgerEntries test regressions (add mock bar_history)
+<summary>✅ v2.9 Signal Quality Renaissance — SHIPPED 2026-06-13</summary>
+
+- [x] **Phase 117: PatternCompletion Fix + Data Pipeline Validation** — Complete (5/5 plans, 2026-06-08)
+- [x] **Phase 118: Confidence Integrity + Top 5 Setup Refactoring** — Complete (7/7 plans, 2026-06-09)
+- [x] **Phase 119: Remaining 16 Setup Refactoring** — Complete (4/4 plans, 2026-06-10)
+- [x] **Phase 120: Shadow Mode Validation** — Complete (3/3 plans, 2026-06-10)
+- [x] **Phase 121: Lifecycle Replay & Validation** — Complete (3/4 plans, 2026-06-11); 121-02 report deferred to Phase 127
+- [x] **Phase 122: I2 Tier Persistence Fix + Param Store** — Complete (10/10 plans, 2026-06-13)
 
 </details>
 
----
-
 <details>
-<summary>📋 v2.10 Data Architecture Evolution (Phases 123-129)</summary>
+<summary>📋 v2.10 Data Architecture Evolution (Phases 123-130)</summary>
 
-**Milestone Goal:** Restore the ECL boundary (remove all extrinsic emission gates), clean the signal universe of state-detection over-firing, externalize detection thresholds to APR, run a clean historical replay with context_features persisted, then execute the 3-table signal architecture migration. Produces a signal corpus that is valid training data for the ML stack with no survivorship bias at either the emission or outcome layer.
+**Milestone Goal:** Establish correct signal architecture (3-table: signal_events / trade_frames / trade_executions), fully externalize APR (Adaptive Parameter Registry), and deliver clean replay for ML training data. ECL boundary (Phase 123) removes all extrinsic emission suppressors. APR migration (Phase 125) externalizes all 51 constants. I7 signal hardening (Phase 126) wires all exempt plugins and fixes raw signal mechanics. Clean replay (Phase 127) regenerates the signal universe on the corrected pipeline. 3-table migration (Phases 128-130) separates detection/hypothesis/execution.
 
-**Execution order:** v2.9 → v2.10 Workstream A (123-126) → v2.10 Workstream B (127-129) → v2.8 Part 2 (resume)
-
-**Status:** PLANNED — 3-table architecture decided. No conditional gates.
+**Execution order:** v2.9 → v2.10 Workstream A (123-127) → v2.10 Workstream B (128-130) → v2.8 Part 2 (resume)
 
 **Architecture decision (made):** 3-table — `signal_events` / `trade_frames` / `trade_executions`. `counterfactual_pnl_r` on `trade_frames` is the ML training target, populated by CounterfactualTracker (Phase 130). See `docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md` for full spec.
 
-**Two survivorship bias layers addressed:**
-- Bias Layer 1 (emission suppression by extrinsic gates): fixed in Phase 123
-- Bias Layer 2 (null pnl_r on non-executed signals): addressed structurally by counterfactual_pnl_r in Phase 127-129
+**Cross-cutting constraints (v2.10):**
+- None-vs-0.0 semantics (Phase 123): NULL = cold-start, 0.0 = genuine neutral — never OR fallbacks
+- No new Kafka topics without named producer-consumer pair
+- No new daemons without justification (compute is in-process)
+- All timestamps UTC (datetime.now(UTC) only)
+- ON CONFLICT IS NULL guard (feature_writer): `WHERE ctf_score IS NULL` — never `IS NULL OR = 0.0`
+
+**v2.11 seeds unlocked by v2.10:**
+- CounterfactualTracker daemon (Phase 130) — populates `counterfactual_pnl_r` on every trade frame regardless of execution
+- I6 DB bootstrap at daemon startup — permanent cold-start elimination for live trading
 
 ---
 
 ### Phase 123: ECL Boundary Restoration
 
-**Goal:** Remove all extrinsic emission suppressors (CTF gate, zone_friction gate, exhaustion guard) across all plugins. Add 5 ECL fields + context_features to signal schema. Promote context_features from _shadow dict to persisted column. Bump SIGNAL_SCHEMA_VERSION.
+**Goal:** Remove all extrinsic emission suppressors across all I7 plugins. Add 5 ECL fields plus `context_features` to the signal schema. Promote `context_features` from the `_shadow` dict to a persisted top-level signal field. Collect `factor_scores` dict in all 37 plugins before compositing. Bump `SIGNAL_SCHEMA_VERSION`. Rename architecture doc from `i7-setup-confidence-patterns` to `setup-confidence-patterns` and add ECL definition.
 
-**Depends on**: Phase 122
-**Requirements**: ECL-01, ECL-02, ECL-03
-**Success Criteria**:
+This phase is split into three waves:
+- **Wave A** — Gate removal + schema (replay-blocking, must ship first)
+- **Wave B** — Factor score persistence (same phase, not replay-blocking)
+- **Wave C** — Architecture doc rename and update
 
-  1. Zero plugins calling `no_signal()` based on CTF score, zone_friction, or exhaustion state
-  2. Signal schema has: `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `factor_scores`, `context_features`
-  3. `SIGNAL_SCHEMA_VERSION` incremented
-  4. `context_features` populated in signal_processor.py (not _shadow dict)
-  5. All 37 plugins collect `factor_scores` dict before compositing
-  6. `_PHASE_119_PLUGINS` frozenset deleted
-  7. `pytest tests/unit/intelligence/ -q` green
-  8. Architecture doc renamed: `i7-setup-confidence-patterns` → `setup-confidence-patterns`
-
-**Plans**: 3 plans in 2 waves
-
-  Wave 1 (replay-blocking critical path):
-
-  - [x] 123-01-PLAN.md — Wave A: CTF/zone_friction gate removal + 5 ECL schema fields + SIGNAL_SCHEMA_VERSION="v3" + context_features promotion + _PHASE_119_PLUGINS deletion + test fixes
-
-  Wave 2 (parallel, depend on 123-01):
-
-  - [x] 123-02-PLAN.md — Wave B: factor_scores dict collected in all 35 TIER_I7 setup plugins before compositing
-  - [x] 123-03-PLAN.md — Wave C: setup-confidence-patterns.md ECL reconciliation (dissolve Phase 119 category, confirm cross-refs)
+**Status:** ✅ Complete (2026-06-14; 3/3 plans executed)
 
 ---
 
@@ -1764,7 +1110,22 @@ Plans:
   3. `--warmup` flag operational in run_historical_pipeline.py
   4. `pytest tests/unit/ -q` green
 
-**Plans**: defer to `/gsd-plan-phase 124`
+**Plans**: 7 plans in 2 waves
+
+**Wave A** (deterministic, ship first):
+
+- [ ] 124-01-PLAN.md — Migration 130 (promote 4 CTF columns + backfill + JSONB strip) + feature_writer ON CONFLICT cold-start guard + CTF reader migration + `--warmup` flag
+- Status: Ready to execute
+
+**Wave B** (behavioral, after Wave A):
+
+- [ ] 124-02-PLAN.md — TrendFollowing structural rewrite (pullback-to-MA reversal / consolidation breakout)
+- [ ] 124-03-PLAN.md — OFIContinuation structural rewrite (OFI acceleration/thrust bar)
+- [ ] 124-04-PLAN.md — PatternCompletion structural rewrite (target reached / neckline break + instance consumption)
+- [ ] 124-05-PLAN.md — LiquiditySweepReclaim structural rewrite (rising edge + close-above acceptance)
+- [ ] 124-06-PLAN.md — AnchoredVWAPReversion structural rewrite (departure + return + rejection/reclaim candle)
+- [ ] 124-07-PLAN.md — D6 fire-rate sanity SQL (aggregate + segmented)
+- Status: Ready to execute
 
 ---
 
@@ -1787,30 +1148,52 @@ Plans:
 
 ---
 
-### Phase 126: Clean Replay + Validation
+### Phase 126: I7 Signal Universe Hardening
 
-**Goal:** Run full historical replay on corrected pipeline (Phases 123-125 in place) with `--warmup`. Produce Phase 121-02 validation report using correct methodology. Retrain calibration curves on clean corpus.
+**Goal:** Wire all 8 `_I7_I6_EXEMPT` plugins through I6 (or retire those without defensible theoretical basis), fix broken zero-signal plugins, audit every I7 plugin for institutional quant grounding, and fix raw signal mechanics so the clean replay in Phase 127 produces usable training data.
 
-**Depends on**: Phase 123, 124, 125
-**Requirements**: REPLAY-02 (carried from Phase 121)
+**Depends on**: Phase 125
+**Requirements**: SIGNAL-QUALITY-01
 **Success Criteria**:
 
-  1. Clean replay completes without errors
-  2. `context_features` coverage > 99% for non-cold-start signals
-  3. All 5 over-firing plugins at < 3% (SQL validated)
-  4. Validation report uses correct methodology — no cross-population Welch's t-test; measures: signal volume delta, CTF as feature, firing rates, null distribution
-  5. Calibration curves retrained on clean corpus
-  6. RCA Part VI updated
+  1. `_I7_I6_EXEMPT` set emptied — all retained plugins have proper I6 gate integration; retired plugins removed from `TIER_I7`
+  2. Zero I7 plugins with zero signal output in replay (all registered plugins fire)
+  3. `trad_MeanReversion` fixed or retired (currently 27 total signals, 26 pending)
+  4. Every I7 plugin has documented theoretical basis referencing quant literature; plugins without institutional backing flagged and retired
+  5. Zone minimum width `>= 0.5×ATR` enforced at emission gate (not just zone_engine config)
+  6. Stop calculated from entry price, not zone edge; emission gate: `stop_distance / ATR >= min_stop_atr_mult`
+  7. Asset-class parameter seeds in APR — equity ATR multipliers separate from forex
+  8. `stopped_at_entry` rate < 25% on replay subset (from current 47.6%)
+  9. `pytest tests/unit/ -q` green
 
 **Plans**: defer to `/gsd-plan-phase 126`
 
 ---
 
-### Phase 127: 3-Table Schema Design and ADR
+### Phase 127: Clean Replay + Validation
+
+**Goal:** Run full historical replay on corrected pipeline (Phases 123-126 in place) with `--warmup`. Produce Phase 121-02 validation report using correct methodology. Retrain calibration curves on clean corpus.
+
+**Depends on**: Phase 123, 124, 125, 126
+**Requirements**: REPLAY-02 (carried from Phase 121)
+**Success Criteria**:
+
+  1. Clean replay completes without errors
+  2. `context_features` coverage > 99% for non-cold-start signals
+  3. All previously over-firing plugins at < 3% (SQL validated)
+  4. Validation report uses correct methodology — no cross-population Welch's t-test; measures: signal volume delta, CTF as feature, firing rates, null distribution
+  5. Calibration curves retrained on clean corpus
+  6. RCA Part VI updated
+
+**Plans**: defer to `/gsd-plan-phase 127`
+
+---
+
+### Phase 128: 3-Table Schema Design and ADR
 
 **Goal:** Define full 3-table schema (signal_events / trade_frames / trade_executions) with column types, FK constraints, index strategy. Create ADR. `counterfactual_pnl_r` is a required first-class column on trade_frames — not optional.
 
-**Depends on**: Phase 126
+**Depends on**: Phase 127
 **Requirements**: ARCH-01
 **Success Criteria**:
 
@@ -1819,15 +1202,15 @@ Plans:
   3. `signal_ledger_v2` view SQL defined
   4. Cardinality recorded: 1 signal → N frames (one per entry_type); 1 frame → 0-1 executions
 
-**Plans**: defer to `/gsd-plan-phase 127`
+**Plans**: defer to `/gsd-plan-phase 128`
 
 ---
 
-### Phase 128: Database Migration
+### Phase 129: Database Migration
 
 **Goal:** Create 3 new tables. Migrate signal_ledger data. Deploy signal_ledger_v2 view. Keep signal_ledger read-only during transition.
 
-**Depends on**: Phase 127
+**Depends on**: Phase 128
 **Requirements**: MIGRATE-01
 **Success Criteria**:
 
@@ -1836,250 +1219,35 @@ Plans:
   3. Row counts verified: all signal_ledger rows migrated
   4. signal_ledger retained read-only (not dropped yet)
 
-**Plans**: defer to `/gsd-plan-phase 128`
+**Plans**: defer to `/gsd-plan-phase 129`
 
 ---
 
-### Phase 129: Script Rewriting
+### Phase 130: Script Rewriting
 
 **Goal:** Update all writers, trackers, auditors, API endpoints, historical backfill to use 3-table schema. Drop signal_ledger after 48-hour verification window.
 
-**Depends on**: Phase 128
+**Depends on**: Phase 129
 **Requirements**: REWRITE-01
 **Success Criteria**:
 
   1. All writers/trackers/APIs use new 3-table schema
   2. `pytest tests/unit/ tests/integration/ -q` green
   3. signal_ledger dropped after 48-hour window
-  4. signal_ledger_v2 is the sole backward-compatibility surface
 
-**Plans**: defer to `/gsd-plan-phase 129`
+**Plans**: defer to `/gsd-plan-phase 130`
 
 ---
 
-**Cross-cutting constraints (v2.10):**
+**v2.10 Success Criteria:**
 
-- `pytest tests/unit/ -q` passes after each phase
-- `ruff check .` passes with zero warnings
-- DB migrations are idempotent
-- ECL boundary invariant: zero `no_signal()` calls based on extrinsic vectors after Phase 123
+1. ✅ Phase 123 complete (ECL boundary restored)
+2. ⏳ Phase 124 complete (signal universe integrity + cold-start hardening)
+3. ⏳ Phase 125 complete (APR full migration — all three tiers)
+4. ⏳ Phase 126 complete (I7 signal universe hardening)
+5. ⏳ Phase 127 complete (clean replay + validation)
+6. ⏳ Phase 128-130 complete (3-table signal architecture)
 
-**v2.11 seeds unlocked by v2.10:**
-- CounterfactualTracker daemon (Phase 130) — requires trade_frames.counterfactual_pnl_r (Phase 128); measures outcomes for every trade frame regardless of execution
-- I6 DB bootstrap at startup (Phase 130) — eliminates cold-start permanently
-- APR ML optimization (Phase 131) — requires counterfactual_pnl_r to accumulate (30-90 days); regresses factor_scores and zone geometry against outcomes; all 51 APR keys already externalized (Phase 125)
-- SignalRanker (Phase 131) — requires context_features (Phase 123) + counterfactual_pnl_r (Phase 130)
+**v2.10-complete when:** All 8 phases shipped, clean replay validates corrected pipeline, ML training data integrity restored.
 
 </details>
-
----
-
-<details>
-<summary>⏸️ v2.8 AI Platform — Part 2 (Phases 096-099, 101-103) — BLOCKED UNTIL v2.9</summary>
-
-**Status:** BLOCKED until v2.9 Signal Quality Renaissance completes.
-
-**Blocked Phases:**
-
-- Phase 096: Agent Registry — BLOCKED until signal quality fixed (trains on noisy signals)
-- Phase 098: DSPy Offline Prompt Optimizer — BLOCKED until signal quality fixed
-- Phase 099: Guardrails AI Validation — BLOCKED until parse failure rate measured
-- Phase 101: Composite Fitness Function — BLOCKED until signal quality fixed (fitness on noisy data)
-- Phase 102: Genetic Infrastructure — BLOCKED until v2.9 completes
-- Phase 103: Reproductive Operators — BLOCKED until v2.9 completes
-
-**Unblocked Phases (can ship anytime):**
-
-- Phase 097: Zep Episodic Memory — ✅ SHIPPED 2026-06-06 (needs v2.9 for quality data)
-
-**Rationale:** Phases 096-103 depend on high-quality signal data. Current state: 21 setups fire 4.46M noise signals (99.8% noise rate). Training ML models, evolving agents, or measuring fitness on corrupted data produces garbage results. v2.9 Signal Quality Renaissance fixes this root cause.
-
-</details>
-
----
-
-## Backlog
-
-Items decided but not yet scheduled. Pull into a milestone when ready.
-Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
-
-### Tier 1 — Next candidates
-
-| Item | Notes | Analysis |
-|------|-------|---------|
-| **Instrument Universe Expansion + Tag Taxonomy** | Shipped 2026-06-06 (outside GSD phases). 26 ETFs added, 6 removed (net 58 equity), `tag_vocabulary` + `instrument_tags` + `instrument_annotations` tables created (migration 120). Human-asserted priors in place. TagCalibrator phase below converts priors to empirical facts. | migration 120 |
-| **TagCalibrator — Empirical Instrument Tag Validation** | Nightly batch job that turns human-asserted tag priors into empirically validated facts via rolling regression. Schema: add `factor_series`, `measurement_type`, `lookback_days`, `p_value_threshold` to `tag_vocabulary`; add `p_value`, `sample_n`, `estimated_at` to `instrument_tags`. Calibrator reads `market_data_ohlcv`, runs beta regressions against canonical factor series (TLT→`rate_sensitive`, HYG→`credit_risk`, VUG→`growth`, etc.), writes back `source='empirical'` rows, expires tags below p<0.05, writes expired tags as `ai_insight` annotations. Connects to HMM regime output for `regime_classifier` measurement via mutual information. Closes the hypothesis-testing loop: human priors → empirical validation → AI discovery → human promotion. Philosophy: every tag is a falsifiable hypothesis; the calibrator is the falsification engine. | `docs/ideas/instrument-tag-calibrator.md` |
-| ~~Phase 70: ML Scoring Model~~ | Shipped 2026-05-13. | — |
-| **Plugin Base Class / IncrementalPlugin ABC** | 130 plugins use a structural `Protocol` (no shared base). Three patterns are duplicated across plugins: (1) `_seed_state` — 11 plugins implement it with different signatures, no protocol contract (source of pre-Phase-093 bugs); (2) empty/short-input guard `if len(df) < min_lookback: return {}` in every `compute_full`; (3) `compute_next → compute_full` fallback already in executor but not in plugins. Proposed fix: `IncrementalPlugin` ABC with `_seed_state(frames, state)` as abstract method and a default min-lookback guard. Run after Phase 093 ships — correctness tests will surface exactly which plugins have inconsistent state-seeding, making the base class design data-driven. | — |
-| **Renaissance Observability** | Deferred from v2.0 — depends on Phase 70 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | `docs/ideas/renaissance-gap-analysis.md` |
-| VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | — |
-| LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | — |
-| BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | — |
-
-### Tier 2 — Longer horizon
-
-| Item | Notes | Analysis |
-|------|-------|---------|
-| Intelligence Confluence Patterns (Unsupervised Discovery) | Remaining scope beyond Phase 64's structured cross-TF plugins: unsupervised enumeration of concurrent I5/I6/I7 signals, statistical pattern mining, human labeling loop. Needs 30 days baseline data. Schema: `confluence_patterns` table + ConfluenceExplorationPlugin + writer service. | `docs/ideas/intelligence-confluence-patterns.md` |
-| I2-I6 Tier Parallelization | I1/I7 already parallelized via asyncio.gather; I2-I6 remain sequential (current bottleneck). GIL prevents threading — options: multiprocessing, subprocess isolation, or async-native plugin protocol. Requires thread-safety audit first. | `docs/ideas/intelligence-stack-latency-reduction.md` |
-| API keyset pagination | Large features export endpoint has no pagination — blocks on full table scan. | `.planning/todos/pending/2026-02-24-add-keyset-pagination-to-features-export-and-rest-endpoint.md` |
-| Expand 2nd-derivative indicators | Volume accel, vol accel, structural accel (beyond v1.6 ExhaustionScore/AccelerationRegime). Research-first gate. | `docs/ideas/2nd-derivative-indicator-research.md` |
-| ML Mixture-of-Experts | Soft blending across regime-specific models (once hard routing proves stable). | — |
-| Online learning | Incremental model updates between weekly retraining cycles. | — |
-
-### Tier 3 — Separate products / long horizon
-
-| Item | Notes | Analysis |
-|------|-------|---------|
-| Granular Stream Topology | Publish each intelligence tier (I2, I4, I5, I6) to separate topics. Build only when a real consumer materializes (MLAgent feature pipeline, AegisAgent risk service, QualAgent). | `docs/ideas/granular-stream-topology.md` |
-| Orderflow Integration | reqTickByTickData; buy/sell delta metrics; delta divergence / absorption / imbalance continuation plugins. | — |
-| Portfolio Management | Correlation matrix; sector exposure limits; symbol rotation. | — |
-| Trade Journal Auto-Documentation | LLM daily summaries from signal_ledger — learning opportunities from losing trades, performance by setup/regime/TF. | — |
-| Robinhood-Style Scaling | Consumer Proxy pattern; Changelog Streams for state recovery. | `analysis/2026-02-12-robinhood-scaling-patterns.md` |
-| Broker-agnostic instrument provider | Defer until second broker integration is needed. | — |
-
-## Progress
-
-**Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104-109 shipped). Next: v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103, 110-116).
-
-| Phase | Milestone | Plans Complete | Status | Completed |
-|-------|-----------|----------------|--------|-----------|
-| 0. GARCH/Kalman Quality Gates | v1.0 | 3/3 | Complete | 2026-02-22 |
-| 1. Typed Event Schema | v1.0 | 3/3 | Complete | 2026-02-23 |
-| 2. Feature Store | v1.0 | 3/3 | Complete | 2026-02-23 |
-| 3. Historical Data | v1.0 | 3/3 | Complete | 2026-02-24 |
-| 4. Query API | v1.0 | 3/3 | Complete | 2026-02-24 |
-| 5. Live Pipeline | v1.0 | 3/3 | Complete | 2026-02-25 |
-| 6. Dashboard Connected | v1.0 | 4/4 | Complete | 2026-02-28 |
-| 7. Composite Intelligence Score | v1.0 | 4/4 | Complete | 2026-02-28 |
-| 8. Integration Fix & Cleanup | v1.0 | 3/3 | Complete | 2026-02-28 |
-| 9. Milestone Verification | v1.0 | 3/3 | Complete | 2026-02-28 |
-| 01. Code Quality Sprint | v1.1 | 1/1 | Complete | 2026-03-01 |
-| 02. I2 Composite Events | v1.2 | — | Complete | 2026-02-27 |
-| 03. I5 Chart Patterns | v1.2 | — | Complete | 2026-02-27 |
-| 04. I6 SMC Plugins | v1.2 | — | Complete | 2026-02-27 |
-| 05. I6 Confluence Refactor | v1.2 | — | Complete | 2026-03-02 |
-| 06. I1-I6 Correctness Audit | v1.2 | — | Complete | 2026-03-02 |
-| 07. Final Verification | v1.2 | — | Complete | 2026-03-02 |
-| 08. MomentumAcceleration | v1.3 | — | Complete | 2026-03-02 |
-| 09. GapAnalysisSetup | v1.3 | 2/2 | Complete | 2026-03-03 |
-| 10. CandlestickPatternSetup | v1.3 | 2/2 | Complete | 2026-03-03 |
-| 11. SessionExtremesSetup | v1.3 | — | Complete | 2026-03-04 |
-| 12. Signal Integrity | v1.4 | 4/4 | Complete | 2026-03-04 |
-| 13. Data Completeness | v1.4 | 4/4 | Complete | 2026-03-05 |
-| 14. Feedback Loop | v1.4 | 5/5 | Complete | 2026-03-07 |
-| 15. Validated Alpha | v1.4 | 7/7 | Complete | 2026-03-07 |
-| 16. LLM Intelligence Layer | v1.4 | 7/7 | Complete | 2026-03-06 |
-| 17. LLM Wiring Fix | v1.4 | 2/2 | Complete | 2026-03-06 |
-| 18. Financial Math Safety | v1.5 | 7/7 | Complete | 2026-03-08 |
-| 19. Financial Math Characterization | v1.5 | 3/3 | Complete | 2026-03-09 |
-| 20. Circuit Breaker Integration | v1.5 | 4/4 | Complete | 2026-03-09 |
-| 21. Efficiency Optimizations | v1.5 | 4/4 | Complete | 2026-03-09 |
-| 22. I8 Narrative Three-Tier Redesign | v1.5 | 7/7 | Complete | 2026-03-10 |
-| 23. Signal Generator Gate | v1.6 | 3/3 | Complete | 2026-03-10 |
-| 24. Second-Derivative Acceleration | v1.6 | 7/7 | Complete | 2026-03-10 |
-| 25. CIS Data Repair | v1.7 | 2/2 | Complete | 2026-03-11 |
-| 26. Signal Generator Warmup | v1.7 | 1/1 | Complete | 2026-03-11 |
-| 27. Signal Lifecycle Stream Events | v1.7 | 10/10 | Complete | 2026-03-12 |
-| 28. Dashboard Completion | v1.8 | 7/7 | Complete | 2026-03-12 |
-| 29. Renaissance Signal Quality | v1.8 | 8/8 | Complete | 2026-03-13 |
-| 30. Redpanda Migration | v1.8 | 5/5 | Complete | 2026-03-14 |
-| 31. CIS Learning Loop + Signal Feature Snapshots | v1.9 | 3/3 | Complete | 2026-03-17 |
-| 32. Stop Architecture + Extended Divergence Stack | v1.9 | 3/3 | Complete | 2026-03-17 |
-| 33. Five New I7 Signal Plugins | v1.9 | 3/3 | Complete | 2026-03-17 |
-| 34. I4 Infrastructure — Anchored VWAP + Volume Profile | v1.9 | 3/3 | Complete | 2026-03-17 |
-| 35. Calibration + TOD Multiplier + CIS Kalman Filter | v1.9 | 3/3 | Complete | 2026-03-18 |
-| 36. Microstructure Plugins | v1.9 | 2/2 | Complete | 2026-03-18 |
-| 37. Cross-Asset Intelligence Service | v1.9 | 3/3 | Complete | 2026-03-18 |
-| 38. Automated Futures Roll Detection | v1.9 | 3/3 | Complete | 2026-03-18 |
-| 39. Data Quality + DB Health | v2.0 | 6/6 | Complete | 2026-03-19 |
-| 39.1. Intelligence Layer Enforcement | v2.0 | 6/6 | Complete | 2026-03-19 |
-| 40. DAG Refactor — Clean Foundation | v2.0 | 4/4 | Complete | 2026-03-19 |
-| 41. Intelligence Gap Fill | v2.0 | 3/3 | Complete | 2026-03-20 |
-| 42. Candlestick Pattern Expansion | v2.0 | 5/5 | Complete | 2026-03-20 |
-| 43. Performance & Stability Emergency | v2.0 | 2/3 | Complete | 2026-03-22 |
-| 44. I7 DAG Refactor | v2.0 | 5/5 | Complete   | 2026-03-22 |
-| 45. I6 → I7 Confluence Wiring | v2.0 | 4/4 | Complete    | 2026-03-22 |
-| 46. I6 Confluence Expansion | v2.0 | 4/4 | Complete   | 2026-03-22 |
-| 47. Shadow Mode Graduation | v2.0 | 4/4 | Complete   | 2026-03-22 |
-| 48. Tick Aggregation & I7 Quality | v2.1 | 2/2 | Complete   | 2026-03-23 |
-| 49. DB Performance | v2.1 | 0/TBD | Complete    | 2026-03-28 |
-| 49.1. Regime Gate Fix — write all signals to signal_ledger | v2.1 | 1/1 | Complete | 2026-03-23 |
-| 49.2. HMM Operational Fixes — observability, fallback logging, warm-up noise | v2.1 | 1/1 | Complete    | 2026-03-23 |
-| 50. Roll Monitor Graduation | v2.2 | 1/1 | Complete | 2026-04-08 |
-| 51. Signal Validation Framework | v2.1 | 0/TBD | Complete (absorbed) | 2026-03-28 |
-| 52. Infrastructure Hardening | v2.1 | 8/8 | Complete (absorbed) | 2026-03-28 |
-| 53.3. RollComputeAgent + DataProviderAgent Rename | v2.2 | 4/4 | Complete | 2026-03-28 |
-| 53.2. BarAggregatorComputeAgent | v2.2 | 3/3 | Complete | 2026-03-28 |
-| 53.1. BarWriterAgent + BarAuditorAgent | v2.2 | 3/3 | Complete | 2026-03-28 |
-| 54. Provider Abstraction Layer | v2.2 | 4/4 | Complete | 2026-03-28 |
-| 57. IntelligencePipelineComputeAgent | v2.2 | 3/3 | Complete    | 2026-03-29 |
-| 57.1. SignalWriterAgent — signal_generator_agent Retirement | v2.2 | 1/1 | Complete | 2026-03-30 |
-| 58. Pipeline Parallelization Renaissance | v2.2 | 3/3 | Complete | 2026-03-28 |
-| 59. OFI Divergence Redesign | v2.2 | 1/1 | Complete | 2026-04-05 |
-| 60. Signal Metrics Redesign | v2.2 | 3/3 | Complete | 2026-04-05 |
-| 61. Signal Auditor & CIS Contract Enforcement | v2.2 | 1/1 | Complete | 2026-04-06 |
-| 62. Service Watchdog + SSE Cleanup | v2.2 | 1/1 | Complete | 2026-04-07 |
-| 63. Contract Lifecycle Automation | v2.2 | 5/5 | Complete | 2026-04-08 |
-| 63.1. Data Integrity: Aggregator Resilience + HTF Backfill | v2.2 | 1/1 | Complete | 2026-04-08 |
-| 63.2. Signal Quality: Continuous IC + CIS Null Backfill | v2.2 | 1/1 | Complete | 2026-04-08 |
-| 63.3. Pipeline Correctness: Plugin Dependency Violations | v2.2 | 1/1 | Complete | 2026-04-08 |
-| 63.4. Signal Quality: ATR Caps + Backfill Gap Fix | v2.2 | 1/1 | Complete | 2026-04-08 |
-| 63.5. Startup Safety: Plugin Validation Layer | v2.2 | 1/1 | Complete | 2026-04-08 |
-| 56. Swarm Foundation | v2.3 | 11/11 | Complete | 2026-04-11 |
-| 64. I6 Confluence Expansion | v2.3 | 11/11 | Complete    | 2026-04-27 |
-| 65. Gradient Audit | v2.3 | 5/5 | Complete    | 2026-04-24 |
-| 66. Swarm Intelligence Agents | v2.3 | 4/4 | Complete | 2026-04-24 |
-| 67. Observability, Alerting & Automation | v2.4 | 2/2 | Complete | 2026-04-23 |
-| 68. Pipeline Hardening & Institutional Foundation | v2.4 | 5/5 | Complete | 2026-04-23 |
-| 69. Writer Agent Renaissance Refactor | v2.5 | 5/5 | Complete | 2026-04-23 |
-| 70. ML Scoring Model | v2.5 | 4/4 | Complete | 2026-05-13 |
-| 71. BaseAgent Infrastructure Alignment | v2.5 | 5/5 | Complete | 2026-04-14 |
-| 72. Signal Transform Log (Phase 1 dual-write) | v2.5 | 9/9 | Complete | 2026-04-25 |
-| 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 7/7 | Complete    | 2026-04-29 |
-| 74. BarNormalizerAgent - State Checkpointing | v2.5 | 1/1 | Complete | 2026-04-26 |
-| 76. Signal Lifecycle Labeling Fix & Activation Gate | v2.5 | 3/3 | Complete | 2026-04-28 |
-| 75. Shadow Governance System | v2.5 | 4/4 | Complete (absorbed into 77) | 2026-04-29 |
-| 77. OTel Observability Unification | v2.5 | 4/4 | Complete | 2026-04-29 |
-| 78. I8 Alpha Feedback Loop | v2.5 | 7/7 | Complete | 2026-05-03 |
-| 79. Signal Quality Fix — Zone Width + Entry Price | v2.5 | 10/10 | Complete | 2026-05-03 |
-| 80. Renaissance Swarm Intelligence Layer | v2.5 | 9/9 | Complete | 2026-05-07 |
-| 81. Signal Lifecycle Hardening | v2.5 | 8/8 | Complete | 2026-05-10 |
-| 82. ML Intelligence Quality & Qualitative Foundation | v2.5 | 6/6 | Complete | 2026-05-14 |
-| 83. Observability Hardening | v2.5 | 7/7 | Complete | 2026-05-16 |
-| 084. Base Agent Hardening | v2.6 | 4/4 | Complete | 2026-05-16 |
-| 085. Persistence Writer Migration | v2.6 | 4/4 | Complete | 2026-05-17 |
-| 086. Pipeline Hardening | v2.6 | 4/4 | Complete | 2026-05-17 |
-| 087. Signal Transform Architecture Phases 2-4 | v2.6 | 0/TBD | Deferred | - |
-| 088. God Class Decomposition | v2.6 | 5/5 | Complete   | 2026-05-18 |
-| 089. Compute Performance Optimization | v2.6 | 6/6 | Complete | 2026-05-20 |
-| 090. Signal Ledger Hardening + Thread Safety | v2.6 | 2/2 | Complete | 2026-05-20 |
-| 091. Instrument Registry | v2.6 | 6/6 | Complete | 2026-05-20 |
-| 091.1. Instrument Registry Hardening | v2.6 | 5/5 | Complete | 2026-05-20 |
-| 092. Signal Quality Completeness | v2.6 | 3/3 | Complete | 2026-05-20 |
-| 093. Renaissance Mathematical Correctness Audit | v2.7 | 5/5 | Complete | 2026-05-21 |
-| 100. Plugin Shared Infrastructure | v2.7 | 6/6 | Complete | 2026-05-21 |
-| 100.5. Plugin Infrastructure Hardening | v2.7 | 1/1 | Complete | 2026-05-22 |
-| 104. Storage Architecture Redesign | v2.7 | 4/4 | Complete | 2026-05-22 |
-| 105. Architecture Hotfix Sprint | v2.7 | 5/5 | Complete | 2026-05-24 |
-| 106. Foundation Hardening | v2.7 | 6/6 | Complete | 2026-05-25 |
-| 107. Infrastructure Hygiene | v2.7 | 9/9 | Complete | 2026-05-25 |
-| 108. Self-Healing Hardening | v2.7 | 7/7 | Complete    | 2026-05-28 |
-| 109. Config Foundation & Self-Healing Engine | v2.7 | 5/5 | Complete | 2026-05-29 |
-| 094. LiteLLM + Instructor Structured Output | v2.8 | 3/3 | Complete    | 2026-05-30 |
-| 110. Renaissance Rename | v2.8 | 4/4 | Complete   | 2026-05-30 |
-| 111. Full Naming Alignment | v2.8 | 4/4 | Complete    | 2026-05-31 |
-| 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
-| 096. Agent Registry | v2.8 | 3/3 | Planned | - |
-| 097. Zep Episodic Memory | v2.8 | 9/9 | Complete    | 2026-06-06 |
-| 098. DSPy Offline Optimizer | v2.8 | 0/TBD | Not started | - |
-| 099. Guardrails AI Validation | v2.8 | 0/TBD | Not started | - |
-| 101. Composite Fitness Function | v2.8 | 6/6 | Planned | - |
-| 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
-| 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
-| 112. Intelligence Pipeline Signal Integrity | v2.8 | 5/5 | Complete    | 2026-06-02 |
-| 113. Architecture Hardening | v2.8 | 1/1 | Complete   | 2026-06-03 |
-| 114. Occam's Razor | v2.8 | 4/4 plans written/0 executed | Planned | - |
-| 115. Framing Audit Trail | v2.8 | 5/5 | Complete | 2026-06-05 |
-| 116. SR Consensus — Multi-Method Support/Resistance | v2.8 | 3/3 | Complete    | 2026-06-05 |

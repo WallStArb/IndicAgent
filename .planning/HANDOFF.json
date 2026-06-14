@@ -1,93 +1,37 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-05T15:58:42.926Z",
+  "timestamp": "2026-06-14T20:54:51Z",
   "phase": null,
-  "phase_name": "ad-hoc: stop/target hardening + framing audit trail",
+  "phase_name": "between-phases planning",
   "phase_dir": null,
   "plan": null,
-  "task": null,
-  "total_tasks": null,
+  "task": 2,
+  "total_tasks": 4,
   "status": "paused",
   "completed_tasks": [
-    {
-      "id": 1,
-      "name": "stop/target hardening — _adaptive_buffer (GARCH_MULTIPLIERS → continuous)",
-      "status": "done",
-      "commit": "0c1e3530"
-    },
-    {
-      "id": 2,
-      "name": "stop/target hardening — dead garch_vol_regime cleanup",
-      "status": "done",
-      "commit": "0282335f"
-    },
-    {
-      "id": 3,
-      "name": "stop/target hardening — unified _collect_target_candidates + institutional levels",
-      "status": "done",
-      "commit": "35fa74f8"
-    },
-    {
-      "id": 4,
-      "name": "stop/target hardening — chandelier be_floor (T1 advances floor, T2 locks profit)",
-      "status": "done",
-      "commit": "864d9f21"
-    },
-    {
-      "id": 5,
-      "name": "framing audit trail plan written",
-      "status": "done",
-      "commit": null
-    }
+    {"id": 1, "name": "Phase renumbering in ROADMAP.md", "status": "done", "commit": "uncommitted"},
+    {"id": 2, "name": "Phase renumbering in v2.10 refactor doc", "status": "done", "commit": "uncommitted"}
   ],
   "remaining_tasks": [
-    {
-      "id": 6,
-      "name": "Execute framing audit trail plan (5 tasks)",
-      "status": "not_started",
-      "plan": "docs/superpowers/plans/2026-06-05-framing-audit-trail.md"
-    }
+    {"id": 3, "name": "Update REQUIREMENTS.md phase mapping + add SIGNAL-QUALITY-01/02", "status": "not_started"},
+    {"id": 4, "name": "Write docs/plans/2026-06-14-phase-126-signal-universe-hardening.md", "status": "not_started"}
   ],
   "blockers": [],
   "human_actions_pending": [],
   "decisions": [
-    {
-      "decision": "Replace discrete GARCH_MULTIPLIERS with continuous _adaptive_buffer — piecewise-linear through anchors (0.70→0.80, 1.00→1.00, 1.50→1.35) with Hurst tightening",
-      "rationale": "Continuous function eliminates step discontinuities at regime boundaries; Hurst confirms directional regime quality",
-      "phase": "ad-hoc"
-    },
-    {
-      "decision": "T1 no longer exits — advances be_floor to entry instead; chandelier clamped at be_floor",
-      "rationale": "Prevents giving back profit after T1; stops trail below entry which is the wrong incentive structure",
-      "phase": "ad-hoc"
-    },
-    {
-      "decision": "regime_type wiring to frame_trade() deferred to framing audit trail plan (not yet executed)",
-      "rationale": "Hurst tightening is wired but dormant (regime_type=None default) until all 26 call sites pass self.regime_type; plan written but not yet executed",
-      "phase": "ad-hoc"
-    },
-    {
-      "decision": "framing audit trail uses BOTH DB columns (research) AND OTel histogram (operational)",
-      "rationale": "DB columns enable per-signal outcome correlation in SQL; OTel histogram detects vol regime drift in real time — different questions, both needed",
-      "phase": "ad-hoc"
-    },
-    {
-      "decision": "signal_ledger gets 5 new typed columns: stop_basis, stop_type_col, structural_stop_distance_atr, adaptive_buffer_mult, plugin_regime_type",
-      "rationale": "Typed columns are indexable and segmentable — enables SQL queries like 'which stop_type produces best pnl_r?' without JSONB extraction overhead",
-      "phase": "ad-hoc"
-    }
+    {"decision": "Insert Phase 126 (I7 Signal Universe Hardening) before Clean Replay (now 127)", "rationale": "Replay must capture corrected signal universe — 47.6% stopped_at_entry + 8 zero-signal plugins make replay meaningless as ML training data", "phase": "126"},
+    {"decision": "stopped_at_entry root cause: _resolve_zone_bounds() bypasses ATR-relative min zone width for feature-level zones", "rationale": "ETF zones $0.01-$0.06 vs ATR $0.50-$1.00; zone_engine MIN_ZONE_WIDTH_ATR=0.25 bypassed by supply/demand FVG OB fast paths", "phase": "126"},
+    {"decision": "Fix is no_signal() when zone_width < min_zone_width_atr*ATR, not zone-widening", "rationale": "A 2-cent ETF zone is not real structure — widening it artificially introduces false signal", "phase": "126"},
+    {"decision": "Theory audit reframed as detection correctness audit", "rationale": "Renaissance: textbook backing irrelevant; claimed detection condition must be mechanically verifiable from OHLCV+features", "phase": "126"}
   ],
   "uncommitted_files": [
+    ".planning/REQUIREMENTS.md",
+    ".planning/ROADMAP.md",
     ".planning/STATE.md",
-    "docs/plans/2026-06-05-stop-target-hardening.md",
-    "docs/signals/signals-foundation.md",
-    "docs/signals/signals-lifecycle.md",
-    "docs/plans/2026-06-05-stop-target-hardening-REVIEWS.md",
-    "docs/plans/atr-validation-hardening-REVIEWS.md",
-    "docs/plans/atr-validation-hardening.md",
-    "docs/superpowers/plans/2026-06-05-framing-audit-trail.md",
-    "docs/superpowers/plans/2026-06-05-stop-target-hardening.md"
+    "docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md",
+    ".planning/.continue-here.md",
+    ".planning/HANDOFF.json"
   ],
-  "next_action": "Execute docs/superpowers/plans/2026-06-05-framing-audit-trail.md using /gsd-execute-phase or subagent-driven-development. Task 1: extend TradeFrame with adaptive_buffer_mult + regime_type_used.",
-  "context_notes": "All stop/target hardening shipped to main (4 commits). Framing audit trail plan is complete and reviewed — 5 tasks, ready to execute. Key pending work: (1) framing audit trail execution wires regime_type to all 26 call sites and adds DB columns, (2) three open items from signal data remediation session (lifecycle replay, cross_asset_divergence test mocks, 30 ATR plugins). Resume GSD: /gsd-execute-phase 097 for Zep memory."
+  "next_action": "Read .planning/REQUIREMENTS.md lines 60-80, update phase mapping, add SIGNAL-QUALITY-01/02, then write Phase 126 design doc using spec in .continue-here.md",
+  "context_notes": "All phase renumbering complete. Root cause of stopped_at_entry identified precisely via code audit. Full design spec for Phase 126 captured in .continue-here.md. No code changed this session."
 }
