@@ -171,6 +171,14 @@ class DualDivergencePlugin:
         # volume_score: relative volume (higher vol = more conviction behind divergence)
         volume_score = rel_volume_score(features)
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "ofi_divergence_score": round(ofi_divergence_score, 4),
+            "cvd_divergence_score": round(cvd_divergence_score, 4),
+            "confirmation_bars_score": round(confirmation_bars_score, 4),
+            "volume_score": round(volume_score, 4),
+        }
+
         # Weights: 0.35 + 0.30 + 0.20 + 0.15 = 1.0
         raw_conf = (
             0.35 * ofi_divergence_score
@@ -221,6 +229,7 @@ class DualDivergencePlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
         return signal
 

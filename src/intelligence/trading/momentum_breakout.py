@@ -153,6 +153,13 @@ class MomentumBreakoutPlugin:
         w_roc = cfg.get_sync("weights.momentum_breakout.roc", 0.40) if cfg else 0.40
         w_vol = cfg.get_sync("weights.momentum_breakout.vol", 0.35) if cfg else 0.35
         w_margin = cfg.get_sync("weights.momentum_breakout.break_margin", 0.25) if cfg else 0.25
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "roc_score": round(roc_score, 4),
+            "vol_score": round(vol_score, 4),
+            "break_margin": round(break_margin, 4),
+        }
+
         raw_conf = w_roc * roc_score + w_vol * vol_score + w_margin * break_margin
 
         # Supporting factors
@@ -187,6 +194,7 @@ class MomentumBreakoutPlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

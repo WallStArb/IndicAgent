@@ -149,6 +149,14 @@ class DeltaExhaustionPlugin:
         # (cvd_spike_z is already in scope from the gate above)
         persistence_score = clamp01(abs(cvd_spike_z) / 3.0)
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "cvd_z_score": round(cvd_z_score, 4),
+            "price_fail_score": round(price_fail_score, 4),
+            "hmm_mean_reversion_score": round(hmm_mean_reversion_score, 4),
+            "persistence_score": round(persistence_score, 4),
+        }
+
         # Weights sum to 1.0: exhaustion/momentum_reversal/volume_proxy/persistence
         # ctf_score_factor removed — CTF is ECL annotation, not composite factor (Phase 123)
         raw_conf = (
@@ -190,6 +198,7 @@ class DeltaExhaustionPlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
         return signal
 

@@ -159,6 +159,14 @@ class OFIContinuationPlugin:
         rel_vol = float(rel_vol) if rel_vol is not None else 1.0
         volume_score = clamp01((rel_vol - 1.0) / 1.5)
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "magnitude_score": round(magnitude_score, 4),
+            "alignment_score": round(alignment_score, 4),
+            "persistence_score": round(persistence_score, 4),
+            "volume_score": round(volume_score, 4),
+        }
+
         raw_conf = (
             0.40 * magnitude_score
             + 0.25 * alignment_score
@@ -174,6 +182,7 @@ class OFIContinuationPlugin:
             f"persistence_score={persistence_score:.3f}",
         ]
 
+        ctx = capture_signal_features(features, direction, "microstructure", confidence)
         signal = make_signal_from_frame(
             tf_result,
             symbol=frames.get("symbol", ""),
@@ -185,9 +194,9 @@ class OFIContinuationPlugin:
             confidence=confidence,
             regime_context=regime_context,
             supporting_factors=supporting,
-            features_snapshot=capture_signal_features(
-                features, direction, "microstructure", confidence
-            ),
+            features_snapshot=ctx,
+            context_features=ctx,
+            factor_scores=factor_scores,
         )
         return signal
 

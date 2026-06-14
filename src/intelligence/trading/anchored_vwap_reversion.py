@@ -170,6 +170,13 @@ class AnchoredVWAPReversionPlugin:
         vol_regime = float(features.get("vol_regime", 0.5))
         vol_stability = 1.0 - abs(vol_regime - 0.5) * 2.0
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "sigma_magnitude": round(sigma_magnitude, 4),
+            "hurst_quality": round(hurst_quality, 4),
+            "vol_stability": round(vol_stability, 4),
+        }
+
         raw_conf = 0.40 * sigma_magnitude + 0.35 * hurst_quality + 0.25 * vol_stability
 
         supporting: list[str] = [
@@ -197,13 +204,11 @@ class AnchoredVWAPReversionPlugin:
             confidence=confidence,
             regime_context="ranging",
             supporting_factors=supporting,
+            factor_scores=factor_scores,
         )
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "mean_reversion",
-            signal["confidence"],
-        )
+        ctx = capture_signal_features(features, direction, "mean_reversion", signal["confidence"])
+        signal["features_snapshot"] = ctx
+        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

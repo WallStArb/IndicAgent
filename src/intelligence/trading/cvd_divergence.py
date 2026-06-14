@@ -49,7 +49,7 @@ class CVDDivergencePlugin:
     - dual_divergence = (abs(ofi_divergence) >= 1.0 AND abs(cvd_divergence) >= 1.0)
 
     Direction: opposite of price direction (mean reversion)
-    Confidence: compose_confidence(4-factor gradient: 0.40*div_mag + 0.25*dual + 0.20*persistence + 0.15*slope)
+    Confidence: compose_confidence(4-factor: 0.40*div_mag + 0.25*dual + 0.20*persistence + 0.15*slope)
     """
 
     name: str = "trad_CVDDivergence"
@@ -153,6 +153,13 @@ class CVDDivergencePlugin:
         else:
             slope_score = 0.5  # neutral fallback when I1 omits the key
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "div_mag_score": round(div_mag_score, 4),
+            "persistence_score": round(persistence_score, 4),
+            "slope_score": round(slope_score, 4),
+        }
+
         raw_conf = (
             0.40 * div_mag_score + 0.25 * dual_score + 0.20 * persistence_score + 0.15 * slope_score
         )
@@ -190,14 +197,12 @@ class CVDDivergencePlugin:
             confidence=confidence,
             regime_context=regime_context,
             supporting_factors=supporting,
+            factor_scores=factor_scores,
         )
         signal["dual_divergence"] = dual_divergence
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "microstructure",
-            signal["confidence"],
-        )
+        ctx = capture_signal_features(features, direction, "microstructure", signal["confidence"])
+        signal["features_snapshot"] = ctx
+        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

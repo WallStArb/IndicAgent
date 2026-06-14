@@ -113,6 +113,13 @@ class TrendFollowingPlugin:
         if not tf.viable:
             return no_signal()
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "trend_conf_score": round(clamp01(trend_conf), 4),
+            "trend_strength_score": round(clamp01(abs(trend_strength)), 4),
+            "swing_pattern_score": round(clamp01(abs(swing_pattern)), 4),
+        }
+
         raw_conf = (
             0.45 * clamp01(trend_conf)
             + 0.35 * clamp01(abs(trend_strength))
@@ -142,10 +149,11 @@ class TrendFollowingPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
+            factor_scores=factor_scores,
         )
-        signal["features_snapshot"] = capture_signal_features(
-            features, direction, "trend", signal["confidence"]
-        )
+        ctx = capture_signal_features(features, direction, "trend", signal["confidence"])
+        signal["features_snapshot"] = ctx
+        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
