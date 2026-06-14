@@ -218,11 +218,13 @@ class TestPatternCompletion:
         return PatternCompletionPlugin()
 
     def test_double_bottom_fires_long(self):
-        """dt_db_pattern=2 (double bottom), dt_db_confidence>0.5 → direction==1."""
+        """dt_db_pattern=2 + neckline break above → direction==1 (Phase 124 structural gate)."""
         plugin = self._plugin()
+        # close=5000 > dt_db_neckline=4990 → bullish neckline break confirmed
         features = {
             "dt_db_confidence": 0.75,
             "dt_db_pattern": 2,  # double_bottom
+            "dt_db_neckline": 4990.0,
             "hs_confidence": 0.0,
             "hs_pattern": 0,
             "tri_confidence": 0.0,
@@ -234,11 +236,13 @@ class TestPatternCompletion:
         assert result.get("confidence", 0.0) > 0.0
 
     def test_double_top_fires_short(self):
-        """dt_db_pattern=1 (double top), dt_db_confidence>0.5 → direction==-1."""
+        """dt_db_pattern=1 + neckline break below → direction==-1 (Phase 124 structural gate)."""
         plugin = self._plugin()
+        # close=5000 < dt_db_neckline=5010 → bearish neckline break confirmed
         features = {
             "dt_db_confidence": 0.80,
             "dt_db_pattern": 1,  # double_top
+            "dt_db_neckline": 5010.0,
             "hs_confidence": 0.0,
             "hs_pattern": 0,
             "tri_confidence": 0.0,
@@ -249,13 +253,15 @@ class TestPatternCompletion:
         assert result.get("direction") == -1
 
     def test_hs_top_fires_short(self):
-        """hs_pattern=1 (HS top), hs_confidence>0.5 → direction==-1."""
+        """hs_pattern=1 + neckline break below → direction==-1 (Phase 124 structural gate)."""
         plugin = self._plugin()
+        # close=5000 < hs_neckline=5010 → bearish neckline break confirmed
         features = {
             "dt_db_confidence": 0.0,
             "dt_db_pattern": 0,
             "hs_confidence": 0.72,
             "hs_pattern": 1,  # hs_top
+            "hs_neckline": 5010.0,
             "tri_confidence": 0.0,
             "tri_breakout_bias": 0,
             "atr_14": 10.0,
@@ -264,13 +270,15 @@ class TestPatternCompletion:
         assert result.get("direction") == -1
 
     def test_hs_bottom_fires_long(self):
-        """hs_pattern=2 (inverted HS), hs_confidence>0.5 → direction==1."""
+        """hs_pattern=2 + neckline break above → direction==1 (Phase 124 structural gate)."""
         plugin = self._plugin()
+        # close=5000 > hs_neckline=4990 → bullish neckline break confirmed
         features = {
             "dt_db_confidence": 0.0,
             "dt_db_pattern": 0,
-            "hs_confidence": 0.75,  # Phase 118: threshold raised to 0.70
+            "hs_confidence": 0.75,
             "hs_pattern": 2,  # hs_bottom (inverted)
+            "hs_neckline": 4990.0,
             "tri_confidence": 0.0,
             "tri_breakout_bias": 0,
             "atr_14": 10.0,
@@ -279,33 +287,77 @@ class TestPatternCompletion:
         assert result.get("direction") == 1
 
     def test_triangle_bullish_fires_long(self):
-        """tri_confidence>0.5, tri_breakout_bias=1 → direction==1."""
+        """tri_confidence>0.5, tri_breakout_bias=1 + apex breach above consolidation → direction==1."""
+        import numpy as np
+
+        from tests.unit.intelligence.helpers import make_ohlcv
+
         plugin = self._plugin()
+        # Compression (bars 24-28 at 4990) then breakout (bar 29 at 5010).
+        # lookback=5 → consolidation_high = max(high[24:29]) ≈ 4990*1.002 = 4999.98.
+        # current_close = 5010.0 > 4999.98 → structurally_complete.
+        close = np.concatenate([np.full(24, 5000.0), np.full(5, 4990.0), np.array([5010.0])])
+        df = make_ohlcv(close)
         features = {
             "dt_db_confidence": 0.0,
             "dt_db_pattern": 0,
             "hs_confidence": 0.0,
             "hs_pattern": 0,
-            "tri_confidence": 0.78,  # Phase 118: threshold raised to 0.70
+            "tri_confidence": 0.78,
             "tri_breakout_bias": 1,
+            "tri_apex_bars": 5,
             "atr_14": 10.0,
         }
-        result = plugin.compute_full(_frames(features=features))
+        frames = {
+            "main": df,
+            "i1": features,
+            "i2": features,
+            "i3": features,
+            "i4": features,
+            "i5": features,
+            "smc": features,
+            "i6": features or {},
+            "__symbol__": "ES",
+            "__timeframe__": "1m",
+        }
+        result = plugin.compute_full(frames)
         assert result.get("direction") == 1
 
     def test_triangle_bearish_fires_short(self):
-        """tri_confidence>0.5, tri_breakout_bias=-1 → direction==-1."""
+        """tri_confidence>0.5, tri_breakout_bias=-1 + apex breach below consolidation → direction==-1."""
+        import numpy as np
+
+        from tests.unit.intelligence.helpers import make_ohlcv
+
         plugin = self._plugin()
+        # Compression (bars 24-28 at 5010) then breakdown (bar 29 at 4990).
+        # lookback=5 → consolidation_low = min(low[24:29]) ≈ 5010*0.998 = 4999.98.
+        # current_close = 4990.0 < 4999.98 → structurally_complete.
+        close = np.concatenate([np.full(24, 5000.0), np.full(5, 5010.0), np.array([4990.0])])
+        df = make_ohlcv(close)
         features = {
             "dt_db_confidence": 0.0,
             "dt_db_pattern": 0,
             "hs_confidence": 0.0,
             "hs_pattern": 0,
-            "tri_confidence": 0.80,  # Phase 118: threshold raised to 0.70; needs > not >=
+            "tri_confidence": 0.80,
             "tri_breakout_bias": -1,
+            "tri_apex_bars": 5,
             "atr_14": 10.0,
         }
-        result = plugin.compute_full(_frames(features=features))
+        frames = {
+            "main": df,
+            "i1": features,
+            "i2": features,
+            "i3": features,
+            "i4": features,
+            "i5": features,
+            "smc": features,
+            "i6": features or {},
+            "__symbol__": "ES",
+            "__timeframe__": "1m",
+        }
+        result = plugin.compute_full(frames)
         assert result.get("direction") == -1
 
     def test_no_pattern_no_signal(self):
