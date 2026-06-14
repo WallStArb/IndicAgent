@@ -252,6 +252,14 @@ class ORB30Plugin:
         # Volume score: rel_volume expansion above threshold
         volume_score = clamp01((volume_ratio - vol_expansion_threshold) / vol_expansion_threshold)
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "breakout_margin_score": round(breakout_margin_score, 4),
+            "range_quality_score": round(range_quality_score, 4),
+            "volume_score": round(volume_score, 4),
+            "gap_alignment_score": round(gap_alignment_score, 4),
+        }
+
         # Weights: 0.35 + 0.25 + 0.25 + 0.15 = 1.0
         raw_conf = (
             0.35 * breakout_margin_score
@@ -312,6 +320,7 @@ class ORB30Plugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
         return signal
 

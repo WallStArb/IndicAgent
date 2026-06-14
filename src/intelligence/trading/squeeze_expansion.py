@@ -131,6 +131,13 @@ class SqueezeExpansionPlugin:
         # Momentum clarity (0.30): abs(momentum_bias), capped at 1.0
         momentum_score = clamp01(abs(momentum_bias))
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "squeeze_bars_score": round(squeeze_bars_score, 4),
+            "vol_expansion_score": round(vol_expansion_score, 4),
+            "momentum_score": round(momentum_score, 4),
+        }
+
         cfg = self._config_service
         w_sq = cfg.get_sync("weights.squeeze_expansion.squeeze_bars", 0.35) if cfg else 0.35
         w_vol = cfg.get_sync("weights.squeeze_expansion.vol_expansion", 0.35) if cfg else 0.35
@@ -154,6 +161,7 @@ class SqueezeExpansionPlugin:
         if not tf.viable:
             return no_signal()
 
+        ctx = capture_signal_features(features, direction, "trend", confidence)
         return make_signal_from_frame(
             tf,
             symbol="",
@@ -165,7 +173,9 @@ class SqueezeExpansionPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=capture_signal_features(features, direction, "trend", confidence),
+            features_snapshot=ctx,
+            context_features=ctx,
+            factor_scores=factor_scores,
         )
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

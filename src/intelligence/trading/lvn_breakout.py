@@ -197,6 +197,14 @@ class LVNBreakoutPlugin:
         else:
             close_strength = 0.5
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "vol_score": round(vol_score, 4),
+            "trend_clarity": round(trend_clarity, 4),
+            "lvn_inverse": round(lvn_inverse, 4),
+            "close_strength": round(close_strength, 4),
+        }
+
         raw_conf = (
             0.30 * vol_score + 0.25 * trend_clarity + 0.25 * lvn_inverse + 0.20 * close_strength
         )
@@ -235,6 +243,7 @@ class LVNBreakoutPlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
         signal["targets"] = targets
         return signal

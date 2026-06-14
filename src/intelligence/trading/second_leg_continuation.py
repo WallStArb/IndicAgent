@@ -209,6 +209,14 @@ class SecondLegContinuationPlugin:
             clamp01(1.0 - dist_to_50 / (zone_width / 2.0)) if zone_width > 0 else 0.5
         )
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "leg_quality_score": round(leg_quality_score, 4),
+            "momentum_persistence_score": round(momentum_persistence_score, 4),
+            "volume_alignment_score": round(volume_alignment_score, 4),
+            "structure_quality_score": round(structure_quality_score, 4),
+        }
+
         # Weights: 0.35 + 0.30 + 0.20 + 0.15 = 1.0
         raw_conf = (
             0.35 * leg_quality_score
@@ -246,6 +254,7 @@ class SecondLegContinuationPlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
         signal["targets"] = targets
         return signal

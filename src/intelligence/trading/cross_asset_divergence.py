@@ -175,6 +175,13 @@ class CrossAssetDivergencePlugin:
         if hmm_regime_prob >= _CONF_REGIME_PROB_THRESHOLD:
             conf += _CONF_REGIME_PROB_BOOST
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "spread_z_score": round(min(1.0, (abs(spread_z) - _FIRE_THRESHOLD) / 3.0), 4),
+            "pairs_confirming_score": round(min(1.0, pairs_confirming / 2.0), 4),
+            "regime_prob_score": round(min(1.0, hmm_regime_prob), 4),
+        }
+
         confidence = compose_confidence(conf)
 
         # Frame trade for stop/target computation
@@ -232,14 +239,12 @@ class CrossAssetDivergencePlugin:
             confidence=confidence,
             regime_context=regime_context,
             supporting_factors=supporting_factors,
+            factor_scores=factor_scores,
         )
         signal["setup_variant"] = setup_variant
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "microstructure",
-            signal["confidence"],
-        )
+        ctx = capture_signal_features(features, direction, "microstructure", signal["confidence"])
+        signal["features_snapshot"] = ctx
+        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

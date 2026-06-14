@@ -134,6 +134,13 @@ class PatternCompletionPlugin:
         else:
             direction_purity = 0.7
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "pattern_score": round(pattern_score, 4),
+            "strength_score": round(strength_score, 4),
+            "convergence_score": round(convergence_score, 4),
+        }
+
         raw_conf = (
             0.45 * pattern_score
             + 0.25 * strength_score
@@ -163,6 +170,7 @@ class PatternCompletionPlugin:
         if n_candidates > 1:
             supporting.append("multiple_patterns")
 
+        ctx = capture_signal_features(features, direction, "smc", confidence)
         signal = make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),
@@ -174,7 +182,9 @@ class PatternCompletionPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=capture_signal_features(features, direction, "smc", confidence),
+            features_snapshot=ctx,
+            context_features=ctx,
+            factor_scores=factor_scores,
         )
         signal["pattern_name"] = pattern_name
         signal["pattern_raw_confidence"] = round(best_confidence, 4)

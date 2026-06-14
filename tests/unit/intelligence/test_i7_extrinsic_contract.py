@@ -621,12 +621,64 @@ def test_phase_123_ecl_fields_on_ofi_divergence():
 
     # Phase 123: ctf_score + ctf_confirmed as top-level ECL fields
     assert "ctf_score" in result, "ctf_score must be a top-level signal field (Phase 123 ECL)"
-    assert result["ctf_score"] == pytest.approx(0.7), (
-        f"ctf_score ECL field must equal input value 0.7, got {result['ctf_score']}"
-    )
-    assert result["ctf_confirmed"] is True, (
-        "ctf_confirmed must be True for ctf_score=0.7 >= MIN_CTF_SCORE=0.25"
-    )
+    assert result["ctf_score"] == pytest.approx(
+        0.7
+    ), f"ctf_score ECL field must equal input value 0.7, got {result['ctf_score']}"
+    assert (
+        result["ctf_confirmed"] is True
+    ), "ctf_confirmed must be True for ctf_score=0.7 >= MIN_CTF_SCORE=0.25"
 
     # context_features must be populated (same dict as features_snapshot)
     assert result.get("context_features"), "context_features must be a non-empty dict (Phase 123)"
+
+
+# ---------------------------------------------------------------------------
+# Task 3: factor_scores and context_features are emitted on every fireable plugin
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("plugin_name,factory", _FIREABLE, ids=_FIREABLE_IDS)
+def test_factor_scores_present_on_fired_signal(plugin_name, factory):
+    """Every fireable plugin must emit factor_scores as a non-empty dict.
+
+    factor_scores is the ML training target for APR weight optimization via
+    regression against counterfactual_pnl_r. A missing or empty factor_scores
+    means the signal cannot be used for APR regression (Phase 123 requirement).
+    """
+    fire = factory()
+    result = fire({})
+    if result.get("direction", 0) == 0:
+        pytest.skip(f"{plugin_name}: firing scenario did not produce a signal")
+    assert (
+        "factor_scores" in result
+    ), f"{plugin_name}: factor_scores missing from signal (Phase 123 requirement)"
+    fs = result["factor_scores"]
+    assert isinstance(fs, dict), f"{plugin_name}: factor_scores must be a dict, got {type(fs)}"
+    assert len(fs) >= 1, f"{plugin_name}: factor_scores must be non-empty"
+    for key, val in fs.items():
+        assert isinstance(
+            val, float
+        ), f"{plugin_name}: factor_scores[{key!r}] must be float, got {type(val)}"
+        assert 0.0 <= val <= 1.0, f"{plugin_name}: factor_scores[{key!r}]={val} outside [0.0, 1.0]"
+
+
+@pytest.mark.parametrize("plugin_name,factory", _FIREABLE, ids=_FIREABLE_IDS)
+def test_context_features_present_on_fired_signal(plugin_name, factory):
+    """Every fireable plugin must emit context_features as a non-empty dict.
+
+    context_features is the canonical ML training snapshot (Phase 123). Must equal
+    features_snapshot (both point to the capture_signal_features() return value).
+    """
+    fire = factory()
+    result = fire({})
+    if result.get("direction", 0) == 0:
+        pytest.skip(f"{plugin_name}: firing scenario did not produce a signal")
+    assert result.get(
+        "context_features"
+    ), f"{plugin_name}: context_features missing or empty (Phase 123 requirement)"
+    # context_features and features_snapshot must be the same capture
+    ctx = result["context_features"]
+    snap = result.get("features_snapshot", {})
+    assert (
+        ctx == snap
+    ), f"{plugin_name}: context_features and features_snapshot must be the same dict"

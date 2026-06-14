@@ -167,6 +167,14 @@ class LiquidityHuntPlugin:
         else:
             structure_quality = 0.35
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "hunt_significance": round(hunt_significance, 4),
+            "rejection_reclaim_strength": round(rejection_reclaim_strength, 4),
+            "volume_context": round(volume_context, 4),
+            "structure_quality": round(structure_quality, 4),
+        }
+
         # Weights sum to 1.0
         raw_conf = (
             0.35 * hunt_significance
@@ -192,6 +200,7 @@ class LiquidityHuntPlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
