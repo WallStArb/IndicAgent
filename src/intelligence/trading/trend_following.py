@@ -30,9 +30,9 @@ if TYPE_CHECKING:
 
 _REGIME_MIN_DEFAULT: float = 0.5
 _CONFIDENCE_MIN_DEFAULT: float = 0.4
-_PULLBACK_MIN_BARS: int = 5
-_CONSOLIDATION_MIN_BARS: int = 5
-_CONSOLIDATION_RANGE_PCT: float = 0.5  # range < 0.5% triggers consolidation mode
+_PULLBACK_MIN_BARS_DEFAULT: int = 5
+_CONSOLIDATION_MIN_BARS_DEFAULT: int = 5
+_CONSOLIDATION_RANGE_PCT_DEFAULT: float = 0.5
 
 
 @dataclass
@@ -107,6 +107,26 @@ class TrendFollowingPlugin:
             if cfg
             else _CONFIDENCE_MIN_DEFAULT
         )
+        pullback_min_bars = int(
+            cfg.get_sync("threshold.trend_following.pullback_min_bars", _PULLBACK_MIN_BARS_DEFAULT)
+            if cfg
+            else _PULLBACK_MIN_BARS_DEFAULT
+        )
+        consolidation_min_bars = int(
+            cfg.get_sync(
+                "threshold.trend_following.consolidation_min_bars", _CONSOLIDATION_MIN_BARS_DEFAULT
+            )
+            if cfg
+            else _CONSOLIDATION_MIN_BARS_DEFAULT
+        )
+        consolidation_range_pct = float(
+            cfg.get_sync(
+                "threshold.trend_following.consolidation_range_pct",
+                _CONSOLIDATION_RANGE_PCT_DEFAULT,
+            )
+            if cfg
+            else _CONSOLIDATION_RANGE_PCT_DEFAULT
+        )
 
         features = {
             **(frames.get("i1") or {}),
@@ -147,38 +167,24 @@ class TrendFollowingPlugin:
         structural_type = "none"
 
         # Pullback-to-MA reversal detection
-        # Requires >= _PULLBACK_MIN_BARS of MA history and current SMA
-        if sma and len(state.ma_history) >= _PULLBACK_MIN_BARS:
+        if sma and len(state.ma_history) >= pullback_min_bars:
             current_sma = float(sma)
             history = list(state.ma_history)
-            # Count consecutive bars where close was on the wrong side of SMA
-            # (We only have MA history, not close history; we detect the cross
-            # by checking current close vs SMA transition)
-            bars_below_sma = sum(
-                1
-                for ma_val in history[-_PULLBACK_MIN_BARS:-1]
-                if ma_val > price  # price was below previous SMAs (SMA was above price)
-            )
-            bars_above_sma = sum(
-                1
-                for ma_val in history[-_PULLBACK_MIN_BARS:-1]
-                if ma_val < price  # price was above previous SMAs (SMA was below price)
-            )
+            bars_below_sma = sum(1 for ma_val in history[-pullback_min_bars:-1] if ma_val > price)
+            bars_above_sma = sum(1 for ma_val in history[-pullback_min_bars:-1] if ma_val < price)
 
-            if direction == 1 and bars_below_sma >= _PULLBACK_MIN_BARS - 1 and price > current_sma:
-                # Bullish pullback reversal: SMA was above price for N bars, now price > SMA
+            if direction == 1 and bars_below_sma >= pullback_min_bars - 1 and price > current_sma:
                 pullback_reversal = True
                 structural_type = "pullback_reversal_bull"
             elif (
-                direction == -1 and bars_above_sma >= _PULLBACK_MIN_BARS - 1 and price < current_sma
+                direction == -1 and bars_above_sma >= pullback_min_bars - 1 and price < current_sma
             ):
-                # Bearish pullback reversal: SMA was below price for N bars, now price < SMA
                 pullback_reversal = True
                 structural_type = "pullback_reversal_bear"
 
         # Consolidation breakout detection
         range_pct = (current_high - current_low) / price * 100 if price > 0 else 999.0
-        if range_pct < _CONSOLIDATION_RANGE_PCT:
+        if range_pct < consolidation_range_pct:
             # Consolidation active: update bounds
             state.consolidation_bars += 1
             state.consolidation_high = max(
@@ -192,7 +198,7 @@ class TrendFollowingPlugin:
         else:
             # Range expansion - check for breakout before resetting
             if (
-                state.consolidation_bars >= _CONSOLIDATION_MIN_BARS
+                state.consolidation_bars >= consolidation_min_bars
                 and state.consolidation_high is not None
                 and state.consolidation_low is not None
             ):
