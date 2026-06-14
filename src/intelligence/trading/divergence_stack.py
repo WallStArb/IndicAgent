@@ -276,6 +276,15 @@ class DivergenceStackPlugin:
                 + 0.20 * breadth_score
                 + 0.15 * persistence_score
             )
+
+            # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+            factor_scores = {
+                "base_score": round(base_score, 4),
+                "purity_score": round(purity_score, 4),
+                "breadth_score": round(breadth_score, 4),
+                "persistence_score": round(persistence_score, 4),
+            }
+
             confidence = compose_confidence(raw_div_conf)
 
             signal = make_signal_from_frame(
@@ -289,15 +298,15 @@ class DivergenceStackPlugin:
                 confidence=confidence,
                 regime_context="any",
                 supporting_factors=supporting_factors,
+                factor_scores=factor_scores,
             )
             # Merge always-logged scoring fields on top of the framed signal
             signal.update(base_output)
-            signal["features_snapshot"] = capture_signal_features(
-                features,
-                direction,
-                "microstructure",
-                signal["confidence"],
+            ctx = capture_signal_features(
+                features, direction, "microstructure", signal["confidence"]
             )
+            signal["features_snapshot"] = ctx
+            signal["context_features"] = ctx
             return signal
 
         # No signal — return base_output with neutral signal fields

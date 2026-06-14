@@ -170,6 +170,14 @@ class GapAnalysisSetupPlugin:
             timing_score = 0.5  # I4 SessionContext unavailable — neutral, no penalty; shadow mode will generate monitoring data
         # type_score: continuation gaps have stronger directional conviction than fade gaps
         type_score = 0.8 if bias == "continuation" else 0.5
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "geo_score": round(geo_score, 4),
+            "vol_score": round(vol_score, 4),
+            "timing_score": round(timing_score, 4),
+            "type_score": round(type_score, 4),
+        }
+
         # Weighted sum (coefficients sum to 1.0)
         raw_conf = (
             w_geo * geo_score + w_vol * vol_score + w_timing * timing_score + w_type * type_score
@@ -193,12 +201,7 @@ class GapAnalysisSetupPlugin:
         if not tf.viable:
             return no_signal()
 
-        features_snapshot = capture_signal_features(
-            features,
-            direction,
-            "session",
-            confidence,
-        )
+        ctx = capture_signal_features(features, direction, "session", confidence)
         signal = make_signal_from_frame(
             tf,
             symbol=symbol,
@@ -210,7 +213,9 @@ class GapAnalysisSetupPlugin:
             confidence=confidence,
             regime_context="gap_open",
             supporting_factors=supporting,
-            features_snapshot=features_snapshot,
+            features_snapshot=ctx,
+            context_features=ctx,
+            factor_scores=factor_scores,
         )
         signal["bias"] = bias
         signal["gap_size_atr"] = round(gap_size_atr, 4)

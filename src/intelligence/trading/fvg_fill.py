@@ -90,6 +90,11 @@ class FVGFillPlugin:
         magnetism = min(1.0, fvg_open_count / 3.0)
         raw_conf = 0.5 + 0.3 * magnetism
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "magnetism": round(magnetism, 4),
+        }
+
         supporting = ["fvg_detected"]
         if fvg_open_count >= 3.0:
             supporting.append("high_fvg_count")
@@ -139,13 +144,11 @@ class FVGFillPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
+            factor_scores=factor_scores,
         )
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "smc",
-            signal["confidence"],
-        )
+        ctx = capture_signal_features(features, direction, "smc", signal["confidence"])
+        signal["features_snapshot"] = ctx
+        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

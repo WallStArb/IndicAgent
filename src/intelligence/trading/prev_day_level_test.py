@@ -229,8 +229,15 @@ class PrevDayLevelTestPlugin:
             f"setup_variant={setup_variant}",
         ]
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "proximity_score": round(max(0.0, 1.0 - abs(close_price - level_value) / proximity), 4),
+            "continuation_score": round(1.0 if is_continuation else 0.0, 4),
+        }
+
         confidence = compose_confidence(confidence)
 
+        ctx = capture_signal_features(features, direction, "session", confidence)
         signal = make_signal_from_frame(
             frame,
             symbol=symbol,
@@ -242,7 +249,9 @@ class PrevDayLevelTestPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=capture_signal_features(features, direction, "session", confidence),
+            features_snapshot=ctx,
+            context_features=ctx,
+            factor_scores=factor_scores,
         )
         signal["setup_variant"] = setup_variant
         signal["level_name"] = level_name

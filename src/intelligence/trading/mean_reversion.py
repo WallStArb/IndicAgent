@@ -133,6 +133,14 @@ class MeanReversionPlugin:
         else:
             sr_prox = 0.0
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "rsi_extreme_score": round(rsi_extreme, 4),
+            "div_score": round(div_score, 4),
+            "vol_stability": round(vol_stability, 4),
+            "sr_prox": round(sr_prox, 4),
+        }
+
         cfg = self._config_service
         w_rsi = cfg.get_sync("weights.mean_reversion.rsi_extreme", 0.30) if cfg else 0.30
         w_div = cfg.get_sync("weights.mean_reversion.div_score", 0.30) if cfg else 0.30
@@ -167,13 +175,11 @@ class MeanReversionPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
+            factor_scores=factor_scores,
         )
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "mean_reversion",
-            signal["confidence"],
-        )
+        ctx = capture_signal_features(features, direction, "mean_reversion", signal["confidence"])
+        signal["features_snapshot"] = ctx
+        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
