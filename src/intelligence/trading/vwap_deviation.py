@@ -146,6 +146,13 @@ class VWAPDeviationPlugin:
         volume_ratio = float(volume[-1]) / vol_sma if vol_sma > 0 else 1.0
         vol_contraction = max(0.0, 1.0 - max(0.0, volume_ratio - 1.0))
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "dev_score": round(dev_score, 4),
+            "regime_compat": round(regime_compat, 4),
+            "vol_contraction": round(vol_contraction, 4),
+        }
+
         raw_conf = 0.40 * dev_score + 0.35 * regime_compat + 0.25 * vol_contraction
 
         # Supporting factors
@@ -184,6 +191,7 @@ class VWAPDeviationPlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

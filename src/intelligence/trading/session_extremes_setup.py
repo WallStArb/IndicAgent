@@ -190,6 +190,14 @@ class SessionExtremesSetupPlugin:
         else:
             volume_context = 0.25
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "level_proximity": round(level_proximity, 4),
+            "rejection_strength": round(rejection_strength, 4),
+            "session_timing_score": round(session_timing_score, 4),
+            "volume_context": round(volume_context, 4),
+        }
+
         # Weights sum to 1.0
         raw_conf = (
             0.35 * level_proximity
@@ -235,6 +243,7 @@ class SessionExtremesSetupPlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
         signal["bias"] = side
         signal["proximity_atr"] = round(proximity_atr, 4)

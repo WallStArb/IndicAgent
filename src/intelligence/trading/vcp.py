@@ -243,6 +243,14 @@ class VCPPlugin:
             # (tighter contraction = cleaner setup)
             range_compression_score = clamp01(1.0 - bar_range / atr) if atr > 0 else 0.5
 
+            # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+            factor_scores = {
+                "contraction_quality_score": round(contraction_quality_score, 4),
+                "volume_expansion_score": round(volume_expansion_score, 4),
+                "breakout_margin_score": round(breakout_margin_score, 4),
+                "range_compression_score": round(range_compression_score, 4),
+            }
+
             # Weights: 0.30 + 0.25 + 0.25 + 0.20 = 1.0
             raw_conf = (
                 0.30 * contraction_quality_score
@@ -284,6 +292,7 @@ class VCPPlugin:
                 context_features=ctx,
                 ctf_score=ctf_score,
                 ctf_confirmed=ctf_confirmed,
+                factor_scores=factor_scores,
             )
             signal["contraction_count"] = contraction_count
             return signal

@@ -182,6 +182,14 @@ class FailedBreakoutPlugin:
             structure_quality_score = 0.5  # neutral fallback
 
         # Weights sum to 1.0
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "break_magnitude_score": round(break_magnitude_score, 4),
+            "rejection_strength_score": round(rejection_strength_score, 4),
+            "volume_score": round(volume_score, 4),
+            "structure_quality_score": round(structure_quality_score, 4),
+        }
+
         raw_conf = (
             0.35 * break_magnitude_score
             + 0.30 * rejection_strength_score
@@ -240,6 +248,7 @@ class FailedBreakoutPlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
         return signal
 

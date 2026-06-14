@@ -107,6 +107,13 @@ def detect_spike_signal(
     else:
         persistence_score = 0.3
 
+    # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+    factor_scores = {
+        "z_score_score": round(z_score_score, 4),
+        "volume_score": round(volume_score, 4),
+        "persistence_score": round(persistence_score, 4),
+    }
+
     # Weights sum to 1.0: 0.50/0.30/0.20 (ctf_factor removed, weight redistributed)
     raw = 0.50 * z_score_score + 0.30 * volume_score + 0.20 * persistence_score
     confidence = compose_confidence(raw)
@@ -142,5 +149,6 @@ def detect_spike_signal(
         context_features=ctx,
         ctf_score=ctf_score,
         ctf_confirmed=ctf_confirmed,
+        factor_scores=factor_scores,
     )
     return signal
