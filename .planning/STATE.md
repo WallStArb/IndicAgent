@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.10
-milestone_name: AI Platform — Part 2
+milestone_name: milestone
 status: executing
-last_updated: "2026-06-14T15:59:03.720Z"
+last_updated: "2026-06-14T16:50:24.302Z"
 last_activity: 2026-06-14 -- Phase 123 planning complete
 progress:
-  total_phases: 7
-  completed_phases: 0
-  total_plans: 3
-  completed_plans: 0
-  percent: 0
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -75,6 +75,10 @@ See: .planning/PROJECT.md
 - All new AI agent behavior runs shadow_only=True; no auto-promotion; operator must confirm fitness gate.
 - No new Kafka topics without named producer-consumer pair; no new systemd daemons without justification.
 - [Phase 095]: response_format forwarded via conditional dict insert; semantic cache skipped for structured calls; LLMProviderChain in TYPE_CHECKING only.
+- [Phase 123]: SIGNAL_SCHEMA_VERSION bumped to v3 to mark ECL field addition in signal payloads
+- [Phase 123]: _nullable_float() pattern: None=cold-start, 0.0=genuine neutral — never or 0.0 fallback (ML training integrity)
+- [Phase 123]: _PHASE_119_PLUGINS frozenset dissolved: boundary concept no longer needed once all plugins emit ECL annotations
+- [Phase 123]: Phase 128 DB persistence deferred: signal_writer reads ECL fields end-to-end but LedgerEntry not extended until 3-table migration
 
 ### Blockers / Concerns
 
@@ -99,7 +103,13 @@ Then: `/clear` then `/gsd-execute-phase 121` (Wave 2 — validation report)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Ready to execute
-Last activity: 2026-06-14 -- Phase 123 planning complete
+Phase: 123 (ECL Boundary Restoration)
+Plan: 01 complete — 02 next (Factor Score Scaffold)
+Status: Executing
+Last activity: 2026-06-14 -- Phase 123 Plan 01 complete (ECL boundary restored, survivorship bias layer 1 eliminated)
+
+## Performance Metrics
+
+| Phase | Plan | Duration | Notes |
+|-------|------|----------|-------|
+| Phase 123 P01 | 20 | 5 tasks | 26 files |
