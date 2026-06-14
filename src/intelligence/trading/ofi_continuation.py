@@ -107,7 +107,7 @@ class OFIContinuationPlugin:
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         cfg = self._config_service
-        min_bars: int = (
+        min_bars: int = int(
             cfg.get_sync("threshold.ofi_continuation.min_bars", _MIN_BARS_DEFAULT)
             if cfg
             else _MIN_BARS_DEFAULT
@@ -116,6 +116,29 @@ class OFIContinuationPlugin:
             cfg.get_sync("threshold.ofi_continuation.magnitude_floors", _MAGNITUDE_FLOORS_DEFAULT)
             if cfg
             else _MAGNITUDE_FLOORS_DEFAULT
+        )
+        ewma_min_history: int = int(
+            cfg.get_sync("threshold.ofi_continuation.ewma_min_history", _EWMA_MIN_HISTORY)
+            if cfg
+            else _EWMA_MIN_HISTORY
+        )
+        volume_spike_ratio: float = float(
+            cfg.get_sync("threshold.ofi_continuation.volume_spike_ratio", _VOLUME_SPIKE_RATIO)
+            if cfg
+            else _VOLUME_SPIKE_RATIO
+        )
+        accel_floor_fraction: float = float(
+            cfg.get_sync(
+                "threshold.ofi_continuation.acceleration_floor_fraction",
+                _ACCELERATION_FLOOR_FRACTION,
+            )
+            if cfg
+            else _ACCELERATION_FLOOR_FRACTION
+        )
+        upper_ref_mult: float = float(
+            cfg.get_sync("threshold.ofi_continuation.upper_ref_multiplier", _UPPER_REF_MULTIPLIER)
+            if cfg
+            else _UPPER_REF_MULTIPLIER
         )
 
         df = frames.get("main")
@@ -154,7 +177,7 @@ class OFIContinuationPlugin:
                 symbol, mag_floors.get("_default", _MAGNITUDE_FLOORS_DEFAULT["_default"])
             )
         )
-        upper_ref = mag_threshold * _UPPER_REF_MULTIPLIER
+        upper_ref = mag_threshold * upper_ref_mult
 
         # Magnitude gate FIRST -- floor filter; rejects noise before any state is committed
         if abs(ofi_ewma) < mag_threshold:
@@ -170,7 +193,7 @@ class OFIContinuationPlugin:
         volume_spike = False
 
         # EWMA acceleration detection: second derivative (change-of-change) of ofi_ewma_20
-        if len(ofi_state.ewma_buffer) >= _EWMA_MIN_HISTORY:
+        if len(ofi_state.ewma_buffer) >= ewma_min_history:
             buf = ofi_state.ewma_buffer
             ewma_change = buf[-1] - buf[-2]
             ewma_change_prev = buf[-2] - buf[-3]
@@ -181,7 +204,7 @@ class OFIContinuationPlugin:
             )
             if (
                 directional_acceleration
-                and abs(acceleration) >= mag_threshold * _ACCELERATION_FLOOR_FRACTION
+                and abs(acceleration) >= mag_threshold * accel_floor_fraction
             ):
                 acceleration_confirmed = True
 
@@ -189,7 +212,7 @@ class OFIContinuationPlugin:
         current_vol = float(df["volume"].iloc[-1])
         vol_sma = features.get("volume_sma_20")
         vol_ratio = current_vol / float(vol_sma) if vol_sma and float(vol_sma) > 0 else 1.0
-        if vol_ratio >= _VOLUME_SPIKE_RATIO:
+        if vol_ratio >= volume_spike_ratio:
             volume_spike = True
 
         if not acceleration_confirmed and not volume_spike:
