@@ -31,6 +31,10 @@ from .trade_framer import frame_trade
 
 _SPIKE_Z_THRESHOLD: float = 1.5  # lower than OFI/CVD spike (1.5 vs 2.0 — captures more cases)
 _PRICE_FOLLOW_THRESHOLD: float = 0.3  # price must move < 0.3 ATR for exhaustion
+_CONF_WEIGHTS: tuple[float, ...] = (0.35, 0.30, 0.25, 0.10)
+assert (
+    abs(sum(_CONF_WEIGHTS) - 1.0) < 1e-9
+), f"Composite weights must sum to 1.0, got {sum(_CONF_WEIGHTS)}"
 
 
 @dataclass
@@ -159,13 +163,11 @@ class DeltaExhaustionPlugin:
 
         # Weights sum to 1.0: exhaustion/momentum_reversal/volume_proxy/persistence
         # ctf_score_factor removed — CTF is ECL annotation, not composite factor (Phase 123)
-        _w = (0.35, 0.30, 0.25, 0.10)
-        assert abs(sum(_w) - 1.0) < 1e-9, f"Composite weights must sum to 1.0, got {sum(_w)}"
         raw_conf = (
-            _w[0] * cvd_z_score
-            + _w[1] * price_fail_score
-            + _w[2] * hmm_mean_reversion_score
-            + _w[3] * persistence_score
+            _CONF_WEIGHTS[0] * cvd_z_score
+            + _CONF_WEIGHTS[1] * price_fail_score
+            + _CONF_WEIGHTS[2] * hmm_mean_reversion_score
+            + _CONF_WEIGHTS[3] * persistence_score
         )
         confidence = compose_confidence(raw_conf)
 

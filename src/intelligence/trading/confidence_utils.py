@@ -188,7 +188,6 @@ def capture_signal_features(
         "ctf_ob_alignment": _nullable_float(features, "ctf_ob_alignment"),
         # I4 macro context (Phase 46.1): VIX regime + EQ_INDEX sector rotation.
         # Per D-06: None means data unavailable — never substitute 0.0 (valid z-score value).
-        # _nullable_float() used for all float | None fields to guarantee type safety.
         "vix_level": _nullable_float(features, "vix_level"),
         "vix_z": _nullable_float(features, "vix_z"),
         "eq_spread_z": _nullable_float(features, "eq_spread_z"),
