@@ -34,10 +34,11 @@ SELECT
     (f.regime_features->>'kalman_trend')::float    AS kalman_trend,
     (f.regime_features->>'vol_percentile')::float  AS vol_percentile,
     (f.regime_features->>'garch_vol_ratio')::float AS garch_vol_ratio,
-    -- i6 features
-    (f.cross_timeframe_context->>'ctf_score')::float       AS ctf_score,
-    (f.cross_timeframe_context->>'ctf_trend_alignment')::float AS ctf_trend_alignment,
-    (f.cross_timeframe_context->>'ctf_regime_agreement')::float AS ctf_regime_agreement,
+    -- i6 features (read from top-level columns promoted by migration 130)
+    f.ctf_score,
+    f.ctf_trend_alignment,
+    f.ctf_structure_alignment,
+    f.ctf_regime_agreement,
     -- i7 CIS
     (f.trading_signals->'cis'->>'score')::float    AS cis_score,
     -- Signal outcome columns

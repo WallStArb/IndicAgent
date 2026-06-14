@@ -136,9 +136,9 @@ class EmbeddingService:
             tokens.append(f"trend:{trend_score:.2f}")
 
         # CTF composite score (cross-timeframe confluence, 0-1)
+        # Read from top-level ctf_score column (promoted by migration 130).
+        # ctf_composite alias removed — top-level columns are the single source of truth.
         ctf_score = getattr(context, "ctf_score", None)
-        if ctf_score is None:
-            ctf_score = getattr(context, "ctf_composite", None)
         if ctf_score is not None:
             tokens.append(f"ctf:{ctf_score:.2f}")
 
