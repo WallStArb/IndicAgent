@@ -263,21 +263,23 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Current Milestone: v2.10 — Data Architecture Evolution
 
-**Goal:** Decide on signal/trade separation architecture (2-table vs 3-table), execute database migration if approved, rewrite all affected scripts, then run clean replay on empty tables and produce the deferred Phase 121 Wave 2 signal quality validation report.
+**Goal:** Restore the ECL boundary (remove all extrinsic emission gates), externalize all 54 numeric parameters to the APR, run a clean historical replay with `context_features` persisted, then execute the 3-table signal architecture migration — producing a signal corpus with no survivorship bias at either the emission or outcome layer.
 
-**Design principles:**
-- Signal generation + trade framing remain in-process (compute layer untouched per Principle 12 — Signal Generation Invariant)
-- Architecture decision is data layer only: how signal_ledger is decomposed into separate tables
-- All phases after 123 are conditional on ADR approval
-- Phase 126 closes the deferred Phase 121-02 obligation (bootstrap CI, Welch's t-test, RCA Part VI)
+**Architecture decisions (made — not conditional):**
+- ECL boundary invariant: zero `no_signal()` calls based on extrinsic vectors; all extrinsic vectors are annotations that travel with the signal
+- 3-table architecture: `signal_events` / `trade_frames` / `trade_executions`; `counterfactual_pnl_r` on trade_frames is the ML training target
+- Full plan: `docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md`
 
 **Target phases (in execution order):**
-- Phase 123: Signal/Trade Separation Decision — ADR: 2-table vs 3-table; cardinality and numeric type rules (ARCH-01-03)
-- Phase 124: Database Migration — Drop old tables, create new schema, indexes, constraints (MIGRATE-01-03; conditional)
-- Phase 125: Script Rewriting — SignalWriter, lifecycle_writer, queries, dashboard API (REWRITE-01-03; conditional)
-- Phase 126: Clean Replay + Signal Quality Validation — Full replay on empty tables + Phase 121-02 deferred report (REPLAY-02; conditional)
+- Phase 123: ECL Boundary Restoration — remove CTF/zone_friction/exhaustion gates; 5 new schema fields; SIGNAL_SCHEMA_VERSION bump (ECL-01-03)
+- Phase 124: Signal Universe Integrity + Cold-Start Hardening — fix 5 over-firing plugins; ON CONFLICT IS NULL guard; warmup pass (QUALITY-01-02)
+- Phase 125: APR Full Migration — all 54 keys across Tier A/B/C; weight sum invariant (APR-01-03)
+- Phase 126: Clean Replay + Validation — replay on corrected pipeline; calibration retrain; Phase 121-02 report (REPLAY-01-02)
+- Phase 127: 3-Table Schema Design — full table schemas, FK, indexes, signal_ledger_v2 view (ARCH-01)
+- Phase 128: Database Migration — create tables, migrate signal_ledger, deploy view (MIGRATE-01)
+- Phase 129: Script Rewriting — all writers/trackers/APIs on 3-table schema; drop signal_ledger (REWRITE-01)
 
-**After v2.10:** v2.8 Part 2 resumes — Phases 096-099, 101-103 (Agent Registry, DSPy, Guardrails, Fitness, Genetics)
+**After v2.10:** v2.8 Part 2 resumes — Phases 096-099, 101-103; v2.11 seeds: CounterfactualTracker (Phase 130), APR ML optimization, SignalRanker
 
 ---
 ## Evolution
@@ -298,4 +300,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-13 after v2.9 milestone — Signal Quality Renaissance shipped. 5.18M noise signals deleted and replayed clean; 21 I7 setups refactored with intrinsic-only confidence; param store wired for 46 plugin constants; shadow promotion pipeline live.*
+*Last updated: 2026-06-14 after v2.10 milestone init — ECL boundary invariant established; 3-table architecture decided (not conditional); APR full migration scoped (54 keys, all 3 tiers); 7-phase plan complete in `docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md`.*

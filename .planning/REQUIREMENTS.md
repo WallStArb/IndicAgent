@@ -1,46 +1,48 @@
 # Requirements: v2.10 Data Architecture Evolution
 
-## Overview
-
-**Milestone:** v2.10 — Data Architecture Evolution
-**Goal:** Decide on signal/trade separation architecture, execute database migration if approved, rewrite affected scripts, then run clean replay and produce the deferred Phase 121 Wave 2 validation report.
-**Architecture constraint:** Signal generation + trade framing remain embedded at compute layer (Principle 12 — Signal Generation Invariant). This milestone addresses data layer separation only.
-
----
+**Defined:** 2026-06-14
+**Core Value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
 
 ## v1 Requirements
 
-### Architecture Decision (Phase 123)
+### ECL Boundary Restoration (Phase 123)
 
-- [ ] **ARCH-01**: Operator can read an ADR that documents the chosen data model (2-table vs 3-table), with rationale and rejection reasoning for the alternative
-- [ ] **ARCH-02**: ADR defines cardinality rules — whether one signal can produce multiple trades, and whether one trade can have multiple executions (partial fills, scale-outs)
-- [ ] **ARCH-03**: ADR defines numeric type standardization for prices and P&L (NUMERIC vs FLOAT) and records the chosen approach with migration implications
+- [ ] **ECL-01**: Zero I7 plugins call `no_signal()` based on any extrinsic vector (CTF score, zone_friction, exhaustion state) — all extrinsic vectors are annotations on the emitted signal, never emission gates
+- [ ] **ECL-02**: `signal_events` schema has five new fields: `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `factor_scores` (JSONB), `context_features` (JSONB) — all populated at emit time
+- [ ] **ECL-03**: `SIGNAL_SCHEMA_VERSION` is incremented; `context_features` is populated in `signal_processor.py` (not the `_shadow` dict); all 37 I7 plugins collect `factor_scores` dict before compositing
 
-### Database Migration (Phase 124 — conditional on ARCH decision)
+### Signal Universe Integrity (Phase 124)
 
-- [ ] **MIGRATE-01**: Old schema (signal_ledger, signal_outcomes) is cleanly dropped and replaced with new tables per ADR decision; migration script is idempotent and includes rollback DDL
-- [ ] **MIGRATE-02**: New schema has performance indexes on all high-frequency query patterns: (timestamp DESC), (symbol, timestamp DESC), (signal_id), (exit_at), (outcome, exit_at)
-- [ ] **MIGRATE-03**: A `signal_ledger_full` compatibility view exists so existing consumers can query through it without immediate code changes; backward-compatible until Phase 125 rewrites complete
+- [ ] **QUALITY-01**: All 5 over-firing plugins (firing > 3%/bar) are corrected to event-onset detection; post-fix fire rate confirmed < 3%/bar per SQL validation
+- [ ] **QUALITY-02**: `intelligence_features` ON CONFLICT guard uses `WHERE ctf_score IS NULL` only — the `OR ctf_score = 0.0` branch that overwrites valid neutral-CTF readings is removed; `--warmup` pass operational in `run_historical_pipeline.py`
 
-### Script Rewriting (Phase 125 — conditional on MIGRATE completion)
+### APR Full Migration (Phase 125)
 
-- [ ] **REWRITE-01**: SignalWriter writes signal fire events to the new tables (signal_events and trade_framing/trade_execution per ADR); no direct signal_ledger writes remain in any service
-- [ ] **REWRITE-02**: lifecycle_writer reads from signal_events, writes outcome columns to trade_execution; all query callsites updated to new table names or signal_ledger_full view
-- [ ] **REWRITE-03**: Dashboard `/api/signals/active` continues to return all fire-time fields with LATERAL JOIN latency under 500ms p95; all services restart cleanly after migration
+- [ ] **APR-01**: All 26 Tier A detection gate constants (`threshold.*`, `feature.*`) externalized to `config_state`; zero hard-coded values in `src/` (grep confirms); all Tier A plugins load from ConfigService at `compute_full()` time
+- [ ] **APR-02**: All 22 Tier B confidence weight constants (`weights.*`) externalized to `config_state`; weight sum invariant enforced via `_assert_weights_sum()` in all Tier B plugins
+- [ ] **APR-03**: All 6 Tier C zone engine geometry constants (`feature.zone_engine.*`, `weights.zone_engine.*`) externalized to `config_state`; `zone_engine.py` loads from ConfigService at startup
 
-### Clean Replay + Signal Quality Validation (Phase 126 — conditional on REWRITE completion)
+### Clean Replay and Validation (Phase 126)
 
-- [ ] **REPLAY-02**: Full clean replay executes on empty new-schema tables — historical backfill → feature_replay.py → lifecycle_replay.py — producing a complete, noise-free signal history under the v2.9 pipeline; before/after comparison report generated with per-setup PASS/FAIL/PARTIAL verdicts, bootstrap 95% CI on calibration_corr (setups with pnl_r_n >= 30), and Welch's t-test p-value for pnl_r shift
-- [ ] **REPLAY-03**: RCA Part VI updated with MEASURED values and `MEASURED [date]` annotations for all v2.9 roadmap targets; v2.9 milestone formally closed
+- [ ] **REPLAY-01**: Full historical replay completes on the corrected pipeline (Phases 123-125 applied) with `--warmup`; `context_features` coverage > 99% for non-cold-start signals; all 5 over-firing plugins confirmed < 3% fire rate in replay output
+- [ ] **REPLAY-02**: Phase 121-02 deferred validation report produced using correct methodology — signal volume delta (pre/post ECL fix), CTF as feature analysis, firing rate distribution, cold-start null distribution; no cross-population Welch's t-test; calibration curves retrained on clean corpus; RCA Part VI updated
+
+### 3-Table Signal Architecture (Phases 127-129)
+
+- [ ] **ARCH-01**: `signal_events`, `trade_frames`, `trade_executions` tables created with full schemas, FK constraints, and indexes as defined in `docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md`; `signal_ledger_v2` backward-compat view deployed; `counterfactual_pnl_r` is a required first-class column on `trade_frames`
+- [ ] **MIGRATE-01**: All `signal_ledger` data migrated into the 3-table schema with row-count verification; `signal_ledger` retained read-only during the 48-hour transition window
+- [ ] **REWRITE-01**: All writers, trackers, auditors, API endpoints, and historical backfill scripts write to and read from the 3-table schema; `signal_ledger` dropped after the verification window; `signal_ledger_v2` is the sole backward-compatibility surface
 
 ---
 
-## Future Requirements (deferred)
+## Future Requirements (v2.11)
 
-| Requirement | Reason for deferral |
-|-------------|---------------------|
-| Partial fill / scale-out execution modeling | Cardinality decision in ARCH-02 may unlock this; deferred to a future execution-focused milestone |
-| ML training dataset rebuild on new schema | After REPLAY-02 completes, ml_signal_training hypertable may need schema migration — deferred to v2.8 Part 2 prep |
+| Requirement | Trigger |
+|-------------|---------|
+| CounterfactualTracker daemon — populates `counterfactual_pnl_r` on every trade frame regardless of execution | Requires `trade_frames` table (Phase 128) |
+| I6 DB bootstrap at daemon startup — eliminates cold-start permanently | Requires `intelligence_features` accumulation |
+| APR ML optimization — regress `factor_scores` against `counterfactual_pnl_r` to discover optimal weights | Requires 30-90 days of `counterfactual_pnl_r` data; all 54 APR keys already externalized (Phase 125) |
+| SignalRanker (LightGBM) — replace calibration + `perf_multiplier` chain with end-to-end trained ranking model | Requires `context_features` (Phase 123) + `counterfactual_pnl_r` (Phase 130 CounterfactualTracker) |
 
 ---
 
@@ -48,9 +50,10 @@
 
 | Feature | Reason |
 |---------|--------|
-| Moving signal generation or trade framing out of IntelligencePipeline | Principle 12 (Signal Generation Invariant) — settled in `docs/plans/archive/2026-06-07-trade-framing-architecture-analysis.md` |
-| Execution engine / order routing | Intelligence platform only — no execution engine |
+| Moving signal generation or trade framing out of IntelligencePipeline | Principle 12 (Signal Generation Invariant) — settled, not revisited in v2.10 |
+| Execution engine / order routing | Intelligence platform only |
 | v2.8 Part 2 AI platform phases (096-099, 101-103) | Separate milestone; unblocked after v2.10 completes |
+| CounterfactualTracker daemon | v2.11 Phase 130 seed — requires trade_frames to exist and accumulate first |
 
 ---
 
@@ -58,14 +61,25 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ARCH-01 | 123 | — |
-| ARCH-02 | 123 | — |
-| ARCH-03 | 123 | — |
-| MIGRATE-01 | 124 | — |
-| MIGRATE-02 | 124 | — |
-| MIGRATE-03 | 124 | — |
-| REWRITE-01 | 125 | — |
-| REWRITE-02 | 125 | — |
-| REWRITE-03 | 125 | — |
-| REPLAY-02 | 126 | — |
-| REPLAY-03 | 126 | — |
+| ECL-01 | Phase 123 | Pending |
+| ECL-02 | Phase 123 | Pending |
+| ECL-03 | Phase 123 | Pending |
+| QUALITY-01 | Phase 124 | Pending |
+| QUALITY-02 | Phase 124 | Pending |
+| APR-01 | Phase 125 | Pending |
+| APR-02 | Phase 125 | Pending |
+| APR-03 | Phase 125 | Pending |
+| REPLAY-01 | Phase 126 | Pending |
+| REPLAY-02 | Phase 126 | Pending |
+| ARCH-01 | Phase 127 | Pending |
+| MIGRATE-01 | Phase 128 | Pending |
+| REWRITE-01 | Phase 129 | Pending |
+
+**Coverage:**
+- v1 requirements: 13 total
+- Mapped to phases: 13
+- Unmapped: 0 ✓
+
+---
+*Requirements defined: 2026-06-14*
+*Last updated: 2026-06-14 — full rewrite reflecting decided 7-phase plan; 3-table architecture not conditional; ECL boundary invariant established*
