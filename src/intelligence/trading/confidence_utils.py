@@ -62,6 +62,18 @@ def clamp01(x: float) -> float:
     return clamp(x, 0.0, 1.0)
 
 
+def _nullable_float(features: dict, key: str) -> float | None:
+    """Null-preserving float extraction: None = key absent or null, 0.0 = genuine neutral.
+
+    Never use `or 0.0` or `, 0.0` fallback for extrinsic CTF/exhaustion fields —
+    that conflates cold-start (no data) with a genuine neutral reading (ML training bias).
+    """
+    _raw = features.get(key)
+    if _raw is None:
+        return None
+    return float(_raw)
+
+
 def rel_volume_score(features: dict[str, Any], fallback: float = 0.3) -> float:
     """Normalize rel_volume into a [0, 1] confidence factor.
 
@@ -166,12 +178,14 @@ def capture_signal_features(
     shadow: dict[str, Any] = {
         "profile": profile_name,
         "existing_confidence": round(existing_confidence, 4),
-        "ctf_score": float(features.get("ctf_score", 0.0)),
-        "ctf_trend_alignment": float(features.get("ctf_trend_alignment", 0.0)),
-        "ctf_structure_alignment": float(features.get("ctf_structure_alignment", 0.0)),
-        "ctf_regime_agreement": float(features.get("ctf_regime_agreement", 0.0)),
-        "ctf_fvg_alignment": float(features.get("ctf_fvg_alignment", 0.0)),
-        "ctf_ob_alignment": float(features.get("ctf_ob_alignment", 0.0)),
+        # Null-preserving extraction: None = field absent (cold-start), 0.0 = genuine neutral.
+        # Never use `or 0.0` fallbacks here — conflates cold-start with neutral (ML bias).
+        "ctf_score": _nullable_float(features, "ctf_score"),
+        "ctf_trend_alignment": _nullable_float(features, "ctf_trend_alignment"),
+        "ctf_structure_alignment": _nullable_float(features, "ctf_structure_alignment"),
+        "ctf_regime_agreement": _nullable_float(features, "ctf_regime_agreement"),
+        "ctf_fvg_alignment": _nullable_float(features, "ctf_fvg_alignment"),
+        "ctf_ob_alignment": _nullable_float(features, "ctf_ob_alignment"),
         # I4 macro context (Phase 46.1): VIX regime + EQ_INDEX sector rotation.
         # Per D-06: None means data unavailable — never substitute 0.0 (valid z-score value).
         "vix_level": features.get("vix_level"),  # float | None
@@ -222,10 +236,12 @@ def capture_signal_features(
     shadow["ctf_orderflow_regime"] = features.get("ctf_orderflow_regime")  # str | None
 
     # Exhaustion fields — omit for plugins that ARE the exhaustion detector (D-09)
+    # Null-preserving: None = absent (cold-start), 0.0 = genuine neutral
     if profile_name != "exempt_exhaustion":
-        shadow["exhaustion_score"] = float(features.get("exhaustion_score", 0.0))
-        shadow["exhaustion_side"] = features.get("exhaustion_side", "none")
-        shadow["exhaustion_bars"] = float(features.get("exhaustion_bars", 0.0))
+        shadow["exhaustion_score"] = _nullable_float(features, "exhaustion_score")
+        shadow["exhaustion_side"] = features.get("exhaustion_side")
+        _exh_bars_raw = features.get("exhaustion_bars")
+        shadow["exhaustion_bars"] = float(_exh_bars_raw) if _exh_bars_raw is not None else None
     else:
         shadow["exhaustion_score"] = None
         shadow["exhaustion_side"] = None
