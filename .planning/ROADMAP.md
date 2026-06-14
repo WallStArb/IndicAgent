@@ -22,7 +22,7 @@
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104-109 (shipped 2026-05-29)
 - ✅ **v2.8 AI Platform — Part 1** — Phases 094-095, 106-108, 110-116 (shipped 2026-06-08)
 - ✅ **v2.9 Signal Quality Renaissance** — Phases 117-122 (shipped 2026-06-13; 5.18M noise signals deleted, 21 setups refactored, param store wired)
-- 📋 **v2.10 Data Architecture Evolution** — Phases 123-126 (conditional, depends on ADR decision)
+- 📋 **v2.10 Data Architecture Evolution** — Phases 123-129 (7 phases: ECL restoration + APR Tier A + clean replay + 3-table migration)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked — v2.9 complete; next after v2.10)
 
 ## Phases
@@ -1705,157 +1705,159 @@ Plans:
 ---
 
 <details>
-<summary>📋 v2.10 Data Architecture Evolution (Phases 123-126) — CONDITIONAL</summary>
+<summary>📋 v2.10 Data Architecture Evolution (Phases 123-129)</summary>
 
-**Milestone Goal:** Decide on signal/trade separation architecture (2-table vs 3-table), define cardinality rules, execute database migration if approved, then run clean replay on empty tables and produce the deferred Phase 121 Wave 2 validation report.
+**Milestone Goal:** Restore the ECL boundary (remove all extrinsic emission gates), clean the signal universe of state-detection over-firing, externalize detection thresholds to APR, run a clean historical replay with context_features persisted, then execute the 3-table signal architecture migration. Produces a signal corpus that is valid training data for the ML stack with no survivorship bias at either the emission or outcome layer.
 
-**Execution order:** v2.9 → v2.10 (if ADR approved) → v2.8 Part 2 (resume)
+**Execution order:** v2.9 → v2.10 Workstream A (123-126) → v2.10 Workstream B (127-129) → v2.8 Part 2 (resume)
 
-**Status:** CONDITIONAL — requires Renaissance council decision in Phase 123. If 2-table approach rejected, milestone ends after Phase 123.
+**Status:** PLANNED — 3-table architecture decided. No conditional gates.
 
-**Design decision:** This milestone addresses DATA LAYER separation (database schema), not compute layer. Signal generation + trade framing remain embedded at compute layer per Principle 12 (Signal Generation Invariant) — settled in `docs/plans/archive/2026-06-07-trade-framing-architecture-analysis.md`.
+**Architecture decision (made):** 3-table — `signal_events` / `trade_frames` / `trade_executions`. `counterfactual_pnl_r` on `trade_frames` is the ML training target, populated by CounterfactualTracker (Phase 130). See `docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md` for full spec.
 
-**Reference:** `docs/ideas/2026-06-08-signal-trade-separation-architecture.md`
-
-**Architecture Options:**
-
-- **2-table (simplified)**: signal_events (7.5M) + trades (1.88M with framing+execution combined)
-- **3-table (proposed)**: signal_events (7.5M) + trade_framing (1.88M) + trade_execution (1.88M)
+**Two survivorship bias layers addressed:**
+- Bias Layer 1 (emission suppression by extrinsic gates): fixed in Phase 123
+- Bias Layer 2 (null pnl_r on non-executed signals): addressed structurally by counterfactual_pnl_r in Phase 127-129
 
 ---
 
-### Phase 123: Signal/Trade Separation Decision
+### Phase 123: ECL Boundary Restoration
 
-**Goal:** Renaissance council decision on 2-table vs 3-table architecture. Define cardinality (1:1 vs 1:many rules). Define numeric type standardization. Decision recorded in ADR.
+**Goal:** Remove all extrinsic emission suppressors (CTF gate, zone_friction gate, exhaustion guard) across all plugins. Add 5 ECL fields + context_features to signal schema. Promote context_features from _shadow dict to persisted column. Bump SIGNAL_SCHEMA_VERSION.
 
 **Depends on**: Phase 122
-**Requirements**: ARCH-01, ARCH-02, ARCH-03
-**Success Criteria** (what must be TRUE):
+**Requirements**: ECL-01, ECL-02, ECL-03
+**Success Criteria**:
 
-  1. ADR `docs/ideas/2026-06-08-signal-trade-separation-architecture-ADR.md` created with decision: 2-table or 3-table
-  2. Cardinality defined: Can 1 signal have multiple trades? Can 1 trade have multiple executions (partial fills, scale-outs)?
-  3. Numeric type standardization: Use NUMERIC everywhere for prices/PnL (recommended) vs mixed types — decision recorded
-  4. Cross-AI review concerns addressed: was_selected lifecycle coupling, JSONB governance, execution lifecycle modeling, versioning completeness, indexing strategy
-  5. If 2-table approved: signal_events (7.5M) + trades (1.88M with framing+execution combined)
-  6. If 3-table approved: signal_events (7.5M) + trade_framing (1.88M) + trade_execution (1.88M)
+  1. Zero plugins calling `no_signal()` based on CTF score, zone_friction, or exhaustion state
+  2. Signal schema has: `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `factor_scores`, `context_features`
+  3. `SIGNAL_SCHEMA_VERSION` incremented
+  4. `context_features` populated in signal_processor.py (not _shadow dict)
+  5. All 37 plugins collect `factor_scores` dict before compositing
+  6. `_PHASE_119_PLUGINS` frozenset deleted
+  7. `pytest tests/unit/intelligence/ -q` green
+  8. Architecture doc renamed: `i7-setup-confidence-patterns` → `setup-confidence-patterns`
 
-**Plans**: 2 plans (council decision + documentation)
-
-Plans:
-
-- [ ] 123-01-PLAN.md — Renaissance council decision: 2-table vs 3-table + cardinality definition + numeric type standardization
-- [ ] 123-02-PLAN.md — ADR creation + cross-AI review response + documentation update
+**Plans**: defer to `/gsd-plan-phase 123`
 
 ---
 
-### Phase 124: Database Migration (Conditional)
+### Phase 124: Signal Universe Integrity + Cold-Start Hardening
 
-**Goal:** Execute database migration if Phase 123 approves separation. Drop old tables (clean-start), create new schema, add indexes for query performance.
+**Goal:** Tighten 5 over-firing plugins (15-30%/bar) to < 3%/bar via event vs state detection. Fix ON CONFLICT cold-start contamination in intelligence_features (IS NULL guard only). Add --warmup pass to historical replay.
 
-**Depends on**: Phase 123 (conditional — executes ONLY IF separation approved)
-**Requirements**: MIGRATE-01, MIGRATE-02, MIGRATE-03
-**Success Criteria** (what must be TRUE):
+**Depends on**: Phase 123
+**Requirements**: QUALITY-01, QUALITY-02
+**Success Criteria**:
 
-  1. Old schema dropped: DROP TABLE IF EXISTS signal_ledger CASCADE; DROP TABLE IF EXISTS signal_outcomes CASCADE
-  2. New schema created per ADR decision (2-table or 3-table variant)
-  3. Indexes created: signal_events (timestamp DESC), (symbol, timestamp DESC); trade_execution (signal_id), (framing_id), (exit_at), (outcome, exit_at)
-  4. BRIN indexes on timestamp columns for time-series compression
-  5. CHECK constraints enforce cardinality and data quality rules
-  6. signal_ledger_full view created for backward compatibility (materialized or regular view per decision)
-  7. Migration script idempotent; rollback procedure documented; pg_dump backup at /tmp/indicagent-pre-migration-*.dump
+  1. All 5 over-firing plugins at < 3% fire rate (SQL validated)
+  2. ON CONFLICT uses `DO UPDATE ... WHERE ctf_score IS NULL` — not `IS NULL OR = 0.0`
+  3. `--warmup` flag operational in run_historical_pipeline.py
+  4. `pytest tests/unit/ -q` green
 
-**Plans**: 3 plans in 3 waves
-
-Plans:
-
-**Wave 1** — Schema creation
-
-- [ ] 124-01-PLAN.md — DDL migration: signal_events + trade_framing + trade_execution (or 2-table variant) + indexes + constraints
-
-**Wave 2** *(depends on Wave 1)* — View + rollback
-
-- [ ] 124-02-PLAN.md — signal_ledger_full view + rollback DDL + backup verification
-
-**Wave 3** *(depends on Wave 2)* — Verification
-
-- [ ] 124-03-PLAN.md — Migration verification + constraint validation + index performance test + documentation
+**Plans**: defer to `/gsd-plan-phase 124`
 
 ---
 
-### Phase 125: Script Rewriting (Conditional)
+### Phase 125: APR Tier A Migration
 
-**Goal:** Rewrite all scripts to use new schema: SignalWriter, lifecycle_writer, queries. Update dashboard API to use new table structure or signal_ledger_full view.
+**Goal:** Externalize 23 Tier A detection gate constants to APR. Zero behavior change — seeds equal current hard-coded values. Explicit v2.11 seed: once `factor_scores` are in the ledger and `counterfactual_pnl_r` is populated, Phase 130 externalizes `weights.*` composite weights via same pattern.
 
-**Depends on**: Phase 124 (conditional — executes ONLY IF migration approved)
-**Requirements**: REWRITE-01, REWRITE-02, REWRITE-03
-**Success Criteria** (what must be TRUE):
+**Depends on**: Phase 124
+**Requirements**: APR-01
+**Success Criteria**:
 
-  1. SignalWriter writes to signal_events (and trade_framing/trade_execution if selected); no signal_ledger direct writes
-  2. lifecycle_writer reads from signal_events, writes to trade_execution
-  3. All queries updated to use new tables or signal_ledger_full view
-  4. Dashboard /api/signals/active continues to return fire-time fields (via LATERAL jsonb_array_elements if needed)
-  5. LATERAL JOIN latency monitored (target <500ms p95 for dashboard queries)
-  6. All affected services restart cleanly; systemctl status shows all active
-  7. Integration tests verify end-to-end signal flow: detection → framing → execution → query
+  1. 23 Tier A keys in `config_state` with seed values and `[initial_estimate]` / `[conventional]` provenance
+  2. Zero hard-coded Tier A constants in src/ (grep confirms)
+  3. All Tier A plugins loading from ConfigService at compute_full() time
+  4. `pytest tests/unit/ -q` green
 
-**Plans**: 3 plans in 3 waves
-
-Plans:
-
-**Wave 1** — Writer migrations
-
-- [ ] 125-01-PLAN.md — SignalWriter rewrite: signal_events + trade_framing/trade_execution writes + tests
-
-**Wave 2** *(depends on Wave 1)* — Lifecycle + queries
-
-- [ ] 125-02-PLAN.md — lifecycle_writer rewrite + query migrations (all signal_ledger queries updated) + tests
-
-**Wave 3** *(depends on Wave 2)* — Dashboard + verification
-
-- [ ] 125-03-PLAN.md — Dashboard API update + LATERAL JOIN performance verification + service restart + end-to-end integration test
+**Plans**: defer to `/gsd-plan-phase 125`
 
 ---
 
-### Phase 126: Clean Replay & Signal Quality Validation
+### Phase 126: Clean Replay + Validation
 
-**Goal:** Run full clean replay on empty tables after Phase 124/125 schema migration, then produce the deferred Phase 121 Wave 2 validation report confirming signal quality improvements.
+**Goal:** Run full historical replay on corrected pipeline (Phases 123-125 in place) with `--warmup`. Produce Phase 121-02 validation report using correct methodology. Retrain calibration curves on clean corpus.
 
-**Depends on**: Phase 125 (conditional — executes ONLY IF migration approved)
+**Depends on**: Phase 123, 124, 125
 **Requirements**: REPLAY-02 (carried from Phase 121)
-**Success Criteria** (what must be TRUE):
+**Success Criteria**:
 
-  1. Tables truncated / schema clean after Phase 124 migration
-  2. IBKR historical backfill populates `market_data_ohlcv` and `intelligence_features`
-  3. `feature_replay.py` populates `signal_events` from stored features (bypasses I1-I6 recompute)
-  4. `lifecycle_replay.py` populates outcome columns for all replayed signals
-  5. Before/after comparison report generated by `phase_121_report.py` (deferred from Phase 121 Wave 2)
-  6. Per-setup verdicts (PASS/FAIL/PARTIAL) computed against v2.9 roadmap targets
-  7. RCA doc Part VI updated with MEASURED values + `MEASURED [date]` annotations
-  8. Bootstrap 95% CI reported for `calibration_corr` on setups with `pnl_r_n >= 30`
-  9. Welch's t-test p-value reported for `pnl_r` shift before vs. after on qualifying setups
+  1. Clean replay completes without errors
+  2. `context_features` coverage > 99% for non-cold-start signals
+  3. All 5 over-firing plugins at < 3% (SQL validated)
+  4. Validation report uses correct methodology — no cross-population Welch's t-test; measures: signal volume delta, CTF as feature, firing rates, null distribution
+  5. Calibration curves retrained on clean corpus
+  6. RCA Part VI updated
 
-**Plans**: 3 plans (replay execution + report generation + RCA update)
+**Plans**: defer to `/gsd-plan-phase 126`
 
-Plans:
+---
 
-**Wave 1** — Replay
+### Phase 127: 3-Table Schema Design and ADR
 
-- [ ] 126-01-PLAN.md — Historical backfill + feature_replay.py + lifecycle_replay.py on clean tables
+**Goal:** Define full 3-table schema (signal_events / trade_frames / trade_executions) with column types, FK constraints, index strategy. Create ADR. `counterfactual_pnl_r` is a required first-class column on trade_frames — not optional.
 
-**Wave 2** *(depends on Wave 1)* — Validation report
+**Depends on**: Phase 126
+**Requirements**: ARCH-01
+**Success Criteria**:
 
-- [ ] 126-02-PLAN.md — `phase_121_report.py` + `phase-121-validation-report.md` (Phase 121 Wave 2 deferred plan)
+  1. ADR at `docs/architecture/signal-trade-separation-ADR.md`
+  2. Full table schemas defined with types, FK, indexes
+  3. `signal_ledger_v2` view SQL defined
+  4. Cardinality recorded: 1 signal → N frames (one per entry_type); 1 frame → 0-1 executions
 
-**Wave 3** *(depends on Wave 2)* — RCA closure
+**Plans**: defer to `/gsd-plan-phase 127`
 
-- [ ] 126-03-PLAN.md — RCA Part VI update with measured numbers + v2.9 milestone closure
+---
+
+### Phase 128: Database Migration
+
+**Goal:** Create 3 new tables. Migrate signal_ledger data. Deploy signal_ledger_v2 view. Keep signal_ledger read-only during transition.
+
+**Depends on**: Phase 127
+**Requirements**: MIGRATE-01
+**Success Criteria**:
+
+  1. signal_events, trade_frames, trade_executions created with full schema
+  2. signal_ledger_v2 view deployed and queryable
+  3. Row counts verified: all signal_ledger rows migrated
+  4. signal_ledger retained read-only (not dropped yet)
+
+**Plans**: defer to `/gsd-plan-phase 128`
+
+---
+
+### Phase 129: Script Rewriting
+
+**Goal:** Update all writers, trackers, auditors, API endpoints, historical backfill to use 3-table schema. Drop signal_ledger after 48-hour verification window.
+
+**Depends on**: Phase 128
+**Requirements**: REWRITE-01
+**Success Criteria**:
+
+  1. All writers/trackers/APIs use new 3-table schema
+  2. `pytest tests/unit/ tests/integration/ -q` green
+  3. signal_ledger dropped after 48-hour window
+  4. signal_ledger_v2 is the sole backward-compatibility surface
+
+**Plans**: defer to `/gsd-plan-phase 129`
+
+---
 
 **Cross-cutting constraints (v2.10):**
 
-- `pytest tests/unit/ -q` passes with zero failures after each phase
+- `pytest tests/unit/ -q` passes after each phase
 - `ruff check .` passes with zero warnings
-- Database migrations are idempotent and rollback-safe
-- Integration tests verify end-to-end signal flow
+- DB migrations are idempotent
+- ECL boundary invariant: zero `no_signal()` calls based on extrinsic vectors after Phase 123
+
+**v2.11 seeds unlocked by v2.10:**
+- CounterfactualTracker daemon (Phase 130) — requires trade_frames.counterfactual_pnl_r (Phase 128)
+- I6 DB bootstrap at startup (Phase 130) — eliminates cold-start permanently
+- APR `weights.*` namespace (Phase 130) — requires factor_scores on signal_events (Phase 123)
+- SignalRanker (Phase 131) — requires context_features (Phase 123) + counterfactual_pnl_r (Phase 130)
 
 </details>
 
