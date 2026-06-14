@@ -35,7 +35,7 @@ The schema is the API. `IntelligenceEvent` (tiered JSONB: i1, i2, i3, i4, i5, sm
 
 ## 7. Institutional Rigor — Evidence-Graded Signals
 
-Every signal is evidence-graded. No signal fires without cross-tier confluence. The CIS (Confluence Intelligence Score) requires agreement from at least 3 of 6 independent evidence buckets. A single dominant indicator cannot override the ensemble. Every signal that fires is a labeled training sample — kept forever in `signal_ledger`.
+Every signal is evidence-graded. No signal fires without cross-tier confluence. The CIS (Confluence Intelligence Score) requires agreement from at least 3 of 6 independent evidence buckets. A single dominant indicator cannot override the ensemble. Every signal that fires is a labeled training sample — kept forever in `signal_events` (3-table architecture, Phase 128+; `signal_ledger` during transition).
 
 **See also:** `docs/ideas/renaissance-alpha-pipeline.md` — shadow-first statistical testing (ρ > 0.4, p < 0.05) before any alpha source affects position sizing.
 
@@ -45,7 +45,7 @@ Drift detection (KS/CUSUM), performance monitoring, and model-weight backfilling
 
 ## 9. Never Drop Data That Could Contain Signal
 
-Storage is the cheapest thing we own. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered. `intelligence_features`, `signal_ledger`, and `llm_calls` have no retention policies — they grow forever (TimescaleDB compression handles the cost).
+Storage is the cheapest thing we own. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered. `intelligence_features`, `signal_events` / `trade_frames` / `trade_executions` (3-table, Phase 128+), and `llm_calls` have no retention policies — they grow forever (TimescaleDB compression handles the cost). The ECL boundary invariant is a direct consequence of this principle: any extrinsic emission gate removes training data permanently.
 
 ## 11. DAG Invariants — Non-Negotiable
 

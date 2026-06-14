@@ -207,11 +207,11 @@ For `config_history` detail: click any row to see the full change history for th
 | `regime.*` | Live -- 2 keys seeded Phase 109 |
 | `swarm.*` | Live -- 7 keys seeded Phase 109 |
 | `roll.*` | Live -- 5 keys seeded Phase 109 |
-| `threshold.*` | Planned -- Phase 121 I7 onset fix |
-| `feature.*` | Planned -- future sprint (indicator periods) |
-| `shadow.*` | Planned -- future sprint |
-| `signal.*` | Planned -- future sprint |
-| `ui.*` | Planned -- requires `"ui."` added to OPS_PREFIXES |
-| `weights.*` | Planned -- future sprint |
+| `threshold.*` | In progress -- Phase 125 Tier A (26 keys: detection gates across 17 plugins) |
+| `weights.*` | In progress -- Phase 125 Tier B (22 keys: confidence composite weights) |
+| `feature.*` | In progress -- Phase 125 Tier A/C (volume_zscore window, zone engine geometry) + future indicator periods |
+| `shadow.*` | In progress -- Phase 125 Tier A (promotion gates) |
+| `signal.*` | In progress -- Phase 125 (signal lifecycle parameters) |
+| `ui.*` | Planned -- requires `"ui."` added to OPS_PREFIXES first |
 
 **To add `ui.*` support:** add `"ui."` to `OPS_PREFIXES` in `src/config/config_service.py`. One line.

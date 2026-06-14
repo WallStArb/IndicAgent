@@ -1,6 +1,6 @@
 # Setup Confidence Patterns
 
-**Version:** 1.1
+**Version:** 2.0
 **Status:** current
 **Last Updated:** 2026-06-14
 
@@ -50,25 +50,39 @@ The 4-factor structure is the target for most plugins. Two exceptions with 3-fac
 
 Every compliant I7 setup declares `requires_i6_confluence: bool = True` as a ClassVar. This is enforced structurally by `validate_tier()` (see Section 7). The `_I7_I6_EXEMPT` carve-out documents the 8 plugins not yet refactored.
 
-### Pattern 3 - Strict dual gate before OHLCV extraction
+### Pattern 3 - Single regime gate before OHLCV; ECL annotation after
 
-Before any OHLCV access (`extract_ohlcv`, `df["close"]`, `.to_numpy()`, `get_atr_with_floor_from_frames`, `frame_trade`), two cheap gates run:
+Before any OHLCV access (`extract_ohlcv`, `df["close"]`, `.to_numpy()`, `get_atr_with_floor_from_frames`, `frame_trade`), the regime gate runs. The I6 CTF score is NOT a gate — it is an ECL annotation carried on the emitted signal (see Section 5 — ECL).
 
 ```python
-# Gate 1 - regime (cheap):
+# Gate - regime only (cheap, stateless, no OHLCV):
 if hmm_regime_weight(features, self.regime_type) < _MIN_REGIME_WEIGHT:
-    return no_signal()
-
-# Gate 2 - I6 (cheap):
-ctf_score = float(features.get("ctf_score") or 0.0)
-if abs(ctf_score) < _MIN_CTF_SCORE:
     return no_signal()
 
 # Only then: OHLCV extraction (expensive)
 df, close, high, low, volume = extract_ohlcv(frames, self.min_lookback)
+
+# ... intrinsic factor computation ...
+
+# ECL annotation - never gates, always present on emitted signal:
+_ctf_raw = features.get("ctf_score")
+ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+ctf_confirmed: bool | None = (abs(ctf_score) >= _MIN_CTF_SCORE) if ctf_score is not None else None
+_zf_raw = features.get("zone_friction_score")
+zone_friction_score: float | None = float(_zf_raw) if _zf_raw is not None else None
+
+# factor_scores - intrinsic breakdown before compositing (ML attribution):
+factor_scores = {
+    "factor_a": round(factor_a, 4),
+    "factor_b": round(factor_b, 4),
+    ...
+}
+raw_conf = 0.40 * factor_a + 0.25 * factor_b + ...
 ```
 
-This simultaneously implements both the regime eligibility check and the early gate optimization (Pattern 5).
+**None semantics:** `ctf_score = None` means I6 had no data at emit time (cold-start, warm-up window). `ctf_score = 0.0` means genuine neutral alignment — these are different populations. Never use `features.get("ctf_score") or 0.0`; that conflates them.
+
+This simultaneously implements the regime eligibility check (Pattern 5) and the ECL annotation requirement.
 
 ### Pattern 4 - Continuous hmm_regime_weight (not binary)
 
@@ -94,14 +108,16 @@ Every Phase 119 plugin declares `shadow_only: bool = True` as a ClassVar. Plugin
 
 ---
 
-## 3. Gate Thresholds
+## 3. Gate Thresholds and APR
 
-These constants are defined at module level in each plugin file for DB-tuneability:
+These constants are defined at module level in each plugin file. By Phase 125 they are loaded from the Adaptive Parameter Registry (APR) via `ConfigService.get_sync()`:
 
 ```python
-_MIN_REGIME_WEIGHT: float = 0.30   # 30% probability mass on target regime
-_MIN_CTF_SCORE: float = 0.25       # I6 cross-timeframe confirmation floor
+_MIN_REGIME_WEIGHT: float = 0.30   # 30% probability mass on target regime (APR: threshold.global.min_regime_weight)
+_MIN_CTF_SCORE: float = 0.25       # I6 cross-timeframe annotation threshold (APR: threshold.global.min_ctf_score)
 ```
+
+`_MIN_CTF_SCORE` is used only for computing `ctf_confirmed` (the boolean annotation on the emitted signal). It is NOT a gate threshold — no signal returns `no_signal()` because `ctf_score < _MIN_CTF_SCORE`. The bool tells the ML model whether alignment was confirmed, which is different from preventing emission.
 
 **Z-score gates:** For z-score features (`ofi_spike_z`, `cvd_spike_z`, and similar), the gate is `>= 2.0`. This threshold is statistically grounded (2-sigma) and instrument-agnostic.
 
@@ -113,22 +129,42 @@ The per-regime gate shapes table in Section 2 Pattern 4 gives the full mapping.
 
 ## 4. Pattern Vocabulary
 
-Four distinct concepts appear in I7 plugin code. They must not be confused or merged.
+Five distinct concepts appear in I7 plugin code. They must not be confused or merged.
 
-| Concept | Definition | Role in confidence | Example |
+| Concept | Definition | Role in signal | Example |
 |---|---|---|---|
-| Pre-entry GATE | Continuous probability or score threshold. Below threshold returns `no_signal()`. | Eligibility check - not in confidence | `hmm_regime_weight < 0.30` returns no_signal() |
-| CONFIDENCE FACTOR | Intrinsic signal-strength score, clamped to [0,1], weighted into the composite | IS confidence - the only inputs to `raw_conf` | `magnitude_score`, `persistence_score` |
-| EXTRINSIC CONFIDENCE VECTOR | A scored signal about market context (regime, I6 alignment, macro) — distinct from the pattern itself. Written to `features_snapshot` via `capture_signal_features()` for ML training. Zero confidence modification. | Not in confidence - captured for ML attribution and data-derived weight learning | `ctf_score`, `vix_level`, `exhaustion_score` in snapshot |
-| ZONE FRICTION PENALTY | Zone context from supply/demand proximity. Stripped from confidence in Phase 118 for trend/momentum/liquidity_hunt setups; retained as an intrinsic structural gate only for `SupplyDemandSetup`. | Not one of the 6 GOOD patterns. For `supply_demand_setup`: gates the entry zone, not a confidence factor. For all others: zone context is captured as extrinsic, not scored. | `supply_demand_setup.py` zone gate; captured but not scored in `trend_following.py` |
+| Pre-entry GATE | HMM regime probability threshold. Below threshold: return `no_signal()` before OHLCV extraction. Signal is NOT written to ledger. | Eligibility check only — not in confidence | `hmm_regime_weight < 0.30` |
+| CONFIDENCE FACTOR | Intrinsic signal-strength score, clamped [0,1], weighted into the composite. Only price/volume/microstructure inputs. | IS confidence — the only inputs to `raw_conf` | `magnitude_score`, `persistence_score` |
+| EXTRINSIC CONFIDENCE VECTOR (ECL) | Observable market-context signal carried as a top-level field on the emitted signal. Never a gate; never in the confidence composite. ML training input. | Top-level signal fields (`ctf_score`, `zone_friction_score`) or `context_features` blob | `ctf_score: float \| None`, `zone_friction_score: float \| None` |
+| FACTOR SCORES | Per-plugin intrinsic factor breakdown, collected before compositing. Keys are plugin-specific; values are pre-composite [0,1] scores. | Persisted as `factor_scores: dict` on `signal_events` — enables ML weight optimization via counterfactual_pnl_r regression | `{"ofi_divergence": 0.72, "volume": 0.55}` |
+| CONTEXT FEATURES | Full output of `capture_signal_features()` — 30+ market-context keys covering CTF sub-scores, regime, volatility, session. | Persisted as `context_features: dict` on `signal_events` — SignalRanker feature matrix for ML training | All keys from `capture_signal_features()` |
 
-**Extrinsic Confidence Layer (ECL)** is the architectural term for the collection of extrinsic confidence vectors that sit alongside the intrinsic confidence composite. "Layer" is a docs and architecture-discussion term only - it does not map to a class. If an ECL class is ever introduced, the naming system requires a role suffix: `ExtrinsicConfidenceEvaluator` or `ExtrinsicConfidenceAggregator`. `ExtrinsicConfidenceLayer` is not a valid class name.
+**Extrinsic Confidence Layer (ECL)** is the architectural term for the collection of extrinsic confidence vectors. "Layer" is a docs term only — it does not map to a class. The boundary invariant: if a setup meets its intrinsic detection criteria, it fires. Always. Extrinsic vectors annotate the emitted signal; they are not emission gates. An extrinsic gate is a prior masquerading as a model — it removes training data from the ledger permanently.
 
-Zone friction is NOT one of the 6 GOOD patterns. It is a separate architectural concern handled differently per plugin family, documented separately in `test_i7_extrinsic_contract.py`.
+See `docs/foundation/glossary.md` for the full ECL definition and regime gate exception.
 
 ---
 
-## 5. Canonical Reference
+## 5. ECL — Extrinsic Confidence Layer
+
+**ECL boundary invariant:** If a setup meets its intrinsic detection criteria, it fires. Always. No extrinsic vector suppresses signal emission.
+
+**Extrinsic confidence vectors (current):**
+- `ctf_score: float | None` — I6 cross-timeframe alignment score. `None` = I6 had no data at emit time (cold-start). `0.0` = genuine neutral alignment. These are different populations — never conflate them with `or 0.0`.
+- `ctf_confirmed: bool | None` — `abs(ctf_score) >= _MIN_CTF_SCORE`. `None` when `ctf_score` is `None`. This bool tells the ML model whether I6 alignment was present, without suppressing the signal.
+- `zone_friction_score: float | None` — zone friction at emit time. `None` = no zone data. An annotation, not a gate.
+- HMM regime weight — suppresses signal *activation* (`pending → regime_suppressed`) at the tracker level, post-write. The signal IS written to `signal_events` before regime gating. This is the only permitted post-emission filter.
+- Exhaustion score — included in `context_features` via `capture_signal_features()`. Never an emission suppressor.
+
+**In code:** `ctf_score`, `ctf_confirmed`, `zone_friction_score` are top-level fields on the signal dict and `signal_events` table. `factor_scores` carries the intrinsic factor breakdown. `context_features` is the full `capture_signal_features()` blob — the ML training feature matrix for SignalRanker.
+
+**Why the ECL boundary matters:** Any extrinsic gate is a prior masquerading as a model. It removes training data from `signal_events` permanently. The ML model then fits on a biased sample — it never sees the cases where the pattern fired but the extrinsic context was unfavorable. The model cannot learn whether those cases are actually bad; it is simply denied the evidence. The counterfactual outcome (`counterfactual_pnl_r` on `trade_frames`, populated by CounterfactualTracker in Phase 130) is how the model learns the value of each extrinsic vector — but only if the signal was written.
+
+**Regime gate exception:** The HMM regime gate suppresses activation, not emission. Signal written first, then regime gate applied by `SignalTracker`. The `signal_events` row has `status = 'regime_suppressed'` — visible to the ML model, with a counterfactual outcome measurable by CounterfactualTracker.
+
+---
+
+## 6. Canonical Reference
 
 The primary reference implementation is `src/intelligence/trading/ofi_continuation.py`, class `OFIContinuationPlugin`.
 
@@ -137,18 +173,18 @@ Key symbols to study:
 - `OFIContinuationPlugin.shadow_only` - ClassVar declaration, `True`
 - `OFIContinuationPlugin.requires_i6_confluence` - ClassVar declaration, `True`
 - `OFIContinuationPlugin.regime_type` - `"trend"`, used in the regime gate
-- `OFIContinuationPlugin.compute_full` - the 4-factor confidence composite (`magnitude_score`, `alignment_score`, `persistence_score`, `volume_score`) with weights summing to 1.0, wrapped by `compose_confidence()`
+- `OFIContinuationPlugin.compute_full` - the 4-factor confidence composite (`magnitude_score`, `alignment_score`, `persistence_score`, `volume_score`) with weights summing to 1.0, wrapped by `compose_confidence()`; ECL annotation and `factor_scores` collection follow.
 
 Do NOT cite line numbers - line numbers drift after refactors. Reference class names, method names, and ClassVar identifiers.
 
 Secondary references:
 
-- `src/intelligence/trading/liquidity_sweep_reclaim.py` - dual gates + I6 integration + continuous regime weighting
-- `src/intelligence/trading/choch_reversal.py` - I6 confluence + zone penalties
+- `src/intelligence/trading/liquidity_sweep_reclaim.py` - regime gate + ECL annotation + continuous regime weighting
+- `src/intelligence/trading/ofi_divergence.py` - factor_scores collection pattern
 
 ---
 
-## 6. Compliant Setups (22 total)
+## 7. Compliant Setups (22 total)
 
 ### Phase 118 (5 plugins)
 
@@ -205,7 +241,7 @@ The compliant count is 22, not all 37 TIER_I7 plugins. The remaining 7 are the 2
 
 ---
 
-## 7. Enforcement
+## 8. Enforcement
 
 `validate_tier()` in `src/intelligence/plugins/base.py` enforces the I6 confluence requirement:
 
@@ -225,11 +261,57 @@ Test coverage: `tests/unit/intelligence/test_i7_extrinsic_contract.py` asserts t
 
 ---
 
-## 8. Anti-patterns
+## 9. Anti-patterns
 
 These patterns appear in legacy code and MUST NOT appear in any new or refactored I7 plugin.
 
-### 1. `hmm_regime_weight(features, "any")` - silent 0.5 pass
+### 1. CTF score as emission gate (ECL boundary violation)
+
+```python
+# WRONG - CTF is an extrinsic vector; calling no_signal() on low CTF removes training data
+ctf_score = float(features.get("ctf_score") or 0.0)
+if abs(ctf_score) < _MIN_CTF_SCORE:
+    return no_signal()
+```
+
+```python
+# CORRECT - annotate, never gate
+_ctf_raw = features.get("ctf_score")
+ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+ctf_confirmed: bool | None = (abs(ctf_score) >= _MIN_CTF_SCORE) if ctf_score is not None else None
+# pass ctf_score=ctf_score, ctf_confirmed=ctf_confirmed to emit_signal
+```
+
+### 2. Zone friction as emission gate (ECL boundary violation)
+
+```python
+# WRONG - zone_friction is an extrinsic vector; gating on it removes training data
+zone_friction = float(features.get("zone_friction_score", 0.0))
+if zone_friction > _MAX_ZONE_FRICTION:
+    return no_signal()
+```
+
+```python
+# CORRECT - annotate
+_zf_raw = features.get("zone_friction_score")
+zone_friction_score: float | None = float(_zf_raw) if _zf_raw is not None else None
+# pass zone_friction_score=zone_friction_score to emit_signal
+```
+
+### 3. `or 0.0` fallback for CTF score (conflates cold-start with neutral)
+
+```python
+# WRONG - treats "no I6 data" as 0.0 (neutral); biases cold-start signals
+ctf_score = float(features.get("ctf_score") or 0.0)
+```
+
+```python
+# CORRECT - None means no data; 0.0 means genuine neutral alignment
+_ctf_raw = features.get("ctf_score")
+ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+```
+
+### 4. `hmm_regime_weight(features, "any")` - silent 0.5 pass
 
 ```python
 # WRONG - "any" is not in _HMM_KEY_MAP; returns 0.5 unconditionally
@@ -237,23 +319,17 @@ if hmm_regime_weight(features, "any") < _MIN_REGIME_WEIGHT:
     return no_signal()
 ```
 
-With `_MIN_REGIME_WEIGHT = 0.30`, this gate never fires (0.5 >= 0.30 always). Effectively bypasses regime gating.
-
 ```python
 # CORRECT for regime_type="any" plugins
 if hmm_trending_weight(features) < _MIN_REGIME_WEIGHT:
     return no_signal()
 ```
 
-### 2. Binary HMM regime equality checks
+### 5. Binary HMM regime equality checks
 
 ```python
 # WRONG - binary check loses probability information
 if hmm_regime in (1, 2):  # trending
-    ...
-if hmm_regime not in (1.0, 2.0):  # not ranging
-    ...
-if hmm_regime_prob < 0.5:  # threshold on raw probability
     ...
 ```
 
@@ -263,48 +339,43 @@ if hmm_regime_weight(features, "up") < _MIN_REGIME_WEIGHT:
     return no_signal()
 ```
 
-### 3. OHLCV/ATR/frame_trade access before the dual gate
+### 6. OHLCV access before the regime gate
 
 ```python
-# WRONG - expensive ops before cheap eligibility gates
+# WRONG - expensive ops before cheap eligibility gate
 df, close, high, low, volume = extract_ohlcv(frames, self.min_lookback)
-atr = get_atr_with_floor_from_frames(frames)
-tf_result = frame_trade(...)
-
 if hmm_regime_weight(features, self.regime_type) < _MIN_REGIME_WEIGHT:
     return no_signal()
 ```
 
 ```python
-# CORRECT - gates first, OHLCV after
+# CORRECT - regime gate first, OHLCV after
 if hmm_regime_weight(features, self.regime_type) < _MIN_REGIME_WEIGHT:
     return no_signal()
-ctf_score = float(features.get("ctf_score") or 0.0)
-if abs(ctf_score) < _MIN_CTF_SCORE:
-    return no_signal()
-
-df, close, high, low, volume = extract_ohlcv(frames, self.min_lookback)  # now safe
+df, close, high, low, volume = extract_ohlcv(frames, self.min_lookback)
 ```
 
-### 4. HMM probability as a confidence factor
+### 7. HMM probability or CTF score as a confidence factor
 
 ```python
-# WRONG - HMM regime is gate-only; putting it in confidence mixes concerns
-hmm_prob = features.get("hmm_prob_trending_up", 0.5)
-raw_conf = 0.30 * signal_strength + 0.40 * hmm_prob + ...
+# WRONG - extrinsic vectors in the intrinsic composite
+ctf_factor = clamp01((abs(ctf_score) - _MIN_CTF_SCORE) / (1.0 - _MIN_CTF_SCORE))
+raw_conf = 0.35 * signal_strength + 0.15 * ctf_factor + ...
 ```
 
-HMM regime is gate-only. Direction selection may read `hmm_regime` (which direction is trending), but the confidence composite must not include any HMM probability as a factor. Confidence = intrinsic signal strength only.
+Confidence = intrinsic signal strength only. ECL vectors inform the ML attribution layer; they are not composited with intrinsic factors. Any extrinsic term in the composite produces a biased `raw_confidence` that the ML model cannot decompose.
 
 ---
 
-## 7. See Also
+## 10. See Also
 
 - `src/intelligence/trading/ofi_continuation.py` - canonical reference implementation
 - `src/intelligence/trading/confidence_utils.py` - `compose_confidence()`, `clamp01()`, `capture_signal_features()`
 - `src/intelligence/utils/gradient_utils.py` - `hmm_regime_weight()`, `hmm_trending_weight()`
-- `src/intelligence/register_plugins.py` - `TIER_I7`, `_I7_I6_EXEMPT`, `_PHASE_119_PLUGINS`
+- `src/intelligence/register_plugins.py` - `TIER_I7`, `_I7_I6_EXEMPT`
 - `src/intelligence/plugins/base.py` - `validate_tier()`, `ArchitectureViolation`
 - `tests/unit/intelligence/test_i7_extrinsic_contract.py` - extrinsic vs intrinsic contract tests
-- `docs/architecture/setup-confidence-patterns.md` — this document (formerly `i7-setup-confidence-patterns.md`)
+- `docs/foundation/glossary.md` - ECL, APR, signal_events, counterfactual_pnl_r full definitions
+- `docs/foundation/parameter-store.md` - APR full specification; ECL-APR relationship
+- `docs/architecture/signal-trade-separation-ADR.md` - 3-table architecture decision record (Phase 127+)
 - `.planning/phases/119-remaining-16-setup-refactoring/119-CONTEXT.md` - D-01, D-02, D-03, D-04 decisions
