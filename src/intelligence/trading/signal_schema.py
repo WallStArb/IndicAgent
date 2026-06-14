@@ -54,6 +54,12 @@ REQUIRED_PIPELINE_FIELDS = frozenset(
         "composite_rank",
         "raw_cis_score",
         "filtered_cis_score",
+        # Phase 123 ECL fields: extrinsic context annotations (all nullable)
+        "ctf_score",
+        "ctf_confirmed",
+        "zone_friction_score",
+        "factor_scores",
+        "context_features",
     }
 )
 
