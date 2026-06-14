@@ -93,10 +93,15 @@ class DeltaExhaustionPlugin:
         if hmm_regime_weight(features, "ranging") < get_min_regime_weight():
             return no_signal()
 
-        # Gate 2: I6 ctf_score gate
-        ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < get_min_ctf_score():
-            return no_signal()
+        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
+        # Variable->slot mapping: cvd_z=exhaustion, price_fail=momentum_reversal,
+        # hmm_score=volume proxy (regime clarity), cvd_persistence=persistence proxy
+        _ctf_raw = features.get("ctf_score")
+        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+        ctf_confirmed: bool | None = (
+            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
+        )
+        # No return no_signal() — signal fires if intrinsic criteria met
 
         # ── ATR and OHLCV access (after dual gate) ───────────────────────────
         atr = get_atr_with_floor_from_frames(frames)
@@ -140,17 +145,17 @@ class DeltaExhaustionPlugin:
             / (1.0 - get_min_regime_weight())
         )
 
-        # ctf_score_factor: CTF alignment strength (above gate = meaningful)
-        ctf_score_factor = clamp01(
-            (abs(ctf_score) - get_min_ctf_score()) / (1.0 - get_min_ctf_score())
-        )
+        # persistence_score proxy: how persistent the CVD spike magnitude was
+        # (cvd_spike_z is already in scope from the gate above)
+        persistence_score = clamp01(abs(cvd_spike_z) / 3.0)
 
-        # Weights sum to 1.0
+        # Weights sum to 1.0: exhaustion/momentum_reversal/volume_proxy/persistence
+        # ctf_score_factor removed — CTF is ECL annotation, not composite factor (Phase 123)
         raw_conf = (
             0.35 * cvd_z_score
             + 0.30 * price_fail_score
-            + 0.20 * hmm_mean_reversion_score
-            + 0.15 * ctf_score_factor
+            + 0.25 * hmm_mean_reversion_score
+            + 0.10 * persistence_score
         )
         confidence = compose_confidence(raw_conf)
 
@@ -169,6 +174,7 @@ class DeltaExhaustionPlugin:
         ]
 
         # exempt from exhaustion shadow: this plugin IS the exhaustion detector (D-09)
+        ctx = capture_signal_features(features, direction, "exempt_exhaustion", confidence)
         signal = make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),
@@ -180,12 +186,10 @@ class DeltaExhaustionPlugin:
             confidence=confidence,
             regime_context=regime_context,
             supporting_factors=supporting,
-        )
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "exempt_exhaustion",
-            signal["confidence"],
+            features_snapshot=ctx,
+            context_features=ctx,
+            ctf_score=ctf_score,
+            ctf_confirmed=ctf_confirmed,
         )
         return signal
 

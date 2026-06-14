@@ -79,10 +79,13 @@ def detect_spike_signal(
     if hmm_trending_weight(features) < get_min_regime_weight():
         return no_signal()
 
-    # Gate 2: I6 ctf_score gate — both gates precede any OHLCV access
-    ctf_score = float(features.get("ctf_score") or 0.0)
-    if abs(ctf_score) < get_min_ctf_score():
-        return no_signal()
+    # ECL annotation: ctf_score captured as context, not gated (Phase 123)
+    _ctf_raw = features.get("ctf_score")
+    ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+    ctf_confirmed: bool | None = (
+        (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
+    )
+    # No return no_signal() — signal fires if intrinsic criteria met
 
     atr = get_atr_with_floor_from_frames(frames)
     if atr is None:
@@ -93,13 +96,10 @@ def detect_spike_signal(
 
     direction = 1 if spike_z > 0 else -1
 
-    # 4-factor intrinsic confidence composite — all gates passed, gates are NOT additive factors
-    # volume_score sourced from features dict (not df["volume"]) to avoid OHLCV before gate
+    # 3-factor intrinsic confidence composite — ctf_factor removed (ECL annotation, Phase 123)
     z_score_score = clamp01((abs_spike_z - _SPIKE_THRESHOLD) / 3.0)
 
     volume_score = rel_volume_score(features)
-
-    ctf_factor = clamp01((abs(ctf_score) - get_min_ctf_score()) / (1.0 - get_min_ctf_score()))
 
     price_return_z = features.get("price_return_z")
     if price_return_z is not None:
@@ -107,8 +107,8 @@ def detect_spike_signal(
     else:
         persistence_score = 0.3
 
-    # Weights sum to 1.0
-    raw = 0.45 * z_score_score + 0.25 * volume_score + 0.20 * ctf_factor + 0.10 * persistence_score
+    # Weights sum to 1.0: 0.50/0.30/0.20 (ctf_factor removed, weight redistributed)
+    raw = 0.50 * z_score_score + 0.30 * volume_score + 0.20 * persistence_score
     confidence = compose_confidence(raw)
 
     sig_type = signal_type_for_direction(signal_name_prefix, direction)
@@ -121,11 +121,12 @@ def detect_spike_signal(
     supporting: list[str] = [
         f"{spike_feature_key}={spike_z:.3f}",
     ]
-    if abs(ctf_score) > get_min_ctf_score():
+    if ctf_score is not None:
         supporting.append(f"ctf_score={ctf_score:.3f}")
 
     # Exhaustion not applicable — spike signals are regime-independent;
     # Phase 49 will learn gate behavior from shadow data
+    ctx = capture_signal_features(features, direction, "microstructure", confidence)
     signal = make_signal_from_frame(
         tf,
         symbol=frames.get("symbol", ""),
@@ -137,8 +138,9 @@ def detect_spike_signal(
         confidence=confidence,
         regime_context=regime_context,
         supporting_factors=supporting,
-    )
-    signal["features_snapshot"] = capture_signal_features(
-        features, direction, "microstructure", signal["confidence"]
+        features_snapshot=ctx,
+        context_features=ctx,
+        ctf_score=ctf_score,
+        ctf_confirmed=ctf_confirmed,
     )
     return signal
