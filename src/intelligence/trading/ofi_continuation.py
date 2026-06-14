@@ -1,16 +1,18 @@
-"""trad_OFIContinuation — I7 trend setup consuming OFI I1 features.
+"""trad_OFIContinuation -- I7 trend setup consuming OFI I1 features.
 
-Fires once per distinct OFI episode (onset of N-bar sustained directional flow).
+Fires on fresh OFI acceleration or volume thrust on top of sustained directional flow.
 Segment: trend regime only.
 
 Renaissance principles:
-- Segment relentlessly: fires only when OFI persists for N bars (not just 1 spike)
-- Instrument everything: persistence count, EWMA magnitude all logged
-- Earn the right through proof: requires N-bar confirmation before signal
+- Structural trigger, not state trigger: acceleration/thrust event anchors the hypothesis
+- Streak is context (sustained imbalance must already exist), not the trigger
+- Instrument everything: persistence count, EWMA magnitude, acceleration, volume ratio all logged
+- Earn the right through proof: structural thrust + N-bar confirmation
 """
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -19,7 +21,7 @@ from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, clamp01, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
-from .state_utils import onset_guard, track_consecutive_state
+from .state_utils import deduplicate_event, track_consecutive_state
 from .trade_framer import frame_trade
 
 if TYPE_CHECKING:
@@ -36,17 +38,40 @@ _MAGNITUDE_FLOORS_DEFAULT: dict[str, float] = {
 # upper_ref = 4 * floor across all instruments (ratio is structurally stable)
 _UPPER_REF_MULTIPLIER: float = 4.0
 
+# Volume spike threshold: 2x average volume confirms structural thrust
+_VOLUME_SPIKE_RATIO: float = 2.0
+
+# Acceleration threshold as a fraction of the magnitude floor
+# (10% of floor == meaningful acceleration, not noise)
+_ACCELERATION_FLOOR_FRACTION: float = 0.10
+
+# Minimum EWMA buffer depth before acceleration is computable
+_EWMA_MIN_HISTORY: int = 5
+
+
+@dataclass
+class OFIContinuationState:
+    """Per (symbol, timeframe) state for OFI acceleration detection.
+
+    ewma_buffer: rolling window of ofi_ewma_20 values for second-derivative detection.
+    last_acceleration_bar: call_count at last acceleration fire (dedup reference).
+    """
+
+    ewma_buffer: deque = field(default_factory=lambda: deque(maxlen=20))
+    last_acceleration_bar: int | None = None
+
 
 @dataclass
 class OFIContinuationPlugin:
-    """Trend setup: sustained directional OFI for N consecutive bars.
+    """Trend setup: OFI acceleration or volume thrust on top of N-bar sustained flow.
 
-    Gates:
-    - ofi_ewma_20 must have same sign for N consecutive bars
-    - abs(ofi_ewma_20) must meet per-instrument floor
-    - onset_guard: fires only on the bar the streak first crosses N
-
-    onset_guard placed after ALL downstream gates — state commits only when signal emits.
+    Gates (in order):
+    1. Magnitude gate FIRST  -- abs(ofi_ewma_20) >= per-instrument floor
+    2. Structural trigger SECOND -- EWMA acceleration OR volume spike (new structural event)
+    3. Context filter THIRD  -- count >= min_bars AND direction sustained
+    4. HMM regime gate: handled by aggregator via regime_type="trend"; not called here
+    5. OHLCV + trade frame FIFTH
+    6. deduplicate_event SIXTH -- prevent re-fire within _DEDUP_MIN_BARS of same direction
     """
 
     name: str = "trad_OFIContinuation"
@@ -70,7 +95,15 @@ class OFIContinuationPlugin:
     regime_type: str = "trend"
     requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
+    _accel_state: dict[str, OFIContinuationState] = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
+
+    def _get_ofi_state(self, symbol: str, tf: str) -> OFIContinuationState:
+        """Lazy-init per-(symbol, tf) acceleration state."""
+        key = f"{symbol}_{tf}"
+        if key not in self._accel_state:
+            self._accel_state[key] = OFIContinuationState(ewma_buffer=deque(maxlen=20))
+        return self._accel_state[key]
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         cfg = self._config_service
@@ -110,6 +143,7 @@ class OFIContinuationPlugin:
         tf = frames.get("__timeframe__", "_")
         state_key = f"{symbol}_{tf}"
 
+        # Track consecutive direction state (needed for context filter THIRD)
         current_dir = 1 if ofi_ewma > 0 else -1
         direction, count = track_consecutive_state(
             frames, self._state, state_key, current_dir, "dir"
@@ -122,12 +156,47 @@ class OFIContinuationPlugin:
         )
         upper_ref = mag_threshold * _UPPER_REF_MULTIPLIER
 
-        # onset_guard: called unconditionally so it sees False when streak drops below
-        # min_bars or magnitude gate fails — enabling proper rearm on next episode.
-        onset_key = f"{state_key}_onset"
-        condition_active = count >= min_bars and abs(ofi_ewma) >= mag_threshold
-        is_new_onset = onset_guard(self._state, onset_key, condition_active)
-        if not condition_active or not is_new_onset:
+        # Magnitude gate FIRST -- floor filter; rejects noise before any state is committed
+        if abs(ofi_ewma) < mag_threshold:
+            return no_signal()
+
+        # Update EWMA buffer after magnitude gate so history only accumulates on valid bars
+        ofi_state = self._get_ofi_state(symbol, tf)
+        ofi_state.ewma_buffer.append(ofi_ewma)
+
+        # Structural trigger SECOND -- EWMA acceleration OR volume spike
+        # Trigger: acceleration OR volume spike (structural thrust on top of sustained flow)
+        acceleration_confirmed = False
+        volume_spike = False
+
+        # EWMA acceleration detection: second derivative (change-of-change) of ofi_ewma_20
+        if len(ofi_state.ewma_buffer) >= _EWMA_MIN_HISTORY:
+            buf = ofi_state.ewma_buffer
+            ewma_change = buf[-1] - buf[-2]
+            ewma_change_prev = buf[-2] - buf[-3]
+            acceleration = ewma_change - ewma_change_prev
+            # Directional acceleration: must align with current flow direction
+            directional_acceleration = (acceleration > 0 and ofi_ewma > 0) or (
+                acceleration < 0 and ofi_ewma < 0
+            )
+            if (
+                directional_acceleration
+                and abs(acceleration) >= mag_threshold * _ACCELERATION_FLOOR_FRACTION
+            ):
+                acceleration_confirmed = True
+
+        # Volume spike detection: current bar volume >= 2x average volume
+        current_vol = float(df["volume"].iloc[-1])
+        vol_sma = features.get("volume_sma_20")
+        vol_ratio = current_vol / float(vol_sma) if vol_sma and float(vol_sma) > 0 else 1.0
+        if vol_ratio >= _VOLUME_SPIKE_RATIO:
+            volume_spike = True
+
+        if not acceleration_confirmed and not volume_spike:
+            return no_signal()
+
+        # Context filter THIRD -- OFI streak must show sustained directional flow
+        if count < min_bars:
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
@@ -140,6 +209,11 @@ class OFIContinuationPlugin:
             sig_type, direction, entry, features, atr, regime_type=self.regime_type
         )
         if not tf_result.viable:
+            return no_signal()
+
+        # deduplicate_event SIXTH -- prevent re-fire within _DEDUP_MIN_BARS of same direction
+        dedup_key = f"{state_key}_dedup"
+        if not deduplicate_event(self._state, dedup_key, direction):
             return no_signal()
 
         hmm_regime = features.get("hmm_regime")
@@ -159,12 +233,15 @@ class OFIContinuationPlugin:
         rel_vol = float(rel_vol) if rel_vol is not None else 1.0
         volume_score = clamp01((rel_vol - 1.0) / 1.5)
 
-        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        # Wave B: factor audit trail -- pre-composite [0,1] scores (Phase 123)
+        trigger_type = "acceleration" if acceleration_confirmed else "volume_spike"
         factor_scores = {
             "magnitude_score": round(magnitude_score, 4),
             "alignment_score": round(alignment_score, 4),
             "persistence_score": round(persistence_score, 4),
             "volume_score": round(volume_score, 4),
+            "trigger_type": trigger_type,
+            "vol_ratio": round(vol_ratio, 4),
         }
 
         raw_conf = (
@@ -178,6 +255,7 @@ class OFIContinuationPlugin:
         supporting: list[str] = [
             f"ofi_ewma_20={ofi_ewma:.1f}",
             f"consecutive_bars={count}",
+            f"trigger={trigger_type}",
             f"magnitude_score={magnitude_score:.3f}",
             f"persistence_score={persistence_score:.3f}",
         ]
