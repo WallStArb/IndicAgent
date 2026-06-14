@@ -378,8 +378,103 @@ A hierarchical classification system with explicit parent/child relationships be
 
 ---
 
+---
+
+### `Extrinsic Confidence Layer (ECL)`
+
+The system of extrinsic confidence vectors that annotate an emitted signal as observable metadata about external market context. Current vectors: CTF score (I6 cross-timeframe alignment), HMM regime weight, zone friction, exhaustion state.
+
+**ECL boundary invariant:** If a setup meets its intrinsic detection criteria, it fires. Always. Extrinsic vectors travel on the emitted signal as observable fields (`ctf_score`, `ctf_confirmed`, `zone_friction_score`) or in `context_features`. They are the inputs the ML model uses to learn which market contexts produce better outcomes. An extrinsic gate is a prior masquerading as a model — it removes training data from the ledger permanently and makes the model unauditable.
+
+**Regime gate exception:** HMM regime weight suppresses signal *activation* (pending → regime_suppressed), not *emission*. The signal is written to `signal_events` before the regime gate is applied. This is correct: the ML model sees regime-suppressed signals and, once `counterfactual_pnl_r` is populated by the CounterfactualTracker, can learn whether the regime gate adds value empirically.
+
+**Distinction from intrinsic confidence composite:** The intrinsic composite is a weighted sum of pattern-internal factors (price/volume/microstructure). Weights sum to 1.0. ECL vectors inform the ML attribution layer — they are features against which `counterfactual_pnl_r` is regressed, not combined into the composite.
+
+**Individual components:** referred to as **extrinsic confidence vectors** (not "modifiers," not "multipliers," not "gates").
+
+**Banned:** "CTF gate" (as a name for the pattern of suppressing signals on CTF absence), "zone friction gate," "extrinsic modifier," "extrinsic multiplier"
+**Status:** active
+
+**Code surface:** `ctf_score`, `ctf_confirmed`, `zone_friction_score` fields in `signal_events`; `capture_signal_features()` in `confidence_utils.py`; `docs/architecture/setup-confidence-patterns.md`.
+
+---
+
+### `Adaptive Parameter Registry (APR)`
+
+The system-wide registry of all tunable numeric values — detection thresholds, confidence weights, indicator periods, governance gates. Four tables (`config_schema`, `config_state`, `config_history`, `config_outbox`) and one service (`ConfigService`).
+
+"Adaptive" is precise: APR parameters are not static config. They start as `[initial_estimate]` or `[conventional]` human opinions and evolve through evidence — ML discovery writes calibrated values after p < 0.05 and sufficient N. The `config_history` table is a first-class audit record of every parameter's evolution.
+
+**Informal alias:** "param store" — acceptable in conversation, not in architecture docs or code comments.
+
+**APR parameter lifecycle:** `seed → operator_tuning → ml_learned → user_override → ml_learned again`
+
+**Banned:** "param store" in architecture docs or code comments, "config store," "config system"
+**Status:** active
+
+**Code surface:** `config_schema`, `config_state`, `config_history`, `config_outbox` tables; `ConfigService`; `docs/foundation/parameter-store.md`.
+
+---
+
+### `signal_events`
+
+The detection layer table in the 3-table signal architecture. One row per pattern-fire event — when a plugin's intrinsic detection criteria were satisfied. Contains: `raw_confidence`, `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. Immutable after write (status excepted).
+
+**Not:** a trade record. `signal_events` records that a pattern was detected. Whether a trade was framed or executed is recorded in `trade_frames` and `trade_executions`.
+
+**Banned:** "signal ledger" as the name for this table (legacy term for the monolith; the monolith is being decomposed).
+**Status:** active (Phase 128+)
+
+---
+
+### `trade_frames`
+
+The hypothesis layer table. One row per entry_type hypothesis per signal event. Contains the trade specification (entry_price, stop_price, target_price, entry_type) and — critically — `counterfactual_pnl_r`: what would have happened if this hypothesis had been executed, measured against actual subsequent price action.
+
+`counterfactual_pnl_r` is the ML training target. It is always populated by the CounterfactualTracker regardless of whether the trade was actually executed. This eliminates survivorship bias at the outcome layer — the model trains on all signal hypotheses, not just the executed subset.
+
+**Not:** an execution record. A frame is a hypothesis. Execution is in `trade_executions`.
+
+**Status:** active (Phase 128+)
+
+---
+
+### `trade_executions`
+
+The execution layer table. One row per live trade execution. Most `trade_frames` rows have zero corresponding rows here (not traded). Contains actual fill prices, actual pnl_r, and exit details. `actual_pnl_r` represents live performance; `counterfactual_pnl_r` (on `trade_frames`) represents what the model predicted. The gap between them is execution quality.
+
+**Status:** active (Phase 128+)
+
+---
+
+### `counterfactual_pnl_r`
+
+The outcome that would have been realized if a trade frame hypothesis had been executed as specified, measured against actual subsequent price action. Computed by CounterfactualTracker for every `trade_frames` row regardless of execution status.
+
+This is the ML training target for SignalRanker and all downstream ML models. Training on `actual_pnl_r` introduces survivorship bias (only executed signals have outcomes). Training on `counterfactual_pnl_r` eliminates it — every signal hypothesis has a measured outcome.
+
+**Not:** a backtested result (which implies fitting to historical data). Counterfactual pnl_r is a forward measurement on live price action after signal emission.
+
+**Banned:** "paper pnl," "simulated pnl"
+**Status:** active (Phase 130+, populated by CounterfactualTracker)
+
+---
+
+### `CounterfactualTracker`
+
+The daemon that measures `counterfactual_pnl_r` for every `trade_frames` row. Subscribes to `signal_events` Kafka topic. Maintains a per-symbol sliding window of price bars. For each signal event, registers the frame's entry/stop/target. On each new bar, checks all open counterfactual positions and closes them when stop hit, target hit, or TTL expired. Writes result to `trade_frames`.
+
+**Architecture:** fully in-memory state; checkpointed to file on shutdown. No DB reads in the hot path — purely event-driven.
+
+**Status:** planned (Phase 130)
+
+---
+
 ## See Also
 
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names
 - `docs/foundation/principles.md` — the governing principles that determine why terms are defined this way
+- `docs/foundation/parameter-store.md` — Adaptive Parameter Registry (APR) full specification
+- `docs/architecture/setup-confidence-patterns.md` — ECL definition and boundary invariant
+- `docs/architecture/signal-trade-separation-ADR.md` — 3-table architecture decision record (Phase 127+)
 - `tag_vocabulary` table — the live controlled vocabulary for instrument tags

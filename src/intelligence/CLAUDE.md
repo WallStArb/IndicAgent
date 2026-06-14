@@ -41,7 +41,7 @@ All live in `src/intelligence/trading/`:
 
 ### Creating a New I7 Plugin
 
-**Required reading:** `docs/architecture/i7-setup-confidence-patterns.md` - the 6 GOOD patterns, dual gate structure (HMM regime + I6 ctf_score before OHLCV), 4-factor intrinsic confidence composite, and anti-patterns. New plugins MUST implement all 6 patterns to be compliant-by-default.
+**Required reading:** `docs/architecture/setup-confidence-patterns.md` - the 6 GOOD patterns, dual gate structure (HMM regime + I6 ctf_score before OHLCV), 4-factor intrinsic confidence composite, and anti-patterns. New plugins MUST implement all 6 patterns to be compliant-by-default.
 
 1. `src/intelligence/trading/<name>.py` — extend `PatternPlugin`, set `regime_type` (`"trend"` | `"mean_reversion"` | `"any"`), declare `requires_i6_confluence: bool = True` and `shadow_only: bool = True`, use shared utilities above (esp. `compose_confidence()`, `make_signal_from_frame()`)
 2. Add to `TIER_I7` in `register_plugins.py` + unit test in `tests/unit/intelligence/`
