@@ -1742,12 +1742,12 @@ Plans:
 
   Wave 1 (replay-blocking critical path):
 
-  - [ ] 123-01-PLAN.md — Wave A: CTF/zone_friction gate removal + 5 ECL schema fields + SIGNAL_SCHEMA_VERSION="v3" + context_features promotion + _PHASE_119_PLUGINS deletion + test fixes
+  - [x] 123-01-PLAN.md — Wave A: CTF/zone_friction gate removal + 5 ECL schema fields + SIGNAL_SCHEMA_VERSION="v3" + context_features promotion + _PHASE_119_PLUGINS deletion + test fixes
 
   Wave 2 (parallel, depend on 123-01):
 
-  - [ ] 123-02-PLAN.md — Wave B: factor_scores dict collected in all 35 TIER_I7 setup plugins before compositing
-  - [ ] 123-03-PLAN.md — Wave C: setup-confidence-patterns.md ECL reconciliation (dissolve Phase 119 category, confirm cross-refs)
+  - [x] 123-02-PLAN.md — Wave B: factor_scores dict collected in all 35 TIER_I7 setup plugins before compositing
+  - [x] 123-03-PLAN.md — Wave C: setup-confidence-patterns.md ECL reconciliation (dissolve Phase 119 category, confirm cross-refs)
 
 ---
 
