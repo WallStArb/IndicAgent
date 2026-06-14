@@ -681,34 +681,6 @@ _I7_I6_EXEMPT: frozenset[str] = frozenset(
     ]
 )
 
-# Phase 119 refactored plugins: Wave-1 (8) + Wave-2 (9) = 17 total.
-# These plugins have dual HMM+CTF gate, 4-factor confidence composites, shadow_only=True,
-# and requires_i6_confluence=True. Used by test_i7_extrinsic_contract.py to exclude ctf_score
-# from extrinsic perturbation (ctf_score is a gate for these plugins, not a perturbable extrinsic).
-_PHASE_119_PLUGINS: frozenset[str] = frozenset(
-    [
-        # Wave-1: 8 plugins
-        ofi_spike_plugin.name,
-        cvd_spike_plugin.name,
-        ofi_divergence_plugin.name,
-        failed_breakout_plugin.name,
-        candlestick_pattern_setup_plugin.name,
-        session_extremes_setup_plugin.name,
-        liquidity_hunt_plugin.name,
-        delta_exhaustion_plugin.name,
-        # Wave-2: 9 plugins
-        lvn_breakout_plugin.name,
-        vwap_reclaim_plugin.name,
-        vwap_deviation_plugin.name,
-        momentum_breakout_plugin.name,
-        orb15_plugin.name,
-        orb30_plugin.name,
-        second_leg_continuation_plugin.name,
-        vcp_plugin.name,
-        dual_divergence_plugin.name,
-    ]
-)
-
 
 async def shadow_registry_ensure(conn: object, component_name: str, component_type: str) -> None:
     """Idempotent enrollment of a component into shadow_registry.
