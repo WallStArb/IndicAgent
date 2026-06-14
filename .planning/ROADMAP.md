@@ -22,7 +22,7 @@
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104-109 (shipped 2026-05-29)
 - ✅ **v2.8 AI Platform — Part 1** — Phases 094-095, 106-108, 110-116 (shipped 2026-06-08)
 - ✅ **v2.9 Signal Quality Renaissance** — Phases 117-122 (shipped 2026-06-13; 5.18M noise signals deleted, 21 setups refactored, param store wired)
-- 📋 **v2.10 Data Architecture Evolution** — Phases 123-129 (7 phases: ECL restoration + APR Tier A + clean replay + 3-table migration)
+- 📋 **v2.10 Data Architecture Evolution** — Phases 123-129 (7 phases: ECL restoration + APR full migration (all 3 tiers) + clean replay + 3-table migration)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked — v2.9 complete; next after v2.10)
 
 ## Phases
@@ -1759,18 +1759,20 @@ Plans:
 
 ---
 
-### Phase 125: APR Tier A Migration
+### Phase 125: APR Full Migration — All Three Tiers
 
-**Goal:** Externalize 23 Tier A detection gate constants to APR. Zero behavior change — seeds equal current hard-coded values. Explicit v2.11 seed: once `factor_scores` are in the ledger and `counterfactual_pnl_r` is populated, Phase 130 externalizes `weights.*` composite weights via same pattern.
+**Goal:** Externalize all 51 numeric constants across all three tiers to APR. Tier A (26 detection gate keys), Tier B (22 confidence weight keys), Tier C (6 zone engine geometry keys). Zero behavior change — seeds equal current hard-coded values. Weight sum invariant enforced in all Tier B plugins. Replay is not a blocker; get the parameters right first.
 
 **Depends on**: Phase 124
-**Requirements**: APR-01
+**Requirements**: APR-01, APR-02, APR-03
 **Success Criteria**:
 
-  1. 23 Tier A keys in `config_state` with seed values and `[initial_estimate]` / `[conventional]` provenance
-  2. Zero hard-coded Tier A constants in src/ (grep confirms)
-  3. All Tier A plugins loading from ConfigService at compute_full() time
-  4. `pytest tests/unit/ -q` green
+  1. All 51 keys in `config_state` with seed values and provenance-tagged descriptions
+  2. Zero hard-coded constants for any tier in src/ (grep confirms)
+  3. Weight sum invariant enforced in all Tier B plugins (`_assert_weights_sum`)
+  4. All plugins loading from ConfigService at compute_full() time
+  5. `pytest tests/unit/ -q` green
+  6. TODO 025 closed — all three tiers complete
 
 **Plans**: defer to `/gsd-plan-phase 125`
 
@@ -1854,9 +1856,9 @@ Plans:
 - ECL boundary invariant: zero `no_signal()` calls based on extrinsic vectors after Phase 123
 
 **v2.11 seeds unlocked by v2.10:**
-- CounterfactualTracker daemon (Phase 130) — requires trade_frames.counterfactual_pnl_r (Phase 128)
+- CounterfactualTracker daemon (Phase 130) — requires trade_frames.counterfactual_pnl_r (Phase 128); measures outcomes for every trade frame regardless of execution
 - I6 DB bootstrap at startup (Phase 130) — eliminates cold-start permanently
-- APR `weights.*` namespace (Phase 130) — requires factor_scores on signal_events (Phase 123)
+- APR ML optimization (Phase 131) — requires counterfactual_pnl_r to accumulate (30-90 days); regresses factor_scores and zone geometry against outcomes; all 51 APR keys already externalized (Phase 125)
 - SignalRanker (Phase 131) — requires context_features (Phase 123) + counterfactual_pnl_r (Phase 130)
 
 </details>
