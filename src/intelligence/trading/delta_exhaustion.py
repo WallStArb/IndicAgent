@@ -159,11 +159,13 @@ class DeltaExhaustionPlugin:
 
         # Weights sum to 1.0: exhaustion/momentum_reversal/volume_proxy/persistence
         # ctf_score_factor removed — CTF is ECL annotation, not composite factor (Phase 123)
+        _w = (0.35, 0.30, 0.25, 0.10)
+        assert abs(sum(_w) - 1.0) < 1e-9, f"Composite weights must sum to 1.0, got {sum(_w)}"
         raw_conf = (
-            0.35 * cvd_z_score
-            + 0.30 * price_fail_score
-            + 0.25 * hmm_mean_reversion_score
-            + 0.10 * persistence_score
+            _w[0] * cvd_z_score
+            + _w[1] * price_fail_score
+            + _w[2] * hmm_mean_reversion_score
+            + _w[3] * persistence_score
         )
         confidence = compose_confidence(raw_conf)
 

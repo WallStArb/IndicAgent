@@ -16,6 +16,16 @@ from src.intelligence.register_plugins import (
     register_all_plugins,
 )
 
+# Derive at module level so parametrize picks up new plugins automatically.
+# Any TIER_I7 plugin with shadow_only=True that is NOT in _I7_I6_EXEMPT must
+# pass the test_shadow_only_declared assertion.
+register_all_plugins()
+_ECL_SHADOW_PLUGINS = sorted(
+    name
+    for name in TIER_I7
+    if name not in _I7_I6_EXEMPT and getattr(registry.patterns.get(name), "shadow_only", False)
+)
+
 
 class TestI6ConfluenceEnforcement:
     def setup_method(self):
@@ -99,28 +109,6 @@ class TestI6ConfluenceEnforcement:
             assert (
                 registry.patterns.get(name) is not None
             ), f"_I7_I6_EXEMPT member {name!r} is not registered in registry"
-
-    # ECL-compliant I7 plugins: dual-gate refactored, shadow_only=True (Phase 119+123).
-    # Previously tracked via _PHASE_119_PLUGINS frozenset (dissolved in Phase 123).
-    _ECL_SHADOW_PLUGINS = [
-        "trad_OFISpike",
-        "trad_CVDSpike",
-        "trad_OFIDivergence",
-        "trad_FailedBreakout",
-        "trad_CandlestickPatternSetup",
-        "trad_SessionExtremesSetup",
-        "trad_LiquidityHunt",
-        "trad_DeltaExhaustion",
-        "trad_LVNBreakout",
-        "trad_VWAPReclaim",
-        "trad_VWAPDeviation",
-        "trad_MomentumBreakout",
-        "trad_ORB15",
-        "trad_ORB30",
-        "trad_SecondLegContinuation",
-        "trad_VCP",
-        "trad_DualDivergence",
-    ]
 
     @pytest.mark.parametrize("plugin_name", _ECL_SHADOW_PLUGINS)
     def test_shadow_only_declared(self, plugin_name: str):

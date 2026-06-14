@@ -10,8 +10,9 @@ from src.core.service_utils import TF_TTL_BARS, get_tick_size, round_to_tick
 if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame
 
-# Schema version for Kafka payload. DB column signal_schema_version is text; historical: "v1", "v2".
-# Integer semantics are intended but text type preserved for DB compat until Phase 128 drops signal_ledger.
+# Schema version for Kafka payload and DB column signal_schema_version (text type).
+# Convention: "v1", "v2", "v3" — string, not integer. Phase 128 will migrate to the
+# 3-table schema; at that point update the literal value only, not the type.
 SIGNAL_SCHEMA_VERSION: str = "v3"
 
 # Emission gate thresholds (W4)

@@ -255,13 +255,8 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 calibrated_confidence=sig.get("calibrated_confidence"),
             )
         )
-        # Phase 123 ECL fields: read from payload, not yet persisted (Phase 128 3-table migration).
-        # Reading here proves the pipeline carries them end-to-end.
-        # ctf_score: float | None = sig.get("ctf_score")
-        # ctf_confirmed: bool | None = sig.get("ctf_confirmed")
-        # zone_friction_score: float | None = sig.get("zone_friction_score")
-        # factor_scores: dict = sig.get("factor_scores") or {}
-        # context_features: dict = sig.get("context_features") or {}
+        # Phase 123 ECL fields flow through Kafka payload but are not persisted here.
+        # Persistence deferred to Phase 128 (signal_events table in the 3-table schema).
     return entries
 
 

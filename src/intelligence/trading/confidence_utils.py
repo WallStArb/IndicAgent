@@ -188,18 +188,19 @@ def capture_signal_features(
         "ctf_ob_alignment": _nullable_float(features, "ctf_ob_alignment"),
         # I4 macro context (Phase 46.1): VIX regime + EQ_INDEX sector rotation.
         # Per D-06: None means data unavailable — never substitute 0.0 (valid z-score value).
-        "vix_level": features.get("vix_level"),  # float | None
-        "vix_z": features.get("vix_z"),  # float | None
-        "eq_spread_z": features.get("eq_spread_z"),  # float | None
-        "eq_pairs_confirming": features.get("eq_pairs_confirming"),  # float | None
+        # _nullable_float() used for all float | None fields to guarantee type safety.
+        "vix_level": _nullable_float(features, "vix_level"),
+        "vix_z": _nullable_float(features, "vix_z"),
+        "eq_spread_z": _nullable_float(features, "eq_spread_z"),
+        "eq_pairs_confirming": _nullable_float(features, "eq_pairs_confirming"),
         # I4 macro regime context (Phase 121 Wave 2 / D-10 MacroContextPlugin):
         # flight-to-quality, yield curve, stock-bond corr.
         # Per D-06: None means data unavailable — never substitute 0.0.
-        "ftq_score": features.get("ftq_score"),  # float | None
-        "ftq_regime": features.get("ftq_regime"),  # str | None
-        "yield_curve_slope": features.get("yield_curve_slope"),  # float | None
-        "yield_curve_regime": features.get("yield_curve_regime"),  # str | None
-        "corr_z": features.get("corr_z"),  # float | None
+        "ftq_score": _nullable_float(features, "ftq_score"),
+        "ftq_regime": features.get("ftq_regime"),  # str | None — not a float field
+        "yield_curve_slope": _nullable_float(features, "yield_curve_slope"),
+        "yield_curve_regime": features.get("yield_curve_regime"),  # str | None — not a float field
+        "corr_z": _nullable_float(features, "corr_z"),
     }
     # Cross-TF momentum divergence fields (Plan 64-01, D-13, D-14)
     # Captured as-is: divergence is float | None, regime is str | None
