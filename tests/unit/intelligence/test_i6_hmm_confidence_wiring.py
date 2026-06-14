@@ -100,20 +100,21 @@ def _make_cvd_frames(
 
 
 class TestSpikeI6HmmWiring:
-    """Verifies detect_spike_signal uses ctf_score + hmm_trending_weight as GATES (Phase 119).
+    """Verifies detect_spike_signal ECL + HMM wiring (Phase 123).
 
-    Phase 119 refactor: HMM and CTF are now gates-only — they do NOT additively change
-    confidence. Tests verify gate semantics:
-      - below-threshold CTF → no_signal()
-      - below-threshold HMM trending weight → no_signal()
-      - above-threshold CTF perturbation does NOT change confidence (it is a gate, not factor)
+    Phase 123 refactor: CTF is now an ECL annotation — it no longer gates emission.
+    HMM regime gate is the only permitted emission suppressor.
+    Tests verify:
+      - below-threshold CTF → signal STILL fires (ECL annotation, not gate)
+      - below-threshold HMM trending weight → no_signal() (only permitted gate)
+      - CTF perturbation does NOT change confidence (pure annotation)
     """
 
-    def test_below_ctf_threshold_returns_no_signal(self):
-        """abs(ctf_score) < 0.25 must return no_signal() regardless of spike_z."""
+    def test_below_ctf_threshold_still_fires(self):
+        """Phase 123: abs(ctf_score) < 0.25 must NOT block emission — CTF is ECL annotation."""
         from src.intelligence.trading.microstructure_utils import detect_spike_signal
 
-        # ctf_score=0.10 is below _MIN_CTF_SCORE=0.25 — gate must block
+        # ctf_score=0.10 is below old _MIN_CTF_SCORE=0.25 gate — signal should still fire
         frames = _make_spike_frames(
             spike_z=3.0,
             ctf_score=0.10,
@@ -122,15 +123,12 @@ class TestSpikeI6HmmWiring:
         result = detect_spike_signal(
             frames, "ofi_spike_z", "ofi_spike", setup_plugin="trad_OFISpike"
         )
-        assert (
-            result.get("signal_type")
-            in (
-                None,
-                "none",
-                "",
-            )
-            or result.get("direction") == 0
-        ), f"ctf_score=0.10 (below 0.25 gate) must return no_signal; got {result}"
+        assert result.get("direction") != 0, (
+            f"Phase 123 ECL: ctf_score=0.10 must NOT block emission; "
+            f"ctf_score is annotation, not gate. got {result}"
+        )
+        # ctf_score captured as top-level ECL field
+        assert result.get("ctf_score") == 0.10
 
     def test_below_hmm_threshold_returns_no_signal(self):
         """hmm_trending_weight < 0.30 must return no_signal() regardless of spike_z."""
@@ -156,13 +154,13 @@ class TestSpikeI6HmmWiring:
             or result.get("direction") == 0
         ), f"hmm_trending_weight<0.30 must return no_signal; got {result}"
 
-    def test_above_threshold_ctf_perturbation_does_not_change_confidence(self):
-        """Two above-threshold ctf values produce same confidence (CTF is a gate, not additive)."""
+    def test_ctf_perturbation_does_not_change_confidence(self):
+        """Phase 123: any ctf_score produces the same confidence (pure ECL annotation)."""
         from src.intelligence.trading.microstructure_utils import detect_spike_signal
 
-        # ctf=0.40 — just above gate
-        frames_low_ctf = _make_spike_frames(spike_z=3.0, ctf_score=0.40, hmm_prob_trending_up=0.7)
-        # ctf=0.90 — well above gate
+        # ctf=0.10 — below old gate
+        frames_low_ctf = _make_spike_frames(spike_z=3.0, ctf_score=0.10, hmm_prob_trending_up=0.7)
+        # ctf=0.90 — well above old gate
         frames_high_ctf = _make_spike_frames(spike_z=3.0, ctf_score=0.90, hmm_prob_trending_up=0.7)
         r_low = detect_spike_signal(
             frames_low_ctf, "ofi_spike_z", "ofi_spike", setup_plugin="trad_OFISpike"
@@ -170,18 +168,17 @@ class TestSpikeI6HmmWiring:
         r_high = detect_spike_signal(
             frames_high_ctf, "ofi_spike_z", "ofi_spike", setup_plugin="trad_OFISpike"
         )
-        # Both must fire (above gate threshold)
-        assert r_low.get("direction") != 0, "low ctf (above gate) should fire"
-        assert r_high.get("direction") != 0, "high ctf (above gate) should fire"
-        # ctf_factor IS part of the 4-factor composite — it does change confidence above threshold.
-        # Both values are above the gate and will produce different confidence values due to
-        # ctf_factor = clamp01((abs(ctf) - 0.25) / 0.75). This is intended behavior.
-        # The key invariant: CTF below threshold = gate block; CTF above threshold = proportional factor.
-        assert r_low.get("confidence", 0) > 0
-        assert r_high.get("confidence", 0) > 0
+        # Both must fire — CTF no longer gates
+        assert r_low.get("direction") != 0, "low ctf should fire (ECL annotation, not gate)"
+        assert r_high.get("direction") != 0, "high ctf should fire (ECL annotation, not gate)"
+        # Phase 123: ctf_score is not part of confidence composite — confidence is identical
+        assert r_low.get("confidence") == r_high.get("confidence"), (
+            f"ctf_score perturbation must not change confidence: "
+            f"low={r_low.get('confidence')}, high={r_high.get('confidence')}"
+        )
 
-    def test_ctf_supporting_factor_logged_when_above_gate(self):
-        """ctf_score appears in supporting_factors when abs(ctf_score) > _MIN_CTF_SCORE."""
+    def test_ctf_supporting_factor_logged(self):
+        """ctf_score appears in supporting_factors when ctf_score is non-None."""
         from src.intelligence.trading.microstructure_utils import detect_spike_signal
 
         frames = _make_spike_frames(spike_z=3.0, ctf_score=0.50, hmm_prob_trending_up=0.7)
@@ -191,18 +188,25 @@ class TestSpikeI6HmmWiring:
         factors = result.get("supporting_factors", [])
         assert any(
             "ctf_score" in f for f in factors
-        ), f"ctf_score should appear in supporting_factors when |ctf|>_MIN_CTF_SCORE; got {factors}"
+        ), f"ctf_score should appear in supporting_factors; got {factors}"
 
-    def test_below_ctf_no_signal_no_supporting_factor(self):
-        """Below-gate ctf_score results in no_signal (no supporting_factors to check)."""
+    def test_below_ctf_still_fires_with_supporting_factors(self):
+        """Phase 123: below-old-gate ctf_score fires and emits ctf_score in supporting_factors."""
         from src.intelligence.trading.microstructure_utils import detect_spike_signal
 
         frames = _make_spike_frames(spike_z=3.0, ctf_score=0.10, hmm_prob_trending_up=0.7)
         result = detect_spike_signal(
             frames, "ofi_spike_z", "ofi_spike", setup_plugin="trad_OFISpike"
         )
-        # Gate blocks — result is no_signal
-        assert result.get("signal_type") in (None, "none", "") or result.get("direction") == 0
+        # Signal fires (ECL annotation, not gate)
+        assert result.get("direction") != 0, (
+            "Phase 123 ECL: ctf_score=0.10 must not block; got no_signal"
+        )
+        # ctf_score captured in supporting_factors as annotation
+        factors = result.get("supporting_factors", [])
+        assert any("ctf_score" in f for f in factors), (
+            f"ctf_score=0.10 should appear in supporting_factors as ECL annotation; got {factors}"
+        )
 
 
 class TestCVDDivergenceThreshold:
