@@ -230,6 +230,14 @@ class VWAPReclaimPlugin:
         w_duration = cfg.get_sync("weights.vwap_reclaim.duration", 0.30) if cfg else 0.30
         w_trend = cfg.get_sync("weights.vwap_reclaim.trend_align", 0.20) if cfg else 0.20
         w_sr = cfg.get_sync("weights.vwap_reclaim.sr_proximity", 0.20) if cfg else 0.20
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "vol_score": round(vol_score, 4),
+            "duration_score": round(duration_score, 4),
+            "trend_align": round(trend_align, 4),
+            "sr_prox": round(sr_prox, 4),
+        }
+
         raw_conf = (
             w_vol * vol_score + w_duration * duration_score + w_trend * trend_align + w_sr * sr_prox
         )
@@ -266,6 +274,7 @@ class VWAPReclaimPlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
         return signal
 

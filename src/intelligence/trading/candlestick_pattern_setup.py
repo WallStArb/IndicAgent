@@ -315,6 +315,14 @@ class CandlestickPatternSetupPlugin:
         # zone_proximity: S/R confirms = high quality; fallback for sr_auto patterns
         zone_proximity = 0.7 if sr_confirms else 0.3
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "pattern_confidence_score": round(pattern_confidence_score, 4),
+            "body_ratio": round(body_ratio, 4),
+            "volume_confirmation": round(volume_confirmation, 4),
+            "zone_proximity": round(zone_proximity, 4),
+        }
+
         # Weights sum to 1.0
         raw_conf = (
             0.35 * pattern_confidence_score
@@ -364,6 +372,7 @@ class CandlestickPatternSetupPlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

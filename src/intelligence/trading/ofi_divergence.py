@@ -170,6 +170,14 @@ class OFIDivergencePlugin:
         volume_score = rel_volume_score(features)
 
         # Weights sum to 1.0
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "magnitude_score": round(magnitude_score, 4),
+            "alignment_score": round(alignment_score, 4),
+            "persistence_score": round(persistence_score, 4),
+            "volume_score": round(volume_score, 4),
+        }
+
         raw_conf = (
             0.40 * magnitude_score
             + 0.25 * alignment_score
@@ -224,6 +232,7 @@ class OFIDivergencePlugin:
             context_features=ctx,
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
+            factor_scores=factor_scores,
         )
         return signal
 
