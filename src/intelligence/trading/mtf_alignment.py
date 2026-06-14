@@ -21,6 +21,12 @@ class MTFAlignmentPlugin:
 
     Gate: abs(ctf_score) > 0.7 AND ctf_timeframes_aligned >= 2.
     Wider stops and larger targets since multi-TF moves tend to extend.
+
+    ECL EXEMPTION (Phase 123): CTF score is this plugin's INTRINSIC detection signal,
+    not extrinsic context. MTFAlignment exists to measure CTF confluence — removing
+    the CTF gate would eliminate the plugin's core purpose. Do NOT apply the standard
+    Phase 123 ECL annotation pattern here; ctf_score is a first-class confidence factor,
+    not an annotation field.
     """
 
     name: str = "trad_MTFAlignment"
