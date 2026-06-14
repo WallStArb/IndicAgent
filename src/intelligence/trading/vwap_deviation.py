@@ -90,10 +90,13 @@ class VWAPDeviationPlugin:
         if hmm_regime_weight(features, "ranging") < get_min_regime_weight():
             return no_signal()
 
-        # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
-        ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < get_min_ctf_score():
-            return no_signal()
+        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
+        _ctf_raw = features.get("ctf_score")
+        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+        ctf_confirmed: bool | None = (
+            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
+        )
+        # No return no_signal() — signal fires if intrinsic criteria met
 
         # ── OHLCV extraction (after dual gate) ───────────────────────────────
         result = extract_ohlcv(frames, self.min_lookback)
@@ -165,6 +168,7 @@ class VWAPDeviationPlugin:
         if not tf.viable:
             return no_signal()
 
+        ctx = capture_signal_features(features, direction, "mean_reversion", confidence)
         return make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),
@@ -176,9 +180,10 @@ class VWAPDeviationPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=capture_signal_features(
-                features, direction, "mean_reversion", confidence
-            ),
+            features_snapshot=ctx,
+            context_features=ctx,
+            ctf_score=ctf_score,
+            ctf_confirmed=ctf_confirmed,
         )
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

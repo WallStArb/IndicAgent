@@ -133,11 +133,13 @@ class VCPPlugin:
             self._state[(symbol, tf)] = state
             return no_signal()
 
-        # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
-        ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < get_min_ctf_score():
-            self._state[(symbol, tf)] = state
-            return no_signal()
+        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
+        _ctf_raw = features.get("ctf_score")
+        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+        ctf_confirmed: bool | None = (
+            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
+        )
+        # No return no_signal() — signal fires if intrinsic criteria met
 
         # ── Price and volume arrays ──────────────────────────────────────────
         close = df["close"].to_numpy(dtype=float)
@@ -266,6 +268,7 @@ class VCPPlugin:
             state["contractions"] = []
             self._state[(symbol, tf)] = state
 
+            ctx = capture_signal_features(features, direction, "trend", confidence)
             signal = make_signal_from_frame(
                 frame,
                 symbol=symbol,
@@ -277,7 +280,10 @@ class VCPPlugin:
                 confidence=confidence,
                 regime_context=regime_ctx,
                 supporting_factors=supporting,
-                features_snapshot=capture_signal_features(features, direction, "trend", confidence),
+                features_snapshot=ctx,
+                context_features=ctx,
+                ctf_score=ctf_score,
+                ctf_confirmed=ctf_confirmed,
             )
             signal["contraction_count"] = contraction_count
             return signal
