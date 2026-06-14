@@ -12,7 +12,6 @@ from src.intelligence.plugins import registry
 from src.intelligence.plugins.base import ArchitectureViolation
 from src.intelligence.register_plugins import (
     _I7_I6_EXEMPT,
-    _PHASE_119_PLUGINS,
     TIER_I7,
     register_all_plugins,
 )
@@ -101,16 +100,39 @@ class TestI6ConfluenceEnforcement:
                 registry.patterns.get(name) is not None
             ), f"_I7_I6_EXEMPT member {name!r} is not registered in registry"
 
-    @pytest.mark.parametrize("plugin_name", sorted(_PHASE_119_PLUGINS))
-    def test_shadow_only_declared(self, plugin_name: str):
-        """Every Phase-119 refactored plugin must have shadow_only=True.
+    # ECL-compliant I7 plugins: dual-gate refactored, shadow_only=True (Phase 119+123).
+    # Previously tracked via _PHASE_119_PLUGINS frozenset (dissolved in Phase 123).
+    _ECL_SHADOW_PLUGINS = [
+        "trad_OFISpike",
+        "trad_CVDSpike",
+        "trad_OFIDivergence",
+        "trad_FailedBreakout",
+        "trad_CandlestickPatternSetup",
+        "trad_SessionExtremesSetup",
+        "trad_LiquidityHunt",
+        "trad_DeltaExhaustion",
+        "trad_LVNBreakout",
+        "trad_VWAPReclaim",
+        "trad_VWAPDeviation",
+        "trad_MomentumBreakout",
+        "trad_ORB15",
+        "trad_ORB30",
+        "trad_SecondLegContinuation",
+        "trad_VCP",
+        "trad_DualDivergence",
+    ]
 
-        Phase 119 mandates all newly refactored I7 plugins run in shadow mode
-        until they earn promotion through empirical proof (p<0.05, n>=100).
+    @pytest.mark.parametrize("plugin_name", _ECL_SHADOW_PLUGINS)
+    def test_shadow_only_declared(self, plugin_name: str):
+        """Every ECL-compliant I7 plugin must have shadow_only=True.
+
+        Phase 119+123: these plugins have dual HMM+ECL gates, 4-factor intrinsic
+        confidence composites, requires_i6_confluence=True, and shadow_only=True.
+        They run in shadow mode until earning promotion through empirical proof (p<0.05, n>=100).
         """
         plugin = registry.patterns.get(plugin_name)
-        assert plugin is not None, f"Phase-119 plugin {plugin_name!r} not found in registry"
+        assert plugin is not None, f"ECL plugin {plugin_name!r} not found in registry"
         assert getattr(plugin, "shadow_only", False) is True, (
-            f"Phase-119 plugin {plugin_name!r} must have shadow_only=True. "
-            f"Set: shadow_only: bool = True as a ClassVar."
+            f"ECL plugin {plugin_name!r} must have shadow_only=True. "
+            f"Set: shadow_only: bool = True as a class attribute."
         )

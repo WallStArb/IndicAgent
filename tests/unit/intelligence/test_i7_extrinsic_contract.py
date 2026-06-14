@@ -30,10 +30,7 @@ import copy
 import numpy as np
 import pytest
 
-from src.intelligence.register_plugins import _PHASE_119_PLUGINS
 from tests.unit.intelligence.helpers import make_ohlcv
-
-# Phase 119 refactored plugins: ctf_score is a gate (not a perturbable extrinsic) for these.
 
 # ---------------------------------------------------------------------------
 # Extrinsic perturbation keys — perturbing these must NOT change confidence
@@ -487,10 +484,8 @@ _SKIPPED_IDS = [name for name, _ in _SKIPPED]
 def test_extrinsic_perturbation_does_not_change_confidence(plugin_name, factory):
     """Perturbing only extrinsic keys must leave confidence unchanged to float precision.
 
-    For Phase-119 plugins, ctf_score is a mandatory gate (not a perturbable extrinsic):
-    it feeds the ctf_factor component in the 4-factor confidence composite, so perturbing
-    it would change confidence and violate the invariant. Only ctf_score is excluded;
-    ctf_structure_alignment and ctf_trend_alignment remain in the perturbation set.
+    Phase 123: ctf_score is now an ECL annotation for ALL plugins — no longer a gate.
+    ctf_score is fully perturb-safe across the entire I7 tier.
     """
     fire = factory()
 
@@ -500,13 +495,8 @@ def test_extrinsic_perturbation_does_not_change_confidence(plugin_name, factory)
     ), f"{plugin_name}: firing scenario did not produce a signal — check scenario factory"
     confidence_a = baseline["confidence"]
 
-    # For Phase-119 plugins, exclude ctf_score from perturbation (it is a gate, not extrinsic).
-    # ctf_structure_alignment and ctf_trend_alignment remain perturbed for all plugins.
-    perturbation_keys = {
-        k: v
-        for k, v in _EXTRINSIC_KEYS.items()
-        if not (k == "ctf_score" and plugin_name in _PHASE_119_PLUGINS)
-    }
+    # Phase 123: ctf_score is ECL annotation for all plugins — include in perturbation set.
+    perturbation_keys = copy.deepcopy(_EXTRINSIC_KEYS)
 
     # Add/change only extrinsic keys — intrinsic inputs are identical
     perturbed = fire(copy.deepcopy(perturbation_keys))
@@ -530,14 +520,6 @@ def test_extrinsic_perturbation_does_not_change_confidence(plugin_name, factory)
 def test_extrinsic_perturbation_skipped_plugins(plugin_name, skip_reason):
     """Document skipped plugins with explicit reasons."""
     pytest.skip(skip_reason)
-
-
-# ---------------------------------------------------------------------------
-def test_phase_119_plugins_count():
-    assert len(_PHASE_119_PLUGINS) == 17, (
-        f"_PHASE_119_PLUGINS should have 17 members, got {len(_PHASE_119_PLUGINS)}: "
-        f"{sorted(_PHASE_119_PLUGINS)}"
-    )
 
 
 # Test 2: confidence stays within [0.0, 0.95] for every fireable plugin
@@ -595,3 +577,56 @@ def test_extrinsic_still_captured_in_features_snapshot():
     assert snapshot["ctf_score"] == pytest.approx(
         0.8
     ), f"ctf_score in snapshot must equal input value 0.8, got {snapshot['ctf_score']}"
+
+
+def test_phase_123_ecl_fields_on_ofi_divergence():
+    """Phase 123: OFIDivergence emits context_features, ctf_score, ctf_confirmed as ECL fields.
+
+    Proves that ctf_score is captured as a top-level ECL annotation on every signal
+    (not buried in features_snapshot) and context_features points to the same snapshot dict.
+    """
+    import pandas as pd
+
+    from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+
+    closes = [5000.0 + i * 0.1 for i in range(30)]
+    df = pd.DataFrame(
+        {
+            "open": [c - 0.05 for c in closes],
+            "high": [c + 0.5 for c in closes],
+            "low": [c - 0.5 for c in closes],
+            "close": closes,
+            "volume": [1000.0] * 30,
+        }
+    )
+    features = {
+        "ofi_divergence": 2.0,
+        "ofi_spike_z": 2.0,
+        "ofi_ewma_5": 0.5,
+        "ofi_ewma_20": 0.3,
+        "rel_volume": 1.8,
+        "hmm_regime": 0.0,
+        "atr_14": 2.0,
+        "hmm_prob_trending_up": 0.6,
+        "hmm_prob_trending_down": 0.3,
+        "ctf_score": 0.7,
+    }
+
+    plugin = OFIDivergencePlugin()
+    for _ in range(2):
+        plugin.compute_full(_frames(df, features))
+    result = plugin.compute_full(_frames(df, features))
+
+    assert result.get("direction", 0) != 0, "OFIDivergence should have fired"
+
+    # Phase 123: ctf_score + ctf_confirmed as top-level ECL fields
+    assert "ctf_score" in result, "ctf_score must be a top-level signal field (Phase 123 ECL)"
+    assert result["ctf_score"] == pytest.approx(0.7), (
+        f"ctf_score ECL field must equal input value 0.7, got {result['ctf_score']}"
+    )
+    assert result["ctf_confirmed"] is True, (
+        "ctf_confirmed must be True for ctf_score=0.7 >= MIN_CTF_SCORE=0.25"
+    )
+
+    # context_features must be populated (same dict as features_snapshot)
+    assert result.get("context_features"), "context_features must be a non-empty dict (Phase 123)"

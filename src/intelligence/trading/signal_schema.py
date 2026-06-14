@@ -10,6 +10,10 @@ from src.core.service_utils import TF_TTL_BARS, get_tick_size, round_to_tick
 if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame
 
+# Schema version for Kafka payload. DB column signal_schema_version is text; historical: "v1", "v2".
+# Integer semantics are intended but text type preserved for DB compat until Phase 128 drops signal_ledger.
+SIGNAL_SCHEMA_VERSION: str = "v3"
+
 # Emission gate thresholds (W4)
 MIN_RR_T1 = 0.0  # disabled — aggregator handles RR ranking; gate only checks structural validity
 _MIN_RISK = 1e-6  # matches lifecycle_tracker guard; prevents fp-epsilon RR inflation
@@ -50,6 +54,12 @@ REQUIRED_PIPELINE_FIELDS = frozenset(
         "composite_rank",
         "raw_cis_score",
         "filtered_cis_score",
+        # Phase 123 ECL fields: extrinsic context annotations (all nullable)
+        "ctf_score",
+        "ctf_confirmed",
+        "zone_friction_score",
+        "factor_scores",
+        "context_features",
     }
 )
 
@@ -208,6 +218,12 @@ def make_signal_from_frame(
     invalidation_conditions: list[str] | None = None,
     ttl_bars: int | None = None,
     features_snapshot: dict | None = None,
+    # ECL fields — Phase 123. {} sentinel for absent-plugin, None for field-not-written.
+    ctf_score: float | None = None,
+    ctf_confirmed: bool | None = None,
+    zone_friction_score: float | None = None,
+    factor_scores: dict | None = None,
+    context_features: dict | None = None,
 ) -> dict:
     """Build a signal.v1 dict from a TradeFrame, auto-extracting all framing fields.
 
@@ -294,5 +310,14 @@ def make_signal_from_frame(
 
     if features_snapshot is not None:
         sig["features_snapshot"] = features_snapshot
+
+    # ECL fields — Phase 123. Populated at emit time; DB write deferred to Phase 128.
+    # ctf_score/ctf_confirmed/zone_friction_score: None = extrinsic data absent at emit time.
+    # factor_scores/context_features: {} = plugin emitted no factors / no context.
+    sig["ctf_score"] = ctf_score
+    sig["ctf_confirmed"] = ctf_confirmed
+    sig["zone_friction_score"] = zone_friction_score
+    sig["factor_scores"] = factor_scores if factor_scores is not None else {}
+    sig["context_features"] = context_features if context_features is not None else {}
 
     return sig

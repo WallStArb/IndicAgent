@@ -118,10 +118,13 @@ class ORB15Plugin:
         if hmm_trending_weight(features) < get_min_regime_weight():
             return no_signal()
 
-        # ── Gate 2: I6 ctf_score gate ─────────────────────────────────────────
-        ctf_score = float(features.get("ctf_score") or 0.0)
-        if abs(ctf_score) < get_min_ctf_score():
-            return no_signal()
+        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
+        _ctf_raw = features.get("ctf_score")
+        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+        ctf_confirmed: bool | None = (
+            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
+        )
+        # No return no_signal() — signal fires if intrinsic criteria met
 
         # ── Extract timestamp ────────────────────────────────────────────────
         if "timestamp" not in df.columns:
@@ -292,6 +295,7 @@ class ORB15Plugin:
 
         confidence = compose_confidence(raw_conf)
 
+        ctx = capture_signal_features(features, direction, "session", confidence)
         signal = make_signal_from_frame(
             frame,
             symbol=symbol,
@@ -303,7 +307,10 @@ class ORB15Plugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=capture_signal_features(features, direction, "session", confidence),
+            features_snapshot=ctx,
+            context_features=ctx,
+            ctf_score=ctf_score,
+            ctf_confirmed=ctf_confirmed,
         )
         return signal
 

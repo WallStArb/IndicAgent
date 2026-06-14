@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
 
@@ -145,15 +146,15 @@ class TestDualDivergence:
         result = plugin.compute_full(_make_frames(close, features))
         assert result.get("direction") == 0
 
-    def test_no_signal_when_ctf_below_threshold(self):
-        """abs(ctf_score) < 0.25 → CTF gate blocks."""
+    def test_ctf_below_old_threshold_still_fires(self):
+        """Phase 123 ECL: abs(ctf_score) < 0.25 must NOT block — ctf_score is annotation."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
         features = {
             "hmm_prob_ranging": 0.65,
             "hmm_prob_trending_up": 0.20,
             "hmm_prob_trending_down": 0.15,
-            "ctf_score": 0.10,  # below 0.25
+            "ctf_score": 0.10,  # below old 0.25 gate — no longer blocks
             "atr_14": 2.0,
             "ofi_divergence": 1.8,
             "cvd_divergence": 1.2,
@@ -162,7 +163,11 @@ class TestDualDivergence:
         for _ in range(3):
             plugin.compute_full(_make_frames(close, features))
         result = plugin.compute_full(_make_frames(close, features))
-        assert result.get("direction") == 0
+        # Phase 123: signal fires; ctf_score captured as ECL annotation
+        assert result.get("direction") != 0, (
+            "Phase 123 ECL: ctf_score=0.10 must not block DualDivergence emission"
+        )
+        assert result.get("ctf_score") == pytest.approx(0.10)
 
     def test_regime_type_is_mean_reversion(self):
         """plugin.regime_type must be 'mean_reversion'."""

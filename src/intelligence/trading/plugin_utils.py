@@ -231,6 +231,8 @@ def emit_signal(
             symbol, timeframe, timestamp, signal_type, setup_plugin,
             direction, regime_context, confluence_score, supporting_factors,
             invalidation_conditions. Optional: ttl_bars.
+            ECL fields (Phase 123): ctf_score, ctf_confirmed, zone_friction_score,
+            factor_scores, context_features — passed through automatically via **signal_fields.
 
     Returns:
         Validated signal dict with type "signal.v1".
