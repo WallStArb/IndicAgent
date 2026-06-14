@@ -21,9 +21,9 @@
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104-109 (shipped 2026-05-29)
 - ✅ **v2.8 AI Platform — Part 1** — Phases 094-095, 106-108, 110-116 (shipped 2026-06-08)
-- 🚧 **v2.9 Signal Quality Renaissance** — Phases 117-121 (in progress — 4/5 phases complete; Phase 122 absorbed into 121; prerequisite for v2.8 completion)
+- ✅ **v2.9 Signal Quality Renaissance** — Phases 117-122 (shipped 2026-06-13; 5.18M noise signals deleted, 21 setups refactored, param store wired)
 - 📋 **v2.10 Data Architecture Evolution** — Phases 123-126 (conditional, depends on ADR decision)
-- ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (blocked until v2.9 completes)
+- ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked — v2.9 complete; next after v2.10)
 
 ## Phases
 
@@ -1467,7 +1467,7 @@ Plans:
 ---
 
 <details>
-<summary>🚧 v2.9 Signal Quality Renaissance (Phases 117-121) — IN PROGRESS (4/5 complete; Phase 122 absorbed into 121)</summary>
+<summary>✅ v2.9 Signal Quality Renaissance (Phases 117-122) — SHIPPED 2026-06-13</summary>
 
 **Milestone Goal:** Stop creating 4.46M noise signals (57% of total) by fixing the 21 NEEDS_REFACTOR implementations that fire 99.8% noise, while preserving all 30 sound trading concepts. Target: improve signal-to-noise ratio from 0.2% → 40%+ for high-volume setups.
 
@@ -1490,8 +1490,10 @@ Plans:
 - Phase 118: Confidence Integrity + Top 5 Setup Refactoring ✅ COMPLETE 2026-06-09
 - Phase 119: Remaining 16 Setup Refactoring ✅ COMPLETE 2026-06-10
 - Phase 120: Shadow Mode Validation ✅ COMPLETE 2026-06-10
-- Phase 121: Lifecycle Replay & Validation 🚧 IN PROGRESS — Wave 1 complete (121-01 executed 2026-06-11; orchestrate running); Wave 2 pending
-- Phase 122: Production Hardening — absorbed into Phase 121; number recycled
+- Phase 121: Lifecycle Replay & Validation ✅ COMPLETE 2026-06-11 (121-02 report deferred to Phase 126)
+- Phase 122: I2 Tier Persistence Fix + Param Store Migration ✅ COMPLETE 2026-06-13 (10/10 plans)
+
+Full details: `.planning/milestones/v2.9-ROADMAP.md`
 
 **Success Metrics (Before → After):**
 
