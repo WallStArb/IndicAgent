@@ -187,6 +187,14 @@ class HVNRejectionPlugin:
         vol_regime = float(features.get("vol_regime", 0.5))
         vol_stability = 1.0 - abs(vol_regime - 0.5) * 2.0
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "proximity_score": round(proximity_score, 4),
+            "reversal_score": round(reversal_score, 4),
+            "hvn_dist_score": round(hvn_dist_score, 4),
+            "vol_stability": round(vol_stability, 4),
+        }
+
         raw_conf = (
             0.30 * proximity_score
             + 0.30 * reversal_score
@@ -228,13 +236,11 @@ class HVNRejectionPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
+            factor_scores=factor_scores,
         )
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "mean_reversion",
-            signal["confidence"],
-        )
+        ctx = capture_signal_features(features, direction, "mean_reversion", signal["confidence"])
+        signal["features_snapshot"] = ctx
+        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

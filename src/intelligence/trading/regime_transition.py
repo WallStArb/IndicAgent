@@ -125,8 +125,17 @@ class RegimeTransitionPlugin:
             supporting.append("high_cp_probability")
 
         raw_conf, supporting = apply_exhaustion_guard(features, raw_conf, supporting)
+
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "cp_probability_score": round(min(1.0, cp_probability), 4),
+            "hmm_aligned_score": round(1.0 if hmm_aligned else 0.0, 4),
+            "choch_detected_score": round(float(choch_detected), 4),
+        }
+
         confidence = compose_confidence(raw_conf)
 
+        ctx = capture_signal_features(features, direction, "trend", confidence)
         signal = make_signal_from_frame(
             tf,
             symbol=frames.get("__symbol__", ""),
@@ -138,7 +147,9 @@ class RegimeTransitionPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=capture_signal_features(features, direction, "trend", confidence),
+            features_snapshot=ctx,
+            context_features=ctx,
+            factor_scores=factor_scores,
         )
         return signal
 

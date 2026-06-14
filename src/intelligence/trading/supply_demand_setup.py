@@ -173,6 +173,25 @@ class SupplyDemandSetupPlugin:
             confidence += 0.05
             supporting.append("bos_confirmed")
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        # Note: supply_demand uses additive confidence model; capture component contributions
+        factor_scores = {
+            "freshness_score": round(float(freshness), 4),
+            "strength_score": round(float(strength), 4),
+            "act123_confirmed": round(1.0 if (act1 and act1_dir and act2) else 0.0, 4),
+            "zone_alignment_score": round(
+                (
+                    1.0
+                    if (
+                        "discount_zone_aligned" in supporting
+                        or "premium_zone_aligned" in supporting
+                    )
+                    else 0.0
+                ),
+                4,
+            ),
+        }
+
         confidence = compose_confidence(confidence)
 
         # ECL annotations: ctf_score + zone_friction_score as context (Phase 123)
@@ -208,6 +227,7 @@ class SupplyDemandSetupPlugin:
             ctf_score=ctf_score,
             ctf_confirmed=ctf_confirmed,
             zone_friction_score=zone_friction_score,
+            factor_scores=factor_scores,
         )
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

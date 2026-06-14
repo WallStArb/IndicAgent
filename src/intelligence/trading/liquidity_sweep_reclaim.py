@@ -119,6 +119,14 @@ class LiquiditySweepReclaimPlugin:
                 confidence += min(0.10, sig * 0.12)
                 supporting.append(f"named_bsl_level_{sig:.2f}")
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        # Note: additive confidence model; capture key component contributions
+        factor_scores = {
+            "sweep_depth_score": round(min(1.0, max(0.0, sweep_depth_atr / 2.0)), 4),
+            "fvg_confirmed": round(1.0 if fvg_type == float(direction) else 0.0, 4),
+            "ob_confirmed": round(1.0 if ob_type == float(direction) else 0.0, 4),
+        }
+
         confidence = compose_confidence(confidence)
 
         # deduplicate_event: one fire per unique sweep identity.
@@ -131,6 +139,7 @@ class LiquiditySweepReclaimPlugin:
         if not deduplicate_event(self._state, state_key, event_id):
             return no_signal()
 
+        ctx = capture_signal_features(features, direction, "smc", confidence)
         return make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),
@@ -142,7 +151,9 @@ class LiquiditySweepReclaimPlugin:
             confidence=confidence,
             regime_context="any",
             supporting_factors=supporting,
-            features_snapshot=capture_signal_features(features, direction, "smc", confidence),
+            features_snapshot=ctx,
+            context_features=ctx,
+            factor_scores=factor_scores,
         )
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

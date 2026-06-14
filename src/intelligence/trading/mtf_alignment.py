@@ -93,6 +93,12 @@ class MTFAlignmentPlugin:
         if not tf.viable:
             return no_signal()
 
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "ctf_score_raw": round(min(1.0, abs(float(ctf_score))), 4),
+            "ctf_timeframes_aligned_score": round(min(1.0, float(ctf_timeframes_aligned) / 4.0), 4),
+        }
+
         # Confidence directly from abs(ctf_score)
         raw_conf = abs(ctf_score)
         supporting = [f"{int(ctf_timeframes_aligned)}_timeframes_aligned"]
@@ -129,10 +135,11 @@ class MTFAlignmentPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
+            factor_scores=factor_scores,
         )
-        signal["features_snapshot"] = capture_signal_features(
-            features, direction, "trend", signal["confidence"]
-        )
+        ctx = capture_signal_features(features, direction, "trend", signal["confidence"])
+        signal["features_snapshot"] = ctx
+        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

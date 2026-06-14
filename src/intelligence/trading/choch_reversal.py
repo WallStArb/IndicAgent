@@ -105,6 +105,12 @@ class CHoCHReversalPlugin:
             regime_ctx = "bearish"
 
         raw_conf += 0.3 * abs(direction)
+
+        # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
+        factor_scores = {
+            "choch_strength": round(min(1.0, raw_conf), 4),
+        }
+
         confidence = compose_confidence(raw_conf)
 
         # deduplicate_event: one fire per unique structural break identity.
@@ -129,13 +135,11 @@ class CHoCHReversalPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
+            factor_scores=factor_scores,
         )
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "smc",
-            signal["confidence"],
-        )
+        ctx = capture_signal_features(features, direction, "smc", signal["confidence"])
+        signal["features_snapshot"] = ctx
+        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
