@@ -49,11 +49,12 @@ def _base_features(**kwargs):
 
 
 def test_fires_short_when_above_sigma_threshold():
-    """sigma=2.0, hmm_regime=0, hurst=0.45 → direction == -1."""
+    """sigma=2.0, hmm_regime=0, hurst=0.45, close reclaims below vwap → direction == -1."""
     from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
 
     plugin = AnchoredVWAPReversionPlugin()
-    close = np.linspace(5010.0, 5012.0, 25)
+    # Close must be below session_vwap (5000) to confirm short reclaim
+    close = np.linspace(5010.0, 4998.0, 25)
     result = plugin.compute_full(_make_frames(close, _base_features()))
     assert result.get("direction") == -1, f"Expected -1, got {result.get('direction')}"
     assert result.get("signal_type") == "vwap_reversion_short"
@@ -63,11 +64,12 @@ def test_fires_short_when_above_sigma_threshold():
 
 
 def test_fires_long_when_below_sigma_threshold():
-    """sigma=-2.0, hmm_regime=0, hurst=0.45 → direction == 1."""
+    """sigma=-2.0, hmm_regime=0, hurst=0.45, close reclaims above vwap → direction == 1."""
     from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
 
     plugin = AnchoredVWAPReversionPlugin()
-    close = np.linspace(4988.0, 4990.0, 25)
+    # Close must be above session_vwap (5000) to confirm long reclaim
+    close = np.linspace(4988.0, 5002.0, 25)
     features = _base_features(
         session_vwap_deviation_sigma=-2.0,
         session_vwap_deviation_velocity=0.1,  # moving toward vwap (positive)
@@ -129,7 +131,8 @@ def test_confidence_is_in_range():
     from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
 
     plugin = AnchoredVWAPReversionPlugin()
-    close = np.linspace(5010.0, 5012.0, 25)
+    # Close must cross below vwap (5000) to confirm short reclaim
+    close = np.linspace(5010.0, 4998.0, 25)
     result = plugin.compute_full(_make_frames(close, _base_features()))
     assert result.get("direction") != 0
     conf = result.get("confidence", 0.0)
