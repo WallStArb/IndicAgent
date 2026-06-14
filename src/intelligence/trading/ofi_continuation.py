@@ -240,8 +240,7 @@ class OFIContinuationPlugin:
             "alignment_score": round(alignment_score, 4),
             "persistence_score": round(persistence_score, 4),
             "volume_score": round(volume_score, 4),
-            "trigger_type": trigger_type,
-            "vol_ratio": round(vol_ratio, 4),
+            "trigger_acceleration": 1.0 if acceleration_confirmed else 0.0,
         }
 
         raw_conf = (
