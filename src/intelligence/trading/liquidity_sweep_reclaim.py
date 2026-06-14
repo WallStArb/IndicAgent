@@ -11,23 +11,28 @@ from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
-from .state_utils import deduplicate_event
+from .state_utils import deduplicate_event, onset_guard
 from .trade_framer import frame_trade
 
 
 @dataclass
 class LiquiditySweepReclaimPlugin:
-    """Highest-conviction SMC setup: fires when a liquidity sweep is reclaimed.
+    """Highest-conviction SMC setup: fires on the rising edge of sweep_reclaimed.
 
-    Gate: sweep_detected == 1.0 AND sweep_reclaimed == 1.0.
-    deduplicate_event: fires once per unique (sweep_level, sweep_type) identity,
-    with re-fire allowed after _DEDUP_MIN_BARS active-condition calls to handle
-    the same level being swept a second time in a session.
+    Gate ordering:
+    1. sweep_detected == 1.0 (sweep existence FIRST)
+    2. onset_guard on sweep_reclaimed == 1.0 (rising-edge SECOND — event, not state)
+    3. sweep_type != 0.0 (type check THIRD)
+    4. close above/below sweep_level (close-above acceptance FOURTH)
+    5. OHLCV extraction + ATR + trade frame
+    6. deduplicate_event by (sweep_level, sweep_type) (before emission)
+    7. Emit signal
 
     Renaissance principles:
     - Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
     - Zone correction prevents stopped_at_entry outcomes
     - Tick-size validation at emission gate
+    - Onset guard fires only on state transition 0->1; flag staying hot is not a trigger
     """
 
     name: str = "trad_LiquiditySweepReclaim"
@@ -52,11 +57,6 @@ class LiquiditySweepReclaimPlugin:
     _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        result = extract_ohlcv(frames, self.min_lookback)
-        if result is None:
-            return no_signal()
-        open_, high, low, close = result
-
         features = {
             **(frames.get("i1") or {}),
             **(frames.get("i2") or {}),
@@ -67,17 +67,46 @@ class LiquiditySweepReclaimPlugin:
             **(frames.get("i6") or {}),
         }
 
+        symbol = frames.get("__symbol__", "_")
+        tf_key = frames.get("__timeframe__", "_")
+        state_key = f"{symbol}_{tf_key}"
+
+        # Sweep existence FIRST: sweep must be detected
         sweep_detected = features.get("sweep_detected", 0.0)
-        sweep_reclaimed = features.get("sweep_reclaimed", 0.0)
-        if sweep_detected != 1.0 or sweep_reclaimed != 1.0:
+        if sweep_detected != 1.0:
             return no_signal()
 
+        # Rising-edge SECOND: fire only on sweep_reclaimed transition 0->1
+        # (flag staying hot is not a trigger; onset_guard rearms when flag drops)
+        sweep_reclaimed = features.get("sweep_reclaimed", 0.0)
+        reclaim_rising_edge = onset_guard(
+            self._state, f"{state_key}_reclaim", sweep_reclaimed == 1.0
+        )
+        if not reclaim_rising_edge:
+            return no_signal()
+
+        # Type check THIRD: direction must be known
         sweep_type = features.get("sweep_type", 0.0)
-        sweep_level = features.get("sweep_level", 0.0)
         if sweep_type == 0.0:
             return no_signal()
 
+        sweep_level = features.get("sweep_level", 0.0)
+
+        # Close-above acceptance FOURTH: close must reclaim level with body acceptance
+        # (wick-only reclaim is noise — high wick above level but close below is not a reclaim)
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
+        close_val = float(close[-1])
         direction = 1 if sweep_type > 0 else -1
+        if direction == 1 and close_val <= sweep_level:
+            # Structural specificity: close must reclaim level with body acceptance (wick-only is noise)
+            return no_signal()
+        if direction == -1 and close_val >= sweep_level:
+            # Structural specificity: close must reclaim level with body acceptance (wick-only is noise)
+            return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
@@ -121,12 +150,8 @@ class LiquiditySweepReclaimPlugin:
 
         confidence = compose_confidence(confidence)
 
-        # deduplicate_event: one fire per unique sweep identity.
-        # Re-fires after _DEDUP_MIN_BARS active-condition calls, covering the case
-        # where the same level is genuinely swept and reclaimed a second time.
-        symbol = frames.get("__symbol__", "_")
-        tf_key = frames.get("__timeframe__", "_")
-        state_key = f"{symbol}_{tf_key}"
+        # deduplicate_event by (sweep_level, sweep_type): allows re-arm on re-sweeps of same level
+        # after _DEDUP_MIN_BARS active-condition calls; placed immediately before emission
         event_id = (round(float(sweep_level), 4), int(sweep_type))
         if not deduplicate_event(self._state, state_key, event_id):
             return no_signal()
