@@ -697,13 +697,12 @@ async def enroll_all_plugins(conn: object) -> None:
 
     Called by IntelligencePipelineAgent._setup() after DB connection established.
     Safe to call on every restart (idempotent via ON CONFLICT DO NOTHING).
-    Plugins with shadow_only=True enroll as is_shadow=True; plugins without
-    the attribute (or shadow_only=False) enroll as is_shadow=False.
+    All plugins enroll as is_shadow=False (live). The weekly shadow_validator
+    demotes underperformers based on observed pnl_r data.
     """
     for plugin_name in TIER_I7:
         plugin_obj = registry.get_indicator(plugin_name) or registry.get_pattern(plugin_name)
         plugin_cls = type(plugin_obj) if plugin_obj is not None else None
         if plugin_cls is not None and getattr(plugin_cls, "SHADOW_SKIP", False):
             continue
-        initial_shadow = bool(getattr(plugin_cls, "shadow_only", False)) if plugin_cls else True
-        await shadow_registry_ensure(conn, plugin_name, "i7_plugin", initial_shadow)
+        await shadow_registry_ensure(conn, plugin_name, "i7_plugin", initial_shadow=False)
