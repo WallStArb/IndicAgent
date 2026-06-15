@@ -1180,12 +1180,12 @@ This phase is split into three waves:
   7. Detection correctness audit doc produced: per-plugin verification result; unverifiable plugins demoted to `shadow_only=True` with explicit rationale — removal from `TIER_I7` is not a valid disposition
   8. `pytest tests/unit/ -q` green
 
-**Plans:** 3/5 plans executed
+**Plans:** 5/5 plans complete
 - [x] 126-00-PLAN.md — Wave 0: USDJPY anomaly diagnostic (SQL-only; verdict gates replay fitness)
 - [x] 126-01-PLAN.md — Wave 1: Universal zone width gate in frame_trade() + per-asset-class APR seeds (migration 132)
 - [x] 126-02-PLAN.md — Wave 2: Wire 8 confluence-exempt plugins, delete _I7_I6_EXEMPT, diagnose ORB/SessionExtremes, fix MeanReversion + FVGFill
-- [ ] 126-06-PLAN.md — Wave 3: Pipeline-layer annotation (_annotate_signal), formalize zone_friction_score, bump SIGNAL_SCHEMA_VERSION
-- [ ] 126-05-PLAN.md — Wave 4: IC validation + detection correctness audit; demote anti-signal/unverifiable plugins to shadow_only
+- [x] 126-06-PLAN.md — Wave 3: Pipeline-layer annotation (_annotate_signal), formalize zone_friction_score, bump SIGNAL_SCHEMA_VERSION
+- [x] 126-05-PLAN.md — Wave 4: IC validation + detection correctness audit; demote anti-signal/unverifiable plugins to shadow_only
 
 ---
 
