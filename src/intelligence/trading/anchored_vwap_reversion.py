@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 from ..plugins import InputSpec
 from ..utils import guard_intraday_only
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import _validate_weights_sum, capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
@@ -110,6 +110,13 @@ class AnchoredVWAPReversionPlugin:
             cfg.get_sync("threshold.vwap_reversion.hurst_max", _HURST_MAX_DEFAULT)
             if cfg
             else _HURST_MAX_DEFAULT
+        )
+        w_sigma = cfg.get_sync("weights.vwap_reversion.sigma_magnitude", 0.40) if cfg else 0.40
+        w_hurst = cfg.get_sync("weights.vwap_reversion.hurst_quality", 0.35) if cfg else 0.35
+        w_vol_s = cfg.get_sync("weights.vwap_reversion.vol_stability", 0.25) if cfg else 0.25
+        _validate_weights_sum(
+            {"sigma_magnitude": w_sigma, "hurst_quality": w_hurst, "vol_stability": w_vol_s},
+            "trad_AnchoredVWAPReversion",
         )
 
         df = frames.get("main")
@@ -250,7 +257,7 @@ class AnchoredVWAPReversionPlugin:
             "vol_stability": round(vol_stability, 4),
         }
 
-        raw_conf = 0.40 * sigma_magnitude + 0.35 * hurst_quality + 0.25 * vol_stability
+        raw_conf = w_sigma * sigma_magnitude + w_hurst * hurst_quality + w_vol_s * vol_stability
 
         supporting: list[str] = [
             f"session_vwap_deviation_sigma={sigma:.3f}",
