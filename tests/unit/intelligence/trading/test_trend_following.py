@@ -96,16 +96,16 @@ class TestTrendFollowing:
         # This simulates price having been below SMA for 5 bars
         state = plugin._get_state(symbol, tf)
         for sma_val in [5110.0, 5115.0, 5120.0, 5125.0, 5130.0]:
-            state.ma_history.append(sma_val)
+            state.below_sma_history.append(True)
 
         # Now feed reversal bar: price = 5200 (above all previous SMAs), current SMA = 5100 (< price)
         # bars_below_sma = count(history[-4:] > 5200) -> all previous SMAs (5115-5130) < 5200 -> 0
         # That won't work. Need price to be just above current SMA but previous SMAs to be above price.
         # Trick: previous SMAs = 5200 (above current price 5150), current SMA = 5140 (just below price 5150)
 
-        state.ma_history.clear()
+        state.below_sma_history.clear()
         for sma_val in [5200.0, 5205.0, 5210.0, 5215.0, 5220.0]:
-            state.ma_history.append(sma_val)
+            state.below_sma_history.append(True)
 
         # Reversal bar: close = 5150, current_sma = 5140 (< 5150, price now above SMA)
         # bars_below_sma: history[-4:] = [5205, 5210, 5215, 5220], all > 5150 -> count = 4
@@ -261,7 +261,7 @@ class TestTrendFollowing:
         # Pre-populate MA history to enable pullback detection
         state = plugin._get_state(symbol, tf)
         for sma_val in [5200.0, 5205.0, 5210.0, 5215.0, 5220.0]:
-            state.ma_history.append(sma_val)
+            state.below_sma_history.append(True)
 
         # Structural trigger would fire (pullback reversal), but regime too weak
         close = np.full(100, 5150.0)

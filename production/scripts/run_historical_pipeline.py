@@ -1221,9 +1221,9 @@ async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
                 contracts=[c["symbol"] for c in chain],
                 front_month=chain[0]["symbol"] if chain else None,
             )
-        except Exception as exc:
-            log.error("seed_roll_chain_error", base=base_symbol, error=str(exc))
-            print(f"  [ERROR] seed_roll_chain: {base_symbol} — {exc}")
+        except Exception as error:
+            log.error("seed_roll_chain_error", base=base_symbol, error=str(error))
+            print(f"  [ERROR] seed_roll_chain: {base_symbol} — {error}")
 
     print(
         f"Roll chain seeded: {len(futures_bases)} base symbols, {total_contracts} contracts total"
@@ -2413,8 +2413,8 @@ def main() -> None:
                             sym, total, counts = future.result()
                             grand_total += total
                             print(f"\n  {sym} done: {total} signals  {dict(counts)}")
-                        except Exception as exc:
-                            print(f"\n  {symbol} FAILED: {exc}")
+                        except Exception as error:
+                            print(f"\n  {symbol} FAILED: {error}")
             except KeyboardInterrupt:
                 print("\nInterrupted — workers will be terminated.")
                 raise

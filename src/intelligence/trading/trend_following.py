@@ -37,14 +37,8 @@ _CONSOLIDATION_RANGE_PCT_DEFAULT: float = 0.5
 
 @dataclass
 class TrendFollowingState:
-    """Per-symbol/timeframe state for TrendFollowing structural detection.
-
-    ma_history: rolling SMA buffer for pullback-to-MA reversal detection.
-    consolidation_high/low: bounds tracked during range compression.
-    consolidation_bars: consecutive bars with range < threshold.
-    """
-
-    ma_history: deque = field(default_factory=lambda: deque(maxlen=50))
+    # below_sma_history[i] = True if close[i] was below SMA at bar i (for pullback detection)
+    below_sma_history: deque = field(default_factory=lambda: deque(maxlen=50))
     consolidation_high: float | None = None
     consolidation_low: float | None = None
     consolidation_bars: int = 0
@@ -143,9 +137,6 @@ class TrendFollowingPlugin:
         state = self._get_state(symbol, tf_key)
 
         sma = features.get("sma_20") or features.get("ema_20")
-        if sma:
-            state.ma_history.append(float(sma))
-
         result = extract_ohlcv(frames, self.min_lookback)
         if result is None:
             return no_signal()
@@ -155,6 +146,12 @@ class TrendFollowingPlugin:
         current_high = float(high[-1])
         current_low = float(low[-1])
 
+        # Record whether this bar's close was below (or above) the SMA — stored as bool so
+        # the pullback count compares the close vs. SMA at each historical bar, not SMA vs. today's close.
+        if sma:
+            current_sma_val = float(sma)
+            state.below_sma_history.append(price < current_sma_val)
+
         trend_regime = features.get("trend_regime", 0.0)
         direction = 1 if trend_regime > 0 else -1
 
@@ -163,11 +160,12 @@ class TrendFollowingPlugin:
         consolidation_breakout = False
         structural_type = "none"
 
-        if sma and len(state.ma_history) >= pullback_min_bars:
+        if sma and len(state.below_sma_history) >= pullback_min_bars:
             current_sma = float(sma)
-            history = list(state.ma_history)
-            bars_below_sma = sum(1 for ma_val in history[-pullback_min_bars:-1] if ma_val > price)
-            bars_above_sma = sum(1 for ma_val in history[-pullback_min_bars:-1] if ma_val < price)
+            history = list(state.below_sma_history)
+            # Prior N-1 bars: how many had close below SMA (bullish setup) or above (bearish)
+            bars_below_sma = sum(1 for was_below in history[-pullback_min_bars:-1] if was_below)
+            bars_above_sma = sum(1 for was_below in history[-pullback_min_bars:-1] if not was_below)
 
             if direction == 1 and bars_below_sma >= pullback_min_bars - 1 and price > current_sma:
                 pullback_reversal = True
