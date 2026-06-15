@@ -56,6 +56,7 @@ class SqueezeExpansionPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
     requires_i6_confluence: bool = True
+    shadow_only: bool = True
     volume_expansion_threshold: float = 1.3
     _state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
