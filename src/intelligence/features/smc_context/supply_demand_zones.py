@@ -47,6 +47,7 @@ class SupplyDemandZonesPlugin:
             "in_supply_zone",
             "active_demand_zones",
             "active_supply_zones",
+            "zone_friction_score",  # Phase 126-06: formalized in SMCContext schema
         }
     )
     min_lookback: int = 30
@@ -241,6 +242,33 @@ class SupplyDemandZonesPlugin:
                     "in_supply_zone": 0.0,
                 }
             )
+
+        # zone_friction_score: Phase 126-06 formalization. Captures proximity × quality of the
+        # nearest active zone. Formula: freshness * strength * (1 / (1 + dist_atr)).
+        # High score = zone is close, fresh, and strong (high friction on price movement).
+        # None only when no zones are detected at all (genuine cold-start).
+        # 0.0 = zone detected but zero freshness or strength (genuine neutral).
+        # Choose the zone with higher friction (max of demand vs supply).
+        zf_demand: float | None = None
+        zf_supply: float | None = None
+        if demand_zones:
+            _d_freshness = float(result.get("demand_freshness", 0.0))
+            _d_strength = float(result.get("demand_strength", 0.0))
+            _d_dist = float(result.get("demand_dist_atr", 0.0))
+            zf_demand = round(_d_freshness * _d_strength * (1.0 / (1.0 + _d_dist)), 4)
+        if supply_zones:
+            _s_freshness = float(result.get("supply_freshness", 0.0))
+            _s_strength = float(result.get("supply_strength", 0.0))
+            _s_dist = float(result.get("supply_dist_atr", 0.0))
+            zf_supply = round(_s_freshness * _s_strength * (1.0 / (1.0 + _s_dist)), 4)
+
+        if zf_demand is not None and zf_supply is not None:
+            result["zone_friction_score"] = max(zf_demand, zf_supply)
+        elif zf_demand is not None:
+            result["zone_friction_score"] = zf_demand
+        elif zf_supply is not None:
+            result["zone_friction_score"] = zf_supply
+        # else: no zones, zone_friction_score absent (None in flat_features via schema default)
 
         return result
 
