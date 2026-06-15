@@ -114,10 +114,12 @@ class MomentumBreakoutPlugin:
             return no_signal()
 
         # ── Gate B: volume expansion ──
-        # Exclude the current breakout bar from the SMA baseline to avoid self-inflation.
-        vol_sma = (
-            float(np.mean(volume[-21:-1])) if len(volume) >= 21 else float(np.mean(volume[:-1]))
-        )
+        vol_sma = features.get("volume_sma_20")
+        if vol_sma is None or float(vol_sma) <= 0:
+            # Exclude the current bar from the baseline to avoid self-inflation.
+            vol_sma = float(np.mean(volume[-21:-1]))
+        else:
+            vol_sma = float(vol_sma)
         if vol_sma <= 0:
             return no_signal()
         volume_ratio = float(volume[-1]) / vol_sma
