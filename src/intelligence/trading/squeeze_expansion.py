@@ -17,10 +17,8 @@ from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
     _validate_weights_sum,
-    capture_signal_features,
     clamp01,
     compose_confidence,
-    get_min_ctf_score,
 )
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
@@ -55,7 +53,6 @@ class SqueezeExpansionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "squeeze", "volatility"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
-    requires_i6_confluence: bool = True
     shadow_only: bool = True
     volume_expansion_threshold: float = 1.3
     _state: dict = field(default_factory=dict)
@@ -161,14 +158,6 @@ class SqueezeExpansionPlugin:
 
         confidence = compose_confidence(raw_conf)
 
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
-
         signal_type = "squeeze_long" if direction == 1 else "squeeze_short"
         regime_ctx = "expansion_bullish" if direction == 1 else "expansion_bearish"
 
@@ -177,7 +166,6 @@ class SqueezeExpansionPlugin:
         if not tf.viable:
             return no_signal()
 
-        ctx = capture_signal_features(features, direction, "trend", confidence)
         return make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", "") or frames.get("__symbol__", ""),
@@ -189,10 +177,6 @@ class SqueezeExpansionPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
             factor_scores=factor_scores,
         )
 

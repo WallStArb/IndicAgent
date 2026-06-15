@@ -28,9 +28,7 @@ from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
     _validate_weights_sum,
-    capture_signal_features,
     compose_confidence,
-    get_min_ctf_score,
 )
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
@@ -67,7 +65,6 @@ class MeanReversionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = True
     regime_threshold: float = 0.4
     _state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
@@ -82,14 +79,6 @@ class MeanReversionPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
-
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
 
         # OPTIMIZATION (Phase 48): Check regime gate BEFORE expensive OHLCV extraction
         # TODO: Apply this pattern to remaining 34/36 I7 plugins (2/36 optimized: trend_following, mean_reversion)  # noqa: E501
@@ -224,12 +213,7 @@ class MeanReversionPlugin:
             regime_context=regime_ctx,
             supporting_factors=supporting,
             factor_scores=factor_scores,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
         )
-        ctx = capture_signal_features(features, direction, "mean_reversion", signal["confidence"])
-        signal["features_snapshot"] = ctx
-        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

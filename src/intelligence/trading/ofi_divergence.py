@@ -27,10 +27,8 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    capture_signal_features,
     clamp01,
     compose_confidence,
-    get_min_ctf_score,
     get_min_regime_weight,
     rel_volume_score,
 )
@@ -71,7 +69,6 @@ class OFIDivergencePlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "divergence", "ofi", "price_discovery"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "any"
-    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
     # peak_abs tracked separately — track_consecutive_state overwrites the full state entry
     _peak_abs: dict = field(default_factory=dict)
@@ -135,14 +132,6 @@ class OFIDivergencePlugin:
         # Gate 1: regime gate (any-regime uses hmm_trending_weight)
         if hmm_trending_weight(features) < get_min_regime_weight():
             return no_signal()
-
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
 
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
@@ -216,7 +205,6 @@ class OFIDivergencePlugin:
         if rel_vol is not None:
             supporting.append(f"rel_volume={float(rel_vol):.2f}")
 
-        ctx = capture_signal_features(features, direction, "microstructure", confidence)
         signal = make_signal_from_frame(
             tf_frame,
             symbol=symbol,
@@ -228,10 +216,6 @@ class OFIDivergencePlugin:
             confidence=confidence,
             regime_context=regime_context,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
             factor_scores=factor_scores,
         )
         return signal

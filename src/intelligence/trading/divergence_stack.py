@@ -17,7 +17,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import clamp01, compose_confidence
 from .plugin_utils import default_compute_next, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -53,7 +53,6 @@ class DivergenceStackPlugin:
     name: str = "trad_DivergenceStack"
     shadow_only: bool = True
     regime_type: str = "any"
-    requires_i6_confluence: bool = True
     outputs: frozenset[str] = frozenset(
         {
             # Signal fields
@@ -302,11 +301,6 @@ class DivergenceStackPlugin:
             )
             # Merge always-logged scoring fields on top of the framed signal
             signal.update(base_output)
-            ctx = capture_signal_features(
-                features, direction, "microstructure", signal["confidence"]
-            )
-            signal["features_snapshot"] = ctx
-            signal["context_features"] = ctx
             return signal
 
         # No signal — return base_output with neutral signal fields

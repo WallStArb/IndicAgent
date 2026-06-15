@@ -31,6 +31,7 @@ from src.intelligence.pipeline.ranker import rank_signals
 from src.intelligence.pipeline.regime_gate import apply_regime_gate
 from src.intelligence.pipeline.winner_selector import select_winner
 from src.intelligence.trading.cis_scorer import CISScorer
+from src.intelligence.trading.confidence_utils import MIN_CTF_SCORE
 from src.intelligence.trading.signal_schema import (
     REQUIRED_PIPELINE_FIELDS,
 )
@@ -49,6 +50,55 @@ from src.observability.metrics import (
 # ---------------------------------------------------------------------------
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
+
+# ---------------------------------------------------------------------------
+# Pipeline-layer annotation
+# ---------------------------------------------------------------------------
+
+# Surfaced ECL fields: subset of flat_features promoted to top-level indexed
+# columns on signal_events for fast SQL queries without JSONB extraction.
+# To add a new surfaced field:
+#   (1) add to this tuple,
+#   (2) add one extraction line in _annotate_signal() below,
+#   (3) add a DB migration for the new column on signal_events.
+# No plugin changes needed.
+_SURFACED_ECL_FIELDS: tuple[str, ...] = (
+    "ctf_score",
+    "ctf_confirmed",  # derived from ctf_score, not read from flat_features
+    "zone_friction_score",
+    # future candidates: "exhaustion_score", "hmm_regime_weight", etc.
+)
+
+
+def _annotate_signal(sig: dict, flat_features: dict) -> None:
+    """Pipeline-layer extrinsic annotation — applied to every I7 signal uniformly.
+
+    Flat_features audit (Phase 126-06):
+      PRESENT  — ctf_score + 17 CTF sub-scores (via I6Confluence sub-model in build_flat_features)
+      PRESENT  — exhaustion_score, exhaustion_side, exhaustion_bars (via I2Events)
+      PRESENT  — vix_z, vix_level, ftq_score, yield_curve_slope, corr_z (via I4Context)
+      PRESENT  — zone_friction_score (via SMCContext, formalized this phase)
+      ABSENT   — plugin-local factor_scores (plugin concern; stays in plugin bodies)
+
+    Plugins are pattern detectors — they return intrinsic evidence only.
+    This function is the single point where the full market context at emission
+    time is attached to every signal. No plugin may call capture_signal_features().
+
+    Extensibility: new tier outputs appear in context_features automatically
+    (build_flat_features iterates all sub-models). New surfaced columns require
+    only: add to _SURFACED_ECL_FIELDS + one extraction line + DB migration.
+    """
+    # Complete feature snapshot — the full I1-I6 state at signal emission time.
+    # Stored as-is: build_flat_features() already filters None values.
+    sig["context_features"] = flat_features
+
+    # Surfaced ECL fields: derived from snapshot, promoted to indexed top-level columns.
+    _ctf_raw = flat_features.get("ctf_score")
+    ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+    sig["ctf_score"] = ctf_score
+    sig["ctf_confirmed"] = (abs(ctf_score) >= MIN_CTF_SCORE) if ctf_score is not None else None
+    sig["zone_friction_score"] = flat_features.get("zone_friction_score")
+
 
 # Quality gate absent-feature defaults.
 # 1.0 = neutral pass-through: when a feature is not yet computed for this bar
@@ -287,6 +337,14 @@ class SignalProcessor:
         # When flat_features is provided (set once per bar in FeaturePipelineExecutor),
         # avoids per-bar model_dump() call on the hot path.
         features = flat_features if flat_features is not None else build_flat_features(event)
+
+        # Extrinsic annotation — pipeline responsibility, applied uniformly before any gate.
+        # Every raw signal gets the full flat_features snapshot as context_features plus
+        # surfaced ECL fields (ctf_score, ctf_confirmed, zone_friction_score).
+        # Applied AFTER features are resolved and BEFORE calibration/quality/regime gates
+        # so even regime-suppressed signals carry full context for ML training integrity.
+        for sig in raw_signals:
+            _annotate_signal(sig, features)
 
         # Design B: Update CIS scorer's calibration curves before scoring.
         # The scorer applies calibration to the Kalman-filtered CIS inside score().

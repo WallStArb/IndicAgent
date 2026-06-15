@@ -19,10 +19,8 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    capture_signal_features,
     clamp01,
     compose_confidence,
-    get_min_ctf_score,
     get_min_regime_weight,
 )
 from .plugin_utils import no_signal, signal_type_for_direction
@@ -68,7 +66,6 @@ class DeltaExhaustionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "exhaustion", "cvd", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = True
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
@@ -96,16 +93,6 @@ class DeltaExhaustionPlugin:
         # Gate 1: mean_reversion regime gate — ranging probability >= threshold
         if hmm_regime_weight(features, "ranging") < get_min_regime_weight():
             return no_signal()
-
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        # Variable->slot mapping: cvd_z=exhaustion, price_fail=momentum_reversal,
-        # hmm_score=volume proxy (regime clarity), cvd_persistence=persistence proxy
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
 
         # ── ATR and OHLCV access (after dual gate) ───────────────────────────
         atr = get_atr_with_floor_from_frames(frames)
@@ -186,7 +173,6 @@ class DeltaExhaustionPlugin:
         ]
 
         # exempt from exhaustion shadow: this plugin IS the exhaustion detector (D-09)
-        ctx = capture_signal_features(features, direction, "exempt_exhaustion", confidence)
         signal = make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),
@@ -198,10 +184,6 @@ class DeltaExhaustionPlugin:
             confidence=confidence,
             regime_context=regime_context,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
             factor_scores=factor_scores,
         )
         return signal

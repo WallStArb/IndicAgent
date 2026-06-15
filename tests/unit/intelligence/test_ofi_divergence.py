@@ -179,14 +179,14 @@ class TestOFIDivergencePlugin:
         assert "peak_abs" in factor_str
         assert "bars_persistent" in factor_str
 
-    def test_shadow_metadata_present(self):
-        """_shadow dict present with existing_confidence key (capture_signal_features schema)."""
+    def test_context_features_empty_from_plugin(self):
+        """Phase 126-06: plugin body returns context_features={} (pipeline annotates after)."""
         frames = _make_frames(ofi_divergence=2.0)
         for _ in range(2):
             result = self.plugin.compute_full(frames)
         assert result.get("direction"), "Expected plugin to fire"
-        assert "features_snapshot" in result
-        assert "existing_confidence" in result["features_snapshot"]
+        assert "features_snapshot" not in result, "features_snapshot removed in Phase 126-06"
+        assert result.get("context_features") == {}, "Plugin must return empty context_features"
 
     def test_plugin_module_export(self):
         """Module-level plugin singleton has correct name."""

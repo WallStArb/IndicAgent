@@ -18,7 +18,7 @@ from typing import Any
 from ..plugins import InputSpec
 from ..utils.gradient_utils import linear_ramp
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence, get_min_ctf_score
+from .confidence_utils import compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -45,7 +45,6 @@ class SupplyDemandSetupPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "zones", "smc"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "any"
-    requires_i6_confluence: bool = True
     # Phase 126 IC audit: statistically anti-predictive on existing data
     # (IC=-0.020, hit_rate CI upper=0.175, n=8433); redesign required.
     shadow_only: bool = True
@@ -197,15 +196,6 @@ class SupplyDemandSetupPlugin:
 
         confidence = compose_confidence(confidence)
 
-        # ECL annotations: ctf_score + zone_friction_score as context (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        _zf_raw = features.get("zone_friction_score")
-        zone_friction_score: float | None = float(_zf_raw) if _zf_raw is not None else None
-
         sig_type = "supply_demand_long" if direction == 1 else "supply_demand_short"
 
         # Renaissance: Use frame_trade() for structural stop hierarchy
@@ -213,7 +203,6 @@ class SupplyDemandSetupPlugin:
         if not tf.viable:
             return no_signal()
 
-        ctx = capture_signal_features(features, direction, "smc", confidence)
         return make_signal_from_frame(
             tf,
             symbol="",
@@ -225,11 +214,6 @@ class SupplyDemandSetupPlugin:
             confidence=confidence,
             regime_context="",
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
-            zone_friction_score=zone_friction_score,
             factor_scores=factor_scores,
         )
 

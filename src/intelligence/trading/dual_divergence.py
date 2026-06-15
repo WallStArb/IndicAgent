@@ -19,10 +19,8 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    capture_signal_features,
     clamp01,
     compose_confidence,
-    get_min_ctf_score,
     get_min_regime_weight,
     rel_volume_score,
 )
@@ -73,7 +71,6 @@ class DualDivergencePlugin:
     )
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
 
@@ -128,14 +125,6 @@ class DualDivergencePlugin:
         # ── Gate 1: ranging regime gate (mean_reversion uses "ranging") ──────
         if hmm_regime_weight(features, "ranging") < get_min_regime_weight():
             return no_signal()
-
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
 
         symbol = frames.get("__symbol__", "_")
         tf = frames.get("__timeframe__", "_")
@@ -213,7 +202,6 @@ class DualDivergencePlugin:
 
         # exhaustion: not applicable — spike/divergence signals are regime-independent;
         # Phase 49 will learn gate behavior from shadow data
-        ctx = capture_signal_features(features, direction, "microstructure", confidence)
         signal = make_signal_from_frame(
             tf_result,
             symbol=frames.get("symbol", ""),
@@ -225,10 +213,6 @@ class DualDivergencePlugin:
             confidence=confidence,
             regime_context=regime_context,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
             factor_scores=factor_scores,
         )
         return signal

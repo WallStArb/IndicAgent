@@ -481,9 +481,6 @@ class TestClassAttributes:
     def test_shadow_only_flag(self):
         assert PatternCompletionPlugin.shadow_only is True
 
-    def test_requires_i6_confluence_flag(self):
-        assert PatternCompletionPlugin.requires_i6_confluence is True
-
     def test_confidence_threshold_is_0_70(self):
         assert PatternCompletionPlugin.confidence_threshold == pytest.approx(0.70)
 

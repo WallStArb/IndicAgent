@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import clamp01, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .state_utils import deduplicate_event, track_consecutive_state
@@ -93,7 +93,6 @@ class OFIContinuationPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "continuation", "ofi"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
-    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
     _accel_state: dict[str, OFIContinuationState] = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
@@ -277,7 +276,6 @@ class OFIContinuationPlugin:
             f"persistence_score={persistence_score:.3f}",
         ]
 
-        ctx = capture_signal_features(features, direction, "microstructure", confidence)
         signal = make_signal_from_frame(
             tf_result,
             symbol=frames.get("symbol", ""),
@@ -289,8 +287,6 @@ class OFIContinuationPlugin:
             confidence=confidence,
             regime_context=regime_context,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
             factor_scores=factor_scores,
         )
         return signal
