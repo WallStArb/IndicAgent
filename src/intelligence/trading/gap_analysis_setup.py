@@ -164,8 +164,9 @@ class GapAnalysisSetupPlugin:
             entry = float(open_[-1] + (-direction * 0.25 * atr))
 
         # GAP-03: 4-factor intrinsic confidence — each factor clamped to [0, 1] before weighting
-        # geo_score: 0.0 at the 0.8 ATR gate, 1.0 at 2.5+ ATR gaps
-        geo_score = clamp01((gap_size_atr - 0.8) / 1.7)
+        # geo_score: 0.0 at the min_gap_atr gate, 1.0 at (min_gap_atr + 1.7) ATR gaps
+        _geo_range = 1.7  # span from gate to max-confidence (gate zero-point to 2.5+ ATR)
+        geo_score = clamp01((gap_size_atr - min_gap_atr) / _geo_range)
         # vol_score: 0.0 at 1x average volume, 1.0 at 3x average volume
         vol_score = clamp01((vol_ratio - 1.0) / 2.0)
         # timing_score: early-session gaps are more meaningful; floors at 0.2 so a valid
