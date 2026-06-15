@@ -136,18 +136,19 @@ class VolumeZscorePlugin(IncrementalMixin):
         or zero standard deviation.
         """
         if len(history) < 2:
-            return {"volume_z_score": 0.0, "volume_sma_20": 0.0}
+            return {"volume_z_score": 0.0, "volume_sma_20": 0.0, "rel_volume": 1.0}
 
         # Prior history excludes the current bar
         prior = np.asarray(list(history)[:-1], dtype=float)
         mean = float(prior.mean())
         std = float(prior.std())
+        rel_volume = round(float(history[-1]) / mean, 4) if mean > 0.0 else 1.0
 
         if std <= 0.0:
-            return {"volume_z_score": 0.0, "volume_sma_20": mean}
+            return {"volume_z_score": 0.0, "volume_sma_20": mean, "rel_volume": rel_volume}
 
         z = float((history[-1] - mean) / std)
-        return {"volume_z_score": z, "volume_sma_20": mean}
+        return {"volume_z_score": z, "volume_sma_20": mean, "rel_volume": rel_volume}
 
 
 plugin = VolumeZscorePlugin()

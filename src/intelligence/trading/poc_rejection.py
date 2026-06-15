@@ -158,7 +158,7 @@ class POCRejectionPlugin:
 
         # ── POC test volume ratio ─────────────────────────────────────────────
         bar_vol = float(df["volume"].iloc[-1])
-        avg_vol = float(df["volume"].mean())
+        avg_vol = float(df["volume"].iloc[:-1].mean()) if len(df) > 1 else 0.0
         poc_test_volume_ratio = (bar_vol / avg_vol) if avg_vol > 0 else 1.0
 
         # ── Confidence scoring ────────────────────────────────────────────────

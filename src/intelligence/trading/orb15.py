@@ -222,7 +222,7 @@ class ORB15Plugin:
             vol_ok = volume_ratio >= vol_expansion_threshold
         else:
             bar_volume = float(df["volume"].iloc[-1])
-            avg_volume = float(df["volume"].mean())
+            avg_volume = float(df["volume"].iloc[:-1].mean()) if len(df) > 1 else 0.0
             vol_ok = avg_volume > 0 and bar_volume >= vol_expansion_threshold * avg_volume
             volume_ratio = (bar_volume / avg_volume) if avg_volume > 0 else 0.0
 
