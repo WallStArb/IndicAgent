@@ -19,10 +19,8 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight, hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    capture_signal_features,
     clamp01,
     compose_confidence,
-    get_min_ctf_score,
     get_min_regime_weight,
 )
 from .exhaustion_utils import apply_exhaustion_boost
@@ -67,7 +65,6 @@ class LVNBreakoutPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "trend"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     regime_type: str = "trend"
-    requires_i6_confluence: bool = True
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
@@ -93,14 +90,6 @@ class LVNBreakoutPlugin:
         # ── Gate 1: continuous trending regime ────────────────────────────────
         if hmm_trending_weight(features) < get_min_regime_weight():
             return no_signal()
-
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
 
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
@@ -227,7 +216,6 @@ class LVNBreakoutPlugin:
 
         regime_ctx = "trending_up" if regime_up >= regime_down else "trending_down"
 
-        ctx = capture_signal_features(features, direction, "smc", confidence)
         signal = make_signal_from_frame(
             frame,
             symbol="",
@@ -239,10 +227,6 @@ class LVNBreakoutPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
             factor_scores=factor_scores,
         )
         signal["targets"] = targets

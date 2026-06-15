@@ -13,7 +13,12 @@ if TYPE_CHECKING:
 # Schema version for Kafka payload and DB column signal_schema_version (text type).
 # Convention: "v1", "v2", "v3" — string, not integer. Phase 128 will migrate to the
 # 3-table schema; at that point update the literal value only, not the type.
-SIGNAL_SCHEMA_VERSION: str = "v3"
+#
+# v4 (Phase 126-06): context_features changed from 30-key curated subset
+# (capture_signal_features) to full flat_features snapshot (pipeline-layer
+# _annotate_signal). ECL kwargs removed from make_signal_from_frame(); annotation
+# is now infrastructure responsibility, not per-plugin.
+SIGNAL_SCHEMA_VERSION: str = "v4"
 
 # Emission gate thresholds (W4)
 MIN_RR_T1 = 0.0  # disabled — aggregator handles RR ranking; gate only checks structural validity
@@ -218,19 +223,17 @@ def make_signal_from_frame(
     supporting_factors: list[str],
     invalidation_conditions: list[str] | None = None,
     ttl_bars: int | None = None,
-    features_snapshot: dict | None = None,
-    # ECL fields — Phase 123. {} sentinel for absent-plugin, None for field-not-written.
-    ctf_score: float | None = None,
-    ctf_confirmed: bool | None = None,
-    zone_friction_score: float | None = None,
     factor_scores: dict | None = None,
-    context_features: dict | None = None,
 ) -> dict:
     """Build a signal.v1 dict from a TradeFrame, auto-extracting all framing fields.
 
     This is the sole public construction path for I7 signals. Auto-extracts:
     entry_price (tf.entry, NOT raw close), stop_loss, targets, zone_low, zone_high,
     entry_type, stop_type, rr_t1/t2/t3, target_labels, target_types, framing_method.
+
+    ECL fields (ctf_score, ctf_confirmed, zone_friction_score, context_features) are
+    NOT set here — pipeline-layer annotation via _annotate_signal() stamps them after
+    all plugins have run (Phase 126-06).
 
     Raises ValueError if tf.viable is False or the emission gate fails.
     """
@@ -300,7 +303,7 @@ def make_signal_from_frame(
 
     sig["zone_low"] = round_to_tick(tf.zone_low, symbol)
     sig["zone_high"] = round_to_tick(tf.zone_high, symbol)
-    sig["zone_source"] = (features_snapshot or {}).get("zone_source")
+    sig["zone_source"] = None  # set by lifecycle_tracker when zone is activated
 
     # Framing audit trail — single authoritative assignment point (Phase 115)
     sig["stop_basis"] = tf.stop_basis
@@ -309,16 +312,12 @@ def make_signal_from_frame(
     sig["adaptive_buffer_mult"] = tf.adaptive_buffer_mult
     sig["plugin_regime_type"] = tf.plugin_regime_type
 
-    if features_snapshot is not None:
-        sig["features_snapshot"] = features_snapshot
-
-    # ECL fields — Phase 123. Populated at emit time; DB write deferred to Phase 128.
-    # ctf_score/ctf_confirmed/zone_friction_score: None = extrinsic data absent at emit time.
-    # factor_scores/context_features: {} = plugin emitted no factors / no context.
-    sig["ctf_score"] = ctf_score
-    sig["ctf_confirmed"] = ctf_confirmed
-    sig["zone_friction_score"] = zone_friction_score
+    # ECL fields — stamped by pipeline-layer _annotate_signal() after all plugins run (Phase 126-06).
+    # Initialized to None/empty here; overwritten by annotator before Kafka publish.
+    sig["ctf_score"] = None
+    sig["ctf_confirmed"] = None
+    sig["zone_friction_score"] = None
     sig["factor_scores"] = factor_scores if factor_scores is not None else {}
-    sig["context_features"] = context_features if context_features is not None else {}
+    sig["context_features"] = {}
 
     return sig

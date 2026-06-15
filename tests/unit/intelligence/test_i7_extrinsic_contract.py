@@ -548,11 +548,11 @@ def test_confidence_within_bounds(plugin_name, factory):
 # ---------------------------------------------------------------------------
 
 
-def test_extrinsic_still_captured_in_features_snapshot():
-    """OFIContinuation: ctf_score present in features is captured in features_snapshot.
+def test_plugin_does_not_populate_context_features():
+    """OFIContinuation: plugin body must NOT populate context_features (Phase 126-06).
 
-    Proves that removing ctf_score from the confidence formula did NOT remove it
-    from the ML feature capture path (capture_signal_features in confidence_utils.py).
+    Annotation is now pipeline-layer responsibility (_annotate_signal in signal_processor).
+    Plugin bodies return context_features={} (empty); pipeline overwrites with flat_features.
     """
     from src.intelligence.trading.ofi_continuation import OFIContinuationPlugin
 
@@ -565,10 +565,8 @@ def test_extrinsic_still_captured_in_features_snapshot():
         "ctf_score": 0.8,
         "ctf_trend_alignment": 0.7,
         "ctf_structure_alignment": 0.6,
+        "volume_sma_20": 400.0,
     }
-
-    # Phase 124: add volume_sma_20 so volume spike structural trigger fires (1000/400 = 2.5x)
-    features["volume_sma_20"] = 400.0
 
     plugin = OFIContinuationPlugin()
     for _ in range(9):
@@ -577,21 +575,20 @@ def test_extrinsic_still_captured_in_features_snapshot():
 
     assert result.get("direction", 0) != 0, "Test setup: OFIContinuation should have fired"
 
-    snapshot = result.get("features_snapshot", {})
-    assert snapshot, "features_snapshot must be populated"
-    assert (
-        "ctf_score" in snapshot
-    ), "ctf_score must appear in features_snapshot even though it is absent from confidence formula"
-    assert snapshot["ctf_score"] == pytest.approx(
-        0.8
-    ), f"ctf_score in snapshot must equal input value 0.8, got {snapshot['ctf_score']}"
+    # Phase 126-06: plugin returns empty context_features; pipeline will fill it
+    ctx = result.get("context_features", "MISSING")
+    assert ctx != "MISSING", "context_features key must be present (initialized to {})"
+    assert ctx == {}, f"context_features must be empty dict from plugin body, got {ctx!r}"
+    # features_snapshot is no longer set by plugins
+    assert "features_snapshot" not in result, "features_snapshot must not exist post-Phase-126-06"
 
 
-def test_phase_123_ecl_fields_on_ofi_divergence():
-    """Phase 123: OFIDivergence emits context_features, ctf_score, ctf_confirmed as ECL fields.
+def test_phase_126_ecl_fields_initialized_by_plugin():
+    """Phase 126-06: OFIDivergence initializes ECL fields to None/empty; pipeline fills them.
 
-    Proves that ctf_score is captured as a top-level ECL annotation on every signal
-    (not buried in features_snapshot) and context_features points to the same snapshot dict.
+    Proves that ctf_score, ctf_confirmed, zone_friction_score are initialized to None
+    by make_signal_from_frame() (not by the plugin body) and context_features = {}.
+    Pipeline-layer _annotate_signal() overwrites them after all plugins run.
     """
     import pandas as pd
 
@@ -627,17 +624,18 @@ def test_phase_123_ecl_fields_on_ofi_divergence():
 
     assert result.get("direction", 0) != 0, "OFIDivergence should have fired"
 
-    # Phase 123: ctf_score + ctf_confirmed as top-level ECL fields
-    assert "ctf_score" in result, "ctf_score must be a top-level signal field (Phase 123 ECL)"
-    assert result["ctf_score"] == pytest.approx(
-        0.7
-    ), f"ctf_score ECL field must equal input value 0.7, got {result['ctf_score']}"
+    # Phase 126-06: ECL fields initialized to None by make_signal_from_frame; pipeline fills them
+    assert "ctf_score" in result, "ctf_score key must exist (initialized to None)"
     assert (
-        result["ctf_confirmed"] is True
-    ), "ctf_confirmed must be True for ctf_score=0.7 >= MIN_CTF_SCORE=0.25"
-
-    # context_features must be populated (same dict as features_snapshot)
-    assert result.get("context_features"), "context_features must be a non-empty dict (Phase 123)"
+        result["ctf_score"] is None
+    ), f"ctf_score must be None from plugin body, got {result['ctf_score']!r}"
+    assert result["ctf_confirmed"] is None, "ctf_confirmed must be None from plugin body"
+    assert (
+        result["zone_friction_score"] is None
+    ), "zone_friction_score must be None from plugin body"
+    assert (
+        result.get("context_features") == {}
+    ), "context_features must be empty dict from plugin body"
 
 
 # ---------------------------------------------------------------------------
@@ -671,22 +669,23 @@ def test_factor_scores_present_on_fired_signal(plugin_name, factory):
 
 
 @pytest.mark.parametrize("plugin_name,factory", _FIREABLE, ids=_FIREABLE_IDS)
-def test_context_features_present_on_fired_signal(plugin_name, factory):
-    """Every fireable plugin must emit context_features as a non-empty dict.
+def test_context_features_initialized_empty_on_fired_signal(plugin_name, factory):
+    """Every fireable plugin must return context_features as an empty dict from its body.
 
-    context_features is the canonical ML training snapshot (Phase 123). Must equal
-    features_snapshot (both point to the capture_signal_features() return value).
+    Phase 126-06: annotation is pipeline-layer responsibility. Plugin bodies return
+    context_features={} which is overwritten by _annotate_signal() in signal_processor.
+    features_snapshot must not exist in plugin output.
     """
     fire = factory()
     result = fire({})
     if result.get("direction", 0) == 0:
         pytest.skip(f"{plugin_name}: firing scenario did not produce a signal")
-    assert result.get(
-        "context_features"
-    ), f"{plugin_name}: context_features missing or empty (Phase 123 requirement)"
-    # context_features and features_snapshot must be the same capture
-    ctx = result["context_features"]
-    snap = result.get("features_snapshot", {})
+    ctx = result.get("context_features", "MISSING")
+    assert ctx != "MISSING", f"{plugin_name}: context_features key must exist"
+    assert ctx == {}, (
+        f"{plugin_name}: context_features must be empty dict from plugin body (Phase 126-06); "
+        f"pipeline-layer _annotate_signal() will fill it. Got: {ctx!r}"
+    )
     assert (
-        ctx == snap
-    ), f"{plugin_name}: context_features and features_snapshot must be the same dict"
+        "features_snapshot" not in result
+    ), f"{plugin_name}: features_snapshot must not exist post-Phase-126-06"

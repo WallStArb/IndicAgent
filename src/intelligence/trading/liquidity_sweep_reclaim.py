@@ -8,7 +8,7 @@ from typing import Any
 from ..plugins import InputSpec
 from ..utils.gradient_utils import linear_ramp
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .state_utils import deduplicate_event, onset_guard
@@ -52,7 +52,6 @@ class LiquiditySweepReclaimPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "smc", "sweep"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
 
@@ -164,7 +163,6 @@ class LiquiditySweepReclaimPlugin:
         if not deduplicate_event(self._state, state_key, event_id):
             return no_signal()
 
-        ctx = capture_signal_features(features, direction, "smc", confidence)
         return make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),
@@ -176,8 +174,6 @@ class LiquiditySweepReclaimPlugin:
             confidence=confidence,
             regime_context="any",
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
             factor_scores=factor_scores,
         )
 

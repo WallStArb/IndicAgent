@@ -47,7 +47,6 @@ class OFISpikePlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "any"
     shadow_only: bool = True
-    requires_i6_confluence: bool = True
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         return detect_spike_signal(

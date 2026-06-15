@@ -36,10 +36,8 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    capture_signal_features,
     clamp01,
     compose_confidence,
-    get_min_ctf_score,
     get_min_regime_weight,
 )
 from .plugin_utils import no_signal
@@ -97,7 +95,6 @@ class ORB30Plugin:
     capability_tags: frozenset[str] = frozenset({"trading", "session", "breakout", "regime"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
-    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
 
@@ -131,14 +128,6 @@ class ORB30Plugin:
         # ── Gate 1: continuous trending regime ────────────────────────────────
         if hmm_trending_weight(features) < get_min_regime_weight():
             return no_signal()
-
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
 
         # ── Extract timestamp ────────────────────────────────────────────────
         if "timestamp" not in df.columns:
@@ -314,7 +303,6 @@ class ORB30Plugin:
 
         confidence = compose_confidence(raw_conf)
 
-        ctx = capture_signal_features(features, direction, "session", confidence)
         signal = make_signal_from_frame(
             frame,
             symbol=symbol,
@@ -326,10 +314,6 @@ class ORB30Plugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
             factor_scores=factor_scores,
         )
         return signal

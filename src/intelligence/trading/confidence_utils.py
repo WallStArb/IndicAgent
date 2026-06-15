@@ -177,8 +177,16 @@ def capture_signal_features(
     profile_name: str,
     existing_confidence: float,
 ) -> dict[str, Any]:
-    """Capture signal features snapshot for shadow logging.
+    """DEPRECATED (Phase 126-06): annotation is now pipeline-layer responsibility.
 
+    Pipeline-layer _annotate_signal() in signal_processor.py now stamps the full
+    flat_features snapshot as context_features on every signal uniformly. Per-plugin
+    calls to this function have been removed from all I7 plugins.
+
+    This function is retained for backward compatibility with any replay tooling that
+    may still reference it. Do not call from new plugin code.
+
+    Original contract (pre-deprecation):
     Returns a standardized dict stored as signal["features_snapshot"] in i7 JSONB.
     Zero confidence modification — pure data capture for Phase 49 ML training.
     All I7 plugins emit the same shadow structure regardless of family.
