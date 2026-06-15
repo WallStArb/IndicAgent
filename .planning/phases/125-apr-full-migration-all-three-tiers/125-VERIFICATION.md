@@ -1,8 +1,8 @@
 ---
 phase: 125-apr-full-migration-all-three-tiers
 verified: 2026-06-15T07:30:00Z
-status: gaps_found
-score: 9/11 must-haves verified
+status: passed
+score: 11/11 must-haves verified
 gaps:
   - truth: "TODO 025 is moved from pending to done"
     status: failed
