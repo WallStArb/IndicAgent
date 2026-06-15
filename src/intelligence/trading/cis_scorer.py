@@ -7,7 +7,7 @@ Renaissance principles applied:
 - Segment relentlessly: regime thresholds explicitly documented
 - Instrument everything: epsilon tolerance for floating-point direction comparisons
 
-At Phase B (bootstrap), weights are fixed from BOOTSTRAP_WEIGHTS (version=0).
+At Phase B (bootstrap), weights are fixed from _CONFIG_UNAVAILABLE_FALLBACK (version=0).
 Phase C will load learned weights from the cis_weights table.
 """
 
@@ -44,7 +44,7 @@ BUCKET_NAMES: tuple[str, ...] = (
     "regime",
 )
 
-BOOTSTRAP_WEIGHTS: dict[str, float] = {
+_CONFIG_UNAVAILABLE_FALLBACK: dict[str, float] = {
     "trend": 0.20,
     "momentum": 0.20,
     "structure": 0.15,
@@ -52,6 +52,7 @@ BOOTSTRAP_WEIGHTS: dict[str, float] = {
     "institutional": 0.25,
     "regime": 0.15,
 }
+BOOTSTRAP_WEIGHTS = _CONFIG_UNAVAILABLE_FALLBACK  # deprecated: use _CONFIG_UNAVAILABLE_FALLBACK
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +94,7 @@ class CISScorer:
     ----------
     weights:
         Optional custom weight dict keyed by BUCKET_NAMES. Defaults to
-        BOOTSTRAP_WEIGHTS.
+        _CONFIG_UNAVAILABLE_FALLBACK.
     weights_version:
         Version tag propagated to CISResult. Use 0 for bootstrap.
     """
@@ -103,7 +104,7 @@ class CISScorer:
         weights: dict[str, float] | None = None,
         weights_version: int = 0,
     ) -> None:
-        self._weights = weights if weights is not None else BOOTSTRAP_WEIGHTS
+        self._weights = weights if weights is not None else _CONFIG_UNAVAILABLE_FALLBACK
         self._weights_version = weights_version
         # Pre-compute weights array once — self._weights is immutable after init
         self._weights_array = np.array([self._weights[b] for b in BUCKET_NAMES])
