@@ -431,15 +431,15 @@ def test_insert_signals_sync_writes_cis_fields():
     mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
     with patch(
-        "production.scripts.run_historical_pipeline.psycopg2.extras.execute_batch",
+        "production.scripts.run_historical_pipeline.psycopg2.extras.execute_values",
         side_effect=fake_execute_batch,
     ):
         _insert_signals_sync(mock_conn, [entry])
 
-    # Two execute_batch calls: one for signal_ledger (32 cols), one for signal_outcomes (2 cols)
+    # Two execute_values calls: one for signal_ledger (32 cols), one for signal_outcomes (2 cols)
     assert len(captured_params) == 2
     row = captured_params[0]
-    # _INSERT_SYNC_SQL tuple (32 elements):
+    # _INSERT_SYNC_SQL tuple (34 elements — 36 SQL cols minus 2 SQL literals TRUE/NULL in template):
     # 0=signal_id,1=ts,2=symbol,3=tf,4=setup_plugin,5=signal_type,
     # 6=direction,7=was_selected,8=is_shadow,9=signal_computed_at,
     # 10=feature_ts,11=feature_tf,12=hmm_regime_at_fire,13=garch_sigma_at_fire,
@@ -447,8 +447,9 @@ def test_insert_signals_sync_writes_cis_fields():
     # 19=entry_zone_high,20=market_entry_price,21=cis_score,22=bucket_scores(json),
     # 23=weights_version,24=expires_at,25=feature_schema_version,
     # 26=stop_basis,27=stop_type_col,28=structural_stop_distance_atr,
-    # 29=adaptive_buffer_mult,30=plugin_regime_type,31=stop_structure_age_bars
-    assert len(row) == 32, f"Expected 32-element tuple, got {len(row)}"
+    # 29=adaptive_buffer_mult,30=plugin_regime_type,31=stop_structure_age_bars,
+    # 32=raw_confidence,33=calibrated_confidence
+    assert len(row) == 34, f"Expected 34-element tuple, got {len(row)}"
     assert row[21] == 0.55, f"Expected cis_score=0.55, got {row[21]}"
     assert row[22] == json.dumps({"trend": 0.5}), f"Expected bucket_scores json, got {row[22]}"
     assert row[23] == 1, f"Expected weights_version=1, got {row[23]}"
@@ -1143,14 +1144,20 @@ class TestCISColumnsInSQL:
     def test_insert_sync_sql_column_placeholder_balance(self):
         import re
 
-        from production.scripts.run_historical_pipeline import _INSERT_SYNC_SQL
+        from production.scripts.run_historical_pipeline import (
+            _INSERT_SYNC_SQL,
+            _INSERT_SYNC_TEMPLATE,
+        )
 
         col_match = re.search(r"INSERT INTO signal_ledger \(([^)]+)\)", _INSERT_SYNC_SQL, re.DOTALL)
-        val_match = re.search(r"VALUES \(([^)]+)\)", _INSERT_SYNC_SQL, re.DOTALL)
-        assert col_match and val_match
+        assert col_match, "INSERT INTO signal_ledger (...) not found in SQL"
         cols = [c.strip() for c in col_match.group(1).split(",") if c.strip()]
-        vals = [v.strip() for v in val_match.group(1).split(",") if v.strip()]
-        assert len(cols) == len(vals)
+        # Template uses execute_values format: count %s placeholders. 2 columns (is_backfill=TRUE,
+        # pipeline_lag_ms=NULL) use SQL literals in the template, not %s — so cols = params + 2.
+        n_placeholders = _INSERT_SYNC_TEMPLATE.count("%s")
+        assert (
+            len(cols) == n_placeholders + 2
+        ), f"Column count ({len(cols)}) should be template placeholder count ({n_placeholders}) + 2 SQL literals"
 
     def test_insert_signals_sync_params_include_cis_nulls(self):
         from production.scripts.run_historical_pipeline import _insert_signals_sync
@@ -1173,14 +1180,14 @@ class TestCISColumnsInSQL:
         mock_conn.cursor.return_value.__enter__.return_value = MagicMock()
         captured = []
         with patch(
-            "psycopg2.extras.execute_batch",
+            "production.scripts.run_historical_pipeline.psycopg2.extras.execute_values",
             side_effect=lambda cur, sql, params, **kw: captured.extend(params),
         ):
             _insert_signals_sync(mock_conn, [entry])
-        # Two execute_batch calls: ledger row + outcomes row
+        # Two execute_values calls: ledger row + outcomes row
         assert len(captured) == 2
-        row = captured[0]  # ledger row (32 cols)
-        assert len(row) == 32
+        row = captured[0]  # ledger row (34 params = 36 cols minus 2 SQL literals)
+        assert len(row) == 34
         assert row[21] is None  # cis_score
         assert row[22] is None  # bucket_scores
         assert row[23] is None  # weights_version

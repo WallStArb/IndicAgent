@@ -98,7 +98,9 @@ ATR_STOP_SR_MULTIPLIER = 0.50  # S/R: nearest_support/resistance ± ATR×0.50
 ATR_STOP_FALLBACK_MULTIPLIER = 2.0  # Fallback: entry ± ATR×2.0
 
 # ATR multipliers for zone and target bounds
-ATR_ZONE_SWEEP_MULTIPLIER = 0.5  # Sweep/reclaim zone: entry ± ATR×0.5
+ATR_ZONE_SWEEP_MULTIPLIER = (
+    0.76  # Sweep/reclaim zone: entry ± ATR×0.76 (1.52×ATR total, passes 1.5×ATR gate)
+)
 ATR_ZONE_LOW_MULTIPLIER = 1.0  # Zone lower bound: entry - ATR×1.0
 ATR_ZONE_HIGH_MULTIPLIER = 0.5  # Zone upper bound: entry + ATR×0.5
 ATR_TARGET_MIN_MULTIPLIER = 0.5  # Minimum target distance: entry ± ATR×0.5

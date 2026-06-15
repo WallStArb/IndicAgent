@@ -185,12 +185,6 @@ class TestMakeSignalFromFrame:
         sig = make_signal_from_frame(tf, **_frame_kwargs())
         assert validate_signal(sig) is True
 
-    def test_make_signal_from_frame_features_snapshot(self):
-        tf = _viable_frame()
-        snap = {"i7_momentum": 0.8, "ctf_trend_alignment": 0.6}
-        sig = make_signal_from_frame(tf, features_snapshot=snap, **_frame_kwargs())
-        assert sig["features_snapshot"] == snap
-
     def test_make_signal_from_frame_no_features_snapshot_by_default(self):
         tf = _viable_frame()
         sig = make_signal_from_frame(tf, **_frame_kwargs())

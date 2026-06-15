@@ -127,8 +127,7 @@ class TestSpikeI6HmmWiring:
             f"Phase 123 ECL: ctf_score=0.10 must NOT block emission; "
             f"ctf_score is annotation, not gate. got {result}"
         )
-        # ctf_score captured as top-level ECL field
-        assert result.get("ctf_score") == 0.10
+        # Phase 126-06: ctf_score is stamped by pipeline annotation layer, not by plugin
 
     def test_below_hmm_threshold_returns_no_signal(self):
         """hmm_trending_weight < 0.30 must return no_signal() regardless of spike_z."""
@@ -185,10 +184,8 @@ class TestSpikeI6HmmWiring:
         result = detect_spike_signal(
             frames, "ofi_spike_z", "ofi_spike", setup_plugin="trad_OFISpike"
         )
-        factors = result.get("supporting_factors", [])
-        assert any(
-            "ctf_score" in f for f in factors
-        ), f"ctf_score should appear in supporting_factors; got {factors}"
+        # Phase 126-06: ctf_score is an ECL annotation stamped by the pipeline, not in supporting_factors
+        assert result.get("direction") != 0, "spike signal should fire with ctf_score=0.50"
 
     def test_below_ctf_still_fires_with_supporting_factors(self):
         """Phase 123: below-old-gate ctf_score fires and emits ctf_score in supporting_factors."""
@@ -199,14 +196,10 @@ class TestSpikeI6HmmWiring:
             frames, "ofi_spike_z", "ofi_spike", setup_plugin="trad_OFISpike"
         )
         # Signal fires (ECL annotation, not gate)
-        assert result.get("direction") != 0, (
-            "Phase 123 ECL: ctf_score=0.10 must not block; got no_signal"
-        )
-        # ctf_score captured in supporting_factors as annotation
-        factors = result.get("supporting_factors", [])
-        assert any("ctf_score" in f for f in factors), (
-            f"ctf_score=0.10 should appear in supporting_factors as ECL annotation; got {factors}"
-        )
+        assert (
+            result.get("direction") != 0
+        ), "Phase 123 ECL: ctf_score=0.10 must not block; got no_signal"
+        # Phase 126-06: ctf_score is an ECL annotation stamped by the pipeline, not in supporting_factors
 
 
 class TestCVDDivergenceThreshold:
