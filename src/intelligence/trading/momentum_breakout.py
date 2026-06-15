@@ -17,6 +17,7 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
+    _validate_weights_sum,
     capture_signal_features,
     clamp01,
     compose_confidence,
@@ -153,6 +154,10 @@ class MomentumBreakoutPlugin:
         w_roc = cfg.get_sync("weights.momentum_breakout.roc", 0.40) if cfg else 0.40
         w_vol = cfg.get_sync("weights.momentum_breakout.vol", 0.35) if cfg else 0.35
         w_margin = cfg.get_sync("weights.momentum_breakout.break_margin", 0.25) if cfg else 0.25
+        _validate_weights_sum(
+            {"roc": w_roc, "vol": w_vol, "break_margin": w_margin},
+            "trad_MomentumBreakout",
+        )
         # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
         factor_scores = {
             "roc_score": round(roc_score, 4),
