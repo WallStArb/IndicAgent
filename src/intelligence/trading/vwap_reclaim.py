@@ -172,7 +172,9 @@ class VWAPReclaimPlugin:
             volume_ratio = float(rel_volume)
         else:
             bar_vol = float(df["volume"].iloc[-1])
-            avg_vol = float(df["volume"].mean())
+            avg_vol = (
+                float(df["volume"].iloc[:-1].mean()) if len(df) > 1 else float(df["volume"].mean())
+            )
             vol_ok = avg_vol > 0 and bar_vol >= _VOL_THRESHOLD * avg_vol
             volume_ratio = (bar_vol / avg_vol) if avg_vol > 0 else 0.0
 
