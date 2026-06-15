@@ -1065,9 +1065,10 @@ Plans:
 <details>
 <summary>📋 v2.10 Data Architecture Evolution (Phases 123-130)</summary>
 
-**Milestone Goal:** Establish correct signal architecture (3-table: signal_events / trade_frames / trade_executions), fully externalize APR (Adaptive Parameter Registry), and deliver clean replay for ML training data. ECL boundary (Phase 123) removes all extrinsic emission suppressors. APR migration (Phase 125) externalizes all 51 constants. Signal universe hardening (Phase 126) wires all confluence-exempt signal-generation plugins and fixes zone width mechanics. Clean replay (Phase 127) regenerates the signal universe on the corrected pipeline. 3-table migration (Phases 128-130) separates detection/hypothesis/execution.
+**Milestone Goal:** Establish correct signal architecture (3-table: signal_events / trade_frames / trade_executions), fully externalize APR (Adaptive Parameter Registry), and deliver clean replay for ML training data. ECL boundary (Phase 123) removes all extrinsic emission suppressors. APR migration (Phase 125) externalizes all 51 constants. Signal universe hardening (Phase 126) wires all confluence-exempt signal-generation plugins and fixes zone width mechanics. 3-table migration (Phases 128-130) separates detection/hypothesis/execution and wires CounterfactualTracker. Clean replay (Phase 127) runs last so the corpus lands directly in the final 3-table schema with counterfactual_pnl_r populated from day one.
 
-**Execution order:** v2.9 → v2.10 Workstream A (123-127) → v2.10 Workstream B (128-130) → v2.8 Part 2 (resume)
+**Execution order:** v2.9 → 123 → 124 → 125 → 126 → 128 → 129 → 130 → 127 → v2.8 Part 2 (resume)
+*Phase 127 moved after 128-130: replay into the final schema avoids a second replay and produces counterfactual_pnl_r-populated training data immediately.*
 
 **Architecture decision (made):** 3-table — `signal_events` / `trade_frames` / `trade_executions`. `counterfactual_pnl_r` on `trade_frames` is the ML training target, populated by CounterfactualTracker (Phase 130). See `docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md` for full spec.
 
