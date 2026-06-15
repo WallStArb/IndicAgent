@@ -56,7 +56,7 @@ class TestLedgerEntry:
         params = entry._to_row()
 
         # 34 params: $28=feature_schema_version; $29-$34=framing audit trail (Phase 115)
-        assert len(params) == 34
+        assert len(params) == 36
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -85,7 +85,7 @@ class TestLedgerEntry:
         params = entry._to_row()
 
         # 34 params: $28=feature_schema_version; $29-$34=framing audit trail (Phase 115)
-        assert len(params) == 34
+        assert len(params) == 36
         assert params[22] == pytest.approx(0.47)  # cis_score at $23 (index 22)
         # index 23 = bucket_scores as dict (asyncpg serializes to jsonb)
         bucket_scores = params[23]
@@ -127,7 +127,7 @@ class TestLedgerEntryNewFields:
         )
         params = entry._to_row()
         # 34 params: $28=feature_schema_version; $29-$34=framing audit trail (Phase 115)
-        assert len(params) == 34
+        assert len(params) == 36
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +444,7 @@ class TestIsShadowField:
     def test_to_insert_params_length_64(self):
         entry = _make_entry()
         # 34 params: $28=feature_schema_version; $29-$34=framing audit trail (Phase 115)
-        assert len(entry._to_row()) == 34
+        assert len(entry._to_row()) == 36
 
     def test_to_insert_params_is_shadow_position_false(self):
         entry = _make_entry(is_shadow=False)

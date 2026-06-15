@@ -245,15 +245,10 @@ def emit_signal(
         validate_signal,
     )
 
-    # features_snapshot: only capture when non-empty (avoid polluting signal with empty dicts)
-    raw_features = getattr(trade_frame, "features", {}) or {}
-    features_snapshot = raw_features if raw_features else None
-
     # Delegate to make_signal_from_frame for full framing + validation
     signal = make_signal_from_frame(
         trade_frame,
         confidence=confidence,
-        features_snapshot=features_snapshot,
         **signal_fields,
     )
 

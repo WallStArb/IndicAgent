@@ -990,8 +990,8 @@ class TestTemporalGuard:
         assert t is not None
         assert t.new_status == "active"
 
-    def test_activation_when_bar_time_equals_signal_timestamp(self):
-        """Bar time exactly equals signal timestamp -> activation proceeds."""
+    def test_activation_blocked_when_bar_time_equals_signal_timestamp(self):
+        """Temporal bias guard: bar_time <= signal_timestamp blocks activation (D-01 rule)."""
         sig = _pending_with_zone(direction=1, zone_low=5095.0, zone_high=5102.0)
         ts = datetime(2026, 4, 28, 12, 5, tzinfo=UTC)
         t = evaluate_signal(
@@ -1002,8 +1002,7 @@ class TestTemporalGuard:
             signal_timestamp=ts,
             bar_time=ts,
         )
-        assert t is not None
-        assert t.new_status == "active"
+        assert t is None
 
     def test_no_guard_when_timestamps_not_provided(self):
         """Backward compat: no timestamps passed -> activation proceeds normally."""
