@@ -141,7 +141,7 @@ class TestFVGFill:
         features = {
             "fvg_type": 1,
             "fvg_open_count": 2.0,
-            "fvg_top": 5010.0,
+            "fvg_top": 5015.0,
             "fvg_bottom": 5000.0,
             "atr_14": 10.0,
         }

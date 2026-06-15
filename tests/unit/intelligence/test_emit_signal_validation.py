@@ -94,8 +94,8 @@ def test_emit_signal_raises_on_invalid_signal():
         )
 
 
-def test_emit_signal_includes_features_snapshot_when_non_empty():
-    """emit_signal writes features_snapshot when trade_frame.features is non-empty."""
+def test_emit_signal_no_features_snapshot_field():
+    """Phase 126-06: features_snapshot is no longer a signal field (stamped by pipeline annotation layer)."""
     from src.intelligence.trading.plugin_utils import emit_signal
 
     tf = _make_trade_frame()
@@ -118,7 +118,7 @@ def test_emit_signal_includes_features_snapshot_when_non_empty():
         supporting_factors=["ema_slope"],
         invalidation_conditions=["close_below_stop"],
     )
-    assert "features_snapshot" in signal
+    assert "features_snapshot" not in signal
 
 
 def test_emit_signal_no_features_snapshot_when_empty():

@@ -95,15 +95,15 @@ def test_capture_signal_features_missing_fields_default_to_zero() -> None:
         existing_confidence=0.55,
     )
 
-    assert shadow["ctf_score"] == 0.0
-    assert shadow["ctf_trend_alignment"] == 0.0
-    assert shadow["ctf_structure_alignment"] == 0.0
-    assert shadow["ctf_regime_agreement"] == 0.0
-    assert shadow["ctf_fvg_alignment"] == 0.0
-    assert shadow["ctf_ob_alignment"] == 0.0
-    assert shadow["exhaustion_score"] == 0.0
-    assert shadow["exhaustion_side"] == "none"
-    assert shadow["exhaustion_bars"] == 0.0
+    assert shadow["ctf_score"] is None
+    assert shadow["ctf_trend_alignment"] is None
+    assert shadow["ctf_structure_alignment"] is None
+    assert shadow["ctf_regime_agreement"] is None
+    assert shadow["ctf_fvg_alignment"] is None
+    assert shadow["ctf_ob_alignment"] is None
+    assert shadow["exhaustion_score"] is None
+    assert shadow["exhaustion_side"] is None
+    assert shadow["exhaustion_bars"] is None
 
 
 # ---------------------------------------------------------------------------

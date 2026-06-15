@@ -191,7 +191,7 @@ class PatternCompletionPlugin:
         # Confidence is pattern quality (context), not the trigger.
         # A low-confidence pattern completing structurally is still a signal — but
         # we filter out very weak patterns (e.g., noise at the edge of detection).
-        if best_confidence < confidence_min:
+        if best_confidence <= confidence_min:
             return no_signal()
 
         # --- INSTANCE CONSUMPTION FOURTH ---

@@ -70,10 +70,10 @@ def _features_row(**overrides):
     row.update(
         {
             "bar": '{"open": 5950.0, "close": 5951.5}',
-            "i1": '{"rsi_14": 62.5}',
-            "i3": None,
-            "i4": '{"garch_sigma": 0.5}',
-            "i5": None,
+            "technical_indicators": '{"rsi_14": 62.5}',
+            "regime_features": None,
+            "confluence_scores": '{"garch_sigma": 0.5}',
+            "pattern_detections": None,
             "smc": None,
             "cross_timeframe_context": None,
         }
@@ -166,10 +166,10 @@ class TestGetSignals:
                 feature_ts=None,
                 feature_tf=None,
                 bar=None,
-                i1=None,
-                i3=None,
-                i4=None,
-                i5=None,
+                technical_indicators=None,
+                regime_features=None,
+                confluence_scores=None,
+                pattern_detections=None,
                 smc=None,
                 i6=None,
             )

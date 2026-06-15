@@ -26,7 +26,7 @@ from src.observability.metrics import (
 EPSILON = 1e-9
 CLUSTER_RADIUS_ATR = 0.5
 ZONE_BUFFER_ATR = 0.15
-MIN_ZONE_WIDTH_ATR = 0.25
+MIN_ZONE_WIDTH_ATR = 1.5
 SINGLE_LEVEL_RADIUS_ATR = 0.25
 DEDUP_TOLERANCE_ATR = 1.0  # wider than CLUSTER_RADIUS_ATR to suppress same-level noise
 _SINGLE_STRENGTH_WEIGHT = 0.6
