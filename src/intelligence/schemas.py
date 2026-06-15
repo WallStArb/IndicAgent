@@ -812,6 +812,13 @@ class SMCContext(BaseModel):
     equilibrium_level: float | None = None
     premium_discount_pct: float | None = None  # -1.0 to +1.0
 
+    # Derived zone friction metric — computed by smc_SupplyDemandZones plugin (Phase 126-06).
+    # Tier decision: SMC, because all inputs (demand/supply freshness, strength, dist_atr)
+    # are produced by smc_SupplyDemandZones and live in this same sub-model.
+    # Formula: freshness * strength * (1 / (1 + dist_atr)) for the nearest active zone.
+    # None = cold-start (no zones detected), 0.0 = genuine zero (zero freshness or strength).
+    zone_friction_score: float | None = None
+
 
 class I6Confluence(BaseModel):
     """I6 cross-timeframe confluence outputs.
