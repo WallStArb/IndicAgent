@@ -439,6 +439,19 @@ class IntelligencePipeline(BaseDaemon):
         ("feature.zone_engine.single_level_radius_atr", 0.25),
         ("weights.zone_engine.strength", 0.60),
         ("weights.zone_engine.proximity", 0.40),
+        # --- migration 132: Phase 125 CIS gate constants ---
+        ("threshold.cis.fire_threshold", 0.35),
+        ("threshold.cis.bucket_agree_min", 3),
+        ("threshold.cis.bucket_noise_floor", 0.1),
+        # --- migration 132: Phase 125 zone entry width gate (consumed by Phase 126) ---
+        ("feature.zone_engine.min_zone_width_atr", 1.5),
+        ("feature.zone_engine.min_zone_width_atr.equity_etf", 1.5),
+        ("feature.zone_engine.min_zone_width_atr.forex", 1.0),
+        ("feature.zone_engine.min_zone_width_atr.futures", 1.5),
+        # --- migration 132: Phase 125 anchored_vwap_reversion Tier B weights ---
+        ("weights.vwap_reversion.sigma_magnitude", 0.40),
+        ("weights.vwap_reversion.hurst_quality", 0.35),
+        ("weights.vwap_reversion.vol_stability", 0.25),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -450,6 +463,7 @@ class IntelligencePipeline(BaseDaemon):
         # Inject into module-level utility singletons (shared helpers, not plugins).
         from src.intelligence.trading import (  # noqa: PLC0415
             aggregator,
+            cis_scorer,
             confidence_utils,
             trade_framer,
             volume_profile_utils,
@@ -461,6 +475,7 @@ class IntelligencePipeline(BaseDaemon):
         zone_engine.set_config_service(self._config_service)
         trade_framer.set_config_service(self._config_service)
         aggregator.set_config_service(self._config_service)
+        cis_scorer.set_config_service(self._config_service)
 
         # Inject config service into all plugins that opted in via the _config_service field.
         # Self-healing: as more plugins migrate, no changes here are needed.

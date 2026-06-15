@@ -35,6 +35,19 @@ CIS_FIRE_THRESHOLD = 0.35  # abs(CIS) > 0.35 required for signal fire
 BUCKET_AGREE_MIN = 3  # Minimum buckets agreeing with CIS direction
 BUCKET_NOISE_FLOOR = 0.1  # Minimum |bucket_score| to count as agreeing
 
+_config_service: Any | None = None
+
+
+def set_config_service(config: Any) -> None:
+    """Inject ConfigService for APR-backed CIS gate constants.
+
+    Called by intelligence_pipeline._prewarm_threshold_config() at startup.
+    Same pattern as confidence_utils.set_config_service().
+    """
+    global _config_service
+    _config_service = config
+
+
 BUCKET_NAMES: tuple[str, ...] = (
     "trend",
     "momentum",
@@ -240,9 +253,26 @@ class CISScorer:
         cis_raw = float(np.dot(self._weights_array, scores_array))
         cis_score = clamp(cis_raw)
 
+        # Read gate constants from APR at runtime (fallback to module-level defaults).
+        fire_threshold = (
+            _config_service.get_sync("threshold.cis.fire_threshold", CIS_FIRE_THRESHOLD)
+            if _config_service is not None
+            else CIS_FIRE_THRESHOLD
+        )
+        bucket_agree_min = (
+            int(_config_service.get_sync("threshold.cis.bucket_agree_min", BUCKET_AGREE_MIN))
+            if _config_service is not None
+            else BUCKET_AGREE_MIN
+        )
+        bucket_noise_floor = (
+            _config_service.get_sync("threshold.cis.bucket_noise_floor", BUCKET_NOISE_FLOOR)
+            if _config_service is not None
+            else BUCKET_NOISE_FLOOR
+        )
+
         # Determine fire direction
         direction = 0
-        if abs(cis_score) > CIS_FIRE_THRESHOLD:
+        if abs(cis_score) > fire_threshold:
             direction = 1 if cis_score > 0 else -1
 
         # Count agreeing buckets: bucket agrees if it pushes in the same direction
@@ -251,10 +281,10 @@ class CISScorer:
         # with cis_score=0.3 correctly reads as 0.28 * 1.0 = 0.28 > 0.1 = agreeing.
         cis_sign = 1.0 if cis_score >= 0 else -1.0
         bucket_array = scores_array * cis_sign  # Apply cis_sign to all buckets
-        agreeing = int(np.sum(bucket_array > BUCKET_NOISE_FLOOR))
+        agreeing = int(np.sum(bucket_array > bucket_noise_floor))
 
         # Require minimum agreement even if threshold was met
-        if agreeing < BUCKET_AGREE_MIN:
+        if agreeing < bucket_agree_min:
             direction = 0
 
         # Design B: Apply Kalman smoothing to raw CIS, then apply CIS-level calibration.
