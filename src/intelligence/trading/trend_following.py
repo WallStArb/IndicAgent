@@ -89,10 +89,9 @@ class TrendFollowingPlugin:
     _config_service: Any = field(default=None, compare=False, repr=False)
 
     def _get_state(self, symbol: str, tf: str) -> TrendFollowingState:
-        """Lazy-init per-symbol/timeframe state."""
         key = f"{symbol}_{tf}"
         if key not in self._state:
-            self._state[key] = TrendFollowingState(ma_history=deque(maxlen=50))
+            self._state[key] = TrendFollowingState()
         return self._state[key]
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -143,12 +142,10 @@ class TrendFollowingPlugin:
         state_key = f"{symbol}_{tf_key}"
         state = self._get_state(symbol, tf_key)
 
-        # Extract SMA and update MA history buffer (look-ahead-free: uses current bar only)
         sma = features.get("sma_20") or features.get("ema_20")
         if sma:
             state.ma_history.append(float(sma))
 
-        # Need OHLCV for structural detection
         result = extract_ohlcv(frames, self.min_lookback)
         if result is None:
             return no_signal()
@@ -166,7 +163,6 @@ class TrendFollowingPlugin:
         consolidation_breakout = False
         structural_type = "none"
 
-        # Pullback-to-MA reversal detection
         if sma and len(state.ma_history) >= pullback_min_bars:
             current_sma = float(sma)
             history = list(state.ma_history)
@@ -182,10 +178,8 @@ class TrendFollowingPlugin:
                 pullback_reversal = True
                 structural_type = "pullback_reversal_bear"
 
-        # Consolidation breakout detection
         range_pct = (current_high - current_low) / price * 100 if price > 0 else 999.0
         if range_pct < consolidation_range_pct:
-            # Consolidation active: update bounds
             state.consolidation_bars += 1
             state.consolidation_high = max(
                 state.consolidation_high if state.consolidation_high is not None else current_high,
@@ -196,7 +190,7 @@ class TrendFollowingPlugin:
                 current_low,
             )
         else:
-            # Range expansion - check for breakout before resetting
+            # Check breakout against accumulated bounds before the reset clears them
             if (
                 state.consolidation_bars >= consolidation_min_bars
                 and state.consolidation_high is not None
@@ -209,12 +203,10 @@ class TrendFollowingPlugin:
                     consolidation_breakout = True
                     structural_type = "consolidation_breakout_bear"
 
-            # Reset consolidation state on expansion
             state.consolidation_bars = 0
             state.consolidation_high = None
             state.consolidation_low = None
 
-        # No structural event - return no signal
         if not pullback_reversal and not consolidation_breakout:
             return no_signal()
 

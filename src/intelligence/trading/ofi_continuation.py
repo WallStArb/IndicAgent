@@ -99,10 +99,9 @@ class OFIContinuationPlugin:
     _config_service: Any = field(default=None, compare=False, repr=False)
 
     def _get_ofi_state(self, symbol: str, tf: str) -> OFIContinuationState:
-        """Lazy-init per-(symbol, tf) acceleration state."""
         key = f"{symbol}_{tf}"
         if key not in self._accel_state:
-            self._accel_state[key] = OFIContinuationState(ewma_buffer=deque(maxlen=20))
+            self._accel_state[key] = OFIContinuationState()
         return self._accel_state[key]
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -166,7 +165,6 @@ class OFIContinuationPlugin:
         tf = frames.get("__timeframe__", "_")
         state_key = f"{symbol}_{tf}"
 
-        # Track consecutive direction state (needed for context filter THIRD)
         current_dir = 1 if ofi_ewma > 0 else -1
         direction, count = track_consecutive_state(
             frames, self._state, state_key, current_dir, "dir"
@@ -188,17 +186,15 @@ class OFIContinuationPlugin:
         ofi_state.ewma_buffer.append(ofi_ewma)
 
         # Structural trigger SECOND -- EWMA acceleration OR volume spike
-        # Trigger: acceleration OR volume spike (structural thrust on top of sustained flow)
         acceleration_confirmed = False
         volume_spike = False
 
-        # EWMA acceleration detection: second derivative (change-of-change) of ofi_ewma_20
+        # Acceleration = second derivative (change-of-change) of ofi_ewma_20
         if len(ofi_state.ewma_buffer) >= ewma_min_history:
             buf = ofi_state.ewma_buffer
             ewma_change = buf[-1] - buf[-2]
             ewma_change_prev = buf[-2] - buf[-3]
             acceleration = ewma_change - ewma_change_prev
-            # Directional acceleration: must align with current flow direction
             directional_acceleration = (acceleration > 0 and ofi_ewma > 0) or (
                 acceleration < 0 and ofi_ewma < 0
             )
@@ -208,7 +204,6 @@ class OFIContinuationPlugin:
             ):
                 acceleration_confirmed = True
 
-        # Volume spike detection: current bar volume >= 2x average volume
         current_vol = float(df["volume"].iloc[-1])
         vol_sma = features.get("volume_sma_20")
         vol_ratio = current_vol / float(vol_sma) if vol_sma and float(vol_sma) > 0 else 1.0

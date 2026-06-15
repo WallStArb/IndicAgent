@@ -19,9 +19,19 @@ from tests.unit.intelligence.helpers import make_ohlcv
 # ---------------------------------------------------------------------------
 
 
-def _frames(n: int = 30, close_val: float = 5000.0, features: dict | None = None) -> dict:
-    """Build frames dict with n-bar OHLCV and optional features overlay."""
-    close = np.full(n, close_val, dtype=float)
+def _frames(
+    n: int = 30,
+    close_val: float = 5000.0,
+    features: dict | None = None,
+    close: np.ndarray | None = None,
+) -> dict:
+    """Build frames dict with OHLCV and optional features overlay.
+
+    Pass `close` to supply a custom price path; otherwise an n-bar flat series at
+    close_val is used.
+    """
+    if close is None:
+        close = np.full(n, close_val, dtype=float)
     df = make_ohlcv(close)
     return {
         "main": df,
@@ -32,6 +42,8 @@ def _frames(n: int = 30, close_val: float = 5000.0, features: dict | None = None
         "i5": features,
         "smc": features,
         "i6": features or {},
+        "__symbol__": "ES",
+        "__timeframe__": "1m",
     }
 
 
@@ -288,16 +300,10 @@ class TestPatternCompletion:
 
     def test_triangle_bullish_fires_long(self):
         """tri_confidence>0.5, tri_breakout_bias=1 + apex breach above consolidation → direction==1."""
-        import numpy as np
-
-        from tests.unit.intelligence.helpers import make_ohlcv
-
         plugin = self._plugin()
-        # Compression (bars 24-28 at 4990) then breakout (bar 29 at 5010).
-        # lookback=5 → consolidation_high = max(high[24:29]) ≈ 4990*1.002 = 4999.98.
-        # current_close = 5010.0 > 4999.98 → structurally_complete.
+        # Compression (bars 24-28 at 4990) then breakout (bar 29 at 5010):
+        # consolidation_high ≈ 4990*1.002 = 4999.98, current_close 5010 > it → complete.
         close = np.concatenate([np.full(24, 5000.0), np.full(5, 4990.0), np.array([5010.0])])
-        df = make_ohlcv(close)
         features = {
             "dt_db_confidence": 0.0,
             "dt_db_pattern": 0,
@@ -308,33 +314,15 @@ class TestPatternCompletion:
             "tri_apex_bars": 5,
             "atr_14": 10.0,
         }
-        frames = {
-            "main": df,
-            "i1": features,
-            "i2": features,
-            "i3": features,
-            "i4": features,
-            "i5": features,
-            "smc": features,
-            "i6": features or {},
-            "__symbol__": "ES",
-            "__timeframe__": "1m",
-        }
-        result = plugin.compute_full(frames)
+        result = plugin.compute_full(_frames(features=features, close=close))
         assert result.get("direction") == 1
 
     def test_triangle_bearish_fires_short(self):
         """tri_confidence>0.5, tri_breakout_bias=-1 + apex breach below consolidation → direction==-1."""
-        import numpy as np
-
-        from tests.unit.intelligence.helpers import make_ohlcv
-
         plugin = self._plugin()
-        # Compression (bars 24-28 at 5010) then breakdown (bar 29 at 4990).
-        # lookback=5 → consolidation_low = min(low[24:29]) ≈ 5010*0.998 = 4999.98.
-        # current_close = 4990.0 < 4999.98 → structurally_complete.
+        # Compression (bars 24-28 at 5010) then breakdown (bar 29 at 4990):
+        # consolidation_low ≈ 5010*0.998 = 4999.98, current_close 4990 < it → complete.
         close = np.concatenate([np.full(24, 5000.0), np.full(5, 5010.0), np.array([4990.0])])
-        df = make_ohlcv(close)
         features = {
             "dt_db_confidence": 0.0,
             "dt_db_pattern": 0,
@@ -345,19 +333,7 @@ class TestPatternCompletion:
             "tri_apex_bars": 5,
             "atr_14": 10.0,
         }
-        frames = {
-            "main": df,
-            "i1": features,
-            "i2": features,
-            "i3": features,
-            "i4": features,
-            "i5": features,
-            "smc": features,
-            "i6": features or {},
-            "__symbol__": "ES",
-            "__timeframe__": "1m",
-        }
-        result = plugin.compute_full(frames)
+        result = plugin.compute_full(_frames(features=features, close=close))
         assert result.get("direction") == -1
 
     def test_no_pattern_no_signal(self):

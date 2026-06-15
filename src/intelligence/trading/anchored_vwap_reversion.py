@@ -91,10 +91,9 @@ class AnchoredVWAPReversionPlugin:
     _config_service: Any = field(default=None, compare=False, repr=False)
 
     def _get_state(self, symbol: str, tf: str) -> VWAPReversionState:
-        """Lazy factory: returns per-(symbol, tf) state, initializing if absent."""
         key = f"{symbol}_{tf}"
         if key not in self._state:
-            self._state[key] = VWAPReversionState(sigma_buffer=deque(maxlen=50))
+            self._state[key] = VWAPReversionState()
         return self._state[key]
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
