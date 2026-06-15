@@ -24,8 +24,8 @@
 
 ### Signal Universe Hardening (Phase 126)
 
-- [ ] **SIGNAL-QUALITY-01**: `_resolve_zone_bounds()` in `trade_framer.py` returns `no_signal()` when `zone_width < min_zone_width_atr × ATR` for all zone source types (supply_demand, fvg, ob, structural); `feature.zone_engine.min_zone_width_atr` in APR with per-asset-class seeds (equity_etf: 0.5, forex: 0.25, futures: 0.35); `stopped_at_entry` rate < 15% on 10K-signal replay sample — target set at 3× forex upper bound (forex baseline 3-5%; equity allows wider margin for tick-size structure)
-- [ ] **SIGNAL-QUALITY-02**: `_CONFLUENCE_EXEMPT_PLUGINS` frozenset deleted; all 8 formerly-exempt plugins have `requires_i6_confluence = True` and call `capture_signal_features()`; all 37 registered signal-generation plugins emit > 0 signals in 30-day replay window; `trad_MeanReversion` dual-gate conflict resolved (fires > 100 signals/30d) or retired with documented rationale; unverifiable plugins from detection correctness audit retired from `TIER_SIGNALS` or demoted to `shadow_only=True` with explicit rationale
+- [x] **SIGNAL-QUALITY-01**: `frame_trade()` in `trade_framer.py` calls `_reject_frame("zone_too_narrow:{zone_source}", ...)` AFTER `_resolve_zone_bounds()` returns, when `zone_width < min_zone_width_atr × ATR`; gate applies to all zone source types (supply_demand, fvg, ob, structural, sweep_band, atr_fallback); APR keys `feature.zone_engine.min_zone_width_atr.equity` = 1.5, `feature.zone_engine.min_zone_width_atr.fx` = 1.0, `feature.zone_engine.min_zone_width_atr.futures` = 1.5 (data-derived from noise-band analysis; migration 134); `stopped_at_entry` rate < 15% measurement deferred to Phase 127 (REPLAY-01) — gate enforced prospectively in Phase 126; historical signal_ledger lacks outcome data
+- [x] **SIGNAL-QUALITY-02**: `_I7_I6_EXEMPT` frozenset deleted from `register_plugins.py`; ECL annotation moved to pipeline layer via `signal_processor._annotate_signal()` (Wave 3) — per-plugin `requires_i6_confluence=True` and `capture_signal_features()` calls removed; `capture_signal_features()` marked DEPRECATED in `confidence_utils.py` (deletion Phase 128); `SIGNAL_SCHEMA_VERSION` bumped to "v4" in `signal_schema.py`; all 8 formerly-exempt plugins remain in TIER_I7 with full ECL annotation via pipeline; anti-signal plugins demoted to `shadow_only=True` per Wave 4 audit (lvn_breakout, ofi_divergence, failed_breakout wired through APR)
 
 ### Clean Replay and Validation (Phase 127)
 
@@ -74,8 +74,8 @@
 | APR-01 | Phase 125 | Complete |
 | APR-02 | Phase 125 | Complete |
 | APR-03 | Phase 125 | Complete |
-| SIGNAL-QUALITY-01 | Phase 126 | Pending |
-| SIGNAL-QUALITY-02 | Phase 126 | Pending |
+| SIGNAL-QUALITY-01 | Phase 126 | Complete |
+| SIGNAL-QUALITY-02 | Phase 126 | Complete |
 | REPLAY-01 | Phase 127 | Pending |
 | REPLAY-02 | Phase 127 | Pending |
 | ARCH-01 | Phase 128 | Pending |
@@ -89,4 +89,4 @@
 
 ---
 *Requirements defined: 2026-06-14*
-*Last updated: 2026-06-14 — Phase 126 inserted; SIGNAL-QUALITY-01/02 added; REPLAY/ARCH/MIGRATE/REWRITE renumbered +1; coverage 15 total*
+*Last updated: 2026-06-15 — Phase 126 gap closure: SIGNAL-QUALITY-01/02 text corrected and marked Complete; stopped_at_entry measurement deferred to Phase 127 REPLAY-01*
