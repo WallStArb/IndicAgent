@@ -1,7 +1,10 @@
-"""Sweep asserting every TIER_I7 plugin declares requires_i6_confluence.
+"""Sweep asserting every TIER_I7 plugin declares requires_i6_confluence = True.
 
-VAL-05: All I7 plugins must declare requires_i6_confluence so the pipeline
-startup gate (validate_tier) can enforce the architectural invariant.
+VAL-05: All I7 plugins must declare requires_i6_confluence=True so the pipeline
+startup gate (validate_tier) can enforce the architectural invariant uniformly.
+
+Phase 126: _I7_I6_EXEMPT carve-out deleted. All 8 formerly-exempt plugins are now
+compliant (requires_i6_confluence=True). No exemptions remain.
 """
 
 from __future__ import annotations
@@ -11,19 +14,14 @@ import pytest
 from src.intelligence.plugins import registry
 from src.intelligence.plugins.base import ArchitectureViolation
 from src.intelligence.register_plugins import (
-    _I7_I6_EXEMPT,
     TIER_I7,
     register_all_plugins,
 )
 
 # Derive at module level so parametrize picks up new plugins automatically.
-# Any TIER_I7 plugin with shadow_only=True that is NOT in _I7_I6_EXEMPT must
-# pass the test_shadow_only_declared assertion.
 register_all_plugins()
 _ECL_SHADOW_PLUGINS = sorted(
-    name
-    for name in TIER_I7
-    if name not in _I7_I6_EXEMPT and getattr(registry.patterns.get(name), "shadow_only", False)
+    name for name in TIER_I7 if getattr(registry.patterns.get(name), "shadow_only", False)
 )
 
 
@@ -40,12 +38,24 @@ class TestI6ConfluenceEnforcement:
         assert plugin is not None, f"I7 plugin {plugin_name!r} not found in registry"
         assert hasattr(plugin, "requires_i6_confluence"), (
             f"I7 plugin {plugin_name!r} missing requires_i6_confluence declaration. "
-            f"Add: requires_i6_confluence: bool = True  "
-            f"(or False with TODO comment if I6 not yet integrated)"
+            f"Add: requires_i6_confluence: bool = True"
         )
         assert isinstance(plugin.requires_i6_confluence, bool), (
             f"I7 plugin {plugin_name!r}.requires_i6_confluence must be bool, "
             f"got {type(plugin.requires_i6_confluence).__name__!r}"
+        )
+
+    @pytest.mark.parametrize("plugin_name", TIER_I7)
+    def test_requires_i6_confluence_true(self, plugin_name: str):
+        """Every TIER_I7 plugin must have requires_i6_confluence=True.
+
+        Phase 126 deleted the _I7_I6_EXEMPT carve-out. All plugins must be compliant.
+        """
+        plugin = registry.patterns.get(plugin_name)
+        assert plugin is not None, f"I7 plugin {plugin_name!r} not found in registry"
+        assert getattr(plugin, "requires_i6_confluence", False) is True, (
+            f"Phase 126 invariant violated: I7 plugin {plugin_name!r} must have "
+            f"requires_i6_confluence=True. The _I7_I6_EXEMPT carve-out no longer exists."
         )
 
     def test_validate_tier_raises_no_architecture_violation(self):
@@ -55,32 +65,13 @@ class TestI6ConfluenceEnforcement:
         except ArchitectureViolation as error:
             pytest.fail(f"validate_tier raised ArchitectureViolation unexpectedly: {error}")
 
-    @pytest.mark.parametrize(
-        "plugin_name",
-        [n for n in TIER_I7 if n not in _I7_I6_EXEMPT],
-    )
-    def test_requires_i6_confluence_true(self, plugin_name: str):
-        """Every TIER_I7 plugin NOT in _I7_I6_EXEMPT must have requires_i6_confluence=True.
-
-        Phase 119 mandates all in-scope I7 setups consume I6 cross-timeframe data.
-        Plugins in _I7_I6_EXEMPT are temporarily exempt - refactor them in a follow-up phase.
-        """
-        plugin = registry.patterns.get(plugin_name)
-        assert plugin is not None, f"I7 plugin {plugin_name!r} not found in registry"
-        assert getattr(plugin, "requires_i6_confluence", False) is True, (
-            f"Phase 119 invariant violated: I7 plugin {plugin_name!r} must have "
-            f"requires_i6_confluence=True. Either add the attribute or add the plugin "
-            f"to _I7_I6_EXEMPT with a follow-up phase TODO."
-        )
-
     def test_validate_tier_rejects_false(self):
-        """validate_tier() must raise ArchitectureViolation when a non-exempt I7 plugin
-        has requires_i6_confluence=False — proves False (not just missing) is rejected.
+        """validate_tier() must raise ArchitectureViolation when an I7 plugin has
+        requires_i6_confluence=False — proves False (not just missing) is rejected.
         """
-        # Pick a known non-exempt plugin and override its attribute
-        non_exempt_name = next(n for n in TIER_I7 if n not in _I7_I6_EXEMPT)
-        plugin = registry.patterns.get(non_exempt_name)
-        assert plugin is not None, f"Test setup: {non_exempt_name!r} not in registry"
+        test_plugin_name = next(iter(TIER_I7))
+        plugin = registry.patterns.get(test_plugin_name)
+        assert plugin is not None, f"Test setup: {test_plugin_name!r} not in registry"
 
         original_value = plugin.requires_i6_confluence
         try:
@@ -92,27 +83,9 @@ class TestI6ConfluenceEnforcement:
         finally:
             plugin.requires_i6_confluence = original_value  # type: ignore[misc]
 
-    def test_exempt_plugins_are_known(self):
-        """_I7_I6_EXEMPT must have exactly 8 members; all must be in TIER_I7 and registered.
-
-        Pins the exemption set so it cannot silently grow or reference missing plugins.
-        """
-        assert len(_I7_I6_EXEMPT) == 8, (
-            f"_I7_I6_EXEMPT should have exactly 8 members, got {len(_I7_I6_EXEMPT)}: "
-            f"{sorted(_I7_I6_EXEMPT)}"
-        )
-        tier_set = set(TIER_I7)
-        for name in _I7_I6_EXEMPT:
-            assert name in tier_set, (
-                f"_I7_I6_EXEMPT member {name!r} is not in TIER_I7 - " f"remove it or update TIER_I7"
-            )
-            assert (
-                registry.patterns.get(name) is not None
-            ), f"_I7_I6_EXEMPT member {name!r} is not registered in registry"
-
     @pytest.mark.parametrize("plugin_name", _ECL_SHADOW_PLUGINS)
     def test_shadow_only_declared(self, plugin_name: str):
-        """Every ECL-compliant I7 plugin must have shadow_only=True.
+        """Every ECL-compliant I7 plugin with shadow_only=True must actually have it set.
 
         Phase 119+123: these plugins have dual HMM+ECL gates, 4-factor intrinsic
         confidence composites, requires_i6_confluence=True, and shadow_only=True.

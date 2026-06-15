@@ -4,6 +4,18 @@ Accumulates the high/low of bars from 09:30-09:45 ET to define the opening range
 Fires on the first breakout bar (close beyond the range) with volume expansion
 (>1.5× session average) after 09:45 ET, within a 09:30-11:30 ET session gate.
 
+VERDICT: CORRECT-RARE (Phase 126 audit)
+  Gate logic is correct. Fires at most twice per RTH session per symbol (once long,
+  once short) via fire-once guard. With an instrument universe of ~5 equity-adjacent
+  symbols and a 2-hour session gate, the expected maximum is ~10 signals/session-day.
+  Zero fires in the corpus is expected if: (a) the corpus lacks RTH bar data for the
+  session date range, (b) equity symbols (ES/NQ) don't meet the volume expansion gate
+  (1.5x) consistently, or (c) the pipeline wasn't running during US market hours in the
+  captured window.
+  VERIFIED: range accumulation logic (09:30-09:44 ET), breakout detection (close > orb_high
+  or close < orb_low), fire-once guard, and volume gate are all structurally correct.
+  No code change required.
+
 Renaissance principles:
 - Segment relentlessly: independent 15-min statistical tracking separate from ORB30
 - Earn the right through proof: fire-once per direction per session prevents overtrading
