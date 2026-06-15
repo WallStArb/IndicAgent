@@ -1,43 +1,33 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-15T14:42:50.707Z",
-  "phase": "126",
-  "phase_name": "signal-universe-hardening",
-  "phase_dir": ".planning/phases/126-signal-universe-hardening",
-  "plan": 7,
-  "task": 1,
-  "total_tasks": 1,
-  "status": "paused",
+  "timestamp": "2026-06-15T15:58:48Z",
+  "phase": "127",
+  "phase_name": "clean-replay-and-validation",
+  "phase_dir": ".planning/phases/127-clean-replay-and-validation",
+  "plan": 0,
+  "task": 0,
+  "total_tasks": 0,
+  "status": "phase_complete_ready_for_next",
   "completed_tasks": [
-    {"id": 1, "name": "126-00 pre-flight diagnostics", "status": "done"},
-    {"id": 2, "name": "126-01 zone width gate", "status": "done"},
-    {"id": 3, "name": "126-02 plugin completeness", "status": "done"},
-    {"id": 4, "name": "126-05 signal quality audit", "status": "done"},
-    {"id": 5, "name": "126-06 pipeline annotation layer", "status": "done"},
-    {"id": 6, "name": "test triage (this session)", "status": "in_progress", "progress": "7 root causes fixed; ~60 failures handed to background agent"}
+    {"id": 1, "name": "126-00: Pre-flight diagnostics", "status": "done", "commit": "345a47a0"},
+    {"id": 2, "name": "126-01: Zone width gate (frame_trade rejects zones < 1.5xATR)", "status": "done", "commit": "28e1dfea"},
+    {"id": 3, "name": "126-02: Plugin completeness (_I7_I6_EXEMPT deleted, 8 plugins wired to I6)", "status": "done", "commit": "28e1dfea"},
+    {"id": 4, "name": "126-05: Signal quality audit (IC league table)", "status": "done", "commit": "28e1dfea"},
+    {"id": 5, "name": "126-06: Pipeline annotation layer (_annotate_signal, SIGNAL_SCHEMA_VERSION v4)", "status": "done", "commit": "28e1dfea"},
+    {"id": 6, "name": "Test fixes: 53 failures to 0 (4754 pass, 37 skip)", "status": "done", "commit": "26611166"},
+    {"id": 7, "name": "126-07: REQUIREMENTS.md gap closure (SIGNAL-QUALITY-01/02)", "status": "done", "commit": "c517fa26"}
   ],
-  "remaining_tasks": [
-    {"id": 7, "name": "126-07 REQUIREMENTS.md update", "status": "not_started"},
-    {"id": 8, "name": "verify tests green after agent", "status": "not_started"},
-    {"id": 9, "name": "commit session changes", "status": "not_started"}
-  ],
-  "blockers": [
-    {"description": "Background agent fixing ~60 zone-width test failures - do not commit until agent done and tests green", "type": "external", "workaround": "Wait for agent completion notification"}
-  ],
+  "remaining_tasks": [],
+  "blockers": [],
   "human_actions_pending": [],
   "decisions": [
-    {"decision": "DB uses functional column names not tier codes", "rationale": "Migration 126_revert_tier_column_names.sql reverted i1/i3/i4/i5 back to technical_indicators/regime_features/etc", "phase": "126"},
-    {"decision": "stopped_at_entry rate deferred to Phase 127", "rationale": "No replay outcomes data yet", "phase": "126"}
+    {"decision": "MIN_ZONE_WIDTH_ATR raised from 0.25 to 1.5 in zone_engine.py", "rationale": "Zone engine min width must match frame_trade gate threshold; producing sub-gate zones is a silent production bug", "phase": "126"},
+    {"decision": "ATR_ZONE_SWEEP_MULTIPLIER raised from 0.5 to 0.76 in trade_framer.py", "rationale": "Sweep bands at 0.5xATR = 1.0xATR total, below 1.5xATR gate. 0.76 gives 1.52xATR (just above gate)", "phase": "126"},
+    {"decision": "_nullable_float() returns None (not 0.0) for absent ECL keys", "rationale": "None = cold-start; 0.0 = genuine neutral. ML must distinguish for training integrity", "phase": "126"},
+    {"decision": "ECL annotation moved to pipeline layer via signal_processor._annotate_signal()", "rationale": "Per-plugin annotation was inconsistent; pipeline stamps all 5 ECL fields universally at emit time", "phase": "126"},
+    {"decision": "stopped_at_entry rate measurement deferred to Phase 127 REPLAY-01", "rationale": "Requires replay outcomes data not yet available", "phase": "126"}
   ],
-  "uncommitted_files": [
-    "src/intelligence/trading/plugin_utils.py",
-    "tests/unit/api/test_features_route.py",
-    "tests/unit/config/test_settings_equity.py",
-    "tests/unit/intelligence/test_lifecycle_tracker.py",
-    "tests/unit/intelligence/test_signal_ledger.py",
-    "tests/unit/services/test_signal_replay_auditor.py",
-    "tests/unit/scripts/test_pipeline_reset.py (deleted)"
-  ],
-  "next_action": "Wait for background agent, run pytest, then execute 126-07",
-  "context_notes": "Phase 126 code complete. Session: test triage, 13 root causes across 90 failures. Background agent handling zone-width batch. 126-07 REQUIREMENTS.md update is last remaining task."
+  "uncommitted_files": [],
+  "next_action": "Phase 126 is complete (all 7 plans, 4754 tests passing, pushed to remote). Start Phase 127 (Clean Replay and Validation): run /gsd-discuss-phase 127 to gather context, then /gsd-plan-phase 127.",
+  "context_notes": "Phase 126 signal-universe-hardening is fully complete. All code changes committed (28e1dfea) and pushed. Test suite is green. REQUIREMENTS.md reflects actual implementation. Phase 127 REPLAY-01 needs a full historical replay with --warmup to confirm: context_features coverage > 99%, all 5 over-firing plugins < 3% fire rate. REPLAY-02 needs Phase 121-02 deferred validation report using correct methodology (no cross-population Welch t-test; measure signal volume delta, CTF as feature, firing rates, cold-start null distribution)."
 }
