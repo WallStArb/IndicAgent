@@ -182,9 +182,9 @@ class SqueezeExpansionPlugin:
         ctx = capture_signal_features(features, direction, "trend", confidence)
         return make_signal_from_frame(
             tf,
-            symbol="",
-            timeframe="",
-            timestamp="",
+            symbol=frames.get("symbol", "") or frames.get("__symbol__", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
             signal_type=signal_type,
             setup_plugin=self.name,
             direction=direction,
