@@ -84,3 +84,32 @@ def test_zone_strength_weight_returns_config_value():
     ze.set_config_service(_make_cfg(0.7))
     assert ze._strength_weight() == 0.7
     ze.set_config_service(None)
+
+
+# ---------------------------------------------------------------------------
+# _validate_weights_sum tests
+# ---------------------------------------------------------------------------
+
+import pytest
+
+from src.intelligence.trading.confidence_utils import _validate_weights_sum
+
+
+def test_validate_weights_sum_passes_on_exact():
+    _validate_weights_sum({"a": 0.40, "b": 0.35, "c": 0.25}, "TestPlugin")
+
+
+def test_validate_weights_sum_passes_within_tolerance():
+    # 0.4+0.3+0.3 may not be exactly 1.0 due to float repr; must pass
+    _validate_weights_sum({"a": 0.4, "b": 0.3, "c": 0.3}, "TestPlugin")
+
+
+def test_validate_weights_sum_raises_on_bad_seed():
+    with pytest.raises(ValueError, match="TestPlugin weights sum to"):
+        _validate_weights_sum({"a": 0.40, "b": 0.40, "c": 0.25}, "TestPlugin")
+
+
+def test_validate_weights_sum_raises_value_error_not_assertion_error():
+    """ValueError must fire even under Python -O (which disables asserts)."""
+    with pytest.raises(ValueError):
+        _validate_weights_sum({"a": 0.60, "b": 0.60}, "BadPlugin")
