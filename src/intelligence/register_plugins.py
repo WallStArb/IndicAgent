@@ -667,20 +667,6 @@ TIER_I7: list[str] = [
     cross_asset_divergence_plugin.name,  # "trad_CrossAssetDivergence"
 ]
 
-# I7 plugins not yet integrated with I6 - refactor them in a follow-up phase, then delete this set.
-_I7_I6_EXEMPT: frozenset[str] = frozenset(
-    [
-        regime_transition_plugin.name,
-        prev_day_level_test_plugin.name,
-        anchored_vwap_reversion_plugin.name,
-        poc_rejection_plugin.name,
-        hvn_rejection_plugin.name,
-        cross_asset_divergence_plugin.name,
-        mean_revert_plugin.name,
-        squeeze_exp_plugin.name,
-    ]
-)
-
 
 async def shadow_registry_ensure(conn: object, component_name: str, component_type: str) -> None:
     """Idempotent enrollment of a component into shadow_registry.

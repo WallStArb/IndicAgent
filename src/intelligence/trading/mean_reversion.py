@@ -1,4 +1,23 @@
-"""I7 Mean Reversion setup detection plugin."""
+"""I7 Mean Reversion setup detection plugin.
+
+DUAL-GATE DIAGNOSIS (Phase 126):
+SQL probe on 2,222,468 bars (30-day window):
+  Gate A (|trend_regime| < 0.4): 120,648 bars pass (5.4%)
+  Gate B (|kalman_price_position| >= 1.0): 276,144 bars pass (12.4%)
+  Both gates: 114 bars (0.0051%) -- mutual exclusion confirmed
+
+Root cause: kalman_price_position is near-zero in ranging regimes (p50 = 2.57e-13 when Gate A
+passes). In a ranging regime, price oscillates around Kalman fair value, so displacement is
+inherently low. The two gates select for contradictory market states.
+
+Relaxing Gate B to 0.1 yields 1,012 qualifying bars (0.046%) -- still below the 0.01% threshold
+required to generate >100 fires/30-day window (would need ~2x volume to get 10 signals/session).
+
+Disposition: shadow_only=True. Parked for redesign. Recommended replacement gate: use hmm_regime=0
+(ranging, not |trend_regime| < 0.4) as the primary regime gate, then standard RSI/divergence
+detection without a kalman displacement requirement. See APR key:
+  threshold.mean_reversion.trend_regime_max = 0.2  (created in migration 133)
+"""
 
 from __future__ import annotations
 
@@ -7,7 +26,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, compose_confidence, get_min_ctf_score
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
@@ -25,6 +44,7 @@ class MeanReversionPlugin:
     """
 
     name: str = "trad_MeanReversion"
+    shadow_only: bool = True  # dual-gate mutual exclusion diagnosed; see module docstring
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -42,7 +62,7 @@ class MeanReversionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     regime_threshold: float = 0.4
     _state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
@@ -58,13 +78,28 @@ class MeanReversionPlugin:
             **(frames.get("i6") or {}),
         }
 
+        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
+        _ctf_raw = features.get("ctf_score")
+        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+        ctf_confirmed: bool | None = (
+            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
+        )
+        # No return no_signal() — signal fires if intrinsic criteria met
+
         # OPTIMIZATION (Phase 48): Check regime gate BEFORE expensive OHLCV extraction
         # TODO: Apply this pattern to remaining 34/36 I7 plugins (2/36 optimized: trend_following, mean_reversion)  # noqa: E501
         # Pattern: Check cheap regime gates (dict lookups) before expensive extract_ohlcv() (numpy conversion)  # noqa: E501
         # Estimated benefit: Skip ~144 numpy conversions per bar (80% early exit rate)
         # Remaining plugins to optimize: All other I7 plugins except trend_following.py and this file  # noqa: E501
+        cfg = self._config_service
+        # APR key: threshold.mean_reversion.trend_regime_max (migration 133)
+        # Relaxed from 0.4 to 0.2 — but diagnosis shows kalman_price_position gate still mutually
+        # exclusive in ranging (see module docstring). Plugin parked shadow_only=True.
+        trend_regime_max = (
+            cfg.get_sync("threshold.mean_reversion.trend_regime_max", 0.2) if cfg else 0.2
+        )
         trend_regime = features.get("trend_regime", 0.0)
-        if abs(trend_regime) >= self.regime_threshold:
+        if abs(trend_regime) >= trend_regime_max:
             return no_signal()
 
         # Regime gate passed - now extract OHLCV (expensive numpy conversion)
@@ -141,7 +176,6 @@ class MeanReversionPlugin:
             "sr_prox": round(sr_prox, 4),
         }
 
-        cfg = self._config_service
         w_rsi = cfg.get_sync("weights.mean_reversion.rsi_extreme", 0.30) if cfg else 0.30
         w_div = cfg.get_sync("weights.mean_reversion.div_score", 0.30) if cfg else 0.30
         w_vol = cfg.get_sync("weights.mean_reversion.vol_stability", 0.20) if cfg else 0.20
@@ -176,6 +210,8 @@ class MeanReversionPlugin:
             regime_context=regime_ctx,
             supporting_factors=supporting,
             factor_scores=factor_scores,
+            ctf_score=ctf_score,
+            ctf_confirmed=ctf_confirmed,
         )
         ctx = capture_signal_features(features, direction, "mean_reversion", signal["confidence"])
         signal["features_snapshot"] = ctx
