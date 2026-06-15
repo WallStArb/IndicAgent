@@ -18,9 +18,9 @@
 
 ### APR Full Migration (Phase 125)
 
-- [ ] **APR-01**: All 26 Tier A detection gate constants (`threshold.*`, `feature.*`) externalized to `config_state`; zero hard-coded values in `src/` (grep confirms); all Tier A plugins load from ConfigService at `compute_full()` time
-- [ ] **APR-02**: All 22 Tier B confidence weight constants (`weights.*`) externalized to `config_state`; weight sum invariant enforced via `_assert_weights_sum()` in all Tier B plugins
-- [ ] **APR-03**: All 6 Tier C zone engine geometry constants (`feature.zone_engine.*`, `weights.zone_engine.*`) externalized to `config_state`; `zone_engine.py` loads from ConfigService at startup
+- [x] **APR-01**: All 26 Tier A detection gate constants (`threshold.*`, `feature.*`) externalized to `config_state`; zero hard-coded values in `src/` (grep confirms); all Tier A plugins load from ConfigService at `compute_full()` time
+- [x] **APR-02**: All 22 Tier B confidence weight constants (`weights.*`) externalized to `config_state`; weight sum invariant enforced via `_validate_weights_sum()` in all Tier B plugins
+- [x] **APR-03**: All 6 Tier C zone engine geometry constants (`feature.zone_engine.*`, `weights.zone_engine.*`) externalized to `config_state`; `zone_engine.py` loads from ConfigService at startup
 
 ### Signal Universe Hardening (Phase 126)
 
@@ -71,9 +71,9 @@
 | ECL-03 | Phase 123 | Complete |
 | QUALITY-01 | Phase 124 | Pending |
 | QUALITY-02 | Phase 124 | Pending |
-| APR-01 | Phase 125 | Pending |
-| APR-02 | Phase 125 | Pending |
-| APR-03 | Phase 125 | Pending |
+| APR-01 | Phase 125 | Complete |
+| APR-02 | Phase 125 | Complete |
+| APR-03 | Phase 125 | Complete |
 | SIGNAL-QUALITY-01 | Phase 126 | Pending |
 | SIGNAL-QUALITY-02 | Phase 126 | Pending |
 | REPLAY-01 | Phase 127 | Pending |

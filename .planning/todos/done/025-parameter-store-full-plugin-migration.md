@@ -1,3 +1,9 @@
+# COMPLETED — Phase 125 (APR Full Migration)
+
+All 6 applicable Tier B plugins and CIS scorer wired to ConfigService. Migration 132 seeded 10 new APR keys. _validate_weights_sum guard added. Closed 2026-06-15.
+
+---
+
 # TODO 025: Parameter Store - Full Plugin Migration
 
 **Created:** 2026-06-13  
