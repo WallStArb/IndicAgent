@@ -445,8 +445,8 @@ class IntelligencePipeline(BaseDaemon):
         ("threshold.cis.bucket_noise_floor", 0.1),
         # --- migration 132: Phase 125 zone entry width gate (consumed by Phase 126) ---
         ("feature.zone_engine.min_zone_width_atr", 1.5),
-        ("feature.zone_engine.min_zone_width_atr.equity_etf", 1.5),
-        ("feature.zone_engine.min_zone_width_atr.forex", 1.0),
+        ("feature.zone_engine.min_zone_width_atr.equity", 1.5),
+        ("feature.zone_engine.min_zone_width_atr.fx", 1.0),
         ("feature.zone_engine.min_zone_width_atr.futures", 1.5),
         # --- migration 132: Phase 125 anchored_vwap_reversion Tier B weights ---
         ("weights.vwap_reversion.sigma_magnitude", 0.40),
