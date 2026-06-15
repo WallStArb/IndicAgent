@@ -3,9 +3,28 @@
 **Version:** 1.0.0
 **Status:** draft
 **Priority:** medium
-**Milestone:** future (post-v2.8)
-**Last Updated:** 2026-05-25
+**Milestone:** future (post-v2.10)
+**Last Updated:** 2026-06-14
 **Tags:** macro, cross-asset, ftq, yield-curve, feature-store, i4-context, intelligence
+
+---
+
+## Implementation Status (2026-06-14 Audit)
+
+**Overall: ~40% complete**
+
+| Priority | Item | Status | Notes |
+|----------|------|--------|-------|
+| **P1a** | Join macro fields into `intelligence_features` | ❌ Blocked | `feature_writer.py` doesn't subscribe to `topic_macro_signals`. Fields flow to I7 but never reach DB. |
+| **P1b** | Add thin I4 plugins | ✅ Complete | `MacroContextPlugin` live, registered, outputs all 5 fields to I4Context. |
+| **P2a** | `setup_performance` regime slicing | ❌ Not started | Awaiting P1a. |
+| **P2b** | I7 gating by macro regime | ❌ Not started | Awaiting P1a+P2a. Shadow-only required. |
+| **P3a** | Stock-bond correlation service | ❌ Not started | Awaiting P1+P2 signal validation. |
+| **P3b** | VX term structure service | ❌ Not started | Data availability verification required. |
+
+**Data path working:** `topic_macro_signals` → `IntelligencePipeline` → `frames["cross_asset"]` → `MacroContextPlugin` → `I4Context` → I7 plugins + ML shadow capture
+
+**Missing link:** `feature_writer.py` needs `topic_macro_signals` subscription to persist macro fields to `intelligence_features.market_context` for historical analysis.
 
 ---
 

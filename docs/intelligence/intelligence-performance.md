@@ -10,7 +10,9 @@
 
 ## Performance Challenge
 
-IndicAgent processes **~4.5 bars/sec** against a theoretical target of **530 bars/sec** — a 118x gap. The bottleneck is **sequential tier execution** (I2-I6), compounded by Python's GIL preventing threading benefits.
+IndicAgent processes **~4.5 bars/sec** against a theoretical target of **530 bars/sec** — a 118x gap. The bottleneck is **sequential tier execution** (composite events through confluence, I2-I6), compounded by Python's GIL preventing threading benefits.
+
+**Tier glossary:** I1 = indicators, I2 = composite_events, I3 = structure, I4 = context, I5 = patterns, SMC = smart_money, I6 = confluence, I7 = signals. See `docs/foundation/naming-system.md` for full reference.
 
 ---
 
@@ -19,23 +21,23 @@ IndicAgent processes **~4.5 bars/sec** against a theoretical target of **530 bar
 ### Current Parallelization
 
 ```
-I1: [Plugin1, Plugin2, ... Plugin28] → asyncio.gather (parallel)
+Indicators (I1): [Plugin1, Plugin2, ... Plugin28] → asyncio.gather (parallel)
  ↓
-I2: [Plugin1] → [Plugin2] → ... (sequential, 11 plugins)
+Composite events (I2): [Plugin1] → [Plugin2] → ... (sequential, 11 plugins)
  ↓
-I3: [Plugin1] → [Plugin2] → ... → [Plugin9] (sequential)
+Structure (I3): [Plugin1] → [Plugin2] → ... → [Plugin9] (sequential)
  ↓
-I4: [Plugin1] → [Plugin2] → ... → [Plugin13] (sequential)
+Context (I4): [Plugin1] → [Plugin2] → ... → [Plugin13] (sequential)
  ↓
-I5 (16) → SMC (13) → I6 (1): (sequential)
+Patterns (I5, 16 plugins) → Smart money (SMC, 13 plugins) → Confluence (I6, 1 plugin): (sequential)
  ↓
 I7: [Plugin1, Plugin2, ... Plugin37] → asyncio.gather (parallel)
 ```
 
 **Latency Impact:**
-- I1 (parallel): 30ms
-- I2-I6 (sequential): 160ms (73% of total)
-- I7 (parallel): 20ms
+- Indicators (I1, parallel): 30ms
+- Composite events through confluence (I2-I6, sequential): 160ms (73% of total)
+- Signals (I7, parallel): 20ms
 
 **Why Threading Doesn't Help:**
 Python's Global Interpreter Lock (GIL) allows only one thread to execute Python bytecode at a time. ThreadPoolExecutor workers contend for the GIL, causing context switching overhead. CPU-bound work (plugin compute) cannot utilize multiple cores regardless of worker count.
@@ -58,9 +60,9 @@ Instead of processing 1 bar through all tiers sequentially, process N bars throu
 
 **Current (Per-Bar Sequential):**
 ```
-Bar1: I1 → I2 → I3 → I4 → I5 → I6 → I7 (220ms)
-Bar2: I1 → I2 → I3 → I4 → I5 → I6 → I7 (220ms)
-Bar3: I1 → I2 → I3 → I4 → I5 → I6 → I7 (220ms)
+Bar1: I1 → I2 → I3 → I4 → I5 → SMC → I6 → I7 (220ms)
+Bar2: I1 → I2 → I3 → I4 → I5 → SMC → I6 → I7 (220ms)
+Bar3: I1 → I2 → I3 → I4 → I5 → SMC → I6 → I7 (220ms)
 Total: 660ms for 3 bars
 ```
 
@@ -102,7 +104,7 @@ Total: 210ms for 3 bars (amortized)
 ### Renaissance Approach: Measure First
 
 1. **Profile** — identify actual hotspots (flamegraph, latency breakdown)
-2. **Identify biggest lever** — fix what dominates (73% of latency in I2-I6)
+2. **Identify biggest lever** — fix what dominates (73% of latency in composite events through confluence, I2-I6)
 3. **Design fix** — batch processing parallelizes across bars, not plugins
 4. **Implement** — dual-mode architecture
 5. **Measure again** — confirm improvement before next optimization
@@ -144,7 +146,7 @@ Use `multiprocessing` to bypass GIL — each tier in separate process.
 
 ### Native Extensions (Rust/C++)
 
-Rewrite hot plugins (I1 indicators, I4 context) in Rust.
+Rewrite hot plugins (indicators I1, context I4) in Rust.
 
 **Trade-offs:**
 - Development cost (~3-5 days per plugin)

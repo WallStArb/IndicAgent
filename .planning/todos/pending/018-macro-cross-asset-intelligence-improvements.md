@@ -4,7 +4,7 @@ title: Macro & Cross-Asset Intelligence — Wire, Segment, Extend
 area: intelligence
 priority: 2
 files:
-  - docs/ideas/macro-cross-asset-intelligence-improvements.md
+  - docs/ideas/intel-08-macro-cross-asset.md
 ---
 
 ## Problem

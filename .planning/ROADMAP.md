@@ -22,7 +22,7 @@
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104-109 (shipped 2026-05-29)
 - ✅ **v2.8 AI Platform — Part 1** — Phases 094-095, 106-108, 110-116 (shipped 2026-06-08)
 - ✅ **v2.9 Signal Quality Renaissance** — Phases 117-122 (shipped 2026-06-13; 5.18M noise signals deleted, 21 setups refactored, param store wired)
-- 📋 **v2.10 Data Architecture Evolution** — Phases 123-130 (8 phases: ECL restoration + APR full migration (all 3 tiers) + I7 signal hardening + clean replay + 3-table migration)
+- 📋 **v2.10 Data Architecture Evolution** — Phases 123-130 (8 phases: ECL restoration + APR full migration (all 3 tiers) + signal universe hardening + clean replay + 3-table migration)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked — v2.9 complete; next after v2.10)
 
 ## Phases
@@ -1065,7 +1065,7 @@ Plans:
 <details>
 <summary>📋 v2.10 Data Architecture Evolution (Phases 123-130)</summary>
 
-**Milestone Goal:** Establish correct signal architecture (3-table: signal_events / trade_frames / trade_executions), fully externalize APR (Adaptive Parameter Registry), and deliver clean replay for ML training data. ECL boundary (Phase 123) removes all extrinsic emission suppressors. APR migration (Phase 125) externalizes all 51 constants. I7 signal hardening (Phase 126) wires all exempt plugins and fixes raw signal mechanics. Clean replay (Phase 127) regenerates the signal universe on the corrected pipeline. 3-table migration (Phases 128-130) separates detection/hypothesis/execution.
+**Milestone Goal:** Establish correct signal architecture (3-table: signal_events / trade_frames / trade_executions), fully externalize APR (Adaptive Parameter Registry), and deliver clean replay for ML training data. ECL boundary (Phase 123) removes all extrinsic emission suppressors. APR migration (Phase 125) externalizes all 51 constants. Signal universe hardening (Phase 126) wires all confluence-exempt signal-generation plugins and fixes zone width mechanics. Clean replay (Phase 127) regenerates the signal universe on the corrected pipeline. 3-table migration (Phases 128-130) separates detection/hypothesis/execution.
 
 **Execution order:** v2.9 → v2.10 Workstream A (123-127) → v2.10 Workstream B (128-130) → v2.8 Part 2 (resume)
 
@@ -1097,7 +1097,7 @@ This phase is split into three waves:
 
 ---
 
-### Phase 124: Signal Universe Integrity + Cold-Start Hardening
+### Phase 124: Signal Universe Integrity + Cold-Start Hardening — ✅ COMPLETE 2026-06-14
 
 **Goal:** Tighten 5 over-firing plugins (15-30%/bar) to < 3%/bar via event vs state detection. Fix ON CONFLICT cold-start contamination in intelligence_features (IS NULL guard only). Add --warmup pass to historical replay.
 
@@ -1114,18 +1114,16 @@ This phase is split into three waves:
 
 **Wave A** (deterministic, ship first):
 
-- [ ] 124-01-PLAN.md — Migration 130 (promote 4 CTF columns + backfill + JSONB strip) + feature_writer ON CONFLICT cold-start guard + CTF reader migration + `--warmup` flag
-- Status: Ready to execute
+- [x] 124-01-PLAN.md — Migration 130 (promote 4 CTF columns + backfill + JSONB strip) + feature_writer ON CONFLICT cold-start guard + CTF reader migration + `--warmup` flag
 
 **Wave B** (behavioral, after Wave A):
 
-- [ ] 124-02-PLAN.md — TrendFollowing structural rewrite (pullback-to-MA reversal / consolidation breakout)
-- [ ] 124-03-PLAN.md — OFIContinuation structural rewrite (OFI acceleration/thrust bar)
-- [ ] 124-04-PLAN.md — PatternCompletion structural rewrite (target reached / neckline break + instance consumption)
-- [ ] 124-05-PLAN.md — LiquiditySweepReclaim structural rewrite (rising edge + close-above acceptance)
-- [ ] 124-06-PLAN.md — AnchoredVWAPReversion structural rewrite (departure + return + rejection/reclaim candle)
-- [ ] 124-07-PLAN.md — D6 fire-rate sanity SQL (aggregate + segmented)
-- Status: Ready to execute
+- [x] 124-02-PLAN.md — TrendFollowing structural rewrite (pullback-to-MA reversal / consolidation breakout)
+- [x] 124-03-PLAN.md — OFIContinuation structural rewrite (OFI acceleration/thrust bar)
+- [x] 124-04-PLAN.md — PatternCompletion structural rewrite (target reached / neckline break + instance consumption)
+- [x] 124-05-PLAN.md — LiquiditySweepReclaim structural rewrite (rising edge + close-above acceptance)
+- [x] 124-06-PLAN.md — AnchoredVWAPReversion structural rewrite (departure + return + rejection/reclaim candle)
+- [x] 124-07-PLAN.md — D6 fire-rate sanity SQL (aggregate + segmented)
 
 ---
 
@@ -1148,23 +1146,24 @@ This phase is split into three waves:
 
 ---
 
-### Phase 126: I7 Signal Universe Hardening
+### Phase 126: Signal Universe Hardening
 
-**Goal:** Wire all 8 `_I7_I6_EXEMPT` plugins through I6 (or retire those without defensible theoretical basis), fix broken zero-signal plugins, audit every I7 plugin for institutional quant grounding, and fix raw signal mechanics so the clean replay in Phase 127 produces usable training data.
+**Goal:** Establish a mechanically correct signal universe: all emitted signals have structurally valid zones (ATR-bounded) and full confluence annotation, making the clean replay in Phase 127 usable as ML training data. Zone width enforcement eliminates phantom stopped_at_entry outcomes; confluence wiring closes the ECL annotation gap on all signal-generation plugins.
+
+**Design doc**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
 **Depends on**: Phase 125
-**Requirements**: SIGNAL-QUALITY-01
+**Requirements**: SIGNAL-QUALITY-01, SIGNAL-QUALITY-02
 **Success Criteria**:
 
-  1. `_I7_I6_EXEMPT` set emptied — all retained plugins have proper I6 gate integration; retired plugins removed from `TIER_I7`
-  2. Zero I7 plugins with zero signal output in replay (all registered plugins fire)
-  3. `trad_MeanReversion` fixed or retired (currently 27 total signals, 26 pending)
-  4. Every I7 plugin has documented theoretical basis referencing quant literature; plugins without institutional backing flagged and retired
-  5. Zone minimum width `>= 0.5×ATR` enforced at emission gate (not just zone_engine config)
-  6. Stop calculated from entry price, not zone edge; emission gate: `stop_distance / ATR >= min_stop_atr_mult`
-  7. Asset-class parameter seeds in APR — equity ATR multipliers separate from forex
-  8. `stopped_at_entry` rate < 25% on replay subset (from current 47.6%)
-  9. `pytest tests/unit/ -q` green
+  1. `_resolve_zone_bounds()` returns `no_signal()` when `zone_width < min_zone_width_atr × ATR` for all zone source types (supply_demand, fvg, ob, structural)
+  2. `feature.zone_engine.min_zone_width_atr` in APR with per-asset-class seeds (equity_etf: 0.5, forex: 0.25, futures: 0.35)
+  3. `stopped_at_entry` rate < 15% on 10K-signal replay sample (from 47.6%)
+  4. `_CONFLUENCE_EXEMPT_PLUGINS` frozenset deleted; all 8 formerly-exempt plugins have `requires_i6_confluence = True` and call `capture_signal_features()`
+  5. All 37 registered signal-generation plugins emit > 0 signals in 30-day replay window
+  6. `trad_MeanReversion` dual-gate conflict resolved (fires > 100 signals/30d) or demoted to `shadow_only=True` with documented rationale; stays in `TIER_I7`
+  7. Detection correctness audit doc produced: per-plugin verification result; unverifiable plugins demoted to `shadow_only=True` with explicit rationale — removal from `TIER_I7` is not a valid disposition
+  8. `pytest tests/unit/ -q` green
 
 **Plans**: defer to `/gsd-plan-phase 126`
 
@@ -1242,9 +1241,9 @@ This phase is split into three waves:
 **v2.10 Success Criteria:**
 
 1. ✅ Phase 123 complete (ECL boundary restored)
-2. ⏳ Phase 124 complete (signal universe integrity + cold-start hardening)
+2. ✅ Phase 124 complete (signal universe integrity + cold-start hardening)
 3. ⏳ Phase 125 complete (APR full migration — all three tiers)
-4. ⏳ Phase 126 complete (I7 signal universe hardening)
+4. ⏳ Phase 126 complete (signal universe hardening)
 5. ⏳ Phase 127 complete (clean replay + validation)
 6. ⏳ Phase 128-130 complete (3-table signal architecture)
 

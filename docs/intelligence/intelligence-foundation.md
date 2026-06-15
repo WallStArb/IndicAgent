@@ -9,7 +9,9 @@
 
 ## Purpose
 
-The WHY and WHAT of IndicAgent's intelligence pipeline: Renaissance principles applied to market intelligence, I1-I8 layer definitions, data flow philosophy, and core data contracts.
+The WHY and WHAT of IndicAgent's intelligence pipeline: Renaissance principles applied to market intelligence, tier definitions (indicators through AI narrative, I1-I8), data flow philosophy, and core data contracts.
+
+**Tier glossary:** I1 = indicators, I2 = composite_events, I3 = structure, I4 = context, I5 = patterns, SMC = smart_money, I6 = confluence, I7 = signals, I8 = AI_narrative. See `docs/foundation/naming-system.md` for full reference.
 
 Start here to understand the system before implementing.
 
@@ -27,13 +29,14 @@ Start here to understand the system before implementing.
 
 ```
 HOT PATH (deterministic, I1-I7):
-  Bar → I1 → I2 → I3 → I4 → I5 → SMC → I6 → I7 → Signal
+  Bar → Indicators (I1) → Composite events (I2) → Structure (I3) → Context (I4)
+      → Patterns (I5) → Smart money (SMC) → Confluence (I6) → Signals (I7) → Signal
   All plugins are pure Python functions. Same input = same output.
   Latency: ~220ms per bar (single symbol, all timeframes).
 
 OUT-OF-BAND (AI/LLM, I8):
-  I7 signal → AlphaSwarm (LLM agents evaluate quality)
-  I7 signal → NarrativeSwarm (generates explanation)
+  Signal (I7) → AlphaSwarm (LLM agents evaluate quality)
+  Signal (I7) → NarrativeSwarm (generates explanation)
   signal_ledger outcomes → ML training (offline)
   LLMs consume pipeline outputs, never sit on the critical path.
 ```
@@ -299,7 +302,7 @@ Bootstrap weights (version 0) are manually tuned. The architecture supports lear
 
 ```
 signal fires (weight version N)
-  → signal_tracker_compute_agent tracks outcome (stop / target / TTL)
+  → signal-tracker-compute tracks outcome (stop / target / TTL)
   → outcome written to signal_ledger
   → weight-learning job reads outcomes, fits logistic regression per bucket
   → new weights written to cis_weights (version N+1)

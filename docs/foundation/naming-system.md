@@ -87,6 +87,24 @@ Rings and the I1–I8 tiers are orthogonal. Rings describe portability. Tiers de
 
 `src/intelligence/features/i1_indicators/rsi.py` → `RSIPlugin`, not `I1RSIPlugin`. Tier is structural metadata encoded in the directory. Exception: when tier membership is the concept itself (an object that manages tier boundaries), the tier code may appear in the name.
 
+### Intelligence Tier Code Glossary
+
+When tier codes appear in documentation or code, they map to these descriptive names:
+
+| Code | Name | Purpose |
+|------|------|---------|
+| I1 | indicators | Technical indicators: RSI, MACD, ATR, ADX, etc. |
+| I2 | composite_events | Composite event detectors: momentum acceleration, multi-timeframe signals |
+| I3 | structure | Market structure: swing highs/lows, support/resistance levels |
+| I4 | context | Context features: GARCH volatility, Kalman filters, VWAP, volume profile, regime |
+| I5 | patterns | Chart patterns: head & shoulders, triangles, wedges |
+| SMC | smart_money | Smart money concepts: BOS/CHoCH, order blocks, fair value gaps |
+| I6 | confluence | Cross-timeframe confluence scoring for signal confidence |
+| I7 | signals | Trading signal generation with entry/exit framing |
+| I8 | AI_narrative | LLM-driven narrative generation and meta-analysis |
+
+**Usage:** In docs, use first-mention expansion: "indicators (I1)" or "I1 indicators". After first mention, the code alone is sufficient.
+
 ### `Base*` Prefix Rule
 
 - Ring 0 infrastructure bases keep `Base*`: `BaseDaemon`, `BaseWriter`, `BaseProvider`. They are shared implementation foundations.
