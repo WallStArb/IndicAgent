@@ -142,7 +142,7 @@ class VWAPDeviationPlugin:
             regime_compat = max(0.0, 0.50 - abs(trend_regime))
 
         # Volume contraction (0.25): lower volume = better fade
-        vol_sma = float(np.mean(volume[-20:])) if len(volume) >= 20 else float(np.mean(volume))
+        vol_sma = float(np.mean(volume[-21:-1])) if len(volume) >= 2 else 0.0
         volume_ratio = float(volume[-1]) / vol_sma if vol_sma > 0 else 1.0
         vol_contraction = max(0.0, 1.0 - max(0.0, volume_ratio - 1.0))
 

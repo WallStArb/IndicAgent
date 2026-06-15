@@ -267,7 +267,7 @@ class CandlestickPatternSetupPlugin:
         # CNDL-02: Volume confirmation
         vol_sma20 = float(features.get("volume_sma_20") or 0.0)
         if vol_sma20 <= 0:
-            vol_sma20 = float(np.mean(vol[-20:])) if len(vol) >= 20 else float(np.mean(vol))
+            vol_sma20 = float(np.mean(vol[-21:-1])) if len(vol) >= 2 else 0.0
         volume_confirms = vol_sma20 > 0 and vol[-1] > vol_sma20 * self.volume_boost_ratio
 
         # CNDL-02: S/R proximity confirmation
