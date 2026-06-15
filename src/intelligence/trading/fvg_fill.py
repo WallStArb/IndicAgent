@@ -4,6 +4,34 @@ Gates on fvg_type != 0 AND fvg_open_count >= 1.0.
 Direction: +1 for bull FVG (price seeks to fill upside gap), -1 for bear FVG.
 Confidence scales with open FVG count — more open FVGs = stronger magnetic pull.
 Evidence contributor for CIS bucket scorer — Phase B input.
+
+VERDICT: ENTRY-TIMING DEFECT (Phase 126 audit)
+  Root cause: plugin fires on FVG presence (fvg_type != 0) and uses close[-1] as
+  market entry. The FVG fill thesis requires entering AT or WITHIN the FVG zone
+  boundary (a limit order waiting for price to retrace into the gap), not at the
+  current market price after the gap has already printed.
+
+  SQL probe on 68,800 signals (full corpus):
+    Long direction:  86% of entries land ABOVE entry_zone_high (avg_pnl_r=-0.68R)
+                     14% of entries land inside zone       (avg_pnl_r=-0.28R)
+    Short direction: 85% of entries land BELOW entry_zone_low  (avg_pnl_r=-0.66R)
+                     15% of entries land inside zone       (avg_pnl_r=-0.19R)
+
+  When price has already moved through the FVG zone, a market entry chases momentum
+  AGAINST the fill direction (buying highs on a bull FVG, selling lows on a bear FVG).
+  In-zone entries perform 2.4x better, confirming the defect is structural.
+
+  Fix design (NOT implemented in this phase - architectural change required):
+    1. Change entry_type from at_close to at_limit
+    2. Set entry_price = fvg_top (for bull/long) or fvg_bottom (for bear/short)
+    3. Add proximity gate: only fire if close is within N * ATR of the FVG zone
+       so stale far-away FVGs don't queue phantom limit orders
+    4. Register in APR: threshold.fvg_fill.proximity_atr_max (initial seed: 0.5)
+  Requires trade_framer.py changes to support at_limit entry type for FVG semantics.
+  Planned in Phase 127 (signal architecture iteration).
+
+  Current state: parked shadow_only=True (pre-existing) pending redesign.
+  avg_pnl_r=-0.60R, equity win rate ~8.93% is fully explained by entry-timing defect.
 """
 
 from __future__ import annotations
