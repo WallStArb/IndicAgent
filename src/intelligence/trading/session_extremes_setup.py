@@ -1,5 +1,15 @@
 """I7 SessionExtremesSetup — fade setups triggered by price approaching Asian session extremes.
 
+VERDICT: SCOPE-MISMATCH (Phase 126 audit)
+  The gate requires asian_session_high and asian_session_low from I3/struct tier.
+  SQL probe on 30-day corpus (2,222,900 bars): zero bars have asian_session_high populated
+  in intelligence_features (column existence: 0/2,222,900). The current instrument universe
+  (ES, NQ, RTY, EURUSD, USDJPY, USDCHF, SPY, etc.) does not include dedicated Asian-session
+  FX or equity products that reliably publish Asian-session extremes.
+  Gate logic is structurally correct; zero fires are expected until Asian-session instruments
+  (e.g., NKD, NI225, USDJPY 24h FX) are added to the corpus.
+  Set shadow_only=False when instruments with asian_session_high coverage are added.
+
 Renaissance principles:
 - Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
 - Zone correction prevents stopped_at_entry outcomes
