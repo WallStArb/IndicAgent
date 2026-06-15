@@ -1,31 +1,34 @@
 ---
+plan: 126-07
 phase: 126-signal-universe-hardening
-plan: "07"
 status: complete
-completed_at: "2026-06-15"
+completed: 2026-06-15
+commits:
+  - 513deb4b
+key-files:
+  created: []
+  modified:
+    - .planning/REQUIREMENTS.md
 ---
 
-# 126-07 Summary: REQUIREMENTS.md Gap Closure
+## What Was Built
 
-## What Was Done
+Documentation gap closure — updated REQUIREMENTS.md to match Phase 126 actual implementation for SIGNAL-QUALITY-01 and SIGNAL-QUALITY-02.
 
-Closed all 3 staleness gaps identified in Phase 126 VERIFICATION.md. No code changes — documentation fixes only.
+## Task Outcomes
 
-**SIGNAL-QUALITY-01** — Corrected gate location, APR key names, threshold values, and deferral note:
-- Gate: `frame_trade()` using `_reject_frame("zone_too_narrow:{zone_source}", ...)` (not `_resolve_zone_bounds()` / `no_signal()`)
-- APR keys: `.equity`/`.fx`/`.futures` = 1.5/1.0/1.5 (not equity_etf/forex with 0.5/0.25/0.35)
-- stopped_at_entry rate measurement deferred to Phase 127 (REPLAY-01)
-- Marked `[x]`
+**T01 — SIGNAL-QUALITY-01 corrected:** gate location changed to `frame_trade()/_reject_frame`; APR keys corrected to `.equity/.fx/.futures` = 1.5/1.0/1.5; stopped_at_entry measurement deferred to Phase 127 REPLAY-01; marked [x].
 
-**SIGNAL-QUALITY-02** — Corrected frozenset name, annotation architecture, schema version:
-- Frozenset: `_I7_I6_EXEMPT` (not `_CONFLUENCE_EXEMPT_PLUGINS`)
-- Annotation: `signal_processor._annotate_signal()` pipeline layer (not per-plugin `requires_i6_confluence=True` / `capture_signal_features()`)
-- `capture_signal_features()` deprecated (deletion Phase 128)
-- `SIGNAL_SCHEMA_VERSION` v4 noted
-- Marked `[x]`
+**T02 — SIGNAL-QUALITY-02 corrected:** frozenset name `_I7_I6_EXEMPT`; pipeline annotation via `signal_processor._annotate_signal()`; `capture_signal_features()` marked DEPRECATED; SIGNAL_SCHEMA_VERSION v4; marked [x].
 
-**Traceability table** — both rows updated Pending → Complete.
+**T03:** Both traceability rows Pending → Complete; last-updated date set to 2026-06-15.
 
-## Artifacts Modified
+## Self-Check: PASSED
 
-- `.planning/REQUIREMENTS.md` — SIGNAL-QUALITY-01/02 text corrected, both marked Complete, last-updated 2026-06-15
+- [x] frame_trade / _reject_frame in SIGNAL-QUALITY-01
+- [x] .equity/.fx/.futures APR keys with 1.5/1.0/1.5 values
+- [x] Phase 127 deferral noted for stopped_at_entry
+- [x] _I7_I6_EXEMPT in SIGNAL-QUALITY-02
+- [x] _annotate_signal in SIGNAL-QUALITY-02
+- [x] Both [x] Complete in traceability table
+- [x] Last-updated 2026-06-15
