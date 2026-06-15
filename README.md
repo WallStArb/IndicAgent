@@ -443,6 +443,45 @@ Every bar the pipeline processes adds a row to `intelligence_features`. Every si
 
 ---
 
+## Adaptive Parameter Registry (APR) — Every Parameter Is a DB Row
+
+Every numeric value that governs signal behavior — detection thresholds, confidence weights, indicator periods, governance gates, regime multipliers — lives in the APR rather than in code. Hard-coded constants in `src/` are an architecture violation.
+
+Parameters are not static configuration. They start as `[initial_estimate]` human priors and move through a defined lifecycle:
+
+```
+seed → operator_tuning → ml_learned → user_override → ml_learned again
+```
+
+Every write is recorded in `config_history` with `changed_by` and `reason` — the full conversation between human judgment and empirical evidence is preserved. ML discovery writes calibrated values back after p < 0.05 with sufficient N. Updates broadcast via Kafka outbox for hot-reload; no service restarts required.
+
+### What the APR governs
+
+| Namespace | Examples |
+|-----------|---------|
+| `threshold.*` | Plugin detection gates — minimum structural strength, zone proximity, divergence depth |
+| `weights.*` | CIS bucket weights, confidence composite factors |
+| `feature.*` | Indicator periods — SMA/RSI/ATR lookback windows |
+| `regime.*` | HMM confidence thresholds, regime stability gates |
+| `shadow.*` | Promotion gates — minimum N, bootstrap CI floor |
+| `signal.*` | TTL bars, alpha decay half-life per timeframe |
+| `swarm.*` | Swarm agent weights, mixture-of-agents coefficients |
+
+### The feedback loop
+
+The APR is the write target for every learning system in the platform:
+
+- **ML discovery** — tsfresh feature extraction + IC analysis → writes optimal indicator periods and threshold values after p < 0.05
+- **CIS weight refinement** — logistic regression on outcome labels → writes updated bucket weights versioned by `weights_version`
+- **Isotonic calibration** — fits monotone confidence maps per `(setup_plugin, regime_type)` segment → writes calibration parameters back to APR
+- **Shadow governance** — bootstrap CI evaluation every N signals → writes promotion/demotion decisions
+
+Every parameter the system acts on has a path from human prior to empirically calibrated value. The APR is what makes "self-improving" a structural property rather than a marketing claim.
+
+Full spec: [`docs/foundation/parameter-store.md`](docs/foundation/parameter-store.md)
+
+---
+
 ## Vector Intelligence Layer - Empirical Memory for the Pipeline
 
 The I1–I7 pipeline is a sophisticated prediction machine with one critical gap: it has no memory of what it has predicted before. Every bar is processed as if it is the first bar. RSI reads 67, regime is trending, SMC structure shows a bullish order block - the pipeline computes all of this, fires a confluence score, generates a signal. Then the bar closes, price moves, and the system forgets. The intelligence state at that bar and the outcome that followed are never connected.
