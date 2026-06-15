@@ -203,14 +203,13 @@ async def _handle_ic_computed(conn, event: dict) -> None:
 
 
 async def _handle_dq_failure(conn, event: dict) -> None:
-    """Insert one row to signal_metrics_dq_failures (idempotent — one row per signal+reason)."""
+    """Insert one row to signal_metrics_dq_failures."""
     await conn.execute(
         """
         INSERT INTO signal_metrics_dq_failures
             (signal_id, reason_code, entry_price, stop_loss,
              pnl_r, direction, hmm_regime, setup_plugin, created_at)
         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, NOW())
-        ON CONFLICT (signal_id, reason_code) DO NOTHING
         """,
         event["signal_id"],
         event["reason_code"],

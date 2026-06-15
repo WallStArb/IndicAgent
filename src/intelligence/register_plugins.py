@@ -668,20 +668,27 @@ TIER_I7: list[str] = [
 ]
 
 
-async def shadow_registry_ensure(conn: object, component_name: str, component_type: str) -> None:
+async def shadow_registry_ensure(
+    conn: object,
+    component_name: str,
+    component_type: str,
+    initial_shadow: bool = True,
+) -> None:
     """Idempotent enrollment of a component into shadow_registry.
 
     Uses ON CONFLICT DO NOTHING so custom gate parameters tuned directly in DB
-    are never overwritten by restarts (per D-14).
+    are never overwritten by restarts (per D-14). initial_shadow controls the
+    is_shadow column for NEW rows only — existing rows are never touched.
     """
     await conn.execute(  # type: ignore[union-attr]
         """
-        INSERT INTO shadow_registry (component_name, component_type)
-        VALUES ($1, $2)
+        INSERT INTO shadow_registry (component_name, component_type, is_shadow)
+        VALUES ($1, $2, $3)
         ON CONFLICT (component_name) DO NOTHING
         """,
         component_name,
         component_type,
+        initial_shadow,
     )
 
 
@@ -690,10 +697,13 @@ async def enroll_all_plugins(conn: object) -> None:
 
     Called by IntelligencePipelineAgent._setup() after DB connection established.
     Safe to call on every restart (idempotent via ON CONFLICT DO NOTHING).
+    Plugins with shadow_only=True enroll as is_shadow=True; plugins without
+    the attribute (or shadow_only=False) enroll as is_shadow=False.
     """
     for plugin_name in TIER_I7:
         plugin_obj = registry.get_indicator(plugin_name) or registry.get_pattern(plugin_name)
         plugin_cls = type(plugin_obj) if plugin_obj is not None else None
         if plugin_cls is not None and getattr(plugin_cls, "SHADOW_SKIP", False):
             continue
-        await shadow_registry_ensure(conn, plugin_name, "i7_plugin")
+        initial_shadow = bool(getattr(plugin_cls, "shadow_only", False)) if plugin_cls else True
+        await shadow_registry_ensure(conn, plugin_name, "i7_plugin", initial_shadow)
