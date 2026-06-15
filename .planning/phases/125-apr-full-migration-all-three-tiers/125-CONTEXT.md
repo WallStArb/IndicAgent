@@ -67,15 +67,30 @@ def _min_zone_width_atr(asset_class: str | None) -> float:
 
 ### Weight Sum Invariant
 
-**D-03: Shared `_assert_weights_sum()` utility in `confidence_utils.py`, called at Tier B plugin prewarm/init.**
+**D-03: Shared `_validate_weights_sum()` utility in `confidence_utils.py`, called at Tier B plugin prewarm/init.**
 
-Signature: `_assert_weights_sum(weights: dict[str, float], plugin: str, tol: float = 1e-6) -> None`
+Signature: `_validate_weights_sum(weights: dict[str, float], plugin: str, tol: float = 1e-6) -> None`
 
 Raises `ValueError` (NOT `AssertionError` — asserts are disabled by `-O`) with message: `f"{plugin} weights sum to {total:.6f}, expected 1.0"`. Called in each Tier B plugin immediately after loading weights from ConfigService at prewarm/init time. This catches bad seeds at daemon startup AND bad hot-reload writes on the next prewarm cycle.
+
+**Naming rationale:** `_assert_weights_sum` would name the mechanism (Python `assert`). `_validate_weights_sum` names the mathematical role — it validates the weight sum invariant. The naming system requires role names, not mechanism names. The roadmap uses `_assert_weights_sum` but the CONTEXT.md supersedes it on naming.
 
 **Rationale:** Module-level asserts only guard hardcoded fallbacks (wrong for post-APR world where weights come from DB at runtime). pytest-only catches bad SQL seeds but misses runtime config writes from operators or ML agents. The `ValueError` propagates through daemon startup and prevents serving corrupted confidence scores — silent wrong answers are worse than crashes.
 
 The pattern already exists in this codebase (`delta_exhaustion.py`, `lifecycle_tracker.py`) but is ad-hoc. This centralizes it.
+
+### Naming Violations to Fix in Phase 125
+
+**D-04: Fix `cfg` parameter name in `confidence_utils.py` when touching the file.**
+
+`set_config_service(cfg: Any)` — `cfg` is a Tier 3 banned abbreviation (naming system §6). Rename parameter to `config` when adding `_validate_weights_sum()`. Apply the same fix to the module-level variable `_config_service` setter — the variable name is fine; only the parameter is banned.
+
+**D-05: Capture two cleanup TODOs — do NOT fix in Phase 125.**
+
+- `confidence_utils.py` file name: `Utils` is a retired word (naming system §3 retired words list). The file should be renamed to `confidence.py`. 39 import sites makes this out-of-scope for Phase 125; create a cleanup TODO to rename in a future polish phase.
+- `_cfg()` in `zone_engine.py`: `cfg` abbreviation in function name. Should be `_read_config()`. Phase 125 does not touch `zone_engine.py` code; capture as a cleanup TODO.
+
+Downstream agents: do NOT rename `confidence_utils.py` or `_cfg()` in Phase 125 — only flag as TODOs. The file rename requires a grep-and-replace across 39 callers and belongs in a dedicated cleanup commit.
 
 ### Claude's Discretion
 
