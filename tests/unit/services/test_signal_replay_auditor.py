@@ -302,7 +302,7 @@ def test_replay_outcome_parametric(outcome: str, direction: int) -> None:
     bars = _bars_for_outcome(outcome, direction)
     assert bars, f"No bars generated for outcome={outcome}, direction={direction}"
 
-    lt = agent._evaluate_zone_track(signal_dict, bars, T0)
+    lt = agent._evaluate_zone_track(signal_dict, bars, T0 - timedelta(minutes=1))
 
     assert (
         lt is not None

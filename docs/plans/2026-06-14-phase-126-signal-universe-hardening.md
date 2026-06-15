@@ -456,7 +456,28 @@ This is a diagnostic-first task. Do not change code until the root cause is conf
 
 ---
 
-### Wave 3 — Statistical & Detection Correctness Audit (after Wave 2)
+### Wave 3 — Pipeline-Layer Signal Annotation (parallel with Wave 2, after Wave 0)
+
+**Full plan:** `docs/plans/2026-06-14-phase-126-pipeline-annotation-layer.md`
+
+Annotation of extrinsic context (CTF scores, macro regime, exhaustion, zone friction) is pipeline infrastructure responsibility, not plugin responsibility. The current design puts `capture_signal_features()` in plugin bodies — a category error that produces a biased, heterogeneous training corpus. This wave moves annotation to `signal_processor.process()`, applied uniformly to every signal regardless of which plugin fired.
+
+**Why this blocks Phase 127:** A clean replay on a corpus where `context_features` is populated by 22 of 30 plugins and null for the rest produces ML training data with a plugin-identity confound in the feature matrix. That corpus is not fit for `context_features`-dependent training.
+
+Summary of tasks (see full plan for implementation details):
+- [ ] **P126-06a:** Audit what is/isn't in `flat_features` — establishes ground truth before any code changes
+- [ ] **P126-06b:** Formalize `zone_friction_score` in a tier plugin — currently produced by one plugin body only, not in IntelligenceEvent schema
+- [ ] **P126-06c:** Implement `_annotate_signal()` in `signal_processor.py` — single annotation point, full `flat_features` as `context_features`
+- [ ] **P126-06d:** Strip `capture_signal_features()` from all 30 plugin bodies — mechanical sweep
+- [ ] **P126-06e:** Clean `make_signal_from_frame()` — remove ECL kwargs (`ctf_score=`, `context_features=`, etc.)
+- [ ] **P126-06f:** Delete `_I7_I6_EXEMPT` and `requires_i6_confluence` enforcement
+- [ ] **P126-06g:** Deprecate `capture_signal_features()` in `confidence_utils.py`
+- [ ] **P126-06h:** Bump `SIGNAL_SCHEMA_VERSION` with changelog comment
+- [ ] **P126-06i:** Unit tests — annotation uniformity, extensibility contract, zero plugin annotation code
+
+---
+
+### Wave 4 — Statistical & Detection Correctness Audit (after Wave 2)
 
 **P126-05: Per-plugin IC validation + detection condition verification**
 
@@ -526,14 +547,17 @@ This replaces the narrower "detection correctness audit" (P126-04 in prior plan)
 | 3 | APR seeds data-derived | `feature.zone_engine.min_zone_width_atr` per-asset-class seeds set from Step 1 zone_width/ATR ratio analysis, not assumed. Provenance documented in config_schema description. |
 | 4 | Stop distance verified | Step 2 query run; result documented. If p05 stop_atr >= 0.8 on recent signals, no additional gate added. If gap found, gate added with APR key. |
 | 4a | Impact measured | Proxy rejection count query run: N signals per plugin per asset class would be rejected by the gate on historical corpus. Numbers documented. |
-| 5 | Confluence-exempt frozenset deleted | `grep -r "_I7_I6_EXEMPT" src/ tests/` returns empty |
-| 6 | All 8 formerly-exempt plugins compliant | `requires_i6_confluence = True` + `capture_signal_features()` verified in each plugin |
-| 7 | Time-specific plugin verdict documented | SessionExtremesSetup, ORB15, ORB30 each have documented verdict (CORRECT-RARE / BROKEN / SCOPE-MISMATCH) in plugin docstring |
-| 8 | trad_MeanReversion resolved | > 100 fires in 30-day replay simulation OR `shadow_only=True` with rationale; stays in `TIER_I7` |
-| 9 | trad_FVGFill root cause identified | Entry timing defect confirmed/refuted; code fix applied OR `shadow_only=True` with redesign doc |
-| 10 | Signal quality audit complete | `docs/plans/2026-06-14-phase-126-signal-quality-audit-results.md` with IC table + detection verifiability table |
-| 11 | Anti-signal plugins demoted | All plugins with IC < -0.02 or hit_rate CI upper < 0.45 set to `shadow_only=True` |
-| 12 | Tests green | `pytest tests/unit/ -q` passes |
+| 5 | Time-specific plugin verdict documented | SessionExtremesSetup, ORB15, ORB30 each have documented verdict (CORRECT-RARE / BROKEN / SCOPE-MISMATCH) in plugin docstring |
+| 6 | trad_MeanReversion resolved | > 100 fires in 30-day replay simulation OR `shadow_only=True` with rationale; stays in `TIER_I7` |
+| 7 | trad_FVGFill root cause identified | Entry timing defect confirmed/refuted; code fix applied OR `shadow_only=True` with redesign doc |
+| 8 | Annotation uniform across all signals | `grep -rn "capture_signal_features" src/intelligence/trading/` returns empty; every signal from `signal_processor.process()` has non-empty `context_features` |
+| 9 | Surfaced ECL fields always populated | `ctf_score`, `ctf_confirmed`, `zone_friction_score` present on every signal (null only when source genuinely absent, never missing due to plugin omission) |
+| 10 | `zone_friction_score` formalized | Field added to IntelligenceEvent schema; computed by tier plugin; present in `flat_features` |
+| 11 | Exempt category deleted | `grep -r "_I7_I6_EXEMPT\|requires_i6_confluence" src/` returns empty |
+| 12 | Signal schema version bumped | `SIGNAL_SCHEMA_VERSION` incremented with changelog comment |
+| 13 | Signal quality audit complete | `docs/plans/2026-06-14-phase-126-signal-quality-audit-results.md` with IC table + detection verifiability table |
+| 14 | Anti-signal plugins demoted | All plugins with IC < -0.02 or hit_rate CI upper < 0.45 set to `shadow_only=True` |
+| 15 | Tests green | `pytest tests/unit/ -q` passes |
 
 ---
 
@@ -557,7 +581,7 @@ This replaces the narrower "detection correctness audit" (P126-04 in prior plan)
 | 3-table signal architecture | Phases 128-130 | Structural; not data-quality |
 | CounterfactualTracker (populates `counterfactual_pnl_r`) | Phase 130 | Requires trade_frames table |
 | Full ML parameter discovery | v2.11 | Requires 30-90 days of counterfactual_pnl_r |
-| I6 integration of any future plugins | Future phase | Only the 8 currently-exempt plugins are in scope |
+| `capture_signal_features()` deletion | Phase 128 | Deprecated in Phase 126; retained one release cycle to confirm no external callers before full removal |
 
 ---
 

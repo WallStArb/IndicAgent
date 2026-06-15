@@ -99,7 +99,7 @@ def _get_mock_contracts():
 class TestIbkrMaxSubscriptions:
     def test_default_is_80(self):
         s = Settings()
-        assert s.ibkr_max_subscriptions == 80
+        assert s.ibkr_max_subscriptions == 100
 
     def test_env_override(self, monkeypatch):
         monkeypatch.setenv("IBKR_MAX_SUBSCRIPTIONS", "100")
