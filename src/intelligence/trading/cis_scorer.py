@@ -7,7 +7,7 @@ Renaissance principles applied:
 - Segment relentlessly: regime thresholds explicitly documented
 - Instrument everything: epsilon tolerance for floating-point direction comparisons
 
-At Phase B (bootstrap), weights are fixed from BOOTSTRAP_WEIGHTS (version=0).
+At Phase B (bootstrap), weights are fixed from _CONFIG_UNAVAILABLE_FALLBACK (version=0).
 Phase C will load learned weights from the cis_weights table.
 """
 
@@ -35,6 +35,19 @@ CIS_FIRE_THRESHOLD = 0.35  # abs(CIS) > 0.35 required for signal fire
 BUCKET_AGREE_MIN = 3  # Minimum buckets agreeing with CIS direction
 BUCKET_NOISE_FLOOR = 0.1  # Minimum |bucket_score| to count as agreeing
 
+_config_service: Any | None = None
+
+
+def set_config_service(config: Any) -> None:
+    """Inject ConfigService for APR-backed CIS gate constants.
+
+    Called by intelligence_pipeline._prewarm_threshold_config() at startup.
+    Same pattern as confidence_utils.set_config_service().
+    """
+    global _config_service
+    _config_service = config
+
+
 BUCKET_NAMES: tuple[str, ...] = (
     "trend",
     "momentum",
@@ -44,7 +57,7 @@ BUCKET_NAMES: tuple[str, ...] = (
     "regime",
 )
 
-BOOTSTRAP_WEIGHTS: dict[str, float] = {
+_CONFIG_UNAVAILABLE_FALLBACK: dict[str, float] = {
     "trend": 0.20,
     "momentum": 0.20,
     "structure": 0.15,
@@ -52,6 +65,7 @@ BOOTSTRAP_WEIGHTS: dict[str, float] = {
     "institutional": 0.25,
     "regime": 0.15,
 }
+BOOTSTRAP_WEIGHTS = _CONFIG_UNAVAILABLE_FALLBACK  # deprecated: use _CONFIG_UNAVAILABLE_FALLBACK
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +107,7 @@ class CISScorer:
     ----------
     weights:
         Optional custom weight dict keyed by BUCKET_NAMES. Defaults to
-        BOOTSTRAP_WEIGHTS.
+        _CONFIG_UNAVAILABLE_FALLBACK.
     weights_version:
         Version tag propagated to CISResult. Use 0 for bootstrap.
     """
@@ -103,7 +117,7 @@ class CISScorer:
         weights: dict[str, float] | None = None,
         weights_version: int = 0,
     ) -> None:
-        self._weights = weights if weights is not None else BOOTSTRAP_WEIGHTS
+        self._weights = weights if weights is not None else _CONFIG_UNAVAILABLE_FALLBACK
         self._weights_version = weights_version
         # Pre-compute weights array once — self._weights is immutable after init
         self._weights_array = np.array([self._weights[b] for b in BUCKET_NAMES])
@@ -239,9 +253,26 @@ class CISScorer:
         cis_raw = float(np.dot(self._weights_array, scores_array))
         cis_score = clamp(cis_raw)
 
+        # Read gate constants from APR at runtime (fallback to module-level defaults).
+        fire_threshold = (
+            _config_service.get_sync("threshold.cis.fire_threshold", CIS_FIRE_THRESHOLD)
+            if _config_service is not None
+            else CIS_FIRE_THRESHOLD
+        )
+        bucket_agree_min = (
+            int(_config_service.get_sync("threshold.cis.bucket_agree_min", BUCKET_AGREE_MIN))
+            if _config_service is not None
+            else BUCKET_AGREE_MIN
+        )
+        bucket_noise_floor = (
+            _config_service.get_sync("threshold.cis.bucket_noise_floor", BUCKET_NOISE_FLOOR)
+            if _config_service is not None
+            else BUCKET_NOISE_FLOOR
+        )
+
         # Determine fire direction
         direction = 0
-        if abs(cis_score) > CIS_FIRE_THRESHOLD:
+        if abs(cis_score) > fire_threshold:
             direction = 1 if cis_score > 0 else -1
 
         # Count agreeing buckets: bucket agrees if it pushes in the same direction
@@ -250,10 +281,10 @@ class CISScorer:
         # with cis_score=0.3 correctly reads as 0.28 * 1.0 = 0.28 > 0.1 = agreeing.
         cis_sign = 1.0 if cis_score >= 0 else -1.0
         bucket_array = scores_array * cis_sign  # Apply cis_sign to all buckets
-        agreeing = int(np.sum(bucket_array > BUCKET_NOISE_FLOOR))
+        agreeing = int(np.sum(bucket_array > bucket_noise_floor))
 
         # Require minimum agreement even if threshold was met
-        if agreeing < BUCKET_AGREE_MIN:
+        if agreeing < bucket_agree_min:
             direction = 0
 
         # Design B: Apply Kalman smoothing to raw CIS, then apply CIS-level calibration.
