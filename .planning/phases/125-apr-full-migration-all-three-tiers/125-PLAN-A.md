@@ -16,6 +16,7 @@ must_haves:
     - "All 10 new APR keys exist in config_schema, config_state, and config_history after migration"
     - "migration is idempotent: running it twice produces no error and no duplicate rows"
     - "min_zone_width_atr keys are distinct from the existing min_width_atr key (0.25)"
+    - "ConfigService.get_sync for all 10 new keys returns expected defaults without error after migration runs"
   artifacts:
     - path: "production/migrations/132_phase125_param_store.sql"
       provides: "Triple-insert for 10 new config keys"
@@ -101,8 +102,35 @@ Output: production/migrations/132_phase125_param_store.sql, applied to the live 
     Verify min_width_atr unchanged:
     PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT config_key, config_value FROM config_state WHERE config_key = 'feature.zone_engine.min_width_atr';"
     Expected: 1 row, value = 0.25
+
+    Verify ConfigService.get_sync returns defaults for all 10 keys (confirms DB load chain is wired):
+    .venv/bin/python -c "
+    from src.config.config_service import ConfigService
+    import asyncio
+    async def check():
+        cs = ConfigService()
+        await cs.initialize()
+        keys = [
+            ('threshold.cis.fire_threshold', 0.35),
+            ('threshold.cis.bucket_agree_min', 3),
+            ('threshold.cis.bucket_noise_floor', 0.1),
+            ('feature.zone_engine.min_zone_width_atr', 1.5),
+            ('feature.zone_engine.min_zone_width_atr.equity_etf', 1.5),
+            ('feature.zone_engine.min_zone_width_atr.forex', 1.0),
+            ('feature.zone_engine.min_zone_width_atr.futures', 1.5),
+            ('weights.vwap_reversion.sigma_magnitude', 0.40),
+            ('weights.vwap_reversion.hurst_quality', 0.35),
+            ('weights.vwap_reversion.vol_stability', 0.25),
+        ]
+        for key, default in keys:
+            val = cs.get_sync(key, default)
+            print(f'{key}: {val}')
+        await cs.close()
+    asyncio.run(check())
+    "
+    Expected: all 10 keys print without error
   </verify>
-  <done>10 rows exist in config_state with the exact keys and values specified above. The existing min_width_atr row is unmodified. Running the migration a second time produces no error and no duplicate rows.</done>
+  <done>10 rows exist in config_state with the exact keys and values specified above. The existing min_width_atr row is unmodified. Running the migration a second time produces no error and no duplicate rows. ConfigService.get_sync returns expected values for all 10 keys without error.</done>
 </task>
 
 </tasks>
@@ -116,7 +144,7 @@ Expected result: 10
 </verification>
 
 <success_criteria>
-migration 132 applied cleanly. 10 new config keys exist in config_state with correct values. Idempotency verified. Existing keys untouched.
+migration 132 applied cleanly. 10 new config keys exist in config_state with correct values. Idempotency verified. Existing keys untouched. ConfigService.get_sync returns expected defaults for all 10 keys.
 </success_criteria>
 
 <output>

@@ -2,9 +2,10 @@
 phase: 125-apr-full-migration-all-three-tiers
 plan: B
 type: execute
-wave: 1
+wave: 2
 depends_on:
   - 125-PLAN-A
+  - 125-PLAN-C
 files_modified:
   - src/intelligence/trading/anchored_vwap_reversion.py
 autonomous: true
@@ -30,7 +31,7 @@ must_haves:
 <objective>
 Wire anchored_vwap_reversion.py weights to ConfigService and add _validate_weights_sum call after weight loading.
 
-Purpose: The only Tier B plugin with un-migrated hardcoded weights (line 253: 0.40/0.35/0.25 literals). After this plan, all 6 applicable Tier B plugins will read weights from APR at runtime. Requires migration 132 keys to exist (depends on Plan A).
+Purpose: The only Tier B plugin with un-migrated hardcoded weights (line 253: 0.40/0.35/0.25 literals). After this plan, all 6 applicable Tier B plugins will read weights from APR at runtime. Requires migration 132 keys to exist (depends on Plan A) and _validate_weights_sum to exist in confidence_utils.py (depends on Plan C).
 Output: src/intelligence/trading/anchored_vwap_reversion.py with config-backed weights and weight-sum invariant guard.
 </objective>
 
@@ -44,6 +45,7 @@ Output: src/intelligence/trading/anchored_vwap_reversion.py with config-backed w
 @.planning/phases/125-apr-full-migration-all-three-tiers/125-CONTEXT.md
 @.planning/phases/125-apr-full-migration-all-three-tiers/125-RESEARCH.md
 @.planning/phases/125-apr-full-migration-all-three-tiers/125-A-SUMMARY.md
+@.planning/phases/125-apr-full-migration-all-three-tiers/125-C-SUMMARY.md
 </context>
 
 <tasks>
@@ -53,7 +55,7 @@ Output: src/intelligence/trading/anchored_vwap_reversion.py with config-backed w
   <read_first>
     - src/intelligence/trading/anchored_vwap_reversion.py (full file — understand compute_full() structure, _config_service field, current hardcoded line 253)
     - src/intelligence/trading/momentum_breakout.py (reference: how a wired Tier B plugin loads weights via get_sync and the shape of that code block — read lines 80-130)
-    - src/intelligence/trading/confidence_utils.py (verify _validate_weights_sum signature exists after Plan C runs — if Plan C has not run yet, do NOT add the import for _validate_weights_sum in this file; add a TODO comment instead and come back)
+    - src/intelligence/trading/confidence_utils.py (verify _validate_weights_sum exists — Plan C must have completed before this plan runs)
   </read_first>
   <files>src/intelligence/trading/anchored_vwap_reversion.py</files>
   <action>
@@ -72,7 +74,7 @@ Output: src/intelligence/trading/anchored_vwap_reversion.py with config-backed w
           "trad_AnchoredVWAPReversion",
       )
 
-    Note: if confidence_utils._validate_weights_sum does not yet exist (Plan C runs concurrently), add the import inside a try/except ImportError with a pass, and add a # TODO: remove try/except once Plan C ships comment. Do not fail the plan over import ordering — Plans B and C are both Wave 1.
+    Plan C runs before Plan B (Plan B wave: 2, Plan C wave: 1), so _validate_weights_sum is guaranteed to exist. Import directly without any try/except fallback.
 
     Replace the hardcoded line 253:
       OLD: raw_conf = 0.40 * sigma_magnitude + 0.35 * hurst_quality + 0.25 * vol_stability
@@ -94,10 +96,13 @@ Output: src/intelligence/trading/anchored_vwap_reversion.py with config-backed w
     grep -n "_validate_weights_sum" src/intelligence/trading/anchored_vwap_reversion.py
     Expected: 1 result (the call site)
 
+    grep -n "try.*ImportError\|except ImportError" src/intelligence/trading/anchored_vwap_reversion.py
+    Expected: 0 results (no try/except fallback — Plan C guarantees the function exists)
+
     .venv/bin/pytest tests/unit/intelligence/ -q -k "anchored_vwap" --no-header 2>&1 | tail -10
     Expected: no new failures vs baseline
   </verify>
-  <done>The literal "0.40 * sigma_magnitude" does not appear in the file. Three weight reads use ConfigService.get_sync with weights.vwap_reversion.* keys and hardcoded fallbacks. _validate_weights_sum is called with a dict and plugin name "trad_AnchoredVWAPReversion". raw_conf computation uses the config-backed variables.</done>
+  <done>The literal "0.40 * sigma_magnitude" does not appear in the file. Three weight reads use ConfigService.get_sync with weights.vwap_reversion.* keys and hardcoded fallbacks. _validate_weights_sum is called with a dict and plugin name "trad_AnchoredVWAPReversion". raw_conf computation uses the config-backed variables. No try/except ImportError guard present.</done>
 </task>
 
 </tasks>
