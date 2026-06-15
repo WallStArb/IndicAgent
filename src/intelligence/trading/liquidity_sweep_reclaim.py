@@ -53,6 +53,9 @@ class LiquiditySweepReclaimPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
     requires_i6_confluence: bool = True
+    # Phase 126 IC audit: statistically anti-predictive on existing data
+    # (IC=-0.011, hit_rate CI upper=0.213, n=78683); redesign required.
+    shadow_only: bool = True
     _state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
 
