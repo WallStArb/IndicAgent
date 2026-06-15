@@ -1129,7 +1129,7 @@ This phase is split into three waves:
 
 ### Phase 125: APR Full Migration — All Three Tiers
 
-**Goal:** Externalize all 51 numeric constants across all three tiers to APR. Tier A (26 detection gate keys), Tier B (22 confidence weight keys), Tier C (6 zone engine geometry keys). Zero behavior change — seeds equal current hard-coded values. Weight sum invariant enforced in all Tier B plugins. Replay is not a blocker; get the parameters right first.
+**Goal:** Externalize all 51 numeric constants across all three tiers to APR. Tier A (26 detection gate keys), Tier B (22 confidence weight keys), Tier C (6 zone engine geometry keys). Zero behavior change for Tiers A and B — seeds equal current hard-coded values. Tier C exception: `feature.zone_engine.min_zone_width_atr` seeds at 1.5/1.0/1.5 (equity/forex/futures) per noise-band analysis, not the current 0.25 hard-coded value — the gate is not yet wired (Phase 126 wires it), so DB seed value has no runtime effect. Weight sum invariant enforced in all Tier B plugins. Replay is not a blocker; get the parameters right first.
 
 **Depends on**: Phase 124
 **Requirements**: APR-01, APR-02, APR-03
@@ -1156,8 +1156,8 @@ This phase is split into three waves:
 **Requirements**: SIGNAL-QUALITY-01, SIGNAL-QUALITY-02
 **Success Criteria**:
 
-  1. `_resolve_zone_bounds()` returns `no_signal()` when `zone_width < min_zone_width_atr × ATR` for all zone source types (supply_demand, fvg, ob, structural)
-  2. `feature.zone_engine.min_zone_width_atr` in APR with per-asset-class seeds (equity_etf: 0.5, forex: 0.25, futures: 0.35)
+  1. `frame_trade()` calls `_reject_frame()` when `zone_width < min_zone_width_atr × ATR` for all zone source types (supply_demand, fvg, ob, structural); gate is in `frame_trade()` not `_resolve_zone_bounds()` (geometry resolution and viability gating are separate concerns)
+  2. `feature.zone_engine.min_zone_width_atr` in APR with per-asset-class seeds (equity_etf: 1.5, forex: 1.0, futures: 1.5) — derived from noise-band math: zone_width + buffer (0.25×ATR) must be ≥ 2.0×ATR for stop to be outside intrabar noise; seeds are initial estimates, Step 1 diagnostic in P126-01 confirms empirically
   3. `stopped_at_entry` rate < 15% on 10K-signal replay sample (from 47.6%)
   4. `_CONFLUENCE_EXEMPT_PLUGINS` frozenset deleted; all 8 formerly-exempt plugins have `requires_i6_confluence = True` and call `capture_signal_features()`
   5. All 37 registered signal-generation plugins emit > 0 signals in 30-day replay window
@@ -1165,7 +1165,12 @@ This phase is split into three waves:
   7. Detection correctness audit doc produced: per-plugin verification result; unverifiable plugins demoted to `shadow_only=True` with explicit rationale — removal from `TIER_I7` is not a valid disposition
   8. `pytest tests/unit/ -q` green
 
-**Plans**: defer to `/gsd-plan-phase 126`
+**Plans:** 5 plans in 5 waves
+- [ ] 126-00-PLAN.md — Wave 0: USDJPY anomaly diagnostic (SQL-only; verdict gates replay fitness)
+- [ ] 126-01-PLAN.md — Wave 1: Universal zone width gate in frame_trade() + per-asset-class APR seeds (migration 132)
+- [ ] 126-02-PLAN.md — Wave 2: Wire 8 confluence-exempt plugins, delete _I7_I6_EXEMPT, diagnose ORB/SessionExtremes, fix MeanReversion + FVGFill
+- [ ] 126-06-PLAN.md — Wave 3: Pipeline-layer annotation (_annotate_signal), formalize zone_friction_score, bump SIGNAL_SCHEMA_VERSION
+- [ ] 126-05-PLAN.md — Wave 4: IC validation + detection correctness audit; demote anti-signal/unverifiable plugins to shadow_only
 
 ---
 
