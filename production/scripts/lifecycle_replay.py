@@ -60,6 +60,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
+sys.path.insert(0, str(Path(__file__).parents[2] / "services"))
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager

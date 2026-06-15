@@ -138,8 +138,8 @@ All tunable numeric values live in `config_state` under `<domain>.<concept>.<par
 138 plugins across tiers I1–I7 (I1=29, I2=11, I3=9, I4=13, I5=16, SMC=16, I6=7, I7=37 incl. 2 aggregators). See `src/intelligence/CLAUDE.md` for tier details and LLM provider chain.
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - **Shadow governance:** `shadow_registry` DB table. Auto-enroll at startup. Promotion: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0`. Demotion: EV[R] < -0.05 for 3 consecutive cycles.
-- **I6→I7 confluence:** Every I7 must consume relevant `ctf_*` sub-scores
-- **I7 setup confidence integrity:** All I7 setups (except the documented `_I7_I6_EXEMPT` carve-out of 8 deferred plugins) follow the 6 GOOD patterns: 4-factor intrinsic confidence, dual regime+I6 gate before OHLCV extraction, `shadow_only=True`. Enforced by `validate_tier()` which raises `ArchitectureViolation` unless `requires_i6_confluence=True`. Full pattern spec: `docs/architecture/setup-confidence-patterns.md`
+- **Confluence requirement:** Every signal-generation plugin must consume relevant `ctf_*` sub-scores (`requires_i6_confluence=True`)
+- **Signal-generation plugin integrity:** All signal-generation plugins follow the 6 GOOD patterns: 4-factor intrinsic confidence, dual regime+confluence gate before OHLCV extraction, `shadow_only=True`. Enforced by `validate_tier()` which raises `ArchitectureViolation` unless `requires_i6_confluence=True`. The `_CONFLUENCE_EXEMPT_PLUGINS` carve-out (8 plugins) is deleted in Phase 126. Full pattern spec: `docs/architecture/setup-confidence-patterns.md`
 
 ## Adding an AI Agent
 
