@@ -15,7 +15,12 @@ import numpy as np
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import (
+    _validate_weights_sum,
+    capture_signal_features,
+    clamp01,
+    compose_confidence,
+)
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -142,6 +147,10 @@ class SqueezeExpansionPlugin:
         w_sq = cfg.get_sync("weights.squeeze_expansion.squeeze_bars", 0.35) if cfg else 0.35
         w_vol = cfg.get_sync("weights.squeeze_expansion.vol_expansion", 0.35) if cfg else 0.35
         w_mom = cfg.get_sync("weights.squeeze_expansion.momentum", 0.30) if cfg else 0.30
+        _validate_weights_sum(
+            {"squeeze_bars": w_sq, "vol_expansion": w_vol, "momentum": w_mom},
+            "trad_SqueezeExpansion",
+        )
         raw_conf = w_sq * squeeze_bars_score + w_vol * vol_expansion_score + w_mom * momentum_score
 
         # Supporting factors

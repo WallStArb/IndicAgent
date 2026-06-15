@@ -68,6 +68,7 @@ def _validate_weights_sum(weights: dict[str, float], plugin: str, tol: float = 1
         weights: Dict of weight name to value (e.g. {'roc': 0.40, 'vol': 0.35, ...}).
         plugin:  Human-readable plugin name for error messages.
         tol:     Floating-point tolerance. Default 1e-6 handles float repr of 0.40+0.35+0.25.
+        tol:     Floating-point tolerance (default 1e-6 handles 0.40+0.35+0.25).
     """
     total = sum(weights.values())
     if abs(total - 1.0) > tol:
