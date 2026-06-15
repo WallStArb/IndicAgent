@@ -31,45 +31,74 @@ The "13 zero-signal plugins" mentioned in earlier analysis docs (BreakoutPullbac
 
 ## Root Crime Analysis
 
-### Root Crime 1 — Zone Width Bypass in `_resolve_zone_bounds()` (47.6% stopped_at_entry)
+### Root Crime 1 — Universal Zone Width Bypass (47.6% stopped_at_entry)
 
-`_resolve_zone_bounds()` in `trade_framer.py` reads raw feature-level zone coordinates without applying any ATR-relative minimum:
+**The problem is systemic, not confined to three fast paths.** Signal_ledger analysis (verified 2026-06-14) shows narrow zones across all zone source types:
 
-```python
-# Current code — no width gate
-if zone_source == "supply_demand":
-    zone_low = features["nearest_demand_low"]
-    zone_high = features["nearest_demand_high"]
-elif zone_source == "fvg":
-    zone_low = features["fvg_bottom"]
-    zone_high = features["fvg_top"]
-elif zone_source == "ob":
-    zone_low = features["ob_bottom"]
-    zone_high = features["ob_top"]
+| Plugin | N signals | Zone < $0.005 | Zone < $0.025 | Zone source |
+|--------|-----------|--------------|--------------|-------------|
+| trad_CVDDivergence | 112,579 | 65.9% | 80.3% | structural zone engine |
+| trad_GapAnalysisSetup | 255,480 | 47.3% | 62.7% | structural zone engine |
+| trad_AnchoredVWAPReversion | 142,979 | 46.5% | 71.9% | structural zone engine |
+| trad_FVGFill | 61,816 | 31.8% | 60.7% | fvg fast path |
+| trad_SupplyDemandSetup | 16,661 | (none) | 37.9% | supply/demand fast path |
+
+`zone_engine.py` has `MIN_ZONE_WIDTH_ATR = 0.25` but it is not enforced on its output — the constant is used only in zone construction, not as a post-construction gate. The three fast paths in `_resolve_zone_bounds()` (supply/demand, fvg, ob) bypass it entirely. Plugins using `resolve_structural_zone()` also produce sub-ATR zones, confirmed by the CVDDivergence data above.
+
+**Why this produces stopped_at_entry:** Lifecycle tracker activates a signal when `low <= zone_high AND high >= zone_low`. A zone $0.02 wide on QQQ (ATR $0.75) activates on any bar that ticks into it; a 1m bar with range > $0.02 simultaneously activates AND overshoots the zone in the same bar.
+
+**The noise band argument — zone width determines total stop distance from entry:**
+
+For zone-based trades (the majority of I7 signals), the stop architecture is:
+```
+entry = zone_high          ← proximal edge (zone_proximal entry type)
+stop  = zone_low - buffer  ← small ATR fraction below structural level (0.20-0.30×ATR)
+total stop distance from entry = zone_width + buffer
 ```
 
-`zone_engine.py` has `MIN_ZONE_WIDTH_ATR = 0.25` but it applies only to zones computed inside `zone_engine.py` itself. The feature-level fast paths that bypass `zone_engine` carry no such guard.
+The `0.25×ATR` buffer is NOT the stop distance — it is padding below the structural level. The total stop distance from entry is `zone_width + 0.25×ATR`.
 
-**Root Crime 1b — Stop calculated from zone edge, not entry:**
-
-Even with a valid zone, stop distance from entry can be negligible:
+ATR is the average true range of a single bar. For a stop to be outside intrabar noise, the total stop distance must be a multiple of ATR (convention: 2-3×ATR for entry-based stops). Applying this to zone trades:
 
 ```
-XLE zone [57.46, 57.47], entry 57.49, stop 57.46 → stop_distance = 0.03 on ATR $0.60
-QQQ zone [723.14, 723.16], entry 723.09, stop 723.24 → stop placed ABOVE entry (inverted)
+zone_width + buffer ≥ 2.0×ATR    →    zone_width ≥ 1.75×ATR
 ```
 
-Stop = `zone_low - 1×ATR` when no structural stop is found. When entry drifts to zone edge, the resulting R:R is degenerate regardless of zone width. The fix: require `abs(entry_price - stop_price) >= min_stop_distance_atr × ATR` as an emission gate.
+This means **the zone width gate IS the stop distance gate for zone trades.** A separate fractional stop distance floor is redundant — the zone width threshold directly controls how much room the trade has from entry to stop.
+
+**Zone width distribution (equity, verified 2026-06-14) with noise-band assessment:**
+- p05 = $0.003 (0.003-0.006×ATR) — tick noise; stop ≈ 0.25×ATR from entry → coin flip
+- p25 = $0.020 (0.02-0.04×ATR) — quote noise; stop ≈ 0.27×ATR from entry → coin flip
+- p50 = $0.080 (0.08-0.16×ATR) — marginal; stop ≈ 0.33×ATR from entry → inside noise band
+- p75 = $0.560 (0.56-1.12×ATR) — approaching noise floor; stop ≈ 0.81×ATR from entry → marginal
+- **For stop outside noise: zone_width ≥ 1.75×ATR → stop ≈ 2.0×ATR from entry**
+
+The existing `MIN_ZONE_WIDTH_ATR = 0.25` constant in zone_engine.py and the initial plan estimate of `0.5×ATR` are both far too loose. They filter only the most catastrophic cases (tick noise), not the systematic noise-band problem. The threshold for meaningful structure is approximately **1.5-2.0×ATR**, not 0.25-0.5×ATR.
+
+**Initial APR seed estimates (to be confirmed by Step 1 diagnostic):**
+- Equity ETF: `min_zone_width_atr = 1.5` (stop ≈ 1.75×ATR from entry)
+- Forex: `min_zone_width_atr = 1.0` (forex zones structurally larger relative to ATR)
+- Futures: `min_zone_width_atr = 1.5` (same reasoning as equity)
+
+**ATR-derived zones are self-exempt:** Sweep band (`entry ± 0.5×ATR` = 1.0×ATR wide), ATR fallback zone (`entry - 1.0×ATR` to `entry + 0.5×ATR` = 1.5×ATR wide). These pass the gate trivially. Pure ATR-based stops from entry (fallback: `entry - 2.0×ATR`) correctly use multiples, not fractions — no zone width gate applies.
+
+**Root Crime 1b — Stop distance contamination in historical data (NOT an active code bug):**
+
+Signal_ledger shows median equity stop distance = $0.31, with 70%+ of CVDDivergence signals having stop < $0.25. This is historical contamination from before `MIN_STOP_ATR_MULTIPLIER = 1.0` was added to `_resolve_stop_long/short`.
+
+Current code is correct: every stop path returns `min(structural_stop, min_stop)` where `min_stop = entry - ATR × _adaptive_buffer(1.0)`. The adaptive buffer floor is 0.742 (worst case: GARCH vol=0.70, trend + max Hurst tightening), giving minimum stop_distance of **0.742×ATR from entry**. Combined with the zone width gate at 0.5×ATR, the structural minimum is ~0.686×ATR, with `min(stop, min_stop)` pushing to 0.742×ATR. A 0.5×ATR gate cannot fire under current code. The plan's prior description "stop = zone_low - 1×ATR when no structural stop is found" was wrong -- the actual ATR fallback is `entry - ATR×2.0`; stops are always anchored to entry, not zone edge.
+
+**Disposition:** The zone width gate (Step 3) is the primary control for stop distance on zone trades. The separate `min_stop_distance_atr` gate (Step 2 below) covers the non-zone ATR-fallback path only — where there is no zone and the stop must be a multiple of ATR from entry. For zone trades, enforcing `zone_width ≥ 1.5×ATR` guarantees total stop distance from entry ≈ 1.75×ATR, which is near the noise floor. Both gates are needed for completeness but the zone width gate carries the load.
 
 **Asset-class reality:**
 
-| Asset | 1m ATR | Typical feature zone | Zone/ATR ratio | Effect |
-|-------|--------|---------------------|----------------|--------|
-| QQQ / SPY | $0.50-$1.00 | $0.01-$0.06 | 0.02-0.08x | Stop sits below a $0.02 zone; any touching bar overshoots; stopped_at_entry guaranteed |
-| USDJPY | 0.0003-0.0008 | 0.0010-0.0050 (2-10 pip) | 3-15x | Zone is structurally meaningful; trade has room to breathe |
-| ES / NQ | 1.0-3.0 pts | 0.5-2.0 pts | 0.3-1.5x | Marginal; some zones valid, some are noise |
+| Asset | Typical 1m ATR | Zone p50 | Zone p50/ATR | Assessment |
+|-------|---------------|---------|-------------|------------|
+| Equity ETF (QQQ/SPY) | $0.50-$1.00 | $0.08 | 0.08-0.16× | Noise — any touching bar overshoots |
+| Forex (EURUSD/USDCHF) | 0.0003-0.0008 | $0.00073 | ~1-2× | Structurally meaningful |
+| Futures (ES/NQ) | 1.0-3.0 pts | (no data yet) | TBD | Requires replay data |
 
-**Why widening is wrong:** A $0.02 ETF zone is not supply/demand — it is a single-tick reading artifact. Widening it to $0.50 invents structure that does not exist in price. The correct response is `no_signal()`.
+**Why widening is wrong:** A $0.02 ETF zone is not supply/demand — it is a tick-spread artifact. Widening it invents structure. The correct response is `_reject_frame("zone_too_narrow")`.
 
 ### Root Crime 2 — Confluence Annotation Bypass (8 signal-generation plugins)
 
@@ -175,60 +204,175 @@ Files: SQL analysis only; no code changes unless data quality issue is found.
 
 ### Wave 1 — Zone Geometry Enforcement (blocks replay; after Wave 0)
 
-**P126-01: Zone width guard + stop distance gate in `_resolve_zone_bounds()` + APR seeds**
+**P126-01: Universal zone width gate in `frame_trade()` + data-derived APR seeds**
 
 Files: `src/intelligence/trading/trade_framer.py`, `src/intelligence/trading/zone_engine.py`, new migration file
 
-**Zone width guard:**
+**Architectural decision (non-negotiable):**
 
-- [ ] Read `_resolve_zone_bounds()` in full; map all zone-source branches (supply_demand, fvg, ob, structural, fallback)
-- [ ] Confirm `features["atr"]` is available in the feature dict at framing time (check `IntelligenceEvent` schema via `atr_utils.get_atr()`)
-- [ ] Add width guard after zone bounds are resolved, before `TradeFrame` construction:
-  ```python
-  zone_width = zone_high - zone_low
-  min_width = atr * _cfg("feature.zone_engine.min_zone_width_atr", MIN_ZONE_WIDTH_ATR)
-  if zone_width < min_width:
-      return no_signal(reason="zone_too_narrow", zone_width=zone_width, atr=atr)
+The gate does NOT go in `_resolve_zone_bounds()`. That function's contract is to return `(zone_low, zone_high, zone_source)` — it resolves geometry, it does not make viability decisions. `frame_trade()` is already the sole location for all signal viability gates (`zero_risk`, `rr_below_1.5`, `pullback_entry_price_past_t1`, `no_targets_found`). The zone width gate belongs there, applied universally after `_resolve_zone_bounds()` returns, regardless of which zone source path was taken.
+
+This is the only location that catches ALL zone source paths uniformly — confirmed necessary because the narrow zone problem is systemic across structural engine zones (CVDDivergence, GapAnalysis, AnchoredVWAPReversion) not just the three feature-coordinate fast paths.
+
+`validate_stop_against_zone()` is preserved as-is: it corrects stops inside zones. With the zone width gate upstream, it operates only on zones that are geometrically valid. No change needed.
+
+**Step 1 — Pre-implementation diagnostics (run before writing any code):**
+
+Signal_ledger has no outcomes (shadow_outcome all null). Zone width distribution and stop distance distribution are already known from the factual baseline above. One query remains before thresholds can be set — zone_width/ATR ratio by plugin and asset class, which requires joining to intelligence_features for ATR:
+
+- [ ] Run zone_width/ATR ratio distribution query:
+  ```sql
+  SELECT
+    sl.setup_plugin,
+    CASE WHEN sl.symbol IN ('EURUSD','USDCHF','USDJPY') THEN 'forex'
+         WHEN sl.symbol IN ('ES','NQ','RTY','YM') THEN 'futures'
+         ELSE 'equity_etf' END AS asset_class,
+    count(*) AS n,
+    round(percentile_cont(0.10) WITHIN GROUP (
+      ORDER BY (sl.entry_zone_high - sl.entry_zone_low) /
+               NULLIF((if1.i1->>'atr')::float, 0)
+    )::numeric, 4) AS p10_zone_atr_ratio,
+    round(percentile_cont(0.25) WITHIN GROUP (
+      ORDER BY (sl.entry_zone_high - sl.entry_zone_low) /
+               NULLIF((if1.i1->>'atr')::float, 0)
+    )::numeric, 4) AS p25_zone_atr_ratio,
+    round(percentile_cont(0.50) WITHIN GROUP (
+      ORDER BY (sl.entry_zone_high - sl.entry_zone_low) /
+               NULLIF((if1.i1->>'atr')::float, 0)
+    )::numeric, 4) AS p50_zone_atr_ratio
+  FROM signal_ledger sl
+  JOIN intelligence_features if1 ON if1.symbol = sl.symbol
+    AND if1.ts = sl.timestamp AND if1.timeframe = sl.timeframe
+  WHERE sl.entry_zone_high IS NOT NULL AND sl.entry_zone_high > sl.entry_zone_low
+    AND (if1.i1->>'atr')::float > 0
+  GROUP BY 1, 2
+  HAVING count(*) >= 100
+  ORDER BY 2, p50_zone_atr_ratio ASC;
   ```
-- [ ] Add per-asset-class APR seeds (new migration file `migrations/NNN_phase126_apr_seeds.sql`):
-  - `feature.zone_engine.min_zone_width_atr.equity_etf` = 0.5
-  - `feature.zone_engine.min_zone_width_atr.forex` = 0.25
-  - `feature.zone_engine.min_zone_width_atr.futures` = 0.35
-  - `feature.zone_engine.min_zone_width_atr` (default fallback) = 0.25
-- [ ] Load the correct seed based on `Instrument.asset_class` from `get_active_contracts(settings)`; instrument type available in `SignalContext`
-- [ ] Confirm `MIN_ZONE_WIDTH_ATR` constant in `zone_engine.py` is now the APR default; inline constant removed after APR key exists
+- [ ] Document results in plan comments. Thresholds must be set from this data, not assumed. The prior plan proposed 0.5/0.25/0.35 — these are starting hypotheses, not final values.
+- [ ] Determine threshold for each asset class. Theory says target ≈ 1.5-2.0×ATR (so total stop distance from entry = zone_width + buffer ≈ 2.0×ATR, outside intrabar noise). Use Step 1 data to verify where the empirical inflection sits. Key questions:
+  - At what zone_width/ATR ratio does stopped_at_entry probability drop below 10%? (proxy: at what ratio does zone_width + 0.25 ≥ 2.0×ATR → zone_width ≥ 1.75×ATR)
+  - Are there asset-class differences? Forex zones tend to be structurally larger relative to ATR — may tolerate 1.0×ATR minimum.
+  - The existing `MIN_ZONE_WIDTH_ATR = 0.25` in zone_engine.py is ~7× too low by this analysis; initial estimates are now 1.5 (equity), 1.0 (forex), 1.5 (futures)
 
-**Stop distance gate (new — Root Crime 1b):**
+**Step 2 — Stop distance (Root Crime 1b): invariant proof + named assertion:**
 
-- [ ] After zone width validation, add minimum stop distance gate before TradeFrame construction:
+**Finding (verified 2026-06-14 by code trace):** The stop distance gate as described in prior plan drafts would never trigger under current code. Proof:
+
+`_resolve_stop_long/short` computes `min_stop = entry - atr * _adaptive_buffer(features, MIN_STOP_ATR_MULTIPLIER=1.0, ...)` and returns `min(structural_stop, min_stop)` — always anchored to **entry**, not zone edge. The `_adaptive_buffer` floor (worst case: GARCH vol_ratio=0.70, trend regime, hurst=1.0) yields multiplier = 0.80 × 0.928 = **0.742**. Minimum stop_distance from entry = 0.742×ATR.
+
+Combined with the zone width gate (0.5×ATR minimum): in the structural worst case (entry at zone_high, zone_width=0.5×ATR, demand_stop = zone_low - ATR×0.186), structural stop_distance = 0.686×ATR; `min(stop, min_stop)` enforces 0.742×ATR. Combined minimum = **0.742×ATR**, well above any 0.5×ATR gate.
+
+Historical corpus contamination (median equity stop $0.31, 70%+ of CVD stops < $0.25 in signal_ledger) is from before `MIN_STOP_ATR_MULTIPLIER` was added. The clean replay (Phase 127) regenerates signals through current code.
+
+The plan's description "stop = zone_low - 1×ATR when no structural stop is found" was also a misread — the actual ATR fallback is `entry - ATR×2.0`, not zone-edge relative.
+
+**What to implement:** A real, independent floor gate in `frame_trade()`. This is NOT derived from the adaptive buffer math. `MIN_STOP_ATR_MULTIPLIER` is the primary control; this APR-backed gate is the absolute floor. These are two independent semantic controls: one that sets intent, one that enforces the minimum. Once `MIN_STOP_ATR_MULTIPLIER` migrates to APR and becomes an ML learning target, this gate becomes the hard boundary that ML cannot breach.
+
+- [ ] Add floor gate after `validate_stop_against_zone` call in `frame_trade()`:
   ```python
-  stop_distance = abs(entry_price - stop_price)
-  min_stop = atr * _cfg("feature.zone_engine.min_stop_distance_atr", 0.5)
-  if stop_distance < min_stop:
-      return no_signal(reason="stop_too_close", stop_distance=stop_distance, atr=atr)
+  _stop_distance = abs(resolved_entry - stop)
+  _min_stop_dist = atr * _cfg("feature.zone_engine.min_stop_distance_atr", 0.5)
+  if _stop_distance < _min_stop_dist:
+      return _reject_frame(
+          f"stop_too_close:{stop_type}",
+          resolved_entry, entry_type, stop, stop_type, zone_low, zone_high,
+      )
   ```
-- [ ] Add per-asset-class APR seeds:
+- [ ] APR seeds (initial estimates; ML learning targets once sufficient counterfactual_pnl_r data exists):
+  - `feature.zone_engine.min_stop_distance_atr` = 0.5 (default)
   - `feature.zone_engine.min_stop_distance_atr.equity_etf` = 0.5
   - `feature.zone_engine.min_stop_distance_atr.forex` = 0.3
   - `feature.zone_engine.min_stop_distance_atr.futures` = 0.4
-  - `feature.zone_engine.min_stop_distance_atr` (default) = 0.5
-- [ ] Write unit tests covering both gates:
-  - supply_demand zone $0.02 on QQQ (ATR $0.75) → `no_signal(reason="zone_too_narrow")`
-  - fvg zone $0.03 on QQQ, entry at zone_high, stop = zone_low - ATR → entry-stop distance < 0.5×ATR → `no_signal(reason="stop_too_close")`
-  - fvg zone 0.0020 on USDJPY (ATR 0.0004) → valid (zone_width 5×ATR)
-  - structural zone on ES 1.5pts (ATR 1.2pts), stop 1.0 pts from entry → valid (stop > 0.4×ATR)
-- [ ] Run SQL probe on existing signal_ledger to establish before-fix baseline:
-  ```sql
-  SELECT
-    count(*) FILTER (WHERE outcome = 'stopped_at_entry') AS stopped,
-    count(*) AS total,
-    round(100.0 * count(*) FILTER (WHERE outcome = 'stopped_at_entry') / count(*), 1) AS pct,
-    symbol
-  FROM signal_ledger
-  WHERE pnl_r IS NOT NULL
-  GROUP BY symbol
-  ORDER BY pct DESC;
+  - Description in config_schema: `[initial_estimate] Absolute floor on stop distance from entry as ATR multiple. Independent of MIN_STOP_ATR_MULTIPLIER — ML may tune that parameter but cannot breach this floor without an operator override.`
+
+**Deferred: Full APR migration of trade_framer.py constants (separate todo, not Phase 126):**
+
+Every numeric constant in `trade_framer.py` is a CLAUDE.md architecture violation. ML discovery cannot tune what is hardcoded. These need APR keys and initial estimates documented with provenance:
+- `ATR_STOP_DEMAND_MULTIPLIER = 0.25` → `feature.trade_framer.stop_demand_buffer_atr`
+- `ATR_STOP_SWEEP_MULTIPLIER = 0.30` → `feature.trade_framer.stop_sweep_buffer_atr`
+- `ATR_STOP_OB_MULTIPLIER = 0.20` → `feature.trade_framer.stop_ob_buffer_atr`
+- `ATR_STOP_SWING_MULTIPLIER = 0.25` → `feature.trade_framer.stop_swing_buffer_atr`
+- `ATR_STOP_SR_MULTIPLIER = 0.50` → `feature.trade_framer.stop_sr_buffer_atr`
+- `ATR_STOP_FALLBACK_MULTIPLIER = 2.0` → `feature.trade_framer.stop_fallback_atr`
+- `MIN_STOP_ATR_MULTIPLIER = 1.0` → `feature.trade_framer.min_stop_atr`
+- `MIN_RR_T1 = 1.5` → `threshold.trade_framer.min_rr_t1`
+- `ADAPTIVE_BUFFER_HARD_CAP = 1.40` → `feature.trade_framer.adaptive_buffer_hard_cap`
+- `STRUCTURE_SNAP_PROXIMITY_ATR = 1.5` → `feature.trade_framer.structure_snap_proximity_atr`
+Tracked in `.planning/todos/pending/` as a separate phase task.
+
+**Step 3 — Implement the zone width gate in `frame_trade()`:**
+
+- [ ] Read `frame_trade()` in full to confirm exact insertion point (after line ~1013 where `_resolve_zone_bounds()` is called, before `validate_stop_against_zone`)
+- [ ] Confirm `atr` is available at insertion point (it is — `atr` is a parameter of `frame_trade()`)
+- [ ] Add APR-backed configuration loader at top of trade_framer.py (consistent with zone_engine.py pattern):
+  ```python
+  def _min_zone_width_atr(asset_class: str | None) -> float:
+      key = f"feature.zone_engine.min_zone_width_atr.{asset_class}" if asset_class else None
+      default = _cfg("feature.zone_engine.min_zone_width_atr", MIN_ZONE_WIDTH_ATR)
+      if key and _config_service is not None:
+          return _cfg(key, default)
+      return default
   ```
+- [ ] Insert zone width gate in `frame_trade()` immediately after `features["zone_source"] = zone_source`:
+  ```python
+  zone_width = zone_high - zone_low
+  _asset_class = features.get("asset_class")  # populated by SignalContext
+  _min_width = atr * _min_zone_width_atr(_asset_class)
+  if zone_width < _min_width:
+      return _reject_frame(
+          f"zone_too_narrow:{zone_source}",
+          resolved_entry, entry_type, stop, stop_type, zone_low, zone_high,
+      )
+  ```
+  Note: `_reject_frame()` not `no_signal()` — this is inside `frame_trade()` which returns a `TradeFrame`, not a signal dict. Plugins call `frame_trade()` and check `trade_frame.viable` before emitting.
+- [ ] Confirm `asset_class` is in the features dict at frame time — verify via `SignalContext` or add to `build_flat_features()` if absent
+- [ ] Add `set_config_service()` wiring in `trade_framer.py` matching the pattern in `zone_engine.py` (trade_framer currently has no config service; add it)
+- [ ] Wire config service into `trade_framer` at `IntelligencePipeline` startup (same location where `zone_engine.set_config_service()` is called)
+
+**Step 4 — APR seeds (data-derived values from Step 1):**
+
+- [ ] Create migration `migrations/NNN_phase126_apr_seeds.sql` with seeds based on Step 1 results.
+  Initial estimates from noise-band analysis (total stop distance from entry = zone_width + buffer must be ≥ 2.0×ATR → zone_width ≥ 1.75×ATR; rounded to 1.5 as practical starting point):
+  - `feature.zone_engine.min_zone_width_atr` (default) = 1.5
+  - `feature.zone_engine.min_zone_width_atr.equity_etf` = 1.5
+  - `feature.zone_engine.min_zone_width_atr.forex` = 1.0  (forex zones structurally larger vs. ATR; verify with Step 1)
+  - `feature.zone_engine.min_zone_width_atr.futures` = 1.5
+  - `feature.zone_engine.min_stop_distance_atr` = 0.5 (non-zone ATR-fallback path only; zone-based stop distance controlled by zone width above)
+  - Note: existing `MIN_ZONE_WIDTH_ATR = 0.25` constant in zone_engine.py becomes the fallback default only until APR is loaded — replace with APR key at init.
+- [ ] Descriptions in `config_schema` must note provenance: `[initial_estimate — noise band analysis: zone_width + buffer ≥ 2.0×ATR → zone_width ≥ 1.75×ATR; rounded to 1.5. ML learning target post Phase 127 replay.]`
+
+**Step 5 — Proxy before/after impact measurement:**
+
+Signal_ledger has no outcomes (shadow_outcome all null — lifecycle replay not yet populated). The 47.6% stopped_at_entry stat came from lifecycle_replay output, not this table. Proxy measurement:
+
+- [ ] After implementing gate, count signals that WOULD be rejected by zone width threshold on historical corpus, by plugin and asset class:
+  ```sql
+  -- Run after Step 1 produces confirmed ATR-ratio threshold T
+  SELECT
+    setup_plugin,
+    CASE WHEN symbol IN ('EURUSD','USDCHF','USDJPY') THEN 'forex' ELSE 'equity_etf' END AS ac,
+    count(*) AS total,
+    count(*) FILTER (
+      WHERE (entry_zone_high - entry_zone_low) < T * (i1_atr_from_join)
+    ) AS would_reject,
+    round(100.0 * count(*) FILTER (
+      WHERE (entry_zone_high - entry_zone_low) < T * (i1_atr_from_join)
+    ) / count(*)::numeric, 1) AS pct_rejected
+  FROM signal_ledger sl
+  JOIN intelligence_features ... -- as in Step 1
+  GROUP BY 1, 2 ORDER BY pct_rejected DESC;
+  ```
+- [ ] Document: N signals in replay corpus will be rejected per plugin. Success criterion is not "stopped_at_entry < 25%" (can't measure without replay) but "zone_width/ATR >= threshold for all emitted signals" (verifiable by unit test + logging)
+
+**Step 6 — Unit tests:**
+
+- [ ] supply/demand zone $0.02 on equity (ATR $0.75) → `trade_frame.viable == False`, `rejection_reason == "zone_too_narrow:setup:supply_demand_zone"`
+- [ ] FVG zone $0.03 on equity (ATR $0.75) → `viable == False`, `rejection_reason == "zone_too_narrow:setup:fvg_zone"`
+- [ ] Structural engine zone 0.0020 on USDJPY (ATR 0.0004) → valid (zone_width 5×ATR)
+- [ ] Sweep band zone (always `entry ± 0.5×ATR` = 1.0×ATR wide) → always valid, gate never triggers
+- [ ] ATR fallback zone (always `entry ± [1.0, 0.5]×ATR` = 1.5×ATR wide) → always valid, gate never triggers
+- [ ] Verify rejection is logged at WARNING level with `zone_width`, `min_width`, `atr`, `zone_source`, `setup_type`, `symbol`
 - [ ] `pytest tests/unit/ -q` green
 
 ---
@@ -377,10 +521,11 @@ This replaces the narrower "detection correctness audit" (P126-04 in prior plan)
 | # | Criterion | Measurable condition |
 |---|-----------|---------------------|
 | 0 | USDJPY diagnostic complete | `docs/plans/2026-06-14-phase-126-usdjpy-diagnostic.md` exists with verdict: data quality, zone geometry, or structural |
-| 1 | Zone width guard enforced | `_resolve_zone_bounds()` returns `no_signal(reason="zone_too_narrow")` when `zone_width < min_zone_width_atr × ATR` for ALL zone source types |
-| 2 | Stop distance gate enforced | `_resolve_zone_bounds()` returns `no_signal(reason="stop_too_close")` when `abs(entry - stop) < min_stop_distance_atr × ATR` |
-| 3 | APR seeds deployed | `feature.zone_engine.min_zone_width_atr` AND `feature.zone_engine.min_stop_distance_atr` in `config_state` with per-asset-class seeds |
-| 4 | stopped_at_entry rate reduced | SQL on existing signal_ledger confirms equity stopped_at_entry < 25%, overall < 20% after retrospective simulation of new gates |
+| 1 | Zone width gate location correct | Gate is in `frame_trade()` after `_resolve_zone_bounds()`, not inside `_resolve_zone_bounds()`. Returns `_reject_frame("zone_too_narrow:...")` with zone_source in reason. |
+| 2 | Gate is universal | All zone sources (supply_demand, fvg, ob, structural engine, ATR fallback) pass through the same gate. ATR-derived zones pass trivially by construction — no special-case code. |
+| 3 | APR seeds data-derived | `feature.zone_engine.min_zone_width_atr` per-asset-class seeds set from Step 1 zone_width/ATR ratio analysis, not assumed. Provenance documented in config_schema description. |
+| 4 | Stop distance verified | Step 2 query run; result documented. If p05 stop_atr >= 0.8 on recent signals, no additional gate added. If gap found, gate added with APR key. |
+| 4a | Impact measured | Proxy rejection count query run: N signals per plugin per asset class would be rejected by the gate on historical corpus. Numbers documented. |
 | 5 | Confluence-exempt frozenset deleted | `grep -r "_I7_I6_EXEMPT" src/ tests/` returns empty |
 | 6 | All 8 formerly-exempt plugins compliant | `requires_i6_confluence = True` + `capture_signal_features()` verified in each plugin |
 | 7 | Time-specific plugin verdict documented | SessionExtremesSetup, ORB15, ORB30 each have documented verdict (CORRECT-RARE / BROKEN / SCOPE-MISMATCH) in plugin docstring |
@@ -462,5 +607,7 @@ ORDER BY ic DESC NULLS LAST;
 
 *Plan created: 2026-06-14*
 *Revised: 2026-06-14 — added Root Crimes 1b (stop distance), 3 (FVGFill), 4 (time-specific plugins); added Wave 0 (USDJPY diagnostic); added statistical IC validation to Wave 3; corrected zero-signal plugin count from phantom 13 to actual 6; updated success criteria*
+*Revised: 2026-06-14 (P126-01 noise band analysis) — Zone width threshold corrected from 0.5×ATR to 1.5×ATR initial estimate. Reasoning: for zone trades, total stop distance from entry = zone_width + buffer (0.25×ATR); to be outside intrabar noise band (≥ 2.0×ATR from entry), zone_width ≥ 1.75×ATR. The zone width gate IS the stop distance gate for zone trades — the separate min_stop_distance_atr gate applies only to non-zone ATR-fallback path. ATR-based stops from entry must be multiples (2-3×ATR), fractional stops are coin flips. min_stop_distance_atr = 0.5 retained only as safety gate for the non-zone path where entry-based ATR-multiple stops are used.*
+*Revised: 2026-06-14 (P126-01 Renaissance audit) — Root Crime 1 analysis corrected: zone width problem is systemic across ALL zone sources (structural engine + fast paths), not confined to 3 fast paths; confirmed by signal_ledger data (80% of CVDDivergence zones < $0.025, affects 112k signals). P126-01 implementation location corrected: gate belongs in `frame_trade()` not `_resolve_zone_bounds()` — consistent with all other viability gates; `_resolve_zone_bounds()` contract is geometry resolution only. APR seed values changed from assumed to data-derived (Step 1 diagnostic query added). Stop distance gate made conditional on Step 2 verification (MIN_STOP_ATR_MULTIPLIER=1.0 may already handle this for new signals). Baseline measurement corrected: signal_ledger has no outcomes; proxy impact count replaces stopped_at_entry SQL. Config service wiring requirement added for trade_framer. Sweep/ATR-derived zone exemption documented (trivially exempt, no code needed).*
 *Implements: SIGNAL-QUALITY-01, SIGNAL-QUALITY-02 (REQUIREMENTS.md)*
 *Workstream A gate: must complete before Phase 127 (Clean Replay)*
