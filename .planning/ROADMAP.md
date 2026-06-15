@@ -1221,7 +1221,13 @@ This phase is split into three waves:
   3. `signal_ledger_v2` view SQL defined
   4. Cardinality recorded: 1 signal → N frames (one per entry_type); 1 frame → 0-1 executions
 
-**Plans**: defer to `/gsd-plan-phase 128`
+**Plans**: 3 plans in 1 wave (Wave 1 — all parallel)
+
+Plans:
+
+- [ ] 128-01-PLAN.md — ADR: signal-trade-separation-ADR.md (Context, Decision, G0 Audit, Schema Tables, Alternatives Considered, Consequences)
+- [ ] 128-02-PLAN.md — DDL: production/migrations/137_3table_schema.sql (signal_events hypertable + trade_frames + trade_executions + signal_ledger_v2 view)
+- [ ] 128-03-PLAN.md — Cleanup: delete capture_signal_features() from confidence_utils.py + update src/intelligence/CLAUDE.md
 
 ---
 
