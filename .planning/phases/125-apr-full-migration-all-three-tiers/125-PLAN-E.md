@@ -24,6 +24,7 @@ must_haves:
     - "cis_scorer.set_config_service() is called in _prewarm_threshold_config() alongside confidence_utils, zone_engine, aggregator"
     - "TODO 025 is moved from pending to done"
     - "pytest tests/unit/ -q introduces no new failures vs baseline 42"
+    - "config_state contains >= 51 rows matching threshold.*, weights.*, or feature.zone_engine.* keys (zero hard-coded constants remain in src/)"
   artifacts:
     - path: "src/intelligence/trading/cis_scorer.py"
       provides: "Module-level _config_service singleton + set_config_service() + APR reads in score()"
@@ -200,7 +201,7 @@ Output: cis_scorer.py with set_config_service() + APR reads. intelligence_pipeli
 </task>
 
 <task type="auto">
-  <name>Task 3: Close TODO 025, run full unit suite</name>
+  <name>Task 3: Close TODO 025, run full unit suite, verify zero hard-coded constants</name>
   <read_first>
     - .planning/todos/pending/025-parameter-store-full-plugin-migration.md (read content to carry it to done with a completion note)
   </read_first>
@@ -252,8 +253,19 @@ Output: cis_scorer.py with set_config_service() + APR reads. intelligence_pipeli
 
     .venv/bin/pytest tests/unit/ -q --no-header 2>&1 | grep -E "failed" | head -5
     Expected: 42 or fewer failures (no new failures vs baseline)
+
+    # Verify >= 51 APR keys exist in config_state (ROADMAP success criterion #2)
+    PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT COUNT(*) FROM config_state WHERE config_key LIKE 'threshold.%' OR config_key LIKE 'weights.%' OR config_key LIKE 'feature.zone_engine.%';"
+    Expected: >= 51
+
+    # Verify zero hard-coded constants remain for the 6 migrated literals
+    grep -rn "CIS_FIRE_THRESHOLD\|BUCKET_AGREE_MIN\|BUCKET_NOISE_FLOOR" src/intelligence/trading/ | grep -v "cis_scorer.py" | grep -v ".pyc"
+    Expected: 0 results (constants only referenced inside cis_scorer.py itself as fallbacks)
+
+    grep -n "0\.40 \* sigma_magnitude" src/intelligence/trading/anchored_vwap_reversion.py
+    Expected: 0 results (hardcoded composite removed in Plan B)
   </verify>
-  <done>TODO 025 file exists in .planning/todos/done/ with a completion banner. The pending file no longer exists. pytest tests/unit/ -q shows no new failures beyond the 42 baseline pre-existing failures.</done>
+  <done>TODO 025 file exists in .planning/todos/done/ with a completion banner. The pending file no longer exists. pytest tests/unit/ -q shows no new failures beyond the 42 baseline. config_state has >= 51 rows matching the APR key prefixes. CIS_FIRE_THRESHOLD/BUCKET_AGREE_MIN/BUCKET_NOISE_FLOOR appear only inside cis_scorer.py (as fallback constants). The literal "0.40 * sigma_magnitude" is gone from anchored_vwap_reversion.py.</done>
 </task>
 
 </tasks>
@@ -275,10 +287,16 @@ Full checklist:
 
 5. .venv/bin/pytest tests/unit/ -q --no-header 2>&1 | tail -3
    Expected: no new failures vs 42 baseline
+
+6. PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT COUNT(*) FROM config_state WHERE config_key LIKE 'threshold.%' OR config_key LIKE 'weights.%' OR config_key LIKE 'feature.zone_engine.%';"
+   Expected: >= 51
+
+7. grep -rn "CIS_FIRE_THRESHOLD\|BUCKET_AGREE_MIN\|BUCKET_NOISE_FLOOR" src/intelligence/trading/ | grep -v "cis_scorer.py" | grep -v ".pyc"
+   Expected: 0 results
 </verification>
 
 <success_criteria>
-CIS gate constants read from APR at runtime in CISScorer.score(). All 10 migration 132 keys in _THRESHOLD_KEYS. cis_scorer injected in prewarm. TODO 025 closed. pytest tests/unit/ passes without new failures.
+CIS gate constants read from APR at runtime in CISScorer.score(). All 10 migration 132 keys in _THRESHOLD_KEYS. cis_scorer injected in prewarm. TODO 025 closed. pytest tests/unit/ passes without new failures. config_state >= 51 APR keys. No migrated literals remain outside their fallback definitions in src/intelligence/trading/.
 </success_criteria>
 
 <output>
