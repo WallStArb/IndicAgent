@@ -29,7 +29,7 @@ from typing import Any
 from ..cross_asset_features import resolve_eq_index_base
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, compose_confidence, get_min_ctf_score
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -72,7 +72,7 @@ class CrossAssetDivergencePlugin:
 
     name: str = "trad_CrossAssetDivergence"
     regime_type: str = "any"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -184,6 +184,14 @@ class CrossAssetDivergencePlugin:
 
         confidence = compose_confidence(conf)
 
+        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
+        _ctf_raw = features.get("ctf_score")
+        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+        ctf_confirmed: bool | None = (
+            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
+        )
+        # No return no_signal() — signal fires if intrinsic criteria met
+
         # Frame trade for stop/target computation
         df = frames.get("main")
         if df is None or len(df) < 2:
@@ -240,6 +248,8 @@ class CrossAssetDivergencePlugin:
             regime_context=regime_context,
             supporting_factors=supporting_factors,
             factor_scores=factor_scores,
+            ctf_score=ctf_score,
+            ctf_confirmed=ctf_confirmed,
         )
         signal["setup_variant"] = setup_variant
         ctx = capture_signal_features(features, direction, "microstructure", signal["confidence"])

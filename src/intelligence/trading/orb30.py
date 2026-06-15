@@ -8,6 +8,16 @@ Identical logic to ORB15 except the accumulation window is 09:30-10:00 ET.
 Implemented as a separate class (not a shared base) for independent statistical
 tracking and clear plugin registration.
 
+VERDICT: CORRECT-RARE (Phase 126 audit)
+  Gate logic is correct. Fires at most twice per RTH session per symbol (once long,
+  once short) via fire-once guard. Accumulation window is 09:30-09:59 ET; breakout
+  window is 10:00-11:30 ET. Zero fires in corpus is expected for the same reasons as
+  ORB15: RTH session coverage, volume expansion gate stringency, and pipeline availability
+  during US market hours.
+  VERIFIED: range accumulation logic (09:30-09:59 ET), breakout detection (close > orb_high
+  or close < orb_low), fire-once guard, and volume gate are all structurally correct.
+  No code change required.
+
 Renaissance principles:
 - Segment relentlessly: 30-min ORB is a statistically distinct setup from 15-min
 - Earn the right through proof: fire-once per direction per session

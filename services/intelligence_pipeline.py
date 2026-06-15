@@ -451,6 +451,7 @@ class IntelligencePipeline(BaseDaemon):
         from src.intelligence.trading import (  # noqa: PLC0415
             aggregator,
             confidence_utils,
+            trade_framer,
             volume_profile_utils,
             zone_engine,
         )
@@ -458,6 +459,7 @@ class IntelligencePipeline(BaseDaemon):
         confidence_utils.set_config_service(self._config_service)
         volume_profile_utils.set_config_service(self._config_service)
         zone_engine.set_config_service(self._config_service)
+        trade_framer.set_config_service(self._config_service)
         aggregator.set_config_service(self._config_service)
 
         # Inject config service into all plugins that opted in via the _config_service field.
