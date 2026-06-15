@@ -7,14 +7,14 @@ dependency_graph:
   requires:
     - phase: 126-00
       provides: USDJPY diagnostic verdict; schema adaptations for DB queries
-  provides: [SIGNAL-QUALITY-01, zone-width-gate, stop-distance-floor-gate, migration-132, apr-seeds]
+  provides: [SIGNAL-QUALITY-01, zone-width-gate, stop-distance-floor-gate, migration-134, apr-seeds]
   affects: [126-02, 127-clean-replay, phase-128-signal-ledger]
 tech_stack:
   added: []
   patterns: [apr-backed-gate-with-fallback, per-asset-class-threshold-dispatch, module-config-service-wiring]
 key_files:
   created:
-    - production/migrations/132_phase126_apr_seeds.sql
+    - production/migrations/134_phase126_apr_seeds.sql
     - tests/unit/intelligence/test_zone_width_gate.py
   modified:
     - src/intelligence/trading/trade_framer.py
@@ -37,7 +37,7 @@ metrics:
 
 # Phase 126 Plan 01: Universal Zone Width Gate Summary
 
-**APR-backed zone width gate (zone_too_narrow) + stop distance floor (stop_too_close) in frame_trade(), with per-asset-class thresholds (equity=1.5xATR, fx=1.0xATR, futures=1.5xATR), migration 132, and 12 unit tests**
+**APR-backed zone width gate (zone_too_narrow) + stop distance floor (stop_too_close) in frame_trade(), with per-asset-class thresholds (equity=1.5xATR, fx=1.0xATR, futures=1.5xATR), migration 134, and 12 unit tests**
 
 ## Performance
 
@@ -124,7 +124,7 @@ Historical signal_ledger proxy rejection counts with Task 1 thresholds applied (
 
 | Task | Name | Commit | Files |
 |---|---|---|---|
-| 1-5 | Zone width gate + stop distance floor + migration | 6fe15543 | trade_framer.py, feature_pipeline_executor.py, intelligence_pipeline.py, migration 132 |
+| 1-5 | Zone width gate + stop distance floor + migration | 6fe15543 | trade_framer.py, feature_pipeline_executor.py, intelligence_pipeline.py, migration 134 |
 | 6 | Unit tests for zone width gate | 09791880 | tests/unit/intelligence/test_zone_width_gate.py |
 
 ## Config Service Wiring Location
@@ -147,7 +147,7 @@ if instrument is not None:
 - `src/intelligence/trading/trade_framer.py` - set_config_service/_cfg/_min_zone_width_atr module-level functions; zone_too_narrow gate + stop_too_close floor gate in frame_trade(); MIN_ZONE_WIDTH_ATR=1.5 constant
 - `src/intelligence/pipeline/feature_pipeline_executor.py` - asset_class injection into flat_features post-build_flat_features()
 - `services/intelligence_pipeline.py` - trade_framer.set_config_service wired at startup (line 462)
-- `production/migrations/132_phase126_apr_seeds.sql` - 8 APR rows in config_schema + config_state; applied to live DB
+- `production/migrations/134_phase126_apr_seeds.sql` - 8 APR rows in config_schema + config_state; applied to live DB
 - `tests/unit/intelligence/test_zone_width_gate.py` - 12 unit tests covering all Step 6 scenarios
 
 ## Decisions Made
@@ -165,7 +165,7 @@ if instrument is not None:
 - **Found during:** Task 4 (migration creation)
 - **Issue:** Design doc and CONTEXT.md use `equity_etf`/`forex` as key suffixes (e.g., `min_zone_width_atr.equity_etf`). Instrument.asset_class.value returns `"equity"`/`"fx"` (AssetClass StrEnum from src/core/models.py). Using design-doc names would cause runtime lookup miss (no match).
 - **Fix:** Migration 132 uses `equity`/`fx`/`futures` to match AssetClass enum values. Code in `_min_zone_width_atr()` constructs key from `asset_class` parameter which is already `.value` from the enum.
-- **Files modified:** production/migrations/132_phase126_apr_seeds.sql
+- **Files modified:** production/migrations/134_phase126_apr_seeds.sql
 - **Committed in:** 6fe15543
 
 **2. [Rule 1 - Schema] Query adaptation from design doc column names**
@@ -192,7 +192,7 @@ if instrument is not None:
 ## Self-Check
 
 - [x] `src/intelligence/trading/trade_framer.py` exists with zone_too_narrow, stop_too_close, set_config_service, _min_zone_width_atr
-- [x] `production/migrations/132_phase126_apr_seeds.sql` exists with all 8 APR keys
+- [x] `production/migrations/134_phase126_apr_seeds.sql` exists with all 8 APR keys
 - [x] `tests/unit/intelligence/test_zone_width_gate.py` exists with 12 tests, all passing
 - [x] `services/intelligence_pipeline.py` has trade_framer.set_config_service at line 462
 - [x] `src/intelligence/pipeline/feature_pipeline_executor.py` injects asset_class into flat_features
