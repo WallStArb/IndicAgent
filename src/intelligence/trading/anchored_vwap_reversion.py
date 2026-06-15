@@ -90,6 +90,7 @@ class AnchoredVWAPReversionPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     regime_type: str = "mean_reversion"
     requires_i6_confluence: bool = True
+    shadow_only: bool = True
     _state: dict[str, VWAPReversionState] = field(default_factory=dict)
     # Separate namespace for deduplicate_event (needs plain dict entries, not VWAPReversionState)
     _dedup_state: dict = field(default_factory=dict)
