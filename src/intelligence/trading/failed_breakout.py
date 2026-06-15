@@ -59,8 +59,19 @@ class FailedBreakoutPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "mean_reversion"
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        max_reversal_bars = (
+            cfg.get_sync("threshold.failed_breakout.max_reversal_bars", _MAX_REVERSAL_BARS)
+            if cfg
+            else _MAX_REVERSAL_BARS
+        )
+        w_break = cfg.get_sync("weights.failed_breakout.break_magnitude", 0.35) if cfg else 0.35
+        w_reject = cfg.get_sync("weights.failed_breakout.rejection_strength", 0.30) if cfg else 0.30
+        w_vol = cfg.get_sync("weights.failed_breakout.volume", 0.20) if cfg else 0.20
+        w_struct = cfg.get_sync("weights.failed_breakout.structure_quality", 0.15) if cfg else 0.15
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -109,7 +120,7 @@ class FailedBreakoutPlugin:
         bars_since_bos = int(state.get("bars_since_bos", 0))
 
         # ── Gate: reversal window expired ────────────────────────────────────
-        if bars_since_bos > _MAX_REVERSAL_BARS:
+        if bars_since_bos > max_reversal_bars:
             # Clear BOS tracking — window missed
             state.clear()
             self._state[(symbol, tf)] = state
@@ -157,7 +168,7 @@ class FailedBreakoutPlugin:
 
         # rejection_strength_score: sooner reversal = stronger rejection (bars_since_bos=0 is best)
         rejection_strength_score = clamp01(
-            (_MAX_REVERSAL_BARS - bars_since_bos) / _MAX_REVERSAL_BARS
+            (max_reversal_bars - bars_since_bos) / max(1, max_reversal_bars)
         )
 
         # volume_score: rel_volume confirmation
@@ -180,10 +191,10 @@ class FailedBreakoutPlugin:
         }
 
         raw_conf = (
-            0.35 * break_magnitude_score
-            + 0.30 * rejection_strength_score
-            + 0.20 * volume_score
-            + 0.15 * structure_quality_score
+            w_break * break_magnitude_score
+            + w_reject * rejection_strength_score
+            + w_vol * volume_score
+            + w_struct * structure_quality_score
         )
         confidence = compose_confidence(raw_conf)
 

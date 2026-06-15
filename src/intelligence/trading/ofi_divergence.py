@@ -81,6 +81,15 @@ class OFIDivergencePlugin:
             if cfg
             else _MIN_PERSISTENCE
         )
+        min_divergence = (
+            cfg.get_sync("threshold.ofi_divergence.min_divergence_sigma", _MIN_DIVERGENCE)
+            if cfg
+            else _MIN_DIVERGENCE
+        )
+        w_magnitude = cfg.get_sync("weights.ofi_divergence.magnitude", 0.40) if cfg else 0.40
+        w_alignment = cfg.get_sync("weights.ofi_divergence.alignment", 0.25) if cfg else 0.25
+        w_persistence = cfg.get_sync("weights.ofi_divergence.persistence", 0.20) if cfg else 0.20
+        w_volume = cfg.get_sync("weights.ofi_divergence.volume", 0.15) if cfg else 0.15
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -123,7 +132,7 @@ class OFIDivergencePlugin:
         peak_abs = self._peak_abs[state_key]
 
         # ── Gate checks ──────────────────────────────────────────────────────
-        if abs(ofi_div) < _MIN_DIVERGENCE:
+        if abs(ofi_div) < min_divergence:
             return no_signal()
         if count < min_persistence:
             return no_signal()
@@ -168,10 +177,10 @@ class OFIDivergencePlugin:
         }
 
         raw_conf = (
-            0.40 * magnitude_score
-            + 0.25 * alignment_score
-            + 0.20 * persistence_score
-            + 0.15 * volume_score
+            w_magnitude * magnitude_score
+            + w_alignment * alignment_score
+            + w_persistence * persistence_score
+            + w_volume * volume_score
         )
         confidence = compose_confidence(raw_conf)
 
