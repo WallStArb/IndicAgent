@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
 
@@ -163,22 +162,23 @@ class TestDualDivergence:
         for _ in range(3):
             plugin.compute_full(_make_frames(close, features))
         result = plugin.compute_full(_make_frames(close, features))
-        # Phase 123: signal fires; ctf_score captured as ECL annotation
-        assert result.get("direction") != 0, (
-            "Phase 123 ECL: ctf_score=0.10 must not block DualDivergence emission"
-        )
-        assert result.get("ctf_score") == pytest.approx(0.10)
+        # Phase 126-06: signal fires; ctf_score initialized to None (pipeline annotates)
+        assert (
+            result.get("direction") != 0
+        ), "Phase 126-06: ctf_score=0.10 must not block DualDivergence emission"
+        assert (
+            result.get("ctf_score") is None
+        ), "ctf_score is None from plugin body; pipeline fills it"
 
     def test_regime_type_is_mean_reversion(self):
         """plugin.regime_type must be 'mean_reversion'."""
         plugin = self._make_plugin()
         assert plugin.regime_type == "mean_reversion"
 
-    def test_shadow_only_and_requires_i6(self):
-        """shadow_only=True and requires_i6_confluence=True ClassVars."""
+    def test_shadow_only(self):
+        """shadow_only=True ClassVar."""
         plugin = self._make_plugin()
         assert plugin.shadow_only is True
-        assert plugin.requires_i6_confluence is True
 
     def test_supporting_factors_include_both_divergences(self):
         """Signal output should include ofi_divergence and cvd_divergence in supporting factors."""

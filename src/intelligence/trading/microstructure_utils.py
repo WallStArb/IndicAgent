@@ -11,10 +11,8 @@ from typing import Any
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    capture_signal_features,
     clamp01,
     compose_confidence,
-    get_min_ctf_score,
     get_min_regime_weight,
     rel_volume_score,
 )
@@ -79,14 +77,6 @@ def detect_spike_signal(
     if hmm_trending_weight(features) < get_min_regime_weight():
         return no_signal()
 
-    # ECL annotation: ctf_score captured as context, not gated (Phase 123)
-    _ctf_raw = features.get("ctf_score")
-    ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-    ctf_confirmed: bool | None = (
-        (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-    )
-    # No return no_signal() — signal fires if intrinsic criteria met
-
     atr = get_atr_with_floor_from_frames(frames)
     if atr is None:
         return no_signal()
@@ -128,12 +118,9 @@ def detect_spike_signal(
     supporting: list[str] = [
         f"{spike_feature_key}={spike_z:.3f}",
     ]
-    if ctf_score is not None:
-        supporting.append(f"ctf_score={ctf_score:.3f}")
 
     # Exhaustion not applicable — spike signals are regime-independent;
     # Phase 49 will learn gate behavior from shadow data
-    ctx = capture_signal_features(features, direction, "microstructure", confidence)
     signal = make_signal_from_frame(
         tf,
         symbol=frames.get("symbol", ""),
@@ -145,10 +132,6 @@ def detect_spike_signal(
         confidence=confidence,
         regime_context=regime_context,
         supporting_factors=supporting,
-        features_snapshot=ctx,
-        context_features=ctx,
-        ctf_score=ctf_score,
-        ctf_confirmed=ctf_confirmed,
         factor_scores=factor_scores,
     )
     return signal

@@ -16,10 +16,8 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    capture_signal_features,
     clamp01,
     compose_confidence,
-    get_min_ctf_score,
     get_min_regime_weight,
     rel_volume_score,
 )
@@ -60,7 +58,6 @@ class FailedBreakoutPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "reversal", "structure", "regime"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -123,14 +120,6 @@ class FailedBreakoutPlugin:
         if hmm_trending_weight(features) < get_min_regime_weight():
             self._state[(symbol, tf)] = state
             return no_signal()
-
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
 
         # ── Reversal check ───────────────────────────────────────────────────
         close_price = float(df["close"].iloc[-1])
@@ -232,7 +221,6 @@ class FailedBreakoutPlugin:
         if hmm_regime == 0.0:
             supporting.append("hmm_ranging_aligned")
 
-        ctx = capture_signal_features(features, direction, "session", confidence)
         signal = make_signal_from_frame(
             frame,
             symbol=symbol,
@@ -244,10 +232,6 @@ class FailedBreakoutPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
             factor_scores=factor_scores,
         )
         return signal

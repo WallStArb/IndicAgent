@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .state_utils import deduplicate_event
@@ -67,7 +67,6 @@ class PatternCompletionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "pattern", "structure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "trend"
-    requires_i6_confluence: bool = True
     shadow_only: bool = True
     confidence_threshold: float = _CONFIDENCE_MIN_DEFAULT  # alias for backward-compat
     _state: dict = field(default_factory=dict)
@@ -259,7 +258,6 @@ class PatternCompletionPlugin:
         if n_candidates > 1:
             supporting.append("multiple_patterns")
 
-        ctx = capture_signal_features(features, direction, "smc", confidence)
         signal = make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),
@@ -271,8 +269,6 @@ class PatternCompletionPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
             factor_scores=factor_scores,
         )
         signal["pattern_name"] = pattern_name
