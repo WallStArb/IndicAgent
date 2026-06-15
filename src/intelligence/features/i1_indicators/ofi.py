@@ -36,7 +36,14 @@ _MIN_HISTORY: int = 5
 class OFIPlugin:
     name: str = "ind_OFI"
     outputs: frozenset[str] = frozenset(
-        {"ofi_ewma_5", "ofi_ewma_20", "ofi_divergence", "ofi_spike_z", "ofi_variant"}
+        {
+            "ofi_ewma_5",
+            "ofi_ewma_20",
+            "ofi_divergence",
+            "ofi_spike_z",
+            "ofi_variant",
+            "price_return_z",
+        }
     )
     min_lookback: int = 5
     # Delegation pattern: compute_next delegates to compute_full (per-symbol self._state architecture)
@@ -112,6 +119,7 @@ class OFIPlugin:
             "ofi_divergence": divergence,
             "ofi_spike_z": round(spike_z, 4),
             "ofi_variant": variant,
+            "price_return_z": round(price_return_z, 4),
             "_state": self._state,
         }
 

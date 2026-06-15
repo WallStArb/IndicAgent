@@ -744,6 +744,7 @@ class SMCContext(BaseModel):
     hmm_warmed_up: bool | None = None  # False during convergence window post-reset
     hmm_regime_entropy: float | None = None  # Shannon entropy across 3 state probs
     hmm_regime_velocity: float | None = None  # Rate of change of dominant state prob
+    hmm_probability: float | None = None  # P(trending) = P(up) + P(down)
 
     # LiquidityPoolsPlugin outputs
     bsl_level: float | None = None
