@@ -35,7 +35,7 @@ The quantitative domain is live on 60 instruments across futures, ETFs, FX, and 
 
 Each domain is an independent analysis engine. Downstream application agents - trade execution, portfolio management, risk management - consume from whichever domains they need by subscribing to the bus.
 
-**The AI layer is multi-provider and agent-organized.** A multi-provider LLM chain (local Ollama, OpenRouter, DeepSeek) runs with per-provider circuit breakers - no single model or vendor is a dependency. Specialist agents handle focused tasks; composite agents synthesize them into a coherent view, the way a trading desk works. Two deeper systems sit behind this: an Evolvable AI framework where agents improve through Darwinian selection, and a Vector Intelligence Layer that grounds every AI conclusion in the K most similar historical bar states and what actually happened after them. Both are covered in detail below.
+**The AI layer is multi-provider and agent-organized.** A multi-provider LLM chain (local Ollama on AMD ROCm GPU, OpenRouter for cloud fallback) runs with per-provider circuit breakers — no single model or vendor is a dependency. Specialist agents handle focused tasks; composite agents synthesize them into a coherent view, the way a trading desk works. Two deeper systems are designed behind this: an Evolvable AI framework where agents improve through Darwinian selection, and a Vector Intelligence Layer that will ground every AI conclusion in the K most similar historical bar states and what actually happened after them. Both are covered in detail below.
 
 **What makes this different from a signal pipeline:**
 
