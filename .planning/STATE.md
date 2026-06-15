@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.10
-milestone_name: milestone
-status: completed
-last_updated: "2026-06-15T03:12:04.880Z"
-last_activity: "2026-06-14 -- Phase 125 planned (5 plans, 4 waves); ready to execute"
+milestone_name: AI Platform — Part 2
+status: executing
+last_updated: "2026-06-15T08:42:54.440Z"
+last_activity: 2026-06-15 -- Phase 125 execution started
 progress:
-  total_phases: 21
-  completed_phases: 13
-  total_plans: 91
-  completed_plans: 70
-  percent: 62
+  total_phases: 8
+  completed_phases: 2
+  total_plans: 20
+  completed_plans: 10
+  percent: 25
 ---
 
 # Project State
@@ -20,7 +20,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 124 — signal-universe-integrity-cold-start-hardening
+**Current focus:** Phase 125 — apr-full-migration-all-three-tiers
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
@@ -103,10 +103,10 @@ Then: `/clear` then `/gsd-execute-phase 121` (Wave 2 — validation report)
 
 ## Current Position
 
-Phase: 124 (signal-universe-integrity-cold-start-hardening) — COMPLETE
-Plan: 7 of 7
-Status: Phase 124 complete 2026-06-14; all 7 plans executed, CR fixes applied, APR wired for all 5 plugins, migration 131 applied
-Last activity: 2026-06-14 -- Phase 124 complete; next: Phase 125 or /gsd-plan-phase 126
+Phase: 125 (apr-full-migration-all-three-tiers) — EXECUTING
+Plan: 1 of 5
+Status: Executing Phase 125
+Last activity: 2026-06-15 -- Phase 125 execution started
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
