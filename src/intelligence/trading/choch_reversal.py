@@ -50,6 +50,9 @@ class CHoCHReversalPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "any"
     requires_i6_confluence: bool = True
+    # Phase 126 IC audit: statistically anti-predictive on existing data
+    # (IC=-0.014, hit_rate CI upper=0.221, n=38393); redesign required.
+    shadow_only: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
