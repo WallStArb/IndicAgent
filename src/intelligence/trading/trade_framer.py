@@ -59,8 +59,31 @@ from .zone_engine import (
 _logger = _structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
+# Config service wiring (matches zone_engine.py pattern exactly — D-05)
+# ---------------------------------------------------------------------------
+
+_config_service: Any | None = None
+
+
+def set_config_service(cfg: Any) -> None:
+    global _config_service
+    _config_service = cfg
+
+
+def _cfg(key: str, default: float) -> float:
+    return _config_service.get_sync(key, default) if _config_service is not None else default
+
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+
+# Zone width gate: minimum zone_width as ATR multiple, per asset class.
+# Derived from noise-band analysis: zone_width + buffer (0.25xATR) >= 2.0xATR
+# => zone_width >= 1.75xATR; rounded to 1.5 as practical starting point.
+# APR key: feature.zone_engine.min_zone_width_atr (and per-asset-class variants).
+# TODO: remove this constant once APR is guaranteed loaded at startup (D-18).
+MIN_ZONE_WIDTH_ATR = 1.5  # hard-coded fallback; APR key feature.zone_engine.min_zone_width_atr
 
 EPSILON_TOLERANCE = (
     1e-9  # Tolerance for floating-point comparisons (Renaissance: instrument everything)
@@ -138,6 +161,18 @@ def _adaptive_buffer(features: dict, base_mult: float, regime_type: str | None =
 # ATR fallback stop, classify as "structure_snap" (structure is close to ATR anyway).
 # Signals beyond this boundary are "garch_adaptive" (structure diverges from ATR).
 STRUCTURE_SNAP_PROXIMITY_ATR = 1.5
+
+
+def _min_zone_width_atr(asset_class: str | None) -> float:
+    """Return min zone_width/ATR threshold for the given asset class.
+
+    Reads from APR (config_service) per D-05 with hard-coded fallback per D-18.
+    Asset-class-specific key overrides the default when _config_service is wired.
+    """
+    default = _cfg("feature.zone_engine.min_zone_width_atr", MIN_ZONE_WIDTH_ATR)
+    if asset_class and _config_service is not None:
+        return _cfg(f"feature.zone_engine.min_zone_width_atr.{asset_class}", default)
+    return default
 
 
 @dataclass
@@ -1012,6 +1047,33 @@ def frame_trade(
     )
     features["zone_source"] = zone_source
 
+    # Zone width gate (D-01, Root Crime 1): reject signals whose zone is narrower than the
+    # per-asset-class minimum. Gate is universal — applied regardless of zone_source path
+    # (supply_demand, fvg, ob, structural engine, sweep band, ATR fallback). ATR-derived
+    # zones (sweep band: 1.0xATR, ATR fallback: 1.5xATR) pass trivially by construction (D-02).
+    zone_width = zone_high - zone_low
+    _asset_class = features.get("asset_class")
+    _min_width = atr * _min_zone_width_atr(_asset_class)
+    if zone_width < _min_width:
+        _logger.warning(
+            "frame_trade.zone_too_narrow",
+            zone_width=round(zone_width, 6),
+            min_width=round(_min_width, 6),
+            atr=round(atr, 6),
+            zone_source=zone_source,
+            setup_type=setup_type,
+            asset_class=_asset_class,
+        )
+        return _reject_frame(
+            f"zone_too_narrow:{zone_source}",
+            resolved_entry,
+            entry_type,
+            stop,
+            stop_type,
+            zone_low,
+            zone_high,
+        )
+
     # Renaissance validation gate: stops must be OUTSIDE entry zone
     # Long: stop < zone_low; Short: stop > zone_high
     # Violations cause stopped_at_entry outcomes (dead-on-arrival signals)
@@ -1027,6 +1089,23 @@ def frame_trade(
     )
     if stop != original_stop:
         stop_type = "zone_corrected"
+
+    # Stop distance floor gate (D-04): absolute floor on stop distance from entry.
+    # Applies to ALL paths (zone and non-zone). For zone trades, the zone width gate
+    # above carries the load; this gate is the independent hard floor that ML cannot
+    # breach without an operator override of feature.zone_engine.min_stop_distance_atr.
+    _stop_distance = abs(resolved_entry - stop)
+    _min_stop_dist = atr * _cfg("feature.zone_engine.min_stop_distance_atr", 0.5)
+    if _stop_distance < _min_stop_dist:
+        return _reject_frame(
+            f"stop_too_close:{stop_type}",
+            resolved_entry,
+            entry_type,
+            stop,
+            stop_type,
+            zone_low,
+            zone_high,
+        )
 
     risk = abs(resolved_entry - stop)
     if risk <= EPSILON_TOLERANCE:
