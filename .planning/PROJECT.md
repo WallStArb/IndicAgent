@@ -300,4 +300,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-14 after v2.10 milestone init — ECL boundary invariant established; 3-table architecture decided (not conditional); APR full migration scoped (54 keys, all 3 tiers); 7-phase plan complete in `docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md`.*
+*Last updated: 2026-06-15 — Phase 126 (Signal Universe Hardening) complete: zone width gate in frame_trade() via APR (1.5x/1.0x/1.5x ATR per asset class), _I7_I6_EXEMPT deleted, pipeline annotation layer (_annotate_signal), SIGNAL_SCHEMA_VERSION v4, 5 anti-signal plugins demoted to shadow_only=True. SIGNAL-QUALITY-01/02 closed. Phase 127 (clean replay + validation) next.*
