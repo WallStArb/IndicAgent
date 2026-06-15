@@ -148,18 +148,13 @@ class PluginRegistry:
                 if not hasattr(plugin, "requires_i6_confluence"):
                     raise ArchitectureViolation(
                         f"I7 plugin '{name}' missing requires_i6_confluence declaration. "
-                        f"Add: requires_i6_confluence: bool = True  "
-                        f"(or False with TODO comment if I6 not yet integrated)"
+                        f"Add: requires_i6_confluence: bool = True"
                     )
-                # Function-local import avoids circular import (register_plugins imports base).
-                from src.intelligence.register_plugins import _I7_I6_EXEMPT  # noqa: PLC0415
-
-                if name not in _I7_I6_EXEMPT and not getattr(
-                    plugin, "requires_i6_confluence", None
-                ):
+                if not getattr(plugin, "requires_i6_confluence", None):
                     raise ArchitectureViolation(
                         f"I7 plugin '{name}' must have requires_i6_confluence=True. "
-                        f"Phase 119 requires all I7 setups consume I6 cross-timeframe data."
+                        f"All I7 setups must consume I6 cross-timeframe data. "
+                        f"The _I7_I6_EXEMPT carve-out was deleted in Phase 126."
                     )
 
 

@@ -16,7 +16,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import capture_signal_features, compose_confidence, get_min_ctf_score
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
@@ -64,7 +64,7 @@ class POCRejectionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = False  # TODO(phase-118): integrate I6 confluence
+    requires_i6_confluence: bool = True
     _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -90,6 +90,14 @@ class POCRejectionPlugin:
         }
         if df is None or len(df) < self.min_lookback:
             return no_signal()
+
+        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
+        _ctf_raw = features.get("ctf_score")
+        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
+        ctf_confirmed: bool | None = (
+            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
+        )
+        # No return no_signal() — signal fires if intrinsic criteria met
 
         # ── Required: POC price ───────────────────────────────────────────────
         poc_price = features.get("poc_price")
@@ -208,6 +216,8 @@ class POCRejectionPlugin:
             regime_context=regime_ctx,
             supporting_factors=supporting,
             factor_scores=factor_scores,
+            ctf_score=ctf_score,
+            ctf_confirmed=ctf_confirmed,
         )
         ctx = capture_signal_features(features, direction, "mean_reversion", signal["confidence"])
         signal["features_snapshot"] = ctx
