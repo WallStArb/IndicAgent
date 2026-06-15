@@ -46,6 +46,9 @@ class SupplyDemandSetupPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "any"
     requires_i6_confluence: bool = True
+    # Phase 126 IC audit: statistically anti-predictive on existing data
+    # (IC=-0.020, hit_rate CI upper=0.175, n=8433); redesign required.
+    shadow_only: bool = True
     _state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
 
