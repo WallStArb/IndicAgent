@@ -12,7 +12,7 @@ Renaissance principles:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
@@ -28,7 +28,6 @@ from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
-# Volume expansion threshold for LVN breakout
 _VOL_THRESHOLD: float = 1.5
 
 
@@ -65,8 +64,20 @@ class LVNBreakoutPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "trend"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     regime_type: str = "trend"
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        vol_threshold = (
+            cfg.get_sync("threshold.lvn_breakout.vol_threshold", _VOL_THRESHOLD)
+            if cfg
+            else _VOL_THRESHOLD
+        )
+        w_vol = cfg.get_sync("weights.lvn_breakout.vol", 0.30) if cfg else 0.30
+        w_trend = cfg.get_sync("weights.lvn_breakout.trend_clarity", 0.25) if cfg else 0.25
+        w_lvn = cfg.get_sync("weights.lvn_breakout.lvn_inverse", 0.25) if cfg else 0.25
+        w_close = cfg.get_sync("weights.lvn_breakout.close_strength", 0.20) if cfg else 0.20
+
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -98,12 +109,12 @@ class LVNBreakoutPlugin:
         # ── Volume gate (ORB15 fallback pattern) ─────────────────────────────
         rel_volume = features.get("rel_volume")
         if rel_volume is not None and isinstance(rel_volume, (int, float)):
-            vol_ok = float(rel_volume) >= _VOL_THRESHOLD
+            vol_ok = float(rel_volume) >= vol_threshold
             volume_ratio = float(rel_volume)
         else:
             bar_vol = float(df["volume"].iloc[-1])
             avg_vol = float(df["volume"].iloc[:-1].mean()) if len(df) > 1 else 0.0
-            vol_ok = avg_vol > 0 and bar_vol >= _VOL_THRESHOLD * avg_vol
+            vol_ok = avg_vol > 0 and bar_vol >= vol_threshold * avg_vol
             volume_ratio = (bar_vol / avg_vol) if avg_vol > 0 else 0.0
 
         if not vol_ok:
@@ -168,8 +179,7 @@ class LVNBreakoutPlugin:
             lvn_width_atr = 0.0
 
         # ── Confidence scoring ────────────────────────────────────────────────
-        # Volume ratio: 0.30 weight
-        vol_score = clamp01((volume_ratio - _VOL_THRESHOLD) / _VOL_THRESHOLD)
+        vol_score = clamp01((volume_ratio - vol_threshold) / vol_threshold)
 
         # Trend regime clarity via hmm_prob: 0.25 weight
         # Pre-existing intrinsic factor — preserved per plan (LVNBreakout is in no-rewrite set)
@@ -195,7 +205,10 @@ class LVNBreakoutPlugin:
         }
 
         raw_conf = (
-            0.30 * vol_score + 0.25 * trend_clarity + 0.25 * lvn_inverse + 0.20 * close_strength
+            w_vol * vol_score
+            + w_trend * trend_clarity
+            + w_lvn * lvn_inverse
+            + w_close * close_strength
         )
 
         # ── Supporting factors ────────────────────────────────────────────────

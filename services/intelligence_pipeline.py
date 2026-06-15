@@ -452,6 +452,22 @@ class IntelligencePipeline(BaseDaemon):
         ("weights.vwap_reversion.sigma_magnitude", 0.40),
         ("weights.vwap_reversion.hurst_quality", 0.35),
         ("weights.vwap_reversion.vol_stability", 0.25),
+        # --- migration 136: lvn_breakout, ofi_divergence, failed_breakout APR ---
+        ("threshold.lvn_breakout.vol_threshold", 1.5),
+        ("weights.lvn_breakout.vol", 0.30),
+        ("weights.lvn_breakout.trend_clarity", 0.25),
+        ("weights.lvn_breakout.lvn_inverse", 0.25),
+        ("weights.lvn_breakout.close_strength", 0.20),
+        ("threshold.ofi_divergence.min_divergence_sigma", 1.5),
+        ("weights.ofi_divergence.magnitude", 0.40),
+        ("weights.ofi_divergence.alignment", 0.25),
+        ("weights.ofi_divergence.persistence", 0.20),
+        ("weights.ofi_divergence.volume", 0.15),
+        ("threshold.failed_breakout.max_reversal_bars", 3),
+        ("weights.failed_breakout.break_magnitude", 0.35),
+        ("weights.failed_breakout.rejection_strength", 0.30),
+        ("weights.failed_breakout.volume", 0.20),
+        ("weights.failed_breakout.structure_quality", 0.15),
     )
 
     async def _prewarm_threshold_config(self) -> None:

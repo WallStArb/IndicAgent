@@ -693,6 +693,7 @@ class SMCContext(BaseModel):
     bos_detected: float | None = None  # 0.0/1.0 flag (plugin returns float, not bool)
     bos_direction: int | None = None  # -1/0/1
     bos_level: float | None = None
+    bos_confidence: float | None = None  # structural quality score alias from BOSCHoCH
     choch_detected: float | None = None  # 0.0/1.0 flag
     choch_direction: int | None = None  # -1/0/1
     smc_trend_direction: int | None = None  # renamed from trend_direction to avoid I3 collision
