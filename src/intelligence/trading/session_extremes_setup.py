@@ -27,10 +27,8 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    capture_signal_features,
     clamp01,
     compose_confidence,
-    get_min_ctf_score,
     get_min_regime_weight,
 )
 from .plugin_utils import no_signal
@@ -71,7 +69,6 @@ class SessionExtremesSetupPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "session"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = True
     proximity_atr_mult: float = 0.3
     _state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
@@ -119,14 +116,6 @@ class SessionExtremesSetupPlugin:
         # Gate 1: mean_reversion regime gate — ranging probability >= threshold
         if hmm_regime_weight(features, "ranging") < get_min_regime_weight():
             return no_signal()
-
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
 
         # ── ATR and price access (after dual gate) ───────────────────────────
         symbol = frames.get("symbol", "")
@@ -237,7 +226,6 @@ class SessionExtremesSetupPlugin:
         if not tf.viable:
             return no_signal()
 
-        ctx = capture_signal_features(features, direction, "session", confidence)
         signal = make_signal_from_frame(
             tf,
             symbol=symbol,
@@ -249,10 +237,6 @@ class SessionExtremesSetupPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
             factor_scores=factor_scores,
         )
         signal["bias"] = side

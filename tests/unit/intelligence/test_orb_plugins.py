@@ -175,11 +175,6 @@ class TestORB15Plugin:
         p._state = {}
         return p
 
-    def test_requires_i6_confluence_true(self):
-        """ORB15 must have requires_i6_confluence=True (compliance check)."""
-        plugin = self._fresh_plugin()
-        assert plugin.requires_i6_confluence is True
-
     def test_shadow_only_true(self):
         """ORB15 must have shadow_only=True."""
         plugin = self._fresh_plugin()
@@ -326,11 +321,6 @@ class TestORB30Plugin:
         p = ORB30Plugin()
         p._state = {}
         return p
-
-    def test_requires_i6_confluence_true(self):
-        """ORB30 must have requires_i6_confluence=True (compliance check)."""
-        plugin = self._fresh_plugin()
-        assert plugin.requires_i6_confluence is True
 
     def test_shadow_only_true(self):
         """ORB30 must have shadow_only=True."""

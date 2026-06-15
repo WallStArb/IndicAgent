@@ -41,7 +41,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
@@ -80,7 +80,6 @@ class FVGFillPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "smc", "fvg", "institutional"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "mean_reversion"
-    requires_i6_confluence: bool = True
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -174,9 +173,6 @@ class FVGFillPlugin:
             supporting_factors=supporting,
             factor_scores=factor_scores,
         )
-        ctx = capture_signal_features(features, direction, "smc", signal["confidence"])
-        signal["features_snapshot"] = ctx
-        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

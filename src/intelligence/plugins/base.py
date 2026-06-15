@@ -10,9 +10,9 @@ from src.core.models import AssetClass
 class ArchitectureViolation(Exception):
     """Raised when a plugin violates a mandatory architectural constraint.
 
-    Raised at startup in validate_tier() when a registered I7 plugin is missing
-    a required class attribute (e.g., requires_i6_confluence). Never raised
-    per-bar — architecture validation is startup-time only, not on the hot path.
+    Raised at startup in validate_tier() when a registered plugin is missing
+    a required class attribute or has an invalid value. Never raised per-bar --
+    architecture validation is startup-time only, not on the hot path.
     """
 
 
@@ -65,13 +65,6 @@ class PatternPlugin(Protocol):
     # supports_incremental=False AND P99 latency < 100µs (verified from 24h histogram).
     # fast_path execution branch ships in Plan 05. Here only the attribute is added.
     fast_path: ClassVar[bool]
-    # I6 confluence requirement: True (default) if this I7 plugin consumes at least one
-    # ctf_* sub-score from frames["i6"]. Set to False only with explicit documented
-    # rationale. Enforcement: validate_tier() raises ArchitectureViolation at startup
-    # if this attribute is missing; pytest sweep in
-    # tests/unit/intelligence/test_i6_confluence_enforcement.py asserts it on every
-    # TIER_I7 plugin.
-    requires_i6_confluence: ClassVar[bool]
 
     def compute_full(
         self, frames: dict[str, Any], *, state: dict | None = None
@@ -144,17 +137,6 @@ class PluginRegistry:
                     raise ValueError(
                         f"I7 plugin '{name}' has invalid regime_type='{regime}'. "
                         f"Must be one of: {valid_regimes}"
-                    )
-                if not hasattr(plugin, "requires_i6_confluence"):
-                    raise ArchitectureViolation(
-                        f"I7 plugin '{name}' missing requires_i6_confluence declaration. "
-                        f"Add: requires_i6_confluence: bool = True"
-                    )
-                if not getattr(plugin, "requires_i6_confluence", None):
-                    raise ArchitectureViolation(
-                        f"I7 plugin '{name}' must have requires_i6_confluence=True. "
-                        f"All I7 setups must consume I6 cross-timeframe data. "
-                        f"The _I7_I6_EXEMPT carve-out was deleted in Phase 126."
                     )
 
 

@@ -12,7 +12,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence, get_min_ctf_score
+from .confidence_utils import compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
@@ -46,7 +46,6 @@ class RegimeTransitionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "regime", "smc", "structure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "any"
-    requires_i6_confluence: bool = True
     cp_threshold: float = 0.5
     _state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
@@ -93,14 +92,6 @@ class RegimeTransitionPlugin:
         if atr is None:
             return no_signal()
 
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
-
         entry = float(close[-1])
 
         signal_type = signal_type_for_direction("regime_transition", direction)
@@ -143,7 +134,6 @@ class RegimeTransitionPlugin:
 
         confidence = compose_confidence(raw_conf)
 
-        ctx = capture_signal_features(features, direction, "trend", confidence)
         signal = make_signal_from_frame(
             tf,
             symbol=frames.get("__symbol__", ""),
@@ -155,10 +145,6 @@ class RegimeTransitionPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
             factor_scores=factor_scores,
         )
         return signal

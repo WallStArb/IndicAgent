@@ -17,7 +17,6 @@ from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
     _validate_weights_sum,
-    capture_signal_features,
     clamp01,
     compose_confidence,
 )
@@ -59,7 +58,6 @@ class GapAnalysisSetupPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "gap"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "any"
-    requires_i6_confluence: bool = True
     shadow_only: bool = True
     min_gap_atr_mult: float = 0.8
     continuation_atr_mult: float = 1.0
@@ -211,7 +209,6 @@ class GapAnalysisSetupPlugin:
         if not tf.viable:
             return no_signal()
 
-        ctx = capture_signal_features(features, direction, "session", confidence)
         signal = make_signal_from_frame(
             tf,
             symbol=symbol,
@@ -223,8 +220,6 @@ class GapAnalysisSetupPlugin:
             confidence=confidence,
             regime_context="gap_open",
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
             factor_scores=factor_scores,
         )
         signal["bias"] = bias

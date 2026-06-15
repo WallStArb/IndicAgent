@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .state_utils import deduplicate_event
@@ -77,7 +77,6 @@ class TrendFollowingPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "trend"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
-    requires_i6_confluence: bool = True
     _state: dict[str, TrendFollowingState] = field(default_factory=dict)
     _dedup_state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
@@ -277,9 +276,6 @@ class TrendFollowingPlugin:
             supporting_factors=supporting,
             factor_scores=factor_scores,
         )
-        ctx = capture_signal_features(features, direction, "trend", signal["confidence"])
-        signal["features_snapshot"] = ctx
-        signal["context_features"] = ctx
         return signal
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

@@ -18,10 +18,8 @@ from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
     _validate_weights_sum,
-    capture_signal_features,
     clamp01,
     compose_confidence,
-    get_min_ctf_score,
     get_min_regime_weight,
 )
 from .plugin_utils import extract_ohlcv, no_signal
@@ -57,7 +55,6 @@ class MomentumBreakoutPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "breakout", "momentum"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
-    requires_i6_confluence: bool = True
     roc_period: int = 14
     roc_threshold: float = 0.3
     volume_expansion_threshold: float = 1.5
@@ -82,14 +79,6 @@ class MomentumBreakoutPlugin:
         # ── Gate 1: continuous trending regime ────────────────────────────────
         if hmm_trending_weight(features) < get_min_regime_weight():
             return no_signal()
-
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
 
         # ── OHLCV extraction (after dual gate) ───────────────────────────────
         result = extract_ohlcv(frames, self.min_lookback)
@@ -188,7 +177,6 @@ class MomentumBreakoutPlugin:
         if not tf.viable:
             return no_signal()
 
-        ctx = capture_signal_features(features, direction, "trend", confidence)
         return make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),
@@ -200,10 +188,6 @@ class MomentumBreakoutPlugin:
             confidence=confidence,
             regime_context=regime_ctx,
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
             factor_scores=factor_scores,
         )
 

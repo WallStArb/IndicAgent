@@ -17,10 +17,8 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
-    capture_signal_features,
     clamp01,
     compose_confidence,
-    get_min_ctf_score,
     get_min_regime_weight,
 )
 from .plugin_utils import extract_ohlcv, no_signal
@@ -115,7 +113,6 @@ class CandlestickPatternSetupPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "pattern", "structure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "any"
-    requires_i6_confluence: bool = True
     regime_threshold: float = 0.5
     volume_boost_ratio: float = 1.3
     sr_proximity_atr: float = 0.3
@@ -140,14 +137,6 @@ class CandlestickPatternSetupPlugin:
         # Gate 1: regime gate (any-regime uses hmm_trending_weight)
         if hmm_trending_weight(features) < get_min_regime_weight():
             return no_signal()
-
-        # ECL annotation: ctf_score is extrinsic context, not an emission gate (Phase 123)
-        _ctf_raw = features.get("ctf_score")
-        ctf_score: float | None = float(_ctf_raw) if _ctf_raw is not None else None
-        ctf_confirmed: bool | None = (
-            (abs(ctf_score) >= get_min_ctf_score()) if ctf_score is not None else None
-        )
-        # No return no_signal() — signal fires if intrinsic criteria met
 
         # ── OHLCV access (after dual gate) ───────────────────────────────────
         result = extract_ohlcv(frames, self.min_lookback)
@@ -355,7 +344,6 @@ class CandlestickPatternSetupPlugin:
         if not tf.viable:
             return no_signal()
 
-        ctx = capture_signal_features(features, direction, "session", confidence)
         return make_signal_from_frame(
             tf,
             symbol=frames.get("symbol", ""),
@@ -368,10 +356,6 @@ class CandlestickPatternSetupPlugin:
             regime_context=regime_ctx,
             confluence_score=float(confluence_score),
             supporting_factors=supporting,
-            features_snapshot=ctx,
-            context_features=ctx,
-            ctf_score=ctf_score,
-            ctf_confirmed=ctf_confirmed,
             factor_scores=factor_scores,
         )
 
