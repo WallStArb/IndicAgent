@@ -78,6 +78,9 @@ class TrendFollowingPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "trend"
     requires_i6_confluence: bool = True
+    # Phase 126 IC audit: statistically anti-predictive on existing data
+    # (IC=+0.023, hit_rate CI upper=0.250, n=2393 - all outcomes below 0.45 floor); redesign required.
+    shadow_only: bool = True
     _state: dict[str, TrendFollowingState] = field(default_factory=dict)
     _dedup_state: dict = field(default_factory=dict)
     _config_service: Any = field(default=None, compare=False, repr=False)
