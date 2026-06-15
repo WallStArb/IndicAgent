@@ -90,10 +90,7 @@ class SqueezeExpansionPlugin:
 
         volume_sma_20 = features.get("volume_sma_20")
         if volume_sma_20 is None or volume_sma_20 <= 0:
-            if len(volume) >= 20:
-                volume_sma_20 = float(np.mean(volume[-20:]))
-            else:
-                volume_sma_20 = float(np.mean(volume))
+            volume_sma_20 = float(np.mean(volume[-21:-1])) if len(volume) >= 2 else 0.0
         if volume_sma_20 <= 0:
             return no_signal()
 
@@ -111,7 +108,7 @@ class SqueezeExpansionPlugin:
         bb_middle = features.get("bb_20_2_mid", 0.0)
         bb_upper = features.get("bb_20_2_upper", 0.0)
         bb_lower = features.get("bb_20_2_lower", 0.0)
-        squeeze_bars = features.get("squeeze_bars", 0.0)
+        squeeze_bars = features.get("squeeze_duration", 0.0)
         trend_regime = features.get("trend_regime", 0.0)
 
         atr = get_atr_with_floor_from_frames(frames)
