@@ -324,6 +324,13 @@ class FeaturePipelineExecutor:
         # import build_flat_features from feature_flattening (neutral module, no circular dep).
         flat_features = build_flat_features(event)
 
+        # Inject asset_class into flat_features for per-asset-class APR dispatch in
+        # trade_framer._min_zone_width_atr(). Uses Instrument.asset_class.value from
+        # instrument_map — no hardcoded symbol lists; adapts automatically to futures rolls
+        # and new contracts. Falls back to None (trade_framer uses default threshold).
+        if instrument is not None:
+            flat_features["asset_class"] = instrument.asset_class.value
+
         # Extract HMM regime from smc tier output for CacheManager (D-25)
         # hmm_regime lives in SMCContext (produced by smc_HMMRegime plugin, tier key "smc")
         hmm_val = frames.get("smc", {}).get("hmm_regime")
