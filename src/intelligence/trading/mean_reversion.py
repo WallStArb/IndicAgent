@@ -7,7 +7,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, compose_confidence
+from .confidence_utils import _validate_weights_sum, capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
@@ -146,6 +146,15 @@ class MeanReversionPlugin:
         w_div = cfg.get_sync("weights.mean_reversion.div_score", 0.30) if cfg else 0.30
         w_vol = cfg.get_sync("weights.mean_reversion.vol_stability", 0.20) if cfg else 0.20
         w_sr = cfg.get_sync("weights.mean_reversion.sr_proximity", 0.20) if cfg else 0.20
+        _validate_weights_sum(
+            {
+                "rsi_extreme": w_rsi,
+                "div_score": w_div,
+                "vol_stability": w_vol,
+                "sr_proximity": w_sr,
+            },
+            "trad_MeanReversion",
+        )
         raw_conf = w_rsi * rsi_extreme + w_div * div_score + w_vol * vol_stability + w_sr * sr_prox
 
         # ── Supporting factors ──
