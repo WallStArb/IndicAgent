@@ -40,9 +40,9 @@ MIN_CTF_SCORE: float = 0.25
 _config_service: Any | None = None
 
 
-def set_config_service(cfg: Any) -> None:
+def set_config_service(config: Any) -> None:
     global _config_service
-    _config_service = cfg
+    _config_service = config
 
 
 def get_min_regime_weight() -> float:
@@ -55,6 +55,23 @@ def get_min_ctf_score() -> float:
     if _config_service is not None:
         return _config_service.get_sync("threshold.global.min_ctf_score", MIN_CTF_SCORE)
     return MIN_CTF_SCORE
+
+
+def _validate_weights_sum(weights: dict[str, float], plugin: str, tol: float = 1e-6) -> None:
+    """Validate that confidence weights sum to 1.0 within floating-point tolerance.
+
+    Raises ValueError (not AssertionError — asserts disabled by -O) if the
+    invariant is violated. Called at prewarm/init time so bad DB seeds or
+    bad operator writes fail fast at daemon startup, before any signal fires.
+
+    Args:
+        weights: Dict of weight name to value (e.g. {'roc': 0.40, 'vol': 0.35, ...}).
+        plugin:  Human-readable plugin name for error messages.
+        tol:     Floating-point tolerance. Default 1e-6 handles float repr of 0.40+0.35+0.25.
+    """
+    total = sum(weights.values())
+    if abs(total - 1.0) > tol:
+        raise ValueError(f"{plugin} weights sum to {total:.6f}, expected 1.0")
 
 
 def clamp01(x: float) -> float:
