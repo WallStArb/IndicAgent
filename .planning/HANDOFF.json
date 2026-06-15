@@ -28,6 +28,6 @@
     {"decision": "stopped_at_entry rate measurement deferred to Phase 127 REPLAY-01", "rationale": "Requires replay outcomes data not yet available", "phase": "126"}
   ],
   "uncommitted_files": [],
-  "next_action": "Phase 126 is complete (all 7 plans, 4754 tests passing, pushed to remote). Start Phase 127 (Clean Replay and Validation): run /gsd-discuss-phase 127 to gather context, then /gsd-plan-phase 127.",
-  "context_notes": "Phase 126 signal-universe-hardening is fully complete. All code changes committed (28e1dfea) and pushed. Test suite is green. REQUIREMENTS.md reflects actual implementation. Phase 127 REPLAY-01 needs a full historical replay with --warmup to confirm: context_features coverage > 99%, all 5 over-firing plugins < 3% fire rate. REPLAY-02 needs Phase 121-02 deferred validation report using correct methodology (no cross-population Welch t-test; measure signal volume delta, CTF as feature, firing rates, cold-start null distribution)."
+  "next_action": "Phase 126 is complete (all 7 plans, 4754 tests passing, pushed to remote). Start Phase 128 (3-Table Schema Design and ADR) — NOT Phase 127. Phase 127 (replay) was moved after 128-130 so replay lands in the final schema and produces counterfactual_pnl_r-populated training data immediately. Run /gsd-discuss-phase 128 then /gsd-plan-phase 128.",
+  "context_notes": "Phase 126 signal-universe-hardening fully complete. v2.10 sequence: 128 (schema ADR) -> 129 (DB migration) -> 130 (script rewriting) -> 127 (clean replay into final schema). Phase 127 moved last intentionally: replaying into the 3-table schema avoids a second replay and gives counterfactual_pnl_r from day one."
 }
