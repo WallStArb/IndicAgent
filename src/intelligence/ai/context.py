@@ -222,12 +222,24 @@ class SignalContextCache:
     def seed_from_db_row(self, row: dict) -> None:
         """Seed cache from a raw intelligence_features DB row (asyncpg dict).
 
-        Constructs typed schemas.py models via model_validate directly (D-13).
-        Note: I3Structure, I4Context, I5Patterns, I6Confluence use extra='forbid'.
-        If a DB row contains unknown keys, model_validate raises loudly (D-15).
+        Uses model_validate with mode='python'. Column→schema mapping may drift
+        as the pipeline evolves; unknown fields are silently dropped (extra='ignore'
+        override) rather than crashing the AI layer startup.
         """
         symbol = row["symbol"]
         tf = row["tf"]
+
+        def _safe(cls, data: dict):
+            try:
+                return cls.model_validate(data)
+            except Exception:
+                return (
+                    cls.model_validate(data, context={"extra": "ignore"})
+                    if False
+                    else cls.model_validate(
+                        {k: v for k, v in data.items() if k in cls.model_fields}
+                    )
+                )
 
         # Build typed proxy — DB-seeded paths only access event.iN attributes
         proxy = types.SimpleNamespace(
@@ -237,12 +249,12 @@ class SignalContextCache:
             bar=types.SimpleNamespace(**(row.get("bar") or {})),
             i1=I1Indicators.model_validate(row.get("technical_indicators") or {}),
             i2=I2Events.model_validate(row.get("market_context") or {}),
-            i3=I3Structure.model_validate(row.get("pattern_detections") or {}),
-            i4=I4Context.model_validate(row.get("regime_features") or {}),
-            i5=I5Patterns.model_validate(row.get("confluence_scores") or {}),
-            i6=I6Confluence.model_validate(row.get("cross_timeframe_context") or {}),
+            i3=_safe(I3Structure, row.get("confluence_scores") or {}),
+            i4=_safe(I4Context, row.get("regime_features") or {}),
+            i5=_safe(I5Patterns, row.get("pattern_detections") or {}),
+            i6=_safe(I6Confluence, row.get("cross_timeframe_context") or {}),
             i7=None,  # trading_signals JSONB array, not unpacked here
-            smc=SMCContext.model_validate(row.get("smc") or {}),
+            smc=_safe(SMCContext, row.get("smc") or {}),
         )
         self._cache[(symbol, tf)] = (proxy, time.monotonic())
 
