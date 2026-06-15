@@ -15,7 +15,12 @@ import numpy as np
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import capture_signal_features, clamp01, compose_confidence
+from .confidence_utils import (
+    _validate_weights_sum,
+    capture_signal_features,
+    clamp01,
+    compose_confidence,
+)
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -83,6 +88,10 @@ class GapAnalysisSetupPlugin:
         w_vol = cfg.get_sync("weights.gap_analysis.vol", 0.25) if cfg else 0.25
         w_timing = cfg.get_sync("weights.gap_analysis.timing", 0.20) if cfg else 0.20
         w_type = cfg.get_sync("weights.gap_analysis.type", 0.15) if cfg else 0.15
+        _validate_weights_sum(
+            {"geo": w_geo, "vol": w_vol, "timing": w_timing, "type": w_type},
+            "trad_GapAnalysisSetup",
+        )
         result = extract_ohlcv(frames, self.min_lookback)
         if result is None:
             return no_signal()

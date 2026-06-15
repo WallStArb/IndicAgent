@@ -19,6 +19,7 @@ from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
+    _validate_weights_sum,
     capture_signal_features,
     compose_confidence,
     get_min_ctf_score,
@@ -230,6 +231,10 @@ class VWAPReclaimPlugin:
         w_duration = cfg.get_sync("weights.vwap_reclaim.duration", 0.30) if cfg else 0.30
         w_trend = cfg.get_sync("weights.vwap_reclaim.trend_align", 0.20) if cfg else 0.20
         w_sr = cfg.get_sync("weights.vwap_reclaim.sr_proximity", 0.20) if cfg else 0.20
+        _validate_weights_sum(
+            {"vol": w_vol, "duration": w_duration, "trend_align": w_trend, "sr_proximity": w_sr},
+            "trad_VWAPReclaim",
+        )
         # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
         factor_scores = {
             "vol_score": round(vol_score, 4),
