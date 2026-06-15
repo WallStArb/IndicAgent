@@ -1,6 +1,14 @@
-# IndicAgent: Composable Market Intelligence Platform
+# IndicAgent
 
-**AI-first · API-first · Self-improving · Provider-agnostic**
+A market intelligence platform built on a shared event-driven spine. New domains — fundamental, qualitative, derivatives — attach by publishing typed events to the bus; nothing already running changes.
+
+The quantitative domain is live across 60 instruments: eight analytical tiers run in-process per bar — raw indicators, composite events, market structure, regime classification (GARCH, HMM, Kalman, BOCPD), pattern detection, institutional order flow, and 36 trading setups — all adjudicated by a six-bucket Confluence Intelligence Score that requires cross-tier agreement, not a single dominant factor. Sub-10ms bar-to-signal.
+
+**Adaptive Parameter Registry (APR):** Every detection threshold, confidence weight, and indicator period is a versioned DB row with a source and reason — not a constant in code. ML discovery writes calibrated values after p < 0.05; CIS weights refine from signal outcomes; calibration curves refit per setup per regime; plugin promotion is governed by bootstrap CI. Every parameter the system acts on is learnable, tracked, and hot-reloadable without a restart.
+
+**Extrinsic Confidence Layer (ECL):** Market context — regime state, confluence alignment, zone friction — travels on every signal as observable metadata, never as a gate that suppresses emission. Raw signals reach the training dataset uncontaminated regardless of downstream filtering. Winners and counterfactuals alike are recorded with the full feature vector at fire time, giving the ML layer a complete picture of the decision boundary — not just what worked, but what was correctly rejected.
+
+**Vector Intelligence Layer (VIL):** Every bar state is embedded as a normalized vector in pgvector alongside its realized forward returns. At query time, the system retrieves the K most similar historical states and what price did after them — grounding every AI agent and scoring decision in empirical evidence rather than pattern intuition. IC-weighted, independence-calibrated, and domain-agnostic: the same substrate extends to fundamental, qualitative, and derivatives domains as they come online.
 
 **Live:** [dash.indicagent.com](https://dash.indicagent.com)
 
