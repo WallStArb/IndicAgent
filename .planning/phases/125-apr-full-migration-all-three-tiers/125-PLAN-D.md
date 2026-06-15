@@ -2,7 +2,7 @@
 phase: 125-apr-full-migration-all-three-tiers
 plan: D
 type: execute
-wave: 2
+wave: 3
 depends_on:
   - 125-PLAN-B
   - 125-PLAN-C
