@@ -1142,7 +1142,21 @@ This phase is split into three waves:
   5. `pytest tests/unit/ -q` green
   6. TODO 025 closed — all three tiers complete
 
-**Plans**: defer to `/gsd-plan-phase 125`
+**Plans**: 5 plans in 3 waves
+
+**Wave 1** (parallel):
+
+- [ ] 125-PLAN-A.md — Migration 132: seed 10 new APR keys (3 CIS gate + 4 zone_engine + 3 vwap_reversion weights)
+- [ ] 125-PLAN-C.md — Add _validate_weights_sum to confidence_utils.py + fix cfg parameter name + capture 2 cleanup TODOs
+
+**Wave 2** (depends on A + C):
+
+- [ ] 125-PLAN-B.md — Wire anchored_vwap_reversion weights to ConfigService + _validate_weights_sum call
+- [ ] 125-PLAN-D.md — Add _validate_weights_sum to 5 remaining Tier B plugins + rename BOOTSTRAP_WEIGHTS in cis_scorer.py
+
+**Wave 3** (depends on A + D):
+
+- [ ] 125-PLAN-E.md — Wire CIS gate constants to APR in cis_scorer.py + extend _THRESHOLD_KEYS + close TODO 025
 
 ---
 
