@@ -1,0 +1,41 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-06-15T02:28:51Z",
+  "phase": "126",
+  "phase_name": "Signal Universe Hardening",
+  "phase_dir": "docs/plans/2026-06-14-phase-126-signal-universe-hardening.md",
+  "plan": 1,
+  "task": 0,
+  "total_tasks": 6,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 0, "name": "P126-01 architectural design and plan revision", "status": "done", "commit": "uncommitted"}
+  ],
+  "remaining_tasks": [
+    {"id": 1, "name": "Run Phase 125 (APR migration) — prerequisite", "status": "blocked"},
+    {"id": 2, "name": "P126-01 Step 1: zone_width/ATR diagnostic join query", "status": "not_started"},
+    {"id": 3, "name": "P126-01 Steps 3-6: implement zone width gate + stop distance gate + APR seeds + tests", "status": "not_started"},
+    {"id": 4, "name": "Wave 0: USDJPY diagnostic", "status": "not_started"},
+    {"id": 5, "name": "Wave 2: P126-02 to P126-04 (confluence, FVGFill, MeanReversion)", "status": "not_started"},
+    {"id": 6, "name": "Wave 3: P126-05 signal quality audit", "status": "not_started"}
+  ],
+  "blockers": [
+    {"description": "Phase 125 (APR full migration) must complete before P126-01 implementation — zone width gate reads from APR", "type": "external", "workaround": "Hard-code with TODO comment if 125 not ready"},
+    {"description": "Step 1 diagnostic join (zone_width/ATR via intelligence_features) must run before finalizing APR seed values", "type": "technical", "workaround": "Use initial estimates: equity=1.5, forex=1.0, futures=1.5 pending data"}
+  ],
+  "human_actions_pending": [],
+  "decisions": [
+    {"decision": "Zone width gate goes in frame_trade() not _resolve_zone_bounds()", "rationale": "Separation of concerns — _resolve_zone_bounds() resolves geometry, frame_trade() decides viability. Consistent with all other rejection gates.", "phase": "126"},
+    {"decision": "Zone width minimum revised from 0.5 to 1.5×ATR initial estimate", "rationale": "Noise-band math: zone_width + buffer (0.25×ATR) must be ≥ 2×ATR for stop to be outside intrabar noise → zone_width ≥ 1.75×ATR, rounded to 1.5. ATR-based stops from entry must be multiples (2-3×ATR), not fractions.", "phase": "126"},
+    {"decision": "Zone width gate IS the stop distance gate for zone trades", "rationale": "Total stop distance from entry = zone_width + buffer. Enforcing zone_width ≥ 1.5×ATR gives total stop ≈ 1.75×ATR from entry. Separate min_stop_distance_atr gate only needed for non-zone ATR-fallback path.", "phase": "126"},
+    {"decision": "min_stop_distance_atr = 0.5 is independent floor for non-zone path only", "rationale": "ATR fallback already uses 2.0×ATR which is fine. The 0.5×ATR gate catches only future regressions where a new code path produces fractional ATR stops from entry on non-zone trades.", "phase": "126"},
+    {"decision": "All trade_framer.py constants are APR violations — deferred to separate todo", "rationale": "MIN_STOP_ATR_MULTIPLIER=1.0, ATR_STOP_DEMAND_MULTIPLIER=0.25, etc. are all hardcoded. Full migration captured in .planning/todos/pending/2026-06-14-trade-framer-apr-migration.md.", "phase": "126"}
+  ],
+  "uncommitted_files": [
+    "docs/plans/2026-06-14-phase-126-signal-universe-hardening.md",
+    ".planning/todos/pending/2026-06-14-trade-framer-apr-migration.md",
+    ".planning/STATE.md"
+  ],
+  "next_action": "Run Phase 125 (APR migration). Then begin Phase 126 Wave 0 (USDJPY diagnostic) and P126-01 Step 1 (zone_width/ATR join query) in parallel before writing any code.",
+  "context_notes": "Session was pure design/discussion on P126-01. No code written. Plan doc substantially revised. Key insight: zone width gate threshold must be ~1.5-2.0×ATR not 0.5×ATR — the zone width directly determines total stop distance from entry for zone-based trades."
+}
