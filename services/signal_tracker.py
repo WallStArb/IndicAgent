@@ -9,6 +9,8 @@ Also consumes intelligence.i7.signals to ingest new signals into the active
 index in real-time, eliminating the need for periodic DB re-seeding.
 
 ComputeAgent role: zero DB writes, pure compute. Bootstrap is the only DB read.
+Bootstrap queries signal_events + trade_frames directly via SignalEventsRepository
+(not signal_ledger_full, which NULLs all lifecycle fields — RESEARCH Pitfall 1).
 
 Consumer groups:
   - signal_tracker_compute (bars)
@@ -58,7 +60,10 @@ from src.observability.metrics import (
     counter,
     gauge,
 )
-from src.persistence.repository.signal_ledger_repository import SignalStatus
+from src.persistence.repository.signal_events_repository import (
+    SignalEventsRepository,
+    SignalStatus,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -117,14 +122,18 @@ class SignalTracker(BaseDaemon):
     evaluate_signal(), and publishes transitions to lifecycle.transitions topic
     for LifecycleWriter to persist.
 
+    Bootstrap queries signal_events + trade_frames directly via
+    SignalEventsRepository.get_active_signals_for_bootstrap() to load non-NULL
+    lifecycle state (activated_at, trailing_stop_price, chandelier_vol_source, etc.).
+    APR keys feature.signal_tracker.bootstrap_* control window days and max attempts.
+
     Invariants:
       - Never writes to DB (bootstrap is the only read)
       - Maintains all active signal state in memory
       - Publishes LifecycleTransition events for every state change
     """
 
-    # Bootstrap retry configuration
-    _BOOTSTRAP_MAX_ATTEMPTS = 3
+    # Bootstrap retry configuration — defaults used before APR loads in _setup()
     _BOOTSTRAP_BACKOFF_SECONDS = (2, 4, 8)
 
     def __init__(self) -> None:
@@ -144,6 +153,14 @@ class SignalTracker(BaseDaemon):
         # Per-(symbol, tf) current regime state — updated from i7.signals envelope.
         # Used for staleness computation to compare current vs fire-time regime (BUG-02 fix).
         self._regime_cache: dict[tuple[str, str], dict] = {}
+
+        # APR-backed bootstrap configuration — loaded in _setup() from config_service.
+        # Defaults match APR seed values (migration 142).
+        self._bootstrap_max_attempts: int = 3
+        self._bootstrap_pending_window_days: int = 7
+        self._bootstrap_active_window_days: int = 30
+        self._bootstrap_dedup_window_days: int = 3
+        self._staleness_score_threshold: float = STALENESS_SCORE_THRESHOLD
 
         # Kafka clients (initialized in _setup)
         self._bar_consumer: KafkaConsumerClient | None = None
@@ -180,7 +197,28 @@ class SignalTracker(BaseDaemon):
         return topic_signal_tracker_dlq(self.env_name)
 
     async def _setup(self) -> None:
-        """Bootstrap: load active signals from DB, start Kafka clients."""
+        """Bootstrap: load APR config, load active signals from DB, start Kafka clients."""
+        # Load APR-backed bootstrap configuration (feature.signal_tracker.* namespace,
+        # seeded in migration 142). get_config() reads from the OPS snapshot loaded by
+        # BaseDaemon._pre_setup_config_load() before _setup() is called.
+        self._bootstrap_max_attempts = int(
+            self.get_config("feature.signal_tracker.bootstrap_max_attempts", default=3)
+        )
+        self._bootstrap_pending_window_days = int(
+            self.get_config("feature.signal_tracker.bootstrap_pending_window_days", default=7)
+        )
+        self._bootstrap_active_window_days = int(
+            self.get_config("feature.signal_tracker.bootstrap_active_window_days", default=30)
+        )
+        self._bootstrap_dedup_window_days = int(
+            self.get_config("feature.signal_tracker.bootstrap_dedup_window_days", default=3)
+        )
+        self._staleness_score_threshold = float(
+            self.get_config(
+                "threshold.signal_tracker.staleness_score", default=STALENESS_SCORE_THRESHOLD
+            )
+        )
+
         await self._bootstrap_active_signals()
 
         # Bar consumer — subscribes to both 1m and HTF bar topics.
@@ -545,17 +583,17 @@ class SignalTracker(BaseDaemon):
             # Canonical dict is NOT mutated after this point (CONCERN-02 fix).
             status=str(canonical.get("status") or "pending"),
             market_entry_price=float(canonical.get("market_entry_price") or 0.0),
-            # Bootstrap MAE/MFE from signal_outcomes (1-I / D-18): signal_ledger_full
-            # LEFT JOINs signal_outcomes and exposes so.mae, so.mfe. Seeding here
-            # ensures a service restart does not zero running MAE/MFE.
-            # For live signals (not bootstrapped from DB), both default to 0.0 which is correct.
+            # Bootstrap MAE/MFE from frame_details if present in the canonical dict
+            # (1-I / D-18): get_active_signals_for_bootstrap() sets mae/mfe from
+            # trade_frames.frame_details JSONB. Live signals default to 0.0 — correct.
             mae=float(canonical.get("mae") or 0.0),
             mfe=float(canonical.get("mfe") or 0.0),
         )
         if state.status == SignalStatus.ACTIVE and canonical.get("activated_at"):
             state.activated_at = canonical["activated_at"]
-            # Restore chandelier state persisted in signal_outcomes (CONCERN-01 fix).
-            # trailing_stop_price is a JSONB dict stored by _publish_chandelier_update.
+            # Restore chandelier state persisted in trade_frames.frame_details (CONCERN-01 fix).
+            # trailing_stop_price is a JSONB dict stored by _publish_chandelier_update
+            # and loaded from frame_details->>'trailing_stop_price' by the bootstrap query.
             raw_cs = canonical.get("trailing_stop_price")
             if isinstance(raw_cs, dict) and raw_cs.get("trailing_stop") is not None:
                 state.chandelier_state = {
@@ -798,7 +836,7 @@ class SignalTracker(BaseDaemon):
                 )
                 consecutive = state.staleness_consecutive
                 state.staleness_consecutive = (
-                    consecutive + 1 if staleness_score_val > STALENESS_SCORE_THRESHOLD else 0
+                    consecutive + 1 if staleness_score_val > self._staleness_score_threshold else 0
                 )
 
             # Capture chandelier stop before evaluation to detect ratchet updates
@@ -840,7 +878,8 @@ class SignalTracker(BaseDaemon):
                 if status == SignalStatus.ACTIVE:
                     self._update_mae_mfe(state, sig, bar)
                     # Publish chandelier state whenever trailing_stop ratchets so it
-                    # survives a service restart (restored from signal_outcomes on bootstrap).
+                    # survives a service restart (restored from trade_frames.frame_details
+                    # JSONB via SignalEventsRepository.get_active_signals_for_bootstrap).
                     if state.chandelier_state is not None:
                         chandelier_stop_after = state.chandelier_state.get("trailing_stop")
                         if chandelier_stop_after != chandelier_stop_before:
@@ -1135,53 +1174,52 @@ class SignalTracker(BaseDaemon):
     # ------------------------------------------------------------------
 
     async def _bootstrap_active_signals(self) -> None:
-        """One-time DB read at startup to load pending/active signals.
+        """One-time DB read at startup to load pending/active signals from signal_events.
 
-        Bootstrap retries protect against transient DB connection failures at
-        startup. We proceed with empty state after exhaustion to avoid blocking
-        the service start. On exhaustion, publishes a bootstrap_failed health
-        event for monitoring.
+        Queries signal_events + trade_frames directly (not signal_ledger_full, which
+        returns NULL for all lifecycle fields — activated_at, trailing_stop_price,
+        chandelier_vol_source, entry_zone_low/high, mae/mfe — per RESEARCH Pitfall 1).
+
+        Window parameters and max-attempt count are APR-backed:
+          feature.signal_tracker.bootstrap_pending_window_days  (default 7)
+          feature.signal_tracker.bootstrap_active_window_days   (default 30)
+          feature.signal_tracker.bootstrap_dedup_window_days    (default 3)
+          feature.signal_tracker.bootstrap_max_attempts         (default 3)
+
+        Bootstrap retries protect against transient DB connection failures at startup.
+        We proceed with empty state after exhaustion to avoid blocking the service
+        start. On exhaustion, publishes a bootstrap_failed health event for monitoring.
 
         sd_notify(READY=1) is called ONLY after this method returns.
         """
         db = DatabaseManager(self.settings.database_url)
         await db.initialize()
-        _BOOTSTRAP_QUERY = """
-            SELECT sl.signal_id, sl.symbol, sl.timeframe, sl.timestamp, sl.status, sl.direction,
-                   sl.activated_at, sl.ttl_bars, sl.is_backfill,
-                   sl.is_shadow,
-                   COALESCE(sl.entry_price, sl.activation_price) AS entry_price,
-                   sl.stop_loss,
-                   sl.targets,
-                   sl.entry_zone_low,
-                   sl.entry_zone_high,
-                   sl.market_entry_price,
-                   sl.garch_sigma_at_fire,
-                   sl.hmm_regime_at_fire,
-                   sl.expires_at,
-                   sl.trailing_stop_price,
-                   sl.chandelier_vol_source,
-                   sl.mae,
-                   sl.mfe
-            FROM signal_ledger_full sl
-            WHERE sl.exit_at IS NULL
-              AND sl.status IN ('pending', 'active', 'regime_suppressed')
-              AND (
-                (sl.status = 'pending' AND sl.timestamp > NOW() - INTERVAL '7 days')
-                OR (sl.status IN ('active', 'regime_suppressed') AND sl.timestamp > NOW() - INTERVAL '30 days')
-              )
-        """
+        repo = SignalEventsRepository(db)
         try:
-            for attempt in range(self._BOOTSTRAP_MAX_ATTEMPTS):
-                async with db.get_connection() as conn:
-                    rows = [dict(r) for r in await conn.fetch(_BOOTSTRAP_QUERY)]
+            for attempt in range(self._bootstrap_max_attempts):
+                rows = await repo.get_active_signals_for_bootstrap(
+                    pending_window_days=self._bootstrap_pending_window_days,
+                    active_window_days=self._bootstrap_active_window_days,
+                )
 
                 # If we got rows, load them and succeed
                 if rows:
                     _regime_cache_collisions: dict[tuple, int] = {}
                     for row in rows:
                         raw = dict(row)
-                        # asyncpg returns datetime objects for timestamptz — pass directly
+                        # signal_events.direction is text "long"/"short"; _load_signal
+                        # expects int (1/-1). Convert before passing to _load_signal.
+                        dir_raw = raw.get("direction")
+                        if isinstance(dir_raw, str):
+                            raw["direction"] = 1 if dir_raw == "long" else -1
+                        # Bootstrap MAE/MFE from frame_details if present; live signals
+                        # default to 0.0 which is correct (no prior tracking history).
+                        raw.setdefault("mae", 0.0)
+                        raw.setdefault("mfe", 0.0)
+                        # market_entry_price maps to activation_price stored in frame_details;
+                        # it is not a top-level column in the 3-table schema.
+                        raw.setdefault("market_entry_price", None)
+                        # asyncpg returns datetime objects for timestamptz — pass directly.
                         canonical = self._load_signal(raw)
                         if canonical is None:
                             continue
@@ -1221,28 +1259,31 @@ class SignalTracker(BaseDaemon):
                     )
                     return
 
-                # No rows returned — check if ledger is truly empty or transient failure
-                count_row = await db.execute_query("""
-                    SELECT COUNT(*) as count
-                    FROM signal_ledger_full
-                    WHERE status IN ('pending', 'active') AND exit_at IS NULL
-                      AND timestamp > NOW() - INTERVAL '3 days'
-                """)
-                ledger_count = count_row[0]["count"] if count_row else 0
+                # No rows returned — check if signal_events is truly empty or transient failure
+                count_row = await db.execute_query(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM signal_events
+                    WHERE status IN ('pending', 'active')
+                      AND ts > NOW() - ($1::int * INTERVAL '1 day')
+                    """,
+                    self._bootstrap_dedup_window_days,
+                )
+                signal_count = count_row[0]["count"] if count_row else 0
 
-                if ledger_count == 0:
-                    # Ledger truly empty — success, no retry needed
+                if signal_count == 0:
+                    # signal_events truly empty — success, no retry needed
                     self.logger.info("bootstrap_complete_empty_ledger")
                     return
 
-                # Ledger has rows but we got 0 — transient failure, retry with backoff
-                if attempt < self._BOOTSTRAP_MAX_ATTEMPTS - 1:
+                # signal_events has rows but we got 0 — transient failure, retry with backoff
+                if attempt < self._bootstrap_max_attempts - 1:
                     backoff = self._BOOTSTRAP_BACKOFF_SECONDS[attempt]
                     self.logger.warning(
                         "bootstrap_empty_retry",
                         attempt=attempt + 1,
-                        max_attempts=self._BOOTSTRAP_MAX_ATTEMPTS,
-                        ledger_count=ledger_count,
+                        max_attempts=self._bootstrap_max_attempts,
+                        signal_count=signal_count,
                         backoff_seconds=backoff,
                     )
                     await asyncio.sleep(backoff)
@@ -1250,10 +1291,10 @@ class SignalTracker(BaseDaemon):
                     # Exhausted retries — publish health event and proceed with empty state
                     self.logger.error(
                         "bootstrap_failed_exhausted",
-                        ledger_count=ledger_count,
-                        attempts=self._BOOTSTRAP_MAX_ATTEMPTS,
+                        signal_count=signal_count,
+                        attempts=self._bootstrap_max_attempts,
                     )
-                    await self._publish_bootstrap_failed_event(ledger_count)
+                    await self._publish_bootstrap_failed_event(signal_count)
 
         finally:
             await db.close()
@@ -1272,9 +1313,9 @@ class SignalTracker(BaseDaemon):
             "timestamp": datetime.now(UTC).isoformat(),
             "details": {
                 "ledger_count": ledger_count,
-                "attempts": self._BOOTSTRAP_MAX_ATTEMPTS,
+                "attempts": self._bootstrap_max_attempts,
                 "reason": (
-                    f"DB returned 0 rows after {self._BOOTSTRAP_MAX_ATTEMPTS}"
+                    f"DB returned 0 rows after {self._bootstrap_max_attempts}"
                     " retry attempts with exponential backoff"
                 ),
             },
