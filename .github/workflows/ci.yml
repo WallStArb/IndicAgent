@@ -79,7 +79,8 @@ jobs:
           violations=$(find src/intelligence/ -name "*.py" \
             ! -name "__init__.py" \
             ! -name "conftest.py" \
-            ! -name "TEMPLATE_agent.py" | \
+            ! -name "TEMPLATE_agent.py" \
+            ! -name "TEMPLATE.py" | \
             while read -r f; do
               filename=$(basename "$f")
               echo "$filename" | grep -qE '^[a-z][a-z0-9_]*\.py$' || echo "  $f"
