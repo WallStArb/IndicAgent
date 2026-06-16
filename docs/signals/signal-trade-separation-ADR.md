@@ -307,12 +307,13 @@ The following signal_ledger columns are not carried forward into the 3-table sch
 | Column | Reason |
 |--------|--------|
 | `signal_type` | Redundant with `setup_plugin` -- plugin name fully identifies signal type |
-| `feature_ts` | Duplicate of `signal_events.ts` -- renamed, not re-added |
 | `feature_tf` | Duplicate of `signal_events.timeframe` |
 | `feature_schema_version` | Superseded by `signal_schema_version int4`; the old text version is replaced |
 | `pipeline_lag_ms` | Computable: `signal_computed_at - ts`; storing it violates SoC (derived values belong in queries, not columns) |
 | `staleness_score` | No new home in 3-table design; absent from CONTEXT.md D-02; treat as dropped |
 | `staleness_trigger_reason` | No new home in 3-table design; absent from CONTEXT.md D-02; treat as dropped |
+
+**Note on feature_ts:** Re-introduced in Phase 128-04 as a JOIN anchor to `intelligence_features` (semantically distinct from the old `feature_ts` which was a duplicate of `ts`). The new `feature_ts` is a first-class column on `signal_events` and must NOT be dropped in Phase 129.
 
 **Archived to frame_details JSONB (not dropped):**
 
