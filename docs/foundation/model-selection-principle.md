@@ -1,16 +1,14 @@
-# Occam's Razor — Model Selection Principle
+# Model Selection Principle
 
-**Version:** 1.0
-**Status:** foundational
-**Milestone:** v2.8
-**Last Updated:** 2026-06-03
+**Version:** 1.1
+**Status:** current
+**Last Updated:** 2026-06-16
+
+> *"Entities should not be multiplied beyond necessity."* — William of Ockham
 
 ---
 
 ## Principle
-
-> *"Entities should not be multiplied beyond necessity."*
-> — William of Ockham, 14th century
 
 **Renaissance interpretation:** When a simpler model achieves statistically similar performance to a complex one, the complex model is unjustified and must be rejected.
 
@@ -95,4 +93,5 @@ Where:
 
 ## Implementation Reference
 
-See `docs/ideas/ai-occam-razor.md` for implementation details and `docs/plans/phases/100-occam-razor/` for execution plan.
+Implemented in Phase 114. Execution plan: `.planning/phases/114-occam-razor/`.
+<!-- src: .planning/phases/114-occam-razor/114-CONTEXT.md -->
