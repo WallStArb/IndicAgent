@@ -46,6 +46,8 @@ class ConfigService:
         "roll.",
         "cross_asset.",
         "macro.",
+        "ui.",
+        "weights.",
     )
 
     def __init__(self, database_url: str, pool: asyncpg.Pool | None = None) -> None:
