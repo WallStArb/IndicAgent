@@ -11,7 +11,9 @@ Tolerance contract:
 from __future__ import annotations
 
 import pandas as pd
-import pandas_ta
+import pytest
+
+pandas_ta = pytest.importorskip("pandas_ta")
 
 from src.intelligence.features.i1_indicators.stochastic import StochasticPlugin
 from tests.unit.intelligence.correctness.conftest import (
