@@ -41,7 +41,7 @@ def _get_settings() -> Settings:
 
 def _ts(row: Any, primary: str, fallback: str = "timestamp") -> str | None:
     """Serialize a nullable timestamptz row field with a fallback column."""
-    v = row[primary] or row[fallback]
+    v = row[primary] if row[primary] is not None else row[fallback]
     return v.isoformat() if v is not None else None
 
 
