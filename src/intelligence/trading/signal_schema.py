@@ -10,9 +10,9 @@ from src.core.service_utils import TF_TTL_BARS, get_tick_size, round_to_tick
 if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame
 
-# Schema version for Kafka payload and DB column signal_schema_version (text type).
-# Convention: "v1", "v2", "v3" — string, not integer. Phase 128 will migrate to the
-# 3-table schema; at that point update the literal value only, not the type.
+# Schema version for Kafka payload and DB column signal_schema_version (int4).
+# Convention: integer, not string. Phase 129 migrated to 3-table schema and changed
+# the DB column type from text to int4.
 #
 # v4 (Phase 126-06): context_features changed from 30-key curated subset
 # (capture_signal_features) to full flat_features snapshot (pipeline-layer
