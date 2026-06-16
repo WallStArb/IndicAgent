@@ -60,6 +60,7 @@ import concurrent.futures
 import json
 import math
 import sys
+import time
 import uuid
 from collections import defaultdict, deque
 from datetime import UTC, date, datetime, timedelta
@@ -89,6 +90,7 @@ from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.service_utils import TF_SECONDS, min_bars_for_tf
 from src.core.service_utils import bar_close_ts as compute_bar_close_ts
 from src.intelligence.plugins import registry
+from src.intelligence.plugins.mixins import incremental_compute
 from src.intelligence.register_plugins import register_all_plugins
 from src.intelligence.schemas import FEATURE_SCHEMA_VERSION
 from src.intelligence.setup_performance_updater import _compute_perf_multipliers
@@ -408,6 +410,26 @@ def _log_plugin_error(name: str, symbol: str, tf: str, error: Exception) -> None
         print(f"  [plugin error] {name} ({symbol}/{tf}): {error}")
 
 
+# Per-plugin cumulative wall-clock seconds spent in incremental_compute across
+# the whole replay. Proves the dispatch speedup and surfaces any remaining hot
+# plugin. Aggregated via _accumulate_plugin_time; reported by _report_plugin_times.
+_plugin_timings: dict[str, float] = defaultdict(float)
+
+
+def _accumulate_plugin_time(name: str, t0: float) -> None:
+    _plugin_timings[name] += time.perf_counter() - t0
+
+
+def _report_plugin_times() -> None:
+    if not _plugin_timings:
+        return
+    ranked = sorted(_plugin_timings.items(), key=lambda kv: kv[1], reverse=True)
+    total = sum(_plugin_timings.values())
+    print(f"  [plugin timing] total={total:.1f}s  top:")
+    for name, secs in ranked[:12]:
+        print(f"    {name:<36} {secs:7.2f}s ({100 * secs / total:5.1f}%)")
+
+
 # Per-TF fetch config: (days_of_history, use_continuous_contract)
 #
 # Design rationale (Renaissance framing):
@@ -492,9 +514,15 @@ def run_i1_plugins(
         try:
             plugin = registry.get_indicator(name)
             state_key = (name, symbol, timeframe)
-            plugin._state = plugin_states.setdefault(state_key, {})
-            out = plugin.compute_full(frames)
-            plugin_states[state_key] = plugin._state  # write-back is load-bearing (GARCH/HMM)
+            state = plugin_states.setdefault(state_key, {})
+            t0 = time.perf_counter()
+            out = incremental_compute(plugin, frames, state)
+            _accumulate_plugin_time(name, t0)
+            # Persist seeded/updated state extracted from the result. compute_full
+            # attaches a fresh _state (from _seed_state); compute_next attaches the
+            # same mutated dict it received. This write-back is what makes the next
+            # bar take the incremental branch -- mirrors executor._collect_plugin_results.
+            plugin_states[state_key] = out.get("_state", state)
             if out:
                 features.update(
                     {k: v for k, v in out.items() if isinstance(v, (int, float, str, bool))}
@@ -545,9 +573,11 @@ def run_analysis_pipeline(
             try:
                 plugin = registry.get_pattern(name)
                 state_key = (name, symbol, timeframe)
-                plugin._state = plugin_states.setdefault(state_key, {})
-                out = plugin.compute_full(frames)
-                plugin_states[state_key] = plugin._state  # write-back is load-bearing
+                state = plugin_states.setdefault(state_key, {})
+                t0 = time.perf_counter()
+                out = incremental_compute(plugin, frames, state)
+                _accumulate_plugin_time(name, t0)
+                plugin_states[state_key] = out.get("_state", state)  # write-back is load-bearing
                 if out:
                     # Strip private plugin keys (e.g. _state used by GARCH/HMM/Kalman
                     # for state carry-over) before updating the typed tiered dict.
@@ -1125,6 +1155,7 @@ def run_i7_and_persist(
     signal_buffer: list | None = None,
     calibration_curves: dict | None = None,
     perf_weights: dict | None = None,
+    plugin_states: dict[tuple[str, str, str], dict] | None = None,
 ) -> int:
     """Run I7 setup plugins on bar_history+features, aggregate, persist to signal_events + trade_frames.
 
@@ -1168,10 +1199,16 @@ def run_i7_and_persist(
     }
 
     raw_signals = []
+    states = plugin_states if plugin_states is not None else {}
     for name in I7_PLUGINS:
         try:
             plugin = registry.get_pattern(name)
-            result = plugin.compute_full(frames)
+            state_key = (name, symbol, timeframe)
+            state = states.setdefault(state_key, {})
+            t0 = time.perf_counter()
+            result = incremental_compute(plugin, frames, state)
+            _accumulate_plugin_time(name, t0)
+            states[state_key] = result.get("_state", state)
             if result and result.get("direction", 0) != 0:
                 result["setup_plugin"] = name
                 raw_signals.append(result)
@@ -1694,6 +1731,7 @@ def replay_symbol(
                 signal_buffer=signal_buffers[tf],
                 calibration_curves=calibration_curves,
                 perf_weights=perf_weights,
+                plugin_states=plugin_states,
             )
             total_signals_by_tf[tf] += n
             if len(signal_buffers[tf]) >= _FEATURE_BATCH_SIZE:
@@ -2478,6 +2516,9 @@ def main() -> None:
 
     db_conn.close()
     flush_and_shutdown_metrics()
+    # Per-plugin cumulative dispatch time (single-worker/in-process path only;
+    # parallel workers each have their own dict and do not aggregate here).
+    _report_plugin_times()
     print("\nBackfill complete.")
 
 

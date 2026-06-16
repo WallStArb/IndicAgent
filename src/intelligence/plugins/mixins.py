@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-__all__ = ["wilders_update", "update_ema", "get_main_df", "IncrementalMixin"]
+__all__ = ["wilders_update", "update_ema", "get_main_df", "incremental_compute", "IncrementalMixin"]
 
 
 def wilders_update(prev: float, new_val: float, period: int) -> float:
@@ -136,6 +136,50 @@ def get_main_df(frames: dict[str, Any] | None, min_bars: int) -> pd.DataFrame | 
     if len(df) < min_bars:
         return None
     return df
+
+
+def incremental_compute(plugin: Any, frames: dict, state: dict) -> dict:
+    """Canonical per-bar plugin dispatch for batch/replay paths.
+
+    Mirrors ``executor._timed_plugin_call`` (executor.py:152-168) without the
+    timing/OTel layer. Seeds via ``compute_full`` on the first bar (when state
+    is empty) and switches to ``compute_next`` thereafter for plugins that
+    declare ``supports_incremental``.
+
+    State seeding contract: the caller MUST persist ``result["_state"]`` back
+    into its per-plugin state store after each call. On the seeding bar
+    ``compute_full`` attaches ``_state`` (a fresh dict from ``_seed_state``);
+    on incremental bars ``compute_next`` attaches the same (mutated) state dict
+    it received. Persisting ``result["_state"]`` is what makes the next bar
+    take the incremental branch -- gating on a truthy state, exactly as the
+    live executor does via ``_collect_plugin_results``.
+
+    The PERF-03 ``_state`` contract is enforced (loud crash over silent state
+    loss): an incremental plugin that returns a non-empty result without
+    ``_state`` raises ``ValueError``.
+
+    Args:
+        plugin:  Plugin instance (I1-I7). Resolved by the caller.
+        frames:  Plugin frames dict (contains 'main' DataFrame + tier features).
+        state:   Per-plugin state dict for this (plugin, symbol, tf). Empty on
+                 the first bar; populated thereafter by the caller's write-back.
+
+    Returns:
+        Plugin output dict. May carry a private ``_state`` key (always stripped
+        before persistence into typed tier dicts). Returns ``{}`` when the
+        plugin has insufficient data.
+    """
+    if getattr(plugin, "supports_incremental", False) and state:
+        result = plugin.compute_next(frames, state=state)
+    else:
+        result = plugin.compute_full(frames)
+    if getattr(plugin, "supports_incremental", False) and isinstance(result, dict) and result:
+        if "_state" not in result:
+            raise ValueError(
+                f"{getattr(plugin, 'name', type(plugin).__name__)}: incremental "
+                f"plugins MUST return _state in result dict."
+            )
+    return result
 
 
 class IncrementalMixin:
