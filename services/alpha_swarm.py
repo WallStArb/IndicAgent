@@ -226,7 +226,7 @@ class AlphaSwarm(BaseGroupCoordinator):
         """Override BaseGroupCoordinator stub: evaluate all agents every 15 min.
 
         Runs Spearman ρ on (multiplier vs pnl_r) per (agent_id, timeframe) from
-        signal_lineage JOIN signal_ledger_full. UPSERTs swarm_agent_weights.
+        signal_lineage JOIN signal_ledger. UPSERTs swarm_agent_weights.
         D-05, D-06, D-07, D-08 (Plan 80-07).
         """
         interval_s: float = getattr(self.settings, "swarm_graduation_interval_s", 900)
@@ -281,7 +281,7 @@ class AlphaSwarm(BaseGroupCoordinator):
                        (sl.metadata->'payload'->>'confidence')::float AS stated_confidence,
                        ledger.pnl_r AS pnl_r
                 FROM signal_lineage sl
-                JOIN signal_ledger_full ledger ON ledger.signal_id = sl.signal_id
+                JOIN signal_ledger ledger ON ledger.signal_id = sl.signal_id
                 WHERE sl.event_type = 'agent_prediction'
                   AND sl.source = $1
                   AND sl.multiplier IS NOT NULL

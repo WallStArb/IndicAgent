@@ -1,7 +1,7 @@
 """Quality Floor Bootstrap — oneshot helper for empirical confidence floor.
 
 DAG compliance: This script runs OUTSIDE the pipeline daemon (DAG Invariant #3).
-It queries signal_ledger_full once at system startup and writes a single float to
+It queries signal_ledger once at system startup and writes a single float to
 .pipeline_quality_floor in the project root. The pipeline daemon reads the floor
 file at startup via quality_gate.load_quality_floor() — no inline DB access.
 
@@ -57,7 +57,7 @@ BUCKET_SIZE = 0.05  # 5% confidence buckets for win-rate analysis
 
 
 async def compute_floor(db_manager: DatabaseManager) -> float:
-    """Query signal_ledger_full for the empirical confidence floor.
+    """Query signal_ledger for the empirical confidence floor.
 
     Returns the lowest confidence bucket (bucket_lower) where win_rate >= 0.50.
     Falls back to DEFAULT_FLOOR when:
@@ -80,7 +80,7 @@ async def compute_floor(db_manager: DatabaseManager) -> float:
         count_rows = await db_manager.execute_query(
             """
             SELECT COUNT(*) AS total
-            FROM signal_ledger_full
+            FROM signal_ledger
             WHERE feature_schema_version >= 2
               AND outcome IS NOT NULL
               AND pnl_r IS NOT NULL
@@ -104,7 +104,7 @@ async def compute_floor(db_manager: DatabaseManager) -> float:
                 FLOOR(calibrated_confidence / $1) * $1 AS bucket_lower,
                 COUNT(*) AS n,
                 SUM(CASE WHEN pnl_r > 0 THEN 1 ELSE 0 END)::float / COUNT(*) AS win_rate
-            FROM signal_ledger_full
+            FROM signal_ledger
             WHERE feature_schema_version >= 2
               AND outcome IS NOT NULL
               AND pnl_r IS NOT NULL

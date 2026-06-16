@@ -236,7 +236,7 @@ async def run_layer1(
     hit_rate_valid_floor = float(hit_rate_valid_floor)
     hit_rate_anti_ceil = float(hit_rate_anti_ceil)
 
-    # Aggregate stats query - uses signal_ledger + signal_outcomes join via signal_ledger_full view
+    # Aggregate stats query - uses signal_ledger + signal_outcomes join via signal_ledger view
     sql = """
         SELECT
             sl.setup_plugin,

@@ -85,7 +85,7 @@ async def _check_demotion(
     async with pool.acquire() as conn:
         signal_rows = await conn.fetch(
             """
-            SELECT pnl_r FROM signal_ledger_full
+            SELECT pnl_r FROM signal_ledger
             WHERE setup_plugin = $1
               AND is_shadow = FALSE
               AND outcome IS NOT NULL

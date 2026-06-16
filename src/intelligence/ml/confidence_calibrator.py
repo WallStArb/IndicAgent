@@ -140,7 +140,7 @@ async def run_calibration_update(db_manager: Any) -> None:
     try:
         rows = await db_manager.execute_query("""
             SELECT setup_plugin, timeframe, symbol, cis_score AS x_input, outcome
-            FROM signal_ledger_full
+            FROM signal_ledger
             WHERE outcome IS NOT NULL
               AND is_shadow = FALSE
               AND feature_schema_version >= 2
