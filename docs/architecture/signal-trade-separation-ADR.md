@@ -63,7 +63,7 @@ Partitioned on `ts`, chunk interval 7 days. Composite PK `(signal_id, ts)` — r
 | `signal_id` | `uuid` | PK (with ts) | Canonical identifier; hash of (symbol, feature_ts_ns, feature_tf, OHLCV, setup_plugin, direction) |
 | `ts` | `timestamptz` NOT NULL | PK (with signal_id); hypertable dim | Bar timestamp at fire time |
 | `symbol` | `text` NOT NULL | btree (symbol, ts) | Base symbol |
-| `timeframe` | `text` NOT NULL | | `1m`, `5m`, `15m`, `1h` |
+| `tf` | `text` NOT NULL | | `1m`, `5m`, `15m`, `1h` |
 | `setup_plugin` | `text` NOT NULL | btree (setup_plugin, ts) | Fully qualified plugin class name |
 | `direction` | `text` NOT NULL | | `long` or `short` (text, not integer) |
 | `raw_confidence` | `float8` NOT NULL | | Intrinsic composite confidence (ICC output); immutable after emit |
@@ -93,7 +93,7 @@ Partitioned on `ts`, chunk interval 7 days. Composite PK `(signal_id, ts)` — r
 ```sql
 ALTER TABLE signal_events SET (
     timescaledb.compress,
-    timescaledb.compress_segmentby = 'symbol,timeframe',
+    timescaledb.compress_segmentby = 'symbol,tf',
     timescaledb.compress_orderby = 'ts DESC'
 );
 SELECT add_compression_policy('signal_events', INTERVAL '7 days');
@@ -116,7 +116,7 @@ One row per entry_type per signal fire. FK anchors to signal_events via composit
 | `entry_price` | `float8` | Hypothetical entry price for this frame |
 | `stop_price` | `float8` | Stop-loss price (renamed from signal_ledger.stop_loss) |
 | `target_price` | `float8` | Primary profit target (primary extracted from signal_ledger.targets JSONB) |
-| `r_per_unit` | `float8` | (target_price - entry_price) / (entry_price - stop_price); reward-to-risk ratio |
+| `r_multiple` | `float8` | (target_price - entry_price) / (entry_price - stop_price); reward-to-risk ratio |
 | `ttl_bars` | `int4` | Counterfactual measurement window in bars |
 | `expires_at` | `timestamptz` | When counterfactual measurement closes |
 | `counterfactual_pnl_r` | `float8` | Primary ML target variable; always populated by CounterfactualTracker |
@@ -195,7 +195,7 @@ SELECT
     se.signal_id,
     se.ts,
     se.symbol,
-    se.timeframe,
+    se.tf,
     se.setup_plugin,
     se.direction,
     se.raw_confidence,
@@ -219,7 +219,7 @@ SELECT
     tf.entry_price,
     tf.stop_price,
     tf.target_price,
-    tf.r_per_unit,
+    tf.r_multiple,
     tf.counterfactual_pnl_r,
     tf.counterfactual_mfe,
     tf.counterfactual_mae,
@@ -358,7 +358,7 @@ ALTER TABLE signal_events ADD PRIMARY KEY (signal_id, ts);
 -- Compression: enabled, segmented by (symbol, timeframe), ordered by ts DESC
 ALTER TABLE signal_events SET (
     timescaledb.compress,
-    timescaledb.compress_segmentby = 'symbol,timeframe',
+    timescaledb.compress_segmentby = 'symbol,tf',
     timescaledb.compress_orderby = 'ts DESC'
 );
 
@@ -367,7 +367,7 @@ ALTER TABLE signal_events SET (
 SELECT add_compression_policy('signal_events', INTERVAL '7 days');
 ```
 
-**Compression column requirement:** `symbol` and `timeframe` are `NOT NULL` on `signal_events` -- this is required because TimescaleDB rejects compression settings where segmentby columns contain nulls.
+**Compression column requirement:** `symbol` and `tf` are `NOT NULL` on `signal_events` -- this is required because TimescaleDB rejects compression settings where segmentby columns contain nulls.
 
 `trade_frames` and `trade_executions` are regular PostgreSQL tables. Their time-range access pattern is either direct (via `signal_ts` on trade_frames) or through a JOIN to `signal_events`. No hypertable is needed or beneficial for these tables at current data volumes.
 
