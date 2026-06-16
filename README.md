@@ -1,8 +1,42 @@
 # IndicAgent
 
-A market intelligence platform built on a shared event-driven spine. New domains — fundamental, qualitative, derivatives — attach by publishing typed events to the bus; nothing already running changes.
+A Renaissance-inspired market intelligence platform where every decision is measured, every component earns its place through statistical proof, and the system learns from every outcome — winners and counterfactuals alike.
 
-The quantitative domain is live across 60 instruments: eight analytical tiers run in-process per bar — raw indicators, composite events, market structure, regime classification (GARCH, HMM, Kalman, BOCPD), pattern detection, institutional order flow, and 36 trading setups — all adjudicated by a six-bucket Confluence Intelligence Score that requires cross-tier agreement, not a single dominant factor. Sub-10ms bar-to-signal.
+Live across 60 instruments, processing eight analytical tiers in under 10ms per bar. Quantitative domain in production today; fundamental, qualitative, and derivatives domains designed to plug into the same spine without touching a line of running code.
+
+## Why This Exists
+
+Most trading systems are black boxes: rules that fire, signals that vanish into noise, models that degrade silently. IndicAgent is built on the belief that a market intelligence system should work like a scientific instrument — observable, reproducible, and continuously learning from its own decisions.
+
+The goal is not a pipeline that produces signals, but a foundational architecture that can carry any form of market intelligence through a single shared spine. Components attach by publishing typed events; nothing already running changes. New domains plug in the same way: fundamental analysis, qualitative sentiment, derivatives volatility — all subscribers to the same bus, all contributing to a unified view.
+
+## What Makes It Different
+
+## What Makes It Different
+
+**Architecture, not pipeline** — Intelligence, execution, and risk are independent subscribers to a shared event stream. Components attach by publishing; nothing already running changes.
+
+**Records counterfactuals** — Every ranked candidate is saved, not just winners. The training dataset captures what was rejected, not just what worked.
+
+**Statistical proof gates** — Bootstrap confidence intervals. p < 0.05 promotion gates. KS drift detection. CUSUM control charts. Proof, not thresholds.
+
+**Full signal lifecycle** — Zone activation through 8-class outcomes with MAE/MFE tracking. Portfolio risk embedded in every signal.
+
+**Evolvable agents** — Darwinian selection: mutation, recombination, LLM-directed mutation. Fitness = accuracy × novelty × calibration × efficiency.
+
+**Empirical memory** — Vector Intelligence Layer retrieves K most similar historical states and what price did after them. IC-weighted, independence-calibrated.
+
+**Self-improving** — CIS weights refine from outcomes. ML retrains on its own labeled data. Drift detection adjusts in real time.
+
+**Self-healing** — Services auto-restart in DAG order. Replay auditors detect gaps and resolve orphaned lifecycles.
+
+**Full lineage** — Every AI call tracked with prompt version, model, inputs, outputs. Every signal traces to raw data.
+
+**Provider-agnostic** — Pipeline consumes typed events from the bus. Any data source plugs in the same way.
+
+**API-first** — All outputs available over REST and SSE. Any HTTP client subscribes without pipeline changes.
+
+---
 
 **Intrinsic Confidence Composite (ICC):** Every I7 plugin computes a 4-factor weighted score from pattern-internal evidence only — price structure, volume, momentum, microstructure. Weights sum to 1.0. The ICC is the plugin's standalone quality signal, recorded as `raw_confidence` on `signal_events`. Extrinsic context never touches it.
 
@@ -44,19 +78,6 @@ The quantitative domain is live on 60 instruments across futures, ETFs, FX, and 
 Each domain is an independent analysis engine. Downstream application agents - trade execution, portfolio management, risk management - consume from whichever domains they need by subscribing to the bus.
 
 **The AI layer is multi-provider and agent-organized.** A multi-provider LLM chain (local Ollama on AMD ROCm GPU, OpenRouter for cloud fallback) runs with per-provider circuit breakers — no single model or vendor is a dependency. Specialist agents handle focused tasks; composite agents synthesize them into a coherent view, the way a trading desk works. Two deeper systems are designed behind this: an Evolvable AI framework where agents improve through Darwinian selection, and a Vector Intelligence Layer that will ground every AI conclusion in the K most similar historical bar states and what actually happened after them. Both are covered in detail below.
-
-**What makes this different from a signal pipeline:**
-
-- **Counterfactual recording** - every ranked candidate is recorded, not just winners. The system preserves the full decision boundary - what CIS selected and what it rejected - creating a training dataset that captures the rejections, not just the outcomes.
-- **Statistical rigor throughout** - bootstrap confidence intervals for win rates, not point estimates. p < 0.05 promotion gates with minimum N. KS drift detection. CUSUM control charts. Proof, not thresholds.
-- **Full signal lifecycle** - signals tracked from zone activation through 8-class outcome resolution with MAE and MFE per signal. Portfolio-level risk analytics embedded in signal tracking, not a win/loss tally.
-- **Evolvable** - agents improve through natural selection: genome mutation, recombination, LLM-directed mutation. Fitness = accuracy × novelty × calibration × efficiency. Statistical gates at every lifecycle transition.
-- **Empirical memory** - a Vector Intelligence Layer embeds every bar state in pgvector and retrieves the K most similar historical analogs at query time, with realized forward returns. IC-weighted, independence-calibrated, and domain-agnostic.
-- **Self-improving** - CIS weights auto-refine from signal outcomes. ML models retrain on their own labeled data. Drift detection adjusts feature contributions in real time.
-- **Self-healing** - services auto-restart in DAG order. Bar and signal replay auditors detect gaps and resolve orphaned lifecycles.
-- **Full lineage and reproducibility** - every AI agent call tracked with prompt version, model, inputs, outputs, and timing. Every signal traces back through every transformation to raw data.
-- **Provider-agnostic by design** - the intelligence pipeline has zero knowledge of where data comes from. It consumes typed events from the bus. Any real-time source plugs in the same way.
-- **API-first** - every output immediately available over REST and SSE. Any HTTP client subscribes without pipeline changes.
 
 ---
 
