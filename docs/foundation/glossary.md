@@ -36,7 +36,7 @@ A time-stamped, scored trade hypothesis with a defined entry, direction, and exi
 **Banned:** (none)
 **Status:** active
 
-**Code surface:** `signal_events` table (Phase 128+), `SignalTracker`, `SignalWriter`. Legacy: `signal_ledger` (read-only during v2.10 migration, dropped in Phase 129).
+**Code surface:** `signal_events` table (Phase 128+), `SignalTracker`, `SignalWriter`. Legacy: `signal_ledger` monolith (read-only during v2.10 migration, dropped in Phase 130).
 
 ---
 
@@ -416,14 +416,14 @@ The 3-table schema that captures the complete signal lifecycle: `signal_events` 
 
 The design separates three concerns that the legacy `signal_ledger` monolith conflated: the fact that a pattern fired (detection), what trade was hypothesized (hypothesis), and what was actually executed (execution). Each table is immutable after write and has its own retention contract.
 
-**Join view naming:** Phase 128 creates `signal_ledger_full` joining all three tables. Phase 129 drops the legacy `signal_ledger` monolith and renames `signal_ledger_full` → `signal_ledger`. After Phase 129, `signal_ledger` is the canonical query surface for the SLA.
+**Join view naming:** Phase 128 creates `signal_ledger_full` joining all three tables. Phase 130 drops the legacy `signal_ledger` monolith and `signal_outcomes` table, then renames `signal_ledger_full` → `signal_ledger`. After Phase 130, `signal_ledger` is the canonical query surface for the SLA.
 
-**Not:** the `signal_ledger` table (legacy monolith, read-only during SLA migration, dropped Phase 129). `signal_ledger_v2` is a banned name — version-suffixed names violate the naming system.
+**Not:** the legacy `signal_ledger` monolith (read-only during SLA migration, dropped Phase 130). `signal_ledger_v2` is a banned name — version-suffixed names violate the naming system.
 
 **Banned:** "3-table architecture," "v2.10 schema," "new signal schema," "signal_ledger_v2" (all replaced by SLA)
 **Status:** active (Phase 128+)
 
-**Code surface:** `signal_events`, `trade_frames`, `trade_executions` tables; `signal_ledger_full` view (Phase 128) / `signal_ledger` view (Phase 129+); `docs/foundation/glossary.md` detection/hypothesis/execution layer entries.
+**Code surface:** `signal_events`, `trade_frames`, `trade_executions` tables; `signal_ledger` view (renamed from `signal_ledger_full` in Phase 130); `docs/foundation/glossary.md` detection/hypothesis/execution layer entries.
 
 ---
 
