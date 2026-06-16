@@ -1,15 +1,21 @@
 """I7-only replay from intelligence_features.
 
 Reads stored JSONB tier columns, reconstructs IntelligenceEvent, runs specified I7 plugins,
-upserts signal_ledger. Bypasses all I1-I6 compute. Depends on migration 125 column names
-(i1/i2/i3/i4/i5/smc/cross_timeframe_context) and plan 06 deterministic IDs.
+inserts into signal_events + trade_frames (3-table schema). Bypasses all I1-I6 compute.
+Depends on migration 125 column names (i1/i2/i3/i4/i5/smc/cross_timeframe_context) and
+plan 06 deterministic IDs.
+
+Phase 130: migrated write path to signal_events + trade_frames (3-table schema).
+G0 grouping: one signal_events row + one trade_frames row (at_close) per signal.
+Direction converted from int (1/-1) to text ('long'/'short').
+frame_id = uuid5(NAMESPACE_DNS, f"{signal_id}:at_close") — deterministic across re-runs.
 
 Usage examples:
 
     # Replay all I7 plugins for ESM6 since 2026-06-01
     python production/scripts/feature_replay.py --symbols ESM6 --since 2026-06-01
 
-    # Dry-run: reconstruct + evaluate but do not write to signal_ledger
+    # Dry-run: reconstruct + evaluate but do not write to signal_events
     python production/scripts/feature_replay.py --dry-run --symbols ESM6 --since 2026-06-10 --workers 1
 
     # Replay only shadow validation setups (fast path for Phase 121 re-runs)
@@ -18,17 +24,18 @@ Usage examples:
     # Replay specific plugins
     python production/scripts/feature_replay.py --plugins trad_OFIContinuation,trad_DivergenceStack
 
-Idempotency: ON CONFLICT updates mutable signal fields; identity columns
-(signal_id, timestamp, symbol, feature_ts) are preserved. Running twice produces
-identical signal_ids for the same scope (deterministic IDs from plan 06).
+Idempotency: ON CONFLICT (signal_id, ts) DO NOTHING on signal_events; ON CONFLICT (frame_id) DO NOTHING
+on trade_frames. Running twice produces identical signal_ids and frame_ids (deterministic).
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 import time
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -58,10 +65,23 @@ from src.intelligence.schemas import (
     SMCContext,
 )
 from src.intelligence.trading.aggregator import aggregate
-from src.intelligence.trading.signal_schema import make_signal_id
-from src.persistence.repository.signal_ledger_repository import LedgerEntry, SignalStatus
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION, make_signal_id
+from src.persistence.repository.signal_events_repository import LedgerEntry, SignalStatus
 
 logger = structlog.get_logger(__name__)
+
+# uuid5 namespace for deterministic frame_id — matches run_historical_pipeline.py
+_FRAME_ID_NS = uuid.NAMESPACE_DNS
+
+
+def _make_frame_id(signal_id: str, entry_type: str = "at_close") -> str:
+    """Deterministic frame_id — same signal_id + entry_type always produces same UUID."""
+    return str(uuid.uuid5(_FRAME_ID_NS, f"{signal_id}:{entry_type}"))
+
+
+def _direction_text(direction_int: int) -> str:
+    """Convert direction integer (1/-1) to text ('long'/'short') for signal_events."""
+    return "long" if direction_int == 1 else "short"
 
 
 # ---------------------------------------------------------------------------
@@ -69,62 +89,48 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 _SELECT_FEATURES_SQL = """
-SELECT ts, symbol, tf, bar, technical_indicators, composite_events, regime_features, confluence_scores, pattern_detections, smc, cross_timeframe_context, market_context
+SELECT ts, symbol, tf, bar, technical_indicators, composite_events, regime_features,
+       confluence_scores, pattern_detections, smc, cross_timeframe_context, market_context
 FROM intelligence_features
 WHERE symbol = $1 AND tf = $2
   AND ($3::timestamptz IS NULL OR ts >= $3)
 ORDER BY ts ASC
 """
 
-# Idempotent: ON CONFLICT updates mutable signal fields; identity columns
-# (signal_id, timestamp, symbol, feature_ts) are preserved.
-_UPSERT_SIGNAL_SQL = """
-INSERT INTO signal_ledger (
-    signal_id, timestamp, symbol, timeframe,
-    setup_plugin, signal_type, direction,
-    was_selected, is_shadow, is_backfill,
-    signal_computed_at,
-    feature_ts, feature_tf,
-    hmm_regime_at_fire, garch_sigma_at_fire,
-    ttl_bars,
-    entry_price, stop_loss, targets, entry_zone_low, entry_zone_high,
-    market_entry_price,
-    cis_score, bucket_scores, weights_version,
-    pipeline_lag_ms, expires_at,
-    feature_schema_version,
-    stop_basis, stop_type_col, structural_stop_distance_atr,
-    adaptive_buffer_mult, plugin_regime_type, stop_structure_age_bars,
-    raw_confidence, calibrated_confidence
+# G0 grouping: one signal_events row + one trade_frames row (at_close) per signal.
+# ON CONFLICT DO NOTHING — idempotent across re-runs via deterministic signal_id and frame_id.
+_INSERT_SIGNAL_EVENTS_SQL = """
+INSERT INTO signal_events (
+    signal_id, ts, symbol, tf, setup_plugin, direction,
+    raw_confidence, calibrated_confidence, cis_score, weights_version,
+    factor_scores, context_features,
+    ctf_score, ctf_confirmed, zone_friction_score,
+    hmm_regime_at_fire, plugin_regime_type, garch_sigma_at_fire,
+    is_shadow, is_backfill, status, signal_schema_version,
+    ttl_bars, expires_at, signal_computed_at, feature_ts
 ) VALUES (
-    $1::uuid, $2, $3, $4,
-    $5, $6, $7,
-    $8, $9, $10,
-    $11,
-    $12, $13,
-    $14, $15,
-    $16,
-    $17, $18, $19::jsonb, $20, $21,
-    $22,
-    $23, $24::jsonb, $25,
-    $26, $27,
-    $28,
-    $29, $30, $31,
-    $32, $33, $34,
-    $35, $36
+    $1::uuid, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10,
+    $11::jsonb, $12::jsonb,
+    $13, $14, $15,
+    $16, $17, $18,
+    $19, $20, $21, $22,
+    $23, $24, $25, $26
 )
-ON CONFLICT (signal_id, timestamp) DO UPDATE SET
-    setup_plugin = EXCLUDED.setup_plugin,
-    direction = EXCLUDED.direction,
-    entry_price = EXCLUDED.entry_price,
-    stop_loss = EXCLUDED.stop_loss,
-    raw_confidence = EXCLUDED.raw_confidence,
-    calibrated_confidence = EXCLUDED.calibrated_confidence
+ON CONFLICT (signal_id, ts) DO NOTHING
 """
 
-_UPSERT_OUTCOMES_SQL = """
-INSERT INTO signal_outcomes (signal_id, status)
-VALUES ($1::uuid, $2)
-ON CONFLICT (signal_id) DO NOTHING
+_INSERT_TRADE_FRAMES_SQL = """
+INSERT INTO trade_frames (
+    frame_id, signal_id, signal_ts, entry_type, direction,
+    entry_price, stop_price, target_price, r_multiple,
+    ttl_bars, expires_at, counterfactual_pnl_r, was_selected, frame_details
+) VALUES (
+    $1::uuid, $2::uuid, $3, $4, $5,
+    $6, $7, $8, $9,
+    $10, $11, NULL, $12, $13::jsonb
+)
+ON CONFLICT (frame_id) DO NOTHING
 """
 
 
@@ -185,9 +191,9 @@ async def _replay_symbol_tf(
     plugins: list[str],
     dry_run: bool,
 ) -> int:
-    """Fetch intelligence_features rows, run I7 plugins, upsert signal_ledger.
+    """Fetch intelligence_features rows, run I7 plugins, insert signal_events + trade_frames.
 
-    Returns count of signals upserted (or that would be upserted in dry-run mode).
+    Returns count of signals inserted (or that would be inserted in dry-run mode).
 
     bar_history deque not provided — plugins requiring multi-bar state (e.g. HMM)
     will use empty state; re-run in full pipeline mode for state-dependent plugins.
@@ -370,16 +376,98 @@ async def _replay_symbol_tf(
 
         if not dry_run:
             async with pool.acquire() as conn:
-                ledger_params = [e._to_row() for e in entries]
-                outcomes_params = [
-                    (
-                        e.signal_id,
-                        e.status.value if isinstance(e.status, SignalStatus) else str(e.status),
-                    )
-                    for e in entries
-                ]
-                await conn.executemany(_UPSERT_SIGNAL_SQL, ledger_params)
-                await conn.executemany(_UPSERT_OUTCOMES_SQL, outcomes_params)
+                async with conn.transaction():
+                    for e in entries:
+                        sid = str(e.signal_id)
+                        direction = _direction_text(
+                            int(e.direction) if isinstance(e.direction, (int, float)) else 1
+                        )
+                        raw_confidence = e.raw_confidence if e.raw_confidence is not None else 0.0
+
+                        # Build frame_details JSONB: stop architecture + zone fields
+                        frame_details: dict = {}
+                        if e.stop_basis is not None:
+                            frame_details["stop_basis"] = e.stop_basis
+                        if e.stop_type_col is not None:
+                            frame_details["stop_type_col"] = e.stop_type_col
+                        if e.structural_stop_distance_atr is not None:
+                            frame_details["structural_stop_distance_atr"] = float(
+                                e.structural_stop_distance_atr
+                            )
+                        if e.adaptive_buffer_mult is not None:
+                            frame_details["adaptive_buffer_mult"] = float(e.adaptive_buffer_mult)
+                        if e.stop_structure_age_bars is not None:
+                            frame_details["stop_structure_age_bars"] = e.stop_structure_age_bars
+                        if e.entry_zone_low is not None:
+                            frame_details["entry_zone_low"] = float(e.entry_zone_low)
+                        if e.entry_zone_high is not None:
+                            frame_details["entry_zone_high"] = float(e.entry_zone_high)
+                        if e.market_entry_price is not None:
+                            frame_details["market_entry_price"] = float(e.market_entry_price)
+
+                        # Extract first target for trade_frames.target_price
+                        targets = e.targets or []
+                        target_price = float(targets[0]) if targets else None
+                        stop_price = float(e.stop_loss) if e.stop_loss is not None else None
+                        entry_price = float(e.entry_price) if e.entry_price is not None else None
+                        r_multiple = None
+                        if (
+                            target_price is not None
+                            and entry_price is not None
+                            and stop_price is not None
+                        ):
+                            denom = entry_price - stop_price
+                            if denom != 0:
+                                r_multiple = (target_price - entry_price) / denom
+
+                        frame_id = _make_frame_id(sid, "at_close")
+
+                        await conn.execute(
+                            _INSERT_SIGNAL_EVENTS_SQL,
+                            sid,  # signal_id
+                            e.timestamp,  # ts
+                            e.symbol,  # symbol
+                            e.timeframe,  # tf
+                            e.setup_plugin,  # setup_plugin
+                            direction,  # direction (text)
+                            raw_confidence,  # raw_confidence (NOT NULL)
+                            e.calibrated_confidence,  # calibrated_confidence
+                            e.cis_score,  # cis_score
+                            e.weights_version,  # weights_version
+                            None,  # factor_scores (not in LedgerEntry)
+                            None,  # context_features
+                            None,  # ctf_score
+                            None,  # ctf_confirmed
+                            None,  # zone_friction_score
+                            e.hmm_regime_at_fire,  # hmm_regime_at_fire
+                            e.plugin_regime_type,  # plugin_regime_type
+                            e.garch_sigma_at_fire,  # garch_sigma_at_fire
+                            e.is_shadow,  # is_shadow
+                            True,  # is_backfill
+                            "pending",  # status
+                            SIGNAL_SCHEMA_VERSION,  # signal_schema_version (int)
+                            e.ttl_bars,  # ttl_bars
+                            e.expires_at,  # expires_at
+                            e.signal_computed_at,  # signal_computed_at
+                            e.feature_ts,  # feature_ts
+                        )
+                        await conn.execute(
+                            _INSERT_TRADE_FRAMES_SQL,
+                            frame_id,  # frame_id
+                            sid,  # signal_id
+                            e.timestamp,  # signal_ts (FK anchor)
+                            "at_close",  # entry_type
+                            direction,  # direction (text)
+                            entry_price,  # entry_price
+                            stop_price,  # stop_price (was stop_loss)
+                            target_price,  # target_price (first target)
+                            r_multiple,  # r_multiple
+                            e.ttl_bars,  # ttl_bars
+                            e.expires_at,  # expires_at
+                            # counterfactual_pnl_r = NULL (CounterfactualTracker v2.11)
+                            e.was_selected,  # was_selected
+                            json.dumps(frame_details) if frame_details else None,  # frame_details
+                        )
 
     return signal_count
 
@@ -425,7 +513,7 @@ async def main() -> None:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Reconstruct and run plugins but do not write to signal_ledger.",
+        help="Reconstruct and run plugins but do not write to signal_events.",
     )
     args = parser.parse_args()
 
@@ -510,7 +598,7 @@ async def main() -> None:
 
     # Summary
     print(f"\n[feature_replay] Complete in {elapsed:.1f}s")
-    print(f"  Total signals {'(dry-run) ' if args.dry_run else ''}upserted: {total_signals}")
+    print(f"  Total signals {'(dry-run) ' if args.dry_run else ''}inserted: {total_signals}")
     for sym, count in sorted(symbol_counts.items()):
         print(f"  {sym}: {count} signals")
 
