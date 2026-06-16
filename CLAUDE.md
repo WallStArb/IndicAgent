@@ -129,6 +129,8 @@ All tunable numeric values live in `config_state` under `<domain>.<concept>.<par
 
 **Adding a parameter:** (1) INSERT into `config_schema` + `config_state` in a migration; (2) load via `ConfigService.get()` at init; (3) remove the hard-coded constant. Description field must note provenance: `[initial_estimate]`, `[conventional]`, `[rca_analysis]`, or `[user_preference]`, and whether it is an ML learning target.
 
+**Migrate-as-you-go rule:** Any numeric threshold, weight, period, or count encountered while working in `src/` that is not already APR-backed MUST be migrated in the same session — not deferred. Module-level constants and inline magic numbers in plugin bodies are architecture violations. Pattern for module-level utilities: add `_config_service: Any | None = None` + `set_config_service()` + `get_sync()` wrapper function, then register injection in `intelligence_pipeline._prewarm_threshold_config()`. Pattern for plugin dataclasses: add `_config_service: Any = field(default=None, compare=False, repr=False)` and read via `cfg = self._config_service; cfg.get_sync(key, fallback) if cfg else fallback`.
+
 **`ui.*` requires one-line change first:** add `"ui."` to `OPS_PREFIXES` in `src/config/config_service.py`.
 
 **Dashboard:** `/config/parameters` — view/edit all parameters, see full change history per key.
