@@ -21,7 +21,7 @@ use back-adjusted continuous contracts (ContFuture + ADJUSTED_LAST) to span roll
 
 Stage 2 (--replay-only): Reads each timeframe's native stored bars and replays
 them through the full I1→I2→I3→I4→I5→SMC→I6→I7 pipeline to populate
-signal_ledger and intelligence_features.
+signal_events + trade_frames and intelligence_features.
 
 Replaces: production/scripts/simple_seeder.py (retired)
 
@@ -60,6 +60,7 @@ import concurrent.futures
 import json
 import math
 import sys
+import uuid
 from collections import defaultdict, deque
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -92,10 +93,10 @@ from src.intelligence.register_plugins import register_all_plugins
 from src.intelligence.schemas import FEATURE_SCHEMA_VERSION
 from src.intelligence.setup_performance_updater import _compute_perf_multipliers
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
-from src.intelligence.trading.signal_schema import make_signal_id
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION, make_signal_id
 from src.observability.metrics import flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
-from src.persistence.repository.signal_ledger_repository import LedgerEntry
+from src.persistence.repository.signal_events_repository import LedgerEntry
 from src.providers import IBKRProvider
 
 _logger = structlog.get_logger(__name__)
@@ -721,53 +722,55 @@ MARKET_CONTEXT_KEYS = (
     "hmm_regime_state",
 )
 
-_INSERT_SYNC_SQL = """
-INSERT INTO signal_ledger (
-    signal_id, timestamp, symbol, timeframe,
-    setup_plugin, signal_type, direction,
-    was_selected, is_shadow, is_backfill,
-    signal_computed_at,
-    feature_ts, feature_tf,
-    hmm_regime_at_fire, garch_sigma_at_fire,
-    ttl_bars,
-    entry_price, stop_loss, targets, entry_zone_low, entry_zone_high,
-    market_entry_price,
-    cis_score, bucket_scores, weights_version,
-    pipeline_lag_ms, expires_at,
-    feature_schema_version,
-    stop_basis, stop_type_col, structural_stop_distance_atr,
-    adaptive_buffer_mult, plugin_regime_type, stop_structure_age_bars,
-    raw_confidence, calibrated_confidence
+# uuid5 namespace for deterministic frame_id generation — same as migrate_signal_ledger.py
+_FRAME_ID_NS = uuid.NAMESPACE_DNS
+
+
+def _direction_text(direction_int: int) -> str:
+    """Convert direction integer (1/-1) to text ('long'/'short') for signal_events."""
+    return "long" if direction_int == 1 else "short"
+
+
+def _make_frame_id(signal_id: str, entry_type: str) -> str:
+    """Deterministic frame_id — same signal_id + entry_type always produces same UUID."""
+    return str(uuid.uuid5(_FRAME_ID_NS, f"{signal_id}:{entry_type}"))
+
+
+_INSERT_SIGNAL_EVENTS_SYNC_SQL = """
+INSERT INTO signal_events (
+    signal_id, ts, symbol, tf, setup_plugin, direction,
+    raw_confidence, calibrated_confidence, cis_score, weights_version,
+    factor_scores, context_features,
+    ctf_score, ctf_confirmed, zone_friction_score,
+    hmm_regime_at_fire, plugin_regime_type, garch_sigma_at_fire,
+    is_shadow, is_backfill, status, signal_schema_version,
+    ttl_bars, expires_at, signal_computed_at, feature_ts
 ) VALUES %s
-ON CONFLICT DO NOTHING
+ON CONFLICT (signal_id, ts) DO NOTHING
 """
 
-# Per-row template: TRUE=is_backfill, NULL=pipeline_lag_ms are SQL literals, not params.
-_INSERT_SYNC_TEMPLATE = (
-    "(%s::uuid, %s, %s, %s,"
-    " %s, %s, %s,"
-    " %s, %s, TRUE,"
-    " %s,"
-    " %s, %s,"
-    " %s, %s,"
-    " %s,"
-    " %s, %s, %s::jsonb, %s, %s,"
-    " %s,"
-    " %s, %s::jsonb, %s,"
-    " NULL, %s,"
-    " %s,"
+_INSERT_SIGNAL_EVENTS_SYNC_TEMPLATE = (
+    "(%s::uuid, %s, %s, %s, %s, %s,"
+    " %s, %s, %s, %s,"
+    " %s::jsonb, %s::jsonb,"
     " %s, %s, %s,"
     " %s, %s, %s,"
-    " %s, %s)"
+    " %s, TRUE, %s, %s,"
+    " %s, %s, %s, %s)"
 )
 
-_INSERT_OUTCOMES_SYNC_SQL = """
-INSERT INTO signal_outcomes (signal_id, status)
-VALUES %s
-ON CONFLICT (signal_id) DO NOTHING
+_INSERT_TRADE_FRAMES_SYNC_SQL = """
+INSERT INTO trade_frames (
+    frame_id, signal_id, signal_ts, entry_type, direction,
+    entry_price, stop_price, target_price, r_multiple,
+    ttl_bars, expires_at, counterfactual_pnl_r, was_selected, frame_details
+) VALUES %s
+ON CONFLICT (frame_id) DO NOTHING
 """
 
-_INSERT_OUTCOMES_SYNC_TEMPLATE = "(%s::uuid, %s)"
+_INSERT_TRADE_FRAMES_SYNC_TEMPLATE = (
+    "(%s::uuid, %s::uuid, %s, %s, %s," " %s, %s, %s, %s," " %s, %s, NULL, %s, %s::jsonb)"
+)
 
 
 def _build_ledger_entries(
@@ -888,66 +891,123 @@ def _build_ledger_entries(
 
 
 def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
-    """Synchronous psycopg2 batch insert into signal_ledger + signal_outcomes."""
+    """Synchronous psycopg2 batch insert into signal_events + trade_frames (G0 grouping).
+
+    G0: one signal_events row + one trade_frames row (entry_type='at_close') per signal.
+    Direction converted from int (1/-1) to text ('long'/'short').
+    frame_id is deterministic via uuid5 — idempotent across re-runs.
+    Status starts as 'pending'; lifecycle_replay.py updates it.
+    """
     if not entries:
         return
-    ledger_params = []
-    outcomes_params = []
+
+    se_params = []
+    tf_params = []
+
     for e in entries:
-        ledger_params.append(
+        signal_id = str(e.signal_id)
+        direction = _direction_text(
+            int(e.direction) if isinstance(e.direction, (int, float)) else 1
+        )
+        raw_confidence = e.raw_confidence if e.raw_confidence is not None else 0.0
+
+        # Build frame_details JSONB: stop architecture + zone fields archived here
+        frame_details: dict = {}
+        if e.stop_basis is not None:
+            frame_details["stop_basis"] = e.stop_basis
+        if e.stop_type_col is not None:
+            frame_details["stop_type_col"] = e.stop_type_col
+        if e.structural_stop_distance_atr is not None:
+            frame_details["structural_stop_distance_atr"] = float(e.structural_stop_distance_atr)
+        if e.adaptive_buffer_mult is not None:
+            frame_details["adaptive_buffer_mult"] = float(e.adaptive_buffer_mult)
+        if e.stop_structure_age_bars is not None:
+            frame_details["stop_structure_age_bars"] = e.stop_structure_age_bars
+        if e.entry_zone_low is not None:
+            frame_details["entry_zone_low"] = float(e.entry_zone_low)
+        if e.entry_zone_high is not None:
+            frame_details["entry_zone_high"] = float(e.entry_zone_high)
+        if e.market_entry_price is not None:
+            frame_details["market_entry_price"] = float(e.market_entry_price)
+        frame_details_json = json.dumps(frame_details) if frame_details else None
+
+        # Extract first target for trade_frames.target_price
+        targets = e.targets or []
+        target_price = float(targets[0]) if targets else None
+        stop_price = float(e.stop_loss) if e.stop_loss is not None else None
+        entry_price = float(e.entry_price) if e.entry_price is not None else None
+        r_multiple = None
+        if target_price is not None and entry_price is not None and stop_price is not None:
+            denom = entry_price - stop_price
+            if denom != 0:
+                r_multiple = (target_price - entry_price) / denom
+
+        frame_id = _make_frame_id(signal_id, "at_close")
+
+        se_params.append(
             (
-                e.signal_id,
-                e.timestamp,
-                e.symbol,
-                e.timeframe,
-                e.setup_plugin,
-                e.signal_type,
-                e.direction,
-                e.was_selected,
-                e.is_shadow,
-                e.signal_computed_at,
-                e.feature_ts,
-                e.feature_tf,
-                e.hmm_regime_at_fire,
-                e.garch_sigma_at_fire,
-                e.ttl_bars,
-                e.entry_price,
-                e.stop_loss,
-                json.dumps(_sanitize_for_json(e.targets)) if e.targets is not None else None,
-                e.entry_zone_low,
-                e.entry_zone_high,
-                e.market_entry_price,
-                e.cis_score,
-                (
-                    json.dumps(_sanitize_for_json(e.bucket_scores))
-                    if e.bucket_scores is not None
-                    else None
-                ),
-                e.weights_version,
-                e.expires_at,
-                e.feature_schema_version,
-                e.stop_basis,
-                e.stop_type_col,
-                e.structural_stop_distance_atr,
-                e.adaptive_buffer_mult,
-                e.plugin_regime_type,
-                e.stop_structure_age_bars,
-                e.raw_confidence,
-                e.calibrated_confidence,
+                signal_id,  # signal_id
+                e.timestamp,  # ts
+                e.symbol,  # symbol
+                e.timeframe,  # tf
+                e.setup_plugin,  # setup_plugin
+                direction,  # direction (text)
+                raw_confidence,  # raw_confidence (NOT NULL)
+                e.calibrated_confidence,  # calibrated_confidence (nullable)
+                e.cis_score,  # cis_score
+                e.weights_version,  # weights_version
+                # factor_scores / context_features from signal dict ECL fields (Phase 123)
+                # LedgerEntry does not carry these; NULL for backfill
+                None,  # factor_scores
+                None,  # context_features
+                None,  # ctf_score
+                None,  # ctf_confirmed
+                None,  # zone_friction_score
+                e.hmm_regime_at_fire,  # hmm_regime_at_fire
+                e.plugin_regime_type,  # plugin_regime_type
+                e.garch_sigma_at_fire,  # garch_sigma_at_fire
+                e.is_shadow,  # is_shadow
+                # is_backfill = TRUE via SQL template
+                "pending",  # status
+                SIGNAL_SCHEMA_VERSION,  # signal_schema_version (int)
+                e.ttl_bars,  # ttl_bars
+                e.expires_at,  # expires_at
+                e.signal_computed_at,  # signal_computed_at
+                e.feature_ts,  # feature_ts
             )
         )
-        outcomes_params.append(
+
+        tf_params.append(
             (
-                e.signal_id,
-                e.status.value if hasattr(e.status, "value") else str(e.status),
+                frame_id,  # frame_id
+                signal_id,  # signal_id
+                e.timestamp,  # signal_ts (FK anchor for hypertable composite PK)
+                "at_close",  # entry_type
+                direction,  # direction (text)
+                entry_price,  # entry_price
+                stop_price,  # stop_price (was stop_loss)
+                target_price,  # target_price (first target only)
+                r_multiple,  # r_multiple
+                e.ttl_bars,  # ttl_bars
+                e.expires_at,  # expires_at
+                # counterfactual_pnl_r = NULL (CounterfactualTracker v2.11)
+                e.was_selected,  # was_selected
+                frame_details_json,  # frame_details
             )
         )
+
     with conn.cursor() as cur:
         psycopg2.extras.execute_values(
-            cur, _INSERT_SYNC_SQL, ledger_params, template=_INSERT_SYNC_TEMPLATE
+            cur,
+            _INSERT_SIGNAL_EVENTS_SYNC_SQL,
+            se_params,
+            template=_INSERT_SIGNAL_EVENTS_SYNC_TEMPLATE,
         )
         psycopg2.extras.execute_values(
-            cur, _INSERT_OUTCOMES_SYNC_SQL, outcomes_params, template=_INSERT_OUTCOMES_SYNC_TEMPLATE
+            cur,
+            _INSERT_TRADE_FRAMES_SYNC_SQL,
+            tf_params,
+            template=_INSERT_TRADE_FRAMES_SYNC_TEMPLATE,
         )
     conn.commit()
 
@@ -1066,7 +1126,7 @@ def run_i7_and_persist(
     calibration_curves: dict | None = None,
     perf_weights: dict | None = None,
 ) -> int:
-    """Run I7 setup plugins on bar_history+features, aggregate, persist to signal_ledger.
+    """Run I7 setup plugins on bar_history+features, aggregate, persist to signal_events + trade_frames.
 
     Args:
         bar_history: rolling window of bar dicts
@@ -1722,7 +1782,7 @@ def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
     """Assert was_selected and signal_id invariants. Hard-fails with sys.exit(1) on violation.
 
     Invariant 1: was_selected = TRUE occurs at most once per (symbol, tf, bar_ts).
-    Invariant 2: Every signal_id in signal_ledger is globally unique.
+    Invariant 2: Every signal_id in signal_events is globally unique.
 
     Called automatically after every --replay-only run. If this passes, the data
     is usable for training. If it fails, wipe with --clean and investigate.
@@ -1730,10 +1790,11 @@ def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT symbol, timeframe, timestamp, COUNT(*) AS winner_count
-            FROM signal_ledger
-            WHERE symbol = ANY(%s) AND was_selected = TRUE
-            GROUP BY symbol, timeframe, timestamp
+            SELECT se.symbol, se.tf, se.ts, COUNT(*) AS winner_count
+            FROM signal_events se
+            JOIN trade_frames tf ON tf.signal_id = se.signal_id AND tf.signal_ts = se.ts
+            WHERE se.symbol = ANY(%s) AND tf.was_selected = TRUE
+            GROUP BY se.symbol, se.tf, se.ts
             HAVING COUNT(*) > 1
             ORDER BY winner_count DESC
             LIMIT 20
@@ -1752,7 +1813,7 @@ def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
         cur.execute(
             """
             SELECT COUNT(*) FROM (
-                SELECT signal_id FROM signal_ledger
+                SELECT signal_id FROM signal_events
                 WHERE symbol = ANY(%s)
                 GROUP BY signal_id HAVING COUNT(*) > 1
             ) dups
@@ -1865,7 +1926,7 @@ def main() -> None:
         help="Only fetch from IBKR → DB, skip intelligence replay",
     )
     parser.add_argument(
-        "--replay-only", action="store_true", help="Only replay DB → signal_ledger, skip IBKR fetch"
+        "--replay-only", action="store_true", help="Only replay DB → signal_events, skip IBKR fetch"
     )
     parser.add_argument(
         "--include-rolled",
@@ -1887,7 +1948,7 @@ def main() -> None:
         default=None,
         help=(
             "Comma-separated setup_plugin names to scope --clean deletion. "
-            "When provided, only deletes signal_ledger and signal_outcomes rows for these setups "
+            "When provided, only deletes signal_events and trade_frames rows for these setups "
             "(intelligence_features is NOT deleted). "
             "Default: None (full-symbol clean)."
         ),
@@ -2273,26 +2334,26 @@ def main() -> None:
                     # during DML. Without this, deletes across compressed hypertable chunks fail
                     # with "tuple decompression limit exceeded".
                     cur.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
-                    # Delete outcomes first (no FK cascade), then ledger rows
+                    # Delete trade_frames (FK child) then signal_events (FK parent)
                     cur.execute(
-                        """DELETE FROM signal_outcomes
+                        """DELETE FROM trade_frames
                            WHERE signal_id IN (
-                               SELECT signal_id FROM signal_ledger
+                               SELECT signal_id FROM signal_events
                                WHERE symbol = ANY(%s) AND setup_plugin = ANY(%s)
                            )""",
                         (symbol_values, setup_filter),
                     )
-                    deleted_outcomes = cur.rowcount
+                    deleted_frames = cur.rowcount
                     cur.execute(
-                        """DELETE FROM signal_ledger
+                        """DELETE FROM signal_events
                            WHERE symbol = ANY(%s) AND setup_plugin = ANY(%s)""",
                         (symbol_values, setup_filter),
                     )
                     deleted_signals = cur.rowcount
                     db_conn.commit()
                     print(
-                        f"  Deleted {deleted_signals:,} signal_ledger rows + "
-                        f"{deleted_outcomes:,} signal_outcomes rows "
+                        f"  Deleted {deleted_signals:,} signal_events rows + "
+                        f"{deleted_frames:,} trade_frames rows "
                         f"(intelligence_features preserved)"
                     )
                 else:
@@ -2304,29 +2365,22 @@ def main() -> None:
                     )
                     deleted_features = cur.rowcount
 
-                    # Delete lifecycle state first, then fire-time rows (no FK cascade)
+                    # Delete trade_frames (FK child) then signal_events (FK parent)
                     cur.execute(
                         """
-                        DELETE FROM signal_outcomes
+                        DELETE FROM trade_frames
                         WHERE signal_id IN (
-                            SELECT signal_id FROM signal_ledger WHERE symbol = ANY(%s)
+                            SELECT signal_id FROM signal_events WHERE symbol = ANY(%s)
                         );
                     """,
                         (symbol_values,),
                     )
                     cur.execute(
                         """
-                        DELETE FROM signal_ledger
+                        DELETE FROM signal_events
                         WHERE symbol = ANY(%s);
                     """,
                         (symbol_values,),
-                    )
-                    # Delete any orphaned outcomes (defensive: catches outcomes without ledger entries)
-                    cur.execute(
-                        """
-                        DELETE FROM signal_outcomes
-                        WHERE signal_id NOT IN (SELECT signal_id FROM signal_ledger);
-                    """,
                     )
                     deleted_signals = cur.rowcount
 
@@ -2419,7 +2473,7 @@ def main() -> None:
                 print("\nInterrupted — workers will be terminated.")
                 raise
 
-        print(f"\nStage 2 complete: {grand_total} total signals inserted into signal_ledger")
+        print(f"\nStage 2 complete: {grand_total} total signals inserted into signal_events")
         _assert_backfill_integrity(db_conn, [c.symbol for c in contracts])
 
     db_conn.close()
