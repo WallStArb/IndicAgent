@@ -1286,7 +1286,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 + 48h verification window)*
 
-- [ ] 130-07-PLAN.md — Migration 143 DROP + view rename + signal_ledger_full sweep + D-15 doc updates
+- [x] 130-07-PLAN.md — Migration 143 DROP + view rename + signal_ledger_full sweep + D-15 doc updates
 
 ---
 
