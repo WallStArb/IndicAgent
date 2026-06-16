@@ -92,7 +92,7 @@ _QUERY = """
         market_entry_mae,
         market_entry_mfe,
         market_entry_outcome
-    FROM signal_ledger_full
+    FROM signal_ledger
     WHERE outcome IS NOT NULL
       AND exit_at > NOW() - INTERVAL '90 days'
       AND timestamp > NOW() - INTERVAL '100 days'
@@ -360,7 +360,7 @@ class SignalMetricsAnalyzer(BaseDaemon):
             SELECT
               COUNT(*) FILTER (WHERE is_backfill = TRUE)::float
                 / NULLIF(COUNT(*), 0)::float AS backfill_ratio
-            FROM signal_ledger_full
+            FROM signal_ledger
             WHERE timestamp >= NOW() - INTERVAL '24 hours'
             """)
         if backfill_rows:

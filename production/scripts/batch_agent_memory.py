@@ -249,7 +249,7 @@ _HMM_REGIME_LABEL: dict[int, str] = {
 async def run_regime_transition_job(conn: asyncpg.Connection, dry_run: bool) -> None:
     """Close open regime transition rows; open new rows for current regime per (symbol, timeframe).
 
-    Reads signal_ledger_full view for HMM regime flips since last run. For each
+    Reads signal_ledger view for HMM regime flips since last run. For each
     (symbol, timeframe) pair, the latest hmm_regime_at_fire is the current regime.
     Converts integer HMM regime to memory_regime_label ENUM string.
     """
@@ -261,7 +261,7 @@ async def run_regime_transition_job(conn: asyncpg.Connection, dry_run: bool) -> 
     )
     current_epoch: int = state_row["current_regime_epoch"] if state_row else 1
 
-    # Query current regime per (symbol, feature_tf) from signal_ledger_full
+    # Query current regime per (symbol, feature_tf) from signal_ledger
     # Use the most recent signal's hmm_regime_at_fire (integer 0/1/2)
     current_regimes = await conn.fetch("""
         SELECT DISTINCT ON (symbol, feature_tf)
@@ -269,7 +269,7 @@ async def run_regime_transition_job(conn: asyncpg.Connection, dry_run: bool) -> 
             feature_tf AS timeframe,
             hmm_regime_at_fire AS hmm_regime_int,
             timestamp AS bar_ts
-        FROM signal_ledger_full
+        FROM signal_ledger
         WHERE hmm_regime_at_fire IS NOT NULL
         ORDER BY symbol, feature_tf, timestamp DESC
         """)
@@ -543,7 +543,7 @@ async def run_backfill_job(conn: asyncpg.Connection, dry_run: bool) -> None:
                     r2.ts,
                     COUNT(m.timestamp) AS n_eligible
                 FROM memory_episodes_raw r2
-                JOIN signal_ledger_full sl ON sl.signal_id = r2.signal_id
+                JOIN signal_ledger sl ON sl.signal_id = r2.signal_id
                 JOIN market_data_ohlcv m ON m.symbol = r2.symbol
                     AND m.timeframe = r2.timeframe
                     AND m.timestamp >= sl.timestamp

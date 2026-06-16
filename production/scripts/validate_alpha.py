@@ -846,7 +846,7 @@ async def _check_eligibility(plugin: str | None) -> None:
             rows = await conn.fetch(
                 """
                 SELECT setup_plugin, count(*) AS resolved_n
-                FROM signal_ledger_full
+                FROM signal_ledger
                 WHERE setup_plugin = ANY($1)
                   AND outcome IS NOT NULL
                   AND outcome != 'never_activated'
