@@ -38,20 +38,24 @@ def test_no_uuid4() -> None:
 
 
 def test_on_conflict_identity_columns_not_in_set() -> None:
-    """ON CONFLICT SET clause must not overwrite identity columns."""
+    """Phase 130 (3-table schema): signal_events uses DO NOTHING, not DO UPDATE SET.
+
+    Idempotency is achieved via ON CONFLICT (signal_id, ts) DO NOTHING — re-runs
+    skip duplicates rather than overwriting. Identity columns are protected implicitly.
+    """
     src = _SRC
-    # Find the DO UPDATE SET block
+    # signal_events insert uses (signal_id, ts) DO NOTHING
     assert (
-        "ON CONFLICT (signal_id, timestamp) DO UPDATE SET" in src
-    ), "Expected ON CONFLICT (signal_id, timestamp) DO UPDATE SET in _UPSERT_SIGNAL_SQL"
-    # Extract the SET clause lines (between DO UPDATE SET and the closing quote)
-    set_start = src.index("ON CONFLICT (signal_id, timestamp) DO UPDATE SET")
-    set_block = src[set_start : set_start + 600]
-    # Identity columns must not appear after the SET keyword
-    for identity_col in ("signal_id =", "timestamp =", "symbol =", "feature_ts ="):
-        assert (
-            identity_col not in set_block
-        ), f"Identity column '{identity_col}' must not be in DO UPDATE SET clause"
+        "ON CONFLICT (signal_id, ts) DO NOTHING" in src
+    ), "Expected ON CONFLICT (signal_id, ts) DO NOTHING in _INSERT_SIGNAL_EVENTS_SQL"
+    # trade_frames insert uses (frame_id) DO NOTHING
+    assert (
+        "ON CONFLICT (frame_id) DO NOTHING" in src
+    ), "Expected ON CONFLICT (frame_id) DO NOTHING in _INSERT_TRADE_FRAMES_SQL"
+    # Old signal_ledger UPSERT pattern must not exist
+    assert (
+        "ON CONFLICT (signal_id, timestamp) DO UPDATE SET" not in src
+    ), "Legacy DO UPDATE SET pattern found — signals use DO NOTHING in 3-table schema"
 
 
 def test_functional_column_names_in_select() -> None:
