@@ -4,9 +4,17 @@ A market intelligence platform built on a shared event-driven spine. New domains
 
 The quantitative domain is live across 60 instruments: eight analytical tiers run in-process per bar — raw indicators, composite events, market structure, regime classification (GARCH, HMM, Kalman, BOCPD), pattern detection, institutional order flow, and 36 trading setups — all adjudicated by a six-bucket Confluence Intelligence Score that requires cross-tier agreement, not a single dominant factor. Sub-10ms bar-to-signal.
 
-**Adaptive Parameter Registry (APR):** Every detection threshold, confidence weight, and indicator period is a versioned DB row with a source and reason — not a constant in code. ML discovery writes calibrated values after p < 0.05; CIS weights refine from signal outcomes; calibration curves refit per setup per regime; plugin promotion is governed by bootstrap CI. Every parameter the system acts on is learnable, tracked, and hot-reloadable without a restart.
+**Intrinsic Confidence Composite (ICC):** Every I7 plugin computes a 4-factor weighted score from pattern-internal evidence only — price structure, volume, momentum, microstructure. Weights sum to 1.0. The ICC is the plugin's standalone quality signal, recorded as `raw_confidence` on `signal_events`. Extrinsic context never touches it.
 
 **Extrinsic Confidence Layer (ECL):** Market context — regime state, confluence alignment, zone friction — travels on every signal as observable metadata, never as a gate that suppresses emission. Raw signals reach the training dataset uncontaminated regardless of downstream filtering. Winners and counterfactuals alike are recorded with the full feature vector at fire time, giving the ML layer a complete picture of the decision boundary — not just what worked, but what was correctly rejected.
+
+**Signal Ledger Architecture (SLA):** Three tables capture the complete signal lifecycle — `signal_events` (detection: pattern fired), `trade_frames` (hypothesis: entry/stop/target), `trade_executions` (execution: actual fills). Each is immutable after write. `signal_ledger_full` joins all three during migration; becomes `signal_ledger` after Phase 129. ML trains on hypothesis-layer outcomes, not just executed trades.
+
+**Counterfactual Feedback Loop (CFL):** Every signal hypothesis — executed or not — is measured against subsequent price action. The `CounterfactualTracker` daemon populates `counterfactual_pnl_r` on every `trade_frames` row, closing the training loop for regime-suppressed and unadjudicated signals. This is the primary ML training target.
+
+**Shadow Governance (SG):** Every I7 plugin and AI agent auto-enrolls in a shadow period on startup. Promotion to production requires n ≥ 100 resolved signals and a positive bootstrap CI at 95%. Demotion is automatic when EV[R] < -0.05 for 3 consecutive cycles. Components earn influence through statistical proof; they cannot be manually promoted past the gate.
+
+**Adaptive Parameter Registry (APR):** Every detection threshold, confidence weight, and indicator period is a versioned DB row with a source and reason — not a constant in code. ML discovery writes calibrated values after p < 0.05; CIS weights refine from signal outcomes; calibration curves refit per setup per regime; plugin promotion is governed by bootstrap CI. Every parameter the system acts on is learnable, tracked, and hot-reloadable without a restart.
 
 **Vector Intelligence Layer (VIL):** Every bar state is embedded as a normalized vector in pgvector alongside its realized forward returns. At query time, the system retrieves the K most similar historical states and what price did after them — grounding every AI agent and scoring decision in empirical evidence rather than pattern intuition. IC-weighted, independence-calibrated, and domain-agnostic: the same substrate extends to fundamental, qualitative, and derivatives domains as they come online.
 
@@ -204,11 +212,15 @@ Institutional order flow analysis - the interpretation of price action as the fo
 
 Each plugin defines a trade thesis with entry, stop-loss, and take-profit logic: `TrendFollowing` · `MeanReversion` · `LiquiditySweepReclaim` · `SqueezeExpansion` · `VWAPDeviation` · `FVGFill` · `PatternCompletion` · `DivergenceStack` · `CHoCHReversal` · `OFIContinuation` · `OFIDivergence` · `CVDDivergence` · `CrossAssetDivergence` · `AnchoredVWAPReversion` · `POCRejection` · `ORB15` · `ORB30` · `VCP` - 36 setups in total.
 
-**Signal architecture uses two named systems:**
+**Named systems governing I7 signal quality:**
 
-**Extrinsic Confidence Layer (ECL)** — the set of extrinsic confidence vectors (CTF score, HMM regime weight, zone friction, exhaustion guard) that travel on each signal as observable metadata. ECL vectors annotate signals with market context; they are never gates that suppress emission and never inputs to the intrinsic confidence composite. The ECL boundary is a hard architectural invariant: intrinsic confidence = pattern-internal factors only; extrinsic context = ECL metadata. This keeps raw signals as uncontaminated training data regardless of downstream filtering. See `docs/architecture/setup-confidence-patterns.md`.
+**Intrinsic Confidence Composite (ICC)** — each plugin scores its own setup from pattern-internal factors only (price structure, volume, momentum, microstructure), producing `raw_confidence`. Extrinsic context is never an input. See `docs/architecture/setup-confidence-patterns.md`.
 
-**Adaptive Parameter Registry (APR)** — all detection thresholds, confidence weights, and indicator periods that govern signal generation live in the APR rather than in code. Parameters start as `[initial_estimate]` human priors and evolve as ML discovery writes calibrated values after p < 0.05. Hot-reload via Kafka outbox — no restarts required. The APR makes every parameter observable and learnable; hard-coded constants in signal plugins are an architecture violation. See `docs/foundation/parameter-store.md`.
+**Extrinsic Confidence Layer (ECL)** — CTF score, HMM regime weight, zone friction, and exhaustion guard travel on every emitted signal as observable metadata. ECL vectors annotate; they never gate emission and never enter the ICC. The ECL boundary is a hard architectural invariant. See `docs/architecture/setup-confidence-patterns.md`.
+
+**Signal Ledger Architecture (SLA)** — detection (`signal_events`), hypothesis (`trade_frames`), and execution (`trade_executions`) are three separate tables, each with a single responsibility. `signal_ledger_full` (Phase 128) / `signal_ledger` (Phase 129+) joins all three for queries.
+
+**Adaptive Parameter Registry (APR)** — all detection thresholds, confidence weights, and indicator periods that govern signal generation live in the APR rather than in code. Parameters start as `[initial_estimate]` human priors and evolve as ML discovery writes calibrated values after p < 0.05. Hot-reload via Kafka outbox — no restarts required. See `docs/foundation/parameter-store.md`.
 
 When multiple setups fire on the same bar, the **CIS scorer** adjudicates (see below). Selected signals pass two gates:
 1. **RR gate** - viable risk:reward based on zone quality and distance to target
@@ -676,6 +688,7 @@ Docs in `docs/foundation/` and domain folders (`intelligence/`, `data/`, `signal
 | [Signals Foundation](docs/signals/signals-foundation.md) | signal_ledger schema, full signal quality pipeline (alpha decay, calibration, CIS, ranking), feedback loops |
 | [Signals Lifecycle](docs/signals/signals-lifecycle.md) | State machine, zone activation, 8-class outcome taxonomy, MAE/MFE tracking |
 | [Signals Operations](docs/signals/signals-operations.md) | Debugging stalled signals, replay auditor, TTL expiry runbooks |
+| [Signal-Trade Separation ADR](docs/architecture/signal-trade-separation-ADR.md) | 3-table schema decision (signal_events/trade_frames/trade_executions) - why, full schema, dropped columns, FK design, G0 audit |
 
 ### Research & Planning - not authoritative
 

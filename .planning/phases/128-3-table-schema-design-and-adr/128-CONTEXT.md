@@ -8,7 +8,7 @@
 
 Define the full 3-table schema (signal_events / trade_frames / trade_executions) with all column types, FK constraints, and index strategy. Write the ADR. Produce runnable CREATE TABLE SQL DDL so Phase 129 migration has zero open design questions.
 
-Also in scope: `capture_signal_features()` deletion (deferred from Phase 126 D-10), G0 audit (signal_id hash consistency across entry_types), and `signal_ledger_v2` view SQL.
+Also in scope: `capture_signal_features()` deletion (deferred from Phase 126 D-10), G0 audit (signal_id hash consistency across entry_types), and `signal_ledger_full` view SQL.
 
 **Not in scope:** Executing the migration (Phase 129), rewriting writers/trackers/APIs to use the new schema (Phase 130), CounterfactualTracker daemon (Phase 130), clean replay (Phase 127 — runs after 128+129+130).
 
@@ -48,12 +48,12 @@ Cardinality: 1 signal_event → N trade_frames (one per entry_type); 1 trade_fra
 | `garch_sigma_at_fire` | `float8` | | Volatility context at fire; ML feature |
 | `is_shadow` | `bool` | btree (is_shadow) | Governance filter; every ML query uses it |
 | `is_backfill` | `bool` | btree (is_backfill) | Training corpus provenance |
-| `status` | `text` | btree (status, ts) | `pending` / `active` / `regime_suppressed` / `expired` |
+| `status` | `text` | btree (status, ts) | `pending` / `active` / `regime_suppressed` / `expired`; CHECK constraint in DDL |
 | `signal_schema_version` | `int4` | | Schema version at write time (int4, not text) |
 | `ttl_bars` | `int4` | | Lifecycle; max bars signal remains active |
 | `expires_at` | `timestamptz` | btree (expires_at) WHERE NOT NULL | Lifecycle expiry |
 | `signal_computed_at` | `timestamptz` | | Pipeline write wall-clock; latency = signal_computed_at - ts |
-| `created_at` | `timestamptz` | | Synonym for signal_computed_at; DB insertion time |
+| `created_at` | `timestamptz` | | DB insertion time — distinct clock from signal_computed_at; delta is write propagation lag |
 
 **Into context_features JSONB (not first-class columns):** `bucket_scores`, fine-grained CIS sub-scores, other flat_features values already captured at emit time.
 
@@ -74,11 +74,11 @@ Cardinality: 1 signal_event → N trade_frames (one per entry_type); 1 trade_fra
 | `frame_id` | `uuid` | PK |
 | `signal_id` | `uuid` | FK → signal_events(signal_id, ts) — must match hypertable PK |
 | `signal_ts` | `timestamptz` | Denormalized from signal_events; required for FK to hypertable PK |
-| `entry_type` | `text` | `at_close` / `at_pullback` / `at_limit` / `at_reclaim` / `zone_proximal` |
-| `direction` | `text` | `long` / `short` |
+| `entry_type` | `text` | `at_close` / `at_pullback` / `at_limit` / `at_reclaim` / `zone_proximal`; CHECK constraint in DDL |
 | `entry_price` | `float8` | Hypothetical entry |
 | `stop_price` | `float8` | |
-| `target_price` | `float8` | |
+| `target_price` | `float8` | Primary take-profit target |
+| `extended_target_price` | `float8` | Secondary/extended take-profit level; nullable |
 | `r_per_unit` | `float8` | (target - entry) / (entry - stop) |
 | `ttl_bars` | `int4` | Counterfactual measurement window |
 | `expires_at` | `timestamptz` | When counterfactual measurement closes |
@@ -86,7 +86,7 @@ Cardinality: 1 signal_event → N trade_frames (one per entry_type); 1 trade_fra
 | `counterfactual_mfe` | `float8` | Max favorable excursion |
 | `counterfactual_mae` | `float8` | Max adverse excursion |
 | `counterfactual_bars` | `int4` | Bars to exit |
-| `counterfactual_exit_reason` | `text` | `target_hit` / `stop_hit` / `ttl_expired` |
+| `counterfactual_exit_reason` | `text` | `target_hit` / `stop_hit` / `ttl_expired`; CHECK constraint in DDL (nullable-aware) |
 | `counterfactual_measured_at` | `timestamptz` | When CounterfactualTracker closed measurement |
 | `was_selected` | `bool` | Selected by aggregator for potential execution |
 | `frame_details` | `jsonb` | Stop architecture provenance (see below) |
@@ -95,6 +95,8 @@ Cardinality: 1 signal_event → N trade_frames (one per entry_type); 1 trade_fra
 **`frame_details` JSONB contains stop architecture diagnostic fields:** `stop_basis`, `stop_type_col`, `structural_stop_distance_atr`, `adaptive_buffer_mult`, `stop_structure_type`, `stop_structure_age_bars`, `chandelier_vol_source`, `trailing_stop_price`, `trailing_stop_tightening_rate`, `entry_zone_low`, `entry_zone_high`. These are causal inputs that produced the frame geometry — diagnostic/audit fields, not ML query dimensions.
 
 **Indexes:** `(signal_id, signal_ts)`, `(entry_type, counterfactual_pnl_r)`, `(was_selected, counterfactual_pnl_r)`.
+
+**Constraints:** `UNIQUE (signal_id, entry_type)` — enforces one frame per entry_type per signal at DB level. `CHECK (entry_type IN ('at_close', 'at_pullback', 'at_limit', 'at_reclaim', 'zone_proximal'))`. `CHECK (counterfactual_exit_reason IS NULL OR counterfactual_exit_reason IN ('target_hit', 'stop_hit', 'ttl_expired'))`.
 
 **Shadow tracking (shadow_mae, shadow_mfe, shadow_outcome, shadow_tracking_start_ts):** DROPPED from new schema. CounterfactualTracker supersedes shadow P&L tracking. During Phase 129 migration, copy historical shadow values into `frame_details` JSONB for archival — never discard training history.
 
@@ -117,15 +119,16 @@ Cardinality: 1 signal_event → N trade_frames (one per entry_type); 1 trade_fra
 | `exit_reason` | `text` | |
 | `executed_at` | `timestamptz` | |
 | `exited_at` | `timestamptz` | |
+| `created_at` | `timestamptz` | DB insertion time |
 
 **Indexes:** `(frame_id)`, `(executed_at)`.
 
 **Hypertable:** NO.
 
-### D-05: signal_ledger_v2 backward-compat view
+### D-05: signal_ledger_full backward-compat view
 
 ```sql
-CREATE VIEW signal_ledger_v2 AS
+CREATE VIEW signal_ledger_full AS
 SELECT
     se.signal_id,
     se.ts,
@@ -172,7 +175,7 @@ LEFT JOIN trade_frames tf ON tf.signal_id = se.signal_id AND tf.signal_ts = se.t
 LEFT JOIN trade_executions te ON te.frame_id = tf.frame_id;
 ```
 
-`signal_ledger_full` (from migration 095) is superseded by `signal_ledger_v2` after Phase 129.
+`signal_ledger_full` (from migration 095) is superseded by `signal_ledger_full` after Phase 129.
 
 ### D-06: Numeric types
 `float8` throughout for all prices, confidence values, P&L. No `float4` — precision matters for pnl_r and confidence deltas. `numeric` from the old signal_ledger (entry_price, stop_loss) converts to `float8` in the new schema.
@@ -182,7 +185,7 @@ LEFT JOIN trade_executions te ON te.frame_id = tf.frame_id;
 
 ### D-08: Phase 128 output deliverables
 1. ADR at `docs/architecture/signal-trade-separation-ADR.md` — sections: Context (monolith problems), Decision (3-table + rationale), Consequences (migration scope, FK design, CounterfactualTracker dependency), Alternatives Considered (2-table rejected), Full Schema Tables
-2. `db/migrations/NNN_3table_schema.sql` — runnable CREATE TABLE DDL + CREATE VIEW signal_ledger_v2 (Phase 129 executes this, not Phase 128)
+2. `db/migrations/NNN_3table_schema.sql` — runnable CREATE TABLE DDL + CREATE VIEW signal_ledger_full (Phase 129 executes this, not Phase 128)
 3. `capture_signal_features()` deletion — grep for external callers first; delete from `src/intelligence/trading/confidence_utils.py` and any call sites (Phase 126 D-10 explicitly deferred to Phase 128)
 4. G0 audit — run `grep -n "entry_type" src/intelligence/trading/*.py | grep "make_signal_from_frame"` and confirm signal_id is identical across all entry_type variants per plugin fire; document findings in ADR
 
@@ -243,7 +246,7 @@ Documented in ADR (not implemented in Phase 128 — that's Phase 130). The ADR m
 ### Integration Points
 - `src/intelligence/trading/signal_schema.py` — `SIGNAL_SCHEMA_VERSION` constant; ADR should note that Phase 129 migration bumps this
 - `src/intelligence/pipeline/signal_processor.py` — `_annotate_signal()` now the sole `capture_signal_features()` caller after Phase 126; confirm this before deletion
-- Dashboard queries using `signal_ledger_full` view — after Phase 129, redirect to `signal_ledger_v2`
+- Dashboard queries using `signal_ledger_full` view — after Phase 129, redirect to `signal_ledger_full`
 
 </code_context>
 

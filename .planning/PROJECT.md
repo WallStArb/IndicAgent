@@ -275,7 +275,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - Phase 124: Signal Universe Integrity + Cold-Start Hardening — fix 5 over-firing plugins; ON CONFLICT IS NULL guard; warmup pass (QUALITY-01-02)
 - Phase 125: APR Full Migration — all 54 keys across Tier A/B/C; weight sum invariant (APR-01-03)
 - Phase 126: Clean Replay + Validation — replay on corrected pipeline; calibration retrain; Phase 121-02 report (REPLAY-01-02)
-- Phase 127: 3-Table Schema Design — full table schemas, FK, indexes, signal_ledger_v2 view (ARCH-01)
+- Phase 127: 3-Table Schema Design — full table schemas, FK, indexes, signal_ledger_full view (ARCH-01)
 - Phase 128: Database Migration — create tables, migrate signal_ledger, deploy view (MIGRATE-01)
 - Phase 129: Script Rewriting — all writers/trackers/APIs on 3-table schema; drop signal_ledger (REWRITE-01)
 

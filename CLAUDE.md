@@ -92,7 +92,7 @@ Canonical registry: `_DAG_ORDER` in `services/service_auditor.py`. Never maintai
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
-- **Narrative service:** `services/narrative_swarm.py` (`NarrativeSwarm`) maps to `indicagent-ai-narrative`. Docs referencing the old narrative_agent file names are wrong.
+- **Narrative service:** `services/narrative_swarm.py` (`NarrativeSwarm`) maps to `indicagent-narrative-compute`. The AI worker class is `NarrativeSynthesizer` in `src/intelligence/ai/narrative/narrative_agent.py`.
 
 ## Data Flow
 
@@ -107,19 +107,19 @@ Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
 
 - `market_data_ohlcv` — raw OHLCV. Primary time column: `timestamp` (not `ts`)
 - `intelligence_features` — full feature vectors per bar. Column name: `ts` (not `feature_ts`)
-- **Signal architecture (3-table, Phase 128+):**
-  - `signal_events` — detection layer: one row per I7 plugin fire event. Contains `raw_confidence`, `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. Primary time: `ts`.
-  - `trade_frames` — hypothesis layer: one row per entry_type per signal. Contains `counterfactual_pnl_r` (always populated by CounterfactualTracker, regardless of execution). ML trains on this.
+- **Signal Ledger Architecture (SLA, Phase 128+):**
+  - `signal_events` — detection layer: one row per I7 plugin fire event. Contains `raw_confidence` (ICC output), `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. Primary time: `ts`.
+  - `trade_frames` — hypothesis layer: one row per entry_type per signal. Contains `counterfactual_pnl_r` (CFL output, always populated by CounterfactualTracker). ML trains on this.
   - `trade_executions` — execution layer: one row per live trade execution. Contains `actual_pnl_r`. Most frames have zero rows here.
-  - `signal_ledger_v2` — backward-compat view joining all three tables.
-  - `signal_ledger` — legacy monolith (read-only during v2.10 migration; dropped in Phase 129).
+  - `signal_ledger_full` — join view across all three tables (Phase 128). Renamed to `signal_ledger` in Phase 129 when the legacy monolith is dropped.
+  - `signal_ledger` — legacy monolith (read-only during SLA migration; dropped in Phase 129; name reclaimed by join view).
 - `llm_calls` — full LLM audit log per call; outcome back-filled by `llm_writer`
 - `setup_performance` — per-setup rolling 30d stats; drives aggregator `perf_multiplier`; `sample_size >= 30` gate
 - **Volume Profile**: `poc_price`/`vah`/`val` = session VP (1m/5m); `poc_price_rolling`/`vah_rolling`/`val_rolling` = rolling VP (15m/1h)
 
 **Gotchas:** `docs/operations/timescaledb-gotchas.md` — `instruments.symbol` = base, contract code in `contract_details`.
 
-## Parameter Store
+## Adaptive Parameter Registry (APR)
 
 All tunable numeric values live in `config_state` under `<domain>.<concept>.<param>` — accessed via `ConfigService.get(key, default=X)`. Hard-coded numeric thresholds, weights, periods, or counts in `src/` are an architecture violation. Full spec: `docs/foundation/parameter-store.md`.
 
@@ -137,9 +137,9 @@ All tunable numeric values live in `config_state` under `<domain>.<concept>.<par
 
 138 plugins across tiers I1–I7 (I1=29, I2=11, I3=9, I4=13, I5=16, SMC=16, I6=7, I7=37 incl. 2 aggregators). See `src/intelligence/CLAUDE.md` for tier details and LLM provider chain.
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
-- **Shadow governance:** `shadow_registry` DB table. Auto-enroll at startup. Promotion: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0`. Demotion: EV[R] < -0.05 for 3 consecutive cycles.
+- **Shadow Governance (SG):** `shadow_registry` DB table. Auto-enroll at startup. Promotion: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0`. Demotion: EV[R] < -0.05 for 3 consecutive cycles.
 - **Confluence requirement:** Every signal-generation plugin must consume relevant `ctf_*` sub-scores (`requires_i6_confluence=True`)
-- **Signal-generation plugin integrity:** All signal-generation plugins follow the 6 GOOD patterns: 4-factor intrinsic confidence, dual regime+confluence gate before OHLCV extraction, `shadow_only=True`. Enforced by `validate_tier()` which raises `ArchitectureViolation` unless `requires_i6_confluence=True`. The `_CONFLUENCE_EXEMPT_PLUGINS` carve-out (8 plugins) is deleted in Phase 126. Full pattern spec: `docs/architecture/setup-confidence-patterns.md`
+- **Signal-generation plugin integrity:** All signal-generation plugins follow the 6 GOOD patterns: 4-factor ICC, dual regime+confluence gate before OHLCV extraction, `shadow_only=True`. Enforced by `validate_tier()` which raises `ArchitectureViolation` unless `requires_i6_confluence=True`. The `_CONFLUENCE_EXEMPT_PLUGINS` carve-out (8 plugins) is deleted in Phase 126. Full pattern spec: `docs/architecture/setup-confidence-patterns.md`
 
 ## Adding an AI Agent
 
@@ -195,10 +195,11 @@ These are non-negotiable architectural constraints. Any code that violates one o
 
 **Signal Logic**
 - **Aggregator `active` must come from `all_ranked`**: Derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]` — never from raw `signals`.
-- **Signal table columns (3-table architecture, Phase 128+):** Detection fields on `signal_events`: `raw_confidence`, `factor_scores` (JSONB), `context_features` (JSONB), `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. Hypothesis fields on `trade_frames`: `entry_type`, `entry_price`, `stop_price`, `target_price`, `counterfactual_pnl_r`, `was_selected`. Execution fields on `trade_executions`: `actual_pnl_r`, `actual_fill_price`, `exit_reason`. Query via `signal_ledger_v2` view for full joins. Pre-Phase-128: `signal_ledger` monolith; query via `signal_ledger_full` view (migration 095).
+- **SLA column reference (Phase 128+):** Detection fields on `signal_events`: `raw_confidence` (ICC), `factor_scores` (JSONB), `context_features` (JSONB), `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. Hypothesis fields on `trade_frames`: `entry_type`, `entry_price`, `stop_price`, `target_price`, `counterfactual_pnl_r` (CFL), `was_selected`. Execution fields on `trade_executions`: `actual_pnl_r`, `actual_fill_price`, `exit_reason`. Query via `signal_ledger_full` view (Phase 128) or `signal_ledger` view (Phase 129+). Pre-Phase-128: `signal_ledger` monolith; query via `signal_ledger_full` view (migration 095).
 - **signal_schema_version**: single canonical constant `SIGNAL_SCHEMA_VERSION` in `src/intelligence/trading/signal_schema.py`. All producers/consumers import from there — no hardcoded version strings.
 - **entry_type values**: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`.
 - **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"`, `"expired"` — 4 values, raw string literals, no enum.
+- **`signal_computed_at` is nullable in `signal_ledger`:** Historical signals may have NULL `signal_computed_at`. Always use `COALESCE(signal_computed_at, timestamp)` in direct SQL — otherwise ORDER BY and WHERE clauses silently exclude rows.
 
 **Services**
 - **Logging**: `structlog` → `logs/<service>.log` via `setup_service_logging()`. NOT journald.
