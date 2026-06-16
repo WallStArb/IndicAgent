@@ -4,10 +4,12 @@ Tests verify:
 - Signal coverage gap detection and event emission
 - Coverage 1.0 when signals are present in the session window
 - Non-trading day skipped (session_window returns (None, None))
-- Pipeline lag P50/P95 metric observation and WARNING at threshold
 - CIS distribution mean/stddev metric observation
 - topics_produced contains signal_audit topic
 - topics_consumed is empty
+
+Phase 130: pipeline lag P50/P95 tests removed — _check_pipeline_lag removed from
+SignalAuditor (column dropped from schema).
 """
 
 from __future__ import annotations
@@ -19,7 +21,6 @@ import pytest
 
 from services.signal_auditor import (
     _COVERAGE_TFS,
-    _LAG_P95_WARN_MS,
     SignalAuditor,
 )
 from src.core.stream_keys import topic_signal_audit
@@ -42,14 +43,12 @@ def agent():
     a._audit_errors = MagicMock()
     a._signal_coverage_pct = MagicMock()
     a._signal_coverage_pct.labels.return_value = MagicMock()
-    a._pipeline_lag_p50 = MagicMock()
-    a._pipeline_lag_p50.labels.return_value = MagicMock()
-    a._pipeline_lag_p95 = MagicMock()
-    a._pipeline_lag_p95.labels.return_value = MagicMock()
     a._cis_mean = MagicMock()
     a._cis_mean.labels.return_value = MagicMock()
     a._cis_stddev = MagicMock()
     a._cis_stddev.labels.return_value = MagicMock()
+    # APR-backed config (defaults from migration 142)
+    a._audit_lookback_hours = 1
     return a
 
 
@@ -68,19 +67,16 @@ def _make_instrument(symbol: str = "SPY", session_id: str = "nyse"):
     return instrument
 
 
-def _make_conn_mock(coverage_count: int = 0, lag_row=None, cis_row=None):
+def _make_conn_mock(coverage_count: int = 0, cis_row=None):
     """Build asyncpg connection mock.
 
     coverage_count: returned by fetchval (coverage COUNT queries).
-    lag_row: dict with keys p50, p95 returned by fetchrow for lag queries.
     cis_row: dict with keys cis_mean, cis_stddev returned by fetchrow for CIS queries.
     """
     conn = AsyncMock()
     conn.fetchval = AsyncMock(return_value=coverage_count)
 
     async def fetchrow_side(query, *args):
-        if "percentile_cont" in query:
-            return lag_row
         if "cis_mean" in query:
             return cis_row
         return None
@@ -168,36 +164,6 @@ async def test_coverage_skips_non_trading_day(agent):
 
     assert gaps == []
     conn.fetchval.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_pipeline_lag_warns_when_p95_exceeds_threshold(agent):
-    """_check_pipeline_lag logs WARNING when P95 > _LAG_P95_WARN_MS."""
-    instrument = _make_instrument()
-    lag_row = {"p50": 120.0, "p95": 650.0}
-    conn = _make_conn_mock(lag_row=lag_row)
-    _set_db_pool(agent, conn)
-
-    await agent._check_pipeline_lag([instrument])
-
-    agent.logger.warning.assert_called()
-    warn_call = agent.logger.warning.call_args
-    assert warn_call.args[0] == "signal_auditor.lag_threshold_exceeded"
-    assert warn_call.kwargs["p95_ms"] == 650.0
-    assert warn_call.kwargs["threshold_ms"] == _LAG_P95_WARN_MS
-
-
-@pytest.mark.asyncio
-async def test_pipeline_lag_no_warning_within_threshold(agent):
-    """_check_pipeline_lag does not log WARNING when P95 <= _LAG_P95_WARN_MS."""
-    instrument = _make_instrument()
-    lag_row = {"p50": 80.0, "p95": 200.0}
-    conn = _make_conn_mock(lag_row=lag_row)
-    _set_db_pool(agent, conn)
-
-    await agent._check_pipeline_lag([instrument])
-
-    agent.logger.warning.assert_not_called()
 
 
 @pytest.mark.asyncio
