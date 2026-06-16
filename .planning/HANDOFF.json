@@ -1,37 +1,34 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-16T03:23:45Z",
-  "phase": "128",
-  "phase_name": "3-table-schema-design-and-adr",
-  "phase_dir": ".planning/phases/128-3-table-schema-design-and-adr",
-  "plan": 3,
-  "task": 1,
-  "total_tasks": 3,
-  "status": "complete",
-  "completed_tasks": [
-    {"id": 1, "name": "Write signal-trade-separation-ADR.md", "status": "done", "commit": "f5d687a8"},
-    {"id": 2, "name": "Write 137_3table_schema.sql DDL migration", "status": "done", "commit": "55047ffd"},
-    {"id": 3, "name": "Delete capture_signal_features()", "status": "done", "commit": "78e201c3"}
+  "timestamp": "2026-06-16T20:48:41Z",
+  "phase": "127",
+  "phase_name": "clean-replay-validation",
+  "phase_dir": ".planning/phases/127-clean-replay-validation",
+  "plan": "00",
+  "task": 0,
+  "total_tasks": 4,
+  "status": "paused",
+  "plan_status": "planned-not-executed",
+  "completed_tasks": [],
+  "remaining_tasks": [
+    {"id": 1, "name": "Kill live hazards (shadow_validator crash, shadow_auditor spurious demotion)", "status": "not_started", "priority": "critical", "files": ["services/shadow_validator.py:162-178", "services/shadow_auditor.py:86-97"]},
+    {"id": 2, "name": "Migrate ML feedback readers to counterfactual_pnl_r", "status": "not_started", "files": ["src/intelligence/ml/confidence_calibrator.py:141-149", "src/intelligence/weight_updater.py", "src/intelligence/ml/feature_builder.py:83-110", "src/core/ml/training_data.py:18-62"]},
+    {"id": 3, "name": "Migrate remaining services (alpha_swarm, graduation, feature_validation, ml_signal_materializer)", "status": "not_started"},
+    {"id": 4, "name": "Fix record_execution regime_at_exit + retire obsolete scripts", "status": "not_started"}
   ],
-  "remaining_tasks": [],
-  "blockers": [],
+  "blockers": [
+    {"description": "Two live enabled services carry SQL time-bombs against dropped signal_outcomes table / absent view columns. shadow_validator JOINs dropped table (crash on next timer fire); shadow_auditor computes ev_r=0.0 on empty corpus (spurious demotion every cycle). UNFIXED — Plan 00 Task 1 must execute first.", "type": "technical", "workaround": "None — execute Plan 00 Task 1 immediately on resume"}
+  ],
   "human_actions_pending": [],
   "decisions": [
-    {"decision": "tf not timeframe on signal_events", "rationale": "naming-system.md Surface 4 says always tf; intelligence_features uses tf; Phase 128 is clean break", "phase": "128"},
-    {"decision": "r_multiple not r_per_unit on trade_frames", "rationale": "r_multiple is standard quant finance term, passes whiteboard test; r_per_unit is non-standard", "phase": "128"},
-    {"decision": "migration goes to production/migrations/ not db/migrations/", "rationale": "db/migrations/ drift is pre-existing (122-136 all in production/migrations/); tracked as separate cleanup", "phase": "128"}
+    {"decision": "Phase 127 cannot measure signal EDGE or calibration — deferred to v2.11 (no PnL outcome target in replay corpus).", "rationale": "Verified live DB: 0 non-null counterfactual_pnl_r in 1.44M rows, 0 rows in trade_executions.", "phase": "127"},
+    {"decision": "Fire rate is MEASURED and REPORTED, NOT gated on <3%.", "rationale": "Arbitrary fire-rate percentage is proxy-as-target error. Operator direction.", "phase": "127"},
+    {"decision": "Outcome taxonomy collapses 8-class -> 2-class win/loss = (counterfactual_pnl_r > 0).", "rationale": "8-class outcome lived on dropped signal_outcomes.outcome.", "phase": "127"},
+    {"decision": "feature_validation_analyzer IC feature becomes raw_confidence.", "rationale": "Per-plugin shadow_score under features_snapshot is gone.", "phase": "127"},
+    {"decision": "shadow_auditor empty corpus -> NO demotion (n=0 guard).", "rationale": "ev_r=0.0 trips demotion threshold every cycle — active hazard.", "phase": "127"},
+    {"decision": "trade_executions joins on frame_id, NOT signal_id.", "rationale": "Verified schema; signal_id column does not exist on trade_executions.", "phase": "127"}
   ],
-  "uncommitted_files": [
-    ".planning/PROJECT.md",
-    ".planning/REQUIREMENTS.md",
-    ".planning/phases/124-signal-universe-integrity-cold-start-hardening/124-05-SUMMARY.md",
-    ".planning/phases/126-signal-universe-hardening/126-REVIEW.md",
-    ".planning/phases/128-3-table-schema-design-and-adr/128-01-PLAN.md",
-    ".planning/phases/128-3-table-schema-design-and-adr/128-02-PLAN.md",
-    ".planning/phases/128-3-table-schema-design-and-adr/128-CONTEXT.md",
-    ".planning/phases/128-3-table-schema-design-and-adr/128-RESEARCH.md",
-    "CLAUDE.md"
-  ],
-  "next_action": "Run /gsd-verify-work 128 to verify phase goal achievement, then run /gsd-code-review 128 before advancing to Phase 129 (DDL execution) or Phase 127 (clean replay).",
-  "context_notes": "Phase 128 delivered all 3 plans. Key naming corrections applied post-execution via Renaissance audit: timeframe->tf and r_per_unit->r_multiple. The uncommitted modified files (CLAUDE.md, PROJECT.md, REQUIREMENTS.md, plan edits) are pre-existing working-tree changes from earlier in the v2.10 milestone — not Phase 128 work product. Phase 129 executes 137_3table_schema.sql against the live DB. Phase 127 (clean replay) can run independently. Phase 130 rewrites writers/trackers/APIs to use the new 3-table schema."
+  "uncommitted_files": [".planning/STATE.md (hook-modified)", ".planning/phases/130-script-rewriting/130-PATTERNS.md (pre-existing untracked)"],
+  "next_action": "Execute Plan 00 Task 1 first: fix services/shadow_validator.py:162-178 (drop LEFT JOIN signal_outcomes, read counterfactual_pnl_r, is_backfill filter) and services/shadow_auditor.py:86-97 (source counterfactual_pnl_r, COALESCE(signal_computed_at, ts), add n=0 no-demotion guard). Full per-site SQL rewrites in 127-00-PLAN.md; execution checklist in .planning/todos/pending/2026-06-16-phase127-00-readpath-execution.md.",
+  "context_notes": "Review/audit + planning session. Plans 01-03 revised, Plan 00 created. CODE migration (9 files) NOT executed — context exhausted. Everything specified precisely; execution needs no re-derivation. Plan 01 replay can run parallel with Plan 00. Plan 03 depends on Plan 00. Done-Coding SOP per file group."
 }
