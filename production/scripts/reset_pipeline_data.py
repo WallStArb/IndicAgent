@@ -61,9 +61,13 @@ _TRUNCATE_TABLES: list[tuple[str, str]] = [
     ("signal_lineage", "signal lifecycle events keyed by signal_id — orphaned after wipe"),
     ("swarm_agent_weights", "swarm training weights (trained on bad data)"),
     ("llm_calls", "LLM audit trail (signal_ids will be orphaned after wipe)"),
-    # signal_outcomes before signal_ledger (mirrors backfill --clean order)
-    ("signal_outcomes", "lifecycle outcomes — pnl_r, exits, MAE/MFE"),
-    ("signal_ledger", "signal fire-time records — stop/target geometry"),
+    ("trade_executions", "live execution outcomes — actual_pnl_r, exits"),
+    ("trade_frames", "hypothesis layer — counterfactual_pnl_r, frame metadata"),
+    ("signal_events", "signal detection layer — raw_confidence, factor_scores, status"),
+    (
+        "signal_ledger",
+        "signal fire-time records — stop/target geometry (view, dropped via cascade)",
+    ),
     # intelligence_features last: backfill --clean also deletes these per-symbol,
     # but a full TRUNCATE here is faster than per-symbol deletes for a global reset.
     ("intelligence_features", "computed I1-I7 feature vectors"),
@@ -210,16 +214,16 @@ def _post_verify(conn) -> None:
     with conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM signal_ledger")
         n_signals = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM signal_outcomes WHERE pnl_r IS NOT NULL")
+        cur.execute("SELECT COUNT(*) FROM signal_ledger WHERE counterfactual_pnl_r IS NOT NULL")
         n_with_pnl = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM signal_outcomes WHERE pnl_r = 0.0")
+        cur.execute("SELECT COUNT(*) FROM signal_ledger WHERE counterfactual_pnl_r = 0.0")
         n_zero = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM signal_ledger WHERE entry_zone_low IS NOT NULL")
         n_with_zones = cur.fetchone()[0]
 
     print(f"  signal_ledger rows:          {n_signals:>10,}")
-    print(f"  outcomes with pnl_r:         {n_with_pnl:>10,}")
-    print(f"  outcomes with zero pnl_r:    {n_zero:>10,}")
+    print(f"  frames with pnl_r:          {n_with_pnl:>10,}")
+    print(f"  frames with zero pnl_r:      {n_zero:>10,}")
     print(f"  signals with entry zones:    {n_with_zones:>10,}")
 
     # Spot check zone bounds on a sample signal
