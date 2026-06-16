@@ -10,7 +10,7 @@
 
 The docs use a **domain-first, recipe-card format**: each folder owns a specific domain, and each file answers one of four questions — WHY (design rationale), WHAT (contracts and data shapes), HOW (procedures), or WHERE (quick lookup). Files within a domain folder are named `<domain>-<role>.md` (e.g., `intelligence-foundation.md`, `signals-lifecycle.md`).
 
-The `intelligence/` folder is the gold standard — four files, each a distinct recipe card, covering foundation, plugins, AI, and operations. New domain folders (`agents/`, `signals/`, `platform/`) follow the same pattern. Older folders (`foundation/`, `data/`, `operations/`, `reference/`) are stable but predate the recipe-card convention. `architecture/` and `concepts/` are legacy — content migrates to domain folders over time.
+The `intelligence/` folder is the gold standard — four files, each a distinct recipe card, covering foundation, plugins, AI, and operations. New domain folders (`agents/`, `signals/`, `platform/`) follow the same pattern. Older folders (`foundation/`, `data/`, `operations/`, `reference/`) are stable but predate the recipe-card convention. `architecture/` is legacy — content migrates to domain folders over time. `concepts/` is the permanent home for cross-domain conceptual WHY docs; it is not a migration staging area.
 
 ---
 
@@ -65,9 +65,12 @@ The reference implementation of the recipe-card format. Four files, four angles.
 
 | File | Description |
 |------|-------------|
-| `signals-foundation.md` | Signal schema, entry types, status strings, schema versioning |
+| `signals-foundation.md` | Signal schema, entry types, status strings, schema versioning (pre-SLA; partially stale) |
+| `signals-schema.md` | SLA table DDL — signal_events, trade_frames, trade_executions, signal_ledger_full view |
+| `signals-ecl.md` | ECL system reference — vector fields, ML training patterns, boundary verification |
 | `signals-lifecycle.md` | I7 signal creation, zone activation, MAE/MFE, outcome classification |
 | `signals-operations.md` | Signal monitoring, shadow governance, graduation pipeline |
+| `signal-trade-separation-ADR.md` | ADR: formal decision record for the 3-table SLA split |
 
 ### `platform/` — new (Phase 4) — Infrastructure + API + Observability domain
 
@@ -118,9 +121,9 @@ Cheat sheets and gotchas for fast lookup.
 | `cheatsheet.md` | Common commands and workflows |
 | `gotchas.md` | Known pitfalls and solutions |
 
-### `concepts/` — legacy — Intelligence deep-dives
+### `concepts/` — stable — Cross-domain conceptual library
 
-Architectural deep-dives on specific intelligence subsystems. Each file has a `> Domain:` header pointing to its canonical domain folder. Content migrates to `intelligence/` or other domain folders over time.
+WHY docs for concepts that span multiple domain folders. One concept per file: design rationale, what was rejected, failure modes. The permanent home for ideas too cross-cutting to live in a single domain folder.
 
 | File | Domain |
 |------|--------|
