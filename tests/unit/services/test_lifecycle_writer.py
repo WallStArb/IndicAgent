@@ -28,6 +28,8 @@ def _make_agent():
     agent._consumer = AsyncMock()
     agent._repo = MagicMock()
     agent._repo.batch_execute = AsyncMock()
+    agent._repo.update_signal_status = AsyncMock()
+    agent._repo.update_frame_details = AsyncMock()
     agent._buffer = []
     agent._last_flush = 0.0
     agent._events_consumed = MagicMock()
@@ -42,6 +44,12 @@ def _make_agent():
     agent._parse_failures_total = MagicMock()
     agent._flush_errors_total = MagicMock()
     agent._commit_errors_total = MagicMock()
+    # Tracer required by BaseWriter._do_flush() span context manager
+    span_ctx = MagicMock()
+    span_ctx.__enter__ = MagicMock(return_value=MagicMock())
+    span_ctx.__exit__ = MagicMock(return_value=False)
+    agent.tracer = MagicMock()
+    agent.tracer.start_as_current_span = MagicMock(return_value=span_ctx)
     return agent
 
 
@@ -83,9 +91,12 @@ class TestLifecycleWriterStructure:
         assert "evaluate_signal" not in source
         assert "compute_chandelier" not in source
 
-    def test_uses_signal_ledger_repository(self):
+    def test_uses_signal_events_repository(self):
+        """lifecycle_writer now imports SignalEventsRepository (3-table schema)."""
         source = open("services/lifecycle_writer.py").read()
-        assert "SignalLedgerRepository" in source
+        assert "SignalEventsRepository" in source
+        assert "update_signal_status" in source
+        assert "update_frame_details" in source
 
 
 # ---------------------------------------------------------------------------
@@ -113,24 +124,29 @@ class TestBufferAccumulation:
 class TestFlushGroupsByType:
     @pytest.mark.asyncio
     async def test_flush_groups_by_type(self):
-        """Two activations + one exit: activations use batch_execute, exit uses execute_command (idempotency)."""
+        """Phase 130: activation and exit route through update_signal_status/update_frame_details.
+
+        Two activations + one exit: both handled by _flush_activation_items and
+        _flush_exit_items respectively, which call update_signal_status + update_frame_details.
+        batch_execute is used for chandelier_update, mae_mfe_update, shadow_outcome,
+        market_resolution only.
+        """
         agent = _make_agent()
+        agent._repo.update_signal_status = AsyncMock()
+        agent._repo.update_frame_details = AsyncMock()
         batch = [
             _make_transition("activation", "sig-001", data={"activation_price": 100.0}),
-            _make_transition("exit", "sig-002", data={"exit_price": 105.0}),
+            _make_transition("exit", "sig-002", data={"exit_price": 105.0, "status": "expired"}),
             _make_transition("activation", "sig-003", data={"activation_price": 200.0}),
         ]
         await agent._flush_batch(batch)
 
-        # Phase 81-05: EXIT now uses execute_command (idempotency guard), not batch_execute.
-        # batch_execute called once for "activation" group only.
-        assert agent._repo.batch_execute.call_count == 1
-        act_call = agent._repo.batch_execute.call_args_list[0]
-        assert act_call[0][0] == "activation"
-        assert len(act_call[0][1]) == 2
-        assert act_call[0][1][0]["signal_id"] == "sig-001"
-        # EXIT routed through db.execute_command (one call per exit item)
-        assert agent._db.execute_command.call_count == 1
+        # Phase 130: activation calls update_signal_status("active") per item
+        # exit calls update_signal_status(status) per item
+        # Total: 2 activation status + 1 exit status = 3 update_signal_status calls
+        assert agent._repo.update_signal_status.await_count == 3
+        # batch_execute not called for activation or exit (they use dedicated methods now)
+        assert agent._repo.batch_execute.await_count == 0
 
     @pytest.mark.asyncio
     async def test_do_flush_clears_buffer_on_success(self):
@@ -147,8 +163,9 @@ class TestFlushGroupsByType:
 
     @pytest.mark.asyncio
     async def test_do_flush_handles_db_error_buffer_preserved(self):
+        """Phase 130: update_signal_status raising leaves buffer intact for retry."""
         agent = _make_agent()
-        agent._repo.batch_execute = AsyncMock(side_effect=Exception("db down"))
+        agent._repo.update_signal_status = AsyncMock(side_effect=Exception("db down"))
         agent._buffer.extend(
             [
                 _make_transition("activation", "sig-001"),
@@ -156,7 +173,7 @@ class TestFlushGroupsByType:
             ]
         )
         await agent._do_flush()
-        # Buffer should NOT be cleared on error
+        # Buffer should NOT be cleared on error (BaseWriter._do_flush retry logic)
         assert len(agent._buffer) == 2
 
 

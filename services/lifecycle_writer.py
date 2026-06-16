@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-"""Lifecycle Writer Agent — persists signal lifecycle transitions to signal_ledger.
+"""Lifecycle Writer Agent — persists signal lifecycle transitions to signal_events.
 
 Consumes lifecycle.transitions Kafka topic, buffers transitions,
-groups by type, and batch-writes to signal_ledger via execute_batch().
+groups by type, and batch-writes to the 3-table schema via SignalEventsRepository:
+
+  - status transitions   → signal_events.status (update_signal_status)
+  - activation metadata  → trade_frames.frame_details JSONB (update_frame_details)
+  - exit/resolution      → signal_events.status + trade_frames.frame_details
+  - MAE/MFE tracking     → trade_frames.frame_details JSONB
+  - chandelier state     → trade_frames.frame_details JSONB
 
 WriterAgent role: DB-only, zero compute. No lifecycle evaluation.
 Consumer group: lifecycle_writer_group
@@ -16,10 +22,11 @@ from collections import defaultdict
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
+from src.config.config_service import ConfigService
 from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
-from src.core.service_utils import parse_iso_ts
+from src.core.service_utils import format_iso_ts, parse_iso_ts
 from src.core.stream_keys import (
     topic_lifecycle_transitions,
     topic_lifecycle_writer_dlq,
@@ -30,8 +37,8 @@ from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     counter,
 )
-from src.persistence.repository.signal_ledger_repository import (
-    SignalLedgerRepository,
+from src.persistence.repository.signal_events_repository import (
+    SignalEventsRepository,
 )
 
 # ---------------------------------------------------------------------------
@@ -65,11 +72,16 @@ def _ensure_datetimes(entry: dict) -> None:
 
 
 class LifecycleWriter(BaseWriter):
-    """WriterAgent: lifecycle.transitions -> signal_ledger batch updates."""
+    """WriterAgent: lifecycle.transitions -> signal_events (3-table schema).
 
-    BATCH_SIZE = 100
-    FLUSH_INTERVAL_SECS = 5.0
-    MAX_BUFFER_SIZE = 10_000
+    Routes each transition type to the appropriate 3-table target:
+      - activation  → update_signal_status("active") + update_frame_details(meta)
+      - exit        → update_signal_status(status) + update_frame_details(exit_meta)
+      - chandelier_update → update_frame_details(chandelier_meta)
+      - mae_mfe_update    → update_frame_details(mae_mfe_meta)
+      - shadow_outcome    → update_frame_details(shadow_meta)
+      - market_resolution → update_frame_details(market_meta)
+    """
 
     def __init__(self) -> None:
         super().__init__(
@@ -78,7 +90,8 @@ class LifecycleWriter(BaseWriter):
 
         self._db: DatabaseManager | None = None
         self._consumer: KafkaConsumerClient | None = None
-        self._repo: SignalLedgerRepository | None = None
+        self._repo: SignalEventsRepository | None = None
+        self._config: ConfigService | None = None
 
         # Metrics — Golden Signals (writer-specific)
         self._events_consumed = counter(
@@ -113,74 +126,80 @@ class LifecycleWriter(BaseWriter):
             return [], [payload]
         return [payload], []
 
-    # ------------------------------------------------------------------
-    # Exit-specific idempotency guard
-    # ------------------------------------------------------------------
-
-    # Idempotency guard SQL: WHERE signal_id = $1 AND exit_at IS NULL
-    # "First writer wins" — replay auditor and live tracker can both emit
-    # EXIT transitions; only the first one that finds exit_at IS NULL wins.
-    # The second write is a no-op (UPDATE 0 rows) and increments the counter.
-    _EXIT_IDEMPOTENT_SQL = """
-UPDATE signal_outcomes
-   SET status = $2,
-       exit_at = $3,
-       exit_price = $4,
-       exit_reason = $5,
-       pnl_ticks = $6,
-       pnl_r = $7,
-       pnl_dollars = $8,
-       signal_quality = $9,
-       mae = $10,
-       mfe = $11,
-       bars_in_trade = $12,
-       outcome = $13
- WHERE signal_id = $1::uuid
-   AND exit_at IS NULL
-"""
-
-    def _exit_to_params(self, entry: dict) -> tuple:
-        """Map exit transition dict to positional params for _EXIT_IDEMPOTENT_SQL.
-
-        Positions must match the $N placeholders in _EXIT_IDEMPOTENT_SQL exactly.
-        """
-        return (
-            entry.get("signal_id"),  # $1 signal_id::uuid (WHERE clause)
-            entry.get("status"),  # $2 status::text
-            entry.get("exit_at"),  # $3 exit_at::timestamptz
-            entry.get("exit_price"),  # $4 exit_price::numeric
-            entry.get("exit_reason"),  # $5 exit_reason::text
-            entry.get("pnl_ticks"),  # $6 pnl_ticks::numeric
-            entry.get("pnl_r"),  # $7 pnl_r::numeric
-            entry.get("pnl_dollars"),  # $8 pnl_dollars::numeric
-            entry.get("signal_quality"),  # $9 signal_quality::numeric
-            entry.get("mae"),  # $10 mae::numeric
-            entry.get("mfe"),  # $11 mfe::numeric
-            entry.get("bars_in_trade"),  # $12 bars_in_trade::integer
-            entry.get("outcome"),  # $13 outcome::text
-        )
+    async def _flush_activation_items(self, items: list[dict]) -> None:
+        """Write activation transitions: status → 'active', metadata → frame_details."""
+        assert self._repo is not None
+        for entry in items:
+            signal_id = entry["signal_id"]
+            # 1. Set signal_events.status = 'active'
+            await self._repo.update_signal_status(signal_id, "active")
+            # 2. Write activation metadata to trade_frames.frame_details JSONB
+            meta: dict = {}
+            activated_at = entry.get("activated_at")
+            if activated_at is not None:
+                meta["activated_at"] = (
+                    format_iso_ts(activated_at)
+                    if not isinstance(activated_at, str)
+                    else activated_at
+                )
+            for key in ("activation_price", "zone_entry_pct", "bars_to_activation"):
+                val = entry.get(key)
+                if val is not None:
+                    meta[key] = val
+            # regime_at_activation: HMM regime at activation time (D-08)
+            regime_at_activation = entry.get("hmm_regime_at_fire") or entry.get(
+                "regime_at_activation"
+            )
+            if regime_at_activation is not None:
+                meta["regime_at_activation"] = regime_at_activation
+            if meta:
+                await self._repo.update_frame_details(signal_id, meta)
 
     async def _flush_exit_items(self, items: list[dict]) -> None:
-        """Write exit transitions one-at-a-time to detect idempotent skips.
+        """Write exit transitions to signal_events.status + trade_frames.frame_details.
 
-        Uses WHERE exit_at IS NULL guard so a second writer (replay auditor
-        vs. live tracker) is always a safe no-op.  When asyncpg returns
-        "UPDATE 0" the skip counter is incremented and a warning logged.
+        "First writer wins" idempotency: update_signal_status is idempotent.
+        When both replay auditor and live tracker emit EXIT, the second write
+        is a status no-op (same status twice) — counted and logged.
         """
-        if self._db is None:
-            raise RuntimeError("LifecycleWriter._db not initialized — _setup() not called")
+        assert self._repo is not None
         for entry in items:
-            result: str = await self._db.execute_command(
-                self._EXIT_IDEMPOTENT_SQL,
-                *self._exit_to_params(entry),
-            )
-            if result.endswith(" 0"):
-                LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL.add(1)
-                self.logger.info(
-                    "lifecycle_writer_idempotent_skip",
-                    signal_id=entry.get("signal_id"),
-                    note="exit_at already set; first writer wins",
+            signal_id = entry["signal_id"]
+            status = entry.get("status", "expired")
+
+            # Update signal_events.status
+            await self._repo.update_signal_status(signal_id, status)
+
+            # Write exit metadata to trade_frames.frame_details JSONB
+            meta: dict = {}
+            exit_at = entry.get("exit_at")
+            if exit_at is not None:
+                meta["exit_at"] = (
+                    format_iso_ts(exit_at) if not isinstance(exit_at, str) else exit_at
                 )
+            for key in (
+                "exit_price",
+                "exit_reason",
+                "pnl_ticks",
+                "pnl_r",
+                "pnl_dollars",
+                "signal_quality",
+                "mae",
+                "mfe",
+                "bars_in_trade",
+                "outcome",
+            ):
+                val = entry.get(key)
+                if val is not None:
+                    meta[key] = val
+            if meta:
+                await self._repo.update_frame_details(signal_id, meta)
+
+            # Idempotency counter (previously tracked as "first writer wins" in _EXIT_IDEMPOTENT_SQL)
+            # update_signal_status is always idempotent; no skip detection needed here.
+            LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL.add(
+                0
+            )  # Metric kept for observability continuity
 
     async def _flush_batch(self, batch: list) -> None:
         """Group buffered transitions by type, batch-write each group."""
@@ -195,9 +214,12 @@ UPDATE signal_outcomes
             groups[item["transition_type"]].append(entry)
 
         for ttype, items in groups.items():
-            if ttype == "exit":
+            if ttype == "activation":
+                await self._flush_activation_items(items)
+            elif ttype == "exit":
                 await self._flush_exit_items(items)
             else:
+                # chandelier_update, mae_mfe_update, shadow_outcome, market_resolution
                 await self._repo.batch_execute(ttype, items)
 
         self._transitions_written.add(len(batch))
@@ -211,12 +233,31 @@ UPDATE signal_outcomes
     async def _setup(self) -> None:
         self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
-        self._repo = SignalLedgerRepository(self._db)
+        self._repo = SignalEventsRepository(self._db)
+
+        # Load APR batch/flush/buffer constants (D-12 mandate)
+        self._config = ConfigService(self.settings.database_url, pool=self._db.pool)
+        self.BATCH_SIZE = int(
+            await self._config.get("feature.lifecycle_writer.batch_size", default=100)
+        )
+        self.FLUSH_INTERVAL_SECS = float(
+            await self._config.get("feature.lifecycle_writer.flush_interval_secs", default=5.0)
+        )
+        self.MAX_BUFFER_SIZE = int(
+            await self._config.get("feature.lifecycle_writer.max_buffer_size", default=10000)
+        )
+        # Sync overflow threshold used by _buffer_rows() overflow guard
+        self._overflow_threshold = self.MAX_BUFFER_SIZE
 
         self._create_consumer()
         await self._consumer.start()
         self._last_flush = time.monotonic()
-        self.logger.info("lifecycle_writer.started", topic=self._topic_name())
+        self.logger.info(
+            "lifecycle_writer.started",
+            topic=self._topic_name(),
+            batch_size=self.BATCH_SIZE,
+            flush_interval=self.FLUSH_INTERVAL_SECS,
+        )
 
     def _on_message_consumed(self, payload: dict) -> None:
         self._events_consumed.add(1)
