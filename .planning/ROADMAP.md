@@ -1265,7 +1265,28 @@ Plans:
   2. `pytest tests/unit/ tests/integration/ -q` green
   3. signal_ledger dropped after 48-hour window
 
-**Plans**: defer to `/gsd-plan-phase 130`
+**Plans**: 7 plans in 4 waves
+
+Plans:
+
+**Wave 1**
+
+- [ ] 130-01-PLAN.md — OPS_PREFIXES (ui./weights.) + migration 142 APR seeds (22 keys)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 130-02-PLAN.md — Repository rewrite: SignalLedgerRepository → SignalEventsRepository, 3-table SQL, shim + importers
+
+**Wave 3** *(parallel, blocked on Wave 2; disjoint files)*
+
+- [ ] 130-03-PLAN.md — signal_writer (G0 grouping) + lifecycle_writer (status/frame_details) + APR
+- [ ] 130-04-PLAN.md — signal_tracker bootstrap rewrite + swarm_ledger_writer FK + signal_auditor + signal_probe_auditor
+- [ ] 130-05-PLAN.md — API routes: signals.py (drop 7 columns, ui.signals.* APR) + narrative.py (tf)
+- [ ] 130-06-PLAN.md — Backfill scripts: run_historical_pipeline + lifecycle_replay + feature_replay (3-table, G0)
+
+**Wave 4** *(blocked on Wave 3 + 48h verification window)*
+
+- [ ] 130-07-PLAN.md — Migration 143 DROP + view rename + signal_ledger_full sweep + D-15 doc updates
 
 ---
 
