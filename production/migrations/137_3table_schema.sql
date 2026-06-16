@@ -54,7 +54,12 @@ CREATE TABLE IF NOT EXISTS signal_events (
     ttl_bars                int4,
     expires_at              timestamptz,
     signal_computed_at      timestamptz,              -- Pipeline write wall-clock from payload; latency = signal_computed_at - ts
-    created_at              timestamptz     NOT NULL DEFAULT now() -- DB insertion time — distinct from signal_computed_at
+    created_at              timestamptz     NOT NULL DEFAULT now(), -- DB insertion time — distinct from signal_computed_at
+    -- Feature context linkage
+    feature_ts              timestamptz,              -- Anchor to intelligence_features row; JOIN on (symbol, tf, ts = feature_ts)
+    -- Cross-signal context at fire time (populated by SignalAggregator/RankerWriter)
+    concurrent_signal_count int2,                     -- Count of other active signals at fire time; crowding indicator
+    concurrent_plugins      text[]                    -- setup_plugin values of concurrent active signals; ML-queryable
 );
 
 SELECT create_hypertable('signal_events', 'ts',
@@ -131,6 +136,7 @@ CREATE TABLE IF NOT EXISTS trade_frames (
                                                       -- shadow_mfe, shadow_outcome, shadow_tracking_start_ts
                                                       -- during Phase 129 migration.
     created_at                  timestamptz NOT NULL DEFAULT now(),
+    regime_at_activation        int2,                     -- HMM regime at entry condition trigger; NULL for at_close (fires immediately)
 
     CONSTRAINT fk_trade_frames_signal
         FOREIGN KEY (signal_id, signal_ts) REFERENCES signal_events (signal_id, ts)
@@ -167,6 +173,7 @@ CREATE TABLE IF NOT EXISTS trade_executions (
     exit_reason             text,
     executed_at             timestamptz,
     exited_at               timestamptz,
+    regime_at_exit          int2,                     -- HMM regime at position exit; enables regime-transition analysis
 
     CONSTRAINT fk_trade_executions_frame
         FOREIGN KEY (frame_id) REFERENCES trade_frames (frame_id)
@@ -216,6 +223,9 @@ SELECT
     se.plugin_regime_type,
     se.is_shadow,
     se.is_backfill,
+    se.feature_ts,
+    se.concurrent_signal_count,
+    se.concurrent_plugins,
     se.status,
     se.signal_schema_version,
     se.ttl_bars,
@@ -233,13 +243,15 @@ SELECT
     tf.counterfactual_mae,
     tf.counterfactual_exit_reason,
     tf.was_selected,
+    tf.regime_at_activation,
     te.execution_id,
     te.actual_pnl_r,
     te.actual_fill_price,
     te.actual_exit_price,
     te.exit_reason,
     te.executed_at,
-    te.exited_at
+    te.exited_at,
+    te.regime_at_exit
 FROM signal_events se
 LEFT JOIN trade_frames tf ON tf.signal_id = se.signal_id AND tf.signal_ts = se.ts
 LEFT JOIN trade_executions te ON te.frame_id = tf.frame_id;
