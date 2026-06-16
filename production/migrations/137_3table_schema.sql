@@ -221,6 +221,7 @@ SELECT
     se.zone_friction_score,
     se.hmm_regime_at_fire,
     se.plugin_regime_type,
+    se.garch_sigma_at_fire,
     se.is_shadow,
     se.is_backfill,
     se.feature_ts,
@@ -232,10 +233,24 @@ SELECT
     se.expires_at,
     COALESCE(se.signal_computed_at, se.ts) AS signal_computed_at, -- Never null; callers need not apply COALESCE
     se.signal_computed_at AS signal_computed_at_raw,              -- Nullable original; use for latency queries
+    -- Lifecycle compatibility columns: NULL until Phase 130 updates writers to populate new tables.
+    -- signal_tracker bootstrap uses these; all NULL here as migrated rows have status='expired'.
+    NULL::timestamptz AS activated_at,
+    NULL::float8 AS activation_price,
+    NULL::jsonb AS targets,
+    NULL::float8 AS entry_zone_low,
+    NULL::float8 AS entry_zone_high,
+    NULL::float8 AS market_entry_price,
+    NULL::float8 AS trailing_stop_price,
+    NULL::text AS chandelier_vol_source,
+    NULL::float8 AS mae,
+    NULL::float8 AS mfe,
+    -- trade_frames columns
     tf.frame_id,
     tf.entry_type,
     tf.entry_price,
     tf.stop_price,
+    tf.stop_price AS stop_loss,                                  -- Legacy alias for signal_tracker bootstrap
     tf.target_price,
     tf.r_multiple,
     tf.counterfactual_pnl_r,
@@ -244,6 +259,7 @@ SELECT
     tf.counterfactual_exit_reason,
     tf.was_selected,
     tf.regime_at_activation,
+    -- trade_executions columns
     te.execution_id,
     te.actual_pnl_r,
     te.actual_fill_price,
@@ -251,6 +267,7 @@ SELECT
     te.exit_reason,
     te.executed_at,
     te.exited_at,
+    te.exited_at AS exit_at,                                     -- Legacy alias; exited_at is canonical
     te.regime_at_exit
 FROM signal_events se
 LEFT JOIN trade_frames tf ON tf.signal_id = se.signal_id AND tf.signal_ts = se.ts

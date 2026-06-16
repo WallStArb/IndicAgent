@@ -5,4 +5,6 @@
 -- Phase 130 will DROP TABLE after all writers are verified using signal_events.
 
 REVOKE INSERT, UPDATE, DELETE ON signal_ledger FROM PUBLIC;
+-- NOTE: postgres is a superuser and bypasses all privilege checks. The REVOKE below
+-- has no practical effect but is kept for documentation and non-superuser role coverage.
 REVOKE INSERT, UPDATE, DELETE ON signal_ledger FROM postgres;
