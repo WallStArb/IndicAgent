@@ -40,7 +40,8 @@ Documentation decays at rates determined by what it describes. Different documen
 | Domain HOW docs — procedures, extend guides | Fast — changes when the code they describe changes | Any PR touching the described subsystem |
 | `operations/` — deployment, monitoring runbooks | Fast — changes on infrastructure changes | Infrastructure or systemd changes |
 | `reference/` — cheatsheets, gotchas | Medium — commands and patterns drift | Periodic, or when a gotcha is resolved |
-| `architecture/`, `concepts/` — legacy | Slow decay tracked | Any PR touching described systems |
+| `concepts/` — design principles | Slow — changes only on deliberate design revision | Any architectural phase that changes a described principle |
+| `architecture/` — legacy catch-all | Slow decay tracked | Any PR touching described systems |
 
 When a doc's described system changes, the doc's status drops to `draft` automatically until re-verified. This is a process rule, not optional.
 
@@ -68,7 +69,7 @@ docs/
   signals/        Signal lifecycle — creation, activation, outcomes, graduation
   agents/         Agent framework — daemon contracts, writers, OTel, health
   platform/       Infrastructure, observability, API layer
-  concepts/       Intelligence deep-dives — legacy, migrating to domain folders
+  concepts/       Architectural theory — design principles, design decisions, stable pattern library
   architecture/   Cross-cutting design — legacy, deprecating as catch-all
   operations/     Sysadmin runbooks — deployment, monitoring, disaster recovery
   development/    Developer HOW — setup, testing, profiling
@@ -84,11 +85,19 @@ docs/
 
 These folders are the clean training set. Every `current` doc here has been verified against source code. Engineers can read these docs without cross-checking the codebase. If this trust is ever violated — if a verified claim turns out to be wrong — the doc is downgraded and a post-mortem is written on how the drift occurred.
 
+### Concepts Library — Permanent, Authoritative Theory
+
+`concepts/`
+
+Each document in this folder explains one architectural principle: the problem it solves, the rejected alternatives, and how IndicAgent applies it. This folder is permanent — new concept docs are added when a design principle recurs across multiple domain folders and deserves a canonical explanation. A principle local to one domain belongs in that domain's WHY doc, not here.
+
+Concepts docs decay slowly. They change when a design principle is revised, not when implementation details change. Unlike inner-ring domain docs, concepts docs do not cite file paths and line numbers — their verification criterion is coherence with the system's actual design, not correspondence to a specific migration number. They are authoritative about design intent; inner-ring docs are authoritative about implementation state.
+
 ### Outer Ring — Stable, Pre-taxonomy
 
-`concepts/`, `architecture/`, `operations/`, `development/`, `reference/`
+`architecture/`, `operations/`, `development/`, `reference/`
 
-These folders predate the domain-first taxonomy. Content is stable but carries implicit staleness risk. No new files are added here. Content migrates to the inner ring only after verification. `architecture/` and `concepts/` are actively deprecating as catch-all folders.
+These folders predate the domain-first taxonomy. Content is stable but carries implicit staleness risk. No new files are added to `architecture/`. `operations/`, `development/`, and `reference/` remain active for their respective purposes. Content migrates to the inner ring only after verification. `architecture/` is actively deprecating as a catch-all folder.
 
 ### Workspace Folders — Not Authoritative
 
@@ -255,7 +264,7 @@ These do not change as part of any restructure:
 - **Plan docs** follow `YYYY-MM-DD-<description>.md`
 - **Idea docs** carry `**Status:** draft | under-review | adopted | rejected`
 - **All `current` docs** carry `**Last Updated:** YYYY-MM-DD` and source citations
-- **`concepts/` and `architecture/`** are read-only structurally — no new files
+- **`concepts/`** is a permanent tier — new files permitted for recurrent cross-domain principles; **`architecture/`** is read-only structurally
 
 ---
 
