@@ -1244,7 +1244,12 @@ Plans:
   3. Row counts verified: all signal_ledger rows migrated
   4. signal_ledger retained read-only (not dropped yet)
 
-**Plans**: defer to `/gsd-plan-phase 129`
+**Plans**:
+- Wave 1: [129-01] Schema Finalization — apply Plan-04 columns to live DB (feature_ts, concurrent_signal_count, concurrent_plugins, regime_at_activation, regime_at_exit)
+- Wave 1: [129-02] Data Migration Script — write migrate_signal_ledger.py (10K-row batches, column mapping, frame_details JSONB)
+- Wave 2 *(blocked on Wave 1 completion)*: [129-03] Execute migration, verify counts, read-only, SIGNAL_SCHEMA_VERSION bump
+
+**Status**: Planned (2026-06-16)
 
 ---
 
