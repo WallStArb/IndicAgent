@@ -61,12 +61,12 @@ def _make_db_pool(fetchrow_return=None, fetchrow_raises=None):
 
 
 def _signal_row(overrides=None):
-    """Minimal signal_ledger + intelligence_features JOIN row."""
+    """Minimal signal_ledger_full + intelligence_features JOIN row (3-table schema)."""
     base = {
         "signal_id": uuid.uuid4(),
         "symbol": "ESM6",
         "timestamp": datetime.now(UTC),
-        "feature_tf": "15m",
+        "tf": "15m",
         "bar": {"o": 5400.0, "h": 5410.0, "l": 5395.0, "c": 5405.0, "v": 12345},
         "i1": {},
         "i3": None,
@@ -74,6 +74,14 @@ def _signal_row(overrides=None):
         "i5": None,
         "smc": None,
         "cross_timeframe_context": None,
+        "setup_plugin": None,
+        "direction": None,
+        "confidence": None,
+        "entry_price": None,
+        "stop_loss": None,
+        "targets": None,
+        "entry_type": None,
+        "composite_events": None,
     }
     base.update(overrides or {})
     return base

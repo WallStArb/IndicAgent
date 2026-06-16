@@ -11,20 +11,17 @@ from src.api.main import app
 
 
 def _row(**kwargs):
-    """Build a minimal asyncpg-like row dict."""
+    """Build a minimal asyncpg-like row dict (3-table schema columns)."""
     defaults = {
         "signal_id": "00000000-0000-0000-0000-000000000001",
         "setup_plugin": "trad_TrendFollowing",
-        "signal_type": "trend_long",
-        "direction": 1,
+        "direction": "long",
         "entry_price": 5200.0,
         "stop_loss": 5180.0,
         "confidence": 0.65,
         "was_selected": True,
         "cis_score": 0.45,
         "status": "pending",
-        "outcome": None,
-        "exit_price": None,
         "pnl_r": None,
         "signal_computed_at": None,
         "timestamp": datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC),
@@ -34,10 +31,9 @@ def _row(**kwargs):
         "symbol": "ESH6",
         "hmm_regime_at_fire": 0,
         "exit_reason": None,
-        "mfe": None,
         "ttl_bars": 10,
-        "bars_in_trade": None,
         "targets": "[]",
+        "entry_type": None,
     }
     return {**defaults, **kwargs}
 
