@@ -8,7 +8,7 @@
 
 ## Purpose
 
-This document explains why observability is structured the way it is, and serves as the authoritative reference for engineers adding new metrics, spans, or diagnosing telemetry gaps. It is the merge of the architectural patterns doc (`docs/architecture/observability.md`, now deleted) and the design rationale. For operational runbooks (dashboard navigation, Grafana queries, troubleshooting steps), see `docs/operations/observability.md`.
+This document explains why observability is structured the way it is, and serves as the authoritative reference for engineers adding new metrics, spans, or diagnosing telemetry gaps. It is the merge of the architectural patterns doc (`docs/architecture/observability.md`, now deleted) and the design rationale. For operational runbooks (dashboard navigation, Grafana queries, troubleshooting steps), see `docs/operations/operations-observability.md`.
 
 **Readers:** Engineers adding new services or metrics; anyone diagnosing why metrics stop appearing; anyone writing new spans; on-call engineers investigating SLO alerts.
 

@@ -411,5 +411,5 @@ Before optimizing:
 
 - **Pipeline optimization:** `docs/architecture/pipeline-optimization.md`
 - **Observability:** `docs/platform/platform-observability.md`
-- **Grafana dashboards:** `docs/operations/observability.md`
+- **Grafana dashboards:** `docs/operations/operations-observability.md`
 - **Performance characteristics:** `docs/architecture/current-state.md`

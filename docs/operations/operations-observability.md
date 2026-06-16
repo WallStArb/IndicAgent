@@ -410,8 +410,8 @@ grep flush logs/<service>_agent.log
 ## See Also
 
 - **[platform-observability.md](../platform/platform-observability.md)** — Design principles, OTel SDK patterns, metric contracts, circuit breaker, D-27 SLO alert table
-- **Infrastructure:** `docs/operations/infrastructure.md` — Docker, systemd
-- **Database:** `docs/operations/database.md` — TimescaleDB operations
+- **Infrastructure:** `docs/operations/operations-infrastructure.md` — Docker, systemd
+- **Database:** `docs/operations/operations-database.md` — TimescaleDB operations
 - **Self-healing:** `docs/architecture/self-healing.md` — Watchdog, stall detection
 - **Prometheus queries:** https://promql.io/
 - **Grafana docs:** https://grafana.com/docs/

@@ -180,7 +180,7 @@ curl -s http://localhost:8000/metrics | grep bars_processed
 | `TWS_USERID`, `TWS_PASSWORD` | — | IBKR credentials (ib-gateway Docker) |
 | `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_SALT` | — | Langfuse auth (Docker) |
 
-Full infrastructure reference: `docs/operations/infrastructure-reference.md`.
+Full infrastructure reference: `docs/operations/operations-infrastructure.md`.
 
 ---
 

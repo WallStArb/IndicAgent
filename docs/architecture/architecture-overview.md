@@ -367,9 +367,9 @@ When a service stalls (no message for 60s), systemd auto-restarts.
 | Self-healing | `docs/architecture/self-healing.md` |
 | API design | `docs/platform/platform-api.md` |
 | Data streaming (Kafka) | `docs/data/data-streaming.md` |
-| Systemd supervision | `docs/operations/infrastructure.md` |
-| Grafana dashboards | `docs/operations/observability.md` |
-| Deployment | `docs/operations/infrastructure.md` |
+| Systemd supervision | `docs/operations/operations-infrastructure.md` |
+| Grafana dashboards | `docs/operations/operations-observability.md` |
+| Deployment | `docs/operations/operations-infrastructure.md` |
 | Alerting runbook | `docs/development/alerting.md` |
 
 ---
@@ -378,6 +378,6 @@ When a service stalls (no message for 60s), systemd auto-restarts.
 
 - **New to the platform?** Start with `docs/README.md` and `CLAUDE.md`
 - **Adding a plugin?** See `src/intelligence/ai/AUTHORING.md`
-- **Running services?** See `docs/operations/infrastructure.md`
-- **Production deployment?** See `docs/operations/infrastructure.md`
-- **Monitoring?** See `docs/operations/observability.md`
+- **Running services?** See `docs/operations/operations-infrastructure.md`
+- **Production deployment?** See `docs/operations/operations-infrastructure.md`
+- **Monitoring?** See `docs/operations/operations-observability.md`
