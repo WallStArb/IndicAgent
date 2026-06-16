@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,7 +34,6 @@ from statsmodels.stats.proportion import proportions_ztest
 
 from src.persistence.repository.signal_events_repository import WIN_OUTCOMES
 
-from .ml.confidence_calibrator import run_calibration_update
 from .trading.cis_scorer import BOOTSTRAP_WEIGHTS, BUCKET_NAMES
 
 logger = logging.getLogger(__name__)
@@ -117,26 +115,20 @@ async def _calibrate_pattern_reliability(
     Returns:
         Dict with calibration stats or None if no patterns eligible.
     """
-    # Query resolved candlestick signals with pattern name extracted.
-    # signal_type format: "candlestick_{pattern_name}_{long|short}"
-    # e.g. "candlestick_abandoned_baby_long" → pattern_name "abandoned_baby"
-    # regexp_replace strips the prefix and suffix to recover multi-word pattern_name.
-    win_outcomes_sql = ", ".join(f"'{o}'" for o in sorted(WIN_OUTCOMES))
-    rows = await db_manager.execute_query(f"""
+    # Query resolved candlestick signals with pattern name derived from setup_plugin.
+    # V2.11_ACTIVATED: returns empty until CounterfactualTracker populates counterfactual_pnl_r.
+    # Pattern name derived from setup_plugin (signal_type column dropped in 3-table migration).
+    rows = await db_manager.execute_query("""
         SELECT
-            regexp_replace(
-                regexp_replace(signal_type, '^candlestick_', ''),
-                '_(long|short)$', ''
-            ) AS pattern_name,
+            setup_plugin AS pattern_name,
             timeframe,
             COUNT(*) AS sample_size,
-            AVG(CASE WHEN outcome IN ({win_outcomes_sql}) THEN 1.0 ELSE 0.0 END) AS win_rate
-        FROM signal_ledger sl
-        LEFT JOIN signal_outcomes so USING (signal_id)
-        WHERE setup_plugin = 'trad_CandlestickPatternSetup'
-            AND so.outcome IS NOT NULL
+            AVG(CASE WHEN counterfactual_pnl_r > 0 THEN 1.0 ELSE 0.0 END) AS win_rate
+        FROM signal_ledger
+        WHERE setup_plugin LIKE 'trad_CandlestickPatternSetup%%'
+            AND counterfactual_pnl_r IS NOT NULL
             AND is_shadow = FALSE
-        GROUP BY pattern_name, timeframe
+        GROUP BY setup_plugin, timeframe
         HAVING COUNT(*) >= 30
     """)
 
@@ -379,69 +371,12 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
     db_manager:
         DatabaseManager instance with execute_query / execute_command methods.
     """
-    rows = await db_manager.execute_query("""
-        SELECT sl.bucket_scores, so.outcome, sl.symbol, sl.timeframe
-        FROM signal_ledger sl
-        LEFT JOIN signal_outcomes so USING (signal_id)
-        WHERE so.outcome IS NOT NULL
-            AND sl.bucket_scores IS NOT NULL
-            AND sl.is_shadow = FALSE
-        ORDER BY sl.timestamp DESC
-        LIMIT 10000
-        """)
-    if not rows:
-        return None
-
-    # Train global model on all signals
-    global_result = compute_new_weights(rows)
-    if global_result is None:
-        return None
-
-    if global_result.did_retrain:
-        await _write_weights_to_db(
-            db_manager, global_result, asset_cluster="global", timeframe="global"
-        )
-
-    # Train per-cluster models when cluster has >= MIN_SAMPLES_FULL signals
-    groups: dict[tuple[str, str], list] = defaultdict(list)
-    for row in rows:
-        cluster = get_asset_cluster(row["symbol"])
-        if cluster == "global":
-            continue  # unmapped symbols go to global only
-        groups[(cluster, row["timeframe"])].append(row)
-
-    for (cluster, tf), group_rows in groups.items():
-        if len(group_rows) < MIN_SAMPLES_FULL:
-            continue
-        cluster_result = compute_new_weights(group_rows)
-        if cluster_result is not None and cluster_result.did_retrain:
-            await _write_weights_to_db(
-                db_manager, cluster_result, asset_cluster=cluster, timeframe=tf
-            )
-
-    # CAL-02: Run calibration update in independent failure domain.
-    # Failure here does not affect weight update completion.
-    try:
-        await run_calibration_update(db_manager)
-    except Exception:
-        logger.error("CIS weight calibration failed", exc_info=True)
-
-    # Phase 42: Run pattern reliability calibration in independent failure domain.
-    # Failure here does not affect CIS weight update completion.
-    try:
-        pattern_stats = await _calibrate_pattern_reliability(db_manager)
-        if pattern_stats:
-            promoted_count = sum(1 for s in pattern_stats.values() if s.get("promoted", False))
-            logger.info(
-                "Pattern calibration complete: %d patterns analyzed, %d promoted to "
-                "data-driven weights",
-                len(pattern_stats),
-                promoted_count,
-            )
-    except Exception:
-        logger.error("Pattern reliability calibration failed", exc_info=True)
-
-    return global_result
+    # V2.11_ACTIVATED: bucket_scores-based weight learning disabled (schema dropped in 3-table migration).
+    # Future: IC-based weight learning from raw_confidence once CounterfactualTracker populates data.
+    logger.info(
+        "Weight update from bucket_scores: V2.11_ACTIVATED - feature not available, skipping"
+    )
+    return None
 
 
 if __name__ == "__main__":

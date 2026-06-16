@@ -41,15 +41,14 @@ CONSUMER_GROUP = "graduation_compute_group"
 # ---------------------------------------------------------------------------
 
 _EVAL_QUERY = """
-SELECT stl.multiplier, sl.pnl_r, stl.ts
+SELECT stl.multiplier, sl.counterfactual_pnl_r AS pnl_r, stl.ts
 FROM signal_transform_log stl
 JOIN signal_ledger sl ON stl.signal_id = sl.signal_id
 WHERE stl.transform_id = $1
   AND stl.transform_version = $2
   AND stl.segment_key = $3
   AND stl.ts >= NOW() - ($4::int || ' days')::interval
-  AND sl.outcome IS NOT NULL
-  AND sl.pnl_r IS NOT NULL
+  AND sl.counterfactual_pnl_r IS NOT NULL
 ORDER BY stl.ts ASC
 """
 
@@ -74,7 +73,7 @@ LEFT JOIN LATERAL (
       AND stl.transform_version = tg.transform_version
       AND stl.segment_key = tg.segment_key
       AND sl.exit_at >= tg.evaluated_at
-      AND sl.outcome IS NOT NULL
+      AND sl.counterfactual_pnl_r IS NOT NULL
 ) stl ON TRUE
 GROUP BY tg.transform_id, tg.transform_version, tg.segment_key
 """

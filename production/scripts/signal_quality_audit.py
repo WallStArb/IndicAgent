@@ -236,34 +236,32 @@ async def run_layer1(
     hit_rate_valid_floor = float(hit_rate_valid_floor)
     hit_rate_anti_ceil = float(hit_rate_anti_ceil)
 
-    # Aggregate stats query - uses signal_ledger + signal_outcomes join via signal_ledger view
+    # Aggregate stats query - uses signal_ledger view (3-table schema)
     sql = """
         SELECT
             sl.setup_plugin,
-            count(*) FILTER (WHERE so.pnl_r IS NOT NULL) AS n_outcomes,
-            avg(CASE WHEN so.pnl_r > 0 THEN 1.0 ELSE 0.0 END)
-                FILTER (WHERE so.pnl_r IS NOT NULL) AS hit_rate,
-            corr(sl.raw_confidence, so.pnl_r) AS ic,
-            avg(so.pnl_r) AS avg_pnl_r,
-            count(*) FILTER (WHERE sl.symbol = ANY($1) AND so.pnl_r IS NOT NULL) AS n_forex,
-            count(*) FILTER (WHERE sl.symbol != ALL($1) AND so.pnl_r IS NOT NULL) AS n_equity,
-            avg(so.pnl_r) FILTER (WHERE sl.symbol = ANY($1)) AS avg_pnl_forex,
-            avg(so.pnl_r) FILTER (WHERE sl.symbol != ALL($1)) AS avg_pnl_equity
+            count(*) FILTER (WHERE sl.counterfactual_pnl_r IS NOT NULL) AS n_outcomes,
+            avg(CASE WHEN sl.counterfactual_pnl_r > 0 THEN 1.0 ELSE 0.0 END)
+                FILTER (WHERE sl.counterfactual_pnl_r IS NOT NULL) AS hit_rate,
+            corr(sl.raw_confidence, sl.counterfactual_pnl_r) AS ic,
+            avg(sl.counterfactual_pnl_r) AS avg_pnl_r,
+            count(*) FILTER (WHERE sl.symbol = ANY($1) AND sl.counterfactual_pnl_r IS NOT NULL) AS n_forex,
+            count(*) FILTER (WHERE sl.symbol != ALL($1) AND sl.counterfactual_pnl_r IS NOT NULL) AS n_equity,
+            avg(sl.counterfactual_pnl_r) FILTER (WHERE sl.symbol = ANY($1)) AS avg_pnl_forex,
+            avg(sl.counterfactual_pnl_r) FILTER (WHERE sl.symbol != ALL($1)) AS avg_pnl_equity
         FROM signal_ledger sl
-        LEFT JOIN signal_outcomes so ON sl.signal_id = so.signal_id
         GROUP BY sl.setup_plugin
-        HAVING count(*) FILTER (WHERE so.pnl_r IS NOT NULL) >= $2
-        ORDER BY corr(sl.raw_confidence, so.pnl_r) DESC NULLS LAST
+        HAVING count(*) FILTER (WHERE sl.counterfactual_pnl_r IS NOT NULL) >= $2
+        ORDER BY corr(sl.raw_confidence, sl.counterfactual_pnl_r) DESC NULLS LAST
     """
     forex_list = list(_FOREX_SYMBOLS)
     rows = await pool.fetch(sql, forex_list, min_outcomes)
 
     # Fetch raw hit arrays per plugin for bootstrap CI
     hit_sql = """
-        SELECT sl.setup_plugin, CASE WHEN so.pnl_r > 0 THEN 1 ELSE 0 END AS hit
+        SELECT sl.setup_plugin, CASE WHEN sl.counterfactual_pnl_r > 0 THEN 1 ELSE 0 END AS hit
         FROM signal_ledger sl
-        JOIN signal_outcomes so ON sl.signal_id = so.signal_id
-        WHERE so.pnl_r IS NOT NULL
+        WHERE sl.counterfactual_pnl_r IS NOT NULL
         ORDER BY sl.setup_plugin
     """
     hit_rows = await pool.fetch(hit_sql)

@@ -279,14 +279,13 @@ class AlphaSwarm(BaseGroupCoordinator):
                 SELECT sl.tf AS timeframe,
                        sl.multiplier AS multiplier,
                        (sl.metadata->'payload'->>'confidence')::float AS stated_confidence,
-                       ledger.pnl_r AS pnl_r
+                       ledger.counterfactual_pnl_r AS pnl_r
                 FROM signal_lineage sl
                 JOIN signal_ledger ledger ON ledger.signal_id = sl.signal_id
                 WHERE sl.event_type = 'agent_prediction'
                   AND sl.source = $1
                   AND sl.multiplier IS NOT NULL
-                  AND ledger.outcome IS NOT NULL
-                  AND ledger.pnl_r IS NOT NULL
+                  AND ledger.counterfactual_pnl_r IS NOT NULL
                   AND sl.ts > NOW() - INTERVAL '30 days'
                 """,
                 agent_id,
