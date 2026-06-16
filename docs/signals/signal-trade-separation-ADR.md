@@ -86,8 +86,11 @@ Partitioned on `ts`, chunk interval 7 days. Composite PK `(signal_id, ts)` — r
 | `expires_at` | `timestamptz` | btree (expires_at) WHERE NOT NULL | Wall-clock expiry derived from ttl_bars |
 | `signal_computed_at` | `timestamptz` | | Pipeline write wall-clock; latency = signal_computed_at - ts |
 | `created_at` | `timestamptz` | | DB insertion timestamp; DEFAULT now() |
+| `feature_ts` | `timestamptz` | NULL | Anchor to intelligence_features row; JOIN on (symbol, tf, ts = feature_ts). No FK — TimescaleDB hypertable constraint. |
+| `concurrent_signal_count` | `int4` | NULL | Count of other active signals at fire time. Crowding indicator for ML. |
+| `concurrent_plugins` | `text[]` | NULL | setup_plugin values of concurrent active signals at fire time. ML-queryable with `&&` array operator. |
 
-**Total: 26 columns.**
+**Total: 29 columns.**
 
 **Compression config:**
 ```sql
@@ -128,8 +131,9 @@ One row per entry_type per signal fire. FK anchors to signal_events via composit
 | `was_selected` | `bool` | Selected by aggregator for potential live execution |
 | `frame_details` | `jsonb` | Stop architecture provenance fields (see below) |
 | `created_at` | `timestamptz` | DEFAULT now() |
+| `regime_at_activation` | `int4` | NULL | HMM regime at entry condition trigger. NULL for at_close (fires immediately at bar close — no distinct activation). |
 
-**Total: 20 columns.**
+**Total: 21 columns.**
 
 **frame_details JSONB** contains stop architecture diagnostic fields that are causal inputs to the frame geometry but are not ML query dimensions:
 `stop_basis`, `stop_type_col`, `structural_stop_distance_atr`, `adaptive_buffer_mult`, `stop_structure_type`, `stop_structure_age_bars`, `chandelier_vol_source`, `trailing_stop_price`, `trailing_stop_tightening_rate`, `entry_zone_low`, `entry_zone_high`.
@@ -169,8 +173,9 @@ One row per live trade execution. Most frames have zero rows here. Cardinality: 
 | `exit_reason` | `text` | Live exit reason (matches counterfactual_exit_reason vocabulary) |
 | `executed_at` | `timestamptz` | When the live trade was entered |
 | `exited_at` | `timestamptz` | When the live trade was closed |
+| `regime_at_exit` | `int4` | NULL | HMM regime at position exit. Enables regime-transition analysis: did regime flip before exit? |
 
-**Total: 13 columns.**
+**Total: 14 columns.**
 
 **Indexes:**
 ```sql
@@ -279,6 +284,19 @@ When a batch of signal dicts arrives from Kafka:
 **Today (Phase 129-130 initial state):** All plugins emit one entry_type per fire, so N=1. Every group has exactly one signal dict. The writer must nonetheless implement the grouping contract from day one -- not assume N=1 -- because future plugins will expand to multi-frame emission without a contract change.
 
 **Why this matters for the schema:** The `signal_ts` denormalized column on `trade_frames` exists because the Phase 130 writer needs to write frame rows without a round-trip query to `signal_events` to obtain the hypertable PK value. The writer computes `signal_ts` from the signal dict (it is the bar timestamp, available in every payload) and writes it directly to `trade_frames.signal_ts` at insert time.
+
+### New Column Obligations (Phase 128-04)
+
+**SignalWriter / SignalAggregatorWriter** (populates `signal_events`):
+- `feature_ts`: set to the `ts` of the `intelligence_features` bar that produced the signal's flat_features. Available from the bar's `IntelligenceEvent.ts` field. Do NOT query the DB — use the event timestamp directly.
+- `concurrent_signal_count`: count of signals with `status == "active"` in SignalTracker state at fire time. In-process state only — no DB query.
+- `concurrent_plugins`: list of `setup_plugin` values from all `SignalState` objects with `status == "active"` at fire time.
+
+**TradeFrameWriter** (populates `trade_frames`):
+- `regime_at_activation`: for `at_pullback`, `at_reclaim`, `at_limit`, `zone_proximal` entry types — record `hmm_regime` from the bar when the activation condition triggered. For `at_close` — leave NULL (activation is simultaneous with fire).
+
+**TradeExecutionWriter** (populates `trade_executions`):
+- `regime_at_exit`: record `hmm_regime` from the bar when the exit event occurred (stop hit, target hit, TTL expired, or manual close).
 
 ---
 
