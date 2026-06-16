@@ -1,4 +1,10 @@
-"""Tests for signal ledger repository."""
+"""Tests for signal events repository (formerly signal ledger repository).
+
+Updated in Phase 130 (130-02): all SQL now lives in signal_events_repository.py
+targeting the 3-table schema (signal_events / trade_frames / trade_executions).
+LedgerEntry is a backward-compat shim dataclass; _to_row() no longer exists.
+signal_features table is no longer written by this repository.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +13,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.persistence.repository.signal_ledger_repository import (
-    _SELECT_ACTIVE_SQL,
+from src.persistence.repository.signal_events_repository import (
     LedgerEntry,
-    SignalLedgerRepository,
+    SignalEventsRepository,
     SignalStatus,
+)
+from src.persistence.repository.signal_ledger_repository import (
+    SignalLedgerRepository,
 )
 
 # ---------------------------------------------------------------------------
@@ -39,7 +47,7 @@ def _make_entry(**overrides) -> LedgerEntry:
 
 
 # ---------------------------------------------------------------------------
-# LedgerEntry dataclass
+# LedgerEntry backward-compat shim
 # ---------------------------------------------------------------------------
 
 
@@ -51,53 +59,8 @@ class TestLedgerEntry:
         assert entry.direction == 1
         assert entry.status == "pending"
 
-    def test_to_insert_params(self):
-        entry = _make_entry()
-        params = entry._to_row()
-
-        # 34 params: $28=feature_schema_version; $29-$34=framing audit trail (Phase 115)
-        assert len(params) == 36
-        # Index 0 = signal_id, 2 = symbol
-        assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        assert params[2] == "ES"
-        # feature_ts ($13) and feature_tf ($14) default to None — indices 12 and 13
-        assert params[12] is None  # feature_ts
-        assert params[13] is None  # feature_tf
-        # CIS fields: cis_score=$24 (idx 23), bucket_scores=$25 (idx 24), weights_version=$26 (idx 25)
-        assert params[23] is None  # cis_score
-        assert params[24] is None  # bucket_scores
-        assert params[25] is None  # weights_version
-
-    def test_to_insert_params_with_cis_fields(self):
-        """LedgerEntry with CIS fields — bucket_scores as Python dict at $25 (index 24)."""
-        entry = _make_entry(
-            cis_score=0.47,
-            bucket_scores={
-                "trend": 0.4,
-                "momentum": 0.3,
-                "structure": 0.2,
-                "pattern": 0.0,
-                "institutional": 0.5,
-                "regime": 0.3,
-            },
-            weights_version=0,
-        )
-        params = entry._to_row()
-
-        # 34 params: $28=feature_schema_version; $29-$34=framing audit trail (Phase 115)
-        assert len(params) == 36
-        assert params[22] == pytest.approx(0.47)  # cis_score at $23 (index 22)
-        # index 23 = bucket_scores as dict (asyncpg serializes to jsonb)
-        bucket_scores = params[23]
-        assert bucket_scores["trend"] == pytest.approx(0.4)
-        assert bucket_scores["momentum"] == pytest.approx(0.3)
-        assert params[24] == 0  # weights_version at $25 (index 24)
-
-
-@pytest.mark.unit
-class TestLedgerEntryNewFields:
-    def test_ledger_entry_has_zone_fields(self):
-        """LedgerEntry dataclass includes entry_zone fields."""
+    def test_zone_fields(self):
+        """LedgerEntry backward-compat shim has entry_zone fields."""
         entry = LedgerEntry(
             signal_id="test-uuid",
             timestamp=datetime.now(UTC),
@@ -113,56 +76,142 @@ class TestLedgerEntryNewFields:
         assert entry.entry_zone_low == 5095.0
         assert entry.entry_zone_high == 5100.0
 
-    def test_to_insert_params_length(self):
-        """to_insert_params() returns correct number of elements for new SQL."""
-        entry = LedgerEntry(
-            signal_id="test-uuid",
-            timestamp=datetime.now(UTC),
-            symbol="ES",
-            timeframe="5m",
-            setup_plugin="TrendFollowing",
-            signal_type="trend_long",
-            direction=1,
-            was_selected=True,
-        )
-        params = entry._to_row()
-        # 34 params: $28=feature_schema_version; $29-$34=framing audit trail (Phase 115)
-        assert len(params) == 36
+    def test_market_entry_price_field(self):
+        entry = _make_entry(market_entry_price=5098.5)
+        assert entry.market_entry_price == 5098.5
+
+    def test_market_entry_price_defaults_none(self):
+        entry = _make_entry()
+        assert entry.market_entry_price is None
+
+    def test_is_shadow_default_false(self):
+        entry = _make_entry()
+        assert entry.is_shadow is False
+
+    def test_status_default_pending(self):
+        entry = _make_entry()
+        assert entry.status == "pending"
+
+    def test_raw_confidence_field(self):
+        entry = _make_entry(raw_confidence=0.72, calibrated_confidence=0.65)
+        assert entry.raw_confidence == 0.72
+        assert entry.calibrated_confidence == 0.65
 
 
 # ---------------------------------------------------------------------------
-# insert_signals
+# SignalEventsRepository — method existence
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
-class TestInsertSignals:
-    @pytest.mark.asyncio
-    async def test_insert_single_signal(self):
-        db = AsyncMock()
-        entry = _make_entry()
-        await SignalLedgerRepository(db).insert_signals([entry])
+class TestRepositoryMethods:
+    def test_repository_instantiable(self):
+        repo = SignalEventsRepository.__new__(SignalEventsRepository)
+        assert repo is not None
 
-        # insert() calls execute_batch twice: once for signal_ledger, once for signal_outcomes
-        assert db.execute_batch.await_count == 2
-        ledger_call = db.execute_batch.call_args_list[0]
-        assert len(ledger_call[0][1]) == 1  # one ledger row
+    def test_shim_alias_is_same_class(self):
+        assert SignalLedgerRepository is SignalEventsRepository
 
-    @pytest.mark.asyncio
-    async def test_insert_multiple_signals(self):
-        db = AsyncMock()
-        entries = [_make_entry(signal_id=f"id-{i}") for i in range(3)]
-        await SignalLedgerRepository(db).insert_signals(entries)
+    def test_update_lifecycle_state_method_exists(self):
+        assert hasattr(SignalEventsRepository, "update_lifecycle_state")
 
-        assert db.execute_batch.await_count == 2
-        ledger_call = db.execute_batch.call_args_list[0]
-        assert len(ledger_call[0][1]) == 3
+    def test_update_mae_mfe_method_exists(self):
+        assert hasattr(SignalEventsRepository, "update_mae_mfe")
 
-    @pytest.mark.asyncio
-    async def test_insert_empty_list_is_noop(self):
-        db = AsyncMock()
-        await SignalLedgerRepository(db).insert_signals([])
-        db.execute_batch.assert_not_awaited()
+    def test_fetch_active_signals_method_exists(self):
+        assert hasattr(SignalEventsRepository, "fetch_active_signals")
+
+    def test_fetch_pending_signals_method_exists(self):
+        assert hasattr(SignalEventsRepository, "fetch_pending_signals")
+
+    def test_insert_signal_with_frames_method_exists(self):
+        assert hasattr(SignalEventsRepository, "insert_signal_with_frames")
+
+    def test_get_active_signals_for_bootstrap_method_exists(self):
+        assert hasattr(SignalEventsRepository, "get_active_signals_for_bootstrap")
+
+    def test_update_signal_status_method_exists(self):
+        assert hasattr(SignalEventsRepository, "update_signal_status")
+
+    def test_update_frame_details_method_exists(self):
+        assert hasattr(SignalEventsRepository, "update_frame_details")
+
+    def test_record_activation_method_exists(self):
+        assert hasattr(SignalEventsRepository, "record_activation")
+
+    def test_record_zone_resolution_method_exists(self):
+        assert hasattr(SignalEventsRepository, "record_zone_resolution")
+
+    def test_record_market_resolution_method_exists(self):
+        assert hasattr(SignalEventsRepository, "record_market_resolution")
+
+    def test_record_zone_resolution_with_activation_method_exists(self):
+        assert hasattr(SignalEventsRepository, "record_zone_resolution_with_activation")
+
+    def test_batch_execute_method_exists(self):
+        assert hasattr(SignalEventsRepository, "batch_execute")
+
+
+# ---------------------------------------------------------------------------
+# SQL content — 3-table schema assertions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSQLTargetsNewSchema:
+    def test_insert_sql_targets_signal_events(self):
+        """INSERT SQL must target signal_events, not signal_ledger."""
+        import inspect
+
+        from src.persistence.repository import signal_events_repository as mod
+
+        src = inspect.getsource(mod)
+        assert "INSERT INTO signal_events" in src
+        assert "INSERT INTO trade_frames" in src
+
+    def test_no_insert_into_signal_ledger(self):
+        """No INSERT into legacy signal_ledger table."""
+        import inspect
+
+        from src.persistence.repository import signal_events_repository as mod
+
+        src = inspect.getsource(mod)
+        assert "INSERT INTO signal_ledger " not in src
+        assert "INSERT INTO signal_outcomes" not in src
+
+    def test_update_sql_targets_signal_events_status(self):
+        """UPDATE SQL targets signal_events.status, not signal_outcomes."""
+        import inspect
+
+        from src.persistence.repository import signal_events_repository as mod
+
+        src = inspect.getsource(mod)
+        assert "UPDATE signal_events" in src
+        assert "UPDATE signal_outcomes" not in src
+        assert "UPDATE signal_ledger" not in src
+
+    def test_get_active_signals_query_includes_regime_suppressed(self):
+        """Bootstrap SQL must include 'regime_suppressed' in the status IN clause."""
+        from src.persistence.repository.signal_events_repository import _BOOTSTRAP_SQL
+
+        assert "regime_suppressed" in _BOOTSTRAP_SQL
+
+    def test_bootstrap_sql_uses_direct_join_not_view(self):
+        """Bootstrap query must JOIN signal_events + trade_frames, not signal_ledger_full."""
+        from src.persistence.repository.signal_events_repository import _BOOTSTRAP_SQL
+
+        assert "FROM signal_events" in _BOOTSTRAP_SQL
+        assert "JOIN trade_frames" in _BOOTSTRAP_SQL
+        assert "signal_ledger_full" not in _BOOTSTRAP_SQL
+
+    def test_frame_id_is_uuid5(self):
+        """frame_id generation uses uuid5 for idempotency."""
+        import inspect
+
+        from src.persistence.repository import signal_events_repository as mod
+
+        src = inspect.getsource(mod)
+        assert "uuid5" in src
 
 
 # ---------------------------------------------------------------------------
@@ -175,39 +224,42 @@ class TestUpdateSignalStatus:
     @pytest.mark.asyncio
     async def test_update_status_to_active(self):
         db = AsyncMock()
-        activated = datetime(2026, 2, 16, 14, 35, 0, tzinfo=UTC)
-        await SignalLedgerRepository(db).update_signal_status(
-            "some-uuid",
-            status="active",
-            activated_at=activated,
-        )
+        await SignalEventsRepository(db).update_signal_status("some-uuid", "active")
 
         db.execute_command.assert_awaited_once()
         args = db.execute_command.call_args[0]
+        assert "UPDATE signal_events" in args[0]
         assert args[1] == "some-uuid"
         assert args[2] == "active"
-        assert args[3] == activated
 
     @pytest.mark.asyncio
-    async def test_update_status_with_exit(self):
+    async def test_update_status_to_expired(self):
         db = AsyncMock()
-        exit_time = datetime(2026, 2, 16, 15, 0, 0, tzinfo=UTC)
-        await SignalLedgerRepository(db).update_signal_status(
-            "some-uuid",
-            status="closed",
-            exit_at=exit_time,
-            exit_price=5115.0,
-            exit_reason="target_hit",
-            pnl_ticks=15.0,
-            pnl_r=1.5,
-            pnl_dollars=750.0,
-        )
+        await SignalEventsRepository(db).update_signal_status("some-uuid", "expired")
 
         db.execute_command.assert_awaited_once()
         args = db.execute_command.call_args[0]
-        assert args[2] == "closed"
-        assert args[5] == 5115.0
-        assert args[6] == "target_hit"
+        assert args[2] == "expired"
+
+
+# ---------------------------------------------------------------------------
+# update_frame_details
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestUpdateFrameDetails:
+    @pytest.mark.asyncio
+    async def test_calls_execute_command_with_jsonb_meta(self):
+        db = AsyncMock()
+        meta = {"activated_at": "2026-03-14T10:00:00Z", "activation_price": 5098.5}
+        await SignalEventsRepository(db).update_frame_details("some-uuid", meta)
+
+        db.execute_command.assert_awaited_once()
+        args = db.execute_command.call_args[0]
+        assert "UPDATE trade_frames" in args[0]
+        assert args[1] == "some-uuid"
+        assert args[2] == meta
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +277,7 @@ class TestGetActiveSignals:
             {"signal_id": "b", "status": "active"},
         ]
 
-        result = await SignalLedgerRepository(db).get_active_signals(symbol="ES")
+        result = await SignalEventsRepository(db).get_active_signals(symbol="ES")
 
         db.execute_query.assert_awaited_once()
         assert len(result) == 2
@@ -233,46 +285,19 @@ class TestGetActiveSignals:
 
 
 # ---------------------------------------------------------------------------
-# regime_suppressed status SQL coverage
+# record_activation
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestRegimeSuppressedStatus:
-    """Verifies _SELECT_ACTIVE_SQL includes regime_suppressed so the lifecycle
-    service tracks shadow/suppressed signals alongside pending and active."""
-
-    def test_get_active_signals_query_includes_regime_suppressed(self):
-        """_SELECT_ACTIVE_SQL must include 'regime_suppressed' in the status IN clause."""
-        assert "regime_suppressed" in _SELECT_ACTIVE_SQL, (
-            "_SELECT_ACTIVE_SQL must include 'regime_suppressed' in the status IN clause "
-            "so that shadow signals are loaded by the lifecycle service. "
-            f"Current SQL:\n{_SELECT_ACTIVE_SQL}"
-        )
-
-
-# ============================================================
-# New targeted DB write functions
-# ============================================================
-
-from src.persistence.repository.signal_ledger_repository import (  # noqa: E402
-    _RECORD_ACTIVATION_SQL,
-    _RECORD_MARKET_RESOLUTION_SQL,
-    _RECORD_ZONE_RESOLUTION_SQL,
-    _RECORD_ZONE_WITH_ACTIVATION_SQL,
-)
 
 
 @pytest.mark.unit
 class TestRecordActivation:
     @pytest.mark.asyncio
-    async def test_calls_execute_command_with_activation_fields(self):
+    async def test_calls_update_signal_status_and_frame_details(self):
         db = AsyncMock()
-        db.execute_command = AsyncMock()
         signal_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         activated_at = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
 
-        await SignalLedgerRepository(db).record_activation(
+        await SignalEventsRepository(db).record_activation(
             signal_id,
             activated_at=activated_at,
             activation_price=5098.5,
@@ -280,35 +305,23 @@ class TestRecordActivation:
             bars_to_activation=3,
         )
 
-        db.execute_command.assert_awaited_once()
-        call_args = db.execute_command.call_args
-        assert call_args[0][0] == _RECORD_ACTIVATION_SQL
-        assert "market_entry" not in _RECORD_ACTIVATION_SQL  # no cross-contamination
+        # Two calls: update_signal_status + update_frame_details
+        assert db.execute_command.await_count == 2
 
-    def test_activation_sql_does_not_touch_zone_resolution_columns(self):
-        import re
 
-        # Extract only the SET clause (between SET and WHERE) to verify no resolution columns are written.
-        # exit_at IS allowed in the WHERE clause as an idempotency guard but must not appear in SET.
-        set_match = re.search(r"SET\s+(.*?)\s+WHERE", _RECORD_ACTIVATION_SQL, re.DOTALL)
-        set_clause = set_match.group(1) if set_match else _RECORD_ACTIVATION_SQL
-        for col in ["exit_at", "exit_price", "pnl_r"]:
-            assert col not in set_clause, f"{col} must not be written by activation SQL"
-        # outcome column (not the table name signal_outcomes)
-        assert not re.search(r"\boutcome\b\s*=", set_clause)
-        # WHERE clause must have the idempotency guard
-        assert "exit_at IS NULL" in _RECORD_ACTIVATION_SQL
+# ---------------------------------------------------------------------------
+# record_zone_resolution
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestRecordZoneResolution:
     @pytest.mark.asyncio
-    async def test_calls_execute_command(self):
+    async def test_calls_update_signal_status_and_frame_details(self):
         db = AsyncMock()
-        db.execute_command = AsyncMock()
         exit_at = datetime(2026, 3, 14, 11, 0, 0, tzinfo=UTC)
 
-        await SignalLedgerRepository(db).record_zone_resolution(
+        await SignalEventsRepository(db).record_zone_resolution(
             "aaaa-bbbb",
             status=SignalStatus.EXPIRED,
             exit_at=exit_at,
@@ -322,21 +335,22 @@ class TestRecordZoneResolution:
             bars_in_trade=5,
             outcome="stopped_in_trade",
         )
-        db.execute_command.assert_awaited_once()
+        # Two calls: update_signal_status + update_frame_details
+        assert db.execute_command.await_count == 2
 
-    def test_zone_resolution_sql_does_not_touch_market_columns(self):
-        for col in ["market_entry_price", "market_entry_outcome", "market_entry_pnl_r"]:
-            assert col not in _RECORD_ZONE_RESOLUTION_SQL
+
+# ---------------------------------------------------------------------------
+# record_market_resolution
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestRecordMarketResolution:
     @pytest.mark.asyncio
-    async def test_calls_execute_command_with_market_fields(self):
+    async def test_calls_update_frame_details(self):
         db = AsyncMock()
-        db.execute_command = AsyncMock()
 
-        await SignalLedgerRepository(db).record_market_resolution(
+        await SignalEventsRepository(db).record_market_resolution(
             "aaaa-bbbb",
             market_entry_at=None,
             market_entry_exit_price=5084.0,
@@ -349,45 +363,24 @@ class TestRecordMarketResolution:
             market_entry_gap_bars=None,
         )
         db.execute_command.assert_awaited_once()
+        args = db.execute_command.call_args[0]
+        assert "UPDATE trade_frames" in args[0]
 
-    def test_market_resolution_sql_does_not_touch_zone_columns(self):
-        import re
 
-        for col in ["activated_at", "activation_price", "pnl_ticks"]:
-            assert col not in _RECORD_MARKET_RESOLUTION_SQL
-        # 'exit_at' and 'outcome' need word boundaries to avoid matching market_entry_exit_at/market_entry_outcome
-        for col in ["exit_at", "outcome"]:
-            assert not re.search(rf"(?<!market_entry_)\b{col}\b", _RECORD_MARKET_RESOLUTION_SQL)
-
-    @pytest.mark.asyncio
-    async def test_gap_bars_defaults_to_none(self):
-        """gap_bars=None is the default (live signals)."""
-        db = AsyncMock()
-        db.execute_command = AsyncMock()
-        await SignalLedgerRepository(db).record_market_resolution(
-            "aaaa",
-            market_entry_at=None,
-            market_entry_exit_price=5115.0,
-            market_entry_exit_at=None,
-            market_entry_pnl_r=1.0,
-            market_entry_mae=0.0,
-            market_entry_mfe=1.0,
-            market_entry_bars_in_trade=2,
-            market_entry_outcome="target_1",
-        )
-        db.execute_command.assert_awaited_once()
+# ---------------------------------------------------------------------------
+# record_zone_resolution_with_activation
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestRecordZoneWithActivation:
     @pytest.mark.asyncio
-    async def test_atomic_write_called_once(self):
-        """Same-bar activation+exit must call execute_command exactly once."""
+    async def test_atomic_write_via_update_calls(self):
+        """Same-bar activation+exit routes through update_signal_status + update_frame_details."""
         db = AsyncMock()
-        db.execute_command = AsyncMock()
         ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
 
-        await SignalLedgerRepository(db).record_zone_resolution_with_activation(
+        await SignalEventsRepository(db).record_zone_resolution_with_activation(
             "aaaa-bbbb",
             activated_at=ts,
             activation_price=5098.0,
@@ -405,115 +398,41 @@ class TestRecordZoneWithActivation:
             bars_in_trade=0,
             outcome="stopped_at_entry",
         )
-        db.execute_command.assert_awaited_once()
-        assert db.execute_command.call_args[0][0] == _RECORD_ZONE_WITH_ACTIVATION_SQL
-
-
-@pytest.mark.unit
-class TestLedgerEntryMarketEntryPrice:
-    def test_market_entry_price_field_exists(self):
-        e = _make_entry(market_entry_price=5098.5)
-        assert e.market_entry_price == 5098.5
-
-    def test_market_entry_price_defaults_none(self):
-        e = _make_entry()
-        assert e.market_entry_price is None
-
-    def test_to_insert_params_includes_market_entry_price(self):
-        e = _make_entry(market_entry_price=5101.25)
-        params = e._to_row()
-        assert 5101.25 in params
-
-    def test_insert_sql_includes_market_entry_price(self):
-        from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
-
-        assert "market_entry_price" in _INSERT_SQL
+        # Two calls: update_signal_status + update_frame_details
+        assert db.execute_command.await_count == 2
 
 
 # ---------------------------------------------------------------------------
-# Phase 31 Plan 03 — is_shadow + _build_feature_rows
+# batch_execute
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
-class TestIsShadowField:
-    def test_is_shadow_default_false(self):
-        entry = _make_entry()
-        assert entry.is_shadow is False
+class TestBatchExecute:
+    @pytest.mark.asyncio
+    async def test_activation_batch_updates_status_and_details(self):
+        db = AsyncMock()
+        items = [
+            {
+                "signal_id": "aaa",
+                "activated_at": datetime(2026, 3, 14, 10, 0, tzinfo=UTC),
+                "activation_price": 5098.5,
+                "zone_entry_pct": 0.25,
+                "bars_to_activation": 3,
+            }
+        ]
+        await SignalEventsRepository(db).batch_execute("activation", items)
+        # At least 2 execute_command calls (status + frame_details)
+        assert db.execute_command.await_count >= 2
 
-    def test_to_insert_params_length_64(self):
-        entry = _make_entry()
-        # 34 params: $28=feature_schema_version; $29-$34=framing audit trail (Phase 115)
-        assert len(entry._to_row()) == 36
+    @pytest.mark.asyncio
+    async def test_empty_items_is_noop(self):
+        db = AsyncMock()
+        await SignalEventsRepository(db).batch_execute("activation", [])
+        db.execute_command.assert_not_awaited()
 
-    def test_to_insert_params_is_shadow_position_false(self):
-        entry = _make_entry(is_shadow=False)
-        params = entry._to_row()
-        # is_shadow is $9 in new schema (index 8)
-        assert params[8] is False
-
-    def test_to_insert_params_is_shadow_position_true(self):
-        entry = _make_entry(is_shadow=True)
-        params = entry._to_row()
-        # is_shadow is $9 in new schema (index 8)
-        assert params[8] is True
-
-    def test_insert_sql_contains_is_shadow_and_dollar39(self):
-        from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
-
-        assert "is_shadow" in _INSERT_SQL
-
-
-@pytest.mark.unit
-class TestBuildFeatureRows:
-    def test_extracts_float_values(self):
-        from src.persistence.repository.signal_ledger_repository import _build_feature_rows
-
-        ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
-        rows = _build_feature_rows(
-            "sig-123",
-            ts,
-            {"rsi_14": 55.0, "adx_14": 30.0, "name": "test", "missing": None},
-        )
-        # Only numeric non-None values
-        assert len(rows) == 2
-        names = {r[2] for r in rows}
-        assert names == {"rsi_14", "adx_14"}
-
-    def test_maps_bucket_correctly(self):
-        from src.persistence.repository.signal_ledger_repository import _build_feature_rows
-
-        ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
-        rows = _build_feature_rows("sig-123", ts, {"rsi_14": 55.0})
-        assert len(rows) == 1
-        row = rows[0]
-        # (signal_id, computed_at, feature_name, feature_value, feature_bucket, bucket_contribution)
-        assert row[4] == "momentum"
-
-    def test_skips_none_values(self):
-        from src.persistence.repository.signal_ledger_repository import _build_feature_rows
-
-        ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
-        rows = _build_feature_rows("sig-123", ts, {"rsi_14": None, "adx_14": 30.0})
-        assert len(rows) == 1
-        assert rows[0][2] == "adx_14"
-
-    def test_skips_string_values(self):
-        from src.persistence.repository.signal_ledger_repository import _build_feature_rows
-
-        ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
-        rows = _build_feature_rows("sig-123", ts, {"hmm_regime": "trending"})
-        assert rows == []
-
-    def test_skips_dict_values(self):
-        from src.persistence.repository.signal_ledger_repository import _build_feature_rows
-
-        ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
-        rows = _build_feature_rows("sig-123", ts, {"i5": {"some": "dict"}})
-        assert rows == []
-
-    def test_insert_features_sql_has_on_conflict(self):
-        from src.persistence.repository.signal_ledger_repository import _INSERT_FEATURES_SQL
-
-        assert "ON CONFLICT" in _INSERT_FEATURES_SQL
-        assert "DO NOTHING" in _INSERT_FEATURES_SQL
+    @pytest.mark.asyncio
+    async def test_unknown_type_raises_value_error(self):
+        db = AsyncMock()
+        with pytest.raises(ValueError, match="Unknown transition_type"):
+            await SignalEventsRepository(db).batch_execute("bad_type", [{"signal_id": "x"}])

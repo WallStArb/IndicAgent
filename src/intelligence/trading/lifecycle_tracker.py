@@ -17,7 +17,7 @@ import structlog
 from src.intelligence.trading.signal_outcome import SignalOutcome
 from src.observability.metrics import SIGNAL_OUTCOME_TOTAL
 from src.observability.metrics import counter as _counter
-from src.persistence.repository.signal_ledger_repository import SignalStatus
+from src.persistence.repository.signal_events_repository import SignalStatus
 
 # Quick-stop threshold: signals stopped within 2 bars classified as stopped_at_entry
 # Rationale: entry slippage + 1 confirmation bar = false positive if stopped here
