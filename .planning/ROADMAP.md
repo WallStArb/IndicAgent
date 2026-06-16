@@ -1279,10 +1279,10 @@ Plans:
 
 **Wave 3** *(parallel, blocked on Wave 2; disjoint files)*
 
-- [ ] 130-03-PLAN.md — signal_writer (G0 grouping) + lifecycle_writer (status/frame_details) + APR
-- [ ] 130-04-PLAN.md — signal_tracker bootstrap rewrite + swarm_ledger_writer FK + signal_auditor + signal_probe_auditor
-- [ ] 130-05-PLAN.md — API routes: signals.py (drop 7 columns, ui.signals.* APR) + narrative.py (tf)
-- [ ] 130-06-PLAN.md — Backfill scripts: run_historical_pipeline + lifecycle_replay + feature_replay (3-table, G0)
+- [x] 130-03-PLAN.md — signal_writer (G0 grouping) + lifecycle_writer (status/frame_details) + APR
+- [x] 130-04-PLAN.md — signal_tracker bootstrap rewrite + swarm_ledger_writer FK + signal_auditor + signal_probe_auditor
+- [x] 130-05-PLAN.md — API routes: signals.py (drop 7 columns, ui.signals.* APR) + narrative.py (tf)
+- [x] 130-06-PLAN.md — Backfill scripts: run_historical_pipeline + lifecycle_replay + feature_replay (3-table, G0)
 
 **Wave 4** *(blocked on Wave 3 + 48h verification window)*
 
