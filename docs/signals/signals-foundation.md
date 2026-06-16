@@ -1,61 +1,74 @@
-# Signals Foundation — Why signal_ledger exists and what it owns
+# Signals Foundation — The Signal Ledger Architecture
 
-**Version:** 2.8.0 | **Status:** current | **Last Updated:** 2026-06-05
+**Version:** 3.0.0 | **Status:** current | **Last Updated:** 2026-06-16
 
 ---
 
 ## Purpose
 
-`signal_ledger` is the persistent record of every I7 trading setup detected by the intelligence pipeline, including its full lifecycle outcome. It solves three problems that ephemeral in-memory state cannot:
+The Signal Ledger Architecture (SLA) is the persistent record of every I7 trading setup detected by the intelligence pipeline, including its full lifecycle outcome. It solves three problems that ephemeral in-memory state cannot:
 
-1. **Labeled training data** — The ML scoring model (Phase 094+) needs feature vectors paired with real-world outcomes. `signal_ledger` is that dataset: every row links back to `intelligence_features` via `(symbol, feature_ts, feature_tf)` and carries the 8-class outcome label once the trade closes.
-2. **Lifecycle recovery** — Service restarts, data gaps, and replay scenarios all need a durable record of which signals were pending or active. The `SignalTracker` bootstraps from this table on startup.
-3. **Audit trail** — Every I7 plugin fires, whether or not it eventually enters a zone. Every regime-suppressed signal is logged. This creates an empirical feedback loop for gate calibration (regime gates, shadow promotion, CIS weight tuning).
+1. **Unbiased ML training data** — The ML scoring model needs feature vectors paired with real-world outcomes across all signal fires, not just the subset that were executed. The SLA provides this via `counterfactual_pnl_r` on every `trade_frames` row — populated by CounterfactualTracker regardless of whether the trade was ever selected, activated, or executed.
+2. **Lifecycle recovery** — Service restarts, data gaps, and replay scenarios all need a durable record of which signals were pending or active. The `SignalTracker` bootstraps from `signal_ledger_full` on startup.
+3. **Audit trail** — Every I7 plugin fire is recorded, including regime-suppressed signals. This creates an empirical feedback loop for gate calibration and shadow promotion.
 
-**Who reads this doc:** Engineers building new signal types, debugging lifecycle issues (why did signal X never activate?), or writing ML training queries. Start here before touching `signal_ledger` schema or any lifecycle service.
+**Who reads this doc:** Engineers building new signal types, debugging lifecycle issues, or writing ML training queries. Start here before touching any SLA table or lifecycle service.
 
 ---
 
 ## Design Principles
 
-### Why signal_ledger instead of ephemeral in-memory state?
+### Why the pipeline is DB-ignorant
 
-The real-time pipeline (`SignalTracker`) is intentionally DB-ignorant — it holds all active signal state in memory and publishes `LifecycleTransition` events to Kafka. The `LifecycleWriter` consumes those events and writes to `signal_ledger`. This split exists because DB I/O is unpredictable and the hot path cannot block on it.
+The real-time pipeline (`SignalTracker`) is intentionally DB-ignorant — it holds all active signal state in memory and publishes `LifecycleTransition` events to Kafka. The `LifecycleWriter` consumes those events and writes to `signal_events`. This split exists because DB I/O is unpredictable and the hot path cannot block on it.
 
-`signal_ledger` is the persistent projection of that in-memory state. It persists because:
-- Service restarts would lose all pending signal state otherwise
-- Historical outcomes are required for ML training (you cannot reconstruct them from bar data alone)
-- The replay auditor (`SignalReplayAuditor`) needs to find signals the live tracker missed
+The SLA tables are the persistent projection of that in-memory state.
 
-### Two-table design: signal_ledger + signal_outcomes
+### Three-table architecture
 
-Originally one table; Phase 104 / migration 093 extracted mutable lifecycle state into a separate `signal_outcomes` table to reduce write amplification — every bar update to `status`, `mae`, `mfe` no longer rewrites the fire-time columns that never change.
+Phase 128 replaced the legacy `signal_ledger` monolith with three tables, each owning exactly one semantic concern:
 
-Signal data splits into two tables joined via `signal_id`:
+**`signal_events`** — *did the pattern fire?* Written once at I7 emit time. Carries intrinsic quality (`raw_confidence`, `factor_scores`) and extrinsic market context at fire time (ECL vectors: `ctf_score`, `ctf_confirmed`, `zone_friction_score`). The only mutable field after initial write is `status` (lifecycle transitions). TimescaleDB hypertable partitioned by `ts`.
 
-- **`signal_ledger`** — fire-time fields, written once at signal emission, never updated. These describe *what the signal was* at the moment I7 fired: `symbol`, `timeframe`, `direction`, `entry_price`, `stop_loss`, `targets`, `entry_zone_low`, `entry_zone_high`, `expires_at`, `signal_schema_version`.
-- **`signal_outcomes`** — mutable lifecycle state: `status`, `activated_at`, `exit_at`, `outcome`, `pnl_r`, `mae`, `mfe`, `bars_in_trade`, and all exit fields. Written progressively: first seeded as `pending`, then updated on activation, then again on exit.
+**`trade_frames`** — *what trade was hypothesized?* One row per `entry_type` per signal fire. A plugin proposing both `at_close` and `at_pullback` entry types produces two rows. `counterfactual_pnl_r` lives here, populated for every row after TTL expiry regardless of whether the trade was executed. This column is the ML training target.
 
-The `signal_ledger_full` view joins both tables and is the canonical query surface for all reads.
+**`trade_executions`** — *what was actually traded?* One row per live execution. Most trade frames have zero rows here. `actual_pnl_r` is the realized outcome; meaningful relative to `counterfactual_pnl_r` only when measuring execution quality.
 
-### Why is feature_ts part of the JOIN key?
+The monolith conflated all three concerns, making an unbiased ML training set impossible: filtering `WHERE pnl_r IS NOT NULL` silently excluded all signals that were never executed. The three-table design closes this survivorship bias (Bias Layer 2).
 
-`feature_ts` is the bar timestamp at which the intelligence pipeline computed the features that generated the signal. It is distinct from `timestamp` (signal fire time) because signals may be computed slightly after the bar closes due to pipeline latency. The JOIN `f.ts = s.feature_ts AND f.timeframe = s.feature_tf` is what allows you to retrieve the exact feature vector present at signal generation time — essential for ML training.
+### Hypertable FK constraint
 
-### was_selected vs is_shadow
+`signal_events` is a TimescaleDB hypertable. Its primary key is composite: `(signal_id, ts)`. Any foreign key pointing to it must include both columns. `trade_frames` carries `signal_ts` as a denormalized copy of `signal_events.ts` specifically for this FK:
 
-Both fields exist and serve different purposes:
+```sql
+FOREIGN KEY (signal_id, signal_ts) REFERENCES signal_events (signal_id, ts)
+```
 
-- **`was_selected`** (`BOOLEAN`) — `TRUE` for the single signal the aggregator picked as the winner on that bar (highest-ranked regime-eligible, non-shadow signal). Only one signal per bar per symbol/timeframe can be `was_selected=TRUE`. This flag gates the `SignalMetricsAnalyzer` query (`WHERE was_selected = true`) — metrics are only computed for signals that were actually presented for potential execution.
-- **`is_shadow`** (`BOOLEAN`) — `TRUE` for signals from plugins that are in shadow mode (not yet promoted in `shadow_registry`). Shadow signals fire and are tracked in full (lifecycle, MAE/MFE, outcome) but never enter the execution stream. They accumulate outcome data toward the promotion gate (`n >= 100 AND bootstrap_ci_lower(pnl_r) > 0.0`).
+`signal_ts` always equals the `signal_events.ts` it references.
+<!-- src: db/migrations/137_3table_schema.sql -->
 
-A signal can be `is_shadow=TRUE` and still get an outcome. A signal can be `was_selected=FALSE` and still be live (it fired but wasn't the winner). The two flags are orthogonal.
+### Join view
 
-### Why signal_schema_version as a canonical constant?
+`signal_ledger_full` joins all three tables and is the canonical read surface. Direct table queries are permitted only when the query is strictly within one semantic layer (e.g., counting `signal_events` fires by plugin). Mixed-layer queries always go through the view.
 
-`SIGNAL_SCHEMA_VERSION = "v1"` is defined in `src/intelligence/trading/signal_schema.py` and imported everywhere — no hardcoded strings. Before Phase 79 (v0 signals), entry zone geometry was incorrect: zones were zero-width or had wrong `entry_price` for pullback/limit entry types. The Phase 83 migration truncated all v0 data.
+The legacy `signal_ledger` monolith is read-only (migration 138) and will be dropped in Phase 130. Until then, `signal_ledger_full` is the correct query surface.
+<!-- src: db/migrations/138_signal_ledger_readonly.sql -->
 
-All ML training queries gate on `signal_schema_version = 'v1'`. If schema issues are discovered again, the version bumps and all downstream queries can be updated by changing a single constant. This is why it must never be a raw string literal in query code.
+### was_selected and is_shadow
+
+Both fields exist and serve orthogonal purposes:
+
+- **`was_selected`** (`BOOLEAN`, on `trade_frames`) — `TRUE` for the frame that was the aggregator winner on that bar. The `SignalMetricsAnalyzer` gates on this (`WHERE was_selected = true`) — metrics are only computed for signals that were actually presented for potential execution. At most one `trade_frames` row per bar per symbol/timeframe can be `was_selected=TRUE`.
+- **`is_shadow`** (`BOOLEAN`, on `signal_events`) — `TRUE` for signals from plugins not yet promoted in `shadow_registry`. Shadow signals traverse the full pipeline and accumulate outcome data but never enter the execution stream.
+
+A signal can be `is_shadow=TRUE` and still get an outcome. A frame can be `was_selected=FALSE` and still have a counterfactual. The two flags are orthogonal.
+
+### Why signal_schema_version is a canonical constant
+
+`SIGNAL_SCHEMA_VERSION: int = 5` is defined in `src/intelligence/trading/signal_schema.py` and imported everywhere — no hardcoded integer literals.
+<!-- src: src/intelligence/trading/signal_schema.py:25 -->
+
+The version is an `int4` (not text). It was bumped to 5 at the Phase 129 SLA migration boundary. All ML training queries gate on this version constant. If schema issues are discovered again, the version bumps and all downstream queries are updated by changing the single constant.
 
 ### entry_type values — what each means
 
@@ -69,13 +82,13 @@ All ML training queries gate on `signal_schema_version = 'v1'`. If schema issues
 | `at_reclaim` | Entry at the current close after a sweep/reclaim event | Liquidity sweep and liquidity hunt setups — confirmation that price reclaimed the level |
 | `zone_proximal` | Entry at the proximal edge of a supply/demand zone | Supply/demand setups where the zone has geometric extent |
 
-`entry_type` is stored in `signal_ledger` (restored by migration 095) and used by `SignalMetricsAnalyzer` to segment performance by entry style — `at_pullback` setups have structurally different activation rates than `at_close`.
+`entry_type` is stored in `trade_frames` and used by `SignalMetricsAnalyzer` to segment performance by entry style — `at_pullback` setups have structurally different activation rates than `at_close`.
 
 ---
 
 ## Architecture
 
-### Signal flow: I7 to signal_ledger
+### Signal flow: I7 to signal_events
 
 ```
 I7 plugins (36 setups) + CISScorer aggregator
@@ -83,99 +96,146 @@ I7 plugins (36 setups) + CISScorer aggregator
   → signal_processor.py (rank, regime gate, shadow gate, select winner)
   → intelligence.i7.signals Kafka topic  (full ranked list per bar)
   → SignalWriter
-  → signal_ledger INSERT + signal_outcomes seed (status='pending')
+  → signal_events INSERT
+  → trade_frames INSERT (one row per entry_type)
+  → CounterfactualTracker (populates counterfactual_pnl_r after TTL expiry)
 ```
 
-NULL `entry_zone_low` or `entry_zone_high` routes the signal to the DLQ at write time — it never enters lifecycle tracking.
+Missing `entry_zone_low` or `entry_zone_high` in the trade framer output routes the signal to the DLQ at write time — it never enters lifecycle tracking.
 
-### What reads signal_ledger
+### What reads signal_ledger_full
 
-`signal_ledger` is a hub, not a queue. Multiple services read it for different purposes:
+`signal_ledger_full` is a hub, not a queue. Multiple services read it for different purposes:
 
 | Service | What it reads | Why |
 |---------|--------------|-----|
-| `SignalTracker` | `pending`/`active` signals with `exit_at IS NULL` | Bootstrap on startup; populates in-memory active index |
+| `SignalTracker` | `pending`/`active` with `exit_at IS NULL` | Bootstrap on startup; populates in-memory active index |
 | `SignalReplayAuditor` | `pending`/`active` with `expires_at < NOW()` | Recover outcomes for signals the live tracker missed |
-| `SignalMetricsAnalyzer` | Resolved signals (`outcome IS NOT NULL`) where `was_selected=true` | Compute per-setup performance metrics every 15 min |
-| `GraduationAnalyzer` | Shadow signals with `outcome IS NOT NULL`, `is_shadow=true` | Evaluate promotion gate for shadow plugins |
-| ML training queries | All `v1` signals with `outcome IS NOT NULL` | Feature-label pairs for model training |
+| `SignalMetricsAnalyzer` | Resolved signals where `was_selected=true` and `counterfactual_pnl_r IS NOT NULL` | Compute per-setup performance metrics every 15 min |
+| `GraduationAnalyzer` | Shadow signals with outcomes, `is_shadow=true` | Evaluate promotion gate for shadow plugins |
+| ML training queries | All `signal_schema_version = 5` frames with `counterfactual_pnl_r IS NOT NULL` | Feature-label pairs for model training |
 
 ---
 
 ## Data Contracts
 
-### signal_ledger (fire-time, immutable)
+### signal_events (detection layer, immutable after emit)
+
+<!-- src: db/migrations/137_3table_schema.sql -->
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `signal_id` | UUID | Primary key |
-| `timestamp` | TIMESTAMPTZ | Signal fire time (bar_ts at I7 computation). **Primary time column.** |
+| `signal_id` | UUID | Signal identity — shared across signal_events + all trade_frames rows for this fire |
+| `ts` | TIMESTAMPTZ | Bar timestamp at fire time. **Primary time column and hypertable partition dimension.** |
 | `symbol` | TEXT | Instrument symbol (e.g. `ESM6`) |
-| `timeframe` | TEXT | Bar timeframe (e.g. `1m`, `5m`, `15m`, `1h`) |
+| `tf` | TEXT | Bar timeframe (e.g. `1m`, `5m`, `15m`, `1h`). Canonical column; `timeframe` is a view alias. |
 | `setup_plugin` | TEXT | I7 plugin that fired (e.g. `momentum_breakout_long`) |
-| `signal_type` | TEXT | Human-readable type string |
-| `direction` | INTEGER | `1` = long, `-1` = short |
-| `was_selected` | BOOLEAN | `TRUE` if this was the aggregator winner on this bar |
-| `is_shadow` | BOOLEAN | `TRUE` if plugin is in shadow mode (not yet promoted) |
-| `is_backfill` | BOOLEAN | `TRUE` if signal was generated from replay, not live |
-| `signal_schema_version` | TEXT | Schema version tag. `'v1'` = post-Phase-79 quality signals |
-| `feature_ts` | TIMESTAMPTZ | Bar timestamp in `intelligence_features` for ML JOIN |
-| `feature_tf` | TEXT | Timeframe in `intelligence_features` for ML JOIN |
-| `hmm_regime_at_fire` | INTEGER | HMM regime state when signal fired (0=ranging, 1/2=trend) |
-| `garch_sigma_at_fire` | FLOAT | GARCH volatility estimate at fire time (staleness baseline) |
-| `ttl_bars` | INTEGER NOT NULL DEFAULT 10 | How many bars until the signal expires if never activated |
-| `expires_at` | TIMESTAMPTZ | Pre-computed TTL timestamp: `signal_ts + ttl_bars * tf_seconds` |
-| `entry_price` | NUMERIC | Resolved entry price (post-TradeFramer) |
-| `stop_loss` | NUMERIC | Initial stop level |
-| `targets` | JSONB | List of profit target prices |
-| `entry_zone_low` | NUMERIC | Lower bound of zone; NULL routes to DLQ at write time |
-| `entry_zone_high` | NUMERIC | Upper bound of zone; NULL routes to DLQ at write time |
-| `market_entry_price` | NUMERIC | At-close bar price for parallel market-entry track |
-| `cis_score` | FLOAT | CISScorer output (0-1) |
-| `bucket_scores` | JSONB | Per-bucket CIS score breakdown (`{"trend": 0.7, "momentum": 0.5, ...}`) |
-| `weights_version` | INTEGER | CIS weight version at signal fire time (tracks which weight set produced the score) |
-| `pipeline_lag_ms` | FLOAT | Time from bar close to signal emission (observability) |
-| `signal_computed_at` | TIMESTAMPTZ | When the pipeline computed this signal |
+| `direction` | TEXT | `long` or `short` (text, not integer) |
+| `raw_confidence` | FLOAT8 NOT NULL | Intrinsic composite confidence; immutable after emit. ML training uses this field. |
+| `calibrated_confidence` | FLOAT8 | Nullable; async-populated by calibration pipeline. |
+| `cis_score` | FLOAT8 | CISScorer output (0–1). Immutable after emit. |
+| `weights_version` | INT4 | CIS weight version at signal fire time. |
+| `factor_scores` | JSONB | Per-plugin factor breakdown; ML weight optimization. |
+| `context_features` | JSONB | Full `flat_features` snapshot at fire time; SignalRanker feature matrix. |
+| `ctf_score` | FLOAT8 | CTF composite score (ECL vector). Annotation, not gate. |
+| `ctf_confirmed` | BOOL | CTF boolean confirmation at fire time. |
+| `zone_friction_score` | FLOAT8 | Zone friction score (ECL vector). Annotation, not gate. |
+| `hmm_regime_at_fire` | INT4 | HMM regime state when signal fired (0=ranging, 1/2=trend). |
+| `plugin_regime_type` | TEXT | Plugin's declared regime type (from plugin definition). |
+| `garch_sigma_at_fire` | FLOAT8 | GARCH volatility estimate at fire time (staleness baseline). |
+| `is_shadow` | BOOL NOT NULL DEFAULT false | `TRUE` if plugin is in shadow mode (not yet promoted). |
+| `is_backfill` | BOOL NOT NULL DEFAULT false | `TRUE` if signal was generated from replay, not live. |
+| `status` | TEXT NOT NULL DEFAULT 'pending' | Lifecycle state: `'pending'`, `'active'`, `'regime_suppressed'`, `'expired'` — raw string literals. |
+| `signal_schema_version` | INT4 | Schema version integer. Current: 5 (set to `SIGNAL_SCHEMA_VERSION` constant). |
+| `ttl_bars` | INT4 | How many bars until the signal expires if never activated. |
+| `expires_at` | TIMESTAMPTZ | Pre-computed TTL timestamp. |
+| `signal_computed_at` | TIMESTAMPTZ | Pipeline write wall-clock from payload; latency = `signal_computed_at - ts`. |
+| `created_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | DB insertion time — distinct from `signal_computed_at`. |
+| `feature_ts` | TIMESTAMPTZ | Anchor to `intelligence_features` row; JOIN on `(symbol, tf, ts = feature_ts)`. |
+| `concurrent_signal_count` | INT4 | Count of other active signals at fire time; crowding indicator. |
+| `concurrent_plugins` | TEXT[] | `setup_plugin` values of concurrent active signals; ML-queryable. |
 
-### signal_outcomes (lifecycle state, mutable)
+### trade_frames (hypothesis layer, one per entry_type per signal)
+
+<!-- src: db/migrations/137_3table_schema.sql -->
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `signal_id` | UUID | FK to signal_ledger |
-| `status` | TEXT | `'pending'`, `'active'`, `'regime_suppressed'`, `'expired'` — raw strings |
-| `activated_at` | TIMESTAMPTZ | When price entered the entry zone (NULL until activation) |
-| `activation_price` | FLOAT | Actual activation price within zone |
-| `zone_entry_pct` | FLOAT | Where in zone price entered: `0.0` = proximal, `1.0` = distal |
-| `bars_to_activation` | INTEGER | Bars elapsed from signal fire to activation |
-| `exit_at` | TIMESTAMPTZ | When the signal exited. **Column is `exit_at`, NOT `exit_ts`.** |
-| `exit_price` | FLOAT | Exit price |
-| `exit_reason` | TEXT | `stop_loss`, `target_2`, `target_3`, `ttl_expired`, `chandelier_stop`, `condition_expired`. Note: `target_1` is **not** an exit reason — T1 advances the chandelier floor (`be_floor`) and continues the trade. Only T2+ produce target-based exits. |
-| `outcome` | TEXT | 8-class outcome label (see Lifecycle doc) |
-| `pnl_r` | FLOAT | P&L in risk units (1R = 1x the initial stop distance) |
-| `mae` | FLOAT | Maximum adverse excursion in pnl_r units |
-| `mfe` | FLOAT | Maximum favorable excursion in pnl_r units |
-| `bars_in_trade` | INTEGER | Active bars from activation to exit |
-| `trailing_stop_price` | JSONB | Chandelier trailing stop state history |
-| `staleness_score` | FLOAT | Composite staleness score on last bar (0.0-1.0) |
+| `frame_id` | UUID PRIMARY KEY | Frame identity. |
+| `signal_id` | UUID NOT NULL | FK to `signal_events.signal_id`. |
+| `signal_ts` | TIMESTAMPTZ NOT NULL | Denormalized from `signal_events.ts`; required for FK to hypertable composite PK. Always equals `signal_events.ts`. |
+| `entry_type` | TEXT NOT NULL | `at_close` / `at_pullback` / `at_limit` / `at_reclaim` / `zone_proximal`. |
+| `direction` | TEXT NOT NULL | `long` or `short`. |
+| `entry_price` | FLOAT8 | Resolved entry price from TradeFramer. |
+| `stop_price` | FLOAT8 | Initial stop level. |
+| `target_price` | FLOAT8 | Profit target price. |
+| `r_multiple` | FLOAT8 | `(target - entry) / (entry - stop)`; standard R-multiple. |
+| `ttl_bars` | INT4 | Frame-level TTL (may differ from signal TTL for pullback types). |
+| `expires_at` | TIMESTAMPTZ | Frame expiry timestamp. |
+| `counterfactual_pnl_r` | FLOAT8 | **ML training target.** Populated by CounterfactualTracker for every frame after TTL expiry. Always populated regardless of execution status. |
+| `counterfactual_mfe` | FLOAT8 | Maximum favorable excursion during counterfactual window. |
+| `counterfactual_mae` | FLOAT8 | Maximum adverse excursion during counterfactual window. |
+| `counterfactual_bars` | INT4 | Bars elapsed during counterfactual measurement. |
+| `counterfactual_exit_reason` | TEXT | `target_hit` / `stop_hit` / `ttl_expired`. |
+| `counterfactual_measured_at` | TIMESTAMPTZ | When CounterfactualTracker populated the counterfactual fields. |
+| `was_selected` | BOOL NOT NULL DEFAULT false | `TRUE` if this frame was the aggregator winner on this bar. |
+| `frame_details` | JSONB | Stop architecture provenance: `stop_basis`, `stop_type_col`, `structural_stop_distance_atr`, `adaptive_buffer_mult`, `entry_zone_low`, `entry_zone_high`, chandelier stop state. |
+| `regime_at_activation` | INT4 | HMM regime at entry condition trigger; NULL for `at_close` (fires immediately). |
+| `created_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 
-### Primary key and JOIN pattern
+### trade_executions (execution layer, one per live trade)
+
+<!-- src: db/migrations/137_3table_schema.sql -->
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `execution_id` | UUID PRIMARY KEY | Execution identity. |
+| `frame_id` | UUID NOT NULL | FK to `trade_frames.frame_id`. |
+| `actual_fill_price` | FLOAT8 | Entry fill price. |
+| `actual_exit_price` | FLOAT8 | Exit fill price. |
+| `actual_pnl_r` | FLOAT8 | Realized P&L in R-multiples. Compare to `counterfactual_pnl_r` to measure execution quality. |
+| `actual_mfe` | FLOAT8 | Maximum favorable excursion during live trade. |
+| `actual_mae` | FLOAT8 | Maximum adverse excursion during live trade. |
+| `actual_bars` | INT4 | Active bars from entry to exit. |
+| `market_entry_price` | FLOAT8 | Parallel at-close market price at entry; reference baseline. |
+| `market_entry_gap_bars` | INT4 | Bars between signal fire and execution. |
+| `exit_reason` | TEXT | Exit classification. |
+| `executed_at` | TIMESTAMPTZ | Entry execution timestamp. |
+| `exited_at` | TIMESTAMPTZ | Exit timestamp. Canonical column; `exit_at` is a view alias. |
+| `regime_at_exit` | INT4 | HMM regime at position exit; enables regime-transition analysis. |
+
+### signal_ledger_full (canonical join view)
+
+<!-- src: db/migrations/137_3table_schema.sql -->
+
+`signal_ledger_full` is a LEFT JOIN across all three tables on `(signal_id, ts)`. It exposes legacy column aliases for backward compatibility: `timestamp` (→ `ts`), `timeframe` (→ `tf`), `stop_loss` (→ `stop_price`), `exit_at` (→ `exited_at`).
+
+Always query through this view for mixed-layer queries. The view does not filter rows — if a signal has no trade frames, the frame columns are NULL; if a frame has no execution, the execution columns are NULL.
+
+### JOIN pattern for ML training
 
 ```sql
--- signal_ledger PK: (signal_id, timestamp)
--- signal_outcomes PK: signal_id
+-- Canonical unbiased training query (all signal fires with measured counterfactuals):
+SELECT se.context_features, se.factor_scores,
+       se.ctf_score, se.ctf_confirmed, se.hmm_regime_at_fire,
+       tf.entry_type, tf.counterfactual_pnl_r
+FROM signal_events se
+JOIN trade_frames tf ON tf.signal_id = se.signal_id
+                    AND tf.signal_ts = se.ts
+WHERE tf.counterfactual_pnl_r IS NOT NULL
+  AND se.signal_schema_version = 5;
 
--- Canonical JOIN for ML training:
-SELECT f.*, s.outcome, s.pnl_r, s.mae, s.mfe, s.bars_in_trade
+-- ML JOIN to intelligence_features:
+SELECT f.*, tf.counterfactual_pnl_r
 FROM intelligence_features f
-JOIN signal_ledger_full s
-  ON f.symbol = s.symbol
- AND f.ts     = s.feature_ts
- AND f.timeframe = s.feature_tf
-WHERE s.outcome IS NOT NULL
-  AND s.signal_schema_version = 'v1';
+JOIN signal_events se ON f.symbol = se.symbol
+                     AND f.ts     = se.feature_ts
+                     AND f.timeframe = se.tf
+JOIN trade_frames tf ON tf.signal_id = se.signal_id
+                    AND tf.signal_ts = se.ts
+WHERE tf.counterfactual_pnl_r IS NOT NULL
+  AND se.signal_schema_version = 5;
 ```
-
-`signal_ledger_full` is a view that joins `signal_ledger` and `signal_outcomes`. Always query through the view, not the raw tables. The view DDL is defined in `production/migrations/095_signal_ledger_split.sql`.
 
 ---
 
@@ -254,7 +314,7 @@ Applies three independent multipliers to confidence after alpha decay:
 
 `CISScorer` produces a composite intelligence score (`cis_score` 0–1) from the full feature vector across six buckets (trend, momentum, structure, volume, volatility, macro). Applied before the quality gate so the quality multipliers act on CIS-adjusted confidence.
 
-`cis_score` and `bucket_scores` are written to `signal_ledger` at fire time and are immutable — they reflect the regime at the moment of signal generation, not any later recalibration.
+`cis_score` and `factor_scores` are written to `signal_events` at fire time and are immutable — they reflect the regime at the moment of signal generation, not any later recalibration.
 
 ### Time-of-day adjustment (apply_tod_adjustment)
 
@@ -275,7 +335,7 @@ Calibration curves are loaded from the DB at pipeline startup and refreshed peri
 - **Validated setups** (`sample_size >= 30`): `adjusted_rank = perf_multiplier` derived from rolling Sharpe rank, range `[0.5, 1.5]`.
 - **Warm-up setups** (`sample_size < 30`): `adjusted_rank = 0.5` (warm-up penalty, D-16). New or low-volume setups cannot outrank validated ones.
 
-`select_winner()` picks the regime-eligible signal with the highest `adjusted_rank` (lowest numeric value under ascending sort). Tiebreaking: higher `confidence` wins. The winner is the single signal marked `was_selected=TRUE` in `signal_ledger`. All other signals on that bar are written with `was_selected=FALSE`.
+`select_winner()` picks the regime-eligible signal with the highest `adjusted_rank` (lowest numeric value under ascending sort). Tiebreaking: higher `confidence` wins. The winner produces a `trade_frames` row marked `was_selected=TRUE`. All other signals on that bar produce rows with `was_selected=FALSE`.
 
 ### Swarm overlay
 
@@ -289,11 +349,11 @@ The swarm evaluates the selected signal against additional dimensions (sentiment
 
 ### Feedback mechanisms (CUSUM + shadow gate)
 
-The pipeline includes two adaptive feedback loops that operate over longer time horizons than the per-bar stage sequence. These are not per-signal transformations — they update the weights and eligibility state that the per-bar stages consume.
+The pipeline includes two adaptive feedback loops that operate over longer time horizons than the per-bar stage sequence.
 
 **CUSUM Monitor** — Cumulative sum control charts track win rate per setup continuously. When a setup's win rate degrades beyond the CUSUM threshold, its `perf_multiplier` is automatically reduced; when win rate recovers, the multiplier is restored. This gives the ranking system a real-time quality signal without waiting for the 30-day rolling window to catch up.
 
-**Shadow mode gate** — Every plugin is auto-enrolled in `shadow_registry` at startup. Shadow signals traverse the full pipeline and generate outcomes in `signal_ledger` (`is_shadow=TRUE`) but are excluded from `select_winner()` — they never reach the execution stream.
+**Shadow mode gate** — Every plugin is auto-enrolled in `shadow_registry` at startup. Shadow signals traverse the full pipeline and generate outcomes in `signal_events` (`is_shadow=TRUE`) but are excluded from `select_winner()` — they never reach the execution stream.
 
 Promotion to live: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0` (statistically positive expected value at 95% confidence). Demotion back to shadow: `EV[R] < -0.05` for 3 consecutive evaluation cycles. The gate enforces that every live plugin has demonstrated edge under real market conditions, not just backtested conditions.
 
@@ -301,7 +361,7 @@ Promotion to live: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0` (statistical
 
 ## Trade Geometry: How stop_loss and targets Are Computed
 
-`stop_loss` and `targets` are computed by `src/intelligence/trading/trade_framer.py` via `frame_trade()`, called by every I7 plugin before it emits a signal. Once written to `signal_ledger`, these values are immutable — they represent the trade geometry at the moment of signal fire.
+`stop_price` and `target_price` are computed by `src/intelligence/trading/trade_framer.py` via `frame_trade()`, called by every I7 plugin before it emits a signal. Once written to `trade_frames`, these values are immutable — they represent the trade geometry at the moment of signal fire.
 
 ### Stop resolution
 
@@ -315,7 +375,7 @@ The ATR fallback (`entry ± atr * 0.50`) is the last resort. Every stop above it
 
 ### Adaptive ATR buffer (`_adaptive_buffer`)
 
-All ATR-based buffer distances — for both stops and targets — are scaled through `_adaptive_buffer(features, base_mult, regime_type)` rather than using raw ATR multiples. This replaces a previous discrete 3-regime step function.
+All ATR-based buffer distances — for both stops and targets — are scaled through `_adaptive_buffer(features, base_mult, regime_type)` rather than using raw ATR multiples.
 
 ```
 base_mult × garch_mult × hurst_tighten × shock_floor, capped at ADAPTIVE_BUFFER_HARD_CAP (1.40)
@@ -329,7 +389,7 @@ base_mult × garch_mult × hurst_tighten × shock_floor, capped at ADAPTIVE_BUFF
 | 1.00 | 1.00 |
 | 1.50 | 1.35 |
 
-Transitions between anchors are linear — no discrete regime cliff. A bar at `vol_ratio=1.49` gets a proportionally larger buffer than a quiet bar.
+Transitions between anchors are linear — no discrete regime cliff.
 
 **Hurst tightening (confirmation only):** When the Hurst exponent confirms the signal's regime type, structural levels are more reliable and the buffer narrows by up to 8%. Hurst never widens — it is already upstream in the regime gate, so widening would double-count.
 
@@ -339,7 +399,7 @@ Transitions between anchors are linear — no discrete regime cliff. A bar at `v
 
 **Shock floor:** A single extreme bar (`garch_shock > 3.0`) forces the buffer to at least `base_mult × 1.35` (regime-2 anchor), regardless of the sustained regime classification. Guards against GARCH regime lag on shock bars.
 
-**Fallback:** If `garch_vol_ratio` is missing (GARCH not yet warmed up), `garch_mult` defaults to 1.00 — identical to pre-warmup behavior.
+**Fallback:** If `garch_vol_ratio` is missing (GARCH not yet warmed up), `garch_mult` defaults to 1.00.
 
 ### Target candidates
 
@@ -357,14 +417,7 @@ Target candidates are gathered by `_collect_target_candidates()` and filtered th
 
 **Bold** rows are institutional levels — all computed upstream in I3/I4 and fed in via `features`. The ATR range filter prevents a distant weekly pivot from appearing as T1 on a small daily range.
 
-`_pick_targets()` selects T1/T2/T3 from the candidate list by RR threshold — no change to this logic from the candidate stage.
-
-### What does NOT change
-
-- ATR calculation — Wilder's 14-period is correct; `_adaptive_buffer` scales the result, never recomputes it
-- The structural stop hierarchy — order of fallback levels is unchanged
-- `_resolve_stop_long` / `_resolve_stop_short` — kept separate (genuine directional asymmetry in zone/sweep semantics)
-- `_pick_targets()` and RR thresholds — unchanged; only the candidate pool expands
+`_pick_targets()` selects T1/T2/T3 from the candidate list by RR threshold.
 
 ---
 
@@ -377,23 +430,28 @@ Target candidates are gathered by `_collect_target_candidates()` and filtered th
 3. Update this doc and `signals-lifecycle.md`.
 4. No schema migration needed — `entry_type` is TEXT.
 
-### Adding a new outcome field to signal_outcomes
+### Adding a new field to trade_frames
 
-1. Write a migration: `db/migrations/NNN_add_signal_outcome_field.sql`.
-2. Update `_BATCH_EXIT_SQL` and the `batch_execute("exit", ...)` params in `signal_ledger_repository.py`.
-3. Update the `Transition` dataclass in `lifecycle_tracker.py` if the field must flow through the transition object.
+1. Write a migration: `db/migrations/NNN_add_trade_frame_field.sql`.
+2. Update the `TradeFrame` dataclass in the relevant persistence module.
+3. Update `SignalWriter` to populate the field at write time.
+4. If the field is relevant for ML training, verify the training query in `signal_metrics_compute_agent.py` selects it.
+
+### Adding a new field to trade_executions
+
+1. Write a migration: `db/migrations/NNN_add_execution_field.sql`.
+2. Update `_EXECUTION_INSERT_SQL` in `signal_ledger_repository.py`.
+3. Update the `Execution` dataclass in `lifecycle_tracker.py` if the field flows through the transition object.
 4. Update `_transition_to_lifecycle()` in `signal_tracker_compute_agent.py` to populate the field.
-5. If the field is relevant for ML training, verify the query in `signal_metrics_compute_agent.py` selects it.
 
 ### Schema migration protocol (signal_schema_version bump)
 
 When signal geometry or required fields change in a backward-incompatible way:
 
-1. Update `SIGNAL_SCHEMA_VERSION` in `src/intelligence/trading/signal_schema.py` (e.g., `'v1'` → `'v2'`).
-2. Write a migration that handles existing rows (truncate contaminated data if necessary — see Phase 83 precedent).
-3. Update all queries that gate on `signal_schema_version` — search for `signal_schema_version` across the codebase.
-4. The replay auditor query already gates on `SIGNAL_SCHEMA_VERSION` via the Python constant, so it picks up the new version automatically.
-5. Document what changed and why v_old data is excluded in the migration file header.
+1. Increment `SIGNAL_SCHEMA_VERSION` in `src/intelligence/trading/signal_schema.py`.
+2. Write a migration that handles existing rows.
+3. Update all queries that gate on `signal_schema_version` — search for `SIGNAL_SCHEMA_VERSION` across the codebase.
+4. Document what changed and why old-version data is excluded in the migration file header.
 
 ---
 
@@ -402,51 +460,51 @@ When signal geometry or required fields change in a backward-incompatible way:
 ### Signals stuck in pending — diagnostic queries
 
 ```sql
--- All pending signals older than 1 hour that have not expired
-SELECT signal_id, symbol, timeframe, setup_plugin, timestamp,
-       expires_at, entry_zone_low, entry_zone_high, status
-FROM signal_ledger_full
-WHERE status = 'pending'
-  AND exit_at IS NULL
-  AND timestamp < NOW() - INTERVAL '1 hour'
-  AND expires_at > NOW()
-ORDER BY timestamp ASC;
+-- Pending signal_events older than 1 hour that have not expired
+SELECT se.signal_id, se.symbol, se.tf, se.setup_plugin, se.ts,
+       se.expires_at, se.status
+FROM signal_events se
+WHERE se.status = 'pending'
+  AND se.ts < NOW() - INTERVAL '1 hour'
+  AND se.expires_at > NOW()
+ORDER BY se.ts ASC;
 ```
 
-Common causes: price never entered the entry zone (normal for `at_pullback`/`at_limit` types), the entry zone was set too far from current price. Check `entry_zone_low`/`entry_zone_high` vs the current bar's price range.
+Common causes: price never entered the entry zone (normal for `at_pullback`/`at_limit` types). Check `frame_details` on `trade_frames` for `entry_zone_low`/`entry_zone_high` vs. current price.
 
-### Signals activated but no exit
+### Frames missing counterfactual_pnl_r
 
 ```sql
--- Active signals with activation but no exit
-SELECT signal_id, symbol, timeframe, activated_at, mae, mfe, bars_in_trade
-FROM signal_ledger_full
-WHERE status = 'active'
-  AND exit_at IS NULL
-  AND activated_at IS NOT NULL
-  AND activated_at < NOW() - INTERVAL '2 hours'
-ORDER BY activated_at ASC;
+-- trade_frames past their expiry with no counterfactual measured
+SELECT tf.frame_id, tf.signal_id, tf.entry_type, tf.expires_at,
+       tf.counterfactual_pnl_r
+FROM trade_frames tf
+WHERE tf.counterfactual_pnl_r IS NULL
+  AND tf.expires_at < NOW() - INTERVAL '1 hour'
+ORDER BY tf.expires_at ASC;
 ```
 
-If `expires_at` is in the past, the replay auditor should resolve these within its next 5-minute cycle. If not, check `signal_replay_unresolved_gauge` in Grafana and run the replay auditor manually.
+If CounterfactualTracker is running but this query has results, check `counterfactual_tracker.log` for errors. Each frame should have counterfactual data within one evaluation cycle after `expires_at`.
 
-### NULL expires_at (data integrity alert D-17)
+### NULL expires_at (data integrity)
 
 ```sql
-SELECT COUNT(*) FROM signal_ledger_full
-WHERE expires_at IS NULL AND status IN ('pending', 'active') AND exit_at IS NULL;
+SELECT COUNT(*)
+FROM signal_events
+WHERE expires_at IS NULL
+  AND status IN ('pending', 'active');
 ```
 
-`expires_at IS NULL` signals cannot be TTL-expired by the replay auditor (it filters `expires_at IS NOT NULL`). These are data-integrity bugs from backfill or pre-Phase-107.5 rows. The OTel metric `signal_lifecycle_null_expires_at_total` fires for each bar where a NULL `expires_at` signal is evaluated.
+`expires_at IS NULL` signals cannot be TTL-expired by the replay auditor. These are data-integrity bugs from backfill or pre-SLA rows. The OTel metric `signal_lifecycle_null_expires_at_total` fires for each bar where a NULL `expires_at` signal is evaluated.
 
 ---
 
 ## See Also
 
+- `docs/concepts/signal-ledger-architecture.md` — WHY the three-table design; the survivorship bias problem it solves
 - `docs/signals/signals-lifecycle.md` — full signal state machine and transition logic
-- `docs/signals/signals-operations.md` — operating and debugging the three lifecycle services
+- `docs/signals/signals-operations.md` — operating and debugging the lifecycle services
 - `docs/intelligence/intelligence-foundation.md` — I7 signal generation and aggregator logic
-- `docs/data/data-streaming.md` — Signal Kafka topics — see Data Streaming
-- `src/intelligence/trading/signal_schema.py` — `make_signal_from_frame()`, `validate_signal()`, `REQUIRED_SIGNAL_FIELDS`
-- `src/persistence/repository/signal_ledger_repository.py` — `LedgerEntry`, all SQL
+- `db/migrations/137_3table_schema.sql` — complete DDL for all three tables and signal_ledger_full view
+- `src/intelligence/trading/signal_schema.py` — `SIGNAL_SCHEMA_VERSION`, `make_signal_from_frame()`, `REQUIRED_SIGNAL_FIELDS`
 - `src/intelligence/pipeline/signal_processor.py` — `was_selected`, `is_shadow` stamping logic
