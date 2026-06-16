@@ -6,6 +6,6 @@ from src.intelligence.trading.signal_outcome import (
     WIN_OUTCOMES,
     SignalOutcome,
 )
-from src.persistence.repository.signal_ledger_repository import SignalStatus
+from src.persistence.repository.signal_events_repository import SignalStatus
 
 __all__ = ["SignalStatus", "SignalOutcome", "WIN_OUTCOMES", "STOP_OUTCOMES", "TTL_OUTCOMES"]
