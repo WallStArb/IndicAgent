@@ -21,7 +21,7 @@ import numpy as np
 import structlog
 from sklearn.isotonic import IsotonicRegression
 
-from src.persistence.repository.signal_ledger_repository import WIN_OUTCOMES as _WIN_OUTCOMES
+from src.persistence.repository.signal_events_repository import WIN_OUTCOMES as _WIN_OUTCOMES
 
 logger = structlog.get_logger(__name__)
 
