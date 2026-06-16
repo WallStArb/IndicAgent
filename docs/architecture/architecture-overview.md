@@ -328,7 +328,7 @@ When a service stalls (no message for 60s), systemd auto-restarts.
 | `signal_events` | Detection layer: one row per I7 plugin fire; ECL annotations + factor_scores + context_features (Phase 128+) | Forever |
 | `trade_frames` | Hypothesis layer: one row per entry_type per signal; counterfactual_pnl_r ML training target (Phase 128+) | Forever |
 | `trade_executions` | Execution layer: one row per live trade; actual_pnl_r (Phase 128+) | Forever |
-| `signal_ledger` | Legacy monolith (read-only during v2.10 migration, dropped Phase 129) | Transitional |
+| `signal_ledger` | JOIN view (signal_events + trade_frames + trade_executions; renamed from signal_ledger_full in Phase 130) | Forever |
 | `signal_lineage` | Signal-affecting transforms and agent predictions | Forever |
 | `llm_calls` | LLM audit log + outcomes | Forever |
 | `llm_model_scores` | Per-model win rates | 15min refresh |
