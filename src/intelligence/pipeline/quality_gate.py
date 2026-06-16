@@ -7,7 +7,7 @@ reject signals below the minimum confidence threshold.
 Quality floor bootstrap (DAG-compliant, D-05):
   The empirical floor is derived by a standalone oneshot helper:
     services/quality_floor_bootstrap.py
-  That script queries signal_ledger_full and writes a single float to
+  That script queries signal_ledger and writes a single float to
   .pipeline_quality_floor (project root). quality_gate reads it at pipeline
   startup via load_quality_floor(). The pipeline daemon never touches the DB
   directly (DAG Invariant #3 preserved).

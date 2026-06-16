@@ -135,7 +135,7 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
     """Build signal response dict from asyncpg row.
 
     Args:
-        row: Database row with signal_ledger_full columns
+        row: Database row with signal_ledger columns
         include_features: Whether to include joined intelligence_features
 
     Returns:
@@ -199,7 +199,7 @@ def _i(v: Any) -> int | None:
 async def get_active_signals(
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """All currently pending or active signals from signal_ledger_full.
+    """All currently pending or active signals from signal_ledger.
 
     Called by the dashboard on SSE connect to pre-populate signal state
     before live SSE events arrive. Returns one row per (symbol, timeframe)
@@ -232,7 +232,7 @@ async def get_active_signals(
                 sl.hmm_regime_at_fire,
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
-            FROM signal_ledger_full sl
+            FROM signal_ledger sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin AND sp.symbol = sl.symbol
             WHERE sl.status IN ('pending', 'active')
               -- shadow signals included intentionally: dashboard observability (Phase 80)
@@ -318,7 +318,7 @@ async def get_recent_signals(
     tier: str = Query("hero", pattern="^(hero|monitored|all)$", description="Quality tier filter"),
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """Recent signals from signal_ledger_full for drill panel history.
+    """Recent signals from signal_ledger for drill panel history.
 
     Annotated with 30d setup performance from setup_performance table.
     Includes aggregate summary over the returned window.
@@ -362,7 +362,7 @@ async def get_recent_signals(
                 sl.entry_type,
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
-            FROM signal_ledger_full sl
+            FROM signal_ledger sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin AND sp.symbol = sl.symbol
             WHERE sl.timestamp >= NOW() - ($6::int * INTERVAL '1 day')
               AND ($1::text IS NULL OR sl.symbol = $1)
@@ -560,14 +560,14 @@ async def get_signals_stats(
                           AND timestamp >= NOW() - INTERVAL '{medium_days} days'
                     )::numeric, 4
                 ) AS avg_pnl_r_30d
-            FROM signal_ledger_full
+            FROM signal_ledger
             WHERE timestamp >= NOW() - INTERVAL '{medium_days} days'
         """
         row = await db_manager.fetchrow(query)
 
         outcomes_query = f"""
             SELECT exit_reason, actual_pnl_r
-            FROM signal_ledger_full
+            FROM signal_ledger
             WHERE was_selected = true
               AND status NOT IN ('pending', 'active')
               AND exit_reason IS NOT NULL
@@ -647,7 +647,7 @@ async def get_signals_heatmap(
                         AVG(CASE WHEN exit_reason IN ('target_1', 'target_1_2', 'target_full')
                             THEN 1.0 ELSE 0.0 END)::numeric, 3
                     ) AS win_rate
-                FROM signal_ledger_full
+                FROM signal_ledger
                 WHERE exit_reason IS NOT NULL
                   AND actual_pnl_r IS NOT NULL
                   AND was_selected = true
@@ -700,7 +700,7 @@ async def get_signals_edge_series(
                     AVG(CASE WHEN exit_reason IN ('target_1', 'target_1_2', 'target_full')
                         THEN 1.0 ELSE 0.0 END) FILTER (WHERE exit_reason IS NOT NULL)::numeric, 3
                 ) AS win_rate
-            FROM signal_ledger_full
+            FROM signal_ledger
             WHERE was_selected = true
               AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '{medium_days} days'
             GROUP BY 1
@@ -738,7 +738,7 @@ async def get_signals_intraday_heatmap(
                 EXTRACT(DOW FROM COALESCE(signal_computed_at, timestamp) AT TIME ZONE 'America/New_York')::int AS dow,
                 COUNT(*) FILTER (WHERE actual_pnl_r IS NOT NULL) AS n,
                 ROUND(AVG(actual_pnl_r) FILTER (WHERE actual_pnl_r IS NOT NULL)::numeric, 4) AS avg_r
-            FROM signal_ledger_full
+            FROM signal_ledger
             WHERE was_selected = true
               AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '{recent_window_days} days'
               AND EXTRACT(DOW FROM COALESCE(signal_computed_at, timestamp) AT TIME ZONE 'America/New_York') BETWEEN 1 AND 5
@@ -951,7 +951,7 @@ async def get_signal_detail(
                 sl.counterfactual_pnl_r,
                 sl.entry_type,
                 sl.r_multiple
-            FROM signal_ledger_full sl
+            FROM signal_ledger sl
             WHERE sl.signal_id = $1::uuid
         """
         row = await db_manager.fetchrow(signal_query, signal_id)
@@ -1043,7 +1043,7 @@ async def get_signals(
     limit: int = Query(100, ge=1, le=1000, description="Number of signals to return (max 1000)"),
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """Get signal history for a symbol from signal_ledger_full.
+    """Get signal history for a symbol from signal_ledger.
 
     Accepts both base symbols (ES) and contract codes (ESH6).
 
@@ -1062,7 +1062,7 @@ async def get_signals(
                        sl.entry_zone_low, sl.entry_zone_high,
                        f.bar, f.technical_indicators, f.pattern_detections,
                        f.regime_features, f.confluence_scores, f.smc, f.cross_timeframe_context
-                FROM signal_ledger_full sl
+                FROM signal_ledger sl
                 LEFT JOIN intelligence_features f
                   ON sl.symbol = f.symbol
                  AND sl.feature_ts = f.ts
@@ -1081,7 +1081,7 @@ async def get_signals(
                        entry_price, stop_loss, raw_confidence AS confidence, status,
                        feature_ts, signal_computed_at,
                        entry_zone_low, entry_zone_high
-                FROM signal_ledger_full
+                FROM signal_ledger
                 WHERE symbol = $1
                   AND ($3::timestamptz IS NULL OR timestamp >= $3)
                   AND ($4::timestamptz IS NULL OR timestamp <= $4)

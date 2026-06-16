@@ -9,7 +9,7 @@ Phase 117.5 uses the accumulated signal_probe_results rows to derive empirical t
 for the 21 NEEDS_REFACTOR setups (requires MIN_SAMPLE_N=100 activations per setup).
 
 Phase 130: stop_loss now sourced from trade_frames.stop_price via LEFT JOIN trade_frames.
-signal_ledger_full references replaced with signal_events + trade_frames queries.
+signal_ledger references replaced with signal_events + trade_frames queries.
 The dropped join on the now-absent outcomes table is not referenced here.
 """
 
@@ -207,7 +207,7 @@ async def _select_unselected_sample(
 
     Phase 130: stop_loss sourced from trade_frames.stop_price via LEFT JOIN trade_frames.
     entry_zone_low/entry_zone_high sourced from trade_frames.frame_details JSONB.
-    signal_ledger_full replaced with signal_events + trade_frames.
+    signal_ledger replaced with signal_events + trade_frames.
     """
     setup_list = list(NEEDS_REFACTOR_SETUPS)
     rows = await conn.fetch(

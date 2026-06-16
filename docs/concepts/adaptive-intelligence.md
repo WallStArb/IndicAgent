@@ -21,7 +21,7 @@ Adaptation operates at three levels, each with its own feedback loop:
 
 3. **Agents** — AI agents (swarm, narrative) start in shadow mode. They observe and produce analysis, but their outputs have no production impact until statistical gates are passed. Mutation and recombination (v2.8) extend this to agent parameter evolution.
 
-The fitness dataset — `signal_ledger` — is the continuous learning signal for all three levels. It is never dropped.
+The fitness dataset — `signal_events` + `trade_frames` + `trade_executions` — is the continuous learning signal for all three levels. It is never dropped.
 
 ## How IndicAgent Applies It
 
@@ -46,7 +46,8 @@ The fitness dataset — `signal_ledger` — is the continuous learning signal fo
 
 **Key substrate (live now):**
 - `shadow_registry` table — auto-enrollment, state tracking
-- `signal_ledger` — fitness evaluation dataset
+- `signal_events` / `trade_frames` / `trade_executions` — fitness evaluation dataset (3-table schema)
+- `signal_ledger` — JOIN view for backward-compat queries
 - `LineageRecorder` — full ancestry per agent call
 - `bootstrap_ci_lower()` — statistical gate in `src/core/stats_utils.py`
 - `ShadowTransitionEvent` — promotion/demotion published to Kafka
@@ -55,8 +56,8 @@ The fitness dataset — `signal_ledger` — is the continuous learning signal fo
 
 - Nothing goes to production without `n >= 100` resolved signals AND positive bootstrap CI at 95%.
 - Demotion is automatic — it cannot be overridden by configuration or manual DB edit.
-- The fitness dataset (`signal_ledger`) is never dropped — no retention policy, ever.
-- CIS weights must be version-tracked — `weights_version` column on every signal in `signal_ledger`.
+- The fitness dataset (`signal_events` / `trade_frames` / `trade_executions`) is never dropped — no retention policy, ever.
+- CIS weights must be version-tracked — `weights_version` column on every signal in `signal_events`.
 - `N < 30` in `signal_metrics` means neutral multiplier (1.0), not penalized (< 1.0). Insufficient data is not evidence of poor performance.
 
 ## Recipe

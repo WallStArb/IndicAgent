@@ -4,7 +4,7 @@ Timer-triggered: indicagent-ml-discovery.timer (Monday 06:00 UTC).
 One-shot: runs discovery, writes ml_discovery_runs, updates feature_ic_score gauges, exits.
 
 Steps:
-  1. Fetch 90-day intelligence_features JOIN signal_ledger_full (TrainingDataQuery)
+  1. Fetch 90-day intelligence_features JOIN signal_ledger (TrainingDataQuery)
   2. tsfresh.extract_features() -> 700+ derived features
   3. alphalens IC analysis vs pnl_r, segmented by hmm_regime in {0,1,2}
   4. Optional LLM hypothesis for top-IC features

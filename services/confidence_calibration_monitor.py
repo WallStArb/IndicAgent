@@ -58,7 +58,7 @@ async def _run_audit(pool: asyncpg.Pool) -> list[dict]:
                 setup_plugin,
                 CORR(cis_score, was_selected::int)::float AS calibration,
                 COUNT(*) AS n
-            FROM signal_ledger_full
+            FROM signal_ledger
             WHERE timestamp >= NOW() - INTERVAL '7 days'
               AND NOT is_shadow
               AND cis_score IS NOT NULL

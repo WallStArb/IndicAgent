@@ -94,7 +94,7 @@ class SignalReplayAuditor(BaseDaemon):
                    sl.targets                                            AS targets,
                    sl.entry_zone_low::float                             AS entry_zone_low,
                    sl.entry_zone_high::float                            AS entry_zone_high
-            FROM signal_ledger_full sl
+            FROM signal_ledger sl
             WHERE sl.exit_at IS NULL
               AND sl.status IN ('pending', 'active')
               AND sl.expires_at IS NOT NULL
@@ -132,7 +132,7 @@ class SignalReplayAuditor(BaseDaemon):
         async with self._pool.acquire() as conn:
             cnt = await conn.fetchval(
                 """
-                SELECT COUNT(*) FROM signal_ledger_full
+                SELECT COUNT(*) FROM signal_ledger
                 WHERE exit_at IS NULL
                   AND expires_at IS NOT NULL
                   AND expires_at < NOW()
