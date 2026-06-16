@@ -47,6 +47,12 @@ def get_min_ctf_score() -> float:
     return MIN_CTF_SCORE
 
 
+def get_conf_ceil() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync("threshold.global.conf_ceil", CONF_CEIL)
+    return CONF_CEIL
+
+
 def _validate_weights_sum(weights: dict[str, float], plugin: str, tol: float = 1e-6) -> None:
     """Validate that confidence weights sum to 1.0 within floating-point tolerance.
 
@@ -110,7 +116,7 @@ def compose_confidence(raw: float) -> float:
     Returns:
         Float in [0.0, CONF_CEIL] rounded to 4 decimal places.
     """
-    return round(clamp(raw, 0.0, CONF_CEIL), 4)
+    return round(clamp(raw, 0.0, get_conf_ceil()), 4)
 
 
 @dataclass(frozen=True)

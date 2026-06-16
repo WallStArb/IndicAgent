@@ -468,6 +468,30 @@ class IntelligencePipeline(BaseDaemon):
         ("weights.failed_breakout.rejection_strength", 0.30),
         ("weights.failed_breakout.volume", 0.20),
         ("weights.failed_breakout.structure_quality", 0.15),
+        # --- migration 138: remaining module-level and plugin APR params ---
+        ("threshold.global.conf_ceil", 0.95),
+        ("threshold.microstructure.spike_z", 2.0),
+        ("feature.state.dedup_min_bars", 20),
+        ("threshold.delta_exhaustion.spike_z", 1.5),
+        ("threshold.delta_exhaustion.price_follow_atr", 0.3),
+        ("weights.delta_exhaustion.cvd_z", 0.35),
+        ("weights.delta_exhaustion.price_fail", 0.30),
+        ("weights.delta_exhaustion.hmm_ranging", 0.25),
+        ("weights.delta_exhaustion.persistence", 0.10),
+        ("feature.cvd_divergence.confirmation_bars", 5),
+        ("threshold.cvd_divergence.div_threshold", 1.0),
+        ("feature.cvd_divergence.div_upper_ref", 2.0),
+        ("threshold.cvd_divergence.ofi_dual_threshold", 1.0),
+        ("feature.dual_divergence.confirmation_bars", 3),
+        ("threshold.divergence_stack.score_threshold", 0.40),
+        ("feature.divergence_stack.min_agreeing", 3),
+        ("feature.divergence_stack.confidence_norm", 0.60),
+        ("weights.divergence_stack.rsi", 0.30),
+        ("weights.divergence_stack.macd", 0.25),
+        ("weights.divergence_stack.vol", 0.20),
+        ("weights.divergence_stack.obv", 0.15),
+        ("weights.divergence_stack.cmf", 0.10),
+        ("threshold.vwap_reclaim.vol_threshold", 1.2),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -481,12 +505,16 @@ class IntelligencePipeline(BaseDaemon):
             aggregator,
             cis_scorer,
             confidence_utils,
+            microstructure_utils,
+            state_utils,
             trade_framer,
             volume_profile_utils,
             zone_engine,
         )
 
         confidence_utils.set_config_service(self._config_service)
+        microstructure_utils.set_config_service(self._config_service)
+        state_utils.set_config_service(self._config_service)
         volume_profile_utils.set_config_service(self._config_service)
         zone_engine.set_config_service(self._config_service)
         trade_framer.set_config_service(self._config_service)

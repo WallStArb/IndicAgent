@@ -12,13 +12,14 @@ Renaissance principles:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import (
+    _validate_weights_sum,
     clamp01,
     compose_confidence,
     get_min_regime_weight,
@@ -30,9 +31,6 @@ from .trade_framer import frame_trade
 _SPIKE_Z_THRESHOLD: float = 1.5  # lower than OFI/CVD spike (1.5 vs 2.0 — captures more cases)
 _PRICE_FOLLOW_THRESHOLD: float = 0.3  # price must move < 0.3 ATR for exhaustion
 _CONF_WEIGHTS: tuple[float, ...] = (0.35, 0.30, 0.25, 0.10)
-assert (
-    abs(sum(_CONF_WEIGHTS) - 1.0) < 1e-9
-), f"Composite weights must sum to 1.0, got {sum(_CONF_WEIGHTS)}"
 
 
 @dataclass
@@ -66,8 +64,50 @@ class DeltaExhaustionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "exhaustion", "cvd", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        spike_z_threshold = (
+            cfg.get_sync("threshold.delta_exhaustion.spike_z", _SPIKE_Z_THRESHOLD)
+            if cfg
+            else _SPIKE_Z_THRESHOLD
+        )
+        price_follow_threshold = (
+            cfg.get_sync("threshold.delta_exhaustion.price_follow_atr", _PRICE_FOLLOW_THRESHOLD)
+            if cfg
+            else _PRICE_FOLLOW_THRESHOLD
+        )
+        w_cvd_z = (
+            cfg.get_sync("weights.delta_exhaustion.cvd_z", _CONF_WEIGHTS[0])
+            if cfg
+            else _CONF_WEIGHTS[0]
+        )
+        w_price_fail = (
+            cfg.get_sync("weights.delta_exhaustion.price_fail", _CONF_WEIGHTS[1])
+            if cfg
+            else _CONF_WEIGHTS[1]
+        )
+        w_hmm_ranging = (
+            cfg.get_sync("weights.delta_exhaustion.hmm_ranging", _CONF_WEIGHTS[2])
+            if cfg
+            else _CONF_WEIGHTS[2]
+        )
+        w_persistence = (
+            cfg.get_sync("weights.delta_exhaustion.persistence", _CONF_WEIGHTS[3])
+            if cfg
+            else _CONF_WEIGHTS[3]
+        )
+        _validate_weights_sum(
+            {
+                "cvd_z": w_cvd_z,
+                "price_fail": w_price_fail,
+                "hmm_ranging": w_hmm_ranging,
+                "persistence": w_persistence,
+            },
+            "trad_DeltaExhaustion",
+        )
+
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -86,7 +126,7 @@ class DeltaExhaustionPlugin:
             return no_signal()
 
         cvd_spike_z = float(cvd_spike_z)
-        if abs(cvd_spike_z) <= _SPIKE_Z_THRESHOLD:
+        if abs(cvd_spike_z) <= spike_z_threshold:
             return no_signal()
 
         # ── Dual gate (before ATR / OHLCV access) ────────────────────────────
@@ -116,7 +156,7 @@ class DeltaExhaustionPlugin:
         cvd_direction = 1 if cvd_spike_z > 0 else -1
 
         # Price failed to follow: price change is less than threshold
-        if price_follow_ratio >= _PRICE_FOLLOW_THRESHOLD:
+        if price_follow_ratio >= price_follow_threshold:
             return no_signal()
 
         # Exhaustion: opposite of CVD direction
@@ -124,10 +164,10 @@ class DeltaExhaustionPlugin:
 
         # ── 4-factor intrinsic confidence composite ───────────────────────────
         # cvd_z_score: spike magnitude above threshold
-        cvd_z_score = clamp01((abs(cvd_spike_z) - _SPIKE_Z_THRESHOLD) / 3.0)
+        cvd_z_score = clamp01((abs(cvd_spike_z) - spike_z_threshold) / 3.0)
 
         # price_fail_score: how completely price failed to follow (1.0 = zero follow-through)
-        price_fail_score = clamp01(1.0 - price_follow_ratio / _PRICE_FOLLOW_THRESHOLD)
+        price_fail_score = clamp01(1.0 - price_follow_ratio / price_follow_threshold)
 
         # hmm_mean_reversion_score: regime alignment magnitude as quality signal
         # This is the regime ALIGNMENT factor — NOT exhaustion boost/guard (D-09 exempt)
@@ -148,13 +188,11 @@ class DeltaExhaustionPlugin:
             "persistence_score": round(persistence_score, 4),
         }
 
-        # Weights sum to 1.0: exhaustion/momentum_reversal/volume_proxy/persistence
-        # ctf_score_factor removed — CTF is ECL annotation, not composite factor (Phase 123)
         raw_conf = (
-            _CONF_WEIGHTS[0] * cvd_z_score
-            + _CONF_WEIGHTS[1] * price_fail_score
-            + _CONF_WEIGHTS[2] * hmm_mean_reversion_score
-            + _CONF_WEIGHTS[3] * persistence_score
+            w_cvd_z * cvd_z_score
+            + w_price_fail * price_fail_score
+            + w_hmm_ranging * hmm_mean_reversion_score
+            + w_persistence * persistence_score
         )
         confidence = compose_confidence(raw_conf)
 

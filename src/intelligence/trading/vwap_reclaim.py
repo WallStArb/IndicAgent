@@ -77,6 +77,13 @@ class VWAPReclaimPlugin:
         if timeframe and timeframe not in ("1m", "5m", "15m"):
             return no_signal()
 
+        cfg = self._config_service
+        vol_threshold = (
+            cfg.get_sync("threshold.vwap_reclaim.vol_threshold", _VOL_THRESHOLD)
+            if cfg
+            else _VOL_THRESHOLD
+        )
+
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -157,14 +164,14 @@ class VWAPReclaimPlugin:
         # ── Volume gate ───────────────────────────────────────────────────────
         rel_volume = features.get("rel_volume")
         if rel_volume is not None and isinstance(rel_volume, (int, float)):
-            vol_ok = float(rel_volume) >= _VOL_THRESHOLD
+            vol_ok = float(rel_volume) >= vol_threshold
             volume_ratio = float(rel_volume)
         else:
             bar_vol = float(df["volume"].iloc[-1])
             avg_vol = (
                 float(df["volume"].iloc[:-1].mean()) if len(df) > 1 else float(df["volume"].mean())
             )
-            vol_ok = avg_vol > 0 and bar_vol >= _VOL_THRESHOLD * avg_vol
+            vol_ok = avg_vol > 0 and bar_vol >= vol_threshold * avg_vol
             volume_ratio = (bar_vol / avg_vol) if avg_vol > 0 else 0.0
 
         if not vol_ok:
@@ -192,7 +199,7 @@ class VWAPReclaimPlugin:
 
         # ── Confidence scoring ────────────────────────────────────────────────
         # Volume ratio: 0.3 weight
-        vol_score = min(1.0, max(0.0, (volume_ratio - _VOL_THRESHOLD) / _VOL_THRESHOLD))
+        vol_score = min(1.0, max(0.0, (volume_ratio - vol_threshold) / max(1e-9, vol_threshold)))
 
         # bars_wrong_side duration: 0.3 weight (capped at 10 bars for scoring)
         duration_score = min(1.0, bars_wrong_side / 10.0)
@@ -217,7 +224,6 @@ class VWAPReclaimPlugin:
             )
         sr_prox = max(0.0, 1.0 - abs(entry - sr) / (atr * 3.0)) if sr > 0 and atr > 0 else 0.0
 
-        cfg = self._config_service
         w_vol = cfg.get_sync("weights.vwap_reclaim.vol", 0.30) if cfg else 0.30
         w_duration = cfg.get_sync("weights.vwap_reclaim.duration", 0.30) if cfg else 0.30
         w_trend = cfg.get_sync("weights.vwap_reclaim.trend_align", 0.20) if cfg else 0.20

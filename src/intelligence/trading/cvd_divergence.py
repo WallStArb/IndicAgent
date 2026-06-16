@@ -54,6 +54,7 @@ class CVDDivergencePlugin:
 
     name: str = "trad_CVDDivergence"
     shadow_only: bool = True
+    _config_service: Any = field(default=None, compare=False, repr=False)
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -75,6 +76,28 @@ class CVDDivergencePlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        confirmation_bars = (
+            int(cfg.get_sync("feature.cvd_divergence.confirmation_bars", _CONFIRMATION_BARS))
+            if cfg
+            else _CONFIRMATION_BARS
+        )
+        cvd_div_threshold = (
+            cfg.get_sync("threshold.cvd_divergence.div_threshold", _CVD_DIV_THRESHOLD)
+            if cfg
+            else _CVD_DIV_THRESHOLD
+        )
+        cvd_div_upper_ref = (
+            cfg.get_sync("feature.cvd_divergence.div_upper_ref", _CVD_DIV_UPPER_REF)
+            if cfg
+            else _CVD_DIV_UPPER_REF
+        )
+        ofi_dual_threshold = (
+            cfg.get_sync("threshold.cvd_divergence.ofi_dual_threshold", _OFI_DUAL_THRESHOLD)
+            if cfg
+            else _OFI_DUAL_THRESHOLD
+        )
+
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -99,7 +122,7 @@ class CVDDivergencePlugin:
         tf = frames.get("__timeframe__", "_")
         state_key = f"{symbol}_{tf}"
 
-        if abs(cvd_div) < _CVD_DIV_THRESHOLD:
+        if abs(cvd_div) < cvd_div_threshold:
             # Sub-threshold CVD divergence invalidates any accumulated confirmation count
             reset_consecutive_state(frames, self._state, state_key)
             return no_signal()
@@ -108,7 +131,7 @@ class CVDDivergencePlugin:
         _, count = track_consecutive_state(frames, self._state, state_key, cvd_div_sign, "div_sign")
 
         # Gate: require N confirmation bars
-        if count < _CONFIRMATION_BARS:
+        if count < confirmation_bars:
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
@@ -128,19 +151,19 @@ class CVDDivergencePlugin:
         ofi_div = features.get("ofi_divergence")
         ofi_div_f = float(ofi_div) if ofi_div is not None else 0.0
         dual_divergence = (
-            abs(ofi_div_f) >= _OFI_DUAL_THRESHOLD and abs(cvd_div) >= _OFI_DUAL_THRESHOLD
+            abs(ofi_div_f) >= ofi_dual_threshold and abs(cvd_div) >= ofi_dual_threshold
         )
 
         # Confidence — 4-factor intrinsic gradient (Phase 118)
         # Factor 1: divergence magnitude — 0.0 at threshold, 1.0 at upper_ref (p90)
-        span = max(1e-9, _CVD_DIV_UPPER_REF - _CVD_DIV_THRESHOLD)
-        div_mag_score = clamp01((abs(cvd_div) - _CVD_DIV_THRESHOLD) / span)
+        span = max(1e-9, cvd_div_upper_ref - cvd_div_threshold)
+        div_mag_score = clamp01((abs(cvd_div) - cvd_div_threshold) / span)
 
         # Factor 2: dual divergence confirmation (full weight when both CVD and price diverge)
         dual_score = 1.0 if dual_divergence else 0.3  # gradient-exempt — categorical gate
 
-        # Factor 3: persistence beyond minimum bars — 0.0 at bar 5, 1.0 at bar 10
-        extra_bars = max(0, count - _CONFIRMATION_BARS)
+        # Factor 3: persistence beyond minimum bars — 0.0 at confirmation_bars, 1.0 at 2x
+        extra_bars = max(0, count - confirmation_bars)
         persistence_score = clamp01(extra_bars / 5.0)
 
         # Factor 4: CVD slope alignment with is-None guard

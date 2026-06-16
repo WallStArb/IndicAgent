@@ -9,6 +9,19 @@ from typing import Any
 # re-fire when a genuinely new occurrence of the same structural event appears.
 _DEDUP_MIN_BARS: int = 20
 
+_config_service: Any | None = None
+
+
+def set_config_service(config: Any) -> None:
+    global _config_service
+    _config_service = config
+
+
+def get_dedup_min_bars() -> int:
+    if _config_service is not None:
+        return int(_config_service.get_sync("feature.state.dedup_min_bars", _DEDUP_MIN_BARS))
+    return _DEDUP_MIN_BARS
+
 
 def track_consecutive_state(
     frames: dict[str, Any],
@@ -89,7 +102,7 @@ def deduplicate_event(
     state_key: str,
     event_id: Any,
     *,
-    min_bars_between_fires: int = _DEDUP_MIN_BARS,
+    min_bars_between_fires: int | None = None,
 ) -> bool:
     """Return True only when event_id differs from last fired, or min_bars have elapsed.
 
@@ -99,6 +112,8 @@ def deduplicate_event(
 
     PLACEMENT: call AFTER all downstream gates, immediately before make_signal_from_frame.
     """
+    if min_bars_between_fires is None:
+        min_bars_between_fires = get_dedup_min_bars()
     entry = state.setdefault(state_key, {})
     entry["call_count"] = entry.get("call_count", 0) + 1
     call_count = entry["call_count"]
