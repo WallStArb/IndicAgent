@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pandas_ta
+import pytest
+
+pandas_ta = pytest.importorskip("pandas_ta")
 
 from src.intelligence.features.i1_indicators.vwap import VWAPPlugin
 from tests.unit.intelligence.correctness.conftest import (

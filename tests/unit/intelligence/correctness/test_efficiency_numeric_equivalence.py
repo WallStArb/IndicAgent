@@ -15,7 +15,9 @@ tolerance will catch any future change that accidentally alters these hot paths.
 from __future__ import annotations
 
 import pandas as pd
-import pandas_ta as ta
+import pytest
+
+ta = pytest.importorskip("pandas_ta")
 
 from tests.unit.intelligence.correctness.conftest import (
     assert_close_to_reference,
