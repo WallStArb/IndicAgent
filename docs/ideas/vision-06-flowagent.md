@@ -1,14 +1,34 @@
 # FlowAgent
 
-**Status:** Idea
-**Created:** 2025-06-16
+**Status:** idea
+**Created:** 2026-06-16
 **Context:** Cross-asset positioning intelligence — where real money is committed
 
 ## Core Concept
 
-Price-derived SMC zones are historical patterns. Flow measures are *where real money must act*. FlowAgent consumes cross-sectional positioning data and publishes augment events that strengthen or weaken structural zones based on obligate order flow.
+Price-derived zones (I3 market structure) are historical patterns. Flow measures are *where real money must act*. FlowAgent consumes cross-sectional positioning data and publishes augment events that strengthen or weaken structural zones based on obligate order flow.
 
-FlowAgent is a standalone domain — parallel to Quantitative (price-based math), Fundamental (earnings/macro), and Qualitative (sentiment/narrative). It applies across all asset classes: equities, futures, options, FX, crypto.
+FlowAgent is a standalone domain — parallel to Quantitative (I1-I8), Fundamental (earnings/macro), and Qualitative (sentiment/narrative). It applies across all asset classes: equities, futures, options, FX, crypto.
+
+### Renaissance Frame
+
+FlowAgent embodies Renaissance principles:
+
+- **Instrument everything:** Every positioning event is captured — COT snapshots, dark pool prints, options sweeps. No data is dropped. If money moved, it's measurable.
+- **Let the system run:** Flow signals are not manual overrides. They're event-driven context that the quantitative pipeline consumes automatically.
+- **Earn the right through proof:** Every flow source starts in shadow mode. Promotion to production requires statistical proof (p < 0.05, n ≥ 100). No flow source acts on live signals without demonstrated edge.
+- **Segment relentlessly:** Flow signals are regime-aware. COT extremes matter in trending regimes; dark pool prints matter differently in high-volatility regimes. Every hypothesis is conditioned on regime context.
+
+### Architectural Positioning
+
+FlowAgent fits the shared spine architecture:
+
+- **Ring 2 daemon** — Would live as `services/flow_agent.py` when implemented
+- **Event publisher** — Publishes to `flow:*` topics via `stream_keys.py`
+- **Bus consumer** — No direct calls to/from other services
+- **DAG-compliant** — Data flows one direction: external source → flow analysis → Kafka → consumers
+- **APR-governed** — All thresholds, weights, and decay parameters live in `config_state`, not code
+- **Shadow-governed** — Every flow source enrolls in shadow on startup; promotion requires bootstrap CI > 0
 
 ## Flow Data Sources
 
@@ -223,11 +243,22 @@ For each flow source:
 
 ## Relationship to Existing Architecture
 
-- **Bus-compatible**: Each data source publishes typed events; consumers subscribe
-- **APR-governed**: Thresholds, weights, decay parameters live in APR
-- **Shadow governance**: Flow augment starts in shadow; promotion requires statistical proof
-- **VIL-ready**: Flow state embeds alongside bar state for historical analog retrieval
-- **Cross-asset**: Applies to equities, futures, options, FX, crypto — not derivatives-only
+FlowAgent extends the existing architecture without violating invariants:
+
+- **Unified Data Bus compliance** — Services never call each other. FlowAgent publishes `flow:*` events; consumers subscribe. No coupling beyond the bus. See `docs/data/` for bus architecture.
+- **DAG invariants preserved** — Flow data flows one direction: source → analysis → Kafka → consumers. No cycles. No service touches the database except Writers/Trackers. See `docs/concepts/dag-execution.md`.
+- **APR-governed** — All flow thresholds, weights, and decay parameters live in `config_state` under `flow.*` namespace. No hardcoded values. See `docs/foundation/adaptive-parameter-registry.md`.
+- **Shadow governance** — Every flow source enrolls in shadow on startup. Promotion requires n ≥ 100 resolved signals and bootstrap CI > 0 at 95% confidence. See `docs/intelligence/intelligence-ai.md`.
+- **VIL-ready** — Flow state embeds alongside bar state for historical analog retrieval via Vector Intelligence Layer. See `docs/ideas/vil-01-vector-intelligence-layer.md`.
+- **Ring compliance** — Would live in Ring 2 as `services/flow_agent.py`. See `docs/foundation/naming-system.md`.
+- **Typed events via `stream_keys.py`** — All topic keys constructed centrally. No hardcoded strings. See `src/core/stream_keys.py`.
+
+## Foundation Concepts Referenced
+
+- **Principles** — `docs/foundation/principles.md`: Instrument everything, earn through proof, segment relentlessly
+- **Naming System** — `docs/foundation/naming-system.md`: Ring 2 daemon, Agent as autonomous worker
+- **APR** — `docs/foundation/adaptive-parameter-registry.md`: Parameter lifecycle, governance
+- **Documentation System** — `docs/foundation/documentation-system.md`: Idea docs live in `ideas/`, not authoritative until verified
 
 ## References
 

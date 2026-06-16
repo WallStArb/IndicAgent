@@ -1,14 +1,34 @@
 # FundAgent
 
-**Status:** Idea
-**Created:** 2025-06-16
+**Status:** idea
+**Created:** 2026-06-16
 **Context:** Fundamental analysis — earnings, macro, company fundamentals
 
 ## Core Concept
 
 Price action tells you what the market is doing. Fundamentals tell you *why*. FundAgent consumes fundamental data — earnings, macroeconomic indicators, company financials, sector rotations — and publishes events that provide context for quantitative signals.
 
-FundAgent is a standalone domain — parallel to Quantitative (price-based math), Flow (positioning), and Qualitative (sentiment/narrative).
+FundAgent is a standalone domain — parallel to Quantitative (I1-I8), Flow (positioning), and Qualitative (sentiment/narrative).
+
+### Renaissance Frame
+
+FundAgent embodies Renaissance principles:
+
+- **Instrument everything:** Every fundamental event is captured — earnings releases, macro data, Fed decisions. No fundamental signal is dropped.
+- **Let the system run:** Fundamental context is not a manual overlay. It's event-driven regime input that the pipeline consumes automatically.
+- **Earn the right through proof:** Every fundamental source starts in shadow mode. Promotion requires statistical proof that fundamental-augmented signals outperform pure price signals (p < 0.05, n ≥ 100).
+- **Segment relentlessly:** Fundamental signals are regime-aware. Yield curve inversion matters differently in expansion vs. recession regimes. Earnings surprises are filtered by volatility regime.
+
+### Architectural Positioning
+
+FundAgent fits the shared spine architecture:
+
+- **Ring 2 daemon** — Would live as `services/fund_agent.py` when implemented
+- **Event publisher** — Publishes to `fundamental:*` topics via `stream_keys.py`
+- **Bus consumer** — No direct calls to/from other services
+- **DAG-compliant** — Data flows one direction: external source → fundamental analysis → Kafka → consumers
+- **APR-governed** — All thresholds, weights, and regime parameters live in `config_state`, not code
+- **Shadow-governed** — Every fundamental source enrolls in shadow; promotion requires bootstrap CI > 0
 
 ## Fundamental Data Sources
 
@@ -189,11 +209,24 @@ For each fundamental source:
 
 ## Relationship to Existing Architecture
 
-- **Bus-compatible**: Each source publishes typed events; consumers subscribe
-- **APR-governed**: Thresholds, weights, decay parameters live in APR
-- **Shadow governance**: Starts in shadow; promotion requires statistical proof
-- **VIL-ready**: Fundamental state embeds for historical analog retrieval
-- **Regime-aware**: Macro data primarily informs I4 regime classification
+FundAgent extends the existing architecture without violating invariants:
+
+- **Unified Data Bus compliance** — Services never call each other. FundAgent publishes `fundamental:*` events; consumers subscribe. No coupling beyond the bus. See `docs/data/` for bus architecture.
+- **DAG invariants preserved** — Fundamental data flows one direction: source → analysis → Kafka → consumers. No cycles. No service touches the database except Writers/Trackers. See `docs/concepts/dag-execution.md`.
+- **APR-governed** — All fundamental thresholds, weights, and regime parameters live in `config_state` under `fundamental.*` namespace. No hardcoded values. See `docs/foundation/adaptive-parameter-registry.md`.
+- **Shadow governance** — Every fundamental source enrolls in shadow. Promotion requires n ≥ 100 resolved signals and bootstrap CI > 0 at 95% confidence. See `docs/intelligence/intelligence-ai.md`.
+- **VIL-ready** — Fundamental state embeds alongside bar state for historical analog retrieval. See `docs/ideas/vil-01-vector-intelligence-layer.md`.
+- **Ring compliance** — Would live in Ring 2 as `services/fund_agent.py`. See `docs/foundation/naming-system.md`.
+- **Typed events via `stream_keys.py`** — All topic keys constructed centrally. No hardcoded strings. See `src/core/stream_keys.py`.
+- **I4 regime integration** — Macro data primarily informs regime classification (HMM, BOCPD, Kalman). See `docs/intelligence/intelligence-foundation.md`.
+
+## Foundation Concepts Referenced
+
+- **Principles** — `docs/foundation/principles.md`: Instrument everything, earn through proof, segment relentlessly
+- **Naming System** — `docs/foundation/naming-system.md`: Ring 2 daemon, Agent as autonomous worker
+- **APR** — `docs/foundation/adaptive-parameter-registry.md`: Parameter lifecycle, governance
+- **Documentation System** — `docs/foundation/documentation-system.md`: Idea docs live in `ideas/`, not authoritative until verified
+- **Intelligence Architecture** — `docs/intelligence/intelligence-foundation.md`: I4 regime classification, I6 confluence
 
 ## References
 
