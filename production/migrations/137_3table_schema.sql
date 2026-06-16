@@ -15,7 +15,7 @@
 -- denormalization) — it is the FK anchor required by PostgreSQL.
 --
 -- Phase 129 maps signal_ledger columns to the 3-table schema. Columns dropped:
---   signal_type, feature_ts, feature_tf, pipeline_lag_ms, feature_schema_version,
+--   signal_type, feature_tf, pipeline_lag_ms, feature_schema_version,
 --   staleness_score, staleness_trigger_reason (no home in new schema).
 -- Stop architecture fields (stop_basis, stop_type_col, etc.) migrate to
 -- trade_frames.frame_details JSONB. Shadow P&L fields archive to frame_details.
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS signal_events (
     -- Feature context linkage
     feature_ts              timestamptz,              -- Anchor to intelligence_features row; JOIN on (symbol, tf, ts = feature_ts)
     -- Cross-signal context at fire time (populated by SignalAggregator/RankerWriter)
-    concurrent_signal_count int2,                     -- Count of other active signals at fire time; crowding indicator
+    concurrent_signal_count int4,                     -- Count of other active signals at fire time; crowding indicator
     concurrent_plugins      text[]                    -- setup_plugin values of concurrent active signals; ML-queryable
 );
 
