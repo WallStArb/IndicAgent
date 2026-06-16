@@ -1218,7 +1218,7 @@ This phase is split into three waves:
 
   1. ADR at `docs/architecture/signal-trade-separation-ADR.md`
   2. Full table schemas defined with types, FK, indexes
-  3. `signal_ledger_v2` view SQL defined
+  3. `signal_ledger_full` view SQL defined
   4. Cardinality recorded: 1 signal → N frames (one per entry_type); 1 frame → 0-1 executions
 
 **Plans**: 3 plans in 1 wave (Wave 1 — all parallel)
@@ -1226,21 +1226,21 @@ This phase is split into three waves:
 Plans:
 
 - [ ] 128-01-PLAN.md — ADR: signal-trade-separation-ADR.md (Context, Decision, G0 Audit, Schema Tables, Alternatives Considered, Consequences)
-- [ ] 128-02-PLAN.md — DDL: production/migrations/137_3table_schema.sql (signal_events hypertable + trade_frames + trade_executions + signal_ledger_v2 view)
+- [ ] 128-02-PLAN.md — DDL: production/migrations/137_3table_schema.sql (signal_events hypertable + trade_frames + trade_executions + signal_ledger_full view)
 - [ ] 128-03-PLAN.md — Cleanup: delete capture_signal_features() from confidence_utils.py + update src/intelligence/CLAUDE.md
 
 ---
 
 ### Phase 129: Database Migration
 
-**Goal:** Create 3 new tables. Migrate signal_ledger data. Deploy signal_ledger_v2 view. Keep signal_ledger read-only during transition.
+**Goal:** Create 3 new tables. Migrate signal_ledger data. Deploy signal_ledger_full view. Keep signal_ledger read-only during transition.
 
 **Depends on**: Phase 128
 **Requirements**: MIGRATE-01
 **Success Criteria**:
 
   1. signal_events, trade_frames, trade_executions created with full schema
-  2. signal_ledger_v2 view deployed and queryable
+  2. signal_ledger_full view deployed and queryable
   3. Row counts verified: all signal_ledger rows migrated
   4. signal_ledger retained read-only (not dropped yet)
 
