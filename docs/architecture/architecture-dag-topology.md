@@ -79,8 +79,10 @@ graph TD
     subgraph DB["TimescaleDB"]
         OHLCV[("market_data_ohlcv")]
         INTFEAT[("intelligence_features")]
-        SIGLED[("signal_ledger\n+expires_at\n+entry_zone_low/high")]
-        SIGOUT[("signal_outcomes\n(lifecycle updates)")]
+        SIGEVENT[("signal_events\n(detection layer)")]
+        TF[("trade_frames\n(hypothesis layer)")]
+        TE[("trade_executions\n(execution layer)")]
+        SIGVIEW[("signal_ledger\n(JOIN view)")]
         LLMDB[("llm_calls")]
     end
 
@@ -203,7 +205,7 @@ Compute (DB-ignorant) → Kafka → Writer (DB access only)
 |-------|-------|--------|-----------|
 | `IntelligencePipeline` | `market.bars` | Kafka topics | None |
 | `FeatureWriter` | `intelligence.journal` | `intelligence_features` | Write |
-| `SignalWriter` | `intelligence.i7.signals` | `signal_ledger` | Write |
+| `SignalWriter` | `intelligence.i7.signals` | `signal_events + trade_frames` | Write |
 
 **What this prevents:** Most systems mix compute and persistence — indicators write directly to DB. When DB slows down, indicators slow down. When DB goes down, indicators stop.
 
@@ -245,9 +247,9 @@ Compute (DB-ignorant) → Kafka → Writer (DB access only)
 | Agent | Input | Output | Purpose |
 |-------|-------|--------|---------|
 | `FeatureWriter` | `intelligence.journal` | `intelligence_features` | Full I1-I7 vectors (ML training) |
-| `SignalWriter` | `intelligence.i7.signals` | `signal_ledger` | All ranked I7 signals |
+| `SignalWriter` | `intelligence.i7.signals` | `signal_events + trade_frames` | All ranked I7 signals (3-table schema) |
 | `SignalTracker` | `intelligence.i7.signals` | `lifecycle.transitions` | Lifecycle: activation, MAE/MFE, outcome |
-| `LifecycleWriter` | `lifecycle.transitions` | `signal_outcomes` | Persists lifecycle updates |
+| `LifecycleWriter` | `lifecycle.transitions` | `signal_events.status + trade_frames.frame_details` | Persists lifecycle updates |
 | `LLMWriterService` | `llm.calls` | `llm_calls` | LLM audit log + outcome back-fill |
 
 ### 6. Parallel / Side-Channel

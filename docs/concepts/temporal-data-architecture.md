@@ -28,9 +28,12 @@ TimescaleDB (PostgreSQL extension) is used for all time-series tables. Three pri
 |-------|-------------|---------|
 | `market_data_ohlcv` | `timestamp` | Raw OHLCV bars |
 | `intelligence_features` | `ts` | Full feature vectors per bar (I1-I7 outputs) |
-| `signal_ledger` | `timestamp` | All signals + lifecycle outcomes, forever |
+| `signal_events` | `ts` | Detection layer: one row per I7 plugin fire, forever |
+| `trade_frames` | `signal_ts` | Hypothesis layer: one row per entry_type per signal, counterfactual_pnl_r ML training target, forever |
+| `trade_executions` | `exited_at` | Execution layer: one row per live trade, actual_pnl_r, forever |
+| `signal_ledger` | N/A | JOIN view (signal_events + trade_frames + trade_executions) — backward-compat query surface |
 
-**`signal_ledger` is the crown jewel.** Every I7 signal ever fired is stored with its full feature context, entry/exit prices, PnL-R, MAE, MFE, and outcome. This is the labeled training dataset for every future model. It has no retention policy and never will.
+**The 3-table signal architecture is the training dataset foundation.** `signal_events` captures detection with ECL annotations (factor_scores, context_features). `trade_frames` captures all entry_type hypotheses with counterfactual_pnl_r (populated by CounterfactualTracker in v2.11). `trade_executions` captures live execution outcomes. Every I7 signal ever fired is preserved with full feature context. These tables have no retention policy and never will.
 
 **Volume Profile columns:** `poc_price`/`vah`/`val` = session VP (1m/5m); `poc_price_rolling`/`vah_rolling`/`val_rolling` = rolling VP (15m/1h). Different names for semantically different calculations — do not conflate.
 
@@ -41,7 +44,7 @@ TimescaleDB (PostgreSQL extension) is used for all time-series tables. Three pri
 ## Invariants
 
 - No table that records a market event may have rows deleted or updated in place.
-- `intelligence_features`, `signal_ledger`, and `llm_calls` have no retention policies — ever.
+- `intelligence_features`, `signal_events`, `trade_frames`, `trade_executions`, and `llm_calls` have no retention policies — ever.
 - All timestamps stored as `timestamptz` (UTC). `datetime.now(UTC)` only — never `datetime.now()` or `datetime.utcnow()`.
 - DB queries use `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent`. Plain `psql -U postgres` fails (no socket auth).
 
