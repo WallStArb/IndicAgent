@@ -1275,7 +1275,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 130-02-PLAN.md — Repository rewrite: SignalLedgerRepository → SignalEventsRepository, 3-table SQL, shim + importers
+- [x] 130-02-PLAN.md — Repository rewrite: SignalLedgerRepository → SignalEventsRepository, 3-table SQL, shim + importers
 
 **Wave 3** *(parallel, blocked on Wave 2; disjoint files)*
 
