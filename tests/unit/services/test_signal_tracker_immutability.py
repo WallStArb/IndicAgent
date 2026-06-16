@@ -44,6 +44,9 @@ def _make_agent() -> SignalTracker:
     # Settings
     agent.settings = MagicMock(env_name="dev")
 
+    # APR-backed config (defaults from migration 142)
+    agent._staleness_score_threshold = 0.5
+
     return agent
 
 

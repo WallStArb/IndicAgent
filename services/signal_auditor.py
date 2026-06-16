@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""SignalAuditor — coverage validation and lag monitoring for signal_ledger.
+"""SignalAuditor — coverage validation for signal_events.
 
 Runs a 5-minute audit loop during market hours. Checks:
 1. Signal coverage per (symbol, tf) — at least one signal fired in the last session
-2. Pipeline lag P50/P95 from signal_ledger.pipeline_lag_ms over last 1h
-3. CIS score distribution (mean/stddev) per tf over a rolling 5-day window
+2. CIS score distribution (mean/stddev) per tf over a rolling 5-day window
 
 Emits SignalCoverageGapEvent to intelligence.signal.audit on coverage gaps.
-DB-aware (reads signal_ledger). AuditorAgent role — read-only, never writes.
+DB-aware (reads signal_events). AuditorAgent role — read-only, never writes.
+
+Phase 130: the P50/P95 lag metrics and lag-check method are removed (schema migration
+dropped the column from the old monolith). Coverage query now reads signal_events
+directly (tf column, ts column).
 """
 
 from __future__ import annotations
@@ -30,7 +33,6 @@ from src.core.stream_keys import topic_signal_audit
 _AUDIT_INTERVAL = 300  # 5 minutes between audit cycles
 _RTH_BUFFER_MINUTES = 30  # run audits RTH + 30 min buffer
 _COVERAGE_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")  # Timeframes audited for signal coverage
-_LAG_P95_WARN_MS = 500.0  # Pipeline lag threshold for WARNING log
 _CIS_LOOKBACK_DAYS = 5  # Rolling window for CIS distribution check
 
 # ---------------------------------------------------------------------------
@@ -58,14 +60,6 @@ _SIGNAL_COVERAGE_PCT = _sa_meter.create_up_down_counter(
     "signal_coverage_pct",
     description="1.0 if ≥1 signal fired in last session, 0.0 otherwise",
 )
-_PIPELINE_LAG_P50 = _sa_meter.create_up_down_counter(
-    "signal_pipeline_lag_p50_ms",
-    description="P50 pipeline_lag_ms from signal_ledger over last 1h per (symbol, tf)",
-)
-_PIPELINE_LAG_P95 = _sa_meter.create_up_down_counter(
-    "signal_pipeline_lag_p95_ms",
-    description="P95 pipeline_lag_ms from signal_ledger over last 1h per (symbol, tf)",
-)
 _CIS_MEAN = _sa_meter.create_up_down_counter(
     "signal_cis_mean",
     description="Mean cis_score per tf over rolling 5-day window",
@@ -77,17 +71,25 @@ _CIS_STDDEV = _sa_meter.create_up_down_counter(
 
 
 class SignalAuditor(BaseDaemon):
-    """Validates signal coverage and pipeline health via periodic audits.
+    """Validates signal coverage via periodic audits.
 
     Runs a 5-minute audit loop during market hours (plus 30-min buffer).
     Emits SignalCoverageGapEvent to intelligence.signal.audit on coverage gaps.
-    Reads signal_ledger but never writes (AuditorAgent role).
+    Reads signal_events directly (AuditorAgent role — never writes).
+
+    Phase 130: coverage query updated to signal_events (tf/ts columns).
+    Phase 130: P50/P95 lag check removed (column dropped from schema).
+    APR key feature.signal_auditor.audit_lookback_hours governs any future
+    time-windowed audit query (loaded from config_service in _setup()).
     """
 
     def __init__(self) -> None:
         super().__init__(max_idle_seconds=600)
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
+        # APR-backed audit lookback — loaded in _setup() from config_service.
+        # Default matches APR seed value (migration 142).
+        self._audit_lookback_hours: int = 1
 
         self._agent_attrs = {"agent": self.name}
 
@@ -104,6 +106,13 @@ class SignalAuditor(BaseDaemon):
         return [topic_signal_audit(self.env_name)]
 
     async def _setup(self) -> None:
+        # Load APR-backed audit configuration (feature.signal_auditor.* namespace,
+        # seeded in migration 142). get_config() reads from the OPS snapshot loaded
+        # by BaseDaemon._pre_setup_config_load() before _setup() is called.
+        self._audit_lookback_hours = int(
+            self.get_config("feature.signal_auditor.audit_lookback_hours", default=1)
+        )
+
         self._db_pool = await create_db_pool(self.settings.database_url, min_size=1, max_size=3)
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers
@@ -112,6 +121,7 @@ class SignalAuditor(BaseDaemon):
         self.logger.info(
             "signal_auditor.setup_complete",
             topics_produced=self.topics_produced,
+            audit_lookback_hours=self._audit_lookback_hours,
         )
 
     async def _teardown(self) -> None:
@@ -156,7 +166,6 @@ class SignalAuditor(BaseDaemon):
         try:
             _t0 = _time.monotonic()
             gap_events = await self._check_coverage(instruments)
-            await self._check_pipeline_lag(instruments)
             await self._check_cis_distribution()
             _AUDIT_DURATION.record(_time.monotonic() - _t0, self._agent_attrs)
 
@@ -187,9 +196,12 @@ class SignalAuditor(BaseDaemon):
 
         For each active symbol × _COVERAGE_TFS:
         - Find the last completed session window via session_window_for_date(yesterday)
-        - Count signal_ledger rows in that window
+        - Count signal_events rows in that window (ts column, tf column)
         - Set signal_coverage_pct gauge (1.0 covered, 0.0 gap)
         - Return SignalCoverageGapEvent dicts for any (symbol, tf) with 0 signals
+
+        Phase 130: reads signal_events directly (signal_ledger_full uses feature_ts
+        which is unavailable in the 3-table schema; signal_events uses ts for fire time).
 
         Returns:
             List of gap event dicts for missing signal coverage.
@@ -212,11 +224,11 @@ class SignalAuditor(BaseDaemon):
                     count = await conn.fetchval(
                         """
                         SELECT COUNT(*)
-                        FROM signal_ledger_full
+                        FROM signal_events
                         WHERE symbol = $1
-                          AND timeframe = $2
-                          AND feature_ts >= $3
-                          AND feature_ts < $4
+                          AND tf = $2
+                          AND ts >= $3
+                          AND ts < $4
                         """,
                         instrument.symbol,
                         tf,
@@ -253,57 +265,15 @@ class SignalAuditor(BaseDaemon):
 
         return gap_events
 
-    async def _check_pipeline_lag(self, instruments: list) -> None:
-        """Observe P50/P95 pipeline_latency_ms from intelligence_features for the last 1h.
-
-        Logs WARNING when P95 > _LAG_P95_WARN_MS and updates Prometheus gauges.
-        """
-        assert self._db_pool is not None
-        async with self._db_pool.acquire() as conn:
-            for instrument in instruments:
-                for tf in _COVERAGE_TFS:
-                    row = await conn.fetchrow(
-                        """
-                        SELECT
-                          percentile_cont(0.50) WITHIN GROUP (ORDER BY pipeline_latency_ms) AS p50,
-                          percentile_cont(0.95) WITHIN GROUP (ORDER BY pipeline_latency_ms) AS p95
-                        FROM intelligence_features
-                        WHERE symbol = $1
-                          AND tf = $2
-                          AND ts >= NOW() - INTERVAL '1 hour'
-                          AND pipeline_latency_ms IS NOT NULL
-                        """,
-                        instrument.symbol,
-                        tf,
-                    )
-                    if row is None or row["p50"] is None:
-                        continue  # No data for this (symbol, tf) in the last hour
-
-                    p50: float = row["p50"]
-                    p95: float = row["p95"]
-
-                    _PIPELINE_LAG_P50.add(
-                        p50, {"agent": self.name, "symbol": instrument.symbol, "tf": tf}
-                    )
-                    _PIPELINE_LAG_P95.add(
-                        p95, {"agent": self.name, "symbol": instrument.symbol, "tf": tf}
-                    )
-
-                    if p95 > _LAG_P95_WARN_MS:
-                        self.logger.warning(
-                            "signal_auditor.lag_threshold_exceeded",
-                            symbol=instrument.symbol,
-                            tf=tf,
-                            p95_ms=round(p95, 1),
-                            threshold_ms=_LAG_P95_WARN_MS,
-                        )
-
     async def _check_cis_distribution(self) -> None:
         """Observe CIS score mean/stddev per tf over the last _CIS_LOOKBACK_DAYS days.
 
         A sudden shift in distribution (e.g., mean drops from 0.5 to 0.1) signals
         a bucket feature going missing upstream. Instrumented for Grafana — not
         threshold-alerting in v1.
+
+        Phase 130: query updated to use signal_events (se.tf, se.ts columns) instead
+        of signal_ledger_full (feature_ts / feature_tf columns are dropped).
         """
         assert self._db_pool is not None
         async with self._db_pool.acquire() as conn:
@@ -313,12 +283,12 @@ class SignalAuditor(BaseDaemon):
                     SELECT
                       AVG((tf_sig.value->>'cis_score')::float)    AS cis_mean,
                       STDDEV((tf_sig.value->>'cis_score')::float) AS cis_stddev
-                    FROM signal_ledger_full sl
-                    JOIN intelligence_features f ON f.symbol = sl.symbol AND f.ts = sl.feature_ts AND f.tf = sl.feature_tf
+                    FROM signal_events se
+                    JOIN intelligence_features f ON f.symbol = se.symbol AND f.ts = se.ts AND f.tf = se.tf
                     JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
-                        ON tf_sig.value->>'signal_id' = sl.signal_id::text
-                    WHERE sl.timeframe = $1
-                      AND sl.feature_ts >= NOW() - ($2 * INTERVAL '1 day')
+                        ON tf_sig.value->>'signal_id' = se.signal_id::text
+                    WHERE se.tf = $1
+                      AND se.ts >= NOW() - ($2 * INTERVAL '1 day')
                     """,
                     tf,
                     _CIS_LOOKBACK_DAYS,
