@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS signal_events (
     signal_id               uuid            NOT NULL,
     ts                      timestamptz     NOT NULL, -- Bar timestamp at fire time — hypertable partition dimension
     symbol                  text            NOT NULL,
-    timeframe               text            NOT NULL,
+    tf                      text            NOT NULL,
     setup_plugin            text            NOT NULL,
     direction               text            NOT NULL, -- long / short — converted from integer 1/-1 in Phase 129
     raw_confidence          float8          NOT NULL, -- Intrinsic composite; immutable after emit
@@ -65,7 +65,7 @@ ALTER TABLE signal_events ADD PRIMARY KEY (signal_id, ts);
 
 ALTER TABLE signal_events SET (
     timescaledb.compress,
-    timescaledb.compress_segmentby = 'symbol,timeframe',
+    timescaledb.compress_segmentby = 'symbol,tf',
     timescaledb.compress_orderby = 'ts DESC'
 );
 
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS trade_frames (
     entry_price                 float8,
     stop_price                  float8,
     target_price                float8,
-    r_per_unit                  float8,               -- (target - entry) / (entry - stop)
+    r_multiple                  float8,               -- (target - entry) / (entry - stop); standard R-multiple
     ttl_bars                    int4,
     expires_at                  timestamptz,
     counterfactual_pnl_r        float8,               -- Always populated by CounterfactualTracker; ML target variable
@@ -195,7 +195,7 @@ SELECT
     se.signal_id,
     se.ts,
     se.symbol,
-    se.timeframe,
+    se.tf,
     se.setup_plugin,
     se.direction,
     se.raw_confidence,
@@ -219,7 +219,7 @@ SELECT
     tf.entry_price,
     tf.stop_price,
     tf.target_price,
-    tf.r_per_unit,
+    tf.r_multiple,
     tf.counterfactual_pnl_r,
     tf.counterfactual_mfe,
     tf.counterfactual_mae,
