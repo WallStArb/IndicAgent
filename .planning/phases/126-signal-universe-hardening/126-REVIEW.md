@@ -67,7 +67,7 @@ Update `test_annotate_sets_context_features_to_full_snapshot` to assert equality
 
 **File:** `production/scripts/signal_quality_audit.py:252-265`
 
-**Issue:** Layer 1 SQL joins `signal_ledger` to `signal_outcomes` (a two-table pre-Phase-128 schema). Per CLAUDE.md, Phase 128+ uses the 3-table architecture: `signal_events` / `trade_frames` / `trade_executions`, with backward-compat view `signal_ledger_v2`. The audit script's SQL `FROM signal_ledger sl LEFT JOIN signal_outcomes so ON sl.signal_id = so.signal_id` will either fail at runtime (if `signal_outcomes` has already been replaced by Phase 128 migration) or silently return rows from a deprecated table.
+**Issue:** Layer 1 SQL joins `signal_ledger` to `signal_outcomes` (a two-table pre-Phase-128 schema). Per CLAUDE.md, Phase 128+ uses the 3-table architecture: `signal_events` / `trade_frames` / `trade_executions`, with backward-compat view `signal_ledger_full`. The audit script's SQL `FROM signal_ledger sl LEFT JOIN signal_outcomes so ON sl.signal_id = so.signal_id` will either fail at runtime (if `signal_outcomes` has already been replaced by Phase 128 migration) or silently return rows from a deprecated table.
 
 The same applies to the Layer 2 sample query at line 400 which joins `signal_ledger sl JOIN intelligence_features f`. If `signal_ledger` was dropped in Phase 129 (per the CLAUDE.md note: "`signal_ledger` — legacy monolith (read-only during v2.10 migration; dropped in Phase 129)"), this script will throw at runtime.
 
@@ -75,8 +75,8 @@ The script header comment at line 239 says "uses signal_ledger + signal_outcomes
 
 **Fix:** Replace direct table queries with the backward-compat view:
 ```sql
--- Layer 1: use signal_ledger_v2 for Phase 128+ compatibility
-FROM signal_ledger_v2 sl
+-- Layer 1: use signal_ledger_full for Phase 128+ compatibility
+FROM signal_ledger_full sl
 -- pnl_r lives on trade_frames in 3-table schema
 WHERE sl.counterfactual_pnl_r IS NOT NULL
 ```

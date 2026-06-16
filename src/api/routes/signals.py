@@ -39,6 +39,12 @@ def _get_settings() -> Settings:
     return Settings()
 
 
+def _ts(row: Any, primary: str, fallback: str = "timestamp") -> str | None:
+    """Serialize a nullable timestamptz row field with a fallback column."""
+    v = row[primary] or row[fallback]
+    return v.isoformat() if v is not None else None
+
+
 def _compute_signal_tier(
     was_selected: bool,
     confidence: float | None,
@@ -84,11 +90,7 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
     """
     signal: dict[str, Any] = {
         "signal_id": str(row["signal_id"]),
-        "timestamp": (
-            row["timestamp"].isoformat()
-            if hasattr(row["timestamp"], "isoformat")
-            else str(row["timestamp"])
-        ),
+        "timestamp": row["timestamp"].isoformat(),
         "symbol": row["symbol"],
         "timeframe": row["timeframe"],
         "setup_plugin": row["setup_plugin"],
@@ -98,16 +100,11 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
         "stop_loss": float(row["stop_loss"]) if row["stop_loss"] is not None else None,
         "confidence": float(row["confidence"]) if row["confidence"] is not None else None,
         "status": row["status"],
-        "feature_ts": (
-            row["feature_ts"].isoformat()
-            if row["feature_ts"] is not None and hasattr(row["feature_ts"], "isoformat")
-            else None
-        ),
+        "feature_ts": row["feature_ts"].isoformat() if row["feature_ts"] is not None else None,
         "feature_tf": row["feature_tf"],
         "signal_computed_at": (
             row["signal_computed_at"].isoformat()
             if row.get("signal_computed_at") is not None
-            and hasattr(row["signal_computed_at"], "isoformat")
             else None
         ),
         "market_price_at_signal": (
@@ -202,7 +199,7 @@ async def get_active_signals(
             WHERE so.status IN ('pending', 'active')
               -- shadow signals included intentionally: dashboard observability (Phase 80)
               AND sl.timestamp >= NOW() - INTERVAL '7 days'
-            ORDER BY sl.symbol, sl.timeframe, sl.signal_computed_at DESC
+            ORDER BY sl.symbol, sl.timeframe, COALESCE(sl.signal_computed_at, sl.timestamp) DESC
             LIMIT 500
         """
         rows = await db_manager.fetch(query)
@@ -246,11 +243,7 @@ async def get_active_signals(
                     "entry_zone_low": _f(row["entry_zone_low"]),
                     "entry_zone_high": _f(row["entry_zone_high"]),
                     "zone_valid_at_signal": None,
-                    "signal_computed_at": (
-                        row["signal_computed_at"].isoformat()
-                        if row["signal_computed_at"] is not None
-                        else None
-                    ),
+                    "signal_computed_at": _ts(row, "signal_computed_at"),
                     "bar_close_ts": (
                         row["bar_close_ts"].isoformat() if row["bar_close_ts"] is not None else None
                     ),
@@ -339,7 +332,7 @@ async def get_recent_signals(
               AND ($2::text IS NULL OR sl.timeframe = $2)
               AND (NOT $4::boolean OR sl.was_selected = true)
               AND (NOT $5::boolean OR (sl.signal_quality >= 0.40 AND sl.cis_score IS NOT NULL AND abs(sl.cis_score) > 0.35))
-            ORDER BY sl.signal_computed_at DESC
+            ORDER BY COALESCE(sl.signal_computed_at, sl.timestamp) DESC
             LIMIT $3
         """
         rows = await db_manager.fetch(
@@ -378,12 +371,7 @@ async def get_recent_signals(
                     "outcome": row["outcome"],
                     "exit_price": _f(row["exit_price"]),
                     "pnl_r": _f(row["pnl_r"]),
-                    "computed_at": (
-                        row["signal_computed_at"].isoformat()
-                        if row["signal_computed_at"] is not None
-                        and hasattr(row["signal_computed_at"], "isoformat")
-                        else None
-                    ),
+                    "computed_at": _ts(row, "signal_computed_at"),
                     "timeframe": row["timeframe"],
                     "symbol": row["symbol"],
                     "setup_win_rate": _f(row["setup_win_rate"]),
@@ -453,12 +441,12 @@ async def get_signals_stats(
                 -- Session counts (last 24h as proxy for current session)
                 COUNT(*) FILTER (
                     WHERE was_selected = true
-                      AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '24 hours'
                 ) AS signals_today,
                 COUNT(*) FILTER (
                     WHERE was_selected = true
-                      AND signal_computed_at >= NOW() - INTERVAL '48 hours'
-                      AND signal_computed_at < NOW() - INTERVAL '24 hours'
+                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '48 hours'
+                      AND COALESCE(signal_computed_at, timestamp) < NOW() - INTERVAL '24 hours'
                 ) AS signals_prev_session,
                 -- Hero tier count today
                 COUNT(*) FILTER (
@@ -466,24 +454,24 @@ async def get_signals_stats(
                       AND signal_quality >= 0.40
                       AND cis_score IS NOT NULL
                       AND abs(cis_score) > 0.35
-                      AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '24 hours'
                 ) AS hero_count_today,
                 -- Selected count today (denominator for hero_rate)
                 COUNT(*) FILTER (
                     WHERE was_selected = true
-                      AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '24 hours'
                 ) AS selected_count_today,
                 -- Avg confidence (signal_quality is the post-rename column)
                 ROUND(
                     AVG(signal_quality) FILTER (
                         WHERE was_selected = true
-                          AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                          AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '24 hours'
                     )::numeric, 4
                 ) AS avg_confidence_today,
                 ROUND(
                     AVG(signal_quality) FILTER (
                         WHERE was_selected = true
-                          AND signal_computed_at >= NOW() - INTERVAL '7 days'
+                          AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '7 days'
                     )::numeric, 4
                 ) AS avg_confidence_7d,
                 -- Pipeline latency: bar close → signal computed (live signals only).
@@ -535,7 +523,7 @@ async def get_signals_stats(
             WHERE was_selected = true
               AND status NOT IN ('pending', 'active')
               AND outcome IS NOT NULL
-            ORDER BY signal_computed_at DESC
+            ORDER BY COALESCE(signal_computed_at, timestamp) DESC
             LIMIT 10
         """
         outcome_rows = await db_manager.fetch(outcomes_query)
@@ -649,7 +637,7 @@ async def get_signals_edge_series(
     try:
         query = """
             SELECT
-                DATE_TRUNC('day', signal_computed_at)::date AS day,
+                DATE_TRUNC('day', COALESCE(signal_computed_at, timestamp))::date AS day,
                 COUNT(*) FILTER (WHERE pnl_r IS NOT NULL) AS n,
                 ROUND(AVG(pnl_r) FILTER (WHERE pnl_r IS NOT NULL)::numeric, 4) AS avg_r,
                 ROUND(
@@ -658,7 +646,7 @@ async def get_signals_edge_series(
                 ) AS win_rate
             FROM signal_ledger_full
             WHERE was_selected = true
-              AND signal_computed_at >= NOW() - INTERVAL '30 days'
+              AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '30 days'
             GROUP BY 1
             ORDER BY 1
         """
@@ -687,15 +675,15 @@ async def get_signals_intraday_heatmap(
     try:
         query = """
             SELECT
-                EXTRACT(HOUR FROM signal_computed_at AT TIME ZONE 'America/New_York')::int AS hour,
-                EXTRACT(DOW FROM signal_computed_at AT TIME ZONE 'America/New_York')::int AS dow,
+                EXTRACT(HOUR FROM COALESCE(signal_computed_at, timestamp) AT TIME ZONE 'America/New_York')::int AS hour,
+                EXTRACT(DOW FROM COALESCE(signal_computed_at, timestamp) AT TIME ZONE 'America/New_York')::int AS dow,
                 COUNT(*) FILTER (WHERE pnl_r IS NOT NULL) AS n,
                 ROUND(AVG(pnl_r) FILTER (WHERE pnl_r IS NOT NULL)::numeric, 4) AS avg_r
             FROM signal_ledger_full
             WHERE was_selected = true
-              AND signal_computed_at >= NOW() - INTERVAL '90 days'
-              AND EXTRACT(DOW FROM signal_computed_at AT TIME ZONE 'America/New_York') BETWEEN 1 AND 5
-              AND EXTRACT(HOUR FROM signal_computed_at AT TIME ZONE 'America/New_York') BETWEEN 8 AND 17
+              AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '90 days'
+              AND EXTRACT(DOW FROM COALESCE(signal_computed_at, timestamp) AT TIME ZONE 'America/New_York') BETWEEN 1 AND 5
+              AND EXTRACT(HOUR FROM COALESCE(signal_computed_at, timestamp) AT TIME ZONE 'America/New_York') BETWEEN 8 AND 17
             GROUP BY 1, 2
             ORDER BY 1, 2
         """
@@ -948,9 +936,7 @@ async def get_signal_detail(
             "outcome": row["outcome"],
             "exit_price": _f(row["exit_price"]),
             "pnl_r": _f(row["pnl_r"]),
-            "signal_computed_at": (
-                row["signal_computed_at"].isoformat() if row["signal_computed_at"] else None
-            ),
+            "signal_computed_at": _ts(row, "signal_computed_at"),
             "entry_zone_low": _f(row["entry_zone_low"]),
             "entry_zone_high": _f(row["entry_zone_high"]),
             "zone_valid_at_signal": None,

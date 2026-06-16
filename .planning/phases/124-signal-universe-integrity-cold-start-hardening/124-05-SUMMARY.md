@@ -6,7 +6,7 @@ tags: [i7-plugin, onset-guard, structural-rewrite, liquidity-sweep, signal-quali
 dependency_graph:
   requires: [124-01]
   provides: [liquidity_sweep_reclaim_rising_edge]
-  affects: [signal_events, signal_ledger_v2]
+  affects: [signal_events, signal_ledger_full]
 tech_stack:
   added: []
   patterns: [onset_guard_rising_edge, deduplicate_event_structural_anchor, close_above_acceptance]

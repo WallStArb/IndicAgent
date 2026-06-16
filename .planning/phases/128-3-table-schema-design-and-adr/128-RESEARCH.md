@@ -19,7 +19,7 @@
 
 **D-04:** trade_executions full schema — see CONTEXT.md table (13 columns). Regular table. Indexes: `(frame_id)`, `(executed_at)`.
 
-**D-05:** signal_ledger_v2 view SQL — fully written in CONTEXT.md. LEFT JOINs signal_events → trade_frames → trade_executions.
+**D-05:** signal_ledger_full view SQL — fully written in CONTEXT.md. LEFT JOINs signal_events → trade_frames → trade_executions.
 
 **D-06:** float8 throughout for all prices, confidence values, P&L. No float4, no numeric.
 

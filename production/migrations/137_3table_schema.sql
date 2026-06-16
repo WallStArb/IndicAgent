@@ -88,10 +88,10 @@ CREATE INDEX IF NOT EXISTS idx_signal_events_regime
     ON signal_events (hmm_regime_at_fire, ts DESC);
 
 CREATE INDEX IF NOT EXISTS idx_signal_events_shadow
-    ON signal_events (is_shadow);
+    ON signal_events (ts DESC) WHERE is_shadow = true;
 
 CREATE INDEX IF NOT EXISTS idx_signal_events_backfill
-    ON signal_events (is_backfill);
+    ON signal_events (ts DESC) WHERE is_backfill = true;
 
 CREATE INDEX IF NOT EXISTS idx_signal_events_status_ts
     ON signal_events (status, ts DESC);
@@ -194,8 +194,10 @@ CREATE OR REPLACE VIEW signal_ledger_full AS
 SELECT
     se.signal_id,
     se.ts,
+    se.ts AS timestamp,                                          -- Legacy alias; ts is canonical
     se.symbol,
     se.tf,
+    se.tf AS timeframe,                                          -- Legacy alias; tf is canonical
     se.setup_plugin,
     se.direction,
     se.raw_confidence,
@@ -214,6 +216,8 @@ SELECT
     se.signal_schema_version,
     se.ttl_bars,
     se.expires_at,
+    COALESCE(se.signal_computed_at, se.ts) AS signal_computed_at, -- Never null; callers need not apply COALESCE
+    se.signal_computed_at AS signal_computed_at_raw,              -- Nullable original; use for latency queries
     tf.frame_id,
     tf.entry_type,
     tf.entry_price,

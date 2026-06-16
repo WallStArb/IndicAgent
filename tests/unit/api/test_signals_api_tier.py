@@ -1,5 +1,6 @@
 """Tests for GET /api/signals/recent tier filtering and signal_tier field."""
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -26,6 +27,7 @@ def _row(**kwargs):
         "exit_price": None,
         "pnl_r": None,
         "signal_computed_at": None,
+        "timestamp": datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC),
         "timeframe": "1m",
         "setup_win_rate": None,
         "setup_avg_pnl_r": None,

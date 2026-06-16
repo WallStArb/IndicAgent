@@ -71,9 +71,10 @@ class BarMessage(BaseModel):
         is_flat_bar   — True when bar has zero volume (flat fill from prev close);
                         False for normal bars with real trade activity.
                         HTF bars: True only when ALL constituent 1m bars were flat.
-        bar_id        — Unique UUID for this bar, auto-generated on construction.
-                        Flows through IntelligenceEvent to signal_ledger for
-                        end-to-end traceability (Phase 68-03).
+        bar_id        — Log-correlation trace handle only. UUID4, auto-generated.
+                        Flows through IntelligenceEvent and signal dicts for
+                        cross-service log correlation. Never written to the DB —
+                        (symbol, tf, ts) is the canonical natural key for joins.
     """
 
     ts: datetime

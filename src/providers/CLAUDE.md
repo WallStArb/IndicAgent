@@ -19,8 +19,8 @@ All ib_insync logic is isolated here. **No ib_insync imports anywhere else.**
 - `qualify_instrument` handles `AssetClass.FUTURES` (Future), `.FX` (Forex), `.CRYPTO` (Contract secType='CRYPTO').
 - `fetch_historical_bars()` supports `continuous=True` for back-adjusted `ContFuture` data (multi-year backfill).
 
-### Active Contracts (63)
-63 instruments: 21 futures, 4 FX, 38 ETFs. IBKR subscription limit 80 (17 slots headroom). **Always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.** Counts change on futures roll.
+### Active Contracts
+Count drifts with futures rolls — `get_active_contracts()` from `src/config/settings.py` is authoritative. As of last update: ~63 instruments (~21 futures, 4 FX, 38 ETFs). IBKR subscription limit 80. **Never hardcode counts.**
 
 Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200. NG/BZ valid in live account.
 

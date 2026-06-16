@@ -378,6 +378,70 @@ A hierarchical classification system with explicit parent/child relationships be
 
 ---
 
+### `Intrinsic Confidence Composite (ICC)`
+
+The 4-factor weighted score computed inside each I7 plugin from pattern-internal evidence only — price structure, volume confirmation, momentum alignment, and microstructure. Factor weights sum to 1.0. The output is `raw_confidence` on `signal_events`.
+
+ICC is strictly pattern-internal. ECL vectors (CTF score, HMM weight, zone friction) are never inputs to it. Any extrinsic term in the ICC corrupts `raw_confidence` into a value the ML model cannot decompose — it cannot learn whether the extrinsic context helped or hurt.
+
+**Not:** the CIS score (which aggregates across 6 evidence buckets from all tiers). ICC is computed at the plugin level, before CIS adjudication.
+
+**Banned:** "intrinsic composite," "intrinsic score," "plugin confidence" (all replaced by ICC)
+**Status:** active
+
+**Code surface:** `raw_confidence` field on `signal_events`; `compose_confidence()` in `confidence_utils.py`; `factor_scores` JSONB; `docs/architecture/setup-confidence-patterns.md`.
+
+---
+
+### `Shadow Governance (SG)`
+
+The statistical lifecycle that governs promotion and demotion of all I7 plugins and AI agents. Auto-enrollment at startup → shadow observation (live data, zero production impact) → statistical evaluation → gate → promotion → continuous monitoring → automatic demotion.
+
+**Gate:** `n >= 100` resolved signals AND `bootstrap_ci_lower(pnl_r) > 0.0` at 95% CI. Both conditions required. Sample size alone is not sufficient.
+
+**Demotion:** `EV[R] < -0.05` for 3 consecutive evaluation cycles. Automatic and inviolable — cannot be overridden by configuration or manual DB edit.
+
+**Not:** a logging mechanism or monitoring dashboard. SG is the statistical control loop that determines whether a component earns production influence.
+
+**Banned:** "shadow mode" as a standalone system name (shadow mode is one phase of SG, not the whole system)
+**Status:** active
+
+**Code surface:** `shadow_registry` table; `shadow_registry_ensure()` at service startup; `ShadowTransitionEvent` on Kafka; `bootstrap_ci_lower()` in `src/core/stats_utils.py`.
+
+---
+
+### `Signal Ledger Architecture (SLA)`
+
+The 3-table schema that captures the complete signal lifecycle: `signal_events` (detection layer) + `trade_frames` (hypothesis layer) + `trade_executions` (execution layer), with a join view that queries across all three.
+
+The design separates three concerns that the legacy `signal_ledger` monolith conflated: the fact that a pattern fired (detection), what trade was hypothesized (hypothesis), and what was actually executed (execution). Each table is immutable after write and has its own retention contract.
+
+**Join view naming:** Phase 128 creates `signal_ledger_full` joining all three tables. Phase 129 drops the legacy `signal_ledger` monolith and renames `signal_ledger_full` → `signal_ledger`. After Phase 129, `signal_ledger` is the canonical query surface for the SLA.
+
+**Not:** the `signal_ledger` table (legacy monolith, read-only during SLA migration, dropped Phase 129). `signal_ledger_v2` is a banned name — version-suffixed names violate the naming system.
+
+**Banned:** "3-table architecture," "v2.10 schema," "new signal schema," "signal_ledger_v2" (all replaced by SLA)
+**Status:** active (Phase 128+)
+
+**Code surface:** `signal_events`, `trade_frames`, `trade_executions` tables; `signal_ledger_full` view (Phase 128) / `signal_ledger` view (Phase 129+); `docs/foundation/glossary.md` detection/hypothesis/execution layer entries.
+
+---
+
+### `Counterfactual Feedback Loop (CFL)`
+
+The system that measures `counterfactual_pnl_r` for every `trade_frames` row regardless of execution status. Comprises the `CounterfactualTracker` daemon (which runs the simulation) and the `counterfactual_pnl_r` column on `trade_frames` (which records the result).
+
+CFL closes Bias Layer 2: before CFL, ML models could only train on signals that were executed (those with `actual_pnl_r`). CFL ensures every signal hypothesis — including regime-suppressed and unadjudicated signals — has a measured outcome. This makes `counterfactual_pnl_r` the primary ML training target, replacing `actual_pnl_r`.
+
+**Not:** a backtesting system (CFL measures forward outcomes on live price action, not historical fits). Not "counterfactual recording" (which names only the write step, not the full loop).
+
+**Banned:** "counterfactual recording," "counterfactual tracking," "paper pnl system"
+**Status:** planned (Phase 130)
+
+**Code surface:** `CounterfactualTracker` daemon; `counterfactual_pnl_r` column on `trade_frames`; `signal_ledger_full` / `signal_ledger` view (see SLA).
+
+---
+
 ---
 
 ### `Extrinsic Confidence Layer (ECL)`
@@ -485,6 +549,21 @@ The corruption of the ML training set caused by systematically excluding certain
 
 **Banned:** (none)
 **Status:** Layer 1 fixed Phase 123; Layer 2 addressed Phase 127-130.
+
+---
+
+### `Architecture Decision Record (ADR)`
+
+A document that captures a significant architectural decision: the context that forced the choice, the decision itself, the alternatives considered and why they were rejected, and the consequences. ADRs are institutional memory - they exist so future maintainers understand *why* a design is the way it is, not just what it is.
+
+ADRs in IndicAgent live at `docs/architecture/` and are named `<concept>-ADR.md`. Each ADR is written once the decision is locked (typically during a schema-design or architecture-hardening phase) and is not revised after the fact - it records what was decided and why at the time of decision.
+
+**Not:** a spec (which describes what to build, not why it was chosen). Not a design doc (which may still be exploring options). An ADR records a closed decision.
+
+**Banned:** "decision record," "design record," "architecture doc" (use ADR when the decision is locked)
+**Status:** active
+
+**Code surface:** `docs/architecture/*-ADR.md`; first instance: `docs/architecture/signal-trade-separation-ADR.md` (Phase 128).
 
 ---
 
