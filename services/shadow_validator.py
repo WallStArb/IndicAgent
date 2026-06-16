@@ -158,21 +158,21 @@ async def _validate_setup(
 ) -> None:
     """Run 5-gate promotion check for a single setup and emit OTel gauges."""
     # Per-setup outcome metrics query (D-03).
-    # shadow_tracking_start_ts IS NOT NULL ensures only post-refactor signals count (D-03).
+    # is_backfill = false ensures only post-refactor signals count (D-03).
+    # V2.11_ACTIVATED: returns n_resolved=0 until CounterfactualTracker populates counterfactual_pnl_r.
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
             SELECT
-              COUNT(*) FILTER (WHERE so.pnl_r IS NOT NULL) AS n_resolved,
-              COUNT(*) FILTER (WHERE so.pnl_r > 0) AS wins,
-              AVG(so.pnl_r) FILTER (WHERE so.pnl_r IS NOT NULL) AS avg_pnl_r,
-              CORR(sl.cis_score, (so.pnl_r > 0)::int)
-                FILTER (WHERE so.pnl_r IS NOT NULL) AS calibration_corr
+              COUNT(*) FILTER (WHERE sl.counterfactual_pnl_r IS NOT NULL) AS n_resolved,
+              COUNT(*) FILTER (WHERE sl.counterfactual_pnl_r > 0) AS wins,
+              AVG(sl.counterfactual_pnl_r) FILTER (WHERE sl.counterfactual_pnl_r IS NOT NULL) AS avg_pnl_r,
+              CORR(sl.cis_score, (sl.counterfactual_pnl_r > 0)::int)
+                FILTER (WHERE sl.counterfactual_pnl_r IS NOT NULL) AS calibration_corr
             FROM signal_ledger sl
-            LEFT JOIN signal_outcomes so USING (signal_id)
             WHERE sl.setup_plugin = $1
               AND sl.is_shadow = true
-              AND sl.shadow_tracking_start_ts IS NOT NULL
+              AND sl.is_backfill = false
             """,
             name,
         )

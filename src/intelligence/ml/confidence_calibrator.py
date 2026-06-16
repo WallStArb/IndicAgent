@@ -21,8 +21,6 @@ import numpy as np
 import structlog
 from sklearn.isotonic import IsotonicRegression
 
-from src.persistence.repository.signal_events_repository import WIN_OUTCOMES as _WIN_OUTCOMES
-
 logger = structlog.get_logger(__name__)
 
 # Minimum resolved signals required to fit a calibration curve
@@ -81,7 +79,8 @@ async def _run_cis_calibration(db_manager: Any, rows: list) -> None:
             continue
 
         confidences = [float(r["x_input"]) for r in group_rows]
-        win_labels = [1.0 if r["outcome"] in _WIN_OUTCOMES else 0.0 for r in group_rows]
+        # 8-class outcome taxonomy collapsed to 2-class win/loss (counterfactual_pnl_r > 0)
+        win_labels = [1.0 if r["is_win"] else 0.0 for r in group_rows]
         breakpoints, values, ece = _fit_curve(confidences, win_labels)
 
         await db_manager.execute_command(
@@ -139,12 +138,13 @@ async def run_calibration_update(db_manager: Any) -> None:
     """
     try:
         rows = await db_manager.execute_query("""
-            SELECT setup_plugin, timeframe, symbol, cis_score AS x_input, outcome
+            SELECT setup_plugin, timeframe, symbol, cis_score AS x_input,
+                   (counterfactual_pnl_r > 0) AS is_win
             FROM signal_ledger
-            WHERE outcome IS NOT NULL
+            WHERE counterfactual_pnl_r IS NOT NULL
               AND is_shadow = FALSE
               AND feature_schema_version >= 2
-            ORDER BY signal_computed_at DESC
+            ORDER BY COALESCE(signal_computed_at, ts) DESC
             LIMIT 50000
             """)
         if not rows:
@@ -164,7 +164,8 @@ async def run_calibration_update(db_manager: Any) -> None:
                 continue
 
             confidences = [float(r["x_input"]) for r in group_rows]
-            win_labels = [1.0 if r["outcome"] in _WIN_OUTCOMES else 0.0 for r in group_rows]
+            # 8-class outcome taxonomy collapsed to 2-class win/loss (counterfactual_pnl_r > 0)
+            win_labels = [1.0 if r["is_win"] else 0.0 for r in group_rows]
             breakpoints, values, ece = _fit_curve(confidences, win_labels)
 
             await db_manager.execute_command(
