@@ -30,7 +30,10 @@ from .trade_framer import frame_trade
 
 _SPIKE_Z_THRESHOLD: float = 1.5  # lower than OFI/CVD spike (1.5 vs 2.0 — captures more cases)
 _PRICE_FOLLOW_THRESHOLD: float = 0.3  # price must move < 0.3 ATR for exhaustion
-_CONF_WEIGHTS: tuple[float, ...] = (0.35, 0.30, 0.25, 0.10)
+_W_CVD_Z: float = 0.35
+_W_PRICE_FAIL: float = 0.30
+_W_HMM_RANGING: float = 0.25
+_W_PERSISTENCE: float = 0.10
 
 
 @dataclass
@@ -67,47 +70,6 @@ class DeltaExhaustionPlugin:
     _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        cfg = self._config_service
-        spike_z_threshold = (
-            cfg.get_sync("threshold.delta_exhaustion.spike_z", _SPIKE_Z_THRESHOLD)
-            if cfg
-            else _SPIKE_Z_THRESHOLD
-        )
-        price_follow_threshold = (
-            cfg.get_sync("threshold.delta_exhaustion.price_follow_atr", _PRICE_FOLLOW_THRESHOLD)
-            if cfg
-            else _PRICE_FOLLOW_THRESHOLD
-        )
-        w_cvd_z = (
-            cfg.get_sync("weights.delta_exhaustion.cvd_z", _CONF_WEIGHTS[0])
-            if cfg
-            else _CONF_WEIGHTS[0]
-        )
-        w_price_fail = (
-            cfg.get_sync("weights.delta_exhaustion.price_fail", _CONF_WEIGHTS[1])
-            if cfg
-            else _CONF_WEIGHTS[1]
-        )
-        w_hmm_ranging = (
-            cfg.get_sync("weights.delta_exhaustion.hmm_ranging", _CONF_WEIGHTS[2])
-            if cfg
-            else _CONF_WEIGHTS[2]
-        )
-        w_persistence = (
-            cfg.get_sync("weights.delta_exhaustion.persistence", _CONF_WEIGHTS[3])
-            if cfg
-            else _CONF_WEIGHTS[3]
-        )
-        _validate_weights_sum(
-            {
-                "cvd_z": w_cvd_z,
-                "price_fail": w_price_fail,
-                "hmm_ranging": w_hmm_ranging,
-                "persistence": w_persistence,
-            },
-            "trad_DeltaExhaustion",
-        )
-
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -126,6 +88,43 @@ class DeltaExhaustionPlugin:
             return no_signal()
 
         cvd_spike_z = float(cvd_spike_z)
+
+        cfg = self._config_service
+        spike_z_threshold = (
+            cfg.get_sync("threshold.delta_exhaustion.spike_z", _SPIKE_Z_THRESHOLD)
+            if cfg
+            else _SPIKE_Z_THRESHOLD
+        )
+        price_follow_threshold = (
+            cfg.get_sync("threshold.delta_exhaustion.price_follow_atr", _PRICE_FOLLOW_THRESHOLD)
+            if cfg
+            else _PRICE_FOLLOW_THRESHOLD
+        )
+        w_cvd_z = cfg.get_sync("weights.delta_exhaustion.cvd_z", _W_CVD_Z) if cfg else _W_CVD_Z
+        w_price_fail = (
+            cfg.get_sync("weights.delta_exhaustion.price_fail", _W_PRICE_FAIL)
+            if cfg
+            else _W_PRICE_FAIL
+        )
+        w_hmm_ranging = (
+            cfg.get_sync("weights.delta_exhaustion.hmm_ranging", _W_HMM_RANGING)
+            if cfg
+            else _W_HMM_RANGING
+        )
+        w_persistence = (
+            cfg.get_sync("weights.delta_exhaustion.persistence", _W_PERSISTENCE)
+            if cfg
+            else _W_PERSISTENCE
+        )
+        _validate_weights_sum(
+            {
+                "cvd_z": w_cvd_z,
+                "price_fail": w_price_fail,
+                "hmm_ranging": w_hmm_ranging,
+                "persistence": w_persistence,
+            },
+            "trad_DeltaExhaustion",
+        )
         if abs(cvd_spike_z) <= spike_z_threshold:
             return no_signal()
 

@@ -35,22 +35,20 @@ def set_config_service(config: Any) -> None:
     _config_service = config
 
 
+def _cfg(key: str, default: float) -> float:
+    return _config_service.get_sync(key, default) if _config_service is not None else default
+
+
 def get_min_regime_weight() -> float:
-    if _config_service is not None:
-        return _config_service.get_sync("threshold.global.min_regime_weight", MIN_REGIME_WEIGHT)
-    return MIN_REGIME_WEIGHT
+    return _cfg("threshold.global.min_regime_weight", MIN_REGIME_WEIGHT)
 
 
 def get_min_ctf_score() -> float:
-    if _config_service is not None:
-        return _config_service.get_sync("threshold.global.min_ctf_score", MIN_CTF_SCORE)
-    return MIN_CTF_SCORE
+    return _cfg("threshold.global.min_ctf_score", MIN_CTF_SCORE)
 
 
 def get_conf_ceil() -> float:
-    if _config_service is not None:
-        return _config_service.get_sync("threshold.global.conf_ceil", CONF_CEIL)
-    return CONF_CEIL
+    return _cfg("threshold.global.conf_ceil", CONF_CEIL)
 
 
 def _validate_weights_sum(weights: dict[str, float], plugin: str, tol: float = 1e-6) -> None:
