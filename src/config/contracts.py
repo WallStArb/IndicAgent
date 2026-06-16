@@ -197,10 +197,13 @@ def get_roll_window(base_symbol: str, ref_date: date) -> tuple[date, date] | Non
 
     for entry in chain:
         expiry = get_expiry_date(base_symbol, entry["expiry_month"], entry["expiry_year"])
-        roll_start = expiry - timedelta(days=14)  # ~10 trading days before
-        roll_end = expiry - timedelta(days=3)  # ~2 trading days before
+        roll_start = expiry - timedelta(days=14)
+        # Friday of the week prior to expiry week (at least 7 days before expiry)
+        _anchor = expiry - timedelta(days=7)
+        roll_end = _anchor - timedelta(days=(_anchor.weekday() - 4) % 7)
 
-        if roll_start <= ref_date <= roll_end:
+        # Active: anywhere from roll_start up to (but not including) expiry
+        if roll_start <= ref_date < expiry:
             return (roll_start, roll_end)
 
         # Also surface windows approaching within 21 days
