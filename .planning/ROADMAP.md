@@ -1271,7 +1271,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 130-01-PLAN.md — OPS_PREFIXES (ui./weights.) + migration 142 APR seeds (22 keys)
+- [x] 130-01-PLAN.md — OPS_PREFIXES (ui./weights.) + migration 142 APR seeds (22 keys)
 
 **Wave 2** *(blocked on Wave 1)*
 
