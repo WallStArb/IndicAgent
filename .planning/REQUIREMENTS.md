@@ -36,7 +36,7 @@
 
 - [ ] **ARCH-01**: `signal_events`, `trade_frames`, `trade_executions` tables created with full schemas, FK constraints, and indexes as defined in `docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md`; `signal_ledger_full` backward-compat view deployed; `counterfactual_pnl_r` is a required first-class column on `trade_frames`
 - [x] **MIGRATE-01**: All `signal_ledger` data migrated into the 3-table schema with row-count verification; `signal_ledger` retained read-only during the 48-hour transition window
-- [ ] **REWRITE-01**: All writers, trackers, auditors, API endpoints, and historical backfill scripts write to and read from the 3-table schema; `signal_ledger` dropped after the verification window; `signal_ledger_full` is the sole backward-compatibility surface
+- [x] **REWRITE-01**: All writers, trackers, auditors, API endpoints, and historical backfill scripts write to and read from the 3-table schema; `signal_ledger` dropped after the verification window; `signal_ledger_full` is the sole backward-compatibility surface
 
 ---
 
@@ -80,7 +80,7 @@
 | REPLAY-02 | Phase 127 | Pending |
 | ARCH-01 | Phase 128 | Pending |
 | MIGRATE-01 | Phase 129 | Complete |
-| REWRITE-01 | Phase 130 | Pending |
+| REWRITE-01 | Phase 130 | Complete |
 
 **Coverage:**
 - v1 requirements: 15 total
