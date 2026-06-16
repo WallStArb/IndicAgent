@@ -22,6 +22,19 @@ from .trade_framer import frame_trade
 
 _SPIKE_THRESHOLD: float = 2.0
 
+_config_service: Any | None = None
+
+
+def set_config_service(config: Any) -> None:
+    global _config_service
+    _config_service = config
+
+
+def get_spike_threshold() -> float:
+    if _config_service is not None:
+        return _config_service.get_sync("threshold.microstructure.spike_z", _SPIKE_THRESHOLD)
+    return _SPIKE_THRESHOLD
+
 
 def detect_spike_signal(
     frames: dict[str, Any],
@@ -70,7 +83,8 @@ def detect_spike_signal(
 
     spike_z = float(spike_z)
     abs_spike_z = abs(spike_z)
-    if abs_spike_z <= _SPIKE_THRESHOLD:
+    spike_threshold = get_spike_threshold()
+    if abs_spike_z <= spike_threshold:
         return no_signal()
 
     # Gate 1: regime gate (spike signals are regime_type="any" — use hmm_trending_weight)
@@ -87,7 +101,7 @@ def detect_spike_signal(
     direction = 1 if spike_z > 0 else -1
 
     # 3-factor intrinsic confidence composite — ctf_factor removed (ECL annotation, Phase 123)
-    z_score_score = clamp01((abs_spike_z - _SPIKE_THRESHOLD) / 3.0)
+    z_score_score = clamp01((abs_spike_z - spike_threshold) / 3.0)
 
     volume_score = rel_volume_score(features)
 

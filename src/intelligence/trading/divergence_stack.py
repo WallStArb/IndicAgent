@@ -93,8 +93,53 @@ class DivergenceStackPlugin:
     capability_tags: frozenset[str] = frozenset({"signal", "divergence"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     _state: dict = field(default_factory=dict)
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        cfg = self._config_service
+        score_threshold = (
+            cfg.get_sync("threshold.divergence_stack.score_threshold", DIVERGENCE_SCORE_THRESHOLD)
+            if cfg
+            else DIVERGENCE_SCORE_THRESHOLD
+        )
+        min_agreeing = (
+            int(cfg.get_sync("feature.divergence_stack.min_agreeing", DIVERGENCE_MIN_AGREEING))
+            if cfg
+            else DIVERGENCE_MIN_AGREEING
+        )
+        confidence_norm = (
+            cfg.get_sync("feature.divergence_stack.confidence_norm", DIVERGENCE_CONFIDENCE_NORM)
+            if cfg
+            else DIVERGENCE_CONFIDENCE_NORM
+        )
+        weights = {
+            "rsi": (
+                cfg.get_sync("weights.divergence_stack.rsi", DIVERGENCE_WEIGHTS["rsi"])
+                if cfg
+                else DIVERGENCE_WEIGHTS["rsi"]
+            ),
+            "macd": (
+                cfg.get_sync("weights.divergence_stack.macd", DIVERGENCE_WEIGHTS["macd"])
+                if cfg
+                else DIVERGENCE_WEIGHTS["macd"]
+            ),
+            "vol": (
+                cfg.get_sync("weights.divergence_stack.vol", DIVERGENCE_WEIGHTS["vol"])
+                if cfg
+                else DIVERGENCE_WEIGHTS["vol"]
+            ),
+            "obv": (
+                cfg.get_sync("weights.divergence_stack.obv", DIVERGENCE_WEIGHTS["obv"])
+                if cfg
+                else DIVERGENCE_WEIGHTS["obv"]
+            ),
+            "cmf": (
+                cfg.get_sync("weights.divergence_stack.cmf", DIVERGENCE_WEIGHTS["cmf"])
+                if cfg
+                else DIVERGENCE_WEIGHTS["cmf"]
+            ),
+        }
+
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -154,9 +199,7 @@ class DivergenceStackPlugin:
         n_agreeing = sum(1 for s in per_input_scores.values() if s > 0)
 
         # Weighted score
-        weighted_score = sum(
-            DIVERGENCE_WEIGHTS[name] * score for name, score in per_input_scores.items()
-        )
+        weighted_score = sum(weights[name] * score for name, score in per_input_scores.items())
 
         # Update divergence age tracking in state; collect active ages in the same pass
         active_ages: list[int] = []
@@ -192,15 +235,15 @@ class DivergenceStackPlugin:
         }
 
         # Gate: score > threshold AND n_agreeing >= min_agreeing
-        if weighted_score > DIVERGENCE_SCORE_THRESHOLD and n_agreeing >= DIVERGENCE_MIN_AGREEING:
+        if weighted_score > score_threshold and n_agreeing >= min_agreeing:
             # Determine overall direction from majority of agreeing inputs (weighted)
             bull_weight = sum(
-                DIVERGENCE_WEIGHTS[name]
+                weights[name]
                 for name, d in per_input_direction.items()
                 if d == 1 and per_input_scores[name] > 0
             )
             bear_weight = sum(
-                DIVERGENCE_WEIGHTS[name]
+                weights[name]
                 for name, d in per_input_direction.items()
                 if d == -1 and per_input_scores[name] > 0
             )
@@ -241,7 +284,7 @@ class DivergenceStackPlugin:
             # Weights: 0.40 + 0.25 + 0.20 + 0.15 = 1.00 exactly.
 
             # Factor 1 — base weighted score (normalized by practical 3-signal max)
-            base_score = clamp01(weighted_score / DIVERGENCE_CONFIDENCE_NORM)
+            base_score = clamp01(weighted_score / max(1e-9, confidence_norm))
 
             # Factor 2 — direction purity (1.0 = unanimous, 0.5 = perfectly split)
             total_active_weight = bull_weight + bear_weight
@@ -252,11 +295,9 @@ class DivergenceStackPlugin:
             )
 
             # Factor 3 — breadth: how many inputs agree beyond the minimum gate
-            breadth_range = 5 - DIVERGENCE_MIN_AGREEING
+            breadth_range = 5 - min_agreeing
             breadth_score = (
-                clamp01((n_agreeing - DIVERGENCE_MIN_AGREEING) / breadth_range)
-                if breadth_range > 0
-                else 1.0
+                clamp01((n_agreeing - min_agreeing) / breadth_range) if breadth_range > 0 else 1.0
             )
 
             # Factor 4 — freshness persistence: most-recently-confirmed active component.

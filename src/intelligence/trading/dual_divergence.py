@@ -86,6 +86,11 @@ class DualDivergencePlugin:
             if cfg
             else _CVD_DIV_THRESHOLD
         )
+        confirmation_bars = (
+            int(cfg.get_sync("feature.dual_divergence.confirmation_bars", _CONFIRMATION_BARS))
+            if cfg
+            else _CONFIRMATION_BARS
+        )
         df = frames.get("main")
         features = {
             **(frames.get("i1") or {}),
@@ -134,7 +139,7 @@ class DualDivergencePlugin:
         _, count = track_consecutive_state(frames, self._state, state_key, combined_sign, "sign")
 
         # Gate: require N confirmation bars
-        if count < _CONFIRMATION_BARS:
+        if count < confirmation_bars:
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
@@ -155,7 +160,7 @@ class DualDivergencePlugin:
         cvd_divergence_score = clamp01(math.tanh(abs_cvd_div / 3.0))
 
         # confirmation_bars_score: how many bars confirmed (more = more persistent divergence)
-        confirmation_bars_score = clamp01((count - _CONFIRMATION_BARS) / 5.0)
+        confirmation_bars_score = clamp01((count - confirmation_bars) / 5.0)
 
         # volume_score: relative volume (higher vol = more conviction behind divergence)
         volume_score = rel_volume_score(features)
