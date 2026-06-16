@@ -80,13 +80,14 @@ _CATEGORICAL_KEYS: tuple[str, ...] = (
 # tod_multiplier sourced from trading_signals JSONB array element 0 (the I7 trading signal payload).
 # COALESCE to 1.0 so inference and training feature vectors keep identical shape when absent.
 # No-lookahead enforced: f.ts < sl.activated_at.
+# V2.11_ACTIVATED: counterfactual_pnl_r gates resolved signals (returns empty until populated).
 _TRAINING_SQL = """
 SELECT
     sl.signal_id,
     sl.timestamp,
     sl.timeframe,
-    sl.pnl_r,
-    (sl.pnl_r > 0)::int                                            AS win_label,
+    sl.counterfactual_pnl_r AS pnl_r,
+    (sl.counterfactual_pnl_r > 0)::int                             AS win_label,
     tf_sig.value->'features_snapshot'                              AS features_snapshot,
     (f.regime_features->>'hmm_regime')::int                        AS hmm_regime,
     (f.regime_features->>'trend_regime')::float                    AS trend_regime,
@@ -97,12 +98,12 @@ SELECT
 FROM signal_ledger sl
 JOIN intelligence_features f
   ON f.symbol = sl.symbol
- AND f.ts = sl.feature_ts
  AND f.tf = sl.feature_tf
+ AND f.ts = sl.feature_ts
  AND f.ts < sl.activated_at
 JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
   ON tf_sig.value->>'signal_id' = sl.signal_id::text
-WHERE sl.outcome IS NOT NULL
+WHERE sl.counterfactual_pnl_r IS NOT NULL
   AND sl.is_shadow = FALSE
   AND sl.entry_zone_low IS NOT NULL
   AND tf_sig.value->'features_snapshot' IS NOT NULL
