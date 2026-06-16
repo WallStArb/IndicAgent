@@ -1204,7 +1204,10 @@ This phase is split into three waves:
   5. Calibration curves retrained on clean corpus
   6. RCA Part VI updated
 
-**Plans**: defer to `/gsd-plan-phase 127`
+**Plans**: 3 plans across 3 waves
+- [ ] 127-01-PLAN.md — Capture pre-replay baseline on 3-table schema + execute clean replay with --include-rolled
+- [ ] 127-02-PLAN.md — 3-table validation report (NO Welch'''s t-test, null distribution, bootstrap CI) + RCA Part VI update
+- [ ] 127-03-PLAN.md — Trigger ml-training calibration retrain on clean corpus with pre-flight schema check
 
 ---
 
