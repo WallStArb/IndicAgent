@@ -2,18 +2,17 @@
 """
 Lifecycle Replay Script — batch replay of historical signal outcomes.
 
-Version: 1.3
+Version: 1.4
 Status: current
-Last Updated: 2026-06-10
+Last Updated: 2026-06-16
 
-Phase 121 changes:
-    - No hardcoded date window defaults (--reset-before/--reset-after default to None)
-    - _seed_orphan_outcomes processes ALL signals regardless of timestamp
-    - SELECT now includes all 14 new schema columns (5 signal_ledger + 9 signal_outcomes)
-    - _verify_replay includes shadow signals (is_shadow = false filter removed)
-    - _verify_replay D-06: hard-fails on shadow_stopped_at_entry > 0 or orphan_ledger_rows > 0
-    - _assert_row_types helper for fail-fast asyncpg type contract validation
-    - Re-entry safe via ON CONFLICT DO NOTHING in _seed_orphan_outcomes
+Phase 130 changes (3-table schema migration):
+    - Reads from signal_events + trade_frames instead of signal_ledger + signal_outcomes
+    - Writes activation metadata to trade_frames.frame_details JSONB (UPDATE || merge)
+    - Writes zone/market exits to trade_executions (INSERT instead of UPDATE signal_outcomes)
+    - Updates signal_events.status instead of signal_outcomes.status
+    - _seed_orphan_outcomes is a no-op (status in signal_events, populated by run_historical_pipeline)
+    - _verify_replay queries signal_events + trade_frames + trade_executions
 
 Evaluates dual-track outcomes (zone track + market track) for all signals
 that lack outcomes, by replaying market_data_ohlcv bars chronologically
@@ -21,7 +20,7 @@ per (symbol, timeframe).
 
 Safety controls:
     - Advisory lock prevents concurrent replays
-    - Preflight seeds orphan signal_outcomes rows (all timestamps, re-entry safe)
+    - Preflight checks signal_events status integrity
     - --confirm required for destructive --reset
     - Post-replay verification catches data integrity issues (shadow + orphan checks)
 
@@ -54,8 +53,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import sys
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -82,6 +83,14 @@ TIMEFRAMES = ["1m", "5m", "15m", "1h"]
 # Advisory lock ID — prevents concurrent replays from corrupting data.
 # pg_try_advisory_lock returns true if acquired, false if already held.
 _REPLAY_LOCK_ID = 20260602  # date of the fix that necessitated this replay
+
+# uuid5 namespace for deterministic frame_id — matches run_historical_pipeline.py
+_FRAME_ID_NS = uuid.NAMESPACE_DNS
+
+
+def _make_frame_id(signal_id: str, entry_type: str = "at_close") -> str:
+    """Deterministic frame_id for the given signal_id + entry_type."""
+    return str(uuid.uuid5(_FRAME_ID_NS, f"{signal_id}:{entry_type}"))
 
 
 async def _acquire_replay_lock(conn) -> bool:
@@ -113,32 +122,16 @@ async def _check_service_quiescence() -> list[str]:
 
 
 async def _seed_orphan_outcomes(conn, symbols: list[str], timeframes: list[str]) -> int:
-    """Seed ALL missing signal_outcomes rows — no date window.
+    """No-op in the 3-table schema.
 
-    Phase-104 split means every signal_ledger row MUST have a matching signal_outcomes row.
-    If seeding was incomplete, INNER JOIN would silently skip these signals — the exact
-    kind of silent data loss that destroys quant systems.
-
-    # ON CONFLICT DO NOTHING makes this safe for re-entry after a crash.
-    If lifecycle_replay.py crashes mid-run (after the advisory lock is released in the finally
-    block), simply re-run it — the seeding step will skip rows that already exist and the
-    worker pool will pick up only the signals that lack completed outcomes.
-
-    Returns count of rows seeded.
+    Phase 130+: signal_events rows are inserted with status='pending' by
+    run_historical_pipeline.py during backfill. signal_outcomes no longer exists.
+    This function is preserved for call-site compatibility and returns 0.
     """
-    result = await conn.execute(
-        """INSERT INTO signal_outcomes (signal_id, status)
-           SELECT sl.signal_id, 'pending'
-           FROM signal_ledger sl
-           LEFT JOIN signal_outcomes so ON sl.signal_id = so.signal_id
-           WHERE so.signal_id IS NULL
-             AND sl.symbol = ANY($1)
-             AND sl.timeframe = ANY($2)
-           ON CONFLICT (signal_id) DO NOTHING""",
-        symbols,
-        timeframes,
+    logger.info(
+        "preflight: signal_events status seeding not needed (3-table schema — status in signal_events)"
     )
-    return int(result.split()[-1])
+    return 0
 
 
 # ── Pure helper functions (importable for unit testing) ─────────────────────
@@ -273,7 +266,7 @@ async def _reset_corrupt_data(
     after: datetime,
     before: datetime,
 ) -> dict:
-    """Reset corrupt signal_outcomes + truncate derived tables.
+    """Reset corrupt signal lifecycle data + truncate derived tables.
 
     Idempotent: safe to run multiple times. Only affects signals
     with outcome IS NOT NULL in the exact [after, before) window.
@@ -286,48 +279,60 @@ async def _reset_corrupt_data(
         if not await _acquire_replay_lock(conn):
             raise RuntimeError("Cannot acquire advisory lock for reset")
         try:
-            # 1. Reset signal_outcomes for corrupt-window signals
+            # 1. Delete trade_executions for corrupt-window signals
+            #    and reset signal_events.status to 'pending'
             result = await conn.execute(
-                """UPDATE signal_outcomes SET
-                    status = 'pending',
-                    outcome = NULL,
-                    exit_at = NULL,
-                    exit_price = NULL,
-                    exit_reason = NULL,
-                    pnl_ticks = NULL,
-                    pnl_r = NULL,
-                    pnl_dollars = NULL,
-                    signal_quality = NULL,
-                    activated_at = NULL,
-                    activation_price = NULL,
-                    zone_entry_pct = NULL,
-                    bars_to_activation = NULL,
-                    mae = NULL,
-                    mfe = NULL,
-                    bars_in_trade = NULL,
-                    market_entry_at = NULL,
-                    market_entry_exit_price = NULL,
-                    market_entry_exit_at = NULL,
-                    market_entry_pnl_r = NULL,
-                    market_entry_mae = NULL,
-                    market_entry_mfe = NULL,
-                    market_entry_bars_in_trade = NULL,
-                    market_entry_outcome = NULL,
-                    market_entry_gap_bars = NULL
-                WHERE signal_id IN (
-                    SELECT signal_id FROM signal_ledger
-                    WHERE timestamp >= $1
-                      AND timestamp < $2
-                      AND symbol = ANY($3)
-                      AND timeframe = ANY($4)
-                )
-                AND outcome IS NOT NULL""",
+                """DELETE FROM trade_executions
+                   WHERE frame_id IN (
+                       SELECT tf.frame_id
+                       FROM trade_frames tf
+                       JOIN signal_events se ON tf.signal_id = se.signal_id AND tf.signal_ts = se.ts
+                       WHERE se.ts >= $1
+                         AND se.ts < $2
+                         AND se.symbol = ANY($3)
+                         AND se.tf = ANY($4)
+                   )""",
                 after,
                 before,
                 symbols,
                 timeframes,
             )
-            stats["outcomes_reset"] = int(result.split()[-1])
+            stats["executions_deleted"] = int(result.split()[-1])
+
+            # 2. Reset activation metadata in trade_frames.frame_details
+            result2 = await conn.execute(
+                """UPDATE trade_frames SET
+                    frame_details = frame_details - 'activated_at'
+                                                 - 'activation_price'
+                                                 - 'zone_entry_pct'
+                                                 - 'bars_to_activation'
+                   WHERE signal_id IN (
+                       SELECT signal_id FROM signal_events
+                       WHERE ts >= $1 AND ts < $2
+                         AND symbol = ANY($3)
+                         AND tf = ANY($4)
+                   )""",
+                after,
+                before,
+                symbols,
+                timeframes,
+            )
+            stats["frames_reset"] = int(result2.split()[-1])
+
+            # 3. Reset signal_events.status to 'pending'
+            result3 = await conn.execute(
+                """UPDATE signal_events SET status = 'pending'
+                   WHERE ts >= $1
+                     AND ts < $2
+                     AND symbol = ANY($3)
+                     AND tf = ANY($4)
+                     AND status != 'pending'""",
+                after,
+                before,
+                symbols,
+                timeframes,
+            )
+            stats["outcomes_reset"] = int(result3.split()[-1])
 
             # 2. Truncate swarm_agent_weights (computed from lineage + outcomes)
             await conn.execute("TRUNCATE swarm_agent_weights")
@@ -338,9 +343,11 @@ async def _reset_corrupt_data(
             stats["setup_perf_truncated"] = True
 
             logger.info(
-                "reset_complete: outcomes_reset=%d, weights_truncated=True, "
-                "setup_perf_truncated=True, window=[%s, %s)",
+                "reset_complete: status_reset=%d, frames_reset=%d, executions_deleted=%d, "
+                "weights_truncated=True, setup_perf_truncated=True, window=[%s, %s)",
                 stats["outcomes_reset"],
+                stats.get("frames_reset", 0),
+                stats.get("executions_deleted", 0),
                 after.isoformat(),
                 before.isoformat(),
             )
@@ -355,13 +362,12 @@ async def _fetch_work_queue(
     """Build work queue ordered by estimated pending row count descending (largest first)."""
     async with db.get_connection() as conn:
         rows = await conn.fetch(
-            """SELECT sl.symbol, sl.timeframe, COUNT(*) as cnt
-                FROM signal_ledger sl
-                JOIN signal_outcomes so ON sl.signal_id = so.signal_id
-                WHERE so.status IN ('pending', 'regime_suppressed')
-                  AND sl.symbol = ANY($1)
-                  AND sl.timeframe = ANY($2)
-                GROUP BY sl.symbol, sl.timeframe
+            """SELECT se.symbol, se.tf AS timeframe, COUNT(*) as cnt
+                FROM signal_events se
+                WHERE se.status IN ('pending', 'regime_suppressed')
+                  AND se.symbol = ANY($1)
+                  AND se.tf = ANY($2)
+                GROUP BY se.symbol, se.tf
                 ORDER BY cnt DESC""",
             symbols,
             timeframes,
@@ -370,23 +376,18 @@ async def _fetch_work_queue(
 
 
 def _assert_row_types(row) -> None:
-    """Assert asyncpg type contracts for the 14 new schema columns on the first fetched row.
+    """Assert asyncpg type contracts for the 3-table schema columns on the first fetched row.
 
     Called once before bulk processing to catch type mismatches immediately rather than
     at row 1.5M. Raises RuntimeError (not AssertionError) so failures propagate to the
     JOB_COMPLETED_TOTAL failure path and are not silently swallowed.
     """
     checks = [
-        # trailing_stop_price is JSONB — asyncpg returns as dict | None (never str)
-        ("trailing_stop_price", dict, row.get("trailing_stop_price")),
-        # shadow_tracking_start_ts is timestamptz — asyncpg returns datetime | None
-        ("shadow_tracking_start_ts", datetime, row.get("shadow_tracking_start_ts")),
-        # effective_ts is timestamptz — asyncpg returns datetime | None
-        ("effective_ts", datetime, row.get("effective_ts")),
+        # timestamp is timestamptz — asyncpg returns datetime
+        ("timestamp", datetime, row.get("timestamp")),
         # numeric columns — asyncpg returns float, int, or Decimal | None
-        ("staleness_score", (float, int), row.get("staleness_score")),
-        ("shadow_mae", (float, int), row.get("shadow_mae")),
-        ("shadow_mfe", (float, int), row.get("shadow_mfe")),
+        ("entry_price", (float, int), row.get("entry_price")),
+        ("stop_loss", (float, int), row.get("stop_loss")),
     ]
     for col_name, expected_types, val in checks:
         if val is None:
@@ -394,7 +395,7 @@ def _assert_row_types(row) -> None:
         try:
             assert isinstance(val, expected_types), (
                 f"Col {col_name}: expected {expected_types}, got {type(val).__name__} "
-                "— check asyncpg config (JSONB must not be decoded as str)"
+                "— check asyncpg config"
             )
         except AssertionError as error:
             raise RuntimeError(str(error)) from error
@@ -434,35 +435,34 @@ async def _process_symbol_tf(
 
             # 2. Fetch all unresolved signals for this pair into memory
             signals = await conn.fetch(
-                """SELECT sl.signal_id, sl.timestamp, sl.symbol, sl.timeframe,
-                          sl.setup_plugin, sl.signal_type, sl.direction,
-                          sl.entry_price, sl.stop_loss, sl.targets,
-                          sl.entry_zone_low, sl.entry_zone_high,
-                          sl.market_entry_price, sl.ttl_bars, sl.expires_at,
-                          sl.is_shadow, sl.is_backfill,
-                          sl.hmm_regime_at_fire, sl.garch_sigma_at_fire,
-                          sl.was_selected,
-                          sl.stop_basis, sl.stop_type_col,
-                          sl.structural_stop_distance_atr, sl.adaptive_buffer_mult,
-                          sl.plugin_regime_type,
-                          so.status, so.outcome, so.activated_at,
-                          so.exit_at, so.exit_price, so.exit_reason,
-                          so.pnl_ticks, so.pnl_r, so.pnl_dollars,
-                          so.mae, so.mfe, so.bars_in_trade,
-                          so.activation_price, so.zone_entry_pct, so.bars_to_activation,
-                          so.market_entry_at, so.market_entry_exit_price,
-                          so.market_entry_pnl_r, so.market_entry_mae, so.market_entry_mfe,
-                          so.market_entry_bars_in_trade, so.market_entry_outcome,
-                          so.market_entry_gap_bars, so.market_entry_exit_at,
-                          so.trailing_stop_price, so.staleness_score,
-                          so.staleness_trigger_reason, so.chandelier_vol_source,
-                          so.shadow_tracking_start_ts, so.shadow_mae, so.shadow_mfe,
-                          so.shadow_outcome, so.effective_ts
-                   FROM signal_ledger sl
-                   JOIN signal_outcomes so ON sl.signal_id = so.signal_id
-                   WHERE so.status IN ('pending', 'regime_suppressed')
-                     AND sl.symbol = $1 AND sl.timeframe = $2
-                   ORDER BY sl.timestamp ASC""",
+                """SELECT se.signal_id, se.ts AS timestamp, se.symbol, se.tf AS timeframe,
+                          se.setup_plugin, se.direction,
+                          tf.entry_price,
+                          tf.stop_price AS stop_loss,
+                          tf.target_price,
+                          (tf.frame_details->>'entry_zone_low')::float8 AS entry_zone_low,
+                          (tf.frame_details->>'entry_zone_high')::float8 AS entry_zone_high,
+                          (tf.frame_details->>'market_entry_price')::float8 AS market_entry_price,
+                          se.ttl_bars, se.expires_at,
+                          se.is_shadow, se.is_backfill,
+                          se.hmm_regime_at_fire, se.garch_sigma_at_fire,
+                          tf.was_selected,
+                          tf.frame_details->>'stop_basis' AS stop_basis,
+                          tf.frame_details->>'stop_type_col' AS stop_type_col,
+                          (tf.frame_details->>'structural_stop_distance_atr')::float8
+                              AS structural_stop_distance_atr,
+                          (tf.frame_details->>'adaptive_buffer_mult')::float8
+                              AS adaptive_buffer_mult,
+                          se.plugin_regime_type,
+                          se.status,
+                          tf.frame_details->>'chandelier_vol_source' AS chandelier_vol_source,
+                          tf.frame_id
+                   FROM signal_events se
+                   LEFT JOIN trade_frames tf
+                       ON tf.signal_id = se.signal_id AND tf.signal_ts = se.ts
+                   WHERE se.status IN ('pending', 'regime_suppressed')
+                     AND se.symbol = $1 AND se.tf = $2
+                   ORDER BY se.ts ASC""",
                 symbol,
                 timeframe,
             )
@@ -492,10 +492,18 @@ async def _process_symbol_tf(
                 _val = _sig_dict.get(_field)
                 if _val is not None:
                     _sig_dict[_field] = float(_val)
-            # targets is a list of floats
-            _targets = _sig_dict.get("targets")
-            if _targets is not None:
-                _sig_dict["targets"] = [float(t) if t is not None else t for t in _targets]
+            # target_price (3-table schema) is a single float; wrap as list for
+            # evaluate_signal/evaluate_market_entry compatibility (expects targets=[...])
+            _tp = _sig_dict.get("target_price")
+            if _tp is not None:
+                _sig_dict["targets"] = [float(_tp)]
+            else:
+                _sig_dict["targets"] = []
+            # direction is text ("long"/"short") in 3-table schema;
+            # convert to int (1/-1) for evaluate_signal/evaluate_market_entry
+            _dir = _sig_dict.get("direction")
+            if isinstance(_dir, str):
+                _sig_dict["direction"] = 1 if _dir == "long" else -1
 
         # Inject canonical per-TF TTL — use stored ttl_bars if present (Phase 107.5+),
         # else fall back to canonical default.
@@ -664,6 +672,7 @@ async def _process_symbol_tf(
                                     sid,
                                     {
                                         "_ts": sig["timestamp"],
+                                        "market_entry_price": mep,
                                         "market_entry_at": m_entry_at,
                                         "market_entry_exit_price": m_trans.exit_price,
                                         "market_entry_exit_at": bar_ts,
@@ -882,6 +891,7 @@ async def _process_symbol_tf(
                             sid,
                             {
                                 "_ts": sig["timestamp"],
+                                "market_entry_price": mep,
                                 "market_entry_at": market_activated_at.get(sid),
                                 "market_entry_exit_price": float(last_bar["close"]),
                                 "market_entry_exit_at": last_bar["timestamp"],
@@ -940,156 +950,130 @@ def _enum_value(v):
 
 
 async def _flush_writes(conn, writes: list[tuple]) -> None:
-    """Execute pending DB writes using asyncpg.
+    """Execute pending DB writes using asyncpg (3-table schema).
 
     Three write kinds:
-      - activation: signal entered the zone (sets activated_at, activation_price, etc.)
-      - zone_exit:  signal resolved on zone track (sets outcome, exit_at, pnl_r, etc.)
-      - market:     signal resolved on market track (sets market_entry_outcome, etc.)
+      - activation: signal entered the zone.
+          -> UPDATE signal_events SET status='active'
+          -> UPDATE trade_frames SET frame_details = frame_details || jsonb (activation metadata)
+      - zone_exit: signal resolved on zone track.
+          -> UPDATE signal_events SET status=...
+          -> INSERT INTO trade_executions (zone pnl_r, mae, mfe, exit_at, exit_reason)
+      - market: signal resolved on market track.
+          -> INSERT INTO trade_executions (market_entry_price, market pnl_r, etc.)
 
-    All updates match on (signal_id, timestamp) — timestamp is included because
-    signal_ledger is a TimescaleDB hypertable partitioned by timestamp, so including
-    it in the WHERE clause enables chunk pruning and avoids full-table scans.
-
-    To avoid exceeding PostgreSQL's 32767 parameter limit, writes are chunked
-    into smaller batches within each write type.
+    All signal_events UPDATEs match on signal_id only (status field, no hypertable ts needed).
+    trade_executions INSERTs use a deterministic execution_id from uuid5.
     """
     activations, zone_exits, markets = [], [], []
     for kind, sid, data in writes:
-        ts = data["_ts"]
         if kind == "activation":
-            activations.append(
-                (
-                    sid,
-                    ts,
-                    data["activated_at"],
-                    data["activation_price"],
-                    data["zone_entry_pct"],
-                    data["bars_to_activation"],
-                )
-            )
+            activations.append((sid, data))
         elif kind == "zone_exit":
-            status = data["status"]
-            outcome = data["outcome"]
-            zone_exits.append(
-                (
-                    sid,
-                    ts,
-                    _enum_value(status),
-                    data["exit_at"],
-                    data["exit_price"],
-                    data["exit_reason"],
-                    data["pnl_ticks"],
-                    data["pnl_r"],
-                    data["pnl_dollars"],
-                    data["signal_quality"],
-                    data["mae"],
-                    data["mfe"],
-                    data["bars_in_trade"],
-                    _enum_value(outcome),
-                )
-            )
+            zone_exits.append((sid, data))
         elif kind == "market":
-            m_outcome = data["market_entry_outcome"]
-            markets.append(
-                (
-                    sid,
-                    ts,
-                    data["market_entry_at"],
-                    data["market_entry_exit_price"],
-                    data["market_entry_exit_at"],
-                    data["market_entry_pnl_r"],
-                    data["market_entry_mae"],
-                    data["market_entry_mfe"],
-                    data["market_entry_bars_in_trade"],
-                    _enum_value(m_outcome),
-                    data["market_entry_gap_bars"],
-                )
-            )
+            markets.append((sid, data))
 
-    # Chunk size for each write type to stay under PostgreSQL's 32767 parameter limit
-    # zone_exit: 14 params per row → max 2000 rows = 28000 params
-    # market: 11 params per row → max 2500 rows = 27500 params
-    # activation: 6 params per row → max 4000 rows = 24000 params
-    ZONE_CHUNK = 1500
-    MARKET_CHUNK = 2000
-    ACTIVATION_CHUNK = 4000
-
-    if zone_exits:
-        # Process in chunks to avoid exceeding PostgreSQL's 32767 parameter limit
-        for chunk_start in range(0, len(zone_exits), ZONE_CHUNK):
-            chunk = zone_exits[chunk_start : chunk_start + ZONE_CHUNK]
-            values_clause = ",".join(
-                f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::text, ${i+3}::timestamptz, ${i+4}::float, ${i+5}::text, ${i+6}::float, ${i+7}::float, ${i+8}::float, ${i+9}::float, ${i+10}::float, ${i+11}::float, ${i+12}::int, ${i+13}::text)"
-                for i in range(1, len(chunk) * 14 + 1, 14)
-            )
-            flat_values = [v for row in chunk for v in row]
+    # --- Activations ---
+    # UPDATE signal_events.status + merge activation metadata into trade_frames.frame_details
+    for sid, data in activations:
+        await conn.execute(
+            "UPDATE signal_events SET status = 'active' WHERE signal_id = $1::uuid",
+            sid,
+        )
+        # Merge activation metadata into trade_frames.frame_details JSONB
+        activation_meta = {
+            "activated_at": data["activated_at"].isoformat() if data["activated_at"] else None,
+            "activation_price": data["activation_price"],
+            "zone_entry_pct": data["zone_entry_pct"],
+            "bars_to_activation": data["bars_to_activation"],
+        }
+        # Remove None values
+        activation_meta = {k: v for k, v in activation_meta.items() if v is not None}
+        if activation_meta:
             await conn.execute(
-                f"""UPDATE signal_outcomes AS sl
-                   SET status=v.status, exit_at=v.exit_at, exit_price=v.exit_price,
-                       exit_reason=v.exit_reason, pnl_ticks=v.pnl_ticks, pnl_r=v.pnl_r,
-                       pnl_dollars=v.pnl_dollars, signal_quality=v.signal_quality,
-                       mae=v.mae, mfe=v.mfe, bars_in_trade=v.bars_in_trade, outcome=v.outcome
-                   FROM (VALUES {values_clause}) AS v(signal_id, ts, status, exit_at, exit_price,
-                       exit_reason, pnl_ticks, pnl_r, pnl_dollars, signal_quality,
-                       mae, mfe, bars_in_trade, outcome)
-                   WHERE sl.signal_id = v.signal_id""",
-                *flat_values,
+                """UPDATE trade_frames
+                   SET frame_details = COALESCE(frame_details, '{}'::jsonb) || $2::jsonb
+                   WHERE signal_id = $1::uuid""",
+                sid,
+                json.dumps(activation_meta),
             )
 
-    if markets:
-        # Process in chunks to avoid exceeding PostgreSQL's 32767 parameter limit
-        for chunk_start in range(0, len(markets), MARKET_CHUNK):
-            chunk = markets[chunk_start : chunk_start + MARKET_CHUNK]
-            values_clause = ",".join(
-                f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::timestamptz, ${i+3}::float, ${i+4}::timestamptz, ${i+5}::float, ${i+6}::float, ${i+7}::float, ${i+8}::int, ${i+9}::text, ${i+10}::int)"
-                for i in range(1, len(chunk) * 11 + 1, 11)
-            )
-            flat_values = [v for row in chunk for v in row]
-            await conn.execute(
-                f"""UPDATE signal_outcomes AS sl
-                   SET market_entry_at=v.entry_at, market_entry_exit_price=v.exit_price,
-                       market_entry_exit_at=v.exit_at, market_entry_pnl_r=v.pnl_r,
-                       market_entry_mae=v.mae, market_entry_mfe=v.mfe,
-                       market_entry_bars_in_trade=v.bars_in_trade,
-                       market_entry_outcome=v.outcome, market_entry_gap_bars=v.gap_bars
-                   FROM (VALUES {values_clause}) AS v(signal_id, ts, entry_at, exit_price,
-                       exit_at, pnl_r, mae, mfe, bars_in_trade, outcome, gap_bars)
-                   WHERE sl.signal_id = v.signal_id""",
-                *flat_values,
-            )
+    # --- Zone exits ---
+    # UPDATE signal_events.status + INSERT trade_executions
+    for sid, data in zone_exits:
+        status = _enum_value(data["status"])
+        await conn.execute(
+            "UPDATE signal_events SET status = $2 WHERE signal_id = $1::uuid",
+            sid,
+            status,
+        )
+        # Compute execution_id deterministically from signal_id + 'zone'
+        execution_id = str(uuid.uuid5(_FRAME_ID_NS, f"{sid}:zone"))
+        # frame_id for the at_close trade frame
+        frame_id = _make_frame_id(sid, "at_close")
+        exit_at = data.get("exit_at")
+        await conn.execute(
+            """INSERT INTO trade_executions (
+                execution_id, frame_id,
+                actual_exit_price, actual_pnl_r,
+                actual_mae, actual_mfe, actual_bars,
+                exit_reason, exited_at
+            ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (execution_id) DO NOTHING""",
+            execution_id,
+            frame_id,
+            data.get("exit_price"),
+            data.get("pnl_r"),
+            data.get("mae"),
+            data.get("mfe"),
+            data.get("bars_in_trade"),
+            data.get("exit_reason"),
+            exit_at,
+        )
 
-    if activations:
-        # Process in chunks to avoid exceeding PostgreSQL's 32767 parameter limit
-        for chunk_start in range(0, len(activations), ACTIVATION_CHUNK):
-            chunk = activations[chunk_start : chunk_start + ACTIVATION_CHUNK]
-            values_clause = ",".join(
-                f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::timestamptz, ${i+3}::float, ${i+4}::float, ${i+5}::int)"
-                for i in range(1, len(chunk) * 6 + 1, 6)
-            )
-            flat_values = [v for row in chunk for v in row]
-            await conn.execute(
-                f"""UPDATE signal_outcomes AS sl
-                   SET status='active', activated_at=v.activated_at,
-                       activation_price=v.activation_price, zone_entry_pct=v.zone_entry_pct,
-                       bars_to_activation=v.bars_to_activation
-                   FROM (VALUES {values_clause}) AS v(signal_id, ts, activated_at,
-                       activation_price, zone_entry_pct, bars_to_activation)
-                   WHERE sl.signal_id = v.signal_id""",
-                *flat_values,
-            )
+    # --- Market track resolutions ---
+    # INSERT trade_executions with market entry/exit fields
+    for sid, data in markets:
+        m_outcome = _enum_value(data.get("market_entry_outcome"))
+        # Compute execution_id deterministically from signal_id + 'market'
+        execution_id = str(uuid.uuid5(_FRAME_ID_NS, f"{sid}:market"))
+        frame_id = _make_frame_id(sid, "at_close")
+        await conn.execute(
+            """INSERT INTO trade_executions (
+                execution_id, frame_id,
+                market_entry_price, market_entry_gap_bars,
+                actual_fill_price, actual_exit_price,
+                actual_pnl_r, actual_mae, actual_mfe, actual_bars,
+                exit_reason, executed_at, exited_at
+            ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (execution_id) DO NOTHING""",
+            execution_id,
+            frame_id,
+            data.get("market_entry_price"),
+            data.get("market_entry_gap_bars"),
+            data.get("market_entry_price"),  # actual_fill_price = market entry price in replay
+            data.get("market_entry_exit_price"),
+            data.get("market_entry_pnl_r"),
+            data.get("market_entry_mae"),
+            data.get("market_entry_mfe"),
+            data.get("market_entry_bars_in_trade"),
+            m_outcome,
+            data.get("market_entry_at"),
+            data.get("market_entry_exit_at"),
+        )
 
 
 async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
-    """Validate: confirm resolved signals exist and have outcome populated. Logs result."""
+    """Validate: confirm resolved signals exist and have trade_executions populated."""
     row = await conn.fetchrow(
         """SELECT COUNT(*) as total,
-                  COUNT(so.outcome) as with_outcome,
-                  COUNT(so.market_entry_outcome) as with_market_outcome
-           FROM signal_ledger sl
-           JOIN signal_outcomes so ON sl.signal_id = so.signal_id
-           WHERE so.status NOT IN ('pending', 'regime_suppressed')
-             AND sl.symbol = $1 AND sl.timeframe = $2""",
+                  COUNT(te.execution_id) as with_execution
+           FROM signal_events se
+           LEFT JOIN trade_frames tf ON tf.signal_id = se.signal_id AND tf.signal_ts = se.ts
+           LEFT JOIN trade_executions te ON te.frame_id = tf.frame_id
+           WHERE se.status NOT IN ('pending', 'regime_suppressed')
+             AND se.symbol = $1 AND se.tf = $2""",
         symbol,
         timeframe,
     )
@@ -1099,12 +1083,11 @@ async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
         return
 
     logger.info(
-        "VALIDATE %s %s: %d resolved signals, %d with zone outcome, %d with market outcome",
+        "VALIDATE %s %s: %d resolved signals, %d with trade_execution",
         symbol,
         timeframe,
         row["total"],
-        row["with_outcome"],
-        row["with_market_outcome"],
+        row["with_execution"],
     )
     # Full re-simulation validation is not implemented — this confirms DB read consistency only.
     logger.info("VALIDATE %s %s: structural check passed", symbol, timeframe)
@@ -1132,39 +1115,37 @@ async def _verify_replay(
         row = await conn.fetchrow(
             """SELECT
                 COUNT(*) as total,
-                COUNT(CASE WHEN so.outcome IS NOT NULL THEN 1 END) as with_outcome,
-                COUNT(CASE WHEN so.status = 'regime_suppressed' AND so.outcome IS NULL THEN 1 END) as regime_no_outcome,
-                COUNT(CASE WHEN so.status NOT IN ('regime_suppressed')
-                           AND so.outcome IS NULL
-                           AND sl.timestamp < NOW() - INTERVAL '2 days'
+                COUNT(CASE WHEN se.status NOT IN ('pending', 'regime_suppressed') THEN 1 END)
+                    as with_outcome,
+                COUNT(CASE WHEN se.status = 'regime_suppressed' THEN 1 END) as regime_no_outcome,
+                COUNT(CASE WHEN se.status = 'pending'
+                           AND se.ts < NOW() - INTERVAL '2 days'
                      THEN 1 END) as stale_unresolved,
-                COUNT(CASE WHEN sl.market_entry_price IS NOT NULL
-                           AND so.market_entry_outcome IS NULL
-                           AND so.outcome IS NOT NULL
-                     THEN 1 END) as missing_market_outcome,
-                COUNT(CASE WHEN so.outcome IN ('target_1','target_1_2','target_full')
-                           AND so.pnl_r IS NULL
+                COUNT(CASE WHEN se.status = 'expired'
+                           AND te.actual_pnl_r IS NULL
                      THEN 1 END) as target_no_pnl,
-                COUNT(CASE WHEN so.outcome = 'stopped_at_entry'
-                           AND sl.is_shadow = true
-                           AND sl.setup_plugin = ANY($3)
+                COUNT(CASE WHEN te.exit_reason = 'stopped_at_entry'
+                           AND se.is_shadow = true
+                           AND se.setup_plugin = ANY($3)
                      THEN 1 END) as shadow_stopped_at_entry
-            FROM signal_ledger sl
-            JOIN signal_outcomes so ON sl.signal_id = so.signal_id
-            WHERE sl.symbol = ANY($1)
-              AND sl.timeframe = ANY($2)""",
+            FROM signal_events se
+            LEFT JOIN trade_frames tf ON tf.signal_id = se.signal_id AND tf.signal_ts = se.ts
+            LEFT JOIN trade_executions te ON te.frame_id = tf.frame_id
+            WHERE se.symbol = ANY($1)
+              AND se.tf = ANY($2)""",
             symbols,
             timeframes,
             shadow_setups,
         )
-        # Orphan check: signal_ledger rows with no matching signal_outcomes row
+        # Orphan check: signal_events rows with no matching trade_frames row
         orphan_row = await conn.fetchrow(
             """SELECT COUNT(*) as orphan_ledger_rows
-               FROM signal_ledger sl
-               LEFT JOIN signal_outcomes so ON sl.signal_id = so.signal_id
-               WHERE sl.symbol = ANY($1)
-                 AND sl.timeframe = ANY($2)
-                 AND so.signal_id IS NULL""",
+               FROM signal_events se
+               LEFT JOIN trade_frames tf
+                   ON tf.signal_id = se.signal_id AND tf.signal_ts = se.ts
+               WHERE se.symbol = ANY($1)
+                 AND se.tf = ANY($2)
+                 AND tf.frame_id IS NULL""",
             symbols,
             timeframes,
         )
@@ -1173,13 +1154,12 @@ async def _verify_replay(
 
     logger.info(
         "VERIFY: total=%d with_outcome=%d regime_no_outcome=%d "
-        "stale_unresolved=%d missing_market=%d target_no_pnl=%d "
-        "shadow_stopped_at_entry=%d orphan_ledger_rows=%d",
+        "stale_unresolved=%d target_no_pnl=%d "
+        "shadow_stopped_at_entry=%d orphan_signal_events=%d",
         row["total"],
         row["with_outcome"],
         row["regime_no_outcome"],
         row["stale_unresolved"],
-        row["missing_market_outcome"],
         row["target_no_pnl"],
         row["shadow_stopped_at_entry"],
         orphan_ledger_rows,
@@ -1187,14 +1167,9 @@ async def _verify_replay(
 
     issues = []
     if row["stale_unresolved"] > 0:
-        issues.append(f"{row['stale_unresolved']} signals older than 2 days have no outcome")
-    if row["missing_market_outcome"] > 0:
-        issues.append(
-            f"{row['missing_market_outcome']} resolved signals with market_entry_price "
-            f"but no market_entry_outcome"
-        )
+        issues.append(f"{row['stale_unresolved']} signals older than 2 days still pending")
     if row["target_no_pnl"] > 0:
-        issues.append(f"{row['target_no_pnl']} target-hit signals with null pnl_r")
+        issues.append(f"{row['target_no_pnl']} expired signals with null pnl_r")
     if row["shadow_stopped_at_entry"] > 0:
         issues.append(
             f"{row['shadow_stopped_at_entry']} shadow signals have stopped_at_entry outcome "
@@ -1202,8 +1177,8 @@ async def _verify_replay(
         )
     if orphan_ledger_rows > 0:
         issues.append(
-            f"{orphan_ledger_rows} signal_ledger rows without signal_outcomes row "
-            "(Phase 104 invariant violated)"
+            f"{orphan_ledger_rows} signal_events rows without trade_frames row "
+            "(3-table schema invariant violated)"
         )
 
     if issues:
@@ -1211,7 +1186,7 @@ async def _verify_replay(
             logger.error("VERIFY ISSUE: %s", issue)
         raise RuntimeError(
             f"VERIFY FAILED: {len(issues)} issue(s) — downstream data is untrustworthy. "
-            "Fix issues and re-run lifecycle_replay before consuming signal_outcomes."
+            "Fix issues and re-run lifecycle_replay before consuming signal data."
         )
     else:
         logger.info("VERIFY: all checks passed — data is clean")
@@ -1303,12 +1278,13 @@ async def main_async():
                             ", ".join(active_services),
                         )
 
-                # 3. Seed orphan outcomes (idempotent — safe for re-entry via ON CONFLICT DO NOTHING)
+                # 3. Verify signal_events status integrity (no-op in 3-table schema —
+                #    signal_outcomes seeding is obsolete; status lives in signal_events)
                 orphans = await _seed_orphan_outcomes(preflight_conn, symbols, timeframes)
                 if orphans > 0:
-                    logger.info("Preflight: seeded %d orphan signal_outcomes rows", orphans)
+                    logger.info("Preflight: seeded %d signal_events rows", orphans)
                 else:
-                    logger.info("Preflight: no orphan rows found")
+                    logger.info("Preflight: status integrity check passed (3-table schema)")
             finally:
                 await preflight_conn.execute("SELECT pg_advisory_unlock($1)", _REPLAY_LOCK_ID)
 

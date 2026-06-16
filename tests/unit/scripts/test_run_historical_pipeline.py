@@ -1,4 +1,3 @@
-import json
 import sys
 from collections import deque
 from datetime import UTC, datetime
@@ -397,9 +396,9 @@ def test_run_i7_and_persist_passes_features_kwarg_to_aggregate():
 
 
 def test_insert_signals_sync_writes_cis_fields():
-    """_insert_signals_sync must NOT hardcode None for cis_score/bucket_scores/weights_version."""
+    """_insert_signals_sync (3-table schema) inserts cis_score/weights_version into signal_events."""
     from production.scripts.run_historical_pipeline import _insert_signals_sync
-    from src.persistence.repository.signal_ledger_repository import LedgerEntry
+    from src.persistence.repository.signal_events_repository import LedgerEntry
 
     ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
     entry = LedgerEntry(
@@ -417,14 +416,19 @@ def test_insert_signals_sync_writes_cis_fields():
         cis_score=0.55,
         bucket_scores={"trend": 0.5},
         weights_version=1,
+        raw_confidence=0.75,
     )
 
-    captured_params: list = []
+    se_params: list = []
+    tf_params: list = []
 
     mock_cur = MagicMock()
 
-    def fake_execute_batch(cur, sql, params_list, **kwargs):
-        captured_params.extend(params_list)
+    def fake_execute_values(cur, sql, params_list, **kwargs):
+        if "signal_events" in sql:
+            se_params.extend(params_list)
+        elif "trade_frames" in sql:
+            tf_params.extend(params_list)
 
     mock_conn = MagicMock()
     mock_conn.cursor.return_value.__enter__ = lambda s: mock_cur
@@ -432,27 +436,26 @@ def test_insert_signals_sync_writes_cis_fields():
 
     with patch(
         "production.scripts.run_historical_pipeline.psycopg2.extras.execute_values",
-        side_effect=fake_execute_batch,
+        side_effect=fake_execute_values,
     ):
         _insert_signals_sync(mock_conn, [entry])
 
-    # Two execute_values calls: one for signal_ledger (32 cols), one for signal_outcomes (2 cols)
-    assert len(captured_params) == 2
-    row = captured_params[0]
-    # _INSERT_SYNC_SQL tuple (34 elements — 36 SQL cols minus 2 SQL literals TRUE/NULL in template):
-    # 0=signal_id,1=ts,2=symbol,3=tf,4=setup_plugin,5=signal_type,
-    # 6=direction,7=was_selected,8=is_shadow,9=signal_computed_at,
-    # 10=feature_ts,11=feature_tf,12=hmm_regime_at_fire,13=garch_sigma_at_fire,
-    # 14=ttl_bars,15=entry_price,16=stop_loss,17=targets(json),18=entry_zone_low,
-    # 19=entry_zone_high,20=market_entry_price,21=cis_score,22=bucket_scores(json),
-    # 23=weights_version,24=expires_at,25=feature_schema_version,
-    # 26=stop_basis,27=stop_type_col,28=structural_stop_distance_atr,
-    # 29=adaptive_buffer_mult,30=plugin_regime_type,31=stop_structure_age_bars,
-    # 32=raw_confidence,33=calibrated_confidence
-    assert len(row) == 34, f"Expected 34-element tuple, got {len(row)}"
-    assert row[21] == 0.55, f"Expected cis_score=0.55, got {row[21]}"
-    assert row[22] == json.dumps({"trend": 0.5}), f"Expected bucket_scores json, got {row[22]}"
-    assert row[23] == 1, f"Expected weights_version=1, got {row[23]}"
+    # Two execute_values calls: one for signal_events, one for trade_frames
+    assert len(se_params) == 1, f"Expected 1 signal_events row, got {len(se_params)}"
+    assert len(tf_params) == 1, f"Expected 1 trade_frames row, got {len(tf_params)}"
+
+    se_row = se_params[0]
+    # signal_events row: 25 params (is_backfill=TRUE via SQL template, 25 %s params)
+    # Indices: 0=signal_id,1=ts,2=symbol,3=tf,4=setup_plugin,5=direction(text),
+    #   6=raw_confidence,7=calibrated_confidence,8=cis_score,9=weights_version,
+    #   10=factor_scores,11=context_features,12=ctf_score,13=ctf_confirmed,
+    #   14=zone_friction_score,15=hmm_regime,16=plugin_regime,17=garch_sigma,
+    #   18=is_shadow,19=status,20=signal_schema_version,
+    #   21=ttl_bars,22=expires_at,23=signal_computed_at,24=feature_ts
+    assert len(se_row) == 25, f"Expected 25-element signal_events tuple, got {len(se_row)}"
+    assert se_row[5] == "long", f"Expected direction='long', got {se_row[5]}"
+    assert se_row[8] == 0.55, f"Expected cis_score=0.55, got {se_row[8]}"
+    assert se_row[9] == 1, f"Expected weights_version=1, got {se_row[9]}"
 
 
 def test_run_i7_and_persist_cis_null_when_no_raw_signals():
@@ -1132,36 +1135,57 @@ class TestBuildLedgerEntriesFeatureTs:
 
 class TestCISColumnsInSQL:
     def test_insert_sync_sql_has_cis_columns(self):
-        from production.scripts.run_historical_pipeline import _INSERT_SYNC_SQL
+        """Phase 130: signal_events SQL contains cis_score + weights_version."""
+        from production.scripts.run_historical_pipeline import _INSERT_SIGNAL_EVENTS_SYNC_SQL
 
         assert all(
-            col in _INSERT_SYNC_SQL for col in ("cis_score", "bucket_scores", "weights_version")
+            col in _INSERT_SIGNAL_EVENTS_SYNC_SQL for col in ("cis_score", "weights_version")
         )
+        # signal_quality is lifecycle — lives in trade_executions, not signal_events
         assert (
-            "signal_quality" not in _INSERT_SYNC_SQL
-        ), "signal_quality is lifecycle — lives in signal_outcomes"
+            "signal_quality" not in _INSERT_SIGNAL_EVENTS_SYNC_SQL
+        ), "signal_quality is lifecycle — must not be in signal_events INSERT"
 
     def test_insert_sync_sql_column_placeholder_balance(self):
+        """Phase 130: signal_events + trade_frames SQL column/placeholder counts are balanced."""
         import re
 
         from production.scripts.run_historical_pipeline import (
-            _INSERT_SYNC_SQL,
-            _INSERT_SYNC_TEMPLATE,
+            _INSERT_SIGNAL_EVENTS_SYNC_SQL,
+            _INSERT_SIGNAL_EVENTS_SYNC_TEMPLATE,
+            _INSERT_TRADE_FRAMES_SYNC_SQL,
+            _INSERT_TRADE_FRAMES_SYNC_TEMPLATE,
         )
 
-        col_match = re.search(r"INSERT INTO signal_ledger \(([^)]+)\)", _INSERT_SYNC_SQL, re.DOTALL)
-        assert col_match, "INSERT INTO signal_ledger (...) not found in SQL"
+        # signal_events: 26 columns, is_backfill=TRUE in template (1 literal) → 25 %s params
+        col_match = re.search(
+            r"INSERT INTO signal_events \(([^)]+)\)", _INSERT_SIGNAL_EVENTS_SYNC_SQL, re.DOTALL
+        )
+        assert col_match, "INSERT INTO signal_events (...) not found in SQL"
         cols = [c.strip() for c in col_match.group(1).split(",") if c.strip()]
-        # Template uses execute_values format: count %s placeholders. 2 columns (is_backfill=TRUE,
-        # pipeline_lag_ms=NULL) use SQL literals in the template, not %s — so cols = params + 2.
-        n_placeholders = _INSERT_SYNC_TEMPLATE.count("%s")
-        assert (
-            len(cols) == n_placeholders + 2
-        ), f"Column count ({len(cols)}) should be template placeholder count ({n_placeholders}) + 2 SQL literals"
+        n_placeholders = _INSERT_SIGNAL_EVENTS_SYNC_TEMPLATE.count("%s")
+        # is_backfill=TRUE is a SQL literal in the template, so cols = params + 1
+        assert len(cols) == n_placeholders + 1, (
+            f"signal_events: col count ({len(cols)}) should be "
+            f"placeholder count ({n_placeholders}) + 1 SQL literal"
+        )
+
+        # trade_frames: counterfactual_pnl_r=NULL is a literal → 13 %s params for 14 cols
+        tf_col_match = re.search(
+            r"INSERT INTO trade_frames \(([^)]+)\)", _INSERT_TRADE_FRAMES_SYNC_SQL, re.DOTALL
+        )
+        assert tf_col_match, "INSERT INTO trade_frames (...) not found in SQL"
+        tf_cols = [c.strip() for c in tf_col_match.group(1).split(",") if c.strip()]
+        tf_placeholders = _INSERT_TRADE_FRAMES_SYNC_TEMPLATE.count("%s")
+        assert len(tf_cols) == tf_placeholders + 1, (
+            f"trade_frames: col count ({len(tf_cols)}) should be "
+            f"placeholder count ({tf_placeholders}) + 1 SQL literal (counterfactual_pnl_r=NULL)"
+        )
 
     def test_insert_signals_sync_params_include_cis_nulls(self):
+        """Phase 130: _insert_signals_sync produces signal_events + trade_frames rows."""
         from production.scripts.run_historical_pipeline import _insert_signals_sync
-        from src.persistence.repository.signal_ledger_repository import LedgerEntry
+        from src.persistence.repository.signal_events_repository import LedgerEntry
 
         entry = LedgerEntry(
             signal_id="00000000-0000-0000-0000-000000000001",
@@ -1178,19 +1202,27 @@ class TestCISColumnsInSQL:
         )
         mock_conn = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = MagicMock()
-        captured = []
+        se_captured = []
+        tf_captured = []
+
+        def fake_ev(cur, sql, params, **kw):
+            if "signal_events" in sql:
+                se_captured.extend(params)
+            elif "trade_frames" in sql:
+                tf_captured.extend(params)
+
         with patch(
             "production.scripts.run_historical_pipeline.psycopg2.extras.execute_values",
-            side_effect=lambda cur, sql, params, **kw: captured.extend(params),
+            side_effect=fake_ev,
         ):
             _insert_signals_sync(mock_conn, [entry])
-        # Two execute_values calls: ledger row + outcomes row
-        assert len(captured) == 2
-        row = captured[0]  # ledger row (34 params = 36 cols minus 2 SQL literals)
-        assert len(row) == 34
-        assert row[21] is None  # cis_score
-        assert row[22] is None  # bucket_scores
-        assert row[23] is None  # weights_version
+        # Two execute_values calls: signal_events row + trade_frames row
+        assert len(se_captured) == 1, f"Expected 1 signal_events row, got {len(se_captured)}"
+        assert len(tf_captured) == 1, f"Expected 1 trade_frames row, got {len(tf_captured)}"
+        row = se_captured[0]  # signal_events row (25 params = 26 cols minus 1 SQL literal)
+        assert len(row) == 25, f"Expected 25-element signal_events tuple, got {len(row)}"
+        assert row[8] is None  # cis_score (None when not set)
+        assert row[9] is None  # weights_version (None when not set)
 
 
 class TestDetectGaps:
