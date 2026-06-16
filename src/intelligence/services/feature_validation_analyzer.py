@@ -184,23 +184,21 @@ class FeatureValidationAnalyzer:
         Joins intelligence_features (i7 shadow scores) with signal_ledger outcomes.
         Excludes backfill rows and rows without resolved outcomes.
 
-        The feature field queried is the plugin's shadow score stored in
-        signal_ledger.features_snapshot JSONB under the plugin_name key.
+        V2.11_ACTIVATED: IC metric is raw_confidence (per-plugin shadow score).
+        Previously: features_snapshot JSONB field under plugin_name key (dropped in 3-table migration).
         """
         if regime_type is not None:
             query = """
                 SELECT
-                    sl.features_snapshot ->> $1 AS feature_value,
-                    sl.pnl_r,
+                    sl.raw_confidence AS feature_value,
+                    sl.counterfactual_pnl_r AS pnl_r,
                     sl.hmm_regime_at_fire AS hmm_regime
                 FROM signal_ledger sl
-                WHERE sl.plugin_name = $1
-                  AND sl.feature_tf = $2
-                  AND sl.outcome IS NOT NULL
-                  AND sl.is_backfill IS NOT TRUE
-                  AND sl.features_snapshot IS NOT NULL
-                  AND sl.features_snapshot ? $1
-                  AND sl.pnl_r IS NOT NULL
+                WHERE sl.setup_plugin = $1
+                  AND sl.tf = $2
+                  AND sl.counterfactual_pnl_r IS NOT NULL
+                  AND sl.is_backfill = false
+                  AND sl.raw_confidence IS NOT NULL
                   AND sl.hmm_regime_at_fire = $3
                 LIMIT 50000
             """
@@ -208,17 +206,15 @@ class FeatureValidationAnalyzer:
         else:
             query = """
                 SELECT
-                    sl.features_snapshot ->> $1 AS feature_value,
-                    sl.pnl_r,
+                    sl.raw_confidence AS feature_value,
+                    sl.counterfactual_pnl_r AS pnl_r,
                     sl.hmm_regime_at_fire AS hmm_regime
                 FROM signal_ledger sl
-                WHERE sl.plugin_name = $1
-                  AND sl.feature_tf = $2
-                  AND sl.outcome IS NOT NULL
-                  AND sl.is_backfill IS NOT TRUE
-                  AND sl.features_snapshot IS NOT NULL
-                  AND sl.features_snapshot ? $1
-                  AND sl.pnl_r IS NOT NULL
+                WHERE sl.setup_plugin = $1
+                  AND sl.tf = $2
+                  AND sl.counterfactual_pnl_r IS NOT NULL
+                  AND sl.is_backfill = false
+                  AND sl.raw_confidence IS NOT NULL
                 LIMIT 50000
             """
             params = [plugin_name, timeframe]
