@@ -315,6 +315,7 @@ def test_run_i7_and_persist_populates_cis_fields():
         captured_entries.extend(entries)
 
     mock_plugin = MagicMock()
+    mock_plugin.supports_incremental = False
     mock_plugin.compute_full.return_value = {
         "direction": 1,
         "setup_plugin": "trad_TrendFollowing",
@@ -377,6 +378,7 @@ def test_run_i7_and_persist_passes_features_kwarg_to_aggregate():
     ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
 
     mock_plugin = MagicMock()
+    mock_plugin.supports_incremental = False
     mock_plugin.compute_full.return_value = {"direction": 1}
     mock_registry = MagicMock()
     mock_registry.get_pattern.return_value = mock_plugin
@@ -525,16 +527,20 @@ def test_run_i1_plugins_isolates_state_between_symbols():
 
 
 def test_run_i1_plugins_state_written_back_after_compute():
-    """plugin_states must be updated with the plugin's _state after compute_full()."""
+    """plugin_states must capture the _state the plugin returns in its result dict.
+
+    Mirrors the live executor (_collect_plugin_results, executor.py:389-392), which
+    reads state ONLY from result["_state"] -- never from plugin._state. The replay's
+    write-back must use the same mechanism so the next bar takes the incremental branch.
+    """
     from production.scripts.run_historical_pipeline import run_i1_plugins
 
     plugin = MagicMock()
-    plugin._state = {}
+    plugin.supports_incremental = True
 
-    def fake_compute(frames):
-        # Simulate GARCH-style full reassignment of _state
-        plugin._state = {"model_fitted": True, "sigma": 0.02}
-        return {"rsi_14": 60.0}
+    def fake_compute(frames, *, state=None):
+        # IncrementalMixin pattern: attach seeded _state to the result dict.
+        return {"rsi_14": 60.0, "_state": {"model_fitted": True, "sigma": 0.02}}
 
     plugin.compute_full.side_effect = fake_compute
 
@@ -547,12 +553,12 @@ def test_run_i1_plugins_state_written_back_after_compute():
     with patch("production.scripts.run_historical_pipeline.registry", mock_registry):
         run_i1_plugins(history, "ESH6", "1m", plugin_states)
 
-    # Write-back must have captured the reassigned _state
+    # Write-back must have captured the _state returned in the result dict
     written = [v for k, v in plugin_states.items() if k[1] == "ESH6"]
     assert written, "plugin_states must have ESH6 entries after compute"
     assert any(
         v.get("model_fitted") for v in written
-    ), "Write-back must capture GARCH-style _state reassignment"
+    ), "Write-back must capture the _state returned in the result dict"
 
 
 def test_run_analysis_pipeline_includes_i2_tier():
@@ -1432,6 +1438,7 @@ def test_run_i7_and_persist_passes_calibration_to_aggregate():
 
     stub_signal = {"direction": 1, "setup_plugin": "stub_plugin", "confidence": 0.7}
     mock_plugin = MagicMock()
+    mock_plugin.supports_incremental = False
     mock_plugin.compute_full.return_value = stub_signal
 
     captured = {}
