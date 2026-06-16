@@ -38,24 +38,120 @@ ECL vectors like `threshold.global.min_ctf_score` and `threshold.global.min_regi
 ## Infrastructure
 
 Four tables, one service. All live. Zero new infrastructure required to use this system.
+<!-- src: db/migrations/109_config_foundation.sql -->
 
-| Component | Purpose |
-|-----------|---------|
-| `config_schema` | Schema registry: key, type, min, max, allowed_values, description |
-| `config_state` | Current live values (one row per key) |
-| `config_history` | Immutable audit log of every change: who, when, why |
-| `config_outbox` | Kafka propagation via transactional outbox -- hot reload without restart |
-| `ConfigService` | Transactional read/write with in-memory cache and validation |
+### Table Schemas
 
-**Access pattern for all callers:**
+**`config_schema`** — schema registry; defines what keys exist and how to validate them.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `config_key` | TEXT PRIMARY KEY | Full dotted key, e.g. `threshold.ofi_continuation.min_bars` |
+| `value_type` | TEXT NOT NULL | `'float'`, `'int'`, `'bool'`, `'json'`, `'str'` |
+| `default_value` | TEXT | Seed value as string |
+| `min_value` | FLOAT | Lower bound for numeric types |
+| `max_value` | FLOAT | Upper bound for numeric types |
+| `allowed_values` | TEXT[] | Explicit allowlist (used for bool, enum types) |
+| `is_secret` | BOOL DEFAULT false | Redacted in logs and API responses |
+| `version` | INT DEFAULT 1 | Schema version (rarely changes) |
+| `description` | TEXT | Provenance tag + plain-language description + ML target flag |
+| `created_at` | TIMESTAMPTZ DEFAULT NOW() | |
+
+**`config_state`** — live values; one row per key; the hot read surface.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `config_key` | TEXT PRIMARY KEY | |
+| `config_value` | TEXT NOT NULL | Current value as string — ConfigService parses to Python type on read |
+| `version` | INT NOT NULL | Incremented on every write; used for optimistic concurrency |
+| `updated_at` | TIMESTAMPTZ DEFAULT NOW() | |
+
+**`config_history`** — immutable audit log; TimescaleDB hypertable; 1-year retention.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `timestamp` | TIMESTAMPTZ NOT NULL | Write time (hypertable partition dimension) |
+| `config_key` | TEXT NOT NULL | |
+| `version` | INT NOT NULL | Version at this write |
+| `config_value` | TEXT NOT NULL | Value at this write |
+| `changed_by` | TEXT NOT NULL | `'initial_estimate'`, `'user'`, `'ml_discovery'`, `'user_override'`, `'system'` |
+| `reason` | TEXT | ML writes include `n=`, `bootstrap_ci_lower=`, `p=`; user writes include rationale |
+| PK | `(timestamp, config_key, version)` | |
+
+**`config_outbox`** — transactional outbox for Kafka propagation; polled by `OutboxDispatcher`.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BIGSERIAL PRIMARY KEY | |
+| `config_key` | TEXT NOT NULL | |
+| `config_value` | TEXT NOT NULL | |
+| `version` | INT NOT NULL | |
+| `changed_at` | TIMESTAMPTZ DEFAULT NOW() | |
+| `status` | TEXT DEFAULT `'pending'` | `'pending'` → `'dispatched'` after Kafka publish |
+| `retry_count` | INT DEFAULT 0 | Incremented on transient failures |
+| `next_attempt_at` | TIMESTAMPTZ | Backoff deadline; `NULL` means ready immediately |
+| `created_at` | TIMESTAMPTZ DEFAULT NOW() | |
+
+---
+
+### How the Tables Interact
+
+**Read flow:**
+
+```
+caller → ConfigService.get(key, default=X)
+           │
+           ├─ in-memory cache hit → return cached value  (zero DB I/O)
+           │
+           └─ cache miss → SELECT config_state JOIN config_schema
+                             → parse string → type-safe value
+                             → populate cache
+                             → return value
+```
+
+The `default` fallback is returned only if the key is absent from `config_state` (e.g., before the seeding migration runs). It should always match the seed value in `config_state`.
+
+Point-in-time query: `ConfigService.get_at(key, timestamp)` reads `config_history` and returns the value that was live at that moment — used by backtests and replay to reconstruct the parameter state at signal fire time.
+
+**Write flow (one transaction, all-or-nothing):**
+
+```
+caller → ConfigService.set(key, value, changed_by=…, reason=…)
+           │
+           ├─ 1. validate key against OPS_PREFIXES (raises ConfigValidationError if not OPS)
+           ├─ 2. load config_schema → validate value against type/min/max/allowed_values
+           ├─ 3. open transaction
+           │       ├─ SELECT config_state FOR UPDATE (concurrency lock)
+           │       ├─ check expected_version if provided (raises ConfigVersionConflict on mismatch)
+           │       ├─ INSERT INTO config_history (timestamp, key, version+1, value, changed_by, reason)
+           │       ├─ UPSERT config_state SET config_value=…, version=version+1
+           │       └─ INSERT INTO config_outbox (key, value, version+1, status='pending')
+           ├─ 4. commit — all three writes succeed or none do
+           ├─ 5. invalidate in-memory cache for key
+           └─ OutboxDispatcher (background) → publish to topic_config_updates → Kafka
+```
+
+**Hot reload:** Services subscribed to `topic_config_updates` receive the update and call `config_service.invalidate(key)`. The next `get()` call re-fetches from `config_state` with the new value. No restart required.
+
+**Concurrency:** `SELECT FOR UPDATE` inside the transaction prevents two concurrent writers from creating a split-brain. The `version` column enables optimistic locking: pass `expected_version=N` to reject the write if another writer updated the key between your read and your write.
+
+---
+
+### Access Patterns in Code
+
+**Standard read at init (async):**
 
 ```python
 value = await config_service.get("namespace.concept.param", default=fallback)
 ```
 
-The `default` fallback keeps the system functional if the config DB is unavailable at startup. It should match the seed value in `config_state`.
+**Hot-path read after pre-warming (sync, zero I/O):**
 
-**ML discovery write pattern (Level 3):**
+```python
+value = config_service.get_sync("namespace.concept.param", default=fallback)
+```
+
+**ML discovery write:**
 
 ```python
 await config_service.set(
@@ -65,8 +161,6 @@ await config_service.set(
     reason=f"n={n}, bootstrap_ci_lower={ci_lower:.3f}, p={p:.4f}",
 )
 ```
-
-The outbox broadcasts the change to `topic_config_updates`. Services subscribed to that topic hot-reload the value without restart. `config_history` captures full provenance.
 
 ---
 
