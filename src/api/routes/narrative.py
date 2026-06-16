@@ -85,10 +85,10 @@ def _maybe_validate(model_cls, payload):
 
 
 def _build_context_from_row(row) -> SignalContext:
-    """Construct typed SignalContext from joined signal_ledger + intelligence_features row.
+    """Construct typed SignalContext from joined signal_ledger_full + intelligence_features row.
 
     Args:
-        row: Database row with signal_ledger + intelligence_features columns
+        row: Database row with signal_ledger_full + intelligence_features columns
 
     Returns:
         Fully populated SignalContext with all pipeline tiers populated.
@@ -118,7 +118,7 @@ def _build_context_from_row(row) -> SignalContext:
     return SignalContext(
         signal_id=row["signal_id"],
         symbol=row["symbol"],
-        timeframe=row["feature_tf"],
+        timeframe=row["tf"],
         ts=row["timestamp"],
         bar=bar_context,
         i1=_maybe_validate(I1Indicators, _parse_jsonb(row.get("i1"), default=None)),
@@ -153,13 +153,13 @@ def _prompt_hash(context: SignalContext) -> str:
 
 
 _SIGNAL_QUERY = """
-    SELECT sl.signal_id, sl.symbol, sl.timestamp, sl.feature_tf,
-           sl.setup_plugin, sl.direction, sl.confidence,
-           tf_sig.value->>'entry_price' AS entry_price,
-           tf_sig.value->>'stop_loss' AS stop_loss,
-           tf_sig.value->'targets' AS targets,
-           tf_sig.value->>'regime_type_at_fire' AS regime_type_at_fire,
-           tf_sig.value->>'entry_type' AS entry_type,
+    SELECT sl.signal_id, sl.symbol, sl.timestamp, sl.tf,
+           sl.setup_plugin, sl.direction, sl.raw_confidence AS confidence,
+           sl.entry_price,
+           sl.stop_loss,
+           sl.targets,
+           sl.plugin_regime_type AS regime_type_at_fire,
+           sl.entry_type,
            f.bar,
            f.technical_indicators AS i1,
            f.composite_events,
@@ -171,9 +171,7 @@ _SIGNAL_QUERY = """
     LEFT JOIN intelligence_features f
       ON sl.symbol = f.symbol
      AND sl.feature_ts = f.ts
-     AND sl.feature_tf = f.tf
-    LEFT JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
-        ON tf_sig.value->>'signal_id' = sl.signal_id::text
+     AND sl.tf = f.tf
     WHERE sl.signal_id = $1::uuid
     LIMIT 1
 """
@@ -244,7 +242,7 @@ async def get_narrative(
                 _NARRATIVE_UPSERT,
                 signal_id,
                 row["symbol"],
-                row["feature_tf"],
+                row["tf"],
                 narrative_text,
                 model_name,
                 output.agent_id,

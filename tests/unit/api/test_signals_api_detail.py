@@ -21,43 +21,31 @@ def _detail_row(**kwargs):
         "timestamp": now,
         "symbol": "ESH6",
         "timeframe": "1m",
+        "tf": "1m",
         "setup_plugin": "trad_TrendFollowing",
-        "signal_type": "trend_long",
-        "direction": 1,
+        "direction": "long",
         "entry_price": 5200.0,
         "stop_loss": 5180.0,
         "targets": [5240.0],
         "confidence": 0.65,
         "was_selected": True,
         "cis_score": 0.45,
-        "bucket_scores": None,
         "status": "active",
-        "outcome": None,
-        "exit_price": None,
         "pnl_r": None,
+        "exit_price": None,
         "signal_computed_at": now,
         "entry_zone_low": None,
         "entry_zone_high": None,
-        "zone_valid_at_signal": None,
-        "activation_price": None,
-        "mae": None,
-        "mfe": None,
-        "bars_in_trade": None,
         "hmm_regime_at_fire": None,
         "activated_at": None,
-        "bars_to_activation": None,
         "exit_reason": None,
         "ttl_bars": None,
         "exit_at": None,
         "feature_ts": None,
-        "feature_tf": None,
-        "bar": None,
-        "i1": None,
-        "i3": None,
-        "i4": None,
-        "i5": None,
-        "smc": None,
-        "i6": None,
+        "stop_basis": None,
+        "counterfactual_pnl_r": None,
+        "entry_type": None,
+        "r_multiple": None,
     }
     return {**defaults, **kwargs}
 
@@ -97,7 +85,6 @@ class TestSignalsApiDetail:
         row = _detail_row(
             hmm_regime_at_fire=0,
             activated_at=datetime(2026, 6, 4, 14, 32, 9),
-            bars_to_activation=2,
             exit_reason="target_1",
             ttl_bars=10,
             exit_at=datetime(2026, 6, 4, 14, 58, 41),
@@ -106,7 +93,6 @@ class TestSignalsApiDetail:
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         data = TestClient(app).get(f"/api/signals/detail/{row['signal_id']}").json()
         assert data["hmm_regime_at_fire"] == 0
-        assert data["bars_to_activation"] == 2
         assert data["exit_reason"] == "target_1"
         assert data["ttl_bars"] == 10
         assert "activated_at" in data

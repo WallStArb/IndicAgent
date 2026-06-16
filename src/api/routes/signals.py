@@ -1,8 +1,8 @@
 """
 Signal History API Routes
 
-Provides access to signal_ledger with optional JOIN to intelligence_features
-for full feature context at signal time.
+Queries signal_events/trade_frames via signal_ledger (join view) for full
+feature context at signal time.
 """
 
 from collections import defaultdict
@@ -15,7 +15,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...config.settings import Settings
 from ...core.database_manager import DatabaseManager
-from ...persistence.repository.signal_events_repository import WIN_OUTCOMES as _WIN_OUTCOMES
 from ...persistence.repository.signal_events_repository import SignalStatus
 from ..dependencies import get_db_manager
 from ..utils import parse_jsonb as _parse_jsonb
@@ -29,8 +28,59 @@ _TERMINAL_STATUSES: frozenset[str] = frozenset(
     {SignalStatus.PENDING.value, SignalStatus.ACTIVE.value}
 )
 
-# Default time window for "recent" signals query
-_RECENT_SIGNAL_WINDOW_DAYS = 90
+
+# ---------------------------------------------------------------------------
+# APR key defaults — the DB values are authoritative; these are fallbacks only
+# ---------------------------------------------------------------------------
+_APR_DEFAULTS: dict[str, Any] = {
+    "ui.signals.recent_window_days": 90,
+    "ui.signals.min_confidence": 0.40,
+    "ui.signals.min_cis_score": 0.35,
+    "ui.signals.today_window_hours": 24,
+    "ui.signals.yesterday_window_hours": 48,
+    "ui.signals.short_window_days": 7,
+    "ui.signals.medium_window_days": 30,
+    "ui.signals.latency_threshold_minutes": 5,
+    "ui.signals.max_results": 500,
+    "ui.signals.top_n_results": 10,
+}
+
+
+async def _get_ui_config(db_manager: DatabaseManager) -> dict[str, Any]:
+    """Fetch all ui.signals.* APR keys from config_state, falling back to defaults.
+
+    Always returns a complete dict of APR values. If the DB query fails or returns
+    rows without config_key (e.g. in tests), returns _APR_DEFAULTS unchanged.
+    """
+    keys = list(_APR_DEFAULTS.keys())
+    placeholders = ", ".join(f"${i + 1}" for i in range(len(keys)))
+    result: dict[str, Any] = dict(_APR_DEFAULTS)
+    try:
+        rows = await db_manager.fetch(
+            f"SELECT cs.config_key, cs.config_value, csc.value_type"
+            f" FROM config_state cs JOIN config_schema csc USING (config_key)"
+            f" WHERE cs.config_key IN ({placeholders})",
+            *keys,
+        )
+        for row in rows:
+            if "config_key" not in row:
+                break  # rows are not config rows (test mock); return defaults
+            key = row["config_key"]
+            if key not in result:
+                continue
+            raw = row["config_value"]
+            vtype = row["value_type"].lower()
+            if vtype == "int":
+                result[key] = int(raw)
+            elif vtype == "float":
+                result[key] = float(raw)
+            elif vtype == "bool":
+                result[key] = raw.lower() in ("true", "1")
+            else:
+                result[key] = raw
+    except Exception:
+        pass  # always fall back to defaults rather than crash request
+    return result
 
 
 @lru_cache(maxsize=1)
@@ -49,18 +99,21 @@ def _compute_signal_tier(
     was_selected: bool,
     confidence: float | None,
     cis_score: float | None,
+    min_confidence: float = 0.40,
+    min_cis_score: float = 0.35,
 ) -> str:
     """Classify a signal into Hero / Monitored / Candidate tier.
 
-    Evaluation order: Hero → Monitored → Candidate.
-    NULL cis_score → always Monitored (never Hero).
-    Thresholds: confidence >= 0.40 (data-derived breakeven);
-                abs(cis_score) > 0.35 (CIS fire threshold).
+    Evaluation order: Hero -> Monitored -> Candidate.
+    NULL cis_score -> always Monitored (never Hero).
+    Thresholds sourced from ui.signals.min_confidence and ui.signals.min_cis_score APR keys.
 
     Args:
         was_selected: Whether the signal was selected for trading
         confidence: Signal confidence score (0-1)
         cis_score: Composite Intelligence Score
+        min_confidence: Hero confidence gate (default from APR ui.signals.min_confidence)
+        min_cis_score: Hero CIS gate (default from APR ui.signals.min_cis_score)
 
     Returns:
         One of "hero", "monitored", or "candidate".
@@ -69,8 +122,8 @@ def _compute_signal_tier(
         was_selected
         and confidence is not None
         and cis_score is not None
-        and confidence >= 0.40
-        and abs(cis_score) > 0.35
+        and confidence >= min_confidence
+        and abs(cis_score) > min_cis_score
     ):
         return "hero"
     if was_selected:
@@ -82,7 +135,7 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
     """Build signal response dict from asyncpg row.
 
     Args:
-        row: Database row with signal_ledger columns
+        row: Database row with signal_ledger_full columns
         include_features: Whether to include joined intelligence_features
 
     Returns:
@@ -93,30 +146,18 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
         "timestamp": row["timestamp"].isoformat(),
         "symbol": row["symbol"],
         "timeframe": row["timeframe"],
+        "tf": row["tf"],
         "setup_plugin": row["setup_plugin"],
-        "signal_type": row["signal_type"],
         "direction": row["direction"],
         "entry_price": float(row["entry_price"]) if row["entry_price"] is not None else None,
         "stop_loss": float(row["stop_loss"]) if row["stop_loss"] is not None else None,
-        "confidence": float(row["confidence"]) if row["confidence"] is not None else None,
+        "confidence": float(row["raw_confidence"]) if row["raw_confidence"] is not None else None,
         "status": row["status"],
         "feature_ts": row["feature_ts"].isoformat() if row["feature_ts"] is not None else None,
-        "feature_tf": row["feature_tf"],
         "signal_computed_at": (
             row["signal_computed_at"].isoformat()
             if row.get("signal_computed_at") is not None
             else None
-        ),
-        "market_price_at_signal": (
-            float(row["market_price_at_signal"])
-            if row.get("market_price_at_signal") is not None
-            else None
-        ),
-        "ask_at_signal": (
-            float(row["ask_at_signal"]) if row.get("ask_at_signal") is not None else None
-        ),
-        "bid_at_signal": (
-            float(row["bid_at_signal"]) if row.get("bid_at_signal") is not None else None
         ),
         "entry_zone_low": (
             float(row["entry_zone_low"]) if row.get("entry_zone_low") is not None else None
@@ -124,10 +165,9 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
         "entry_zone_high": (
             float(row["entry_zone_high"]) if row.get("entry_zone_high") is not None else None
         ),
-        "zone_valid_at_signal": row.get("zone_valid_at_signal"),
     }
     if include_features:
-        # feature_ts NULL → features=None (pre-Phase-2 signals without feature context)
+        # feature_ts NULL -> features=None (pre-Phase-2 signals without feature context)
         if row["feature_ts"] is None:
             signal["features"] = None
         else:
@@ -159,50 +199,48 @@ def _i(v: Any) -> int | None:
 async def get_active_signals(
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """All currently pending or active signals from signal_ledger.
+    """All currently pending or active signals from signal_ledger_full.
 
     Called by the dashboard on SSE connect to pre-populate signal state
     before live SSE events arrive. Returns one row per (symbol, timeframe)
     for signals with status in ('pending', 'active').
     """
     try:
+        cfg = await _get_ui_config(db_manager)
+        max_results = int(cfg["ui.signals.max_results"])
+
         query = """
             SELECT DISTINCT ON (sl.symbol, sl.timeframe)
                 sl.signal_id,
                 sl.symbol,
                 sl.timeframe,
                 sl.setup_plugin,
-                sl.signal_type,
                 sl.direction,
                 sl.entry_price,
                 sl.stop_loss,
                 sl.cis_score,
                 sl.targets,
-                so.status,
+                sl.status,
                 sl.was_selected,
-                sl.stop_basis,
+                sl.frame_details->>'stop_basis' AS stop_basis,
                 sl.entry_zone_low,
                 sl.entry_zone_high,
                 sl.signal_computed_at,
                 sl.feature_ts AS bar_close_ts,
                 sl.timestamp,
-                so.staleness_score,
-                so.staleness_trigger_reason,
                 sl.ttl_bars,
                 sl.hmm_regime_at_fire,
-                sl.bucket_scores,
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
-            FROM signal_ledger sl
-            JOIN signal_outcomes so ON sl.signal_id = so.signal_id
+            FROM signal_ledger_full sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin AND sp.symbol = sl.symbol
-            WHERE so.status IN ('pending', 'active')
+            WHERE sl.status IN ('pending', 'active')
               -- shadow signals included intentionally: dashboard observability (Phase 80)
               AND sl.timestamp >= NOW() - INTERVAL '7 days'
             ORDER BY sl.symbol, sl.timeframe, COALESCE(sl.signal_computed_at, sl.timestamp) DESC
-            LIMIT 500
+            LIMIT $1
         """
-        rows = await db_manager.fetch(query)
+        rows = await db_manager.fetch(query, max_results)
 
         signals = []
         for row in rows:
@@ -223,7 +261,6 @@ async def get_active_signals(
                     "symbol": row["symbol"],
                     "timeframe": row["timeframe"],
                     "setup_plugin": row["setup_plugin"],
-                    "signal_type": row["signal_type"],
                     "direction": row["direction"],
                     "entry_price": entry,
                     "stop_loss": stop,
@@ -252,15 +289,14 @@ async def get_active_signals(
                     ),
                     "setup_win_rate": _f(row["setup_win_rate"]),
                     "setup_avg_pnl_r": _f(row["setup_avg_pnl_r"]),
-                    "staleness_score": _f(row["staleness_score"]),
-                    "staleness_trigger_reason": _s(row["staleness_trigger_reason"]),
                     "ttl_bars": _i(row["ttl_bars"]),
                     "hmm_regime_at_fire": _i(row["hmm_regime_at_fire"]),
-                    "bucket_scores": _parse_jsonb(row["bucket_scores"], default=None),
                     "signal_tier": _compute_signal_tier(
                         row["was_selected"],
                         None,
                         _f(row["cis_score"]),
+                        min_confidence=cfg["ui.signals.min_confidence"],
+                        min_cis_score=cfg["ui.signals.min_cis_score"],
                     ),
                 }
             )
@@ -282,7 +318,7 @@ async def get_recent_signals(
     tier: str = Query("hero", pattern="^(hero|monitored|all)$", description="Quality tier filter"),
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """Recent signals from signal_ledger for drill panel history.
+    """Recent signals from signal_ledger_full for drill panel history.
 
     Annotated with 30d setup performance from setup_performance table.
     Includes aggregate summary over the returned window.
@@ -299,39 +335,40 @@ async def get_recent_signals(
     resolved_symbol = _resolve_contract(symbol) if symbol else None
 
     try:
+        cfg = await _get_ui_config(db_manager)
+        recent_window_days = int(cfg["ui.signals.recent_window_days"])
+        min_confidence = float(cfg["ui.signals.min_confidence"])
+        min_cis_score = float(cfg["ui.signals.min_cis_score"])
+
         main_query = """
             SELECT
                 sl.signal_id,
                 sl.setup_plugin,
-                sl.signal_type,
                 sl.direction,
                 sl.entry_price,
                 sl.stop_loss,
-                sl.signal_quality AS confidence,
+                sl.raw_confidence AS confidence,
                 sl.was_selected,
                 sl.cis_score,
                 sl.status,
-                sl.outcome,
-                sl.exit_price,
-                sl.pnl_r,
+                sl.actual_pnl_r AS pnl_r,
+                sl.exit_reason,
                 sl.signal_computed_at,
                 sl.timeframe,
                 sl.symbol,
                 sl.hmm_regime_at_fire,
-                sl.exit_reason,
-                sl.mfe,
                 sl.ttl_bars,
-                sl.bars_in_trade,
                 sl.targets,
+                sl.entry_type,
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
             FROM signal_ledger_full sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin AND sp.symbol = sl.symbol
-            WHERE sl.timestamp >= NOW() - INTERVAL '90 days'
+            WHERE sl.timestamp >= NOW() - ($6::int * INTERVAL '1 day')
               AND ($1::text IS NULL OR sl.symbol = $1)
               AND ($2::text IS NULL OR sl.timeframe = $2)
               AND (NOT $4::boolean OR sl.was_selected = true)
-              AND (NOT $5::boolean OR (sl.signal_quality >= 0.40 AND sl.cis_score IS NOT NULL AND abs(sl.cis_score) > 0.35))
+              AND (NOT $5::boolean OR (sl.raw_confidence >= $7::float AND sl.cis_score IS NOT NULL AND abs(sl.cis_score) > $8::float))
             ORDER BY COALESCE(sl.signal_computed_at, sl.timestamp) DESC
             LIMIT $3
         """
@@ -342,6 +379,9 @@ async def get_recent_signals(
             limit,
             require_selected,
             require_hero_gate,
+            recent_window_days,
+            min_confidence,
+            min_cis_score,
         )
 
         signals = []
@@ -360,7 +400,6 @@ async def get_recent_signals(
                 {
                     "signal_id": str(row["signal_id"]),
                     "setup_plugin": row["setup_plugin"],
-                    "signal_type": row["signal_type"],
                     "direction": direction,
                     "entry_price": entry,
                     "stop_loss": stop,
@@ -368,8 +407,6 @@ async def get_recent_signals(
                     "was_selected": row["was_selected"],
                     "cis_score": _f(row["cis_score"]),
                     "status": row["status"],
-                    "outcome": row["outcome"],
-                    "exit_price": _f(row["exit_price"]),
                     "pnl_r": _f(row["pnl_r"]),
                     "computed_at": _ts(row, "signal_computed_at"),
                     "timeframe": row["timeframe"],
@@ -380,28 +417,29 @@ async def get_recent_signals(
                         row["was_selected"],
                         _f(row["confidence"]),
                         _f(row["cis_score"]),
+                        min_confidence=min_confidence,
+                        min_cis_score=min_cis_score,
                     ),
                     "hmm_regime_at_fire": _i(row["hmm_regime_at_fire"]),
                     "exit_reason": _s(row["exit_reason"]),
-                    "mfe": _f(row["mfe"]),
                     "ttl_bars": _i(row["ttl_bars"]),
-                    "bars_in_trade": _i(row["bars_in_trade"]),
                     "targets": targets,
                     "r_ratio": r_ratio,
+                    "entry_type": _s(row["entry_type"]),
                 }
             )
 
         # Compute summary from the returned rows so stats always match what's shown.
-        n_resolved = n_suppressed = n_wins = n_with_outcome = 0
+        n_resolved = n_suppressed = n_wins = n_with_pnl = 0
         pnl_sum = 0.0
         pnl_count = 0
         for s in signals:
             resolved = s["status"] not in _TERMINAL_STATUSES
             if resolved:
                 n_resolved += 1
-                if s["outcome"] is not None:
-                    n_with_outcome += 1
-                    if s["outcome"] in _WIN_OUTCOMES:
+                if s["pnl_r"] is not None:
+                    n_with_pnl += 1
+                    if s["pnl_r"] > 0:
                         n_wins += 1
             if s["status"] == SignalStatus.REGIME_SUPPRESSED.value:
                 n_suppressed += 1
@@ -412,7 +450,7 @@ async def get_recent_signals(
             "n_total": len(signals),
             "n_resolved": n_resolved,
             "n_suppressed": n_suppressed,
-            "win_rate": round(n_wins / n_with_outcome, 3) if n_with_outcome else None,
+            "win_rate": round(n_wins / n_with_pnl, 3) if n_with_pnl else None,
             "avg_pnl_r": round(pnl_sum / pnl_count, 3) if pnl_count else None,
         }
 
@@ -436,55 +474,65 @@ async def get_signals_stats(
     client polling cadence.
     """
     try:
-        query = """
+        cfg = await _get_ui_config(db_manager)
+        today_hours = int(cfg["ui.signals.today_window_hours"])
+        yesterday_hours = int(cfg["ui.signals.yesterday_window_hours"])
+        short_days = int(cfg["ui.signals.short_window_days"])
+        medium_days = int(cfg["ui.signals.medium_window_days"])
+        latency_mins = int(cfg["ui.signals.latency_threshold_minutes"])
+        top_n = int(cfg["ui.signals.top_n_results"])
+        min_confidence = float(cfg["ui.signals.min_confidence"])
+        min_cis_score = float(cfg["ui.signals.min_cis_score"])
+
+        query = f"""
             SELECT
-                -- Session counts (last 24h as proxy for current session)
+                -- Session counts (last {today_hours}h as proxy for current session)
                 COUNT(*) FILTER (
                     WHERE was_selected = true
-                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '24 hours'
+                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '{today_hours} hours'
                 ) AS signals_today,
                 COUNT(*) FILTER (
                     WHERE was_selected = true
-                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '48 hours'
-                      AND COALESCE(signal_computed_at, timestamp) < NOW() - INTERVAL '24 hours'
+                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '{yesterday_hours} hours'
+                      AND COALESCE(signal_computed_at, timestamp) < NOW() - INTERVAL '{today_hours} hours'
                 ) AS signals_prev_session,
                 -- Hero tier count today
                 COUNT(*) FILTER (
                     WHERE was_selected = true
-                      AND signal_quality >= 0.40
+                      AND raw_confidence >= {min_confidence}
                       AND cis_score IS NOT NULL
-                      AND abs(cis_score) > 0.35
-                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '24 hours'
+                      AND abs(cis_score) > {min_cis_score}
+                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '{today_hours} hours'
                 ) AS hero_count_today,
                 -- Selected count today (denominator for hero_rate)
                 COUNT(*) FILTER (
                     WHERE was_selected = true
-                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '24 hours'
+                      AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '{today_hours} hours'
                 ) AS selected_count_today,
-                -- Avg confidence (signal_quality is the post-rename column)
+                -- Avg confidence (raw_confidence is the canonical column)
                 ROUND(
-                    AVG(signal_quality) FILTER (
+                    AVG(raw_confidence) FILTER (
                         WHERE was_selected = true
-                          AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '24 hours'
+                          AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '{today_hours} hours'
                     )::numeric, 4
                 ) AS avg_confidence_today,
                 ROUND(
-                    AVG(signal_quality) FILTER (
+                    AVG(raw_confidence) FILTER (
                         WHERE was_selected = true
-                          AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '7 days'
+                          AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '{short_days} days'
                     )::numeric, 4
                 ) AS avg_confidence_7d,
-                -- Pipeline latency: bar close → signal computed (live signals only).
+                -- Pipeline latency: bar close -> signal computed (live signals only).
                 -- Exclude catch-up signals (pipeline restart replaying stale bars) by
-                -- capping to signals fired within 5 minutes of their bar close.
+                -- capping to signals fired within {latency_mins} minutes of their bar close.
                 ROUND(
                     PERCENTILE_CONT(0.5) WITHIN GROUP (
                         ORDER BY EXTRACT(EPOCH FROM (signal_computed_at - timestamp))
                     ) FILTER (
                         WHERE was_selected = true
                           AND signal_computed_at IS NOT NULL
-                          AND signal_computed_at >= NOW() - INTERVAL '24 hours'
-                          AND signal_computed_at - timestamp <= INTERVAL '5 minutes'
+                          AND signal_computed_at >= NOW() - INTERVAL '{today_hours} hours'
+                          AND signal_computed_at - timestamp <= INTERVAL '{latency_mins} minutes'
                     )::numeric, 2
                 ) AS latency_p50,
                 ROUND(
@@ -493,41 +541,43 @@ async def get_signals_stats(
                     ) FILTER (
                         WHERE was_selected = true
                           AND signal_computed_at IS NOT NULL
-                          AND signal_computed_at >= NOW() - INTERVAL '24 hours'
-                          AND signal_computed_at - timestamp <= INTERVAL '5 minutes'
+                          AND signal_computed_at >= NOW() - INTERVAL '{today_hours} hours'
+                          AND signal_computed_at - timestamp <= INTERVAL '{latency_mins} minutes'
                     )::numeric, 2
                 ) AS latency_p95,
-                -- Rolling pnl_r
+                -- Rolling actual_pnl_r from trade_executions via view
                 ROUND(
-                    AVG(pnl_r) FILTER (
+                    AVG(actual_pnl_r) FILTER (
                         WHERE was_selected = true
-                          AND pnl_r IS NOT NULL
-                          AND timestamp >= NOW() - INTERVAL '7 days'
+                          AND actual_pnl_r IS NOT NULL
+                          AND timestamp >= NOW() - INTERVAL '{short_days} days'
                     )::numeric, 4
                 ) AS avg_pnl_r_7d,
                 ROUND(
-                    AVG(pnl_r) FILTER (
+                    AVG(actual_pnl_r) FILTER (
                         WHERE was_selected = true
-                          AND pnl_r IS NOT NULL
-                          AND timestamp >= NOW() - INTERVAL '30 days'
+                          AND actual_pnl_r IS NOT NULL
+                          AND timestamp >= NOW() - INTERVAL '{medium_days} days'
                     )::numeric, 4
                 ) AS avg_pnl_r_30d
             FROM signal_ledger_full
-            WHERE timestamp >= NOW() - INTERVAL '30 days'
+            WHERE timestamp >= NOW() - INTERVAL '{medium_days} days'
         """
         row = await db_manager.fetchrow(query)
 
-        outcomes_query = """
-            SELECT outcome, pnl_r
+        outcomes_query = f"""
+            SELECT exit_reason, actual_pnl_r
             FROM signal_ledger_full
             WHERE was_selected = true
               AND status NOT IN ('pending', 'active')
-              AND outcome IS NOT NULL
+              AND exit_reason IS NOT NULL
             ORDER BY COALESCE(signal_computed_at, timestamp) DESC
-            LIMIT 10
+            LIMIT {top_n}
         """
         outcome_rows = await db_manager.fetch(outcomes_query)
-        recent_outcomes = [{"outcome": r["outcome"], "pnl_r": _f(r["pnl_r"])} for r in outcome_rows]
+        recent_outcomes = [
+            {"outcome": r["exit_reason"], "pnl_r": _f(r["actual_pnl_r"])} for r in outcome_rows
+        ]
 
         signals_today = int(row["signals_today"] or 0)
         signals_prev = int(row["signals_prev_session"] or 0)
@@ -581,24 +631,27 @@ async def get_signals_stats(
 async def get_signals_heatmap(
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """Setup × regime performance matrix for heat map visualization."""
+    """Setup x regime performance matrix for heat map visualization."""
     try:
-        query = """
+        cfg = await _get_ui_config(db_manager)
+        recent_window_days = int(cfg["ui.signals.recent_window_days"])
+
+        query = f"""
             WITH base AS (
                 SELECT
                     setup_plugin,
                     hmm_regime_at_fire AS regime,
                     COUNT(*) AS n,
-                    ROUND(AVG(pnl_r)::numeric, 4) AS avg_r,
+                    ROUND(AVG(actual_pnl_r)::numeric, 4) AS avg_r,
                     ROUND(
-                        AVG(CASE WHEN outcome IN ('target_1', 'target_1_2', 'target_full')
+                        AVG(CASE WHEN exit_reason IN ('target_1', 'target_1_2', 'target_full')
                             THEN 1.0 ELSE 0.0 END)::numeric, 3
                     ) AS win_rate
                 FROM signal_ledger_full
-                WHERE outcome IS NOT NULL
-                  AND pnl_r IS NOT NULL
+                WHERE exit_reason IS NOT NULL
+                  AND actual_pnl_r IS NOT NULL
                   AND was_selected = true
-                  AND timestamp >= NOW() - INTERVAL '90 days'
+                  AND timestamp >= NOW() - INTERVAL '{recent_window_days} days'
                 GROUP BY setup_plugin, hmm_regime_at_fire
             ),
             totals AS (
@@ -633,20 +686,23 @@ async def get_signals_heatmap(
 async def get_signals_edge_series(
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """Daily avg R and win rate for the last 30 days — feeds the edge sparkline."""
+    """Daily avg R and win rate for the last 30 days - feeds the edge sparkline."""
     try:
-        query = """
+        cfg = await _get_ui_config(db_manager)
+        medium_days = int(cfg["ui.signals.medium_window_days"])
+
+        query = f"""
             SELECT
                 DATE_TRUNC('day', COALESCE(signal_computed_at, timestamp))::date AS day,
-                COUNT(*) FILTER (WHERE pnl_r IS NOT NULL) AS n,
-                ROUND(AVG(pnl_r) FILTER (WHERE pnl_r IS NOT NULL)::numeric, 4) AS avg_r,
+                COUNT(*) FILTER (WHERE actual_pnl_r IS NOT NULL) AS n,
+                ROUND(AVG(actual_pnl_r) FILTER (WHERE actual_pnl_r IS NOT NULL)::numeric, 4) AS avg_r,
                 ROUND(
-                    AVG(CASE WHEN outcome IN ('target_1', 'target_1_2', 'target_full')
-                        THEN 1.0 ELSE 0.0 END) FILTER (WHERE outcome IS NOT NULL)::numeric, 3
+                    AVG(CASE WHEN exit_reason IN ('target_1', 'target_1_2', 'target_full')
+                        THEN 1.0 ELSE 0.0 END) FILTER (WHERE exit_reason IS NOT NULL)::numeric, 3
                 ) AS win_rate
             FROM signal_ledger_full
             WHERE was_selected = true
-              AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '30 days'
+              AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '{medium_days} days'
             GROUP BY 1
             ORDER BY 1
         """
@@ -671,17 +727,20 @@ async def get_signals_edge_series(
 async def get_signals_intraday_heatmap(
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """Avg R by (hour, day-of-week) — feeds the intraday session heat map."""
+    """Avg R by (hour, day-of-week) - feeds the intraday session heat map."""
     try:
-        query = """
+        cfg = await _get_ui_config(db_manager)
+        recent_window_days = int(cfg["ui.signals.recent_window_days"])
+
+        query = f"""
             SELECT
                 EXTRACT(HOUR FROM COALESCE(signal_computed_at, timestamp) AT TIME ZONE 'America/New_York')::int AS hour,
                 EXTRACT(DOW FROM COALESCE(signal_computed_at, timestamp) AT TIME ZONE 'America/New_York')::int AS dow,
-                COUNT(*) FILTER (WHERE pnl_r IS NOT NULL) AS n,
-                ROUND(AVG(pnl_r) FILTER (WHERE pnl_r IS NOT NULL)::numeric, 4) AS avg_r
+                COUNT(*) FILTER (WHERE actual_pnl_r IS NOT NULL) AS n,
+                ROUND(AVG(actual_pnl_r) FILTER (WHERE actual_pnl_r IS NOT NULL)::numeric, 4) AS avg_r
             FROM signal_ledger_full
             WHERE was_selected = true
-              AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '90 days'
+              AND COALESCE(signal_computed_at, timestamp) >= NOW() - INTERVAL '{recent_window_days} days'
               AND EXTRACT(DOW FROM COALESCE(signal_computed_at, timestamp) AT TIME ZONE 'America/New_York') BETWEEN 1 AND 5
               AND EXTRACT(HOUR FROM COALESCE(signal_computed_at, timestamp) AT TIME ZONE 'America/New_York') BETWEEN 8 AND 17
             GROUP BY 1, 2
@@ -720,8 +779,8 @@ async def get_signals_attribution(
 ) -> dict[str, Any]:
     """Per-setup or per-asset-class alpha table, read from pre-computed signal_metrics.
 
-    track=zone  → structural setup quality (IC is primary metric)
-    track=market → tradeable alpha (Sharpe is primary metric)
+    track=zone  -> structural setup quality (IC is primary metric)
+    track=market -> tradeable alpha (Sharpe is primary metric)
 
     Args:
         window: Time window (7d, 30d, or 90d)
@@ -878,16 +937,20 @@ async def get_signal_detail(
     try:
         signal_query = """
             SELECT
-                sl.signal_id, sl.timestamp, sl.symbol, sl.timeframe,
-                sl.setup_plugin, sl.signal_type, sl.direction,
-                sl.entry_price, sl.stop_loss, sl.targets, sl.signal_quality AS confidence,
-                sl.was_selected, sl.cis_score, sl.bucket_scores,
-                sl.status, sl.outcome, sl.exit_price, sl.pnl_r,
-                sl.signal_computed_at, sl.feature_ts, sl.feature_tf,
+                sl.signal_id, sl.timestamp, sl.symbol, sl.timeframe, sl.tf,
+                sl.setup_plugin, sl.direction,
+                sl.entry_price, sl.stop_loss, sl.targets, sl.raw_confidence AS confidence,
+                sl.was_selected, sl.cis_score,
+                sl.status, sl.exit_reason,
+                sl.actual_pnl_r AS pnl_r, sl.actual_fill_price AS exit_price,
+                sl.signal_computed_at, sl.feature_ts,
                 sl.entry_zone_low, sl.entry_zone_high,
-                sl.activation_price, sl.mae, sl.mfe, sl.bars_in_trade,
-                sl.hmm_regime_at_fire, sl.activated_at, sl.bars_to_activation,
-                sl.exit_reason, sl.ttl_bars, sl.exit_at
+                sl.activated_at, sl.hmm_regime_at_fire,
+                sl.ttl_bars, sl.exit_at,
+                sl.frame_details->>'stop_basis' AS stop_basis,
+                sl.counterfactual_pnl_r,
+                sl.entry_type,
+                sl.r_multiple
             FROM signal_ledger_full sl
             WHERE sl.signal_id = $1::uuid
         """
@@ -904,7 +967,7 @@ async def get_signal_detail(
                 WHERE ts = $1 AND symbol = $2 AND tf = $3
             """
             feat_row = await db_manager.fetchrow(
-                feat_query, row["feature_ts"], row["symbol"], row["feature_tf"]
+                feat_query, row["feature_ts"], row["symbol"], row["tf"]
             )
             if feat_row is not None:
                 features = {
@@ -917,13 +980,15 @@ async def get_signal_detail(
                     "i6": _parse_jsonb(feat_row["cross_timeframe_context"], default=None),
                 }
 
+        cfg = await _get_ui_config(db_manager)
+
         return {
             "signal_id": str(row["signal_id"]),
             "timestamp": row["timestamp"].isoformat() if row["timestamp"] else None,
             "symbol": row["symbol"],
             "timeframe": row["timeframe"],
+            "tf": row["tf"],
             "setup_plugin": row["setup_plugin"],
-            "signal_type": row["signal_type"],
             "direction": row["direction"],
             "entry_price": _f(row["entry_price"]),
             "stop_loss": _f(row["stop_loss"]),
@@ -931,29 +996,28 @@ async def get_signal_detail(
             "confidence": _f(row["confidence"]),
             "was_selected": row["was_selected"],
             "cis_score": _f(row["cis_score"]),
-            "bucket_scores": _parse_jsonb(row["bucket_scores"], default=None),
             "status": row["status"],
-            "outcome": row["outcome"],
-            "exit_price": _f(row["exit_price"]),
+            "exit_reason": _s(row["exit_reason"]),
             "pnl_r": _f(row["pnl_r"]),
+            "exit_price": _f(row["exit_price"]),
+            "counterfactual_pnl_r": _f(row["counterfactual_pnl_r"]),
             "signal_computed_at": _ts(row, "signal_computed_at"),
             "entry_zone_low": _f(row["entry_zone_low"]),
             "entry_zone_high": _f(row["entry_zone_high"]),
             "zone_valid_at_signal": None,
-            "activation_price": _f(row["activation_price"]),
-            "mae": _f(row["mae"]),
-            "mfe": _f(row["mfe"]),
-            "bars_in_trade": row["bars_in_trade"],
+            "stop_basis": _s(row["stop_basis"]),
             "hmm_regime_at_fire": _i(row["hmm_regime_at_fire"]),
             "activated_at": row["activated_at"].isoformat() if row["activated_at"] else None,
-            "bars_to_activation": _i(row["bars_to_activation"]),
-            "exit_reason": _s(row["exit_reason"]),
             "ttl_bars": _i(row["ttl_bars"]),
             "exit_at": row["exit_at"].isoformat() if row["exit_at"] else None,
+            "entry_type": _s(row["entry_type"]),
+            "r_multiple": _f(row["r_multiple"]),
             "signal_tier": _compute_signal_tier(
                 row["was_selected"],
                 _f(row["confidence"]),
                 _f(row["cis_score"]),
+                min_confidence=cfg["ui.signals.min_confidence"],
+                min_cis_score=cfg["ui.signals.min_cis_score"],
             ),
             "features": features,
         }
@@ -979,22 +1043,22 @@ async def get_signals(
     limit: int = Query(100, ge=1, le=1000, description="Number of signals to return (max 1000)"),
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """Get signal history for a symbol from signal_ledger.
+    """Get signal history for a symbol from signal_ledger_full.
 
     Accepts both base symbols (ES) and contract codes (ESH6).
 
     With include_features=true, each signal includes the full intelligence_features
-    row at signal time via LEFT JOIN on (symbol, feature_ts, feature_tf).
+    row at signal time via LEFT JOIN on (symbol, feature_ts, tf).
     Signals with NULL feature_ts (pre-Phase-2) return features: null.
     """
     contract = _resolve_contract(symbol)
     try:
         if include_features:
             query = """
-                SELECT sl.signal_id, sl.timestamp, sl.symbol, sl.timeframe,
-                       sl.setup_plugin, sl.signal_type, sl.direction,
-                       sl.entry_price, sl.stop_loss, sl.signal_quality AS confidence, sl.status,
-                       sl.feature_ts, sl.feature_tf, sl.signal_computed_at,
+                SELECT sl.signal_id, sl.timestamp, sl.symbol, sl.timeframe, sl.tf,
+                       sl.setup_plugin, sl.direction,
+                       sl.entry_price, sl.stop_loss, sl.raw_confidence AS confidence, sl.status,
+                       sl.feature_ts, sl.signal_computed_at,
                        sl.entry_zone_low, sl.entry_zone_high,
                        f.bar, f.technical_indicators, f.pattern_detections,
                        f.regime_features, f.confluence_scores, f.smc, f.cross_timeframe_context
@@ -1002,7 +1066,7 @@ async def get_signals(
                 LEFT JOIN intelligence_features f
                   ON sl.symbol = f.symbol
                  AND sl.feature_ts = f.ts
-                 AND sl.feature_tf = f.tf
+                 AND sl.tf = f.tf
                 WHERE sl.symbol = $1
                   AND ($3::timestamptz IS NULL OR sl.timestamp >= $3)
                   AND ($4::timestamptz IS NULL OR sl.timestamp <= $4)
@@ -1012,10 +1076,10 @@ async def get_signals(
             """
         else:
             query = """
-                SELECT signal_id, timestamp, symbol, timeframe,
-                       setup_plugin, signal_type, direction,
-                       entry_price, stop_loss, signal_quality AS confidence, status,
-                       feature_ts, feature_tf, signal_computed_at,
+                SELECT signal_id, timestamp, symbol, timeframe, tf,
+                       setup_plugin, direction,
+                       entry_price, stop_loss, raw_confidence AS confidence, status,
+                       feature_ts, signal_computed_at,
                        entry_zone_low, entry_zone_high
                 FROM signal_ledger_full
                 WHERE symbol = $1
