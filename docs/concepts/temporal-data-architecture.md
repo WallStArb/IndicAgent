@@ -58,6 +58,6 @@ When designing time-series storage for a new system:
 
 ## See Also
 
-- Operations: `docs/operations/timescaledb-gotchas.md` — asyncpg patterns, connection gotchas
+- Operations: `docs/operations/operations-database.md` — asyncpg patterns, connection gotchas
 - Related concept: `docs/concepts/hot-path-isolation.md` — why DB is on the cold path only
 - Data layer: `docs/data/data-foundation.md` — table schemas, hypertable configuration

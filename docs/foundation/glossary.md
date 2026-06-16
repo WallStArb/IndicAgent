@@ -389,7 +389,7 @@ ICC is strictly pattern-internal. ECL vectors (CTF score, HMM weight, zone frict
 **Banned:** "intrinsic composite," "intrinsic score," "plugin confidence" (all replaced by ICC)
 **Status:** active
 
-**Code surface:** `raw_confidence` field on `signal_events`; `compose_confidence()` in `confidence_utils.py`; `factor_scores` JSONB; `docs/architecture/setup-confidence-patterns.md`.
+**Code surface:** `raw_confidence` field on `signal_events`; `compose_confidence()` in `confidence_utils.py`; `factor_scores` JSONB; `docs/signals/signals-confidence-patterns.md`.
 
 ---
 
@@ -459,7 +459,7 @@ The system of extrinsic confidence vectors that annotate an emitted signal as ob
 **Banned:** "CTF gate" (as a name for the pattern of suppressing signals on CTF absence), "zone friction gate," "extrinsic modifier," "extrinsic multiplier"
 **Status:** active
 
-**Code surface:** `ctf_score`, `ctf_confirmed`, `zone_friction_score` fields in `signal_events`; `capture_signal_features()` in `confidence_utils.py`; `docs/architecture/setup-confidence-patterns.md`.
+**Code surface:** `ctf_score`, `ctf_confirmed`, `zone_friction_score` fields in `signal_events`; `capture_signal_features()` in `confidence_utils.py`; `docs/signals/signals-confidence-patterns.md`.
 
 ---
 
@@ -563,7 +563,7 @@ ADRs in IndicAgent live at `docs/architecture/` and are named `<concept>-ADR.md`
 **Banned:** "decision record," "design record," "architecture doc" (use ADR when the decision is locked)
 **Status:** active
 
-**Code surface:** `docs/architecture/*-ADR.md`; first instance: `docs/architecture/signal-trade-separation-ADR.md` (Phase 128).
+**Code surface:** `docs/signals/*-ADR.md`; first instance: `docs/signals/signal-trade-separation-ADR.md` (Phase 128).
 
 ---
 
@@ -572,6 +572,6 @@ ADRs in IndicAgent live at `docs/architecture/` and are named `<concept>-ADR.md`
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names
 - `docs/foundation/principles.md` — the governing principles that determine why terms are defined this way
 - `docs/foundation/parameter-store.md` — Adaptive Parameter Registry (APR) full specification
-- `docs/architecture/setup-confidence-patterns.md` — ECL definition and boundary invariant
-- `docs/architecture/signal-trade-separation-ADR.md` — 3-table architecture decision record (Phase 127+)
+- `docs/signals/signals-confidence-patterns.md` — ECL definition and boundary invariant
+- `docs/signals/signal-trade-separation-ADR.md` — 3-table architecture decision record (Phase 127+)
 - `tag_vocabulary` table — the live controlled vocabulary for instrument tags

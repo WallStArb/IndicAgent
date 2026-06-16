@@ -389,6 +389,6 @@ PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c \
 
 ## See Also
 
-- **Infrastructure:** `docs/operations/infrastructure.md` — Docker, systemd
-- **Observability:** `docs/operations/observability.md` — Metrics, dashboards
+- **Infrastructure:** `docs/operations/operations-infrastructure.md` — Docker, systemd
+- **Observability:** `docs/operations/operations-observability.md` — Metrics, dashboards
 - **Migrations:** `production/migrations/` — Migration scripts

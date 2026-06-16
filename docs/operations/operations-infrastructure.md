@@ -571,9 +571,9 @@ docker exec redpanda rpk group describe <group-name>
 ## See Also
 
 - **Foundation:** `docs/foundation/principles.md` — Renaissance principles
-- **Database:** `docs/operations/database.md` — TimescaleDB operations
-- **Observability:** `docs/operations/observability.md` — Metrics, tracing, dashboards
-- **Security:** `docs/operations/security.md` — Security procedures
+- **Database:** `docs/operations/operations-database.md` — TimescaleDB operations
+- **Observability:** `docs/operations/operations-observability.md` — Metrics, tracing, dashboards
+- **Security:** `docs/operations/operations-security.md` — Security procedures
 - **Deployment:** `docs/development/setup.md` — Initial machine setup
 - **Self-healing:** `docs/architecture/self-healing.md` — Self-healing architecture
 - **Unit files:** `production/systemd/*.service` — Service templates

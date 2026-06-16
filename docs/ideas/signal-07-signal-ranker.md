@@ -35,7 +35,7 @@ ranking_score = SignalRanker(raw_confidence, setup_plugin, tf, symbol,
 Everything enters simultaneously. Interactions are learned, not assumed.
 
 **Prerequisite:** All 29 non-exempt I7 plugins must follow the 6 GOOD patterns
-(`docs/architecture/setup-confidence-patterns.md`) so `raw_confidence` is a clean intrinsic
+(`docs/signals/signals-confidence-patterns.md`) so `raw_confidence` is a clean intrinsic
 score. The 8 plugins in `_I7_I6_EXEMPT` (`src/intelligence/register_plugins.py`) must complete
 Phase 122 before their signals contribute meaningful training data.
 
@@ -253,7 +253,7 @@ Tests:
 
 ## 7. See Also
 
-- `docs/architecture/setup-confidence-patterns.md` — 6 GOOD patterns; `raw_confidence` must be clean before training
+- `docs/signals/signals-confidence-patterns.md` — 6 GOOD patterns; `raw_confidence` must be clean before training
 - `src/intelligence/trading/confidence_utils.py` — `capture_signal_features()`; context feature source
 - `src/intelligence/pipeline/signal_processor.py` — pipeline orchestration; `SignalRanker` slots post-regime-gate
 - `src/intelligence/pipeline/calibrator.py` — deprecated on `SignalRanker` promotion

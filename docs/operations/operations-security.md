@@ -317,5 +317,5 @@ When deploying to untrusted environment:
 ## See Also
 
 - **API design:** `docs/platform/platform-api.md`
-- **Infrastructure reference:** `docs/operations/infrastructure.md`
-- **Deployment:** `docs/operations/infrastructure.md`
+- **Infrastructure reference:** `docs/operations/operations-infrastructure.md`
+- **Deployment:** `docs/operations/operations-infrastructure.md`

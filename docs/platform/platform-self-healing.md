@@ -265,7 +265,7 @@ All alerts fire from Grafana on Prometheus metrics.
 | Oneshot Failure | `job_completed_total{status="failure"}` | increment > 0 | warning | Manual intervention |
 | BPS Degradation | `rate(bars_processed_total[5m])` | drops > 50% | warning | Investigate pipeline |
 
-**Source:** `docs/operations/observability.md` — full alert catalog
+**Source:** `docs/operations/operations-observability.md` — full alert catalog
 
 ---
 
@@ -300,7 +300,7 @@ Full implementation details in `.planning/phases/108-self-healing-hardening/`:
 ## See Also
 
 - **OTel patterns:** `docs/platform/platform-observability.md`
-- **Grafana dashboards:** `docs/operations/observability.md`
+- **Grafana dashboards:** `docs/operations/operations-observability.md`
 - **Alerting runbook:** `docs/development/alerting.md`
-- **Systemd supervision:** `docs/operations/infrastructure.md`
+- **Systemd supervision:** `docs/operations/operations-infrastructure.md`
 - **CLAUDE.md:** "OTel Health Contract (Phase 108 SOP)" section

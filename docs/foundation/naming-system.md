@@ -1,6 +1,7 @@
 # Naming System
 
-**Status:** Canonical reference
+**Status:** current
+**Last Updated:** 2026-05-30
 **Design spec:** `docs/plans/2026-05-30-renaissance-naming-system-design.md`
 
 ---
