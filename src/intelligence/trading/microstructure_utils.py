@@ -30,10 +30,12 @@ def set_config_service(config: Any) -> None:
     _config_service = config
 
 
+def _cfg(key: str, default: float) -> float:
+    return _config_service.get_sync(key, default) if _config_service is not None else default
+
+
 def get_spike_threshold() -> float:
-    if _config_service is not None:
-        return _config_service.get_sync("threshold.microstructure.spike_z", _SPIKE_THRESHOLD)
-    return _SPIKE_THRESHOLD
+    return _cfg("threshold.microstructure.spike_z", _SPIKE_THRESHOLD)
 
 
 def detect_spike_signal(

@@ -96,6 +96,19 @@ class DivergenceStackPlugin:
     _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        df = frames.get("main")
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+            **(frames.get("i6") or {}),
+        }
+        if df is None or len(df) < self.min_lookback:
+            return no_signal()
+
         cfg = self._config_service
         score_threshold = (
             cfg.get_sync("threshold.divergence_stack.score_threshold", DIVERGENCE_SCORE_THRESHOLD)
@@ -113,45 +126,13 @@ class DivergenceStackPlugin:
             else DIVERGENCE_CONFIDENCE_NORM
         )
         weights = {
-            "rsi": (
-                cfg.get_sync("weights.divergence_stack.rsi", DIVERGENCE_WEIGHTS["rsi"])
+            k: (
+                cfg.get_sync(f"weights.divergence_stack.{k}", DIVERGENCE_WEIGHTS[k])
                 if cfg
-                else DIVERGENCE_WEIGHTS["rsi"]
-            ),
-            "macd": (
-                cfg.get_sync("weights.divergence_stack.macd", DIVERGENCE_WEIGHTS["macd"])
-                if cfg
-                else DIVERGENCE_WEIGHTS["macd"]
-            ),
-            "vol": (
-                cfg.get_sync("weights.divergence_stack.vol", DIVERGENCE_WEIGHTS["vol"])
-                if cfg
-                else DIVERGENCE_WEIGHTS["vol"]
-            ),
-            "obv": (
-                cfg.get_sync("weights.divergence_stack.obv", DIVERGENCE_WEIGHTS["obv"])
-                if cfg
-                else DIVERGENCE_WEIGHTS["obv"]
-            ),
-            "cmf": (
-                cfg.get_sync("weights.divergence_stack.cmf", DIVERGENCE_WEIGHTS["cmf"])
-                if cfg
-                else DIVERGENCE_WEIGHTS["cmf"]
-            ),
+                else DIVERGENCE_WEIGHTS[k]
+            )
+            for k in DIVERGENCE_WEIGHTS
         }
-
-        df = frames.get("main")
-        features = {
-            **(frames.get("i1") or {}),
-            **(frames.get("i2") or {}),
-            **(frames.get("i3") or {}),
-            **(frames.get("i4") or {}),
-            **(frames.get("i5") or {}),
-            **(frames.get("smc") or {}),
-            **(frames.get("i6") or {}),
-        }
-        if df is None or len(df) < self.min_lookback:
-            return no_signal()
 
         symbol = frames.get("symbol", "_")
         timeframe = frames.get("timeframe", "_")
@@ -284,7 +265,7 @@ class DivergenceStackPlugin:
             # Weights: 0.40 + 0.25 + 0.20 + 0.15 = 1.00 exactly.
 
             # Factor 1 — base weighted score (normalized by practical 3-signal max)
-            base_score = clamp01(weighted_score / max(1e-9, confidence_norm))
+            base_score = clamp01(weighted_score / confidence_norm)
 
             # Factor 2 — direction purity (1.0 = unanimous, 0.5 = perfectly split)
             total_active_weight = bull_weight + bear_weight

@@ -17,10 +17,12 @@ def set_config_service(config: Any) -> None:
     _config_service = config
 
 
+def _cfg(key: str, default: float) -> float:
+    return _config_service.get_sync(key, default) if _config_service is not None else default
+
+
 def get_dedup_min_bars() -> int:
-    if _config_service is not None:
-        return int(_config_service.get_sync("feature.state.dedup_min_bars", _DEDUP_MIN_BARS))
-    return _DEDUP_MIN_BARS
+    return int(_cfg("feature.state.dedup_min_bars", _DEDUP_MIN_BARS))
 
 
 def track_consecutive_state(
