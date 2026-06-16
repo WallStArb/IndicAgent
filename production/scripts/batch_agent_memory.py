@@ -422,8 +422,8 @@ async def run_regime_transition_job(conn: asyncpg.Connection, dry_run: bool) -> 
 async def run_backfill_job(conn: asyncpg.Connection, dry_run: bool) -> None:
     """Copy resolved raw episodes into memory_episodes_labeled (idempotent, append-only).
 
-    JOIN signal_outcomes on signal_id WHERE raw.outcome IS NULL AND raw.embedding IS NOT NULL
-    AND so.outcome IS NOT NULL. INSERT ON CONFLICT (id) DO NOTHING.
+    V2.11_ACTIVATED: JOIN signal_ledger on signal_id WHERE raw.outcome IS NULL AND raw.embedding IS NOT NULL
+    AND sl.counterfactual_pnl_r IS NOT NULL. INSERT ON CONFLICT (id) DO NOTHING.
 
     Separately back-fills n_eligible on raw rows (C-02).
     """
@@ -449,18 +449,16 @@ async def run_backfill_job(conn: asyncpg.Connection, dry_run: bool) -> None:
             r.n_eligible,
             r.memory_assisted,
             r.payload,
-            so.outcome,
-            so.pnl_r,
-            so.mae,
-            so.mfe,
-            so.bars_in_trade
+            (sl.counterfactual_pnl_r > 0) AS outcome,
+            sl.counterfactual_pnl_r AS pnl_r,
+            sl.mae,
+            sl.mfe
         FROM memory_episodes_raw r
-        JOIN signal_outcomes so ON so.signal_id = r.signal_id
+        JOIN signal_ledger sl ON sl.signal_id = r.signal_id
         WHERE r.outcome IS NULL
           AND r.signal_id IS NOT NULL
           AND r.embedding IS NOT NULL
-          AND so.outcome IS NOT NULL
-          AND so.pnl_r IS NOT NULL
+          AND sl.counterfactual_pnl_r IS NOT NULL
         """)
 
     if not ready_rows:
@@ -485,7 +483,7 @@ async def run_backfill_job(conn: asyncpg.Connection, dry_run: bool) -> None:
                                     $6, $7, $8, $9, $10,
                                     $11, $12, $13, $14,
                                     $15, $16, $17,
-                                    $18, $19, $20, $21, $22)
+                                    $18, $19, $20, NULL, $21)
                             ON CONFLICT (id, ts) DO NOTHING
                             RETURNING id
                             """,
@@ -509,7 +507,6 @@ async def run_backfill_job(conn: asyncpg.Connection, dry_run: bool) -> None:
                             row["pnl_r"],
                             row["mae"],
                             row["mfe"],
-                            row["bars_in_trade"],
                             row["payload"],
                         )
                         if result is not None:

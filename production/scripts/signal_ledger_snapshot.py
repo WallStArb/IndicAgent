@@ -18,7 +18,7 @@ with the state before any deletes execute.
 NOTE: intelligence_features is intentionally excluded from all delete operations.
 intelligence_features has no setup_plugin column — its per-bar rows are shared
 across ALL 30 setups. The plugin-scoped clean operates exclusively on
-signal_ledger and signal_outcomes. This is by design.
+signal_ledger (3-table schema). This is by design.
 """
 
 from __future__ import annotations
@@ -72,11 +72,10 @@ async def _fetch_snapshot(conn) -> list:
                COUNT(so.pnl_r) FILTER (WHERE so.pnl_r > 0) AS win_count,
                CORR(sl.cis_score, (so.pnl_r > 0)::int)
                    FILTER (WHERE so.pnl_r IS NOT NULL) AS calibration_corr,
-               COUNT(*) FILTER (WHERE so.outcome = 'expired') AS outcome_expired,
-               COUNT(*) FILTER (WHERE so.outcome = 'stopped_at_entry') AS outcome_stopped_at_entry,
-               COUNT(*) FILTER (WHERE so.outcome = 'filled') AS outcome_filled
+               COUNT(*) FILTER (WHERE sl.counterfactual_pnl_r > 0) AS outcome_win,
+               COUNT(*) FILTER (WHERE sl.counterfactual_pnl_r <= 0) AS outcome_loss,
+               COUNT(*) FILTER (WHERE sl.counterfactual_pnl_r IS NULL) AS outcome_unresolved
            FROM signal_ledger sl
-           LEFT JOIN signal_outcomes so ON sl.signal_id = so.signal_id
            GROUP BY sl.setup_plugin, sl.is_shadow
            ORDER BY total_signals DESC""")
 

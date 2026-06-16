@@ -292,13 +292,13 @@ INSERT INTO trade_executions (
     actual_fill_price, actual_exit_price, actual_pnl_r,
     actual_mfe, actual_mae, actual_bars,
     market_entry_price, market_entry_gap_bars,
-    exit_reason, executed_at, exited_at
+    exit_reason, executed_at, exited_at, regime_at_exit
 ) VALUES (
     $1::uuid, $2::uuid,
     $3, $4, $5,
     $6, $7, $8,
     $9, $10,
-    $11, $12, $13
+    $11, $12, $13, $14
 )
 ON CONFLICT (execution_id) DO NOTHING
 """
@@ -545,6 +545,7 @@ class SignalEventsRepository:
         exit_reason: str | None = None,
         executed_at: datetime | None = None,
         exited_at: datetime | None = None,
+        regime_at_exit: str | None = None,
     ) -> None:
         """INSERT INTO trade_executions for a live trade outcome.
 
@@ -576,6 +577,7 @@ class SignalEventsRepository:
             exit_reason,  # $11
             executed_at,  # $12
             exited_at,  # $13
+            regime_at_exit,  # $14
         )
         logger.info(
             "Recorded execution",
