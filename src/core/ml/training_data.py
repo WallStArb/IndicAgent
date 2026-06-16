@@ -41,23 +41,21 @@ SELECT
     f.ctf_regime_agreement,
     -- i7 CIS
     (f.trading_signals->'cis'->>'score')::float    AS cis_score,
-    -- Signal outcome columns
-    sl.outcome,
-    sl.pnl_r,
+    -- Signal outcome columns (V2.11_ACTIVATED: counterfactual_pnl_r from 3-table schema)
+    sl.counterfactual_pnl_r AS pnl_r,
     sl.mae,
-    sl.mfe,
-    sl.bars_in_trade
+    sl.mfe
 FROM intelligence_features f
 JOIN signal_ledger sl
   ON sl.symbol = f.symbol
- AND sl.feature_ts = f.ts
  AND sl.feature_tf = f.tf
+ AND sl.feature_ts = f.ts
  AND {_NO_LOOKAHEAD_SQL}   -- No lookahead: feature must precede outcome
 WHERE f.symbol = $1
   AND f.tf = $2
   AND f.ts >= $3
   AND f.ts <= $4
-  AND sl.outcome IS NOT NULL  -- only labeled rows (lifecycle complete)
+  AND sl.counterfactual_pnl_r IS NOT NULL  -- only labeled rows (V2.11_ACTIVATED)
 ORDER BY f.ts
 """
 
