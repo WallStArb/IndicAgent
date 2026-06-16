@@ -2,8 +2,9 @@
 
 **Canonical name:** Adaptive Parameter Registry (APR)
 **Informal alias:** param store (colloquial — acceptable in casual conversation, not in architecture docs or code comments)
-**Status:** Canonical reference
-**Phase introduced:** 109 (infrastructure), extended Phase 121+ (plugin thresholds), Phase 125 (full Tier A migration)
+**Status:** current
+**Last Updated:** 2026-06-16
+**Phase introduced:** 109 (infrastructure), extended Phase 121+ (plugin thresholds), Phase 125 (full migration)
 
 ---
 
@@ -73,19 +74,26 @@ The outbox broadcasts the change to `topic_config_updates`. Services subscribed 
 
 All keys follow `<domain>.<concept>.<param>`. The domain prefix determines which OPS category the parameter belongs to. `ConfigService.OPS_PREFIXES` is the authoritative list of valid prefixes.
 
-| Prefix | Domain | Natural writer | ML target? |
-|--------|--------|---------------|------------|
-| `threshold.*` | Plugin detection gates | ML discovery (Level 3) | Yes |
-| `weights.*` | Confidence composite weights | ML discovery | Yes |
-| `feature.*` | Indicator parameters (periods, windows) | User / ML discovery | Yes |
-| `regime.*` | Regime classification gates | Operator | Possibly |
-| `shadow.*` | Shadow governance thresholds | Operator | No |
-| `signal.*` | Signal lifecycle (TTL, activation) | Operator | No |
-| `swarm.*` | AI swarm agent parameters | Operator | Possibly |
-| `roll.*` | Futures roll detection | Operator | No |
-| `cross_asset.*` | Cross-asset correlation windows | ML discovery | Yes |
-| `macro.*` | Macro context windows | Operator | Possibly |
-| `ui.*` | Dashboard display preferences | User | No |
+| Prefix | Domain | Natural writer | ML target? | OPS_PREFIXES? |
+|--------|--------|---------------|------------|---------------|
+| `threshold.*` | Plugin detection gates | ML discovery (Level 3) | Yes | Yes |
+| `weights.*` | Confidence composite weights | ML discovery | Yes | **No — known gap** |
+| `feature.*` | Indicator parameters (periods, windows) | User / ML discovery | Yes | Yes |
+| `regime.*` | Regime classification gates | Operator | Possibly | Yes |
+| `shadow.*` | Shadow governance thresholds | Operator | No | **No — not yet seeded** |
+| `signal.*` | Signal lifecycle (TTL, activation) | Operator | No | **No — not yet seeded** |
+| `swarm.*` | AI swarm agent parameters | Operator | Possibly | Yes |
+| `roll.*` | Futures roll detection | Operator | No | Yes |
+| `cross_asset.*` | Cross-asset correlation windows | ML discovery | Yes | Yes |
+| `macro.*` | Macro context windows | Operator | Possibly | Yes |
+| `alert.*` | Alert thresholds and rate limits | Operator | No | Yes |
+| `ai.*` | AI agent parameters | Operator | Possibly | Yes |
+| `ui.*` | Dashboard display preferences | User | No | **No — not yet seeded** |
+
+**OPS_PREFIXES gap:** `weights.*`, `shadow.*`, `signal.*`, and `ui.*` are valid APR namespaces but absent from `ConfigService.OPS_PREFIXES`.
+<!-- src: src/config/config_service.py:39 — OPS_PREFIXES tuple -->
+`weights.*` has 48 live keys seeded via migration but bypassed validation. Any runtime `ConfigService.set()` call for a `weights.*` key will raise `ConfigValidationError` until the prefix is added. Tracked in the v2.10 refactor plan.
+<!-- src: docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md -->
 
 **Key naming examples:**
 
@@ -202,16 +210,24 @@ For `config_history` detail: click any row to see the full change history for th
 
 ## Implementation Status
 
-| Namespace | Status |
-|-----------|--------|
-| `regime.*` | Live -- 2 keys seeded Phase 109 |
-| `swarm.*` | Live -- 7 keys seeded Phase 109 |
-| `roll.*` | Live -- 5 keys seeded Phase 109 |
-| `threshold.*` | In progress -- Phase 125 Tier A (26 keys: detection gates across 17 plugins) |
-| `weights.*` | In progress -- Phase 125 Tier B (22 keys: confidence composite weights) |
-| `feature.*` | In progress -- Phase 125 Tier A/C (volume_zscore window, zone engine geometry) + future indicator periods |
-| `shadow.*` | In progress -- Phase 125 Tier A (promotion gates) |
-| `signal.*` | In progress -- Phase 125 (signal lifecycle parameters) |
-| `ui.*` | Planned -- requires `"ui."` added to OPS_PREFIXES first |
+Verified against `config_state` 2026-06-16.
+<!-- src: PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT left(config_key, position('.' in config_key)) as prefix, count(*) FROM config_state GROUP BY 1 ORDER BY 1;" -->
 
-**To add `ui.*` support:** add `"ui."` to `OPS_PREFIXES` in `src/config/config_service.py`. One line.
+| Namespace | Live keys | OPS_PREFIXES | Notes |
+|-----------|-----------|--------------|-------|
+| `regime.*` | 2 | Yes | Seeded Phase 109 |
+| `swarm.*` | 5 | Yes | Seeded Phase 109 |
+| `roll.*` | 6 | Yes | Seeded Phase 109 |
+| `alert.*` | 21 | Yes | Seeded (alert thresholds) |
+| `ai.*` | 4 | Yes | Seeded (AI agent params) |
+| `cross_asset.*` | 1 | Yes | Seeded (correlation windows) |
+| `macro.*` | 1 | Yes | Seeded (macro windows) |
+| `threshold.*` | 58 | Yes | Phase 125 complete — detection gates across all I7 plugins |
+| `weights.*` | 48 | **No** | Phase 125 complete — seeded via migration; OPS_PREFIXES gap blocks runtime writes (v2.10) |
+| `feature.*` | 21 | Yes | Phase 125 complete — indicator periods, zone geometry |
+| `shadow.*` | 0 | No | Not yet seeded; OPS_PREFIXES entry required before use |
+| `signal.*` | 0 | No | Not yet seeded; OPS_PREFIXES entry required before use |
+| `ui.*` | 0 | No | Not yet seeded; OPS_PREFIXES entry required before use |
+
+**To activate any unregistered namespace:** add the prefix to `OPS_PREFIXES` in `src/config/config_service.py:39`, seed keys in a migration, and load via `ConfigService.get()` at init.
+<!-- src: src/config/config_service.py:39 -->
