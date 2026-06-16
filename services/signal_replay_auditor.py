@@ -232,7 +232,7 @@ class SignalReplayAuditor(BaseDaemon):
             "symbol": row["symbol"],
             "timeframe": row["timeframe"],
             "status": row["status"] or SignalStatus.PENDING,
-            "direction": int(row["direction"]),
+            "direction": {"long": 1, "short": -1}.get(row["direction"], int(row["direction"])),
             "entry_price": entry_price,
             "stop_loss": float(row["stop_loss"]),
             "targets": targets,
@@ -286,7 +286,7 @@ class SignalReplayAuditor(BaseDaemon):
                     _stop = float(state["stop_loss"])
                     _risk = abs(_entry - _stop)
                     if _risk > 0:
-                        _pnl_r = (float(bar["close"]) - _entry) * int(state["direction"]) / _risk
+                        _pnl_r = (float(bar["close"]) - _entry) * state["direction"] / _risk
                         current_mae = min(current_mae, _pnl_r)
                         current_mfe = max(current_mfe, _pnl_r)
                     bars_in_trade += 1
@@ -376,7 +376,7 @@ class SignalReplayAuditor(BaseDaemon):
                 risk = abs(entry - float(signal_dict["stop_loss"]))
                 if risk > 0:
                     pnl_r = round(
-                        (float(bar["close"]) - entry) * int(signal_dict["direction"]) / risk, 4
+                        (float(bar["close"]) - entry) * signal_dict["direction"] / risk, 4
                     )
                     current_mae = min(current_mae, pnl_r)
                     current_mfe = max(current_mfe, pnl_r)

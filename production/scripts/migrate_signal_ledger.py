@@ -60,7 +60,10 @@ _FRAME_ID_NS = uuid.NAMESPACE_DNS
 
 def direction_to_text(direction_int):
     """Convert direction integer (1/-1) to text ('long'/'short')."""
-    return DIRECTION_MAP.get(direction_int)
+    result = DIRECTION_MAP.get(direction_int)
+    if result is None:
+        raise ValueError(f"Unexpected direction value: {direction_int!r}")
+    return result
 
 
 def safe_float(value):
@@ -138,20 +141,20 @@ def build_frame_details(row):
     details = {
         "stop_basis": row["stop_basis"],
         "stop_type_col": row["stop_type_col"],
-        "structural_stop_distance_atr": row["structural_stop_distance_atr"],
-        "adaptive_buffer_mult": row["adaptive_buffer_mult"],
+        "structural_stop_distance_atr": safe_float(row["structural_stop_distance_atr"]),
+        "adaptive_buffer_mult": safe_float(row["adaptive_buffer_mult"]),
         "stop_structure_type": row["stop_structure_type"],
         "stop_structure_age_bars": row["stop_structure_age_bars"],
         "chandelier_vol_source": row["chandelier_vol_source"],
-        "trailing_stop_price": row["trailing_stop_price"],
-        "trailing_stop_tightening_rate": row["trailing_stop_tightening_rate"],
+        "trailing_stop_price": safe_float(row["trailing_stop_price"]),
+        "trailing_stop_tightening_rate": safe_float(row["trailing_stop_tightening_rate"]),
         "entry_zone_low": safe_float(row["entry_zone_low"]),
         "entry_zone_high": safe_float(row["entry_zone_high"]),
         "shadow_tracking_start_ts": (
             row["shadow_tracking_start_ts"].isoformat() if row["shadow_tracking_start_ts"] else None
         ),
-        "shadow_mae": row["shadow_mae"],
-        "shadow_mfe": row["shadow_mfe"],
+        "shadow_mae": safe_float(row["shadow_mae"]),
+        "shadow_mfe": safe_float(row["shadow_mfe"]),
         "shadow_outcome": row["shadow_outcome"],
         "targets_raw": row["targets"],
     }

@@ -22,8 +22,8 @@ if TYPE_CHECKING:
 # v5 (Phase 129 migration): 3-table signal architecture live — signal_events,
 # trade_frames, trade_executions replace the signal_ledger monolith. ML pipelines
 # must segment training data at this version boundary.
-SIGNAL_SCHEMA_VERSION: str = (
-    "v5"  # bumped at Phase 129 migration: signal_events/trade_frames/trade_executions
+SIGNAL_SCHEMA_VERSION: int = (
+    5  # bumped at Phase 129 migration: signal_events/trade_frames/trade_executions
 )
 
 # Emission gate thresholds (W4)
