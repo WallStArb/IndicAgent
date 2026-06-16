@@ -1,0 +1,626 @@
+{
+  "captured_at": "2026-06-16T20:58:01.074525Z",
+  "schema": "3-table (signal_events/trade_frames/trade_executions)",
+  "totals": {
+    "signal_events": 1444231,
+    "trade_frames": 1444231,
+    "trade_executions": 0
+  },
+  "cold_start": {
+    "cold_start_count": 1443231,
+    "non_cold_start_total": 1000,
+    "context_features_coverage_pct": 100.0
+  },
+  "setups": [
+    {
+      "setup_plugin": "trad_AnchoredVWAPReversion",
+      "is_shadow": false,
+      "total_signals": 155514,
+      "selected": 107135,
+      "selection_rate_pct": 68.89,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 155514,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_CHoCHReversal",
+      "is_shadow": false,
+      "total_signals": 80970,
+      "selected": 75412,
+      "selection_rate_pct": 93.14,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 80970,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_CHoCHReversal",
+      "is_shadow": true,
+      "total_signals": 28,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 18,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_CVDDivergence",
+      "is_shadow": false,
+      "total_signals": 153008,
+      "selected": 104748,
+      "selection_rate_pct": 68.46,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 152932,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_CVDDivergence",
+      "is_shadow": true,
+      "total_signals": 49,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 49,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_CVDSpike",
+      "is_shadow": false,
+      "total_signals": 29,
+      "selected": 24,
+      "selection_rate_pct": 82.76,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 14,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_CVDSpike",
+      "is_shadow": true,
+      "total_signals": 31,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 31,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_CandlestickPatternSetup",
+      "is_shadow": false,
+      "total_signals": 46,
+      "selected": 34,
+      "selection_rate_pct": 73.91,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 28,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_CandlestickPatternSetup",
+      "is_shadow": true,
+      "total_signals": 26,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 26,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_DeltaExhaustion",
+      "is_shadow": false,
+      "total_signals": 13,
+      "selected": 12,
+      "selection_rate_pct": 92.31,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 9,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_DeltaExhaustion",
+      "is_shadow": true,
+      "total_signals": 50,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 50,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_DivergenceStack",
+      "is_shadow": false,
+      "total_signals": 279504,
+      "selected": 239395,
+      "selection_rate_pct": 85.65,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 279493,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_DivergenceStack",
+      "is_shadow": true,
+      "total_signals": 37,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 37,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_DualDivergence",
+      "is_shadow": false,
+      "total_signals": 39,
+      "selected": 24,
+      "selection_rate_pct": 61.54,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 4,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_DualDivergence",
+      "is_shadow": true,
+      "total_signals": 5,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 5,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_FVGFill",
+      "is_shadow": false,
+      "total_signals": 68289,
+      "selected": 60266,
+      "selection_rate_pct": 88.25,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 68236,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_FVGFill",
+      "is_shadow": true,
+      "total_signals": 63,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 63,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_FailedBreakout",
+      "is_shadow": false,
+      "total_signals": 16,
+      "selected": 1,
+      "selection_rate_pct": 6.25,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 13,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_FailedBreakout",
+      "is_shadow": true,
+      "total_signals": 3,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 3,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_GapAnalysisSetup",
+      "is_shadow": false,
+      "total_signals": 285867,
+      "selected": 219531,
+      "selection_rate_pct": 76.79,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 285833,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_GapAnalysisSetup",
+      "is_shadow": true,
+      "total_signals": 30,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 30,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_HVNRejection",
+      "is_shadow": true,
+      "total_signals": 27,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 27,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_LVNBreakout",
+      "is_shadow": false,
+      "total_signals": 15,
+      "selected": 11,
+      "selection_rate_pct": 73.33,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 13,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_LVNBreakout",
+      "is_shadow": true,
+      "total_signals": 21,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 21,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_LiquidityHunt",
+      "is_shadow": false,
+      "total_signals": 65,
+      "selected": 65,
+      "selection_rate_pct": 100.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 65,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_LiquidityHunt",
+      "is_shadow": true,
+      "total_signals": 752,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 404,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_LiquiditySweepReclaim",
+      "is_shadow": false,
+      "total_signals": 144377,
+      "selected": 143693,
+      "selection_rate_pct": 99.53,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 144377,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_LiquiditySweepReclaim",
+      "is_shadow": true,
+      "total_signals": 220,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 122,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_MTFAlignment",
+      "is_shadow": false,
+      "total_signals": 187,
+      "selected": 121,
+      "selection_rate_pct": 64.71,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 58,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_MTFAlignment",
+      "is_shadow": true,
+      "total_signals": 62,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 62,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_MeanReversion",
+      "is_shadow": false,
+      "total_signals": 34,
+      "selected": 28,
+      "selection_rate_pct": 82.35,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 31,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_MeanReversion",
+      "is_shadow": true,
+      "total_signals": 12,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 12,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_MomentumBreakout",
+      "is_shadow": false,
+      "total_signals": 27,
+      "selected": 24,
+      "selection_rate_pct": 88.89,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 23,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_MomentumBreakout",
+      "is_shadow": true,
+      "total_signals": 12,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 12,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_OFIContinuation",
+      "is_shadow": false,
+      "total_signals": 82736,
+      "selected": 47229,
+      "selection_rate_pct": 57.08,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 82736,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_OFIContinuation",
+      "is_shadow": true,
+      "total_signals": 2,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 1,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_OFIDivergence",
+      "is_shadow": false,
+      "total_signals": 7,
+      "selected": 5,
+      "selection_rate_pct": 71.43,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 7,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_OFIDivergence",
+      "is_shadow": true,
+      "total_signals": 100,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 65,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_OFISpike",
+      "is_shadow": false,
+      "total_signals": 22,
+      "selected": 19,
+      "selection_rate_pct": 86.36,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 1,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_OFISpike",
+      "is_shadow": true,
+      "total_signals": 8,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 8,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_ORB15",
+      "is_shadow": false,
+      "total_signals": 5,
+      "selected": 3,
+      "selection_rate_pct": 60.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 5,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_ORB30",
+      "is_shadow": false,
+      "total_signals": 4,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 4,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_POCRejection",
+      "is_shadow": false,
+      "total_signals": 51,
+      "selected": 22,
+      "selection_rate_pct": 43.14,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 27,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_POCRejection",
+      "is_shadow": true,
+      "total_signals": 140,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 140,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_PatternCompletion",
+      "is_shadow": false,
+      "total_signals": 157360,
+      "selected": 128723,
+      "selection_rate_pct": 81.8,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 157359,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_PatternCompletion",
+      "is_shadow": true,
+      "total_signals": 5,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 5,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_SecondLegContinuation",
+      "is_shadow": false,
+      "total_signals": 15,
+      "selected": 15,
+      "selection_rate_pct": 100.0,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 12,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_SecondLegContinuation",
+      "is_shadow": true,
+      "total_signals": 22,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 22,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_SessionExtremesSetup",
+      "is_shadow": false,
+      "total_signals": 8,
+      "selected": 8,
+      "selection_rate_pct": 100.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 8,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_SqueezeExpansion",
+      "is_shadow": false,
+      "total_signals": 10958,
+      "selected": 10143,
+      "selection_rate_pct": 92.56,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 10957,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_SqueezeExpansion",
+      "is_shadow": true,
+      "total_signals": 1,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 1,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_SupplyDemandSetup",
+      "is_shadow": false,
+      "total_signals": 17269,
+      "selected": 16760,
+      "selection_rate_pct": 97.05,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 17269,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_SupplyDemandSetup",
+      "is_shadow": true,
+      "total_signals": 2,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 2,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_TrendFollowing",
+      "is_shadow": false,
+      "total_signals": 5847,
+      "selected": 5846,
+      "selection_rate_pct": 99.98,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 5846,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_TrendFollowing",
+      "is_shadow": true,
+      "total_signals": 6,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 6,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_VCP",
+      "is_shadow": false,
+      "total_signals": 4,
+      "selected": 4,
+      "selection_rate_pct": 100.0,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 3,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_VCP",
+      "is_shadow": true,
+      "total_signals": 4,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 4,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_VWAPDeviation",
+      "is_shadow": false,
+      "total_signals": 6,
+      "selected": 6,
+      "selection_rate_pct": 100.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 6,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_VWAPDeviation",
+      "is_shadow": true,
+      "total_signals": 201,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 134,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_VWAPReclaim",
+      "is_shadow": false,
+      "total_signals": 14,
+      "selected": 12,
+      "selection_rate_pct": 85.71,
+      "context_features_coverage_pct": 100.0,
+      "cold_start_count": 12,
+      "stopped_at_entry_count": 0
+    },
+    {
+      "setup_plugin": "trad_VWAPReclaim",
+      "is_shadow": true,
+      "total_signals": 6,
+      "selected": 0,
+      "selection_rate_pct": 0.0,
+      "context_features_coverage_pct": 0.0,
+      "cold_start_count": 6,
+      "stopped_at_entry_count": 0
+    }
+  ]
+}
