@@ -11,7 +11,7 @@ All write paths in this repository target the 3-table schema exclusively.
 signal_ledger and signal_outcomes are never referenced here.
 
 Bootstrap query uses a direct JOIN on signal_events + trade_frames (not the
-signal_ledger_full view, which returns NULL for all lifecycle fields).
+signal_ledger view, which returns NULL for all lifecycle fields).
 
 Design decisions (Phase 130, D-02, D-11):
 - insert_signal_with_frames: atomic asyncpg transaction (signal_events + N trade_frames).
@@ -305,7 +305,7 @@ ON CONFLICT (execution_id) DO NOTHING
 
 # ---------------------------------------------------------------------------
 # Bootstrap query — direct JOIN on signal_events + trade_frames
-# NOT signal_ledger_full (which NULLs all lifecycle fields — RESEARCH Pitfall 1)
+# NOT signal_ledger (which NULLs all lifecycle fields — RESEARCH Pitfall 1)
 # Window bounds use $1 * INTERVAL '1 day' parameterization (APR-driven)
 # ---------------------------------------------------------------------------
 
@@ -364,7 +364,7 @@ class SignalEventsRepository:
 
     Bootstrap contract:
     - get_active_signals_for_bootstrap queries signal_events + trade_frames directly
-      (not signal_ledger_full view, which returns NULL for all lifecycle fields).
+      (not signal_ledger view, which returns NULL for all lifecycle fields).
     - Lifecycle metadata (activated_at, trailing_stop_price, etc.) is extracted from
       trade_frames.frame_details JSONB.
     """
@@ -595,7 +595,7 @@ class SignalEventsRepository:
     ) -> list[dict]:
         """Query pending/active/regime_suppressed signals from signal_events + trade_frames.
 
-        Does NOT query signal_ledger_full — the view returns NULL for all lifecycle
+        Does NOT query signal_ledger — the view returns NULL for all lifecycle
         fields (activated_at, trailing_stop_price, chandelier_vol_source, etc.).
 
         Lifecycle metadata is extracted from trade_frames.frame_details JSONB.

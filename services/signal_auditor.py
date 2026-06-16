@@ -200,7 +200,7 @@ class SignalAuditor(BaseDaemon):
         - Set signal_coverage_pct gauge (1.0 covered, 0.0 gap)
         - Return SignalCoverageGapEvent dicts for any (symbol, tf) with 0 signals
 
-        Phase 130: reads signal_events directly (signal_ledger_full uses feature_ts
+        Phase 130: reads signal_events directly (signal_ledger uses feature_ts
         which is unavailable in the 3-table schema; signal_events uses ts for fire time).
 
         Returns:
@@ -273,7 +273,7 @@ class SignalAuditor(BaseDaemon):
         threshold-alerting in v1.
 
         Phase 130: query updated to use signal_events (se.tf, se.ts columns) instead
-        of signal_ledger_full (feature_ts / feature_tf columns are dropped).
+        of signal_ledger (feature_ts / feature_tf columns are dropped).
         """
         assert self._db_pool is not None
         async with self._db_pool.acquire() as conn:

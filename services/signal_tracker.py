@@ -10,7 +10,7 @@ index in real-time, eliminating the need for periodic DB re-seeding.
 
 ComputeAgent role: zero DB writes, pure compute. Bootstrap is the only DB read.
 Bootstrap queries signal_events + trade_frames directly via SignalEventsRepository
-(not signal_ledger_full, which NULLs all lifecycle fields — RESEARCH Pitfall 1).
+(not signal_ledger, which NULLs all lifecycle fields — RESEARCH Pitfall 1).
 
 Consumer groups:
   - signal_tracker_compute (bars)
@@ -1176,7 +1176,7 @@ class SignalTracker(BaseDaemon):
     async def _bootstrap_active_signals(self) -> None:
         """One-time DB read at startup to load pending/active signals from signal_events.
 
-        Queries signal_events + trade_frames directly (not signal_ledger_full, which
+        Queries signal_events + trade_frames directly (not signal_ledger, which
         returns NULL for all lifecycle fields — activated_at, trailing_stop_price,
         chandelier_vol_source, entry_zone_low/high, mae/mfe — per RESEARCH Pitfall 1).
 

@@ -11,7 +11,7 @@
 
 ## What the SLA Is
 
-The **Signal Ledger Architecture** is the three-table schema that captures the complete signal lifecycle: `signal_events` (detection) + `trade_frames` (hypothesis) + `trade_executions` (execution), with a join view (`signal_ledger_full`) as the canonical query surface.
+The **Signal Ledger Architecture** is the three-table schema that captures the complete signal lifecycle: `signal_events` (detection) + `trade_frames` (hypothesis) + `trade_executions` (execution), with a join view (`signal_ledger`) as the canonical query surface (renamed from `signal_ledger_full` in Phase 130).
 
 The design replaces the legacy `signal_ledger` monolith, which mixed all three concerns in 47 columns across a single table. The separation is not cosmetic — it is what makes an unbiased ML training set possible.
 
@@ -117,9 +117,9 @@ This denormalization is a TimescaleDB requirement, not a design choice. `signal_
 
 ### The Join View Is the Query Surface
 
-`signal_ledger_full` joins all three tables and is the canonical read surface for all queries that span multiple layers. Direct table queries are permitted only when the query is strictly within one semantic layer (e.g., counting `signal_events` fires by plugin does not need the join). Mixed-layer queries (detection + outcome) always go through the view.
+`signal_ledger` (the join view, renamed from `signal_ledger_full` in Phase 130) joins all three tables and is the canonical read surface for all queries that span multiple layers. Direct table queries are permitted only when the query is strictly within one semantic layer (e.g., counting `signal_events` fires by plugin does not need the join). Mixed-layer queries (detection + outcome) always go through the view.
 
-The legacy `signal_ledger` table (monolith) is read-only during the Phase 129 migration. After migration is complete, the monolith will be dropped and `signal_ledger_full` renamed to `signal_ledger`.
+The legacy `signal_ledger` monolith and `signal_outcomes` table were dropped in Phase 130. The join view now provides the same backward-compat query surface.
 
 ### Immutability After Write
 

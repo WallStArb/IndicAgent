@@ -85,10 +85,10 @@ def _maybe_validate(model_cls, payload):
 
 
 def _build_context_from_row(row) -> SignalContext:
-    """Construct typed SignalContext from joined signal_ledger_full + intelligence_features row.
+    """Construct typed SignalContext from joined signal_ledger + intelligence_features row.
 
     Args:
-        row: Database row with signal_ledger_full + intelligence_features columns
+        row: Database row with signal_ledger + intelligence_features columns
 
     Returns:
         Fully populated SignalContext with all pipeline tiers populated.
@@ -167,7 +167,7 @@ _SIGNAL_QUERY = """
            f.confluence_scores AS i4,
            f.pattern_detections AS i5,
            f.smc, f.cross_timeframe_context
-    FROM signal_ledger_full sl
+    FROM signal_ledger sl
     LEFT JOIN intelligence_features f
       ON sl.symbol = f.symbol
      AND sl.feature_ts = f.ts

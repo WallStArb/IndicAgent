@@ -121,7 +121,7 @@ class DataQualityAuditor(BaseDaemon):
                     COUNT(*) FILTER (WHERE outcome IS NOT NULL)::float / NULLIF(COUNT(*), 0),
                     0.0
                 )
-                FROM signal_ledger_full
+                FROM signal_ledger
                 WHERE timestamp >= NOW() - INTERVAL '30 days'
                 """) or 0.0
         coverage = float(coverage)

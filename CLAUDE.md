@@ -66,8 +66,7 @@ Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
   - `signal_events` — detection layer: one row per I7 plugin fire. Fields: `raw_confidence` (ICC), `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. Primary time: `ts`.
   - `trade_frames` — hypothesis layer: one row per entry_type per signal. Fields: `counterfactual_pnl_r` (CFL, always populated). ML trains on this.
   - `trade_executions` — execution layer: one row per live trade. Fields: `actual_pnl_r`, `actual_fill_price`, `exit_reason`.
-  - `signal_ledger_full` — join view (Phase 128). Renamed to `signal_ledger` in Phase 129 when legacy monolith is dropped.
-  - `signal_ledger` — legacy monolith (read-only during SLA migration; dropped Phase 129).
+  - `signal_ledger` — JOIN view (renamed from signal_ledger_full in Phase 130). Provides backward-compat query surface joining signal_events + trade_frames + trade_executions. Legacy monolith and signal_outcomes dropped in Phase 130.
 - `llm_calls` — full LLM audit log; outcome back-filled by `llm_writer`
 - `setup_performance` — per-setup rolling 30d stats; drives `perf_multiplier`; `sample_size >= 30` gate
 - **Volume Profile**: `poc_price`/`vah`/`val` = session VP (1m/5m); `poc_price_rolling`/`vah_rolling`/`val_rolling` = rolling VP (15m/1h)
@@ -142,7 +141,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 
 **Signal Logic**
 - **Aggregator `active` must come from `all_ranked`**: `active = [s for s in all_ranked if s.get("regime_eligible", True)]` — never from raw `signals`.
-- **SLA column reference (Phase 128+):** `signal_events`: `raw_confidence`, `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. `trade_frames`: `entry_type`, `entry_price`, `stop_price`, `target_price`, `counterfactual_pnl_r`, `was_selected`. `trade_executions`: `actual_pnl_r`, `actual_fill_price`, `exit_reason`. Query via `signal_ledger_full` (Phase 128) or `signal_ledger` (Phase 129+).
+- **SLA column reference (Phase 128+):** `signal_events`: `raw_confidence`, `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. `trade_frames`: `entry_type`, `entry_price`, `stop_price`, `target_price`, `counterfactual_pnl_r`, `was_selected`. `trade_executions`: `actual_pnl_r`, `actual_fill_price`, `exit_reason`. Query via `signal_ledger` (the JOIN view, renamed from signal_ledger_full in Phase 130).
 - **signal_schema_version**: single constant `SIGNAL_SCHEMA_VERSION` in `src/intelligence/trading/signal_schema.py` — no hardcoded version strings.
 - **entry_type values**: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`.
 - **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"`, `"expired"` — raw string literals, no enum.

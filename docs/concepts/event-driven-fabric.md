@@ -29,11 +29,11 @@ Key design decisions:
 
 ```
 Bar arrives → intelligence_pipeline → topic_intelligence_features
-                                    → topic_signal_ledger
+                                    → topic_intelligence_i7
                                     → topic_shadow_transitions
 
 topic_intelligence_features → feature_writer_service → TimescaleDB
-topic_signal_ledger         → signal_writer_service  → TimescaleDB
+topic_intelligence_i7       → signal_writer_service  → TimescaleDB (signal_events + trade_frames)
 topic_shadow_transitions    → swarm_ledger_writer    → TimescaleDB
 ```
 

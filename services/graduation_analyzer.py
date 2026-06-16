@@ -43,7 +43,7 @@ CONSUMER_GROUP = "graduation_compute_group"
 _EVAL_QUERY = """
 SELECT stl.multiplier, sl.pnl_r, stl.ts
 FROM signal_transform_log stl
-JOIN signal_ledger_full sl ON stl.signal_id = sl.signal_id
+JOIN signal_ledger sl ON stl.signal_id = sl.signal_id
 WHERE stl.transform_id = $1
   AND stl.transform_version = $2
   AND stl.segment_key = $3
@@ -69,7 +69,7 @@ FROM transform_graduation tg
 LEFT JOIN LATERAL (
     SELECT stl.signal_id
     FROM signal_transform_log stl
-    JOIN signal_ledger_full sl ON stl.signal_id = sl.signal_id
+    JOIN signal_ledger sl ON stl.signal_id = sl.signal_id
     WHERE stl.transform_id = tg.transform_id
       AND stl.transform_version = tg.transform_version
       AND stl.segment_key = tg.segment_key
@@ -88,7 +88,7 @@ class GraduationAnalyzer(BaseDaemon):
     GraduationResult payloads to topic_transform_graduation.
 
     Invariants:
-      - DB-read-at-evaluation only (not DB-ignorant — must JOIN signal_ledger_full)
+      - DB-read-at-evaluation only (not DB-ignorant — must JOIN signal_ledger)
       - Counters are ephemeral; recovered from transform_graduation on restart
       - Never crashes the consume loop on evaluation errors; routes to DLQ instead
     """
