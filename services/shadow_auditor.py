@@ -85,18 +85,23 @@ async def _check_demotion(
     async with pool.acquire() as conn:
         signal_rows = await conn.fetch(
             """
-            SELECT pnl_r FROM signal_ledger
+            SELECT counterfactual_pnl_r AS pnl_r FROM signal_ledger
             WHERE setup_plugin = $1
               AND is_shadow = FALSE
-              AND outcome IS NOT NULL
-              AND outcome NOT IN ('never_activated', 'ttl_expired_behind')
-              AND signal_computed_at > NOW() - INTERVAL '1 day' * $2
+              AND counterfactual_pnl_r IS NOT NULL
+              AND COALESCE(signal_computed_at, ts) > NOW() - INTERVAL '1 day' * $2
             """,
             name,
             row["demotion_lookback_days"],
         )
 
     pnl_r_values = [float(r["pnl_r"]) for r in signal_rows if r["pnl_r"] is not None]
+
+    # CRITICAL: n=0 guard prevents spurious demotion on empty corpus
+    # V2.11_ACTIVATED: no resolved signals → no demotion pressure
+    if not pnl_r_values:
+        return
+
     n = len(pnl_r_values)
     ev_r = sum(pnl_r_values) / n if n > 0 else 0.0
     ci_lower = bootstrap_ci_lower(pnl_r_values)
