@@ -76,7 +76,7 @@ Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
 
 ## Adaptive Parameter Registry (APR)
 
-All tunable numeric values live in `config_state` under `<domain>.<concept>.<param>` — accessed via `ConfigService.get(key, default=X)`. Hard-coded numeric thresholds, weights, periods, or counts in `src/` are an architecture violation. Full spec: `docs/foundation/parameter-store.md`.
+All tunable numeric values live in `config_state` under `<domain>.<concept>.<param>` — accessed via `ConfigService.get(key, default=X)`. Hard-coded numeric thresholds, weights, periods, or counts in `src/` are an architecture violation. Full spec: `docs/foundation/adaptive-parameter-registry.md`.
 
 **Namespaces:** `threshold.*` · `weights.*` · `feature.*` · `regime.*` · `shadow.*` · `signal.*` · `swarm.*` · `roll.*` · `ui.*` (dashboard preferences)
 

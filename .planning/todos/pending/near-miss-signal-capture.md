@@ -88,6 +88,6 @@ With ~5-15% of setups near the threshold per plugin, 138 plugins, and current ~5
 ## References
 
 - ADR: `docs/signals/signal-trade-separation-ADR.md` — schema context
-- APR spec: `docs/foundation/parameter-store.md`
+- APR spec: `docs/foundation/adaptive-parameter-registry.md`
 - Principle: "never drop data that could contain signal" — `docs/foundation/principles.md`
 - Phase 128 UAT gap discussion: 2026-06-16 session

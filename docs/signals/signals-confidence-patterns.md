@@ -378,6 +378,6 @@ Confidence = intrinsic signal strength only. ECL vectors inform the ML attributi
 - `src/intelligence/plugins/base.py` - `validate_tier()`, `ArchitectureViolation`
 - `tests/unit/intelligence/test_i7_extrinsic_contract.py` - extrinsic vs intrinsic contract tests
 - `docs/foundation/glossary.md` - ECL, APR, signal_events, counterfactual_pnl_r full definitions
-- `docs/foundation/parameter-store.md` - APR full specification; ECL-APR relationship
+- `docs/foundation/adaptive-parameter-registry.md` - APR full specification; ECL-APR relationship
 - `docs/signals/signal-trade-separation-ADR.md` - 3-table architecture decision record (Phase 127+)
 - `.planning/phases/119-remaining-16-setup-refactoring/119-CONTEXT.md` - D-01, D-02, D-03, D-04 decisions

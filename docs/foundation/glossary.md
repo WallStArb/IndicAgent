@@ -476,7 +476,7 @@ The system-wide registry of all tunable numeric values — detection thresholds,
 **Banned:** "param store" in architecture docs or code comments, "config store," "config system"
 **Status:** active
 
-**Code surface:** `config_schema`, `config_state`, `config_history`, `config_outbox` tables; `ConfigService`; `docs/foundation/parameter-store.md`.
+**Code surface:** `config_schema`, `config_state`, `config_history`, `config_outbox` tables; `ConfigService`; `docs/foundation/adaptive-parameter-registry.md`.
 
 ---
 
@@ -571,7 +571,7 @@ ADRs in IndicAgent live at `docs/architecture/` and are named `<concept>-ADR.md`
 
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names
 - `docs/foundation/principles.md` — the governing principles that determine why terms are defined this way
-- `docs/foundation/parameter-store.md` — Adaptive Parameter Registry (APR) full specification
+- `docs/foundation/adaptive-parameter-registry.md` — Adaptive Parameter Registry (APR) full specification
 - `docs/signals/signals-confidence-patterns.md` — ECL definition and boundary invariant
 - `docs/signals/signal-trade-separation-ADR.md` — 3-table architecture decision record (Phase 127+)
 - `tag_vocabulary` table — the live controlled vocabulary for instrument tags

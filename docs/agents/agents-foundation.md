@@ -260,7 +260,7 @@ Every agent operates inside a strict DAG (Directed Acyclic Graph). Before writin
 
 **Critical DAG principle:** DB access is a DAG violation. If your service needs historical data, that data must arrive via Kafka from a service that read it — not via a direct DB query in the hot path.
 
-The full DAG mandate and all seven architectural invariants are in `docs/foundation/foundation-design-principles.md` (Principle 11) and `docs/architecture/architecture-dag-topology.md`.
+The full DAG mandate and all seven architectural invariants are in `docs/foundation/design-principles.md` (Principle 11) and `docs/architecture/architecture-dag-topology.md`.
 
 ---
 
@@ -269,7 +269,7 @@ The full DAG mandate and all seven architectural invariants are in `docs/foundat
 - `docs/agents/agents-writers.md` — BaseWriter and the persistence pattern
 - `docs/agents/agents-operations.md` — service mesh management and DAG topology
 - `docs/architecture/architecture-dag-topology.md` — full system map: every service, topic, and invariant
-- `docs/foundation/foundation-design-principles.md` — DAG invariants (Principle 11) and all architectural north stars
+- `docs/foundation/design-principles.md` — DAG invariants (Principle 11) and all architectural north stars
 - `src/core/agent/base.py` — source of truth for lifecycle implementation
 - `src/observability/metrics.py` — canonical OTel metric definitions
 - `src/observability/spans.py` — `observed_span()` helper and ATTR_* constants for tracing

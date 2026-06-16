@@ -220,7 +220,7 @@ Each plugin defines a trade thesis with entry, stop-loss, and take-profit logic:
 
 **Signal Ledger Architecture (SLA)** — detection (`signal_events`), hypothesis (`trade_frames`), and execution (`trade_executions`) are three separate tables, each with a single responsibility. `signal_ledger_full` (Phase 128) / `signal_ledger` (Phase 129+) joins all three for queries.
 
-**Adaptive Parameter Registry (APR)** — all detection thresholds, confidence weights, and indicator periods that govern signal generation live in the APR rather than in code. Parameters start as `[initial_estimate]` human priors and evolve as ML discovery writes calibrated values after p < 0.05. Hot-reload via Kafka outbox — no restarts required. See `docs/foundation/parameter-store.md`.
+**Adaptive Parameter Registry (APR)** — all detection thresholds, confidence weights, and indicator periods that govern signal generation live in the APR rather than in code. Parameters start as `[initial_estimate]` human priors and evolve as ML discovery writes calibrated values after p < 0.05. Hot-reload via Kafka outbox — no restarts required. See `docs/foundation/adaptive-parameter-registry.md`.
 
 When multiple setups fire on the same bar, the **CIS scorer** adjudicates (see below). Selected signals pass two gates:
 1. **RR gate** - viable risk:reward based on zone quality and distance to target
@@ -490,7 +490,7 @@ The APR is the write target for every learning system in the platform:
 
 Every parameter the system acts on has a path from human prior to empirically calibrated value. The APR is what makes "self-improving" a structural property rather than a marketing claim.
 
-Full spec: [`docs/foundation/parameter-store.md`](docs/foundation/parameter-store.md)
+Full spec: [`docs/foundation/adaptive-parameter-registry.md`](docs/foundation/adaptive-parameter-registry.md)
 
 ---
 
