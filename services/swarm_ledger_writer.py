@@ -11,6 +11,9 @@ writer. Downstream readers must LEFT JOIN signal_ai_enrichment instead.
 
 Also populates ml_score / ml_model_id in signal_ai_enrichment when the aggregate swarm event
 contains a ml_scorer_v1 agent payload.
+
+Phase 130 (D-06): FK existence check updated from signal_ledger to signal_events. signal_ledger
+is dropped in Phase 130; signal_events is the canonical detection table.
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ _RETRY_BACKOFF_S: tuple[float, ...] = (0.1, 0.25, 0.5, 1.0, 2.0)
 
 
 class _SignalNotReadyError(Exception):
-    """signal_ledger row not yet visible; triggers retry backoff."""
+    """signal_events row not yet visible; triggers retry backoff."""
 
 
 # AI-SEP-01: UPSERT into AI-owned signal_ai_enrichment table (not signal_ledger UPDATE).
@@ -195,8 +198,8 @@ class SwarmLedgerWriter(BaseDaemon):
         """UPSERT swarm aggregate adjustments into signal_ai_enrichment (AI-SEP-01).
 
         Retries with exponential backoff — application-layer FK: signal_ai_enrichment
-        references signal_ledger(signal_id) logically; the enrichment INSERT must wait
-        for the signal_ledger row to be visible (race condition between signal_writer
+        references signal_events(signal_id) logically; the enrichment INSERT must wait
+        for the signal_events row to be visible (race condition between signal_writer
         and swarm_ledger_writer). The retry loop handles this identically to before.
 
         If ml_score is provided (ml_scorer_v1 agent payload present in aggregate event),
@@ -210,8 +213,9 @@ class SwarmLedgerWriter(BaseDaemon):
                     # Application-layer FK check: signal_ai_enrichment has no declarative FK
                     # on signal_id (TimescaleDB limitation), so ForeignKeyViolationError will
                     # never fire. Enforce the logical constraint explicitly instead.
+                    # Phase 130 D-06: check signal_events (not signal_ledger, which is dropped).
                     exists = await conn.fetchval(
-                        "SELECT 1 FROM signal_ledger WHERE signal_id = $1::uuid LIMIT 1",
+                        "SELECT 1 FROM signal_events WHERE signal_id = $1::uuid LIMIT 1",
                         str(signal_id),
                     )
                     if not exists:

@@ -7,6 +7,10 @@ signal_probe_results, emits D-06 job_completed_total.
 
 Phase 117.5 uses the accumulated signal_probe_results rows to derive empirical thresholds
 for the 21 NEEDS_REFACTOR setups (requires MIN_SAMPLE_N=100 activations per setup).
+
+Phase 130: stop_loss now sourced from trade_frames.stop_price via LEFT JOIN trade_frames.
+signal_ledger_full references replaced with signal_events + trade_frames queries.
+The dropped join on the now-absent outcomes table is not referenced here.
 """
 
 from __future__ import annotations
@@ -199,33 +203,39 @@ def simulate_outcome(
 async def _select_unselected_sample(
     conn: asyncpg.Connection,
 ) -> list[asyncpg.Record]:
-    """Select ~1% sample of unselected NEEDS_REFACTOR signals not yet probed."""
+    """Select ~1% sample of unselected NEEDS_REFACTOR signals not yet probed.
+
+    Phase 130: stop_loss sourced from trade_frames.stop_price via LEFT JOIN trade_frames.
+    entry_zone_low/entry_zone_high sourced from trade_frames.frame_details JSONB.
+    signal_ledger_full replaced with signal_events + trade_frames.
+    """
     setup_list = list(NEEDS_REFACTOR_SETUPS)
     rows = await conn.fetch(
         """
         SELECT
-            slf.signal_id,
-            slf.symbol,
-            slf.timeframe,
-            slf.setup_plugin,
-            slf.direction,
-            slf.entry_zone_low,
-            slf.entry_zone_high,
-            slf.timestamp AS signal_timestamp,
-            so.stop_loss
-        FROM signal_ledger_full slf
-        LEFT JOIN signal_outcomes so USING (signal_id)
-        WHERE slf.was_selected = false
-          AND slf.is_shadow = false
-          AND slf.activated_at IS NULL
-          AND slf.status IN ('expired', 'regime_suppressed')
-          AND slf.setup_plugin = ANY($1)
-          AND slf.timestamp >= now() - interval '2 days'
-          AND slf.entry_zone_low IS NOT NULL
-          AND slf.entry_zone_high IS NOT NULL
+            se.signal_id,
+            se.symbol,
+            se.tf                                              AS timeframe,
+            se.setup_plugin,
+            CASE WHEN se.direction = 'long' THEN 1 ELSE -1 END AS direction,
+            (tf.frame_details->>'entry_zone_low')::float8     AS entry_zone_low,
+            (tf.frame_details->>'entry_zone_high')::float8    AS entry_zone_high,
+            se.ts                                              AS signal_timestamp,
+            tf.stop_price                                      AS stop_loss
+        FROM signal_events se
+        LEFT JOIN trade_frames tf
+            ON tf.signal_id = se.signal_id AND tf.signal_ts = se.ts
+        WHERE tf.was_selected = false
+          AND se.is_shadow = false
+          AND (tf.frame_details->>'activated_at') IS NULL
+          AND se.status IN ('expired', 'regime_suppressed')
+          AND se.setup_plugin = ANY($1)
+          AND se.ts >= now() - interval '2 days'
+          AND (tf.frame_details->>'entry_zone_low') IS NOT NULL
+          AND (tf.frame_details->>'entry_zone_high') IS NOT NULL
           AND NOT EXISTS (
               SELECT 1 FROM signal_probe_results spr
-              WHERE spr.signal_id = slf.signal_id
+              WHERE spr.signal_id = se.signal_id
           )
           AND random() < $2
         LIMIT 500
@@ -268,16 +278,20 @@ async def _count_competing_signals(
     timeframe: str,
     signal_timestamp: datetime,
 ) -> int:
-    """Count was_selected=true signals at the same bar, excluding this signal."""
+    """Count was_selected=true signals at the same bar, excluding this signal.
+
+    Phase 130: was_selected lives in trade_frames; join signal_events + trade_frames.
+    """
     row = await conn.fetchrow(
         """
         SELECT COUNT(*) AS cnt
-        FROM signal_ledger_full
-        WHERE was_selected = true
-          AND symbol = $1
-          AND timeframe = $2
-          AND timestamp = $3
-          AND signal_id != $4
+        FROM signal_events se
+        JOIN trade_frames tf ON tf.signal_id = se.signal_id AND tf.signal_ts = se.ts
+        WHERE tf.was_selected = true
+          AND se.symbol = $1
+          AND se.tf = $2
+          AND se.ts = $3
+          AND se.signal_id != $4
         """,
         symbol,
         timeframe,
