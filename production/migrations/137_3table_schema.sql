@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS trade_frames (
                                                       -- shadow_mfe, shadow_outcome, shadow_tracking_start_ts
                                                       -- during Phase 129 migration.
     created_at                  timestamptz NOT NULL DEFAULT now(),
-    regime_at_activation        int2,                     -- HMM regime at entry condition trigger; NULL for at_close (fires immediately)
+    regime_at_activation        int4,                     -- HMM regime at entry condition trigger; NULL for at_close (fires immediately)
 
     CONSTRAINT fk_trade_frames_signal
         FOREIGN KEY (signal_id, signal_ts) REFERENCES signal_events (signal_id, ts)
@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS trade_executions (
     exit_reason             text,
     executed_at             timestamptz,
     exited_at               timestamptz,
-    regime_at_exit          int2,                     -- HMM regime at position exit; enables regime-transition analysis
+    regime_at_exit          int4,                     -- HMM regime at position exit; enables regime-transition analysis
 
     CONSTRAINT fk_trade_executions_frame
         FOREIGN KEY (frame_id) REFERENCES trade_frames (frame_id)
