@@ -120,13 +120,93 @@ All write-path operations:
 - Lifecycle UPDATE (signal_events.status) → standalone UPDATE (idempotent, can retry)
 - trade_executions INSERT → standalone INSERT (happens on live execution, rare)
 
+### D-12: APR migration mandate — all new keys required
+
+Per the migrate-as-you-go mandate: every hardcoded numeric constant in Phase 130 target files must be migrated to APR in the same session. Constants found via audit:
+
+| APR key (new) | Seed value | Current location | Provenance |
+|---------------|-----------|-----------------|-----------|
+| `feature.signal_writer.batch_size` | 100 | `services/signal_writer.py:50` | [initial_estimate] |
+| `feature.signal_writer.flush_interval_secs` | 5.0 | `services/signal_writer.py:51` | [initial_estimate] |
+| `feature.signal_writer.max_buffer_size` | 10000 | `services/signal_writer.py:52` | [initial_estimate] |
+| `feature.lifecycle_writer.batch_size` | 100 | `services/lifecycle_writer.py:70` | [initial_estimate] |
+| `feature.lifecycle_writer.flush_interval_secs` | 5.0 | `services/lifecycle_writer.py:71` | [initial_estimate] |
+| `feature.lifecycle_writer.max_buffer_size` | 10000 | `services/lifecycle_writer.py:72` | [initial_estimate] |
+| `feature.signal_tracker.bootstrap_pending_window_days` | 7 | `services/signal_tracker.py:1170` (SQL INTERVAL) | [initial_estimate] |
+| `feature.signal_tracker.bootstrap_active_window_days` | 30 | `services/signal_tracker.py:1171` (SQL INTERVAL) | [initial_estimate] |
+| `feature.signal_tracker.bootstrap_dedup_window_days` | 3 | `services/signal_tracker.py:1229` (SQL INTERVAL) | [initial_estimate] |
+| `feature.signal_tracker.bootstrap_max_attempts` | 3 | `services/signal_tracker.py:127` | [initial_estimate] |
+| `threshold.signal_tracker.staleness_score` | 0.5 | `src/intelligence/trading/lifecycle_tracker.py:48` (imported by signal_tracker) | [initial_estimate] |
+| `feature.signal_auditor.audit_lookback_hours` | 1 | `services/signal_auditor.py:273` (SQL INTERVAL) | [initial_estimate] |
+| `ui.signals.recent_window_days` | 90 | `src/api/routes/signals.py:33` | [initial_estimate] |
+| `ui.signals.min_confidence` | 0.40 | `src/api/routes/signals.py:72,334,454` | [data-derived] breakeven threshold |
+| `ui.signals.min_cis_score` | 0.35 | `src/api/routes/signals.py:334` | [initial_estimate] |
+| `ui.signals.today_window_hours` | 24 | `src/api/routes/signals.py` (multiple) | [initial_estimate] |
+| `ui.signals.yesterday_window_hours` | 48 | `src/api/routes/signals.py:448` | [initial_estimate] |
+| `ui.signals.short_window_days` | 7 | `src/api/routes/signals.py` (multiple) | [initial_estimate] |
+| `ui.signals.medium_window_days` | 30 | `src/api/routes/signals.py` (multiple) | [initial_estimate] |
+| `ui.signals.latency_threshold_minutes` | 5 | `src/api/routes/signals.py:487` | [initial_estimate] |
+| `ui.signals.max_results` | 500 | `src/api/routes/signals.py:203` | [initial_estimate] |
+| `ui.signals.top_n_results` | 10 | `src/api/routes/signals.py:527` | [initial_estimate] |
+
+**Load pattern for services (all new keys):**
+- Load via `await config_service.get("key", default=X)` at `_setup()` time
+- SQL INTERVAL literals: use parameterized SQL with integer days loaded from APR → `$N * INTERVAL '1 day'`
+- All keys must have entries in both `config_schema` and `config_state` — add in the Phase 130 migration file alongside the DROP migration
+
+**Not ML learning targets** — these are operational/UX parameters. ML targets are detection thresholds and weights (Tiers A–C from Phase 125). Mark descriptions accordingly.
+
+### D-13: OPS_PREFIXES prerequisite for ui.* keys
+
+`"ui."` is NOT in `OPS_PREFIXES` in `src/config/config_service.py:39`. Per CLAUDE.md: "**`ui.*` requires one-line change first:** add `"ui."` to `OPS_PREFIXES`." This must be done before seeding ui.signals.* keys, so the APR UI dashboard at `/config/parameters` can display and edit them.
+
+Add `"weights."` to OPS_PREFIXES as well — weights.* keys exist in config_state but the prefix is missing from OPS_PREFIXES, meaning they can only be written via direct SQL migration (not via ConfigService.set()). Fix this in the same one-liner commit.
+
+### D-14: Naming and file convention enforcement
+
+**File and class rename (mandatory — applies to Phase 130 rewrite):**
+- `src/persistence/repository/signal_ledger_repository.py` → rename to `signal_events_repository.py`
+- Class `SignalLedgerRepository` → `SignalEventsRepository`
+- Update all `from src.persistence.repository.signal_ledger_repository import ...` across codebase
+
+**Docstring updates (mandatory — wrong docs are worse than no docs):**
+Every file modified in Phase 130 must have its module docstring corrected:
+- `services/signal_writer.py` line 2: "persists all I7 signals to signal_ledger hypertable" → "persists I7 signals to signal_events/trade_frames (3-table schema)"
+- `services/lifecycle_writer.py` line 2: "persists signal lifecycle transitions to signal_ledger" → "persists signal lifecycle transitions to signal_events"
+- `services/signal_tracker.py`: update all docstrings referencing signal_ledger_full bootstrap query → reference signal_events
+- `src/api/routes/signals.py` line 4: "Provides access to signal_ledger with optional JOIN..." → "Queries signal_events/trade_frames via signal_ledger (join view)"
+- `src/persistence/repository/signal_events_repository.py`: full rewrite of class docstring
+
+**Naming vocabulary check (verify no violations introduced by Phase 130 code):**
+- New class names must use Vocabulary B categories: Writer, Tracker, Auditor, Analyzer, Monitor — no mechanism words (Compute, Process, Handle, Execute)
+- No abbreviations in variable names: `cfg` ok (accepted convention for ConfigService in CLAUDE.md), `sig` → `signal`, `ctx` → context (check new code)
+- Ring 0 (`src/persistence/`) should have no domain vocabulary — `SignalEventsRepository` is a pre-existing violation; do not compound it with new domain-specific classes in Ring 0
+
+### D-15: Documentation updates — Phase 130 must update stale outer-ring docs
+
+Phase 130 drops signal_ledger and replaces it. Per the documentation system: "When a doc's described system changes, the doc's status drops to draft automatically until re-verified." Phase 130 must re-verify and update these docs as part of the phase:
+
+| Doc | Stale claim | Required update |
+|-----|-------------|----------------|
+| `docs/architecture/architecture-overview.md` | "signal_ledger … dropped Phase 129" | Change to Phase 130; update table row to signal_events/trade_frames/trade_executions |
+| `docs/architecture/architecture-dag-topology.md` | Mermaid node `SIGLED[("signal_ledger…")]`; SignalWriter row | Update to signal_events + trade_frames; update I/O table |
+| `docs/concepts/temporal-data-architecture.md` | "signal_ledger is the crown jewel" section | Rewrite to describe 3-table architecture as the training dataset |
+| `docs/concepts/adaptive-intelligence.md` | "fitness dataset — signal_ledger" (multiple) | Update to signal_events + trade_frames |
+| `docs/concepts/event-driven-fabric.md` | `topic_signal_ledger → signal_writer_service` | Update topic references |
+| `CLAUDE.md` | §TimescaleDB Tables: `signal_ledger — legacy monolith (dropped Phase 129)` | Fix to Phase 130; update after actual drop |
+
+**Doc update timing:** Update docs AFTER the DROP migration runs (I8). Do not update them before — the old table still serves reads during the 48h window.
+
+**Status convention:** Each updated doc should have its `**Status:**` or equivalent updated. Outer-ring docs (`docs/architecture/`, `docs/concepts/`) don't use the recipe card status field, but inline notes referencing "signal_ledger (deprecated)" should be replaced, not annotated.
+
 ### Claude's Discretion
 
-- Exact migration numbering for the DROP migration — use next available after Phase 129 migrations (check `ls production/migrations/` at plan time)
-- Whether to rename `signal_ledger_repository.py` file to `signal_events_repository.py` at the filesystem level — yes, do it to match the class rename; update all `from` imports
+- Exact migration numbering for the DROP + APR-seed migration — use next available after Phase 129 migrations (check `ls production/migrations/` at plan time)
+- Whether to rename `signal_ledger_repository.py` file to `signal_events_repository.py` at the filesystem level — YES (D-14 makes this mandatory)
 - GIN index on `context_features` or `factor_scores` — deferred from Phase 128; add only if ML queries filter JSONB inline (check query patterns during planning)
 - Order of service rewrites in plans — start with signal_writer (live write path), then lifecycle/tracker, then API, then scripts; this ensures no gap in live production writes
 - Confidence that read-only services work via view — planner should do a grep sweep during plan creation to verify no hidden write paths
+- Combine APR key seeding with DROP migration (same migration file, or separate?) — prefer separate: one migration for APR schema+state inserts, one for the DROP; keeps rollback boundaries clean
 
 </decisions>
 
@@ -159,6 +239,20 @@ All write-path operations:
 ### Requirements
 - `REQUIREMENTS.md` §REWRITE-01 — primary Phase 130 requirement
 - `REQUIREMENTS.md` §Future — CounterfactualTracker is v2.11, NOT Phase 130 scope
+
+### APR and Standards
+- `docs/foundation/parameter-store.md` — APR mandate, namespace conventions, migrate-as-you-go rule
+- `docs/foundation/naming-system.md` — Ring architecture, Vocabulary A/B class naming, mechanism-word prohibition
+- `docs/foundation/documentation-system.md` — recipe card format, status model, inner vs outer ring doc rules
+- `docs/foundation/principles.md` — Renaissance design frame, data integrity first
+- `src/config/config_service.py:39` — OPS_PREFIXES (add "ui." and "weights." before seeding new keys)
+
+### Docs That Must Be Updated in Phase 130 (D-15)
+- `docs/architecture/architecture-overview.md` — "dropped Phase 129" error; update to Phase 130 + 3-table
+- `docs/architecture/architecture-dag-topology.md` — Mermaid node + SignalWriter I/O table
+- `docs/concepts/temporal-data-architecture.md` — signal_ledger crown jewel section
+- `docs/concepts/adaptive-intelligence.md` — fitness dataset references
+- `docs/concepts/event-driven-fabric.md` — topic_signal_ledger reference
 
 </canonical_refs>
 
