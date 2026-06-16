@@ -15,8 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...config.settings import Settings
 from ...core.database_manager import DatabaseManager
-from ...persistence.repository.signal_ledger_repository import WIN_OUTCOMES as _WIN_OUTCOMES
-from ...persistence.repository.signal_ledger_repository import SignalStatus
+from ...persistence.repository.signal_events_repository import WIN_OUTCOMES as _WIN_OUTCOMES
+from ...persistence.repository.signal_events_repository import SignalStatus
 from ..dependencies import get_db_manager
 from ..utils import parse_jsonb as _parse_jsonb
 from ..utils import resolve_contract as _resolve_contract

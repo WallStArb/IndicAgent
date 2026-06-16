@@ -166,18 +166,27 @@ class TestFlushGroupsByType:
 
 
 class TestSignalLedgerRepositoryBatchExecute:
-    @pytest.mark.asyncio
-    async def test_batch_execute_activation_uses_execute_batch(self):
-        """Verify activation transitions use execute_batch with activation SQL."""
-        from unittest.mock import MagicMock
+    """Tests for SignalEventsRepository.batch_execute (Phase 130: 3-table schema).
 
-        db = MagicMock()
-        db.execute_batch = AsyncMock()
+    Phase 130 rewrite: batch_execute now routes lifecycle transitions to
+    update_signal_status (signal_events) + update_frame_details (trade_frames.frame_details)
+    via execute_command per item, not execute_batch SQL.
+    """
+
+    def _make_repo(self):
         from src.persistence.repository.signal_ledger_repository import (
             SignalLedgerRepository,
         )
 
-        repo = SignalLedgerRepository(db)
+        db = MagicMock()
+        db.execute_command = AsyncMock()
+        db.execute_batch = AsyncMock()
+        return SignalLedgerRepository(db), db
+
+    @pytest.mark.asyncio
+    async def test_batch_execute_activation_calls_execute_command(self):
+        """Activation transitions update signal_events.status + trade_frames.frame_details."""
+        repo, db = self._make_repo()
         now = datetime.now(UTC)
         items = [
             {
@@ -189,24 +198,13 @@ class TestSignalLedgerRepositoryBatchExecute:
             }
         ]
         await repo.batch_execute("activation", items)
-        db.execute_batch.assert_called_once()
-        call_args = db.execute_batch.call_args
-        sql = call_args[0][0]
-        assert "activation_price" in sql
-        assert "activated_at" in sql
+        # Two execute_command calls: update_signal_status + update_frame_details
+        assert db.execute_command.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_batch_execute_exit_uses_execute_batch(self):
-        """Verify exit transitions use execute_batch with exit SQL."""
-        from unittest.mock import MagicMock
-
-        db = MagicMock()
-        db.execute_batch = AsyncMock()
-        from src.persistence.repository.signal_ledger_repository import (
-            SignalLedgerRepository,
-        )
-
-        repo = SignalLedgerRepository(db)
+    async def test_batch_execute_exit_calls_execute_command(self):
+        """Exit transitions update signal_events.status."""
+        repo, db = self._make_repo()
         now = datetime.now(UTC)
         items = [
             {
@@ -225,37 +223,20 @@ class TestSignalLedgerRepositoryBatchExecute:
             }
         ]
         await repo.batch_execute("exit", items)
-        db.execute_batch.assert_called_once()
-        sql = db.execute_batch.call_args[0][0]
-        assert "exit_at" in sql
-        assert "outcome" in sql
+        # At least one execute_command call for status update
+        assert db.execute_command.await_count >= 1
 
     @pytest.mark.asyncio
     async def test_batch_execute_empty_items_is_noop(self):
-        from unittest.mock import MagicMock
-
-        db = MagicMock()
-        db.execute_batch = AsyncMock()
-        from src.persistence.repository.signal_ledger_repository import (
-            SignalLedgerRepository,
-        )
-
-        repo = SignalLedgerRepository(db)
+        repo, db = self._make_repo()
         await repo.batch_execute("activation", [])
-        db.execute_batch.assert_not_called()
+        db.execute_command.assert_not_awaited()
+        db.execute_batch.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_batch_execute_chandelier_update(self):
-        """Verify chandelier_update transitions are handled."""
-        from unittest.mock import MagicMock
-
-        db = MagicMock()
-        db.execute_batch = AsyncMock()
-        from src.persistence.repository.signal_ledger_repository import (
-            SignalLedgerRepository,
-        )
-
-        repo = SignalLedgerRepository(db)
+        """chandelier_update transitions persist to trade_frames.frame_details."""
+        repo, db = self._make_repo()
         items = [
             {
                 "signal_id": "sig-001",
@@ -267,20 +248,13 @@ class TestSignalLedgerRepositoryBatchExecute:
             }
         ]
         await repo.batch_execute("chandelier_update", items)
-        db.execute_batch.assert_called_once()
+        # update_frame_details called via execute_command
+        assert db.execute_command.await_count >= 1
 
     @pytest.mark.asyncio
     async def test_batch_execute_mae_mfe_update(self):
-        """Verify mae_mfe_update transitions are handled."""
-        from unittest.mock import MagicMock
-
-        db = MagicMock()
-        db.execute_batch = AsyncMock()
-        from src.persistence.repository.signal_ledger_repository import (
-            SignalLedgerRepository,
-        )
-
-        repo = SignalLedgerRepository(db)
+        """mae_mfe_update transitions persist to trade_frames.frame_details."""
+        repo, db = self._make_repo()
         items = [
             {
                 "signal_id": "sig-001",
@@ -289,22 +263,12 @@ class TestSignalLedgerRepositoryBatchExecute:
             }
         ]
         await repo.batch_execute("mae_mfe_update", items)
-        db.execute_batch.assert_called_once()
-        sql = db.execute_batch.call_args[0][0]
-        assert "mae" in sql.lower()
+        assert db.execute_command.await_count >= 1
 
     @pytest.mark.asyncio
     async def test_batch_execute_shadow_outcome(self):
-        """Verify shadow_outcome transitions are handled."""
-        from unittest.mock import MagicMock
-
-        db = MagicMock()
-        db.execute_batch = AsyncMock()
-        from src.persistence.repository.signal_ledger_repository import (
-            SignalLedgerRepository,
-        )
-
-        repo = SignalLedgerRepository(db)
+        """shadow_outcome transitions persist to trade_frames.frame_details."""
+        repo, db = self._make_repo()
         now = datetime.now(UTC)
         items = [
             {
@@ -316,21 +280,11 @@ class TestSignalLedgerRepositoryBatchExecute:
             }
         ]
         await repo.batch_execute("shadow_outcome", items)
-        db.execute_batch.assert_called_once()
-        sql = db.execute_batch.call_args[0][0]
-        assert "shadow_outcome" in sql
+        assert db.execute_command.await_count >= 1
 
     @pytest.mark.asyncio
     async def test_batch_execute_unknown_type_raises(self):
         """Unknown transition type should raise ValueError."""
-        from unittest.mock import MagicMock
-
-        db = MagicMock()
-        db.execute_batch = AsyncMock()
-        from src.persistence.repository.signal_ledger_repository import (
-            SignalLedgerRepository,
-        )
-
-        repo = SignalLedgerRepository(db)
+        repo, db = self._make_repo()
         with pytest.raises(ValueError, match="Unknown transition_type"):
             await repo.batch_execute("unknown_type", [{"signal_id": "sig-001"}])

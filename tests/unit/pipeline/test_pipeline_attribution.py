@@ -3,18 +3,18 @@
 Verifies:
 - pre_quality_confidence >= pre_calibration_confidence >= calibrated_confidence
 - Edge case: confidence 0.0 satisfies invariant
-- LedgerEntry includes both attribution fields in 64-element tuple
+- LedgerEntry backward-compat shim is importable; attribution invariant is schema-independent.
+
+Updated in Phase 130 (130-02): removed dependency on _INSERT_SQL and _to_row() which
+belonged to the legacy signal_ledger schema. LedgerEntry is now a backward-compat
+dataclass shim — no _to_row() method exists in the 3-table schema.
 """
 
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
 
-from src.persistence.repository.signal_ledger_repository import (
-    _INSERT_SQL,
-    LedgerEntry,
-)
+from src.persistence.repository.signal_events_repository import LedgerEntry
 
 # ---------------------------------------------------------------------------
 # Invariant helpers (mirror the logic from IntelligencePipeline)
@@ -27,7 +27,8 @@ def _apply_stage_reduction(
     """Simulate pipeline stages that reduce confidence.
 
     Mirrors the production pipeline:
-        raw -> pre_quality (captured) -> quality_gate -> regime_gate -> tod -> pre_calibration (captured) -> calibration
+        raw -> pre_quality (captured) -> quality_gate -> regime_gate -> tod
+            -> pre_calibration (captured) -> calibration
     """
     for sig in signals:
         # Capture BEFORE quality gate
@@ -69,8 +70,13 @@ class TestAttributionInvariant:
         assert sig["pre_calibration_confidence"] == 0.0
         assert sig["calibrated_confidence"] == 0.0
 
-    def test_attribution_fields_on_ledger_entry(self) -> None:
-        """LedgerEntry _to_row() returns a tuple matching the INSERT SQL param count."""
+    def test_ledger_entry_compat_shim_is_importable(self) -> None:
+        """LedgerEntry backward-compat shim is importable and constructable.
+
+        Phase 130: LedgerEntry no longer has _to_row() — it is a plain dataclass
+        shim for callers awaiting Wave 3 rewrites. The attribution fields
+        (raw_confidence, calibrated_confidence) are present as dataclass fields.
+        """
         entry = LedgerEntry(
             signal_id="test-123",
             timestamp=datetime.now(UTC),
@@ -83,9 +89,9 @@ class TestAttributionInvariant:
             stop_loss=5490.0,
             targets=[5520.0],
             was_selected=True,
+            raw_confidence=0.72,
+            calibrated_confidence=0.65,
         )
-        params = entry._to_row()
-        sql_param_count = len(re.findall(r"\$\d+", _INSERT_SQL))
-        assert (
-            len(params) == sql_param_count
-        ), f"Expected {sql_param_count} params, got {len(params)}"
+        assert entry.raw_confidence == 0.72
+        assert entry.calibrated_confidence == 0.65
+        assert entry.signal_id == "test-123"
