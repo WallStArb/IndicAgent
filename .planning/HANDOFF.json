@@ -1,33 +1,37 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-15T15:58:48Z",
-  "phase": "127",
-  "phase_name": "clean-replay-and-validation",
-  "phase_dir": ".planning/phases/127-clean-replay-and-validation",
-  "plan": 0,
-  "task": 0,
-  "total_tasks": 0,
-  "status": "phase_complete_ready_for_next",
+  "timestamp": "2026-06-16T03:23:45Z",
+  "phase": "128",
+  "phase_name": "3-table-schema-design-and-adr",
+  "phase_dir": ".planning/phases/128-3-table-schema-design-and-adr",
+  "plan": 3,
+  "task": 1,
+  "total_tasks": 3,
+  "status": "complete",
   "completed_tasks": [
-    {"id": 1, "name": "126-00: Pre-flight diagnostics", "status": "done", "commit": "345a47a0"},
-    {"id": 2, "name": "126-01: Zone width gate (frame_trade rejects zones < 1.5xATR)", "status": "done", "commit": "28e1dfea"},
-    {"id": 3, "name": "126-02: Plugin completeness (_I7_I6_EXEMPT deleted, 8 plugins wired to I6)", "status": "done", "commit": "28e1dfea"},
-    {"id": 4, "name": "126-05: Signal quality audit (IC league table)", "status": "done", "commit": "28e1dfea"},
-    {"id": 5, "name": "126-06: Pipeline annotation layer (_annotate_signal, SIGNAL_SCHEMA_VERSION v4)", "status": "done", "commit": "28e1dfea"},
-    {"id": 6, "name": "Test fixes: 53 failures to 0 (4754 pass, 37 skip)", "status": "done", "commit": "26611166"},
-    {"id": 7, "name": "126-07: REQUIREMENTS.md gap closure (SIGNAL-QUALITY-01/02)", "status": "done", "commit": "c517fa26"}
+    {"id": 1, "name": "Write signal-trade-separation-ADR.md", "status": "done", "commit": "f5d687a8"},
+    {"id": 2, "name": "Write 137_3table_schema.sql DDL migration", "status": "done", "commit": "55047ffd"},
+    {"id": 3, "name": "Delete capture_signal_features()", "status": "done", "commit": "78e201c3"}
   ],
   "remaining_tasks": [],
   "blockers": [],
   "human_actions_pending": [],
   "decisions": [
-    {"decision": "MIN_ZONE_WIDTH_ATR raised from 0.25 to 1.5 in zone_engine.py", "rationale": "Zone engine min width must match frame_trade gate threshold; producing sub-gate zones is a silent production bug", "phase": "126"},
-    {"decision": "ATR_ZONE_SWEEP_MULTIPLIER raised from 0.5 to 0.76 in trade_framer.py", "rationale": "Sweep bands at 0.5xATR = 1.0xATR total, below 1.5xATR gate. 0.76 gives 1.52xATR (just above gate)", "phase": "126"},
-    {"decision": "_nullable_float() returns None (not 0.0) for absent ECL keys", "rationale": "None = cold-start; 0.0 = genuine neutral. ML must distinguish for training integrity", "phase": "126"},
-    {"decision": "ECL annotation moved to pipeline layer via signal_processor._annotate_signal()", "rationale": "Per-plugin annotation was inconsistent; pipeline stamps all 5 ECL fields universally at emit time", "phase": "126"},
-    {"decision": "stopped_at_entry rate measurement deferred to Phase 127 REPLAY-01", "rationale": "Requires replay outcomes data not yet available", "phase": "126"}
+    {"decision": "tf not timeframe on signal_events", "rationale": "naming-system.md Surface 4 says always tf; intelligence_features uses tf; Phase 128 is clean break", "phase": "128"},
+    {"decision": "r_multiple not r_per_unit on trade_frames", "rationale": "r_multiple is standard quant finance term, passes whiteboard test; r_per_unit is non-standard", "phase": "128"},
+    {"decision": "migration goes to production/migrations/ not db/migrations/", "rationale": "db/migrations/ drift is pre-existing (122-136 all in production/migrations/); tracked as separate cleanup", "phase": "128"}
   ],
-  "uncommitted_files": [],
-  "next_action": "Phase 126 is complete (all 7 plans, 4754 tests passing, pushed to remote). Start Phase 128 (3-Table Schema Design and ADR) — NOT Phase 127. Phase 127 (replay) was moved after 128-130 so replay lands in the final schema and produces counterfactual_pnl_r-populated training data immediately. Run /gsd-discuss-phase 128 then /gsd-plan-phase 128.",
-  "context_notes": "Phase 126 signal-universe-hardening fully complete. v2.10 sequence: 128 (schema ADR) -> 129 (DB migration) -> 130 (script rewriting) -> 127 (clean replay into final schema). Phase 127 moved last intentionally: replaying into the 3-table schema avoids a second replay and gives counterfactual_pnl_r from day one."
+  "uncommitted_files": [
+    ".planning/PROJECT.md",
+    ".planning/REQUIREMENTS.md",
+    ".planning/phases/124-signal-universe-integrity-cold-start-hardening/124-05-SUMMARY.md",
+    ".planning/phases/126-signal-universe-hardening/126-REVIEW.md",
+    ".planning/phases/128-3-table-schema-design-and-adr/128-01-PLAN.md",
+    ".planning/phases/128-3-table-schema-design-and-adr/128-02-PLAN.md",
+    ".planning/phases/128-3-table-schema-design-and-adr/128-CONTEXT.md",
+    ".planning/phases/128-3-table-schema-design-and-adr/128-RESEARCH.md",
+    "CLAUDE.md"
+  ],
+  "next_action": "Run /gsd-verify-work 128 to verify phase goal achievement, then run /gsd-code-review 128 before advancing to Phase 129 (DDL execution) or Phase 127 (clean replay).",
+  "context_notes": "Phase 128 delivered all 3 plans. Key naming corrections applied post-execution via Renaissance audit: timeframe->tf and r_per_unit->r_multiple. The uncommitted modified files (CLAUDE.md, PROJECT.md, REQUIREMENTS.md, plan edits) are pre-existing working-tree changes from earlier in the v2.10 milestone — not Phase 128 work product. Phase 129 executes 137_3table_schema.sql against the live DB. Phase 127 (clean replay) can run independently. Phase 130 rewrites writers/trackers/APIs to use the new 3-table schema."
 }
