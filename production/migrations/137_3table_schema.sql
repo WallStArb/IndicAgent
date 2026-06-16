@@ -190,7 +190,11 @@ CREATE INDEX IF NOT EXISTS idx_trade_executions_executed_at
 -- completes the data migration from the legacy signal_ledger monolith.
 -- -------------------------------------------------------------------------
 
-CREATE OR REPLACE VIEW signal_ledger_full AS
+-- DROP both views: signal_ledger_shadow depends on the old signal_ledger_full (migration 095).
+-- Phase 129 owns recreating signal_ledger_shadow once data migration is complete.
+DROP VIEW IF EXISTS signal_ledger_shadow;
+DROP VIEW IF EXISTS signal_ledger_full;
+CREATE VIEW signal_ledger_full AS
 SELECT
     se.signal_id,
     se.ts,
