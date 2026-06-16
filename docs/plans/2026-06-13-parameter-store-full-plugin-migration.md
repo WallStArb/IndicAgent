@@ -133,7 +133,7 @@ All keys follow `<namespace>.<concept>.<param>`. Seeds match current hard-coded 
 -- All marked [initial_estimate] or [conventional] — none empirically validated.
 -- ML discovery will replace them once n >= 100, p < 0.05 per instrument/regime cell.
 --
--- Provenance: see docs/foundation/parameter-store.md#description-field.
+-- Provenance: see docs/foundation/adaptive-parameter-registry.md#description-field.
 
 -- ── schema entries ─────────────────────────────────────────────────────────────
 

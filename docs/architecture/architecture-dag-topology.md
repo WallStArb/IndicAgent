@@ -359,4 +359,4 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 - `docs/intelligence/intelligence-plugins.md` — Plugin protocol, InputSpec, tier lists
 - `docs/agents/agents-foundation.md` — BaseAgent lifecycle contract and role taxonomy
 - `docs/agents/agents-operations.md` — Service mesh, DAG topology, and operations
-- `docs/foundation/foundation-design-principles.md` — Architectural design principles
+- `docs/foundation/design-principles.md` — Architectural design principles

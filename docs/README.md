@@ -36,7 +36,11 @@ WHY+WHAT: principles, naming rules, AI working rules. These change rarely.
 | `product-laws.md` | Six philosophical and economic principles governing product reality |
 | `naming-system.md` | Complete vocabulary system — rings, taxonomy, surfaces, evolution |
 | `documentation-system.md` | Documentation taxonomy, recipe-card format, verification lifecycle |
-| `ai-working-rules.md` | AI agent development rules |
+| `design-principles.md` | Foundational architectural design principles and DAG invariants |
+| `canonical-truth-registry.md` | Canonical writer registry — one source of truth per durable fact |
+| `adaptive-parameter-registry.md` | APR full specification — all tunable numeric values |
+| `model-selection-principle.md` | Occam's Razor applied to model selection |
+| `ship-or-sink-rules.md` | AI coding tool discipline — Ship or Sink rules |
 
 ### `intelligence/` — gold standard — I1-I8 domain
 

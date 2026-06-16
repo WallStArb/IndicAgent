@@ -14,7 +14,7 @@
 All required actions from this ADR have been completed:
 
 1. ✅ **Zone validation fix** — Implemented in `trade_framer.py` (original work)
-2. ✅ **Document invariant** — Added "Signal Generation Invariant" to `docs/foundation/foundation-design-principles.md` as Principle 12
+2. ✅ **Document invariant** — Added "Signal Generation Invariant" to `docs/foundation/design-principles.md` as Principle 12
 3. ✅ **Clarify emit_signal() contract** — Updated docstring to explain Signal Generation Invariant requirement
 
 **Archival reason:** This ADR documented a decision to maintain the current architecture. The decision has been implemented and documented. The invariant is now part of the foundation principles. This document is preserved for historical reference.
@@ -211,7 +211,7 @@ The zone boundary validation fix in trade_framer.py is correct:
 
 The coupling of "setup detection + trade framing" should be **explicitly documented** as an architectural invariant, not implied via code review.
 
-**Recommendation:** Add to docs/foundation/foundation-design-principles.md:
+**Recommendation:** Add to docs/foundation/design-principles.md:
 
 ```markdown
 ### Signal Generation Invariant
@@ -259,7 +259,7 @@ emit_signal() in plugin_utils.py should **explicitly document** that it calls fr
 ### Required Actions
 
 1. ✓ **Zone validation fix** (already implemented in trade_framer.py)
-2. [ ] **Document invariant** (add to foundation-design-principles.md)
+2. [ ] **Document invariant** (add to design-principles.md)
 3. [ ] **Clarify emit_signal() contract** (update docstring)
 
 ### No Refactoring Required
