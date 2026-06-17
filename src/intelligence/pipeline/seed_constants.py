@@ -32,3 +32,19 @@ _I3_SEED_COLS: tuple[str, ...] = (
 _I3_NUMERIC_KEYS: frozenset[str] = frozenset(
     {"trend_direction", "trend_strength", "trend_bars_elapsed"}
 )
+
+# Single-round-trip variant: fetches the most recent row per (symbol, tf) for any
+# combination of symbols and timeframes. DISTINCT ON guarantees one row per pair.
+# asyncpg passes symbol list as $1 (array) and tf list as $2 (array).
+_I3_SEED_QUERY_BATCH: str = """
+    SELECT DISTINCT ON (symbol, tf)
+        symbol,
+        tf,
+        regime_features->>'trend_direction'    AS trend_direction,
+        regime_features->>'trend_strength'     AS trend_strength,
+        regime_features->>'trend_bars_elapsed' AS trend_bars_elapsed,
+        regime_features->>'trend_confirmed'    AS trend_confirmed
+    FROM intelligence_features
+    WHERE symbol = ANY($1) AND tf = ANY($2)
+    ORDER BY symbol, tf, ts DESC
+"""
