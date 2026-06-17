@@ -18,7 +18,9 @@ def _make_rows(n: int, win_fraction: float = 0.6, symbol: str = "ES") -> list[di
     """Generate n fake signal_ledger rows with alternating wins/losses.
 
     Uses key "x_input" to match the SQL alias `cis_score AS x_input` in
-    run_calibration_update() (Phase 112 CR-03 fix).
+    run_calibration_update() (Phase 112 CR-03 fix). Uses boolean "is_win" to
+    match the migrated 3-table read `(counterfactual_pnl_r > 0) AS is_win`
+    (Phase 127-00: 8-class outcome collapsed to 2-class win/loss).
     """
     rows = []
     for i in range(n):
@@ -29,7 +31,7 @@ def _make_rows(n: int, win_fraction: float = 0.6, symbol: str = "ES") -> list[di
                 "timeframe": "1m",
                 "symbol": symbol,
                 "x_input": round(0.3 + 0.5 * (i / max(n - 1, 1)), 4),
-                "outcome": "target_1" if is_win else "stopped_in_trade",
+                "is_win": is_win,
             }
         )
     return rows
@@ -38,7 +40,7 @@ def _make_rows(n: int, win_fraction: float = 0.6, symbol: str = "ES") -> list[di
 def test_fit_curve_returns_correct_shapes():
     rows = _make_rows(150)
     confidences = [r["x_input"] for r in rows]
-    win_labels = [1.0 if r["outcome"] == "target_1" else 0.0 for r in rows]
+    win_labels = [1.0 if r["is_win"] else 0.0 for r in rows]
     bp, vals, ece = _fit_curve(confidences, win_labels)
     assert isinstance(bp, list)
     assert isinstance(vals, list)

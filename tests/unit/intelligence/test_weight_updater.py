@@ -372,71 +372,27 @@ class TestWeightUpdateResultHasWinRate:
 
 
 class TestRunWeightUpdate:
-    def test_run_weight_update_filters_shadow_signals(self):
-        """run_weight_update SQL must contain is_shadow = FALSE."""
-        import inspect
-
-        import src.intelligence.weight_updater as wu
-
-        source = inspect.getsource(wu.run_weight_update)
-        assert "is_shadow = FALSE" in source
-
     @pytest.mark.asyncio
-    async def test_cluster_training_100_signals(self):
-        """120 ES signals (eq_index) but only 30 BTC (crypto) → only eq_index gets cluster row."""
+    async def test_run_weight_update_is_v211_noop(self):
+        """run_weight_update is a V2.11_ACTIVATED no-op.
+
+        bucket_scores-based weight learning read columns that were dropped in the
+        3-table migration (Phase 127-00). The DB-querying path is disabled until
+        v2.11 reintroduces IC-based weight learning from raw_confidence. Until then
+        run_weight_update must return None and touch no DB methods — which also
+        guarantees no shadow signal can pollute a training set that never runs.
+        """
         from src.intelligence.weight_updater import run_weight_update
 
-        # Build 120 ES signals + 30 BTC signals, all with valid outcomes (non-degenerate)
-        es_signals = [
-            _make_signal(
-                outcome="target_1" if i % 2 == 0 else "stopped_in_trade",
-                symbol="ES",
-                timeframe="1m",
-            )
-            for i in range(120)
-        ]
-        btc_signals = [
-            _make_signal(
-                outcome="target_1" if i % 2 == 0 else "stopped_in_trade",
-                symbol="BTC",
-                timeframe="1m",
-            )
-            for i in range(30)
-        ]
-        all_rows = es_signals + btc_signals
-
         db = MagicMock()
-        # First call: return all rows; subsequent calls: version queries → return empty
-        execute_query_mock = AsyncMock(
-            side_effect=[
-                all_rows,  # main query
-                [{"max_v": 0}],  # version for global
-                [{"max_v": 0}],  # version for eq_index,1m
-            ]
-        )
-        execute_command_mock = AsyncMock(return_value=None)
-        db.execute_query = execute_query_mock
-        db.execute_command = execute_command_mock
+        db.execute_query = AsyncMock()
+        db.execute_command = AsyncMock()
 
-        await run_weight_update(db)
+        result = await run_weight_update(db)
 
-        # execute_command should have been called twice: global and eq_index
-        # (NOT crypto — only 30 signals, below MIN_SAMPLES_FULL=100)
-        assert execute_command_mock.call_count == 2
-
-        # Verify asset_cluster values in the INSERT calls
-        # execute_command(sql, version, weights_type, symbol, timeframe, asset_cluster, ...)
-        # args[0]=sql, args[1]=version, args[2]=weights_type, args[3]=symbol,
-        # args[4]=timeframe, args[5]=asset_cluster
-        call_args_list = execute_command_mock.call_args_list
-        cluster_values = []
-        for c in call_args_list:
-            args = c[0]  # positional args tuple
-            cluster_values.append(args[5])  # asset_cluster is 6th positional arg
-
-        assert "global" in cluster_values
-        assert "eq_index" in cluster_values
-        assert "crypto" not in cluster_values
+        assert result is None
+        db.execute_query.assert_not_called()
+        db.execute_command.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_version_counter_per_cluster(self):
@@ -450,31 +406,3 @@ class TestRunWeightUpdate:
         assert "timeframe" in source
         # Check the version query uses cluster + timeframe params
         assert "WHERE asset_cluster = $1 AND timeframe = $2" in source
-
-    @pytest.mark.asyncio
-    async def test_global_model_trained_when_enough_signals(self):
-        """Global model is trained when total N >= MIN_SAMPLES_TRAIN."""
-        from src.intelligence.weight_updater import run_weight_update
-
-        # 60 signals, non-degenerate
-        rows = [
-            _make_signal(
-                outcome="target_1" if i % 2 == 0 else "stopped_in_trade",
-                symbol="ES",
-                timeframe="1m",
-            )
-            for i in range(60)
-        ]
-
-        db = MagicMock()
-        db.execute_query = AsyncMock(
-            side_effect=[
-                rows,
-                [{"max_v": 0}],  # version for global
-            ]
-        )
-        db.execute_command = AsyncMock(return_value=None)
-
-        await run_weight_update(db)
-        # Global model should have been written
-        assert db.execute_command.call_count == 1

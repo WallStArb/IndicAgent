@@ -35,10 +35,16 @@ def test_eval_resolution_threshold_is_twenty():
 
 
 def test_eval_query_joins_signal_ledger():
-    """_EVAL_QUERY must JOIN signal_ledger to obtain pnl_r outcome labels."""
+    """_EVAL_QUERY must JOIN signal_ledger to obtain counterfactual_pnl_r outcome labels.
+
+    Phase 127-00: outcome column dropped in 3-table migration; graduation now
+    sources outcome from counterfactual_pnl_r (aliased AS pnl_r for the
+    evaluate_all consumer). No-ops cleanly until v2.11 CounterfactualTracker
+    populates counterfactual_pnl_r.
+    """
     assert "JOIN signal_ledger" in _EVAL_QUERY
-    assert "outcome IS NOT NULL" in _EVAL_QUERY
-    assert "pnl_r IS NOT NULL" in _EVAL_QUERY
+    assert "counterfactual_pnl_r" in _EVAL_QUERY
+    assert "counterfactual_pnl_r IS NOT NULL" in _EVAL_QUERY
 
 
 def test_eval_query_filters_by_transform_and_segment():
