@@ -13,6 +13,7 @@ Renaissance principles:
 
 from __future__ import annotations
 
+import itertools
 from collections import deque
 from dataclasses import dataclass, field
 from dataclasses import replace as dc_replace
@@ -48,6 +49,10 @@ class VWAPReversionState:
     departure_sigma: float | None = None
     # Bars elapsed since departure (resets when departure_sigma cleared)
     departure_bars: int = 0
+
+    def clear_departure(self) -> None:
+        self.departure_sigma = None
+        self.departure_bars = 0
 
 
 @dataclass
@@ -191,10 +196,14 @@ class AnchoredVWAPReversionPlugin:
         # Simplest: check sigma_buffer for last non-near-zero sigma value.
         if _is_near_zero_exit:
             # Recover departure direction from the buffer: last sigma with abs >= sigma_min.
-            # Convert deque to list before slicing — deque does not support slice notation.
-            buf_list = list(state.sigma_buffer)
+            # islice(reversed(...), 1, None) skips the last-appended (near-zero) bar without
+            # materializing the deque — deque supports reversed() directly.
             departure_direction_sigma = next(
-                (s for s in reversed(buf_list[:-1]) if abs(s) >= sigma_min),
+                (
+                    s
+                    for s in itertools.islice(reversed(state.sigma_buffer), 1, None)
+                    if abs(s) >= sigma_min
+                ),
                 sigma,  # fallback to current if buffer is too short
             )
             direction = -1 if departure_direction_sigma > 0 else 1
@@ -209,8 +218,7 @@ class AnchoredVWAPReversionPlugin:
         if not velocity_toward_vwap:
             # Departure ended without return velocity confirmation — clear state and exit.
             if _is_near_zero_exit:
-                state.departure_sigma = None
-                state.departure_bars = 0
+                state.clear_departure()
             return no_signal()
 
         # Rejection/reclaim confirmation: close must confirm return direction
@@ -218,8 +226,7 @@ class AnchoredVWAPReversionPlugin:
         vwap = features.get("session_vwap")
         if vwap is None:
             if _is_near_zero_exit:
-                state.departure_sigma = None
-                state.departure_bars = 0
+                state.clear_departure()
             return no_signal()
         vwap = float(vwap)
 
@@ -237,16 +244,14 @@ class AnchoredVWAPReversionPlugin:
             # Close did not cross VWAP — reclaim not confirmed.
             # On near-zero-exit: departure ended without reclaim — clear state.
             if _is_near_zero_exit:
-                state.departure_sigma = None
-                state.departure_bars = 0
+                state.clear_departure()
             return no_signal()
 
         hmm = features.get("hmm_regime")
         hurst = features.get("hurst_exponent")
         if hmm is None or hurst is None:
             if _is_near_zero_exit:
-                state.departure_sigma = None
-                state.departure_bars = 0
+                state.clear_departure()
             return no_signal()
         hmm = int(hmm)
         hurst = float(hurst)
@@ -254,15 +259,13 @@ class AnchoredVWAPReversionPlugin:
         # HMM context: ranging regime required
         if hmm != 0:
             if _is_near_zero_exit:
-                state.departure_sigma = None
-                state.departure_bars = 0
+                state.clear_departure()
             return no_signal()
 
         # Hurst context: sub-random walk confirms mean-reversion tendency
         if hurst >= hurst_max:
             if _is_near_zero_exit:
-                state.departure_sigma = None
-                state.departure_bars = 0
+                state.clear_departure()
             return no_signal()
 
         # deduplicate_event by (departure_sigma, reclaim_level): prevents re-fire on same
@@ -271,15 +274,13 @@ class AnchoredVWAPReversionPlugin:
         event_id = (round(state.departure_sigma, 4), round(vwap, 4))
         if not deduplicate_event(self._dedup_state, state_key, event_id):
             if _is_near_zero_exit:
-                state.departure_sigma = None
-                state.departure_bars = 0
+                state.clear_departure()
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
             if _is_near_zero_exit:
-                state.departure_sigma = None
-                state.departure_bars = 0
+                state.clear_departure()
             return no_signal()
 
         entry = current_close
@@ -295,8 +296,7 @@ class AnchoredVWAPReversionPlugin:
         )
         if not frame.viable:
             if _is_near_zero_exit:
-                state.departure_sigma = None
-                state.departure_bars = 0
+                state.clear_departure()
             return no_signal()
 
         avwap_upper = float(features.get("avwap_upper_band", 0.0))
