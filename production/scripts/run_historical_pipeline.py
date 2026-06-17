@@ -1411,6 +1411,9 @@ ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 """
 
 _TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+_SEED_NUMERIC_KEYS: frozenset[str] = frozenset(
+    {"trend_direction", "trend_strength", "trend_bars_elapsed"}
+)
 
 
 def detect_gaps(
@@ -1692,6 +1695,7 @@ def replay_symbol(
         # A7 fix: seed intelligence_cache with prior I3 data from DB so I6 has
         # non-None trend fields on bar 1. Without this seed, ctf_score=0 for all bars.
         _standard_tfs = ["1m", "5m", "15m", "1h"]
+        _seed_cols = ("trend_direction", "trend_strength", "trend_bars_elapsed", "trend_confirmed")
         for _seed_tf in _standard_tfs:
             with db_conn.cursor() as _cur:
                 _cur.execute(
@@ -1706,19 +1710,13 @@ def replay_symbol(
                     (symbol, _seed_tf),
                 )
                 _seed_row = _cur.fetchone()
-                _col_names = [desc[0] for desc in _cur.description]
             if _seed_row and any(_seed_row):
-                # Use cur.description for column mapping — robust to query column order changes
-                _seed_dict = dict(zip(_col_names, _seed_row))
                 # Filter None values — extract_trend_sign() handles missing keys as 0.
                 # JSONB text extraction returns strings; coerce numeric fields to float so
                 # is_num() in extract_trend_sign() passes (it requires isinstance(x, float)).
-                _NUMERIC_SEED_KEYS = frozenset(
-                    {"trend_direction", "trend_strength", "trend_bars_elapsed"}
-                )
                 _seed_dict = {
-                    k: (float(v) if k in _NUMERIC_SEED_KEYS and v is not None else v)
-                    for k, v in _seed_dict.items()
+                    k: (float(v) if k in _SEED_NUMERIC_KEYS and v is not None else v)
+                    for k, v in zip(_seed_cols, _seed_row)
                     if v is not None
                 }
                 if symbol not in intelligence_cache:
