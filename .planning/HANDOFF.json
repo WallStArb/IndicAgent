@@ -1,34 +1,33 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-16T20:48:41Z",
+  "timestamp": "2026-06-17T07:47:53Z",
   "phase": "127",
   "phase_name": "clean-replay-validation",
   "phase_dir": ".planning/phases/127-clean-replay-validation",
-  "plan": "00",
-  "task": 0,
-  "total_tasks": 4,
+  "plan": "lifecycle-replay-fix",
+  "task": "lifecycle-replay-fix",
+  "total_tasks": 6,
   "status": "paused",
-  "plan_status": "planned-not-executed",
-  "completed_tasks": [],
+  "completed_tasks": [
+    {"id": 1, "name": "Stop lifecycle services + neutralize auto-restart", "status": "done"},
+    {"id": 2, "name": "Wipe all signal-derived tables + features (TRUNCATE CASCADE)", "status": "done"},
+    {"id": 3, "name": "Regenerate features + signals (--workers 8, no warmup)", "status": "done", "progress": "1,036,513 signals / 1,036,513 frames / 4.9M features / 114 symbols / 0 orphans"}
+  ],
   "remaining_tasks": [
-    {"id": 1, "name": "Kill live hazards (shadow_validator crash, shadow_auditor spurious demotion)", "status": "not_started", "priority": "critical", "files": ["services/shadow_validator.py:162-178", "services/shadow_auditor.py:86-97"]},
-    {"id": 2, "name": "Migrate ML feedback readers to counterfactual_pnl_r", "status": "not_started", "files": ["src/intelligence/ml/confidence_calibrator.py:141-149", "src/intelligence/weight_updater.py", "src/intelligence/ml/feature_builder.py:83-110", "src/core/ml/training_data.py:18-62"]},
-    {"id": 3, "name": "Migrate remaining services (alpha_swarm, graduation, feature_validation, ml_signal_materializer)", "status": "not_started"},
-    {"id": 4, "name": "Fix record_execution regime_at_exit + retire obsolete scripts", "status": "not_started"}
+    {"id": 4, "name": "Fix lifecycle_replay FK violation (frame_id entry_type mismatch)", "status": "not_started"},
+    {"id": 5, "name": "Re-run lifecycle_replay --workers 8", "status": "not_started"},
+    {"id": 6, "name": "Restart services + validate", "status": "not_started"}
   ],
   "blockers": [
-    {"description": "Two live enabled services carry SQL time-bombs against dropped signal_outcomes table / absent view columns. shadow_validator JOINs dropped table (crash on next timer fire); shadow_auditor computes ev_r=0.0 on empty corpus (spurious demotion every cycle). UNFIXED — Plan 00 Task 1 must execute first.", "type": "technical", "workaround": "None — execute Plan 00 Task 1 immediately on resume"}
+    {"description": "lifecycle_replay FK violation: insert into trade_executions violates fk_trade_executions_frame on every symbol/tf. Likely entry_type divergence — lifecycle_replay.py:1014,1041 hardcode _make_frame_id(sid,'at_close') but frames may use other entry_types (at_pullback/at_limit/at_reclaim/zone_proximal).", "type": "technical", "workaround": "Confirm with SELECT entry_type,count(*) FROM trade_frames GROUP BY 1; then fix lifecycle to read actual entry_type from the frame."}
   ],
   "human_actions_pending": [],
   "decisions": [
-    {"decision": "Phase 127 cannot measure signal EDGE or calibration — deferred to v2.11 (no PnL outcome target in replay corpus).", "rationale": "Verified live DB: 0 non-null counterfactual_pnl_r in 1.44M rows, 0 rows in trade_executions.", "phase": "127"},
-    {"decision": "Fire rate is MEASURED and REPORTED, NOT gated on <3%.", "rationale": "Arbitrary fire-rate percentage is proxy-as-target error. Operator direction.", "phase": "127"},
-    {"decision": "Outcome taxonomy collapses 8-class -> 2-class win/loss = (counterfactual_pnl_r > 0).", "rationale": "8-class outcome lived on dropped signal_outcomes.outcome.", "phase": "127"},
-    {"decision": "feature_validation_analyzer IC feature becomes raw_confidence.", "rationale": "Per-plugin shadow_score under features_snapshot is gone.", "phase": "127"},
-    {"decision": "shadow_auditor empty corpus -> NO demotion (n=0 guard).", "rationale": "ev_r=0.0 trips demotion threshold every cycle — active hazard.", "phase": "127"},
-    {"decision": "trade_executions joins on frame_id, NOT signal_id.", "rationale": "Verified schema; signal_id column does not exist on trade_executions.", "phase": "127"}
+    {"decision": "Full clean-slate wipe (all signal-derived + features)", "rationale": "features were stale — 0/4.2M rows had volume_sma_20/hmm_probability/zone_friction_score/rel_volume", "phase": "127"},
+    {"decision": "--workers 8 without --warmup", "rationale": "warmup proven no-op (local caches die between passes); correctness preserved, ~8x faster", "phase": "127"},
+    {"decision": "counterfactual_pnl_r left NULL in rebuild", "rationale": "populated by live alpha_swarm CounterfactualEvaluator (Phase 130), not historical replay", "phase": "127"}
   ],
-  "uncommitted_files": [".planning/STATE.md (hook-modified)", ".planning/phases/130-script-rewriting/130-PATTERNS.md (pre-existing untracked)"],
-  "next_action": "Execute Plan 00 Task 1 first: fix services/shadow_validator.py:162-178 (drop LEFT JOIN signal_outcomes, read counterfactual_pnl_r, is_backfill filter) and services/shadow_auditor.py:86-97 (source counterfactual_pnl_r, COALESCE(signal_computed_at, ts), add n=0 no-demotion guard). Full per-site SQL rewrites in 127-00-PLAN.md; execution checklist in .planning/todos/pending/2026-06-16-phase127-00-readpath-execution.md.",
-  "context_notes": "Review/audit + planning session. Plans 01-03 revised, Plan 00 created. CODE migration (9 files) NOT executed — context exhausted. Everything specified precisely; execution needs no re-derivation. Plan 01 replay can run parallel with Plan 00. Plan 03 depends on Plan 00. Done-Coding SOP per file group."
+  "uncommitted_files": [".planning/STATE.md", ".planning/phases/127-clean-replay-validation/.continue-here.md", ".planning/todos/pending/2026-06-16-replay-issues-and-findings.md", ".planning/todos/pending/2026-06-16-remove-dead-warmup-flag.md", ".planning/todos/pending/2026-06-16-cleanup-obsolete-replay-scripts.md"],
+  "next_action": "Run SELECT entry_type, count(*) FROM trade_frames GROUP BY 1; then read lifecycle_replay.py:1010-1045 to confirm frame_id uses hardcoded 'at_close'. Fix the lookup, re-run lifecycle_replay.py --workers 8, then restore services (remove no-restart drop-ins, start writers + auditors).",
+  "context_notes": "Backfill (hardest part, 116 symbols) succeeded overnight. One bug from done. FK violation is systematic/deterministic, not data loss — entry_type in frame_id lookup is prime suspect. Safety gate worked: services stayed down on failed lifecycle, production protected. Sudo: echo '!123Angelina' | /usr/bin/sudo.ws -S <cmd>."
 }
