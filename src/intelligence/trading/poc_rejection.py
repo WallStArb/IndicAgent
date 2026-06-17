@@ -164,7 +164,7 @@ class POCRejectionPlugin:
         vol_score = min(1.0, max(0.0, poc_test_volume_ratio - 1.0))
 
         # VA width inverse: 0.2 weight (tighter = more significant POC)
-        va_width_atr = float(features.get("va_width_atr", 2.0))
+        va_width_atr = float(features.get("va_width_atr") or 2.0)
         va_inverse = max(0.0, 1.0 - va_width_atr / 4.0)
 
         # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
@@ -192,7 +192,7 @@ class POCRejectionPlugin:
         raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
 
-        hmm = float(features.get("hmm_regime", 0.0))
+        hmm = float(features.get("hmm_regime") or 0.0)
         regime_ctx = "ranging" if hmm == 0 else ("trending_up" if hmm == 1 else "trending_down")
 
         signal = make_signal_from_frame(

@@ -179,11 +179,11 @@ class HVNRejectionPlugin:
         reversal_score = min(1.0, max(0.0, reversal_strength))
 
         # HVN dist_atr from legacy field: 0.2 weight (closer = stronger)
-        legacy_hvn_dist = float(features.get("nearest_hvn_dist_atr", 1.0))
+        legacy_hvn_dist = float(features.get("nearest_hvn_dist_atr") or 1.0)
         hvn_dist_score = max(0.0, 1.0 - legacy_hvn_dist / 2.0)
 
         # Vol regime stability: 0.2 weight
-        vol_regime = float(features.get("vol_regime", 0.5))
+        vol_regime = float(features.get("vol_regime") or 0.5)
         vol_stability = 1.0 - abs(vol_regime - 0.5) * 2.0
 
         # Wave B: factor audit trail — pre-composite [0,1] scores (Phase 123)
@@ -221,7 +221,7 @@ class HVNRejectionPlugin:
         raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
 
-        hmm = float(features.get("hmm_regime", 0.0))
+        hmm = float(features.get("hmm_regime") or 0.0)
         regime_ctx = "ranging" if hmm == 0 else ("trending_up" if hmm == 1 else "trending_down")
 
         signal = make_signal_from_frame(
