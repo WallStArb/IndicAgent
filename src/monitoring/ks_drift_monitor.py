@@ -247,10 +247,10 @@ class KSDriftMonitor:
             SELECT {feature_cols}
             FROM intelligence_features
             WHERE symbol = $1
-              AND feature_tf = $2
-              AND feature_ts >= $3
-              AND feature_ts < $4
-            ORDER BY feature_ts DESC
+              AND tf = $2
+              AND ts >= $3
+              AND ts < $4
+            ORDER BY ts DESC
             LIMIT 5000
         """  # noqa: S608
 
