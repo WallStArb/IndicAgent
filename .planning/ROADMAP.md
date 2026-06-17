@@ -1321,8 +1321,8 @@ Plans:
 - [x] 131-02-PLAN.md — A6 BOCPD look-ahead fix (vol[-21:-1]) + B7 verify SQL fan-out fix (COUNT DISTINCT)
 - [x] 131-03-PLAN.md — A4 fix (asset_class injection) + trad_PrevDayLevelTest (maxlen 200→800) + trad_CrossAssetDivergence (live-only annotation)
 - [x] 131-04-PLAN.md — A7 fix: _seed_last_events_from_db() + intelligence_cache DB seed in replay_symbol() + --no-seed flag
-- [ ] 131-05-PLAN.md — trad_AnchoredVWAPReversion gate ordering fix (reclaim before state-clearing)
-- [ ] 131-06-PLAN.md — B6 backfill integrity crash fix (batched assertion + REBUILD_STATUS semantics)
+- [x] 131-05-PLAN.md — trad_AnchoredVWAPReversion gate ordering fix (reclaim before state-clearing)
+- [x] 131-06-PLAN.md — B6 backfill integrity crash fix (batched assertion + REBUILD_STATUS semantics)
 - [ ] 131-07-PLAN.md — Verification: 1-week sample replay (ctf_score >=85% non-zero) + 2-week plugin coverage (35/35)
 
 </details>
