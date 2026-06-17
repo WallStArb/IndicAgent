@@ -275,7 +275,7 @@ class BOCPDChangePointPlugin(IncrementalMixin):
         # 3. Volume spike
         if "volume" in df.columns and n > 20:
             vol = df["volume"].to_numpy(dtype=float)
-            avg_vol = float(np.mean(vol[-20:]))
+            avg_vol = float(np.mean(vol[-21:-1]))
             if avg_vol > 0 and vol[-1] > 2 * avg_vol:
                 confirmation += 0.25
 
