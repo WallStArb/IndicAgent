@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 sys.path.insert(0, str(Path(__file__).parents[3] / "production" / "scripts"))
@@ -271,6 +272,55 @@ def test_build_ledger_entries_sets_market_entry_price_to_bar_close():
 
     assert len(entries) == 1
     assert entries[0].market_entry_price == expected_close
+
+
+def test_build_ledger_entries_ecl_fields_non_null_when_annotated():
+    """LedgerEntry ECL fields are populated when the signal dict has been annotated."""
+    from production.scripts.run_historical_pipeline import _build_ledger_entries
+    from src.intelligence.trading.aggregator import AggregatedResult
+
+    bar_history = _make_bar_history(n=120)
+
+    annotated_signal = {
+        "direction": 1,
+        "composite_rank": 1,
+        "setup_plugin": "trad_TrendFollowing",
+        "signal_type": "long",
+        "entry_price": 160.0,
+        "stop_loss": 150.0,
+        "targets": [170.0],
+        "confidence": 0.7,
+        "confluence_score": 0.8,
+        "regime_context": "trend",
+        "supporting_factors": [],
+        # ECL fields as set by annotate_signal_with_context
+        "context_features": {"ctf_score": 0.75, "zone_friction_score": 0.4},
+        "ctf_score": 0.75,
+        "ctf_confirmed": True,
+        "zone_friction_score": 0.4,
+    }
+
+    result = AggregatedResult(
+        selected_signal=annotated_signal,
+        all_ranked=[annotated_signal],
+        resolution_method="highest_rank",
+        num_signals_fired=1,
+        num_agreeing=1,
+        num_conflicting=0,
+        cis_score=0.42,
+        bucket_scores={},
+        weights_version=0,
+    )
+
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
+    entries = _build_ledger_entries(result, "ESH6", "1m", ts, {}, bar_history=bar_history)
+
+    assert len(entries) == 1
+    e = entries[0]
+    assert e.context_features == {"ctf_score": 0.75, "zone_friction_score": 0.4}
+    assert e.ctf_score == pytest.approx(0.75)
+    assert e.ctf_confirmed is True
+    assert e.zone_friction_score == pytest.approx(0.4)
 
 
 def test_run_i7_and_persist_populates_cis_fields():

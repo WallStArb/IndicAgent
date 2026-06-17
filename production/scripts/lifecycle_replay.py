@@ -434,8 +434,10 @@ async def _process_symbol_tf(
                 await _run_validate(conn, symbol, timeframe, tf_secs, dry_run)
 
             # 2. Fetch all unresolved signals for this pair into memory
+            # signal_id is a sha-256 content hash (first 16 bytes, stored as uuid); return as hex string.
             signals = await conn.fetch(
-                """SELECT se.signal_id, se.ts AS timestamp, se.symbol, se.tf AS timeframe,
+                """SELECT replace(se.signal_id::text, '-', '') AS signal_id,
+                          se.ts AS timestamp, se.symbol, se.tf AS timeframe,
                           se.setup_plugin, se.direction,
                           tf.entry_price,
                           tf.stop_price AS stop_loss,
@@ -476,7 +478,7 @@ async def _process_symbol_tf(
 
         min_ts = min(s["timestamp"] for s in signals)
         # Map by signal_id for O(1) lookup during bar evaluation
-        sig_map: dict[str, dict] = {s["signal_id"].hex: dict(s) for s in signals}
+        sig_map: dict[str, dict] = {s["signal_id"]: dict(s) for s in signals}
 
         # Coerce Decimal fields to float — asyncpg returns NUMERIC as Decimal,
         # but evaluate_signal/evaluate_market_entry do arithmetic with float.
@@ -529,7 +531,7 @@ async def _process_symbol_tf(
 
         # Sorted pointer for O(N+M) signal activation instead of O(N×M).
         # signals is already ORDER BY timestamp ASC from the query.
-        sorted_sids: list[str] = [s["signal_id"].hex for s in signals]
+        sorted_sids: list[str] = [s["signal_id"] for s in signals]
         activation_ptr: int = 0
 
         # 3. Stream bars from DB — client-side batching avoids asyncpg cursor issues.
@@ -1093,6 +1095,69 @@ async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
     logger.info("VALIDATE %s %s: structural check passed", symbol, timeframe)
 
 
+async def _reconcile_outcomes(db: DatabaseManager) -> None:
+    """Post-sweep reconciliation: expire stale pending signals and backfill missing execution rows.
+
+    Two idempotent operations run after all (symbol, tf) workers finish:
+    1. Expire stale pending — signals older than 2 days are past any TTL; mark expired.
+    2. Backfill missing executions — expired signals lacking a trade_executions row get a
+       synthetic row (pnl_r=0, exit_reason='ttl_expired') with a deterministic execution_id.
+    """
+    async with db.pool.acquire() as conn:
+        # 1. Expire stale pending
+        updated = await conn.fetchval("""WITH expired AS (
+                   UPDATE signal_events
+                   SET status = 'expired'
+                   WHERE status = 'pending' AND ts < NOW() - INTERVAL '2 days'
+                   RETURNING signal_id
+               )
+               SELECT COUNT(*) FROM expired""")
+        logger.info("_reconcile_outcomes: expired %d stale-pending signals", updated or 0)
+
+        # 2. Fetch expired signals with no execution row (asyncpg returns uuid objects)
+        rows = await conn.fetch("""SELECT replace(se.signal_id::text, '-', '') AS signal_id,
+                      tf.frame_id,
+                      se.ts AS fired_at,
+                      se.expires_at
+               FROM signal_events se
+               JOIN trade_frames tf
+                 ON tf.signal_id = se.signal_id AND tf.signal_ts = se.ts
+               WHERE se.status = 'expired'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM trade_executions te WHERE te.frame_id = tf.frame_id
+                 )""")
+        logger.info("_reconcile_outcomes: %d expired signals need execution backfill", len(rows))
+
+        if not rows:
+            return
+
+        # Batch INSERT with deterministic execution_id (uuid5 keyed on signal_id:ttl_reconcile)
+        params = []
+        for r in rows:
+            execution_id = str(uuid.uuid5(_FRAME_ID_NS, f"{r['signal_id']}:ttl_reconcile"))
+            params.append(
+                (
+                    execution_id,
+                    str(r["frame_id"]),
+                    0.0,
+                    "ttl_expired",
+                    r["fired_at"],
+                    r["expires_at"],
+                )
+            )
+
+        await conn.executemany(
+            """INSERT INTO trade_executions (
+                   execution_id, frame_id,
+                   actual_pnl_r, exit_reason,
+                   executed_at, exited_at
+               ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
+               ON CONFLICT (execution_id) DO NOTHING""",
+            params,
+        )
+        logger.info("_reconcile_outcomes: inserted %d ttl_expired execution rows", len(params))
+
+
 async def _verify_replay(
     db: DatabaseManager,
     symbols: list[str],
@@ -1360,6 +1425,7 @@ async def main_async():
         logger.info("Replay done. Total processed: %d", total)
 
         if not args.dry_run:
+            await _reconcile_outcomes(db)
             await _verify_replay(db, symbols, timeframes)
         else:
             logger.info("DRY RUN — no DB writes made.")

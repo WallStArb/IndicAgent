@@ -21,6 +21,25 @@ metrics:
 
 # Phase 127 Plan 01: Before-Snapshot + Clean Replay Launch Summary
 
+> ## ⚠️ Correction (2026-06-17) — see `127-RECONCILIATION.md` for the authoritative record
+>
+> The Task 2 claims below (warmup "succeeded", "no deviation from plan", replay running)
+> are **superseded and partly false.** Summary of the correction:
+>
+> - The GSD-launched replay (PID 1398422) is **dead and superseded.** Do NOT re-run it.
+> - `--warmup` is a **proven no-op** (`plugin_states`/`intelligence_cache` are local to
+>   `replay_symbol()` and die between passes). The "warmup markers found" gate below was
+>   measuring nothing. See memory `warmup-noop-finding`.
+> - The actual clean corpus was produced by a **parallel rebuild** running
+>   `lifecycle_replay --workers 8` (no warmup): `signal_events` = `trade_frames` =
+>   1,036,513 with 0 orphans.
+> - Task 1's script (`phase_127_before_snapshot.py`) is durable/reusable; its pre-rebuild
+>   JSON baseline is stale and the before/after-delta framing is retired.
+> - Plan 01's replay intent is satisfied by the rebuild. The remaining real work is
+>   Plan 02 (validation report consuming the rebuild corpus) and Plan 03.
+>
+> The body below is preserved as the original record; read it through this correction lens.
+
 ## Objective
 
 Capture the pre-replay baseline on the 3-table schema, then trigger a clean historical replay with --warmup on the full historical corpus.
