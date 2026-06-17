@@ -38,19 +38,21 @@ EWZ, FXI, GDXJ, ITB, USO, VLUE — ETFs that exist in OHLCV but have no instrume
 These symbols are never passed to `replay_symbol()`. They had bars in OHLCV but were
 never replayed. Fix: add to `instruments` table as equity/etf instruments.
 
-**Root cause B — In contract_metadata (is_front_month=false) but 0 signals:**
-VXK6, VXM6 — VIX futures. Present in contract_metadata with asset_class='futures'.
-`get_all_futures_contracts()` includes them but the replay may have scoped only
-front-month or a specific date window. Needs investigation: check replay parameters
-used for the Phase 127 rerun and whether --include-rolled covered VX contracts.
+**Root cause B — Expired rolled contracts (is_front_month=false = roll already occurred):**
+VXK6, VXM6, ZNM6 — `is_front_month=false` means the roll has already happened; these
+are no longer the active front-month contract. They DID have OHLCV bars during their
+active window. 0 signals during that window is the same failure mode as A4 (rolled-contract
+plugin errors on NQU6/YMM6/RTYM6) — the `asset_class` injection gap in `replay_symbol()`
+likely affects VX/ZN contracts too. Their symptom differs (0 signals vs 201K plugin errors)
+only in where the failure surfaces. The A4 fix should be confirmed against VX/ZN contracts.
+NOT a replay scope issue — it's the same roll-chain handling gap as A4.
 
 **Root cause C — In instruments (is_active=true) but 0 signals:**
 EURUSD — active instrument, asset_class='fx'. Either replay excluded FX, or signal
 generation fails for FX instruments. Check run_historical_pipeline.py line 2283
 (`if instrument.asset_class in (AssetClass.FX, AssetClass.CRYPTO)`) — this branch
-may have a different code path or may be excluded by replay flags.
-
-ZNM6 — in contract_metadata (futures, is_front_month=false). Same as VXK6/VXM6.
+may have a different code path or may be excluded by replay flags. Related to A3
+(stop gate on small-tick instruments) — FX pairs may be entirely emission-gated.
 
 ---
 

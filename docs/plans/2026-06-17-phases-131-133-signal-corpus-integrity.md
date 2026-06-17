@@ -93,9 +93,8 @@ VXK6/VXM6 (VIX futures) and ZNM6 (10-year Treasury) are regime-context instrumen
 EWZ, FXI, GDXJ, ITB, USO, VLUE — exist in `market_data_ohlcv` but have no `instruments` row. `get_active_contracts()` never returns them; `replay_symbol()` is never called for them.
 Fix: add to `instruments` table as `asset_class='equity'` instruments. Add to `settings.py` instrument config.
 
-**Root cause B — In contract_metadata (is_front_month=false) but replay-scoped out:**
-VXK6, VXM6, ZNM6 — present in `contract_metadata` as futures. Not emitting signals because the replay either scoped to front-month only or the VX/ZN contract naming is not covered by `--include-rolled`. Confirm by checking which symbols `get_all_futures_contracts()` returns and whether the Phase 127 replay command included them.
-Fix: ensure `--include-rolled` covers VX and ZN contract series, or add explicit inclusion.
+**Root cause B — Expired rolled contracts, same failure mode as A4:**
+VXK6, VXM6, ZNM6 — `is_front_month=false` means the roll already occurred. These had OHLCV bars during their active window but produced 0 signals. This is the same root cause as A4: the `asset_class` injection gap in `replay_symbol()` applies to all rolled contracts, not just NQU6/YMM6/RTYM6. The A4 fix must be verified against VX and ZN contract series. The difference in symptom (0 signals here vs 201K plugin errors on NQ/YM/RTY) likely reflects asset-class-specific guard behavior, not a different root cause.
 
 **Root cause C — Active in instruments but 0 signals:**
 EURUSD — `is_active=true`, `asset_class='fx'` in instruments. Replay did process it (it was in scope) but 0 signals resulted. The FX code path in `run_historical_pipeline.py:2283` branches on `asset_class in (FX, CRYPTO)` — investigate whether this branch skips signal generation or whether FX instruments have insufficient ATR-scaled stops to pass the emission gate.
