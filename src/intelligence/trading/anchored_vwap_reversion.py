@@ -190,9 +190,11 @@ class AnchoredVWAPReversionPlugin:
         # Use current sigma if non-zero; if exactly 0, derive from velocity direction.
         # Simplest: check sigma_buffer for last non-near-zero sigma value.
         if _is_near_zero_exit:
-            # Recover departure direction from the buffer: last sigma with abs >= sigma_min
+            # Recover departure direction from the buffer: last sigma with abs >= sigma_min.
+            # Convert deque to list before slicing — deque does not support slice notation.
+            buf_list = list(state.sigma_buffer)
             departure_direction_sigma = next(
-                (s for s in reversed(list(state.sigma_buffer[:-1])) if abs(s) >= sigma_min),
+                (s for s in reversed(buf_list[:-1]) if abs(s) >= sigma_min),
                 sigma,  # fallback to current if buffer is too short
             )
             direction = -1 if departure_direction_sigma > 0 else 1
