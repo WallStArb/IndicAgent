@@ -476,7 +476,7 @@ async def _process_symbol_tf(
 
         min_ts = min(s["timestamp"] for s in signals)
         # Map by signal_id for O(1) lookup during bar evaluation
-        sig_map: dict[str, dict] = {str(s["signal_id"]): dict(s) for s in signals}
+        sig_map: dict[str, dict] = {s["signal_id"].hex: dict(s) for s in signals}
 
         # Coerce Decimal fields to float — asyncpg returns NUMERIC as Decimal,
         # but evaluate_signal/evaluate_market_entry do arithmetic with float.
@@ -529,7 +529,7 @@ async def _process_symbol_tf(
 
         # Sorted pointer for O(N+M) signal activation instead of O(N×M).
         # signals is already ORDER BY timestamp ASC from the query.
-        sorted_sids: list[str] = [str(s["signal_id"]) for s in signals]
+        sorted_sids: list[str] = [s["signal_id"].hex for s in signals]
         activation_ptr: int = 0
 
         # 3. Stream bars from DB — client-side batching avoids asyncpg cursor issues.
