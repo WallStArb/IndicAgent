@@ -1103,18 +1103,30 @@ async def _reconcile_outcomes(db: DatabaseManager) -> None:
     2. Backfill missing executions — expired signals lacking a trade_executions row get a
        synthetic row (pnl_r=0, exit_reason='ttl_expired') with a deterministic execution_id.
     """
+    # A single UPDATE across all stale-pending rows on a large hypertable causes a PG
+    # backend crash (OOM on cross-chunk writes). Batch in 5000-row chunks instead.
     async with db.pool.acquire() as conn:
-        # 1. Expire stale pending
-        updated = await conn.fetchval("""WITH expired AS (
-                   UPDATE signal_events
-                   SET status = 'expired'
-                   WHERE status = 'pending' AND ts < NOW() - INTERVAL '2 days'
-                   RETURNING signal_id
-               )
-               SELECT COUNT(*) FROM expired""")
-        logger.info("_reconcile_outcomes: expired %d stale-pending signals", updated or 0)
+        # 1. Expire stale pending — batch to avoid server crash on large hypertable UPDATEs
+        total_expired = 0
+        while True:
+            batch_count = await conn.fetchval("""WITH to_expire AS (
+                       SELECT signal_id FROM signal_events
+                       WHERE status = 'pending' AND ts < NOW() - INTERVAL '2 days'
+                       LIMIT 5000
+                   ),
+                   expired AS (
+                       UPDATE signal_events
+                       SET status = 'expired'
+                       WHERE signal_id IN (SELECT signal_id FROM to_expire)
+                       RETURNING 1
+                   )
+                   SELECT COUNT(*) FROM expired""")
+            if not batch_count:
+                break
+            total_expired += batch_count
+        logger.info("_reconcile_outcomes: expired %d stale-pending signals", total_expired)
 
-        # 2. Fetch expired signals with no execution row (asyncpg returns uuid objects)
+        # 2. Fetch expired signals with no execution row
         rows = await conn.fetch("""SELECT replace(se.signal_id::text, '-', '') AS signal_id,
                       tf.frame_id,
                       se.ts AS fired_at,
@@ -1188,6 +1200,10 @@ async def _verify_replay(
                      THEN 1 END) as stale_unresolved,
                 COUNT(CASE WHEN se.status = 'expired'
                            AND te.actual_pnl_r IS NULL
+                           AND te.exit_reason NOT IN (
+                               'ttl_expired', 'ttl_expired_ahead', 'ttl_expired_behind',
+                               'stopped_at_entry'
+                           )
                      THEN 1 END) as target_no_pnl,
                 COUNT(CASE WHEN te.exit_reason = 'stopped_at_entry'
                            AND se.is_shadow = true
