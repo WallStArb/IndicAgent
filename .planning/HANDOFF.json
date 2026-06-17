@@ -1,40 +1,40 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-17T08:36:53Z",
+  "timestamp": "2026-06-17T09:26:48Z",
   "phase": "127",
   "phase_name": "clean-replay-validation",
   "phase_dir": ".planning/phases/127-clean-replay-validation",
-  "plan": 1,
-  "task": 0,
-  "total_tasks": 4,
+  "plan": "ecl-lifecycle-fix",
+  "task": 2,
+  "total_tasks": 6,
   "status": "paused",
-  "plan_status": "plan-00-complete-rebuild-in-flight",
+  "approved_plan": "/home/bg/.claude/plans/generic-drifting-candy.md",
   "completed_tasks": [
-    {"id": "127-00", "name": "Read-path 3-table migration", "status": "done", "commit": "merged b492f741 + test fix (post-merge gate)"},
-    {"id": "127-01-task1", "name": "phase_127_before_snapshot.py + baseline JSON", "status": "done", "commit": "merged 5cce4c26 (baseline captured PRE-rebuild; superseded by clean rebuild)"},
-    {"id": "127-01-task2", "name": "my --warmup --workers 1 replay (PID 1398422)", "status": "superseded", "commit": "n/a — process DEAD; approach discredited (--warmup is a no-op)"}
+    {"id": 1, "name": "Promote _annotate_signal -> public annotate_signal_with_context (+ backward-compat alias)", "status": "done", "files": ["src/intelligence/pipeline/signal_processor.py"], "note": "Import verified green; alias keeps tests/docs working. Non-breaking."},
+    {"id": "recon", "name": "Plans 01/02/03 reconciliation + Plan 02 report + Plan 03 log", "status": "done", "files": ["127-RECONCILIATION.md", "127-02-SUMMARY.md", "127-03-SUMMARY.md", "docs/plans/phase-127-validation-report.md", "docs/plans/phase-127-calibration-retrain-log.md"]},
+    {"id": "uuid-verify", "name": "Verify signal_id is sha-256 not uuid4", "status": "done", "note": "Version nibble uniform 0-f (6.2% each), frame_id 100% uuid5. Memory project_replay_architecture.md updated. uuid4 concern RESOLVED."}
   ],
   "remaining_tasks": [
-    {"id": "reconcile-01-02-03", "name": "Decide whether Plans 01/02/03 still apply given rebuild produced the corpus via --workers 8 (not my replay)", "status": "not_started", "priority": "high"},
-    {"id": "rebuild-validation", "name": "Let PID 1736187 finish, run rebuild's own validation checklist (supersedes Plan 02 report)", "status": "in_progress", "priority": "high"},
-    {"id": "restore-services", "name": "Remove no-restart.conf drop-ins, daemon-reload, reset-failed, start writers + auditor + self-healing", "status": "not_started", "priority": "high", "blocking_until": "rebuild validation passes"},
-    {"id": "127-03", "name": "Calibration-retrain v2.11 blocker log (doc-only)", "status": "not_started"},
-    {"id": "cleanup-worktree", "name": "Remove orphan worktree agent-a88695d6c7efc3f22 + its branch (my dead replay)", "status": "not_started"}
+    {"id": 2, "name": "Wire ECL into run_historical_pipeline.py: import annotate_signal_with_context; call on raw_signals before aggregate() in run_i7_and_persist; set 4 ECL fields on LedgerEntry in _build_ledger_entries (~line 877); write them in _insert_signals_sync (~lines 989-995) using json.dumps for context_features (psycopg2). factor_scores stays None.", "status": "not_started"},
+    {"id": 3, "name": "Wire ECL into feature_replay.py: same pattern; annotate before aggregate() in _replay_symbol_tf (~269); set ECL on LedgerEntry (~324-370); write in INSERT params (~437-441) passing dict for context_features (asyncpg jsonb).", "status": "not_started"},
+    {"id": 4, "name": "Fix lifecycle_replay Bug B: (2a) fetch-as-hex SELECT encode(se.signal_id::bytea,'hex') AS signal_id + drop .hex at ~479/532; (2b) new _reconcile_outcomes(conn) post-sweep SQL pass: UPDATE pending>2d to expired + INSERT missing trade_executions (pnl_r=0, exit_reason='ttl_expired', deterministic uuid5) for expired signals lacking rows. Wire into main() before _verify_replay.", "status": "not_started"},
+    {"id": 5, "name": "Tests + lint: unit test annotate_signal_with_context + _build_ledger_entries ECL non-null; pytest tests/unit/ -q; ruff; black", "status": "not_started"},
+    {"id": 6, "name": "Re-emit + verify + restore: TRUNCATE signal_events/trade_frames/trade_executions (KEEP intelligence_features); coverage-gate feature_replay vs run_historical (rolled-contract universe); re-emit; re-run lifecycle_replay --workers 8; verify _verify_replay 0/0/0 + ECL non-null; restore services.", "status": "not_started"}
   ],
   "blockers": [
-    {"description": "GSD Plan 01/02/03 collide with a parallel manual rebuild. My 127-01 replay used the discredited --warmup --workers 1 approach and was superseded. The rebuild's own lifecycle_replay (PID 1736187) is the actual data producer. Plans 01/02/03 must be reconciled: either fold validation into the rebuild's checklist or re-plan around the rebuild corpus.", "type": "technical", "workaround": "Treat the rebuild as the source of truth for Plan 01's corpus; do NOT re-run my replay. Decide reconciliation before continuing execute-phase."},
-    {"description": "Services are DOWN by design (Restart=no drop-ins on intelligence-pipeline + feature-writer; service-auditor + self-healing-agent stopped). Do NOT restore until rebuild validation passes.", "type": "human_action", "workaround": "Restore only after lifecycle_replay completes + validation checklist green"}
+    {"description": "Services DOWN by design (Restart=no drop-ins on intelligence-pipeline + feature-writer; service-auditor + self-healing-agent stopped). Do NOT restore until Task 6 verification passes.", "type": "human_action", "workaround": "Restore only after _verify_replay clean + ECL populated"},
+    {"description": "Bug A unresolved in code: both replay scripts still hardcode NULL for ECL fields (run_historical_pipeline.py:989-995, feature_replay.py:437-441). Tasks 2-3 fix this.", "type": "technical", "workaround": "Apply Tasks 2-3 per plan"},
+    {"description": "Bug B unresolved: lifecycle_replay _verify_replay fails (stale_unresolved=66078, target_no_pnl=74296). Task 4 fixes this.", "type": "technical", "workaround": "Apply Task 4 per plan"}
   ],
-  "human_actions_pending": [
-    {"action": "Let lifecycle_replay (PID 1736187) finish, then run the rebuild validation checklist in .planning/todos/pending/2026-06-16-replay-issues-and-findings.md", "context": "trade_executions was 587,538 and climbing at pause; target ~1,036,513. This supersedes Plan 02's validation report.", "blocking": true},
-    {"action": "Decide Plan 01/02/03 reconciliation vs the rebuild", "context": "My GSD wave launched a redundant replay; the rebuild already did the real work", "blocking": true}
-  ],
+  "human_actions_pending": [],
   "decisions": [
-    {"decision": "127-00 read-path migration is COMPLETE and durable (merged, 4753 unit tests green, 2 live hazards fixed, 9 readers -> counterfactual_pnl_r).", "rationale": "Post-merge gate caught 7 test-fixture failures (production migrated, fixtures stale); fixed + committed. All green.", "phase": "127"},
-    {"decision": "127-01 my replay is SUPERSEDED — do not re-run it.", "rationale": "Used discredited --warmup --workers 1 (warmup is a proven no-op per memory project_warmup_noop_finding.md). Parallel rebuild used --workers 8 no-warmup and already produced the corpus.", "phase": "127"},
-    {"decision": "The clean rebuild is the source of truth for the Phase 127 corpus, NOT my replay.", "rationale": "Verified live: signal_events=1,036,513, trade_frames=1,036,513 (1:1, 0 orphans), trade_executions climbing via PID 1736187, all entry_type=at_close.", "phase": "127"}
+    {"decision": "Renaissance fix: ONE canonical annotation function (annotate_signal_with_context), called by live + both replay scripts — not patching each NULL", "rationale": "DRY/SoC; the ECL-NULL bug existed because two writers each reimplemented the write path. Single source of truth makes the class of bug structurally impossible.", "phase": "127"},
+    {"decision": "Re-emit via feature_replay.py (I7-only), NOT full re-backfill", "rationale": "DAG: intelligence_features is valid. Re-enter at earliest invalid node (signal emission). feature_replay is minutes; full backfill is hours with 100% wasted I1-I6 compute. Coverage-gated at execution time (rolled-contract universe risk).", "phase": "127"},
+    {"decision": "Bug B reconciliation is set-based SQL (_reconcile_outcomes), not a Python loop extension", "rationale": "Simplicity + completeness; catches all stale-pending and missing-execution cases atomically with deterministic uuid5 ids.", "phase": "127"},
+    {"decision": "signal_id is sha-256 content hash, NOT uuid4 — uuid concern RESOLVED", "rationale": "Empirically verified (version nibble uniform 0-f). The earlier FK bug was sha-256-through-uuid stringification, fixed via .hex (commit 82a71a69).", "phase": "127"},
+    {"decision": "counterfactual_pnl_r stays NULL by design", "rationale": "Populated by live alpha_swarm CounterfactualEvaluator (v2.11), not historical replay. Not a defect.", "phase": "127"}
   ],
-  "uncommitted_files": ["(none mine) .planning/STATE.md (hook-modified), docs/ideas/vision-*.md (parallel work), .planning/phases/130-script-rewriting/130-PATTERNS.md (pre-existing untracked)"],
-  "next_action": "FIRST: check if PID 1736187 (lifecycle_replay --workers 8) finished and trade_executions reached ~1,036,513. If yes, run the rebuild validation checklist (.planning/todos/pending/2026-06-16-replay-issues-and-findings.md). SECOND: reconcile GSD Plans 01/02/03 — they are entangled with the rebuild; recommend folding validation into the rebuild rather than re-running my replay. THIRD: clean up orphan worktree agent-a88695d6c7efc3f22. The 127-00 read-path migration is DONE and needs no further work.",
-  "context_notes": "GSD execute-phase 127 wave 0 ran concurrently with a parallel manual clean-slate rebuild, causing a collision. Only 127-00 (read-path migration) produced durable, non-conflicting value. The replay/validation plans (01/02/03) are entangled with the rebuild's output. The rebuild is healthy and mid-flight (lifecycle_replay actively populating trade_executions). REBUILD_STATUS=FAILED is stale. Branch: phase-127/00-read-path-3table-migration. Two unrelated docs commits (FlowAgent/FundAgent vision) landed on the branch during the wave — disjoint, no conflict."
+  "uncommitted_files": ["src/intelligence/pipeline/signal_processor.py (Task 1 — only code change)", ".planning/HANDOFF.json", ".planning/STATE.md", ".planning/phases/127-clean-replay-validation/127-01-SUMMARY.md", "127-02-SUMMARY.md (new)", "127-03-SUMMARY.md (new)", "127-RECONCILIATION.md (new)", "docs/plans/phase-127-validation-report.md (new)", "docs/plans/phase-127-calibration-retrain-log.md (new)", ".planning/todos/pending/2026-06-17-lifecycle-replay-verify-failure.md (from other session)", "docs/ideas/vision-*.md (parallel/disjoint)", ".planning/phases/130-script-rewriting/130-PATTERNS.md (pre-existing untracked)"],
+  "next_action": "Read the approved plan at /home/bg/.claude/plans/generic-drifting-candy.md. Then execute Task 2: edit production/scripts/run_historical_pipeline.py — import annotate_signal_with_context, call it on raw_signals before aggregate() in run_i7_and_persist (~line 1218-1222), set the 4 ECL fields on the LedgerEntry in _build_ledger_entries (~877), and replace the 5 None hardcodes in _insert_signals_sync (~989-995) with json.dumps(e.context_features) + e.ctf_score/ctf_confirmed/zone_friction_score (factor_scores stays None). Task 1 (signal_processor.py rename) is already done and non-breaking.",
+  "context_notes": "Two-bug fix approved via plan mode. Bug A = ECL fields 100% NULL on signal_events (both replay scripts skip the canonical annotation). Bug B = lifecycle_replay verify failure (incomplete TTL-expiry outcomes). Both fixes must land before ONE controlled re-emit (TRUNCATE 3 signal tables, keep intelligence_features). Task 1 done: annotate_signal_with_context is now public with _annotate_signal backward-compat alias. Code is clean/non-broken at pause. Services DOWN by design. Original rebuild corpus intact (1,036,513 signal_events/trade_frames, 0 orphans). The other session's lifecycle verify findings are captured in .planning/todos/pending/2026-06-17-lifecycle-replay-verify-failure.md and folded into Task 4."
 }

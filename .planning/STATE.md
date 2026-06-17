@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.10
-milestone_name: AI Platform — Part 2
-status: milestone_complete
-last_updated: 2026-06-16T17:10:30.444Z
-last_activity: 2026-06-16 -- Phase 130 execution started
+milestone_name: milestone
+status: completed
+last_updated: "2026-06-17T09:23:01.643Z"
+last_activity: 2026-06-16
 progress:
-  total_phases: 8
-  completed_phases: 6
-  total_plans: 35
-  completed_plans: 96
-  percent: 75
-stopped_at: Milestone complete (Phase 130 was final phase)
+  total_phases: 25
+  completed_phases: 18
+  total_plans: 120
+  completed_plans: 99
+  percent: 72
 ---
 
 # Project State
@@ -87,7 +86,24 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-### Last session (2026-06-15) — Phase 126 complete; proceeding to Phase 128
+### Last session (2026-06-17) — Phase 127 reconciliation done; rebuild finishing
+
+GSD Plans 01/02/03 reconciled against the parallel rebuild; verdict recorded in
+`.planning/phases/127-clean-replay-validation/127-RECONCILIATION.md`. Key outcomes:
+
+- Plan 01 Task 2 (`--warmup` replay) is **superseded + discredited** (warmup is a no-op);
+  127-01-SUMMARY.md corrected with a warning block. Rebuild (`lifecycle_replay --workers 8`)
+  is the actual corpus: 1,036,513 signal_events/trade_frames, 0 orphans.
+
+- Plan 02 (validation report) folds in the rebuild checklist section 5; gated on rebuild completion.
+- Plan 03 (calibration blocker log) independent and valid.
+
+**Resume:** (1) wait for rebuild PID 1736187 to finish trade_executions (~1,036,513);
+(2) run validation checklist section 5; (3) write Plan 02 report; (4) Plan 03;
+(5) restore services (drop `Restart=no` drop-ins); (6) cleanup orphan worktree
+`agent-a88695d6c7efc3f22` + obsolete scripts. Services are DOWN by design until validation passes.
+
+### Previous session (2026-06-15) — Phase 126 complete; proceeding to Phase 128
 
 ### Previous session (2026-06-11) — Phase 121 Wave 1 complete; orchestrate running
 

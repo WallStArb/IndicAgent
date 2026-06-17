@@ -213,6 +213,11 @@ class LedgerEntry:
     stop_structure_age_bars: int | None = None
     raw_confidence: float | None = None
     calibrated_confidence: float | None = None
+    factor_scores: dict | None = None
+    context_features: dict | None = None
+    ctf_score: float | None = None
+    ctf_confirmed: bool | None = None
+    zone_friction_score: float | None = None
     status: SignalStatus = field(default=SignalStatus.PENDING)
 
 

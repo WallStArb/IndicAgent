@@ -50,6 +50,7 @@ sys.path.insert(0, str(_project_root))
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import create_pool
 from src.core.service_utils import TF_SECONDS, parse_iso_ts, setup_service_logging
+from src.intelligence.pipeline.signal_processor import annotate_signal_with_context
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
 from src.intelligence.schemas import (
@@ -265,6 +266,9 @@ async def _replay_symbol_tf(
         if not raw_signals:
             continue
 
+        for sig in raw_signals:
+            annotate_signal_with_context(sig, flat_features)
+
         trend_regime = float(flat_features.get("trend_regime", 0.0))
         agg_result = aggregate(
             raw_signals,
@@ -365,6 +369,10 @@ async def _replay_symbol_tf(
                     stop_structure_age_bars=sig.get("stop_structure_age_bars"),
                     raw_confidence=sig.get("pre_quality_confidence") or sig.get("confidence"),
                     calibrated_confidence=sig.get("calibrated_confidence"),
+                    context_features=sig.get("context_features"),
+                    ctf_score=sig.get("ctf_score"),
+                    ctf_confirmed=sig.get("ctf_confirmed"),
+                    zone_friction_score=sig.get("zone_friction_score"),
                     status=SignalStatus.PENDING,
                 )
             )
@@ -434,11 +442,11 @@ async def _replay_symbol_tf(
                             e.calibrated_confidence,  # calibrated_confidence
                             e.cis_score,  # cis_score
                             e.weights_version,  # weights_version
-                            None,  # factor_scores (not in LedgerEntry)
-                            None,  # context_features
-                            None,  # ctf_score
-                            None,  # ctf_confirmed
-                            None,  # zone_friction_score
+                            None,  # factor_scores (plugin-local, not in replay path)
+                            e.context_features,  # context_features (asyncpg dict -> jsonb)
+                            e.ctf_score,  # ctf_score
+                            e.ctf_confirmed,  # ctf_confirmed
+                            e.zone_friction_score,  # zone_friction_score
                             e.hmm_regime_at_fire,  # hmm_regime_at_fire
                             e.plugin_regime_type,  # plugin_regime_type
                             e.garch_sigma_at_fire,  # garch_sigma_at_fire

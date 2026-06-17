@@ -17,7 +17,10 @@ import os
 
 import pytest
 
-from src.intelligence.pipeline.signal_processor import _annotate_signal
+from src.intelligence.pipeline.signal_processor import (
+    _annotate_signal,
+    annotate_signal_with_context,
+)
 from src.intelligence.trading.confidence_utils import MIN_CTF_SCORE
 
 # ---------------------------------------------------------------------------
@@ -56,6 +59,18 @@ def _empty_signal() -> dict:
 # ---------------------------------------------------------------------------
 # Core annotation tests
 # ---------------------------------------------------------------------------
+
+
+def test_annotate_signal_with_context_public_name_populates_ecl_keys():
+    """annotate_signal_with_context (public alias) sets all 4 ECL keys; factor_scores absent."""
+    sig = _empty_signal()
+    ff = _base_flat_features(ctf_score=0.55, zone_friction_score=0.3)
+    annotate_signal_with_context(sig, ff)
+    assert sig["context_features"] is ff
+    assert sig["ctf_score"] == pytest.approx(0.55)
+    assert sig["ctf_confirmed"] is True
+    assert sig["zone_friction_score"] == pytest.approx(0.3)
+    assert "factor_scores" not in sig or sig["factor_scores"] == {}  # factor_scores is plugin-local
 
 
 def test_annotate_sets_context_features_to_full_snapshot():

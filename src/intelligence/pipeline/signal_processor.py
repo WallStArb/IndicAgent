@@ -59,7 +59,7 @@ _ET = zoneinfo.ZoneInfo("America/New_York")
 # columns on signal_events for fast SQL queries without JSONB extraction.
 # To add a new surfaced field:
 #   (1) add to this tuple,
-#   (2) add one extraction line in _annotate_signal() below,
+#   (2) add one extraction line in annotate_signal_with_context() below,
 #   (3) add a DB migration for the new column on signal_events.
 # No plugin changes needed.
 _SURFACED_ECL_FIELDS: tuple[str, ...] = (
@@ -70,8 +70,15 @@ _SURFACED_ECL_FIELDS: tuple[str, ...] = (
 )
 
 
-def _annotate_signal(sig: dict, flat_features: dict) -> None:
+def annotate_signal_with_context(sig: dict, flat_features: dict) -> None:
     """Pipeline-layer extrinsic annotation — applied to every I7 signal uniformly.
+
+    Single source of truth for the ECL (Extrinsic Confidence Layer) annotation.
+    Called by the live pipeline (SignalProcessor.process) AND by both historical
+    replay paths (run_historical_pipeline.py, feature_replay.py) so that backfilled
+    signal_events carry the same context_features + surfaced ECL columns as live —
+    preventing the class of "NULL ECL on replay" bug that arises when each writer
+    reimplements this step.
 
     Flat_features audit (Phase 126-06):
       PRESENT  — ctf_score + 17 CTF sub-scores (via I6Confluence sub-model in build_flat_features)
@@ -98,6 +105,11 @@ def _annotate_signal(sig: dict, flat_features: dict) -> None:
     sig["ctf_score"] = ctf_score
     sig["ctf_confirmed"] = (abs(ctf_score) >= MIN_CTF_SCORE) if ctf_score is not None else None
     sig["zone_friction_score"] = flat_features.get("zone_friction_score")
+
+
+# Backward-compat alias — existing tests and docs reference the original private name.
+# Prefer annotate_signal_with_context in new code (replay scripts import the public name).
+_annotate_signal = annotate_signal_with_context
 
 
 # Quality gate absent-feature defaults.
@@ -344,7 +356,7 @@ class SignalProcessor:
         # Applied AFTER features are resolved and BEFORE calibration/quality/regime gates
         # so even regime-suppressed signals carry full context for ML training integrity.
         for sig in raw_signals:
-            _annotate_signal(sig, features)
+            annotate_signal_with_context(sig, features)
 
         # Design B: Update CIS scorer's calibration curves before scoring.
         # The scorer applies calibration to the Kalman-filtered CIS inside score().

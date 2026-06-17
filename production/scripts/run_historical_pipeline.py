@@ -89,6 +89,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.service_utils import TF_SECONDS, min_bars_for_tf
 from src.core.service_utils import bar_close_ts as compute_bar_close_ts
+from src.intelligence.pipeline.signal_processor import annotate_signal_with_context
 from src.intelligence.plugins import registry
 from src.intelligence.plugins.mixins import incremental_compute
 from src.intelligence.register_plugins import register_all_plugins
@@ -915,6 +916,10 @@ def _build_ledger_entries(
                 stop_structure_age_bars=sig.get("stop_structure_age_bars"),
                 raw_confidence=sig.get("pre_quality_confidence") or sig.get("confidence"),
                 calibrated_confidence=sig.get("calibrated_confidence"),
+                context_features=sig.get("context_features"),
+                ctf_score=sig.get("ctf_score"),
+                ctf_confirmed=sig.get("ctf_confirmed"),
+                zone_friction_score=sig.get("zone_friction_score"),
             )
         )
     return entries
@@ -986,13 +991,13 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
                 e.calibrated_confidence,  # calibrated_confidence (nullable)
                 e.cis_score,  # cis_score
                 e.weights_version,  # weights_version
-                # factor_scores / context_features from signal dict ECL fields (Phase 123)
-                # LedgerEntry does not carry these; NULL for backfill
-                None,  # factor_scores
-                None,  # context_features
-                None,  # ctf_score
-                None,  # ctf_confirmed
-                None,  # zone_friction_score
+                None,  # factor_scores (plugin-local, not in replay path)
+                (
+                    json.dumps(e.context_features) if e.context_features else None
+                ),  # context_features (psycopg2 serialized JSONB)
+                e.ctf_score,  # ctf_score
+                e.ctf_confirmed,  # ctf_confirmed
+                e.zone_friction_score,  # zone_friction_score
                 e.hmm_regime_at_fire,  # hmm_regime_at_fire
                 e.plugin_regime_type,  # plugin_regime_type
                 e.garch_sigma_at_fire,  # garch_sigma_at_fire
@@ -1217,6 +1222,9 @@ def run_i7_and_persist(
 
     if not raw_signals:
         return 0
+
+    for sig in raw_signals:
+        annotate_signal_with_context(sig, features)
 
     trend_regime = float(features.get("trend_regime", 0.0))
     agg_result = aggregate(
