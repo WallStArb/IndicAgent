@@ -1606,6 +1606,7 @@ def replay_symbol(
     perf_weights: dict | None = None,
     precomputed_features: dict | None = None,
     overwrite_features: bool = False,
+    seed_from_db: bool = True,
 ) -> dict[str, int]:
     """Replay bars for *symbol* through the I1→I7 pipeline.
 
@@ -1648,6 +1649,37 @@ def replay_symbol(
     # Shared state across timeframes for cross-TF context
     bar_histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
     intelligence_cache: dict[str, dict] = {}
+
+    if seed_from_db:
+        # A7 fix: seed intelligence_cache with prior I3 data from DB so I6 has
+        # non-None trend fields on bar 1. Without this seed, ctf_score=0 for all bars.
+        _standard_tfs = ["1m", "5m", "15m", "1h"]
+        for _seed_tf in _standard_tfs:
+            with db_conn.cursor() as _cur:
+                _cur.execute(
+                    """SELECT i3->>'trend_direction'    AS trend_direction,
+                              i3->>'trend_strength'     AS trend_strength,
+                              i3->>'trend_bars_elapsed' AS trend_bars_elapsed,
+                              i3->>'trend_confirmed'    AS trend_confirmed
+                         FROM intelligence_features
+                        WHERE symbol = %s AND tf = %s
+                        ORDER BY ts DESC
+                        LIMIT 1""",
+                    (symbol, _seed_tf),
+                )
+                _seed_row = _cur.fetchone()
+                _col_names = [desc[0] for desc in _cur.description]
+            if _seed_row and any(_seed_row):
+                # Use cur.description for column mapping — robust to query column order changes
+                _seed_dict = dict(zip(_col_names, _seed_row))
+                # Filter None values — extract_trend_sign() handles missing keys as 0
+                _seed_dict = {k: v for k, v in _seed_dict.items() if v is not None}
+                if symbol not in intelligence_cache:
+                    intelligence_cache[symbol] = {}
+                intelligence_cache[symbol][_seed_tf] = _seed_dict
+                print(
+                    f"  [A7-seed] {symbol}/{_seed_tf}: seeded trend_direction={_seed_dict.get('trend_direction')!r}"
+                )
 
     # Per-(plugin_name, symbol, tf) state dict — isolates stateful plugins (GARCH/HMM/Kalman)
     # across symbols. Scoped to this symbol so state never bleeds into the next symbol.
@@ -1819,6 +1851,7 @@ class _WorkerArgs(NamedTuple):
     skip_signals: bool
     use_precomputed: bool
     overwrite_features: bool
+    seed_from_db: bool
 
 
 def _replay_worker(args: _WorkerArgs) -> tuple[str, int, dict[str, int]]:
@@ -1828,7 +1861,16 @@ def _replay_worker(args: _WorkerArgs) -> tuple[str, int, dict[str, int]]:
     connection (connections cannot be shared across processes), registers
     plugins, replays the symbol, commits, and closes.
     """
-    symbol, db_url, timeframes, since_dt, skip_signals, use_precomputed, overwrite_features = args
+    (
+        symbol,
+        db_url,
+        timeframes,
+        since_dt,
+        skip_signals,
+        use_precomputed,
+        overwrite_features,
+        seed_from_db,
+    ) = args
     register_all_plugins()
     conn = psycopg2.connect(dsn=db_url)
     conn.autocommit = True
@@ -1850,6 +1892,7 @@ def _replay_worker(args: _WorkerArgs) -> tuple[str, int, dict[str, int]]:
             perf_weights=perf_weights,
             precomputed_features=precomputed,
             overwrite_features=overwrite_features,
+            seed_from_db=seed_from_db,
         )
         return symbol, sum(counts.values()), counts
     finally:
@@ -2080,6 +2123,14 @@ def main() -> None:
         help="Run I1-I6 warmup pass before signal pass (populates I6 cache for cold-start "
         "correction). Requires --replay-only. First pass: skip_signals=True (I1-I6 only). "
         "Second pass: skip_signals=False (I1-I7 with warm I6 cache).",
+    )
+    parser.add_argument(
+        "--no-seed",
+        action="store_true",
+        default=False,
+        help="Skip DB seed of intelligence_cache before bar 1 (for testing unseeded path). "
+        "By default the replay seeds cross-TF I3 trend data from intelligence_features so "
+        "I6 ctf_score is non-zero on bar 1 (A7 fix).",
     )
     args = parser.parse_args()
 
@@ -2505,6 +2556,7 @@ def main() -> None:
                         skip_signals=True,
                         calibration_curves=calibration_curves,
                         perf_weights=perf_weights,
+                        seed_from_db=not args.no_seed,
                     )
                 print("\nWarmup complete. Running signal pass (I1-I7 with warm I6 cache)...")
 
@@ -2525,6 +2577,7 @@ def main() -> None:
                     perf_weights=perf_weights,
                     precomputed_features=precomputed,
                     overwrite_features=args.overwrite_features,
+                    seed_from_db=not args.no_seed,
                 )
                 symbol_total = sum(counts.values())
                 grand_total += symbol_total
@@ -2543,6 +2596,7 @@ def main() -> None:
                     skip_signals=False,
                     use_precomputed=args.use_precomputed_features,
                     overwrite_features=args.overwrite_features,
+                    seed_from_db=not args.no_seed,
                 )
                 for contract in contracts
             ]
