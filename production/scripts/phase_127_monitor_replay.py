@@ -12,9 +12,9 @@ Usage:
     python production/scripts/phase_127_monitor_replay.py <PID>
 """
 
+import subprocess
 import sys
 import time
-import subprocess
 from pathlib import Path
 
 # PID passed as argument
@@ -47,17 +47,20 @@ while True:
         content = log_file.read_text()
 
         # Check for warmup pass marker
-        if "Running warmup pass (I1-I6 only)" in content and "Warmup complete. Running signal pass" in content:
-            print(f"✓ Warmup pass complete, signal pass running")
+        if (
+            "Running warmup pass (I1-I6 only)" in content
+            and "Warmup complete. Running signal pass" in content
+        ):
+            print("✓ Warmup pass complete, signal pass running")
 
         # Check for completion
         if "Backfill complete" in content:
-            print(f"✓ Replay complete!")
+            print("✓ Replay complete!")
             break
 
         # Check for errors
         if "ERROR" in content or "Traceback" in content:
-            print(f"⚠ Error detected in log file")
+            print("⚠ Error detected in log file")
             break
 
         # Show progress
@@ -76,7 +79,7 @@ print(f"Process {pid}:")
 try:
     result = subprocess.run(["ps", "-o", "stat", "-p", str(pid)], capture_output=True, text=True)
     print(f"  Status: {result.stdout.strip()}")
-except:
+except Exception:
     pass
 
 # Check for warmup markers in log
@@ -86,13 +89,13 @@ if log_file.exists():
     warmup_complete = "Warmup complete. Running signal pass" in content
     replay_complete = "Backfill complete" in content
 
-    print(f"\nWarmup markers:")
+    print("\nWarmup markers:")
     print(f"  Warmup pass started: {warmup_running}")
     print(f"  Warmup complete: {warmup_complete}")
     print(f"  Replay complete: {replay_complete}")
 
     # Check for parallel-mode skip note (should NOT appear)
     if "only supported with --workers 1 (parallel mode skips warmup pass)" in content:
-        print(f"  ⚠ WARNING: Warmup was skipped (parallel mode detected)")
+        print("  ⚠ WARNING: Warmup was skipped (parallel mode detected)")
 
 print("\nMonitor complete.")
