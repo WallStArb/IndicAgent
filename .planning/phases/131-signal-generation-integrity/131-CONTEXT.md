@@ -8,7 +8,7 @@
 
 Fix every systematic signal generation bug that produces zero emissions or wrong values corpus-wide. Every plugin that should fire does fire. Every active instrument produces signals. Corpus rebuild is reliable. Phase 133 cannot begin until Phase 131 verification gate passes.
 
-**Verification gate:** Unit tests green; targeted 2-week replay shows ≥32 plugins emitting signals (35/36 — CrossAssetDivergence formally excluded); no zero-signal instruments in active contract list from fixable bugs; all investigation items resolved with empirical findings documented.
+**Verification gate:** Unit tests green; targeted 2-week replay shows 35 of 35 eligible plugins emitting signals (CrossAssetDivergence is the only exclusion — formally architectural live-only, not a fixable bug); no zero-signal instruments in active contract list from fixable bugs; all investigation items resolved with empirical findings documented.
 
 </domain>
 
@@ -60,7 +60,7 @@ All four remaining zero-emission plugins have confirmed root causes and specifie
 
 - `trad_MTFAlignment` — no separate fix needed; downstream of A7. Fix A7 → fires automatically.
 - `trad_PrevDayLevelTest` — increase `bar_histories` deque `maxlen` from 200 to 800 in `replay_symbol()` at `run_historical_pipeline.py:1649`.
-- `trad_AnchoredVWAPReversion` — restructure gate ordering in plugin: check departure state and reclaim condition BEFORE clearing state when `abs(sigma) < sigma_min`.
+- `trad_AnchoredVWAPReversion` — restructure gate ordering in plugin: check departure state and reclaim condition BEFORE clearing state when `abs(sigma) < sigma_min`. **State-clearing sequence is load-bearing:** on the reclaim bar the exact order must be (1) detect reclaim → (2) emit signal → (3) clear departure state → (4) return. Clearing state before step 2 re-introduces the bug. Leaving state active after emission causes a duplicate signal on the next bar when sigma stabilizes near zero.
 - `trad_CrossAssetDivergence` — document as live-only (D-02 above).
 
 ### D-05: Symbol coverage — VXK6/VXM6/ZNM6 via A4 fix only
@@ -69,11 +69,17 @@ VXK6/VXM6/ZNM6 share the same root cause as A4 (asset_class not injected in `rep
 
 EURUSD is a **FX model gap** — not a fixable bug in Phase 131. HMM not trained on FX dynamics, session VWAP bands flat for 24h trading, DivergenceStack min_agreeing unreachable. Document as FX model gap; keep out of ML training corpus until FX-specific plugin tuning is addressed (future phase).
 
+### D-06: A4 root cause confirmation — first task before any code
+
+The research findings doc (`.planning/todos/pending/2026-06-17-phase131-research-findings.md`) explicitly marks A4 as "STILL UNCONFIRMED — one more trace needed." The spec treats it as confirmed. These are contradictory. Do not write the A4 fix until the root cause is confirmed empirically.
+
+**Confirmation task (first task in Phase 131):** Add a single log statement in `replay_symbol()` that logs `all_features.get("asset_class")` for a rolled-contract symbol, then run a 10-symbol test replay targeting NQM6 or YMM6. If asset_class is None in the log output, root cause A4 is confirmed. Document the confirmation before proceeding.
+
 ### Claude's Discretion
 
 - Exact query pattern for `_seed_last_events_from_db()` — use `asyncpg` with `SELECT` per (symbol, tf) batched in parallel via `asyncio.gather()`; reconstruct `IntelligenceEvent` from just the I3-tier fields needed by `extract_trend_sign()`
 - Whether to add a `--no-seed` flag for testing the unseeded path — yes, add it; useful for verifying the fix by comparing before/after ctf_score distributions
-- Order of A-series fixes in plans — do A4/A6 first (simple targeted fixes), then A7 (non-trivial DB seed), then zero-emission plugins (require A7 first for MTFAlignment verification)
+- Order of A-series fixes in plans — confirm A4 first (diagnostic, 10-symbol test), then A4/A6 code fixes (simple targeted), then A7 (non-trivial DB seed), then zero-emission plugins (require A7 first for MTFAlignment verification)
 
 </decisions>
 
