@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """
-Pre-replay baseline capture for Phase 127 clean replay.
+Capture a snapshot of the signal corpus for before/after comparison.
 
-Targets 3-table schema (signal_events/trade_frames/trade_executions).
-Captures the "before" anchor for the validation report's signal volume delta.
-
-This baseline MUST be regenerated on the 3-table schema — the old
-phase-121-before-snapshot.json is incompatible (it referenced
-signal_ledger + signal_outcomes, both dropped in Phase 130).
+Queries signal_events, trade_frames, and trade_executions and writes a
+JSON summary with row counts, cold-start metrics, and per-setup breakdown.
 
 Usage:
-    python production/scripts/phase_127_before_snapshot.py
+    python production/scripts/signal_corpus_snapshot.py [--output PATH]
+
+    --output  Path for the JSON snapshot (default: docs/plans/signal-corpus-snapshot.json)
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import sys
@@ -29,29 +28,14 @@ from src.core.service_utils import format_iso_ts
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 
+JOB_NAME = "signal-corpus-snapshot"
 
-async def _capture_baseline(conn) -> dict:
-    """
-    Capture pre-replay baseline on 3-table schema.
 
-    Returns a JSON-serializable dict with:
-    - Total row counts (signal_events, trade_frames, trade_executions)
-    - Cold-start metrics (cold_start_count, non_cold_start_total, coverage_pct)
-    - Per-setup breakdown (signal counts, selection rates, cold-start, stopped_at_entry)
-
-    All queries target 3-table schema ONLY. Do NOT reference:
-    - signal_outcomes (dropped)
-    - signal_ledger_full (renamed to signal_ledger)
-    - signal_type, feature_tf, bucket_scores, staleness_score (dropped columns)
-    """
-
-    # Totals
+async def _capture(conn) -> dict:
     total_signal_events = await conn.fetchval("SELECT COUNT(*) FROM signal_events")
     total_trade_frames = await conn.fetchval("SELECT COUNT(*) FROM trade_frames")
     total_trade_executions = await conn.fetchval("SELECT COUNT(*) FROM trade_executions")
 
-    # Cold-start metrics
-    # Cold-start = context_features IS NULL or '{}'::jsonb
     cold_start_count = await conn.fetchval("""
         SELECT COUNT(*)
         FROM signal_events
@@ -59,7 +43,6 @@ async def _capture_baseline(conn) -> dict:
         """)
     non_cold_start_total = total_signal_events - cold_start_count
 
-    # Coverage on non-cold-start subset
     if non_cold_start_total > 0:
         non_cold_start_with_features = await conn.fetchval("""
             SELECT COUNT(*)
@@ -70,7 +53,6 @@ async def _capture_baseline(conn) -> dict:
     else:
         coverage_pct = 0.0
 
-    # Per-setup breakdown
     setup_rows = await conn.fetch("""
         SELECT
             se.setup_plugin,
@@ -91,15 +73,13 @@ async def _capture_baseline(conn) -> dict:
     setups = []
     for row in setup_rows:
         total_signals = row["total_signals"]
-        selected = row["selected"] or 0  # Handle NULL from LEFT JOIN
+        selected = row["selected"] or 0
         selection_rate_pct = 100.0 * selected / total_signals if total_signals > 0 else 0.0
 
-        # Coverage on non-cold-start subset for this setup
         setup_cold_start = row["cold_start_count"]
         setup_non_cold = total_signals - setup_cold_start
 
         if setup_non_cold > 0:
-            # Need to re-query with context_features filter for this specific setup
             setup_with_features = await conn.fetchval(
                 """
                 SELECT COUNT(*)
@@ -146,36 +126,34 @@ async def _capture_baseline(conn) -> dict:
     }
 
 
-async def main():
+async def main(output_path: Path) -> None:
     settings = Settings()
     db = DatabaseManager(settings.database_url)
     await db.initialize()
 
     try:
         async with db.pool.acquire() as conn:
-            print("Capturing pre-replay baseline on 3-table schema...")
-            baseline = await _capture_baseline(conn)
+            print("Capturing signal corpus snapshot...")
+            snapshot = await _capture(conn)
 
-            # Write JSON
-            output_path = Path("docs/plans/phase-127-before-snapshot.json")
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(json.dumps(baseline, indent=2, default=str))
+            output_path.write_text(json.dumps(snapshot, indent=2, default=str))
 
-            print(f"\nBaseline captured: {output_path}")
-            print(f"  signal_events: {baseline['totals']['signal_events']:,}")
-            print(f"  trade_frames: {baseline['totals']['trade_frames']:,}")
-            print(f"  trade_executions: {baseline['totals']['trade_executions']:,}")
-            print(f"  cold_start_count: {baseline['cold_start']['cold_start_count']:,}")
+            print(f"\nSnapshot written: {output_path}")
+            print(f"  signal_events:    {snapshot['totals']['signal_events']:,}")
+            print(f"  trade_frames:     {snapshot['totals']['trade_frames']:,}")
+            print(f"  trade_executions: {snapshot['totals']['trade_executions']:,}")
+            print(f"  cold_start_count: {snapshot['cold_start']['cold_start_count']:,}")
             print(
-                f"  coverage (non-cold-start): {baseline['cold_start']['context_features_coverage_pct']:.2f}%"
+                f"  coverage (non-cold-start): {snapshot['cold_start']['context_features_coverage_pct']:.2f}%"
             )
-            print(f"  setups: {len(baseline['setups'])}")
+            print(f"  setups: {len(snapshot['setups'])}")
 
-            JOB_COMPLETED_TOTAL.add(1, {"job": "phase-127-before-snapshot", "status": "success"})
+            JOB_COMPLETED_TOTAL.add(1, {"job": JOB_NAME, "status": "success"})
 
     except Exception as error:
         print(f"ERROR: {error}", file=sys.stderr)
-        JOB_COMPLETED_TOTAL.add(1, {"job": "phase-127-before-snapshot", "status": "failure"})
+        JOB_COMPLETED_TOTAL.add(1, {"job": JOB_NAME, "status": "failure"})
         raise
     finally:
         await db.close()
@@ -183,9 +161,18 @@ async def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Capture signal corpus snapshot")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("docs/plans/signal-corpus-snapshot.json"),
+        help="Output path for the JSON snapshot",
+    )
+    args = parser.parse_args()
+
     try:
-        init_otel_providers("phase-127-before-snapshot")
+        init_otel_providers(JOB_NAME)
     except OTelInitError as error:
         print(f"[warn] OTel init failed — metrics disabled: {error}")
 
-    asyncio.run(main())
+    asyncio.run(main(args.output))
