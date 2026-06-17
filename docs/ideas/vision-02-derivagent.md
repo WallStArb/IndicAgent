@@ -1,24 +1,47 @@
 # DerivAgent — Derivatives Intelligence & Autonomous Options Execution Platform (Vision)
 
-**Version:** 1.0
 **Status:** draft
+**Version:** 1.0
+**Created:** 2026-03-04
+**Last Updated:** 2026-06-17
+**Context:** Derivatives market structure intelligence + autonomous options execution
 **Priority:** low
 **Milestone:** future (post-v2.8)
-**Last Updated:** 2026-03-04
-**Tags:** derivagent, options, derivatives, vol-surface, gex, execution, platform, vision
+**Tags:** derivagent, options, derivatives, vol-surface, gex, execution, platform
 
 ---
 
-## Purpose of this doc
+## Core Concept
 
-Capture and develop the vision for **DerivAgent**: a full-stack autonomous derivatives platform with two tightly coupled layers:
+DerivAgent is a full-stack autonomous derivatives platform with two tightly coupled layers:
 
 1. **DerivAgent Intelligence** — reads the options market structure (vol surface, GEX, VANNA/CHARM, VRP, skew, term structure) and publishes derivatives regime signals for the broader product family
 2. **DerivAgent Execution** — an agentic options trading platform that uses the intelligence layer to autonomously select, execute, manage, and learn from options strategies
 
 While IndicAgent reads price/volume (the *what*) and QualAgent reads macro/sentiment (the *why*), DerivAgent reads **derivatives market structure** (the *how the market is positioned and what it fears*) — and then acts on that intelligence autonomously through options strategies.
 
-This is a vision and ideation document. We are not building yet.
+### Renaissance Frame
+
+DerivAgent embodies Renaissance principles:
+
+- **Let the system run:** Options markets are an information market about the future. Every option price embeds collective belief about probability. DerivAgent reads those beliefs systematically and acts on them — not through discretionary judgment, but through measured structural features.
+- **Earn the right through proof:** The Volatility Risk Premium (VRP) is a documented, persistent edge. But DerivAgent strategies start in shadow mode. Promotion requires statistical proof (p < 0.05, n ≥ 100) that the edge persists in the current regime.
+- **Segment relentlessly:** VRP varies by regime. GEX effects vary by expiry. Skew signals vary by volatility environment. Every strategy is conditioned on regime context — no global rules.
+- **Data quality over model complexity:** The options market publishes its full state every day. The surface, the Greeks, the positioning — all measurable. DerivAgent starts with clean data and simple models before adding complexity.
+- **Instrument everything:** Every options trade, every surface snapshot, every GEX flip — captured. Nothing is dropped. The training set is complete.
+
+### Architectural Positioning
+
+DerivAgent fits the shared spine architecture:
+
+- **Ring 2 daemon** — Would live under `services/` when implemented; class and file names derive from the naming system at build time (the `_agent` suffix is retired)
+- **Two-layer architecture**: Intelligence layer (publishes `deriv:*` events) + Execution layer (autonomous options trading)
+- **Event publisher** — Publishes to `deriv:*` topics via `stream_keys.py`
+- **Event subscriber** — Subscribes to options chain data (OPRA feeds), market data for hedge calculation
+- **DAG-compliant** — Data flows one direction: options data → surface construction → regime signals → Kafka → consumers
+- **APR-governed** — All thresholds, VRP filters, strategy parameters live in `config_state` under `deriv.*` namespace
+- **Shadow-governed** — Every strategy enrolls in shadow. Promotion requires bootstrap CI > 0 at 95% confidence
+- **Aegis-aware** — All execution respects AegisAgent pre-trade checks and risk limits
 
 
 ## Product family (updated)
@@ -685,7 +708,7 @@ Key Renaissance principles applied:
 
 **Cross-asset GEX:** GEX on SPX options affects ES futures directly. But GEX on NDX/QQQ options affects NQ futures. Can DerivAgent publish a GEX-derived level for each futures instrument based on the relevant equity options chain?
 
-**Realized vol forecasting:** VRP requires a realized vol estimate. But realized vol itself can be forecast using GARCH models (already implemented in IndicAgent's I0 layer). DerivAgent can use IndicAgent's GARCH forecast as its realized vol estimate for VRP computation — a cross-platform data dependency worth designing explicitly.
+**Realized vol forecasting:** VRP requires a realized vol estimate. But realized vol itself can be forecast using GARCH models (already implemented in IndicAgent's I4 context layer). DerivAgent can use IndicAgent's GARCH forecast as its realized vol estimate for VRP computation — a cross-platform data dependency worth designing explicitly.
 
 **Vol surface clustering:** Use unsupervised learning to identify recurring vol surface "shapes" (similar to IndicAgent's regime clustering). Cluster the historical surface shapes and label each with its typical subsequent price behavior. "Surface Type 4 (inverted near-term, steep skew, compressed far-term) has preceded sharp selloffs within 5 days in 70% of historical occurrences."
 
@@ -738,7 +761,7 @@ The platform's user experience philosophy. Users don't start fully autonomous �
 
 | Mode | Who controls what |
 |------|-----------------|
-| **Market Condition Router** | AI analyzes regime and recommends the optimal strategy. User approves. AI executes and manages. |
+| **Regime Router** | AI analyzes regime and recommends the optimal strategy. User approves. AI executes and manages. |
 | **Strategy Buffet** | User picks a strategy category (income, directional, volatility). AI optimizes all parameters, timing, and lifecycle. |
 | **Integrated Portfolio** | AI autonomously manages a balanced portfolio of strategies across regimes. User sets objectives and guardrails. System runs. |
 
@@ -821,7 +844,7 @@ The intelligence layer drives automatic strategy routing. Seven distinct regime 
 | **High vol, unstable** | VIX > 25, negative GEX, news events | Calendar spreads, protective strategies, long premium | QualAgent event flags, event coordination |
 | **Intraday volatility spike** | Elevated intraday IV, volume spikes | 0DTE strategies, multi-entry construction | Real-time gamma management |
 
-**The routing intelligence:** The regime is not a manual label — it is computed continuously from the DerivAgent intelligence layer (vol surface, GEX regime, term structure shape) combined with QualAgent's macro regime and IndicAgent's technical regime. The three platforms collectively determine the market state; the strategy selection agent routes to the appropriate strategy bucket automatically.
+**The routing intelligence:** The regime is not a manual label — it is computed continuously from the DerivAgent intelligence layer (vol surface, GEX regime, term structure shape) combined with QualAgent's macro regime and IndicAgent's technical regime. The three platforms collectively determine the regime; the strategy selection agent routes to the appropriate strategy bucket automatically.
 
 ---
 
@@ -870,7 +893,7 @@ LAYER 2: SINGLE STRATEGY SPECIALISTS (Modular)
   └── MEIC Specialist (institutional income)
       Multi-entry window → Layered strikes → Greeks → Roll management
 ═══════════════════════════════════════════════════════════════
-LAYER 1: MARKET CONDITION INTELLIGENCE (Foundational — always on)
+LAYER 1: REGIME INTELLIGENCE (Foundational — always on)
   Environmental analysis that all other layers depend on
   ├── Volatility Regime Agent (IV rank, vol forecasting, VRP)
   ├── Market Structure Agent (range-bound vs trending, S/R mapping)
@@ -939,7 +962,7 @@ One of the most novel concepts from the platform vision. Institutional portfolio
 
 **Dynamic rebalancing:** The orchestrator continuously monitors the portfolio T/D ratio and makes strategy allocation decisions to keep it in the target range. If delta drifts from a trending move, add a higher-theta position to rebalance. If theta is compressed (options cheap), shift to directional strategies.
 
-**Market condition adjustments:**
+**Regime adjustments:**
 - Low volatility: increase target ratio (maximize theta when premium is scarce)
 - High volatility: decrease target ratio (reduce exposure during uncertain periods)
 - Trending: lower ratio (capture directional moves while maintaining income)
@@ -961,7 +984,7 @@ EXPLORER
   ▼
 TRADER  
   │  Multiple strategies, AI-coordinated
-  │  Market Condition Router mode unlocked
+  │  Regime Router mode unlocked
   │  Full premium collection arsenal
   │
   ▼
@@ -1099,6 +1122,29 @@ DerivAgent's pricing model should align platform revenue with user success — n
 - Institutional / Fund Management: $1,000–5,000/month
 - White-label / RIA: custom pricing
 
+## Relationship to Existing Architecture
+
+DerivAgent extends the existing architecture as the derivatives intelligence and execution layer:
+
+- **Unified Data Bus compliance** — Services never call each other. DerivAgent publishes `deriv:*` events; consumers (IndicAgent, QualAgent, TradeAgent) subscribe. No coupling beyond the bus. See `docs/data/` for bus architecture.
+- **DAG invariants preserved** — Options data flows one direction: chain → surface construction → regime signals → Kafka → consumers. No cycles. See `docs/concepts/dag-execution.md`.
+- **APR-governed** — All thresholds, VRP filters, strategy parameters live in `config_state` under `deriv.*` namespace. See `docs/foundation/adaptive-parameter-registry.md`.
+- **Shadow governance** — Every strategy enrolls in shadow. Promotion requires n ≥ 100 resolved signals and bootstrap CI > 0 at 95% confidence. See `docs/intelligence/intelligence-ai.md`.
+- **Ring compliance** — Lives in Ring 2 as `services/deriv_agent.py`. See `docs/foundation/naming-system.md`.
+- **Typed events via `stream_keys.py`** — All topic keys constructed centrally. See `src/core/stream_keys.py`.
+- **Aegis integration** — All execution respects AegisAgent pre-trade checks and risk limits. See `docs/ideas/vision-01-aegisagent.md`.
+- **Cross-product dependency** — GEX for ES futures computed from SPX/SPY options. Same for NQ vs NDX/QQQ. Deliberate architectural choice.
+
+## Foundation Concepts Referenced
+
+- **Principles** — `docs/foundation/principles.md`: Let the system run, earn through proof, segment relentlessly, data quality over model complexity, instrument everything
+- **Naming System** — `docs/foundation/naming-system.md`: `DerivAgent` is a product name, not a code class; the Ring 2 daemon class/file is derived per the naming system when built
+- **APR** — `docs/foundation/adaptive-parameter-registry.md`: Strategy parameters governed by APR
+- **Documentation System** — `docs/foundation/documentation-system.md`: Idea docs live in `ideas/`, not authoritative until verified
+- **Bus Architecture** — `docs/data/`: Unified event stream, typed events
+- **DAG Execution** — `docs/concepts/dag-execution.md`: One-directional data flow, no cycles
+- **Product Family** — See `docs/ideas/vision-04-qualagent.md` and `docs/ideas/vision-05-tradeagent.md` for peer products
+
 ---
 
 ## Open questions
@@ -1119,9 +1165,9 @@ DerivAgent's pricing model should align platform revenue with user success — n
 
 ## References
 
-- `docs/ideas/qualagent-vision.md` — boundary definition, product family integration, feedback loop
-- `docs/ideas/tradeagent-vision.md` — primary consumer of DerivAgent outputs
-- `docs/ideas/jim-simons-renaissance-principles.md` — state-based (8), kernel methods, alternative data (9)
+- `docs/ideas/vision-04-qualagent.md` — boundary definition, product family integration, feedback loop
+- `docs/ideas/vision-05-tradeagent.md` — primary consumer of DerivAgent outputs
+- `docs/ideas/renaissance-01-simons-principles.md` — state-based (8), kernel methods, alternative data (9)
 - [SqueezeMetrics GEX](https://squeezemetrics.com/monitor/dix) — GEX reference and data
 - [SpotGamma](https://spotgamma.com/) — GEX, CHARM, VANNA flow data provider
 - [Market Chameleon](https://marketchameleon.com/) — options flow, vol surface, skew data

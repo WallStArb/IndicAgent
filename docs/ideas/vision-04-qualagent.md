@@ -1,10 +1,12 @@
 # QualAgent — Qualitative Intelligence Platform (Vision)
 
-**Version:** 1.0
 **Status:** draft
+**Version:** 1.0
+**Created:** 2026-03-04
+**Last Updated:** 2026-06-17
+**Context:** Qualitative intelligence layer — macro, fundamentals, sentiment, positioning, prediction markets
 **Priority:** low
 **Milestone:** future (post-v2.8)
-**Last Updated:** 2026-05-20
 **Tags:** qualagent, qualitative, macro, sentiment, cot, fundamentals, platform, vision
 
 ---
@@ -230,7 +232,7 @@ QualAgent is its own application with its own services, storage, and API. It pub
 | **Document store** | PostgreSQL JSONB or dedicated doc store | News articles, classified headlines, filing summaries |
 | **Vector DB** | pgvector (PostgreSQL extension) or Qdrant | RAG embeddings for SEC filings / earnings transcripts |
 | **Graph DB** | Neo4j (deferred) | Entity relationships (supply chain, sector, geography) |
-| **Cache / streams** | DragonflyDB / Redis | Output stream publishing; hot cache for regime state |
+| **Cache / streams** | Redpanda (stream) / Redis (cache) | Output stream publishing; hot cache for regime state |
 
 ### Output streams (published by QualAgent)
 
@@ -340,7 +342,7 @@ The conceptual split: QualAgent uses options data to understand *crowd behavior 
 
 ## Open questions (active)
 
-1. **Bus architecture:** Does QualAgent publish to its own DragonflyDB instance, or to a shared bus? The regime stream interface to IndicAgent needs to be defined (probably a thin API / shared Redis key, not a full stream consumer relationship).
+1. **Bus architecture:** Does QualAgent publish to its own Redpanda instance, or to a shared bus? The regime stream interface to IndicAgent needs to be defined (probably a thin API / shared stream key, not a full stream consumer relationship).
 2. **LLM provider:** QualAgent will need LLM calls for NLP classification and synthesis. Use LiteLLM + OpenRouter (as per user rules) — which models? Larger context window models for SEC filing RAG.
 3. **Update cadences:** COT = weekly; economic surprise = per-print (8–10x/month); prediction markets = real-time; news = continuous; social = continuous. These require different service architectures. A unified scheduler (e.g. Celery beat or APScheduler) vs per-source daemons.
 4. **First data source to validate:** COT is the most directly relevant, free, and well-understood for futures. Prediction markets are the most novel and potentially highest-alpha. Which goes first in Phase A?
@@ -1218,7 +1220,7 @@ Use Granger causality tests to determine whether qual signals *cause* price move
 
 ## Updated open questions
 
-1. **Bus architecture:** Shared DragonflyDB instance with IndicAgent, or QualAgent-owned? The interface needs to be defined precisely — probably a lightweight REST API for regime state + optional shared stream keys for real-time signals.
+1. **Bus architecture:** Shared Redpanda instance with IndicAgent, or QualAgent-owned? The interface needs to be defined precisely — probably a lightweight REST API for regime state + optional shared stream keys for real-time signals.
 
 2. **LLM provider strategy:** LiteLLM + OpenRouter for all inference. Near-term NLP classification tasks (headline sentiment, transcript tone) → smaller, faster models. RAG over SEC filings → larger context window models. Narrative synthesis → highest quality available. Different tasks, different model tiers, all through one LiteLLM interface.
 
@@ -1236,10 +1238,30 @@ Use Granger causality tests to determine whether qual signals *cause* price move
 
 ---
 
+## Relationship to Existing Architecture
+
+QualAgent extends the platform as the qualitative intelligence layer. It is a separate application (own repo, own services, own storage) that publishes onto the shared intelligence bus:
+
+- **Unified Data Bus compliance** — Services never call each other. QualAgent publishes `qual:*` events; IndicAgent and TradeAgent subscribe optionally. No coupling beyond the bus. See `docs/data/` for bus architecture.
+- **DAG invariants preserved** — Qualitative data flows one direction: ingestion → regime synthesis → Kafka → consumers. No cycles. No service touches the database except Writers/Trackers. See `docs/concepts/dag-execution.md`.
+- **APR-governed** — All QualScore component weights, lift thresholds, and decay parameters live in `config_state` under the `qual.*` namespace. No hardcoded values. See `docs/foundation/adaptive-parameter-registry.md`.
+- **Shadow Governance (SG)** — Every qualitative source enrolls in shadow. Promotion to a live signal path requires `n >= 100` and `bootstrap_ci_lower > 0` at 95% CI; demotion on `EV[R] < -0.05` for 3 consecutive cycles. See `docs/foundation/glossary.md`.
+- **Signal Ledger Architecture integration** — The quantamental feedback loop joins `signal_ledger` (the SLA join view over `signal_events` / `trade_frames` / `trade_executions`) with `qual:regime:*` history. Outcome attribution uses `counterfactual_pnl_r` so regime-suppressed signals are not excluded. See `docs/foundation/glossary.md`.
+- **Typed events via `stream_keys.py`** — All topic keys constructed centrally. No hardcoded strings. See `src/core/stream_keys.py`.
+
+## Foundation Concepts Referenced
+
+- **Principles** — `docs/foundation/principles.md`: Data quality over model complexity, never drop data that could contain signal, segment relentlessly, earn the right through proof
+- **Naming System** — `docs/foundation/naming-system.md`: `QualAgent` is a product name, not a code class; the Ring 2 daemon class/file is derived per the naming system when built
+- **APR** — `docs/foundation/adaptive-parameter-registry.md`: QualScore weights and decay parameters governed by APR
+- **Documentation System** — `docs/foundation/documentation-system.md`: Idea docs live in `ideas/`, not authoritative until verified
+- **Glossary** — `docs/foundation/glossary.md`: SLA, SG, APR, alpha, regime, edge — canonical definitions for the terms used throughout this doc
+- **Renaissance Framing** — `docs/ideas/renaissance-02-framing.md`: unified model, regime detection before everything, signal validation before production
+
 ## References
 
-- `docs/ideas/jim-simons-renaissance-principles.md` — validation framework, alternative data, adaptive models
-- `docs/ideas/tradeagent-vision.md` — primary consumer of QualAgent output
+- `docs/ideas/renaissance-01-simons-principles.md` — validation framework, alternative data, adaptive models
+- `docs/ideas/vision-05-tradeagent.md` — primary consumer of QualAgent output
 - `.planning/milestones/v1.0-REQUIREMENTS.md` — PLAT-01/02/03/04 (original multi-platform requirements)
 - `.planning/IDEAS.md` — News Sentiment Integration (early idea, now superseded by this vision)
 - `docs/intelligence/market-intelligence-strategy.md` — Sentiment Analysis Agent
