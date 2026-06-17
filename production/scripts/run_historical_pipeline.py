@@ -1949,67 +1949,36 @@ def _replay_worker(args: _WorkerArgs) -> tuple[str, int, dict[str, int]]:
 
 # ---------------------------------------------------------------------------
 def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
-    """Assert was_selected and signal_id invariants per symbol. Hard-fails with sys.exit(1) on violation.
+    """Assert was_selected and signal_id invariants across all symbols in one pass.
 
     Invariant 1: was_selected = TRUE occurs at most once per (symbol, tf, bar_ts).
-    Invariant 2: Every signal_id in signal_events is globally unique (checked per symbol).
+    Invariant 2: Every signal_id in signal_events is globally unique.
 
-    Batched by symbol to avoid full-table-scan timeouts or OOM at large corpus sizes.
-    A crash in the audit query (OperationalError, timeout) logs a WARNING and exits 0 —
-    data may be intact; the audit infrastructure failed. sys.exit(1) is reserved for
-    actual invariant violations.
-
-    Called automatically after every --replay-only run. If this passes, the data
-    is usable for training. If it fails, wipe with --clean and investigate.
+    Runs two queries using ANY(%s) — covered by idx_signal_events_symbol_tf (migration 140)
+    and idx_signal_events_symbol_signal_id (migration 144). sys.exit(1) on any violation.
     """
-    all_violations: list[tuple] = []
-    total_dup_count = 0
-    query_errors: list[str] = []
-
-    for sym in symbols:
-        # --- Invariant 1: was_selected uniqueness per (symbol, tf, bar_ts) ---
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT se.symbol, se.tf, se.ts, COUNT(*) AS winner_count
-                    FROM signal_events se
-                    JOIN trade_frames tf ON tf.signal_id = se.signal_id
-                                       AND tf.signal_ts = se.ts
-                    WHERE se.symbol = %s AND tf.was_selected = TRUE
-                    GROUP BY se.symbol, se.tf, se.ts
-                    HAVING COUNT(*) > 1
-                    ORDER BY winner_count DESC
-                    LIMIT 20
-                    """,
-                    (sym,),
-                )
-                all_violations.extend(cur.fetchall())
-        except Exception as error:
-            msg = f"[B6] integrity check (invariant 1) for {sym} failed (query error): {error}"
-            print(f"  {msg}")
-            print(f"  [B6] skipping {sym} — data may be intact; audit infrastructure failed")
-            query_errors.append(msg)
-
-        # --- Invariant 2: signal_id global uniqueness (checked per symbol) ---
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT COUNT(*) FROM (
-                        SELECT signal_id FROM signal_events
-                        WHERE symbol = %s
-                        GROUP BY signal_id HAVING COUNT(*) > 1
-                    ) dups
-                    """,
-                    (sym,),
-                )
-                total_dup_count += cur.fetchone()[0]
-        except Exception as error:
-            msg = f"[B6] integrity check (invariant 2) for {sym} failed (query error): {error}"
-            print(f"  {msg}")
-            print(f"  [B6] skipping {sym} — data may be intact; audit infrastructure failed")
-            query_errors.append(msg)
+    # --- Invariant 1: was_selected uniqueness per (symbol, tf, bar_ts) ---
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT se.symbol, se.tf, se.ts, COUNT(*) AS winner_count
+                FROM signal_events se
+                JOIN trade_frames tf ON tf.signal_id = se.signal_id
+                                   AND tf.signal_ts = se.ts
+                WHERE se.symbol = ANY(%s) AND tf.was_selected = TRUE
+                GROUP BY se.symbol, se.tf, se.ts
+                HAVING COUNT(*) > 1
+                ORDER BY winner_count DESC
+                LIMIT 20
+                """,
+                (symbols,),
+            )
+            all_violations = cur.fetchall()
+    except Exception as error:
+        print(f"\n[INTEGRITY WARN] invariant 1 query failed: {error}")
+        print("  Data may be intact; re-run audit manually to confirm.")
+        return
 
     if all_violations:
         print(f"\n[INTEGRITY FAIL] was_selected > 1 per bar — {len(all_violations)} bars affected:")
@@ -2017,18 +1986,28 @@ def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
             print(f"  {sym}/{tf} @ {ts}: {cnt} winners")
         sys.exit(1)
 
+    # --- Invariant 2: signal_id global uniqueness ---
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM (
+                    SELECT signal_id FROM signal_events
+                    WHERE symbol = ANY(%s)
+                    GROUP BY signal_id HAVING COUNT(*) > 1
+                ) dups
+                """,
+                (symbols,),
+            )
+            total_dup_count = cur.fetchone()[0]
+    except Exception as error:
+        print(f"\n[INTEGRITY WARN] invariant 2 query failed: {error}")
+        print("  Data may be intact; re-run audit manually to confirm.")
+        return
+
     if total_dup_count:
         print(f"\n[INTEGRITY FAIL] {total_dup_count} duplicate signal_ids found")
         sys.exit(1)
-
-    if query_errors:
-        print(
-            f"\n[INTEGRITY WARN] {len(query_errors)} symbol(s) could not be audited due to "
-            "query errors — data may be intact; re-run audit manually to confirm."
-        )
-        # Exit 0: audit infrastructure failure is not a data integrity violation.
-        # REBUILD_STATUS is not set to FAILED; only actual invariant violations above trigger sys.exit(1).
-        return
 
     print(
         f"\n[INTEGRITY PASS] was_selected invariant holds across {len(symbols)} symbols. signal_ids unique."
