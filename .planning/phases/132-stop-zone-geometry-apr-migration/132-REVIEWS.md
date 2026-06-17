@@ -115,3 +115,18 @@ Potential schema mismatch: `trade_executions` joins via `frame_id`, not `signal_
 
 - **Codex (HIGH risk) vs Ollama (MEDIUM risk overall):** Codex rates the phase HIGH risk overall due to the join-key and replay-wiring concerns. Ollama rates it lower because the verification gate will catch most issues. Resolution: the join-key concern is real and should be fixed pre-execution; the verification gate is a fallback, not a primary defense.
 - **Front-month selection (Codex only):** Codex flags that `ORDER BY symbol` is not a front-month resolver for futures. Ollama did not comment on this. Worth verifying the sample replay script correctly resolves active contracts via `contract_metadata` or `get_active_contracts()`.
+
+---
+
+## Issues Addressed (2026-06-17 — pre-execution plan amendments)
+
+All Codex HIGH issues and MEDIUM test-quality issues applied to the plans before execution:
+
+| Codex concern | Severity | Resolution |
+|---|---|---|
+| SQL join key `signal_event_id` → actual schema uses `signal_id` | HIGH | Fixed in Plans 01 + 05: all queries now use `tf.signal_id = se.signal_id`. Schema verified live: `trade_frames.signal_id` FK → `signal_events.signal_id`. |
+| `stopped_at_entry` denominator mismatch between Plan 01 and Plan 05 gate | HIGH | Plan 01 Task 1 now runs TWO queries: full-distribution (pct_of_all) AND stop-exit denominator (stopped_pct_of_stop_exits). Plan 05 was already correct; now Plan 01 baseline is directly comparable. |
+| Replay APR wiring gap (replay silently uses hardcoded defaults) | HIGH | Already fully addressed by Plan 02 Task 3 as written. No change needed. |
+| Front-month selection via `ORDER BY symbol` | HIGH | Fixed in Plans 01 + 05: resolve via `WHERE base_symbol='ES' AND is_front_month=true LIMIT 1`. Fail fast if zero rows. Bar-count preflight added before replay start. |
+| Mock ConfigService too permissive (typos silently return default) | MEDIUM | Fixed in Plans 02 Task 4, 03 Task 3, 04 Task 3: mock now RAISES ValueError for unknown keys instead of silently returning default. |
+| Anchor-point tests cover endpoints only (branch inversions invisible) | MEDIUM | Plan 03 Task 3 expanded: interior points added at vol_ratio=0.85 (low-vol, expect 0.90) and vol_ratio=1.25 (high-vol, expect 1.175). Catches slope/denominator transpositions and branch miswiring. |
