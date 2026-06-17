@@ -1094,9 +1094,9 @@ class TestInsertFeaturesSync:
     def _mock_conn(self):
         return _make_mock_conn()
 
-    def test_calls_execute_values_with_correct_sql(self):
+    def test_calls_execute_values_with_do_nothing_sql_by_default(self):
         from production.scripts.run_historical_pipeline import (
-            _INSERT_FEATURE_SYNC_SQL,
+            _feature_insert_sql,
             _insert_features_sync,
         )
 
@@ -1104,7 +1104,21 @@ class TestInsertFeaturesSync:
         with patch("psycopg2.extras.execute_values") as mock_ev:
             _insert_features_sync(mock_conn, [("fake_row",)])
         assert mock_ev.call_args[0][0] is mock_cursor
-        assert mock_ev.call_args[0][1] == _INSERT_FEATURE_SYNC_SQL
+        assert mock_ev.call_args[0][1] == _feature_insert_sql(False)
+        assert "DO NOTHING" in mock_ev.call_args[0][1]
+
+    def test_calls_execute_values_with_do_update_sql_when_overwrite(self):
+        from production.scripts.run_historical_pipeline import (
+            _feature_insert_sql,
+            _insert_features_sync,
+        )
+
+        mock_conn, mock_cursor = self._mock_conn()
+        with patch("psycopg2.extras.execute_values") as mock_ev:
+            _insert_features_sync(mock_conn, [("fake_row",)], overwrite=True)
+        assert mock_ev.call_args[0][0] is mock_cursor
+        assert mock_ev.call_args[0][1] == _feature_insert_sql(True)
+        assert "DO UPDATE SET" in mock_ev.call_args[0][1]
 
     def test_commits_connection(self):
         from production.scripts.run_historical_pipeline import _insert_features_sync
