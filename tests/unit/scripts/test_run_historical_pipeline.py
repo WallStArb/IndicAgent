@@ -1602,6 +1602,19 @@ def test_replay_symbol_threads_calibration_to_run_i7():
 # ---------------------------------------------------------------------------
 
 
+def test_assert_backfill_integrity_uses_any_not_loop() -> None:
+    """_assert_backfill_integrity must use ANY($1) not a per-symbol loop."""
+    import inspect
+
+    from production.scripts.run_historical_pipeline import _assert_backfill_integrity
+
+    src = inspect.getsource(_assert_backfill_integrity)
+    assert (
+        "for sym in symbols" not in src
+    ), "_assert_backfill_integrity must not loop over symbols — use ANY(%s) instead"
+    assert "ANY" in src, "must use ANY(%s) for batch symbol filtering"
+
+
 def test_assert_backfill_integrity_passes_clean_data():
     """No violations → prints PASS and returns normally."""
     from unittest.mock import MagicMock
