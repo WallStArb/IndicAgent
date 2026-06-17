@@ -609,6 +609,27 @@ INSERT INTO intelligence_features (
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """
 
+# Used when I1-I6 was recomputed from source bars — overwrite stale rows.
+_INSERT_FEATURE_SYNC_SQL_OVERWRITE = """
+INSERT INTO intelligence_features (
+    ts, symbol, tf, platform, source, schema_version,
+    bar, technical_indicators, pattern_detections, regime_features,
+    confluence_scores, smc, cross_timeframe_context, composite_events
+) VALUES %s
+ON CONFLICT (ts, symbol, tf) DO UPDATE SET
+    platform = EXCLUDED.platform,
+    source = EXCLUDED.source,
+    schema_version = EXCLUDED.schema_version,
+    bar = EXCLUDED.bar,
+    technical_indicators = EXCLUDED.technical_indicators,
+    pattern_detections = EXCLUDED.pattern_detections,
+    regime_features = EXCLUDED.regime_features,
+    confluence_scores = EXCLUDED.confluence_scores,
+    smc = EXCLUDED.smc,
+    cross_timeframe_context = EXCLUDED.cross_timeframe_context,
+    composite_events = EXCLUDED.composite_events
+"""
+
 # Per-row template for execute_values — JSONB casts must be explicit per column.
 _INSERT_FEATURE_SYNC_TEMPLATE = (
     "(%s, %s, %s, %s, %s, %s,"
@@ -717,7 +738,7 @@ def _event_to_sync_params(event: Any) -> tuple:
     )
 
 
-def _insert_features_sync(conn: Any, rows: list) -> None:
+def _insert_features_sync(conn: Any, rows: list, overwrite: bool = False) -> None:
     """Synchronous psycopg2 batch insert into intelligence_features.
 
     Uses execute_values() (single multi-row INSERT) rather than execute_batch()
@@ -726,13 +747,15 @@ def _insert_features_sync(conn: Any, rows: list) -> None:
     Args:
         conn: psycopg2 connection
         rows: list of 14-element tuples from _event_to_sync_params()
+        overwrite: if True, use DO UPDATE to replace stale rows with freshly
+            computed values. Use when I1-I6 was recomputed from source bars.
+            If False (default), DO NOTHING skips existing rows (gap-fill only).
     """
     if not rows:
         return
+    sql = _INSERT_FEATURE_SYNC_SQL_OVERWRITE if overwrite else _INSERT_FEATURE_SYNC_SQL
     with conn.cursor() as cur:
-        psycopg2.extras.execute_values(
-            cur, _INSERT_FEATURE_SYNC_SQL, rows, template=_INSERT_FEATURE_SYNC_TEMPLATE
-        )
+        psycopg2.extras.execute_values(cur, sql, rows, template=_INSERT_FEATURE_SYNC_TEMPLATE)
     conn.commit()
 
 
@@ -1582,6 +1605,7 @@ def replay_symbol(
     calibration_curves: dict | None = None,
     perf_weights: dict | None = None,
     precomputed_features: dict | None = None,
+    overwrite_features: bool = False,
 ) -> dict[str, int]:
     """Replay bars for *symbol* through the I1→I7 pipeline.
 
@@ -1721,7 +1745,9 @@ def replay_symbol(
                 written_feature_ts = ts
                 total_features_by_tf[tf] += 1
                 if len(feature_buffers[tf]) >= _FEATURE_BATCH_SIZE:
-                    _insert_features_sync(db_conn, feature_buffers[tf])
+                    _insert_features_sync(
+                        db_conn, feature_buffers[tf], overwrite=overwrite_features
+                    )
                     feature_buffers[tf].clear()
 
         # I7 → signal_ledger (skipped in seed/warmup mode)
@@ -1745,7 +1771,9 @@ def replay_symbol(
             if len(signal_buffers[tf]) >= _FEATURE_BATCH_SIZE:
                 # Flush features first — signals must never commit before their features.
                 if feature_buffers[tf]:
-                    _insert_features_sync(db_conn, feature_buffers[tf])
+                    _insert_features_sync(
+                        db_conn, feature_buffers[tf], overwrite=overwrite_features
+                    )
                     feature_buffers[tf].clear()
                 _insert_signals_sync(db_conn, signal_buffers[tf])
                 signal_buffers[tf].clear()
@@ -1760,7 +1788,7 @@ def replay_symbol(
     # Flush remaining feature and signal buffers for all TFs
     for tf, buf in feature_buffers.items():
         if buf:
-            _insert_features_sync(db_conn, buf)
+            _insert_features_sync(db_conn, buf, overwrite=overwrite_features)
     for tf, buf in signal_buffers.items():
         if buf:
             _insert_signals_sync(db_conn, buf)
@@ -1791,12 +1819,12 @@ def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
     plugins, replays the symbol, commits, and closes.
 
     Args:
-        args: (symbol, db_url, timeframes, since_dt, skip_signals, use_precomputed)
+        args: (symbol, db_url, timeframes, since_dt, skip_signals, use_precomputed, overwrite_features)
 
     Returns:
         (symbol, total_signals, counts_by_tf)
     """
-    symbol, db_url, timeframes, since_dt, skip_signals, use_precomputed = args
+    symbol, db_url, timeframes, since_dt, skip_signals, use_precomputed, overwrite_features = args
     register_all_plugins()
     conn = psycopg2.connect(dsn=db_url)
     conn.autocommit = True
@@ -1817,6 +1845,7 @@ def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
             calibration_curves=calibration_curves,
             perf_weights=perf_weights,
             precomputed_features=precomputed,
+            overwrite_features=overwrite_features,
         )
         return symbol, sum(counts.values()), counts
     finally:
@@ -2032,6 +2061,14 @@ def main() -> None:
         help="Skip I1-I6 recomputation; load stored intelligence_features rows and feed "
         "them directly to I7. Use when only I7 plugins changed (phases 118-119). "
         "5-10x faster than full replay. Requires intelligence_features to be current.",
+    )
+    parser.add_argument(
+        "--overwrite-features",
+        action="store_true",
+        default=False,
+        help="When running I1-I6 fresh, overwrite existing intelligence_features rows "
+        "(DO UPDATE) instead of skipping them (DO NOTHING). Use when I1-I6 code changed "
+        "and you want the stored feature vectors to reflect current computation.",
     )
     parser.add_argument(
         "--warmup",
@@ -2483,6 +2520,7 @@ def main() -> None:
                     calibration_curves=calibration_curves,
                     perf_weights=perf_weights,
                     precomputed_features=precomputed,
+                    overwrite_features=args.overwrite_features,
                 )
                 symbol_total = sum(counts.values())
                 grand_total += symbol_total
@@ -2500,6 +2538,7 @@ def main() -> None:
                     since_dt,
                     False,
                     args.use_precomputed_features,
+                    args.overwrite_features,
                 )
                 for contract in contracts
             ]

@@ -682,7 +682,7 @@ def test_replay_worker_calls_replay_symbol_and_returns_tuple():
         ) as mock_replay,
     ):
         result = _replay_worker(
-            ("ESH6", "postgresql://u:p@localhost/indicagent", ["1m", "5m"], ts, False, False)
+            ("ESH6", "postgresql://u:p@localhost/indicagent", ["1m", "5m"], ts, False, False, False)
         )
 
     sym, total, counts = result
@@ -699,6 +699,7 @@ def test_replay_worker_calls_replay_symbol_and_returns_tuple():
         calibration_curves={},
         perf_weights={},
         precomputed_features=None,
+        overwrite_features=False,
     )
     mock_conn.commit.assert_not_called()  # autocommit=True; no explicit commit
     mock_conn.close.assert_called_once()
@@ -722,7 +723,7 @@ def test_replay_worker_closes_connection_on_failure():
     ):
         try:
             _replay_worker(
-                ("ESH6", "postgresql://u:p@localhost/indicagent", ["1m"], None, False, False)
+                ("ESH6", "postgresql://u:p@localhost/indicagent", ["1m"], None, False, False, False)
             )
         except RuntimeError:
             pass
