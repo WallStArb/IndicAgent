@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.10
-milestone_name: milestone
-status: completed
-last_updated: "2026-06-17T13:56:43.547Z"
-last_activity: 2026-06-16
+milestone_name: AI Platform — Part 2
+status: executing
+last_updated: "2026-06-17T17:22:40.848Z"
+last_activity: 2026-06-17 -- Phase 131 execution started
 progress:
-  total_phases: 25
-  completed_phases: 18
-  total_plans: 120
-  completed_plans: 99
-  percent: 72
+  total_phases: 8
+  completed_phases: 8
+  total_plans: 39
+  completed_plans: 39
+  percent: 100
 ---
 
 # Project State
@@ -20,7 +20,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Milestone complete
+**Current focus:** Phase 131 — signal-generation-integrity
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
@@ -89,6 +89,7 @@ See: .planning/PROJECT.md
 ### Last session (2026-06-17) — Phase 131-133 context captured; ready to plan
 
 Context gathered for all three phases. Key decisions locked:
+
 - 6 missing ETFs (EWZ/FXI/GDXJ/ITB/USO/VLUE) are retired instruments — do NOT add back
 - CrossAssetDivergence is formally live-only; corpus targets 35/36 plugins
 - A7 CTF fix = DB seed at replay startup (`_seed_last_events_from_db()` in feature_pipeline_executor)
@@ -132,10 +133,10 @@ Then: `/clear` then `/gsd-execute-phase 121` (Wave 2 — validation report)
 
 ## Current Position
 
-Phase: 130
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-06-16
+Phase: 131 (signal-generation-integrity) — EXECUTING
+Plan: 1 of 7
+Status: Executing Phase 131
+Last activity: 2026-06-17 -- Phase 131 execution started
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
