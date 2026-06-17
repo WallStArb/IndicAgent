@@ -1326,3 +1326,22 @@ Plans:
 - [x] 131-07-PLAN.md — Verification: 1-week sample replay (ctf_score >=85% non-zero) + 2-week plugin coverage (35/35)
 
 </details>
+
+<details>
+<summary>📋 Phase 132: Stop-Zone Geometry + APR Migration — PLANNED</summary>
+
+**Goal:** Stops are measured from actual entry price (not zone edge), and every tunable numeric constant in `trade_framer.py` lives in APR. Verify `stopped_at_entry` exit_reason < 5% of stop exits on a fresh 1-month sample replay + lifecycle_replay.
+
+**Verification gate:** 1-month sample replay + lifecycle_replay shows stopped_at_entry < 5%; 35 trade_framer APR keys (19 module + 12 adaptive buffer + 4 per-class floor) visible in `/config/parameters`; APR at seed values produces identical signals to prior constants (regression tests); no migratable bare literals in trade_framer.py; 1-tick gate preserved.
+
+**Plans:** 5 plans
+
+Plans:
+
+- [ ] 132-01-PLAN.md — A2 measurement: 2-week sample replay + lifecycle_replay, measure stopped_at_entry rate, audit zone_engine for narrow-zone bypass, write A2 disposition (Wave 1)
+- [ ] 132-02-PLAN.md — APR migration 144: 19 module-level constants → _cfg() + _THRESHOLD_KEYS; fix run_historical_pipeline.py config wiring gap; seed-value regression test (Wave 1)
+- [ ] 132-03-PLAN.md — APR migration 145: 12 adaptive buffer piecewise coefficients (coupled, tune-as-a-group); anchor-point regression test (Wave 2, depends 02)
+- [ ] 132-04-PLAN.md — APR migration 146: 4 per-asset-class stop floor keys (commodity 1.5, others 1.0) + _min_stop_multiplier_floor router; 1-tick gate preserved (Wave 3, depends 03)
+- [ ] 132-05-PLAN.md — Verification: 1-month replay + stopped_at_entry < 5% gate + 35-key audit + bare-literal audit + commit/push (Wave 4, depends 01-04)
+
+</details>
