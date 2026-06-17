@@ -1721,6 +1721,12 @@ def replay_symbol(
                     f"  [A7-seed] {symbol}/{_seed_tf}: seeded trend_direction={_seed_dict.get('trend_direction')!r}"
                 )
 
+    # A4: resolve asset_class once and merge into every all_features dict via _base_features.
+    # Both the precomputed and computed paths call all_features.update(_base_features).
+    _base_features: dict[str, str] = (
+        {"asset_class": _symbol_asset_class} if _symbol_asset_class is not None else {}
+    )
+
     # Per-(plugin_name, symbol, tf) state dict — isolates stateful plugins (GARCH/HMM/Kalman)
     # across symbols. Scoped to this symbol so state never bleeds into the next symbol.
     plugin_states: dict[tuple[str, str, str], dict] = {}
@@ -1781,9 +1787,7 @@ def replay_symbol(
             all_features = precomputed_features.get((tf, ts_utc))
             if not all_features:
                 continue
-            # A4 fix: inject asset_class for precomputed path (not stored in intelligence_features).
-            if _symbol_asset_class is not None:
-                all_features["asset_class"] = _symbol_asset_class
+            all_features.update(_base_features)
             written_feature_ts = ts
         else:
             # I1 — pass pre-built df
@@ -1812,10 +1816,7 @@ def replay_symbol(
 
             # Merge all features for I7
             all_features = {**i1_features, **intelligence}
-            # A4 fix: inject asset_class resolved at function start; mirrors
-            # FeaturePipelineExecutor.execute():332 which injects via instrument_map DI.
-            if _symbol_asset_class is not None:
-                all_features["asset_class"] = _symbol_asset_class
+            all_features.update(_base_features)
 
             # Build IntelligenceEvent and buffer for batch insert
             event = _build_intelligence_event(bar, i1_features, tiered, symbol, tf, ts)
