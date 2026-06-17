@@ -34,6 +34,7 @@ from src.intelligence.context.vix_context import compute_vix_context
 from src.intelligence.cross_asset_features import resolve_eq_index_base
 from src.intelligence.pipeline.executor import PluginExecutor
 from src.intelligence.pipeline.feature_flattening import build_flat_features
+from src.intelligence.pipeline.seed_constants import _I3_SEED_QUERY
 from src.intelligence.pipeline.signal_processor import CacheSnapshot
 from src.intelligence.pipeline.state_manager import PluginStateManager
 from src.intelligence.schemas import (
@@ -163,22 +164,13 @@ class FeaturePipelineExecutor:
             timeframes: List of timeframes to seed (e.g. ["1m", "5m", "15m", "1h"]).
             db: DatabaseManager — pool.acquire() used for asyncpg connections.
         """
-        _SEED_QUERY = """
-            SELECT regime_features->>'trend_direction'    AS trend_direction,
-                   regime_features->>'trend_strength'     AS trend_strength,
-                   regime_features->>'trend_bars_elapsed' AS trend_bars_elapsed,
-                   regime_features->>'trend_confirmed'    AS trend_confirmed
-            FROM intelligence_features
-            WHERE symbol = $1 AND tf = $2
-            ORDER BY ts DESC
-            LIMIT 1
-        """
-
+        # Capture module-level constant for use in nested closure.
+        seed_query = _I3_SEED_QUERY
         pairs: list[tuple[str, str]] = [(symbol, tf) for symbol in symbols for tf in timeframes]
 
         async def _fetch_one(symbol: str, tf: str) -> tuple[str, str, Any]:
             async with db.pool.acquire() as conn:
-                row = await conn.fetchrow(_SEED_QUERY, symbol, tf)
+                row = await conn.fetchrow(seed_query, symbol, tf)
             return symbol, tf, row
 
         results = await asyncio.gather(*[_fetch_one(s, t) for s, t in pairs])
