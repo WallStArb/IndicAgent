@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: milestone
 status: completed
-last_updated: "2026-06-17T09:23:01.643Z"
+last_updated: "2026-06-17T13:56:43.547Z"
 last_activity: 2026-06-16
 progress:
   total_phases: 25
@@ -86,7 +86,17 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-### Last session (2026-06-17) — Phase 127 reconciliation done; rebuild finishing
+### Last session (2026-06-17) — Phase 131-133 context captured; ready to plan
+
+Context gathered for all three phases. Key decisions locked:
+- 6 missing ETFs (EWZ/FXI/GDXJ/ITB/USO/VLUE) are retired instruments — do NOT add back
+- CrossAssetDivergence is formally live-only; corpus targets 35/36 plugins
+- A7 CTF fix = DB seed at replay startup (`_seed_last_events_from_db()` in feature_pipeline_executor)
+- C2 column naming already resolved — DB columns are functional names (no rename migration needed)
+
+**Resume:** `/gsd-plan-phase 131`
+
+### Previous session (2026-06-17) — Phase 127 reconciliation done; rebuild finishing
 
 GSD Plans 01/02/03 reconciled against the parallel rebuild; verdict recorded in
 `.planning/phases/127-clean-replay-validation/127-RECONCILIATION.md`. Key outcomes:
