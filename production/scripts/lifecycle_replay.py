@@ -1230,14 +1230,26 @@ async def _verify_replay(
             symbols,
             timeframes,
         )
+        # Distinct signal count: unaffected by LEFT JOIN fan-out from dual-track
+        # trade_frames rows. Used to detect B7 overcounting in the main query.
+        distinct_row = await conn.fetchrow(
+            """SELECT COUNT(DISTINCT se.signal_id) as distinct_signals
+               FROM signal_events se
+               WHERE se.symbol = ANY($1)
+                 AND se.tf = ANY($2)""",
+            symbols,
+            timeframes,
+        )
 
     orphan_ledger_rows = orphan_row["orphan_ledger_rows"]
+    distinct_signals = distinct_row["distinct_signals"]
 
     logger.info(
-        "VERIFY: total=%d with_outcome=%d regime_no_outcome=%d "
+        "VERIFY: total=%d distinct_signals=%d with_outcome=%d regime_no_outcome=%d "
         "stale_unresolved=%d target_no_pnl=%d "
         "shadow_stopped_at_entry=%d orphan_signal_events=%d",
         row["total"],
+        distinct_signals,
         row["with_outcome"],
         row["regime_no_outcome"],
         row["stale_unresolved"],
@@ -1245,6 +1257,12 @@ async def _verify_replay(
         row["shadow_stopped_at_entry"],
         orphan_ledger_rows,
     )
+    if row["total"] != distinct_signals:
+        logger.warning(
+            "VERIFY: total count inflated by JOIN fan-out — total=%d distinct=%d",
+            row["total"],
+            distinct_signals,
+        )
 
     issues = []
     if row["stale_unresolved"] > 0:
