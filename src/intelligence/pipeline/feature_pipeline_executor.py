@@ -164,10 +164,10 @@ class FeaturePipelineExecutor:
             db: DatabaseManager — pool.acquire() used for asyncpg connections.
         """
         _SEED_QUERY = """
-            SELECT i3->>'trend_direction'   AS trend_direction,
-                   i3->>'trend_strength'    AS trend_strength,
-                   i3->>'trend_bars_elapsed' AS trend_bars_elapsed,
-                   i3->>'trend_confirmed'   AS trend_confirmed
+            SELECT regime_features->>'trend_direction'    AS trend_direction,
+                   regime_features->>'trend_strength'     AS trend_strength,
+                   regime_features->>'trend_bars_elapsed' AS trend_bars_elapsed,
+                   regime_features->>'trend_confirmed'    AS trend_confirmed
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
             ORDER BY ts DESC

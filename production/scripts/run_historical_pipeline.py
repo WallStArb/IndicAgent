@@ -589,6 +589,12 @@ def run_analysis_pipeline(
                     tiered.setdefault(tier_key_lower, {}).update(public_out)
                     features.update(public_out)
                     frames["features"] = features
+                    # Mirror live executor (executor.py:709): stamp each tier's output
+                    # as frames[tier_key] so cross-tier plugins (e.g. I6 CTF) can read
+                    # structured tier dicts rather than the flat merged features dict.
+                    # Without this, frames["i3"] is None inside I6.compute_full() →
+                    # cur_trend=0 → ctf_score=0.0 on every bar (A7 root cause).
+                    frames[tier_key_lower] = tiered[tier_key_lower]
             except Exception as error:
                 _log_plugin_error(name, symbol, timeframe, error)
 
@@ -1016,7 +1022,9 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
                 e.weights_version,  # weights_version
                 None,  # factor_scores (plugin-local, not in replay path)
                 (
-                    json.dumps(e.context_features) if e.context_features else None
+                    json.dumps(_sanitize_for_json(e.context_features))
+                    if e.context_features
+                    else None
                 ),  # context_features (psycopg2 serialized JSONB)
                 e.ctf_score,  # ctf_score
                 e.ctf_confirmed,  # ctf_confirmed
@@ -1664,7 +1672,7 @@ def replay_symbol(
     _symbol_asset_class: str | None = None
     with db_conn.cursor() as _cur:
         _cur.execute(
-            """SELECT COALESCE(cm.asset_class, i.asset_class)
+            """SELECT COALESCE(cm.asset_class, i.contract_details->>'asset_class')
                FROM (SELECT %s::text AS sym) s
                LEFT JOIN contract_metadata cm ON cm.symbol = s.sym
                LEFT JOIN instruments i ON i.symbol = s.sym
@@ -1687,10 +1695,10 @@ def replay_symbol(
         for _seed_tf in _standard_tfs:
             with db_conn.cursor() as _cur:
                 _cur.execute(
-                    """SELECT i3->>'trend_direction'    AS trend_direction,
-                              i3->>'trend_strength'     AS trend_strength,
-                              i3->>'trend_bars_elapsed' AS trend_bars_elapsed,
-                              i3->>'trend_confirmed'    AS trend_confirmed
+                    """SELECT regime_features->>'trend_direction'    AS trend_direction,
+                              regime_features->>'trend_strength'     AS trend_strength,
+                              regime_features->>'trend_bars_elapsed' AS trend_bars_elapsed,
+                              regime_features->>'trend_confirmed'    AS trend_confirmed
                          FROM intelligence_features
                         WHERE symbol = %s AND tf = %s
                         ORDER BY ts DESC
@@ -1702,8 +1710,17 @@ def replay_symbol(
             if _seed_row and any(_seed_row):
                 # Use cur.description for column mapping — robust to query column order changes
                 _seed_dict = dict(zip(_col_names, _seed_row))
-                # Filter None values — extract_trend_sign() handles missing keys as 0
-                _seed_dict = {k: v for k, v in _seed_dict.items() if v is not None}
+                # Filter None values — extract_trend_sign() handles missing keys as 0.
+                # JSONB text extraction returns strings; coerce numeric fields to float so
+                # is_num() in extract_trend_sign() passes (it requires isinstance(x, float)).
+                _NUMERIC_SEED_KEYS = frozenset(
+                    {"trend_direction", "trend_strength", "trend_bars_elapsed"}
+                )
+                _seed_dict = {
+                    k: (float(v) if k in _NUMERIC_SEED_KEYS and v is not None else v)
+                    for k, v in _seed_dict.items()
+                    if v is not None
+                }
                 if symbol not in intelligence_cache:
                     intelligence_cache[symbol] = {}
                 intelligence_cache[symbol][_seed_tf] = _seed_dict
