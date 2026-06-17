@@ -37,16 +37,13 @@ Phase 127 produced a structurally clean corpus (zero orphans, deterministic cont
 
 **Verification gate:** Unit tests green; targeted 2-week replay shows ≥32 plugins emitting signals; no zero-signal instruments in active contract list; all open investigation items resolved with empirical findings documented.
 
-### A1 — POCRejection + HVNRejection: float(None) crash
+### A1 — POCRejection + HVNRejection: float(None) crash — **FIXED** (2026-06-17, commit 591fee51)
 
-**File:** `src/intelligence/trading/trade_framer.py` ~line 343
-**Fix:** In `_get_htf_vp()`, guard before cast:
-```python
-if poc_htf is None or vah_htf is None or val_htf is None:
-    return None, None, None
-return float(poc_htf), float(vah_htf), float(val_htf)
-```
-Verify all callers handle `(None, None, None)`. Both plugins should then emit signals on 4h/1d bars where HTF VP data exists.
+**Root cause (confirmed):** `dict.get(key, default)` only uses the default when the key is absent. The VP plugin outputs `va_width_atr`, `nearest_hvn_dist_atr`, `vol_regime`, and `hmm_regime` as `None` into the features dict (legacy replay path does not filter I2-I6 Nones like the live executor does). When those keys are present with `None` values, `.get(key, 2.0)` returns `None` - not `2.0` - and `float(None)` crashes.
+
+**Fix applied:** Switched from `.get(key, default)` to `.get(key) or default` in both `trad_POCRejection` and `trad_HVNRejection` plugins. 4,756 tests green.
+
+**Next step:** Run targeted replay `--setups trad_POCRejection,trad_HVNRejection` to generate corpus entries now that the crash is resolved.
 
 ### A4 — Rolled-contract plugin errors
 
@@ -62,24 +59,25 @@ Verify all callers handle `(None, None, None)`. Both plugins should then emit si
 **File:** `src/intelligence/features/smc_context/bocpd_changepoint.py:278`
 **Fix:** `np.mean(vol[-20:])` → `np.mean(vol[-21:-1])`. Matches corrected pattern in I7 plugins. One line.
 
-### Zero-emission plugin investigation
+### Zero-emission plugin investigation — **COMPLETE** (2026-06-17)
 
-Four plugins produced zero signals across the entire corpus. The validation report labels them "structural data dependencies" — this is a hypothesis, not a finding. Zero signals across 537K bars is statistically inconsistent with correct plugin wiring.
+Root causes confirmed for all four plugins via code trace and DB verification. Summaries below; decisions on fix vs document-as-architectural are noted.
 
-For each plugin, execute:
-1. Query: `SELECT setup_plugin, symbol, tf, COUNT(*) FROM signal_events WHERE setup_plugin = '<name>' GROUP BY 1,2,3` — if ALL zero, the plugin never reaches `frame_trade()` successfully
-2. Check logs for exception type and call site
-3. Trace emission path from `IntelligencePipeline` → I7 tier → plugin → `frame_trade()`
+**`trad_MTFAlignment` — downstream of A7, no separate fix needed.**
+Gates on `abs(ctf_score) > 0.7`. With ctf_score=0.0 corpus-wide (A7), this gate can never pass. Fix A7 → MTFAlignment fires automatically. No code change to this plugin required.
 
-**`trad_MTFAlignment`:** Needs multi-timeframe alignment data. In replay, higher-TF bars are processed in the same run — alignment data should be available. Likely a context-assembly bug where the plugin doesn't find the HTF bars it expects. Investigate whether `htf_*` fields are populated in the `IntelligenceEvent` during replay.
+**`trad_PrevDayLevelTest` — fixable code bug.**
+`SessionLevelsPlugin` (I3) computes `prior_session_high/low/close` by taking the block of bars before the "current session" window (`_SESSION_BARS=390`). The `bar_histories` deque in `replay_symbol()` has `maxlen=200`. With 200 bars: `sess_n = min(390, 200) = 200` (entire buffer = current session), leaving `prior_end = 0` bars for the prior session window. `prior_session_high/low/close` = None for every bar → excluded by `exclude_none=True` on `model_dump()` → PrevDayLevelTest hits the null guard at line 117 and returns `no_signal()`.
 
-**`trad_PrevDayLevelTest`:** Zero signals across months implies more than cold-start. Prior-day levels are computable from OHLCV. Investigate whether the plugin reads from a cache that is never populated in replay, or whether the day-boundary detection is broken for historical bars.
+**Fix:** Increase `bar_histories` deque `maxlen` from 200 to 800 in `replay_symbol()` at `run_historical_pipeline.py:1649`. This also benefits SessionExtremesSetup and any other plugin with deep lookback requirements.
 
-**`trad_AnchoredVWAPReversion`:** Anchored VWAP requires an anchor event (gap, earnings, etc.). These events exist in historical data. Zero signals suggests the anchor detection logic is not firing or the anchor event provider is not wired in replay mode. Investigate `AnchorEventProvider` initialization in the replay pipeline.
+**`trad_AnchoredVWAPReversion` — logic bug in state machine ordering.**
+The plugin gates on `abs(sigma) < sigma_min` early and clears departure state, returning `no_signal()` before checking reclaim confirmation. The moment of reclaim (close crossing back over VWAP) is precisely the bar where `sigma ≈ 0` — so the departure state is cleared before reclaim is detected. Verified empirically: 6,462 ESM6 1m bars have `sigma >= 1.5`, yet 0 signals fire.
 
-**`trad_CrossAssetDivergence`:** Cross-asset data is available in replay (all instruments processed together). Zero signals strongly suggests a bug in how the plugin accesses sibling-instrument bars from `IntelligenceEvent` context during replay. Investigate context assembly.
+**Fix:** Restructure the gate ordering — check if departure state exists and evaluate the return/reclaim condition BEFORE clearing state when `abs(sigma) < sigma_min`. The reclaim bar should be detected as the exit from departure, not silently reset.
 
-**Outcome for each:** Either (a) fix the bug and confirm signals appear, or (b) produce empirical evidence (specific field consistently None, confirmed architectural reason) explaining why the plugin cannot fire in historical replay. Undocumented zeros are not acceptable.
+**`trad_CrossAssetDivergence` — architectural: live-only plugin, no replay fix.**
+`frames['cross_asset']` is not populated in `run_i7_and_persist()`. The frames dict at `run_historical_pipeline.py:1216-1227` has no `cross_asset` key. `xa.get("ready")` = None → immediate `no_signal()`. This plugin requires the running `cross_asset_service` (live), which is not replicated in the historical pipeline. Options: (a) wire cross-asset context into replay by pre-loading cross-instrument bar arrays, or (b) formally document as live-only and scope out of replay corpus expectations. Recommend (b) for Phase 131 — it is the only plugin that requires inter-symbol real-time state not available in single-symbol replay.
 
 ### Symbol coverage gaps
 
@@ -96,18 +94,23 @@ Fix: add to `instruments` table as `asset_class='equity'` instruments. Add to `s
 **Root cause B — Expired rolled contracts, same failure mode as A4:**
 VXK6, VXM6, ZNM6 — `is_front_month=false` means the roll already occurred. These had OHLCV bars during their active window but produced 0 signals. This is the same root cause as A4: the `asset_class` injection gap in `replay_symbol()` applies to all rolled contracts, not just NQU6/YMM6/RTYM6. The A4 fix must be verified against VX and ZN contract series. The difference in symptom (0 signals here vs 201K plugin errors on NQ/YM/RTY) likely reflects asset-class-specific guard behavior, not a different root cause.
 
-**Root cause C — Active in instruments but 0 signals:**
-EURUSD — `is_active=true`, `asset_class='fx'` in instruments. Replay did process it (it was in scope) but 0 signals resulted. The FX code path in `run_historical_pipeline.py:2283` branches on `asset_class in (FX, CRYPTO)` — investigate whether this branch skips signal generation or whether FX instruments have insufficient ATR-scaled stops to pass the emission gate.
+**Root cause C — FX model fitness gap:**
+EURUSD — `is_active=true`, `asset_class='fx'`. Replay processed it fully (84,718 OHLCV bars → 48,595 `intelligence_features` rows across all TFs). `signals_evaluated=NULL` for all rows, meaning no I7 plugin emitted even a raw signal. Three compounding causes confirmed:
+1. `hmm_regime=0` (ranging) for ALL EURUSD bars — HMM model not trained on FX dynamics, defaults to ranging.
+2. `session_vwap_deviation_sigma ≈ 0.0` for most bars — FX session structure (24h trading, no clean open/close) causes the session VWAP bands to be nearly flat.
+3. `DivergenceStack` requires `min_agreeing >= 3` concurrent divergences — EURUSD rarely has 3 agreeing.
+
+This is not a single fixable bug. I7 plugins are calibrated for US equity futures. EURUSD signals require FX-specific parameter configuration (lower `min_agreeing`, FX-adapted HMM, FX session context). **Scope for Phase 131:** Document EURUSD as FX model gap; keep out of ML training corpus until FX-specific plugin tuning is addressed (future phase).
 
 ### A7 — I6 CTF universally zero (HIGH — corpus-wide, ML-blocking)
 
 **Discovered:** 2026-06-17 via corpus audit. Memory: `project_i6_ctf_zero_bug.md`.
 **Confirmed:** `intelligence_features.cross_timeframe_context->>'ctf_score'` = 0.0 for all 4,810,307 non-null rows. All 518,464 non-null `signal_events.ctf_score` = 0.0. I1/I3 data is correct.
 
-**Root cause (hypothesis, code fix not yet applied):**
-`CrossTimeframeConfluencePlugin.compute_full()` builds `other_intel` from `intel_*` frames populated by `_last_events`. At replay start, `_last_events` for other TFs is empty — no prior bar has populated the cross-TF cache. So `other_intel` entries all return `extract_trend_sign(intel)=0` (neutral), making `score_trend_alignment()` return 0 for all TFs, hence `ctf_score=0`.
+**Root cause (confirmed, 2026-06-17):**
+`extract_trend_sign()` returns 0 for None values. `model_dump()` on cached `IntelligenceEvent` objects includes None-valued I3 fields (e.g., `trend_direction=None` for early/cold-start bars where I3 has not yet produced valid output). The `intel_*` frames injected into `run_analysis_pipeline()` at `replay_symbol():1729-1731` are populated from `intelligence_cache`, which in turn comes from `model_dump()` of the cached event. So `other_intel` dicts all have `trend_direction=None` → `extract_trend_sign()` returns 0 → `score_trend_alignment()` returns 0 for all TFs → `ctf_score=0.0` for every bar corpus-wide.
 
-The merge-loop in `replay_symbol()` processes events chronologically and does populate `intelligence_cache` as bars are processed. But I6's `intel_*` frame consumption may not be reading from the same cache. Verify whether `run_analysis_pipeline()` correctly passes populated `intel_{tf}` frames into the I6 confluence step.
+The broken `--warmup` flag is NOT the fix — caches are call-local, so warmup bars do not seed the subsequent signal pass.
 
 **Key files:**
 - `src/intelligence/confluence/cross_timeframe.py:66-150` — `compute_full()`, `other_intel` build
@@ -116,9 +119,9 @@ The merge-loop in `replay_symbol()` processes events chronologically and does po
 - `src/intelligence/pipeline/feature_pipeline_executor.py:183-194` — `_last_events` construction
 - `production/scripts/run_historical_pipeline.py:1722-1731` — `intel_*` frame injection into `frames`
 
-**Fix approach:** Verify that `frames[f"intel_{other_tf}"]` at line 1729-1731 contains populated I3 fields (`trend_direction`, `trend_strength`). If `intelligence_cache` is empty for other TFs at the time I6 runs for the current bar, the fix is ensuring lower-TF bars always write to `intelligence_cache` before higher-TF bars read from it — which the merge-loop sort order should already guarantee. Confirm with a targeted unit test.
+**Fix approach:** Seed `_last_events` in `feature_pipeline_executor.py` from `intelligence_features` DB at replay startup. Before the first bar is processed for each symbol, load the most recent `intelligence_features` row per TF and populate `_last_events[symbol][tf]` from it. This gives I6 valid I3 data (trend_direction, trend_strength) from the prior run so the first bar does not start with all-None context. This is a non-trivial change to `feature_pipeline_executor.py` (adds a DB query at replay init) and to `replay_symbol()` (must call the warmup seed before the event loop).
 
-**Verification:** After fix, run 1-week sample replay. `ctf_score` distribution must be non-zero (expected range 0.1-0.9 for bars with real trend). Full re-replay required before corpus acceptance.
+**Verification:** After fix, run 1-week sample replay. `ctf_score` distribution must be non-zero (expected range 0.1-0.9 for bars with real trend). Full re-replay of all symbols required before corpus acceptance.
 
 ### B6 — Backfill integrity crash fix
 
