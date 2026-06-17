@@ -1323,6 +1323,6 @@ Plans:
 - [x] 131-04-PLAN.md — A7 fix: _seed_last_events_from_db() + intelligence_cache DB seed in replay_symbol() + --no-seed flag
 - [x] 131-05-PLAN.md — trad_AnchoredVWAPReversion gate ordering fix (reclaim before state-clearing)
 - [x] 131-06-PLAN.md — B6 backfill integrity crash fix (batched assertion + REBUILD_STATUS semantics)
-- [ ] 131-07-PLAN.md — Verification: 1-week sample replay (ctf_score >=85% non-zero) + 2-week plugin coverage (35/35)
+- [x] 131-07-PLAN.md — Verification: 1-week sample replay (ctf_score >=85% non-zero) + 2-week plugin coverage (35/35)
 
 </details>
