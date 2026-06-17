@@ -12,6 +12,7 @@ Phase 127 produced a structurally clean corpus (zero orphans, deterministic cont
 
 **Source documents (implementation detail lives here — do not re-derive):**
 - `.planning/todos/2026-06-17-phase127-issues-master.md` — master triage list
+- `.planning/todos/pending/2026-06-17-phase131-research-findings.md` — confirmed root causes from live DB
 - `.planning/todos/pending/2026-06-17-poc-hvn-rejection-float-nonetype.md` — A1 exact fix
 - `.planning/todos/pending/2026-06-14-review-stop-zone-logic.md` — A2 sample data
 - `.planning/todos/pending/2026-06-14-trade-framer-apr-migration.md` — A5 full constant table
@@ -51,11 +52,10 @@ Verify all callers handle `(None, None, None)`. Both plugins should then emit si
 
 **Scope:** NQU6 (103K errors, 8 plugins), YMM6 (117K errors, 4 plugins), RTYM6 (112K errors, 13 plugins). Non-fatal per-plugin try/except but bars skip entirely.
 **Symptom:** `asset_class=None` in framing logs, missing market-context fields.
-**Investigation:**
-1. `grep -E "plugin.*error" logs/rhp_reemit.log | sort | uniq -c | sort -rn | head 30` — dominant plugins + exception types
-2. Check `contract_metadata` and `instruments` for `asset_class` on rolled symbols
-3. Cross-check signal counts NQU6 vs NQM6 — should be proportional
-**Fix at root:** populate `asset_class` for rolled contracts in `contract_metadata`, or add lookup fallback in the framing context builder. Do not add per-plugin guards — fix the data.
+
+**Root cause (confirmed from code trace):** `run_historical_pipeline.py` calls `replay_symbol()` which calls `run_analysis_pipeline()` and `run_i7_and_persist()` directly — it does NOT use `FeaturePipelineExecutor`. The asset_class injection at `feature_pipeline_executor.py:332` (`flat_features["asset_class"] = instrument.asset_class.value`) is never reached in replay. `all_features["asset_class"]` is never populated for any symbol in replay. Rolled contracts (NQM6/YMM6/RTYM6) are not in the `instruments` table (only in `contract_metadata`), so the instrument lookup that some paths use also fails for them specifically.
+
+**Fix:** In `replay_symbol()`, build a `symbol → asset_class` lookup from `contract_metadata` (for futures) and `instruments` (for equities/fx/etf), then inject `asset_class` into `all_features` before calling `run_i7_and_persist()`. Mirrors what `FeaturePipelineExecutor.execute()` does at line 332. One-time fix applies to all symbols, not just rolled contracts.
 
 ### A6 — BOCPD look-ahead bias
 
@@ -87,10 +87,39 @@ For each plugin, execute:
 
 VXK6/VXM6 (VIX futures) and ZNM6 (10-year Treasury) are regime-context instruments — their absence from the corpus is a coverage gap that ML will misread as "no signal exists here."
 
-**Investigation:**
-1. Check `get_active_contracts()` — are these symbols included?
-2. Check replay command parameters — were they in scope for the partial rerun?
-3. Determine: scope exclusion (fix replay config) vs signal generation failure (fix code)
+**Three confirmed root causes (from live DB):**
+
+**Root cause A — Not in instruments or contract_metadata (6 ETFs):**
+EWZ, FXI, GDXJ, ITB, USO, VLUE — exist in `market_data_ohlcv` but have no `instruments` row. `get_active_contracts()` never returns them; `replay_symbol()` is never called for them.
+Fix: add to `instruments` table as `asset_class='equity'` instruments. Add to `settings.py` instrument config.
+
+**Root cause B — In contract_metadata (is_front_month=false) but replay-scoped out:**
+VXK6, VXM6, ZNM6 — present in `contract_metadata` as futures. Not emitting signals because the replay either scoped to front-month only or the VX/ZN contract naming is not covered by `--include-rolled`. Confirm by checking which symbols `get_all_futures_contracts()` returns and whether the Phase 127 replay command included them.
+Fix: ensure `--include-rolled` covers VX and ZN contract series, or add explicit inclusion.
+
+**Root cause C — Active in instruments but 0 signals:**
+EURUSD — `is_active=true`, `asset_class='fx'` in instruments. Replay did process it (it was in scope) but 0 signals resulted. The FX code path in `run_historical_pipeline.py:2283` branches on `asset_class in (FX, CRYPTO)` — investigate whether this branch skips signal generation or whether FX instruments have insufficient ATR-scaled stops to pass the emission gate.
+
+### A7 — I6 CTF universally zero (HIGH — corpus-wide, ML-blocking)
+
+**Discovered:** 2026-06-17 via corpus audit. Memory: `project_i6_ctf_zero_bug.md`.
+**Confirmed:** `intelligence_features.cross_timeframe_context->>'ctf_score'` = 0.0 for all 4,810,307 non-null rows. All 518,464 non-null `signal_events.ctf_score` = 0.0. I1/I3 data is correct.
+
+**Root cause (hypothesis, code fix not yet applied):**
+`CrossTimeframeConfluencePlugin.compute_full()` builds `other_intel` from `intel_*` frames populated by `_last_events`. At replay start, `_last_events` for other TFs is empty — no prior bar has populated the cross-TF cache. So `other_intel` entries all return `extract_trend_sign(intel)=0` (neutral), making `score_trend_alignment()` return 0 for all TFs, hence `ctf_score=0`.
+
+The merge-loop in `replay_symbol()` processes events chronologically and does populate `intelligence_cache` as bars are processed. But I6's `intel_*` frame consumption may not be reading from the same cache. Verify whether `run_analysis_pipeline()` correctly passes populated `intel_{tf}` frames into the I6 confluence step.
+
+**Key files:**
+- `src/intelligence/confluence/cross_timeframe.py:66-150` — `compute_full()`, `other_intel` build
+- `src/intelligence/confluence/confluence_alignment.py:37-60` — `score_trend_alignment`
+- `src/intelligence/confluence/confluence_weights.py:45-58` — `extract_trend_sign`
+- `src/intelligence/pipeline/feature_pipeline_executor.py:183-194` — `_last_events` construction
+- `production/scripts/run_historical_pipeline.py:1722-1731` — `intel_*` frame injection into `frames`
+
+**Fix approach:** Verify that `frames[f"intel_{other_tf}"]` at line 1729-1731 contains populated I3 fields (`trend_direction`, `trend_strength`). If `intelligence_cache` is empty for other TFs at the time I6 runs for the current bar, the fix is ensuring lower-TF bars always write to `intelligence_cache` before higher-TF bars read from it — which the merge-loop sort order should already guarantee. Confirm with a targeted unit test.
+
+**Verification:** After fix, run 1-week sample replay. `ctf_score` distribution must be non-zero (expected range 0.1-0.9 for bars with real trend). Full re-replay required before corpus acceptance.
 
 ### B6 — Backfill integrity crash fix
 
