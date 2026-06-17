@@ -18,6 +18,7 @@ Design contract:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -48,6 +49,7 @@ from src.intelligence.schemas import (
 )
 
 if TYPE_CHECKING:
+    from src.core.database_manager import DatabaseManager
     from src.core.schemas.bar_message import BarMessage
 
 # ---------------------------------------------------------------------------
@@ -139,6 +141,97 @@ class FeaturePipelineExecutor:
         # Note: I2-I6 carry-forward lives in PluginExecutor._last_tier_outputs.
         self._last_i1_outputs: dict[tuple[str, str], dict] = {}
         self._logger = structlog.get_logger(__name__)
+
+    async def _seed_last_events_from_db(
+        self,
+        symbols: list[str],
+        timeframes: list[str],
+        db: DatabaseManager,
+    ) -> None:
+        """Seed _last_events from the most recent intelligence_features row per (symbol, tf).
+
+        Called once at live executor startup (or before the first bar of a replay) so that
+        I6 cross-timeframe confluence has non-None trend fields on bar 1.  Without this seed,
+        _last_events is empty → frames["intel_{other_tf}"] is never set → extract_trend_sign()
+        returns 0 for all TFs → ctf_score=0.0 for every bar (A7 root cause).
+
+        Cold-start safe: if intelligence_features is empty (Phase 133 full rebuild), the query
+        returns no rows and the method logs at DEBUG and returns without raising.
+
+        Args:
+            symbols: List of symbols to seed (e.g. ["ESM6", "NQM6"]).
+            timeframes: List of timeframes to seed (e.g. ["1m", "5m", "15m", "1h"]).
+            db: DatabaseManager — pool.acquire() used for asyncpg connections.
+        """
+        _SEED_QUERY = """
+            SELECT i3->>'trend_direction'   AS trend_direction,
+                   i3->>'trend_strength'    AS trend_strength,
+                   i3->>'trend_bars_elapsed' AS trend_bars_elapsed,
+                   i3->>'trend_confirmed'   AS trend_confirmed
+            FROM intelligence_features
+            WHERE symbol = $1 AND tf = $2
+            ORDER BY ts DESC
+            LIMIT 1
+        """
+
+        pairs: list[tuple[str, str]] = [(symbol, tf) for symbol in symbols for tf in timeframes]
+
+        async def _fetch_one(symbol: str, tf: str) -> tuple[str, str, Any]:
+            async with db.pool.acquire() as conn:
+                row = await conn.fetchrow(_SEED_QUERY, symbol, tf)
+            return symbol, tf, row
+
+        results = await asyncio.gather(*[_fetch_one(s, t) for s, t in pairs])
+
+        seeded_count = 0
+        for symbol, tf, row in results:
+            if row is None:
+                self._logger.debug(
+                    "seed: no prior intelligence_features rows", symbol=symbol, tf=tf
+                )
+                continue
+            # Build a minimal IntelligenceEvent with only I3 trend fields populated.
+            # extract_trend_sign() reads trend_direction / trend_strength — both covered.
+            # All other tier fields default to None (IntelligenceEvent requires all tiers
+            # but each tier's fields are individually optional).
+            trend_direction_raw = row["trend_direction"]
+            trend_strength_raw = row["trend_strength"]
+            trend_bars_elapsed_raw = row["trend_bars_elapsed"]
+
+            event = IntelligenceEvent(
+                ts=datetime.now(UTC),  # placeholder ts — only i3 fields matter for seeding
+                symbol=symbol,
+                tf=tf,
+                bar=OHLCVBar(o=0.0, h=0.0, l=0.0, c=0.0, v=0),
+                i1=I1Indicators(),
+                i3=I3Structure(
+                    trend_direction=(
+                        float(trend_direction_raw) if trend_direction_raw is not None else None
+                    ),
+                    trend_strength=(
+                        float(trend_strength_raw) if trend_strength_raw is not None else None
+                    ),
+                    trend_duration_bars=(
+                        float(trend_bars_elapsed_raw)
+                        if trend_bars_elapsed_raw is not None
+                        else None
+                    ),
+                ),
+                i4=I4Context(),
+                i5=I5Patterns(),
+                smc=SMCContext(),
+                i6=I6Confluence(),
+                source="live",
+            )
+            self._last_events[f"{symbol}:{tf}"] = event
+            seeded_count += 1
+
+        self._logger.info(
+            "seeded _last_events from DB",
+            count=seeded_count,
+            symbols=len(symbols),
+            timeframes=len(timeframes),
+        )
 
     async def run(
         self,
