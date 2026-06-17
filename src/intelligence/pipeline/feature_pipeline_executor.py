@@ -18,7 +18,6 @@ Design contract:
 
 from __future__ import annotations
 
-import asyncio
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -34,7 +33,7 @@ from src.intelligence.context.vix_context import compute_vix_context
 from src.intelligence.cross_asset_features import resolve_eq_index_base
 from src.intelligence.pipeline.executor import PluginExecutor
 from src.intelligence.pipeline.feature_flattening import build_flat_features
-from src.intelligence.pipeline.seed_constants import _I3_SEED_QUERY
+from src.intelligence.pipeline.seed_constants import _I3_SEED_QUERY_BATCH
 from src.intelligence.pipeline.signal_processor import CacheSnapshot
 from src.intelligence.pipeline.state_manager import PluginStateManager
 from src.intelligence.schemas import (
@@ -164,28 +163,13 @@ class FeaturePipelineExecutor:
             timeframes: List of timeframes to seed (e.g. ["1m", "5m", "15m", "1h"]).
             db: DatabaseManager — pool.acquire() used for asyncpg connections.
         """
-        # Capture module-level constant for use in nested closure.
-        seed_query = _I3_SEED_QUERY
-        pairs: list[tuple[str, str]] = [(symbol, tf) for symbol in symbols for tf in timeframes]
-
-        async def _fetch_one(symbol: str, tf: str) -> tuple[str, str, Any]:
-            async with db.pool.acquire() as conn:
-                row = await conn.fetchrow(seed_query, symbol, tf)
-            return symbol, tf, row
-
-        results = await asyncio.gather(*[_fetch_one(s, t) for s, t in pairs])
+        async with db.pool.acquire() as conn:
+            rows = await conn.fetch(_I3_SEED_QUERY_BATCH, symbols, timeframes)
 
         seeded_count = 0
-        for symbol, tf, row in results:
-            if row is None:
-                self._logger.debug(
-                    "seed: no prior intelligence_features rows", symbol=symbol, tf=tf
-                )
-                continue
-            # Build a minimal IntelligenceEvent with only I3 trend fields populated.
-            # extract_trend_sign() reads trend_direction / trend_strength — both covered.
-            # All other tier fields default to None (IntelligenceEvent requires all tiers
-            # but each tier's fields are individually optional).
+        for row in rows:
+            symbol = row["symbol"]
+            tf = row["tf"]
             trend_direction_raw = row["trend_direction"]
             trend_strength_raw = row["trend_strength"]
             trend_bars_elapsed_raw = row["trend_bars_elapsed"]
@@ -217,6 +201,13 @@ class FeaturePipelineExecutor:
             )
             self._last_events[f"{symbol}:{tf}"] = event
             seeded_count += 1
+
+        if not rows:
+            self._logger.debug(
+                "seed: no prior intelligence_features rows",
+                symbols=symbols,
+                timeframes=timeframes,
+            )
 
         self._logger.info(
             "seeded _last_events from DB",
