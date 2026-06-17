@@ -1,33 +1,40 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-17T07:47:53Z",
+  "timestamp": "2026-06-17T08:36:53Z",
   "phase": "127",
   "phase_name": "clean-replay-validation",
   "phase_dir": ".planning/phases/127-clean-replay-validation",
-  "plan": "lifecycle-replay-fix",
-  "task": "lifecycle-replay-fix",
-  "total_tasks": 6,
+  "plan": 1,
+  "task": 0,
+  "total_tasks": 4,
   "status": "paused",
+  "plan_status": "plan-00-complete-rebuild-in-flight",
   "completed_tasks": [
-    {"id": 1, "name": "Stop lifecycle services + neutralize auto-restart", "status": "done"},
-    {"id": 2, "name": "Wipe all signal-derived tables + features (TRUNCATE CASCADE)", "status": "done"},
-    {"id": 3, "name": "Regenerate features + signals (--workers 8, no warmup)", "status": "done", "progress": "1,036,513 signals / 1,036,513 frames / 4.9M features / 114 symbols / 0 orphans"}
+    {"id": "127-00", "name": "Read-path 3-table migration", "status": "done", "commit": "merged b492f741 + test fix (post-merge gate)"},
+    {"id": "127-01-task1", "name": "phase_127_before_snapshot.py + baseline JSON", "status": "done", "commit": "merged 5cce4c26 (baseline captured PRE-rebuild; superseded by clean rebuild)"},
+    {"id": "127-01-task2", "name": "my --warmup --workers 1 replay (PID 1398422)", "status": "superseded", "commit": "n/a — process DEAD; approach discredited (--warmup is a no-op)"}
   ],
   "remaining_tasks": [
-    {"id": 4, "name": "Fix lifecycle_replay FK violation (frame_id entry_type mismatch)", "status": "not_started"},
-    {"id": 5, "name": "Re-run lifecycle_replay --workers 8", "status": "not_started"},
-    {"id": 6, "name": "Restart services + validate", "status": "not_started"}
+    {"id": "reconcile-01-02-03", "name": "Decide whether Plans 01/02/03 still apply given rebuild produced the corpus via --workers 8 (not my replay)", "status": "not_started", "priority": "high"},
+    {"id": "rebuild-validation", "name": "Let PID 1736187 finish, run rebuild's own validation checklist (supersedes Plan 02 report)", "status": "in_progress", "priority": "high"},
+    {"id": "restore-services", "name": "Remove no-restart.conf drop-ins, daemon-reload, reset-failed, start writers + auditor + self-healing", "status": "not_started", "priority": "high", "blocking_until": "rebuild validation passes"},
+    {"id": "127-03", "name": "Calibration-retrain v2.11 blocker log (doc-only)", "status": "not_started"},
+    {"id": "cleanup-worktree", "name": "Remove orphan worktree agent-a88695d6c7efc3f22 + its branch (my dead replay)", "status": "not_started"}
   ],
   "blockers": [
-    {"description": "lifecycle_replay FK violation: insert into trade_executions violates fk_trade_executions_frame on every symbol/tf. Likely entry_type divergence — lifecycle_replay.py:1014,1041 hardcode _make_frame_id(sid,'at_close') but frames may use other entry_types (at_pullback/at_limit/at_reclaim/zone_proximal).", "type": "technical", "workaround": "Confirm with SELECT entry_type,count(*) FROM trade_frames GROUP BY 1; then fix lifecycle to read actual entry_type from the frame."}
+    {"description": "GSD Plan 01/02/03 collide with a parallel manual rebuild. My 127-01 replay used the discredited --warmup --workers 1 approach and was superseded. The rebuild's own lifecycle_replay (PID 1736187) is the actual data producer. Plans 01/02/03 must be reconciled: either fold validation into the rebuild's checklist or re-plan around the rebuild corpus.", "type": "technical", "workaround": "Treat the rebuild as the source of truth for Plan 01's corpus; do NOT re-run my replay. Decide reconciliation before continuing execute-phase."},
+    {"description": "Services are DOWN by design (Restart=no drop-ins on intelligence-pipeline + feature-writer; service-auditor + self-healing-agent stopped). Do NOT restore until rebuild validation passes.", "type": "human_action", "workaround": "Restore only after lifecycle_replay completes + validation checklist green"}
   ],
-  "human_actions_pending": [],
+  "human_actions_pending": [
+    {"action": "Let lifecycle_replay (PID 1736187) finish, then run the rebuild validation checklist in .planning/todos/pending/2026-06-16-replay-issues-and-findings.md", "context": "trade_executions was 587,538 and climbing at pause; target ~1,036,513. This supersedes Plan 02's validation report.", "blocking": true},
+    {"action": "Decide Plan 01/02/03 reconciliation vs the rebuild", "context": "My GSD wave launched a redundant replay; the rebuild already did the real work", "blocking": true}
+  ],
   "decisions": [
-    {"decision": "Full clean-slate wipe (all signal-derived + features)", "rationale": "features were stale — 0/4.2M rows had volume_sma_20/hmm_probability/zone_friction_score/rel_volume", "phase": "127"},
-    {"decision": "--workers 8 without --warmup", "rationale": "warmup proven no-op (local caches die between passes); correctness preserved, ~8x faster", "phase": "127"},
-    {"decision": "counterfactual_pnl_r left NULL in rebuild", "rationale": "populated by live alpha_swarm CounterfactualEvaluator (Phase 130), not historical replay", "phase": "127"}
+    {"decision": "127-00 read-path migration is COMPLETE and durable (merged, 4753 unit tests green, 2 live hazards fixed, 9 readers -> counterfactual_pnl_r).", "rationale": "Post-merge gate caught 7 test-fixture failures (production migrated, fixtures stale); fixed + committed. All green.", "phase": "127"},
+    {"decision": "127-01 my replay is SUPERSEDED — do not re-run it.", "rationale": "Used discredited --warmup --workers 1 (warmup is a proven no-op per memory project_warmup_noop_finding.md). Parallel rebuild used --workers 8 no-warmup and already produced the corpus.", "phase": "127"},
+    {"decision": "The clean rebuild is the source of truth for the Phase 127 corpus, NOT my replay.", "rationale": "Verified live: signal_events=1,036,513, trade_frames=1,036,513 (1:1, 0 orphans), trade_executions climbing via PID 1736187, all entry_type=at_close.", "phase": "127"}
   ],
-  "uncommitted_files": [".planning/STATE.md", ".planning/phases/127-clean-replay-validation/.continue-here.md", ".planning/todos/pending/2026-06-16-replay-issues-and-findings.md", ".planning/todos/pending/2026-06-16-remove-dead-warmup-flag.md", ".planning/todos/pending/2026-06-16-cleanup-obsolete-replay-scripts.md"],
-  "next_action": "Run SELECT entry_type, count(*) FROM trade_frames GROUP BY 1; then read lifecycle_replay.py:1010-1045 to confirm frame_id uses hardcoded 'at_close'. Fix the lookup, re-run lifecycle_replay.py --workers 8, then restore services (remove no-restart drop-ins, start writers + auditors).",
-  "context_notes": "Backfill (hardest part, 116 symbols) succeeded overnight. One bug from done. FK violation is systematic/deterministic, not data loss — entry_type in frame_id lookup is prime suspect. Safety gate worked: services stayed down on failed lifecycle, production protected. Sudo: echo '***REDACTED-SUDO-PASSWORD***' | /usr/bin/sudo.ws -S <cmd>."
+  "uncommitted_files": ["(none mine) .planning/STATE.md (hook-modified), docs/ideas/vision-*.md (parallel work), .planning/phases/130-script-rewriting/130-PATTERNS.md (pre-existing untracked)"],
+  "next_action": "FIRST: check if PID 1736187 (lifecycle_replay --workers 8) finished and trade_executions reached ~1,036,513. If yes, run the rebuild validation checklist (.planning/todos/pending/2026-06-16-replay-issues-and-findings.md). SECOND: reconcile GSD Plans 01/02/03 — they are entangled with the rebuild; recommend folding validation into the rebuild rather than re-running my replay. THIRD: clean up orphan worktree agent-a88695d6c7efc3f22. The 127-00 read-path migration is DONE and needs no further work.",
+  "context_notes": "GSD execute-phase 127 wave 0 ran concurrently with a parallel manual clean-slate rebuild, causing a collision. Only 127-00 (read-path migration) produced durable, non-conflicting value. The replay/validation plans (01/02/03) are entangled with the rebuild's output. The rebuild is healthy and mid-flight (lifecycle_replay actively populating trade_executions). REBUILD_STATUS=FAILED is stale. Branch: phase-127/00-read-path-3table-migration. Two unrelated docs commits (FlowAgent/FundAgent vision) landed on the branch during the wave — disjoint, no conflict."
 }
