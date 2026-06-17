@@ -1954,10 +1954,11 @@ def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
     Invariant 1: was_selected = TRUE occurs at most once per (symbol, tf, bar_ts).
     Invariant 2: Every signal_id in signal_events is globally unique.
 
-    Runs two queries using ANY(%s) — covered by idx_signal_events_symbol_tf (migration 140)
+    Runs two queries using ANY(%s) — covered by idx_signal_events_symbol_tf_ts (migration 140)
     and idx_signal_events_symbol_signal_id (migration 144). sys.exit(1) on any violation.
     """
     # --- Invariant 1: was_selected uniqueness per (symbol, tf, bar_ts) ---
+    all_violations: list[Any] = []
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -1978,7 +1979,6 @@ def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
     except Exception as error:
         print(f"\n[INTEGRITY WARN] invariant 1 query failed: {error}")
         print("  Data may be intact; re-run audit manually to confirm.")
-        return
 
     if all_violations:
         print(f"\n[INTEGRITY FAIL] was_selected > 1 per bar — {len(all_violations)} bars affected:")

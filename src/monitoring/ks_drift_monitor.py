@@ -75,9 +75,9 @@ KS_ALERTS_TOTAL = _ks_meter.create_counter(
     "drift_ks_alerts_total",
     description="KS alerts fired",
 )
-KS_CHECK_DURATION = _ks_meter.create_up_down_counter(
+KS_CHECK_DURATION = _ks_meter.create_histogram(
     "drift_ks_check_duration_seconds",
-    description="Last KS check duration",
+    description="KS check duration",
 )
 
 # ---------------------------------------------------------------------------
@@ -178,11 +178,11 @@ class KSDriftMonitor:
                 timeframe=tf,
                 reference_n=ref_n,
             )
-            KS_CHECK_DURATION.add(_time.monotonic() - t0)
+            KS_CHECK_DURATION.record(_time.monotonic() - t0)
             return DriftCheckResult(severity="none", reference_n=ref_n, current_n=cur_n)
 
         if cur_n == 0:
-            KS_CHECK_DURATION.add(_time.monotonic() - t0)
+            KS_CHECK_DURATION.record(_time.monotonic() - t0)
             return DriftCheckResult(severity="none", reference_n=ref_n, current_n=cur_n)
 
         # Run KS test on each feature — find worst-case p-value
@@ -204,7 +204,7 @@ class KSDriftMonitor:
                 worst_p = float(p_value)
                 worst_feature = feature
 
-        KS_CHECK_DURATION.add(_time.monotonic() - t0)
+        KS_CHECK_DURATION.record(_time.monotonic() - t0)
 
         result = DriftCheckResult(
             severity=worst_severity,
