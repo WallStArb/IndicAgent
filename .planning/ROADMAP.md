@@ -1319,7 +1319,7 @@ Plans:
 
 - [x] 131-01-PLAN.md — A4 diagnostic: confirm asset_class=None for rolled-contract symbols via log trace + 10-symbol test replay
 - [x] 131-02-PLAN.md — A6 BOCPD look-ahead fix (vol[-21:-1]) + B7 verify SQL fan-out fix (COUNT DISTINCT)
-- [ ] 131-03-PLAN.md — A4 fix (asset_class injection) + trad_PrevDayLevelTest (maxlen 200→800) + trad_CrossAssetDivergence (live-only annotation)
+- [x] 131-03-PLAN.md — A4 fix (asset_class injection) + trad_PrevDayLevelTest (maxlen 200→800) + trad_CrossAssetDivergence (live-only annotation)
 - [ ] 131-04-PLAN.md — A7 fix: _seed_last_events_from_db() + intelligence_cache DB seed in replay_symbol() + --no-seed flag
 - [ ] 131-05-PLAN.md — trad_AnchoredVWAPReversion gate ordering fix (reclaim before state-clearing)
 - [ ] 131-06-PLAN.md — B6 backfill integrity crash fix (batched assertion + REBUILD_STATUS semantics)
