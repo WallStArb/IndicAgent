@@ -65,7 +65,7 @@ import uuid
 from collections import defaultdict, deque
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import psycopg2
 import psycopg2.extras
@@ -600,35 +600,34 @@ def run_analysis_pipeline(
 # Intelligence features — sync DB insert (mirrors feature_writer_service with %s placeholders)
 # ---------------------------------------------------------------------------
 
-_INSERT_FEATURE_SYNC_SQL = """
-INSERT INTO intelligence_features (
-    ts, symbol, tf, platform, source, schema_version,
-    bar, technical_indicators, pattern_detections, regime_features,
-    confluence_scores, smc, cross_timeframe_context, composite_events
-) VALUES %s
-ON CONFLICT (ts, symbol, tf) DO NOTHING
-"""
+_FEATURE_KEY_COLS = ("ts", "symbol", "tf")
+_FEATURE_DATA_COLS = (
+    "platform",
+    "source",
+    "schema_version",
+    "bar",
+    "technical_indicators",
+    "pattern_detections",
+    "regime_features",
+    "confluence_scores",
+    "smc",
+    "cross_timeframe_context",
+    "composite_events",
+)
 
-# Used when I1-I6 was recomputed from source bars — overwrite stale rows.
-_INSERT_FEATURE_SYNC_SQL_OVERWRITE = """
-INSERT INTO intelligence_features (
-    ts, symbol, tf, platform, source, schema_version,
-    bar, technical_indicators, pattern_detections, regime_features,
-    confluence_scores, smc, cross_timeframe_context, composite_events
-) VALUES %s
-ON CONFLICT (ts, symbol, tf) DO UPDATE SET
-    platform = EXCLUDED.platform,
-    source = EXCLUDED.source,
-    schema_version = EXCLUDED.schema_version,
-    bar = EXCLUDED.bar,
-    technical_indicators = EXCLUDED.technical_indicators,
-    pattern_detections = EXCLUDED.pattern_detections,
-    regime_features = EXCLUDED.regime_features,
-    confluence_scores = EXCLUDED.confluence_scores,
-    smc = EXCLUDED.smc,
-    cross_timeframe_context = EXCLUDED.cross_timeframe_context,
-    composite_events = EXCLUDED.composite_events
-"""
+
+def _feature_insert_sql(overwrite: bool) -> str:
+    cols = ", ".join(_FEATURE_KEY_COLS + _FEATURE_DATA_COLS)
+    conflict = (
+        "DO UPDATE SET " + ", ".join(f"{c} = EXCLUDED.{c}" for c in _FEATURE_DATA_COLS)
+        if overwrite
+        else "DO NOTHING"
+    )
+    return (
+        f"INSERT INTO intelligence_features ({cols}) VALUES %s"
+        f" ON CONFLICT (ts, symbol, tf) {conflict}"
+    )
+
 
 # Per-row template for execute_values — JSONB casts must be explicit per column.
 _INSERT_FEATURE_SYNC_TEMPLATE = (
@@ -713,7 +712,7 @@ def _sanitize_for_json(obj: Any) -> Any:
 def _event_to_sync_params(event: Any) -> tuple:
     """Serialize IntelligenceEvent to a 14-element tuple for psycopg2 batch insert.
 
-    Column order matches _INSERT_FEATURE_SYNC_SQL:
+    Column order matches _FEATURE_KEY_COLS + _FEATURE_DATA_COLS:
       ts, symbol, tf, platform, source, schema_version,
       bar, technical_indicators, pattern_detections, regime_features,
       confluence_scores, smc, cross_timeframe_context, composite_events
@@ -753,9 +752,10 @@ def _insert_features_sync(conn: Any, rows: list, overwrite: bool = False) -> Non
     """
     if not rows:
         return
-    sql = _INSERT_FEATURE_SYNC_SQL_OVERWRITE if overwrite else _INSERT_FEATURE_SYNC_SQL
     with conn.cursor() as cur:
-        psycopg2.extras.execute_values(cur, sql, rows, template=_INSERT_FEATURE_SYNC_TEMPLATE)
+        psycopg2.extras.execute_values(
+            cur, _feature_insert_sql(overwrite), rows, template=_INSERT_FEATURE_SYNC_TEMPLATE
+        )
     conn.commit()
 
 
@@ -1811,18 +1811,22 @@ def replay_symbol(
     return signal_counts
 
 
-def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
+class _WorkerArgs(NamedTuple):
+    symbol: str
+    db_url: str
+    timeframes: list[str]
+    since_dt: datetime | None
+    skip_signals: bool
+    use_precomputed: bool
+    overwrite_features: bool
+
+
+def _replay_worker(args: _WorkerArgs) -> tuple[str, int, dict[str, int]]:
     """Worker for parallel symbol replay.
 
     Runs in a subprocess via ProcessPoolExecutor. Opens its own psycopg2
     connection (connections cannot be shared across processes), registers
     plugins, replays the symbol, commits, and closes.
-
-    Args:
-        args: (symbol, db_url, timeframes, since_dt, skip_signals, use_precomputed, overwrite_features)
-
-    Returns:
-        (symbol, total_signals, counts_by_tf)
     """
     symbol, db_url, timeframes, since_dt, skip_signals, use_precomputed, overwrite_features = args
     register_all_plugins()
@@ -2531,14 +2535,14 @@ def main() -> None:
                     "NOTE: --warmup is only supported with --workers 1 (parallel mode skips warmup pass)"
                 )
             worker_args = [
-                (
-                    contract.symbol,
-                    settings.database_url,
-                    timeframes,
-                    since_dt,
-                    False,
-                    args.use_precomputed_features,
-                    args.overwrite_features,
+                _WorkerArgs(
+                    symbol=contract.symbol,
+                    db_url=settings.database_url,
+                    timeframes=timeframes,
+                    since_dt=since_dt,
+                    skip_signals=False,
+                    use_precomputed=args.use_precomputed_features,
+                    overwrite_features=args.overwrite_features,
                 )
                 for contract in contracts
             ]
