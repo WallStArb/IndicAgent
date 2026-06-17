@@ -80,6 +80,46 @@ These are prerequisites for a clean rebuild, not post-rebuild cleanup:
 - **B3** (`feature_replay.py` stateful coverage): use `incremental_compute()` with per-symbol state accumulation — stateless shortcuts produce wrong outputs for GARCH/Kalman/HMM/BOCPD. Note: `feature_replay.py` is the validation tool, not the main rebuild script (`run_historical_pipeline.py`); fixing it ensures the post-rebuild validation tool works correctly
 - **Layer D** (code hygiene): `_cfg()` → `_read_config()`, `confidence_utils.py` → `confidence.py` (run `grep -r "confidence_utils" .` across the entire repo — not just `src/` — to catch references in CLAUDE.md files and docs before committing), delete phase_127 snapshot scripts, archive `migrate_signal_ledger.py`
 
+### D-07: Full truncation scope — confirmed 2026-06-17
+
+All derived/signal/AI tables are garbage due to plugin bugs present during the Phase 127 corpus build:
+- **A6**: BOCPD look-ahead bias corrupts every `bocpd_*` feature column in `intelligence_features`
+- **A7**: `ctf_score=0.0` universally across all 4.9M `intelligence_features` rows
+- **bar_histories maxlen 200**: session-level features computed with too-shallow history
+- **trade_executions**: 775K rows vs 545K `signal_events` — row count mismatch indicates data integrity issue
+
+**TRUNCATE ALL of the following before rebuild:**
+
+| Table | Reason |
+|-------|--------|
+| `intelligence_features` | Plugin bugs corrupt all feature vectors |
+| `signal_events` | Derived from bad features |
+| `trade_frames` | Derived from bad signals |
+| `trade_executions` | Row count mismatch (775K > 545K signals); garbage |
+| `signal_metrics_dq_failures` | Stale; derived |
+| `shadow_registry` | Promotion scores earned against garbage corpus — reset to shadow |
+| `llm_calls` | Enrichment run against bad signals |
+| `llm_model_scores` | Empty but reset for clean slate |
+| `ml_signal_training` | Empty but reset |
+| `shadow_transition_log` | Empty but reset |
+| `swarm_agent_weights` | Empty but reset |
+| `alpha_multiplier_shadow` | Empty but reset |
+| `setup_performance` | Empty but reset |
+| `signal_ai_enrichment` | Empty but reset |
+| `signal_lineage` | Empty but reset |
+| `signal_metrics` | Empty but reset |
+| `signal_metrics_ic` | Empty but reset |
+| `signal_transform_log` | Empty but reset |
+
+**DO NOT truncate:**
+| Table | Reason |
+|-------|--------|
+| `market_data_ohlcv` | Raw IBKR source data — clean |
+| `config_state` / `config_history` | APR parameters — independent of corpus |
+| `instruments` / `contract_metadata` | Reference data — clean |
+
+`reset_pipeline_data.py` (B4 fix: CASCADE) handles the signal/trade tables. The AI/ML tables may need explicit TRUNCATE statements added to the reset script — verify coverage before running.
+
 ### D-06: C2 column naming archaeology is NOT needed before the rebuild
 
 The rename is already done (D-01 above). Phase 133 is not blocked by any column naming investigation. Start with C1 (hypertable migration) immediately.
