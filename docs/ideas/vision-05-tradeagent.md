@@ -1,10 +1,12 @@
 # TradeAgent — Autonomous Trading Application (Vision)
 
-**Version:** 0.9
 **Status:** draft
+**Version:** 0.9
+**Created:** 2026-03-04
+**Last Updated:** 2026-06-17
+**Context:** Autonomous trading application — consumes intelligence, manages full trade lifecycle, multi-tenant
 **Priority:** low
 **Milestone:** future (post-v2.8)
-**Last Updated:** 2026-03-04
 **Tags:** tradeagent, execution, autonomous-trading, broker, portfolio, risk, platform, vision
 
 ---
@@ -43,7 +45,7 @@
 | **TradeAgent** | Autonomous trading application: consumes IndicAgent signals, manages trade lifecycle, portfolio, risk. Multi-tenant. |
 | **DerivAgent**  | Derivatives-focused product (separate codebase). |
 
-Naming: `*Agent` = autonomous, intelligent module.
+Naming: `*Agent` is a product label in the product family, not a code class. Underlying daemon classes/files derive from `docs/foundation/naming-system.md` when built (the `_agent` suffix is retired).
 
 ---
 
@@ -211,7 +213,7 @@ Features organized by customer problem area: execution, management, lifecycle, p
 ## Connection to IndicAgent
 
 - **Preferred:** TradeAgent subscribes via **API/SSE** (no direct Redis). Clean separation, independent deploy.
-- **Alternative:** Separate app subscribing to DragonflyDB hot bus for lowest latency (still no execution code inside IndicAgent).
+- **Alternative:** Separate app subscribing to the Redpanda hot bus for lowest latency (still no execution code inside IndicAgent).
 
 **Data consumed (beyond signals):** Risk manager and sizing logic need live **volatility** and **regime** from IndicAgent, e.g.:
 - Volatility: ATR, GARCH volatility, MTF volatility (I1/I4).
@@ -349,7 +351,27 @@ Learning and self-improvement is a **first-class capability**: the system gets b
 
 ---
 
+## Relationship to Existing Architecture
+
+TradeAgent is the autonomous execution application. It is a separate application (own repo) that consumes the shared intelligence bus and executes through broker adapters/MCP:
+
+- **Unified Data Bus compliance** — Services never call each other. TradeAgent subscribes to `signals:*`, `qual:*`, `deriv:*` streams and publishes orders and trade outcomes. No coupling beyond the bus. See `docs/data/` for bus architecture.
+- **DAG invariants preserved** — TradeAgent never writes to the intelligence database directly; outcomes flow back through the Signal Ledger Architecture writers. See `docs/concepts/dag-execution.md`.
+- **APR-governed** — All sizing curves, guardrails, and validation thresholds live in `config_state` under tenant-scoped namespaces. No hardcoded values. See `docs/foundation/adaptive-parameter-registry.md`.
+- **Shadow Governance (SG)** — New setups and learned parameter sets run in shadow before promotion; minimum sample size and statistical gates apply before any live weight change. See `docs/foundation/glossary.md`.
+- **Signal Ledger Architecture integration** — Trade outcomes close the compounding loop by writing `actual_pnl_r` to `trade_executions`; the learning loop joins against `signal_ledger` (the SLA join view). See `docs/foundation/glossary.md`.
+- **Risk independence** — TradeAgent obeys AegisAgent's binding `risk:*` events (`risk:halt`, `risk:reduce`, `risk:block`); it does not enforce its own hard risk limits. See `docs/ideas/vision-01-aegisagent.md`.
+
+## Foundation Concepts Referenced
+
+- **Principles** — `docs/foundation/principles.md`: Shadow before production, segment relentlessly, ruthlessly automate manual tasks, never override the model
+- **Naming System** — `docs/foundation/naming-system.md`: `TradeAgent` is a product name, not a code class; the underlying daemon classes derive from the naming system when built
+- **APR** — `docs/foundation/adaptive-parameter-registry.md`: Guardrails, sizing curves, and validation thresholds governed by APR
+- **Documentation System** — `docs/foundation/documentation-system.md`: Idea docs live in `ideas/`, not authoritative until verified
+- **Glossary** — `docs/foundation/glossary.md`: SLA, SG, APR, alpha, edge, regime — canonical definitions
+- **Renaissance Framing** — `docs/ideas/renaissance-02-framing.md`: validation before scale, unified model, never override
+
 ## References
 
-- `docs/ideas/timeframe-cascade-strategy.md` — stop cascade (1m → 5m → 15m → 1H).
-- `docs/ideas/regime-adaptive-trading.md` — regime-aware sizing and gating.
+- `docs/ideas/signal-04-timeframe-cascade-strategy.md` — stop cascade (1m → 5m → 15m → 1H).
+- `docs/ideas/signal-03-regime-adaptive-trading.md` — regime-aware sizing and gating.

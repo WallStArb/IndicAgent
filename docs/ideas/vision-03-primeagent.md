@@ -1,10 +1,12 @@
 # PrimeAgent — Unified Portfolio Management Platform (Vision)
 
-**Version:** 1.0
 **Status:** draft
+**Version:** 1.0
+**Created:** 2026-03-04
+**Last Updated:** 2026-06-17
+**Context:** Unified cross-product portfolio management, capital allocation, and performance attribution
 **Priority:** low
 **Milestone:** future (post-v2.8)
-**Last Updated:** 2026-03-04
 **Tags:** primeagent, portfolio, capital-management, prime-brokerage, platform, vision, performance
 
 ---
@@ -20,6 +22,16 @@
 PrimeAgent solves the cross-product portfolio problem. When a user runs **both** TradeAgent (futures) and DerivAgent (options) simultaneously, neither product has a unified view of the combined portfolio. PrimeAgent owns that view.
 
 It is not an execution product. It does not place trades. It is the **capital management and performance layer** — the CFO and portfolio manager function of the platform.
+
+### Renaissance Frame
+
+PrimeAgent embodies Renaissance principles:
+
+- **The unified model beats siloed strategies:** Renaissance ran one combined book, not separate PM silos with independent P&L and risk limits. PrimeAgent is the unified-book view — every position, every Greek, every dollar of capital across all execution products in one model, so cross-product exposure is always visible and never silently concentrated.
+- **Diversification of edges, not just positions:** Allocating capital across uncorrelated edge types (VRP harvesting, directional momentum, mean reversion) is portfolio construction at the edge level, the platform analogue of Simons holding thousands of small, diversified positions.
+- **Position sizing is the mathematics of edge (Kelly):** Deployment sized from per-strategy win rate and payoff — fed from the Signal Ledger Architecture outcomes — is Kelly discipline applied to capital, not discretionary bet sizing.
+- **The learning machine:** Performance attribution by regime, strategy, and source is the feedback signal. Strategies that degrade in a regime lose allocation weight automatically; the system improves the longer it runs.
+- **Separation of concerns is non-negotiable:** PrimeAgent optimizes and reports. It does not execute (TradeAgent/DerivAgent) and does not enforce hard risk limits (AegisAgent). One job per component; PrimeAgent is advisory, AegisAgent is binding.
 
 ---
 

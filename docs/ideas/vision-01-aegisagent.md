@@ -1,25 +1,23 @@
 # AegisAgent — Independent Risk Management Platform (Vision)
 
-**Version:** 1.0
 **Status:** draft
+**Version:** 1.0
+**Created:** 2026-03-04
+**Last Updated:** 2026-06-17
+**Context:** Independent risk layer with override authority over all execution products
 **Priority:** low
 **Milestone:** future (post-v2.8)
-**Last Updated:** 2026-03-04
-**Tags:** risk-management, portfolio, execution, platform, vision, autonomous, aegisagent
+**Tags:** risk-management, portfolio, execution, platform, vision, autonomous
 
 ---
 
-## The name
+## Core Concept
 
 **Aegis** — the divine shield of Zeus and Athena in Greek mythology. Wielded not for offense but for protection; impenetrable, independent, authoritative. In financial markets, the term is used by risk systems and protective overlays at institutional scale.
 
 The name is intentional: AegisAgent is not a strategy product. It does not optimize for returns. Its sole mandate is **protection** — of capital, of accounts, of the platform. It has override authority over every other product.
 
----
-
-## Purpose
-
-AegisAgent is the independent risk management layer of the platform. It subscribes to every relevant data stream — market data, intelligence, portfolio state, execution events — and continuously monitors for risk limit breaches, structural vulnerabilities, and system-level threats.
+AegisAgent subscribes to every relevant data stream — market data, intelligence, portfolio state, execution events — and continuously monitors for risk limit breaches, structural vulnerabilities, and system-level threats.
 
 When a limit is breached, AegisAgent has the authority to:
 - Alert the user
@@ -27,7 +25,31 @@ When a limit is breached, AegisAgent has the authority to:
 - Force position reductions
 - Trigger an emergency trading halt
 
-It does not ask permission. It does not wait for TradeAgent or DerivAgent to respond. It acts.
+It does not ask permission. It does not wait for execution products to respond. It acts.
+
+### Renaissance Frame
+
+AegisAgent embodies Renaissance principles:
+
+- **Ruthlessly eliminate unnecessary complexity:** Risk is not a feature to be added to each product. It is a single, authoritative system that all products obey. Complexity in risk management is dangerous — it creates loopholes.
+- **Guard against hidden biases and edge-case failures:** The most dangerous failure mode in trading is a smart person who is confident and wrong. Independent risk enforcement prevents this.
+- **Silent failures are worse than loud crashes:** A risk system that fails silently (allows violations it should block) is worse than one that halts everything. AegisAgent defaults to blocking on failure — fail-safe, not fail-dangerous.
+- **What fails silently here, and how would we know?** AegisAgent logs every risk event, every pre-trade check, every halt. Complete audit trail. Nothing is hidden.
+- **Separation of concerns is non-negotiable:** Risk management is separate from execution, separate from portfolio optimization, separate from signal generation. Each component has one job.
+- **Microservices over monoliths:** AegisAgent is an independent Ring 2 daemon. It can be deployed, scaled, and failed independently. Its independence is architectural, not just a design principle.
+
+### Architectural Positioning
+
+AegisAgent fits the shared spine architecture:
+
+- **Ring 2 daemon** — Would live under `services/` when implemented; class and file names derive from the naming system at build time (the `_agent` suffix is retired)
+- **Event subscriber** — Subscribes to `portfolio:*`, `execution:*`, `market:*`, `deriv:*`, `qual:*`, `intelligence:*` topics
+- **Event publisher** — Publishes to `risk:*` topics via `stream_keys.py`
+- **Independent authority** — Not called by other services. Publishes binding events that execution products must obey.
+- **DAG-compliant** — Data flows one direction: streams → risk assessment → Kafka → consumers. No cycles.
+- **APR-governed** — All risk limits, thresholds, and parameters live in `config_state` under `risk.*` namespace. No hardcoded values.
+- **Shadow-governed** — Risk enforcement cannot be shadowed (it's binary), but risk *limits* are APR-governed and adjust based on statistical validation.
+- **Fail-safe default** — If AegisAgent is unavailable, new positions are blocked. The safe default is "stop."
 
 ---
 
@@ -264,6 +286,29 @@ These are different questions with different answers and different authorities. 
 | `var_snapshots` | Daily VaR calculations |
 | `stress_test_results` | Stress scenario outcomes by date and portfolio state |
 | `margin_history` | Margin utilization over time by broker |
+
+---
+
+## Relationship to Existing Architecture
+
+AegisAgent extends the existing architecture as the independent risk layer:
+
+- **Unified Data Bus compliance** — Services never call each other. AegisAgent subscribes to relevant streams; execution products must listen to its `risk:halt` and `risk:reduce` events. No coupling beyond the bus. See `docs/data/` for bus architecture.
+- **DAG invariants preserved** — Risk assessment flows one direction: streams → analysis → Kafka → consumers. No cycles. No service touches the database except Writers/Trackers. See `docs/concepts/dag-execution.md`.
+- **APR-governed** — All risk limits, thresholds, and parameters live in `config_state` under `risk.*` namespace. No hardcoded values. See `docs/foundation/adaptive-parameter-registry.md`.
+- **Ring compliance** — Lives in Ring 2 as `services/aegis_agent.py`. See `docs/foundation/naming-system.md`.
+- **Typed events via `stream_keys.py`** — All topic keys constructed centrally. No hardcoded strings. See `src/core/stream_keys.py`.
+- **Independent authority** — Cannot be paused by other products. Only human with explicit authority can disable an AegisAgent limit. This is enforced architecturally, not by convention.
+- **Fail-safe default** — If unavailable, blocks new positions. The safe default is "stop."
+
+## Foundation Concepts Referenced
+
+- **Principles** — `docs/foundation/principles.md`: Ruthlessly eliminate complexity, guard against hidden biases, silent failures, separation of concerns
+- **Naming System** — `docs/foundation/naming-system.md`: `AegisAgent` is a product name, not a code class; the Ring 2 daemon class/file is derived per the naming system when built. `Agent` is permitted only for genuine autonomous AI agents — AegisAgent is deterministic risk enforcement, so its daemon class will be named by role (e.g. a `RiskAuditor`/`RiskTracker` category), not inherited from the product label
+- **APR** — `docs/foundation/adaptive-parameter-registry.md`: Risk limits as parameters, governed by APR
+- **Documentation System** — `docs/foundation/documentation-system.md`: Idea docs live in `ideas/`, not authoritative until verified
+- **Bus Architecture** — `docs/data/`: Unified event stream, typed events, no direct service calls
+- **DAG Execution** — `docs/concepts/dag-execution.md`: One-directional data flow, no cycles
 
 ---
 

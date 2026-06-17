@@ -10,6 +10,8 @@ One complete, verified, unbiased corpus. All Phase 131 signal bugs fixed. All Ph
 
 **Do not begin Phase 133 until Phase 131 AND Phase 132 verification gates both pass.**
 
+**35 of 35 eligible plugins** is the corpus target (CrossAssetDivergence formally excluded as architectural live-only; `_CORPUS_EXCLUDABLE = True` marker on the class). Any other zero-emission plugin at Phase 133 completion is a bug, not an exception.
+
 </domain>
 
 <decisions>
@@ -46,6 +48,8 @@ Sequence locked:
 7. Enable compression: `compress_segmentby = 'symbol,tf'`, `compress_orderby = 'signal_ts DESC'`
 8. Add compression policy: `INTERVAL '7 days'`
 
+**Writer update is mandatory with step 5:** Adding `signal_ts` to `trade_executions` as a non-nullable FK anchor breaks every existing INSERT into that table. Update `lifecycle_replay.py`'s market-track INSERT (line ~1044) to include `signal_ts`, sourced from `trade_frames.signal_ts` for the given `frame_id`. Verify with a dry-run INSERT on a test row before committing the migration. Any other writer that INSERTs into `trade_executions` must be updated in the same commit.
+
 ### D-03: Corpus rebuild execution order — fixed, follow exactly
 
 1. **TRUNCATE** using fixed `reset_pipeline_data.py` (B4 fix applied — CASCADE)
@@ -53,14 +57,16 @@ Sequence locked:
 3. **Lifecycle:** `lifecycle_replay.py --workers 8 --commit-every 500`
 4. **Verify:** `_verify_replay` must pass with `stale_unresolved=0`, `target_no_pnl=0`, `orphan_signal_events=0`
 
+**A7 cold-start after TRUNCATE:** The A7 DB seed queries `intelligence_features` for prior I3 state before the first bar of each symbol. After TRUNCATE, there are zero rows — the seed finds nothing. Bar 1 of each (symbol, TF) — 316 bars total — starts cold with ctf_score=0.0. This is correct behavior (no prior state exists) and does not indicate a broken A7 fix. The ctf_score distribution gate (≥85% of non-null rows with ctf_score > 0.05) is computed over the full corpus and these 316 cold-start bars have negligible impact.
+
 ### D-04: Corpus acceptance criteria (hard gates — all must pass before Phase 133 is complete)
 
 - `signal_events` count: ~1,036,513 (within 2% of baseline)
-- Distinct plugins firing: ≥32 of 36 (target 35/36; CrossAssetDivergence formally excluded per Phase 131 D-02)
-- All active-contract symbols present in `signal_events` (79 instruments minus FX model gap instruments until FX-specific tuning)
+- Distinct plugins firing: 35 of 35 eligible (CrossAssetDivergence formally excluded per Phase 131 D-02; any other zero is a bug)
+- All active-contract symbols present in `signal_events` (FX model-gap instruments excluded per Phase 131 D-05)
 - `context_features` coverage: ≥99%
-- `ctf_score` non-null: ≥96% (A7 fix makes this achievable; was 0.0 across all rows before fix)
-- `stopped_at_entry` outcome rate: <5% (Phase 132 stop geometry fix)
+- `ctf_score` distribution non-degenerate: ≥85% of non-null rows have `ctf_score > 0.05`. **Do not use a null check** — the broken corpus has ctf_score=0.0 (not NULL) for all rows; a fix that still produces 0.0 passes a null check but fails this gate. The 316 cold-start bars (79 symbols × 4 TFs, bar 1 each) are expected to have ctf_score=0.0 after TRUNCATE because the DB seed finds no rows to read from — this is correct behavior and does not affect the 85% gate.
+- `stopped_at_entry` outcome rate: <5% of stop exits — query `SELECT exit_reason, COUNT(*) FROM trade_executions GROUP BY 1` AFTER `lifecycle_replay.py` completes on the full corpus; `stopped_at_entry` is written by lifecycle_replay (not the backfill script) so this query is invalid before lifecycle_replay runs
 - `trade_frames` confirmed as hypertable: `SELECT * FROM timescaledb_information.hypertables WHERE hypertable_name = 'trade_frames'`
 - `setup_performance`: 0 rows expected (populated post-CounterfactualTracker v2.11)
 - `counterfactual_pnl_r`: 0 non-null expected (v2.11 dependency)
@@ -70,9 +76,9 @@ Sequence locked:
 These are prerequisites for a clean rebuild, not post-rebuild cleanup:
 - **B4** (TRUNCATE CASCADE): fix `reset_pipeline_data.py` before running TRUNCATE
 - **B5** (remove `--warmup`): dead code, confirmed no-op; remove from `run_historical_pipeline.py` before rebuild
-- **B2** (asyncpg transaction hygiene in `lifecycle_replay.py`): prevents connection-pool corruption during rebuild
-- **B3** (`feature_replay.py` stateful coverage): use `incremental_compute()` with per-symbol state accumulation — stateless shortcuts produce wrong outputs for GARCH/Kalman/HMM/BOCPD
-- **Layer D** (code hygiene): `_cfg()` → `_read_config()`, `confidence_utils.py` → `confidence.py` (39 import sites), delete phase_127 snapshot scripts, archive `migrate_signal_ledger.py`
+- **B2** (asyncpg transaction hygiene in `lifecycle_replay.py`): use `async with conn.transaction():` — asyncpg's context manager handles COMMIT/ROLLBACK including exception paths. Do NOT use manual `await conn.execute('COMMIT')` in finally blocks — if that execute raises, the transaction stays open silently
+- **B3** (`feature_replay.py` stateful coverage): use `incremental_compute()` with per-symbol state accumulation — stateless shortcuts produce wrong outputs for GARCH/Kalman/HMM/BOCPD. Note: `feature_replay.py` is the validation tool, not the main rebuild script (`run_historical_pipeline.py`); fixing it ensures the post-rebuild validation tool works correctly
+- **Layer D** (code hygiene): `_cfg()` → `_read_config()`, `confidence_utils.py` → `confidence.py` (run `grep -r "confidence_utils" .` across the entire repo — not just `src/` — to catch references in CLAUDE.md files and docs before committing), delete phase_127 snapshot scripts, archive `migrate_signal_ledger.py`
 
 ### D-06: C2 column naming archaeology is NOT needed before the rebuild
 

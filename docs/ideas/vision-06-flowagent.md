@@ -1,8 +1,13 @@
 # FlowAgent
 
-**Status:** idea
+**Status:** draft
+**Version:** 0.1
 **Created:** 2026-06-16
+**Last Updated:** 2026-06-17
 **Context:** Cross-asset positioning intelligence — where real money is committed
+**Priority:** low
+**Milestone:** future (post-v2.8)
+**Tags:** flowagent, positioning, cot, order-flow, dark-pools, gex, platform, vision
 
 ## Core Concept
 
@@ -23,7 +28,7 @@ FlowAgent embodies Renaissance principles:
 
 FlowAgent fits the shared spine architecture:
 
-- **Ring 2 daemon** — Would live as `services/flow_agent.py` when implemented
+- **Ring 2 daemon** — Would live under `services/` when implemented; class and file names derive from the naming system at build time (the `_agent` suffix is retired)
 - **Event publisher** — Publishes to `flow:*` topics via `stream_keys.py`
 - **Bus consumer** — No direct calls to/from other services
 - **DAG-compliant** — Data flows one direction: external source → flow analysis → Kafka → consumers
@@ -256,7 +261,7 @@ FlowAgent extends the existing architecture without violating invariants:
 ## Foundation Concepts Referenced
 
 - **Principles** — `docs/foundation/principles.md`: Instrument everything, earn through proof, segment relentlessly
-- **Naming System** — `docs/foundation/naming-system.md`: Ring 2 daemon, Agent as autonomous worker
+- **Naming System** — `docs/foundation/naming-system.md`: `FlowAgent` is a product name, not a code class; the Ring 2 daemon class/file is derived per the naming system when built
 - **APR** — `docs/foundation/adaptive-parameter-registry.md`: Parameter lifecycle, governance
 - **Documentation System** — `docs/foundation/documentation-system.md`: Idea docs live in `ideas/`, not authoritative until verified
 
