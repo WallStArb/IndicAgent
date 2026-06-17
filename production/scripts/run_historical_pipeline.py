@@ -1966,11 +1966,12 @@ def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
     Called automatically after every --replay-only run. If this passes, the data
     is usable for training. If it fails, wipe with --clean and investigate.
     """
-    # --- Invariant 1: was_selected uniqueness per (symbol, tf, bar_ts) ---
     all_violations: list[tuple] = []
+    total_dup_count = 0
     query_errors: list[str] = []
 
     for sym in symbols:
+        # --- Invariant 1: was_selected uniqueness per (symbol, tf, bar_ts) ---
         try:
             with conn.cursor() as cur:
                 cur.execute(
@@ -1987,25 +1988,14 @@ def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
                     """,
                     (sym,),
                 )
-                violations = cur.fetchall()
-                all_violations.extend(violations)
+                all_violations.extend(cur.fetchall())
         except Exception as error:
             msg = f"[B6] integrity check (invariant 1) for {sym} failed (query error): {error}"
             print(f"  {msg}")
             print(f"  [B6] skipping {sym} — data may be intact; audit infrastructure failed")
             query_errors.append(msg)
-            continue
 
-    if all_violations:
-        print(f"\n[INTEGRITY FAIL] was_selected > 1 per bar — {len(all_violations)} bars affected:")
-        for sym, tf, ts, cnt in all_violations:
-            print(f"  {sym}/{tf} @ {ts}: {cnt} winners")
-        sys.exit(1)
-
-    # --- Invariant 2: signal_id global uniqueness (checked per symbol) ---
-    total_dup_count = 0
-
-    for sym in symbols:
+        # --- Invariant 2: signal_id global uniqueness (checked per symbol) ---
         try:
             with conn.cursor() as cur:
                 cur.execute(
@@ -2018,14 +2008,18 @@ def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
                     """,
                     (sym,),
                 )
-                dup_count = cur.fetchone()[0]
-                total_dup_count += dup_count
+                total_dup_count += cur.fetchone()[0]
         except Exception as error:
             msg = f"[B6] integrity check (invariant 2) for {sym} failed (query error): {error}"
             print(f"  {msg}")
             print(f"  [B6] skipping {sym} — data may be intact; audit infrastructure failed")
             query_errors.append(msg)
-            continue
+
+    if all_violations:
+        print(f"\n[INTEGRITY FAIL] was_selected > 1 per bar — {len(all_violations)} bars affected:")
+        for sym, tf, ts, cnt in all_violations:
+            print(f"  {sym}/{tf} @ {ts}: {cnt} winners")
+        sys.exit(1)
 
     if total_dup_count:
         print(f"\n[INTEGRITY FAIL] {total_dup_count} duplicate signal_ids found")
