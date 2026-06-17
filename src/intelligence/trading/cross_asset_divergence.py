@@ -10,6 +10,11 @@ Direction is regime-biased:
 All state lives in frames['cross_asset'] — plugin is fully stateless.
 Consumes cross-asset features published by cross_asset_service.py (Plan 037-01).
 
+# live-only: requires cross_asset_service real-time state (frames['cross_asset']).
+# Historical replay processes single symbols; cross-instrument bar arrays are not
+# pre-loaded. _CORPUS_EXCLUDABLE = True — zero emissions in replay is architectural,
+# not a bug. See Phase 131 D-02.
+
 Renaissance principles applied:
 - Segment relentlessly: regime-biased direction, not a single-direction rule.
 - Instrument everything: multi-pair confirmation, multi-TF confirmation,
@@ -71,6 +76,7 @@ class CrossAssetDivergencePlugin:
     """
 
     name: str = "trad_CrossAssetDivergence"
+    _CORPUS_EXCLUDABLE: bool = True  # live-only: requires cross_asset_service real-time state
     regime_type: str = "any"
     outputs: frozenset[str] = frozenset(
         {
