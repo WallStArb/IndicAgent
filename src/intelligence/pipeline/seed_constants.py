@@ -18,6 +18,7 @@ _I3_SEED_QUERY: str = """
 """
 
 # psycopg2 placeholder variant (%s) — used by run_historical_pipeline.py replay path
+# If you add parameters to `_I3_SEED_QUERY`, update the `.replace()` chain below to match.
 _I3_SEED_QUERY_PG: str = _I3_SEED_QUERY.replace("$1", "%s").replace("$2", "%s")
 
 # Column order matches _I3_SEED_QUERY SELECT list — used to build dicts from positional rows.

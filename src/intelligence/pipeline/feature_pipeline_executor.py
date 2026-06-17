@@ -209,6 +209,13 @@ class FeaturePipelineExecutor:
                 timeframes=timeframes,
             )
 
+        expected = len(symbols) * len(timeframes)
+        if seeded_count < expected:
+            self._logger.warning(
+                "seed: partial — some (symbol, tf) pairs had no prior data",
+                seeded=seeded_count,
+                expected=expected,
+            )
         self._logger.info(
             "seeded _last_events from DB",
             count=seeded_count,
