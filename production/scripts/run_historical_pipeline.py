@@ -1613,6 +1613,15 @@ def replay_symbol(
     Lower-TF bar history is available as cross-TF context when processing
     higher timeframes (same as live services).
 
+    # A4 CONFIRMED (2026-06-17): asset_class=None for ALL symbols (NQM6, YMM6, ESM6, etc.)
+    # in all_features throughout replay_symbol(). Root cause: live pipeline injects asset_class
+    # via instrument_map (built from Settings.Instrument objects in FeaturePipelineExecutor),
+    # but replay_symbol() never constructs this lookup and passes no instrument context to
+    # run_i7_and_persist(). This is NOT specific to rolled contracts — active front-month
+    # contracts are equally affected. Fix: build symbol→asset_class lookup from
+    # contract_metadata + instruments tables at replay_symbol() startup and inject into
+    # all_features before run_i7_and_persist(). See plan 131-03-PLAN.md T-01.
+
     Args:
         since: If provided, only replay bars on or after this timestamp.
         skip_signals: If True, run I1→I6 and write intelligence_features but
