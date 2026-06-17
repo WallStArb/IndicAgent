@@ -1645,8 +1645,29 @@ def replay_symbol(
     # doesn't kill the connection during the multi-minute processing loop.
     db_conn.commit()
 
+    # A4 fix: resolve asset_class for this symbol from contract_metadata (futures rolls)
+    # or instruments (equities/ETFs/FX). Mirrors FeaturePipelineExecutor.execute():332.
+    # replay_symbol() never builds an instrument_map (unlike the live pipeline which injects
+    # asset_class via FeaturePipelineExecutor DI at startup). Without this, trade_framer
+    # _min_zone_width_atr() uses default thresholds for ALL replay signals — A4 CONFIRMED
+    # in plan 131-01 (affects ALL symbols, not just rolled contracts).
+    _symbol_asset_class: str | None = None
+    with db_conn.cursor() as _cur:
+        _cur.execute(
+            """SELECT COALESCE(cm.asset_class, i.asset_class)
+               FROM (SELECT %s::text AS sym) s
+               LEFT JOIN contract_metadata cm ON cm.symbol = s.sym
+               LEFT JOIN instruments i ON i.symbol = s.sym
+               LIMIT 1""",
+            (symbol,),
+        )
+        _row = _cur.fetchone()
+        if _row and _row[0] is not None:
+            _symbol_asset_class = str(_row[0])
+
     # Shared state across timeframes for cross-TF context
-    bar_histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
+    # 800 bars: SessionLevelsPlugin needs _SESSION_BARS=390 current + 390 prior window
+    bar_histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=800))
     intelligence_cache: dict[str, dict] = {}
 
     # Per-(plugin_name, symbol, tf) state dict — isolates stateful plugins (GARCH/HMM/Kalman)
@@ -1709,6 +1730,9 @@ def replay_symbol(
             all_features = precomputed_features.get((tf, ts_utc))
             if not all_features:
                 continue
+            # A4 fix: inject asset_class for precomputed path (not stored in intelligence_features).
+            if _symbol_asset_class is not None:
+                all_features["asset_class"] = _symbol_asset_class
             written_feature_ts = ts
         else:
             # I1 — pass pre-built df
@@ -1737,6 +1761,10 @@ def replay_symbol(
 
             # Merge all features for I7
             all_features = {**i1_features, **intelligence}
+            # A4 fix: inject asset_class resolved at function start; mirrors
+            # FeaturePipelineExecutor.execute():332 which injects via instrument_map DI.
+            if _symbol_asset_class is not None:
+                all_features["asset_class"] = _symbol_asset_class
 
             # Build IntelligenceEvent and buffer for batch insert
             event = _build_intelligence_event(bar, i1_features, tiered, symbol, tf, ts)
