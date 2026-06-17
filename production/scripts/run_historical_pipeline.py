@@ -89,6 +89,15 @@ from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.service_utils import TF_SECONDS, min_bars_for_tf
 from src.core.service_utils import bar_close_ts as compute_bar_close_ts
+from src.intelligence.pipeline.seed_constants import (
+    _I3_NUMERIC_KEYS as _SEED_NUMERIC_KEYS,
+)
+from src.intelligence.pipeline.seed_constants import (
+    _I3_SEED_COLS as _SEED_COLS,
+)
+from src.intelligence.pipeline.seed_constants import (
+    _I3_SEED_QUERY_PG as _SEED_QUERY_PG,
+)
 from src.intelligence.pipeline.signal_processor import annotate_signal_with_context
 from src.intelligence.plugins import registry
 from src.intelligence.plugins.mixins import incremental_compute
@@ -1411,9 +1420,6 @@ ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 """
 
 _TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
-_SEED_NUMERIC_KEYS: frozenset[str] = frozenset(
-    {"trend_direction", "trend_strength", "trend_bars_elapsed"}
-)
 
 
 def detect_gaps(
@@ -1695,20 +1701,9 @@ def replay_symbol(
         # A7 fix: seed intelligence_cache with prior I3 data from DB so I6 has
         # non-None trend fields on bar 1. Without this seed, ctf_score=0 for all bars.
         _standard_tfs = ["1m", "5m", "15m", "1h"]
-        _seed_cols = ("trend_direction", "trend_strength", "trend_bars_elapsed", "trend_confirmed")
         for _seed_tf in _standard_tfs:
             with db_conn.cursor() as _cur:
-                _cur.execute(
-                    """SELECT regime_features->>'trend_direction'    AS trend_direction,
-                              regime_features->>'trend_strength'     AS trend_strength,
-                              regime_features->>'trend_bars_elapsed' AS trend_bars_elapsed,
-                              regime_features->>'trend_confirmed'    AS trend_confirmed
-                         FROM intelligence_features
-                        WHERE symbol = %s AND tf = %s
-                        ORDER BY ts DESC
-                        LIMIT 1""",
-                    (symbol, _seed_tf),
-                )
+                _cur.execute(_SEED_QUERY_PG, (symbol, _seed_tf))
                 _seed_row = _cur.fetchone()
             if _seed_row and any(_seed_row):
                 # Filter None values — extract_trend_sign() handles missing keys as 0.
@@ -1716,7 +1711,7 @@ def replay_symbol(
                 # is_num() in extract_trend_sign() passes (it requires isinstance(x, float)).
                 _seed_dict = {
                     k: (float(v) if k in _SEED_NUMERIC_KEYS and v is not None else v)
-                    for k, v in zip(_seed_cols, _seed_row)
+                    for k, v in zip(_SEED_COLS, _seed_row)
                     if v is not None
                 }
                 if symbol not in intelligence_cache:
