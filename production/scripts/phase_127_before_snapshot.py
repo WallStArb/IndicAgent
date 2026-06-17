@@ -52,31 +52,26 @@ async def _capture_baseline(conn) -> dict:
 
     # Cold-start metrics
     # Cold-start = context_features IS NULL or '{}'::jsonb
-    cold_start_count = await conn.fetchval(
-        """
+    cold_start_count = await conn.fetchval("""
         SELECT COUNT(*)
         FROM signal_events
         WHERE context_features IS NULL OR context_features = '{}'::jsonb
-        """
-    )
+        """)
     non_cold_start_total = total_signal_events - cold_start_count
 
     # Coverage on non-cold-start subset
     if non_cold_start_total > 0:
-        non_cold_start_with_features = await conn.fetchval(
-            """
+        non_cold_start_with_features = await conn.fetchval("""
             SELECT COUNT(*)
             FROM signal_events
             WHERE context_features IS NOT NULL AND context_features != '{}'::jsonb
-            """
-        )
+            """)
         coverage_pct = 100.0 * non_cold_start_with_features / non_cold_start_total
     else:
         coverage_pct = 0.0
 
     # Per-setup breakdown
-    setup_rows = await conn.fetch(
-        """
+    setup_rows = await conn.fetch("""
         SELECT
             se.setup_plugin,
             se.is_shadow,
@@ -91,8 +86,7 @@ async def _capture_baseline(conn) -> dict:
         LEFT JOIN trade_executions te ON te.frame_id = tf.frame_id
         GROUP BY se.setup_plugin, se.is_shadow
         ORDER BY se.setup_plugin, se.is_shadow
-        """
-    )
+        """)
 
     setups = []
     for row in setup_rows:
@@ -172,7 +166,9 @@ async def main():
             print(f"  trade_frames: {baseline['totals']['trade_frames']:,}")
             print(f"  trade_executions: {baseline['totals']['trade_executions']:,}")
             print(f"  cold_start_count: {baseline['cold_start']['cold_start_count']:,}")
-            print(f"  coverage (non-cold-start): {baseline['cold_start']['context_features_coverage_pct']:.2f}%")
+            print(
+                f"  coverage (non-cold-start): {baseline['cold_start']['context_features_coverage_pct']:.2f}%"
+            )
             print(f"  setups: {len(baseline['setups'])}")
 
             JOB_COMPLETED_TOTAL.add(1, {"job": "phase-127-before-snapshot", "status": "success"})
