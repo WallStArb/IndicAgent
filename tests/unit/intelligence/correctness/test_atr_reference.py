@@ -14,7 +14,9 @@ See: .planning/phases/093-mathematical-correctness-audit/093-ATR-WILDER-INVESTIG
 from __future__ import annotations
 
 import pandas as pd
-import pandas_ta  # noqa: F401 (used via pandas accessor below)
+import pytest
+
+pandas_ta = pytest.importorskip("pandas_ta", reason="pandas-ta not installed (test-only oracle)")
 
 from src.intelligence.features.i1_indicators.atr import ATRPlugin
 from tests.unit.intelligence.correctness.conftest import (
