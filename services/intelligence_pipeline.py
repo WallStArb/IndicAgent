@@ -492,6 +492,19 @@ class IntelligencePipeline(BaseDaemon):
         ("weights.divergence_stack.obv", 0.15),
         ("weights.divergence_stack.cmf", 0.10),
         ("threshold.vwap_reclaim.vol_threshold", 1.2),
+        # --- migration 147: Phase 132 adaptive buffer coefficients (coupled piecewise — tune as a group) ---
+        ("feature.trade_framer.adaptive_buffer_vol_ratio_min", 0.70),
+        ("feature.trade_framer.adaptive_buffer_vol_ratio_max", 1.50),
+        ("feature.trade_framer.adaptive_buffer_low_vol_base", 0.80),
+        ("feature.trade_framer.adaptive_buffer_low_vol_slope_num", 0.20),
+        ("feature.trade_framer.adaptive_buffer_low_vol_slope_den", 0.30),
+        ("feature.trade_framer.adaptive_buffer_high_vol_slope_num", 0.35),
+        ("feature.trade_framer.adaptive_buffer_high_vol_slope_den", 0.50),
+        ("feature.trade_framer.adaptive_buffer_hurst_trend_threshold", 0.55),
+        ("feature.trade_framer.adaptive_buffer_hurst_mr_threshold", 0.45),
+        ("feature.trade_framer.adaptive_buffer_hurst_tighten_rate", 0.16),
+        ("feature.trade_framer.adaptive_buffer_garch_shock_threshold", 3.0),
+        ("feature.trade_framer.adaptive_buffer_garch_shock_mult", 1.35),
     )
 
     async def _prewarm_threshold_config(self) -> None:
