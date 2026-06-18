@@ -679,8 +679,38 @@ class TestVolumeProfileTargets:
 # ---------------------------------------------------------------------------
 
 
+_TARGET_MAX_ATR_SEEDS: dict[str, float] = {
+    "feature.trade_framer.target_max_atr": 8.0,
+    "feature.trade_framer.target_max_atr_": 8.0,
+    "feature.trade_framer.target_max_atr_1m": 3.0,
+    "feature.trade_framer.target_max_atr_5m": 5.0,
+    "feature.trade_framer.target_max_atr_15m": 7.0,
+    "feature.trade_framer.target_max_atr_1h": 8.0,
+    "feature.trade_framer.target_max_atr_4h": 8.0,
+    "feature.trade_framer.target_max_atr_1d": 8.0,
+    "feature.trade_framer.target_min_atr": 0.5,
+}
+
+
+class _PerTfMockConfigService:
+    """Permissive mock returning per-TF seed values; falls back to default for unknown keys."""
+
+    def get_sync(self, key: str, default: float) -> float:
+        return _TARGET_MAX_ATR_SEEDS.get(key, default)
+
+
 class TestPerTfAtrCap:
-    """Tests for ATR_TARGET_MAX_MULTIPLIER_BY_TF — tighter caps for lower timeframes."""
+    """Tests for target_max_atr APR keys — tighter caps for lower timeframes (migration 152)."""
+
+    def setup_method(self):
+        import src.intelligence.trading.trade_framer as tf_module
+
+        tf_module.set_config_service(_PerTfMockConfigService())
+
+    def teardown_method(self):
+        import src.intelligence.trading.trade_framer as tf_module
+
+        tf_module.set_config_service(None)
 
     def test_1m_rejects_target_beyond_3x_atr(self):
         """1m: target at 4x ATR rejected; target at 2x ATR accepted."""

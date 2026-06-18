@@ -96,17 +96,6 @@ EPSILON_TOLERANCE = (
 # NOT migrated to APR — intentionally hardcoded:
 # ATR_EMERGENCY_FALLBACK_PCT: defensive fallback, not a tunable parameter
 ATR_EMERGENCY_FALLBACK_PCT = 0.001  # 0.1% of price as emergency ATR
-# ATR_TARGET_MAX_MULTIPLIER: per-TF dict overrides this; constant is the final default
-ATR_TARGET_MAX_MULTIPLIER = 8.0  # Maximum target distance: entry ± ATR×8.0
-# ATR_TARGET_MAX_MULTIPLIER_BY_TF: dict structure; deferred to future phase for migration
-ATR_TARGET_MAX_MULTIPLIER_BY_TF: dict[str, float] = {
-    "1m": 3.0,
-    "5m": 5.0,
-    "15m": 7.0,
-    "1h": 8.0,
-    "4h": 8.0,
-    "1d": 8.0,
-}
 
 
 def _adaptive_buffer(features: dict, base_mult: float, regime_type: str | None = None) -> float:
@@ -160,7 +149,7 @@ def _adaptive_buffer(features: dict, base_mult: float, regime_type: str | None =
     return min(result, base_mult * hard_cap)
 
 
-# STRUCTURE_SNAP_PROXIMITY_ATR -> feature.trade_framer.structure_snap_proximity_atr (APR, migration 145)
+# STRUCTURE_SNAP_PROXIMITY_ATR: migrated to APR — _cfg("feature.trade_framer.structure_snap_proximity_atr", 1.5)
 # Proximity gate: if structural stop is within this many effective-ATR units of the
 # ATR fallback stop, classify as "structure_snap" (structure is close to ATR anyway).
 # Signals beyond this boundary are "garch_adaptive" (structure diverges from ATR).
@@ -735,7 +724,8 @@ def _collect_target_candidates(
         return []
 
     tf = features.get("timeframe", "")
-    tf_max_mult = ATR_TARGET_MAX_MULTIPLIER_BY_TF.get(tf, ATR_TARGET_MAX_MULTIPLIER)
+    _default_max = _cfg("feature.trade_framer.target_max_atr", 8.0)
+    tf_max_mult = _cfg(f"feature.trade_framer.target_max_atr_{tf}", _default_max)
 
     _target_min = _cfg("feature.trade_framer.target_min_atr", 0.5)
     if direction == 1:
