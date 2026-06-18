@@ -95,7 +95,7 @@ Context gathered for all three phases. Key decisions locked:
 - A7 CTF fix = DB seed at replay startup (`_seed_last_events_from_db()` in feature_pipeline_executor)
 - C2 column naming already resolved — DB columns are functional names (no rename migration needed)
 
-**Resume:** `/gsd-execute-phase 133` (once Phase 131 + 132 verification gates both pass)
+**Resume:** `/gsd-execute-phase 134` (once Phase 132 verification gate passes) → then `/gsd-execute-phase 133`
 
 ### Previous session (2026-06-17) — Phase 133 planned; Phase 132 executing in parallel session
 
@@ -141,9 +141,10 @@ Then: `/clear` then `/gsd-execute-phase 121` (Wave 2 — validation report)
 
 Phase: 132 (stop-zone-geometry-apr-migration) — EXECUTING
 Plan: 1 of 5
-Phase: 133 (clean-corpus-rebuild) — PLANNED (7 plans, 5 waves)
+Phase: 134 (signal-classification-type-safety) — NEXT (runs before 133; 3 plans, 3 waves)
+Phase: 133 (clean-corpus-rebuild) — PLANNED after 134 (7 plans, 5 waves)
 Status: Executing Phase 132
-Last activity: 2026-06-18 -- Phase 132 execution started
+Last activity: 2026-06-18 -- reordered 134 before 133 (lifecycle_replay outcome write absorbed by 134)
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
