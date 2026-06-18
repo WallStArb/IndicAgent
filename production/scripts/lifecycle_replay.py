@@ -654,8 +654,8 @@ async def _process_symbol_tf(
                                 current_mae=m_mae,
                                 current_mfe=m_mfe,
                             )
-                        except Exception as exc:
-                            logger.warning("market eval error %s: %s", sid, exc)
+                        except Exception as error:
+                            logger.warning("market eval error %s: %s", sid, error)
                             m_trans = None
                             stats["errors"] += 1
 
@@ -725,8 +725,8 @@ async def _process_symbol_tf(
                             current_mae=z_mae,
                             current_mfe=z_mfe,
                         )
-                    except Exception as exc:
-                        logger.warning("zone eval error %s: %s", sid, exc)
+                    except Exception as error:
+                        logger.warning("zone eval error %s: %s", sid, error)
                         z_trans = None
                         stats["errors"] += 1
 
@@ -939,8 +939,8 @@ async def _process_symbol_tf(
 
         await db.pool.release(conn)
 
-    except Exception as exc:
-        logger.error("Error processing %s %s: %s", symbol, timeframe, exc)
+    except Exception as error:
+        logger.error("Error processing %s %s: %s", symbol, timeframe, error)
         stats["errors"] += 1
         try:
             if not dry_run:
