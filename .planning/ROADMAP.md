@@ -1338,8 +1338,8 @@ Plans:
 
 Plans:
 
-- [ ] 132-01-PLAN.md — A2 measurement: 2-week sample replay + lifecycle_replay, measure stopped_at_entry rate, audit zone_engine for narrow-zone bypass, write A2 disposition (Wave 1)
-- [ ] 132-02-PLAN.md — APR migration 144: 19 module-level constants → _cfg() + _THRESHOLD_KEYS; fix run_historical_pipeline.py config wiring gap; seed-value regression test (Wave 1)
+- [x] 132-01-PLAN.md — A2 measurement: 2-week sample replay + lifecycle_replay, measure stopped_at_entry rate, audit zone_engine for narrow-zone bypass, write A2 disposition (Wave 1)
+- [x] 132-02-PLAN.md — APR migration 144: 19 module-level constants → _cfg() + _THRESHOLD_KEYS; fix run_historical_pipeline.py config wiring gap; seed-value regression test (Wave 1)
 - [ ] 132-03-PLAN.md — APR migration 145: 12 adaptive buffer piecewise coefficients (coupled, tune-as-a-group); anchor-point regression test (Wave 2, depends 02)
 - [ ] 132-04-PLAN.md — APR migration 146: 4 per-asset-class stop floor keys (commodity 1.5, others 1.0) + _min_stop_multiplier_floor router; 1-tick gate preserved (Wave 3, depends 03)
 - [ ] 132-05-PLAN.md — Verification: 1-month replay + stopped_at_entry < 5% gate + 35-key audit + bare-literal audit + commit/push (Wave 4, depends 01-04)
