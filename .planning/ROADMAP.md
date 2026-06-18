@@ -1347,32 +1347,13 @@ Plans:
 </details>
 
 <details>
-<summary>📋 Phase 133: Clean Corpus Rebuild — PLANNED</summary>
-
-**Goal:** One complete, verified, unbiased corpus. All Phase 131 signal bugs fixed. All Phase 132 stop geometry correct. Schema migrated (trade_frames hypertable). Scripts cleaned. Full rebuild produces a corpus satisfying ML training acceptance criteria. ML training is unblocked after this phase.
-
-**Prerequisite gate:** Do not begin until Phase 131 AND Phase 132 verification gates both pass.
-
-**Plans:** 7 plans in 5 waves
-
-Plans:
-
-- [ ] 133-01-PLAN.md — C2 column naming verification + MEMORY.md closure (Wave 1, parallel)
-- [ ] 133-02-PLAN.md — Script cleanup: B2/B3/B4/B5/D items before TRUNCATE (Wave 1, parallel)
-- [ ] 133-03-PLAN.md — C1 trade_frames hypertable migration 146 + lifecycle_replay writer update (Wave 2, depends 02)
-- [ ] 133-04-PLAN.md — TRUNCATE + full backfill replay (Wave 3, depends 01+02+03)
-- [ ] 133-05-PLAN.md — Lifecycle replay + _verify_replay 0/0/0 gate (Wave 4, depends 04)
-- [ ] 133-06-PLAN.md — Corpus acceptance criteria: all D-04 hard gates + 133-ACCEPTANCE-REPORT.md (Wave 5, depends 05)
-- [ ] 133-07-PLAN.md — Final cleanup, unit tests, commit, push, phase closure (Wave 5, parallel with 06, depends 05)
-
-</details>
-
-<details>
 <summary>📋 Phase 134: Signal Classification Type Safety — PLANNED</summary>
 
 **Goal:** All classification columns in the signal ledger are type-enforced end-to-end. `SignalOutcome` persisted to `trade_executions.outcome` (eliminates re-derivation and the stopped_at_entry query bug). `EntryType` Python enum created (replaces 15+ string literals). PostgreSQL ENUM types enforce valid values at write time across all classification columns. No classification can be written silently with an invalid value, and no gate query can trivially pass by referencing a value that doesn't exist.
 
 **Prerequisite gate:** Phase 132 complete (trade_framer APR migration done; signal ledger schema stable).
+
+**Sequencing note:** Runs BEFORE Phase 133 (clean corpus rebuild). Phase 134 Plan 01 wires `lifecycle_replay.py` to write `outcome` directly — Phase 133's rebuild then writes outcomes in a single pass rather than requiring a backfill. Phase 134 Plan 03's PG ENUM constraints on `signal_events.status` and `trade_executions.outcome` enforce valid values at write time during the corpus rebuild.
 
 **Plans:** 3 plans in 3 waves
 
@@ -1381,5 +1362,28 @@ Plans:
 - [ ] 134-01-PLAN.md — Persist SignalOutcome to trade_executions: add outcome column, wire lifecycle_replay, backfill historical rows (Wave 1)
 - [ ] 134-02-PLAN.md — EntryType enum: create Python enum, replace 15+ string literals in trade_framer.py, add DB CHECK constraint (Wave 2, depends 01)
 - [ ] 134-03-PLAN.md — PostgreSQL ENUM type sweep: convert exit_reason, outcome, entry_type, signal_events.status to PG ENUM types; remove phantom values; verification (Wave 3, depends 01+02)
+
+</details>
+
+<details>
+<summary>📋 Phase 133: Clean Corpus Rebuild — PLANNED</summary>
+
+**Goal:** One complete, verified, unbiased corpus. All Phase 131 signal bugs fixed. All Phase 132 stop geometry correct. All Phase 134 type enforcement in place. Schema migrated (trade_frames hypertable). Scripts cleaned. Full rebuild produces a corpus satisfying ML training acceptance criteria. ML training is unblocked after this phase.
+
+**Prerequisite gate:** Do not begin until Phase 131, Phase 132, AND Phase 134 verification gates all pass.
+
+**Sequencing note:** Runs AFTER Phase 134. lifecycle_replay.py already writes `outcome` (Phase 134 Plan 01); PG ENUM constraints already enforce valid classification values at write time (Phase 134 Plan 03). Plan 03's "lifecycle_replay writer update" is now absorbed by Phase 134 Plan 01 — Plan 03 is hypertable migration only.
+
+**Plans:** 7 plans in 5 waves
+
+Plans:
+
+- [ ] 133-01-PLAN.md — C2 column naming verification + MEMORY.md closure (Wave 1, parallel)
+- [ ] 133-02-PLAN.md — Script cleanup: B2/B3/B4/B5/D items before TRUNCATE (Wave 1, parallel)
+- [ ] 133-03-PLAN.md — C1 trade_frames hypertable migration (Wave 2, depends 02)
+- [ ] 133-04-PLAN.md — TRUNCATE + full backfill replay (Wave 3, depends 01+02+03)
+- [ ] 133-05-PLAN.md — Lifecycle replay + _verify_replay 0/0/0 gate (Wave 4, depends 04)
+- [ ] 133-06-PLAN.md — Corpus acceptance criteria: all D-04 hard gates + 133-ACCEPTANCE-REPORT.md (Wave 5, depends 05)
+- [ ] 133-07-PLAN.md — Final cleanup, unit tests, commit, push, phase closure (Wave 5, parallel with 06, depends 05)
 
 </details>
