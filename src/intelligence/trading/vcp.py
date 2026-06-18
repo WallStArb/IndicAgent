@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import (
+from .confidence import (
     clamp01,
     compose_confidence,
     get_min_regime_weight,

@@ -459,7 +459,7 @@ class TestDivergenceStack:
         Phase 118: replaced single weighted-score formula with 4-factor composite
         (base_score, purity, breadth, freshness). Contract: in [0.0, CONF_CEIL].
         """
-        from src.intelligence.trading.confidence_utils import CONF_CEIL
+        from src.intelligence.trading.confidence import CONF_CEIL
 
         plugin = self._plugin()
         features = {

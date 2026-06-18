@@ -222,7 +222,7 @@ class MLEvaluator(Evaluator):
 
         raw: dict[str, Any] = {}
 
-        # --- Shadow feature keys (25 keys from confidence_utils capture_signal_features) ---
+        # --- Shadow feature keys (25 keys from confidence.py capture_signal_features) ---
         # At inference time these come from the live context tier dicts.
         i6 = context.i6
         smc = context.smc

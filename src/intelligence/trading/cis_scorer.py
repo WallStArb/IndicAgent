@@ -42,7 +42,7 @@ def set_config_service(config: Any) -> None:
     """Inject ConfigService for APR-backed CIS gate constants.
 
     Called by intelligence_pipeline._prewarm_threshold_config() at startup.
-    Same pattern as confidence_utils.set_config_service().
+    Same pattern as confidence.set_config_service().
     """
     global _config_service
     _config_service = config

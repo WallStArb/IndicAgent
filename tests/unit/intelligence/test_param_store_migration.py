@@ -1,11 +1,11 @@
-"""Tests for module-level config getter functions in confidence_utils and volume_profile_utils."""
+"""Tests for module-level config getter functions in confidence and volume_profile_utils."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
 import src.intelligence.trading.aggregator as agg
-import src.intelligence.trading.confidence_utils as cu
+import src.intelligence.trading.confidence as cu
 import src.intelligence.trading.volume_profile_utils as vpu
 import src.intelligence.trading.zone_engine as ze
 
@@ -92,7 +92,7 @@ def test_zone_strength_weight_returns_config_value():
 
 import pytest
 
-from src.intelligence.trading.confidence_utils import _validate_weights_sum
+from src.intelligence.trading.confidence import _validate_weights_sum
 
 
 def test_validate_weights_sum_passes_on_exact():
