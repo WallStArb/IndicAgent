@@ -639,6 +639,33 @@ class IntelligencePipeline(BaseDaemon):
             await self._db.close()
         self.logger.info("agent.teardown_complete")
 
+    def _register_signal_handlers(self) -> None:
+        """Override to also stop the Kafka consumer on SIGTERM/SIGINT.
+
+        The base handler only sets _stop_event, which has no effect while
+        _process_loop is blocked inside the async-for over messages(). Stopping
+        the consumer closes it and causes StopAsyncIteration, unblocking the loop.
+        """
+        import signal as _signal_mod
+
+        loop = asyncio.get_running_loop()
+
+        async def _shutdown_consumer() -> None:
+            self._stop_event.set()
+            if hasattr(self, "_kafka_consumer"):
+                try:
+                    await self._kafka_consumer.stop()
+                except Exception as error:
+                    self.logger.warning(
+                        "intelligence_pipeline.shutdown_consumer_error", error=str(error)
+                    )
+
+        def _signal_handler() -> None:
+            loop.create_task(_shutdown_consumer())
+
+        for sig in (_signal_mod.SIGTERM, _signal_mod.SIGINT):
+            loop.add_signal_handler(sig, _signal_handler)
+
     def _on_hmm_sigusr1(self) -> None:
         self.logger.info("intelligence_pipeline.sigusr1_received")
         task = asyncio.create_task(self._reload_hmm_parameters())
@@ -672,6 +699,8 @@ class IntelligencePipeline(BaseDaemon):
                     if not isinstance(payload, dict):
                         continue
                     self._record_message_consumed()
+                    if not self.running:
+                        break
                     try:
                         if _topic == _cross_asset_topic:
                             tf = payload.get("tf", "1m")
