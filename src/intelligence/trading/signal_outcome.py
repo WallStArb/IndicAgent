@@ -21,6 +21,7 @@ class SignalOutcome(str, Enum):
     TARGET_FULL = "target_full"
     TTL_EXPIRED_AHEAD = "ttl_expired_ahead"
     TTL_EXPIRED_BEHIND = "ttl_expired_behind"
+    CONDITION_EXPIRED = "condition_expired"  # emitted by lifecycle_tracker staleness exit (lifecycle_tracker.py:379)
 
 
 # Outcome taxonomy groupings — single source of truth for win/loss classification
@@ -43,5 +44,6 @@ TTL_OUTCOMES: frozenset[str] = frozenset(
     {
         SignalOutcome.TTL_EXPIRED_AHEAD,
         SignalOutcome.TTL_EXPIRED_BEHIND,
+        SignalOutcome.CONDITION_EXPIRED,
     }
 )
