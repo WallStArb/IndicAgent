@@ -53,6 +53,17 @@ _fw_meter = _otel_metrics.get_meter("indicagent")
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
+# Phase-130 CTF columns that must exist in intelligence_features before startup.
+# If any are absent the schema migration has not been applied and writes will fail silently.
+_REQUIRED_COLUMNS: frozenset[str] = frozenset(
+    {
+        "ctf_score",
+        "ctf_trend_alignment",
+        "ctf_structure_alignment",
+        "ctf_regime_agreement",
+    }
+)
+
 BATCH_SIZE: int = 50
 FLUSH_INTERVAL_SECS: float = 5.0
 CONSUMER_GROUP: str = "feature_writer_group"
@@ -214,7 +225,15 @@ def _record_to_insert_params(
             exclude_none=True
         ),  # $12 i4 (I4Context: GARCH, Kalman, AVWAP, VP, SessionContext)
         event.smc.model_dump(exclude_none=True),  # $13 smc
-        event.i6.model_dump(exclude_none=True),  # $14 cross_timeframe_context
+        event.i6.model_dump(  # $14 cross_timeframe_context
+            exclude_none=True,
+            exclude={
+                "ctf_score",
+                "ctf_trend_alignment",
+                "ctf_structure_alignment",
+                "ctf_regime_agreement",
+            },
+        ),
         i2_data,  # $15 i2
         [s.model_dump() for s in record.ranked_signals],  # $16 trading_signals
         event.bar_close_ts,  # $17 bar_close_ts
@@ -377,9 +396,31 @@ class FeatureWriter(BaseWriter):
             flush_ms = (__import__("time").perf_counter() - _fw_t0) * 1000
             span.set_attribute(ATTR_FLUSH_MS, flush_ms)
 
+    async def _verify_schema(self) -> None:
+        """Pre-flight: confirm Phase-130 CTF columns exist in intelligence_features.
+
+        Raises RuntimeError immediately (before Kafka start) if any column is absent,
+        converting a silent multi-hour data-loss failure into a loud startup crash.
+        table_schema filter is mandatory - without it, same-named tables in other
+        schemas cause false negatives.
+        """
+        rows = await self.db_manager.fetch(
+            "SELECT column_name FROM information_schema.columns"
+            " WHERE table_name = 'intelligence_features' AND table_schema = 'public'"
+        )
+        existing = {row["column_name"] for row in rows}
+        missing = _REQUIRED_COLUMNS - existing
+        if missing:
+            raise RuntimeError(
+                f"intelligence_features schema mismatch - missing columns:"
+                f" {sorted(missing)}. Run migration 130"
+                f" (production/migrations/130_promote_ctf_columns.sql)."
+            )
+
     async def _setup(self) -> None:
         """Connect DB and start Kafka consumer."""
         await self._connect_database()
+        await self._verify_schema()
         await self._setup_kafka_clients()
 
     async def _run(self) -> None:
