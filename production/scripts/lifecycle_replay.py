@@ -659,7 +659,8 @@ async def _process_symbol_tf(
                             m_trans = None
                             stats["errors"] += 1
 
-                        if m_trans and m_trans.outcome is not None:
+                        if m_trans and m_trans.exit_price is not None:
+                            # Exited (stop or target) — write to trade_executions
                             m_entry_at = market_activated_at.get(sid)
                             m_bit = (
                                 int((bar_ts - m_entry_at).total_seconds() / tf_secs)
@@ -667,6 +668,10 @@ async def _process_symbol_tf(
                                 else 0
                             )
                             m_outcome = m_trans.outcome
+                            if m_outcome is None:
+                                # Stop-loss exit: classify outcome from mfe/bars
+                                m_outcome = _classify_stop_outcome(m_mfe, m_bit)
+                            m_exit_reason = "stop_loss" if m_trans.outcome is None else None
                             stats["market"][m_outcome] = stats["market"].get(m_outcome, 0) + 1
                             pending_writes.append(
                                 (
@@ -678,6 +683,7 @@ async def _process_symbol_tf(
                                         "market_entry_at": m_entry_at,
                                         "market_entry_exit_price": m_trans.exit_price,
                                         "market_entry_exit_at": bar_ts,
+                                        "market_entry_exit_reason": m_exit_reason,
                                         "market_entry_pnl_r": m_trans.pnl_r,
                                         "market_entry_mae": m_trans.mae,
                                         "market_entry_mfe": m_trans.mfe,
@@ -1039,6 +1045,8 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
     # INSERT trade_executions with market entry/exit fields
     for sid, data in markets:
         m_outcome = _enum_value(data.get("market_entry_outcome"))
+        # exit_reason: explicit stop_loss label takes priority; otherwise use outcome value
+        m_exit_reason = data.get("market_entry_exit_reason") or m_outcome
         # Compute execution_id deterministically from signal_id + 'market'
         execution_id = str(uuid.uuid5(_FRAME_ID_NS, f"{sid}:market"))
         frame_id = _make_frame_id(sid, "at_close")
@@ -1061,7 +1069,7 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
             data.get("market_entry_mae"),
             data.get("market_entry_mfe"),
             data.get("market_entry_bars_in_trade"),
-            m_outcome,
+            m_exit_reason,
             data.get("market_entry_at"),
             data.get("market_entry_exit_at"),
             m_outcome,
