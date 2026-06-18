@@ -374,12 +374,12 @@ def _vp_regime_active(features: dict[str, Any]) -> bool:
     When True, VP candidates are elevated above standard ATR-range targets.
     Returns False if VP distance fields are absent (no VP data available).
     """
+    threshold = _cfg("feature.trade_framer.vp_proximity_atr", 0.5)
     d_vah = features.get("distance_to_vah_atr")
-    # Early exit: check VAH first (common case)
-    if d_vah is not None and float(d_vah) < _cfg("feature.trade_framer.vp_proximity_atr", 0.5):
+    if d_vah is not None and float(d_vah) < threshold:
         return True
     d_val = features.get("distance_to_val_atr")
-    return d_val is not None and float(d_val) < _cfg("feature.trade_framer.vp_proximity_atr", 0.5)
+    return d_val is not None and float(d_val) < threshold
 
 
 def _reject_frame(
@@ -522,24 +522,9 @@ def _resolve_entry(
         if bb_middle > EPSILON_TOLERANCE:
             return bb_middle, EntryType.AT_LIMIT.value
 
-    # trend → at_pullback at nearest_support/resistance
-    if st.startswith("trend_"):
-        if direction == 1:
-            level = _fval(features, "nearest_support") or _fval(features, "sr_nearest_support")
-            if level > EPSILON_TOLERANCE and level < entry_price:  # pullback below current for long
-                return level, EntryType.AT_PULLBACK.value
-        else:
-            level = _fval(features, "nearest_resistance") or _fval(
-                features, "sr_nearest_resistance"
-            )
-            if (
-                level > EPSILON_TOLERANCE and level > entry_price
-            ):  # pullback above current for short
-                return level, EntryType.AT_PULLBACK.value
-
-    # mtf_alignment → at_pullback using nearest_support/resistance as CTF level proxy
-    # Decision: no ctf_level price field exists in schema; using nearest S/R as structural proxy
-    if st.startswith("mtf_alignment"):
+    # trend_ and mtf_alignment_ both use at_pullback at nearest S/R.
+    # mtf_alignment uses nearest S/R as CTF proxy (no ctf_level price field exists in schema).
+    if st.startswith("trend_") or st.startswith("mtf_alignment"):
         if direction == 1:
             level = _fval(features, "nearest_support") or _fval(features, "sr_nearest_support")
             if level > EPSILON_TOLERANCE and level < entry_price:
