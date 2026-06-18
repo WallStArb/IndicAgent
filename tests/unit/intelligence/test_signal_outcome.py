@@ -6,8 +6,9 @@ from src.intelligence.trading.signal_outcome import (
 )
 
 
-def test_signal_outcome_has_8_members():
-    assert len(SignalOutcome) == 8
+def test_signal_outcome_has_9_members():
+    # Phase 134: CONDITION_EXPIRED added as the 9th member
+    assert len(SignalOutcome) == 9
 
 
 def test_signal_outcome_values_match_db_strings():
@@ -34,10 +35,12 @@ def test_stop_outcomes_contains_2_members():
     assert SignalOutcome.STOPPED_IN_TRADE in STOP_OUTCOMES
 
 
-def test_ttl_outcomes_contains_2_members():
-    assert len(TTL_OUTCOMES) == 2
+def test_ttl_outcomes_contains_3_members():
+    # Phase 134: CONDITION_EXPIRED added to TTL_OUTCOMES (time/condition exit)
+    assert len(TTL_OUTCOMES) == 3
     assert SignalOutcome.TTL_EXPIRED_AHEAD in TTL_OUTCOMES
     assert SignalOutcome.TTL_EXPIRED_BEHIND in TTL_OUTCOMES
+    assert SignalOutcome.CONDITION_EXPIRED in TTL_OUTCOMES
 
 
 def test_outcome_taxonomy_is_exhaustive():
