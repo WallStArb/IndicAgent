@@ -1358,7 +1358,9 @@ async def main_async():
 
     try:
         symbols = (
-            args.symbols.split(",") if args.symbols else [c.symbol for c in get_active_contracts()]
+            args.symbols.split(",")
+            if args.symbols
+            else [c.symbol for c in get_active_contracts(settings)]
         )
         timeframes = args.timeframes.split(",") if args.timeframes else TIMEFRAMES
 
