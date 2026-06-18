@@ -807,6 +807,154 @@ class TestAdaptiveBuffer:
 
 
 # ---------------------------------------------------------------------------
+# _adaptive_buffer APR regression — anchor-point identity test (Phase 132 Plan 03)
+#
+# Proves that _adaptive_buffer() at seed values is byte-identical under:
+#   (a) None-config path (hardcoded fallback — pre-migration behaviour)
+#   (b) strict mock ConfigService returning exact seed values
+#
+# The strict mock raises ValueError for any unknown APR key, so a key typo
+# in the function body will fail here rather than silently returning the default.
+# ---------------------------------------------------------------------------
+
+_ADAPTIVE_BUFFER_SEED_VALUES: dict[str, float] = {
+    "feature.trade_framer.adaptive_buffer_vol_ratio_min": 0.70,
+    "feature.trade_framer.adaptive_buffer_vol_ratio_max": 1.50,
+    "feature.trade_framer.adaptive_buffer_low_vol_base": 0.80,
+    "feature.trade_framer.adaptive_buffer_low_vol_slope_num": 0.20,
+    "feature.trade_framer.adaptive_buffer_low_vol_slope_den": 0.30,
+    "feature.trade_framer.adaptive_buffer_high_vol_slope_num": 0.35,
+    "feature.trade_framer.adaptive_buffer_high_vol_slope_den": 0.50,
+    "feature.trade_framer.adaptive_buffer_hurst_trend_threshold": 0.55,
+    "feature.trade_framer.adaptive_buffer_hurst_mr_threshold": 0.45,
+    "feature.trade_framer.adaptive_buffer_hurst_tighten_rate": 0.16,
+    "feature.trade_framer.adaptive_buffer_garch_shock_threshold": 3.0,
+    "feature.trade_framer.adaptive_buffer_garch_shock_mult": 1.35,
+    "feature.trade_framer.adaptive_buffer_hard_cap": 1.40,
+}
+
+
+class _StrictMockConfigService:
+    """ConfigService mock that returns seed values for known keys and raises for unknown keys.
+
+    A permissive mock silently returning default defeats the regression intent — key typos
+    would pass tests. This mock makes typos loud.
+    """
+
+    def get_sync(self, key: str, default: float) -> float:  # noqa: ARG002
+        if key not in _ADAPTIVE_BUFFER_SEED_VALUES:
+            raise ValueError(f"Unknown APR key in test: {key!r}")
+        return _ADAPTIVE_BUFFER_SEED_VALUES[key]
+
+
+class TestAdaptiveBufferAPRRegressionAnchorPoints:
+    """Prove _adaptive_buffer() output is byte-identical at seed values under both config paths."""
+
+    def setup_method(self):
+        """Clear config service before each test."""
+        import src.intelligence.trading.trade_framer as tf_module
+
+        tf_module.set_config_service(None)
+
+    def teardown_method(self):
+        """Reset config service after each test."""
+        import src.intelligence.trading.trade_framer as tf_module
+
+        tf_module.set_config_service(None)
+
+    def _run_both_paths(self, features: dict, base_mult: float, expected: float, **kwargs) -> None:
+        """Assert both None-config and strict-mock paths return expected within tolerance."""
+        import src.intelligence.trading.trade_framer as tf_module
+
+        # Path (a): None-config — hardcoded fallback
+        tf_module.set_config_service(None)
+        result_none = _adaptive_buffer(features, base_mult, **kwargs)
+        assert result_none == pytest.approx(
+            expected, rel=1e-4
+        ), f"None-config path: expected {expected}, got {result_none}"
+
+        # Path (b): strict mock returning seed values
+        tf_module.set_config_service(_StrictMockConfigService())
+        result_mock = _adaptive_buffer(features, base_mult, **kwargs)
+        assert result_mock == pytest.approx(
+            expected, rel=1e-4
+        ), f"Strict-mock path: expected {expected}, got {result_mock}"
+
+        # Both paths must produce identical output
+        assert result_none == pytest.approx(
+            result_mock, rel=1e-9
+        ), "Seed-mock and None-config paths diverged — APR wiring introduced a regression"
+
+    # --- Low-vol anchor (clamp floor) ---
+    def test_anchor_vol_ratio_070(self):
+        """vol_ratio=0.70 → clamped to vol_ratio_min → low_vol_base=0.80."""
+        self._run_both_paths({"garch_vol_ratio": 0.70}, 1.0, 0.80)
+
+    # --- Low-vol interior (catches slope inversion) ---
+    def test_interior_vol_ratio_085(self):
+        """vol_ratio=0.85 → 0.80 + (0.85-0.70)*(0.20/0.30) = 0.90."""
+        self._run_both_paths({"garch_vol_ratio": 0.85}, 1.0, 0.90)
+
+    # --- Branch boundary ---
+    def test_anchor_vol_ratio_100(self):
+        """vol_ratio=1.00 → low-vol branch produces garch_mult=1.00."""
+        self._run_both_paths({"garch_vol_ratio": 1.00}, 1.0, 1.00)
+
+    # --- High-vol interior (catches slope inversion in high branch) ---
+    def test_interior_vol_ratio_125(self):
+        """vol_ratio=1.25 → 1.00 + (1.25-1.00)*(0.35/0.50) = 1.175."""
+        self._run_both_paths({"garch_vol_ratio": 1.25}, 1.0, 1.175)
+
+    # --- High-vol anchor (clamp ceiling) ---
+    def test_anchor_vol_ratio_150(self):
+        """vol_ratio=1.50 → 1.00 + 0.50*(0.35/0.50) = 1.35; hard_cap=1.40 so result=1.35."""
+        self._run_both_paths({"garch_vol_ratio": 1.50}, 1.0, 1.35)
+
+    # --- GARCH shock floor ---
+    def test_garch_shock_floor(self):
+        """garch_shock > 3.0 forces result >= base_mult * 1.35."""
+        import src.intelligence.trading.trade_framer as tf_module
+
+        tf_module.set_config_service(None)
+        result_none = _adaptive_buffer({"garch_vol_ratio": 0.70, "garch_shock": 4.0}, 1.0)
+        assert result_none >= 1.35 - 1e-9, f"Shock floor not applied (None-config): {result_none}"
+
+        tf_module.set_config_service(_StrictMockConfigService())
+        result_mock = _adaptive_buffer({"garch_vol_ratio": 0.70, "garch_shock": 4.0}, 1.0)
+        assert result_mock >= 1.35 - 1e-9, f"Shock floor not applied (mock): {result_mock}"
+        assert result_none == pytest.approx(result_mock, rel=1e-9)
+
+    # --- Hurst trend tightening ---
+    def test_hurst_trend_tightening(self):
+        """regime_type=trend with hurst=0.65 applies result *= 1.0 - (0.65-0.55)*0.16."""
+        expected = 1.0 * (1.0 - (0.65 - 0.55) * 0.16)
+        self._run_both_paths(
+            {"garch_vol_ratio": 1.00, "hurst_exponent": 0.65},
+            1.0,
+            expected,
+            regime_type="trend",
+        )
+
+    # --- Hurst MR tightening ---
+    def test_hurst_mr_tightening(self):
+        """regime_type=mean_reversion with hurst=0.30 applies result *= 1.0 - (0.45-0.30)*0.16."""
+        expected = 1.0 * (1.0 - (0.45 - 0.30) * 0.16)
+        self._run_both_paths(
+            {"garch_vol_ratio": 1.00, "hurst_exponent": 0.30},
+            1.0,
+            expected,
+            regime_type="mean_reversion",
+        )
+
+    # --- Strict mock rejects unknown keys ---
+    def test_strict_mock_raises_on_unknown_key(self):
+        """Verify the strict mock raises ValueError for unknown keys — confirms regression guard integrity."""
+        mock = _StrictMockConfigService()
+        with pytest.raises(ValueError, match="Unknown APR key in test"):
+            mock.get_sync("feature.trade_framer.adaptive_buffer_TYPO", 0.0)
+
+
+# ---------------------------------------------------------------------------
 # Unified target candidate collection — institutional levels
 # ---------------------------------------------------------------------------
 
