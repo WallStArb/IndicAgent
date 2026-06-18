@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.10
-milestone_name: AI Platform — Part 2
-status: milestone_complete
-last_updated: 2026-06-18T15:28:10.368Z
-last_activity: 2026-06-18 -- Phase 134 execution started
+milestone_name: milestone
+status: completed
+last_updated: "2026-06-18T18:41:37Z"
+last_activity: 2026-06-18
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 39
-  completed_plans: 115
-  percent: 100
-stopped_at: Milestone complete (Phase 134 was final phase)
+  total_phases: 27
+  completed_phases: 22
+  total_plans: 142
+  completed_plans: 117
+  percent: 82
 ---
 
 # Project State
@@ -87,6 +86,21 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
+### Last session (2026-06-18) — Phase 134 complete; server reboot pending; contract roll in progress
+
+Phase 134 fully complete (3/3 plans, all WR/CR fixes committed). Server reboot initiated to pick up all code changes.
+
+**Post-reboot checklist (REQUIRED):**
+1. Re-authenticate IBKR gateway (2FA required — Docker container at 127.0.0.1:7497)
+2. Verify all services running: `systemctl list-units --all | grep indicagent | grep -v dead`
+3. VX/ZB/ZT data was dark — ibkr-provider restart should pick up VXU6/ZBU6/ZTU6 from contract_metadata
+4. ESM6/NQM6/RTYM6 expire June 20 — restart ibkr-provider again after Friday expiry to pick up ESU6/NQU6/RTYU6
+5. Confirm intelligence data flowing: `docker exec redpanda rpk topic consume intelligence --offset end --num 10`
+
+**Intelligence pipeline verified healthy:** all I1-I6 fields populated in Kafka, SSE delivering correctly. "Empty" UX fields are legitimately null (vix_level, fib levels, session levels) — not pipeline breakage.
+
+**Next phase:** `/gsd-plan-phase 135` (controlled vocabulary system) OR `/gsd-execute-phase 133` (clean-corpus-rebuild, already planned)
+
 ### Last session (2026-06-17) — Phase 131-133 context captured; ready to plan
 
 Context gathered for all three phases. Key decisions locked:
@@ -140,11 +154,10 @@ Then: `/clear` then `/gsd-execute-phase 121` (Wave 2 — validation report)
 
 ## Current Position
 
-Phase: 134
-Plan: Not started
-Phase: 134 (signal-classification-type-safety) — NEXT (runs before 133; 3 plans, 3 waves)
-Phase: 133 (clean-corpus-rebuild) — PLANNED after 134 (7 plans, 5 waves)
-Status: Milestone complete
+Phase: 134 — COMPLETE (3/3 plans, 2026-06-18); all WR/CR fixes committed and pushed
+Phase: 135 (controlled-vocabulary-system) — on roadmap, not yet planned
+Phase: 133 (clean-corpus-rebuild) — PLANNED (7 plans, 5 waves); waiting on next session
+Status: Between phases — server reboot pending
 Last activity: 2026-06-18
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
