@@ -646,7 +646,7 @@ class IntelligencePipeline(BaseDaemon):
         _process_loop is blocked inside the async-for over messages(). Stopping
         the consumer closes it and causes StopAsyncIteration, unblocking the loop.
         """
-        import signal as _signal_mod
+        super()._register_signal_handlers()
 
         loop = asyncio.get_running_loop()
 
@@ -663,7 +663,7 @@ class IntelligencePipeline(BaseDaemon):
         def _signal_handler() -> None:
             loop.create_task(_shutdown_consumer())
 
-        for sig in (_signal_mod.SIGTERM, _signal_mod.SIGINT):
+        for sig in (_signal.SIGTERM, _signal.SIGINT):
             loop.add_signal_handler(sig, _signal_handler)
 
     def _on_hmm_sigusr1(self) -> None:

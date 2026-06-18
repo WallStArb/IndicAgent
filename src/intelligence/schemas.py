@@ -911,6 +911,12 @@ FEATURE_SCHEMA_VERSION: int = 2
 and signal_ledger.  Pre-fix rows remain NULL.  Downstream training queries filter
 with WHERE feature_schema_version >= 2 to exclude contaminated data."""
 
+# Phase-130 CTF scalar columns promoted to dedicated intelligence_features columns.
+# Exclude from cross_timeframe_context JSONB; must exist in DB before feature_writer starts.
+CTF_DEDICATED_COLUMNS: frozenset[str] = frozenset(
+    {"ctf_score", "ctf_trend_alignment", "ctf_structure_alignment", "ctf_regime_agreement"}
+)
+
 
 class IntelligenceEvent(BaseModel):
     """Canonical typed intelligence event published to intelligence:SYMBOL:TF Redis stream.
