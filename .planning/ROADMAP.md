@@ -1366,3 +1366,20 @@ Plans:
 - [ ] 133-07-PLAN.md — Final cleanup, unit tests, commit, push, phase closure (Wave 5, parallel with 06, depends 05)
 
 </details>
+
+<details>
+<summary>📋 Phase 134: Signal Classification Type Safety — PLANNED</summary>
+
+**Goal:** All classification columns in the signal ledger are type-enforced end-to-end. `SignalOutcome` persisted to `trade_executions.outcome` (eliminates re-derivation and the stopped_at_entry query bug). `EntryType` Python enum created (replaces 15+ string literals). PostgreSQL ENUM types enforce valid values at write time across all classification columns. No classification can be written silently with an invalid value, and no gate query can trivially pass by referencing a value that doesn't exist.
+
+**Prerequisite gate:** Phase 132 complete (trade_framer APR migration done; signal ledger schema stable).
+
+**Plans:** 3 plans in 3 waves
+
+Plans:
+
+- [ ] 134-01-PLAN.md — Persist SignalOutcome to trade_executions: add outcome column, wire lifecycle_replay, backfill historical rows (Wave 1)
+- [ ] 134-02-PLAN.md — EntryType enum: create Python enum, replace 15+ string literals in trade_framer.py, add DB CHECK constraint (Wave 2, depends 01)
+- [ ] 134-03-PLAN.md — PostgreSQL ENUM type sweep: convert exit_reason, outcome, entry_type, signal_events.status to PG ENUM types; remove phantom values; verification (Wave 3, depends 01+02)
+
+</details>
