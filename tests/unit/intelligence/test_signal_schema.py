@@ -3,6 +3,7 @@
 import pytest
 
 from src.intelligence.trading.signal_schema import (
+    ValidationResult,
     _make_signal,
     make_signal_from_frame,
     validate_signal,
@@ -35,24 +36,33 @@ def _make_valid_signal() -> dict:
 
 
 def test_valid_signal_passes():
-    assert validate_signal(_make_valid_signal()) is True
+    result = validate_signal(_make_valid_signal())
+    assert isinstance(result, ValidationResult)
+    assert bool(result) is True
+    assert result.reason == ""
 
 
 def test_missing_field_fails():
     signal = {"type": "signal.v1", "symbol": "ES"}
-    assert validate_signal(signal) is False
+    result = validate_signal(signal)
+    assert not result
+    assert result.reason == "missing_fields"
 
 
 def test_confidence_out_of_range_fails():
     signal = _make_valid_signal()
     signal["confidence"] = 1.5
-    assert validate_signal(signal) is False
+    result = validate_signal(signal)
+    assert not result
+    assert result.reason == "confidence_oor"
 
 
 def test_direction_must_be_plus_minus_one():
     signal = _make_valid_signal()
     signal["direction"] = 0
-    assert validate_signal(signal) is False
+    result = validate_signal(signal)
+    assert not result
+    assert result.reason == "direction_invalid"
 
 
 def test_make_signal_produces_valid_output():
@@ -183,7 +193,7 @@ class TestMakeSignalFromFrame:
     def test_make_signal_from_frame_validates_as_signal_v1(self):
         tf = _viable_frame()
         sig = make_signal_from_frame(tf, **_frame_kwargs())
-        assert validate_signal(sig) is True
+        assert bool(validate_signal(sig)) is True
 
     def test_make_signal_from_frame_no_features_snapshot_by_default(self):
         tf = _viable_frame()
