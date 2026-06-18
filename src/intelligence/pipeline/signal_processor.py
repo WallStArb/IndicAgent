@@ -31,7 +31,7 @@ from src.intelligence.pipeline.ranker import rank_signals
 from src.intelligence.pipeline.regime_gate import apply_regime_gate
 from src.intelligence.pipeline.winner_selector import select_winner
 from src.intelligence.trading.cis_scorer import CISScorer
-from src.intelligence.trading.confidence_utils import MIN_CTF_SCORE
+from src.intelligence.trading.confidence import MIN_CTF_SCORE
 from src.intelligence.trading.signal_schema import (
     REQUIRED_PIPELINE_FIELDS,
 )

@@ -26,7 +26,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import (
+from .confidence import (
     _validate_weights_sum,
     compose_confidence,
 )

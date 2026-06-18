@@ -276,7 +276,10 @@ def _payload_to_grouped_rows(payload: dict) -> list[tuple[dict, list[dict]]]:
             "weights_version": detection.get("weights_version"),
             # ECL extrinsic vectors (Phase 123 fields)
             "factor_scores": detection.get("factor_scores"),
-            "context_features": detection.get("context_features"),
+            "context_features": {
+                **(detection.get("context_features") or {}),
+                "zone_source": detection.get("zone_source"),
+            },
             "ctf_score": detection.get("ctf_score"),
             "ctf_confirmed": detection.get("ctf_confirmed"),
             "zone_friction_score": detection.get("zone_friction_score"),

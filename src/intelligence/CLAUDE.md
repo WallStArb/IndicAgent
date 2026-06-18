@@ -23,7 +23,7 @@ All live in `src/intelligence/trading/`:
 | `plugin_utils.py` | `no_signal()`, `extract_ohlcv()`, `signal_type_for_direction()` | Canonical no-signal dict, OHLCV extraction, signal type naming |
 | `atr_utils.py` | `get_atr(features)` | Null-safe I1 ATR accessor — never recompute ATR in I7 |
 | `state_utils.py` | `track_consecutive_state()`, `reset_consecutive_state()` | Consecutive bar state counting |
-| `confidence_utils.py` | `compose_confidence(raw)`, `ConfluenceWeightProfile` | **ALL I7 confidence values must route through `compose_confidence()`** (clamps to [0.0, 0.95], rounds to 4dp). |
+| `confidence.py` | `compose_confidence(raw)`, `ConfluenceWeightProfile` | **ALL I7 confidence values must route through `compose_confidence()`** (clamps to [0.0, 0.95], rounds to 4dp). |
 | `microstructure_utils.py` | `detect_spike_signal()` | Shared spike detection for OFI/CVD — preserves signal identity (Renaissance) |
 | `volume_profile_utils.py` | `check_reversal_gate()`, `format_reversal_supporting_factors()` | POC/HVN reversal detection logic |
 | `exhaustion_utils.py` | `apply_exhaustion_boost()`, `apply_exhaustion_guard()` | Exhaustion-based confidence modifiers |

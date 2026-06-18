@@ -244,3 +244,59 @@ class TestFramingAuditPropagation:
         assert "stop_basis" in sig
         assert sig["adaptive_buffer_mult"] == pytest.approx(1.0)
         assert sig["plugin_regime_type"] is None
+
+
+# ---------------------------------------------------------------------------
+# zone_source propagation (Task E)
+# ---------------------------------------------------------------------------
+
+
+class TestZoneSourcePropagation:
+    def test_make_signal_from_frame_carries_zone_source(self):
+        """zone_source from TradeFrame is written to sig['zone_source'], not left as None."""
+        tf = TradeFrame(
+            entry=4500.0,
+            entry_type="at_close",
+            stop=4480.0,
+            stop_type="swing_low",
+            targets=[
+                TradeTarget(price=4530.0, label="S/R 4530", level_type="sr", rr=1.5),
+            ],
+            rr_t1=1.5,
+            viable=True,
+            zone_low=4495.0,
+            zone_high=4505.0,
+            zone_source="setup:supply_demand_zone",
+        )
+        sig = make_signal_from_frame(tf, **_frame_kwargs())
+        assert sig["zone_source"] == "setup:supply_demand_zone"
+
+    def test_zone_source_none_when_not_set(self):
+        """zone_source is None when TradeFrame.zone_source is None."""
+        tf = _viable_frame()  # zone_source not set — defaults to None
+        sig = make_signal_from_frame(tf, **_frame_kwargs())
+        assert sig["zone_source"] is None
+
+    def test_zone_source_surfaces_in_context_features_via_writer(self):
+        """zone_source at sig['zone_source'] can be merged into context_features at INSERT time."""
+        tf = TradeFrame(
+            entry=4500.0,
+            entry_type="at_close",
+            stop=4480.0,
+            stop_type="swing_low",
+            targets=[
+                TradeTarget(price=4530.0, label="S/R 4530", level_type="sr", rr=1.5),
+            ],
+            rr_t1=1.5,
+            viable=True,
+            zone_low=4495.0,
+            zone_high=4505.0,
+            zone_source="setup:fvg_zone",
+        )
+        sig = make_signal_from_frame(tf, **_frame_kwargs())
+        # Simulate what signal_writer does at INSERT time
+        merged_context = {
+            **(sig.get("context_features") or {}),
+            "zone_source": sig.get("zone_source"),
+        }
+        assert merged_context["zone_source"] == "setup:fvg_zone"

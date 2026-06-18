@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import clamp01, compose_confidence
+from .confidence import clamp01, compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .state_utils import deduplicate_event

@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from ..plugins import InputSpec
 from ..utils import guard_intraday_only
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import (
+from .confidence import (
     _validate_weights_sum,
     compose_confidence,
 )

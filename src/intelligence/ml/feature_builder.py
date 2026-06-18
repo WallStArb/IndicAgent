@@ -31,7 +31,7 @@ logger = structlog.get_logger(__name__)
 # Minimum resolved signals required to fit any segment model
 _MIN_SAMPLE_SIZE = 100
 
-# 25 keys verbatim from confidence_utils.py capture_signal_features()
+# 25 keys verbatim from confidence.py capture_signal_features()
 # 2 metadata + 6 I6 CTF confluence + 4 I4 macro + 2 I6 momentum divergence +
 # 2 I6 S/R confluence + 2 I6 HMM regime agreement + 2 I6 volatility divergence +
 # 2 I6 orderflow alignment + 3 exhaustion = 25
