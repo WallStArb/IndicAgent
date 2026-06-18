@@ -174,6 +174,26 @@ def _min_zone_width_atr(asset_class: str | None) -> float:
     return default
 
 
+def _min_stop_multiplier_floor(asset_class: str | None) -> float:
+    """Return minimum stop ATR multiplier floor for the given asset class (A3).
+
+    Mirrors _min_zone_width_atr exactly: universal min_stop_atr is the default,
+    per-class key overrides it when _config_service is wired and asset_class known.
+
+    Seed values (migration 148): fx=1.0, commodity_small_tick=1.5,
+    equity_etf=1.0, futures_large_tick=1.0. All >= universal 1.0 baseline,
+    so at seed values no stop is narrower than Plan 03 output — equity/FX/futures
+    are unchanged; commodity stops widen slightly due to the 1.5 ATR floor.
+
+    The 1-tick absolute gate in validate_stop_against_zone() sits below this
+    floor and is not modified — it is a correctness invariant, not a tunable.
+    """
+    default = _cfg("feature.trade_framer.min_stop_atr", 1.0)
+    if asset_class and _config_service is not None:
+        return _cfg(f"feature.trade_framer.stop_multiplier_floor.{asset_class}", default)
+    return default
+
+
 @dataclass
 class TradeTarget:
     price: float
@@ -540,8 +560,9 @@ def _resolve_stop_long(
     regime_type: str | None = None,
 ) -> tuple[float, str]:
     """Stop placement hierarchy for long trades."""
+    asset_class = features.get("asset_class")
     min_stop = entry - atr * _adaptive_buffer(
-        features, _cfg("feature.trade_framer.min_stop_atr", 1.0), regime_type
+        features, _min_stop_multiplier_floor(asset_class), regime_type
     )
 
     # Priority 0: FVG low — FVG bottom as structural stop for bullish FVG
@@ -625,8 +646,9 @@ def _resolve_stop_short(
     regime_type: str | None = None,
 ) -> tuple[float, str]:
     """Stop placement hierarchy for short trades (mirror of long)."""
+    asset_class = features.get("asset_class")
     max_stop = entry + atr * _adaptive_buffer(
-        features, _cfg("feature.trade_framer.min_stop_atr", 1.0), regime_type
+        features, _min_stop_multiplier_floor(asset_class), regime_type
     )
 
     # Priority 0: FVG high — FVG top as structural stop for bearish FVG
