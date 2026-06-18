@@ -2228,13 +2228,6 @@ def main() -> None:
         "and you want the stored feature vectors to reflect current computation.",
     )
     parser.add_argument(
-        "--warmup",
-        action="store_true",
-        help="Run I1-I6 warmup pass before signal pass (populates I6 cache for cold-start "
-        "correction). Requires --replay-only. First pass: skip_signals=True (I1-I6 only). "
-        "Second pass: skip_signals=False (I1-I7 with warm I6 cache).",
-    )
-    parser.add_argument(
         "--no-seed",
         action="store_true",
         default=False,
@@ -2245,12 +2238,6 @@ def main() -> None:
     args = parser.parse_args()
 
     settings = Settings()
-
-    # --warmup requires --replay-only (fetch stage and warmup are incompatible:
-    # fetch would overwrite bars while warmup pass is building the I6 cache).
-    if getattr(args, "warmup", False) and not args.replay_only:
-        print("ERROR: --warmup requires --replay-only (combine: --replay-only --warmup)")
-        sys.exit(1)
 
     # --seed-roll-chain: populate contract_metadata roll chains and exit
     if args.seed_roll_chain:
@@ -2656,35 +2643,11 @@ def main() -> None:
         register_all_plugins()
         grand_total = 0
 
-        do_warmup = getattr(args, "warmup", False)
-
         if args.workers == 1:
             with db_conn.cursor() as cur:
                 cur.execute("SET synchronous_commit = off")
             _warm_config_service(db_conn)
             perf_weights = _load_perf_weights(db_conn)
-
-            if do_warmup:
-                # Two-pass replay: first populate I6 cache (warmup), then emit signals.
-                # Pass 1: I1-I6 only — builds intelligence_features rows and populates
-                #   the per-symbol I6 cache so no cold-start NULL values remain for
-                #   the signal pass.
-                # Pass 2: I1-I7 with warm I6 cache — signals now have valid CTF scores.
-                print("Running warmup pass (I1-I6 only)...")
-                for contract in contracts:
-                    print(f"\n{contract.symbol} [warmup]:")
-                    calibration_curves = _load_calibration_curves(db_conn, symbol=contract.symbol)
-                    replay_symbol(
-                        contract.symbol,
-                        db_conn,
-                        timeframes,
-                        since=since_dt,
-                        skip_signals=True,
-                        calibration_curves=calibration_curves,
-                        perf_weights=perf_weights,
-                        seed_from_db=not args.no_seed,
-                    )
-                print("\nWarmup complete. Running signal pass (I1-I7 with warm I6 cache)...")
 
             for contract in contracts:
                 print(f"\n{contract.symbol}:")
@@ -2709,10 +2672,6 @@ def main() -> None:
                 grand_total += symbol_total
                 print(f"  {contract.symbol} total: {symbol_total} signals")
         else:
-            if do_warmup:
-                print(
-                    "NOTE: --warmup is only supported with --workers 1 (parallel mode skips warmup pass)"
-                )
             worker_args = [
                 _WorkerArgs(
                     symbol=contract.symbol,
