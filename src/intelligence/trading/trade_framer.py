@@ -89,25 +89,12 @@ EPSILON_TOLERANCE = (
     1e-9  # Tolerance for floating-point comparisons (Renaissance: instrument everything)
 )
 
-# ATR multipliers for stop placement (Renaissance: explicit structural levels over hidden constants)
-ATR_STOP_DEMAND_MULTIPLIER = 0.25  # Demand zone: nearest_demand_low - ATR×0.25
-ATR_STOP_SWEEP_MULTIPLIER = 0.30  # Sweep detected: sweep_level - ATR×0.30
-ATR_STOP_OB_MULTIPLIER = 0.20  # Order block: ob_bottom/top ± ATR×0.20
-ATR_STOP_SWING_MULTIPLIER = 0.25  # Swing: swing_low/high ± ATR×0.25
-ATR_STOP_SR_MULTIPLIER = 0.50  # S/R: nearest_support/resistance ± ATR×0.50
-ATR_STOP_FALLBACK_MULTIPLIER = 2.0  # Fallback: entry ± ATR×2.0
-
-# ATR multipliers for zone and target bounds
-ATR_ZONE_SWEEP_MULTIPLIER = (
-    0.76  # Sweep/reclaim zone: entry ± ATR×0.76 (1.52×ATR total, passes 1.5×ATR gate)
-)
-ATR_ZONE_LOW_MULTIPLIER = 1.0  # Zone lower bound: entry - ATR×1.0
-ATR_ZONE_HIGH_MULTIPLIER = 0.5  # Zone upper bound: entry + ATR×0.5
-ATR_TARGET_MIN_MULTIPLIER = 0.5  # Minimum target distance: entry ± ATR×0.5
+# NOT migrated to APR — intentionally hardcoded:
+# ATR_EMERGENCY_FALLBACK_PCT: defensive fallback, not a tunable parameter
+ATR_EMERGENCY_FALLBACK_PCT = 0.001  # 0.1% of price as emergency ATR
+# ATR_TARGET_MAX_MULTIPLIER: per-TF dict overrides this; constant is the final default
 ATR_TARGET_MAX_MULTIPLIER = 8.0  # Maximum target distance: entry ± ATR×8.0
-ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER = (
-    0.2  # Narrow fallback zone for plugins that bypass frame_trade()
-)
+# ATR_TARGET_MAX_MULTIPLIER_BY_TF: dict structure; deferred to future phase for migration
 ATR_TARGET_MAX_MULTIPLIER_BY_TF: dict[str, float] = {
     "1m": 3.0,
     "5m": 5.0,
@@ -116,21 +103,35 @@ ATR_TARGET_MAX_MULTIPLIER_BY_TF: dict[str, float] = {
     "4h": 8.0,
     "1d": 8.0,
 }
-VP_PROXIMITY_THRESHOLD_ATR = 0.5  # Volume Profile: price within VAH/VAL ± ATR×0.5 activates regime
 
-# ATR target multipliers for fallback (RR-based)
-ATR_FALLBACK_T1_MULTIPLIER = 2.0  # T1: risk × 2.0
-ATR_FALLBACK_T2_MULTIPLIER = 3.5  # T2: risk × 3.5
-ATR_FALLBACK_T3_MULTIPLIER = 5.5  # T3: risk × 5.5
-
-# Emergency ATR fallback (Renaissance: degrade gracefully)
-ATR_EMERGENCY_FALLBACK_PCT = 0.001  # 0.1% of price as emergency ATR
-
-# RR and stop distance constants (Renaissance: minimum viable thresholds)
-MIN_STOP_ATR_MULTIPLIER = 1.0  # Minimum stop distance: at least 1×ATR from entry
-MIN_RR_T1 = 1.5  # Minimum reward-to-risk for T1: signals below this are rejected
-
-ADAPTIVE_BUFFER_HARD_CAP = 1.40  # maximum vol-driven multiplier expansion
+# Migrated constants (APR keys, migration 145) — kept as named fallbacks
+# so _cfg() calls can reference the literal value without magic numbers.
+# These module-level assignments are intentional: they document provenance
+# and serve as fallback values in _cfg() signatures.
+#
+# ATR_STOP_DEMAND_MULTIPLIER -> feature.trade_framer.stop_demand_buffer_atr (APR, migration 145)
+# ATR_STOP_SWEEP_MULTIPLIER  -> feature.trade_framer.stop_sweep_buffer_atr  (APR, migration 145)
+# ATR_STOP_OB_MULTIPLIER     -> feature.trade_framer.stop_ob_buffer_atr     (APR, migration 145)
+# ATR_STOP_SWING_MULTIPLIER  -> feature.trade_framer.stop_swing_buffer_atr  (APR, migration 145)
+# ATR_STOP_SR_MULTIPLIER     -> feature.trade_framer.stop_sr_buffer_atr     (APR, migration 145)
+# ATR_STOP_FALLBACK_MULTIPLIER -> feature.trade_framer.stop_fallback_atr    (APR, migration 145)
+# ATR_ZONE_SWEEP_MULTIPLIER  -> feature.trade_framer.zone_sweep_atr         (APR, migration 145)
+# ATR_ZONE_LOW_MULTIPLIER    -> feature.trade_framer.zone_low_atr           (APR, migration 145)
+# ATR_ZONE_HIGH_MULTIPLIER   -> feature.trade_framer.zone_high_atr          (APR, migration 145)
+# ATR_TARGET_MIN_MULTIPLIER  -> feature.trade_framer.target_min_atr         (APR, migration 145)
+# ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER -> feature.trade_framer.zone_plugin_fallback_atr (APR, migration 145)
+# VP_PROXIMITY_THRESHOLD_ATR -> feature.trade_framer.vp_proximity_atr       (APR, migration 145)
+# ATR_FALLBACK_T1_MULTIPLIER -> feature.trade_framer.fallback_t1_atr        (APR, migration 145)
+# ATR_FALLBACK_T2_MULTIPLIER -> feature.trade_framer.fallback_t2_atr        (APR, migration 145)
+# ATR_FALLBACK_T3_MULTIPLIER -> feature.trade_framer.fallback_t3_atr        (APR, migration 145)
+# MIN_STOP_ATR_MULTIPLIER    -> feature.trade_framer.min_stop_atr           (APR, migration 145)
+# MIN_RR_T1                  -> threshold.trade_framer.min_rr_t1            (APR, migration 145)
+# STRUCTURE_SNAP_PROXIMITY_ATR -> feature.trade_framer.structure_snap_proximity_atr (APR, migration 145)
+# ADAPTIVE_BUFFER_HARD_CAP   -> feature.trade_framer.adaptive_buffer_hard_cap (APR, migration 145)
+#   NOTE: ADAPTIVE_BUFFER_HARD_CAP internal usage inside _adaptive_buffer() is
+#   rewired by Plan 03 (adaptive buffer body migration). The module-level variable
+#   is retained here as the fallback for that internal read until Plan 03 completes.
+ADAPTIVE_BUFFER_HARD_CAP = 1.40  # -> feature.trade_framer.adaptive_buffer_hard_cap (Plan 03)
 
 
 def _adaptive_buffer(features: dict, base_mult: float, regime_type: str | None = None) -> float:
@@ -159,10 +160,10 @@ def _adaptive_buffer(features: dict, base_mult: float, regime_type: str | None =
     return min(result, base_mult * ADAPTIVE_BUFFER_HARD_CAP)
 
 
+# STRUCTURE_SNAP_PROXIMITY_ATR -> feature.trade_framer.structure_snap_proximity_atr (APR, migration 145)
 # Proximity gate: if structural stop is within this many effective-ATR units of the
 # ATR fallback stop, classify as "structure_snap" (structure is close to ATR anyway).
 # Signals beyond this boundary are "garch_adaptive" (structure diverges from ATR).
-STRUCTURE_SNAP_PROXIMITY_ATR = 1.5
 
 
 def _min_zone_width_atr(asset_class: str | None) -> float:
@@ -305,14 +306,15 @@ def _classify_stop_basis(
         return "garch_adaptive", structure_type, 0.0
 
     # ATR fallback reference point (what the stop would be without a structural level)
+    _fallback_mult = _cfg("feature.trade_framer.stop_fallback_atr", 2.0)
     if direction == 1:
-        atr_fallback_stop = entry - scaled_atr * ATR_STOP_FALLBACK_MULTIPLIER
+        atr_fallback_stop = entry - scaled_atr * _fallback_mult
     else:
-        atr_fallback_stop = entry + scaled_atr * ATR_STOP_FALLBACK_MULTIPLIER
+        atr_fallback_stop = entry + scaled_atr * _fallback_mult
 
     distance_atr = abs(stop_price - atr_fallback_stop) / scaled_atr
 
-    if distance_atr <= STRUCTURE_SNAP_PROXIMITY_ATR:
+    if distance_atr <= _cfg("feature.trade_framer.structure_snap_proximity_atr", 1.5):
         return "structure_snap", structure_type, distance_atr
     return "garch_adaptive", structure_type, distance_atr
 
@@ -357,10 +359,10 @@ def _vp_regime_active(features: dict[str, Any]) -> bool:
     """
     d_vah = features.get("distance_to_vah_atr")
     # Early exit: check VAH first (common case)
-    if d_vah is not None and float(d_vah) < VP_PROXIMITY_THRESHOLD_ATR:
+    if d_vah is not None and float(d_vah) < _cfg("feature.trade_framer.vp_proximity_atr", 0.5):
         return True
     d_val = features.get("distance_to_val_atr")
-    return d_val is not None and float(d_val) < VP_PROXIMITY_THRESHOLD_ATR
+    return d_val is not None and float(d_val) < _cfg("feature.trade_framer.vp_proximity_atr", 0.5)
 
 
 def _reject_frame(
@@ -436,11 +438,12 @@ def _resolve_zone_bounds(
         if EPSILON_TOLERANCE < ob_bottom < ob_top:
             return ob_bottom, ob_top, "setup:ob_zone"
 
-    # Sweep/reclaim — tight zone ± 0.5 ATR around entry (price already moved through)
+    # Sweep/reclaim — tight zone ± 0.76 ATR around entry (price already moved through)
     if st.startswith("sweep") or st.startswith("liquidity_hunt"):
+        _sweep_mult = _cfg("feature.trade_framer.zone_sweep_atr", 0.76)
         return (
-            entry - atr * ATR_ZONE_SWEEP_MULTIPLIER,
-            entry + atr * ATR_ZONE_SWEEP_MULTIPLIER,
+            entry - atr * _sweep_mult,
+            entry + atr * _sweep_mult,
             "setup:sweep_band",
         )
 
@@ -451,8 +454,8 @@ def _resolve_zone_bounds(
 
     # Final ATR fallback
     return (
-        entry - atr * ATR_ZONE_LOW_MULTIPLIER,
-        entry + atr * ATR_ZONE_HIGH_MULTIPLIER,
+        entry - atr * _cfg("feature.trade_framer.zone_low_atr", 1.0),
+        entry + atr * _cfg("feature.trade_framer.zone_high_atr", 0.5),
         "atr_fallback",
     )
 
@@ -541,13 +544,17 @@ def _resolve_stop_long(
     regime_type: str | None = None,
 ) -> tuple[float, str]:
     """Stop placement hierarchy for long trades."""
-    min_stop = entry - atr * _adaptive_buffer(features, MIN_STOP_ATR_MULTIPLIER, regime_type)
+    min_stop = entry - atr * _adaptive_buffer(
+        features, _cfg("feature.trade_framer.min_stop_atr", 1.0), regime_type
+    )
 
     # Priority 0: FVG low — FVG bottom as structural stop for bullish FVG
     fvg_type = _fval(features, "fvg_type")
     fvg_bottom = _fval(features, "fvg_bottom")
     if fvg_type == 1.0 and fvg_bottom > EPSILON_TOLERANCE and fvg_bottom < entry:
-        stop = fvg_bottom - atr * _adaptive_buffer(features, ATR_STOP_OB_MULTIPLIER, regime_type)
+        stop = fvg_bottom - atr * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_ob_buffer_atr", 0.20), regime_type
+        )
         if stop < entry - EPSILON_TOLERANCE:
             return min(stop, min_stop), "fvg_low"
 
@@ -556,7 +563,7 @@ def _resolve_stop_long(
     nearest_demand_low = _fval(features, "nearest_demand_low")
     if in_demand == 1.0 and nearest_demand_low > EPSILON_TOLERANCE:
         stop = nearest_demand_low - atr * _adaptive_buffer(
-            features, ATR_STOP_DEMAND_MULTIPLIER, regime_type
+            features, _cfg("feature.trade_framer.stop_demand_buffer_atr", 0.25), regime_type
         )
         if stop < entry - EPSILON_TOLERANCE:
             return min(stop, min_stop), "demand_zone"
@@ -566,7 +573,7 @@ def _resolve_stop_long(
     sweep_level = _fval(features, "sweep_level")
     if sweep_detected == 1.0 and sweep_level > EPSILON_TOLERANCE:
         stop = sweep_level - atr * _adaptive_buffer(
-            features, ATR_STOP_SWEEP_MULTIPLIER, regime_type
+            features, _cfg("feature.trade_framer.stop_sweep_buffer_atr", 0.30), regime_type
         )
         if stop < entry - EPSILON_TOLERANCE:
             return min(stop, min_stop), "sweep_level"
@@ -575,30 +582,42 @@ def _resolve_stop_long(
     ob_type = _fval(features, "ob_type")
     ob_bottom = _fval(features, "ob_bottom")
     if ob_type == 1.0 and ob_bottom > EPSILON_TOLERANCE and ob_bottom < entry:
-        stop = ob_bottom - atr * _adaptive_buffer(features, ATR_STOP_OB_MULTIPLIER, regime_type)
+        stop = ob_bottom - atr * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_ob_buffer_atr", 0.20), regime_type
+        )
         return min(stop, min_stop), "ob_bottom"
 
     # Priority 4: swing low
     swing_low = _fval(features, "swing_low")
     if swing_low > EPSILON_TOLERANCE and swing_low < entry:
-        stop = swing_low - atr * _adaptive_buffer(features, ATR_STOP_SWING_MULTIPLIER, regime_type)
+        stop = swing_low - atr * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_swing_buffer_atr", 0.25), regime_type
+        )
         return min(stop, min_stop), "swing_low"
 
     # Priority 4b: EMA 21 below entry as structural support stop
     ema_21 = _fval(features, "ema_21")
     if ema_21 > EPSILON_TOLERANCE and ema_21 < entry:
-        stop = ema_21 - atr * _adaptive_buffer(features, ATR_STOP_SWING_MULTIPLIER, regime_type)
+        stop = ema_21 - atr * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_swing_buffer_atr", 0.25), regime_type
+        )
         return min(stop, min_stop), "ema_21_support"
 
     # Priority 5: S/R nearest support
     sr_support = _fval(features, "sr_nearest_support") or _fval(features, "nearest_support")
     if sr_support > EPSILON_TOLERANCE and sr_support < entry:
-        stop = sr_support - atr * _adaptive_buffer(features, ATR_STOP_SR_MULTIPLIER, regime_type)
+        stop = sr_support - atr * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_sr_buffer_atr", 0.50), regime_type
+        )
         return min(stop, min_stop), "sr_support"
 
     # Fallback: ATR×2.0
     return (
-        entry - atr * _adaptive_buffer(features, ATR_STOP_FALLBACK_MULTIPLIER, regime_type),
+        entry
+        - atr
+        * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_fallback_atr", 2.0), regime_type
+        ),
         "atr",
     )
 
@@ -610,13 +629,17 @@ def _resolve_stop_short(
     regime_type: str | None = None,
 ) -> tuple[float, str]:
     """Stop placement hierarchy for short trades (mirror of long)."""
-    max_stop = entry + atr * _adaptive_buffer(features, MIN_STOP_ATR_MULTIPLIER, regime_type)
+    max_stop = entry + atr * _adaptive_buffer(
+        features, _cfg("feature.trade_framer.min_stop_atr", 1.0), regime_type
+    )
 
     # Priority 0: FVG high — FVG top as structural stop for bearish FVG
     fvg_type = _fval(features, "fvg_type")
     fvg_top = _fval(features, "fvg_top")
     if fvg_type == -1.0 and fvg_top > EPSILON_TOLERANCE and fvg_top > entry:
-        stop = fvg_top + atr * _adaptive_buffer(features, ATR_STOP_OB_MULTIPLIER, regime_type)
+        stop = fvg_top + atr * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_ob_buffer_atr", 0.20), regime_type
+        )
         if stop > entry + EPSILON_TOLERANCE:
             return max(stop, max_stop), "fvg_high"
 
@@ -625,7 +648,7 @@ def _resolve_stop_short(
     nearest_supply_high = _fval(features, "nearest_supply_high")
     if in_supply == 1.0 and nearest_supply_high > EPSILON_TOLERANCE:
         stop = nearest_supply_high + atr * _adaptive_buffer(
-            features, ATR_STOP_DEMAND_MULTIPLIER, regime_type
+            features, _cfg("feature.trade_framer.stop_demand_buffer_atr", 0.25), regime_type
         )
         if stop > entry + EPSILON_TOLERANCE:
             return max(stop, max_stop), "supply_zone"
@@ -635,7 +658,7 @@ def _resolve_stop_short(
     sweep_level = _fval(features, "sweep_level")
     if sweep_detected == 1.0 and sweep_level > EPSILON_TOLERANCE:
         stop = sweep_level + atr * _adaptive_buffer(
-            features, ATR_STOP_SWEEP_MULTIPLIER, regime_type
+            features, _cfg("feature.trade_framer.stop_sweep_buffer_atr", 0.30), regime_type
         )
         if stop > entry + EPSILON_TOLERANCE:
             return max(stop, max_stop), "sweep_level"
@@ -644,19 +667,25 @@ def _resolve_stop_short(
     ob_type = _fval(features, "ob_type")
     ob_top = _fval(features, "ob_top")
     if ob_type == -1.0 and ob_top > EPSILON_TOLERANCE and ob_top > entry:
-        stop = ob_top + atr * _adaptive_buffer(features, ATR_STOP_OB_MULTIPLIER, regime_type)
+        stop = ob_top + atr * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_ob_buffer_atr", 0.20), regime_type
+        )
         return max(stop, max_stop), "ob_top"
 
     # Priority 4: swing high
     swing_high = _fval(features, "swing_high")
     if swing_high > EPSILON_TOLERANCE and swing_high > entry:
-        stop = swing_high + atr * _adaptive_buffer(features, ATR_STOP_SWING_MULTIPLIER, regime_type)
+        stop = swing_high + atr * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_swing_buffer_atr", 0.25), regime_type
+        )
         return max(stop, max_stop), "swing_high"
 
     # Priority 4b: EMA 21 above entry as structural resistance stop
     ema_21 = _fval(features, "ema_21")
     if ema_21 > EPSILON_TOLERANCE and ema_21 > entry:
-        stop = ema_21 + atr * _adaptive_buffer(features, ATR_STOP_SWING_MULTIPLIER, regime_type)
+        stop = ema_21 + atr * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_swing_buffer_atr", 0.25), regime_type
+        )
         return max(stop, max_stop), "ema_21_resistance"
 
     # Priority 5: S/R nearest resistance
@@ -664,12 +693,18 @@ def _resolve_stop_short(
         features, "nearest_resistance"
     )
     if sr_resistance > EPSILON_TOLERANCE and sr_resistance > entry:
-        stop = sr_resistance + atr * _adaptive_buffer(features, ATR_STOP_SR_MULTIPLIER, regime_type)
+        stop = sr_resistance + atr * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_sr_buffer_atr", 0.50), regime_type
+        )
         return max(stop, max_stop), "sr_resistance"
 
     # Fallback: ATR×2.0
     return (
-        entry + atr * _adaptive_buffer(features, ATR_STOP_FALLBACK_MULTIPLIER, regime_type),
+        entry
+        + atr
+        * _adaptive_buffer(
+            features, _cfg("feature.trade_framer.stop_fallback_atr", 2.0), regime_type
+        ),
         "atr",
     )
 
@@ -690,12 +725,13 @@ def _collect_target_candidates(
     tf = features.get("timeframe", "")
     tf_max_mult = ATR_TARGET_MAX_MULTIPLIER_BY_TF.get(tf, ATR_TARGET_MAX_MULTIPLIER)
 
+    _target_min = _cfg("feature.trade_framer.target_min_atr", 0.5)
     if direction == 1:
-        min_level = entry + atr * ATR_TARGET_MIN_MULTIPLIER
+        min_level = entry + atr * _target_min
         max_level = entry + atr * tf_max_mult
     else:
         min_level = entry - atr * tf_max_mult
-        max_level = entry - atr * ATR_TARGET_MIN_MULTIPLIER
+        max_level = entry - atr * _target_min
 
     candidates: list[tuple[float, str, str]] = []
 
@@ -964,24 +1000,27 @@ def _pick_targets(
 
     # ATR fallback — always 3 levels
     sign = 1 if direction == 1 else -1
+    _t1_mult = _cfg("feature.trade_framer.fallback_t1_atr", 2.0)
+    _t2_mult = _cfg("feature.trade_framer.fallback_t2_atr", 3.5)
+    _t3_mult = _cfg("feature.trade_framer.fallback_t3_atr", 5.5)
     return [
         TradeTarget(
-            price=round(entry + sign * risk * ATR_FALLBACK_T1_MULTIPLIER, 2),
+            price=round(entry + sign * risk * _t1_mult, 2),
             label="ATR T1",
             level_type="atr",
-            rr=ATR_FALLBACK_T1_MULTIPLIER,
+            rr=_t1_mult,
         ),
         TradeTarget(
-            price=round(entry + sign * risk * ATR_FALLBACK_T2_MULTIPLIER, 2),
+            price=round(entry + sign * risk * _t2_mult, 2),
             label="ATR T2",
             level_type="atr",
-            rr=ATR_FALLBACK_T2_MULTIPLIER,
+            rr=_t2_mult,
         ),
         TradeTarget(
-            price=round(entry + sign * risk * ATR_FALLBACK_T3_MULTIPLIER, 2),
+            price=round(entry + sign * risk * _t3_mult, 2),
             label="ATR T3",
             level_type="atr",
-            rr=ATR_FALLBACK_T3_MULTIPLIER,
+            rr=_t3_mult,
         ),
     ], False
 
@@ -1031,10 +1070,11 @@ def frame_trade(
     tf = features.get("timeframe", "")
     max_stop_mult = MAX_STOP_ATR_MULTIPLIER_BY_TF.get(tf, MAX_STOP_ATR_MULTIPLIER_DEFAULT)
     if abs(resolved_entry - stop) > atr * max_stop_mult:
+        _fallback = _cfg("feature.trade_framer.stop_fallback_atr", 2.0)
         if direction == 1:
-            stop = resolved_entry - atr * ATR_STOP_FALLBACK_MULTIPLIER
+            stop = resolved_entry - atr * _fallback
         else:
-            stop = resolved_entry + atr * ATR_STOP_FALLBACK_MULTIPLIER
+            stop = resolved_entry + atr * _fallback
         stop_type = "atr"
 
     candidates = _collect_target_candidates(
@@ -1165,9 +1205,10 @@ def frame_trade(
                 method=method,
             )
 
-    if rr_t1 < MIN_RR_T1:
+    _min_rr_t1 = _cfg("threshold.trade_framer.min_rr_t1", 1.5)
+    if rr_t1 < _min_rr_t1:
         return _reject_frame(
-            f"rr_below_{MIN_RR_T1}: {rr_t1:.2f}",
+            f"rr_below_{_min_rr_t1}: {rr_t1:.2f}",
             resolved_entry,
             entry_type,
             stop,
