@@ -23,6 +23,7 @@ from src.intelligence.trading.trade_framer import (
     EPSILON_TOLERANCE,
     _adaptive_buffer,
     _classify_stop_basis,
+    _collect_target_candidates,
     _resolve_stop_long,
     _resolve_stop_short,
     _vp_regime_active,
@@ -67,6 +68,15 @@ _APR_SEEDS: dict[str, float] = {
     "feature.trade_framer.adaptive_buffer_hurst_tighten_rate": 0.16,
     "feature.trade_framer.adaptive_buffer_garch_shock_threshold": 3.0,
     "feature.trade_framer.adaptive_buffer_garch_shock_mult": 1.35,
+    # Keys from migration 152 (Plan 05) — target max ATR multipliers
+    "feature.trade_framer.target_max_atr": 8.0,
+    "feature.trade_framer.target_max_atr_": 8.0,  # empty TF suffix when features has no timeframe key
+    "feature.trade_framer.target_max_atr_1m": 3.0,
+    "feature.trade_framer.target_max_atr_5m": 5.0,
+    "feature.trade_framer.target_max_atr_15m": 7.0,
+    "feature.trade_framer.target_max_atr_1h": 8.0,
+    "feature.trade_framer.target_max_atr_4h": 8.0,
+    "feature.trade_framer.target_max_atr_1d": 8.0,
     # Keys from other modules that _cfg() also resolves (pre-warmed in production).
     # Add here if get_sync() is called with a key not in _APR_SEEDS during tests
     # so the strict mock can catch the additional key without raising.
@@ -477,3 +487,42 @@ class TestStrictMockCatchesTypos:
         mock = _StrictMockConfigService()
         # Seed is 0.25; passing wrong default (99.0) should still return 0.25
         assert mock.get_sync("feature.trade_framer.stop_demand_buffer_atr", 99.0) == 0.25
+
+
+# ---------------------------------------------------------------------------
+# Test: _collect_target_candidates reads target_max_atr from _cfg (migration 152)
+# ---------------------------------------------------------------------------
+
+
+def test_target_max_atr_reads_from_cfg(monkeypatch):
+    """_collect_target_candidates uses _cfg for target_max ATR, not module constants."""
+    import src.intelligence.trading.trade_framer as tf_mod
+
+    captured: dict[str, float] = {}
+    original_cfg = tf_mod._cfg
+
+    def mock_cfg(key: str, default: float) -> float:
+        captured[key] = default
+        return original_cfg(key, default)
+
+    monkeypatch.setattr(tf_mod, "_cfg", mock_cfg)
+
+    features = {"timeframe": "1h", "garch_vol_ratio": 1.0}
+    _collect_target_candidates(
+        entry=100.0,
+        stop=98.0,
+        direction=1,
+        atr=1.0,
+        features=features,
+    )
+
+    assert (
+        "feature.trade_framer.target_max_atr" in captured
+    ), "_collect_target_candidates did not call _cfg('feature.trade_framer.target_max_atr', ...)"
+    assert (
+        "feature.trade_framer.target_max_atr_1h" in captured
+    ), "_collect_target_candidates did not call _cfg('feature.trade_framer.target_max_atr_1h', ...)"
+    # Fallback default must be 8.0 (matches migration 152 seed)
+    assert captured["feature.trade_framer.target_max_atr"] == 8.0
+    # Per-TF default must equal the resolved default_max (also 8.0 for 1h)
+    assert captured["feature.trade_framer.target_max_atr_1h"] == 8.0
