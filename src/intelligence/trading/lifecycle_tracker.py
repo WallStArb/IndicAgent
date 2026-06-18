@@ -536,7 +536,7 @@ def _check_active_exit(
             return _make_exit(
                 sid,
                 f"target_{i + 1}_hit",
-                f"target_{i + 1}",
+                "target_hit",
                 target,
                 entry,
                 direction,

@@ -671,7 +671,7 @@ async def _process_symbol_tf(
                             m_outcome = (
                                 _classify_stop_outcome(m_mfe, m_bit) if is_stop else m_trans.outcome
                             )
-                            m_exit_reason = "stop_loss" if is_stop else None
+                            m_exit_reason = "stop_loss" if is_stop else "target_hit"
                             stats["market"][m_outcome] = stats["market"].get(m_outcome, 0) + 1
                             pending_writes.append(
                                 (
@@ -1031,7 +1031,8 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
     # INSERT trade_executions with market entry/exit fields
     for sid, data in markets:
         m_outcome = _enum_value(data.get("market_entry_outcome"))
-        # exit_reason: explicit stop_loss label takes priority; otherwise use outcome value
+        # exit_reason: stop_loss/target_hit come from the loop; TTL exits fall back to outcome
+        # (ttl_expired_ahead / ttl_expired_behind are valid exit_reason values)
         m_exit_reason = data.get("market_entry_exit_reason") or m_outcome
         # Compute execution_id deterministically from signal_id + 'market'
         execution_id = str(uuid.uuid5(_FRAME_ID_NS, f"{sid}:market"))

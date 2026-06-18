@@ -10,8 +10,10 @@ Three round-trip insert tests (DB-backed, skip if DB unavailable):
   5. trade_frames.entry_type — every EntryType value accepted; invalid rejected (22P02)
   6. signal_events.status — every SignalStatus value accepted; invalid rejected (22P02)
 
-Round-trip tests prove the live writer paths round-trip cleanly and that the PG ENUM
-types reject only genuinely invalid values (PostgreSQL error code 22P02).
+Round-trip tests use indicagent_test (not the live corpus). A session-scoped fixture
+bootstraps the test DB with the minimal schema: ENUM types + the 3 tables. Connecting
+to the production indicagent DB from a test suite is a data integrity risk — a crash
+before rollback or any asyncpg transaction failure would write to training data.
 """
 
 from __future__ import annotations
@@ -26,37 +28,123 @@ from src.intelligence.trading.signal_outcome import EntryType, SignalOutcome
 from src.persistence.repository.signal_events_repository import SignalStatus
 
 # ---------------------------------------------------------------------------
+# Test DB bootstrap (session-scoped)
+# ---------------------------------------------------------------------------
+
+_TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
+_ADMIN_DB_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
+
+_BOOTSTRAP_SQL = """
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'signal_outcome_type') THEN
+        CREATE TYPE signal_outcome_type AS ENUM (
+            'never_activated', 'stopped_at_entry', 'stopped_in_trade',
+            'target_1', 'target_1_2', 'target_full',
+            'ttl_expired_ahead', 'ttl_expired_behind', 'condition_expired'
+        );
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'entry_type_type') THEN
+        CREATE TYPE entry_type_type AS ENUM (
+            'at_close', 'at_pullback', 'at_limit', 'at_reclaim', 'zone_proximal'
+        );
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'signal_status_type') THEN
+        CREATE TYPE signal_status_type AS ENUM (
+            'pending', 'active', 'regime_suppressed', 'expired'
+        );
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS signal_events (
+    signal_id       uuid                NOT NULL,
+    ts              timestamptz         NOT NULL,
+    symbol          text                NOT NULL,
+    tf              text                NOT NULL,
+    setup_plugin    text                NOT NULL,
+    direction       text                NOT NULL,
+    raw_confidence  double precision    NOT NULL,
+    status          signal_status_type  NOT NULL DEFAULT 'pending',
+    PRIMARY KEY (signal_id, ts)
+);
+
+CREATE TABLE IF NOT EXISTS trade_frames (
+    frame_id    uuid            NOT NULL PRIMARY KEY,
+    signal_id   uuid            NOT NULL,
+    signal_ts   timestamptz     NOT NULL,
+    entry_type  entry_type_type NOT NULL,
+    direction   text            NOT NULL,
+    was_selected boolean        NOT NULL DEFAULT false
+);
+
+CREATE TABLE IF NOT EXISTS trade_executions (
+    execution_id    uuid                NOT NULL PRIMARY KEY,
+    frame_id        uuid                NOT NULL REFERENCES trade_frames(frame_id),
+    outcome         signal_outcome_type,
+    exit_reason     text,
+    CONSTRAINT chk_te_exit_reason CHECK (
+        exit_reason IS NULL OR exit_reason IN (
+            'stop_loss', 'chandelier_stop', 'condition_expired',
+            'ttl_expired', 'ttl_expired_ahead', 'ttl_expired_behind',
+            'target_hit'
+        )
+    )
+);
+"""
+
+
+def _bootstrap_test_db() -> bool:
+    """Create indicagent_test and apply minimal schema. Returns True on success."""
+    try:
+        import asyncpg
+
+        async def _run_bootstrap():
+            # Create DB if needed (must connect to postgres, not indicagent_test)
+            conn = await asyncpg.connect(_ADMIN_DB_URL)
+            try:
+                exists = await conn.fetchval(
+                    "SELECT 1 FROM pg_database WHERE datname = 'indicagent_test'"
+                )
+                if not exists:
+                    await conn.execute("CREATE DATABASE indicagent_test")
+            finally:
+                await conn.close()
+
+            # Apply minimal schema
+            conn = await asyncpg.connect(_TEST_DB_URL)
+            try:
+                await conn.execute(_BOOTSTRAP_SQL)
+            finally:
+                await conn.close()
+
+        asyncio.run(_run_bootstrap())
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_test_db():
+    """Session-scoped fixture: bootstrap indicagent_test before round-trip tests run."""
+    _bootstrap_test_db()
+
+
+# ---------------------------------------------------------------------------
 # DB connectivity helper (shared by round-trip tests)
 # ---------------------------------------------------------------------------
 
 
 def _get_db_url() -> str | None:
-    """Return the indicagent DB URL for round-trip tests.
+    """Return indicagent_test URL for round-trip tests.
 
-    The test suite conftest.py forces DATABASE_URL to indicagent_test. Round-trip
-    tests need the production schema (with PG ENUM types from migration 151).
-    We check the explicit env var first, then fall back to settings.
+    Always uses the test DB — never the production corpus.
     """
-    import os
-
-    # Allow an override for CI environments where the test DB has the enum types.
-    override = os.environ.get("INDICAGENT_ROUNDTRIP_DB_URL")
-    if override:
-        return override
-
-    # The test conftest sets DATABASE_URL=indicagent_test. For round-trip tests
-    # we need the indicagent schema (which has the PG ENUM types). The test DB
-    # may not have run migration 151, so we derive from the known indicagent URL.
-    try:
-        from src.config.settings import get_settings
-
-        url = get_settings().database_url
-        # Replace indicagent_test with indicagent if conftest has overridden it
-        if "indicagent_test" in url:
-            return url.replace("indicagent_test", "indicagent")
-        return url
-    except Exception:
-        return None
+    return _TEST_DB_URL
 
 
 def _run(coro):
