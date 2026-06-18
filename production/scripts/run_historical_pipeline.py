@@ -746,7 +746,17 @@ def _event_to_sync_params(event: Any) -> tuple:
         json.dumps(_sanitize_for_json(event.i4.model_dump(exclude_none=True))),  # i4
         json.dumps(_sanitize_for_json(event.smc.model_dump(exclude_none=True))),  # smc
         json.dumps(
-            _sanitize_for_json(event.i6.model_dump(exclude_none=True))
+            _sanitize_for_json(
+                event.i6.model_dump(
+                    exclude_none=True,
+                    exclude={
+                        "ctf_score",
+                        "ctf_trend_alignment",
+                        "ctf_structure_alignment",
+                        "ctf_regime_agreement",
+                    },
+                )
+            )
         ),  # cross_timeframe_context
         json.dumps(_sanitize_for_json(event.i2.model_dump(exclude_none=True))),  # i2
     )

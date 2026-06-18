@@ -225,7 +225,15 @@ def _record_to_insert_params(
             exclude_none=True
         ),  # $12 i4 (I4Context: GARCH, Kalman, AVWAP, VP, SessionContext)
         event.smc.model_dump(exclude_none=True),  # $13 smc
-        event.i6.model_dump(exclude_none=True),  # $14 cross_timeframe_context
+        event.i6.model_dump(  # $14 cross_timeframe_context
+            exclude_none=True,
+            exclude={
+                "ctf_score",
+                "ctf_trend_alignment",
+                "ctf_structure_alignment",
+                "ctf_regime_agreement",
+            },
+        ),
         i2_data,  # $15 i2
         [s.model_dump() for s in record.ranked_signals],  # $16 trading_signals
         event.bar_close_ts,  # $17 bar_close_ts
