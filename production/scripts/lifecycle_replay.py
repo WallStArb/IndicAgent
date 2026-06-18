@@ -1340,7 +1340,9 @@ async def main_async():
 
     settings = Settings()
     db = DatabaseManager(settings.database_url)
-    await db.initialize()
+    # Use 300s command timeout for lifecycle replay — large hypertable writes and
+    # _reconcile_outcomes CTE scans exceed the default 30s limit.
+    await db.initialize(command_timeout=300)
 
     try:
         symbols = (

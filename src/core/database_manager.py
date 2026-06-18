@@ -38,13 +38,13 @@ class DatabaseManager:
         self.database_url = database_url
         self.pool: asyncpg.Pool | None = None
 
-    async def initialize(self):
+    async def initialize(self, command_timeout: int = 30):
         """Initialize database connection pool."""
         if self.pool is not None:
             return
         try:
             self.pool = await create_pool(
-                self.database_url, min_size=2, max_size=10, command_timeout=30
+                self.database_url, min_size=2, max_size=10, command_timeout=command_timeout
             )
             logger.info("✅ Database pool initialized")
         except Exception as e:
