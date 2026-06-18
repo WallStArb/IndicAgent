@@ -759,11 +759,10 @@ async def _process_symbol_tf(
                     else:
                         # Zone exit — classify outcome and mark resolved
                         z_outcome = z_trans.outcome
+                        z_bit = int(
+                            (bar_ts - zone_activated_at.get(sid, bar_ts)).total_seconds() / tf_secs
+                        )
                         if z_outcome is None:
-                            z_bit = int(
-                                (bar_ts - zone_activated_at.get(sid, bar_ts)).total_seconds()
-                                / tf_secs
-                            )
                             z_outcome = _classify_stop_outcome(z_mfe, z_bit)
                         stats["zone"][z_outcome] = stats["zone"].get(z_outcome, 0) + 1
                         stats["processed"] += 1
