@@ -41,32 +41,32 @@ def set_config_service(cfg: Any) -> None:
     _config_service = cfg
 
 
-def _cfg(key: str, default: float) -> float:
+def _read_config(key: str, default: float) -> float:
     return _config_service.get_sync(key, default) if _config_service is not None else default
 
 
 def _cluster_radius_atr() -> float:
-    return _cfg("feature.zone_engine.cluster_radius_atr", CLUSTER_RADIUS_ATR)
+    return _read_config("feature.zone_engine.cluster_radius_atr", CLUSTER_RADIUS_ATR)
 
 
 def _zone_buffer_atr() -> float:
-    return _cfg("feature.zone_engine.zone_buffer_atr", ZONE_BUFFER_ATR)
+    return _read_config("feature.zone_engine.zone_buffer_atr", ZONE_BUFFER_ATR)
 
 
 def _min_width_atr() -> float:
-    return _cfg("feature.zone_engine.min_width_atr", MIN_ZONE_WIDTH_ATR)
+    return _read_config("feature.zone_engine.min_width_atr", MIN_ZONE_WIDTH_ATR)
 
 
 def _single_level_radius_atr() -> float:
-    return _cfg("feature.zone_engine.single_level_radius_atr", SINGLE_LEVEL_RADIUS_ATR)
+    return _read_config("feature.zone_engine.single_level_radius_atr", SINGLE_LEVEL_RADIUS_ATR)
 
 
 def _strength_weight() -> float:
-    return _cfg("weights.zone_engine.strength", _SINGLE_STRENGTH_WEIGHT)
+    return _read_config("weights.zone_engine.strength", _SINGLE_STRENGTH_WEIGHT)
 
 
 def _proximity_weight() -> float:
-    return _cfg("weights.zone_engine.proximity", _SINGLE_PROXIMITY_WEIGHT)
+    return _read_config("weights.zone_engine.proximity", _SINGLE_PROXIMITY_WEIGHT)
 
 
 # Maximum structural stop distance per TF — levels beyond this belong to a higher TF.
