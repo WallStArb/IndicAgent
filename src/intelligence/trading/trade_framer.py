@@ -50,6 +50,7 @@ import structlog as _structlog
 from src.observability.metrics import STOP_BUFFER_MULT_DISTRIBUTION
 
 from .plugin_utils import _fval, validate_stop_against_zone
+from .signal_outcome import EntryType
 from .zone_engine import (
     MAX_STOP_ATR_MULTIPLIER_BY_TF,
     MAX_STOP_ATR_MULTIPLIER_DEFAULT,
@@ -207,7 +208,7 @@ class TradeTarget:
 @dataclass
 class TradeFrame:
     entry: float
-    entry_type: str  # "at_close"|"at_reclaim"|"zone_proximal"|"at_limit"|"at_pullback"
+    entry_type: str  # EntryType value (see signal_outcome.EntryType)
     stop: float
     stop_type: str  # "demand_zone" | "sweep_level" | "ob_bottom" | "swing_low"
     # | "sr_support" | "atr"
@@ -485,20 +486,20 @@ def _resolve_entry(
     """Return (entry_price, entry_type) based on setup type."""
     st = setup_type.lower()
     if st.startswith("sweep_reclaim") or st.startswith("liquidity_hunt"):
-        return entry_price, "at_reclaim"
+        return entry_price, EntryType.AT_RECLAIM.value
     if st.startswith("session_extreme"):
-        return entry_price, "at_limit"
+        return entry_price, EntryType.AT_LIMIT.value
     if st.startswith("supply_demand"):
         if direction == 1:
             # Long: enter at demand zone proximal (zone high)
             zone_high = _fval(features, "nearest_demand_high")
             if zone_high > EPSILON_TOLERANCE:
-                return zone_high, "zone_proximal"
+                return zone_high, EntryType.ZONE_PROXIMAL.value
         else:
             # Short: enter at supply zone proximal (zone low)
             zone_low = _fval(features, "nearest_supply_low")
             if zone_low > EPSILON_TOLERANCE:
-                return zone_low, "zone_proximal"
+                return zone_low, EntryType.ZONE_PROXIMAL.value
 
     # momentum_breakout → at_limit at broken structure level (swing_high/low)
     if st.startswith("momentum_breakout"):
@@ -507,26 +508,26 @@ def _resolve_entry(
             if (
                 level > EPSILON_TOLERANCE and level <= entry_price
             ):  # limit below current price for long
-                return level, "at_limit"
+                return level, EntryType.AT_LIMIT.value
         else:
             level = _fval(features, "swing_low")
             if (
                 level > EPSILON_TOLERANCE and level >= entry_price
             ):  # limit above current price for short
-                return level, "at_limit"
+                return level, EntryType.AT_LIMIT.value
 
     # squeeze_expansion → at_limit at bb_middle (squeeze centre)
     if st.startswith("squeeze_expansion") or st.startswith("squeeze"):
         bb_middle = _fval(features, "bb_middle")
         if bb_middle > EPSILON_TOLERANCE:
-            return bb_middle, "at_limit"
+            return bb_middle, EntryType.AT_LIMIT.value
 
     # trend → at_pullback at nearest_support/resistance
     if st.startswith("trend_"):
         if direction == 1:
             level = _fval(features, "nearest_support") or _fval(features, "sr_nearest_support")
             if level > EPSILON_TOLERANCE and level < entry_price:  # pullback below current for long
-                return level, "at_pullback"
+                return level, EntryType.AT_PULLBACK.value
         else:
             level = _fval(features, "nearest_resistance") or _fval(
                 features, "sr_nearest_resistance"
@@ -534,7 +535,7 @@ def _resolve_entry(
             if (
                 level > EPSILON_TOLERANCE and level > entry_price
             ):  # pullback above current for short
-                return level, "at_pullback"
+                return level, EntryType.AT_PULLBACK.value
 
     # mtf_alignment → at_pullback using nearest_support/resistance as CTF level proxy
     # Decision: no ctf_level price field exists in schema; using nearest S/R as structural proxy
@@ -542,15 +543,15 @@ def _resolve_entry(
         if direction == 1:
             level = _fval(features, "nearest_support") or _fval(features, "sr_nearest_support")
             if level > EPSILON_TOLERANCE and level < entry_price:
-                return level, "at_pullback"
+                return level, EntryType.AT_PULLBACK.value
         else:
             level = _fval(features, "nearest_resistance") or _fval(
                 features, "sr_nearest_resistance"
             )
             if level > EPSILON_TOLERANCE and level > entry_price:
-                return level, "at_pullback"
+                return level, EntryType.AT_PULLBACK.value
 
-    return entry_price, "at_close"
+    return entry_price, EntryType.AT_CLOSE.value
 
 
 def _resolve_stop_long(
@@ -1202,7 +1203,7 @@ def frame_trade(
     # If close has already passed T1 in the signal direction, the trade is unreachable:
     # price would need to reverse N points just to enter, having already exceeded the target.
     close_price = _fval(features, "close_price")
-    if close_price > EPSILON_TOLERANCE and entry_type == "at_pullback":
+    if close_price > EPSILON_TOLERANCE and entry_type == EntryType.AT_PULLBACK.value:
         t1_price = targets[0].price
         price_past_t1 = (direction == -1 and close_price < t1_price) or (  # short: close below T1
             direction == 1 and close_price > t1_price

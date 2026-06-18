@@ -47,3 +47,18 @@ TTL_OUTCOMES: frozenset[str] = frozenset(
         SignalOutcome.CONDITION_EXPIRED,
     }
 )
+
+
+class EntryType(str, Enum):
+    """Entry trigger type written to trade_frames.entry_type.
+
+    Extends str so asyncpg accepts .value directly and comparisons against
+    DB-returned strings work without calling .value. CHECK constraint in
+    migration 150 enforces these values at write time.
+    """
+
+    AT_CLOSE = "at_close"
+    AT_PULLBACK = "at_pullback"
+    AT_LIMIT = "at_limit"
+    AT_RECLAIM = "at_reclaim"
+    ZONE_PROXIMAL = "zone_proximal"
