@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-18T02:02:07.538Z"
-last_activity: 2026-06-18 -- Phase 132 execution started
+last_updated: "2026-06-18T02:25:00.000Z"
+last_activity: 2026-06-17 -- Phase 133 planned (7 plans, 5 waves)
 progress:
   total_phases: 26
   completed_phases: 19
-  total_plans: 132
+  total_plans: 139
   completed_plans: 106
-  percent: 73
+  percent: 76
 ---
 
 # Project State
@@ -95,7 +95,13 @@ Context gathered for all three phases. Key decisions locked:
 - A7 CTF fix = DB seed at replay startup (`_seed_last_events_from_db()` in feature_pipeline_executor)
 - C2 column naming already resolved — DB columns are functional names (no rename migration needed)
 
-**Resume:** `/gsd-plan-phase 131`
+**Resume:** `/gsd-execute-phase 133` (once Phase 131 + 132 verification gates both pass)
+
+### Previous session (2026-06-17) — Phase 133 planned; Phase 132 executing in parallel session
+
+Phase 133 (clean-corpus-rebuild) planned: 7 plans in 5 waves. Checker passed (0 blockers). Two warnings fixed. Waiting on Phase 132 completion before 133 can execute.
+
+### Previous session (2026-06-17) — Phase 131/132/133 context captured; plans ready
 
 ### Previous session (2026-06-17) — Phase 127 reconciliation done; rebuild finishing
 
@@ -133,10 +139,10 @@ Then: `/clear` then `/gsd-execute-phase 121` (Wave 2 — validation report)
 
 ## Current Position
 
-Phase: 132 (stop-zone-geometry-apr-migration) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 132
-Last activity: 2026-06-18 -- Phase 132 execution started
+Phase: 132 (stop-zone-geometry-apr-migration) — EXECUTING (other session)
+Phase: 133 (clean-corpus-rebuild) — PLANNED (7 plans, 5 waves)
+Status: Phase 132 executing in parallel session; Phase 133 ready to execute once 131+132 gates pass
+Last activity: 2026-06-17 -- Phase 133 planned (7 plans, 5 waves)
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
