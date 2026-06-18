@@ -47,7 +47,10 @@ from typing import Any
 
 import structlog as _structlog
 
-from src.observability.metrics import STOP_BUFFER_MULT_DISTRIBUTION
+from src.observability.metrics import (
+    FRAME_TRADE_STOP_CORRECTION_TOTAL,
+    STOP_BUFFER_MULT_DISTRIBUTION,
+)
 
 from .plugin_utils import _fval, validate_stop_against_zone
 from .signal_outcome import EntryType
@@ -268,6 +271,12 @@ _STRUCTURAL_STOP_TYPES = frozenset(
     }
 )
 
+# ATR-family stops: no structural level governs the stop price.
+# "atr": pure fallback — no structure found
+# "atr_capped": structure found but exceeded per-TF stop cap; ATR×fallback substituted
+# "zone_corrected": structural stop was inside entry zone; corrected to ATR distance from boundary
+_ATR_FAMILY_STOP_TYPES: frozenset[str] = frozenset({"atr", "atr_capped", "zone_corrected"})
+
 
 def _stop_type_to_structure_type(stop_type: str) -> str:
     """Map raw stop_type string to canonical stop_structure_type label."""
@@ -314,8 +323,7 @@ def _classify_stop_basis(
     """
     structure_type = _stop_type_to_structure_type(stop_type)
 
-    # ATR fallback stop — no structural level used
-    if stop_type == "atr":
+    if stop_type in _ATR_FAMILY_STOP_TYPES:
         return "atr_static", "atr_fallback", 0.0
 
     # Structural stop — compute distance from ATR fallback
@@ -1075,11 +1083,22 @@ def frame_trade(
     max_stop_mult = MAX_STOP_ATR_MULTIPLIER_BY_TF.get(tf, MAX_STOP_ATR_MULTIPLIER_DEFAULT)
     if abs(resolved_entry - stop) > atr * max_stop_mult:
         _fallback = _cfg("feature.trade_framer.stop_fallback_atr", 2.0)
+        _logger.debug(
+            "frame_trade.stop_capped",
+            original_stop_type=stop_type,
+            original_stop=round(stop, 4),
+            entry=round(resolved_entry, 4),
+            max_stop_mult=max_stop_mult,
+            setup_type=setup_type,
+        )
+        FRAME_TRADE_STOP_CORRECTION_TOTAL.add(
+            1, {"correction_type": "stop_capped", "setup_type": setup_type}
+        )
         if direction == 1:
             stop = resolved_entry - atr * _fallback
         else:
             stop = resolved_entry + atr * _fallback
-        stop_type = "atr"
+        stop_type = "atr_capped"
 
     candidates = _collect_target_candidates(
         resolved_entry, stop, direction, atr, features, regime_type
@@ -1125,6 +1144,7 @@ def frame_trade(
     # Violations cause stopped_at_entry outcomes (dead-on-arrival signals)
     # Delegates to validate_stop_against_zone() for single-source-of-truth correction
     original_stop = stop
+    original_stop_type = stop_type
     stop = validate_stop_against_zone(
         zone_low=zone_low,
         zone_high=zone_high,
@@ -1134,6 +1154,18 @@ def frame_trade(
         plugin_name=setup_type,
     )
     if stop != original_stop:
+        FRAME_TRADE_STOP_CORRECTION_TOTAL.add(
+            1, {"correction_type": "zone_corrected", "setup_type": setup_type}
+        )
+        _logger.warning(
+            "frame_trade.stop_zone_corrected",
+            original_stop_type=original_stop_type,
+            original_stop=round(original_stop, 4),
+            corrected_stop=round(stop, 4),
+            zone_low=round(zone_low, 4),
+            zone_high=round(zone_high, 4),
+            setup_type=setup_type,
+        )
         stop_type = "zone_corrected"
 
     # Stop distance floor gate (D-04): absolute floor on stop distance from entry.

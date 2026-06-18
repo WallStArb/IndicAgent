@@ -900,6 +900,11 @@ STOP_BUFFER_MULT_DISTRIBUTION = _meter.create_histogram(
     unit="1",
 )
 
+FRAME_TRADE_STOP_CORRECTION_TOTAL = _meter.create_counter(
+    "frame_trade_stop_correction_total",
+    description="Stop placements corrected by frame_trade (stop_capped: structural too wide; zone_corrected: stop inside entry zone). Labels: correction_type, setup_type.",
+)
+
 # ---------------------------------------------------------------------------
 # Kafka publish latency (Phase 83)
 # ---------------------------------------------------------------------------

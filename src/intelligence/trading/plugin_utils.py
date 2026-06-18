@@ -155,7 +155,7 @@ def validate_stop_against_zone(
                 f"Review plugin stop calculation logic."
             )
 
-        _logger.warning(
+        _logger.debug(
             "stop_inside_zone_corrected",
             setup_type=plugin_name,
             original_stop=stop_loss,
@@ -192,7 +192,7 @@ def validate_stop_against_zone(
                 f"Review plugin stop calculation logic."
             )
 
-        _logger.warning(
+        _logger.debug(
             "stop_inside_zone_corrected",
             setup_type=plugin_name,
             original_stop=stop_loss,
