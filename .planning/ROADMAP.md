@@ -1366,6 +1366,21 @@ Plans:
 </details>
 
 <details>
+<summary>📋 Phase 135: Controlled Vocabulary System — PLANNED</summary>
+
+**Goal:** A central, reusable vocabulary and taxonomy registry — the APR equivalent for symbolic codes. Three DB tables (`controlled_vocabulary`, `vocabulary_group`, `vocabulary_group_member`), one `VocabularyService`, one `/api/vocabulary/{namespace}` endpoint. Any domain registers its enum vocabulary into a namespace; any consumer reads it without hardcoding. First consumer: dashboard signal filter dropdowns.
+
+**Prerequisite gate:** Phase 134 complete (PG ENUM types in place; vocabulary seeding must reference values already enforced at the DB level).
+
+**Sequencing note:** Independent of Phase 133 (corpus rebuild). Can run in parallel or after 133 — no shared schema dependencies. Should run before any dashboard or API work that needs filter dropdowns.
+
+**Design doc:** `docs/plans/2026-06-18-controlled-vocabulary-system.md`
+
+**Plans:** TBD (plan-phase to produce)
+
+</details>
+
+<details>
 <summary>📋 Phase 133: Clean Corpus Rebuild — PLANNED</summary>
 
 **Goal:** One complete, verified, unbiased corpus. All Phase 131 signal bugs fixed. All Phase 132 stop geometry correct. All Phase 134 type enforcement in place. Schema migrated (trade_frames hypertable). Scripts cleaned. Full rebuild produces a corpus satisfying ML training acceptance criteria. ML training is unblocked after this phase.
