@@ -340,6 +340,7 @@ def evaluate_signal(
                         trailing_stop=trailing_stop,
                         pnl_r=pnl_r,
                     )
+                # live code path; outcome -> stopped_in_trade. 0 rows in current corpus (signal regime), not dead code.
                 _record_outcome(signal, SignalOutcome.STOPPED_IN_TRADE)
                 return Transition(
                     signal_id=sid,
@@ -365,6 +366,7 @@ def evaluate_signal(
             pnl_dollars = round(pnl_ticks * point_value, 2)
             final_mae = min(current_mae, pnl_r)
             final_mfe = max(current_mfe, pnl_r)
+            # live code path; outcome -> condition_expired (9th SignalOutcome). 0 rows in current corpus (signal regime), not dead code.
             _record_outcome(signal, "condition_expired")
             return Transition(
                 signal_id=sid,
