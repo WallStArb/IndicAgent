@@ -1345,3 +1345,24 @@ Plans:
 - [ ] 132-05-PLAN.md — Verification: 1-month replay + stopped_at_entry < 5% gate + 35-key audit + bare-literal audit + commit/push (Wave 4, depends 01-04)
 
 </details>
+
+<details>
+<summary>📋 Phase 133: Clean Corpus Rebuild — PLANNED</summary>
+
+**Goal:** One complete, verified, unbiased corpus. All Phase 131 signal bugs fixed. All Phase 132 stop geometry correct. Schema migrated (trade_frames hypertable). Scripts cleaned. Full rebuild produces a corpus satisfying ML training acceptance criteria. ML training is unblocked after this phase.
+
+**Prerequisite gate:** Do not begin until Phase 131 AND Phase 132 verification gates both pass.
+
+**Plans:** 7 plans in 5 waves
+
+Plans:
+
+- [ ] 133-01-PLAN.md — C2 column naming verification + MEMORY.md closure (Wave 1, parallel)
+- [ ] 133-02-PLAN.md — Script cleanup: B2/B3/B4/B5/D items before TRUNCATE (Wave 1, parallel)
+- [ ] 133-03-PLAN.md — C1 trade_frames hypertable migration 146 + lifecycle_replay writer update (Wave 2, depends 02)
+- [ ] 133-04-PLAN.md — TRUNCATE + full backfill replay (Wave 3, depends 01+02+03)
+- [ ] 133-05-PLAN.md — Lifecycle replay + _verify_replay 0/0/0 gate (Wave 4, depends 04)
+- [ ] 133-06-PLAN.md — Corpus acceptance criteria: all D-04 hard gates + 133-ACCEPTANCE-REPORT.md (Wave 5, depends 05)
+- [ ] 133-07-PLAN.md — Final cleanup, unit tests, commit, push, phase closure (Wave 5, parallel with 06, depends 05)
+
+</details>
