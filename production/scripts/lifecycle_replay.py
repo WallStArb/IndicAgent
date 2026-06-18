@@ -1015,13 +1015,14 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
         # frame_id for the at_close trade frame
         frame_id = _make_frame_id(sid, "at_close")
         exit_at = data.get("exit_at")
+        z_outcome = _enum_value(data.get("outcome"))
         await conn.execute(
             """INSERT INTO trade_executions (
                 execution_id, frame_id,
                 actual_exit_price, actual_pnl_r,
                 actual_mae, actual_mfe, actual_bars,
-                exit_reason, exited_at
-            ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)
+                exit_reason, exited_at, outcome
+            ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (execution_id) DO NOTHING""",
             execution_id,
             frame_id,
@@ -1032,6 +1033,7 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
             data.get("bars_in_trade"),
             data.get("exit_reason"),
             exit_at,
+            z_outcome,
         )
 
     # --- Market track resolutions ---
@@ -1047,8 +1049,8 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
                 market_entry_price, market_entry_gap_bars,
                 actual_fill_price, actual_exit_price,
                 actual_pnl_r, actual_mae, actual_mfe, actual_bars,
-                exit_reason, executed_at, exited_at
-            ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                exit_reason, executed_at, exited_at, outcome
+            ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ON CONFLICT (execution_id) DO NOTHING""",
             execution_id,
             frame_id,
@@ -1063,6 +1065,7 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
             m_outcome,
             data.get("market_entry_at"),
             data.get("market_entry_exit_at"),
+            m_outcome,
         )
 
 
@@ -1155,6 +1158,7 @@ async def _reconcile_outcomes(db: DatabaseManager) -> None:
                     "ttl_expired",
                     r["fired_at"],
                     r["expires_at"],
+                    "ttl_expired_behind",  # pnl_r=0.0 => behind; matches backfill SQL logic
                 )
             )
 
@@ -1162,8 +1166,8 @@ async def _reconcile_outcomes(db: DatabaseManager) -> None:
             """INSERT INTO trade_executions (
                    execution_id, frame_id,
                    actual_pnl_r, exit_reason,
-                   executed_at, exited_at
-               ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
+                   executed_at, exited_at, outcome
+               ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)
                ON CONFLICT (execution_id) DO NOTHING""",
             params,
         )
