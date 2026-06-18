@@ -348,8 +348,8 @@ async def _reset_corrupt_data(
                 stats["outcomes_reset"],
                 stats.get("frames_reset", 0),
                 stats.get("executions_deleted", 0),
-                after.isoformat(),
-                before.isoformat(),
+                after.isoformat() if after is not None else "unbounded",
+                before.isoformat() if before is not None else "unbounded",
             )
         finally:
             await conn.execute("SELECT pg_advisory_unlock($1)", _REPLAY_LOCK_ID)
