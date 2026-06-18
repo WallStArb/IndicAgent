@@ -310,7 +310,7 @@ def make_signal_from_frame(
 
     sig["zone_low"] = round_to_tick(tf.zone_low, symbol)
     sig["zone_high"] = round_to_tick(tf.zone_high, symbol)
-    sig["zone_source"] = None  # set by lifecycle_tracker when zone is activated
+    sig["zone_source"] = tf.zone_source
 
     # Framing audit trail — single authoritative assignment point (Phase 115)
     sig["stop_basis"] = tf.stop_basis

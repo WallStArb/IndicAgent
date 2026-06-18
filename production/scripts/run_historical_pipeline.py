@@ -954,7 +954,10 @@ def _build_ledger_entries(
                 stop_structure_age_bars=sig.get("stop_structure_age_bars"),
                 raw_confidence=sig.get("pre_quality_confidence") or sig.get("confidence"),
                 calibrated_confidence=sig.get("calibrated_confidence"),
-                context_features=sig.get("context_features"),
+                context_features={
+                    **(sig.get("context_features") or {}),
+                    "zone_source": sig.get("zone_source"),
+                },
                 ctf_score=sig.get("ctf_score"),
                 ctf_confirmed=sig.get("ctf_confirmed"),
                 zone_friction_score=sig.get("zone_friction_score"),

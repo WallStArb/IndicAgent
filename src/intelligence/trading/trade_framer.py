@@ -213,6 +213,9 @@ class TradeFrame:
     rejection_reason: str | None = None
     zone_low: float = 0.0  # lower bound of entry zone (zone_low < zone_high always)
     zone_high: float = 0.0  # upper bound of entry zone
+    zone_source: str | None = (
+        None  # source of zone bounds (e.g. "setup:supply_demand_zone", "atr_fallback")
+    )
     # Stop basis metadata — populated by _classify_stop_basis() in frame_trade()
     stop_basis: str | None = None  # "structure_snap" | "garch_adaptive" | "atr_static"
     stop_structure_type: str | None = None  # "ob_bottom"|"demand_zone"|...|"atr_fallback"
@@ -1288,6 +1291,7 @@ def frame_trade(
         rejection_reason=None,
         zone_low=zone_low,
         zone_high=zone_high,
+        zone_source=zone_source,
         stop_basis=stop_basis,
         stop_structure_type=stop_structure_type,
         stop_structure_age_bars=stop_structure_age_bars,
