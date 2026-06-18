@@ -895,12 +895,14 @@ class PluginExecutor:
                 plugin_inst = self._plugin_cache.get(task.plugin_name)
                 sig["regime_type"] = getattr(plugin_inst, "regime_type", "any")
                 sig["is_shadow"] = self._is_shadow(task.plugin_name, cache_snapshot.shadow_cache)
-                if not validate_signal(sig):
+                result = validate_signal(sig)
+                if not result:
                     missing = REQUIRED_SIGNAL_FIELDS - set(sig.keys())
                     self._logger.error(
                         "executor.schema_violation",
                         plugin=task.plugin_name,
                         missing_fields=sorted(missing),
+                        reason=result.reason,
                     )
                     continue
                 sig["signal_id"] = make_signal_id(

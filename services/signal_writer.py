@@ -109,9 +109,11 @@ class SignalWriter(BaseWriter):
         valid_sigs: list[dict] = []
         invalid_sigs: list[dict] = []
         for sig in signals:
-            if validate_signal(sig):
+            result = validate_signal(sig)
+            if result:
                 valid_sigs.append(sig)
             else:
+                sig["_validation_reason"] = result.reason
                 invalid_sigs.append(sig)
 
         if invalid_sigs:
