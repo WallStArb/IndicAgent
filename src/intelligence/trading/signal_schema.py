@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from src.core.service_utils import TF_TTL_BARS, get_tick_size, round_to_tick
 from src.intelligence.trading.signal_outcome import EntryType
@@ -77,6 +77,20 @@ REQUIRED_PIPELINE_FIELDS = frozenset(
 )
 
 
+class ValidationResult(NamedTuple):
+    """Result of validate_signal(). Truthy iff .valid is True.
+
+    Callers that previously used `if validate_signal(sig):` continue to work
+    unchanged via __bool__. Call sites that need the failure reason use .reason.
+    """
+
+    valid: bool
+    reason: str
+
+    def __bool__(self) -> bool:
+        return self.valid
+
+
 def make_signal_id(
     symbol: str,
     feature_ts_ns: int,
@@ -110,39 +124,39 @@ def make_signal_id(
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
-def validate_signal(signal: dict) -> bool:
-    """Validate a signal.v1 dictionary. Returns True if structurally valid."""
+def validate_signal(signal: dict) -> ValidationResult:
+    """Validate a signal.v1 dictionary. Returns ValidationResult (truthy iff valid)."""
     if not isinstance(signal, dict):
-        return False
+        return ValidationResult(False, "not_dict")
     if not REQUIRED_SIGNAL_FIELDS.issubset(signal.keys()):
-        return False
+        return ValidationResult(False, "missing_fields")
     if signal.get("type") != "signal.v1":
-        return False
+        return ValidationResult(False, "type_mismatch")
     conf = signal.get("confidence")
     if not isinstance(conf, (int, float)) or conf < 0.0 or conf > 1.0:
-        return False
+        return ValidationResult(False, "confidence_oor")
     direction = signal.get("direction")
     if direction not in (1, -1, 1.0, -1.0):
-        return False
+        return ValidationResult(False, "direction_invalid")
     targets = signal.get("targets")
     if not isinstance(targets, list) or len(targets) == 0:
-        return False
+        return ValidationResult(False, "targets_empty")
     # Stop and all targets must be on the correct side of entry.
     entry = signal.get("entry_price")
     stop = signal.get("stop_loss")
     if isinstance(entry, (int, float)) and isinstance(stop, (int, float)):
         if int(direction) == 1 and stop >= entry:
-            return False
+            return ValidationResult(False, "stop_geometry")
         if int(direction) == -1 and stop <= entry:
-            return False
+            return ValidationResult(False, "stop_geometry")
     if isinstance(entry, (int, float)) and isinstance(targets, list):
         for t in targets:
             if isinstance(t, (int, float)):
                 if int(direction) == 1 and t <= entry:
-                    return False
+                    return ValidationResult(False, "target_geometry")
                 if int(direction) == -1 and t >= entry:
-                    return False
-    return True
+                    return ValidationResult(False, "target_geometry")
+    return ValidationResult(True, "")
 
 
 def _make_signal(
