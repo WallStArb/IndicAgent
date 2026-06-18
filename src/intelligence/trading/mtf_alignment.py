@@ -7,7 +7,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import compose_confidence
+from .confidence import compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame

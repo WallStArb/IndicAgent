@@ -17,7 +17,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import clamp01, compose_confidence
+from .confidence import clamp01, compose_confidence
 from .plugin_utils import default_compute_next, no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade

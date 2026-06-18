@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import clamp01, compose_confidence
+from .confidence import clamp01, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
 from .state_utils import deduplicate_event, track_consecutive_state

@@ -21,7 +21,7 @@ from src.intelligence.pipeline.signal_processor import (
     _annotate_signal,
     annotate_signal_with_context,
 )
-from src.intelligence.trading.confidence_utils import MIN_CTF_SCORE
+from src.intelligence.trading.confidence import MIN_CTF_SCORE
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -220,11 +220,11 @@ def test_no_plugin_calls_capture_signal_features(filepath: str):
     Annotation is infrastructure responsibility. AST-level check prevents
     regressions where a new plugin accidentally calls the deprecated function.
 
-    Exempt: confidence_utils.py (defines the function),
+    Exempt: confidence.py (defines the function),
             test_capture_signal_features.py (tests the deprecated function itself).
     """
     basename = os.path.basename(filepath)
-    if basename in {"confidence_utils.py"}:
+    if basename in {"confidence.py"}:
         pytest.skip(f"{basename}: defines capture_signal_features (not a caller)")
 
     with open(filepath) as f:

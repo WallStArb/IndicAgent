@@ -1156,7 +1156,7 @@ def _warm_config_service(conn: Any) -> Any:
 
     Constructs a ConfigService with a pre-warmed in-memory cache (no asyncpg pool
     needed — the cache is populated directly from a psycopg2 query). After this call,
-    all _cfg() reads in trade_framer, zone_engine, aggregator, confidence_utils, and
+    all _cfg() reads in trade_framer, zone_engine, aggregator, confidence, and
     volume_profile_utils will return APR values rather than hardcoded fallbacks.
 
     DAG invariant: ConfigService reads config_state once at warm-up only, then serves
@@ -1168,7 +1168,7 @@ def _warm_config_service(conn: Any) -> Any:
     from src.config.config_service import ConfigService
     from src.intelligence.trading import (  # noqa: PLC0415
         aggregator,
-        confidence_utils,
+        confidence,
         trade_framer,
         volume_profile_utils,
         zone_engine,
@@ -1189,7 +1189,7 @@ def _warm_config_service(conn: Any) -> Any:
     trade_framer.set_config_service(cfg)
     zone_engine.set_config_service(cfg)
     aggregator.set_config_service(cfg)
-    confidence_utils.set_config_service(cfg)
+    confidence.set_config_service(cfg)
     volume_profile_utils.set_config_service(cfg)
 
     key_count = len(cfg._cache)

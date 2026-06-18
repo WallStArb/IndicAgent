@@ -18,7 +18,7 @@ from typing import Any
 from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import (
+from .confidence import (
     _validate_weights_sum,
     compose_confidence,
     get_min_regime_weight,
