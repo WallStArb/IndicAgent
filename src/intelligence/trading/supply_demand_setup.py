@@ -18,7 +18,7 @@ from typing import Any
 from ..plugins import InputSpec
 from ..utils.gradient_utils import linear_ramp
 from .atr_utils import get_atr_with_floor_from_frames
-from .confidence_utils import compose_confidence
+from .confidence import compose_confidence
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade

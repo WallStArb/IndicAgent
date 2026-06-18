@@ -542,7 +542,7 @@ class IntelligencePipeline(BaseDaemon):
         from src.intelligence.trading import (  # noqa: PLC0415
             aggregator,
             cis_scorer,
-            confidence_utils,
+            confidence,
             microstructure_utils,
             state_utils,
             trade_framer,
@@ -550,7 +550,7 @@ class IntelligencePipeline(BaseDaemon):
             zone_engine,
         )
 
-        confidence_utils.set_config_service(self._config_service)
+        confidence.set_config_service(self._config_service)
         microstructure_utils.set_config_service(self._config_service)
         state_utils.set_config_service(self._config_service)
         volume_profile_utils.set_config_service(self._config_service)

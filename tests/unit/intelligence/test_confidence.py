@@ -1,8 +1,8 @@
-"""Tests for src/intelligence/trading/confidence_utils.py."""
+"""Tests for src/intelligence/trading/confidence.py."""
 
 from __future__ import annotations
 
-from src.intelligence.trading.confidence_utils import (
+from src.intelligence.trading.confidence import (
     CONF_CEIL,
     compose_confidence,
 )
