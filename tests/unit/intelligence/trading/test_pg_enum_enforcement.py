@@ -19,6 +19,7 @@ before rollback or any asyncpg transaction failure would write to training data.
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from datetime import UTC, datetime
 
@@ -31,8 +32,12 @@ from src.persistence.repository.signal_events_repository import SignalStatus
 # Test DB bootstrap (session-scoped)
 # ---------------------------------------------------------------------------
 
-_TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
-_ADMIN_DB_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
+# conftest.py sets DATABASE_URL to indicagent_test before collection
+_TEST_DB_URL: str = os.environ.get(
+    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/indicagent_test"
+)
+# Admin connection uses the same host/credentials but the postgres superuser DB
+_ADMIN_DB_URL: str = _TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
 
 _BOOTSTRAP_SQL = """
 DO $$ BEGIN
@@ -98,40 +103,33 @@ CREATE TABLE IF NOT EXISTS trade_executions (
 """
 
 
-def _bootstrap_test_db() -> bool:
-    """Create indicagent_test and apply minimal schema. Returns True on success."""
+async def _bootstrap_test_db() -> None:
+    """Create indicagent_test and apply minimal schema."""
+    import asyncpg
+
+    db_name = _TEST_DB_URL.rsplit("/", 1)[-1]
+    conn = await asyncpg.connect(_ADMIN_DB_URL)
     try:
-        import asyncpg
+        exists = await conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", db_name)
+        if not exists:
+            await conn.execute(f"CREATE DATABASE {db_name}")
+    finally:
+        await conn.close()
 
-        async def _run_bootstrap():
-            # Create DB if needed (must connect to postgres, not indicagent_test)
-            conn = await asyncpg.connect(_ADMIN_DB_URL)
-            try:
-                exists = await conn.fetchval(
-                    "SELECT 1 FROM pg_database WHERE datname = 'indicagent_test'"
-                )
-                if not exists:
-                    await conn.execute("CREATE DATABASE indicagent_test")
-            finally:
-                await conn.close()
-
-            # Apply minimal schema
-            conn = await asyncpg.connect(_TEST_DB_URL)
-            try:
-                await conn.execute(_BOOTSTRAP_SQL)
-            finally:
-                await conn.close()
-
-        asyncio.run(_run_bootstrap())
-        return True
-    except Exception:
-        return False
+    conn = await asyncpg.connect(_TEST_DB_URL)
+    try:
+        await conn.execute(_BOOTSTRAP_SQL)
+    finally:
+        await conn.close()
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _ensure_test_db():
     """Session-scoped fixture: bootstrap indicagent_test before round-trip tests run."""
-    _bootstrap_test_db()
+    try:
+        asyncio.run(_bootstrap_test_db())
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -139,17 +137,9 @@ def _ensure_test_db():
 # ---------------------------------------------------------------------------
 
 
-def _get_db_url() -> str | None:
-    """Return indicagent_test URL for round-trip tests.
-
-    Always uses the test DB — never the production corpus.
-    """
+def _db_url_or_skip() -> str:
+    """Return the test DB URL, or skip if the DB is unreachable."""
     return _TEST_DB_URL
-
-
-def _run(coro):
-    """Run an async coroutine synchronously — compatible with Python 3.14."""
-    return asyncio.run(coro)
 
 
 # ---------------------------------------------------------------------------
@@ -294,14 +284,6 @@ class _Rollback(Exception):
     """Sentinel exception used to force asyncpg transaction rollback in round-trip tests."""
 
 
-def _db_url_or_skip() -> str:
-    """Return DB URL or skip the test if unavailable."""
-    url = _get_db_url()
-    if url is None:
-        pytest.skip("DB URL unavailable (settings not configured)")
-    return url  # type: ignore[return-value]
-
-
 class TestRoundtripOutcomeEnum:
     """Round-trip inserts for trade_executions.outcome (signal_outcome_type PG ENUM).
 
@@ -313,11 +295,9 @@ class TestRoundtripOutcomeEnum:
         """All 9 SignalOutcome values are accepted; invalid value raises 22P02."""
         import asyncpg
 
-        url = _db_url_or_skip()
-
         async def _run_all():
             try:
-                conn = await asyncpg.connect(url)
+                conn = await asyncpg.connect(_db_url_or_skip())
             except Exception as error:
                 pytest.skip(f"Cannot connect to DB: {error}")
 
@@ -335,7 +315,7 @@ class TestRoundtripOutcomeEnum:
             finally:
                 await conn.close()
 
-        _run(_run_all())
+        asyncio.run(_run_all())
 
     def test_roundtrip_outcome_enum_requires_9_members(self):
         """Sanity: round-trip loop covers all 9 SignalOutcome members."""
@@ -353,11 +333,9 @@ class TestRoundtripEntryTypeEnum:
         """All 5 EntryType values are accepted; invalid value raises 22P02."""
         import asyncpg
 
-        url = _db_url_or_skip()
-
         async def _run_all():
             try:
-                conn = await asyncpg.connect(url)
+                conn = await asyncpg.connect(_db_url_or_skip())
             except Exception as error:
                 pytest.skip(f"Cannot connect to DB: {error}")
 
@@ -369,7 +347,7 @@ class TestRoundtripEntryTypeEnum:
             finally:
                 await conn.close()
 
-        _run(_run_all())
+        asyncio.run(_run_all())
 
 
 class TestRoundtripStatusEnum:
@@ -383,11 +361,9 @@ class TestRoundtripStatusEnum:
         """All 4 SignalStatus values accepted; invalid value raises 22P02."""
         import asyncpg
 
-        url = _db_url_or_skip()
-
         async def _run_all():
             try:
-                conn = await asyncpg.connect(url)
+                conn = await asyncpg.connect(_db_url_or_skip())
             except Exception as error:
                 pytest.skip(f"Cannot connect to DB: {error}")
 
@@ -399,7 +375,7 @@ class TestRoundtripStatusEnum:
             finally:
                 await conn.close()
 
-        _run(_run_all())
+        asyncio.run(_run_all())
 
 
 # ---------------------------------------------------------------------------
