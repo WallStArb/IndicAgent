@@ -139,7 +139,7 @@ ALTER TABLE signal_events
 
 ALTER TABLE trade_executions
     ADD CONSTRAINT chk_te_exit_reason
-    CHECK (exit_reason IN (
+    CHECK (exit_reason IS NULL OR exit_reason IN (
         'stop_loss',
         'chandelier_stop',
         'condition_expired',
@@ -147,6 +147,8 @@ ALTER TABLE trade_executions
         'ttl_expired_ahead',
         'ttl_expired_behind',
         'target_1',
+        'target_2',
+        'target_3',
         'target_1_2',
         'target_full'
     ));
