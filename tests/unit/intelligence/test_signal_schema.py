@@ -243,6 +243,7 @@ class TestFramingAuditPropagation:
         # stop_basis defaults to None, adaptive_buffer_mult defaults to 1.0
         assert "stop_basis" in sig
         assert sig["adaptive_buffer_mult"] == pytest.approx(1.0)
+        assert sig["plugin_regime_type"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -299,4 +300,3 @@ class TestZoneSourcePropagation:
             "zone_source": sig.get("zone_source"),
         }
         assert merged_context["zone_source"] == "setup:fvg_zone"
-        assert sig["plugin_regime_type"] is None

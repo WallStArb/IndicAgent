@@ -3,6 +3,9 @@
 -- These are ML learning targets: ML discovery can tune per-TF max target distances
 -- once sufficient trade_frames outcomes are available per timeframe.
 --
+-- Note: target_max_atr_ (empty-TF suffix) is not seeded because trade_framer code
+-- falls back to target_max_atr default when timeframe is missing, so no DB row needed.
+--
 -- Idempotent: ON CONFLICT (config_key) DO NOTHING on config_schema/config_state.
 -- config_history rows are single-insert audit entries (no conflict guard needed).
 --
