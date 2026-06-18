@@ -1360,7 +1360,7 @@ Plans:
 Plans:
 
 - [x] 134-01-PLAN.md — Persist SignalOutcome to trade_executions: add outcome column, wire lifecycle_replay, backfill historical rows (Wave 1)
-- [ ] 134-02-PLAN.md — EntryType enum: create Python enum, replace 15+ string literals in trade_framer.py, add DB CHECK constraint (Wave 2, depends 01)
+- [x] 134-02-PLAN.md — EntryType enum: create Python enum, replace 15+ string literals in trade_framer.py, add DB CHECK constraint (Wave 2, depends 01)
 - [ ] 134-03-PLAN.md — PostgreSQL ENUM type sweep: convert exit_reason, outcome, entry_type, signal_events.status to PG ENUM types; remove phantom values; verification (Wave 3, depends 01+02)
 
 </details>
