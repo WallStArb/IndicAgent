@@ -2566,7 +2566,19 @@ def main() -> None:
                     )
                     deleted_features = cur.rowcount
 
-                    # Delete trade_frames (FK child) then signal_events (FK parent)
+                    # Delete in FK order: trade_executions → trade_frames → signal_events
+                    cur.execute(
+                        """
+                        DELETE FROM trade_executions
+                        WHERE frame_id IN (
+                            SELECT tf.frame_id FROM trade_frames tf
+                            JOIN signal_events se ON tf.signal_id = se.signal_id
+                            WHERE se.symbol = ANY(%s)
+                        );
+                    """,
+                        (symbol_values,),
+                    )
+                    deleted_executions = cur.rowcount
                     cur.execute(
                         """
                         DELETE FROM trade_frames
@@ -2576,6 +2588,7 @@ def main() -> None:
                     """,
                         (symbol_values,),
                     )
+                    deleted_frames = cur.rowcount
                     cur.execute(
                         """
                         DELETE FROM signal_events
@@ -2588,6 +2601,8 @@ def main() -> None:
                     db_conn.commit()
                     print(
                         f"  Deleted {deleted_signals:,} signals + "
+                        f"{deleted_frames:,} trade_frames + "
+                        f"{deleted_executions:,} trade_executions + "
                         f"{deleted_features:,} intelligence feature rows"
                     )
 
