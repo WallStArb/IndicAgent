@@ -525,6 +525,11 @@ class IntelligencePipeline(BaseDaemon):
         ("feature.trade_framer.adaptive_buffer_hurst_tighten_rate", 0.16),
         ("feature.trade_framer.adaptive_buffer_garch_shock_threshold", 3.0),
         ("feature.trade_framer.adaptive_buffer_garch_shock_mult", 1.35),
+        # --- migration 148: Phase 132 A3 per-asset-class stop floors ---
+        ("feature.trade_framer.stop_multiplier_floor.fx", 1.0),
+        ("feature.trade_framer.stop_multiplier_floor.commodity_small_tick", 1.5),
+        ("feature.trade_framer.stop_multiplier_floor.equity_etf", 1.0),
+        ("feature.trade_framer.stop_multiplier_floor.futures_large_tick", 1.0),
     )
 
     async def _prewarm_threshold_config(self) -> None:
