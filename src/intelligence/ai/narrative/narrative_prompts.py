@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from src.core.ai.prompt_utils import DIRECTION_LABELS, REGIME_LABELS, fmt
 from src.intelligence.ai.context import render_full_context
+from src.intelligence.trading.signal_outcome import EntryType
 
 ACTIVE_VERSION = "narrative_v1"
 
@@ -72,7 +73,7 @@ def build_narrative_prompt(context: SignalContext) -> tuple[str, str]:
     entry_price = i7.entry_price if i7 else None
     stop_price = i7.stop_price if i7 else None
     targets = i7.target_prices if i7 else None
-    entry_type = (i7.entry_type if i7 else None) or "at_close"
+    entry_type = (i7.entry_type if i7 else None) or EntryType.AT_CLOSE.value
     stop_type = (i7.stop_type if i7 else None) or "atr"
     co_fire = (i7.co_fire_count if i7 else None) or 0
 

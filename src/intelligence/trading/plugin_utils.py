@@ -229,7 +229,7 @@ def emit_signal(
     Args:
         trade_frame: Populated TradeFrame from trade_framer.py.
         confidence:  Signal confidence value (use compose_confidence()).
-        entry_type:  Entry type string ("at_close", "at_pullback", etc.).
+        entry_type:  Entry type string (use EntryType enum values from signal_outcome.py).
         stop_loss:   Absolute stop loss price.
         target_1:    First target price.
         target_2:    Optional second target price.

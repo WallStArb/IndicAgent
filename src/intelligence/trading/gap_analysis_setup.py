@@ -21,6 +21,7 @@ from .confidence_utils import (
     compose_confidence,
 )
 from .plugin_utils import extract_ohlcv, no_signal
+from .signal_outcome import EntryType
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
@@ -154,11 +155,11 @@ class GapAnalysisSetupPlugin:
             # Fade trades AGAINST the gap direction: upward gap → short, downward gap → long.
             # direction here reflects gap direction; fade_direction is the trade direction.
             fade_direction = -direction
-            entry_type = "at_limit"
+            entry_type = EntryType.AT_LIMIT.value
             entry = float(open_[-1])
             direction = fade_direction
         else:
-            entry_type = "at_pullback"
+            entry_type = EntryType.AT_PULLBACK.value
             entry = float(open_[-1] + (-direction * 0.25 * atr))
 
         # GAP-03: 4-factor intrinsic confidence — each factor clamped to [0, 1] before weighting

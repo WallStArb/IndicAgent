@@ -6,6 +6,7 @@ import hashlib
 from typing import TYPE_CHECKING
 
 from src.core.service_utils import TF_TTL_BARS, get_tick_size, round_to_tick
+from src.intelligence.trading.signal_outcome import EntryType
 
 if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame
@@ -161,7 +162,7 @@ def _make_signal(
     supporting_factors: list[str],
     invalidation_conditions: list[str],
     ttl_bars: int | None = None,
-    entry_type: str = "at_close",
+    entry_type: str = EntryType.AT_CLOSE.value,
     stop_type: str = "atr",
     target_labels: list[str] | None = None,
     target_types: list[str] | None = None,
