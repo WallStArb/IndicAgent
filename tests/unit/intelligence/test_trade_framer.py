@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from src.intelligence.trading.trade_framer import (
-    MIN_RR_T1,
     TradeTarget,
     _adaptive_buffer,
     _collect_target_candidates,
@@ -17,6 +16,10 @@ from src.intelligence.trading.trade_framer import (
     _vp_regime_active,
     frame_trade,
 )
+
+# MIN_RR_T1 is now APR-backed (feature.trade_framer -> threshold.trade_framer.min_rr_t1);
+# use the seed value directly in tests.
+MIN_RR_T1 = 1.5
 
 # ---------------------------------------------------------------------------
 # Helpers

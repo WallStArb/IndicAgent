@@ -117,11 +117,17 @@ def validate_stop_against_zone(
     """
     from structlog import get_logger
 
-    from .trade_framer import ATR_STOP_FALLBACK_MULTIPLIER, EPSILON_TOLERANCE
+    # ATR_STOP_FALLBACK_MULTIPLIER migrated to APR (feature.trade_framer.stop_fallback_atr,
+    # migration 145). Correction here uses the seed value literal (2.0) — this function
+    # is a defensive zone-correction utility, not a tunable behavioral parameter.
+    # EPSILON_TOLERANCE is intentionally not APR-backed (numerical stability constant).
+    from .trade_framer import EPSILON_TOLERANCE
 
     _logger = get_logger()
     epsilon = EPSILON_TOLERANCE
-    correction_multiplier = ATR_STOP_FALLBACK_MULTIPLIER  # 2.0 ATR
+    correction_multiplier = (
+        2.0  # stop_fallback_atr seed value (APR: feature.trade_framer.stop_fallback_atr)
+    )
 
     if direction == 1:  # Long
         if stop_loss < zone_low - epsilon:
