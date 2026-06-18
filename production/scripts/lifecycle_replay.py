@@ -65,7 +65,7 @@ sys.path.insert(0, str(Path(__file__).parents[2] / "services"))
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
-from src.core.service_utils import TF_SECONDS, TF_TTL_BARS
+from src.core.service_utils import TF_SECONDS, TF_TTL_BARS, format_iso_ts, parse_iso_ts
 from src.intelligence.trading.lifecycle_tracker import (
     _classify_stop_outcome,
     evaluate_market_entry,
@@ -667,11 +667,11 @@ async def _process_symbol_tf(
                                 if m_entry_at
                                 else 0
                             )
-                            m_outcome = m_trans.outcome
-                            if m_outcome is None:
-                                # Stop-loss exit: classify outcome from mfe/bars
-                                m_outcome = _classify_stop_outcome(m_mfe, m_bit)
-                            m_exit_reason = "stop_loss" if m_trans.outcome is None else None
+                            is_stop = m_trans.outcome is None
+                            m_outcome = (
+                                _classify_stop_outcome(m_mfe, m_bit) if is_stop else m_trans.outcome
+                            )
+                            m_exit_reason = "stop_loss" if is_stop else None
                             stats["market"][m_outcome] = stats["market"].get(m_outcome, 0) + 1
                             pending_writes.append(
                                 (
@@ -844,49 +844,35 @@ async def _process_symbol_tf(
                     _bars_in_trade = int(
                         (result["exit_at"] - _activated_at).total_seconds() / tf_secs
                     )
-                    pending_writes.append(
-                        (
-                            "zone_exit",
-                            sid,
-                            {
-                                "_ts": sig["timestamp"],
-                                "status": "expired",
-                                "exit_at": result["exit_at"],
-                                "exit_price": last_bar["close"],
-                                "exit_reason": "ttl_expired",
-                                "pnl_ticks": None,
-                                "pnl_r": None,
-                                "pnl_dollars": None,
-                                "signal_quality": None,
-                                "mae": zone_mae.get(sid, 0.0),
-                                "mfe": zone_mfe.get(sid, 0.0),
-                                "bars_in_trade": _bars_in_trade,
-                                "outcome": result["zone_outcome"],
-                            },
-                        )
-                    )
+                    _exit_price = last_bar["close"]
+                    _mae = zone_mae.get(sid, 0.0)
+                    _mfe = zone_mfe.get(sid, 0.0)
                 else:
-                    pending_writes.append(
-                        (
-                            "zone_exit",
-                            sid,
-                            {
-                                "_ts": sig["timestamp"],
-                                "status": "expired",
-                                "exit_at": result["exit_at"],
-                                "exit_price": None,
-                                "exit_reason": "ttl_expired",
-                                "pnl_ticks": None,
-                                "pnl_r": None,
-                                "pnl_dollars": None,
-                                "signal_quality": None,
-                                "mae": None,
-                                "mfe": None,
-                                "bars_in_trade": None,
-                                "outcome": result["zone_outcome"],
-                            },
-                        )
+                    _bars_in_trade = None
+                    _exit_price = None
+                    _mae = None
+                    _mfe = None
+                pending_writes.append(
+                    (
+                        "zone_exit",
+                        sid,
+                        {
+                            "_ts": sig["timestamp"],
+                            "status": "expired",
+                            "exit_at": result["exit_at"],
+                            "exit_price": _exit_price,
+                            "exit_reason": "ttl_expired",
+                            "pnl_ticks": None,
+                            "pnl_r": None,
+                            "pnl_dollars": None,
+                            "signal_quality": None,
+                            "mae": _mae,
+                            "mfe": _mfe,
+                            "bars_in_trade": _bars_in_trade,
+                            "outcome": result["zone_outcome"],
+                        },
                     )
+                )
                 mep = market_entry_prices.get(sid)
                 if mep is not None and not sig.get("_market_resolved"):
                     stats["market"][result["market_entry_outcome"]] = (
@@ -990,7 +976,7 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
         )
         # Merge activation metadata into trade_frames.frame_details JSONB
         activation_meta = {
-            "activated_at": data["activated_at"].isoformat() if data["activated_at"] else None,
+            "activated_at": format_iso_ts(data["activated_at"]) if data["activated_at"] else None,
             "activation_price": data["activation_price"],
             "zone_entry_pct": data["zone_entry_pct"],
             "bars_to_activation": data["bars_to_activation"],
@@ -1408,16 +1394,8 @@ async def main_async():
                     "Run with --reset --confirm to proceed."
                 )
                 return
-            after = (
-                datetime.fromisoformat(args.reset_after.replace("Z", "+00:00"))
-                if args.reset_after
-                else None
-            )
-            before = (
-                datetime.fromisoformat(args.reset_before.replace("Z", "+00:00"))
-                if args.reset_before
-                else None
-            )
+            after = parse_iso_ts(args.reset_after)
+            before = parse_iso_ts(args.reset_before)
             logger.info(
                 "Reset window: [%s, %s) — about to wipe outcomes and truncate derived tables",
                 after.isoformat() if after else "unbounded",
