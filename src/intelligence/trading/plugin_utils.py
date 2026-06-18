@@ -77,6 +77,12 @@ def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
         return default
 
 
+# Guards against zero-ATR bars (market close / zero-range candles) in stop-correction
+# error messages — prevents ZeroDivisionError and ensures the reported number is a
+# dimensionless ATR ratio, not a raw price distance.
+_ATR_EPSILON = 1e-8
+
+
 def validate_stop_against_zone(
     *,
     zone_low: float,
@@ -151,7 +157,7 @@ def validate_stop_against_zone(
         if original_inside_distance > atr * 3.0:
             raise ValueError(
                 f"{plugin_name}: stop correction too extreme (stop {stop_loss:.2f} is "
-                f"{original_inside_distance:.2f} ATR inside zone [{zone_low}, {zone_high}]). "
+                f"{original_inside_distance / max(atr, _ATR_EPSILON):.2f} ATR inside zone [{zone_low}, {zone_high}]). "
                 f"Review plugin stop calculation logic."
             )
 
@@ -188,7 +194,7 @@ def validate_stop_against_zone(
         if original_inside_distance > atr * 3.0:
             raise ValueError(
                 f"{plugin_name}: stop correction too extreme (stop {stop_loss:.2f} is "
-                f"{original_inside_distance:.2f} ATR inside zone [{zone_low}, {zone_high}]). "
+                f"{original_inside_distance / max(atr, _ATR_EPSILON):.2f} ATR inside zone [{zone_low}, {zone_high}]). "
                 f"Review plugin stop calculation logic."
             )
 
