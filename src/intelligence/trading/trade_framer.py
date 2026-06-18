@@ -130,33 +130,56 @@ ATR_EMERGENCY_FALLBACK_PCT = 0.001  # 0.1% of price as emergency ATR
 MIN_STOP_ATR_MULTIPLIER = 1.0  # Minimum stop distance: at least 1×ATR from entry
 MIN_RR_T1 = 1.5  # Minimum reward-to-risk for T1: signals below this are rejected
 
-ADAPTIVE_BUFFER_HARD_CAP = 1.40  # maximum vol-driven multiplier expansion
-
 
 def _adaptive_buffer(features: dict, base_mult: float, regime_type: str | None = None) -> float:
-    """Piecewise-linear GARCH vol buffer with Hurst regime-confirmation tightening."""
+    """Piecewise-linear GARCH vol buffer with Hurst regime-confirmation tightening.
+
+    All 12 piecewise coefficients are read from APR via _cfg() with seed values as
+    fallbacks. The hard cap is also APR-backed (seeded by migration 146).
+    WARNING: these 12 coefficients define a single piecewise curve — tune as a group.
+    """
+    # --- Read all APR coefficients once (avoid repeated _cfg() calls in branches) ---
+    vol_ratio_min = _cfg("feature.trade_framer.adaptive_buffer_vol_ratio_min", 0.70)
+    vol_ratio_max = _cfg("feature.trade_framer.adaptive_buffer_vol_ratio_max", 1.50)
+    low_vol_base = _cfg("feature.trade_framer.adaptive_buffer_low_vol_base", 0.80)
+    low_vol_slope_num = _cfg("feature.trade_framer.adaptive_buffer_low_vol_slope_num", 0.20)
+    low_vol_slope_den = _cfg("feature.trade_framer.adaptive_buffer_low_vol_slope_den", 0.30)
+    high_vol_slope_num = _cfg("feature.trade_framer.adaptive_buffer_high_vol_slope_num", 0.35)
+    high_vol_slope_den = _cfg("feature.trade_framer.adaptive_buffer_high_vol_slope_den", 0.50)
+    hurst_trend_threshold = _cfg("feature.trade_framer.adaptive_buffer_hurst_trend_threshold", 0.55)
+    hurst_mr_threshold = _cfg("feature.trade_framer.adaptive_buffer_hurst_mr_threshold", 0.45)
+    hurst_tighten_rate = _cfg("feature.trade_framer.adaptive_buffer_hurst_tighten_rate", 0.16)
+    garch_shock_threshold = _cfg("feature.trade_framer.adaptive_buffer_garch_shock_threshold", 3.0)
+    garch_shock_mult = _cfg("feature.trade_framer.adaptive_buffer_garch_shock_mult", 1.35)
+    hard_cap = _cfg("feature.trade_framer.adaptive_buffer_hard_cap", 1.40)
+
+    # --- Piecewise GARCH vol-response curve ---
     vol_ratio = float(features.get("garch_vol_ratio") or 1.0)
-    vol_ratio = max(0.70, min(1.50, vol_ratio))
+    vol_ratio = max(vol_ratio_min, min(vol_ratio_max, vol_ratio))
 
     if vol_ratio <= 1.0:
-        garch_mult = 0.80 + (vol_ratio - 0.70) * (0.20 / 0.30)
+        garch_mult = low_vol_base + (vol_ratio - vol_ratio_min) * (
+            low_vol_slope_num / low_vol_slope_den
+        )
     else:
-        garch_mult = 1.00 + (vol_ratio - 1.00) * (0.35 / 0.50)
+        garch_mult = 1.00 + (vol_ratio - 1.00) * (high_vol_slope_num / high_vol_slope_den)
 
     result = base_mult * garch_mult
 
+    # --- Hurst regime-confirmation tightening ---
     hurst = features.get("hurst_exponent")
     if hurst is not None and regime_type in ("trend", "mean_reversion"):
         h = float(hurst)
-        if regime_type == "trend" and h >= 0.55:
-            result *= 1.0 - (h - 0.55) * 0.16
-        elif regime_type == "mean_reversion" and h <= 0.45:
-            result *= 1.0 - (0.45 - h) * 0.16
+        if regime_type == "trend" and h >= hurst_trend_threshold:
+            result *= 1.0 - (h - hurst_trend_threshold) * hurst_tighten_rate
+        elif regime_type == "mean_reversion" and h <= hurst_mr_threshold:
+            result *= 1.0 - (hurst_mr_threshold - h) * hurst_tighten_rate
 
-    if float(features.get("garch_shock") or 0.0) > 3.0:
-        result = max(result, base_mult * 1.35)
+    # --- GARCH shock floor ---
+    if float(features.get("garch_shock") or 0.0) > garch_shock_threshold:
+        result = max(result, base_mult * garch_shock_mult)
 
-    return min(result, base_mult * ADAPTIVE_BUFFER_HARD_CAP)
+    return min(result, base_mult * hard_cap)
 
 
 # Proximity gate: if structural stop is within this many effective-ATR units of the
