@@ -1381,6 +1381,22 @@ Plans:
 </details>
 
 <details>
+<summary>📋 Phase 136: Post-Reboot System Repair — PLANNED</summary>
+
+**Goal:** Restore data integrity and pipeline correctness after 2026-06-18 reboot. Six work units: recover 1,343 orphaned intelligence_features rows (W1 replay), add feature_writer startup pre-flight schema check + JSONB write path fix (W2), fix intelligence pipeline graceful SIGTERM shutdown (W3), disable FVGFill plugin noise (W4), add validate_signal failure reason via ValidationResult NamedTuple (W5), fix plugin_utils ATR unit label + epsilon guard (W6).
+
+**Prerequisite gate:** None — all fixes are self-contained. Must execute before Phase 133 (corpus rebuild) to ensure data integrity and clean signal generation.
+
+**Sequencing note:** Runs before Phase 133. W2-W6 are code changes deployed together; W1 (replay) and Migration 130 Statement 3 are operational steps run after deploy.
+
+**Design doc:** `docs/plans/2026-06-18-post-reboot-repair-design.md`
+**Review:** `docs/plans/135-REVIEWS.md` (cross-AI review: Codex + Ollama)
+
+**Plans:** TBD (plan-phase to produce)
+
+</details>
+
+<details>
 <summary>📋 Phase 133: Clean Corpus Rebuild — PLANNED</summary>
 
 **Goal:** One complete, verified, unbiased corpus. All Phase 131 signal bugs fixed. All Phase 132 stop geometry correct. All Phase 134 type enforcement in place. Schema migrated (trade_frames hypertable). Scripts cleaned. Full rebuild produces a corpus satisfying ML training acceptance criteria. ML training is unblocked after this phase.
