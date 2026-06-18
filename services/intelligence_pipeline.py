@@ -492,7 +492,7 @@ class IntelligencePipeline(BaseDaemon):
         ("weights.divergence_stack.obv", 0.15),
         ("weights.divergence_stack.cmf", 0.10),
         ("threshold.vwap_reclaim.vol_threshold", 1.2),
-        # --- migration 145: Phase 132 trade_framer module-level constants ---
+        # --- migration 146: Phase 132 trade_framer module-level constants ---
         ("feature.trade_framer.stop_demand_buffer_atr", 0.25),
         ("feature.trade_framer.stop_sweep_buffer_atr", 0.30),
         ("feature.trade_framer.stop_ob_buffer_atr", 0.20),
@@ -512,6 +512,19 @@ class IntelligencePipeline(BaseDaemon):
         ("threshold.trade_framer.min_rr_t1", 1.5),
         ("feature.trade_framer.adaptive_buffer_hard_cap", 1.40),
         ("feature.trade_framer.structure_snap_proximity_atr", 1.5),
+        # --- migration 147: Phase 132 adaptive buffer coefficients (coupled piecewise — tune as a group) ---
+        ("feature.trade_framer.adaptive_buffer_vol_ratio_min", 0.70),
+        ("feature.trade_framer.adaptive_buffer_vol_ratio_max", 1.50),
+        ("feature.trade_framer.adaptive_buffer_low_vol_base", 0.80),
+        ("feature.trade_framer.adaptive_buffer_low_vol_slope_num", 0.20),
+        ("feature.trade_framer.adaptive_buffer_low_vol_slope_den", 0.30),
+        ("feature.trade_framer.adaptive_buffer_high_vol_slope_num", 0.35),
+        ("feature.trade_framer.adaptive_buffer_high_vol_slope_den", 0.50),
+        ("feature.trade_framer.adaptive_buffer_hurst_trend_threshold", 0.55),
+        ("feature.trade_framer.adaptive_buffer_hurst_mr_threshold", 0.45),
+        ("feature.trade_framer.adaptive_buffer_hurst_tighten_rate", 0.16),
+        ("feature.trade_framer.adaptive_buffer_garch_shock_threshold", 3.0),
+        ("feature.trade_framer.adaptive_buffer_garch_shock_mult", 1.35),
     )
 
     async def _prewarm_threshold_config(self) -> None:

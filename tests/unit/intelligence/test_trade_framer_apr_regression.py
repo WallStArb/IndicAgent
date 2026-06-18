@@ -54,6 +54,19 @@ _APR_SEEDS: dict[str, float] = {
     "threshold.trade_framer.min_rr_t1": 1.5,
     "feature.trade_framer.adaptive_buffer_hard_cap": 1.40,
     "feature.trade_framer.structure_snap_proximity_atr": 1.5,
+    # Keys from migration 147 (Plan 03) — adaptive buffer piecewise coefficients
+    "feature.trade_framer.adaptive_buffer_vol_ratio_min": 0.70,
+    "feature.trade_framer.adaptive_buffer_vol_ratio_max": 1.50,
+    "feature.trade_framer.adaptive_buffer_low_vol_base": 0.80,
+    "feature.trade_framer.adaptive_buffer_low_vol_slope_num": 0.20,
+    "feature.trade_framer.adaptive_buffer_low_vol_slope_den": 0.30,
+    "feature.trade_framer.adaptive_buffer_high_vol_slope_num": 0.35,
+    "feature.trade_framer.adaptive_buffer_high_vol_slope_den": 0.50,
+    "feature.trade_framer.adaptive_buffer_hurst_trend_threshold": 0.55,
+    "feature.trade_framer.adaptive_buffer_hurst_mr_threshold": 0.45,
+    "feature.trade_framer.adaptive_buffer_hurst_tighten_rate": 0.16,
+    "feature.trade_framer.adaptive_buffer_garch_shock_threshold": 3.0,
+    "feature.trade_framer.adaptive_buffer_garch_shock_mult": 1.35,
     # Keys from other modules that _cfg() also resolves (pre-warmed in production).
     # Add here if get_sync() is called with a key not in _APR_SEEDS during tests
     # so the strict mock can catch the additional key without raising.
