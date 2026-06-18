@@ -39,7 +39,7 @@ def test_valid_signal_passes():
     result = validate_signal(_make_valid_signal())
     assert isinstance(result, ValidationResult)
     assert bool(result) is True
-    assert result.reason == ""
+    assert result.reason is None
 
 
 def test_missing_field_fails():

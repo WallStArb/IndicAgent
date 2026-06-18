@@ -81,11 +81,12 @@ class ValidationResult(NamedTuple):
     """Result of validate_signal(). Truthy iff .valid is True.
 
     Callers that previously used `if validate_signal(sig):` continue to work
-    unchanged via __bool__. Call sites that need the failure reason use .reason.
+    unchanged via __bool__. Call sites that need the failure reason use .reason
+    (None on success, non-empty str on failure).
     """
 
     valid: bool
-    reason: str
+    reason: str | None
 
     def __bool__(self) -> bool:
         return self.valid
@@ -146,17 +147,17 @@ def validate_signal(signal: dict) -> ValidationResult:
     stop = signal.get("stop_loss")
     if isinstance(entry, (int, float)) and isinstance(stop, (int, float)):
         if int(direction) == 1 and stop >= entry:
-            return ValidationResult(False, "stop_geometry")
+            return ValidationResult(False, "stop_geometry_long")
         if int(direction) == -1 and stop <= entry:
-            return ValidationResult(False, "stop_geometry")
+            return ValidationResult(False, "stop_geometry_short")
     if isinstance(entry, (int, float)) and isinstance(targets, list):
         for t in targets:
             if isinstance(t, (int, float)):
                 if int(direction) == 1 and t <= entry:
-                    return ValidationResult(False, "target_geometry")
+                    return ValidationResult(False, "target_geometry_long")
                 if int(direction) == -1 and t >= entry:
-                    return ValidationResult(False, "target_geometry")
-    return ValidationResult(True, "")
+                    return ValidationResult(False, "target_geometry_short")
+    return ValidationResult(True, None)
 
 
 def _make_signal(

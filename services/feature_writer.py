@@ -38,7 +38,7 @@ from src.core.stream_keys import (
     topic_feature_writer_dlq,
     topic_intelligence_journal,
 )
-from src.intelligence.schemas import BarIntelligenceRecord
+from src.intelligence.schemas import CTF_DEDICATED_COLUMNS, BarIntelligenceRecord
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     PERSISTENCE_CONSUMER_LAG,
@@ -53,16 +53,7 @@ _fw_meter = _otel_metrics.get_meter("indicagent")
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
-# Phase-130 CTF columns that must exist in intelligence_features before startup.
-# If any are absent the schema migration has not been applied and writes will fail silently.
-_REQUIRED_COLUMNS: frozenset[str] = frozenset(
-    {
-        "ctf_score",
-        "ctf_trend_alignment",
-        "ctf_structure_alignment",
-        "ctf_regime_agreement",
-    }
-)
+_REQUIRED_COLUMNS: frozenset[str] = CTF_DEDICATED_COLUMNS
 
 BATCH_SIZE: int = 50
 FLUSH_INTERVAL_SECS: float = 5.0
@@ -70,6 +61,13 @@ CONSUMER_GROUP: str = "feature_writer_group"
 CONSUMER_NAME: str = "feature_writer_1"
 
 # ── Module-level SQL ──────────────────────────────────────────────────────────
+
+# table_schema filter is mandatory: omitting it returns same-named tables from
+# other schemas (e.g. timescaledb_internal), producing false "column exists" verdicts.
+_VERIFY_SCHEMA_SQL = (
+    "SELECT column_name FROM information_schema.columns"
+    " WHERE table_name = 'intelligence_features' AND table_schema = 'public'"
+)
 
 _INSERT_FEATURE_SQL = """
 INSERT INTO intelligence_features (
@@ -227,12 +225,7 @@ def _record_to_insert_params(
         event.smc.model_dump(exclude_none=True),  # $13 smc
         event.i6.model_dump(  # $14 cross_timeframe_context
             exclude_none=True,
-            exclude={
-                "ctf_score",
-                "ctf_trend_alignment",
-                "ctf_structure_alignment",
-                "ctf_regime_agreement",
-            },
+            exclude=CTF_DEDICATED_COLUMNS,
         ),
         i2_data,  # $15 i2
         [s.model_dump() for s in record.ranked_signals],  # $16 trading_signals
@@ -401,13 +394,8 @@ class FeatureWriter(BaseWriter):
 
         Raises RuntimeError immediately (before Kafka start) if any column is absent,
         converting a silent multi-hour data-loss failure into a loud startup crash.
-        table_schema filter is mandatory - without it, same-named tables in other
-        schemas cause false negatives.
         """
-        rows = await self.db_manager.fetch(
-            "SELECT column_name FROM information_schema.columns"
-            " WHERE table_name = 'intelligence_features' AND table_schema = 'public'"
-        )
+        rows = await self.db_manager.fetch(_VERIFY_SCHEMA_SQL)
         existing = {row["column_name"] for row in rows}
         missing = _REQUIRED_COLUMNS - existing
         if missing:

@@ -102,7 +102,7 @@ from src.intelligence.pipeline.signal_processor import annotate_signal_with_cont
 from src.intelligence.plugins import registry
 from src.intelligence.plugins.mixins import incremental_compute
 from src.intelligence.register_plugins import register_all_plugins
-from src.intelligence.schemas import FEATURE_SCHEMA_VERSION
+from src.intelligence.schemas import CTF_DEDICATED_COLUMNS, FEATURE_SCHEMA_VERSION
 from src.intelligence.setup_performance_updater import _compute_perf_multipliers
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION, make_signal_id
@@ -747,15 +747,7 @@ def _event_to_sync_params(event: Any) -> tuple:
         json.dumps(_sanitize_for_json(event.smc.model_dump(exclude_none=True))),  # smc
         json.dumps(
             _sanitize_for_json(
-                event.i6.model_dump(
-                    exclude_none=True,
-                    exclude={
-                        "ctf_score",
-                        "ctf_trend_alignment",
-                        "ctf_structure_alignment",
-                        "ctf_regime_agreement",
-                    },
-                )
+                event.i6.model_dump(exclude_none=True, exclude=CTF_DEDICATED_COLUMNS)
             )
         ),  # cross_timeframe_context
         json.dumps(_sanitize_for_json(event.i2.model_dump(exclude_none=True))),  # i2
