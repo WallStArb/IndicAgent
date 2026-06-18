@@ -297,13 +297,15 @@ INSERT INTO trade_executions (
     actual_fill_price, actual_exit_price, actual_pnl_r,
     actual_mfe, actual_mae, actual_bars,
     market_entry_price, market_entry_gap_bars,
-    exit_reason, executed_at, exited_at, regime_at_exit
+    exit_reason, executed_at, exited_at, regime_at_exit,
+    outcome
 ) VALUES (
     $1::uuid, $2::uuid,
     $3, $4, $5,
     $6, $7, $8,
     $9, $10,
-    $11, $12, $13, $14
+    $11, $12, $13, $14,
+    $15
 )
 ON CONFLICT (execution_id) DO NOTHING
 """
@@ -551,6 +553,7 @@ class SignalEventsRepository:
         executed_at: datetime | None = None,
         exited_at: datetime | None = None,
         regime_at_exit: str | None = None,
+        outcome: str | None = None,
     ) -> None:
         """INSERT INTO trade_executions for a live trade outcome.
 
@@ -563,9 +566,15 @@ class SignalEventsRepository:
             UUID string of the signal in signal_events.
         entry_type:
             Entry type that was executed (determines which frame_id to link).
+        outcome:
+            SignalOutcome value (or str) for the exit — e.g. 'stopped_at_entry'.
+            Callers should pass transition.outcome.value if it is a SignalOutcome enum
+            or the raw str otherwise. Never leave this None on a real exit.
         """
         frame_id = _make_frame_id(signal_id, entry_type)
         execution_id = uuid.uuid5(_FRAME_ID_NS, f"{frame_id}:exec")
+        # Normalize: SignalOutcome extends str so .value == the str itself; accept both
+        outcome_str = outcome.value if hasattr(outcome, "value") else outcome
 
         await self._db_manager.execute_command(
             _INSERT_TRADE_EXECUTIONS_SQL,
@@ -583,6 +592,7 @@ class SignalEventsRepository:
             executed_at,  # $12
             exited_at,  # $13
             regime_at_exit,  # $14
+            outcome_str,  # $15
         )
         logger.info(
             "Recorded execution",
