@@ -317,7 +317,12 @@ def test_build_ledger_entries_ecl_fields_non_null_when_annotated():
 
     assert len(entries) == 1
     e = entries[0]
-    assert e.context_features == {"ctf_score": 0.75, "zone_friction_score": 0.4}
+    # zone_source is always merged into context_features at INSERT time (Task E)
+    assert e.context_features == {
+        "ctf_score": 0.75,
+        "zone_friction_score": 0.4,
+        "zone_source": None,
+    }
     assert e.ctf_score == pytest.approx(0.75)
     assert e.ctf_confirmed is True
     assert e.zone_friction_score == pytest.approx(0.4)

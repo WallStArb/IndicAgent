@@ -1142,3 +1142,40 @@ class TestFrameTradeObservability:
             frame_trade("trend_long", 1, 5000.0, f, atr=10.0)
         events = [e["event"] for e in cap_logs]
         assert "adaptive_buffer_applied" not in events
+
+
+# ---------------------------------------------------------------------------
+# zone_source field on TradeFrame (Task E)
+# ---------------------------------------------------------------------------
+
+
+class TestZoneSource:
+    def test_frame_trade_zone_source_in_tradeframe(self):
+        """frame_trade populates zone_source on the returned TradeFrame."""
+        tf = frame_trade(
+            "supply_demand_long",
+            1,
+            100.5,
+            {
+                "timeframe": "1m",
+                "asset_class": "equity_etf",
+                "nearest_demand_low": 99.0,
+                "nearest_demand_high": 100.0,
+                "close_price": 100.5,
+                "garch_vol_ratio": 1.0,
+                "hurst_exponent": 0.5,
+                "garch_shock": 0.0,
+            },
+            atr=0.5,
+        )
+        # zone_source must be a field on TradeFrame (not AttributeError)
+        assert hasattr(tf, "zone_source")
+        if tf.viable:
+            assert tf.zone_source is not None
+            assert isinstance(tf.zone_source, str)
+
+    def test_frame_trade_zone_source_atr_fallback(self):
+        """ATR fallback path sets zone_source to 'atr_fallback'."""
+        tf = frame_trade("trend_long", 1, 5000.0, {"timeframe": "5m"}, atr=10.0)
+        assert hasattr(tf, "zone_source")
+        assert tf.zone_source == "atr_fallback"
