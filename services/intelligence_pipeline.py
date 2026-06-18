@@ -492,6 +492,26 @@ class IntelligencePipeline(BaseDaemon):
         ("weights.divergence_stack.obv", 0.15),
         ("weights.divergence_stack.cmf", 0.10),
         ("threshold.vwap_reclaim.vol_threshold", 1.2),
+        # --- migration 145: Phase 132 trade_framer module-level constants ---
+        ("feature.trade_framer.stop_demand_buffer_atr", 0.25),
+        ("feature.trade_framer.stop_sweep_buffer_atr", 0.30),
+        ("feature.trade_framer.stop_ob_buffer_atr", 0.20),
+        ("feature.trade_framer.stop_swing_buffer_atr", 0.25),
+        ("feature.trade_framer.stop_sr_buffer_atr", 0.50),
+        ("feature.trade_framer.stop_fallback_atr", 2.0),
+        ("feature.trade_framer.zone_sweep_atr", 0.76),
+        ("feature.trade_framer.zone_low_atr", 1.0),
+        ("feature.trade_framer.zone_high_atr", 0.5),
+        ("feature.trade_framer.target_min_atr", 0.5),
+        ("feature.trade_framer.zone_plugin_fallback_atr", 0.2),
+        ("feature.trade_framer.vp_proximity_atr", 0.5),
+        ("feature.trade_framer.fallback_t1_atr", 2.0),
+        ("feature.trade_framer.fallback_t2_atr", 3.5),
+        ("feature.trade_framer.fallback_t3_atr", 5.5),
+        ("feature.trade_framer.min_stop_atr", 1.0),
+        ("threshold.trade_framer.min_rr_t1", 1.5),
+        ("feature.trade_framer.adaptive_buffer_hard_cap", 1.40),
+        ("feature.trade_framer.structure_snap_proximity_atr", 1.5),
     )
 
     async def _prewarm_threshold_config(self) -> None:

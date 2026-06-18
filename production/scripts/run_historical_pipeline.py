@@ -1151,6 +1151,52 @@ def _load_perf_weights(conn: Any) -> dict[str, tuple[float, int]]:
     return _compute_perf_multipliers(stats)
 
 
+def _warm_config_service(conn: Any) -> Any:
+    """Load APR config values from config_state and inject into framing-path modules.
+
+    Constructs a ConfigService with a pre-warmed in-memory cache (no asyncpg pool
+    needed — the cache is populated directly from a psycopg2 query). After this call,
+    all _cfg() reads in trade_framer, zone_engine, aggregator, confidence_utils, and
+    volume_profile_utils will return APR values rather than hardcoded fallbacks.
+
+    DAG invariant: ConfigService reads config_state once at warm-up only, then serves
+    from in-memory cache via get_sync(). No DB access occurs during replay_symbol().
+
+    Returns the ConfigService instance (also injected into module singletons as a
+    side effect).
+    """
+    from src.config.config_service import ConfigService
+    from src.intelligence.trading import (  # noqa: PLC0415
+        aggregator,
+        confidence_utils,
+        trade_framer,
+        volume_profile_utils,
+        zone_engine,
+    )
+
+    cfg = ConfigService(database_url="")  # No asyncpg pool — cache-only mode
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT cs.config_key, cs.config_value, csc.value_type "
+            "FROM config_state cs "
+            "JOIN config_schema csc USING (config_key)"
+        )
+        rows = cur.fetchall()
+
+    for config_key, config_value, value_type in rows:
+        cfg._cache[config_key] = cfg._parse_value(config_value, value_type)
+
+    trade_framer.set_config_service(cfg)
+    zone_engine.set_config_service(cfg)
+    aggregator.set_config_service(cfg)
+    confidence_utils.set_config_service(cfg)
+    volume_profile_utils.set_config_service(cfg)
+
+    key_count = len(cfg._cache)
+    print(f"  Replay config service wired ({key_count} keys from config_state)")
+    return cfg
+
+
 def _load_precomputed_features(
     conn: Any, symbol: str, since: datetime | None = None
 ) -> dict[tuple[str, datetime], dict]:
@@ -1925,6 +1971,7 @@ def _replay_worker(args: _WorkerArgs) -> tuple[str, int, dict[str, int]]:
     with conn.cursor() as cur:
         cur.execute("SET synchronous_commit = off")
     try:
+        _warm_config_service(conn)
         calibration_curves = _load_calibration_curves(conn, symbol=symbol)
         perf_weights = _load_perf_weights(conn)
         precomputed = (
@@ -2614,6 +2661,7 @@ def main() -> None:
         if args.workers == 1:
             with db_conn.cursor() as cur:
                 cur.execute("SET synchronous_commit = off")
+            _warm_config_service(db_conn)
             perf_weights = _load_perf_weights(db_conn)
 
             if do_warmup:
