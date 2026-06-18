@@ -16,7 +16,7 @@ class TestI7Registration:
         register_all_plugins()
 
     def test_i7_plugins_registered(self):
-        """All 36 I7 plugins should be in the registry."""
+        """All 35 I7 plugins should be in the registry (FVGFill removed: entry-timing defect)."""
         expected_i7 = {
             "trad_TrendFollowing",
             "trad_MeanReversion",
@@ -28,7 +28,6 @@ class TestI7Registration:
             "trad_LiquidityHunt",
             "trad_SupplyDemandSetup",
             "trad_CHoCHReversal",
-            "trad_FVGFill",
             "trad_PatternCompletion",
             "trad_DivergenceStack",
             "trad_RegimeTransition",
@@ -106,5 +105,5 @@ class TestI7Registration:
             assert name not in TREND_SETUPS, f"{name} should NOT be in TREND_SETUPS"
 
     def test_tier_i7_count(self):
-        """TIER_I7 should contain exactly 36 plugins (35 + 1 CrossAssetDivergence from 037-02)."""
-        assert len(TIER_I7) == 36, f"Expected 36 TIER_I7 plugins, got {len(TIER_I7)}"
+        """TIER_I7 should contain exactly 35 plugins (FVGFill removed: entry-timing defect)."""
+        assert len(TIER_I7) == 35, f"Expected 35 TIER_I7 plugins, got {len(TIER_I7)}"

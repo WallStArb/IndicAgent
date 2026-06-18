@@ -639,7 +639,7 @@ TIER_I7: list[str] = [
     liquidity_hunt_plugin.name,
     supply_demand_setup_plugin.name,
     choch_reversal_plugin.name,
-    fvg_fill_plugin.name,
+    # FVGFill removed: entry-timing defect (see plugin docstring). Restore after at_limit redesign.
     pattern_completion_plugin.name,
     divergence_stack_plugin.name,
     regime_transition_plugin.name,
