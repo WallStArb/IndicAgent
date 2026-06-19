@@ -2175,6 +2175,24 @@ def main() -> None:
         help="Delete existing signals before replay (use with --replay-only to avoid duplicates)",
     )
     parser.add_argument(
+        "--truncate-all",
+        action="store_true",
+        help=(
+            "TRUNCATE all signal/feature/derivative tables before replay. "
+            "Faster than --clean for full corpus rebuilds. "
+            "Resets: signal_events, trade_frames, trade_executions, intelligence_features, "
+            "signal_lineage, signal_metrics, signal_metrics_ic, signal_metrics_dq_failures, "
+            "signal_ai_enrichment, intelligence_ai_enrichment, intelligence_metrics, "
+            "setup_performance, pattern_reliability, tod_multipliers, shadow_registry, "
+            "shadow_transition_log, alpha_multiplier_shadow, signal_transform_log, "
+            "transform_graduation, confidence_calibration, calibration_curves, cis_weights, "
+            "swarm_agent_weights, drift_monitor, drift_state, ml_signal_training, "
+            "parity_certification_state, remediation_ledger, memory_episodes_raw, "
+            "memory_episodes_labeled, memory_calibration_promoted, memory_calibration_spc, "
+            "memory_regime_transitions."
+        ),
+    )
+    parser.add_argument(
         "--setups",
         type=str,
         default=None,
@@ -2530,6 +2548,31 @@ def main() -> None:
             print(f"  Replaying bars since: {since_dt.date()} ({args.days}d)")
         else:
             since_dt = None
+
+        # Full corpus reset via TRUNCATE (faster than row-by-row DELETE)
+        if args.truncate_all:
+            print("  Truncating all signal/feature/derivative tables...")
+            with db_conn.cursor() as cur:
+                cur.execute("""
+                    TRUNCATE
+                        trade_executions, trade_frames, signal_events,
+                        intelligence_features,
+                        signal_lineage, signal_metrics, signal_metrics_ic,
+                        signal_metrics_dq_failures, signal_ai_enrichment,
+                        intelligence_ai_enrichment, intelligence_metrics,
+                        setup_performance, pattern_reliability, tod_multipliers,
+                        shadow_registry, shadow_transition_log, alpha_multiplier_shadow,
+                        signal_transform_log, transform_graduation,
+                        confidence_calibration, calibration_curves, cis_weights,
+                        swarm_agent_weights, drift_monitor, drift_state,
+                        ml_signal_training, parity_certification_state, remediation_ledger,
+                        memory_episodes_raw, memory_episodes_labeled,
+                        memory_calibration_promoted, memory_calibration_spc,
+                        memory_regime_transitions
+                    CASCADE
+                """)
+            db_conn.commit()
+            print("  Truncate complete.")
 
         # Clean up old signals for replayed symbols if --clean flag is set
         if args.clean:

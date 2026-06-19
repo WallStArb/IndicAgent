@@ -91,12 +91,17 @@ _TF_TO_IB: dict[str, str] = {
 # RTVolume generic tick type — required for futures, not supported on other asset classes
 _FUT_TICK_LIST = "233"
 
-# Max days per IBKR historical data request by bar size (conservative, under hard limits)
+# Max days per IBKR historical data request by bar size (conservative, under hard limits).
+# These are per-REQUEST chunk limits, NOT retention limits. IBKR retains much more:
+#   1m: confirmed 10+ years available for liquid ETFs (SPY probe 2026-06-19, clean returns
+#       at 30d/60d/90d/180d/365d/730d/1460d/1825d/2555d/3650d). The fetch loop in
+#       fetch_historical_bars() walks backwards in these chunk windows to cover any depth.
+#   1d: 20+ years available for liquid equities/ETFs.
 _MAX_CHUNK_DAYS: dict[str, int] = {
-    "1m": 6,  # IBKR hard limit: 7 days
-    "5m": 29,  # IBKR hard limit: 30 days
-    "15m": 59,  # IBKR hard limit: 60 days
-    "1h": 364,  # IBKR hard limit: 1 year
+    "1m": 6,  # per-request limit: 7 days; retention: 10+ years (see above)
+    "5m": 29,  # per-request limit: 30 days
+    "15m": 59,  # per-request limit: 60 days
+    "1h": 364,  # per-request limit: 1 year
     "4h": 364,
     "1d": 364,
 }
