@@ -75,6 +75,7 @@ class KalmanTrendPlugin(IncrementalMixin):
     capability_tags: frozenset[str] = frozenset({"context", "trend"})
     inputs: list[InputSpec] = field(default_factory=lambda: [InputSpec(symbol=".*", lookback=200)])
     use_garch_adaptive: bool = False
+    _config_service: Any = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         params = _load_parameters()
@@ -86,7 +87,13 @@ class KalmanTrendPlugin(IncrementalMixin):
         if self.use_garch_adaptive:
             garch_sigma = features.get("garch_sigma")
             if garch_sigma and float(garch_sigma) > 0:
-                R_adaptive = (float(garch_sigma) * _GARCH_R_SCALE) ** 2
+                cfg = self._config_service
+                scale = (
+                    float(cfg.get_sync("feature.kalman.garch_r_scale", _GARCH_R_SCALE))
+                    if cfg is not None
+                    else _GARCH_R_SCALE
+                )
+                R_adaptive = (float(garch_sigma) * scale) ** 2
                 return max(0.1, R_adaptive)
         return self._R_fixed
 
