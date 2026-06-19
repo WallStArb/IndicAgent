@@ -161,17 +161,19 @@ def incremental_compute(plugin: Any, frames: dict, state: dict) -> tuple[dict, d
         state_dict is the updated per-plugin state to persist for the next bar.
         signal_dict is ``{}`` when the plugin has insufficient data.
     """
-    if getattr(plugin, "supports_incremental", False) and state:
+    supports_inc = getattr(plugin, "supports_incremental", False)
+    if supports_inc and state:
         result = plugin.compute_next(frames, state=state)
     else:
         result = plugin.compute_full(frames)
-    if getattr(plugin, "supports_incremental", False) and isinstance(result, dict) and result:
+    result = result or {}
+    if supports_inc and result:
         if "_state" not in result:
             raise ValueError(
                 f"{getattr(plugin, 'name', type(plugin).__name__)}: incremental "
                 f"plugins MUST return _state in result dict."
             )
-    new_state = result.pop("_state", state) if isinstance(result, dict) else state
+    new_state = result.pop("_state", state)
     return result, new_state
 
 

@@ -583,10 +583,9 @@ def run_analysis_pipeline(
                 out, plugin_states[state_key] = incremental_compute(plugin, frames, state)
                 _accumulate_plugin_time(name, t0)
                 if out:
-                    public_out = out
-                    intelligence.update(public_out)
-                    tiered.setdefault(tier_key_lower, {}).update(public_out)
-                    features.update(public_out)
+                    intelligence.update(out)
+                    tiered.setdefault(tier_key_lower, {}).update(out)
+                    features.update(out)
                     frames["features"] = features
                     # Mirror live executor (executor.py:709): stamp each tier's output
                     # as frames[tier_key] so cross-tier plugins (e.g. I6 CTF) can read

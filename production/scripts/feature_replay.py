@@ -261,10 +261,9 @@ async def _replay_symbol_tf(
                 result, plugin_states[name] = incremental_compute(
                     plugin, frames, plugin_states[name]
                 )
-                if result is not None:
-                    if result.get("direction", 0) != 0:
-                        result["setup_plugin"] = name
-                        raw_signals.append(result)
+                if result.get("direction", 0) != 0:
+                    result["setup_plugin"] = name
+                    raw_signals.append(result)
             except Exception as error:
                 logger.warning(
                     "feature_replay: plugin error",
