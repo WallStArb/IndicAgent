@@ -24,12 +24,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     clamp01,
     compose_confidence,
-    get_min_regime_weight,
     rel_volume_score,
 )
 from .plugin_utils import build_features_from_tiers, no_signal, signal_type_for_direction
@@ -127,11 +125,6 @@ class OFIDivergencePlugin:
         if abs(ofi_div) < min_divergence:
             return no_signal()
         if count < min_persistence:
-            return no_signal()
-
-        # ── Dual gate (before OHLCV/ATR access) ─────────────────────────────
-        # Gate 1: regime gate (any-regime uses hmm_trending_weight)
-        if hmm_trending_weight(features) < get_min_regime_weight():
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)

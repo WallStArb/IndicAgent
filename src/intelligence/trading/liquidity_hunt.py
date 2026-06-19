@@ -16,12 +16,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     clamp01,
     compose_confidence,
-    get_min_regime_weight,
     rel_volume_score,
 )
 from .plugin_utils import build_features_from_tiers, no_signal
@@ -68,12 +66,6 @@ class LiquidityHuntPlugin:
         features = build_features_from_tiers(frames)
 
         if df is None or len(df) < self.min_lookback:
-            return no_signal()
-
-        # ── Dual gate (before OHLCV access) ─────────────────────────────────
-        # Gate 1: trend regime gate (LiquidityHunt is regime_type="trend")
-        # Use the direction-specific form: block only if BOTH up AND down are below threshold
-        if hmm_trending_weight(features) < get_min_regime_weight():
             return no_signal()
 
         bsl_sig = float(features.get("bsl_significance", 0.0))

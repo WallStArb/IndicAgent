@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
 
@@ -46,6 +47,7 @@ def _base_features(**kwargs):
 # ─── Guard tests ────────────────────────────────────────────────────────────
 
 
+@pytest.mark.skip(reason="HMM regime gate removed (ECL boundary violation fix)")
 def test_no_signal_in_ranging_regime():
     """Both hmm_prob_trending_up and _down below 0.30 -> no_signal (continuous regime gate)."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin

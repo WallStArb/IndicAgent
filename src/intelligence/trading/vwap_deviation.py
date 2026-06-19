@@ -14,11 +14,9 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     compose_confidence,
-    get_min_regime_weight,
 )
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import build_features_from_tiers, extract_ohlcv, no_signal
@@ -75,11 +73,7 @@ class VWAPDeviationPlugin:
         if vwap_std <= 0 or vwap <= 0:
             return no_signal()
 
-        # ── Gate 1: continuous ranging regime (mean_reversion uses "ranging") ──
-        if hmm_regime_weight(features, "ranging") < get_min_regime_weight():
-            return no_signal()
-
-        # ── OHLCV extraction (after dual gate) ───────────────────────────────
+        # ── OHLCV extraction ─────────────────────────────────────────────────
         result = extract_ohlcv(frames, self.min_lookback)
         if result is None:
             return no_signal()

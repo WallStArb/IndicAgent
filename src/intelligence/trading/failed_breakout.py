@@ -13,12 +13,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     clamp01,
     compose_confidence,
-    get_min_regime_weight,
     rel_volume_score,
 )
 from .plugin_utils import build_features_from_tiers, no_signal
@@ -115,12 +113,6 @@ class FailedBreakoutPlugin:
         if bars_since_bos > max_reversal_bars:
             # Clear BOS tracking — window missed
             state.clear()
-            self._state[(symbol, tf)] = state
-            return no_signal()
-
-        # ── Dual gate (before OHLCV numeric access) ──────────────────────────
-        # Gate 1: direction-specific trend form — block only if BOTH up AND down are below threshold
-        if hmm_trending_weight(features) < get_min_regime_weight():
             self._state[(symbol, tf)] = state
             return no_signal()
 

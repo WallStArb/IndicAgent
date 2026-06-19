@@ -16,12 +16,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     clamp01,
     compose_confidence,
-    get_min_regime_weight,
     rel_volume_score,
 )
 from .plugin_utils import build_features_from_tiers, no_signal, signal_type_for_direction
@@ -117,10 +115,6 @@ class DualDivergencePlugin:
         if ofi_sign != cvd_sign:
             # Disagreement invalidates accumulated confirmation count
             reset_consecutive_state(frames, self._state)
-            return no_signal()
-
-        # ── Gate 1: ranging regime gate (mean_reversion uses "ranging") ──────
-        if hmm_regime_weight(features, "ranging") < get_min_regime_weight():
             return no_signal()
 
         symbol = frames.get("__symbol__", "_")
