@@ -76,6 +76,7 @@ def detect_spike_signal(
         **(frames.get("smc") or {}),
         **(frames.get("i6") or {}),
     }
+    features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
     if df is None or len(df) < min_lookback:
         return no_signal()
 
