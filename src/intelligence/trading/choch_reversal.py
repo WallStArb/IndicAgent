@@ -69,6 +69,7 @@ class CHoCHReversalPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
 
         choch_detected = float(features.get("choch_detected", 0.0))
         if choch_detected != 1.0:

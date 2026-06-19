@@ -100,6 +100,7 @@ class FVGFillPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
 
         fvg_type = int(features.get("fvg_type", 0))
         fvg_open_count = float(features.get("fvg_open_count", 0.0))

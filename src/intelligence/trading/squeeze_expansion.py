@@ -73,6 +73,7 @@ class SqueezeExpansionPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
 
         # Gate: squeeze must have just released
         squeeze_fired = features.get("squeeze_fired", 0.0)

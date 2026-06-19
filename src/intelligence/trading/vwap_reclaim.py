@@ -94,6 +94,7 @@ class VWAPReclaimPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
         symbol = frames.get("__symbol__", "")
         tf = frames.get("__timeframe__", "")
 
