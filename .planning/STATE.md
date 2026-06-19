@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.10
-milestone_name: AI Platform — Part 2
+milestone_name: milestone
 status: executing
-last_updated: "2026-06-18T23:47:26.475Z"
-last_activity: 2026-06-18 -- Phase 136 execution started
+last_updated: "2026-06-19T02:29:04.228Z"
+last_activity: 2026-06-19
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 39
-  completed_plans: 39
-  percent: 100
+  total_phases: 28
+  completed_phases: 21
+  total_plans: 148
+  completed_plans: 119
+  percent: 75
 ---
 
 # Project State
@@ -79,6 +79,7 @@ See: .planning/PROJECT.md
 - [Phase 123]: _nullable_float() pattern: None=cold-start, 0.0=genuine neutral — never or 0.0 fallback (ML training integrity)
 - [Phase 123]: _PHASE_119_PLUGINS frozenset dissolved: boundary concept no longer needed once all plugins emit ECL annotations
 - [Phase 123]: Phase 128 DB persistence deferred: signal_writer reads ECL fields end-to-end but LedgerEntry not extended until 3-table migration
+- [Phase 136]: ctf_score=NULL is table-wide in intelligence_features: replay script never wrote Phase-130 CTF dedicated columns; deferred to future fix
 
 ### Blockers / Concerns
 
@@ -156,11 +157,11 @@ Then: `/clear` then `/gsd-execute-phase 121` (Wave 2 — validation report)
 ## Current Position
 
 Phase: 136 (post-reboot-system-repair) — EXECUTING
-Plan: 1 of 6
+Plan: 2 of 6
 Phase: 135 (controlled-vocabulary-system) — on roadmap, not yet planned
 Phase: 133 (clean-corpus-rebuild) — PLANNED (7 plans, 5 waves); waiting on next session
-Status: Executing Phase 136
-Last activity: 2026-06-18 -- Phase 136 execution started
+Status: Ready to execute
+Last activity: 2026-06-19
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
@@ -169,3 +170,4 @@ Last activity: 2026-06-18 -- Phase 136 execution started
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
 | Phase 123 P01 | 20 | 5 tasks | 26 files |
+| Phase 136 P05 | 12 | 3 tasks | 0 files |
