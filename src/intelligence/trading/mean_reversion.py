@@ -31,7 +31,12 @@ from .confidence import (
     compose_confidence,
 )
 from .exhaustion_utils import apply_exhaustion_boost
-from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
+from .plugin_utils import (
+    build_features_from_tiers,
+    extract_ohlcv,
+    no_signal,
+    signal_type_for_direction,
+)
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
@@ -70,16 +75,7 @@ class MeanReversionPlugin:
     _config_service: Any = field(default=None, compare=False, repr=False)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = {
-            **(frames.get("i1") or {}),
-            **(frames.get("i2") or {}),
-            **(frames.get("i3") or {}),
-            **(frames.get("i4") or {}),
-            **(frames.get("i5") or {}),
-            **(frames.get("smc") or {}),
-            **(frames.get("i6") or {}),
-        }
-        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
+        features = build_features_from_tiers(frames)
 
         # OPTIMIZATION (Phase 48): Check regime gate BEFORE expensive OHLCV extraction
         # TODO: Apply this pattern to remaining 34/36 I7 plugins (2/36 optimized: trend_following, mean_reversion)  # noqa: E501

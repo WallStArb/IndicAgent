@@ -22,7 +22,7 @@ from .confidence import (
     compose_confidence,
     get_min_regime_weight,
 )
-from .plugin_utils import extract_ohlcv, no_signal
+from .plugin_utils import build_features_from_tiers, extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
@@ -66,16 +66,7 @@ class MomentumBreakoutPlugin:
         if df is None or len(df) < self.min_lookback:
             return no_signal()
 
-        features = {
-            **(frames.get("i1") or {}),
-            **(frames.get("i2") or {}),
-            **(frames.get("i3") or {}),
-            **(frames.get("i4") or {}),
-            **(frames.get("i5") or {}),
-            **(frames.get("smc") or {}),
-            **(frames.get("i6") or {}),
-        }
-        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
+        features = build_features_from_tiers(frames)
 
         # ── Gate 1: continuous trending regime ────────────────────────────────
         if hmm_trending_weight(features) < get_min_regime_weight():

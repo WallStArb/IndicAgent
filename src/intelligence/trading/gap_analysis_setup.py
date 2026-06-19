@@ -20,7 +20,7 @@ from .confidence import (
     clamp01,
     compose_confidence,
 )
-from .plugin_utils import extract_ohlcv, no_signal
+from .plugin_utils import build_features_from_tiers, extract_ohlcv, no_signal
 from .signal_outcome import EntryType
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
@@ -96,16 +96,7 @@ class GapAnalysisSetupPlugin:
             return no_signal()
         open_, high, low, close = result
 
-        features = {
-            **(frames.get("i1") or {}),
-            **(frames.get("i2") or {}),
-            **(frames.get("i3") or {}),
-            **(frames.get("i4") or {}),
-            **(frames.get("i5") or {}),
-            **(frames.get("smc") or {}),
-            **(frames.get("i6") or {}),
-        }
-        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
+        features = build_features_from_tiers(frames)
         df = frames.get("main")
 
         # Time gate (I4 SessionContext) — only active when feature is present

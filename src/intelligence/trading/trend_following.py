@@ -20,7 +20,12 @@ from typing import TYPE_CHECKING, Any
 from ..plugins import InputSpec
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import clamp01, compose_confidence
-from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
+from .plugin_utils import (
+    build_features_from_tiers,
+    extract_ohlcv,
+    no_signal,
+    signal_type_for_direction,
+)
 from .signal_schema import make_signal_from_frame
 from .state_utils import deduplicate_event
 from .trade_framer import frame_trade
@@ -123,16 +128,7 @@ class TrendFollowingPlugin:
             else _CONSOLIDATION_RANGE_PCT_DEFAULT
         )
 
-        features = {
-            **(frames.get("i1") or {}),
-            **(frames.get("i2") or {}),
-            **(frames.get("i3") or {}),
-            **(frames.get("i4") or {}),
-            **(frames.get("i5") or {}),
-            **(frames.get("smc") or {}),
-            **(frames.get("i6") or {}),
-        }
-        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
+        features = build_features_from_tiers(frames)
 
         symbol = frames.get("__symbol__", "_")
         tf_key = frames.get("__timeframe__", "_")

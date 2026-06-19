@@ -47,6 +47,29 @@ def extract_ohlcv(
     )
 
 
+def build_features_from_tiers(frames: dict[str, Any]) -> dict[str, Any]:
+    """Merge all I1-I6 tier sub-dicts and inject top-level metadata.
+
+    Standard entry point for I7 plugins building their local features dict.
+    Centralises the tier merge so plugins don't repeat the 7-tier spread and
+    the timeframe/symbol injections.
+    """
+    features: dict[str, Any] = {
+        **(frames.get("i1") or {}),
+        **(frames.get("i2") or {}),
+        **(frames.get("i3") or {}),
+        **(frames.get("i4") or {}),
+        **(frames.get("i5") or {}),
+        **(frames.get("smc") or {}),
+        **(frames.get("i6") or {}),
+    }
+    features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
+    # Inject top-level symbol only when the tier merge didn't already provide one.
+    if not features.get("symbol"):
+        features["symbol"] = frames.get("symbol") or frames.get("__symbol__", "")
+    return features
+
+
 def default_compute_next(plugin: Any, windows: dict[str, Any]) -> dict[str, Any]:
     """Default compute_next delegation — calls plugin.compute_full(windows).
 

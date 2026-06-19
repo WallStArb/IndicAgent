@@ -24,7 +24,7 @@ from .confidence import (
     get_min_regime_weight,
 )
 from .exhaustion_utils import apply_exhaustion_boost
-from .plugin_utils import no_signal
+from .plugin_utils import build_features_from_tiers, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
@@ -79,16 +79,7 @@ class LVNBreakoutPlugin:
         w_close = cfg.get_sync("weights.lvn_breakout.close_strength", 0.20) if cfg else 0.20
 
         df = frames.get("main")
-        features = {
-            **(frames.get("i1") or {}),
-            **(frames.get("i2") or {}),
-            **(frames.get("i3") or {}),
-            **(frames.get("i4") or {}),
-            **(frames.get("i5") or {}),
-            **(frames.get("smc") or {}),
-            **(frames.get("i6") or {}),
-        }
-        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
+        features = build_features_from_tiers(frames)
         if df is None or len(df) < self.min_lookback:
             return no_signal()
 
