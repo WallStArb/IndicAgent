@@ -327,17 +327,13 @@ class IBKRAdapter:
         Returns the original Instrument (possibly enriched in-place by the
         underlying IBKRProvider). Raises ValueError if qualification fails.
         """
-        # Extract IBKR-specific meta from the nested format
         ibkr_meta = instrument.provider_meta.get(self.provider_name, {})
+        ibkr_symbol = ibkr_meta.get("symbol") or instrument.base or instrument.symbol
+        trading_class = ibkr_meta.get("trading_class", "")
 
-        # Build an ephemeral Instrument copy with the flattened meta for
-        # IBKRProvider.qualify_instrument() which reads flat provider_meta
-        if ibkr_meta:
-            flat_instrument = instrument.model_copy(update={"provider_meta": ibkr_meta})
-        else:
-            flat_instrument = instrument
-
-        success = await self._provider.qualify_instrument(flat_instrument)
+        success = await self._provider.qualify_instrument(
+            instrument, ibkr_symbol=ibkr_symbol, trading_class=trading_class
+        )
         if not success:
             raise ValueError(f"IBKRAdapter.qualify_instrument failed for {instrument.symbol!r}")
         return instrument

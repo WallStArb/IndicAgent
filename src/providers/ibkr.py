@@ -624,30 +624,32 @@ class IBKRProvider:
         all_bars.sort(key=lambda b: b.timestamp)
         return all_bars
 
-    async def qualify_instrument(self, instrument: Instrument) -> bool:
+    async def qualify_instrument(
+        self,
+        instrument: Instrument,
+        *,
+        ibkr_symbol: str = "",
+        trading_class: str = "",
+    ) -> bool:
         """Qualify an instrument with IBKR and cache the contract.
 
         Must be called before fetch_historical_bars() or stream_ticks().
+        ibkr_symbol and trading_class are resolved by the caller (IBKRAdapter);
+        direct callers may omit them and they are derived from provider_meta.
         Returns True if successfully qualified.
         """
         if not self._ib:
             return False
         try:
             if instrument.asset_class == AssetClass.FUTURES:
-                ibkr_meta = instrument.provider_meta.get("ibkr", {})
-                trading_class = ibkr_meta.get(
-                    "trading_class",
-                    instrument.provider_meta.get("trading_class", ""),  # legacy flat fallback
-                )
-                # Some futures use a different IBKR symbol than our base symbol
-                # (e.g. VX → "VIX" on CFE). IBKRAdapter flattens provider_meta.ibkr
-                # before calling here, so check both the flat key and the nested key.
-                ibkr_symbol = (
-                    instrument.provider_meta.get("symbol")  # flat (post-adapter flatten)
-                    or ibkr_meta.get("symbol")  # nested (direct call)
-                    or instrument.base
-                    or instrument.symbol
-                )
+                if not ibkr_symbol:
+                    ibkr_meta = instrument.provider_meta.get("ibkr", {})
+                    ibkr_symbol = ibkr_meta.get("symbol") or instrument.base or instrument.symbol
+                    trading_class = (
+                        trading_class
+                        or ibkr_meta.get("trading_class")
+                        or instrument.provider_meta.get("trading_class", "")
+                    )
                 contract = Future(
                     symbol=ibkr_symbol,
                     lastTradeDateOrContractMonth=instrument.expiry,
