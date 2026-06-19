@@ -8,7 +8,7 @@ Session reset: contraction list clears at the start of each new trading day (ET)
 
 Renaissance principles:
 - Segment relentlessly: VCP is definitionally a trend-regime setup; filters ranging markets
-- Earn the right through proof: requires >= 3 contractions + continuous HMM trending gate
+- Earn the right through proof: requires >= 3 contractions
 - Instrument everything: contraction_count and session_date captured in every signal
 """
 
@@ -44,13 +44,12 @@ _VOL_EXPANSION_MULT = 1.2
 class VCPPlugin:
     """I7 evidence contributor: fires on VCP breakout after 3+ volatility contractions.
 
-    Gate 1: hmm_regime_weight (up or down) >= 0.30 — continuous trending gate.
-    Gate 2: abs(ctf_score) >= 0.25 — I6 confluence gate (placed before OHLCV access).
-    Gate 3: 3+ successive bars with decreasing H-L range AND declining volume.
-    Gate 4: expansion bar closes beyond prior bar's high/low (directional confirmation).
-    Gate 5: expansion bar volume > last contraction volume × 1.2.
+    Gate 1: 3+ successive bars with decreasing H-L range AND declining volume.
+    Gate 2: expansion bar closes beyond prior bar's high/low (directional confirmation).
+    Gate 3: expansion bar volume > last contraction volume × 1.2.
 
-    Direction: from dominant HMM trend direction (up_weight vs down_weight).
+    Direction: from dominant HMM trend direction (up_weight vs down_weight); HMM regime
+    is an annotation, not an emission gate.
     Session reset: contraction list clears on new trading day (ET date change).
     """
 

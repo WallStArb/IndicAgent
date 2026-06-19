@@ -41,8 +41,6 @@ class DualDivergencePlugin:
     - abs(cvd_divergence) >= 1.0
     - Both disagree with price direction for N=3 consecutive bars
     - Both divergence directions must agree with each other
-    - hmm_regime_weight(features, "ranging") >= 0.30 (mean_reversion: ranging gate)
-    - abs(ctf_score) >= 0.25 (I6 confluence gate)
 
     Direction: based on divergence direction (sign of ofi_divergence)
     Confidence: 4-factor composite (ofi_divergence, cvd_divergence, confirmation_bars, volume)
