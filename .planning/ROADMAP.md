@@ -1396,12 +1396,12 @@ Plans:
 
 Plans:
 
-- [ ] 136-01-PLAN.md — W6 ATR label fix + W5 ValidationResult NamedTuple (Wave 1, parallel)
-- [ ] 136-02-PLAN.md — W4 FVGFill disable + test sweep (Wave 1, parallel)
-- [ ] 136-03-PLAN.md — W3 intelligence_pipeline graceful SIGTERM (3a+3b+3c) (Wave 1, parallel)
-- [ ] 136-04-PLAN.md — W2 feature_writer pre-flight schema check + JSONB CTF-key exclusion (Wave 2)
-- [ ] 136-05-PLAN.md — W1 historical replay to recover 1,343 orphaned rows (Wave 3, depends 04)
-- [ ] 136-06-PLAN.md — Migration 130 Statement 3 JSONB cleanup (Wave 4, depends 04+05)
+- [x] 136-01-PLAN.md — W6 ATR label fix + W5 ValidationResult NamedTuple (Wave 1, parallel)
+- [x] 136-02-PLAN.md — W4 FVGFill disable + test sweep (Wave 1, parallel)
+- [x] 136-03-PLAN.md — W3 intelligence_pipeline graceful SIGTERM (3a+3b+3c) (Wave 1, parallel)
+- [x] 136-04-PLAN.md — W2 feature_writer pre-flight schema check + JSONB CTF-key exclusion (Wave 2)
+- [x] 136-05-PLAN.md — W1 historical replay to recover 1,343 orphaned rows (Wave 3, depends 04)
+- [x] 136-06-PLAN.md — Migration 130 Statement 3 JSONB cleanup (Wave 4, depends 04+05)
 
 </details>
 
