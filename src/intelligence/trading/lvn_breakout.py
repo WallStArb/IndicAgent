@@ -5,9 +5,9 @@ and a trending move with volume expansion suggests rapid price acceleration
 through the LVN to the next HVN.
 
 Renaissance principles:
-- Segment relentlessly: fires only in trending regime (continuous hmm_regime_weight gate)
+- Segment relentlessly: fires inside a Low Volume Node with a volume-expansion move
 - Instrument everything: LVN width, volume ratio all logged
-- Earn the right through proof: in_lvn + rel_volume >= 1.5 + trending required
+- Earn the right through proof: in_lvn + rel_volume >= 1.5 required
 """
 
 from __future__ import annotations
@@ -36,10 +36,11 @@ class LVNBreakoutPlugin:
 
     Gates:
     - in_lvn == 1.0 (currently in a low-volume node)
-    - hmm_regime_weight (up or down) >= 0.30 — continuous trending gate
-    - abs(ctf_score) >= 0.25 — I6 confluence gate
     - rel_volume >= 1.5 (or fallback to bar_vol/avg_vol ratio)
     - Direction: long if close > open (up bar), short if close < open (down bar)
+
+    HMM regime travels as an annotation, not an emission gate; direction logic still
+    reads the dominant HMM trend (up vs down weight).
 
     Targets: T1 = nearest_hvn_above (long) or nearest_hvn_below (short)
     """

@@ -5,11 +5,12 @@ Fires when price has completed a significant swing (Leg 1) and has pulled back i
 
 Targets: 100%, 127.2%, 161.8% of Leg 1 amplitude beyond the entry.
 
-Requires: continuous HMM trending regime gate (>= 0.30). No signal in weak trending markets.
+HMM regime travels as an annotation, not an emission gate; direction is derived from
+the dominant HMM trend (up vs down weight).
 
 Renaissance principles:
 - Segment relentlessly: Fibonacci zone filters noise, targets measured moves precisely
-- Earn the right through proof: amplitude gate (>= 1.0xATR) and regime gate required
+- Earn the right through proof: amplitude gate (>= 1.0xATR) required
 - Instrument everything: fib_zone, amplitude, regime_prob captured in every signal
 """
 
@@ -48,11 +49,12 @@ _MAX_SWING_AGE_BARS = 50
 class SecondLegContinuationPlugin:
     """I7 evidence contributor: fires on Fibonacci measured-move continuation setups.
 
-    Gate 1: hmm_regime_weight(up or down) >= 0.30 — continuous trending gate.
-    Gate 2: abs(ctf_score) >= 0.25 — I6 confluence gate.
-    Gate 3: swing amplitude >= 1.0×ATR.
-    Gate 4: close must be in 38.2%-61.8% retracement zone of Leg 1.
-    Gate 5: swing data not stale (both ages <= 50 bars).
+    Gate 1: swing amplitude >= 1.0×ATR.
+    Gate 2: close must be in 38.2%-61.8% retracement zone of Leg 1.
+    Gate 3: swing data not stale (both ages <= 50 bars).
+
+    Direction is derived from the dominant HMM trend (up vs down weight); HMM regime
+    is an annotation, not an emission gate.
 
     Targets computed as 100%, 127.2%, 161.8% of Leg 1 amplitude from entry.
     """
