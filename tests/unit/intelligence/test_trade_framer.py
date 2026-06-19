@@ -1179,3 +1179,69 @@ class TestZoneSource:
         tf = frame_trade("trend_long", 1, 5000.0, {"timeframe": "5m"}, atr=10.0)
         assert hasattr(tf, "zone_source")
         assert tf.zone_source == "atr_fallback"
+
+
+# ---------------------------------------------------------------------------
+# TF-aware stop cap: frame_trade respects features["timeframe"]
+# ---------------------------------------------------------------------------
+
+
+class TestFrameTradeTimeframeStopCap:
+    """Verify frame_trade uses the per-TF stop cap from MAX_STOP_ATR_MULTIPLIER_BY_TF.
+
+    Strategy: use "1m" (cap=3.0) vs "" (default cap=5.0) with a structural swing_low
+    that places the raw stop distance at ~3.5×ATR.
+
+    - With tf="1m": 3.5 > 3.0 cap fires -> stop_type="atr_capped", stop = entry - 2.0×atr
+    - With tf="":  3.5 < 5.0 cap does not fire -> stop_type="swing_low", stop ~ entry - 3.5×atr
+    """
+
+    # swing_low placed so raw stop = entry - 3.25*atr - 0.25*atr buffer = entry - 3.5*atr
+    ENTRY = 100.0
+    ATR = 1.0
+    SWING_LOW_OFFSET = 3.25  # swing_low = entry - 3.25*atr; stop = swing_low - 0.25*atr buffer
+
+    def _make_features(self, tf: str) -> dict:
+        swing_low = self.ENTRY - self.SWING_LOW_OFFSET * self.ATR
+        return {
+            "timeframe": tf,
+            "swing_low": swing_low,
+        }
+
+    def test_1m_cap_fires_stop_capped(self):
+        """1m cap (3.0x) fires when structural stop is 3.5x ATR away -> stop_type atr_capped."""
+        f = self._make_features("1m")
+        result = frame_trade("trend_long", 1, self.ENTRY, f, self.ATR)
+        assert (
+            result.stop_type == "atr_capped"
+        ), f"Expected stop_type='atr_capped' for 1m with 3.5x structural stop, got {result.stop_type!r}"
+        stop_distance = abs(result.entry - result.stop)
+        # After cap fires, stop = entry - 2.0*atr (stop_fallback_atr default)
+        assert stop_distance == pytest.approx(
+            2.0 * self.ATR, rel=1e-4
+        ), f"Expected fallback stop at 2.0xATR but got distance {stop_distance:.4f}"
+
+    def test_empty_tf_cap_does_not_fire(self):
+        """Empty tf uses default cap (5.0x) which does not fire for a 3.5x structural stop."""
+        f = self._make_features("")
+        result = frame_trade("trend_long", 1, self.ENTRY, f, self.ATR)
+        assert (
+            result.stop_type != "atr_capped"
+        ), f"Expected default cap (5.0x) to NOT fire for 3.5x stop, got stop_type {result.stop_type!r}"
+        stop_distance = abs(result.entry - result.stop)
+        # Structural stop retained - must be significantly wider than the 2.0x fallback
+        assert (
+            stop_distance > 2.5 * self.ATR
+        ), f"Expected structural stop > 2.5x ATR but got distance {stop_distance:.4f}"
+
+    def test_different_tf_caps_produce_different_stops(self):
+        """Two identical signals on "1m" vs "" produce different stop distances when cap diverges."""
+        f_1m = self._make_features("1m")
+        f_default = self._make_features("")
+        result_1m = frame_trade("trend_long", 1, self.ENTRY, f_1m, self.ATR)
+        result_default = frame_trade("trend_long", 1, self.ENTRY, f_default, self.ATR)
+        dist_1m = abs(result_1m.entry - result_1m.stop)
+        dist_default = abs(result_default.entry - result_default.stop)
+        assert (
+            dist_1m < dist_default
+        ), f"1m stop distance ({dist_1m:.4f}) should be tighter than default ({dist_default:.4f})"
