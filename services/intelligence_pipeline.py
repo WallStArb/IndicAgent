@@ -530,6 +530,11 @@ class IntelligencePipeline(BaseDaemon):
         ("feature.trade_framer.stop_multiplier_floor.commodity_small_tick", 1.5),
         ("feature.trade_framer.stop_multiplier_floor.equity_etf", 1.0),
         ("feature.trade_framer.stop_multiplier_floor.futures_large_tick", 1.0),
+        # --- migration 153: GARCH and Kalman plugin APR keys ---
+        ("feature.garch.omega", 0.00001),
+        ("feature.garch.alpha", 0.10),
+        ("feature.garch.beta", 0.85),
+        ("feature.kalman.garch_r_scale", 10_000.0),
     )
 
     async def _prewarm_threshold_config(self) -> None:
