@@ -237,6 +237,8 @@ async def _replay_symbol_tf(
             "features": flat_features,
             "symbol": symbol,
             "tf": tf,
+            "__timeframe__": tf,
+            "timeframe": tf,
             "i1": flat_features,
             "i2": flat_features,
             "i3": flat_features,
