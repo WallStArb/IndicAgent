@@ -3,7 +3,7 @@
 Systemd Type=oneshot service invoked by indicagent-hmm-training.timer (monthly).
 
 Responsibilities:
-  1. For each configured timeframe (1m, 5m, 15m, 1h):
+  1. For each configured timeframe (1m, 5m, 15m, 1h, 4h, 1d):
      a. Query intelligence_features for the lookback window
      b. Build observation matrix replicating HMMRegimePlugin._build_observation() feature set
      c. Fit hmmlearn.GaussianHMM (Baum-Welch, n_components=3, covariance_type="diag")
@@ -27,6 +27,8 @@ Lookback days defaults per TF (used for query window):
   5m  → 60 days  (~17,280 bars)
   15m → 90 days  (~8,640 bars)
   1h  → 180 days (~4,320 bars)
+  4h  → 365 days (~2,190 bars)
+  1d  → 730 days (~730 bars)
 """
 
 from __future__ import annotations
@@ -47,7 +49,7 @@ from src.core.service_utils import setup_service_logging
 logger = structlog.get_logger(__name__)
 
 # Target timeframes for training (order: high-frequency to low-frequency)
-_DEFAULT_TARGET_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")
+_DEFAULT_TARGET_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
 
 # Lookback days per TF — controls query window
 _LOOKBACK_DAYS_BY_TF: dict[str, int] = {
@@ -55,6 +57,8 @@ _LOOKBACK_DAYS_BY_TF: dict[str, int] = {
     "5m": 60,
     "15m": 90,
     "1h": 180,
+    "4h": 365,
+    "1d": 730,
 }
 
 # Minimum number of valid (non-NaN) rows required to attempt training
