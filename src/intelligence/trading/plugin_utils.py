@@ -158,6 +158,12 @@ def validate_stop_against_zone(
         2.0  # stop_fallback_atr seed value (APR: feature.trade_framer.stop_fallback_atr)
     )
 
+    if direction not in (1, -1):
+        raise ValueError(
+            f"{plugin_name}: validate_stop_against_zone called with direction={direction!r};"
+            " expected +1 (long) or -1 (short)."
+        )
+
     if direction == 1:  # Long
         if stop_loss < zone_low - epsilon:
             return stop_loss  # Valid: stop below zone
