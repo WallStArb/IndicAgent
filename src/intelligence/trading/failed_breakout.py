@@ -21,7 +21,7 @@ from .confidence import (
     get_min_regime_weight,
     rel_volume_score,
 )
-from .plugin_utils import no_signal
+from .plugin_utils import build_features_from_tiers, no_signal
 from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
@@ -73,16 +73,7 @@ class FailedBreakoutPlugin:
         w_vol = cfg.get_sync("weights.failed_breakout.volume", 0.20) if cfg else 0.20
         w_struct = cfg.get_sync("weights.failed_breakout.structure_quality", 0.15) if cfg else 0.15
         df = frames.get("main")
-        features = {
-            **(frames.get("i1") or {}),
-            **(frames.get("i2") or {}),
-            **(frames.get("i3") or {}),
-            **(frames.get("i4") or {}),
-            **(frames.get("i5") or {}),
-            **(frames.get("smc") or {}),
-            **(frames.get("i6") or {}),
-        }
-        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
+        features = build_features_from_tiers(frames)
         symbol = frames.get("__symbol__", "")
         tf = frames.get("__timeframe__", "")
 
