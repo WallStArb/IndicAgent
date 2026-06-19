@@ -52,6 +52,7 @@ from src.core.database_manager import create_pool
 from src.core.service_utils import TF_SECONDS, parse_iso_ts, setup_service_logging
 from src.intelligence.pipeline.signal_processor import annotate_signal_with_context
 from src.intelligence.plugins import registry
+from src.intelligence.plugins.mixins import incremental_compute
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
 from src.intelligence.schemas import (
     FEATURE_SCHEMA_VERSION,
@@ -208,6 +209,11 @@ async def _replay_symbol_tf(
 
     tf_secs = TF_SECONDS.get(tf, 60)
     signal_count = 0
+    # Per-plugin state dict for this (symbol, tf) — accumulates across bars
+    # so onset guards and consecutive-state counters carry forward correctly.
+    plugin_states: dict[str, dict] = {name: {} for name in plugins}
+    # Resolve plugin instances once — plugins list is fixed for the whole (symbol, tf) run.
+    resolved_plugins = {name: registry.get_pattern(name) for name in plugins}
 
     for row in rows:
         event = _reconstruct_intelligence_event(row)
@@ -251,11 +257,13 @@ async def _replay_symbol_tf(
         raw_signals: list[dict] = []
         for name in plugins:
             try:
-                plugin = registry.get_pattern(name)
-                result = plugin.compute_full(frames)
-                if result and result.get("direction", 0) != 0:
-                    result["setup_plugin"] = name
-                    raw_signals.append(result)
+                plugin = resolved_plugins[name]
+                result = incremental_compute(plugin, frames, plugin_states[name])
+                if result is not None:
+                    plugin_states[name] = result.pop("_state", plugin_states[name])
+                    if result.get("direction", 0) != 0:
+                        result["setup_plugin"] = name
+                        raw_signals.append(result)
             except Exception as error:
                 logger.warning(
                     "feature_replay: plugin error",
