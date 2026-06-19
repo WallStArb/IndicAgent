@@ -74,6 +74,7 @@ class MTFAlignmentPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
 
         ctf_score = features.get("ctf_score", 0.0)
         ctf_timeframes_aligned = features.get("ctf_timeframes_aligned", 0.0)

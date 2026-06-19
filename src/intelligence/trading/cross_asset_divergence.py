@@ -107,6 +107,7 @@ class CrossAssetDivergencePlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
 
         # Guard: symbol must be in EQ_INDEX group
         symbol = str(features.get("symbol", ""))

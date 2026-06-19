@@ -79,6 +79,7 @@ class MeanReversionPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
 
         # OPTIMIZATION (Phase 48): Check regime gate BEFORE expensive OHLCV extraction
         # TODO: Apply this pattern to remaining 34/36 I7 plugins (2/36 optimized: trend_following, mean_reversion)  # noqa: E501

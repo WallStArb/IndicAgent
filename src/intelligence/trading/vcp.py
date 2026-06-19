@@ -89,6 +89,7 @@ class VCPPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
         cfg = self._config_service
         min_contractions = (
             cfg.get_sync("threshold.vcp.min_contractions", _MIN_CONTRACTIONS)

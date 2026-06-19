@@ -68,6 +68,7 @@ class SupplyDemandSetupPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
 
         in_demand = float(features.get("in_demand_zone", 0.0))
         in_supply = float(features.get("in_supply_zone", 0.0))

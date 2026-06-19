@@ -71,6 +71,7 @@ class RegimeTransitionPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
 
         cp_probability = float(features.get("cp_probability", 0.0))
         choch_detected = float(features.get("choch_detected", 0.0))

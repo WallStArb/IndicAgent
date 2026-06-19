@@ -74,6 +74,7 @@ class VWAPDeviationPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
 
         # ── VWAP features ──
         vwap = features.get("vwap", 0.0)

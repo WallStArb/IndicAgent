@@ -75,6 +75,7 @@ class MomentumBreakoutPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
 
         # ── Gate 1: continuous trending regime ────────────────────────────────
         if hmm_trending_weight(features) < get_min_regime_weight():

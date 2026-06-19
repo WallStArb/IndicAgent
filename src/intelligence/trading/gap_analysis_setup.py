@@ -105,6 +105,7 @@ class GapAnalysisSetupPlugin:
             **(frames.get("smc") or {}),
             **(frames.get("i6") or {}),
         }
+        features["timeframe"] = frames.get("timeframe") or frames.get("__timeframe__", "")
         df = frames.get("main")
 
         # Time gate (I4 SessionContext) — only active when feature is present
