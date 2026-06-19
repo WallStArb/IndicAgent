@@ -307,16 +307,22 @@ class HMMTrainer:
             dtype=float,
         )
 
+        # Rows with near-zero ATR (Globex off-hours, subnormal floats) produce macd/atr → ∞
+        # and cause EM divergence. 0.05 is the minimum meaningful ATR for liquid futures on 1m.
+        _MIN_ATR = 0.05
         valid_indicator_mask = ~(
-            np.isnan(rsi_vals) | np.isnan(adx_vals) | np.isnan(atr_vals) | np.isnan(macd_vals)
+            np.isnan(rsi_vals)
+            | np.isnan(adx_vals)
+            | np.isnan(atr_vals)
+            | np.isnan(macd_vals)
+            | (atr_vals < _MIN_ATR)
         )
         use_5d = valid_indicator_mask.sum() / max(1, len(returns)) >= 0.5
 
         if use_5d:
             rsi_norm = (rsi_vals - 50.0) / 50.0
             adx_norm = adx_vals / 50.0
-            safe_atr = np.where(atr_vals > 0, atr_vals, 1.0)
-            macd_norm = macd_vals / safe_atr
+            macd_norm = macd_vals / atr_vals  # atr_vals >= _MIN_ATR guaranteed by mask above
             obs = np.column_stack([returns, realized_vols, rsi_norm, adx_norm, macd_norm])
         else:
             obs = np.column_stack([returns, realized_vols])
@@ -367,6 +373,16 @@ class HMMTrainer:
                 "tf": tf,
                 "n_training_rows": int(obs.shape[0]),
             }
+
+            max_abs_mean = float(np.abs(model.means_).max())
+            if max_abs_mean > 1e4:
+                logger.warning(
+                    "hmm_training.degenerate_fit",
+                    tf=tf,
+                    max_abs_emission_mean=max_abs_mean,
+                    reason="refusing to write — likely outlier in training data",
+                )
+                return None
 
             convergence_monitor = getattr(model, "monitor_", None)
             if convergence_monitor is not None:
