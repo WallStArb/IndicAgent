@@ -64,7 +64,7 @@ import sys
 import time
 import uuid
 from collections import defaultdict, deque
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -78,7 +78,12 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 
-from src.config.contracts import MONTH_CODE_TO_NUM, derive_roll_chain
+from src.config.contracts import (
+    FUTURES_ROLL_CYCLES,
+    MONTH_CODE_TO_NUM,
+    derive_roll_chain,
+    get_expiry_date,
+)
 from src.config.settings import Settings, get_active_contracts, get_all_futures_contracts
 from src.core.bar_normalizer import (
     SOURCE_DERIVED_1M,
@@ -158,23 +163,32 @@ def _parse_contract_symbol(symbol: str) -> tuple[str, str, int] | None:
     return (base, month_code, year)
 
 
+_CONTRACT_PREFIX_OVERRIDES: dict[str, str] = {"VIX": "VX"}
+
+
 def _generate_contract_symbols(base: str, start_year: int, end_year: int) -> list[str]:
     """Generate all contract symbols for a base symbol between years.
 
+    Uses FUTURES_ROLL_CYCLES for the correct expiry cycle per product.
     Returns list in chronological order (oldest first).
-    Only generates quarterly contracts (H, M, U, Z) for major index futures.
 
     Args:
         base: Base symbol (e.g., "ES", "NQ", "CL")
         start_year: Starting year (e.g., 2019)
         end_year: Ending year (e.g., 2026)
     """
-    contracts = []
+    if base not in FUTURES_ROLL_CYCLES:
+        return []
+    cycle = FUTURES_ROLL_CYCLES[base]
+    prefix = _CONTRACT_PREFIX_OVERRIDES.get(base, base)
+    contracts: list[tuple[int, int, str]] = []  # (year, month_num, symbol)
     for year in range(start_year, end_year + 1):
-        for month_code in ["H", "M", "U", "Z"]:  # Quarterly cycle
-            symbol = f"{base}{month_code}{year % 100}"  # "ESH6" for 2026
-            contracts.append(symbol)
-    return contracts
+        for code in cycle:
+            month_num = MONTH_CODE_TO_NUM[code]
+            symbol = f"{prefix}{code}{year % 10}"
+            contracts.append((year, month_num, symbol))
+    contracts.sort(key=lambda x: (x[0], x[1]))
+    return [c[2] for c in contracts]
 
 
 def _upsert_contract_metadata(db_conn: Any, metadata: list[ContractMetadata]) -> int:
@@ -259,48 +273,49 @@ async def fetch_per_contract(
     """
     parsed = _parse_contract_symbol(instrument.symbol)
     if not parsed:
-        # Not a futures contract symbol, skip per-contract logic
         return (0, [])
 
-    base, current_month, current_year = parsed
+    base, _current_month, current_year = parsed
 
-    # Determine start year based on fetch_days (rough approximation)
-    # 2555 days = 7 years, so go back to 2019 for full backfill
-    start_year = current_year - (fetch_days // 365)
+    overall_start = (end_dt - timedelta(days=fetch_days)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    start_year = overall_start.year
 
-    # Generate contract chain for this base symbol
     contract_symbols = _generate_contract_symbols(base, start_year, current_year)
 
-    # Filter to only include contracts within our fetch window
-    # Also include current contract even if outside window (for continuity)
     metadata_list: list[ContractMetadata] = []
-
     total_bars = 0
+    prev_expiry_dt: datetime | None = None
 
-    # For each contract, try to qualify and fetch
     for i, contract_sym in enumerate(contract_symbols):
-        # Determine contract expiry from month code and year
-        month_code = contract_sym[-2]
-        year_digit = int(contract_sym[-1])
-        contract_year = 2000 + year_digit
+        prefix = _CONTRACT_PREFIX_OVERRIDES.get(base, base)
+        # Strip prefix to get month code + year digit
+        suffix = contract_sym[len(prefix) :]  # e.g. "N6" from "CLN6"
+        month_code = suffix[0]
+        year_digit = int(suffix[1])
+        # Recover 4-digit year: disambiguate via start/end range
+        contract_year = current_year - (current_year % 10) + year_digit
+        if contract_year > current_year:
+            contract_year -= 10
 
-        # Simple expiry: 3rd Friday of expiry month (CME equity index futures)
-        # This is an approximation - IBKR provides accurate expiry in contract details
         month_num = MONTH_CODE_TO_NUM[month_code]
-        # Find 3rd Friday of the month
-        first_day = date(contract_year, month_num, 1)
-        first_friday = (4 - first_day.weekday()) % 7 + 1
-        expiry_date = datetime.combine(
-            date(contract_year, month_num, first_friday + 7), datetime.min.time()
-        ).replace(tzinfo=UTC)
+        expiry_d = get_expiry_date(base, month_num, contract_year)
+        expiry_dt = datetime.combine(expiry_d, datetime.min.time()).replace(tzinfo=UTC)
 
-        # Roll date: when this contract became active (previous contract expiry + 1 day)
-        if i > 0:
-            roll_date = expiry_date.replace(day=1)  # Approximate first of month
-        else:
-            roll_date = None  # Oldest contract in chain
+        # Each contract's active window: from previous contract's expiry to this one's expiry.
+        # Clip to [overall_start, end_dt].
+        contract_start = (prev_expiry_dt + timedelta(days=1)) if prev_expiry_dt else overall_start
+        contract_start = max(contract_start, overall_start)
+        contract_end = min(expiry_dt, end_dt)
 
-        # Create Instrument for this contract
+        roll_from = contract_symbols[i - 1] if i > 0 else None
+        roll_to = contract_symbols[i + 1] if i < len(contract_symbols) - 1 else None
+        prev_expiry_dt = expiry_dt
+
+        if contract_start >= contract_end:
+            continue  # contract entirely outside our window
+
         contract_instrument = Instrument(
             symbol=contract_sym,
             name=f"{base} {month_num} {contract_year}",
@@ -309,23 +324,18 @@ async def fetch_per_contract(
             session_id=instrument.session_id,
         )
 
-        # Try to qualify the contract
         try:
             qualified = await provider.qualify_instrument(contract_instrument)
             if not qualified:
                 print(f"    {contract_sym}: skip (qualify failed)")
                 continue
 
-            # Fetch bars for this contract
-            start_dt = (end_dt - timedelta(days=fetch_days)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
             ohlcv_bars = await provider.fetch_historical_bars(
                 symbol=contract_sym,
                 timeframe=timeframe,
-                start=start_dt,
-                end=end_dt,
-                continuous=False,  # Always named contract for per-contract mode
+                start=contract_start,
+                end=contract_end,
+                continuous=False,
             )
 
             # Convert bar dicts
@@ -349,25 +359,19 @@ async def fetch_per_contract(
             total_bars += n
 
             if n > 0:
-                # Build roll chain links
-                roll_from = contract_symbols[i - 1] if i > 0 else None
-                roll_to = contract_symbols[i + 1] if i < len(contract_symbols) - 1 else None
-
-                # Create metadata entry
                 metadata = ContractMetadata(
                     symbol=contract_sym,
                     base_symbol=base,
                     asset_class=AssetClass.FUTURES,
-                    expiry_date=expiry_date,
-                    first_notice_date=None,  # Would need IBKR contract details
+                    expiry_date=expiry_dt,
+                    first_notice_date=None,
                     roll_from=roll_from,
                     roll_to=roll_to,
-                    roll_date=roll_date,
-                    roll_gap=None,  # Computed after both contracts fetched
+                    roll_date=contract_start,
+                    roll_gap=None,
                     exchange=instrument.exchange,
                 )
                 metadata_list.append(metadata)
-
                 print(f"    {contract_sym}/{timeframe}: {n} bars")
 
             await asyncio.sleep(1)  # IBKR pacing between contracts
