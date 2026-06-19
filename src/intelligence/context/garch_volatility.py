@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -41,6 +41,18 @@ class GARCHVolatilityPlugin(IncrementalMixin):
     omega: float = 0.00001
     alpha: float = 0.10
     beta: float = 0.85
+    _config_service: Any = field(default=None, compare=False, repr=False)
+
+    def _get_params(self) -> tuple[float, float, float]:
+        """Return (omega, alpha, beta), reading from APR if config_service is wired."""
+        cfg = self._config_service
+        if cfg is None:
+            return self.omega, self.alpha, self.beta
+        return (
+            float(cfg.get_sync("feature.garch.omega", self.omega)),
+            float(cfg.get_sync("feature.garch.alpha", self.alpha)),
+            float(cfg.get_sync("feature.garch.beta", self.beta)),
+        )
 
     def _compute_full_core(self, frames: dict[str, Any]) -> dict[str, Any]:
         """Full GARCH(1,1) computation. Returns outputs only (no _state)."""
@@ -48,6 +60,7 @@ class GARCHVolatilityPlugin(IncrementalMixin):
         if df is None or len(df) < self.min_lookback:
             return {}
 
+        omega, alpha, beta = self._get_params()
         close = df["close"].to_numpy(dtype=float)
 
         # Log returns
@@ -58,8 +71,8 @@ class GARCHVolatilityPlugin(IncrementalMixin):
         init_window = min(20, len(log_returns))
         sigma2 = float(np.var(log_returns[:init_window]))
         if sigma2 == 0:
-            denom = 1 - self.alpha - self.beta
-            sigma2 = self.omega / denom if denom > 1e-10 else self.omega
+            denom = 1 - alpha - beta
+            sigma2 = omega / denom if denom > 1e-10 else omega
 
         # Rolling realized vol (std of last 20 log returns)
         realized_returns: deque[float] = deque(maxlen=20)
@@ -70,7 +83,7 @@ class GARCHVolatilityPlugin(IncrementalMixin):
         for i in range(len(log_returns)):
             epsilon = log_returns[i]
             sigma2_prior_last = sigma2
-            sigma2 = self.omega + self.alpha * epsilon**2 + self.beta * sigma2
+            sigma2 = omega + alpha * epsilon**2 + beta * sigma2
             sigma_history.append(math.sqrt(sigma2))
             realized_returns.append(epsilon)
 
@@ -118,6 +131,7 @@ class GARCHVolatilityPlugin(IncrementalMixin):
         if df is None or len(df) < self.min_lookback:
             return {}
 
+        omega, alpha, beta = self._get_params()
         close = df["close"].to_numpy(dtype=float)
         log_returns = np.log(close[1:] / close[:-1])
         log_returns = np.where(np.isfinite(log_returns), log_returns, 0.0)
@@ -125,15 +139,15 @@ class GARCHVolatilityPlugin(IncrementalMixin):
         init_window = min(20, len(log_returns))
         sigma2 = float(np.var(log_returns[:init_window]))
         if sigma2 == 0:
-            denom = 1 - self.alpha - self.beta
-            sigma2 = self.omega / denom if denom > 1e-10 else self.omega
+            denom = 1 - alpha - beta
+            sigma2 = omega / denom if denom > 1e-10 else omega
 
         realized_returns: deque[float] = deque(maxlen=20)
         sigma_history: list[float] = []
 
         for i in range(len(log_returns)):
             epsilon = log_returns[i]
-            sigma2 = self.omega + self.alpha * epsilon**2 + self.beta * sigma2
+            sigma2 = omega + alpha * epsilon**2 + beta * sigma2
             sigma_history.append(math.sqrt(sigma2))
             realized_returns.append(epsilon)
 
@@ -152,8 +166,9 @@ class GARCHVolatilityPlugin(IncrementalMixin):
         row = df.iloc[-1]
         c = float(row["close"])
 
+        omega, alpha, beta = self._get_params()
         epsilon = math.log(c / state["prev_close"]) if state["prev_close"] > 0 else 0.0
-        sigma2 = self.omega + self.alpha * epsilon**2 + self.beta * state["prev_sigma2"]
+        sigma2 = omega + alpha * epsilon**2 + beta * state["prev_sigma2"]
         garch_sigma = math.sqrt(sigma2)
 
         realized_returns = deque(state["realized_returns"], maxlen=20)
