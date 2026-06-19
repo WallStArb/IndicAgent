@@ -11,11 +11,12 @@ them in market_data_ohlcv. Short timeframes use named contracts; longer timefram
 use back-adjusted continuous contracts (ContFuture + ADJUSTED_LAST) to span rolls.
 
     Timeframe  Default depth  Notes
-    1m         14 days        Named contract, no rolls
-    5m         90 days        Named contract (chunked, IBKR limit)
-    15m        180 days       Continuous adjusted (default) or per-contract (--per-contract)
-    1h         365 days       Continuous adjusted (default) or per-contract (--per-contract)
-    1d         2555 days      Continuous adjusted (default) or per-contract (--per-contract)
+    1m         90 days        ~75k bars/symbol; intraday patterns repeat on monthly cycles
+    5m         730 days       ~88k bars/symbol; 2yr for stable intraday+swing patterns
+    15m        1825 days      ~60k bars/symbol; 5yr bridges intraday and swing
+    1h         3650 days      ~18k bars/symbol; 10yr HMM anchor (2018 tantrum→COVID→rate shock→AI mania)
+    4h         3650 days      ~6.1k bars/symbol; 10yr macro regime depth
+    1d         7300 days      ~5.2k bars/symbol; 20yr, negligible storage (~252 bars/yr)
 
     Use --days N to cap ALL timeframes at N days (e.g. --days 2 for a gap-fill).
 
@@ -453,37 +454,37 @@ def _report_plugin_times() -> None:
 #     - Regime cycle coverage: need 2–3 full regime transitions to observe hit+miss per plugin
 #     - CIS calibration: enough signal volume per cell for logistic regression to be meaningful
 #
-# Named contract for 1m (IBKR ~35d limit on front-month futures); continuous back-adjusted for rest.
+# Per-TF fetch config: (days_of_history, use_continuous_contract).
+# NOTE: use_continuous only applies to FUTURES (see fetch loop at ~line 2376). For equities
+# and ETFs, the chunked named-contract path is always used regardless of this flag.
 _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
-    # 1m: named contract (no roll crossings). 30d = ~1 calendar month = ~11,700 bars,
-    #     capturing time-of-day, day-of-week, and monthly intraday patterns. Well within
-    #     IBKR's ~35d named contract limit; 5 chunks at 6d each.
-    "1m": (30, True),
-    # 5m: Continuous back-adjusted. 90 days covers
-    #     3 months of intraday + weekly regime cycles, yielding ~600+ signals — enough to
-    #     populate all 51 regression cells with statistically meaningful outcomes.
-    "5m": (90, True),
-    # 15m: Continuous back-adjusted. 180 days = 6 months
-    #     captures both weekly seasonality and monthly roll-driven regime shifts. Yields
-    #     ~1,150+ signals, giving ~22 outcomes/cell — above the 20/cell minimum.
-    "15m": (180, True),
-    # 1h: the HMM/GARCH anchor TF. ~6.5 bars/day/symbol. 365 days = 1 full calendar year:
-    #     captures seasonal cycles (Q1 earnings, summer lull, year-end), yields ~2,379 bars
-    #     (4× the 500-bar HMM floor) and ~2,300+ signals for robust CIS calibration.
-    #     use_continuous=False: same reason as 5m/15m — IBKR ContFuture + ADJUSTED_LAST
-    #     requires endDateTime="" (no chunking possible), so a single 365D request times out
-    #     on COMEX instruments. Chunked named-contract path (_MAX_CHUNK_DAYS=364) sends two
-    #     requests (364d + 1d) — no roll adjustment, but data reliably lands for all exchanges.
-    "1h": (365, False),
-    # 4h: ~1.625 bars/day/symbol (equity RTH). 730 days (2yr) clears the 1000-real-bar floor
-    #     (~1,186 bars) for reliable HMM/GARCH estimation across all session types.
-    "4h": (730, True),
-    # 1d: macro regime coverage. 1 bar/day/symbol. 2555 days = 7 years reaches back to 2019 —
-    #     the last clean pre-distortion baseline before COVID, zero-rate era, QE infinity,
-    #     2022 rate shock, and AI mania. Capturing these distinct macro regimes is essential
-    #     for the HMM to learn what "normal" looks like and gate signals accordingly.
-    #     Yields ~1,764 bars (3.5× HMM floor) and spans 5 full macro regime transitions.
-    "1d": (2555, True),
+    # 1m: intraday micro-patterns (time-of-day, session open/close, day-of-week). These
+    #     repeat on weekly/monthly cycles so 90d captures all patterns with good repetition.
+    #     ~75k bars/symbol. IBKR confirmed 10yr retention (SPY probe 2026-06-19) — 90d is
+    #     a deliberate storage/compute tradeoff, not a retention constraint.
+    "1m": (90, True),
+    # 5m: intraday + swing structure. More stable patterns than 1m so benefits from deeper
+    #     history. 730d (2yr) captures two full annual cycles. ~88k bars/symbol.
+    #     IBKR confirmed 10yr retention (SPY probe 2026-06-19).
+    "5m": (730, True),
+    # 15m: bridges intraday and swing. 1825d (5yr) captures two presidential cycles and the
+    #     COVID crash → zero-rate era → 2022 rate shock arc at session-bar granularity.
+    #     ~60k bars/symbol. IBKR confirmed 10yr+ retention for liquid ETFs (SPY probe 2026-06-19).
+    "15m": (1825, True),
+    # 1h: HMM/GARCH anchor TF. 3650d (10yr) reaches back to 2016 — capturing 2018 rate
+    #     tantrum, COVID crash + recovery (critical for extreme-vol regime detection),
+    #     zero-rate era, 2022 rate shock, and AI mania. ~18k bars/symbol (36× HMM floor).
+    #     use_continuous=False: IBKR ContFuture + ADJUSTED_LAST requires endDateTime=""
+    #     (no chunking possible), timing out on COMEX instruments. Chunked named-contract
+    #     path (_MAX_CHUNK_DAYS=364) is reliable across all exchanges.
+    "1h": (3650, False),
+    # 4h: macro regime depth. 3650d (10yr) confirmed clean (SPY probe 2026-06-19).
+    #     ~6.1k bars/symbol; captures GFC recovery, taper tantrum, 2018 selloff, COVID, rate shock.
+    "4h": (3650, True),
+    # 1d: maximum available history. Only ~252 bars/year so 7300d (20yr) = ~5.2k bars/symbol —
+    #     negligible storage. IBKR has clean data to 2005 (SPY probe 2026-06-19, minor gap
+    #     at 20yr edge). Spans dot-com bust recovery, GFC, QE era, 2022 rate shock, AI mania.
+    "1d": (7300, True),
 }
 
 # FX and crypto: IBKR *can* return higher-TF bars for major pairs (EURUSD, GBPUSD, etc.).
