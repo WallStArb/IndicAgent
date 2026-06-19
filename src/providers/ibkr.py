@@ -634,12 +634,22 @@ class IBKRProvider:
             return False
         try:
             if instrument.asset_class == AssetClass.FUTURES:
-                trading_class = instrument.provider_meta.get("ibkr", {}).get(
+                ibkr_meta = instrument.provider_meta.get("ibkr", {})
+                trading_class = ibkr_meta.get(
                     "trading_class",
                     instrument.provider_meta.get("trading_class", ""),  # legacy flat fallback
                 )
+                # Some futures use a different IBKR symbol than our base symbol
+                # (e.g. VX → "VIX" on CFE). IBKRAdapter flattens provider_meta.ibkr
+                # before calling here, so check both the flat key and the nested key.
+                ibkr_symbol = (
+                    instrument.provider_meta.get("symbol")  # flat (post-adapter flatten)
+                    or ibkr_meta.get("symbol")  # nested (direct call)
+                    or instrument.base
+                    or instrument.symbol
+                )
                 contract = Future(
-                    symbol=instrument.base or instrument.symbol,
+                    symbol=ibkr_symbol,
                     lastTradeDateOrContractMonth=instrument.expiry,
                     exchange=instrument.exchange,
                     currency="USD",
