@@ -132,3 +132,24 @@ class TestKalmanTrend:
         # No features at all — must fall back to fixed R gracefully
         result = plugin.compute_full({"main": df})
         assert "kalman_trend" in result
+
+
+def test_kalman_reads_apr_garch_r_scale() -> None:
+    """KalmanTrendPlugin must read garch_r_scale from _config_service when injected."""
+    from unittest.mock import MagicMock
+
+    plugin = KalmanTrendPlugin(use_garch_adaptive=True)
+
+    mock_cfg = MagicMock()
+    custom_scale = 5000.0  # half of default 10000
+    mock_cfg.get_sync.side_effect = lambda key, default=None: (
+        custom_scale if key == "feature.kalman.garch_r_scale" else default
+    )
+    plugin._config_service = mock_cfg
+
+    df = _make_ohlcv(100)
+    # Provide a synthetic garch_sigma in i4 features
+    result = plugin.compute_full({"main": df, "i4": {"garch_sigma": 0.01}})
+
+    assert result, "Should return results with APR config injected"
+    mock_cfg.get_sync.assert_any_call("feature.kalman.garch_r_scale", 10_000.0)
