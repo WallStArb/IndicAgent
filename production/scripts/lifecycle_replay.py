@@ -2,9 +2,9 @@
 """
 Lifecycle Replay Script — batch replay of historical signal outcomes.
 
-Version: 1.4
+Version: 1.5
 Status: current
-Last Updated: 2026-06-16
+Last Updated: 2026-06-19
 
 Phase 130 changes (3-table schema migration):
     - Reads from signal_events + trade_frames instead of signal_ledger + signal_outcomes
@@ -1102,6 +1102,10 @@ async def _reconcile_outcomes(db: DatabaseManager) -> None:
     # A single UPDATE across all stale-pending rows on a large hypertable causes a PG
     # backend crash (OOM on cross-chunk writes). Batch in 5000-row chunks instead.
     async with db.pool.acquire() as conn:
+        # TimescaleDB decompresses entire chunks on DML. With >100k rows the default limit
+        # (100000) is exceeded even with 5000-row batches. Set to unlimited for this session.
+        await conn.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
+
         # 1. Expire stale pending — batch to avoid server crash on large hypertable UPDATEs
         total_expired = 0
         while True:
@@ -1333,6 +1337,12 @@ async def main_async():
         action="store_true",
         help="Required with --reset. Prevents accidental destructive operations.",
     )
+    parser.add_argument(
+        "--reconcile-only",
+        action="store_true",
+        help="Skip signal processing; run only _reconcile_outcomes + _verify_replay. "
+        "Use to recover from a crashed reconcile step without re-running the full replay.",
+    )
     args = parser.parse_args()
 
     # Use -u (unbuffered) when redirecting output: python -u lifecycle_replay.py > log 2>&1 &
@@ -1345,6 +1355,18 @@ async def main_async():
     await db.initialize(command_timeout=300)
 
     try:
+        if args.reconcile_only:
+            logger.info("--reconcile-only: skipping signal processing, running reconcile + verify")
+            symbols = (
+                args.symbols.split(",")
+                if args.symbols
+                else [c.symbol for c in get_active_contracts(settings)]
+            )
+            timeframes = args.timeframes.split(",") if args.timeframes else TIMEFRAMES
+            await _reconcile_outcomes(db)
+            await _verify_replay(db, symbols, timeframes)
+            return
+
         symbols = (
             args.symbols.split(",")
             if args.symbols
