@@ -543,13 +543,9 @@ async def _process_symbol_tf(
         # None → first batch uses >=min_ts; subsequent batches use >last_bar_ts.
         bar_cursor: datetime | None = None
         conn = await db.pool.acquire()
-        try:
-            await conn.execute("BEGIN")
-            # Session-scoped — set once per connection, not per flush batch.
-            await conn.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
-        except Exception:
-            await db.pool.release(conn)
-            raise
+        await conn.execute("BEGIN")
+        # Session-scoped — set once per connection, not per flush batch.
+        await conn.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
 
         # 4. Stream bars and evaluate signals using client-side batching
         while True:
@@ -929,11 +925,14 @@ async def _process_symbol_tf(
         logger.error("Error processing %s %s: %s", symbol, timeframe, error)
         stats["errors"] += 1
         try:
-            if not dry_run:
-                await conn.execute("ROLLBACK")
-            await db.pool.release(conn)
+            await conn.execute("ROLLBACK")
         except Exception:
-            pass  # Connection already released or failed
+            pass
+        finally:
+            try:
+                await db.pool.release(conn)
+            except Exception:
+                pass
 
     return stats
 
