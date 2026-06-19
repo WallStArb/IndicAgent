@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-19T02:29:04.228Z"
+last_updated: "2026-06-19T02:31:20.360Z"
 last_activity: 2026-06-19
 progress:
   total_phases: 28
-  completed_phases: 21
+  completed_phases: 22
   total_plans: 148
-  completed_plans: 119
-  percent: 75
+  completed_plans: 120
+  percent: 79
 ---
 
 # Project State
@@ -80,6 +80,7 @@ See: .planning/PROJECT.md
 - [Phase 123]: _PHASE_119_PLUGINS frozenset dissolved: boundary concept no longer needed once all plugins emit ECL annotations
 - [Phase 123]: Phase 128 DB persistence deferred: signal_writer reads ECL fields end-to-end but LedgerEntry not extended until 3-table migration
 - [Phase 136]: ctf_score=NULL is table-wide in intelligence_features: replay script never wrote Phase-130 CTF dedicated columns; deferred to future fix
+- [Phase 136]: Migration 130 Statement 3 UPDATE 0 rows: W2b exclusion at write time already eliminated all ctf_score keys from cross_timeframe_context; cleanup is durable
 
 ### Blockers / Concerns
 
@@ -157,7 +158,7 @@ Then: `/clear` then `/gsd-execute-phase 121` (Wave 2 — validation report)
 ## Current Position
 
 Phase: 136 (post-reboot-system-repair) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Phase: 135 (controlled-vocabulary-system) — on roadmap, not yet planned
 Phase: 133 (clean-corpus-rebuild) — PLANNED (7 plans, 5 waves); waiting on next session
 Status: Ready to execute
@@ -171,3 +172,4 @@ Last activity: 2026-06-19
 |-------|------|----------|-------|
 | Phase 123 P01 | 20 | 5 tasks | 26 files |
 | Phase 136 P05 | 12 | 3 tasks | 0 files |
+| Phase 136 P06 | 5 | 3 tasks | 0 files |
