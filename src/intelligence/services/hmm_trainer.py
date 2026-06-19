@@ -4,7 +4,7 @@ Systemd Type=oneshot service invoked by indicagent-hmm-training.timer (monthly).
 
 Responsibilities:
   1. For each configured timeframe (1m, 5m, 15m, 1h):
-     a. Query intelligence_features excluding is_backfill rows
+     a. Query intelligence_features for the lookback window
      b. Build observation matrix replicating HMMRegimePlugin._build_observation() feature set
      c. Fit hmmlearn.GaussianHMM (Baum-Welch, n_components=3, covariance_type="diag")
      d. Atomically write config/hmm_parameters_{tf}.json (transition_matrix, emission_means,
@@ -129,12 +129,12 @@ class HMMTrainer:
         Returns:
             Path string of written file, or None if skipped.
         """
-        rows = await self._query_features(tf)
-        if not rows:
+        symbol_rows = await self._query_features(tf)
+        if not symbol_rows:
             logger.info("hmm_training.no_rows", tf=tf)
             return None
 
-        obs_matrix = self._build_obs_matrix(rows)
+        obs_matrix, lengths = self._build_obs_matrix(symbol_rows)
         n_rows = obs_matrix.shape[0]
 
         if n_rows < _MIN_ROWS_FOR_TRAINING:
@@ -147,8 +147,8 @@ class HMMTrainer:
             )
             return None
 
-        logger.info("hmm_training.fitting", tf=tf, n_rows=n_rows)
-        params = self._fit_hmm(obs_matrix, tf)
+        logger.info("hmm_training.fitting", tf=tf, n_rows=n_rows, n_symbols=len(lengths))
+        params = self._fit_hmm(obs_matrix, lengths, tf)
         if params is None:
             return None
 
@@ -156,63 +156,99 @@ class HMMTrainer:
         logger.info("hmm_training.params_written", tf=tf, path=file_path, n_rows=n_rows)
         return file_path
 
-    async def _query_features(self, tf: str) -> list[dict[str, Any]]:
-        """Query intelligence_features for the given TF, excluding backfill rows.
+    async def _query_features(self, tf: str) -> dict[str, list[dict[str, Any]]]:
+        """Query intelligence_features per symbol for the given TF.
+
+        Returns a dict of symbol -> chronologically ordered rows. Querying per symbol
+        prevents mixing return sequences across instruments (which corrupts log returns).
 
         Selects the columns needed to replicate HMMRegimePlugin._build_observation():
-          - close price (from bar JSONB) for computing log returns + realized vol
-          - rsi_14, adx_14, atr_14, macd_histogram_12_26_9 from technical_indicators JSONB for 5D observations
-
-        Rows are ordered by ts ascending so that return sequences are chronologically correct.
-        The WHERE clause uses is_backfill IS NOT TRUE (Phase 81 gate).
+          - close price (bar->>'c') for computing log returns + realized vol
+          - rsi_14, adx_14, atr_14, macd_histogram_12_26_9 from technical_indicators JSONB
         """
         days = self._lookback_days.get(tf, 60)
         since = datetime.now(UTC) - timedelta(days=days)
 
+        # Fetch distinct symbols first (fast index scan)
+        async with self._db.pool.acquire() as conn:
+            symbol_rows = await conn.fetch(
+                "SELECT DISTINCT symbol FROM intelligence_features WHERE tf = $1 AND ts >= $2",
+                tf,
+                since,
+            )
+            symbols = [r["symbol"] for r in symbol_rows]
+
         sql = """
             SELECT
                 ts,
-                (bar->>'close')::float AS close,
+                (bar->>'c')::float AS close,
                 (technical_indicators->>'rsi_14')::float AS rsi_14,
                 (technical_indicators->>'adx_14')::float AS adx_14,
                 (technical_indicators->>'atr_14')::float AS atr_14,
                 (technical_indicators->>'macd_histogram_12_26_9')::float AS macd_hist
             FROM intelligence_features
             WHERE tf = $1
-              AND ts >= $2
-              AND is_backfill IS NOT TRUE
+              AND symbol = $2
+              AND ts >= $3
             ORDER BY ts ASC
         """
+        result: dict[str, list[dict[str, Any]]] = {}
         async with self._db.pool.acquire() as conn:
-            result = await conn.fetch(sql, tf, since)
+            for symbol in symbols:
+                rows = await conn.fetch(sql, tf, symbol, since)
+                if rows:
+                    result[symbol] = [dict(r) for r in rows]
 
-        return [dict(row) for row in result]
+        return result
 
-    def _build_obs_matrix(self, rows: list[dict[str, Any]]) -> np.ndarray:
-        """Build numpy observation matrix from DB rows.
+    def _build_obs_matrix(
+        self, symbol_rows: dict[str, list[dict[str, Any]]]
+    ) -> tuple[np.ndarray, list[int]]:
+        """Build concatenated observation matrix and lengths for hmmlearn multi-sequence fit.
 
-        Replicates HMMRegimePlugin._build_observation() logic:
-          - 2D fallback if indicator columns are NULL: [log_return, realized_vol]
-          - 5D if all indicators present: [log_return, realized_vol, rsi_norm, adx_norm, macd_norm]
-
-        NaN rows (any column) are filtered out after construction.
-        Uses the 5D representation when enough indicator data is available (>= 50% of rows
-        have all 4 indicators). Otherwise falls back to 2D.
+        Replicates HMMRegimePlugin._build_observation() logic per symbol, then concatenates.
+        hmmlearn's fit(X, lengths=lengths) treats each symbol's sequence independently,
+        preventing cross-symbol return contamination.
 
         Returns:
-            numpy array shape (T, n_features) with NaN rows removed.
+            (obs, lengths) where obs is shape (T_total, n_features) and lengths[i] is the
+            number of rows contributed by symbol i. Symbols with fewer than 2 valid closes
+            are skipped.
         """
-        closes = np.array([r["close"] for r in rows if r["close"] is not None], dtype=float)
-        if len(closes) < 2:
+        all_obs: list[np.ndarray] = []
+        lengths: list[int] = []
+        n_features_global: int | None = None
+
+        for symbol, rows in symbol_rows.items():
+            obs = self._build_symbol_obs(rows)
+            if obs.shape[0] < 2:
+                continue
+            n_features = obs.shape[1]
+            if n_features_global is None:
+                n_features_global = n_features
+            elif n_features != n_features_global:
+                # Dimension mismatch (one symbol 2D, another 5D) — skip to keep matrix uniform
+                continue
+            all_obs.append(obs)
+            lengths.append(obs.shape[0])
+
+        if not all_obs:
+            return np.empty((0, 2), dtype=float), []
+
+        return np.vstack(all_obs), lengths
+
+    def _build_symbol_obs(self, rows: list[dict[str, Any]]) -> np.ndarray:
+        """Build obs matrix for a single symbol's row sequence."""
+        valid_rows = [r for r in rows if r["close"] is not None]
+        if len(valid_rows) < 2:
             return np.empty((0, 2), dtype=float)
 
-        # Compute log returns
+        closes = np.array([r["close"] for r in valid_rows], dtype=float)
         with np.errstate(divide="ignore", invalid="ignore"):
             ratios = closes[1:] / closes[:-1]
             ratios = np.where(ratios > 0, ratios, 1e-10)
             returns = np.log(ratios)
 
-        # Realized volatility: rolling std with vol_window=20 (match HMMRegimePlugin.vol_window)
         vol_window = 20
         realized_vols = np.array(
             [
@@ -222,10 +258,7 @@ class HMMTrainer:
             dtype=float,
         )
 
-        # Extract indicator columns (aligned to return sequence — drop the first close)
-        # rows[1:] aligns with returns (return[i] = log(close[i+1]/close[i]))
-        valid_rows = [r for r in rows if r["close"] is not None]
-        indicator_rows = valid_rows[1:]  # align with returns
+        indicator_rows = valid_rows[1:]  # align with returns (drop first row)
 
         rsi_vals = np.array(
             [r["rsi_14"] if r["rsi_14"] is not None else float("nan") for r in indicator_rows],
@@ -247,34 +280,29 @@ class HMMTrainer:
             dtype=float,
         )
 
-        # Decide whether to use 5D or 2D representation
-        # Use 5D if >= 50% of rows have all 4 indicators
         valid_indicator_mask = ~(
             np.isnan(rsi_vals) | np.isnan(adx_vals) | np.isnan(atr_vals) | np.isnan(macd_vals)
         )
         use_5d = valid_indicator_mask.sum() / max(1, len(returns)) >= 0.5
 
         if use_5d:
-            # Normalize indicators (match _build_observation)
             rsi_norm = (rsi_vals - 50.0) / 50.0
             adx_norm = adx_vals / 50.0
-            # macd / atr — handle atr=0 edge case
             safe_atr = np.where(atr_vals > 0, atr_vals, 1.0)
             macd_norm = macd_vals / safe_atr
-
             obs = np.column_stack([returns, realized_vols, rsi_norm, adx_norm, macd_norm])
-            # Remove rows with any NaN
-            mask = ~np.isnan(obs).any(axis=1)
-            obs = obs[mask]
         else:
             obs = np.column_stack([returns, realized_vols])
-            mask = ~np.isnan(obs).any(axis=1)
-            obs = obs[mask]
 
-        return obs
+        mask = ~np.isnan(obs).any(axis=1)
+        return obs[mask]
 
-    def _fit_hmm(self, obs: np.ndarray, tf: str) -> dict[str, Any] | None:
+    def _fit_hmm(self, obs: np.ndarray, lengths: list[int], tf: str) -> dict[str, Any] | None:
         """Fit GaussianHMM on observation matrix and return serializable parameter dict.
+
+        Args:
+            obs: Concatenated observation matrix (T_total, n_features).
+            lengths: Per-symbol sequence lengths for hmmlearn multi-sequence fit.
 
         Returns:
             Dict with keys transition_matrix, emission_means, emission_variances
@@ -292,16 +320,19 @@ class HMMTrainer:
                 covariance_type=_COVARIANCE_TYPE,
                 n_iter=_N_ITER,
             )
-            model.fit(obs)
+            model.fit(obs, lengths=lengths if len(lengths) > 1 else None)
 
-            # Serialize parameters — keys must match HMMRegimePlugin._load_parameters()
-            # transition_matrix: (K, K)
-            # emission_means: (K, D)
-            # emission_variances: (K, D) — covars_ for "diag" is shape (K, D)
+            # Serialize parameters — keys must match HMMRegimePlugin._load_parameters().
+            # hmmlearn may return covars_ as (K, D, D) for "diag" type; extract the
+            # diagonal so emission_variances is always (K, D).
+            covars = model.covars_
+            if covars.ndim == 3:
+                d = covars.shape[1]
+                covars = covars[:, np.arange(d), np.arange(d)]
             params: dict[str, Any] = {
                 "transition_matrix": model.transmat_.tolist(),
                 "emission_means": model.means_.tolist(),
-                "emission_variances": model.covars_.tolist(),  # diag: (K, D)
+                "emission_variances": covars.tolist(),
                 "n_components": _N_COMPONENTS,
                 "covariance_type": _COVARIANCE_TYPE,
                 "n_features": obs.shape[1],
