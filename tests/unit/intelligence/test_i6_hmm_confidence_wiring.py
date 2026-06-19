@@ -129,6 +129,9 @@ class TestSpikeI6HmmWiring:
         )
         # Phase 126-06: ctf_score is stamped by pipeline annotation layer, not by plugin
 
+    @pytest.mark.skip(
+        reason="HMM regime gate removed from microstructure_utils (ECL boundary violation fix)"
+    )
     def test_below_hmm_threshold_returns_no_signal(self):
         """hmm_trending_weight < 0.30 must return no_signal() regardless of spike_z."""
         from src.intelligence.trading.microstructure_utils import detect_spike_signal

@@ -135,6 +135,7 @@ def test_no_signal_when_volume_insufficient():
 # ─── Test 5: does NOT fire when hmm_regime == 0 (ranging) ───────────────────
 
 
+@pytest.mark.skip(reason="HMM regime gate removed (ECL boundary violation fix)")
 def test_no_signal_when_ranging_regime():
     """hmm_prob_trending_up and _down both low → not trending → no signal."""
     from src.intelligence.trading.lvn_breakout import LVNBreakoutPlugin

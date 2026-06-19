@@ -25,7 +25,6 @@ from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     clamp01,
     compose_confidence,
-    get_min_regime_weight,
 )
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import build_features_from_tiers, no_signal
@@ -115,12 +114,8 @@ class VCPPlugin:
                 if session_date != state.get("session_date"):
                     state = {"session_date": session_date, "contractions": []}
 
-        # ── Gate 1: continuous trending regime ────────────────────────────────
         regime_up = hmm_regime_weight(features, "up")
         regime_down = hmm_regime_weight(features, "down")
-        if regime_up < get_min_regime_weight() and regime_down < get_min_regime_weight():
-            self._state[(symbol, tf)] = state
-            return no_signal()
 
         # ── Price and volume arrays ──────────────────────────────────────────
         close = df["close"].to_numpy(dtype=float)

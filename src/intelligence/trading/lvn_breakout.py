@@ -16,12 +16,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight, hmm_trending_weight
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     clamp01,
     compose_confidence,
-    get_min_regime_weight,
 )
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import build_features_from_tiers, no_signal
@@ -88,10 +87,6 @@ class LVNBreakoutPlugin:
         if in_lvn is None:
             return no_signal()
         if float(in_lvn) != 1.0:
-            return no_signal()
-
-        # ── Gate 1: continuous trending regime ────────────────────────────────
-        if hmm_trending_weight(features) < get_min_regime_weight():
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)

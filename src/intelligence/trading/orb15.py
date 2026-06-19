@@ -31,12 +31,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     clamp01,
     compose_confidence,
-    get_min_regime_weight,
 )
 from .plugin_utils import build_features_from_tiers, no_signal
 from .signal_schema import make_signal_from_frame
@@ -113,10 +111,6 @@ class ORB15Plugin:
         tf = frames.get("__timeframe__", "")
 
         if df is None or len(df) < self.min_lookback:
-            return no_signal()
-
-        # ── Gate 1: continuous trending regime ────────────────────────────────
-        if hmm_trending_weight(features) < get_min_regime_weight():
             return no_signal()
 
         # ── Extract timestamp ────────────────────────────────────────────────

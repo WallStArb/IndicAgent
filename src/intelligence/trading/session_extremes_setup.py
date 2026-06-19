@@ -24,12 +24,10 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     clamp01,
     compose_confidence,
-    get_min_regime_weight,
 )
 from .plugin_utils import build_features_from_tiers, no_signal
 from .signal_schema import make_signal_from_frame
@@ -104,12 +102,7 @@ class SessionExtremesSetupPlugin:
         if not (session_london or session_ny):
             return no_signal()
 
-        # ── Dual gate (before OHLCV access) ─────────────────────────────────
-        # Gate 1: mean_reversion regime gate — ranging probability >= threshold
-        if hmm_regime_weight(features, "ranging") < get_min_regime_weight():
-            return no_signal()
-
-        # ── ATR and price access (after dual gate) ───────────────────────────
+        # ── ATR and price access ─────────────────────────────────────────────
         symbol = frames.get("symbol", "")
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:

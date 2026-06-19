@@ -120,12 +120,7 @@ class DeltaExhaustionPlugin:
         if abs(cvd_spike_z) <= spike_z_threshold:
             return no_signal()
 
-        # ── Dual gate (before ATR / OHLCV access) ────────────────────────────
-        # Gate 1: mean_reversion regime gate — ranging probability >= threshold
-        if hmm_regime_weight(features, "ranging") < get_min_regime_weight():
-            return no_signal()
-
-        # ── ATR and OHLCV access (after dual gate) ───────────────────────────
+        # ── ATR and OHLCV access ─────────────────────────────────────────────
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
             return no_signal()

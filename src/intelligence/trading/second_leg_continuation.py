@@ -24,7 +24,6 @@ from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     clamp01,
     compose_confidence,
-    get_min_regime_weight,
     rel_volume_score,
 )
 from .exhaustion_utils import apply_exhaustion_guard
@@ -86,11 +85,8 @@ class SecondLegContinuationPlugin:
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        # ── Gate 1: continuous trending regime ────────────────────────────────
         regime_up = hmm_regime_weight(features, "up")
         regime_down = hmm_regime_weight(features, "down")
-        if regime_up < get_min_regime_weight() and regime_down < get_min_regime_weight():
-            return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:

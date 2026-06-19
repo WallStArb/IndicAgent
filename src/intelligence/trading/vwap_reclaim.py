@@ -16,12 +16,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     _validate_weights_sum,
     compose_confidence,
-    get_min_regime_weight,
 )
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import build_features_from_tiers, no_signal
@@ -97,10 +95,6 @@ class VWAPReclaimPlugin:
         if session_vwap is None:
             return no_signal()
         session_vwap = float(session_vwap)
-
-        # ── Gate 1: continuous regime gate (any-regime: hmm_trending_weight) ────
-        if hmm_trending_weight(features) < get_min_regime_weight():
-            return no_signal()
 
         # ── Current position relative to VWAP ────────────────────────────────
         close = df["close"].to_numpy(dtype=float)

@@ -8,12 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..utils.gradient_utils import hmm_trending_weight
 from .atr_utils import get_atr_with_floor_from_frames
 from .confidence import (
     clamp01,
     compose_confidence,
-    get_min_regime_weight,
     rel_volume_score,
 )
 from .plugin_utils import build_features_from_tiers, no_signal, signal_type_for_direction
@@ -79,10 +77,6 @@ def detect_spike_signal(
     abs_spike_z = abs(spike_z)
     spike_threshold = get_spike_threshold()
     if abs_spike_z <= spike_threshold:
-        return no_signal()
-
-    # Gate 1: regime gate (spike signals are regime_type="any" — use hmm_trending_weight)
-    if hmm_trending_weight(features) < get_min_regime_weight():
         return no_signal()
 
     atr = get_atr_with_floor_from_frames(frames)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
 
@@ -126,6 +127,7 @@ class TestDualDivergence:
         result = plugin.compute_full(_make_frames(close, features))
         assert result.get("direction") == 0
 
+    @pytest.mark.skip(reason="HMM regime gate removed (ECL boundary violation fix)")
     def test_no_signal_when_ranging_regime_below_threshold(self):
         """hmm_prob_ranging below 0.30 → HMM gate blocks (ranging gate for mean_reversion)."""
         plugin = self._make_plugin()
