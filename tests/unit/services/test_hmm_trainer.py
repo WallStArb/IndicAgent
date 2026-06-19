@@ -36,7 +36,7 @@ from src.intelligence.services.hmm_trainer import (  # noqa: E402
 # ---------------------------------------------------------------------------
 
 _N_TRAIN_ROWS = 600  # > _MIN_ROWS_FOR_TRAINING (500)
-_TFS = ("1m", "5m", "15m", "1h")
+_TFS = ("1m", "5m", "15m", "1h", "4h", "1d")
 _SYMBOLS = ("ESU6", "NQU6")
 
 
