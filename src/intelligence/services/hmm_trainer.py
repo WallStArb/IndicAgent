@@ -102,6 +102,27 @@ class HMMTrainer:
         self._settings = settings
         self._target_tfs = target_tfs
         self._lookback_days = lookback_days or dict(_LOOKBACK_DAYS_BY_TF)
+        self._config_service: Any | None = None
+
+    async def _load_apr_config(self) -> None:
+        """Load HMM hyperparameters from APR, falling back to module-level defaults."""
+        from src.config.config_service import ConfigService  # noqa: PLC0415
+
+        cfg = self._config_service
+        if cfg is None:
+            cfg = ConfigService(self._settings.database_url, pool=self._db.pool)
+
+        self._n_components = int(await cfg.get("feature.hmm.n_components", _N_COMPONENTS))
+        self._n_iter = int(await cfg.get("feature.hmm.n_iter", _N_ITER))
+        self._min_rows = int(
+            await cfg.get("feature.hmm.min_rows_for_training", _MIN_ROWS_FOR_TRAINING)
+        )
+        self._vol_window = int(await cfg.get("feature.hmm.vol_window", 20))
+
+        for tf in self._target_tfs:
+            key = f"feature.hmm.lookback_days.{tf}"
+            fallback = self._lookback_days.get(tf, 60)
+            self._lookback_days[tf] = int(await cfg.get(key, fallback))
 
     async def run(self) -> dict[str, str]:
         """Train GaussianHMM for each TF and write parameter files.
@@ -110,6 +131,7 @@ class HMMTrainer:
             Dict mapping TF string to the path of the written parameter file.
             TFs that were skipped (insufficient data or error) are absent from the dict.
         """
+        await self._load_apr_config()
         written: dict[str, str] = {}
 
         for tf in self._target_tfs:
@@ -141,12 +163,12 @@ class HMMTrainer:
         obs_matrix, lengths = self._build_obs_matrix(symbol_rows)
         n_rows = obs_matrix.shape[0]
 
-        if n_rows < _MIN_ROWS_FOR_TRAINING:
+        if n_rows < self._min_rows:
             logger.info(
                 "hmm_training.insufficient_rows",
                 tf=tf,
                 n=n_rows,
-                required=_MIN_ROWS_FOR_TRAINING,
+                required=self._min_rows,
                 reason="skipping training",
             )
             return None
@@ -253,7 +275,8 @@ class HMMTrainer:
             ratios = np.where(ratios > 0, ratios, 1e-10)
             returns = np.log(ratios)
 
-        vol_window = 20
+        # Realized volatility: rolling std (match HMMRegimePlugin.vol_window)
+        vol_window = getattr(self, "_vol_window", 20)
         realized_vols = np.array(
             [
                 float(np.std(returns[max(0, i - vol_window + 1) : i + 1])) if i >= 1 else 0.005
@@ -320,9 +343,9 @@ class HMMTrainer:
 
         try:
             model = hmmlib.GaussianHMM(
-                n_components=_N_COMPONENTS,
+                n_components=self._n_components,
                 covariance_type=_COVARIANCE_TYPE,
-                n_iter=_N_ITER,
+                n_iter=self._n_iter,
             )
             model.fit(obs, lengths=lengths if len(lengths) > 1 else None)
 
@@ -337,7 +360,7 @@ class HMMTrainer:
                 "transition_matrix": model.transmat_.tolist(),
                 "emission_means": model.means_.tolist(),
                 "emission_variances": covars.tolist(),
-                "n_components": _N_COMPONENTS,
+                "n_components": self._n_components,
                 "covariance_type": _COVARIANCE_TYPE,
                 "n_features": obs.shape[1],
                 "trained_at": datetime.now(UTC).isoformat(),
@@ -434,8 +457,8 @@ class HMMTrainer:
         logger.info(
             "hmm_training.start",
             target_tfs=list(self._target_tfs),
-            n_components=_N_COMPONENTS,
-            n_iter=_N_ITER,
+            n_components=getattr(self, "_n_components", _N_COMPONENTS),
+            n_iter=getattr(self, "_n_iter", _N_ITER),
         )
 
         try:

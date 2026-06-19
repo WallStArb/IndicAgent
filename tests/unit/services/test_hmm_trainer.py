@@ -19,7 +19,7 @@ import inspect
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
@@ -99,6 +99,32 @@ def _make_settings() -> MagicMock:
     return settings
 
 
+def _make_default_cfg() -> MagicMock:
+    """Return a ConfigService mock that returns the APR default values for all HMM keys."""
+    from src.config.config_service import ConfigService
+
+    mock_cfg = MagicMock(spec=ConfigService)
+    _defaults: dict[str, object] = {
+        "feature.hmm.n_components": 3,
+        "feature.hmm.n_iter": 50,
+        "feature.hmm.min_rows_for_training": 500,
+        "feature.hmm.vol_window": 20,
+        **{
+            f"feature.hmm.lookback_days.{tf}": days
+            for tf, days in {
+                "1m": 30,
+                "5m": 60,
+                "15m": 90,
+                "1h": 180,
+                "4h": 365,
+                "1d": 730,
+            }.items()
+        },
+    }
+    mock_cfg.get = AsyncMock(side_effect=lambda key, default=None: _defaults.get(key, default))
+    return mock_cfg
+
+
 def _run_trainer(db: MagicMock, tmp_path: Path, tfs: tuple[str, ...] = _TFS) -> dict[str, str]:
     import src.intelligence.services.hmm_trainer as _mod
 
@@ -106,6 +132,7 @@ def _run_trainer(db: MagicMock, tmp_path: Path, tfs: tuple[str, ...] = _TFS) -> 
     _mod._CONFIG_DIR = tmp_path
     try:
         agent = HMMTrainer(db_manager=db, settings=_make_settings(), target_tfs=tfs)
+        agent._config_service = _make_default_cfg()
         return asyncio.run(agent.run())
     finally:
         _mod._CONFIG_DIR = original
@@ -262,4 +289,52 @@ def test_skip_when_insufficient_rows(tmp_path: Path) -> None:
 
     for tf in ("5m", "15m", "1h"):
         assert tf in written, f"{tf} should have been written"
-        assert (tmp_path / f"hmm_parameters_{tf}.json").exists()
+        assert (tmp_path / f"hmm_parameters_{tf}.json").exists(), f"{tf} param file missing"
+
+
+# ---------------------------------------------------------------------------
+# Test 7: APR config loading
+# ---------------------------------------------------------------------------
+
+
+def test_hmm_trainer_reads_apr_config(tmp_path: Path) -> None:
+    """HMMTrainer must load n_components, n_iter, min_rows, vol_window from APR.
+
+    When _config_service is injected, training uses APR values instead of
+    module-level constants.
+    """
+    from src.config.config_service import ConfigService
+
+    rows = _make_synthetic_rows(_N_TRAIN_ROWS)
+    db = _make_db_manager({"1m": rows})
+
+    # Build a ConfigService with known values that differ from defaults
+    mock_cfg = MagicMock(spec=ConfigService)
+    mock_cfg.get = AsyncMock(
+        side_effect=lambda key, default=None: {
+            "feature.hmm.n_components": 3,
+            "feature.hmm.n_iter": 10,  # reduced — faster test
+            "feature.hmm.min_rows_for_training": 50,
+            "feature.hmm.vol_window": 10,
+            "feature.hmm.lookback_days.1m": 30,
+            "feature.hmm.lookback_days.5m": 60,
+            "feature.hmm.lookback_days.15m": 90,
+            "feature.hmm.lookback_days.1h": 180,
+            "feature.hmm.lookback_days.4h": 365,
+            "feature.hmm.lookback_days.1d": 730,
+        }.get(key, default)
+    )
+
+    import src.intelligence.services.hmm_trainer as _mod
+
+    original = _mod._CONFIG_DIR
+    _mod._CONFIG_DIR = tmp_path
+    try:
+        agent = HMMTrainer(db_manager=db, settings=_make_settings(), target_tfs=("1m",))
+        agent._config_service = mock_cfg
+        written = asyncio.run(agent.run())
+    finally:
+        _mod._CONFIG_DIR = original
+
+    assert "1m" in written, "1m should have been written when APR config is injected"
+    mock_cfg.get.assert_any_call("feature.hmm.n_iter", 50)
