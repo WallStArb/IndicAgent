@@ -526,13 +526,8 @@ def run_i1_plugins(
             state_key = (name, symbol, timeframe)
             state = plugin_states.setdefault(state_key, {})
             t0 = time.perf_counter()
-            out = incremental_compute(plugin, frames, state)
+            out, plugin_states[state_key] = incremental_compute(plugin, frames, state)
             _accumulate_plugin_time(name, t0)
-            # Persist seeded/updated state extracted from the result. compute_full
-            # attaches a fresh _state (from _seed_state); compute_next attaches the
-            # same mutated dict it received. This write-back is what makes the next
-            # bar take the incremental branch -- mirrors executor._collect_plugin_results.
-            plugin_states[state_key] = out.get("_state", state)
             if out:
                 features.update(
                     {k: v for k, v in out.items() if isinstance(v, (int, float, str, bool))}
@@ -585,15 +580,10 @@ def run_analysis_pipeline(
                 state_key = (name, symbol, timeframe)
                 state = plugin_states.setdefault(state_key, {})
                 t0 = time.perf_counter()
-                out = incremental_compute(plugin, frames, state)
+                out, plugin_states[state_key] = incremental_compute(plugin, frames, state)
                 _accumulate_plugin_time(name, t0)
-                plugin_states[state_key] = out.get("_state", state)  # write-back is load-bearing
                 if out:
-                    # Strip private plugin keys (e.g. _state used by GARCH/HMM/Kalman
-                    # for state carry-over) before updating the typed tiered dict.
-                    # Pydantic schemas use extra="forbid", so _state causes ValidationError
-                    # in _build_intelligence_event and silently kills feature production.
-                    public_out = {k: v for k, v in out.items() if not k.startswith("_")}
+                    public_out = out
                     intelligence.update(public_out)
                     tiered.setdefault(tier_key_lower, {}).update(public_out)
                     features.update(public_out)
@@ -1304,9 +1294,8 @@ def run_i7_and_persist(
             state_key = (name, symbol, timeframe)
             state = states.setdefault(state_key, {})
             t0 = time.perf_counter()
-            result = incremental_compute(plugin, frames, state)
+            result, states[state_key] = incremental_compute(plugin, frames, state)
             _accumulate_plugin_time(name, t0)
-            states[state_key] = result.get("_state", state)
             if result and result.get("direction", 0) != 0:
                 result["setup_plugin"] = name
                 raw_signals.append(result)

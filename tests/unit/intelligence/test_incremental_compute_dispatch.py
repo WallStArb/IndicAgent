@@ -4,13 +4,15 @@ This helper is the batch/replay counterpart of ``executor._timed_plugin_call``
 (executor.py:152-168). It gates ``compute_next`` vs ``compute_full`` on
 ``supports_incremental`` and a truthy ``state``. The replay (and any other
 batch path) relies on it to (a) seed state on the first bar via ``compute_full``
-and (b) switch to incremental ``compute_next`` thereafter, persisting
-``result["_state"]`` between calls.
+and (b) switch to incremental ``compute_next`` thereafter.
+
+Returns (signal_dict, state_dict) — signal_dict never contains ``_state``;
+callers assign the returned state_dict directly into their per-plugin store.
 
 Covered:
 - Branch selection: incremental plugin uses compute_next once seeded; full-recompute
   plugin always uses compute_full.
-- State seeding: empty state -> compute_full; persisted ``_state`` -> compute_next.
+- State seeding: empty state -> compute_full; persisted state -> compute_next.
 - End-to-end numerical equivalence through the helper: per-bar incremental output
   equals ``compute_full`` on the same sliding window (the mixin_equivalence
   contract, exercised through the dispatch path the replay uses).
@@ -95,17 +97,17 @@ class _BrokenIncrementalPlugin:
 class TestIncrementalComputeDispatch:
     def test_empty_state_takes_full_branch(self):
         plugin = _RecordingIncremental()
-        out = incremental_compute(plugin, {"main": _make_ohlcv()}, state={})
+        out, state = incremental_compute(plugin, {"main": _make_ohlcv()}, state={})
         assert plugin.full_calls == 1
         assert plugin.next_calls == 0
-        assert "_state" in out  # seeding attaches state for the caller to persist
+        assert "_state" not in out
+        assert state, "seeding must return non-empty state for an incremental plugin"
 
     def test_seeded_state_takes_next_branch(self):
         plugin = _RecordingIncremental()
         frames = {"main": _make_ohlcv()}
         # Seed on the first bar.
-        seeded = incremental_compute(plugin, frames, state={})
-        state = seeded["_state"]
+        _, state = incremental_compute(plugin, frames, state={})
         assert state, "seeded state must be non-empty for an incremental plugin"
         # Second bar with persisted state -> incremental branch.
         incremental_compute(plugin, frames, state=state)
@@ -115,7 +117,7 @@ class TestIncrementalComputeDispatch:
     def test_full_recompute_plugin_never_uses_next(self):
         plugin = _FullRecomputePlugin()
         # Even with a populated state, a non-incremental plugin uses compute_full.
-        out = incremental_compute(plugin, {"main": _make_ohlcv()}, state={"x": 1})
+        out, _ = incremental_compute(plugin, {"main": _make_ohlcv()}, state={"x": 1})
         assert plugin.full_calls == 1
         assert out == {"out": 1.0}
 
@@ -128,8 +130,7 @@ class TestIncrementalComputeDispatch:
         state: dict = {}
         for end in range(window, len(bars) + 1):
             frames = {"main": bars.iloc[end - window : end]}
-            out = incremental_compute(plugin, frames, state=state)
-            state = out.get("_state", state)  # caller write-back, as the replay does
+            out, state = incremental_compute(plugin, frames, state=state)
             reference = full_plugin.compute_full(frames)["hv_20"]
             assert (
                 out["hv_20"] == reference
@@ -138,8 +139,7 @@ class TestIncrementalComputeDispatch:
     def test_broken_incremental_raises_state_contract_error(self):
         plugin = _BrokenIncrementalPlugin()
         # Seed first (compute_full returns valid _state).
-        seeded = incremental_compute(plugin, {"main": _make_ohlcv()}, state={})
-        state = seeded["_state"]
+        _, state = incremental_compute(plugin, {"main": _make_ohlcv()}, state={})
         # Incremental call returns non-empty result without _state -> loud crash.
         try:
             incremental_compute(plugin, {"main": _make_ohlcv()}, state=state)

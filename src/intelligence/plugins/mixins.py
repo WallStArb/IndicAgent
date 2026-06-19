@@ -138,21 +138,13 @@ def get_main_df(frames: dict[str, Any] | None, min_bars: int) -> pd.DataFrame | 
     return df
 
 
-def incremental_compute(plugin: Any, frames: dict, state: dict) -> dict:
+def incremental_compute(plugin: Any, frames: dict, state: dict) -> tuple[dict, dict]:
     """Canonical per-bar plugin dispatch for batch/replay paths.
 
     Mirrors ``executor._timed_plugin_call`` (executor.py:152-168) without the
     timing/OTel layer. Seeds via ``compute_full`` on the first bar (when state
     is empty) and switches to ``compute_next`` thereafter for plugins that
     declare ``supports_incremental``.
-
-    State seeding contract: the caller MUST persist ``result["_state"]`` back
-    into its per-plugin state store after each call. On the seeding bar
-    ``compute_full`` attaches ``_state`` (a fresh dict from ``_seed_state``);
-    on incremental bars ``compute_next`` attaches the same (mutated) state dict
-    it received. Persisting ``result["_state"]`` is what makes the next bar
-    take the incremental branch -- gating on a truthy state, exactly as the
-    live executor does via ``_collect_plugin_results``.
 
     The PERF-03 ``_state`` contract is enforced (loud crash over silent state
     loss): an incremental plugin that returns a non-empty result without
@@ -165,9 +157,9 @@ def incremental_compute(plugin: Any, frames: dict, state: dict) -> dict:
                  the first bar; populated thereafter by the caller's write-back.
 
     Returns:
-        Plugin output dict. May carry a private ``_state`` key (always stripped
-        before persistence into typed tier dicts). Returns ``{}`` when the
-        plugin has insufficient data.
+        (signal_dict, state_dict) — signal_dict never contains ``_state``;
+        state_dict is the updated per-plugin state to persist for the next bar.
+        signal_dict is ``{}`` when the plugin has insufficient data.
     """
     if getattr(plugin, "supports_incremental", False) and state:
         result = plugin.compute_next(frames, state=state)
@@ -179,7 +171,8 @@ def incremental_compute(plugin: Any, frames: dict, state: dict) -> dict:
                 f"{getattr(plugin, 'name', type(plugin).__name__)}: incremental "
                 f"plugins MUST return _state in result dict."
             )
-    return result
+    new_state = result.pop("_state", state) if isinstance(result, dict) else state
+    return result, new_state
 
 
 class IncrementalMixin:
