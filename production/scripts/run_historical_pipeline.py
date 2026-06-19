@@ -1292,6 +1292,8 @@ def run_i7_and_persist(
         "smc": features,
         "i6": features,
         "symbol": symbol,
+        "__timeframe__": timeframe,
+        "timeframe": timeframe,
     }
 
     raw_signals = []
