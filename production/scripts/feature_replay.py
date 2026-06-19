@@ -258,9 +258,10 @@ async def _replay_symbol_tf(
         for name in plugins:
             try:
                 plugin = resolved_plugins[name]
-                result = incremental_compute(plugin, frames, plugin_states[name])
+                result, plugin_states[name] = incremental_compute(
+                    plugin, frames, plugin_states[name]
+                )
                 if result is not None:
-                    plugin_states[name] = result.pop("_state", plugin_states[name])
                     if result.get("direction", 0) != 0:
                         result["setup_plugin"] = name
                         raw_signals.append(result)
