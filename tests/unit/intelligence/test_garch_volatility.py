@@ -72,3 +72,27 @@ class TestGARCHVolatility:
         """Default parameters should satisfy alpha + beta < 1 (stationarity)."""
         plugin = GARCHVolatilityPlugin()
         assert plugin.alpha + plugin.beta < 1.0
+
+
+def test_garch_reads_apr_config() -> None:
+    """GARCHVolatilityPlugin must read omega/alpha/beta from _config_service when injected."""
+    from unittest.mock import MagicMock
+
+    plugin = GARCHVolatilityPlugin()
+
+    mock_cfg = MagicMock()
+    mock_cfg.get_sync.side_effect = lambda key, default=None: {
+        "feature.garch.omega": 0.00002,  # doubled from default
+        "feature.garch.alpha": 0.20,  # doubled from default
+        "feature.garch.beta": 0.75,  # different from default
+    }.get(key, default)
+
+    plugin._config_service = mock_cfg
+
+    df = _make_ohlcv(100)
+    result = plugin.compute_full({"main": df})
+
+    assert result, "Should return results with APR config injected"
+    mock_cfg.get_sync.assert_any_call("feature.garch.omega", 0.00001)
+    mock_cfg.get_sync.assert_any_call("feature.garch.alpha", 0.10)
+    mock_cfg.get_sync.assert_any_call("feature.garch.beta", 0.85)
