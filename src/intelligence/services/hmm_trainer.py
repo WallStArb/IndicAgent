@@ -431,31 +431,54 @@ class HMMTrainer:
     def emit_sigusr1(self) -> None:
         """Send SIGUSR1 to indicagent-intelligence-pipeline.service to trigger HMM reload.
 
-        Uses 'systemctl kill --signal=SIGUSR1' which sends the signal to all processes in
-        the service's cgroup, reaching the asyncio event loop.
-
-        Silently skips if systemctl is unavailable (development environment) but logs a warning.
+        Reads MainPID via 'systemctl show' (read-only, no polkit gate) and sends
+        SIGUSR1 directly via os.kill(). Both services run as the same user so the
+        signal is permitted. Falls back gracefully if systemctl is unavailable or the
+        PID cannot be resolved.
         """
+        import os  # noqa: PLC0415
+        import signal  # noqa: PLC0415
+
         systemctl = self._find_systemctl()
         if systemctl is None:
             logger.warning(
                 "hmm_training.sigusr1_skipped",
-                reason="systemctl not available — development mode",
+                reason="systemctl not available -- development mode",
                 unit=_PIPELINE_UNIT,
             )
             return
 
         result = subprocess.run(
-            [systemctl, "kill", "--signal=SIGUSR1", _PIPELINE_UNIT],
+            [systemctl, "show", _PIPELINE_UNIT, "--property=MainPID", "--value"],
             capture_output=True,
             check=False,
         )
-        logger.info(
-            "hmm_training.sigusr1_sent",
-            unit=_PIPELINE_UNIT,
-            returncode=result.returncode,
-            stderr=result.stderr.decode(errors="ignore"),
-        )
+        if result.returncode != 0:
+            logger.warning(
+                "hmm_training.sigusr1_skipped",
+                reason="systemctl show failed",
+                stderr=result.stderr.decode(errors="ignore"),
+            )
+            return
+
+        pid_str = result.stdout.decode().strip()
+        try:
+            pid = int(pid_str)
+        except ValueError:
+            logger.warning("hmm_training.sigusr1_skipped", reason="invalid pid", pid_str=pid_str)
+            return
+
+        if pid <= 0:
+            logger.warning("hmm_training.sigusr1_skipped", reason="pid not running", pid=pid)
+            return
+
+        try:
+            os.kill(pid, signal.SIGUSR1)
+            logger.info("hmm_training.sigusr1_sent", unit=_PIPELINE_UNIT, pid=pid)
+        except ProcessLookupError:
+            logger.warning("hmm_training.sigusr1_skipped", reason="process not found", pid=pid)
+        except PermissionError:
+            logger.warning("hmm_training.sigusr1_skipped", reason="permission denied", pid=pid)
 
     @staticmethod
     def _find_systemctl() -> str | None:

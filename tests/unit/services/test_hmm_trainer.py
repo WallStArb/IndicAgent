@@ -27,7 +27,6 @@ import pytest
 hmmlearn = pytest.importorskip("hmmlearn")  # Skip module if hmmlearn not installed
 
 from src.intelligence.services.hmm_trainer import (  # noqa: E402
-    _PIPELINE_UNIT,
     HMMTrainer,
 )
 
@@ -244,25 +243,29 @@ def test_emission_variances_is_2d(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_emit_sigusr1_invokes_systemctl() -> None:
-    """emit_sigusr1() invokes systemctl kill --signal=SIGUSR1 <unit>."""
+def test_emit_sigusr1_sends_signal_to_pid() -> None:
+    """emit_sigusr1() reads MainPID via systemctl show then sends SIGUSR1 via os.kill."""
+    import signal as signal_mod  # noqa: PLC0415
+
     db = _make_db_manager({})
     agent = HMMTrainer(db_manager=db, settings=_make_settings())
+
+    fake_pid = 12345
 
     with (
         patch("src.intelligence.services.hmm_trainer.subprocess.run") as mock_run,
         patch.object(HMMTrainer, "_find_systemctl", return_value="/usr/bin/systemctl"),
+        patch("src.intelligence.services.hmm_trainer.os.kill") as mock_kill,
     ):
-        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        mock_run.return_value = MagicMock(returncode=0, stdout=f"{fake_pid}\n".encode(), stderr=b"")
         agent.emit_sigusr1()
 
     mock_run.assert_called_once()
-    call_args = mock_run.call_args[0][0]
+    show_args = mock_run.call_args[0][0]
+    assert "show" in show_args, f"Expected systemctl show, got {show_args}"
+    assert "--property=MainPID" in show_args
 
-    assert "systemctl" in call_args[0], f"Expected systemctl, got {call_args[0]}"
-    assert "kill" in call_args, f"Expected 'kill' in args: {call_args}"
-    assert "--signal=SIGUSR1" in call_args, f"Expected --signal=SIGUSR1 in args: {call_args}"
-    assert _PIPELINE_UNIT in call_args, f"Expected {_PIPELINE_UNIT!r} in args: {call_args}"
+    mock_kill.assert_called_once_with(fake_pid, signal_mod.SIGUSR1)
 
 
 # ---------------------------------------------------------------------------

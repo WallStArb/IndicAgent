@@ -163,9 +163,26 @@ class HMMRegimePlugin(IncrementalMixin):
         """Load parameters using TF-suffixed path with fallback to base file."""
         tf_path = Path(f"config/hmm_parameters_{self.timeframe}.json")
         base_path = _CONFIG_PATH
-        if tf_path.exists():
-            return _load_parameters_from_path(tf_path)
-        return _load_parameters_from_path(base_path)
+        A, means, variances = (
+            _load_parameters_from_path(tf_path)
+            if tf_path.exists()
+            else _load_parameters_from_path(base_path)
+        )
+        n_dims = means.shape[1]
+        if n_dims not in (2, 5):
+            logger.warning(
+                "hmm_params_unexpected_dims",
+                plugin=f"smc_HMMRegime_{self.timeframe}",
+                n_dims=n_dims,
+                expected="2 or 5",
+            )
+        if n_dims == 2:
+            logger.warning(
+                "hmm_params_2d_loaded",
+                plugin=f"smc_HMMRegime_{self.timeframe}",
+                action="running in 2D fallback mode -- retrain to upgrade to 5D",
+            )
+        return A, means, variances
 
     def reload_parameters(self) -> None:
         """Hot-reload HMM parameters from disk (called by SIGUSR1 handler).
@@ -360,6 +377,15 @@ class HMMRegimePlugin(IncrementalMixin):
         """One step of the forward algorithm."""
         alpha = state["alpha"]
         A = self._A
+
+        # Clamp n_dims to param dimensionality -- loaded params may have been trained
+        # in 2D mode (insufficient indicator coverage at training time) while runtime
+        # now resolves 5D. Truncate obs rather than broadcast-fail.
+        # _load_tf_parameters() warns at startup when this mismatch exists.
+        param_dims = self._means.shape[1]
+        if n_dims > param_dims:
+            obs = obs[:param_dims]
+            n_dims = param_dims
 
         # Slice parameters to match observation dimensionality
         means = self._means[:, :n_dims]
