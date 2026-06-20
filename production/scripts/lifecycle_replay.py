@@ -546,6 +546,7 @@ async def _process_symbol_tf(
         await conn.execute("BEGIN")
         # Session-scoped — set once per connection, not per flush batch.
         await conn.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
+        await conn.execute("SET synchronous_commit = off")
 
         # 4. Stream bars and evaluate signals using client-side batching
         while True:
@@ -967,32 +968,35 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
             markets.append((sid, data))
 
     # --- Activations ---
-    # UPDATE signal_events.status + merge activation metadata into trade_frames.frame_details
-    for sid, data in activations:
+    # Batch status UPDATE (all activations share the same new status 'active')
+    if activations:
+        activation_sids = [sid for sid, _ in activations]
         await conn.execute(
-            "UPDATE signal_events SET status = 'active' WHERE signal_id = $1::uuid",
-            sid,
+            "UPDATE signal_events SET status = 'active' WHERE signal_id = ANY($1::uuid[])",
+            activation_sids,
         )
-        # Merge activation metadata into trade_frames.frame_details JSONB
-        activation_meta = {
-            "activated_at": format_iso_ts(data["activated_at"]) if data["activated_at"] else None,
-            "activation_price": data["activation_price"],
-            "zone_entry_pct": data["zone_entry_pct"],
-            "bars_to_activation": data["bars_to_activation"],
-        }
-        # Remove None values
-        activation_meta = {k: v for k, v in activation_meta.items() if v is not None}
-        if activation_meta:
-            await conn.execute(
-                """UPDATE trade_frames
-                   SET frame_details = COALESCE(frame_details, '{}'::jsonb) || $2::jsonb
-                   WHERE signal_id = $1::uuid""",
-                sid,
-                json.dumps(activation_meta),
-            )
+        # trade_frames JSONB merge — heterogeneous payload per signal, keep individual
+        for sid, data in activations:
+            activation_meta = {
+                "activated_at": (
+                    format_iso_ts(data["activated_at"]) if data["activated_at"] else None
+                ),
+                "activation_price": data["activation_price"],
+                "zone_entry_pct": data["zone_entry_pct"],
+                "bars_to_activation": data["bars_to_activation"],
+            }
+            activation_meta = {k: v for k, v in activation_meta.items() if v is not None}
+            if activation_meta:
+                await conn.execute(
+                    """UPDATE trade_frames
+                       SET frame_details = COALESCE(frame_details, '{}'::jsonb) || $2::jsonb
+                       WHERE signal_id = $1::uuid""",
+                    sid,
+                    json.dumps(activation_meta),
+                )
 
     # --- Zone exits ---
-    # UPDATE signal_events.status + INSERT trade_executions
+    # Status updates — heterogeneous status per signal, keep individual
     for sid, data in zone_exits:
         status = _enum_value(data["status"])
         await conn.execute(
@@ -1000,13 +1004,28 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
             sid,
             status,
         )
-        # Compute execution_id deterministically from signal_id + 'zone'
-        execution_id = str(uuid.uuid5(_FRAME_ID_NS, f"{sid}:zone"))
-        # frame_id for the at_close trade frame
-        frame_id = _make_frame_id(sid, "at_close")
-        exit_at = data.get("exit_at")
-        z_outcome = _enum_value(data.get("outcome"))
-        await conn.execute(
+    # trade_executions inserts — homogeneous shape, batch with executemany
+    if zone_exits:
+        ze_params = []
+        for sid, data in zone_exits:
+            execution_id = str(uuid.uuid5(_FRAME_ID_NS, f"{sid}:zone"))
+            frame_id = _make_frame_id(sid, "at_close")
+            z_outcome = _enum_value(data.get("outcome"))
+            ze_params.append(
+                (
+                    execution_id,
+                    frame_id,
+                    data.get("exit_price"),
+                    data.get("pnl_r"),
+                    data.get("mae"),
+                    data.get("mfe"),
+                    data.get("bars_in_trade"),
+                    data.get("exit_reason"),
+                    data.get("exit_at"),
+                    z_outcome,
+                )
+            )
+        await conn.executemany(
             """INSERT INTO trade_executions (
                 execution_id, frame_id,
                 actual_exit_price, actual_pnl_r,
@@ -1014,29 +1033,39 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
                 exit_reason, exited_at, outcome
             ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (execution_id) DO NOTHING""",
-            execution_id,
-            frame_id,
-            data.get("exit_price"),
-            data.get("pnl_r"),
-            data.get("mae"),
-            data.get("mfe"),
-            data.get("bars_in_trade"),
-            data.get("exit_reason"),
-            exit_at,
-            z_outcome,
+            ze_params,
         )
 
     # --- Market track resolutions ---
-    # INSERT trade_executions with market entry/exit fields
-    for sid, data in markets:
-        m_outcome = _enum_value(data.get("market_entry_outcome"))
-        # exit_reason: stop_loss/target_hit come from the loop; TTL exits fall back to outcome
-        # (ttl_expired_ahead / ttl_expired_behind are valid exit_reason values)
-        m_exit_reason = data.get("market_entry_exit_reason") or m_outcome
-        # Compute execution_id deterministically from signal_id + 'market'
-        execution_id = str(uuid.uuid5(_FRAME_ID_NS, f"{sid}:market"))
-        frame_id = _make_frame_id(sid, "at_close")
-        await conn.execute(
+    # Batch INSERT with executemany
+    if markets:
+        market_params = []
+        for sid, data in markets:
+            m_outcome = _enum_value(data.get("market_entry_outcome"))
+            m_exit_reason = data.get("market_entry_exit_reason") or m_outcome
+            execution_id = str(uuid.uuid5(_FRAME_ID_NS, f"{sid}:market"))
+            frame_id = _make_frame_id(sid, "at_close")
+            market_params.append(
+                (
+                    execution_id,
+                    frame_id,
+                    data.get("market_entry_price"),
+                    data.get("market_entry_gap_bars"),
+                    data.get(
+                        "market_entry_price"
+                    ),  # actual_fill_price = market entry price in replay
+                    data.get("market_entry_exit_price"),
+                    data.get("market_entry_pnl_r"),
+                    data.get("market_entry_mae"),
+                    data.get("market_entry_mfe"),
+                    data.get("market_entry_bars_in_trade"),
+                    m_exit_reason,
+                    data.get("market_entry_at"),
+                    data.get("market_entry_exit_at"),
+                    m_outcome,
+                )
+            )
+        await conn.executemany(
             """INSERT INTO trade_executions (
                 execution_id, frame_id,
                 market_entry_price, market_entry_gap_bars,
@@ -1045,20 +1074,7 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
                 exit_reason, executed_at, exited_at, outcome
             ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ON CONFLICT (execution_id) DO NOTHING""",
-            execution_id,
-            frame_id,
-            data.get("market_entry_price"),
-            data.get("market_entry_gap_bars"),
-            data.get("market_entry_price"),  # actual_fill_price = market entry price in replay
-            data.get("market_entry_exit_price"),
-            data.get("market_entry_pnl_r"),
-            data.get("market_entry_mae"),
-            data.get("market_entry_mfe"),
-            data.get("market_entry_bars_in_trade"),
-            m_exit_reason,
-            data.get("market_entry_at"),
-            data.get("market_entry_exit_at"),
-            m_outcome,
+            market_params,
         )
 
 
