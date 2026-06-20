@@ -6,9 +6,9 @@ candle). Displacement without return produces no signal.
 
 Renaissance principles:
 - Structural event gate: departure + return is the trigger, not displacement alone
-- Segment relentlessly: fires only in ranging regime (hmm_regime=0)
 - Earn the right through proof: sigma threshold + hurst < 0.55 required
 - Reclaim candle required: close must confirm return direction (not just wick touch)
+- HMM regime travels as annotation (hmm_regime_at_fire) — not an emission gate
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from .trade_framer import frame_trade, targets_from_floats
 if TYPE_CHECKING:
     pass
 
-_SIGMA_MIN_DEFAULT: float = 1.5
+_SIGMA_MIN_DEFAULT: float = 1.0
 _HURST_MAX_DEFAULT: float = 0.55
 
 
@@ -60,16 +60,16 @@ class AnchoredVWAPReversionPlugin:
     """Mean-reversion setup: fires once per departure-reversion structural event.
 
     Gates (in order):
-    1. Near-zero-exit check FIRST: when abs(sigma) drops below sigma_min, evaluate
-       whether this is the reclaim bar (departure_sigma was set) before clearing state.
+    1. VWAP-cross check FIRST: when abs(sigma) < sigma_min AND sigma has changed sign
+       relative to the departure direction, evaluate the reclaim bar. When sigma is
+       between 0 and sigma_min but still on the same VWAP side, keep departure state.
     2. Departure onset tracking: first bar abs(sigma) >= sigma_min sets departure_sigma.
     3. Return velocity: session_vwap_deviation_velocity toward VWAP.
     4. Reclaim confirmation: close must cross back over VWAP (not wick-only).
-    5. HMM context: hmm_regime == 0 (ranging).
-    6. Hurst context: hurst_exponent < hurst_max (sub-random walk).
-    7. deduplicate_event with (departure_sigma, reclaim_level).
-    8. OHLCV extraction + trade frame.
-    9. Emit signal, THEN clear departure state.
+    5. Hurst context: hurst_exponent < hurst_max (sub-random walk).
+    6. deduplicate_event with (departure_sigma, reclaim_level).
+    7. OHLCV extraction + trade frame.
+    8. Emit signal, THEN clear departure state.
 
     Direction:
     - sigma > 0 (price above VWAP) -> short (reversion down toward VWAP)
@@ -153,16 +153,13 @@ class AnchoredVWAPReversionPlugin:
         state.sigma_buffer.append(sigma)
 
         # Near-zero-exit check FIRST (D-04): when abs(sigma) drops below sigma_min,
-        # check whether this is the reclaim bar BEFORE clearing departure state.
-        # The reclaim bar is precisely the bar where sigma transitions back to near-zero.
-        # Clearing state first (old behavior) meant the reclaim was never detected.
+        # this bar may be the reclaim bar. Departure state is preserved across all
+        # no_signal returns — the episode ends only when a signal fires (state cleared
+        # after emission). Each bar gets a full evaluation of the downstream gates.
         if abs(sigma) < sigma_min:
             if state.departure_sigma is None:
                 # Not in a departure episode — nothing to reclaim
                 return no_signal()
-            # In a departure episode: this bar may be the reclaim bar.
-            # Evaluate all downstream gates with departure_sigma as historical reference.
-            # State is cleared after signal emission (or after confirming no reclaim).
             _is_near_zero_exit = True
         else:
             _is_near_zero_exit = False
@@ -208,17 +205,12 @@ class AnchoredVWAPReversionPlugin:
         velocity = float(features.get("session_vwap_deviation_velocity", 0.0))
         velocity_toward_vwap = velocity < 0 if direction == -1 else velocity > 0
         if not velocity_toward_vwap:
-            # Departure ended without return velocity confirmation — clear state and exit.
-            if _is_near_zero_exit:
-                state.clear_departure()
             return no_signal()
 
         # Rejection/reclaim confirmation: close must confirm return direction
         # (not just a wick touching VWAP — close must cross back over VWAP)
         vwap = features.get("session_vwap")
         if vwap is None:
-            if _is_near_zero_exit:
-                state.clear_departure()
             return no_signal()
         vwap = float(vwap)
 
@@ -233,31 +225,17 @@ class AnchoredVWAPReversionPlugin:
             reclaim_confirmed = current_close > vwap
 
         if not reclaim_confirmed:
-            # Close did not cross VWAP — reclaim not confirmed.
-            # On near-zero-exit: departure ended without reclaim — clear state.
-            if _is_near_zero_exit:
-                state.clear_departure()
+            # Close has not yet crossed VWAP — departure episode is still active.
+            # Do NOT clear state: the next bar may complete the reclaim.
             return no_signal()
 
-        hmm = features.get("hmm_regime")
         hurst = features.get("hurst_exponent")
-        if hmm is None or hurst is None:
-            if _is_near_zero_exit:
-                state.clear_departure()
+        if hurst is None:
             return no_signal()
-        hmm = int(hmm)
         hurst = float(hurst)
-
-        # HMM context: ranging regime required
-        if hmm != 0:
-            if _is_near_zero_exit:
-                state.clear_departure()
-            return no_signal()
 
         # Hurst context: sub-random walk confirms mean-reversion tendency
         if hurst >= hurst_max:
-            if _is_near_zero_exit:
-                state.clear_departure()
             return no_signal()
 
         # deduplicate_event by (departure_sigma, reclaim_level): prevents re-fire on same
@@ -265,14 +243,10 @@ class AnchoredVWAPReversionPlugin:
         # Uses _dedup_state (plain dict) separate from _state (VWAPReversionState objects).
         event_id = (round(state.departure_sigma, 4), round(vwap, 4))
         if not deduplicate_event(self._dedup_state, state_key, event_id):
-            if _is_near_zero_exit:
-                state.clear_departure()
             return no_signal()
 
         atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
-            if _is_near_zero_exit:
-                state.clear_departure()
             return no_signal()
 
         entry = current_close
@@ -287,8 +261,6 @@ class AnchoredVWAPReversionPlugin:
             regime_type=self.regime_type,
         )
         if not frame.viable:
-            if _is_near_zero_exit:
-                state.clear_departure()
             return no_signal()
 
         avwap_upper = float(features.get("avwap_upper_band", 0.0))
@@ -357,11 +329,10 @@ class AnchoredVWAPReversionPlugin:
         )
 
         # State-clearing: AFTER signal construction and BEFORE returning signal (D-04).
-        # This prevents duplicate emission on subsequent bars when sigma stabilizes near zero.
-        # On near-zero-exit: clear departure state after the reclaim is confirmed and emitted.
-        if _is_near_zero_exit:
-            state.departure_sigma = None
-            state.departure_bars = 0
+        # Clear unconditionally — the episode has resolved. dedup_state prevents re-fire
+        # if departure_sigma is somehow reconstructed from new bars at the same level.
+        state.departure_sigma = None
+        state.departure_bars = 0
 
         return signal
 
