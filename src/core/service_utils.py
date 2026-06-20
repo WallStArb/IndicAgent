@@ -137,8 +137,7 @@ TICK_SIZES: dict[str, float] = {
     "HYG": 0.01,
     "LQD": 0.01,
     "EMB": 0.01,
-    # Sector/international ETFs — 0.01
-    "FXI": 0.01,
+    # Sector ETFs — 0.01
     "XLF": 0.01,
     "XLE": 0.01,
     "XLK": 0.01,

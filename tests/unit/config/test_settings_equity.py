@@ -69,11 +69,11 @@ SECTORS = [
     _make_equity(sym, "sector")
     for sym in ["XLK", "XLE", "XLC", "XLY", "XLV", "XLI", "XLU", "XLRE", "XLP", "XLB"]
 ]
-INDUSTRY = [_make_equity(sym, "industry") for sym in ["IBB", "GDX", "GDXJ", "XOP", "ITB"]]
+INDUSTRY = [_make_equity(sym, "industry") for sym in ["IBB", "GDX", "XOP"]]
 CREDIT = [_make_equity(sym, "credit") for sym in ["HYG", "LQD", "IEF", "SHY", "EMB"]]
-FACTOR = [_make_equity(sym, "factor") for sym in ["MTUM", "QUAL", "VLUE", "USMV"]]
-INTERNATIONAL = [_make_equity(sym, "international") for sym in ["EFA", "EEM", "EWZ", "FXI"]]
-COMMODITY = [_make_equity(sym, "commodity") for sym in ["SLV", "USO"]]
+FACTOR = [_make_equity(sym, "factor") for sym in ["MTUM", "QUAL", "USMV"]]
+INTERNATIONAL = [_make_equity(sym, "international") for sym in ["EFA", "EEM"]]
+COMMODITY = [_make_equity(sym, "commodity") for sym in ["SLV"]]
 ALL_EQUITIES = (
     PILOT_ETFS + BROAD_MARKET + SECTORS + INDUSTRY + CREDIT + FACTOR + INTERNATIONAL + COMMODITY
 )
@@ -189,11 +189,11 @@ class TestPilotETFs:
 class TestFullETFRollout:
     BROAD_MARKET_SYMS = {"QQQ", "IWM", "DIA"}
     SECTORS_SYMS = {"XLK", "XLE", "XLC", "XLY", "XLV", "XLI", "XLU", "XLRE", "XLP", "XLB"}
-    INDUSTRY_SYMS = {"IBB", "GDX", "GDXJ", "XOP", "ITB"}
+    INDUSTRY_SYMS = {"IBB", "GDX", "XOP"}
     CREDIT_SYMS = {"HYG", "LQD", "IEF", "SHY", "EMB"}
-    FACTOR_SYMS = {"MTUM", "QUAL", "VLUE", "USMV"}
-    INTERNATIONAL_SYMS = {"EFA", "EEM", "EWZ", "FXI"}
-    COMMODITY_SYMS = {"SLV", "USO"}
+    FACTOR_SYMS = {"MTUM", "QUAL", "USMV"}
+    INTERNATIONAL_SYMS = {"EFA", "EEM"}
+    COMMODITY_SYMS = {"SLV"}
 
     ALL_NEW_ETFS = (
         BROAD_MARKET_SYMS
@@ -205,8 +205,8 @@ class TestFullETFRollout:
         | COMMODITY_SYMS
     )
 
-    def test_all_33_etfs_present(self):
-        """All 33 new ETFs must be in the canonical instrument set."""
+    def test_all_27_etfs_present(self):
+        """All 27 new ETFs must be in the canonical instrument set."""
         symbols = {inst.symbol for inst in ALL_MOCK_INSTRUMENTS}
         missing = self.ALL_NEW_ETFS - symbols
         assert not missing, f"Missing ETFs: {missing}"
@@ -219,15 +219,15 @@ class TestFullETFRollout:
                 assert inst.session_id == "nyse"
                 assert inst.exchange == "SMART"
 
-    def test_total_instrument_count_60(self):
-        """Total instrument count >= 44 (38 equities + 4 FX + 2 futures in mock)."""
+    def test_total_instrument_count(self):
+        """Total instrument count >= 38 (32 equities + 4 FX + 2 futures in mock)."""
         count = len(ALL_MOCK_INSTRUMENTS)
-        assert count >= 44, f"Expected at least 44 mock instruments, got {count}"
+        assert count >= 38, f"Expected at least 38 mock instruments, got {count}"
 
-    def test_equity_count_38(self):
-        """Exactly 38 equity instruments in the mock instrument set."""
+    def test_equity_count_32(self):
+        """Exactly 32 equity instruments in the mock instrument set."""
         equities = [i for i in ALL_MOCK_INSTRUMENTS if i.asset_class == AssetClass.EQUITY]
-        assert len(equities) == 38
+        assert len(equities) == 32
 
     def test_pilot_etfs_still_present(self):
         """Original pilot ETFs must still be in the instrument set."""
