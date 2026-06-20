@@ -412,8 +412,8 @@ The infrastructure beneath the refactor is unchanged:
 
 The refactor unfolds in stages, each independently valuable:
 
-**Phase A — IC Measurement** (prerequisite: Phase 133 corpus)
-Pure analysis on existing data. No pipeline changes. Measure Spearman IC per plugin, regime, TF, lookahead. Immediately answers: which of 138 plugins carry information?
+**Phase A — IC Measurement**
+Pure analysis on existing data. No pipeline changes. Measure Spearman IC per plugin, regime, TF, lookahead on the current `signal_events` corpus. Immediately answers: which of 138 plugins carry information? Phase 133 (corpus rebuild) is superseded — IC measurement will eventually run on `intelligence_features` (all bars, unbiased) starting in Phase B.
 
 **Phase B — Plugin Scores**
 I7 plugins emit `alpha_score` alongside existing binary signal. Zero behavior change to emission. Schema additive.

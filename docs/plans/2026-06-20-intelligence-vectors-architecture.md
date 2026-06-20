@@ -65,7 +65,7 @@ IC is computed on a rolling window (last 500 observations minimum) and bootstrap
 
 ### What this tells us
 
-After Phase 133 rebuilds the corpus (~737+ signals across 35+ plugins over the full bar history):
+Running IC discovery on the existing corpus (737+ signals, 21+ plugins) and then continuously as Phase B unlocks unconditional scoring:
 - Which of the 138 plugins actually predict future returns
 - In which regimes each plugin's IC is positive (and in which it is zero or negative)
 - Which plugins are correlated with each other (IC for their combined score vs IC for each alone)
@@ -77,9 +77,11 @@ This is the empirical foundation that replaces researcher intuition.
 
 ## Implementation Phasing
 
-### Phase A: IC Measurement (prerequisite: Phase 133 corpus complete)
+### Phase A: IC Measurement
 
-**What:** Run IC discovery against the rebuilt signal corpus. No pipeline changes.
+**What:** Run IC discovery against the existing `signal_events` corpus. No pipeline changes.
+
+Note: Phase 133 (corpus rebuild) is superseded by this architecture. IC measurement eventually runs on `intelligence_features` (all bars, no selection bias) rather than `signal_events` (only bars where a plugin fired). Phase A is the transitional measurement — treat results as exploratory. Phase B (unconditional scoring) is when unbiased IC begins.
 
 Measure Spearman IC for each signal plugin's `factor_scores` (already stored in `signal_events`) against `counterfactual_pnl_r` (already stored in `trade_frames`). Report:
 - IC per plugin, per regime, per TF
