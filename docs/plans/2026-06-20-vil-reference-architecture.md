@@ -1,5 +1,5 @@
 # v3.0 Reference Architecture
-# Two Systems: Vector Intelligence Layer + Intelligence Vectors
+# Two Systems: AlphaEngine + AnalogEngine
 
 **Date:** 2026-06-20
 **Status:** Design — approved, pre-implementation
@@ -11,17 +11,17 @@
 
 The existing I1-I7 pipeline is sophisticated feature engineering. What it has never done is ask whether any of it actually predicts price. Two independent systems address this — and they answer different questions by different means.
 
-**System 1: VIL (Vector Intelligence Layer)**
+**System 1: AlphaEngine**
+*"Does this plugin score empirically correlate with forward returns?"*
+
+Parametric. Measures Spearman IC between each plugin's confidence score and subsequent N-bar returns. IC-weighted linear ensemble across four orthogonal alpha source dimensions (V1 Quant, V2 Microstructure, V3 Macro, V4 Calendar). No pgvector required — pure SQL and statistics.
+
+**System 2: AnalogEngine**
 *"Have we seen a bar like this before, and what happened next?"*
 
 Non-parametric. Embeds the full I1-I7 bar state as an L2-normalized vector in pgvector. Finds K nearest historical neighbors. Returns what price did after each of them. No model assumptions. The null result — "we have never seen conditions like this" — is a first-class output, not a failure.
 
-**System 2: Intelligence Vectors**
-*"Does this plugin score empirically correlate with forward returns?"*
-
-Parametric. Measures Spearman IC between each plugin's confidence score and subsequent N-bar returns. IC-weighted linear ensemble across four orthogonal alpha source dimensions. No pgvector required — pure SQL and statistics.
-
-These are complementary sources of extrinsic confidence, not one system described twice. VIL operates on the holistic bar state as a geometric object in embedding space. Intelligence Vectors operates on individual plugin score time series as predictors. When they agree, conviction is high. When they disagree, that is a signal worth investigating, not a conflict to resolve by choosing one.
+These are complementary sources of extrinsic confidence, not one system described twice. AnalogEngine operates on the holistic bar state as a geometric object in embedding space. AlphaEngine operates on individual plugin score time series as predictors. When they agree, conviction is high. When they disagree, that is a signal worth investigating, not a conflict to resolve by choosing one.
 
 Both systems annotate `signal_events` as cold-path enrichment (never at emission time), feeding the ML model a richer training matrix. Neither gates emission. Both are subject to ECL boundary invariant.
 
@@ -36,25 +36,25 @@ No predictor enters the ensemble without measured IC on real corpus data. No emb
 Stable IC=0.04 compounds. Volatile IC=0.07 oscillates and erodes net. The Sharpe of the IC time series is the trust weight in both systems.
 
 **3. Effective-N, not signal count.**
-Correlated predictors do not multiply edge. Intelligence Vectors measures plugin correlation empirically. VIL measures plugin similarity via embedding distance. Both produce an independence-adjusted count before any ensemble weight is computed.
+Correlated predictors do not multiply edge. AlphaEngine measures plugin correlation empirically. AnalogEngine measures plugin similarity via embedding distance. Both produce an independence-adjusted count before any ensemble weight is computed.
 
 **4. Rolling windows everywhere. No static backtests.**
 All IC is measured on trailing windows. All embedding normalization is point-in-time rolling z-score. Global normalization is look-ahead contamination and silently invalidates every downstream study.
 
 **5. The null result is first-class.**
-VIL: "no close analogs" is a named, surfaced OOD event — not a fallback to nearest-available. Intelligence Vectors: a plugin with insufficient N (< 100) carries no weight in the ensemble. Both systems surface their own uncertainty rather than hiding it.
+AnalogEngine: "no close analogs" is a named, surfaced OOD event — not a fallback to nearest-available. AlphaEngine: a plugin with insufficient N (< 100) carries no weight in the ensemble. Both systems surface their own uncertainty rather than hiding it.
 
 **6. Alpha decay is monitored and self-corrects.**
-Intelligence Vectors: rolling IC that falls below threshold triggers automatic APR weight reduction. VIL: rising OOD rate triggers automatic conviction-widening in the Score Object. Both systems close their own feedback loops without human intervention.
+AlphaEngine: rolling IC that falls below threshold triggers automatic APR weight reduction. AnalogEngine: rising OOD rate triggers automatic conviction-widening in the Score Object. Both systems close their own feedback loops without human intervention.
 
 **7. Regime conditioning everywhere.**
-Intelligence Vectors: IC measured per HMM regime; the ensemble applies different weights per regime. VIL: retrieval is filtered by regime by default; analogs from a different regime are a different distribution.
+AlphaEngine: IC measured per HMM regime; the ensemble applies different weights per regime. AnalogEngine: retrieval is filtered by regime by default; analogs from a different regime are a different distribution.
 
 **8. Shadow before live — always.**
-Every new predictor, ensemble component, and VIL-derived score starts at `is_shadow=True` in `shadow_registry`. Promotion requires `bootstrap_CI_lower > 0.0` at `n >= 100`.
+Every new predictor, ensemble component, and AnalogEngine-derived score starts at `is_shadow=True` in `shadow_registry`. Promotion requires `bootstrap_CI_lower > 0.0` at `n >= 100`.
 
 **9. Every score is decomposable.**
-Intelligence Vectors ensemble alpha must be traceable to contributing plugin scores and their IC weights. VIL Score Object must be traceable to the analog set, their distances, and which regime conditioned the retrieval.
+AlphaEngine ensemble alpha must be traceable to contributing plugin scores and their IC weights. AnalogEngine Score Object must be traceable to the analog set, their distances, and which regime conditioned the retrieval.
 
 **10. Hot path never reads from analytical tables.**
 The only feedback from cold batch to the live pipeline is APR — a slow control plane read at init. Per-bar DB reads in the hot path are a DAG violation regardless of which system produces the analytical state.
@@ -63,7 +63,7 @@ The only feedback from cold batch to the live pipeline is APR — a slow control
 
 ## Where They Differ
 
-| Dimension | VIL | Intelligence Vectors |
+| Dimension | AnalogEngine | AlphaEngine |
 |-----------|-----|---------------------|
 | Question | "What happened when conditions looked like this?" | "Does this score predict returns?" |
 | Approach | Non-parametric k-NN retrieval | Parametric Spearman IC |
@@ -72,7 +72,7 @@ The only feedback from cold batch to the live pipeline is APR — a slow control
 | Strength | Captures complex regime structure; works with few parameters | Clean statistical interpretation; IC Sharpe directly comparable across plugins |
 | Weakness | Needs close analogs; breaks OOD; expensive to build | Assumes linear predictability; misses complex regime interactions |
 | Output | AnalogResult list → Score Object → `score_cache` | IC weights → ensemble alpha → `ensemble_alpha` |
-| ECL annotation | `analog_score`, `analog_count`, `ood_flagged` | `iv_ensemble_alpha`, `iv_ci_lower`, `iv_plugin_ics` |
+| ECL annotation | `analog_score`, `analog_count`, `ood_flagged` | `alpha_ensemble_alpha`, `iv_ci_lower`, `iv_plugin_ics` |
 | Build cost | High (pgvector infra, embedding serialization) | Low (runs on Phase 133 corpus immediately) |
 | Can run standalone | Yes | Yes |
 | Can run together | Yes — additive ECL annotations | Yes |
@@ -99,38 +99,38 @@ IBKR TWS
 
 
 ═══════════════════════════════════════════════════════════════════
-COLD BATCH — SYSTEM 1: INTELLIGENCE VECTORS
+COLD BATCH — SYSTEM 1: AlphaEngine
 Parametric IC measurement. No pgvector required.
 Reads: intelligence_features, signal_events, trade_frames
 ═══════════════════════════════════════════════════════════════════
 
-  iv-ic-engine        reads: signal_events.factor_scores
+  alpha-ic-engine        reads: signal_events.factor_scores
                              trade_frames.counterfactual_pnl_r
                       writes: plugin_ic_scores
                                (Spearman IC, IC Sharpe, FDR, decay_flagged
                                 per plugin × TF × regime × lookahead)
                       schedule: weekly
 
-  iv-decay-monitor    reads: plugin_ic_scores (rolling window)
-                      writes: APR (iv.weights.* → zero on IC decay)
+  alpha-decay-monitor    reads: plugin_ic_scores (rolling window)
+                      writes: APR (alpha.weights.* → zero on IC decay)
                       alerts: OTel → Grafana
                       schedule: daily
 
-  iv-ensemble         reads: plugin_ic_scores + signal_events.factor_scores
+  alpha-ensemble         reads: plugin_ic_scores + signal_events.factor_scores
                       writes: ensemble_alpha
                                (IC-weighted, correlation-adjusted alpha score
                                 per bar × symbol × tf × regime)
                       schedule: nightly
 
-  iv-enricher         reads: ensemble_alpha (join on bar_ts, symbol, tf)
-                      writes: signal_events.iv_ensemble_alpha
+  alpha-enricher         reads: ensemble_alpha (join on bar_ts, symbol, tf)
+                      writes: signal_events.alpha_ensemble_alpha
                               signal_events.iv_ci_lower
                               signal_events.iv_plugin_count
                       schedule: nightly (cold enrichment — never at fire time)
 
 
 ═══════════════════════════════════════════════════════════════════
-COLD BATCH — SYSTEM 2: VIL (Vector Intelligence Layer)
+COLD BATCH — SYSTEM 2: AnalogEngine
 Non-parametric retrieval substrate. Requires pgvector.
 Reads: intelligence_features, market_data_ohlcv, signal_ledger
 ═══════════════════════════════════════════════════════════════════
@@ -152,7 +152,7 @@ Reads: intelligence_features, market_data_ohlcv, signal_ledger
                       writes: embeddings (entity_type='signal')
                       schedule: nightly
 
-  vil-ic-factory      reads: embeddings + outcome_labels
+  analog-ic-factory      reads: embeddings + outcome_labels
                       writes: feature_ic_stats
                                (feature-level IC used for k-NN re-ranking
                                 weights in the embedding; distinct from
@@ -169,7 +169,7 @@ Reads: intelligence_features, market_data_ohlcv, signal_ledger
                       note: transform only; does not execute k-NN internally
                       schedule: nightly
 
-  vil-enricher        reads: score_cache (join on bar_ts, symbol, tf)
+  analog-enricher        reads: score_cache (join on bar_ts, symbol, tf)
                       writes: signal_events.analog_score
                               signal_events.analog_count
                               signal_events.analog_conviction_lower
@@ -182,7 +182,7 @@ CONTROL PLANE  (slow feedback — hours to days, not per-bar)
 Reads analytical state. Writes APR. Hot path reads APR at init only.
 ═══════════════════════════════════════════════════════════════════
 
-  iv-decay-monitor    reads: plugin_ic_scores → writes: APR iv.weights.*
+  alpha-decay-monitor    reads: plugin_ic_scores → writes: APR alpha.weights.*
   vil-ood-monitor     reads: score_cache (ood_flagged rate) → alerts OTel
   ml-discovery        reads: ensemble_alpha, score_cache → writes: APR thresholds
 
@@ -192,13 +192,13 @@ Reads analytical state. Writes APR. Hot path reads APR at init only.
 
 **IC distinction in the DAG:**
 - `plugin_ic_scores` (System 1) = plugin-level Spearman IC. Answer: "does plugin X's confidence score predict forward returns?" Used for ensemble weighting.
-- `feature_ic_stats` (System 2, vil-ic-factory) = feature-level IC within the embedding. Answer: "which individual features in the bar embedding have predictive power?" Used for k-NN re-ranking via `candidate_k`.
+- `feature_ic_stats` (System 2, analog-ic-factory) = feature-level IC within the embedding. Answer: "which individual features in the bar embedding have predictive power?" Used for k-NN re-ranking via `candidate_k`.
 
 These measure at different levels of granularity and serve different purposes. Do not merge the tables.
 
 ---
 
-## Intelligence Vectors — System 1 Detail
+## AlphaEngine — System 1 Detail
 
 ### The Four Vectors
 
@@ -240,21 +240,21 @@ alpha = sum(
 ) / effective_n
 ```
 
-`effective_n` from the correlation matrix (plugins with high pairwise IC share weight rather than each getting full weight). All weights through APR under `iv.weights.*`.
+`effective_n` from the correlation matrix (plugins with high pairwise IC share weight rather than each getting full weight). All weights through APR under `alpha.weights.*`.
 
 ---
 
-## VIL — System 2 Detail
+## AnalogEngine — System 2 Detail
 
-### The One Question VIL Answers
+### The One Question AnalogEngine Answers
 
 Given the current bar's I1-I7 state as a query vector, find the K historical bars that looked most similar. Return what price did after each of them.
 
-VIL does not score. It returns a `list[AnalogResult]`. The Scoring Engine (vil-03) transforms that into a Score Object. The separation is rigid.
+AnalogEngine does not score. It returns a `list[AnalogResult]`. The Scoring Engine (vil-03) transforms that into a Score Object. The separation is rigid.
 
 ### Embedding Serialization Contract
 
-The embedding is the hardest seam in the VIL architecture — highest blast radius, hardest to evolve. Every downstream layer depends on it. Change it and all stored history is invalidated.
+The embedding is the hardest seam in the AnalogEngine architecture — highest blast radius, hardest to evolve. Every downstream layer depends on it. Change it and all stored history is invalidated.
 
 1. **Per-feature rolling z-score before concatenation.** Mixed scales (RSI 0-100, volume in millions, price in thousands) destroy cosine geometry without this. Each feature mapped to its point-in-time rolling z-score over a trailing window.
 2. **Point-in-time only.** Trailing window uses data available at or before bar T. Global normalization is look-ahead contamination.
@@ -296,25 +296,25 @@ Null result (`[]`) when no analogs fall within `max_distance` — named, surface
 
 ### OOD Monitor
 
-When the current bar has no close analogs, every downstream model is extrapolating out-of-sample. VIL surfaces this as a live aggregate risk signal:
+When the current bar has no close analogs, every downstream model is extrapolating out-of-sample. AnalogEngine surfaces this as a live aggregate risk signal:
 
 - `vil_ood_rate` — rolling fraction of recent retrievals returning null/near-null
 - `vil_nearest_distance` — distance to nearest neighbor even on null results
 
-A rising `vil_ood_rate` often precedes the parametric HMM catching a regime break — "nothing looks like this" precedes "this looks like regime X." VIL measures and surfaces; consumers decide the response.
+A rising `vil_ood_rate` often precedes the parametric HMM catching a regime break — "nothing looks like this" precedes "this looks like regime X." AnalogEngine measures and surfaces; consumers decide the response.
 
 ---
 
 ## Schema
 
-### Prerequisites (VIL only)
+### Prerequisites (AnalogEngine only)
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 -- Binary already in timescale/timescaledb:latest-pg18 (v0.8.2). One-time DDL, no image change.
 ```
 
-### System 1: Intelligence Vectors Tables
+### System 1: AlphaEngine Tables
 
 ```sql
 -- Plugin-level IC (Spearman; used for ensemble weighting)
@@ -348,7 +348,7 @@ CREATE TABLE ensemble_alpha (
 );
 ```
 
-### System 2: VIL Tables
+### System 2: AnalogEngine Tables
 
 ```sql
 -- Embedding registry
@@ -441,12 +441,12 @@ CREATE TABLE score_cache (
 Both systems write cold-path enrichment. Neither at fire time. Neither gates emission.
 
 ```sql
--- System 1: Intelligence Vectors
-ALTER TABLE signal_events ADD COLUMN IF NOT EXISTS iv_ensemble_alpha  DOUBLE PRECISION;
+-- System 1: AlphaEngine
+ALTER TABLE signal_events ADD COLUMN IF NOT EXISTS alpha_ensemble_alpha  DOUBLE PRECISION;
 ALTER TABLE signal_events ADD COLUMN IF NOT EXISTS iv_ci_lower        DOUBLE PRECISION;
 ALTER TABLE signal_events ADD COLUMN IF NOT EXISTS iv_plugin_count    INTEGER;
 
--- System 2: VIL
+-- System 2: AnalogEngine
 ALTER TABLE signal_events ADD COLUMN IF NOT EXISTS analog_score            DOUBLE PRECISION;
 ALTER TABLE signal_events ADD COLUMN IF NOT EXISTS analog_count            INTEGER;
 ALTER TABLE signal_events ADD COLUMN IF NOT EXISTS analog_conviction_lower DOUBLE PRECISION;
@@ -456,11 +456,11 @@ ALTER TABLE signal_events ADD COLUMN IF NOT EXISTS ood_flagged             BOOLE
 ### APR Namespaces
 
 ```
-iv.weights.*                   -- per-plugin IC Sharpe weights (written by iv-decay-monitor)
-iv.ensemble.min_ic_ci_lower    -- minimum CI lower before plugin included [0.0]
-iv.ensemble.min_n_observations -- minimum N before IC is trusted [100]
-iv.ic.rolling_window_days      -- trailing window for rolling IC [90]
-iv.ic.decay_threshold          -- IC below this triggers weight → zero [0.02]
+alpha.weights.*                   -- per-plugin IC Sharpe weights (written by alpha-decay-monitor)
+alpha.ensemble.min_ic_ci_lower    -- minimum CI lower before plugin included [0.0]
+alpha.ensemble.min_n_observations -- minimum N before IC is trusted [100]
+alpha.ic.rolling_window_days      -- trailing window for rolling IC [90]
+alpha.ic.decay_threshold          -- IC below this triggers weight → zero [0.02]
 
 vil.embedding.bar_dim          -- vector dimension for bar embeddings [128]
 vil.embedding.staleness_days   -- reject embeddings older than N days [30]
@@ -473,16 +473,16 @@ vil.retrieval.max_distance     -- null result threshold (cosine) [0.25]
 
 ## Microservice Decomposition
 
-### System 1: Intelligence Vectors
+### System 1: AlphaEngine
 
 | Service | Unit | Schedule | SoC boundary |
 |---------|------|----------|--------------|
-| `iv_ic_engine` | `indicagent-iv-ic-engine` | Weekly | Spearman IC only — no ensemble logic |
-| `iv_decay_monitor` | `indicagent-iv-decay-monitor` | Daily | Detects decay, writes APR — no trading logic |
-| `iv_ensemble` | `indicagent-iv-ensemble` | Nightly | IC-weighted combination only — no IC measurement |
-| `iv_enricher` | `indicagent-iv-enricher` | Nightly | Cold annotation of signal_events only |
+| `alpha_ic_engine` | `indicagent-alpha-ic-engine` | Weekly | Spearman IC only — no ensemble logic |
+| `alpha_decay_monitor` | `indicagent-alpha-decay-monitor` | Daily | Detects decay, writes APR — no trading logic |
+| `alpha_ensemble` | `indicagent-alpha-ensemble` | Nightly | IC-weighted combination only — no IC measurement |
+| `alpha_enricher` | `indicagent-alpha-enricher` | Nightly | Cold annotation of signal_events only |
 
-### System 2: VIL
+### System 2: AnalogEngine
 
 | Service | Unit | Schedule | SoC boundary |
 |---------|------|----------|--------------|
@@ -490,10 +490,10 @@ vil.retrieval.max_distance     -- null result threshold (cosine) [0.25]
 | `bar_embedder` | `indicagent-bar-embedder` | Nightly | Serialization only — no IC, no scoring |
 | `plugin_embedder` | `indicagent-plugin-embedder` | Nightly | 90-day history → L2 vector |
 | `signal_embedder` | `indicagent-signal-embedder` | Nightly | Signal context → L2 vector |
-| `vil_ic_factory` | `indicagent-vil-ic-factory` | Weekly | Feature-level IC for re-ranking only |
+| `vil_ic_factory` | `indicagent-analog-ic-factory` | Weekly | Feature-level IC for re-ranking only |
 | `correlation_svc` | `indicagent-correlation-service` | Weekly | Similarity pairs + effective-N only |
 | `scoring_engine` | `indicagent-scoring-engine` | Nightly | Transform only — receives analog set, does not retrieve |
-| `vil_enricher` | `indicagent-vil-enricher` | Nightly | Cold annotation of signal_events only |
+| `vil_enricher` | `indicagent-analog-enricher` | Nightly | Cold annotation of signal_events only |
 
 All services: oneshot D-06 pattern (`job_completed_total{job, status}` at exit). Log to `logs/<name>.log`. Parameters through APR.
 
@@ -507,31 +507,31 @@ Simons would build System 1 first. It has no new infrastructure dependencies —
 1.  Phase 133 corpus rebuild
     └─ prerequisite for both systems; underway
 
-2.  System 1 — iv-ic-engine (Phase A)
+2.  System 1 — alpha-ic-engine (Phase A)
     └─ Spearman IC on Phase 133 corpus; no pgvector needed
     └─ First IC report: which of 138 plugins carry IC > 0, in which regimes
-    └─ This finding gates the rest of System 1 AND informs VIL embedding design
+    └─ This finding gates the rest of System 1 AND informs AnalogEngine embedding design
 
-3.  System 1 — iv-decay-monitor
+3.  System 1 — alpha-decay-monitor
     └─ First closed feedback loop to APR; weights update automatically
 
-4.  System 1 — iv-ensemble (Phase C)
+4.  System 1 — alpha-ensemble (Phase C)
     └─ IC-weighted V1 Quant ensemble; validate Sharpe > best single plugin
 
 5.  System 1 — V2 Microstructure plugins
     └─ Only after V1 IC is measured and ensemble is validated
 
-6.  System 2 — VIL substrate (vil-01)
+6.  System 2 — AnalogEngine substrate (vil-01)
     └─ pgvector extension; schema; bar-embedder; outcome-labeler; retrieve() primitive
     └─ Embedding dimension calibrated using IC report from Step 2
 
-7.  System 2 — vil-ic-factory (feature-level IC for re-ranking)
+7.  System 2 — analog-ic-factory (feature-level IC for re-ranking)
     └─ Which features in the embedding deserve more weight in k-NN
 
 8.  System 2 — correlation-svc + scoring-engine
     └─ First analog-based Score Objects; validate retrieval quality
 
-9.  System 2 — vil-enricher
+9.  System 2 — analog-enricher
     └─ Both systems now annotating signal_events; ML model gets full matrix
 
 10. System 1 — V3 Macro + V4 Calendar
@@ -548,7 +548,7 @@ Neither system changes emission logic. Both extend what the ML model sees about 
 `ctf_score`, `ctf_confirmed`, `zone_friction_score`, HMM regime — the intrinsic market context at fire time.
 
 **System 1 adds (cold-path enrichment):**
-`iv_ensemble_alpha` — what the IC-weighted Quant Vector said about this bar's direction.
+`alpha_ensemble_alpha` — what the IC-weighted Quant Vector said about this bar's direction.
 `iv_ci_lower` — lower bound of the IC confidence interval (narrows as N grows).
 
 **System 2 adds (cold-path enrichment):**
@@ -577,11 +577,11 @@ The ML model trains on `counterfactual_pnl_r` as the target. All eight ECL field
 
 | Document | Status | Disposition |
 |----------|--------|-------------|
-| `docs/ideas/vil-01-vector-intelligence-layer.md` | under-review | Canonical detail for VIL substrate; schema section superseded by this doc |
-| `docs/ideas/vil-02-predictive-feature-intelligence.md` | under-review | Canonical detail for vil-ic-factory and Analog Finder |
+| `docs/ideas/vil-01-vector-intelligence-layer.md` | under-review | Canonical detail for AnalogEngine substrate; schema section superseded by this doc |
+| `docs/ideas/vil-02-predictive-feature-intelligence.md` | under-review | Canonical detail for analog-ic-factory and Analog Finder |
 | `docs/ideas/vil-03-scoring-engine.md` | under-review | Canonical detail for scoring-engine (Score Object, granularity dial) |
 | `docs/ideas/vil-04-correlation-intelligence.md` | under-review | Canonical detail for correlation-svc and effective-N |
-| `docs/ideas/vil-05-signal-combiner.md` | under-review | Canonical detail for VIL-based signal combination |
+| `docs/ideas/vil-05-signal-combiner.md` | under-review | Canonical detail for AnalogEngine-based signal combination |
 | `docs/ideas/vil-06-platform-ideas.md` | under-review | Holding doc; unaffected |
 | `docs/plans/2026-06-20-intelligence-vectors-architecture.md` | superseded | Absorbed here as System 1; V1-V4 taxonomy, IC engine, alpha decay all incorporated |
 
@@ -590,7 +590,7 @@ The ML model trains on `counterfactual_pnl_r` as the target. All eight ECL field
 ## Open Questions
 
 - **Embedding vector dimension per entity_type:** needs calibration on real `intelligence_features` output before the migration is written. Dimension is a migration-time constant.
-- **Rolling z-score window length:** long enough to be stable, short enough to track regime change. Calibrate on Phase 133 corpus after iv-ic-engine confirms which features carry IC.
-- **VIL null result distance threshold:** calibrate against first 90 days of bar embeddings. iv-ic-engine results (Step 2) inform which features to include in the embedding, which affects the natural distance distribution.
+- **Rolling z-score window length:** long enough to be stable, short enough to track regime change. Calibrate on Phase 133 corpus after alpha-ic-engine confirms which features carry IC.
+- **AnalogEngine null result distance threshold:** calibrate against first 90 days of bar embeddings. alpha-ic-engine results (Step 2) inform which features to include in the embedding, which affects the natural distance distribution.
 - **Separate tables per entity_type vs single `embeddings` table:** different `vector(N)` dims per entity type likely force separate tables with separate HNSW indexes. Confirm before migration is written.
 - **Embedding version migration policy on a version bump:** re-embed all history (full comparability, expensive) or carry forward with version-split (cheaper, shrinks comparable window). Decide before first production embedding.

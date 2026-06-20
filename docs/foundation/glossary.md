@@ -444,6 +444,38 @@ CFL closes Bias Layer 2: before CFL, ML models could only train on signals that 
 
 ---
 
+### `AlphaEngine`
+
+The parametric IC measurement and ensemble alpha generation system (v3.0, System 1). Measures Spearman IC between each plugin's confidence score and subsequent forward returns. Produces IC Sharpe-weighted ensemble alpha across four orthogonal Intelligence Vector dimensions (V1 Quant, V2 Microstructure, V3 Macro, V4 Calendar). Runs entirely in the cold batch layer — no pgvector required.
+
+**Distinction from AnalogEngine:** AlphaEngine is parametric (Spearman rank correlation across all observations). AnalogEngine is non-parametric (k-NN retrieval of similar historical states). Both annotate `signal_events` as additive ECL enrichment; neither gates emission.
+
+**Plain role noun** — added to `naming-system.md` plain_role_nouns. Services prefixed `alpha-` (e.g. `indicagent-alpha-ic-engine`). APR namespace: `alpha.*`.
+
+**Status:** design (pre-implementation, v3.0)
+
+**Canonical doc:** `docs/plans/2026-06-20-vil-reference-architecture.md`
+
+**Formerly called:** "Intelligence Vectors" (superseded name — avoid)
+
+---
+
+### `AnalogEngine`
+
+The non-parametric pgvector retrieval substrate (v3.0, System 2). Embeds full I1-I7 bar states as L2-normalized vectors in pgvector. Finds K nearest historical neighbors via HNSW index. Returns what price did after each analog at T+5/10/20/60. Does not score — scoring is the Scoring Engine (vil-03). The null result ("no close analogs exist") is a first-class output and drives the OOD monitor.
+
+**Distinction from AlphaEngine:** AnalogEngine is non-parametric (retrieves historical instances). AlphaEngine is parametric (measures Spearman correlation across all observations). Both are independent and additive.
+
+**Plain role noun** — added to `naming-system.md` plain_role_nouns. Services prefixed `analog-` (e.g. `indicagent-analog-bar-embedder`). APR namespace: `analog.*`.
+
+**Status:** design (pre-implementation, v3.0)
+
+**Canonical doc:** `docs/plans/2026-06-20-vil-reference-architecture.md` — also `docs/ideas/vil-01` through `vil-06` for per-layer detail.
+
+**Formerly called:** "VIL" / "Vector Intelligence Layer" (internal shorthand still acceptable in code comments; canonical name is AnalogEngine)
+
+---
+
 ### `Extrinsic Confidence Layer (ECL)`
 
 The system of extrinsic confidence vectors that annotate an emitted signal as observable metadata about external market context. Current vectors: CTF score (I6 cross-timeframe alignment), HMM regime weight, zone friction, exhaustion state.
