@@ -158,6 +158,7 @@ class HMMRegimePlugin(IncrementalMixin):
         )
         self._A, self._means, self._variances = self._load_tf_parameters()
         self._K = self._A.shape[0]  # Number of states (3)
+        self._param_dims = self._means.shape[1]
 
     def _load_tf_parameters(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Load parameters using TF-suffixed path with fallback to base file."""
@@ -169,18 +170,18 @@ class HMMRegimePlugin(IncrementalMixin):
             else _load_parameters_from_path(base_path)
         )
         n_dims = means.shape[1]
-        if n_dims not in (2, 5):
-            logger.warning(
-                "hmm_params_unexpected_dims",
-                plugin=f"smc_HMMRegime_{self.timeframe}",
-                n_dims=n_dims,
-                expected="2 or 5",
-            )
         if n_dims == 2:
             logger.warning(
                 "hmm_params_2d_loaded",
-                plugin=f"smc_HMMRegime_{self.timeframe}",
+                plugin=self.name,
                 action="running in 2D fallback mode -- retrain to upgrade to 5D",
+            )
+        elif n_dims != 5:
+            logger.warning(
+                "hmm_params_unexpected_dims",
+                plugin=self.name,
+                n_dims=n_dims,
+                expected="2 or 5",
             )
         return A, means, variances
 
@@ -192,6 +193,7 @@ class HMMRegimePlugin(IncrementalMixin):
         """
         self._A, self._means, self._variances = self._load_tf_parameters()
         self._K = self._A.shape[0]
+        self._param_dims = self._means.shape[1]
 
     def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         """Full HMM forward pass computation. Returns outputs only (no _state)."""
@@ -329,16 +331,16 @@ class HMMRegimePlugin(IncrementalMixin):
         }
 
     def _resolve_dims(self, features: Any) -> int:
-        """Determine how many emission dimensions to use."""
+        """Determine how many emission dimensions to use, capped at loaded param width."""
         if not isinstance(features, dict):
             logger.warning("hmm_fallback_2d_no_features")
-            return 2  # Fallback: log return + realized vol only
+            return min(2, self._param_dims)
         rsi = features.get("rsi_14")
         adx = features.get("adx_14")
         atr = features.get("atr_14")
         macd_hist = features.get("macd_histogram_12_26_9")
         if rsi is not None and adx is not None and atr is not None and macd_hist is not None:
-            return 5
+            return min(5, self._param_dims)
         missing = [
             name
             for name, val in [
@@ -350,7 +352,7 @@ class HMMRegimePlugin(IncrementalMixin):
             if val is None
         ]
         logger.warning("hmm_fallback_2d", missing_fields=missing)
-        return 2
+        return min(2, self._param_dims)
 
     def _build_observation(
         self,
@@ -378,16 +380,8 @@ class HMMRegimePlugin(IncrementalMixin):
         alpha = state["alpha"]
         A = self._A
 
-        # Clamp n_dims to param dimensionality -- loaded params may have been trained
-        # in 2D mode (insufficient indicator coverage at training time) while runtime
-        # now resolves 5D. Truncate obs rather than broadcast-fail.
-        # _load_tf_parameters() warns at startup when this mismatch exists.
-        param_dims = self._means.shape[1]
-        if n_dims > param_dims:
-            obs = obs[:param_dims]
-            n_dims = param_dims
-
-        # Slice parameters to match observation dimensionality
+        # Slice parameters to match observation dimensionality.
+        # _resolve_dims() caps n_dims at self._param_dims so obs and params always agree.
         means = self._means[:, :n_dims]
         variances = self._variances[:, :n_dims]
 
