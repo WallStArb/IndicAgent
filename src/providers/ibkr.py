@@ -14,6 +14,7 @@ import os
 import signal
 import threading
 import time
+from collections import deque
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
@@ -106,6 +107,47 @@ _MAX_CHUNK_DAYS: dict[str, int] = {
     "1d": 364,
 }
 
+# IBKR enforces a hard limit of 60 historical data requests per 10-minute sliding window.
+# Exceeding it triggers Error 162 (query cancelled). We track request timestamps and
+# pre-emptively sleep before making a request that would breach the limit, eliminating
+# reactive pacing violations entirely.
+_IBKR_HIST_RATE_LIMIT = 55  # conservative: hard limit is 60; 5-slot buffer absorbs jitter
+_IBKR_HIST_WINDOW_S = 600.0  # 10-minute sliding window (IBKR's documented period)
+
+
+class _SlidingWindowRateLimiter:
+    """Pre-emptive rate limiter for IBKR historical data chunk requests."""
+
+    def __init__(
+        self, max_requests: int = _IBKR_HIST_RATE_LIMIT, window_s: float = _IBKR_HIST_WINDOW_S
+    ) -> None:
+        self._max = max_requests
+        self._window = window_s
+        self._ts: deque[float] = deque()
+
+    async def acquire(self) -> None:
+        """Block until a request slot is available, then record the request timestamp."""
+        now = time.monotonic()
+        while self._ts and now - self._ts[0] > self._window:
+            self._ts.popleft()
+        if len(self._ts) >= self._max:
+            wait = self._window - (now - self._ts[0]) + 1.0
+            if wait > 0:
+                logger.info(
+                    "ibkr.hist_rate_limit_sleep",
+                    extra={"req_in_window": len(self._ts), "sleep_s": round(wait, 1)},
+                )
+                await asyncio.sleep(wait)
+        self._ts.append(time.monotonic())
+
+
+_hist_rate_limiter = _SlidingWindowRateLimiter()
+
+# reqIds that received Error 162 during reqHistoricalDataAsync.
+# Written by _on_ib_error (ib_insync thread), consumed+cleared by fetch_historical_bars
+# (asyncio thread). GIL makes set.add/discard thread-safe without a lock.
+_pacing_error_req_ids: set[int] = set()
+
 # Circuit breaker for IBKR connection attempts
 _ibkr_circuit_breaker = PluginCircuitBreaker(
     config=CircuitBreakerConfig(
@@ -138,6 +180,14 @@ def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None
         IBKR_ERROR_326_TOTAL.add(1, {"provider": "ibkr", "action": "detected"})
         logger.error(
             "ibkr.error_326_detected",
+            extra={"reqId": reqId, "errorString": errorString},
+        )
+    elif errorCode == 162:
+        # Historical data query cancelled — pacing violation or IBKR-side rejection.
+        # Stamp the reqId so fetch_historical_bars can detect it and back off with retry.
+        _pacing_error_req_ids.add(reqId)
+        logger.warning(
+            "ibkr.hist_pacing_error",
             extra={"reqId": reqId, "errorString": errorString},
         )
     elif errorCode >= 2100 and errorCode < 2200:
@@ -582,8 +632,11 @@ class IBKRProvider:
 
             while chunk_start < end:
                 if not first_chunk:
-                    await asyncio.sleep(10)  # IBKR pacing between chunk requests
+                    await asyncio.sleep(10)  # baseline courtesy pacing between chunks
                 first_chunk = False
+
+                # Pre-emptive rate limit: sleep if approaching IBKR's 60 req/10min ceiling.
+                await _hist_rate_limiter.acquire()
 
                 chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), end)
                 window_seconds = int((chunk_end - chunk_start).total_seconds())
@@ -592,15 +645,52 @@ class IBKRProvider:
                 else:
                     duration_str = f"{max(1, (chunk_end - chunk_start).days + 1)} D"
 
-                ib_bars = await self._ib.reqHistoricalDataAsync(
-                    contract,
-                    endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
-                    durationStr=duration_str,
-                    barSizeSetting=_TF_TO_IB[timeframe],
-                    whatToShow=what_to_show,
-                    useRTH=use_rth,
-                    formatDate=1,
-                )
+                # Retry loop: up to 3 attempts with exponential backoff on Error 162.
+                ib_bars: list = []
+                for attempt in range(3):
+                    result = await self._ib.reqHistoricalDataAsync(
+                        contract,
+                        endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
+                        durationStr=duration_str,
+                        barSizeSetting=_TF_TO_IB[timeframe],
+                        whatToShow=what_to_show,
+                        useRTH=use_rth,
+                        formatDate=1,
+                    )
+                    req_id = getattr(result, "reqId", -1)
+                    is_pacing = req_id in _pacing_error_req_ids
+                    if is_pacing:
+                        _pacing_error_req_ids.discard(req_id)
+
+                    if result:
+                        ib_bars = result
+                        break
+
+                    if attempt < 2:
+                        backoff = 65 * (2**attempt)  # 65s then 130s
+                        logger.warning(
+                            "ibkr.hist_chunk_retry",
+                            extra={
+                                "symbol": symbol,
+                                "timeframe": timeframe,
+                                "chunk_end": chunk_end.isoformat(),
+                                "attempt": attempt + 1,
+                                "pacing_error": is_pacing,
+                                "backoff_s": backoff,
+                            },
+                        )
+                        await asyncio.sleep(backoff)
+                        await _hist_rate_limiter.acquire()
+                else:
+                    logger.error(
+                        "ibkr.hist_chunk_failed_all_retries",
+                        extra={
+                            "symbol": symbol,
+                            "timeframe": timeframe,
+                            "chunk_start": chunk_start.isoformat(),
+                            "chunk_end": chunk_end.isoformat(),
+                        },
+                    )
 
                 for bar in ib_bars or []:
                     bar_ts = (
