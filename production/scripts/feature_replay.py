@@ -75,6 +75,9 @@ logger = structlog.get_logger(__name__)
 # uuid5 namespace for deterministic frame_id — matches run_historical_pipeline.py
 _FRAME_ID_NS = uuid.NAMESPACE_DNS
 
+# Flush signal_events + trade_frames to DB every N accumulated signals per (symbol, tf).
+_WRITE_BATCH_SIZE = 200
+
 
 def _make_frame_id(signal_id: str, entry_type: str = "at_close") -> str:
     """Deterministic frame_id — same signal_id + entry_type always produces same UUID."""
@@ -215,277 +218,300 @@ async def _replay_symbol_tf(
     # Resolve plugin instances once — plugins list is fixed for the whole (symbol, tf) run.
     resolved_plugins = {name: registry.get_pattern(name) for name in plugins}
 
-    for row in rows:
-        event = _reconstruct_intelligence_event(row)
-        if event is None:
-            continue
+    # Batch write accumulators — flushed every _WRITE_BATCH_SIZE signals.
+    # One connection held for the entire (symbol, tf) run instead of acquire-per-bar.
+    se_batch: list[tuple] = []
+    tf_batch: list[tuple] = []
 
-        bar_data = row["bar"] or {}
-        i1_data = row["technical_indicators"] or {}
-        i2_data = row["composite_events"] or {}
-        i3_data = row["regime_features"] or {}
-        i4_data = row["confluence_scores"] or {}
-        i5_data = row["pattern_detections"] or {}
-        smc_data = row["smc"] or {}
-        ctf_data = row["cross_timeframe_context"] or {}
-        mkt_data = row["market_context"] or {}
+    async def _flush_batch(wconn: asyncpg.Connection) -> None:
+        if not se_batch:
+            return
+        async with wconn.transaction():
+            await wconn.executemany(_INSERT_SIGNAL_EVENTS_SQL, se_batch)
+            await wconn.executemany(_INSERT_TRADE_FRAMES_SQL, tf_batch)
+        se_batch.clear()
+        tf_batch.clear()
 
-        # Build merged flat features dict (all tier dicts merged so each plugin finds
-        # its fields regardless of which tier key it reads from).
-        flat_features: dict[str, Any] = {}
-        for tier in (i1_data, i2_data, i3_data, i4_data, i5_data, smc_data, ctf_data, mkt_data):
-            if tier:
-                flat_features.update(tier)
+    write_conn: asyncpg.Connection | None = None
+    if not dry_run:
+        write_conn = await pool.acquire()
+        await write_conn.execute("SET synchronous_commit = off")
 
-        # frames dict structure mirrors the pattern in run_historical_pipeline.py:
-        # each tier key holds the full merged dict so plugins find features via any key.
-        frames: dict[str, Any] = {
-            "features": flat_features,
-            "symbol": symbol,
-            "tf": tf,
-            "__timeframe__": tf,
-            "timeframe": tf,
-            "i1": flat_features,
-            "i2": flat_features,
-            "i3": flat_features,
-            "i4": flat_features,
-            "i5": flat_features,
-            "smc": flat_features,
-            "i6": flat_features,
-        }
+    try:
+        for row in rows:
+            event = _reconstruct_intelligence_event(row)
+            if event is None:
+                continue
 
-        raw_signals: list[dict] = []
-        for name in plugins:
-            try:
-                plugin = resolved_plugins[name]
-                result, plugin_states[name] = incremental_compute(
-                    plugin, frames, plugin_states[name]
-                )
-                if result.get("direction", 0) != 0:
-                    result["setup_plugin"] = name
-                    raw_signals.append(result)
-            except Exception as error:
-                logger.warning(
-                    "feature_replay: plugin error",
-                    plugin=name,
-                    symbol=symbol,
-                    tf=tf,
-                    error=str(error),
-                )
+            bar_data = row["bar"] or {}
+            i1_data = row["technical_indicators"] or {}
+            i2_data = row["composite_events"] or {}
+            i3_data = row["regime_features"] or {}
+            i4_data = row["confluence_scores"] or {}
+            i5_data = row["pattern_detections"] or {}
+            smc_data = row["smc"] or {}
+            ctf_data = row["cross_timeframe_context"] or {}
+            mkt_data = row["market_context"] or {}
 
-        if not raw_signals:
-            continue
+            # Build merged flat features dict (all tier dicts merged so each plugin finds
+            # its fields regardless of which tier key it reads from).
+            flat_features: dict[str, Any] = {}
+            for tier in (i1_data, i2_data, i3_data, i4_data, i5_data, smc_data, ctf_data, mkt_data):
+                if tier:
+                    flat_features.update(tier)
 
-        for sig in raw_signals:
-            annotate_signal_with_context(sig, flat_features)
+            # frames dict structure mirrors the pattern in run_historical_pipeline.py:
+            # each tier key holds the full merged dict so plugins find features via any key.
+            frames: dict[str, Any] = {
+                "features": flat_features,
+                "symbol": symbol,
+                "tf": tf,
+                "__timeframe__": tf,
+                "timeframe": tf,
+                "i1": flat_features,
+                "i2": flat_features,
+                "i3": flat_features,
+                "i4": flat_features,
+                "i5": flat_features,
+                "smc": flat_features,
+                "i6": flat_features,
+            }
 
-        trend_regime = float(flat_features.get("trend_regime", 0.0))
-        agg_result = aggregate(
-            raw_signals,
-            trend_regime=trend_regime,
-            features=flat_features,
-            calibration_curves=None,
-            perf_weights=None,
-        )
-
-        if not agg_result.all_ranked:
-            continue
-
-        ts = row["ts"]
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=UTC)
-
-        garch_sigma = flat_features.get("garch_sigma")
-        hmm_regime = flat_features.get("hmm_regime")
-
-        bar_o = float(bar_data.get("o", 0.0))
-        bar_h = float(bar_data.get("h", 0.0))
-        bar_l = float(bar_data.get("l", 0.0))
-        bar_c = float(bar_data.get("c", 0.0))
-        bar_v = float(bar_data.get("v", 0))
-        ts_ns = int(ts.timestamp() * 1e9)
-        signal_computed_at = datetime.now(UTC)
-
-        entries: list[LedgerEntry] = []
-        for sig in agg_result.all_ranked:
-            rank = sig.get("composite_rank", 99)
-            was_selected = rank == 1 and agg_result.selected_signal is not None
-            setup_plugin = sig.get("setup_plugin", "unknown")
-            direction = int(sig.get("direction", 0))
-
-            sid = make_signal_id(
-                symbol=symbol,
-                feature_ts_ns=ts_ns,
-                feature_tf=tf,
-                open_=bar_o,
-                high=bar_h,
-                low=bar_l,
-                close=bar_c,
-                volume=bar_v,
-                setup_plugin=setup_plugin,
-                direction=direction,
-            )
-
-            ttl = sig.get("ttl_bars")
-            expires_at = None
-            if ttl is not None:
+            raw_signals: list[dict] = []
+            for name in plugins:
                 try:
-                    expires_at = ts + timedelta(seconds=int(ttl) * tf_secs)
-                except (OverflowError, TypeError, ValueError):
-                    expires_at = None
+                    plugin = resolved_plugins[name]
+                    result, plugin_states[name] = incremental_compute(
+                        plugin, frames, plugin_states[name]
+                    )
+                    if result.get("direction", 0) != 0:
+                        result["setup_plugin"] = name
+                        raw_signals.append(result)
+                except Exception as error:
+                    logger.warning(
+                        "feature_replay: plugin error",
+                        plugin=name,
+                        symbol=symbol,
+                        tf=tf,
+                        error=str(error),
+                    )
 
-            entries.append(
-                LedgerEntry(
-                    signal_id=sid,
-                    timestamp=ts,
-                    symbol=symbol,
-                    timeframe=tf,
-                    setup_plugin=setup_plugin,
-                    signal_type=sig.get("signal_type", "unknown"),
-                    direction=direction,
-                    was_selected=was_selected,
-                    is_shadow=bool(sig.get("is_shadow", False)),
-                    is_backfill=True,
-                    signal_computed_at=signal_computed_at,
-                    feature_ts=ts,
-                    feature_tf=tf,
-                    hmm_regime_at_fire=(
-                        sig.get("hmm_regime_at_fire")
-                        if "hmm_regime_at_fire" in sig
-                        else (int(hmm_regime) if hmm_regime is not None else None)
-                    ),
-                    garch_sigma_at_fire=garch_sigma,
-                    ttl_bars=ttl,
-                    entry_price=float(sig.get("entry_price", 0.0)),
-                    stop_loss=float(sig.get("stop_loss", 0.0)),
-                    targets=[float(t) for t in sig.get("targets", [])],
-                    entry_zone_low=sig.get("zone_low"),
-                    entry_zone_high=sig.get("zone_high"),
-                    market_entry_price=bar_c or None,
-                    cis_score=(
-                        sig.get("filtered_cis_score")
-                        if sig.get("filtered_cis_score") is not None
-                        else agg_result.cis_score
-                    ),
-                    bucket_scores=agg_result.bucket_scores,
-                    weights_version=agg_result.weights_version,
-                    expires_at=expires_at,
-                    feature_schema_version=FEATURE_SCHEMA_VERSION,
-                    stop_basis=sig.get("stop_basis"),
-                    stop_type_col=sig.get("stop_type"),
-                    structural_stop_distance_atr=sig.get("structural_stop_distance_atr"),
-                    adaptive_buffer_mult=sig.get("adaptive_buffer_mult"),
-                    plugin_regime_type=sig.get("plugin_regime_type"),
-                    stop_structure_age_bars=sig.get("stop_structure_age_bars"),
-                    raw_confidence=sig.get("pre_quality_confidence") or sig.get("confidence"),
-                    calibrated_confidence=sig.get("calibrated_confidence"),
-                    context_features=sig.get("context_features"),
-                    ctf_score=sig.get("ctf_score"),
-                    ctf_confirmed=sig.get("ctf_confirmed"),
-                    zone_friction_score=sig.get("zone_friction_score"),
-                    status=SignalStatus.PENDING,
-                )
+            if not raw_signals:
+                continue
+
+            for sig in raw_signals:
+                annotate_signal_with_context(sig, flat_features)
+
+            trend_regime = float(flat_features.get("trend_regime", 0.0))
+            agg_result = aggregate(
+                raw_signals,
+                trend_regime=trend_regime,
+                features=flat_features,
+                calibration_curves=None,
+                perf_weights=None,
             )
 
-        if not entries:
-            continue
+            if not agg_result.all_ranked:
+                continue
 
-        signal_count += len(entries)
+            ts = row["ts"]
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
 
+            garch_sigma = flat_features.get("garch_sigma")
+            hmm_regime = flat_features.get("hmm_regime")
+
+            bar_o = float(bar_data.get("o", 0.0))
+            bar_h = float(bar_data.get("h", 0.0))
+            bar_l = float(bar_data.get("l", 0.0))
+            bar_c = float(bar_data.get("c", 0.0))
+            bar_v = float(bar_data.get("v", 0))
+            ts_ns = int(ts.timestamp() * 1e9)
+            signal_computed_at = datetime.now(UTC)
+
+            entries: list[LedgerEntry] = []
+            for sig in agg_result.all_ranked:
+                rank = sig.get("composite_rank", 99)
+                was_selected = rank == 1 and agg_result.selected_signal is not None
+                setup_plugin = sig.get("setup_plugin", "unknown")
+                direction = int(sig.get("direction", 0))
+
+                sid = make_signal_id(
+                    symbol=symbol,
+                    feature_ts_ns=ts_ns,
+                    feature_tf=tf,
+                    open_=bar_o,
+                    high=bar_h,
+                    low=bar_l,
+                    close=bar_c,
+                    volume=bar_v,
+                    setup_plugin=setup_plugin,
+                    direction=direction,
+                )
+
+                ttl = sig.get("ttl_bars")
+                expires_at = None
+                if ttl is not None:
+                    try:
+                        expires_at = ts + timedelta(seconds=int(ttl) * tf_secs)
+                    except (OverflowError, TypeError, ValueError):
+                        expires_at = None
+
+                entries.append(
+                    LedgerEntry(
+                        signal_id=sid,
+                        timestamp=ts,
+                        symbol=symbol,
+                        timeframe=tf,
+                        setup_plugin=setup_plugin,
+                        signal_type=sig.get("signal_type", "unknown"),
+                        direction=direction,
+                        was_selected=was_selected,
+                        is_shadow=bool(sig.get("is_shadow", False)),
+                        is_backfill=True,
+                        signal_computed_at=signal_computed_at,
+                        feature_ts=ts,
+                        feature_tf=tf,
+                        hmm_regime_at_fire=(
+                            sig.get("hmm_regime_at_fire")
+                            if "hmm_regime_at_fire" in sig
+                            else (int(hmm_regime) if hmm_regime is not None else None)
+                        ),
+                        garch_sigma_at_fire=garch_sigma,
+                        ttl_bars=ttl,
+                        entry_price=float(sig.get("entry_price", 0.0)),
+                        stop_loss=float(sig.get("stop_loss", 0.0)),
+                        targets=[float(t) for t in sig.get("targets", [])],
+                        entry_zone_low=sig.get("zone_low"),
+                        entry_zone_high=sig.get("zone_high"),
+                        market_entry_price=bar_c or None,
+                        cis_score=(
+                            sig.get("filtered_cis_score")
+                            if sig.get("filtered_cis_score") is not None
+                            else agg_result.cis_score
+                        ),
+                        bucket_scores=agg_result.bucket_scores,
+                        weights_version=agg_result.weights_version,
+                        expires_at=expires_at,
+                        feature_schema_version=FEATURE_SCHEMA_VERSION,
+                        stop_basis=sig.get("stop_basis"),
+                        stop_type_col=sig.get("stop_type"),
+                        structural_stop_distance_atr=sig.get("structural_stop_distance_atr"),
+                        adaptive_buffer_mult=sig.get("adaptive_buffer_mult"),
+                        plugin_regime_type=sig.get("plugin_regime_type"),
+                        stop_structure_age_bars=sig.get("stop_structure_age_bars"),
+                        raw_confidence=sig.get("pre_quality_confidence") or sig.get("confidence"),
+                        calibrated_confidence=sig.get("calibrated_confidence"),
+                        context_features=sig.get("context_features"),
+                        ctf_score=sig.get("ctf_score"),
+                        ctf_confirmed=sig.get("ctf_confirmed"),
+                        zone_friction_score=sig.get("zone_friction_score"),
+                        status=SignalStatus.PENDING,
+                    )
+                )
+
+            if not entries:
+                continue
+
+            signal_count += len(entries)
+
+            for e in entries:
+                sid = str(e.signal_id)
+                direction = _direction_text(
+                    int(e.direction) if isinstance(e.direction, (int, float)) else 1
+                )
+                raw_confidence = e.raw_confidence if e.raw_confidence is not None else 0.0
+
+                frame_details: dict = {}
+                if e.stop_basis is not None:
+                    frame_details["stop_basis"] = e.stop_basis
+                if e.stop_type_col is not None:
+                    frame_details["stop_type_col"] = e.stop_type_col
+                if e.structural_stop_distance_atr is not None:
+                    frame_details["structural_stop_distance_atr"] = float(
+                        e.structural_stop_distance_atr
+                    )
+                if e.adaptive_buffer_mult is not None:
+                    frame_details["adaptive_buffer_mult"] = float(e.adaptive_buffer_mult)
+                if e.stop_structure_age_bars is not None:
+                    frame_details["stop_structure_age_bars"] = e.stop_structure_age_bars
+                if e.entry_zone_low is not None:
+                    frame_details["entry_zone_low"] = float(e.entry_zone_low)
+                if e.entry_zone_high is not None:
+                    frame_details["entry_zone_high"] = float(e.entry_zone_high)
+                if e.market_entry_price is not None:
+                    frame_details["market_entry_price"] = float(e.market_entry_price)
+
+                targets = e.targets or []
+                target_price = float(targets[0]) if targets else None
+                stop_price = float(e.stop_loss) if e.stop_loss is not None else None
+                entry_price = float(e.entry_price) if e.entry_price is not None else None
+                r_multiple = None
+                if target_price is not None and entry_price is not None and stop_price is not None:
+                    denom = entry_price - stop_price
+                    if denom != 0:
+                        r_multiple = (target_price - entry_price) / denom
+
+                frame_id = _make_frame_id(sid, "at_close")
+
+                se_batch.append(
+                    (
+                        sid,
+                        e.timestamp,
+                        e.symbol,
+                        e.timeframe,
+                        e.setup_plugin,
+                        direction,
+                        raw_confidence,
+                        e.calibrated_confidence,
+                        e.cis_score,
+                        e.weights_version,
+                        None,
+                        e.context_features,
+                        e.ctf_score,
+                        e.ctf_confirmed,
+                        e.zone_friction_score,
+                        e.hmm_regime_at_fire,
+                        e.plugin_regime_type,
+                        e.garch_sigma_at_fire,
+                        e.is_shadow,
+                        True,
+                        "pending",
+                        SIGNAL_SCHEMA_VERSION,
+                        e.ttl_bars,
+                        e.expires_at,
+                        e.signal_computed_at,
+                        e.feature_ts,
+                    )
+                )
+                tf_batch.append(
+                    (
+                        frame_id,
+                        sid,
+                        e.timestamp,
+                        "at_close",
+                        direction,
+                        entry_price,
+                        stop_price,
+                        target_price,
+                        r_multiple,
+                        e.ttl_bars,
+                        e.expires_at,
+                        e.was_selected,
+                        json.dumps(frame_details) if frame_details else None,
+                    )
+                )
+
+            if not dry_run and len(se_batch) >= _WRITE_BATCH_SIZE:
+                await _flush_batch(write_conn)
+
+        # Final flush for any remaining signals in this (symbol, tf) run
         if not dry_run:
-            async with pool.acquire() as conn:
-                async with conn.transaction():
-                    for e in entries:
-                        sid = str(e.signal_id)
-                        direction = _direction_text(
-                            int(e.direction) if isinstance(e.direction, (int, float)) else 1
-                        )
-                        raw_confidence = e.raw_confidence if e.raw_confidence is not None else 0.0
+            await _flush_batch(write_conn)
 
-                        # Build frame_details JSONB: stop architecture + zone fields
-                        frame_details: dict = {}
-                        if e.stop_basis is not None:
-                            frame_details["stop_basis"] = e.stop_basis
-                        if e.stop_type_col is not None:
-                            frame_details["stop_type_col"] = e.stop_type_col
-                        if e.structural_stop_distance_atr is not None:
-                            frame_details["structural_stop_distance_atr"] = float(
-                                e.structural_stop_distance_atr
-                            )
-                        if e.adaptive_buffer_mult is not None:
-                            frame_details["adaptive_buffer_mult"] = float(e.adaptive_buffer_mult)
-                        if e.stop_structure_age_bars is not None:
-                            frame_details["stop_structure_age_bars"] = e.stop_structure_age_bars
-                        if e.entry_zone_low is not None:
-                            frame_details["entry_zone_low"] = float(e.entry_zone_low)
-                        if e.entry_zone_high is not None:
-                            frame_details["entry_zone_high"] = float(e.entry_zone_high)
-                        if e.market_entry_price is not None:
-                            frame_details["market_entry_price"] = float(e.market_entry_price)
-
-                        # Extract first target for trade_frames.target_price
-                        targets = e.targets or []
-                        target_price = float(targets[0]) if targets else None
-                        stop_price = float(e.stop_loss) if e.stop_loss is not None else None
-                        entry_price = float(e.entry_price) if e.entry_price is not None else None
-                        r_multiple = None
-                        if (
-                            target_price is not None
-                            and entry_price is not None
-                            and stop_price is not None
-                        ):
-                            denom = entry_price - stop_price
-                            if denom != 0:
-                                r_multiple = (target_price - entry_price) / denom
-
-                        frame_id = _make_frame_id(sid, "at_close")
-
-                        await conn.execute(
-                            _INSERT_SIGNAL_EVENTS_SQL,
-                            sid,  # signal_id
-                            e.timestamp,  # ts
-                            e.symbol,  # symbol
-                            e.timeframe,  # tf
-                            e.setup_plugin,  # setup_plugin
-                            direction,  # direction (text)
-                            raw_confidence,  # raw_confidence (NOT NULL)
-                            e.calibrated_confidence,  # calibrated_confidence
-                            e.cis_score,  # cis_score
-                            e.weights_version,  # weights_version
-                            None,  # factor_scores (plugin-local, not in replay path)
-                            e.context_features,  # context_features (asyncpg dict -> jsonb)
-                            e.ctf_score,  # ctf_score
-                            e.ctf_confirmed,  # ctf_confirmed
-                            e.zone_friction_score,  # zone_friction_score
-                            e.hmm_regime_at_fire,  # hmm_regime_at_fire
-                            e.plugin_regime_type,  # plugin_regime_type
-                            e.garch_sigma_at_fire,  # garch_sigma_at_fire
-                            e.is_shadow,  # is_shadow
-                            True,  # is_backfill
-                            "pending",  # status
-                            SIGNAL_SCHEMA_VERSION,  # signal_schema_version (int)
-                            e.ttl_bars,  # ttl_bars
-                            e.expires_at,  # expires_at
-                            e.signal_computed_at,  # signal_computed_at
-                            e.feature_ts,  # feature_ts
-                        )
-                        await conn.execute(
-                            _INSERT_TRADE_FRAMES_SQL,
-                            frame_id,  # frame_id
-                            sid,  # signal_id
-                            e.timestamp,  # signal_ts (FK anchor)
-                            "at_close",  # entry_type
-                            direction,  # direction (text)
-                            entry_price,  # entry_price
-                            stop_price,  # stop_price (was stop_loss)
-                            target_price,  # target_price (first target)
-                            r_multiple,  # r_multiple
-                            e.ttl_bars,  # ttl_bars
-                            e.expires_at,  # expires_at
-                            # counterfactual_pnl_r = NULL (CounterfactualTracker v2.11)
-                            e.was_selected,  # was_selected
-                            json.dumps(frame_details) if frame_details else None,  # frame_details
-                        )
+    finally:
+        if write_conn is not None:
+            await pool.release(write_conn)
 
     return signal_count
 
