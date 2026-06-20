@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
-"""Pre-rebuild DB preparation for Phase 133 corpus rebuild.
+"""
+Pre-Rebuild DB Preparation — drop secondary indexes and tune WAL before bulk load.
 
-Drops secondary indexes and increases max_wal_size to minimize write amplification
-during the bulk load. Run once before reset_pipeline_data.py in the D-03 sequence.
+Version: 1.0
+Status: current
+Last Updated: 2026-06-19
+
+Drops all secondary (non-PK) indexes on signal_events, trade_frames, trade_executions,
+and intelligence_features to eliminate write amplification during the Phase 133 corpus
+rebuild. Also increases max_wal_size from 1GB to 4GB to reduce checkpoint stall frequency.
 
 PKs are NOT dropped — ON CONFLICT clauses in all replay scripts depend on them.
+
+Run once as step 0 of the D-03 rebuild sequence, before reset_pipeline_data.py.
+Run replay_post.py after _verify_replay passes to rebuild indexes and restore settings.
 
 Usage:
     python production/scripts/replay_prep.py
