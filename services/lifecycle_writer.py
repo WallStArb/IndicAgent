@@ -47,14 +47,14 @@ from src.persistence.repository.signal_events_repository import (
 
 CONSUMER_GROUP = "lifecycle_writer_group"
 
-# Fields that asyncpg expects as Python datetime, not ISO strings
+# Fields that asyncpg expects as Python datetime, not ISO strings.
+# Only includes fields written to timestamptz columns directly.
+# market_entry_at / market_entry_exit_at go into frame_details JSONB — keep as ISO strings.
 _TIMESTAMP_FIELDS = frozenset(
     {
         "activated_at",
         "exit_at",
         "shadow_tracking_start_ts",
-        "market_entry_at",
-        "market_entry_exit_at",
     }
 )
 
@@ -162,10 +162,13 @@ class LifecycleWriter(BaseWriter):
         When both replay auditor and live tracker emit EXIT, the second write
         is a status no-op (same status twice) — counted and logged.
         """
+        _VALID_EXIT_STATUSES = {"expired", "regime_suppressed"}
         assert self._repo is not None
         for entry in items:
             signal_id = entry["signal_id"]
-            status = entry.get("status", "expired")
+            raw_status = entry.get("status", "expired")
+            # target_N_hit and other non-enum values are terminal exits — map to "expired"
+            status = raw_status if raw_status in _VALID_EXIT_STATUSES else "expired"
 
             # Update signal_events.status
             await self._repo.update_signal_status(signal_id, status)
