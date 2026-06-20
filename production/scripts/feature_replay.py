@@ -1,4 +1,10 @@
-"""I7-only replay from intelligence_features.
+#!/usr/bin/env python3
+"""
+I7-Only Replay from intelligence_features.
+
+Version: 1.1
+Status: current
+Last Updated: 2026-06-19
 
 Reads stored JSONB tier columns, reconstructs IntelligenceEvent, runs specified I7 plugins,
 inserts into signal_events + trade_frames (3-table schema). Bypasses all I1-I6 compute.
@@ -6,6 +12,7 @@ Depends on migration 125 column names (i1/i2/i3/i4/i5/smc/cross_timeframe_contex
 plan 06 deterministic IDs.
 
 Phase 130: migrated write path to signal_events + trade_frames (3-table schema).
+Phase 133: one connection per (symbol, tf) with executemany batch writes; synchronous_commit=off.
 G0 grouping: one signal_events row + one trade_frames row (at_close) per signal.
 Direction converted from int (1/-1) to text ('long'/'short').
 frame_id = uuid5(NAMESPACE_DNS, f"{signal_id}:at_close") — deterministic across re-runs.
