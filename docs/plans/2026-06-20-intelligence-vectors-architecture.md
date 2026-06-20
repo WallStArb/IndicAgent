@@ -187,6 +187,37 @@ Cross-asset relationships already computed (`flight_to_quality`, `yield_curve`, 
 
 ---
 
+## Simple Price Action Feature Library (Quant Vector seed)
+
+Simons was explicit: simple features with positive IC beat complex ones with higher IC because they're more robust — complex features overfit. The following are the seed candidates for the Quant Vector, each with documented statistical properties and near-zero correlation with each other:
+
+| Feature | Computation | Known property |
+|---------|-------------|----------------|
+| Short-term momentum | 1/3/5-bar return | Behavioral persistence (under-reaction) |
+| Range position | (close - N-bar low) / (N-bar high - N-bar low) | Mean reversion signal; known reversal predictor at extremes |
+| Gap fill rate | % of overnight gap closed intraday | Structural: gaps created by order imbalance tend to fill |
+| Open-to-close decomposition | (close - open) vs (open - prev_close) | Separates informed (overnight) from uninformed (intraday) flow |
+| Volatility-normalized return | bar_return / ATR | Removes regime noise; makes returns comparable across vol states |
+| Bar close position | (close - low) / (high - low) | Buying/selling pressure within bar; complements candle patterns |
+| Volume deviation | volume / N-bar avg volume | Attention and conviction proxy; high vol = informed participation |
+
+None of these alone is tradeable. All of them in an IC-weighted ensemble — that's the edge. These slot into the existing indicator tier as additional plugins and feed into the Quant Vector ensemble.
+
+---
+
+## Alpha Decay Monitoring
+
+Edges erode. A plugin that had IC = 0.06 two years ago may have IC = 0.01 today as the market adapts. The IC engine must run on a rolling window, not a static backtest, and trigger down-weighting automatically when a plugin's rolling IC falls below threshold.
+
+- Rolling IC window: last 500 observations (or 90 days, whichever is larger)
+- Alert threshold: rolling IC drops below 0.02 or CI_lower crosses zero
+- Action: plugin weight in ensemble reduced to zero automatically via APR; human review flagged
+- Recovery: plugin weight restored if rolling IC recovers above threshold with n >= 100
+
+This is the continuous discovery loop — the system self-corrects as market regimes shift, without requiring manual intervention. It mirrors the shadow mode promotion/demotion cycle but operates on raw predictor scores before signal emission.
+
+---
+
 ## Where to Start Right Now
 
 **Today:** Phase 133 corpus rebuild. This is the prerequisite for everything. The IC engine runs on the rebuilt corpus.
