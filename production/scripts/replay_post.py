@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
-"""Post-rebuild index restoration and D-04 acceptance gate checks.
+"""
+Post-Rebuild Index Restoration and D-04 Acceptance Gate Checks.
+
+Version: 1.0
+Status: current
+Last Updated: 2026-06-19
 
 Rebuilds all secondary indexes dropped by replay_prep.py using CREATE INDEX CONCURRENTLY
-(non-blocking), restores max_wal_size, and runs the Phase 133 D-04 acceptance gates.
+(non-blocking — no table lock). Restores max_wal_size to 1GB. Then runs the Phase 133
+D-04 acceptance gate queries and exits non-zero if any gate fails.
 
-Run once after lifecycle_replay.py --workers 8 completes and _verify_replay passes.
+Run once as step 5 of the D-03 rebuild sequence, after lifecycle_replay.py completes
+and _verify_replay passes.
+
+D-04 gates checked:
+    - signal_events count within 2% of baseline (~1,036,513)
+    - distinct setup_plugin count == 35
+    - context_features coverage >= 99%
+    - ctf_score > 0.05 for >= 85% of non-null rows
+    - trade_frames confirmed as hypertable
 
 Usage:
     python production/scripts/replay_post.py
