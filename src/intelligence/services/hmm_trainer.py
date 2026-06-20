@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -436,9 +437,6 @@ class HMMTrainer:
         signal is permitted. Falls back gracefully if systemctl is unavailable or the
         PID cannot be resolved.
         """
-        import os  # noqa: PLC0415
-        import signal  # noqa: PLC0415
-
         systemctl = self._find_systemctl()
         if systemctl is None:
             logger.warning(
