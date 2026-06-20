@@ -1191,3 +1191,61 @@ Plans:
 Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from active phases)
 
 </details>
+
+## v3.0 Intelligence Vectors — AlphaEngine
+
+**Milestone goal:** Replace binary signal plugins with empirical IC measurement. Feature Factory computes 35 orthogonal primitives from raw OHLCV. IC Engine measures predictive power per feature × symbol × TF × regime. Ensemble weighs features by IC. AlphaEmitter publishes `alpha_events` (shadow mode). Live execution runs on a separate platform connected via the Kafka spine.
+
+**Build order:** Phase A → Phase B → Phase C. Phases A-C are the complete v3.0 scope on this platform.
+
+### Phase A: Feature Factory
+
+**Goal:** Build `FeatureFactory` (`src/intelligence/feature_factory.py`) producing a typed `FeatureVector` from raw OHLCV bars. Create `feature_vectors` TimescaleDB hypertable. Run historical backfill across 58 ETFs × 4 TFs. Archive I5-I7. Wire intelligence pipeline to call `FeatureFactory.compute()` per bar.
+
+**Depends on:** Phase 136 (v2.10 complete)
+
+**Success Criteria:**
+1. `feature_vectors` hypertable created with 36 typed columns (no JSONB) — schema per `docs/plans/2026-06-20-v30-system-design.md`
+2. `FeatureFactory.compute(bars, symbol, tf)` → `FeatureVector` frozen dataclass: all 35 primitives implemented
+3. All `feature.*` APR keys seeded in `config_state` (periods, z-score windows, cache refresh cadence)
+4. Historical backfill complete: 58 ETFs × 4 TFs at target depths (5m: 5yr, 15m: 10yr, 1h: 15yr, 1d: 20yr) — row counts validated vs IC spec §II
+5. `regime_label_source = 'filtered'` (forward Viterbi, causal) — no backward smoother
+6. Intelligence pipeline calls `FeatureFactory.compute()` per bar; feature_writer persists to `feature_vectors`
+7. I5/I6/I7 archived (code preserved, removed from pipeline dispatch)
+8. Plugin registry dispatch removed from `IntelligencePipeline` — replaced by single `FeatureFactory` call
+9. Zero inline numeric constants in `feature_factory.py` — all APR-backed via `ConfigService.get()`
+10. Unit tests green
+
+**Plans:** TBD
+
+### Phase B: IC Engine + Outcome Labels
+
+**Goal:** Measure Spearman IC per feature × symbol × TF × regime × lookahead. Build `OutcomeLabeler` (LEAD()-based forward returns → `outcome_labels`). Build `ICEngine` (→ `feature_ic_scores` with bootstrap CI, BH-FDR correction, walk-forward). Produce IC discovery report.
+
+**Depends on:** Phase A
+
+**Success Criteria:**
+1. `outcome_labels` table populated via LEAD() — causal, no lookahead bias
+2. `feature_ic_scores`: one row per (feature, symbol, tf, regime, lookahead) with IC mean, CI bounds, p-value, BH-FDR q-value
+3. IC Sharpe gate enforced: min 10 windows × 2,000 obs = 20,000 independent observations
+4. Walk-forward validation (3 folds) complete — out-of-sample IC confirms in-sample
+5. IC discovery report: which features pass FDR gate by regime and TF
+6. All `alpha.ic.*` APR keys seeded and loaded via `ConfigService.get()`
+
+**Plans:** TBD
+
+### Phase C: Ensemble + Alpha Emission
+
+**Goal:** Ledoit-Wolf shrinkage covariance → `ensemble_weights`. Score all historical bars → `ensemble_alpha`. Empirical emission threshold from transaction cost model. Build `AlphaEmitter` publishing to `alpha_events`. Shadow mode only — alpha events consumed by external execution platform via Kafka.
+
+**Depends on:** Phase B
+
+**Success Criteria:**
+1. `ensemble_weights`: Ledoit-Wolf weights per (symbol, tf, regime, weight_version), max per-feature cap = 0.20
+2. `ensemble_alpha`: composite alpha score (z-scored), CI bounds, per (symbol, tf, bar_ts)
+3. Emission threshold calibrated from transaction cost model — `alpha.quant.threshold.*` APR keys seeded
+4. `alpha_events` populated in shadow mode — published to Kafka topic for downstream consumption
+5. `effective_N >= 3.0` gate enforced before any emission
+6. All `alpha.ensemble.*` APR keys seeded and loaded via `ConfigService.get()`
+
+**Plans:** TBD
