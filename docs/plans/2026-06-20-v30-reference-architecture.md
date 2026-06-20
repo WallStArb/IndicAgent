@@ -250,7 +250,7 @@ alpha = sum(
 
 Given the current bar's I1-I7 state as a query vector, find the K historical bars that looked most similar. Return what price did after each of them.
 
-AnalogEngine does not score. It returns a `list[AnalogResult]`. The Scoring Engine (vil-03) transforms that into a Score Object. The separation is rigid.
+AnalogEngine does not score. It returns a `list[AnalogResult]`. The Scoring Engine (analog-engine-03) transforms that into a Score Object. The separation is rigid.
 
 ### Embedding Serialization Contract
 
@@ -413,7 +413,7 @@ CREATE TABLE effective_n_scores (
     PRIMARY KEY (plugin_set_hash, computed_at)
 );
 
--- Score Objects (analog-based; vil-03 output)
+-- Score Objects (analog-based; analog-engine-03 output)
 CREATE TABLE score_cache (
     bar_ts              TIMESTAMPTZ      NOT NULL,
     symbol              TEXT             NOT NULL,
@@ -456,17 +456,44 @@ ALTER TABLE signal_events ADD COLUMN IF NOT EXISTS ood_flagged             BOOLE
 ### APR Namespaces
 
 ```
+-- AlphaEngine (System 1)
 alpha.weights.*                   -- per-plugin IC Sharpe weights (written by alpha-decay-monitor)
 alpha.ensemble.min_ic_ci_lower    -- minimum CI lower before plugin included [0.0]
 alpha.ensemble.min_n_observations -- minimum N before IC is trusted [100]
 alpha.ic.rolling_window_days      -- trailing window for rolling IC [90]
 alpha.ic.decay_threshold          -- IC below this triggers weight → zero [0.02]
 
-vil.embedding.bar_dim          -- vector dimension for bar embeddings [128]
-vil.embedding.staleness_days   -- reject embeddings older than N days [30]
-vil.retrieval.k_neighbors      -- default K for k-NN queries [50]
-vil.retrieval.candidate_k      -- oversample for IC-weighted re-rank [200]
-vil.retrieval.max_distance     -- null result threshold (cosine) [0.25]
+-- AnalogEngine (System 2) — embedding
+analog.embedding.bar_dim                    -- vector dimension for bar embeddings [128]
+analog.embedding.plugin_dim                 -- vector dimension for plugin history embeddings [90]
+analog.embedding.staleness_days             -- reject embeddings older than N days [30]
+analog.embedding.normalization_window_days  -- rolling z-score window for serialization [90]
+
+-- AnalogEngine (System 2) — retrieval
+analog.retrieval.k_neighbors         -- default K for k-NN queries [50]
+analog.retrieval.candidate_k         -- oversample for IC-weighted re-rank [200]
+analog.retrieval.max_distance        -- null result threshold (cosine) [0.25]
+
+-- AnalogEngine (System 2) — IC factory
+analog.ic.min_n_observations         -- minimum obs before feature IC is trusted [100]
+analog.ic.rolling_window_days        -- trailing window for feature IC [90]
+analog.ic.fdr_alpha                  -- Benjamini-Hochberg FDR correction alpha [0.05]
+
+-- AnalogEngine (System 2) — scoring
+analog.scoring.min_analog_count           -- below this count, conviction=NULL [10]
+analog.scoring.normalization_window_days  -- rolling z-score window for composite normalization [90]
+analog.scoring.horizon_flatness_floor     -- ε: min |z| to classify horizon character [0.3]
+analog.scoring.horizon_decay_fraction     -- δ: fraction of peak z that counts as decayed [0.4]
+analog.scoring.subscore_ic_min_obs        -- min score_cache rows before sub-score IC trusted [500]
+
+-- AnalogEngine (System 2) — correlation
+analog.correlation.redundancy_threshold       -- cosine similarity floor for redundant pair [0.80]
+analog.correlation.min_co_event_write         -- min co-fires to write a similarity_pairs row [30]
+analog.correlation.min_co_event_suppression   -- min co-fires before suppression gate fires [100]
+analog.correlation.effective_n_floor          -- effective-N below this triggers Grafana alert [6]
+
+-- OOD monitor
+analog.ood.alert_rate_threshold      -- OOD rate that triggers Grafana alert [0.20]
 ```
 
 ---
@@ -521,7 +548,7 @@ Simons would build System 1 first. It has no new infrastructure dependencies —
 5.  System 1 — V2 Microstructure plugins
     └─ Only after V1 IC is measured and ensemble is validated
 
-6.  System 2 — AnalogEngine substrate (vil-01)
+6.  System 2 — AnalogEngine substrate (analog-engine-01)
     └─ pgvector extension; schema; bar-embedder; outcome-labeler; retrieve() primitive
     └─ Embedding dimension calibrated using IC report from Step 2
 
@@ -577,13 +604,12 @@ The ML model trains on `counterfactual_pnl_r` as the target. All eight ECL field
 
 | Document | Status | Disposition |
 |----------|--------|-------------|
-| `docs/ideas/vil-01-vector-intelligence-layer.md` | under-review | Canonical detail for AnalogEngine substrate; schema section superseded by this doc |
-| `docs/ideas/vil-02-predictive-feature-intelligence.md` | under-review | Canonical detail for analog-ic-factory and Analog Finder |
-| `docs/ideas/vil-03-scoring-engine.md` | under-review | Canonical detail for scoring-engine (Score Object, granularity dial) |
-| `docs/ideas/vil-04-correlation-intelligence.md` | under-review | Canonical detail for correlation-svc and effective-N |
-| `docs/ideas/vil-05-signal-combiner.md` | under-review | Canonical detail for AnalogEngine-based signal combination |
-| `docs/ideas/vil-06-platform-ideas.md` | under-review | Holding doc; unaffected |
-| `docs/plans/2026-06-20-intelligence-vectors-architecture.md` | superseded | Absorbed here as System 1; V1-V4 taxonomy, IC engine, alpha decay all incorporated |
+| `docs/ideas/analog-engine-01-substrate.md` | under-review | Canonical detail for AnalogEngine substrate; schema section superseded by this doc |
+| `docs/ideas/analog-engine-02-ic-factory.md` | under-review | Canonical detail for analog-ic-factory and Analog Finder |
+| `docs/ideas/analog-engine-03-scoring-engine.md` | under-review | Canonical detail for scoring-engine (Score Object, granularity dial) |
+| `docs/ideas/analog-engine-04-correlation.md` | under-review | Canonical detail for correlation-svc and effective-N |
+| `docs/ideas/analog-engine-06-ideas.md` | under-review | Holding doc; unaffected |
+| `docs/plans/2026-06-20-intelligence-vectors-architecture.md` | active | Strategic foundation: core thesis, V1-V4 rationale, Quant Vector seed feature library, phasing A-E with success criteria. This doc is the conceptual "why"; the VIL reference is the technical "how." Read together. |
 
 ---
 

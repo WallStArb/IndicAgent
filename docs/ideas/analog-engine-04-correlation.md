@@ -10,12 +10,12 @@
 
 ## Foundation
 
-This document is an application of the **Vector Intelligence Layer** (`vil-01-vector-intelligence-layer.md`). VIL is the shared substrate — embed and retrieve. This document defines the **Correlation Intelligence Layer**: the platform's **independence measurement layer**.
+This document is an application of the **Vector Intelligence Layer** (`analog-engine-01-substrate.md`). VIL is the shared substrate — embed and retrieve. This document defines the **Correlation Intelligence Layer**: the platform's **independence measurement layer**.
 
-It is the counterpart to vil-02. The two measure the orthogonal questions you ask of any signal source:
+It is the counterpart to analog-engine-02. The two measure the orthogonal questions you ask of any signal source:
 
-- **vil-02** measures **prediction** — does this predict price? → IC
-- **vil-04** measures **independence** — is this redundant with that? → effective-N / correlation
+- **analog-engine-02** measures **prediction** — does this predict price? → IC
+- **analog-engine-04** measures **independence** — is this redundant with that? → effective-N / correlation
 
 The measurement is entity-agnostic: embed any set of entities' histories, take pairwise cosine similarity, derive effective-N (how many are truly independent) and the redundant pairs. **Plugin correlation is the flagship application — the first and most fully specified — but it is one application of a general capability, not the whole layer.** Independence is the scarce resource in this whole system: Renaissance's edge is *independent* bets, and this layer is where independence is measured, at every level it matters.
 
@@ -76,7 +76,7 @@ This question was originally planned (as Phase 112, since archived) with a hand-
 | **Similarity computation** | How do you measure distance between two histories? | Delegated — pgvector `<=>` |
 | **Domain threshold** | What constitutes "redundant" in trading terms? | Application code — this doc |
 
-Separation of concerns demands these be independent. The representation is **stored** in VIL's embedding registry; the similarity is **computed by the database**; only the domain threshold — what "redundant" means in trading terms — lives in correlation application code. pgvector v0.8.2 is already compiled into the database image (see `vil-01`); the only prerequisite is `CREATE EXTENSION vector;`.
+Separation of concerns demands these be independent. The representation is **stored** in VIL's embedding registry; the similarity is **computed by the database**; only the domain threshold — what "redundant" means in trading terms — lives in correlation application code. pgvector v0.8.2 is already compiled into the database image (see `analog-engine-01`); the only prerequisite is `CREATE EXTENSION vector;`.
 
 **Self-expiry is intrinsic.** Once a plugin is suppressed, its `co_event_count` stops accumulating. After ~13 weeks the pair drops below the minimum co-fire gate and the batch auto-clears the flag. Data starvation is the expiry mechanism — no manual re-activation needed.
 
@@ -105,13 +105,13 @@ This is the layer's true scope, and plugins are one row of it. The eigenvalue/pa
 | Entity | Question it answers | Redundancy means | Consumer |
 |---|---|---|---|
 | **Plugin** (flagship) | how many independent signal *sources*? | two plugins read the same phenomenon | aggregator confidence; suppression governance |
-| **Signal** | how many independent *reads* firing now? | two live signals are the same bet | vil-05's conviction bound |
+| **Signal** | how many independent *reads* firing now? | two live signals are the same bet | analog-engine-05's conviction bound |
 | **Agent** | how many independent *opinions* vs echoes? | an agent just restates another | eAI decorrelation fitness |
 | **Feature** | RSI vs MACD — same momentum twice? | two features encode the same information | feature selection / dimensionality reduction |
 | **Instrument** | which assets move together? | two instruments share a common factor | cross-asset structure, risk concentration |
 | **Position** (future) | how many independent *bets* actually on? | two exposures are one underlying bet | risk / sizing, if ever built |
 
-Each is the same `entity_type`-generic computation over VIL's `similarity_pairs`, scoped to a different entity. Nothing new is built — a new level is a new `entity_type` filter and an eigenvalue call. Two applications are immediately useful: **signal-level** effective-N is the number vil-05's conviction bound depends on, and **feature-level** redundancy is what tells the embedding spec (vil-01) and the IC Factory (vil-02) which features are duplicates rather than independent evidence.
+Each is the same `entity_type`-generic computation over VIL's `similarity_pairs`, scoped to a different entity. Nothing new is built — a new level is a new `entity_type` filter and an eigenvalue call. Two applications are immediately useful: **signal-level** effective-N is the number analog-engine-05's conviction bound depends on, and **feature-level** redundancy is what tells the embedding spec (analog-engine-01) and the IC Factory (analog-engine-02) which features are duplicates rather than independent evidence.
 
 Every application inherits the same data-starvation caveat: gate on co-occurrence before trusting a pair (signals, agents, and positions co-occur far less than plugin outputs do — sparse sets give noisy correlations). And the measurement is always just measurement — *what to do* with a redundant pair (suppress a plugin, bound the combiner, drop a feature, flag an agent) is the application's policy, decided by its consumer, never by this layer.
 
@@ -121,7 +121,7 @@ This is the compounding payoff of putting the independence question on the share
 
 ## Plugin Correlation on the VIL Substrate
 
-Infrastructure prerequisites (pgvector installation, L2-normalization law, operator reference, HNSW index guidance) are defined in `vil-01` and not repeated here. This section covers what is specific to plugin correlation.
+Infrastructure prerequisites (pgvector installation, L2-normalization law, operator reference, HNSW index guidance) are defined in `analog-engine-01` and not repeated here. This section covers what is specific to plugin correlation.
 
 ### Plugin Correlation via pgvector
 
@@ -131,7 +131,7 @@ Instead of computing a direction matrix in Python and storing scalar correlation
 2. **Store** one vector per plugin per weekly batch in VIL's `embeddings` table: `entity_type='plugin'`, `entity_id=plugin_name`, `scope`, `computed_at`, `embedding vector(N)`
 3. **Query** redundant pairs using `<=>` cosine distance — the similarity score between two L2-normalized vectors is equivalent to `signed_r`; no Python matrix math required
 4. **Write** qualifying pairs to VIL's `similarity_pairs` (`entity_type='plugin'`): `cosine_sim` carries `signed_r`, `co_event_count` carries `co_fire_count`
-5. **Apply** domain thresholds (`co_event_count >= 100`, distance `<= 0.20`) in the WHERE clause
+5. **Apply** domain thresholds (APR: `analog.correlation.min_co_event_suppression` >= 100, cosine similarity `>=` APR: `analog.correlation.redundancy_threshold` default 0.80) in the WHERE clause
 6. **Derive** effective-N from the cosine similarity matrix via eigenvalue decomposition — same math, but the raw similarity values come from the database rather than custom formulas
 
 No correlation-specific embedding or pairs table is needed — both are VIL substrate tables. Correlation owns only the suppression governance (`shadow_registry.correlation_suppressed`) and the effective-N history (`plugin_correlation_summary`).
@@ -143,8 +143,8 @@ The self-expiry mechanism (D-09 from the spec) is unaffected. Suppression still 
 ### The Three-Gate Suppression Logic Is Preserved
 
 The pgvector approach changes how similarity is *computed*, not how suppression decisions are *made*. All three gates remain:
-1. Cosine similarity >= 0.80 (replaces `directional_r >= 0.80` — equivalent for L2-normalized vectors)
-2. `co_fire_count >= 100` — unchanged, still enforced in the batch
+1. Cosine similarity >= APR `analog.correlation.redundancy_threshold` (default 0.80; replaces `directional_r >= 0.80` — equivalent for L2-normalized vectors)
+2. `co_fire_count` >= APR `analog.correlation.min_co_event_suppression` (default 100) — still enforced in the batch
 3. Inferior plugin has lower `last_eval_ci_lower` from `shadow_registry` — unchanged
 
 When both `last_eval_ci_lower` values are the `-inf` sentinel (too few resolved signals), fall back to `last_eval_ev_r`. If neither gives a strict comparison, skip the pair — never guess.
@@ -157,7 +157,7 @@ VIL's `similarity_pairs` already enforces canonical ordering (`CHECK (entity_a <
 
 - `similarity_pairs.cosine_sim` carries `signed_r`; `co_event_count` carries `co_fire_count` — for `entity_type='plugin'` rows
 - **Latest-snapshot for plugin pairs**: after each weekly UPSERT, DELETE `entity_type='plugin'` rows not in the current qualifying set. Stale pairs accumulate `co_event_count` forever otherwise.
-- Pair qualification threshold: `co_event_count >= 30` to write the row; `co_event_count >= 100` for the suppression gate (two separate thresholds)
+- Pair qualification threshold: `co_event_count` >= APR `analog.correlation.min_co_event_write` (default 30) to write the row; >= APR `analog.correlation.min_co_event_suppression` (default 100) for the suppression gate (two separate thresholds)
 - `plugin_correlation_summary` (correlation-owned) keeps **full history** — plain INSERT one row per weekly run (~52/year), not UPSERT. Holds effective-N and run metadata; no VIL equivalent exists.
 - `shadow_registry_active` VIEW predicate is `WHERE NOT is_shadow AND NOT correlation_suppressed` — the base table has **no `promoted` column**; `promoted` is wrong and breaks the view
 
@@ -169,7 +169,7 @@ One subtlety worth flagging now, because it inverts the usual rule: the cache lo
 
 ### What to Instrument
 
-The standard VIL retrieval metrics and batch-job-completion contract are inherited from `vil-01`. Correlation adds three point gauges that make signal independence continuously visible: **effective-N** (the headline number), the count of **redundant pairs**, and the count of **currently suppressed** plugins. effective-N is the one that earns a Grafana alert — a floor below ~6 means the 132 plugins have collapsed to dangerously few independent sources.
+The standard VIL retrieval metrics and batch-job-completion contract are inherited from `analog-engine-01`. Correlation adds three point gauges that make signal independence continuously visible: **effective-N** (the headline number), the count of **redundant pairs**, and the count of **currently suppressed** plugins. effective-N is the one that earns a Grafana alert — a floor below APR `analog.correlation.effective_n_floor` (default 6) means the 132 plugins have collapsed to dangerously few independent sources.
 
 ### Cadence
 
@@ -179,7 +179,7 @@ A weekly batch, scheduled to avoid contention with the other weekly ML batches, 
 
 ## Shape of the Work
 
-Correlation is a VIL application — it depends on the VIL substrate (extension enabled, `embeddings` + `similarity_pairs` tables) existing first. The broader compounding story (episodic memory, setup similarity, regime fingerprinting) belongs to `vil-01` and is not re-listed here. Three pieces, in dependency order:
+Correlation is a VIL application — it depends on the VIL substrate (extension enabled, `embeddings` + `similarity_pairs` tables) existing first. The broader compounding story (episodic memory, setup similarity, regime fingerprinting) belongs to `analog-engine-01` and is not re-listed here. Three pieces, in dependency order:
 
 1. **Correlation-specific schema** — the substrate's embedding/similarity tables already exist; correlation adds only what is its own: the `correlation_suppressed` flag (and the active-set view that excludes it), an effective-N history table, and the supporting scan index. Everything else is borrowed from the substrate.
 2. **The weekly batch** — embed each plugin's history (per the VIL embedding spec), let pgvector compute the pairwise similarities, apply the three-gate suppression logic, refresh the latest-snapshot pairs, and record effective-N. This is where the redundancy question is actually answered.
@@ -189,17 +189,17 @@ Correlation is a VIL application — it depends on the VIL substrate (extension 
 
 ## Open Questions
 
-- **Vector dimension**: 90 trading days × 1 float = 90-dim. Or include confidence → 180-dim. Start at 90; measure whether adding confidence improves pair detection.
+- **Vector dimension**: 90 trading days × 1 float = 90-dim. Or include confidence → 180-dim. Start at 90 (APR: `analog.embedding.plugin_dim`, default 90); measure whether adding confidence improves pair detection.
 - **Backfill**: batch operates on `signal_ledger` history from execution date forward. At first run, ~90 days of data should already exist.
-- **Plugin embedding serialization**: the general embedding-serialization law (rolling standardization, versioning) is owned by `vil-01`. Open for plugins specifically: is `direction × confidence` per bar sufficient, or should the per-bar value be standardized against the plugin's own recent output range?
+- **Plugin embedding serialization**: the general embedding-serialization law (rolling standardization, versioning) is owned by `analog-engine-01`. Open for plugins specifically: is `direction × confidence` per bar sufficient, or should the per-bar value be standardized against the plugin's own recent output range?
 
 ---
 
 ## Relationship to Existing Work
 
-- **VIL substrate (`vil-01`):** Owns the `embeddings` and `similarity_pairs` tables, the embedding serialization spec, and the k-NN/cosine primitive. Correlation is a consumer — it writes `entity_type='plugin'` rows and reads them back for effective-N.
+- **VIL substrate (`analog-engine-01`):** Owns the `embeddings` and `similarity_pairs` tables, the embedding serialization spec, and the k-NN/cosine primitive. Correlation is a consumer — it writes `entity_type='plugin'` rows and reads them back for effective-N.
 - **Phase 112 plans:** Archived (`.planning/phases/archive/112-plugin-correlation/`). They used a hand-rolled direction matrix; this doc supersedes them with a VIL-substrate design. The concrete operational detail (exact systemd timing, cache wiring, OTel call patterns, regression assertions) lives in those archived plans and is intentionally left there — this doc keeps the design intent, not the implementation commands.
-- **vil-02 (Predictive Feature Intelligence):** Sibling VIL application. Shares the weekly batch cadence and the same substrate; different question (forward prediction vs independence).
+- **analog-engine-02 (Predictive Feature Intelligence):** Sibling VIL application. Shares the weekly batch cadence and the same substrate; different question (forward prediction vs independence).
 - **`shadow_registry`:** Unchanged. Suppression flags live there. Similarity computation is a separate concern.
 - **`shadow_registry_active` VIEW:** `WHERE NOT is_shadow AND NOT correlation_suppressed` — single interface for active-set consumers. Cache loaders read the base table (documented exception above).
 
