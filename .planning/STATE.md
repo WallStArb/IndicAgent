@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: milestone
-status: completed
-last_updated: "2026-06-20T00:52:51.286Z"
-last_activity: 2026-06-19
+status: Corpus rebuild is the critical path to ML training
+last_updated: "2026-06-20T12:05:06.050Z"
+last_activity: 2026-06-20
 progress:
   total_phases: 17
   completed_phases: 13
@@ -88,81 +88,21 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-### Last session (2026-06-18) — Phase 134 complete; server reboot pending; contract roll in progress
+### Last session (2026-06-20) — analog-engine doc cleanup; Phase 133 ready to execute
 
-Phase 134 fully complete (3/3 plans, all WR/CR fixes committed). Server reboot initiated to pick up all code changes.
+Prerequisites complete: 131 ✓ 132 ✓ 134 ✓ 136 ✓. Corpus: 737 signal_events (21/35 plugins).
 
-**Post-reboot checklist (REQUIRED):**
+Key schema facts: `stopped_at_entry` is an `outcome` enum value, not `exit_reason` (B8 fix in Plan 133-02, Gate 6 SQL updated). `trade_frames.signal_ts` already exists — migration 154 adds it only to `trade_executions`. Migration 154 is the hypertable migration (149 was taken by Phase 134).
 
-1. Re-authenticate IBKR gateway (2FA required — Docker container at 127.0.0.1:7497)
-2. Verify all services running: `systemctl list-units --all | grep indicagent | grep -v dead`
-3. VX/ZB/ZT data was dark — ibkr-provider restart should pick up VXU6/ZBU6/ZTU6 from contract_metadata
-4. ESM6/NQM6/RTYM6 expire June 20 — restart ibkr-provider again after Friday expiry to pick up ESU6/NQU6/RTYU6
-5. Confirm intelligence data flowing: `docker exec redpanda rpk topic consume intelligence --offset end --num 10`
-
-**Intelligence pipeline verified healthy:** all I1-I6 fields populated in Kafka, SSE delivering correctly. "Empty" UX fields are legitimately null (vix_level, fib levels, session levels) — not pipeline breakage.
-
-**Next phase:** `/gsd-plan-phase 135` (controlled vocabulary system) OR `/gsd-execute-phase 133` (clean-corpus-rebuild, already planned)
-
-### Last session (2026-06-17) — Phase 131-133 context captured; ready to plan
-
-Context gathered for all three phases. Key decisions locked:
-
-- 6 missing ETFs (EWZ/FXI/GDXJ/ITB/USO/VLUE) are retired instruments — do NOT add back
-- CrossAssetDivergence is formally live-only; corpus targets 35/36 plugins
-- A7 CTF fix = DB seed at replay startup (`_seed_last_events_from_db()` in feature_pipeline_executor)
-- C2 column naming already resolved — DB columns are functional names (no rename migration needed)
-
-**Resume:** `/gsd-execute-phase 134` (once Phase 132 verification gate passes) → then `/gsd-execute-phase 133`
-
-### Previous session (2026-06-17) — Phase 133 planned; Phase 132 executing in parallel session
-
-Phase 133 (clean-corpus-rebuild) planned: 7 plans in 5 waves. Checker passed (0 blockers). Two warnings fixed. Waiting on Phase 132 completion before 133 can execute.
-
-### Previous session (2026-06-17) — Phase 131/132/133 context captured; plans ready
-
-### Previous session (2026-06-17) — Phase 127 reconciliation done; rebuild finishing
-
-GSD Plans 01/02/03 reconciled against the parallel rebuild; verdict recorded in
-`.planning/phases/127-clean-replay-validation/127-RECONCILIATION.md`. Key outcomes:
-
-- Plan 01 Task 2 (`--warmup` replay) is **superseded + discredited** (warmup is a no-op);
-  127-01-SUMMARY.md corrected with a warning block. Rebuild (`lifecycle_replay --workers 8`)
-  is the actual corpus: 1,036,513 signal_events/trade_frames, 0 orphans.
-
-- Plan 02 (validation report) folds in the rebuild checklist section 5; gated on rebuild completion.
-- Plan 03 (calibration blocker log) independent and valid.
-
-**Resume:** (1) wait for rebuild PID 1736187 to finish trade_executions (~1,036,513);
-(2) run validation checklist section 5; (3) write Plan 02 report; (4) Plan 03;
-(5) restore services (drop `Restart=no` drop-ins); (6) cleanup orphan worktree
-`agent-a88695d6c7efc3f22` + obsolete scripts. Services are DOWN by design until validation passes.
-
-### Previous session (2026-06-15) — Phase 126 complete; proceeding to Phase 128
-
-### Previous session (2026-06-11) — Phase 121 Wave 1 complete; orchestrate running
-
-Phase 121 Wave 1 executed: lifecycle replay infrastructure redesigned + D-01 sequence kicked off:
-
-- `lifecycle_replay.py` redesigned to v1.3: removed hardcoded date windows, added 14 schema columns, shadow-inclusive integrity gate, `_assert_row_types` fail-fast
-- `run_historical_pipeline.py` updated with `--setups` plugin-scoped clean filter (default: `_SHADOW_VALIDATION_SETUPS` frozenset)
-- `phase_121_before_snapshot.py` created; atomic before-snapshot captured: 7,446,342 total signals, 5,184,243 noise signals (22 shadow setups)
-- `phase_121_orchestrate.py` created (7-stage state machine); enhanced mid-session with decompress/recompress stages (TASK-1 from architecture review) to fix hours-long stall on compressed TimescaleDB chunks
-- D-01 sequence: 5,184,243 noise signals deleted; orchestrate at `stages_complete: [snapshot, decompress]` — clean/dry_run/replay/verify/recompress pending
-
-Architecture plan created: `docs/plans/2026-06-11-signal-replay-architecture-plan.md` — DAG violation (I1→I6 wasted in replay), random UUIDs, compression bottleneck, vectorization opportunity. TASK-2 (uuid4 fallbacks) and TASK-3 (feature_replay.py) are next-sprint items.
-
-**Resume:** Complete orchestrate first: `.venv/bin/python production/scripts/phase_121_orchestrate.py`
-Then: `/clear` then `/gsd-execute-phase 121` (Wave 2 — validation report)
+**Next:** `/gsd-execute-phase 133`
 
 ## Current Position
 
-Phase: 136
-Plan: Not started
+Phase: 133 (clean-corpus-rebuild) — READY TO EXECUTE (plans updated 2026-06-20 for Phase 134 schema changes)
 Phase: 135 (controlled-vocabulary-system) — on roadmap, not yet planned
-Phase: 133 (clean-corpus-rebuild) — PLANNED (7 plans, 5 waves); waiting on next session
-Status: Milestone complete
-Last activity: 2026-06-19
+Phase: 136 — COMPLETE (2026-06-19)
+Status: Corpus rebuild is the critical path to ML training
+Last activity: 2026-06-20
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 

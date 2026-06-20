@@ -22,7 +22,7 @@
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104-109 (shipped 2026-05-29)
 - ✅ **v2.8 AI Platform — Part 1** — Phases 094-095, 106-108, 110-116 (shipped 2026-06-08)
 - ✅ **v2.9 Signal Quality Renaissance** — Phases 117-122 (shipped 2026-06-13; 5.18M noise signals deleted, 21 setups refactored, param store wired)
-- 📋 **v2.10 Data Architecture Evolution** — Phases 123-130 (8 phases: ECL restoration + APR full migration (all 3 tiers) + signal universe hardening + clean replay + 3-table migration)
+- ✅ **v2.10 Data Architecture Evolution** — Phases 123-130 (SHIPPED 2026-06-17; ECL + APR + signal hardening + clean replay + 3-table migration)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked — v2.9 complete; next after v2.10)
 
 ## Phases
@@ -1205,9 +1205,9 @@ This phase is split into three waves:
   6. RCA Part VI updated
 
 **Plans**: 3 plans across 3 waves
-- [ ] 127-01-PLAN.md — Capture pre-replay baseline on 3-table schema + execute clean replay with --include-rolled
-- [ ] 127-02-PLAN.md — 3-table validation report (NO Welch'''s t-test, null distribution, bootstrap CI) + RCA Part VI update
-- [ ] 127-03-PLAN.md — Trigger ml-training calibration retrain on clean corpus with pre-flight schema check
+- [x] 127-01-PLAN.md — Capture pre-replay baseline on 3-table schema + execute clean replay with --include-rolled
+- [x] 127-02-PLAN.md — 3-table validation report (NO Welch's t-test, null distribution, bootstrap CI) + RCA Part VI update
+- [x] 127-03-PLAN.md — Trigger ml-training calibration retrain on clean corpus with pre-flight schema check
 
 ---
 
@@ -1297,17 +1297,17 @@ Plans:
 
 1. ✅ Phase 123 complete (ECL boundary restored)
 2. ✅ Phase 124 complete (signal universe integrity + cold-start hardening)
-3. ⏳ Phase 125 complete (APR full migration — all three tiers)
-4. ⏳ Phase 126 complete (signal universe hardening)
-5. ⏳ Phase 127 complete (clean replay + validation)
-6. ⏳ Phase 128-130 complete (3-table signal architecture)
+3. ✅ Phase 125 complete (APR full migration — all three tiers)
+4. ✅ Phase 126 complete (signal universe hardening)
+5. ✅ Phase 127 complete (clean replay + validation)
+6. ✅ Phase 128-130 complete (3-table signal architecture)
 
 **v2.10-complete when:** All 8 phases shipped, clean replay validates corrected pipeline, ML training data integrity restored.
 
 </details>
 
 <details>
-<summary>⏳ Phase 131: Signal Generation Integrity — IN PROGRESS</summary>
+<summary>✅ Phase 131: Signal Generation Integrity — COMPLETE 2026-06-17</summary>
 
 **Goal:** Every plugin that should fire does fire. Every active instrument produces signals. Corpus rebuild is reliable. Phase 133 cannot begin until Phase 131 verification gate passes.
 
@@ -1328,7 +1328,7 @@ Plans:
 </details>
 
 <details>
-<summary>📋 Phase 132: Stop-Zone Geometry + APR Migration — PLANNED</summary>
+<summary>✅ Phase 132: Stop-Zone Geometry + APR Migration — COMPLETE 2026-06-18</summary>
 
 **Goal:** Stops are measured from actual entry price (not zone edge), and every tunable numeric constant in `trade_framer.py` lives in APR. Verify `stopped_at_entry` exit_reason < 5% of stop exits on a fresh 1-month sample replay + lifecycle_replay.
 
@@ -1340,14 +1340,14 @@ Plans:
 
 - [x] 132-01-PLAN.md — A2 measurement: 2-week sample replay + lifecycle_replay, measure stopped_at_entry rate, audit zone_engine for narrow-zone bypass, write A2 disposition (Wave 1)
 - [x] 132-02-PLAN.md — APR migration 144: 19 module-level constants → _cfg() + _THRESHOLD_KEYS; fix run_historical_pipeline.py config wiring gap; seed-value regression test (Wave 1)
-- [ ] 132-03-PLAN.md — APR migration 145: 12 adaptive buffer piecewise coefficients (coupled, tune-as-a-group); anchor-point regression test (Wave 2, depends 02)
-- [ ] 132-04-PLAN.md — APR migration 146: 4 per-asset-class stop floor keys (commodity 1.5, others 1.0) + _min_stop_multiplier_floor router; 1-tick gate preserved (Wave 3, depends 03)
-- [ ] 132-05-PLAN.md — Verification: 1-month replay + stopped_at_entry < 5% gate + 35-key audit + bare-literal audit + commit/push (Wave 4, depends 01-04)
+- [x] 132-03-PLAN.md — APR migration 145: 12 adaptive buffer piecewise coefficients (coupled, tune-as-a-group); anchor-point regression test (Wave 2, depends 02)
+- [x] 132-04-PLAN.md — APR migration 146: 4 per-asset-class stop floor keys (commodity 1.5, others 1.0) + _min_stop_multiplier_floor router; 1-tick gate preserved (Wave 3, depends 03)
+- [x] 132-05-PLAN.md — Verification: 1-month replay + stopped_at_entry < 5% gate + 35-key audit + bare-literal audit + commit/push (Wave 4, depends 01-04)
 
 </details>
 
 <details>
-<summary>📋 Phase 134: Signal Classification Type Safety — PLANNED</summary>
+<summary>✅ Phase 134: Signal Classification Type Safety — COMPLETE 2026-06-18</summary>
 
 **Goal:** All classification columns in the signal ledger are type-enforced end-to-end. `SignalOutcome` persisted to `trade_executions.outcome` (eliminates re-derivation and the stopped_at_entry query bug). `EntryType` Python enum created (replaces 15+ string literals). PostgreSQL ENUM types enforce valid values at write time across all classification columns. No classification can be written silently with an invalid value, and no gate query can trivially pass by referencing a value that doesn't exist.
 
@@ -1381,7 +1381,7 @@ Plans:
 </details>
 
 <details>
-<summary>📋 Phase 136: Post-Reboot System Repair — PLANNED</summary>
+<summary>✅ Phase 136: Post-Reboot System Repair — COMPLETE 2026-06-19</summary>
 
 **Goal:** Restore data integrity and pipeline correctness after 2026-06-18 reboot. Six work units: recover 1,343 orphaned intelligence_features rows (W1 replay), add feature_writer startup pre-flight schema check + JSONB write path fix (W2), fix intelligence pipeline graceful SIGTERM shutdown (W3), disable FVGFill plugin noise (W4), add validate_signal failure reason via ValidationResult NamedTuple (W5), fix plugin_utils ATR unit label + epsilon guard (W6).
 
@@ -1406,21 +1406,27 @@ Plans:
 </details>
 
 <details>
-<summary>📋 Phase 133: Clean Corpus Rebuild — PLANNED</summary>
+<summary>▶ Phase 133: Clean Corpus Rebuild — READY TO EXECUTE (plans updated 2026-06-20)</summary>
 
-**Goal:** One complete, verified, unbiased corpus. All Phase 131 signal bugs fixed. All Phase 132 stop geometry correct. All Phase 134 type enforcement in place. Schema migrated (trade_frames hypertable). Scripts cleaned. Full rebuild produces a corpus satisfying ML training acceptance criteria. ML training is unblocked after this phase.
+**Goal:** One complete, verified, unbiased corpus. All Phase 131 signal bugs fixed. All Phase 132 stop geometry correct. All Phase 134 type enforcement in place. Schema migrated (trade_frames hypertable via migration 154). Scripts cleaned. Full rebuild produces a corpus satisfying ML training acceptance criteria. ML training is unblocked after this phase.
 
-**Prerequisite gate:** Do not begin until Phase 131, Phase 132, AND Phase 134 verification gates all pass.
+**Prerequisite gate:** All pass: Phase 131 ✓ Phase 132 ✓ Phase 134 ✓ Phase 136 ✓
 
-**Sequencing note:** Runs AFTER Phase 134. lifecycle_replay.py already writes `outcome` (Phase 134 Plan 01); PG ENUM constraints already enforce valid classification values at write time (Phase 134 Plan 03). Plan 03's "lifecycle_replay writer update" is now absorbed by Phase 134 Plan 01 — Plan 03 is hypertable migration only.
+**Sequencing note:** Runs AFTER Phase 134. lifecycle_replay.py already writes `outcome` (Phase 134 Plan 01); PG ENUM constraints already enforce valid classification values at write time (Phase 134 Plan 03). Several D-05 cleanup items are already complete (B3, B5, B7, Layer D — see 133-CONTEXT.md Delta section). Migration number for hypertable is 154 (not 149 — taken by Phase 134).
+
+**Key schema realities for execution:**
+- `trade_frames.signal_ts` already exists — migration 154 skips the ADD COLUMN step for trade_frames
+- `trade_executions` does NOT have `signal_ts` yet — migration 154 adds it
+- `stopped_at_entry` is now an `outcome` value (signal_outcome_type ENUM), not an exit_reason — acceptance Gate 6 and _verify_replay both updated to use outcome column
+- Current corpus: 737 signal_events (21/35 plugins) — full rebuild required
 
 **Plans:** 7 plans in 5 waves
 
 Plans:
 
-- [ ] 133-01-PLAN.md — C2 column naming verification + MEMORY.md closure (Wave 1, parallel)
-- [ ] 133-02-PLAN.md — Script cleanup: B2/B3/B4/B5/D items before TRUNCATE (Wave 1, parallel)
-- [ ] 133-03-PLAN.md — C1 trade_frames hypertable migration (Wave 2, depends 02)
+- [ ] 133-01-PLAN.md — C2 column naming verification + MEMORY.md closure (Wave 1, parallel; mostly documentation)
+- [ ] 133-02-PLAN.md — B4 CASCADE + B2 tx hygiene + B8 _verify_replay outcome fix (Wave 1, parallel)
+- [ ] 133-03-PLAN.md — C1 trade_frames hypertable migration 154 (Wave 2, depends 02)
 - [ ] 133-04-PLAN.md — TRUNCATE + full backfill replay (Wave 3, depends 01+02+03)
 - [ ] 133-05-PLAN.md — Lifecycle replay + _verify_replay 0/0/0 gate (Wave 4, depends 04)
 - [ ] 133-06-PLAN.md — Corpus acceptance criteria: all D-04 hard gates + 133-ACCEPTANCE-REPORT.md (Wave 5, depends 05)

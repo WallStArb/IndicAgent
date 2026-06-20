@@ -14,6 +14,8 @@ The goal is not a pipeline that produces signals, but a foundational architectur
 
 ## What Makes It Different
 
+**Edge is discovered, not designed** — The researcher's job is to produce candidate features across orthogonal domains. The IC engine measures which features predict returns. The ensemble discovers what combinations matter. No human encodes what confluence looks like — the data shows it. This is the Renaissance insight: many small independent ICs combined empirically beats any hand-crafted theory about what conditions constitute a tradeable setup.
+
 **Architecture, not pipeline** — Intelligence, execution, and risk are independent subscribers to a shared event stream. Components attach by publishing; nothing already running changes.
 
 **Records counterfactuals** — Every ranked candidate is saved, not just winners. The training dataset captures what was rejected, not just what worked.

@@ -1,7 +1,8 @@
 # Intelligence Vectors Architecture
 
 **Date:** 2026-06-20  
-**Status:** Design — pre-Phase 133  
+**Status:** Active — strategic foundation  
+**Role:** Conceptual "why": core thesis, V1-V4 rationale, Quant Vector seed features, phasing A-E. Read alongside `docs/plans/2026-06-20-v30-reference-architecture.md` (the technical "how").  
 **Milestone:** v3.0
 
 ---

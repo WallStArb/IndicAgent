@@ -39,11 +39,15 @@ Every plugin implements `compute_next()` for O(1) updates per bar. This is the f
 The schema is the API. `IntelligenceEvent` (tiered JSONB: i1, i2, i3, i4, i5, smc, i6) is the sole contract between compute and consumers. `BarIntelligenceRecord` wraps it with ranked signals into an atomic per-bar record on `intelligence.journal` — single topic, single atomic INSERT, no partial writes.
 <!-- src: src/intelligence/schemas.py -->
 
-## 7. Institutional Rigor — Evidence-Graded Signals
+## 7. Institutional Rigor — Evidence-Graded Intelligence
 
-Every signal is evidence-graded. No signal fires without cross-tier confluence. The CIS (Confluence Intelligence Score) requires agreement from at least 3 of 6 independent evidence buckets. A single dominant indicator cannot override the ensemble. Every signal that fires is a labeled training sample — kept forever in the Signal Ledger Architecture (SLA): `signal_events` (detection) / `trade_frames` (hypothesis) / `trade_executions` (execution).
+Every output is evidence-graded. Every feature score, ensemble weight, and alpha emission is traceable to a measured IC against realized forward returns. Bootstrap confidence intervals, p < 0.05 promotion gates, and rolling walk-forward IC are the standard — not static thresholds or hand-tuned weights. Every bar processed adds to the labeled training corpus. Every labeled sample is kept forever.
 
-**See also:** `docs/ideas/renaissance-alpha-pipeline.md` — shadow-first statistical testing (ρ > 0.4, p < 0.05) before any alpha source affects position sizing.
+**The north star:** The researcher produces features across orthogonal domains. The IC engine measures which features predict returns. The ensemble discovers what combinations matter. No human defines what confluence looks like — the data shows it. Any design that requires a researcher to encode which feature combinations constitute edge is a bias embedded in architecture, not rigor. The CIS score (researcher-defined confluence buckets) is a v2.x construct; v3.0 replaces it with IC-weighted ensemble combination where confluence emerges from co-occurring high-IC scores, discovered empirically.
+
+Every alpha emission is a labeled training sample — kept forever in the three-table architecture: `alpha_events` (detection) / `trade_frames` (hypothesis) / `trade_executions` (execution).
+
+**See also:** `docs/ideas/signal-08-intelligence-refactor.md` — full conceptual design of the v3.0 intelligence refactor and the north star principle.
 <!-- src: signal_events table, trade_frames table, trade_executions table -->
 
 ## 8. Self-Correcting Pipeline

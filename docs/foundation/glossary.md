@@ -454,7 +454,7 @@ The parametric IC measurement and ensemble alpha generation system (v3.0, System
 
 **Status:** design (pre-implementation, v3.0)
 
-**Canonical doc:** `docs/plans/2026-06-20-vil-reference-architecture.md`
+**Canonical doc:** `docs/plans/2026-06-20-v30-reference-architecture.md`
 
 **Formerly called:** "Intelligence Vectors" (superseded name — avoid)
 
@@ -462,7 +462,7 @@ The parametric IC measurement and ensemble alpha generation system (v3.0, System
 
 ### `AnalogEngine`
 
-The non-parametric pgvector retrieval substrate (v3.0, System 2). Embeds full I1-I7 bar states as L2-normalized vectors in pgvector. Finds K nearest historical neighbors via HNSW index. Returns what price did after each analog at T+5/10/20/60. Does not score — scoring is the Scoring Engine (vil-03). The null result ("no close analogs exist") is a first-class output and drives the OOD monitor.
+The non-parametric pgvector retrieval substrate (v3.0, System 2). Embeds full I1-I7 bar states as L2-normalized vectors in pgvector. Finds K nearest historical neighbors via HNSW index. Returns what price did after each analog at T+5/10/20/60. Does not score — scoring is the Scoring Engine (analog-engine-03). The null result ("no close analogs exist") is a first-class output and drives the OOD monitor.
 
 **Distinction from AlphaEngine:** AnalogEngine is non-parametric (retrieves historical instances). AlphaEngine is parametric (measures Spearman correlation across all observations). Both are independent and additive.
 
@@ -470,7 +470,7 @@ The non-parametric pgvector retrieval substrate (v3.0, System 2). Embeds full I1
 
 **Status:** design (pre-implementation, v3.0)
 
-**Canonical doc:** `docs/plans/2026-06-20-vil-reference-architecture.md` — also `docs/ideas/vil-01` through `vil-06` for per-layer detail.
+**Canonical doc:** `docs/plans/2026-06-20-v30-reference-architecture.md` — also `docs/ideas/analog-engine-01` through `analog-engine-06` for per-layer detail.
 
 **Formerly called:** "VIL" / "Vector Intelligence Layer" (internal shorthand still acceptable in code comments; canonical name is AnalogEngine)
 

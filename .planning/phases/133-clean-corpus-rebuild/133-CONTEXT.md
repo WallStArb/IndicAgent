@@ -1,7 +1,83 @@
 # Phase 133: Clean Corpus Rebuild — Context
 
 **Gathered:** 2026-06-17
-**Status:** Ready for planning
+**Updated:** 2026-06-20 (post-Phase-134 delta review)
+**Status:** Ready to execute — plans updated for current codebase state
+
+---
+
+## Delta: What Changed Since 2026-06-17
+
+Phase 134 ran before Phase 133 (per roadmap sequencing note: "Runs BEFORE Phase 133"). Several
+context decisions are now stale or complete. Read this before executing any plan.
+
+### Already Complete — Remove from Scope
+
+| Item | Evidence |
+|------|---------|
+| C2 column naming verification | intelligence_features already has functional names; TIER_DB_COLUMNS confirmed |
+| B3 feature_replay stateful compute | `incremental_compute()` in use at line 291 |
+| B5 `--warmup` CLI flag removal | No such argparse argument ever existed; warmup appears only in internal code comments |
+| B7 `_verify_replay` COUNT DISTINCT | `distinct_row` query already present in `_verify_replay` |
+| Layer D: `_cfg` → `_read_config` | zone_engine.py already uses `_read_config` at line 44 |
+| Layer D: confidence.py rename | `src/intelligence/trading/confidence.py` exists |
+| Layer D: phase_127 scripts deleted | No phase_127 files in production/scripts/ |
+| Layer D: migrate_signal_ledger.py archived | File confirmed in production/scripts/archive/ |
+| lifecycle_replay.py writes `outcome` | Both zone-track and market-track INSERTs include `outcome` (Phase 134) |
+
+### Migration Number Conflict
+
+Plan 133-03 assigns migration **149** to the trade_frames hypertable. Migration 149 is taken:
+`149_phase134_outcome_column.sql` (Phase 134). Latest migration is 153. The hypertable migration
+must be **154** (next available).
+
+### Schema Change: trade_frames.signal_ts Already Exists
+
+Phase 133 CONTEXT D-02 Step 5 adds `signal_ts` to `trade_frames`. That column already exists
+(confirmed via `\d trade_frames`). The hypertable migration must SKIP the ADD COLUMN step for
+`trade_frames`. The column still needs to be ADDED to `trade_executions` (not there yet).
+
+### New Bug: _verify_replay `shadow_stopped_at_entry` Is Silently Wrong (Phase 134 regression)
+
+After Phase 134, `stopped_at_entry` is an **outcome** value (in `trade_executions.outcome`), not
+an **exit_reason** value. The `chk_te_exit_reason` CHECK constraint does not include
+`stopped_at_entry`. The current `_verify_replay` query:
+
+```sql
+COUNT(CASE WHEN te.exit_reason = 'stopped_at_entry' ...) as shadow_stopped_at_entry
+```
+
+will always return 0 — silently — because no row can have `exit_reason = 'stopped_at_entry'`.
+This means the stopped-at-entry quality gate is permanently disabled without any error. Silent
+wrong answers are worse than loud crashes.
+
+**Fix required in Plan 133-02:** Change `te.exit_reason = 'stopped_at_entry'` to
+`te.outcome = 'stopped_at_entry'` in `_verify_replay`. Also update the `target_no_pnl` filter to
+remove the dead `'stopped_at_entry'` from the `exit_reason NOT IN (...)` list.
+
+### Acceptance Gate 6 Query Is Stale (Plan 133-06)
+
+Gate 6 queries `exit_reason LIKE 'stopped%'`. After Phase 134, `stopped_at_entry` is in the
+`outcome` column. The Gate 6 SQL must be updated to query `outcome = 'stopped_at_entry'`.
+
+### Current Corpus State (2026-06-20)
+
+| Table | Rows | Notes |
+|-------|------|-------|
+| signal_events | 737 | 21/35 plugins firing — stale, needs full rebuild |
+| trade_frames | 737 | Matches signal_events |
+| trade_executions | 0 | Empty |
+| intelligence_features | 158,084 | Very sparse — needs rebuild |
+
+The target corpus (~1,036,513 signal_events, 35 plugins) has not yet been built.
+
+### reset_pipeline_data.py Table List Expanded
+
+The D-07 table list (17 tables) in the CONTEXT is stale. `reset_pipeline_data.py` now covers
+~50 tables in dependency order. Plan 133-04 should invoke the script rather than enumerating
+the table list inline.
+
+---
 
 <domain>
 ## Phase Boundary

@@ -23,6 +23,7 @@ The principles below follow directly from that.
 - **Degrade gracefully, adapt automatically.** Systems that require manual tuning are fragile. Build feedback loops that self-correct.
 - **Data quality over model complexity.** Clean, complete data beats a smarter model on dirty data every time.
 - **Never drop data that could contain signal.** Storage is the cheapest thing we own. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered.
+- **Edge is discovered, not designed.** The researcher's job is to produce candidate features across orthogonal domains — not to define what combinations constitute a tradeable edge. The IC engine arbitrates what predicts. The ensemble discovers confluence. Any layer that requires a human to define which feature combinations matter is a researcher bias encoded in architecture. Renaissance found thousands of features with IC 0.02-0.06 each and let the ensemble combine them — no individual feature was the insight. The aggregate was.
 
 ## Design Decision Frame
 

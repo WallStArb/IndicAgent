@@ -62,7 +62,7 @@ The solution is non-parametric and does not require a predictive model. It requi
 
 analog-engine-02 produces that raw material: the embedded bars (via VIL), the forward-return labels (Outcome Labeler), the trustworthiness of each feature (IC Factory), and the retrieval that pulls the K analogs (Analog Finder). It stops there. The transformation of those analogs into a score — the distribution, the sub-scores, the composite, the conviction envelope — is owned by the **Scoring Engine** (`analog-engine-03`). The granularity dial (plugin / TF / symbol / cross-asset) also lives there.
 
-**The result:** an empirical memory for the intelligence pipeline. Every bar's intelligence state is connected to what price did next, and every feature carries a continuously-measured verdict on whether it predicts. analog-engine-03 reads these to produce the consumer-facing scores; I7 governance, LLM swarm prompts, eAI fitness, and research tooling consume those.
+**The result:** an empirical memory for the intelligence pipeline. Every bar's intelligence state is connected to what price did next, and every feature carries a continuously-measured verdict on whether it predicts. analog-engine-03 reads these to produce the consumer-facing scores; LLM swarm agents, eAI fitness, and research tooling consume those.
 
 ---
 
@@ -86,7 +86,7 @@ Information Coefficient (Spearman rank correlation between feature value and for
 IC is always computed on data not used to find it. Expanding window: compute IC for month M using only months 1..M-1. A feature whose IC chart is erratic or sign-flipping has no edge.
 
 **3. Multiple comparison correction is a hard requirement.**
-132 plugins × 3 horizons × N regimes = hundreds of hypothesis tests. Without Benjamini-Hochberg FDR correction (APR: `analog.ic.fdr_alpha`, default 0.05), spurious "discoveries" are guaranteed. The features that survive correction are the only ones worth trusting.
+N feature dimensions × 3 horizons × R regimes = hundreds of hypothesis tests. Without Benjamini-Hochberg FDR correction (APR: `analog.ic.fdr_alpha`, default 0.05), spurious "discoveries" are guaranteed. The features that survive correction are the only ones worth trusting.
 
 **4. Effect size over p-values.**
 A p < 0.001 IC of 0.02 is real and useless. Report IC level, IC Sharpe, and the Sharpe ratio of a hypothetical signal built on this feature. If you cannot build a Sharpe > 0.5 strategy from it after transaction costs, it has no practical value.

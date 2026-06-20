@@ -447,7 +447,7 @@ Intel-12 receives analog sets and IC weights. It produces Score Objects. It has 
 
 | Step | Cadence | Cost |
 |---|---|---|
-| k-NN retrieval (VIL/analog-engine-02) | Per-bar at inference | Dominant cost — pgvector query |
+| k-NN retrieval (VIL/analog-engine-02) | Nightly batch (score_cache pre-computation) | Dominant cost — pgvector query |
 | Sub-score computation | Per-bar, in-memory | Negligible — math over K floats |
 | Composite z-score | Per-bar, in-memory | Negligible — weighted sum + normalization |
 | Percentile rank lookup | Per-bar | One `score_cache` read |

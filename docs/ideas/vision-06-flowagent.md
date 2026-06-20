@@ -254,7 +254,7 @@ FlowAgent extends the existing architecture without violating invariants:
 - **DAG invariants preserved** — Flow data flows one direction: source → analysis → Kafka → consumers. No cycles. No service touches the database except Writers/Trackers. See `docs/concepts/dag-execution.md`.
 - **APR-governed** — All flow thresholds, weights, and decay parameters live in `config_state` under `flow.*` namespace. No hardcoded values. See `docs/foundation/adaptive-parameter-registry.md`.
 - **Shadow governance** — Every flow source enrolls in shadow on startup. Promotion requires n ≥ 100 resolved signals and bootstrap CI > 0 at 95% confidence. See `docs/intelligence/intelligence-ai.md`.
-- **VIL-ready** — Flow state embeds alongside bar state for historical analog retrieval via Vector Intelligence Layer. See `docs/ideas/vil-01-vector-intelligence-layer.md`.
+- **VIL-ready** — Flow state embeds alongside bar state for historical analog retrieval via Vector Intelligence Layer. See `docs/ideas/analog-engine-01-substrate.md`.
 - **Ring compliance** — Would live in Ring 2 as `services/flow_agent.py`. See `docs/foundation/naming-system.md`.
 - **Typed events via `stream_keys.py`** — All topic keys constructed centrally. No hardcoded strings. See `src/core/stream_keys.py`.
 
