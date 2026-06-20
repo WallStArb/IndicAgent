@@ -1,5 +1,5 @@
 ---
-phase: A-feature-factory
+phase: 137-feature-factory
 plan: 4
 type: execute
 wave: 3
@@ -58,9 +58,9 @@ Output: `feature_writer.py` writing to `feature_vectors` via `FeatureVectorRecor
 </execution_context>
 
 <context>
-@.planning/phases/A-feature-factory/A-CONTEXT.md
-@.planning/phases/A-feature-factory/A-RESEARCH.md
-@.planning/phases/A-feature-factory/A-PATTERNS.md
+@.planning/phases/137-feature-factory/137-CONTEXT.md
+@.planning/phases/137-feature-factory/137-RESEARCH.md
+@.planning/phases/137-feature-factory/A-PATTERNS.md
 @CLAUDE.md
 </context>
 
@@ -71,7 +71,7 @@ Output: `feature_writer.py` writing to `feature_vectors` via `FeatureVectorRecor
   <files>services/feature_writer.py</files>
   <read_first>
     - services/feature_writer.py (FULL read - current intelligence_features INSERT at line ~73, CONSUMER_GROUP at line ~60, _topic_name/_consumer_group/topics_consumed at lines ~321-330, _verify_schema at ~392, _flush_batch at ~376, the cross-asset/_build_expiry_map blocks to delete)
-    - .planning/phases/A-feature-factory/A-PATTERNS.md (section "services/feature_writer.py" - exact topic change, _INSERT_FEATURE_VECTOR_SQL with 42 placeholders, _parse_payload change, _REQUIRED_COLUMNS, consumer group rename, list of blocks to remove)
+    - .planning/phases/137-feature-factory/A-PATTERNS.md (section "services/feature_writer.py" - exact topic change, _INSERT_FEATURE_VECTOR_SQL with 42 placeholders, _parse_payload change, _REQUIRED_COLUMNS, consumer group rename, list of blocks to remove)
     - src/intelligence/schemas.py (FeatureVectorRecord / FeatureVector from P2 - the payload contract)
     - src/core/stream_keys.py (topic_feature_vectors / topic_feature_vectors_dlq from P2)
   </read_first>
@@ -82,7 +82,7 @@ Output: `feature_writer.py` writing to `feature_vectors` via `FeatureVectorRecor
 
     _topic_name() and topics_consumed return topic_feature_vectors(self.env_name).
 
-    Replace _INSERT_FEATURE_SQL with _INSERT_FEATURE_VECTOR_SQL: INSERT INTO feature_vectors with the column order (symbol, tf, bar_ts, pipeline_version, regime, regime_label_source, then 35 features in the cadence order from A-CONTEXT.md `<specifics>`) and 42 positional placeholders $1..$42, ON CONFLICT (symbol, tf, bar_ts) DO NOTHING.
+    Replace _INSERT_FEATURE_SQL with _INSERT_FEATURE_VECTOR_SQL: INSERT INTO feature_vectors with the column order (symbol, tf, bar_ts, pipeline_version, regime, regime_label_source, then 35 features in the cadence order from 137-CONTEXT.md `<specifics>`) and 42 positional placeholders $1..$42, ON CONFLICT (symbol, tf, bar_ts) DO NOTHING.
 
     Add a module-level `_record_to_insert_params(record: FeatureVectorRecord) -> tuple` returning exactly 42 values in the INSERT column order, reading the 35 features from record.vector.
 
@@ -152,5 +152,5 @@ SC-6 (feature_writer persists to feature_vectors) half satisfied: writer retarge
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/A-feature-factory/A-P4-SUMMARY.md`
+After completion, create `.planning/phases/137-feature-factory/137-P4-SUMMARY.md`
 </output>

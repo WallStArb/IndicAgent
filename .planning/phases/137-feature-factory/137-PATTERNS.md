@@ -1,4 +1,4 @@
-# Phase A: Feature Factory - Pattern Map
+# Phase 137: Feature Factory - Pattern Map
 
 **Mapped:** 2026-06-20
 **Files analyzed:** 8 (new/modified)
@@ -85,7 +85,7 @@ def _get_params(self) -> tuple[float, float, float]:
     )
 ```
 
-**FeatureVector frozen dataclass** — from `A-RESEARCH.md` Pattern 1 (binding spec):
+**FeatureVector frozen dataclass** — from `137-RESEARCH.md` Pattern 1 (binding spec):
 ```python
 from dataclasses import dataclass
 
@@ -135,7 +135,7 @@ class FeatureVector:
     ctf_regime_align: float
 ```
 
-**FeatureFactoryConfig frozen dataclass** — from `A-RESEARCH.md` Pattern 2:
+**FeatureFactoryConfig frozen dataclass** — from `137-RESEARCH.md` Pattern 2:
 ```python
 @dataclass(frozen=True)
 class FeatureFactoryConfig:
@@ -157,7 +157,7 @@ class FeatureFactoryConfig:
     regime_cache_refresh_bars: int  # feature.regime.cache_refresh_bars
 ```
 
-**Rolling z-score pattern** — from `A-RESEARCH.md` Code Examples (confirmed from `src/intelligence/context/vix_context.py`):
+**Rolling z-score pattern** — from `137-RESEARCH.md` Code Examples (confirmed from `src/intelligence/context/vix_context.py`):
 ```python
 from collections import deque
 import numpy as np
@@ -190,7 +190,7 @@ def _rolling_zscore(value: float, history: deque, window: int) -> float:
 
 **Analog:** `src/intelligence/features/smc_context/hmm_regime.py` (state dict pattern), `src/intelligence/context/garch_volatility.py` (incremental state pattern)
 
-**Mutable state dataclass pattern** — from `A-RESEARCH.md` Pattern 3:
+**Mutable state dataclass pattern** — from `137-RESEARCH.md` Pattern 3:
 ```python
 from dataclasses import dataclass, field
 
@@ -304,7 +304,7 @@ OPS_PREFIXES: ClassVar[tuple[str, ...]] = (
     "macro.",
     "ui.",
     "weights.",
-    "alpha.",      # ADD THIS LINE — required before any alpha.* APR write (A-RESEARCH Pitfall 4)
+    "alpha.",      # ADD THIS LINE — required before any alpha.* APR write (137-RESEARCH Pitfall 4)
 )
 ```
 
@@ -468,7 +468,7 @@ CREATE TABLE IF NOT EXISTS backfill_status (
 INSERT INTO config_schema (config_key, value_type, default_value, description) VALUES
     ('feature.momentum.window_short', 'int', '5',   '[conventional] Short momentum lookback bars'),
     ('feature.momentum.window_long',  'int', '20',  '[conventional] Long momentum lookback bars'),
-    -- [all feature.* keys per A-RESEARCH.md Code Examples: APR Seeding Migration]
+    -- [all feature.* keys per 137-RESEARCH.md Code Examples: APR Seeding Migration]
 ON CONFLICT (config_key) DO NOTHING;
 
 -- -------------------------------------------------------------------------
@@ -680,7 +680,7 @@ logger.info("msg", data="something", payload="...", signal="...")
 
 | File | Role | Data Flow | Reason |
 |------|------|-----------|--------|
-| `services/backfill_feature_factory.py` (new-style checkpoint) | service (oneshot) | batch | `run_historical_pipeline.py` has a "pending" concept but no `backfill_status` table pattern. The checkpoint/resume logic in the new script is a novel pattern; planner should implement per D-11 spec in A-CONTEXT.md. |
+| `services/backfill_feature_factory.py` (new-style checkpoint) | service (oneshot) | batch | `run_historical_pipeline.py` has a "pending" concept but no `backfill_status` table pattern. The checkpoint/resume logic in the new script is a novel pattern; planner should implement per D-11 spec in 137-CONTEXT.md. |
 
 ---
 

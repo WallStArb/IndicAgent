@@ -1,5 +1,5 @@
 ---
-phase: A-feature-factory
+phase: 137-feature-factory
 plan: 5
 type: execute
 wave: 3
@@ -12,7 +12,7 @@ requirements: [SC-4, SC-5]
 
 threat_model:
   assets:
-    - "feature_vectors historical corpus (the IC research data - Phase B gate, D-06)"
+    - "feature_vectors historical corpus (the IC research data - Phase 138 gate, D-06)"
     - "backfill_status checkpoint state (resume integrity across interruptions)"
     - "IBKR client connection (fetch path)"
   threats:
@@ -61,9 +61,9 @@ must_haves:
 ---
 
 <objective>
-Build the historical backfill oneshot. Two stages: (1) fetch IBKR OHLCV history into `market_data_ohlcv` for the 58 active ETFs at target depths (the table is currently EMPTY - this is Phase A's first data step, not a precondition); (2) run `FeatureFactory.compute()` over rolling windows from `market_data_ohlcv` and batch-insert into `feature_vectors`. Checkpoint/resume per `(symbol, tf)` via `backfill_status` (D-11). Record per-pair coverage vs theoretical max (D-06 gate for Phase B).
+Build the historical backfill oneshot. Two stages: (1) fetch IBKR OHLCV history into `market_data_ohlcv` for the 58 active ETFs at target depths (the table is currently EMPTY - this is Phase 137's first data step, not a precondition); (2) run `FeatureFactory.compute()` over rolling windows from `market_data_ohlcv` and batch-insert into `feature_vectors`. Checkpoint/resume per `(symbol, tf)` via `backfill_status` (D-11). Record per-pair coverage vs theoretical max (D-06 gate for Phase 138).
 
-Purpose: SC-4 (historical backfill complete: 58 ETFs × 4 TFs at target depths). This produces the IC research corpus. The backfill is the data half of Phase A; the cutover (P6) is gated on this being complete and within 5% of theoretical max.
+Purpose: SC-4 (historical backfill complete: 58 ETFs × 4 TFs at target depths). This produces the IC research corpus. The backfill is the data half of Phase 137; the cutover (P6) is gated on this being complete and within 5% of theoretical max.
 Output: `backfill_feature_factory.py` oneshot, unit tests for checkpoint/resume and proxy correctness, and a populated `feature_vectors` table.
 </objective>
 
@@ -73,9 +73,9 @@ Output: `backfill_feature_factory.py` oneshot, unit tests for checkpoint/resume 
 </execution_context>
 
 <context>
-@.planning/phases/A-feature-factory/A-CONTEXT.md
-@.planning/phases/A-feature-factory/A-RESEARCH.md
-@.planning/phases/A-feature-factory/A-PATTERNS.md
+@.planning/phases/137-feature-factory/137-CONTEXT.md
+@.planning/phases/137-feature-factory/137-RESEARCH.md
+@.planning/phases/137-feature-factory/A-PATTERNS.md
 @CLAUDE.md
 @production/scripts/run_historical_pipeline.py
 </context>
@@ -91,8 +91,8 @@ Output: `backfill_feature_factory.py` oneshot, unit tests for checkpoint/resume 
     - src/intelligence/feature_cache.py (FeatureCache + update_cross_asset + refresh_regime - backfill must drive the cache cadence)
     - src/config/config_service.py (load feature.* APR keys to build FeatureFactoryConfig at init)
     - src/config/settings.py (get_active_contracts(settings) -> 58 active ETFs)
-    - .planning/phases/A-feature-factory/A-PATTERNS.md (section "services/backfill_feature_factory.py" - imports, checkpoint/resume SQL, chunked read, oneshot D-06 exit metric, target timeframes, client-id rule)
-    - .planning/phases/A-feature-factory/A-RESEARCH.md (Pitfall 5 empty market_data_ohlcv; Pitfall 7 chunk size; Pitfall 10 client-id; Open Question 2 warm-up handling)
+    - .planning/phases/137-feature-factory/A-PATTERNS.md (section "services/backfill_feature_factory.py" - imports, checkpoint/resume SQL, chunked read, oneshot D-06 exit metric, target timeframes, client-id rule)
+    - .planning/phases/137-feature-factory/137-RESEARCH.md (Pitfall 5 empty market_data_ohlcv; Pitfall 7 chunk size; Pitfall 10 client-id; Open Question 2 warm-up handling)
   </read_first>
   <action>
     Create an argparse + asyncio.run(main()) oneshot (NOT a daemon; follows the _agent oneshot exception pattern). Two stages controllable by flags (e.g. --fetch-only, --compute-only, default both):
@@ -130,7 +130,7 @@ Output: `backfill_feature_factory.py` oneshot, unit tests for checkpoint/resume 
   <files>tests/unit/service_tests/test_backfill_feature_factory.py</files>
   <read_first>
     - services/backfill_feature_factory.py (the functions to test: pair selection/resume, theoretical_max computation, chunked-read generator, params builder)
-    - .planning/phases/A-feature-factory/A-RESEARCH.md (D-06 coverage gate; theoretical bar count per TF/depth)
+    - .planning/phases/137-feature-factory/137-RESEARCH.md (D-06 coverage gate; theoretical bar count per TF/depth)
     - tests/unit/service_tests/ (existing oneshot test style for fixtures/mocks)
   </read_first>
   <action>
@@ -171,5 +171,5 @@ SC-5 (regime_label_source='filtered') enforced by the backfill writing 'filtered
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/A-feature-factory/A-P5-SUMMARY.md`. Record actual per-(symbol, tf) coverage vs theoretical_max and list any pairs below 80% (excluded from Phase B IC per D-06).
+After completion, create `.planning/phases/137-feature-factory/137-P5-SUMMARY.md`. Record actual per-(symbol, tf) coverage vs theoretical_max and list any pairs below 80% (excluded from Phase 138 IC per D-06).
 </output>

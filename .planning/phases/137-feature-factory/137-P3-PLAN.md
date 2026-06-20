@@ -1,5 +1,5 @@
 ---
-phase: A-feature-factory
+phase: 137-feature-factory
 plan: 3
 type: tdd
 wave: 2
@@ -64,15 +64,15 @@ must_haves:
 ---
 
 <objective>
-Build the pure-function feature library: `FeatureFactory.compute(bars, symbol, tf, cache, config) -> FeatureVector` producing all 35 primitives, plus the mutable `FeatureCache` state container that holds slow-changing regime, cross-asset, CTF, and session values. This is the core of Phase A. All 35 primitive algorithms already exist in the codebase - this plan extracts their pure computational cores and assembles them into one stateless function with APR-backed parameters supplied via a frozen `FeatureFactoryConfig`.
+Build the pure-function feature library: `FeatureFactory.compute(bars, symbol, tf, cache, config) -> FeatureVector` producing all 35 primitives, plus the mutable `FeatureCache` state container that holds slow-changing regime, cross-asset, CTF, and session values. This is the core of Phase 137. All 35 primitive algorithms already exist in the codebase - this plan extracts their pure computational cores and assembles them into one stateless function with APR-backed parameters supplied via a frozen `FeatureFactoryConfig`.
 
 TDD is mandatory here: each primitive has a defined input->output contract (e.g. `bar_close_pos = (close - low) / (high - low)`), so tests are written RED before extraction.
 
-Purpose: This function replaces the 138-plugin registry dispatch at cutover (P6). Its outputs are the IC research corpus for Phase B. Correctness and causal purity (forward-only HMM, OHLCV proxy flow, no IO) are non-negotiable.
+Purpose: This function replaces the 138-plugin registry dispatch at cutover (P6). Its outputs are the IC research corpus for Phase 138. Correctness and causal purity (forward-only HMM, OHLCV proxy flow, no IO) are non-negotiable.
 Output: `feature_factory.py` (FeatureFactory + FeatureFactoryConfig), `feature_cache.py` (FeatureCache + cross-asset proxy populators), green unit tests.
 
 CRITICAL CROSS-ASSET FINDING (verified at planning time): VXX and VIXY are NOT in the 58 active ETFs. The available proxy instruments are GLD, SLV, TLT, SHY, IEF, LQD, HYG, SPY, and sector ETFs. Therefore:
-- `vix_z`: there is no native VIX ETF. Use a realized-volatility proxy - z-score of SPY trailing realized volatility from cross-asset cache (SPY bars). Document this as a proxy in code; Phase B IC will judge it.
+- `vix_z`: there is no native VIX ETF. Use a realized-volatility proxy - z-score of SPY trailing realized volatility from cross-asset cache (SPY bars). Document this as a proxy in code; Phase 138 IC will judge it.
 - `flight_quality`: TLT/SPY relative return divergence (both in universe).
 - `yield_slope_z`: TLT/SHY return-ratio z-score as a 2Y-10Y curve proxy (both in universe).
 All three are computed in `feature_cache.py` from cross-asset ETF bars and read by compute() from FeatureCache - never computed inside compute() from the subject symbol.
@@ -84,9 +84,9 @@ All three are computed in `feature_cache.py` from cross-asset ETF bars and read 
 </execution_context>
 
 <context>
-@.planning/phases/A-feature-factory/A-CONTEXT.md
-@.planning/phases/A-feature-factory/A-RESEARCH.md
-@.planning/phases/A-feature-factory/A-PATTERNS.md
+@.planning/phases/137-feature-factory/137-CONTEXT.md
+@.planning/phases/137-feature-factory/137-RESEARCH.md
+@.planning/phases/137-feature-factory/A-PATTERNS.md
 @CLAUDE.md
 @src/intelligence/context/hurst_exponent.py
 @src/intelligence/context/shannon_entropy.py
@@ -101,8 +101,8 @@ All three are computed in `feature_cache.py` from cross-asset ETF bars and read 
   <files>src/intelligence/feature_factory.py, src/intelligence/feature_cache.py, tests/unit/test_feature_factory.py</files>
   <read_first>
     - src/intelligence/schemas.py (FeatureVector / FeatureVectorRecord from P2 - the output contract)
-    - .planning/phases/A-feature-factory/A-PATTERNS.md (FeatureFactoryConfig and FeatureCache dataclass definitions, rolling z-score pattern, ATR extraction note)
-    - .planning/phases/A-feature-factory/A-RESEARCH.md (Pattern 1/2/3; z-score Code Example; Pitfall 3 OFI/CVD proxy formulas)
+    - .planning/phases/137-feature-factory/A-PATTERNS.md (FeatureFactoryConfig and FeatureCache dataclass definitions, rolling z-score pattern, ATR extraction note)
+    - .planning/phases/137-feature-factory/137-RESEARCH.md (Pattern 1/2/3; z-score Code Example; Pitfall 3 OFI/CVD proxy formulas)
     - src/intelligence/features/i1_indicators/atr.py (ATR Wilder smoothing core)
     - src/intelligence/features/i1_indicators/cmf.py (CMF core)
     - src/intelligence/context/momentum_context.py (log-return + z-score core for momentum_z_5/20)
@@ -154,7 +154,7 @@ All three are computed in `feature_cache.py` from cross-asset ETF bars and read 
     - src/intelligence/context/volume_profile.py (session POC/VAH/VAL for poc_dist_atr, va_position)
     - src/intelligence/context/sr_consensus.py (zone distance for sr_support_dist, sr_resist_dist)
     - src/intelligence/context/anchored_vwap.py (session VWAP + std for vwap_dev_sigma)
-    - .planning/phases/A-feature-factory/A-RESEARCH.md (Pitfall 2 regime cache cadence; Open Question 3 - 1d TF session-feature defaults)
+    - .planning/phases/137-feature-factory/137-RESEARCH.md (Pitfall 2 regime cache cadence; Open Question 3 - 1d TF session-feature defaults)
   </read_first>
   <action>
     RED then GREEN for the regime-level (hmm_regime_prob, hmm_entropy, hurst, shannon, garch_ratio, hma_slope_z, adx), session-level (poc_dist_atr, va_position, sr_support_dist, sr_resist_dist), structural (vwap_dev_sigma), and cross-timeframe (ctf_momentum, ctf_vwap_align, ctf_regime_align) primitives.
@@ -189,7 +189,7 @@ All three are computed in `feature_cache.py` from cross-asset ETF bars and read 
     - src/intelligence/schemas.py (FeatureVector - the assembly target)
     - src/intelligence/context/vix_context.py (VIX z-score pattern - adapt to SPY realized-vol proxy since VXX/VIXY absent)
     - src/intelligence/context/macro_context.py (flight_quality / yield_curve_slope pattern - adapt to TLT/SPY and TLT/SHY)
-    - .planning/phases/A-feature-factory/A-RESEARCH.md (Pitfall 1 cross-asset redesign; Open Question 1 proxy instruments)
+    - .planning/phases/137-feature-factory/137-RESEARCH.md (Pitfall 1 cross-asset redesign; Open Question 1 proxy instruments)
   </read_first>
   <action>
     RED then GREEN:
@@ -239,5 +239,5 @@ SC-9 (zero inline numeric constants in feature_factory.py) satisfied: all tunabl
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/A-feature-factory/A-P3-SUMMARY.md`. Record the cross-asset proxy decisions (vix_z via SPY realized-vol, flight_quality via TLT/SPY, yield_slope_z via TLT/SHY) since VXX/VIXY are not in the universe - Phase B IC will judge these proxies.
+After completion, create `.planning/phases/137-feature-factory/137-P3-SUMMARY.md`. Record the cross-asset proxy decisions (vix_z via SPY realized-vol, flight_quality via TLT/SPY, yield_slope_z via TLT/SHY) since VXX/VIXY are not in the universe - Phase 138 IC will judge these proxies.
 </output>

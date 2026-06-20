@@ -1,10 +1,10 @@
-# Phase A: Feature Factory - Discussion Log
+# Phase 137: Feature Factory - Discussion Log
 
 > **Audit trail only.** Do not use as input to planning, research, or execution agents.
 > Decisions are captured in CONTEXT.md — this log preserves the alternatives considered.
 
 **Date:** 2026-06-20
-**Phase:** A-feature-factory
+**Phase:** 137-feature-factory
 **Areas discussed:** I7 cutover timing, Missing canonical refs, pipeline_version migration
 **Session:** Update to prior context (prior context: 2026-06-20 council deliberation)
 
@@ -12,14 +12,14 @@
 
 ## I7 Cutover Timing
 
-**Background:** The prior CONTEXT had an internal conflict — D-09 said I5-I7 is archived and removed from dispatch in Phase A, but the Deferred section said I5-I7 "remains live in production during Phase A."
+**Background:** The prior CONTEXT had an internal conflict — D-09 said I5-I7 is archived and removed from dispatch in Phase 137, but the Deferred section said I5-I7 "remains live in production during Phase 137."
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Phase A ends with cutover | Feature Factory is built, backfill verified, wired into IntelligencePipeline, then plugin registry dispatch removed and I5-I7 archived as Phase A's final task. | ✓ |
-| Phase A adds Feature Factory in parallel only | I7 keeps running throughout Phase A; cutover is Phase B's opening task. | |
+| Phase 137 ends with cutover | Feature Factory is built, backfill verified, wired into IntelligencePipeline, then plugin registry dispatch removed and I5-I7 archived as Phase 137's final task. | ✓ |
+| Phase 137 adds Feature Factory in parallel only | I7 keeps running throughout Phase 137; cutover is Phase 138's opening task. | |
 
-**User's choice:** Phase A ends with cutover.
+**User's choice:** Phase 137 ends with cutover.
 
 ---
 
@@ -36,8 +36,8 @@
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Backfill verified + live bar flowing + I7 archived | Phase A done when: feature_vectors rows within 5% of theoretical max per (symbol,tf), live 1m bar produces FeatureVector row, I5-I7 in archive, zero plugin dispatch refs in IntelligencePipeline, unit tests green. | ✓ |
-| Unit tests green only | Phase A done when unit tests pass; live verification is Phase B's job. | |
+| Backfill verified + live bar flowing + I7 archived | Phase 137 done when: feature_vectors rows within 5% of theoretical max per (symbol,tf), live 1m bar produces FeatureVector row, I5-I7 in archive, zero plugin dispatch refs in IntelligencePipeline, unit tests green. | ✓ |
+| Unit tests green only | Phase 137 done when unit tests pass; live verification is Phase 138's job. | |
 
 **User's choice:** Full done gate (backfill verified + live bar + I7 archived).
 
@@ -49,18 +49,18 @@
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Archive all of I5-I7 intact — deletion is Phase B's job | Phase A moves all I5/I6/I7 code to archive/ without modification. Phase B IC discovery determines which plugins survive as alpha scorers; Phase B prunes the rest. | ✓ |
-| Archive I5/I6 only; restructure I7 into alpha_scorers/ | Phase A begins the I7 transformation. | |
+| Archive all of I5-I7 intact — deletion is Phase 138's job | Phase 137 moves all I5/I6/I7 code to archive/ without modification. Phase 138 IC discovery determines which plugins survive as alpha scorers; Phase 138 prunes the rest. | ✓ |
+| Archive I5/I6 only; restructure I7 into alpha_scorers/ | Phase 137 begins the I7 transformation. | |
 
-**User's choice:** Archive all of I5-I7 intact — Phase B handles the transformation.
+**User's choice:** Archive all of I5-I7 intact — Phase 138 handles the transformation.
 
-**Notes:** Both missing docs added to canonical refs in CONTEXT. The I7 transition doc specifically informs the archival approach: preserve everything, Phase B is responsible for IC-based pruning and alpha scorer transformation.
+**Notes:** Both missing docs added to canonical refs in CONTEXT. The I7 transition doc specifically informs the archival approach: preserve everything, Phase 138 is responsible for IC-based pruning and alpha scorer transformation.
 
 ---
 
 ## pipeline_version Migration
 
-**Background:** STATE.md from the prior session noted "pipeline_version migration required on `intelligence_features` before Phase A." The IC spec §IV.1 says "no migration needed" because `feature_vectors` already has `pipeline_version` in its DDL.
+**Background:** STATE.md from the prior session noted "pipeline_version migration required on `intelligence_features` before Phase 137." The IC spec §IV.1 says "no migration needed" because `feature_vectors` already has `pipeline_version` in its DDL.
 
 | Option | Description | Selected |
 |--------|-------------|----------|
@@ -79,4 +79,4 @@ None — all three areas had clear user decisions.
 
 ## Deferred Ideas
 
-None — discussion stayed within Phase A scope. User's Renaissance council framing note applied throughout: treat each decision as a first-principles structural choice, not a preference.
+None — discussion stayed within Phase 137 scope. User's Renaissance council framing note applied throughout: treat each decision as a first-principles structural choice, not a preference.

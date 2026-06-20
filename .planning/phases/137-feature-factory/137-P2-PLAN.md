@@ -1,5 +1,5 @@
 ---
-phase: A-feature-factory
+phase: 137-feature-factory
 plan: 2
 type: execute
 wave: 1
@@ -45,7 +45,7 @@ must_haves:
 ---
 
 <objective>
-Add the transport and data contracts that every downstream Phase A component shares: the `topic_feature_vectors` Kafka topic key (and its DLQ), and the `FeatureVector` / `FeatureVectorRecord` dataclasses in `schemas.py`. These are pure additive scaffolding - no behavior change - so they can land in parallel with the schema/APR plan (P1).
+Add the transport and data contracts that every downstream Phase 137 component shares: the `topic_feature_vectors` Kafka topic key (and its DLQ), and the `FeatureVector` / `FeatureVectorRecord` dataclasses in `schemas.py`. These are pure additive scaffolding - no behavior change - so they can land in parallel with the schema/APR plan (P1).
 
 Purpose: P3 (FeatureFactory) returns a `FeatureVector`; P4 (writer) deserializes a `FeatureVectorRecord` and reads the topic; P6 (pipeline) publishes to the topic. All three need these symbols to exist first.
 Output: `topic_feature_vectors`/`topic_feature_vectors_dlq` in stream_keys; `FeatureVector` (35 frozen float fields) + `FeatureVectorRecord` (wire envelope) in schemas.
@@ -57,9 +57,9 @@ Output: `topic_feature_vectors`/`topic_feature_vectors_dlq` in stream_keys; `Fea
 </execution_context>
 
 <context>
-@.planning/phases/A-feature-factory/A-CONTEXT.md
-@.planning/phases/A-feature-factory/A-RESEARCH.md
-@.planning/phases/A-feature-factory/A-PATTERNS.md
+@.planning/phases/137-feature-factory/137-CONTEXT.md
+@.planning/phases/137-feature-factory/137-RESEARCH.md
+@.planning/phases/137-feature-factory/A-PATTERNS.md
 @CLAUDE.md
 </context>
 
@@ -70,7 +70,7 @@ Output: `topic_feature_vectors`/`topic_feature_vectors_dlq` in stream_keys; `Fea
   <files>src/core/stream_keys.py</files>
   <read_first>
     - src/core/stream_keys.py (read env_prefix at line ~41, topic_intelligence_journal at line ~147 as the exact copy template, and the DLQ block around topic_feature_writer_dlq at line ~371)
-    - .planning/phases/A-feature-factory/A-PATTERNS.md (section "src/core/stream_keys.py" - exact function bodies and insert locations)
+    - .planning/phases/137-feature-factory/A-PATTERNS.md (section "src/core/stream_keys.py" - exact function bodies and insert locations)
   </read_first>
   <action>
     Add two module-level functions copying the structure of `topic_intelligence_journal`:
@@ -94,8 +94,8 @@ Output: `topic_feature_vectors`/`topic_feature_vectors_dlq` in stream_keys; `Fea
   <files>src/intelligence/schemas.py</files>
   <read_first>
     - src/intelligence/schemas.py (read the import block lines 1-31 and the existing models; insert AFTER existing Pydantic models - do not disturb TIER_DB_COLUMNS, OHLCVBar, IntelligenceEvent, BarIntelligenceRecord)
-    - .planning/phases/A-feature-factory/A-PATTERNS.md (section "src/intelligence/schemas.py" - exact FeatureVector and FeatureVectorRecord definitions)
-    - .planning/phases/A-feature-factory/A-CONTEXT.md (`<specifics>` - the 35 primitive names grouped by cadence; field names must match exactly)
+    - .planning/phases/137-feature-factory/A-PATTERNS.md (section "src/intelligence/schemas.py" - exact FeatureVector and FeatureVectorRecord definitions)
+    - .planning/phases/137-feature-factory/137-CONTEXT.md (`<specifics>` - the 35 primitive names grouped by cadence; field names must match exactly)
   </read_first>
   <action>
     Add a stdlib `@dataclass(frozen=True)` `FeatureVector` (NOT a Pydantic model, per D-08) with exactly 35 fields, all typed `float`, no defaults, named and ordered exactly: Bar-level (14): momentum_z_5, momentum_z_20, range_position, bar_close_pos, gap_z, informed_flow, volume_z, ofi_z, cvd_slope_z, cmf, rel_volume, vwap_dev_sigma, atr_z, vol_ratio. Session-level (4): poc_dist_atr, va_position, sr_support_dist, sr_resist_dist. Regime-level (7): hmm_regime_prob, hmm_entropy, hurst, shannon, garch_ratio, hma_slope_z, adx. Cross-asset (3): vix_z, flight_quality, yield_slope_z. Calendar (5): in_ny_session, in_overlap, dow_sin, dow_cos, month_position. Cross-timeframe (3): ctf_momentum, ctf_vwap_align, ctf_regime_align.
@@ -109,7 +109,7 @@ Output: `topic_feature_vectors`/`topic_feature_vectors_dlq` in stream_keys; `Fea
     - `from src.intelligence.schemas import FeatureVector, FeatureVectorRecord` succeeds
     - `len(dataclasses.fields(FeatureVector)) == 35`
     - `FeatureVector.__dataclass_params__.frozen is True`
-    - The set of FeatureVector field names equals the 35 names listed in A-CONTEXT.md `<specifics>`
+    - The set of FeatureVector field names equals the 35 names listed in 137-CONTEXT.md `<specifics>`
     - FeatureVectorRecord has a field `vector` annotated `FeatureVector` and a field `regime_label_source` annotated `str`
     - Existing symbols still import: `.venv/bin/python -c "from src.intelligence.schemas import BarIntelligenceRecord, TIER_DB_COLUMNS"` exits 0
   </acceptance_criteria>
@@ -129,5 +129,5 @@ SC-2 (FeatureVector frozen dataclass) partially satisfied: the dataclass contrac
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/A-feature-factory/A-P2-SUMMARY.md`
+After completion, create `.planning/phases/137-feature-factory/137-P2-SUMMARY.md`
 </output>

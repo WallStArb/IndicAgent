@@ -1,5 +1,5 @@
 ---
-phase: A-feature-factory
+phase: 137-feature-factory
 plan: 6
 type: execute
 wave: 4
@@ -30,7 +30,7 @@ threat_model:
       severity: high
       mitigation: "grep -r for archived module imports across src/ services/ tests/ before moving; update or remove references; run full unit suite as the gate (SC-10)"
     - id: T4
-      description: "Plugins modified during archival (D-09 requires intact-without-modification archival; Phase B prunes/transforms)"
+      description: "Plugins modified during archival (D-09 requires intact-without-modification archival; Phase 138 prunes/transforms)"
       severity: medium
       mitigation: "git mv only - no edits to plugin files; acceptance criterion: archived files are byte-identical to pre-move (git mv preserves)"
   block_on: [T1, T2, T3]
@@ -66,11 +66,11 @@ must_haves:
 ---
 
 <objective>
-Execute the atomic cutover (D-09): wire `FeatureFactory.compute()` into `IntelligencePipeline` (replacing the 138-plugin `PluginExecutor` dispatch with one call), prewarm the `feature.*` APR keys and build `FeatureFactoryConfig` at init, publish `FeatureVectorRecord` to `topic_feature_vectors`, and move all I5/I6/I7 code to `src/intelligence/archive/` intact. Then verify the Phase A done-gate: a live 1m bar produces a `feature_vectors` row, zero plugin-dispatch references remain, and the full unit suite is green.
+Execute the atomic cutover (D-09): wire `FeatureFactory.compute()` into `IntelligencePipeline` (replacing the 138-plugin `PluginExecutor` dispatch with one call), prewarm the `feature.*` APR keys and build `FeatureFactoryConfig` at init, publish `FeatureVectorRecord` to `topic_feature_vectors`, and move all I5/I6/I7 code to `src/intelligence/archive/` intact. Then verify the Phase 137 done-gate: a live 1m bar produces a `feature_vectors` row, zero plugin-dispatch references remain, and the full unit suite is green.
 
-This is Phase A's final deliverable. There is no shadow period (D-09) - wire-and-cut in one deploy. I7 ran live until this plan; after it, `signal_events` is no longer written by the live pipeline.
+This is Phase 137's final deliverable. There is no shadow period (D-09) - wire-and-cut in one deploy. I7 ran live until this plan; after it, `signal_events` is no longer written by the live pipeline.
 
-GATING PRECONDITION: This plan must not run until P5's backfill is verified within 5% of theoretical max per (symbol, tf) (D-06). The executor must confirm the coverage gate from A-P5-SUMMARY before cutover.
+GATING PRECONDITION: This plan must not run until P5's backfill is verified within 5% of theoretical max per (symbol, tf) (D-06). The executor must confirm the coverage gate from 137-P5-SUMMARY before cutover.
 
 Purpose: SC-6 (pipeline calls FeatureFactory + writer persists), SC-7 (I5/I6/I7 archived), SC-8 (plugin dispatch removed), SC-10 (unit tests green).
 Output: retargeted pipeline, archived plugins, green suite, live smoke-test confirmation.
@@ -82,10 +82,10 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
 </execution_context>
 
 <context>
-@.planning/phases/A-feature-factory/A-CONTEXT.md
-@.planning/phases/A-feature-factory/A-RESEARCH.md
-@.planning/phases/A-feature-factory/A-PATTERNS.md
-@.planning/phases/A-feature-factory/A-P5-SUMMARY.md
+@.planning/phases/137-feature-factory/137-CONTEXT.md
+@.planning/phases/137-feature-factory/137-RESEARCH.md
+@.planning/phases/137-feature-factory/A-PATTERNS.md
+@.planning/phases/137-feature-factory/137-P5-SUMMARY.md
 @CLAUDE.md
 @docs/plans/2026-06-20-v30-i7-transition.md
 </context>
@@ -101,8 +101,8 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
     - src/intelligence/feature_cache.py (FeatureCache lifecycle: per (symbol,tf), refresh_regime cadence, update_cross_asset)
     - src/intelligence/schemas.py (FeatureVectorRecord - the publish payload)
     - src/core/stream_keys.py (topic_feature_vectors - publish target)
-    - .planning/phases/A-feature-factory/A-PATTERNS.md ("APR Prewarm Registration" + "Kafka Publish Pattern" - msg= kwarg, _THRESHOLD_KEYS additions, set_config_service injection)
-    - .planning/phases/A-feature-factory/A-RESEARCH.md (Pattern 4 prewarm registration)
+    - .planning/phases/137-feature-factory/A-PATTERNS.md ("APR Prewarm Registration" + "Kafka Publish Pattern" - msg= kwarg, _THRESHOLD_KEYS additions, set_config_service injection)
+    - .planning/phases/137-feature-factory/137-RESEARCH.md (Pattern 4 prewarm registration)
   </read_first>
   <action>
     (1) Add the 16 feature.* keys to _THRESHOLD_KEYS (feature.momentum.window_short=5, window_long=20, zscore_window=252, feature.volume.zscore_window=20, feature.ofi.zscore_window=20, feature.cvd.slope_bars=5, feature.cmf.period=20, feature.vol.short_bars=5, feature.vol.long_bars=20, feature.hma.period=20, feature.adx.period=14, feature.hurst.window=252, feature.garch.window=100, feature.vix.zscore_window=252, feature.yield_curve.zscore_window=252, feature.regime.cache_refresh_bars=30) as additive entries.
@@ -133,8 +133,8 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
   <files>src/intelligence/archive/README.md, src/intelligence/register_plugins.py</files>
   <read_first>
     - src/intelligence/register_plugins.py (FULL - all TIER_I5/TIER_I6/TIER_I7/TIER_SMC import lines and tier list definitions to remove/relocate)
-    - docs/plans/2026-06-20-v30-i7-transition.md (archival approach: all I5-I7 archived intact, Phase B transforms - do NOT delete or edit)
-    - .planning/phases/A-feature-factory/A-CONTEXT.md (D-09 archive scope: I5, I6, I7 moved to src/intelligence/archive/ intact without modification)
+    - docs/plans/2026-06-20-v30-i7-transition.md (archival approach: all I5-I7 archived intact, Phase 138 transforms - do NOT delete or edit)
+    - .planning/phases/137-feature-factory/137-CONTEXT.md (D-09 archive scope: I5, I6, I7 moved to src/intelligence/archive/ intact without modification)
     - CLAUDE.md (file/class rename test sweep rule: grep tests/ for moved imports)
   </read_first>
   <action>
@@ -146,7 +146,7 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
 
     Run a repo-wide sweep: `grep -rn "i5_patterns\|smc_context\|intelligence.confluence\|register_plugins" src/ services/ tests/` (excluding archive/). For each live reference to an archived module, either update the import to the archive path (for tests that intentionally test archived behavior) or remove it (for dead references). Tests that imported now-archived plugins must be moved alongside or marked skipped - do not leave collection-time ImportErrors.
 
-    Write src/intelligence/archive/README.md documenting: what was archived (I5/I6/I7 module list), why (D-09 - institutional memory; Phase B IC discovery determines which I7 plugins become alpha scorers), and that the code is intact/unmodified.
+    Write src/intelligence/archive/README.md documenting: what was archived (I5/I6/I7 module list), why (D-09 - institutional memory; Phase 138 IC discovery determines which I7 plugins become alpha scorers), and that the code is intact/unmodified.
   </action>
   <verify>
     .venv/bin/python -c "import services.intelligence_pipeline; print('pipeline imports clean')" && ls src/intelligence/archive/ && .venv/bin/pytest tests/unit/ -q --collect-only 2>&1 | tail -5
@@ -164,14 +164,14 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
   <name>Task 3: Done-gate - backfill coverage check, live bar smoke test, full unit suite green</name>
   <files>services/intelligence_pipeline.py</files>
   <read_first>
-    - .planning/phases/A-feature-factory/A-P5-SUMMARY.md (backfill coverage results - confirm within-5% gate per symbol/tf, D-06)
-    - .planning/phases/A-feature-factory/A-CONTEXT.md (`<specifics>` "Phase A cutover done gate" - the 5 conditions)
+    - .planning/phases/137-feature-factory/137-P5-SUMMARY.md (backfill coverage results - confirm within-5% gate per symbol/tf, D-06)
+    - .planning/phases/137-feature-factory/137-CONTEXT.md (`<specifics>` "Phase 137 cutover done gate" - the 5 conditions)
     - services/intelligence_pipeline.py (the cutover from Task 1 - the live path under test)
   </read_first>
   <action>
-    Execute the Phase A done-gate verification (no code changes expected unless a gate fails):
+    Execute the Phase 137 done-gate verification (no code changes expected unless a gate fails):
 
-    (1) Backfill coverage gate (D-06): query backfill_status for per-(symbol, tf) rows_written vs theoretical_max; confirm pairs are within 5% of theoretical max (>= 95%), or are explicitly flagged < 80% and recorded as excluded from Phase B. Use the verification query from A-RESEARCH.md.
+    (1) Backfill coverage gate (D-06): query backfill_status for per-(symbol, tf) rows_written vs theoretical_max; confirm pairs are within 5% of theoretical max (>= 95%), or are explicitly flagged < 80% and recorded as excluded from Phase 138. Use the verification query from 137-RESEARCH.md.
 
     (2) Live bar smoke test: restart the intelligence-pipeline service (systemctl per service DAG), let one live 1m bar flow through, and confirm a feature_vectors row appears for that bar: `SELECT count(*) FROM feature_vectors WHERE bar_ts > now() - interval '10 minutes'` returns >= 1. Confirm regime_label_source='filtered' and pipeline_version is set on the new row.
 
@@ -188,7 +188,7 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
     - `.venv/bin/pytest tests/unit/ -q` exits 0 (SC-10)
     - `SELECT count(*) FROM feature_vectors WHERE bar_ts > now() - interval '10 minutes'` returns >= 1 after a live bar (smoke test)
     - The newest feature_vectors row has regime_label_source='filtered' and a non-null pipeline_version
-    - backfill_status shows all completed pairs >= 95% coverage, or any < 80% pair is recorded as excluded in A-P6-SUMMARY (D-06)
+    - backfill_status shows all completed pairs >= 95% coverage, or any < 80% pair is recorded as excluded in 137-P6-SUMMARY (D-06)
     - `grep -nE "PluginExecutor|\.process_bar\(|TIER_I[1-7]" services/intelligence_pipeline.py` returns 0 matches
   </acceptance_criteria>
 </task>
@@ -213,5 +213,5 @@ SC-10 (unit tests green) satisfied: full tests/unit/ suite passes.
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/A-feature-factory/A-P6-SUMMARY.md`. Record the smoke-test result, final backfill coverage table, archived module list, and confirmation that all 5 cutover done-gate conditions are met.
+After completion, create `.planning/phases/137-feature-factory/137-P6-SUMMARY.md`. Record the smoke-test result, final backfill coverage table, archived module list, and confirmation that all 5 cutover done-gate conditions are met.
 </output>

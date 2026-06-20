@@ -280,7 +280,7 @@ Archive: `.planning/milestones/v2.10-ROADMAP.md`
 - Design docs: `docs/ideas/signal-08-intelligence-refactor.md` (north star), `docs/plans/2026-06-20-intelligence-vectors-architecture.md` (AlphaEngine technical design)
 
 **Build order (AlphaEngine V1 Quant):**
-- Phase A: IC measurement on existing `signal_events` corpus (exploratory; selection-biased baseline)
+- Phase 137: IC measurement on existing `signal_events` corpus (exploratory; selection-biased baseline)
 - Phase B: Plugin continuous scores — I7 plugins emit `alpha_score` unconditionally alongside binary signal
 - Phase C: IC measurement on `intelligence_features` (all bars, unbiased) — this is the real IC
 - Phase D: Ensemble layer — IC-weighted aggregation → alpha emission; `alpha_quant` replaces hand-crafted confidence

@@ -1186,7 +1186,7 @@ Plans:
 <details>
 <summary>❌ Phase 133: Clean Corpus Rebuild — CANCELLED 2026-06-20</summary>
 
-**Cancellation reason:** Superseded by v3.0 Intelligence Vectors architecture. IC measurement eventually runs on `intelligence_features` (all bars, no selection bias) rather than `signal_events` (only bars where a plugin fired). The binary corpus rebuild would have produced training data for the old paradigm — irrelevant once I7 plugins emit continuous scores. Phase A of v3.0 (IC measurement on existing signal_events corpus as exploratory baseline) replaces this phase.
+**Cancellation reason:** Superseded by v3.0 Intelligence Vectors architecture. IC measurement eventually runs on `intelligence_features` (all bars, no selection bias) rather than `signal_events` (only bars where a plugin fired). The binary corpus rebuild would have produced training data for the old paradigm — irrelevant once I7 plugins emit continuous scores. Phase 137 of v3.0 (IC measurement on existing signal_events corpus as exploratory baseline) replaces this phase.
 
 Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from active phases)
 
@@ -1196,9 +1196,9 @@ Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from 
 
 **Milestone goal:** Replace binary signal plugins with empirical IC measurement. Feature Factory computes 35 orthogonal primitives from raw OHLCV. IC Engine measures predictive power per feature × symbol × TF × regime. Ensemble weighs features by IC. AlphaEmitter publishes `alpha_events` (shadow mode). Live execution runs on a separate platform connected via the Kafka spine.
 
-**Build order:** Phase A → Phase B → Phase C. Phases A-C are the complete v3.0 scope on this platform.
+**Build order:** Phase 137 → Phase 138 → Phase 139. Phases 137-139 are the complete v3.0 scope on this platform.
 
-### Phase A: Feature Factory
+### Phase 137: Feature Factory
 
 **Goal:** Build `FeatureFactory` (`src/intelligence/feature_factory.py`) producing a typed `FeatureVector` from raw OHLCV bars. Create `feature_vectors` TimescaleDB hypertable. Run historical backfill across 58 ETFs × 4 TFs. Archive I5-I7. Wire intelligence pipeline to call `FeatureFactory.compute()` per bar.
 
@@ -1222,27 +1222,27 @@ Plans:
 
 **Wave 1** *(foundation, parallel - no file conflicts)*
 
-- [ ] A-P1-PLAN.md - Schema + APR: migration 155 (feature_vectors hypertable + backfill_status + feature.*/alpha.vector seeds) + alpha. prefix in OPS_PREFIXES (SC-1, SC-3, SC-5)
-- [ ] A-P2-PLAN.md - Contracts: topic_feature_vectors in stream_keys + FeatureVector/FeatureVectorRecord dataclasses in schemas (SC-2)
+- [ ] 137-P1-PLAN.md - Schema + APR: migration 155 (feature_vectors hypertable + backfill_status + feature.*/alpha.vector seeds) + alpha. prefix in OPS_PREFIXES (SC-1, SC-3, SC-5)
+- [ ] 137-P2-PLAN.md - Contracts: topic_feature_vectors in stream_keys + FeatureVector/FeatureVectorRecord dataclasses in schemas (SC-2)
 
 **Wave 2** *(blocked on P1+P2)*
 
-- [ ] A-P3-PLAN.md - TDD: FeatureFactory pure-function library + FeatureCache + all 35 primitives (forward-only HMM, OHLCV proxy flow, cross-asset proxies - VXX/VIXY absent) (SC-2, SC-9)
+- [ ] 137-P3-PLAN.md - TDD: FeatureFactory pure-function library + FeatureCache + all 35 primitives (forward-only HMM, OHLCV proxy flow, cross-asset proxies - VXX/VIXY absent) (SC-2, SC-9)
 
 **Wave 3** *(parallel - P4 blocked on P1+P2, P5 blocked on P1+P3)*
 
-- [ ] A-P4-PLAN.md - feature_writer retarget to feature_vectors (consumer group rename, 42-param INSERT) (SC-6)
-- [ ] A-P5-PLAN.md - Backfill oneshot: IBKR fetch (client-id 40) + FeatureFactory compute from market_data_ohlcv + checkpoint/resume + D-06 coverage gate (SC-4, SC-5)
+- [ ] 137-P4-PLAN.md - feature_writer retarget to feature_vectors (consumer group rename, 42-param INSERT) (SC-6)
+- [ ] 137-P5-PLAN.md - Backfill oneshot: IBKR fetch (client-id 40) + FeatureFactory compute from market_data_ohlcv + checkpoint/resume + D-06 coverage gate (SC-4, SC-5)
 
 **Wave 4** *(blocked on P3+P4+P5; backfill coverage gate must pass first)*
 
-- [ ] A-P6-PLAN.md - Cutover: wire FeatureFactory into pipeline + feature.* prewarm + remove plugin dispatch + archive I5/I6/I7 intact + live smoke test + done-gate (SC-6, SC-7, SC-8, SC-10)
+- [ ] 137-P6-PLAN.md - Cutover: wire FeatureFactory into pipeline + feature.* prewarm + remove plugin dispatch + archive I5/I6/I7 intact + live smoke test + done-gate (SC-6, SC-7, SC-8, SC-10)
 
-### Phase B: IC Engine + Outcome Labels
+### Phase 138: IC Engine + Outcome Labels
 
 **Goal:** Measure Spearman IC per feature × symbol × TF × regime × lookahead. Build `OutcomeLabeler` (LEAD()-based forward returns → `outcome_labels`). Build `ICEngine` (→ `feature_ic_scores` with bootstrap CI, BH-FDR correction, walk-forward). Produce IC discovery report.
 
-**Depends on:** Phase A
+**Depends on:** Phase 137
 
 **Success Criteria:**
 1. `outcome_labels` table populated via LEAD() — causal, no lookahead bias
@@ -1254,11 +1254,11 @@ Plans:
 
 **Plans:** TBD
 
-### Phase C: Ensemble + Alpha Emission
+### Phase 139: Ensemble + Alpha Emission
 
 **Goal:** Ledoit-Wolf shrinkage covariance → `ensemble_weights`. Score all historical bars → `ensemble_alpha`. Empirical emission threshold from transaction cost model. Build `AlphaEmitter` publishing to `alpha_events`. Shadow mode only — alpha events consumed by external execution platform via Kafka.
 
-**Depends on:** Phase B
+**Depends on:** Phase 138
 
 **Success Criteria:**
 1. `ensemble_weights`: Ledoit-Wolf weights per (symbol, tf, regime, weight_version), max per-feature cap = 0.20

@@ -1,4 +1,4 @@
-# Phase A: Feature Factory - Research
+# Phase 137: Feature Factory - Research
 
 **Researched:** 2026-06-20
 **Domain:** Pure-function feature computation library, TimescaleDB hypertable, IBKR historical backfill, I5-I7 archival, IntelligencePipeline cutover
@@ -12,15 +12,15 @@
 ### Locked Decisions
 
 - **D-01:** 35 primitives grouped into named intelligence vectors (trade theses). V1 Quant is the starting hypothesis. IC measures it, not the researcher.
-- **D-02:** V1 Quant is the only vector at Phase A. V2+ deferred until V1 IC is proven. V1 Quant members: `momentum_z_5, momentum_z_20, hma_slope_z, range_position, bar_close_pos, atr_z, vol_ratio, ctf_momentum`
+- **D-02:** V1 Quant is the only vector at Phase 137. V2+ deferred until V1 IC is proven. V1 Quant members: `momentum_z_5, momentum_z_20, hma_slope_z, range_position, bar_close_pos, atr_z, vol_ratio, ctf_momentum`
 - **D-03:** Vector membership APR-governed under `alpha.vector.v1_quant.members`. No hardcoded membership lists.
 - **D-04:** `feature_vectors` stores raw primitives only. No vector column. No aggregation. Schema: `(symbol, tf, bar_ts)` -> 35 typed float columns.
-- **D-05:** Phase A does not touch `intelligence_features`. Source of truth is `market_data_ohlcv` only.
-- **D-06:** Full backfill (58 ETFs x 4 TFs within 5% of theoretical max) is a hard gate before Phase B.
+- **D-05:** Phase 137 does not touch `intelligence_features`. Source of truth is `market_data_ohlcv` only.
+- **D-06:** Full backfill (58 ETFs x 4 TFs within 5% of theoretical max) is a hard gate before Phase 138.
 - **D-07:** `regime_label_source = 'filtered'` always. Forward Viterbi only. Backward smoother banned. DB constraint enforces this.
 - **D-08:** `FeatureFactory.compute()` is a pure function. No DB reads. No Kafka. No state mutations. APR loaded once at init via `FeatureFactoryConfig` frozen dataclass.
-- **D-09:** I5/I6/I7 archived atomically at end of Phase A. No shadow period. I7 runs live until cutover. Archive to `src/intelligence/archive/` intact without modification.
-- **D-10:** `alpha_events` downstream attribution loop (Phase C) must not be blocked by Phase A schema decisions. `feature_vectors` is designed with downstream attribution in mind.
+- **D-09:** I5/I6/I7 archived atomically at end of Phase 137. No shadow period. I7 runs live until cutover. Archive to `src/intelligence/archive/` intact without modification.
+- **D-10:** `alpha_events` downstream attribution loop (Phase 139) must not be blocked by Phase 137 schema decisions. `feature_vectors` is designed with downstream attribution in mind.
 - **D-11:** Backfill is a single job with checkpoint/resume per `(symbol, tf)` pair. `backfill_status` table tracks `{pending, in_progress, complete, failed}`.
 - **D-12:** Existing `feature_writer` service infrastructure is reused. Write target changes from `intelligence_features` to `feature_vectors`.
 - **D-13:** No migration on `intelligence_features`. `feature_vectors` has `pipeline_version` in DDL natively.
@@ -31,7 +31,7 @@ None explicitly listed.
 
 ### Deferred Ideas (OUT OF SCOPE)
 
-- IC measurement (Phase B)
+- IC measurement (Phase 138)
 - V2, V3, and beyond vectors
 - Vector score computation
 - Attribution loop (Kafka return path)
@@ -46,9 +46,9 @@ None explicitly listed.
 
 ## Summary
 
-Phase A builds a pure-function feature library (`FeatureFactory`) producing a typed `FeatureVector` frozen dataclass from raw OHLCV bars, creates the `feature_vectors` TimescaleDB hypertable, runs historical backfill across 58 ETFs x 4 TFs, then cuts over the live pipeline from the 138-plugin registry to a single `FeatureFactory.compute()` call.
+Phase 137 builds a pure-function feature library (`FeatureFactory`) producing a typed `FeatureVector` frozen dataclass from raw OHLCV bars, creates the `feature_vectors` TimescaleDB hypertable, runs historical backfill across 58 ETFs x 4 TFs, then cuts over the live pipeline from the 138-plugin registry to a single `FeatureFactory.compute()` call.
 
-The codebase already contains working implementations for most of the 35 primitives scattered across `src/intelligence/features/`, `src/intelligence/context/`, and `src/intelligence/services/`. Phase A extracts the pure computational core of each, strips plugin scaffolding, and assembles them into a single stateless function library. The existing `feature_writer` service, `BaseWriter` infrastructure, `ConfigService` APR pattern, and `intelligence_pipeline.py` `_prewarm_threshold_config()` pattern are all reused without structural change.
+The codebase already contains working implementations for most of the 35 primitives scattered across `src/intelligence/features/`, `src/intelligence/context/`, and `src/intelligence/services/`. Phase 137 extracts the pure computational core of each, strips plugin scaffolding, and assembles them into a single stateless function library. The existing `feature_writer` service, `BaseWriter` infrastructure, `ConfigService` APR pattern, and `intelligence_pipeline.py` `_prewarm_threshold_config()` pattern are all reused without structural change.
 
 The primary implementation risks are: (1) `vix_z`, `flight_quality`, and `yield_slope_z` currently require live injected frames from cross-asset services - these need redesign as pure functions over cached HTF bar history; (2) the backfill job is a new standalone script consuming `market_data_ohlcv` directly, not a replay of the old pipeline; (3) `alpha.` prefix is not in `OPS_PREFIXES` and must be added to `ConfigService` before any `alpha.*` APR keys can be written; (4) a new `topic_feature_vectors` Kafka topic key must be added to `stream_keys.py`.
 
@@ -111,7 +111,7 @@ The primary implementation risks are: (1) `vix_z`, `flight_quality`, and `yield_
 src/intelligence/
 ├── feature_factory.py      # FeatureFactory class + FeatureFactoryConfig + FeatureVector
 ├── feature_cache.py        # FeatureCache: regime-level (30-bar cadence) + HTF cached state
-└── archive/                # I5, I6, I7 moved here at cutover (Phase A final step)
+└── archive/                # I5, I6, I7 moved here at cutover (Phase 137 final step)
 
 services/
 ├── feature_writer.py       # EXTENDED: write target changes to feature_vectors
@@ -358,7 +358,7 @@ def topic_feature_vectors(env_name: str) -> str:
 
 **Why it happens:** The v2.x pipeline used `market_data_5m` (a separate table) and `intelligence_features` for commodity futures. The new `market_data_ohlcv` table exists but is empty.
 
-**How to avoid:** Phase A must include an IBKR fetch step that populates `market_data_ohlcv` at target depths before `FeatureFactory` backfill runs. The existing `run_historical_pipeline.py --fetch-only` handles IBKR fetch with `--client-id 40`. The `_TF_FETCH_CONFIG` already has correct depths (1d: 7300d, 1h: 5475d, 15m: 3650d, 5m: 1631d). The fetch script filters to `is_active = true` instruments which now returns 58 ETFs only.
+**How to avoid:** Phase 137 must include an IBKR fetch step that populates `market_data_ohlcv` at target depths before `FeatureFactory` backfill runs. The existing `run_historical_pipeline.py --fetch-only` handles IBKR fetch with `--client-id 40`. The `_TF_FETCH_CONFIG` already has correct depths (1d: 7300d, 1h: 5475d, 15m: 3650d, 5m: 1631d). The fetch script filters to `is_active = true` instruments which now returns 58 ETFs only.
 
 **Warning signs:** Backfill job finds 0 rows in `market_data_ohlcv` for any symbol.
 
@@ -401,7 +401,7 @@ def topic_feature_vectors(env_name: str) -> str:
 ### feature_vectors DDL (binding from CONTEXT.md `<specifics>`)
 
 ```sql
--- Source: A-CONTEXT.md <specifics> section + docs/plans/2026-06-20-v30-ground-up-architecture.md
+-- Source: 137-CONTEXT.md <specifics> section + docs/plans/2026-06-20-v30-ground-up-architecture.md
 -- migration: 155_feature_vectors.sql
 CREATE TABLE feature_vectors (
     symbol              text             NOT NULL,
@@ -556,7 +556,7 @@ def _rolling_zscore(value: float, history: deque, window: int) -> float:
 ### Backfill Row Count Verification Query (D-06)
 
 ```sql
--- Source: A-CONTEXT.md D-06, IC spec §II
+-- Source: 137-CONTEXT.md D-06, IC spec §II
 -- Run after backfill completes to verify within 5% of theoretical max
 SELECT
     b.symbol,
@@ -582,7 +582,7 @@ ORDER BY pct_coverage ASC;
 | Backward-smoothing HMM labels (lookahead bias) | Forward Viterbi only (`regime_label_source='filtered'`) | Causally correct IC measurement |
 | Futures/FX pipeline | ETF-only, 58 symbols | Universe locked before IC measurement |
 
-**Deprecated/outdated in Phase A context:**
+**Deprecated/outdated in Phase 137 context:**
 - `BarIntelligenceRecord` schema: not used for `feature_vectors` writes
 - `PluginRegistry.process_bar()`: replaced by `FeatureFactory.compute()` at cutover
 - `topic_intelligence_journal` as feature persistence topic: replaced by `topic_feature_vectors`
@@ -599,7 +599,7 @@ ORDER BY pct_coverage ASC;
 2. **Warm-up window for rolling features at backfill start**
    - What we know: Hurst exponent needs 252-bar window, momentum z-score needs 252-bar window, GARCH needs 100-bar window. The first `feature_vectors` row per symbol cannot have valid z-scores until the warm-up window is satisfied.
    - What's unclear: Whether to (a) skip the first N rows from `feature_vectors` during backfill, (b) write `0.0` cold-start values for the warm-up period, or (c) write `NULL`.
-   - Recommendation: Write `0.0` for features not yet warmed up (consistent with `_nullable_float()` design: None=cold-start issue, but for IC measurement, `0.0` != signal). The IC engine (Phase B) excludes warm-up rows by requiring `pipeline_version` consistency and minimum N. Document the warm-up period per TF in `backfill_status.rows_written` vs `theoretical_max` accounting.
+   - Recommendation: Write `0.0` for features not yet warmed up (consistent with `_nullable_float()` design: None=cold-start issue, but for IC measurement, `0.0` != signal). The IC engine (Phase 138) excludes warm-up rows by requiring `pipeline_version` consistency and minimum N. Document the warm-up period per TF in `backfill_status.rows_written` vs `theoretical_max` accounting.
 
 3. **Session-level VP reset mechanism in backfill**
    - What we know: `poc_dist_atr`, `va_position` use a session track that resets at 09:30 ET. During backfill of daily bars (1d TF), there is no intraday session concept.
@@ -614,7 +614,7 @@ ORDER BY pct_coverage ASC;
 
 - Codebase inspection: `src/intelligence/features/`, `src/intelligence/context/`, `src/intelligence/pipeline/`, `services/intelligence_pipeline.py`, `services/feature_writer.py`, `src/config/config_service.py`, `src/core/stream_keys.py`, `services/service_auditor.py`
 - `docs/plans/2026-06-20-v30-ground-up-architecture.md` — FeatureVector contract, APR namespaces, file locations
-- `.planning/phases/A-feature-factory/A-CONTEXT.md` — all 13 locked decisions
+- `.planning/phases/137-feature-factory/137-CONTEXT.md` — all 13 locked decisions
 - `docs/plans/2026-06-20-v30-alphaengine-ic-spec.md` §II, §III, §IV.1 — data requirements, backfill gate
 - Database inspection: `market_data_ohlcv` (0 rows), `instruments` (58 active ETFs), `config_state` (existing `feature.*` keys), `feature_vectors` (does not exist yet)
 
@@ -646,4 +646,4 @@ ORDER BY pct_coverage ASC;
 1. Confirm VXX is in the 58 active ETFs: `SELECT symbol FROM instruments WHERE symbol = 'VXX' AND is_active = true`
 2. Confirm migration numbering: next migration after `154_instrument_metadata.sql` is `155_*`
 3. `alpha.` prefix must be added to `OPS_PREFIXES` before any `alpha.*` APR writes
-4. `market_data_ohlcv` IBKR fetch must be planned as Phase A's first step (table is empty)
+4. `market_data_ohlcv` IBKR fetch must be planned as Phase 137's first step (table is empty)
