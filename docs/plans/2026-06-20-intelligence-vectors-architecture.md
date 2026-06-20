@@ -8,15 +8,15 @@
 
 ## The Core Thesis
 
-The current I1→I7 pipeline is excellent **feature engineering** but has a structural flaw at the signal layer: I7 plugins use **hand-crafted logic** to decide when a feature combination constitutes a tradeable edge. A human encodes the belief that "RSI divergence + volume confirmation + CTF alignment = signal." This introduces researcher bias at exactly the wrong layer and produces a signal set where most plugins respond to the same underlying phenomenon — correlated signals that don't multiply information.
+The current indicator→signal pipeline is excellent **feature engineering** but has a structural flaw at the signal layer: Signal plugins use **hand-crafted logic** to decide when a feature combination constitutes a tradeable edge. A human encodes the belief that "RSI divergence + volume confirmation + CTF alignment = signal." This introduces researcher bias at exactly the wrong layer and produces a signal set where most plugins respond to the same underlying phenomenon — correlated signals that don't multiply information.
 
 Renaissance's insight: **you don't need complex signals. You need many simple, uncorrelated ones with positive measured IC, combined empirically.**
 
 The shift required is architectural:
 
 ```
-Current:  Feature (I1-I6) → Plugin logic → Binary signal → Ledger
-Target:   Feature (I1-I6) → Plugin score → IC Engine → Ensemble alpha → Ledger
+Current:  Indicators → Confluence → Signal plugin logic → Binary signal → Ledger
+Target:   Indicators → Confluence → Signal plugin score → IC Engine → Ensemble alpha → Ledger
 ```
 
 Signals stop being "a plugin decided it has an edge." Signals become "the ensemble of scored predictors crossed a regime-adjusted threshold that empirically produces positive EV."
@@ -25,10 +25,10 @@ Signals stop being "a plugin decided it has an edge." Signals become "the ensemb
 
 ## Intelligence Vectors
 
-The system produces alpha by aggregating independent views of the same market. Each view is a **vector** — an orthogonal source of scored prediction. The existing I1-I7 pipeline becomes Vector 1.
+The system produces alpha by aggregating independent views of the same market. Each view is a **vector** — an orthogonal source of scored prediction. The existing indicator pipeline becomes Vector 1.
 
 ```
-Vector 1: Quant          — mathematical indicators, composites, I7 plugin scores
+Vector 1: Quant          — mathematical indicators, composites, signal plugin scores
 Vector 2: Microstructure — order flow, CVD, trade size distribution, bid-ask dynamics
 Vector 3: Macro          — cross-asset relationships, VIX term structure, yield curve
 Vector 4: Calendar       — day-of-week, month-end, options expiry, index rebalance
@@ -80,7 +80,7 @@ This is the empirical foundation that replaces researcher intuition.
 
 **What:** Run IC discovery against the rebuilt signal corpus. No pipeline changes.
 
-Measure Spearman IC for each I7 plugin's `factor_scores` (already stored in `signal_events`) against `counterfactual_pnl_r` (already stored in `trade_frames`). Report:
+Measure Spearman IC for each signal plugin's `factor_scores` (already stored in `signal_events`) against `counterfactual_pnl_r` (already stored in `trade_frames`). Report:
 - IC per plugin, per regime, per TF
 - Correlation matrix across plugins (identify redundant pairs)
 - Bootstrap CI for each IC estimate
@@ -108,15 +108,15 @@ CREATE TABLE plugin_ic_scores (
 
 ---
 
-### Phase B: Plugin Scores (I7 emits scores, not just signals)
+### Phase B: Plugin Scores (signal plugins emit scores, not just signals)
 
-**What:** I7 plugins emit a continuous score in [-1, +1] alongside the existing binary signal. Score represents the plugin's directional conviction — negative = bearish, positive = bullish, magnitude = strength.
+**What:** Signal plugins emit a continuous score in [-1, +1] alongside the existing binary signal. Score represents the plugin's directional conviction — negative = bearish, positive = bullish, magnitude = strength.
 
 The existing `raw_confidence` (ICC) maps naturally to this: `score = confidence * direction`. The plugin's `factor_scores` dict (already persisted) IS the decomposed score vector.
 
 Changes:
 - Add `alpha_score: float` field to `IntelligenceEvent` (the typed bus schema)
-- I7 plugins populate it (default: confidence × direction from existing ICC logic)
+- Signal plugins populate it (default: confidence × direction from existing ICC logic)
 - `signal_events` stores it in a new `alpha_score` column
 - The IC engine uses this as the predictor variable going forward
 
@@ -124,9 +124,9 @@ Changes:
 
 ---
 
-### Phase C: Ensemble Layer (new I8-Quant)
+### Phase C: Ensemble Layer
 
-**What:** A deterministic ensemble layer aggregates I7 plugin scores into a single **Quant Vector alpha score** per bar. No LLM. No AI. Pure IC-weighted linear combination.
+**What:** A deterministic ensemble layer aggregates signal plugin scores into a single **Quant Vector alpha score** per bar. No LLM. No AI. Pure IC-weighted linear combination.
 
 ```python
 alpha_quant = sum(
@@ -138,9 +138,9 @@ alpha_quant = sum(
 
 Where `ic_weight` is normalized IC from Phase A, adjusted for correlation (correlated plugins share weight rather than each getting full weight).
 
-The Quant Vector score replaces hand-crafted I7 signal confidence. A signal is emitted when `alpha_quant` crosses the regime-adjusted threshold AND the ensemble CI supports positive EV.
+The Quant Vector score replaces hand-crafted signal plugin confidence. A signal is emitted when `alpha_quant` crosses the regime-adjusted threshold AND the ensemble CI supports positive EV.
 
-This runs in-process in `IntelligencePipeline`, after I7, consuming the plugin scores from the typed bus. DAG: I1→I2→I3→I4→I5→I6→I7(scores)→I8-Ensemble→signal_events.
+This runs in-process in `IntelligencePipeline`, after the signal tier, consuming the plugin scores from the typed bus. DAG: indicators → composites → structure → context → patterns → confluence → signals(scores) → ensemble → signal_events.
 
 **DB additions:**
 
@@ -153,7 +153,7 @@ ALTER TABLE signal_events ADD COLUMN ensemble_ci_lower double precision;
 
 ### Phase D: Vector 2 — Microstructure
 
-**What:** A new plugin tier (or I3/I4 additions) that scores each bar on microstructure quality:
+**What:** A new plugin tier (or structure/context tier additions) that scores each bar on microstructure quality:
 - OFI (Order Flow Imbalance): `(buy_vol - sell_vol) / total_vol` — already partially in codebase
 - CVD slope: directional volume pressure over N bars
 - Trade size distribution: large vs small trade ratio (institutional vs retail signal)
@@ -178,7 +178,7 @@ Purely time-based features — no market data needed beyond the timestamp:
 
 Each feature produces a signed score. IC measurement against forward returns stratified by asset class and regime. These are trivially uncorrelated with technical signals.
 
-**Macro Vector (Vector 3 — already partially built in I4/I5):**
+**Macro Vector (Vector 3 — already partially built in the context tier):**
 
 Cross-asset relationships already computed (`flight_to_quality`, `yield_curve`, `vix_regime`). The shift is:
 - Produce a continuous macro score per bar (not a binary regime flag)
@@ -202,7 +202,7 @@ The report will immediately show which of the 138 plugins carry information. Tha
 
 ## What This Doesn't Change
 
-- The I1-I6 feature pipeline is unchanged — it produces the features the ensemble consumes
+- The indicator-through-confluence pipeline is unchanged — it produces the features the ensemble consumes
 - Signal ledger schema is additive only (new columns, not new tables)
 - HMM regime detection remains the regime-conditioning mechanism
 - APR governs all thresholds and weights
