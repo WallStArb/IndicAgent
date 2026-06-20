@@ -1,9 +1,9 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.10
-milestone_name: milestone
-status: Corpus rebuild is the critical path to ML training
-last_updated: "2026-06-20T12:05:06.050Z"
+milestone: v3.0
+milestone_name: Intelligence Vectors — AlphaEngine
+status: Starting AlphaEngine build — Phase A IC measurement
+last_updated: "2026-06-20T13:00:00.000Z"
 last_activity: 2026-06-20
 progress:
   total_phases: 17
@@ -20,7 +20,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Milestone complete
+**Current focus:** v3.0 AlphaEngine — replace binary signal plugins with continuous IC-weighted score producers
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
@@ -88,20 +88,25 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-### Last session (2026-06-20) — analog-engine doc cleanup; Phase 133 ready to execute
+### Last session (2026-06-20) — v2.10 complete; starting v3.0 AlphaEngine build
 
-Prerequisites complete: 131 ✓ 132 ✓ 134 ✓ 136 ✓. Corpus: 737 signal_events (21/35 plugins).
+v2.10 milestone closed. Phase 133 (corpus rebuild) CANCELLED — superseded by Intelligence Vectors architecture. In the new model IC measurement runs on `intelligence_features` (all bars), not `signal_events` (selection-biased). The corpus rebuild would have produced training data for the OLD binary-signal paradigm; that paradigm is being replaced.
 
-Key schema facts: `stopped_at_entry` is an `outcome` enum value, not `exit_reason` (B8 fix in Plan 133-02, Gate 6 SQL updated). `trade_frames.signal_ts` already exists — migration 154 adds it only to `trade_executions`. Migration 154 is the hypertable migration (149 was taken by Phase 134).
+**v3.0 design docs:**
+- `docs/ideas/signal-08-intelligence-refactor.md` — north star, phasing A-E
+- `docs/plans/2026-06-20-intelligence-vectors-architecture.md` — AlphaEngine technical design
+- `docs/plans/2026-06-20-v30-reference-architecture.md` — v3.0 reference architecture
 
-**Next:** `/gsd-execute-phase 133`
+**Starting with AlphaEngine only (not AnalogEngine).**
+
+**Next:** Plan Phase A — IC measurement on existing signal_events corpus (737 signals, 21+ plugins)
 
 ## Current Position
 
-Phase: 133 (clean-corpus-rebuild) — READY TO EXECUTE (plans updated 2026-06-20 for Phase 134 schema changes)
-Phase: 135 (controlled-vocabulary-system) — on roadmap, not yet planned
-Phase: 136 — COMPLETE (2026-06-19)
-Status: Corpus rebuild is the critical path to ML training
+Milestone: v2.10 — COMPLETE (2026-06-20)
+Milestone: v3.0 — STARTING — AlphaEngine (Intelligence Vectors, V1 Quant)
+Phase: 133 (clean-corpus-rebuild) — CANCELLED (superseded by v3.0 architecture)
+Phase: 135 (controlled-vocabulary-system) — deferred
 Last activity: 2026-06-20
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
