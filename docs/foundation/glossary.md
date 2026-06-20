@@ -567,6 +567,81 @@ ADRs in IndicAgent live at `docs/architecture/` and are named `<concept>-ADR.md`
 
 ---
 
+---
+
+### `intelligence vector`
+
+An orthogonal source of scored market prediction. Each vector independently produces a continuous score per bar per symbol per timeframe in [-1, +1], representing directional conviction from a distinct information source. Vectors are designed to be statistically independent — combining them multiplies information rather than amplifying noise.
+
+IndicAgent's four vectors:
+- **Quant Vector (V1):** I1-I7 mathematical indicators, composites, and pattern plugin scores. The existing pipeline.
+- **Microstructure Vector (V2):** Order flow imbalance, CVD slope, trade size distribution. Captures *who* is trading, not *what the chart shows*.
+- **Macro Vector (V3):** Cross-asset relationships, VIX term structure, yield curve slope. Regime-speed signal (slow-moving).
+- **Calendar Vector (V4):** Day-of-week effects, month-end flows, options expiry, index reconstitution cycles. Purely time-based; orthogonal by construction.
+
+**Not:** a synonym for "tier" (tiers I1-I7 are layers within the Quant Vector). Not a synonym for "signal" (a vector produces scores; signals are emitted when ensemble alpha crosses a threshold).
+
+**Banned:** "intelligence channel," "signal source," "alpha source" (use `intelligence vector`)
+**Status:** design (v3.0)
+
+---
+
+### `alpha score`
+
+The continuous directional conviction score produced by an I7 plugin or ensemble layer. A float in [-1, +1]. Negative = bearish conviction, positive = bullish conviction, magnitude = strength of conviction. Distinct from `raw_confidence` (ICC), which is unsigned magnitude [0, 1].
+
+The `alpha_score` at the plugin level is computed as `raw_confidence × direction`. At the ensemble level it is the IC-weighted linear combination of plugin alpha scores, adjusted for inter-plugin correlation.
+
+**Not:** synonymous with `raw_confidence` (unsigned ICC). Not the same as `counterfactual_pnl_r` (realized outcome).
+**Banned:** "plugin score," "direction score," "conviction score" (use `alpha_score`)
+**Status:** design (v3.0 Phase B)
+
+---
+
+### `Information Coefficient (IC)`
+
+The Spearman rank correlation between a predictor score observed at time `t` and the subsequent N-bar return. The primary empirical measure of a plugin's or vector's predictive power.
+
+IC = 0.03-0.05 is meaningful in practice. IC = 0.10 is exceptional. IC is always measured with bootstrap confidence intervals — a plugin requires `IC_CI_lower > 0.0` at `n >= 100` observations to be considered predictive. IC is stratified by: timeframe, HMM regime, lookahead window (1/5/10/20 bars), and asset class.
+
+IC is regime-conditional: the same plugin may have IC = 0.07 in trending regimes and IC = -0.01 in mean-reverting regimes. HMM regime conditions ensemble weights.
+
+**Not:** mutual information (a different information-theoretic measure used for tag classification). Not `calibrated_confidence` (post-calibration output probability).
+**Banned:** "predictive power score," "signal quality score" (use `IC` or `information coefficient`)
+**Status:** design (v3.0 Phase A); stored in `plugin_ic_scores` table
+
+---
+
+### `ensemble alpha`
+
+The final combined alpha score produced by the Ensemble layer (I8-Quant) from all contributing intelligence vector scores. Computed as the IC-weighted, orthogonality-adjusted linear combination of active plugin alpha scores within and across vectors.
+
+A signal is emitted when `ensemble_alpha` crosses the regime-adjusted threshold AND the ensemble confidence interval supports positive expected value.
+
+```
+ensemble_alpha = Σ alpha_score[p] × ic_weight[p][regime][tf]
+                 for p in active_plugins
+                 where IC_CI_lower[p][regime][tf] > 0.0
+```
+
+**Not:** a hand-crafted composite (weights come from measured IC, not human judgment). Not `raw_confidence` (plugin-level ICC).
+**Banned:** "combined score," "aggregate signal," "signal composite" (use `ensemble alpha`)
+**Status:** design (v3.0 Phase C)
+
+---
+
+### `IC discovery`
+
+The empirical process of measuring Information Coefficient for each plugin score against future returns across regimes, timeframes, and lookahead windows. The mechanism by which edges are found rather than assumed.
+
+IC discovery runs on the signal corpus (`signal_events.factor_scores` × `trade_frames.counterfactual_pnl_r`). Output is persisted to `plugin_ic_scores`. Plugins with `IC_CI_lower <= 0.0` at sufficient N are down-weighted to zero in the ensemble — they contribute no information regardless of how convincing their logic appears.
+
+**Not:** shadow mode (shadow measures realized/counterfactual P&L after signal emission; IC discovery measures raw feature predictiveness before signal emission).
+**Banned:** "signal discovery," "edge discovery," "alpha discovery" (use `IC discovery`)
+**Status:** design (v3.0 Phase A); prerequisite: Phase 133 corpus rebuild
+
+---
+
 ## See Also
 
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names
