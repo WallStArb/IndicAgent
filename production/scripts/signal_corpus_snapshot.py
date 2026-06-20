@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-Capture a snapshot of the signal corpus for before/after comparison.
+Signal Corpus Snapshot — before/after comparison for corpus rebuilds.
+
+Version: 1.0
+Status: current
+Last Updated: 2026-06-17
 
 Queries signal_events, trade_frames, and trade_executions and writes a
 JSON summary with row counts, cold-start metrics, and per-setup breakdown.
+Use before and after a corpus rebuild to verify acceptance gates.
 
 Usage:
     python production/scripts/signal_corpus_snapshot.py [--output PATH]
