@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v3.0
-milestone_name: Intelligence Vectors — AlphaEngine
+milestone_name: milestone
 status: Starting AlphaEngine build — Phase A IC measurement
-last_updated: "2026-06-20T13:00:00.000Z"
+last_updated: "2026-06-20T15:50:46.724Z"
 last_activity: 2026-06-20
 progress:
-  total_phases: 17
-  completed_phases: 13
-  total_plans: 95
-  completed_plans: 72
-  percent: 76
+  total_phases: 2
+  completed_phases: 0
+  total_plans: 11
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -88,11 +88,40 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-### Last session (2026-06-20) — v2.10 complete; starting v3.0 AlphaEngine build
+### Last session (2026-06-20, session 2) — AlphaEngine V1 methodology spec written
+
+Deep brainstorming on Renaissance alignment. Council-of-engineers review found and resolved six
+critical gaps: lookahead bias in forward returns, HMM regime smoothing bias, serial
+autocorrelation in IC standard errors, multiple testing scale, direction encoding in ensemble
+weights, and feature_matrix research-vs-production conflation.
+
+**Key decisions:**
+- Regime-conditional IC mandatory from start — pooled IC is not a fallback, it is excluded
+- IC Sharpe requires 20,000 independent obs — no interim proxy; get the data
+- Forward returns via LEAD() on `bar->>'o'` within `intelligence_features` — no join to OHLCV
+- `feature_candidates` (long) for research; `feature_matrix` (wide) for promoted-only production
+- `ensemble_weights.weight` non-negative; direction via `ic_sign` column; applied as
+  `sign(ic) × centered_score × weight` at ensemble time
+- `has_gap_before_entry` flag on outcome_labels; gap and non-gap IC measured separately
+- `pipeline_version` migration required on `intelligence_features` before Phase A
+
+**Doc written:** `docs/plans/2026-06-20-alphaengine-v1-methodology.md`
+
+**DB facts confirmed (intelligence_features):**
+- Column names: `tf` (not timeframe), `ts`, `smc` (HMM fields), `bar` (OHLCV: o/c)
+- HMM state in `smc`: `hmm_prob_trending_up`, `hmm_prob_ranging`, `hmm_prob_trending_down`
+- Data: 1m 2mo, 5m 6mo, 15m 10mo, 1h 5.5yr — needs ETF backfill for IC Sharpe minimum
+
+**Next session:**
+1. Update stale docs (from previous session pending list in memory)
+2. Plan Phase A — backfill requirement first, then IC measurement batch jobs
+
+### Last session (2026-06-20, session 1) — v2.10 complete; starting v3.0 AlphaEngine build
 
 v2.10 milestone closed. Phase 133 (corpus rebuild) CANCELLED — superseded by Intelligence Vectors architecture. In the new model IC measurement runs on `intelligence_features` (all bars), not `signal_events` (selection-biased). The corpus rebuild would have produced training data for the OLD binary-signal paradigm; that paradigm is being replaced.
 
 **v3.0 design docs:**
+
 - `docs/ideas/signal-08-intelligence-refactor.md` — north star, phasing A-E
 - `docs/plans/2026-06-20-intelligence-vectors-architecture.md` — AlphaEngine technical design
 - `docs/plans/2026-06-20-v30-reference-architecture.md` — v3.0 reference architecture
