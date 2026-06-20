@@ -1,6 +1,6 @@
 # Phase A: Feature Factory — Context
 
-**Gathered:** 2026-06-20
+**Gathered:** 2026-06-20 (updated 2026-06-20)
 **Status:** Ready for planning
 **Source:** Council deliberation — Renaissance design principles applied
 
@@ -9,15 +9,15 @@
 <domain>
 ## Phase Boundary
 
-Phase A delivers **one thing only:** a pure-function library (`FeatureFactory`) that computes 35 orthogonal primitives from raw OHLCV bars and persists them to a new `feature_vectors` hypertable. That is the complete scope.
+Phase A delivers **one thing only:** a pure-function library (`FeatureFactory`) that computes 35 orthogonal primitives from raw OHLCV bars and persists them to a new `feature_vectors` hypertable. Phase A ends with a clean cutover: I5/I6/I7 is archived, plugin dispatch is removed from `IntelligencePipeline`, and a live bar is verified flowing through `FeatureFactory` into `feature_vectors`.
 
 Phase A does NOT:
 - Measure IC (Phase B)
 - Define or compute vector scores (Phase B)
 - Emit alpha events (Phase C)
 - Make any claim about which features predict returns
-- Archive I5-I7 from a trading perspective — they are archived from the pipeline, not from the codebase
-- Replace the existing live pipeline signal emission (I5-I7 remains in production as-is during Phase A)
+- Transform I7 plugins into alpha scorers (Phase B handles after IC discovery)
+- Replace the existing live pipeline signal emission until the final cutover step — I7 runs until Phase A's last deliverable
 
 The output of Phase A is infrastructure, not evidence. A populated `feature_vectors` table proves that the machinery works — it proves nothing about whether any feature predicts price.
 
@@ -101,13 +101,21 @@ The output of Phase A is infrastructure, not evidence. A populated `feature_vect
 
 **APR loading:** APR keys (periods, z-score windows) are loaded once at pipeline init via `ConfigService.get()` and passed to `FeatureFactory` as a `FeatureFactoryConfig` frozen dataclass. `FeatureFactory` does not call `ConfigService` at compute time.
 
-### D-09: I5/I6/I7 Archived — Not Deleted, Not Running
+### D-09: I5/I6/I7 Archived at End of Phase A — No Shadow Period
 
-**Decision:** I5, I6, I7 code is moved to `src/intelligence/archive/` and removed from all pipeline dispatch. The plugin registry is deactivated. No imports of archived code exist outside the archive directory.
+**Decision:** Phase A ends with a cutover step: `IntelligencePipeline` switches from `PluginRegistry.process_bar()` to `FeatureFactory.compute()`, and all I5/I6/I7 code is moved to `src/intelligence/archive/`. This is Phase A's final deliverable, not Phase B's opening task.
+
+**I7 runs live until cutover.** During Phase A's development work (build, backfill, test), the existing I7 pipeline continues emitting signals to `signal_events`. The cutover is a discrete final step, not a gradual transition.
+
+**No shadow/parallel period.** Shadow mode is appropriate when replacing an equivalent system and comparing outputs. I7 and FeatureFactory are not equivalent — I7 emits trading signals; FeatureFactory computes primitives. They write to different tables (`signal_events` vs `feature_vectors`). There is nothing to compare. Validation happens through: (1) unit tests on FeatureFactory outputs, (2) backfill verification on historical data, (3) live bar smoke test confirming real-time data flows through correctly.
+
+**Cutover is atomic:** wire FeatureFactory into `IntelligencePipeline`, remove plugin dispatch, archive I5/I6/I7 — all in one deploy.
+
+**Archive scope:** All I5, I6, I7 code is moved to `src/intelligence/archive/` **intact without modification**. No plugin is deleted. Phase B IC discovery determines which I7 plugins carry signal and survive as alpha scorers; Phase B prunes the rest. Phase A's job is clean archival, not selective deletion.
 
 **Why archived instead of deleted:** The v2.x plugins represent years of domain knowledge about market structure. The pattern definitions (e.g., what constitutes an anchored VWAP reversion) may inform future vector design decisions in Phase B. They are preserved as institutional memory, not as active code.
 
-**What "not running" means:** `IntelligencePipeline` calls `FeatureFactory.compute()` per bar. There is no call to `PluginRegistry.process_bar()`. I7 plugins do not fire. `signal_events` is not written by the live pipeline after Phase A. The v2.x signal infrastructure continues to exist as tables — they are not dropped.
+**What "not running" means:** `IntelligencePipeline` calls `FeatureFactory.compute()` per bar. There is no call to `PluginRegistry.process_bar()`. I7 plugins do not fire. `signal_events` is not written by the live pipeline after cutover. The v2.x signal infrastructure continues to exist as tables — they are not dropped.
 
 ### D-10: Attribution Loop Architecture — Kafka-Native
 
@@ -129,6 +137,12 @@ The output of Phase A is infrastructure, not evidence. A populated `feature_vect
 
 **Why:** The writer infrastructure is proven. Building a new one would replicate proven engineering to produce identical behavior. The change is: new table name, new schema, new APR namespace for batch size parameters.
 
+### D-13: `pipeline_version` Migration on `intelligence_features` — Resolved, No Action Needed
+
+**Decision:** No migration is needed on `intelligence_features`. `feature_vectors` already has `pipeline_version` in its DDL (Phase A FeatureFactory sets it on every INSERT). `intelligence_features` is not used in v3.0 — it is the v2.x table, read by nothing in Phase A or beyond.
+
+**Why this was asked:** The STATE.md from the methodology session noted "pipeline_version migration required on `intelligence_features` before Phase A." This was resolved during the council methodology review: the IC spec §IV.1 confirmed that `feature_vectors` carries `pipeline_version` natively, making any migration on `intelligence_features` unnecessary. The resolution is recorded here to close the open item.
+
 </decisions>
 
 <canonical_refs>
@@ -139,7 +153,9 @@ The output of Phase A is infrastructure, not evidence. A populated `feature_vect
 ### Architecture
 - `docs/plans/2026-06-20-v30-ground-up-architecture.md` — ground-up design: what's thrown away, Feature Factory spec, three-layer architecture, build order
 - `docs/plans/2026-06-20-v30-system-design.md` — technical component spec: `feature_vectors` schema, FeatureVector contract, "What Jim Simons Demands" section
-- `docs/plans/2026-06-20-v30-alphaengine-ic-spec.md` — IC methodology: §II (data inventory Phase A must produce), §III (backfill gate and N requirements), §III.3 (regime stratification requirement)
+- `docs/plans/2026-06-20-v30-alphaengine-ic-spec.md` — IC methodology: §II (data inventory Phase A must produce), §III (backfill gate and N requirements), §III.3 (regime stratification requirement), §IV.1 (pipeline_version resolution)
+- `docs/plans/2026-06-20-v30-alphaengine-strategy.md` — strategic "why": V1-V4 vector rationale, intelligence vector orthogonality principle, phasing A-E justification
+- `docs/plans/2026-06-20-v30-i7-transition.md` — I7 transition path: what retires vs survives; archival approach for Phase A; alpha scorer transformation for Phase B. Read before planning the archival step.
 
 ### Runtime
 - `src/core/database_manager.py` — TimescaleDB connection pooling (reuse pattern)
@@ -194,6 +210,15 @@ After Phase A: `IntelligencePipeline` calls `FeatureFactory.compute(bars, symbol
 
 The DAG topology is unchanged. Feature Factory is an in-process computation unit. `feature_writer` subscribes to the Kafka topic carrying `FeatureVector` events and persists to `feature_vectors`.
 
+### Phase A cutover done gate
+
+Phase A is complete when ALL of the following are true:
+1. `feature_vectors` row counts within 5% of theoretical max per (symbol, tf) at target depths
+2. A live 1m bar produces a `FeatureVector` row in `feature_vectors` (smoke test)
+3. `src/intelligence/archive/` contains all I5, I6, I7 code
+4. `IntelligencePipeline` has zero references to `PluginRegistry.process_bar()`
+5. Unit tests green
+
 </specifics>
 
 <deferred>
@@ -206,8 +231,8 @@ The DAG topology is unchanged. Feature Factory is an in-process computation unit
 - **Alpha Decay Monitor** — post-Phase C. Cannot monitor decay before IC is measured.
 - **Analog Engine** — separate system; shares `market_data_ohlcv` but has no Phase A dependency.
 - **Portfolio construction, Kelly sizing** — out of scope for v3.0 on this platform. Live execution and position sizing run on the external platform connected via Kafka.
+- **I7 alpha scorer transformation** — Phase B. Phase A archives I5-I7 intact without modification. Phase B IC discovery determines which I7 plugins carry positive IC and converts them to score producers (removes emission decision logic, preserves feature computation and directional conviction). Phase A creates no `alpha_scorers/` directory — that belongs to Phase B.
 - **I5/I6/I7 deletion** — archived but preserved. Deletion requires IC proof that the new system surpasses the old. That is Phase C or later.
-- **Live pipeline modification** — I5/I6/I7 remains live in production during Phase A. The Feature Factory runs in parallel initially. Cutover happens when Phase A backfill is verified and Phase B IC measurement begins.
 
 </deferred>
 
@@ -215,3 +240,4 @@ The DAG topology is unchanged. Feature Factory is an in-process computation unit
 
 *Phase: A-feature-factory*
 *Context gathered: 2026-06-20 — Renaissance council deliberation*
+*Context updated: 2026-06-20 — I7 cutover timing, canonical refs, pipeline_version resolution*
