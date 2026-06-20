@@ -1,5 +1,25 @@
 # Milestones
 
+## v2.10 Data Architecture Evolution (Shipped: 2026-06-20)
+
+**Phases completed:** 12 phases (123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 134, 136); Phase 133 CANCELLED
+**Plans completed:** ~58 plans
+**Timeline:** 2026-06-14 → 2026-06-20 (7 days)
+
+**Key accomplishments:**
+
+1. **ECL boundary restored** (Phase 123) — All 37 I7 plugins emit on intrinsic criteria only; CTF score, zone friction, exhaustion state demoted to annotations; `context_features` + `factor_scores` promoted to first-class persisted signal fields; `_nullable_float()` pattern preserves None vs 0.0 ML semantics; SIGNAL_SCHEMA_VERSION bumped to v3
+2. **Signal universe integrity + APR** (Phases 124-126) — 5 over-firing plugins (15-30%/bar) corrected to event-onset detection (<3%/bar); 51 constants externalized across all 3 APR tiers; weight sum invariant enforced in all Tier B plugins; universal zone width gate in `frame_trade()` eliminates sub-ATR phantom stops; `_I7_I6_EXEMPT` frozenset deleted; all 8 formerly-exempt plugins wired with I6 confluence via pipeline layer
+3. **3-table signal architecture** (Phases 128-130) — `signal_events` / `trade_frames` / `trade_executions` deployed; `counterfactual_pnl_r` as first-class ML training target on `trade_frames`; 1,443,231 rows migrated from `signal_ledger`; all writers/trackers/APIs/backfill scripts migrated; `signal_ledger` dropped (migration 143); `signal_ledger` JOIN view retained for backward compat
+4. **Clean replay + validation** (Phase 127) — Full historical replay on corrected pipeline with `--warmup`; 3-table validation report (no Welch's t-test; null distribution + bootstrap CI); calibration curves retrained; RCA Part VI updated
+5. **Signal generation integrity** (Phase 131) — I6 CTF zero bug fixed; asset_class injection corrected for rolled contracts; BOCPD look-ahead bias removed; 16 I7 plugins had HMM regime gates removed; 6 additional stability bugs patched
+6. **Stop geometry + type safety** (Phases 132, 134) — Stops measured from actual entry price; 35 trade_framer constants in APR; stopped_at_entry rate below 5%; PG ENUM types on all classification columns (exit_reason, outcome, entry_type, status); EntryType Python enum replaces 15+ string literals; SignalOutcome persisted to trade_executions
+7. **Post-reboot repair** (Phase 136) — 1,343 orphaned intelligence_features rows recovered via replay; feature_writer pre-flight schema check; intelligence_pipeline graceful SIGTERM; FVGFill disabled; ValidationResult NamedTuple for signal rejection reasons
+
+**Archive:** `.planning/milestones/v2.10-ROADMAP.md`, `.planning/milestones/v2.10-REQUIREMENTS.md`
+
+---
+
 ## v2.7 Mathematical Correctness, Storage & Hardening (Shipped: 2026-05-29)
 
 **Phases completed:** 9 phases (093, 100, 100.5, 104, 105, 106, 107, 108, 109), 43 plans

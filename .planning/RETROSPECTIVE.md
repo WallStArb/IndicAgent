@@ -4,6 +4,46 @@
 
 ---
 
+## Milestone: v2.10 — Data Architecture Evolution
+
+**Shipped:** 2026-06-20
+**Phases:** 12 (123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 134, 136) | **Plans:** ~58 complete | **Timeline:** 7 days (2026-06-14 → 2026-06-20)
+
+### What Was Built
+
+- ECL boundary restored: all 37 I7 plugins emit on intrinsic criteria only; CTF score, zone friction, exhaustion state demoted to annotations; `context_features` + `factor_scores` promoted to persisted signal fields; `_nullable_float()` pattern preserves None vs 0.0 ML semantics
+- APR full migration: 51 constants externalized across all 3 tiers (Tier A detection gates, Tier B confidence weights, Tier C zone geometry); weight sum invariant enforced in all Tier B plugins; zero hard-coded numerics in src/
+- 3-table signal architecture: `signal_events` / `trade_frames` / `trade_executions` deployed; `counterfactual_pnl_r` as first-class ML training target; 1,443,231 rows migrated; all writers/trackers/APIs migrated; `signal_ledger` dropped
+- Signal universe hardening: 5 over-firing plugins corrected to event-onset (<3%/bar); `_I7_I6_EXEMPT` frozenset deleted; universal ATR zone width gate eliminates phantom stopped-at-entry outcomes
+- Signal generation integrity: I6 CTF zero bug fixed; asset_class injection corrected; BOCPD look-ahead bias removed; 16 I7 plugins had HMM regime gates removed
+- Type safety: PG ENUM types on all classification columns; EntryType Python enum; SignalOutcome persisted to trade_executions; stopped_at_entry < 5%
+- Post-reboot repair: 1,343 orphaned rows recovered; feature_writer pre-flight schema check; intelligence_pipeline graceful SIGTERM; FVGFill disabled; ValidationResult NamedTuple
+
+### What Worked
+
+- ECL-first ordering: fixing emission suppression before replay prevented cleaning symptoms while root causes persisted — the entire Phase 123 fix unlocked correct data for all subsequent analysis
+- APR-before-replay: having all 51 parameters externalized before clean replay means the corpus reflects tunable seeds, not buried constants — ML optimization can now actually optimize something
+- 3-table migration during the same milestone as replay: corpus landed in the final schema with `counterfactual_pnl_r` populated from day one; avoided a second replay migration later
+- Continuous verifier pattern: each phase ended with a VERIFICATION.md with numbered truths — gaps caught at phase-close time rather than at milestone close
+
+### What Was Inefficient
+
+- Phase 133 planned and then cancelled: 7 plans written for a corpus rebuild that was superseded when the v3.0 architecture was decided; architectural thinking about what IC measurement requires (all bars vs. fired bars) would have caught this before planning
+- REQUIREMENTS.md checkbox drift: 5 requirements showed "Pending" in the traceability table at milestone close despite their phases being complete; the traceability table was never updated at phase completion time; maintenance discipline needs a phase-close checklist item
+- Phase scope creep: v2.10 was scoped as Phases 123-130 at design time but grew to include 131, 132, 134, 135, 136 as integrity issues were discovered; this is appropriate (discover-and-fix vs. defer-and-replay) but scope should be re-stated at each addition
+
+### Key Decisions Validated
+
+- `counterfactual_pnl_r` on `trade_frames` (not `signal_events`): correct separation — detection layer captures what fired; hypothesis layer captures what the trade would have been; outcome layer captures what actually happened. ML trains on hypothesis-vs-outcome, not detection-vs-outcome
+- None vs 0.0 semantics: `_nullable_float()` pattern is the right abstraction; avoids OR-fallback contamination of ML labels; future engineers: never use `value or 0.0` on a financial measurement
+
+### Key Decisions for v3.0
+
+- Phase 133 CANCELLED: IC measurement runs on `intelligence_features` (unconditional, all bars), not `signal_events` (conditional, only bars where a plugin fired). Building a corpus of the old paradigm would have been immediately obsolete. Phase A of v3.0 uses the existing corpus as an exploratory baseline; Phase B is when unbiased IC begins.
+- AlphaEngine before AnalogEngine: V1 Quant (existing 138 plugins) must demonstrate IC > 0 before introducing pgvector infrastructure. Don't add complexity before validating the core thesis.
+
+---
+
 ## Milestone: v2.9 — Signal Quality Renaissance
 
 **Shipped:** 2026-06-13

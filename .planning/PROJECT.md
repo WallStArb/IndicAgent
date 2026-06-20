@@ -261,25 +261,31 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
-## Current Milestone: v2.10 — Data Architecture Evolution
+## Completed: v2.10 — Data Architecture Evolution (SHIPPED 2026-06-20)
 
-**Goal:** Restore the ECL boundary (remove all extrinsic emission gates), externalize all 54 numeric parameters to the APR, run a clean historical replay with `context_features` persisted, then execute the 3-table signal architecture migration — producing a signal corpus with no survivorship bias at either the emission or outcome layer.
+ECL boundary restored (37 I7 plugins intrinsic-only). 51 APR constants externalized. 3-table signal architecture deployed (`signal_events` / `trade_frames` / `trade_executions`; `counterfactual_pnl_r` as ML training target). 1.44M rows migrated from `signal_ledger`. Clean replay run. Type safety enforcement via PG ENUM types. Stop geometry corrected. 12 phases, ~58 plans.
+
+Archive: `.planning/milestones/v2.10-ROADMAP.md`
+
+---
+
+## Current Milestone: v3.0 — Intelligence Vectors (AlphaEngine)
+
+**Goal:** Replace binary I7 signal plugins with continuous IC-weighted score producers. The existing indicator→signal pipeline is excellent feature engineering but has a structural flaw: hand-crafted logic decides when a feature combination constitutes a tradeable edge. Renaissance's insight: measure IC empirically, weight predictors by IC × orthogonality, emit alpha when ensemble CI supports positive EV.
 
 **Architecture decisions (made — not conditional):**
-- ECL boundary invariant: zero `no_signal()` calls based on extrinsic vectors; all extrinsic vectors are annotations that travel with the signal
-- 3-table architecture: `signal_events` / `trade_frames` / `trade_executions`; `counterfactual_pnl_r` on trade_frames is the ML training target
-- Full plan: `docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md`
+- Renaissance first principles: IC must be demonstrated before any ensemble weight; IC Sharpe (stability) beats raw IC
+- AlphaEngine first (V1 Quant: existing 138 I1-I7 plugins); AnalogEngine (pgvector/VIL) deferred until AlphaEngine validated
+- Phase 133 (binary corpus rebuild) CANCELLED — IC measurement belongs on `intelligence_features` (all bars), not `signal_events` (selection-biased)
+- Design docs: `docs/ideas/signal-08-intelligence-refactor.md` (north star), `docs/plans/2026-06-20-intelligence-vectors-architecture.md` (AlphaEngine technical design)
 
-**Target phases (in execution order):**
-- Phase 123: ECL Boundary Restoration — remove CTF/zone_friction/exhaustion gates; 5 new schema fields; SIGNAL_SCHEMA_VERSION bump (ECL-01-03)
-- Phase 124: Signal Universe Integrity + Cold-Start Hardening — fix 5 over-firing plugins; ON CONFLICT IS NULL guard; warmup pass (QUALITY-01-02)
-- Phase 125: APR Full Migration — all 54 keys across Tier A/B/C; weight sum invariant (APR-01-03)
-- Phase 126: Clean Replay + Validation — replay on corrected pipeline; calibration retrain; Phase 121-02 report (REPLAY-01-02)
-- Phase 127: 3-Table Schema Design — full table schemas, FK, indexes, signal_ledger_full view (ARCH-01)
-- Phase 128: Database Migration — create tables, migrate signal_ledger, deploy view (MIGRATE-01)
-- Phase 129: Script Rewriting — all writers/trackers/APIs on 3-table schema; drop signal_ledger (REWRITE-01)
+**Build order (AlphaEngine V1 Quant):**
+- Phase A: IC measurement on existing `signal_events` corpus (exploratory; selection-biased baseline)
+- Phase B: Plugin continuous scores — I7 plugins emit `alpha_score` unconditionally alongside binary signal
+- Phase C: IC measurement on `intelligence_features` (all bars, unbiased) — this is the real IC
+- Phase D: Ensemble layer — IC-weighted aggregation → alpha emission; `alpha_quant` replaces hand-crafted confidence
 
-**After v2.10:** v2.8 Part 2 resumes — Phases 096-099, 101-103; v2.11 seeds: CounterfactualTracker (Phase 130), APR ML optimization, SignalRanker
+**After AlphaEngine V1:** V2 Microstructure, V3 Macro, V4 Calendar vectors; then AnalogEngine (VIL/pgvector substrate)
 
 ---
 ## Evolution

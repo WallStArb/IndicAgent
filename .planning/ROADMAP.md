@@ -22,8 +22,9 @@
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104-109 (shipped 2026-05-29)
 - ✅ **v2.8 AI Platform — Part 1** — Phases 094-095, 106-108, 110-116 (shipped 2026-06-08)
 - ✅ **v2.9 Signal Quality Renaissance** — Phases 117-122 (shipped 2026-06-13; 5.18M noise signals deleted, 21 setups refactored, param store wired)
-- ✅ **v2.10 Data Architecture Evolution** — Phases 123-130 (SHIPPED 2026-06-17; ECL + APR + signal hardening + clean replay + 3-table migration)
-- ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked — v2.9 complete; next after v2.10)
+- ✅ **v2.10 Data Architecture Evolution** — Phases 123-136 (SHIPPED 2026-06-20; ECL + APR + signal hardening + clean replay + 3-table migration + type safety + post-reboot repair)
+- ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
+- 🚀 **v3.0 Intelligence Vectors — AlphaEngine** — Starting (IC measurement → continuous scores → IC-weighted ensemble)
 
 ## Phases
 
@@ -1063,246 +1064,23 @@ Plans:
 </details>
 
 <details>
-<summary>📋 v2.10 Data Architecture Evolution (Phases 123-130)</summary>
-
-**Milestone Goal:** Establish correct signal architecture (3-table: signal_events / trade_frames / trade_executions), fully externalize APR (Adaptive Parameter Registry), and deliver clean replay for ML training data. ECL boundary (Phase 123) removes all extrinsic emission suppressors. APR migration (Phase 125) externalizes all 51 constants. Signal universe hardening (Phase 126) wires all confluence-exempt signal-generation plugins and fixes zone width mechanics. 3-table migration (Phases 128-130) separates detection/hypothesis/execution and wires CounterfactualTracker. Clean replay (Phase 127) runs last so the corpus lands directly in the final 3-table schema with counterfactual_pnl_r populated from day one.
-
-**Execution order:** v2.9 → 123 → 124 → 125 → 126 → 128 → 129 → 130 → 127 → v2.8 Part 2 (resume)
-*Phase 127 moved after 128-130: replay into the final schema avoids a second replay and produces counterfactual_pnl_r-populated training data immediately.*
-
-**Architecture decision (made):** 3-table — `signal_events` / `trade_frames` / `trade_executions`. `counterfactual_pnl_r` on `trade_frames` is the ML training target, populated by CounterfactualTracker (Phase 130). See `docs/plans/2026-06-14-v2.10-signal-architecture-refactor.md` for full spec.
-
-**Cross-cutting constraints (v2.10):**
-- None-vs-0.0 semantics (Phase 123): NULL = cold-start, 0.0 = genuine neutral — never OR fallbacks
-- No new Kafka topics without named producer-consumer pair
-- No new daemons without justification (compute is in-process)
-- All timestamps UTC (datetime.now(UTC) only)
-- ON CONFLICT IS NULL guard (feature_writer): `WHERE ctf_score IS NULL` — never `IS NULL OR = 0.0`
-
-**v2.11 seeds unlocked by v2.10:**
-- CounterfactualTracker daemon (Phase 130) — populates `counterfactual_pnl_r` on every trade frame regardless of execution
-- I6 DB bootstrap at daemon startup — permanent cold-start elimination for live trading
-
----
-
-### Phase 123: ECL Boundary Restoration
-
-**Goal:** Remove all extrinsic emission suppressors across all I7 plugins. Add 5 ECL fields plus `context_features` to the signal schema. Promote `context_features` from the `_shadow` dict to a persisted top-level signal field. Collect `factor_scores` dict in all 37 plugins before compositing. Bump `SIGNAL_SCHEMA_VERSION`. Rename architecture doc from `i7-setup-confidence-patterns` to `setup-confidence-patterns` and add ECL definition.
-
-This phase is split into three waves:
-- **Wave A** — Gate removal + schema (replay-blocking, must ship first)
-- **Wave B** — Factor score persistence (same phase, not replay-blocking)
-- **Wave C** — Architecture doc rename and update
-
-**Status:** ✅ Complete (2026-06-14; 3/3 plans executed)
-
----
-
-### Phase 124: Signal Universe Integrity + Cold-Start Hardening — ✅ COMPLETE 2026-06-14
-
-**Goal:** Tighten 5 over-firing plugins (15-30%/bar) to < 3%/bar via event vs state detection. Fix ON CONFLICT cold-start contamination in intelligence_features (IS NULL guard only). Add --warmup pass to historical replay.
-
-**Depends on**: Phase 123
-**Requirements**: QUALITY-01, QUALITY-02
-**Success Criteria**:
-
-  1. All 5 over-firing plugins at < 3% fire rate (SQL validated)
-  2. ON CONFLICT uses `DO UPDATE ... WHERE ctf_score IS NULL` — not `IS NULL OR = 0.0`
-  3. `--warmup` flag operational in run_historical_pipeline.py
-  4. `pytest tests/unit/ -q` green
-
-**Plans**: 7 plans in 2 waves
-
-**Wave A** (deterministic, ship first):
-
-- [x] 124-01-PLAN.md — Migration 130 (promote 4 CTF columns + backfill + JSONB strip) + feature_writer ON CONFLICT cold-start guard + CTF reader migration + `--warmup` flag
-
-**Wave B** (behavioral, after Wave A):
-
-- [x] 124-02-PLAN.md — TrendFollowing structural rewrite (pullback-to-MA reversal / consolidation breakout)
-- [x] 124-03-PLAN.md — OFIContinuation structural rewrite (OFI acceleration/thrust bar)
-- [x] 124-04-PLAN.md — PatternCompletion structural rewrite (target reached / neckline break + instance consumption)
-- [x] 124-05-PLAN.md — LiquiditySweepReclaim structural rewrite (rising edge + close-above acceptance)
-- [x] 124-06-PLAN.md — AnchoredVWAPReversion structural rewrite (departure + return + rejection/reclaim candle)
-- [x] 124-07-PLAN.md — D6 fire-rate sanity SQL (aggregate + segmented)
-
----
-
-### Phase 125: APR Full Migration — All Three Tiers
-
-**Goal:** Externalize all 51 numeric constants across all three tiers to APR. Tier A (26 detection gate keys), Tier B (22 confidence weight keys), Tier C (6 zone engine geometry keys). Zero behavior change for Tiers A and B — seeds equal current hard-coded values. Tier C exception: `feature.zone_engine.min_zone_width_atr` seeds at 1.5/1.0/1.5 (equity/forex/futures) per noise-band analysis, not the current 0.25 hard-coded value — the gate is not yet wired (Phase 126 wires it), so DB seed value has no runtime effect. Weight sum invariant enforced in all Tier B plugins. Replay is not a blocker; get the parameters right first.
-
-**Depends on**: Phase 124
-**Requirements**: APR-01, APR-02, APR-03
-**Success Criteria**:
-
-  1. All 51 keys in `config_state` with seed values and provenance-tagged descriptions
-  2. Zero hard-coded constants for any tier in src/ (grep confirms)
-  3. Weight sum invariant enforced in all Tier B plugins (`_assert_weights_sum`)
-  4. All plugins loading from ConfigService at compute_full() time
-  5. `pytest tests/unit/ -q` green
-  6. TODO 025 closed — all three tiers complete
-
-**Plans**: 5 plans in 3 waves
-
-**Wave 1** (parallel):
-
-- [ ] 125-PLAN-A.md — Migration 132: seed 10 new APR keys (3 CIS gate + 4 zone_engine + 3 vwap_reversion weights)
-- [ ] 125-PLAN-C.md — Add _validate_weights_sum to confidence_utils.py + fix cfg parameter name + capture 2 cleanup TODOs
-
-**Wave 2** (depends on A + C):
-
-- [ ] 125-PLAN-B.md — Wire anchored_vwap_reversion weights to ConfigService + _validate_weights_sum call
-- [ ] 125-PLAN-D.md — Add _validate_weights_sum to 5 remaining Tier B plugins + rename BOOTSTRAP_WEIGHTS in cis_scorer.py
-
-**Wave 3** (depends on A + D):
-
-- [ ] 125-PLAN-E.md — Wire CIS gate constants to APR in cis_scorer.py + extend _THRESHOLD_KEYS + close TODO 025
-
----
-
-### Phase 126: Signal Universe Hardening
-
-**Goal:** Establish a mechanically correct signal universe: all emitted signals have structurally valid zones (ATR-bounded) and full confluence annotation, making the clean replay in Phase 127 usable as ML training data. Zone width enforcement eliminates phantom stopped_at_entry outcomes; confluence wiring closes the ECL annotation gap on all signal-generation plugins.
-
-**Design doc**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
-
-**Depends on**: Phase 125
-**Requirements**: SIGNAL-QUALITY-01, SIGNAL-QUALITY-02
-**Success Criteria**:
-
-  1. `frame_trade()` calls `_reject_frame()` when `zone_width < min_zone_width_atr × ATR` for all zone source types (supply_demand, fvg, ob, structural); gate is in `frame_trade()` not `_resolve_zone_bounds()` (geometry resolution and viability gating are separate concerns)
-  2. `feature.zone_engine.min_zone_width_atr` in APR with per-asset-class seeds (equity_etf: 1.5, forex: 1.0, futures: 1.5) — derived from noise-band math: zone_width + buffer (0.25×ATR) must be ≥ 2.0×ATR for stop to be outside intrabar noise; seeds are initial estimates, Step 1 diagnostic in P126-01 confirms empirically
-  3. `stopped_at_entry` rate < 15% on 10K-signal replay sample (from 47.6%)
-  4. `_CONFLUENCE_EXEMPT_PLUGINS` frozenset deleted; all 8 formerly-exempt plugins have `requires_i6_confluence = True` and call `capture_signal_features()`
-  5. All 37 registered signal-generation plugins emit > 0 signals in 30-day replay window
-  6. `trad_MeanReversion` dual-gate conflict resolved (fires > 100 signals/30d) or demoted to `shadow_only=True` with documented rationale; stays in `TIER_I7`
-  7. Detection correctness audit doc produced: per-plugin verification result; unverifiable plugins demoted to `shadow_only=True` with explicit rationale — removal from `TIER_I7` is not a valid disposition
-  8. `pytest tests/unit/ -q` green
-
-**Plans:** 6/6 plans complete
-- [x] 126-00-PLAN.md — Wave 0: USDJPY anomaly diagnostic (SQL-only; verdict gates replay fitness)
-- [x] 126-01-PLAN.md — Wave 1: Universal zone width gate in frame_trade() + per-asset-class APR seeds (migration 132)
-- [x] 126-02-PLAN.md — Wave 2: Wire 8 confluence-exempt plugins, delete _I7_I6_EXEMPT, diagnose ORB/SessionExtremes, fix MeanReversion + FVGFill
-- [x] 126-06-PLAN.md — Wave 3: Pipeline-layer annotation (_annotate_signal), formalize zone_friction_score, bump SIGNAL_SCHEMA_VERSION
-- [x] 126-05-PLAN.md — Wave 4: IC validation + detection correctness audit; demote anti-signal/unverifiable plugins to shadow_only
-
----
-
-### Phase 127: Clean Replay + Validation
-
-**Goal:** Run full historical replay on corrected pipeline (Phases 123-126 in place) with `--warmup`. Produce Phase 121-02 validation report using correct methodology. Retrain calibration curves on clean corpus.
-
-**Depends on**: Phase 123, 124, 125, 126
-**Requirements**: REPLAY-02 (carried from Phase 121)
-**Success Criteria**:
-
-  1. Clean replay completes without errors
-  2. `context_features` coverage > 99% for non-cold-start signals
-  3. All previously over-firing plugins at < 3% (SQL validated)
-  4. Validation report uses correct methodology — no cross-population Welch's t-test; measures: signal volume delta, CTF as feature, firing rates, null distribution
-  5. Calibration curves retrained on clean corpus
-  6. RCA Part VI updated
-
-**Plans**: 3 plans across 3 waves
-- [x] 127-01-PLAN.md — Capture pre-replay baseline on 3-table schema + execute clean replay with --include-rolled
-- [x] 127-02-PLAN.md — 3-table validation report (NO Welch's t-test, null distribution, bootstrap CI) + RCA Part VI update
-- [x] 127-03-PLAN.md — Trigger ml-training calibration retrain on clean corpus with pre-flight schema check
-
----
-
-### Phase 128: 3-Table Schema Design and ADR
-
-**Goal:** Define full 3-table schema (signal_events / trade_frames / trade_executions) with column types, FK constraints, index strategy. Create ADR. `counterfactual_pnl_r` is a required first-class column on trade_frames — not optional.
-
-**Depends on**: Phase 127
-**Requirements**: ARCH-01
-**Success Criteria**:
-
-  1. ADR at `docs/architecture/signal-trade-separation-ADR.md`
-  2. Full table schemas defined with types, FK, indexes
-  3. `signal_ledger_full` view SQL defined
-  4. Cardinality recorded: 1 signal → N frames (one per entry_type); 1 frame → 0-1 executions
-
-**Plans**: 3 plans in 1 wave (Wave 1 — all parallel)
-
-Plans:
-
-- [ ] 128-01-PLAN.md — ADR: signal-trade-separation-ADR.md (Context, Decision, G0 Audit, Schema Tables, Alternatives Considered, Consequences)
-- [ ] 128-02-PLAN.md — DDL: production/migrations/137_3table_schema.sql (signal_events hypertable + trade_frames + trade_executions + signal_ledger_full view)
-- [ ] 128-03-PLAN.md — Cleanup: delete capture_signal_features() from confidence_utils.py + update src/intelligence/CLAUDE.md
-
----
-
-### Phase 129: Database Migration
-
-**Goal:** Create 3 new tables. Migrate signal_ledger data. Deploy signal_ledger_full view. Keep signal_ledger read-only during transition.
-
-**Depends on**: Phase 128
-**Requirements**: MIGRATE-01
-**Success Criteria**:
-
-  1. signal_events, trade_frames, trade_executions created with full schema
-  2. signal_ledger_full view deployed and queryable
-  3. Row counts verified: all signal_ledger rows migrated
-  4. signal_ledger retained read-only (not dropped yet)
-
-**Plans**:
-- Wave 1: [129-01] Schema Finalization — apply Plan-04 columns to live DB (feature_ts, concurrent_signal_count, concurrent_plugins, regime_at_activation, regime_at_exit)
-- Wave 1: [129-02] Data Migration Script — write migrate_signal_ledger.py (10K-row batches, column mapping, frame_details JSONB)
-- Wave 2 *(blocked on Wave 1 completion)*: [129-03] Execute migration, verify counts, read-only, SIGNAL_SCHEMA_VERSION bump
-
-**Status**: Planned (2026-06-16)
-
----
-
-### Phase 130: Script Rewriting
-
-**Goal:** Update all writers, trackers, auditors, API endpoints, historical backfill to use 3-table schema. Drop signal_ledger after 48-hour verification window.
-
-**Depends on**: Phase 129
-**Requirements**: REWRITE-01
-**Success Criteria**:
-
-  1. All writers/trackers/APIs use new 3-table schema
-  2. `pytest tests/unit/ tests/integration/ -q` green
-  3. signal_ledger dropped after 48-hour window
-
-**Plans**: 7 plans in 4 waves
-
-Plans:
-
-**Wave 1**
-
-- [x] 130-01-PLAN.md — OPS_PREFIXES (ui./weights.) + migration 142 APR seeds (22 keys)
-
-**Wave 2** *(blocked on Wave 1)*
-
-- [x] 130-02-PLAN.md — Repository rewrite: SignalLedgerRepository → SignalEventsRepository, 3-table SQL, shim + importers
-
-**Wave 3** *(parallel, blocked on Wave 2; disjoint files)*
-
-- [x] 130-03-PLAN.md — signal_writer (G0 grouping) + lifecycle_writer (status/frame_details) + APR
-- [x] 130-04-PLAN.md — signal_tracker bootstrap rewrite + swarm_ledger_writer FK + signal_auditor + signal_probe_auditor
-- [x] 130-05-PLAN.md — API routes: signals.py (drop 7 columns, ui.signals.* APR) + narrative.py (tf)
-- [x] 130-06-PLAN.md — Backfill scripts: run_historical_pipeline + lifecycle_replay + feature_replay (3-table, G0)
-
-**Wave 4** *(blocked on Wave 3 + 48h verification window)*
-
-- [x] 130-07-PLAN.md — Migration 143 DROP + view rename + signal_ledger_full sweep + D-15 doc updates
-
----
-
-**v2.10 Success Criteria:**
-
-1. ✅ Phase 123 complete (ECL boundary restored)
-2. ✅ Phase 124 complete (signal universe integrity + cold-start hardening)
-3. ✅ Phase 125 complete (APR full migration — all three tiers)
-4. ✅ Phase 126 complete (signal universe hardening)
-5. ✅ Phase 127 complete (clean replay + validation)
-6. ✅ Phase 128-130 complete (3-table signal architecture)
-
-**v2.10-complete when:** All 8 phases shipped, clean replay validates corrected pipeline, ML training data integrity restored.
+<summary>✅ v2.10 Data Architecture Evolution — SHIPPED 2026-06-20</summary>
+
+- [x] **Phase 123: ECL Boundary Restoration** — Complete (3/3 plans, 2026-06-14)
+- [x] **Phase 124: Signal Universe Integrity + Cold-Start Hardening** — Complete (7/7 plans, 2026-06-14)
+- [x] **Phase 125: APR Full Migration** — Complete (5/5 plans, 2026-06-15)
+- [x] **Phase 126: Signal Universe Hardening** — Complete (6/6 plans, 2026-06-15)
+- [x] **Phase 127: Clean Replay + Validation** — Complete (3/3 plans, 2026-06-17)
+- [x] **Phase 128: 3-Table Schema Design and ADR** — Complete (3/3 plans, 2026-06-16)
+- [x] **Phase 129: Database Migration** — Complete (3/3 plans, 2026-06-16)
+- [x] **Phase 130: Script Rewriting** — Complete (7/7 plans, 2026-06-16)
+- [x] **Phase 131: Signal Generation Integrity** — Complete (7/7 plans, 2026-06-17)
+- [x] **Phase 132: Stop-Zone Geometry + APR Migration** — Complete (5/5 plans, 2026-06-18)
+- [x] **Phase 134: Signal Classification Type Safety** — Complete (3/3 plans, 2026-06-18)
+- [x] **Phase 136: Post-Reboot System Repair** — Complete (6/6 plans, 2026-06-19)
+- ~~**Phase 133: Clean Corpus Rebuild**~~ — CANCELLED (superseded by v3.0 Intelligence Vectors; IC measurement runs on `intelligence_features`, not `signal_events`)
+
+Full details: `.planning/milestones/v2.10-ROADMAP.md`
 
 </details>
 
@@ -1406,30 +1184,10 @@ Plans:
 </details>
 
 <details>
-<summary>▶ Phase 133: Clean Corpus Rebuild — READY TO EXECUTE (plans updated 2026-06-20)</summary>
+<summary>❌ Phase 133: Clean Corpus Rebuild — CANCELLED 2026-06-20</summary>
 
-**Goal:** One complete, verified, unbiased corpus. All Phase 131 signal bugs fixed. All Phase 132 stop geometry correct. All Phase 134 type enforcement in place. Schema migrated (trade_frames hypertable via migration 154). Scripts cleaned. Full rebuild produces a corpus satisfying ML training acceptance criteria. ML training is unblocked after this phase.
+**Cancellation reason:** Superseded by v3.0 Intelligence Vectors architecture. IC measurement eventually runs on `intelligence_features` (all bars, no selection bias) rather than `signal_events` (only bars where a plugin fired). The binary corpus rebuild would have produced training data for the old paradigm — irrelevant once I7 plugins emit continuous scores. Phase A of v3.0 (IC measurement on existing signal_events corpus as exploratory baseline) replaces this phase.
 
-**Prerequisite gate:** All pass: Phase 131 ✓ Phase 132 ✓ Phase 134 ✓ Phase 136 ✓
-
-**Sequencing note:** Runs AFTER Phase 134. lifecycle_replay.py already writes `outcome` (Phase 134 Plan 01); PG ENUM constraints already enforce valid classification values at write time (Phase 134 Plan 03). Several D-05 cleanup items are already complete (B3, B5, B7, Layer D — see 133-CONTEXT.md Delta section). Migration number for hypertable is 154 (not 149 — taken by Phase 134).
-
-**Key schema realities for execution:**
-- `trade_frames.signal_ts` already exists — migration 154 skips the ADD COLUMN step for trade_frames
-- `trade_executions` does NOT have `signal_ts` yet — migration 154 adds it
-- `stopped_at_entry` is now an `outcome` value (signal_outcome_type ENUM), not an exit_reason — acceptance Gate 6 and _verify_replay both updated to use outcome column
-- Current corpus: 737 signal_events (21/35 plugins) — full rebuild required
-
-**Plans:** 7 plans in 5 waves
-
-Plans:
-
-- [ ] 133-01-PLAN.md — C2 column naming verification + MEMORY.md closure (Wave 1, parallel; mostly documentation)
-- [ ] 133-02-PLAN.md — B4 CASCADE + B2 tx hygiene + B8 _verify_replay outcome fix (Wave 1, parallel)
-- [ ] 133-03-PLAN.md — C1 trade_frames hypertable migration 154 (Wave 2, depends 02)
-- [ ] 133-04-PLAN.md — TRUNCATE + full backfill replay (Wave 3, depends 01+02+03)
-- [ ] 133-05-PLAN.md — Lifecycle replay + _verify_replay 0/0/0 gate (Wave 4, depends 04)
-- [ ] 133-06-PLAN.md — Corpus acceptance criteria: all D-04 hard gates + 133-ACCEPTANCE-REPORT.md (Wave 5, depends 05)
-- [ ] 133-07-PLAN.md — Final cleanup, unit tests, commit, push, phase closure (Wave 5, parallel with 06, depends 05)
+Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from active phases)
 
 </details>
