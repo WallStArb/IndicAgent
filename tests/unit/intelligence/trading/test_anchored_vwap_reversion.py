@@ -25,7 +25,7 @@ def _make_frames(close_arr, features=None, symbol="ES", tf="1m"):
 
 
 def _base_features(**kwargs):
-    """Gate-passing feature set: sigma=2.0 (short), hmm_regime=0, hurst=0.45."""
+    """Gate-passing feature set: sigma=2.0 (short, > sigma_min=1.0), hurst=0.45."""
     defaults = {
         "atr_14": 5.0,
         "session_vwap": 5000.0,
@@ -83,30 +83,31 @@ def test_fires_long_when_below_sigma_threshold():
 
 
 def test_no_signal_when_sigma_too_small():
-    """sigma=1.0 → abs < 1.5 threshold → no signal."""
+    """sigma=0.5 → abs < sigma_min=1.0 threshold → no signal."""
     from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
 
     plugin = AnchoredVWAPReversionPlugin()
     close = np.linspace(5003.0, 5004.0, 25)
     result = plugin.compute_full(
-        _make_frames(close, _base_features(session_vwap_deviation_sigma=1.0))
+        _make_frames(close, _base_features(session_vwap_deviation_sigma=0.5))
     )
     assert result.get("direction") == 0
     assert result.get("confidence") == 0.0
 
 
-# ─── Test 4: does NOT fire when hmm_regime != 0 ──────────────────────────────
+# ─── Test 4: hmm_regime is NOT a gate (ECL invariant) ───────────────────────
 
 
-def test_no_signal_when_trending_regime():
-    """hmm_regime=1 (trending up) → suppressed → no signal."""
+def test_fires_in_trending_regime():
+    """hmm_regime=1 (trending) must not suppress — HMM is annotation only per ECL invariant."""
     from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
 
     plugin = AnchoredVWAPReversionPlugin()
-    close = np.linspace(5010.0, 5012.0, 25)
+    # Same setup as test_fires_short_when_above_sigma_threshold but with hmm_regime=1
+    close = np.linspace(5010.0, 4998.0, 25)
     result = plugin.compute_full(_make_frames(close, _base_features(hmm_regime=1)))
-    assert result.get("direction") == 0
-    assert result.get("confidence") == 0.0
+    assert result.get("direction") == -1, "HMM trending regime must not suppress signal"
+    assert result.get("signal_type") == "vwap_reversion_short"
 
 
 # ─── Test 5: does NOT fire when hurst >= 0.55 ────────────────────────────────
