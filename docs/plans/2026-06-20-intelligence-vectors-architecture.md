@@ -60,7 +60,7 @@ Stratified by:
 
 IC is computed on a rolling window (last 500 observations minimum) and bootstrapped for confidence intervals. A plugin with `bootstrap_CI_lower > 0.0` at `n >= 100` has demonstrated positive predictive power with statistical significance.
 
-This is **shadow_registry extended** — the current shadow system measures signal P&L; the IC engine measures raw predictor score validity before signal emission.
+**The IC engine is `shadow_registry` extended.** Shadow mode measures signal P&L after emission — it tells you whether a signal that fired produced a good outcome. The IC engine measures raw predictor score validity *before* emission — it tells you whether a feature value predicts future returns at all, regardless of whether a signal was ever emitted. Shadow is outcome attribution. IC is predictive validity. Both are necessary; neither replaces the other.
 
 ### What this tells us
 
