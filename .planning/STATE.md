@@ -1,14 +1,14 @@
 ---
 gsd_state_version: 1.0
 milestone: v3.0
-milestone_name: milestone
+milestone_name: Intelligence Vectors — AlphaEngine
 status: Starting AlphaEngine build — Phase A IC measurement
-last_updated: "2026-06-20T15:50:46.724Z"
+last_updated: "2026-06-20T19:30:46.622Z"
 last_activity: 2026-06-20
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 0
-  total_plans: 11
+  total_plans: 0
   completed_plans: 0
   percent: 0
 ---
@@ -88,6 +88,16 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
+### Last session (2026-06-20, session 3) — Phase A context updated, ready to plan
+
+Three open items from the methodology session resolved:
+
+- **I7 cutover timing locked:** Phase A ends with the cutover (D-09 updated). I7 runs live until Phase A's final deliverable. No shadow/parallel period — atomic wire-and-cut once backfill and unit tests pass. Done gate: feature_vectors within 5% of theoretical max + live bar smoke test + I5-I7 in archive + zero plugin dispatch refs.
+- **Canonical refs updated:** `v30-alphaengine-strategy.md` and `v30-i7-transition.md` added. I7 archival approach confirmed: all of I5-I7 archived intact without modification; Phase B IC discovery handles the alpha scorer transformation.
+- **pipeline_version migration resolved (D-13):** IC spec §IV.1 confirms no migration on `intelligence_features` needed — `feature_vectors` has it in DDL natively. STATE note from session 2 is closed.
+
+**Next session:** `/gsd-plan-phase A`
+
 ### Last session (2026-06-20, session 2) — AlphaEngine V1 methodology spec written
 
 Deep brainstorming on Renaissance alignment. Council-of-engineers review found and resolved six
@@ -96,23 +106,27 @@ autocorrelation in IC standard errors, multiple testing scale, direction encodin
 weights, and feature_matrix research-vs-production conflation.
 
 **Key decisions:**
+
 - Regime-conditional IC mandatory from start — pooled IC is not a fallback, it is excluded
 - IC Sharpe requires 20,000 independent obs — no interim proxy; get the data
 - Forward returns via LEAD() on `bar->>'o'` within `intelligence_features` — no join to OHLCV
 - `feature_candidates` (long) for research; `feature_matrix` (wide) for promoted-only production
 - `ensemble_weights.weight` non-negative; direction via `ic_sign` column; applied as
   `sign(ic) × centered_score × weight` at ensemble time
+
 - `has_gap_before_entry` flag on outcome_labels; gap and non-gap IC measured separately
 - `pipeline_version` migration required on `intelligence_features` before Phase A
 
 **Doc written:** `docs/plans/2026-06-20-alphaengine-v1-methodology.md`
 
 **DB facts confirmed (intelligence_features):**
+
 - Column names: `tf` (not timeframe), `ts`, `smc` (HMM fields), `bar` (OHLCV: o/c)
 - HMM state in `smc`: `hmm_prob_trending_up`, `hmm_prob_ranging`, `hmm_prob_trending_down`
 - Data: 1m 2mo, 5m 6mo, 15m 10mo, 1h 5.5yr — needs ETF backfill for IC Sharpe minimum
 
 **Next session:**
+
 1. Update stale docs (from previous session pending list in memory)
 2. Plan Phase A — backfill requirement first, then IC measurement batch jobs
 
