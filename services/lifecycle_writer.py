@@ -58,7 +58,7 @@ _TIMESTAMP_FIELDS = frozenset(
 )
 
 # Terminal statuses valid for the signal_status_type DB enum; all other exit values map to EXPIRED.
-_VALID_EXIT_STATUSES = frozenset({SignalStatus.EXPIRED.value, SignalStatus.REGIME_SUPPRESSED.value})
+_VALID_EXIT_STATUSES = frozenset({SignalStatus.EXPIRED, SignalStatus.REGIME_SUPPRESSED})
 
 
 def _ensure_datetimes(entry: dict) -> None:
@@ -169,7 +169,7 @@ class LifecycleWriter(BaseWriter):
             signal_id = entry["signal_id"]
             raw_status = entry.get("status", "expired")
             # Defensive: non-enum values (e.g. legacy target_N_hit) are terminal exits.
-            status = raw_status if raw_status in _VALID_EXIT_STATUSES else "expired"
+            status = raw_status if raw_status in _VALID_EXIT_STATUSES else SignalStatus.EXPIRED
 
             # Update signal_events.status
             await self._repo.update_signal_status(signal_id, status)

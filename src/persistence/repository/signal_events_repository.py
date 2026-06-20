@@ -460,7 +460,8 @@ class SignalEventsRepository:
                 if key in frame and key not in frame_details:
                     frame_details[key] = frame[key]
 
-            targets = [float(t) for t in (frame.get("targets") or [])] or None
+            _t = frame.get("targets")
+            targets = [float(t) for t in _t] if _t else None
             frame_params_list.append(
                 (
                     str(frame_id),  # $1 frame_id::uuid
