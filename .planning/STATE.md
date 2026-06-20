@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
-status: Starting AlphaEngine build — Phase A IC measurement
-last_updated: "2026-06-20T19:30:46.622Z"
+status: Phase A planned — ready to execute (6 plans, 4 waves)
+last_updated: "2026-06-20T21:00:00.000Z"
 last_activity: 2026-06-20
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 0
+  total_plans: 6
   completed_plans: 0
   percent: 0
 ---
@@ -88,6 +88,23 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
+### Last session (2026-06-20, session 4) — Phase A planned (6 plans, 4 waves)
+
+Phase A: Feature Factory planning complete. All 10 success criteria covered. Verification passed.
+
+Wave structure:
+- Wave 1 (parallel): A-P1 schema+APR migration 155 + A-P2 contracts (stream key + dataclasses)
+- Wave 2: A-P3 FeatureFactory TDD (35 primitives + FeatureCache; VXX/VIXY absent, SPY/TLT/SHY proxies)
+- Wave 3 (parallel): A-P4 feature_writer retarget + A-P5 backfill oneshot (IBKR fetch + checkpoint/resume)
+- Wave 4: A-P6 cutover (pipeline wire + I5/I6/I7 archive + smoke test + done-gate)
+
+Key discoveries from research:
+- `market_data_ohlcv` is empty — IBKR fetch is Wave 1/P5's first step, planned explicitly
+- `alpha.` prefix missing from OPS_PREFIXES — blocker in A-P1 T1, resolved before migration runs
+- VXX/VIXY not in 58-ETF universe — cross-asset proxies: vix_z via SPY realized-vol, flight_quality via TLT/SPY divergence, yield_slope_z via TLT/SHY ratio
+
+**Next session:** `/gsd-execute-phase A`
+
 ### Last session (2026-06-20, session 3) — Phase A context updated, ready to plan
 
 Three open items from the methodology session resolved:
@@ -95,8 +112,6 @@ Three open items from the methodology session resolved:
 - **I7 cutover timing locked:** Phase A ends with the cutover (D-09 updated). I7 runs live until Phase A's final deliverable. No shadow/parallel period — atomic wire-and-cut once backfill and unit tests pass. Done gate: feature_vectors within 5% of theoretical max + live bar smoke test + I5-I7 in archive + zero plugin dispatch refs.
 - **Canonical refs updated:** `v30-alphaengine-strategy.md` and `v30-i7-transition.md` added. I7 archival approach confirmed: all of I5-I7 archived intact without modification; Phase B IC discovery handles the alpha scorer transformation.
 - **pipeline_version migration resolved (D-13):** IC spec §IV.1 confirms no migration on `intelligence_features` needed — `feature_vectors` has it in DDL natively. STATE note from session 2 is closed.
-
-**Next session:** `/gsd-plan-phase A`
 
 ### Last session (2026-06-20, session 2) — AlphaEngine V1 methodology spec written
 
