@@ -39,6 +39,7 @@ from src.observability.metrics import (
 )
 from src.persistence.repository.signal_events_repository import (
     SignalEventsRepository,
+    SignalStatus,
 )
 
 # ---------------------------------------------------------------------------
@@ -47,9 +48,7 @@ from src.persistence.repository.signal_events_repository import (
 
 CONSUMER_GROUP = "lifecycle_writer_group"
 
-# Fields that asyncpg expects as Python datetime, not ISO strings.
-# Only includes fields written to timestamptz columns directly.
-# market_entry_at / market_entry_exit_at go into frame_details JSONB — keep as ISO strings.
+# timestamptz columns only; market_entry_at/market_entry_exit_at stay as ISO strings in frame_details JSONB.
 _TIMESTAMP_FIELDS = frozenset(
     {
         "activated_at",
@@ -57,6 +56,9 @@ _TIMESTAMP_FIELDS = frozenset(
         "shadow_tracking_start_ts",
     }
 )
+
+# Terminal statuses valid for the signal_status_type DB enum; all other exit values map to EXPIRED.
+_VALID_EXIT_STATUSES = frozenset({SignalStatus.EXPIRED.value, SignalStatus.REGIME_SUPPRESSED.value})
 
 
 def _ensure_datetimes(entry: dict) -> None:
@@ -162,12 +164,11 @@ class LifecycleWriter(BaseWriter):
         When both replay auditor and live tracker emit EXIT, the second write
         is a status no-op (same status twice) — counted and logged.
         """
-        _VALID_EXIT_STATUSES = {"expired", "regime_suppressed"}
         assert self._repo is not None
         for entry in items:
             signal_id = entry["signal_id"]
             raw_status = entry.get("status", "expired")
-            # target_N_hit and other non-enum values are terminal exits — map to "expired"
+            # Defensive: non-enum values (e.g. legacy target_N_hit) are terminal exits.
             status = raw_status if raw_status in _VALID_EXIT_STATUSES else "expired"
 
             # Update signal_events.status

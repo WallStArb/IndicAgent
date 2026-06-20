@@ -255,12 +255,12 @@ INSERT INTO trade_frames (
     frame_id, signal_id, signal_ts, entry_type, direction,
     entry_price, stop_price, target_price, r_multiple,
     ttl_bars, expires_at, counterfactual_pnl_r, was_selected,
-    frame_details
+    frame_details, targets
 ) VALUES (
     $1::uuid, $2::uuid, $3, $4, $5,
     $6, $7, $8, $9,
     $10, $11, NULL, $12,
-    $13::jsonb
+    $13::jsonb, $14::double precision[]
 )
 ON CONFLICT (frame_id) DO NOTHING
 """
@@ -460,6 +460,7 @@ class SignalEventsRepository:
                 if key in frame and key not in frame_details:
                     frame_details[key] = frame[key]
 
+            targets = [float(t) for t in (frame.get("targets") or [])] or None
             frame_params_list.append(
                 (
                     str(frame_id),  # $1 frame_id::uuid
@@ -475,6 +476,7 @@ class SignalEventsRepository:
                     frame.get("expires_at"),  # $11 expires_at
                     frame.get("was_selected", False),  # $12 was_selected
                     frame_details if frame_details else None,  # $13 frame_details::jsonb
+                    targets,  # $14 targets::double precision[]
                 )
             )
 

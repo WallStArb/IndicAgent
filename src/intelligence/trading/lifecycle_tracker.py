@@ -535,8 +535,8 @@ def _check_active_exit(
                 break
             return _make_exit(
                 sid,
+                SignalStatus.EXPIRED,
                 f"target_{i + 1}_hit",
-                "target_hit",
                 target,
                 entry,
                 direction,

@@ -828,13 +828,15 @@ _INSERT_TRADE_FRAMES_SYNC_SQL = """
 INSERT INTO trade_frames (
     frame_id, signal_id, signal_ts, entry_type, direction,
     entry_price, stop_price, target_price, r_multiple,
-    ttl_bars, expires_at, counterfactual_pnl_r, was_selected, frame_details
+    ttl_bars, expires_at, counterfactual_pnl_r, was_selected, frame_details, targets
 ) VALUES %s
 ON CONFLICT (frame_id) DO NOTHING
 """
 
 _INSERT_TRADE_FRAMES_SYNC_TEMPLATE = (
-    "(%s::uuid, %s::uuid, %s, %s, %s," " %s, %s, %s, %s," " %s, %s, NULL, %s, %s::jsonb)"
+    "(%s::uuid, %s::uuid, %s, %s, %s,"
+    " %s, %s, %s, %s,"
+    " %s, %s, NULL, %s, %s::jsonb, %s::double precision[])"
 )
 
 
@@ -1003,9 +1005,9 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
             frame_details["market_entry_price"] = float(e.market_entry_price)
         frame_details_json = json.dumps(frame_details) if frame_details else None
 
-        # Extract first target for trade_frames.target_price
-        targets = e.targets or []
-        target_price = float(targets[0]) if targets else None
+        # Build target list; first target also goes to target_price for backward compat
+        targets = [float(t) for t in (e.targets or [])]
+        target_price = targets[0] if targets else None
         stop_price = float(e.stop_loss) if e.stop_loss is not None else None
         entry_price = float(e.entry_price) if e.entry_price is not None else None
         r_multiple = None
@@ -1067,6 +1069,7 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
                 # counterfactual_pnl_r = NULL (CounterfactualTracker v2.11)
                 e.was_selected,  # was_selected
                 frame_details_json,  # frame_details
+                targets if targets else None,  # targets::double precision[]
             )
         )
 

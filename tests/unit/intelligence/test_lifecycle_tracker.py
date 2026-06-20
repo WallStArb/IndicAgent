@@ -89,13 +89,13 @@ class TestActiveToExit:
 
     @pytest.mark.unit
     def test_target_2_hit_long(self):
-        """Long active: high >= target[1] -> target_2_hit."""
+        """Long active: high >= target[1] -> expired with exit_reason target_2_hit."""
         sig = _active_signal(
             direction=1, entry=5100.0, stop=5085.0, targets=[5115.0, 5130.0, 5145.0]
         )
         t = evaluate_signal(sig, high=5131.0, low=5120.0, close=5129.0)
-        assert t.new_status == "target_2_hit"
-        assert t.exit_reason == "target_hit"
+        assert t.new_status == "expired"
+        assert t.exit_reason == "target_2_hit"
 
     @pytest.mark.unit
     def test_target_hit_short(self):
@@ -304,7 +304,7 @@ class TestPnLCalculation:
         sig = _active_signal(direction=1, entry=5100.0, stop=5085.0, targets=[5115.0, 5130.0])
         t = evaluate_signal(sig, high=5131.0, low=5105.0, close=5129.0)
         assert t is not None
-        assert t.exit_reason == "target_hit"
+        assert t.exit_reason == "target_2_hit"
         assert t.pnl_ticks == pytest.approx(30.0)
         assert t.pnl_r == pytest.approx(2.0)
         assert t.pnl_dollars == pytest.approx(1500.0)
