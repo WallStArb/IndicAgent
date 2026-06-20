@@ -17,10 +17,13 @@ Usage:
 import asyncio
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import asyncpg
 
-DB_DSN = "postgresql://postgres:postgres@localhost/indicagent"
+from src.config.settings import Settings
 
 RATE_WINDOW_MINUTES = 5
 
@@ -229,7 +232,8 @@ async def main() -> None:
         if arg.lstrip("-").isdigit():
             interval = int(arg.lstrip("-"))
 
-    conn = await asyncpg.connect(DB_DSN)
+    settings = Settings()
+    conn = await asyncpg.connect(dsn=settings.database_url)
     prev = None
     try:
         while True:
