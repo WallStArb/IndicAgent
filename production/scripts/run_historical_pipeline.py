@@ -2297,6 +2297,8 @@ def main() -> None:
             print(f"No matching contracts for: {args.symbols}")
             return
 
+    contracts.sort(key=lambda c: (1 if c.asset_class == AssetClass.FX else 0, c.symbol))
+
     print("Historical Backfill Pipeline")
     print(f"  Contracts : {[c.symbol for c in contracts]}")
     print(f"  Timeframes: {timeframes}")
