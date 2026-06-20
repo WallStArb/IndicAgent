@@ -1205,18 +1205,38 @@ Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from 
 **Depends on:** Phase 136 (v2.10 complete)
 
 **Success Criteria:**
-1. `feature_vectors` hypertable created with 36 typed columns (no JSONB) — schema per `docs/plans/2026-06-20-v30-system-design.md`
+1. `feature_vectors` hypertable created with 36 typed columns (no JSONB) - schema per `docs/plans/2026-06-20-v30-system-design.md`
 2. `FeatureFactory.compute(bars, symbol, tf)` → `FeatureVector` frozen dataclass: all 35 primitives implemented
 3. All `feature.*` APR keys seeded in `config_state` (periods, z-score windows, cache refresh cadence)
-4. Historical backfill complete: 58 ETFs × 4 TFs at target depths (5m: 5yr, 15m: 10yr, 1h: 15yr, 1d: 20yr) — row counts validated vs IC spec §II
-5. `regime_label_source = 'filtered'` (forward Viterbi, causal) — no backward smoother
+4. Historical backfill complete: 58 ETFs × 4 TFs at target depths (5m: 5yr, 15m: 10yr, 1h: 15yr, 1d: 20yr) - row counts validated vs IC spec §II
+5. `regime_label_source = 'filtered'` (forward Viterbi, causal) - no backward smoother
 6. Intelligence pipeline calls `FeatureFactory.compute()` per bar; feature_writer persists to `feature_vectors`
 7. I5/I6/I7 archived (code preserved, removed from pipeline dispatch)
-8. Plugin registry dispatch removed from `IntelligencePipeline` — replaced by single `FeatureFactory` call
-9. Zero inline numeric constants in `feature_factory.py` — all APR-backed via `ConfigService.get()`
+8. Plugin registry dispatch removed from `IntelligencePipeline` - replaced by single `FeatureFactory` call
+9. Zero inline numeric constants in `feature_factory.py` - all APR-backed via `ConfigService.get()`
 10. Unit tests green
 
-**Plans:** TBD
+**Plans:** 6 plans in 4 waves
+
+Plans:
+
+**Wave 1** *(foundation, parallel - no file conflicts)*
+
+- [ ] A-P1-PLAN.md - Schema + APR: migration 155 (feature_vectors hypertable + backfill_status + feature.*/alpha.vector seeds) + alpha. prefix in OPS_PREFIXES (SC-1, SC-3, SC-5)
+- [ ] A-P2-PLAN.md - Contracts: topic_feature_vectors in stream_keys + FeatureVector/FeatureVectorRecord dataclasses in schemas (SC-2)
+
+**Wave 2** *(blocked on P1+P2)*
+
+- [ ] A-P3-PLAN.md - TDD: FeatureFactory pure-function library + FeatureCache + all 35 primitives (forward-only HMM, OHLCV proxy flow, cross-asset proxies - VXX/VIXY absent) (SC-2, SC-9)
+
+**Wave 3** *(parallel - P4 blocked on P1+P2, P5 blocked on P1+P3)*
+
+- [ ] A-P4-PLAN.md - feature_writer retarget to feature_vectors (consumer group rename, 42-param INSERT) (SC-6)
+- [ ] A-P5-PLAN.md - Backfill oneshot: IBKR fetch (client-id 40) + FeatureFactory compute from market_data_ohlcv + checkpoint/resume + D-06 coverage gate (SC-4, SC-5)
+
+**Wave 4** *(blocked on P3+P4+P5; backfill coverage gate must pass first)*
+
+- [ ] A-P6-PLAN.md - Cutover: wire FeatureFactory into pipeline + feature.* prewarm + remove plugin dispatch + archive I5/I6/I7 intact + live smoke test + done-gate (SC-6, SC-7, SC-8, SC-10)
 
 ### Phase B: IC Engine + Outcome Labels
 
