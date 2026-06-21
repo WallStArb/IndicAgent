@@ -1216,14 +1216,14 @@ Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from 
 9. Zero inline numeric constants in `feature_factory.py` - all APR-backed via `ConfigService.get()`
 10. Unit tests green
 
-**Plans:** 6 plans in 4 waves
+**Plans:** 2/6 plans executed
 
 Plans:
 
 **Wave 1** *(foundation, parallel - no file conflicts)*
 
-- [ ] 137-P1-PLAN.md - Schema + APR: migration 155 (feature_vectors hypertable + backfill_status + feature.*/alpha.vector seeds) + alpha. prefix in OPS_PREFIXES (SC-1, SC-3, SC-5)
-- [ ] 137-P2-PLAN.md - Contracts: topic_feature_vectors in stream_keys + FeatureVector/FeatureVectorRecord dataclasses in schemas (SC-2)
+- [x] 137-P1-PLAN.md - Schema + APR: migration 155 (feature_vectors hypertable + backfill_status + feature.*/alpha.vector seeds) + alpha. prefix in OPS_PREFIXES (SC-1, SC-3, SC-5)
+- [x] 137-P2-PLAN.md - Contracts: topic_feature_vectors in stream_keys + FeatureVector/FeatureVectorRecord dataclasses in schemas (SC-2)
 
 **Wave 2** *(blocked on P1+P2)*
 

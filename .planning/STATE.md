@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
 status: Phase 137 planned — ready to execute (6 plans, 4 waves)
-last_updated: "2026-06-20T21:00:00.000Z"
-last_activity: 2026-06-20
+last_updated: "2026-06-21T00:50:38.661Z"
+last_activity: 2026-06-21 -- Phase 137 execution started
 progress:
   total_phases: 3
   completed_phases: 0
@@ -20,7 +20,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** v3.0 AlphaEngine — replace binary signal plugins with continuous IC-weighted score producers
+**Current focus:** Phase 137 — feature-factory
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
@@ -93,12 +93,14 @@ See: .planning/PROJECT.md
 Phase 137: Feature Factory planning complete. All 10 success criteria covered. Verification passed.
 
 Wave structure:
+
 - Wave 1 (parallel): 137-P1 schema+APR migration 155 + 137-P2 contracts (stream key + dataclasses)
 - Wave 2: 137-P3 FeatureFactory TDD (35 primitives + FeatureCache; VXX/VIXY absent, SPY/TLT/SHY proxies)
 - Wave 3 (parallel): 137-P4 feature_writer retarget + 137-P5 backfill oneshot (IBKR fetch + checkpoint/resume)
 - Wave 4: 137-P6 cutover (pipeline wire + I5/I6/I7 archive + smoke test + done-gate)
 
 Key discoveries from research:
+
 - `market_data_ohlcv` is empty — IBKR fetch is Wave 1/P5's first step, planned explicitly
 - `alpha.` prefix missing from OPS_PREFIXES — blocker in 137-P1 T1, resolved before migration runs
 - VXX/VIXY not in 58-ETF universe — cross-asset proxies: vix_z via SPY realized-vol, flight_quality via TLT/SPY divergence, yield_slope_z via TLT/SHY ratio
@@ -163,9 +165,10 @@ v2.10 milestone closed. Phase 133 (corpus rebuild) CANCELLED — superseded by I
 
 Milestone: v2.10 — COMPLETE (2026-06-20)
 Milestone: v3.0 — STARTING — AlphaEngine (Intelligence Vectors, V1 Quant)
-Phase: 133 (clean-corpus-rebuild) — CANCELLED (superseded by v3.0 architecture)
+Phase: 137 (feature-factory) — EXECUTING
+Plan: 1 of 6
 Phase: 135 (controlled-vocabulary-system) — deferred
-Last activity: 2026-06-20
+Last activity: 2026-06-21 -- Phase 137 execution started
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
