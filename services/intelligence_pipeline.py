@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""IntelligencePipeline — Unified I1-I7 in-process pipeline.
+"""IntelligencePipeline — v3.0 FeatureFactory pipeline.
 
-Thin DAG router: constructs all 5 extracted classes and routes to 4 output topics.
-I1-I6 runs in _run_i1_to_i6; I7 runs in SignalProcessor.process().
-_process_bar_inner is the explicit DAG description (D-08).
+Computes all 36 FeatureVector primitives via FeatureFactory.compute() per bar,
+wraps in FeatureVectorRecord, and publishes to topic_feature_vectors.
+
+D-09 cutover: I5/I6/I7 plugin dispatch removed. feature.* APR keys prewarmed
+at init. FeatureCache refreshed every regime_cache_refresh_bars bars.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import os
 import signal as _signal
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
 from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
@@ -29,68 +31,46 @@ from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage
-from src.core.service_utils import min_bars_for_tf, normalize_session_type, parse_iso_ts
+from src.core.service_utils import (
+    format_iso_ts,
+    min_bars_for_tf,
+    parse_iso_ts,
+)
 from src.core.stream_keys import (
     TF_SECONDS,
     message_key,
     topic_config_updates,
     topic_contract_updates,
     topic_cross_asset,
-    topic_intelligence,
-    topic_intelligence_i7_signals,
-    topic_intelligence_journal,
+    topic_feature_vectors,
     topic_intelligence_pipeline_dlq,
-    topic_intelligence_shadow,
     topic_macro_signals,
     topic_market_bars,
     topic_market_bars_htf,
     topic_signal_dlq,
-    topic_signals_aggregated,
     topic_system_events,
 )
+from src.intelligence.feature_cache import FeatureCache
+from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
 from src.intelligence.pipeline import (
     CacheManager,
-    FeaturePipelineExecutor,
     OutputQueue,
     PerKeyWorkerManager,
-    PluginExecutor,
     PluginStateManager,
-    SignalProcessor,
 )
-from src.intelligence.pipeline.executor import _SHADOW_CB_DEFAULTS
-from src.intelligence.pipeline.output_queue import PRIORITY_HIGH, PRIORITY_LOW
+from src.intelligence.pipeline.output_queue import PRIORITY_HIGH
 from src.intelligence.pipeline.per_key_worker_manager import (
     _WORKER_COUNT_GAUGE,
     _WORKER_QUEUE_DEPTH_GAUGE,
 )
 from src.intelligence.pipeline.state_manager import _CHECKPOINT_PATH
-from src.intelligence.plugins import registry
-from src.intelligence.register_plugins import (
-    TIER_I1,
-    TIER_I2,
-    TIER_I3,
-    TIER_I4,
-    TIER_I5,
-    TIER_I6,
-    TIER_I7,
-    TIER_SMC,
-    enroll_all_plugins,
-    register_all_plugins,
-)
-from src.intelligence.schemas import (
-    BarIntelligenceRecord,
-    IntelligenceEvent,
-    signal_dict_to_ranked,
-)
-from src.intelligence.trading.cis_scorer import CISScorer
-from src.observability.circuit_breaker import CircuitBreaker
+from src.intelligence.schemas import FeatureVectorRecord
 from src.observability.metrics import (
     CONTRACTS_RELOAD_TOTAL,
     PIPELINE_BACKPRESSURE_DROP_TOTAL,
     THREAD_POOL_WORKERS,
     counter,
 )
-from src.observability.plugin_observer import PluginObserver
 from src.observability.spans import ATTR_SYMBOL, ATTR_TF, observed_span
 
 # ---------------------------------------------------------------------------
@@ -98,13 +78,9 @@ from src.observability.spans import ATTR_SYMBOL, ATTR_TF, observed_span
 # ---------------------------------------------------------------------------
 
 _STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
-VIX_REGIME_TF: str = "1h"
-I7_PLUGINS = TIER_I7
 _OUTPUT_QUEUE_MAXSIZE = 500
-_MAX_QUEUE_DEPTH = 500  # drop incoming bar above this depth to prevent OOM under load
-
-# PluginTask, _timed_plugin_call, and _ANALYSIS_WAVES moved to executor.py (plan 04).
-# _apply_alpha_decay, _cis_kalman_update moved to signal_processor.py (plan 05); _build_features_from_event renamed to build_flat_features and moved to feature_flattening.py.
+_MAX_QUEUE_DEPTH = 500
+_PIPELINE_VERSION = "3.0.0"
 
 
 # ---------------------------------------------------------------------------
@@ -113,10 +89,11 @@ _MAX_QUEUE_DEPTH = 500  # drop incoming bar above this depth to prevent OOM unde
 
 
 class IntelligencePipeline(BaseDaemon):
-    """Unified I1-I7 in-process pipeline agent — thin DAG router.
+    """v3.0 pipeline: FeatureFactory.compute() per bar, publish to topic_feature_vectors.
 
-    Constructs all 5 extracted classes and routes to 4 output topics.
-    _process_bar_inner is the D-08 DAG description with explicit 4-way output routing.
+    D-09 cutover: replaces I5/I6/I7 PluginExecutor dispatch with a single
+    FeatureFactory.compute() call. Zero plugin dispatch remains in compute path.
+    feature.* APR keys prewarmed at init. FeatureCache per (symbol, tf).
     """
 
     def __init__(self) -> None:
@@ -141,30 +118,6 @@ class IntelligencePipeline(BaseDaemon):
             )
         self._symbols = [c.symbol for c in self._contracts]
         self._timeframes = list(_STANDARD_TFS)
-
-        register_all_plugins()
-        for tier_list, tier_name in (
-            (TIER_I1, "I1"),
-            (TIER_I2, "I2"),
-            (TIER_I3, "I3"),
-            (TIER_I4, "I4"),
-            (TIER_I5, "I5"),
-            (TIER_SMC, "SMC"),
-            (TIER_I6, "I6"),
-            (TIER_I7, "I7"),
-        ):
-            registry.validate_tier(tier_list, tier_name)
-
-        from src.intelligence.plugin_validator import PluginValidator
-
-        PluginValidator().validate_all()
-
-        # Plugin cache — used by PluginExecutor (the orchestrator's copy was redundant with
-        # PluginExecutor's own copy; deleted D-24). Build once for PluginExecutor constructor.
-        self._plugin_cache: dict[str, Any] = {n: registry.get_indicator(n) for n in TIER_I1}
-        for n in TIER_I2 + TIER_I3 + TIER_I4 + TIER_I5 + TIER_SMC + TIER_I6 + TIER_I7:
-            self._plugin_cache[n] = registry.get_pattern(n)
-
         self._instrument_map: dict[str, Any] = {c.symbol: c for c in self._contracts}
 
         self._bar_history = BarHistory(maxlen=200)
@@ -174,7 +127,10 @@ class IntelligencePipeline(BaseDaemon):
         self._live_quotes: dict = {}
         self._last_bar_ts: dict = {}
 
-        # Thread pool — cap removed (D-29). Default: max(4, cpu_count // 2).
+        # Per-(symbol, tf) FeatureCache — lazily created via _get_cache()
+        self._feature_caches: dict[str, FeatureCache] = {}
+
+        # Thread pool (kept for CacheManager background tasks)
         cpu_count = os.cpu_count() or 24
         _configured = self.settings.intelligence_thread_pool_workers
         _workers = _configured if _configured > 0 else max(4, cpu_count // 2)
@@ -182,9 +138,8 @@ class IntelligencePipeline(BaseDaemon):
         THREAD_POOL_WORKERS.add(_workers)
 
         self._config_service: ConfigService | None = None  # initialised in _setup()
-        self._regime_prob_min: float = self.settings.regime_prob_min
-        self._regime_prob_soft_max: float = self.settings.REGIME_PROB_SOFT_MAX
-        self._regime_dur_min: int = self.settings.regime_dur_min
+        self._feature_factory_config: FeatureFactoryConfig | None = None
+        self._feature_factory = FeatureFactory()
 
         self._shadow_mode: bool = os.environ.get("INTELLIGENCE_PIPELINE_SHADOW", "0") == "1"
         self._consumer_group = "intelligence_pipeline_group"
@@ -192,15 +147,7 @@ class IntelligencePipeline(BaseDaemon):
 
         self._bars_processed = counter(
             "intelligence_pipeline_bars_processed_total",
-            "Bars processed through I1-I7 pipeline",
-        )
-        self._i1_latency_ms = self._meter.create_histogram(
-            "intelligence_pipeline_i1_latency_ms",
-            description="I1 tier execution time in milliseconds",
-        )
-        self._i7_latency_ms = self._meter.create_histogram(
-            "intelligence_pipeline_i7_latency_ms",
-            description="I7 tier execution time in milliseconds",
+            "Bars processed through FeatureFactory pipeline",
         )
         self._pipeline_errors = counter(
             "intelligence_pipeline_pipeline_errors_total",
@@ -208,7 +155,7 @@ class IntelligencePipeline(BaseDaemon):
         )
         self._bar_timeout_total = counter(
             "intelligence_pipeline_bar_timeout_total",
-            "Bars that exceeded the 500ms hard outer timeout and were DLQ'd with reason bar_tier_timeout",
+            "Bars that exceeded the 500ms hard outer timeout and were DLQ'd",
         )
         self._pipeline_latency = self._meter.create_histogram(
             "intelligence_pipeline_pipeline_latency_ms",
@@ -216,40 +163,30 @@ class IntelligencePipeline(BaseDaemon):
         )
         self._bar_e2e_latency = self._meter.create_histogram(
             "bar_e2e_latency_ms",
-            description="End-to-end bar latency from arrival to signal enqueue",
+            description="End-to-end bar latency from arrival to feature publish",
         )
 
         self._vix_symbol: str | None = (
             "VX" if any(c.symbol == "VX" for c in self._contracts) else None
         )
 
+    def _get_cache(self, symbol: str, tf: str) -> FeatureCache:
+        """Return the FeatureCache for (symbol, tf), creating one on first access."""
+        key = f"{symbol}:{tf}"
+        if key not in self._feature_caches:
+            self._feature_caches[key] = FeatureCache()
+        return self._feature_caches[key]
+
     async def stop(self) -> None:
         self.logger.info("agent.shutdown_initiated", agent=self.name)
-        if hasattr(self, "_executor"):
-            self._executor.shutdown()
         self.logger.info("agent.thread_pool_shutdown", agent=self.name)
         await super().stop()
-
-    def _build_plugin_circuit_breakers(self) -> dict[str, CircuitBreaker]:
-        """Build a shadow-mode CircuitBreaker for every plugin in the registry.
-
-        Each breaker is constructed with enabled=False (shadow mode) so
-        allow_request() always returns True and live routing is unaffected.
-        record_success() / record_failure() run unconditionally, accumulating
-        real failure data before any decision to flip PLUGIN_CB_ENABLED=true.
-
-        The failure_threshold and timeout_sec match the lazy-init defaults in
-        PluginExecutor._get_plugin_cb() so pre-populated and lazily-created
-        breakers are equivalent in behaviour.
-        """
-        all_plugins = TIER_I1 + TIER_I2 + TIER_I3 + TIER_I4 + TIER_I5 + TIER_SMC + TIER_I6 + TIER_I7
-        return {name: CircuitBreaker(**_SHADOW_CB_DEFAULTS, name=name) for name in all_plugins}
 
     async def _setup(self) -> None:
         self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
 
-        # ConfigService: shared pool, pre-warm threshold.* cache, inject into plugins.
+        # ConfigService: shared pool, prewarm feature.* and threshold.* keys.
         self._config_service = ConfigService(self.settings.database_url, pool=self._db.pool)
         await self._prewarm_threshold_config()
 
@@ -298,9 +235,6 @@ class IntelligencePipeline(BaseDaemon):
 
         await self._seed_bar_history_from_db()
 
-        # TransformRecorder archived in Phase 78 (D-04). Pass recorder=None;
-        # signal_processor.py guards all call sites with `if recorder is not None`.
-        # graduation_analyzer still reads signal_transform_log — see #33 for migration plan.
         _symbol_filter_list = self.settings.intelligence_pipeline_symbol_filter
         symbol_filter = frozenset(_symbol_filter_list) if _symbol_filter_list else None
         self._cache_mgr = CacheManager(
@@ -309,8 +243,6 @@ class IntelligencePipeline(BaseDaemon):
             symbols=symbol_filter,
             on_instruments_changed=invalidate_active_contracts_cache,
         )
-        async with self._db.pool.acquire() as conn:
-            await enroll_all_plugins(conn)
         await self._cache_mgr.load_initial()
         for task in self._cache_mgr.start_refresh_loops():
             self._background_tasks.add(task)
@@ -322,40 +254,7 @@ class IntelligencePipeline(BaseDaemon):
         listener_task.add_done_callback(self._background_tasks.discard)
         self.logger.info("intelligence_pipeline.instruments_listener_started")
 
-        self._executor = PluginExecutor(
-            thread_pool=self._thread_pool,
-            plugin_cache=self._plugin_cache,
-            instrument_map=self._instrument_map,
-            circuit_breakers=self._build_plugin_circuit_breakers(),
-            observer=PluginObserver(),
-        )
-
-        # FeaturePipelineExecutor — 6th DAG node (D-18, Plan 01 Task 5)
-        self._feature_pipeline = FeaturePipelineExecutor(
-            bar_history=self._bar_history,
-            executor=self._executor,
-            state_mgr=self._state_mgr,
-            instrument_map=self._instrument_map,
-            vix_symbol=self._vix_symbol,
-            settings=self.settings,
-        )
-
-        # Construct SignalProcessor (plan 05). Receives CacheSnapshot per bar, not CacheManager.
-        self._sig_proc = SignalProcessor(
-            cis_scorer=CISScorer(),
-            settings=self.settings,
-            transform_recorder=None,
-        )
-
-        # Restore cross-owned checkpoint fields into SignalProcessor
-        if extra is not None:
-            self._sig_proc.restore_kalman_state(extra.get("kalman_state", {}))
-            self._sig_proc.restore_setup_last_fire(extra.get("setup_last_fire", {}))
-
-        # CB open transition tracking (Phase 108 HEAL-03)
-        self._cb_open_reported: set[str] = set()
-
-        # Per-key concurrency — PERF-07 (D-01, D-03, D-16, D-28)
+        # Per-key concurrency (PERF-07)
         self._worker_manager = PerKeyWorkerManager(
             processor=self._process_bar_inner,
             symbol_filter=symbol_filter,
@@ -364,7 +263,7 @@ class IntelligencePipeline(BaseDaemon):
         self._worker_manager.start_per_key_workers()
 
         loop = asyncio.get_running_loop()
-        loop.add_signal_handler(_signal.SIGUSR1, self._on_hmm_sigusr1)
+        loop.add_signal_handler(_signal.SIGUSR1, self._on_feature_config_reload)
         self.logger.info(
             "agent.setup_complete",
             shadow=self._shadow_mode,
@@ -372,7 +271,10 @@ class IntelligencePipeline(BaseDaemon):
             timeframes=self._timeframes,
         )
 
-    # Threshold keys owned by the 4 configurable I7 plugins.
+    # ---------------------------------------------------------------------------
+    # APR prewarm: all threshold.* and feature.* keys loaded at init
+    # ---------------------------------------------------------------------------
+
     _THRESHOLD_KEYS: tuple[tuple[str, Any], ...] = (
         ("threshold.trend_following.regime_min", 0.5),
         ("threshold.trend_following.confidence_min", 0.4),
@@ -443,7 +345,7 @@ class IntelligencePipeline(BaseDaemon):
         ("threshold.cis.fire_threshold", 0.35),
         ("threshold.cis.bucket_agree_min", 3),
         ("threshold.cis.bucket_noise_floor", 0.1),
-        # --- migration 132: Phase 125 zone entry width gate (consumed by Phase 126) ---
+        # --- migration 132: Phase 125 zone entry width gate ---
         ("feature.zone_engine.min_zone_width_atr", 1.5),
         ("feature.zone_engine.min_zone_width_atr.equity", 1.5),
         ("feature.zone_engine.min_zone_width_atr.fx", 1.0),
@@ -512,7 +414,7 @@ class IntelligencePipeline(BaseDaemon):
         ("threshold.trade_framer.min_rr_t1", 1.5),
         ("feature.trade_framer.adaptive_buffer_hard_cap", 1.40),
         ("feature.trade_framer.structure_snap_proximity_atr", 1.5),
-        # --- migration 147: Phase 132 adaptive buffer coefficients (coupled piecewise — tune as a group) ---
+        # --- migration 147: Phase 132 adaptive buffer coefficients ---
         ("feature.trade_framer.adaptive_buffer_vol_ratio_min", 0.70),
         ("feature.trade_framer.adaptive_buffer_vol_ratio_max", 1.50),
         ("feature.trade_framer.adaptive_buffer_low_vol_base", 0.80),
@@ -535,47 +437,62 @@ class IntelligencePipeline(BaseDaemon):
         ("feature.garch.alpha", 0.10),
         ("feature.garch.beta", 0.85),
         ("feature.kalman.garch_r_scale", 10_000.0),
+        # --- v3.0 Phase 137: FeatureFactory APR keys (D-09 cutover) ---
+        ("feature.momentum.window_short", 5),
+        ("feature.momentum.window_long", 20),
+        ("feature.momentum.zscore_window", 252),
+        ("feature.volume.zscore_window", 20),
+        ("feature.ofi.zscore_window", 20),
+        ("feature.cvd.slope_bars", 5),
+        ("feature.cmf.period", 20),
+        ("feature.vol.short_bars", 5),
+        ("feature.vol.long_bars", 20),
+        ("feature.hma.period", 20),
+        ("feature.adx.period", 14),
+        ("feature.hurst.window", 252),
+        ("feature.garch.window", 100),
+        ("feature.vix.zscore_window", 252),
+        ("feature.yield_curve.zscore_window", 252),
+        ("feature.regime.cache_refresh_bars", 30),
     )
 
     async def _prewarm_threshold_config(self) -> None:
-        """Pre-warm config cache and inject ConfigService into all configurable plugins."""
+        """Prewarm config cache and build FeatureFactoryConfig from feature.* keys."""
         assert self._config_service is not None
         for key, default in self._THRESHOLD_KEYS:
             await self._config_service.get(key, default)
 
-        # Inject into module-level utility singletons (shared helpers, not plugins).
-        from src.intelligence.trading import (  # noqa: PLC0415
-            aggregator,
-            cis_scorer,
-            confidence,
-            microstructure_utils,
-            state_utils,
-            trade_framer,
-            volume_profile_utils,
-            zone_engine,
+        # Build FeatureFactoryConfig from prewarmed feature.* values (APR contract).
+        # All get_sync() calls hit the warm cache — no DB round-trips on compute path.
+        cs = self._config_service
+
+        def _int(key: str, default: int) -> int:
+            v = cs.get_sync(key, default)
+            return int(v) if v is not None else default
+
+        self._feature_factory_config = FeatureFactoryConfig(
+            momentum_window_short=_int("feature.momentum.window_short", 5),
+            momentum_window_long=_int("feature.momentum.window_long", 20),
+            momentum_zscore_window=_int("feature.momentum.zscore_window", 252),
+            volume_zscore_window=_int("feature.volume.zscore_window", 20),
+            ofi_zscore_window=_int("feature.ofi.zscore_window", 20),
+            cvd_slope_bars=_int("feature.cvd.slope_bars", 5),
+            cmf_period=_int("feature.cmf.period", 20),
+            vol_short_bars=_int("feature.vol.short_bars", 5),
+            vol_long_bars=_int("feature.vol.long_bars", 20),
+            hma_period=_int("feature.hma.period", 20),
+            adx_period=_int("feature.adx.period", 14),
+            hurst_window=_int("feature.hurst.window", 252),
+            garch_window=_int("feature.garch.window", 100),
+            vix_zscore_window=_int("feature.vix.zscore_window", 252),
+            yield_curve_zscore_window=_int("feature.yield_curve.zscore_window", 252),
+            regime_cache_refresh_bars=_int("feature.regime.cache_refresh_bars", 30),
         )
 
-        confidence.set_config_service(self._config_service)
-        microstructure_utils.set_config_service(self._config_service)
-        state_utils.set_config_service(self._config_service)
-        volume_profile_utils.set_config_service(self._config_service)
-        zone_engine.set_config_service(self._config_service)
-        trade_framer.set_config_service(self._config_service)
-        aggregator.set_config_service(self._config_service)
-        cis_scorer.set_config_service(self._config_service)
-
-        # Inject config service into all plugins that opted in via the _config_service field.
-        # Self-healing: as more plugins migrate, no changes here are needed.
-        plugin_count = 0
-        for p in self._plugin_cache.values():
-            if hasattr(p, "_config_service"):
-                p._config_service = self._config_service
-                plugin_count += 1
-
         self.logger.info(
-            "intelligence_pipeline.threshold_config_loaded",
-            plugin_count=plugin_count,
+            "intelligence_pipeline.feature_config_loaded",
             key_count=len(self._THRESHOLD_KEYS),
+            regime_cache_refresh_bars=self._feature_factory_config.regime_cache_refresh_bars,
         )
 
     async def _handle_config_update(self, payload: dict) -> None:
@@ -602,7 +519,6 @@ class IntelligencePipeline(BaseDaemon):
             self.logger.warning("bar_history.seed_failed", error=str(error))
 
     async def _run(self) -> None:
-        # drain_task is always gathered below; no need to also track in _background_tasks
         drain_task = asyncio.create_task(self._out_queue.drain_loop(lambda: self.running))
         tasks = [
             asyncio.create_task(self._process_loop()),
@@ -645,12 +561,7 @@ class IntelligencePipeline(BaseDaemon):
         self.logger.info("agent.teardown_complete")
 
     def _register_signal_handlers(self) -> None:
-        """Override to also stop the Kafka consumer on SIGTERM/SIGINT.
-
-        The base handler only sets _stop_event, which has no effect while
-        _process_loop is blocked inside the async-for over messages(). Stopping
-        the consumer closes it and causes StopAsyncIteration, unblocking the loop.
-        """
+        """Override to also stop the Kafka consumer on SIGTERM/SIGINT."""
         super()._register_signal_handlers()
 
         loop = asyncio.get_running_loop()
@@ -671,25 +582,9 @@ class IntelligencePipeline(BaseDaemon):
         for sig in (_signal.SIGTERM, _signal.SIGINT):
             loop.add_signal_handler(sig, _signal_handler)
 
-    def _on_hmm_sigusr1(self) -> None:
+    def _on_feature_config_reload(self) -> None:
+        """SIGUSR1 handler: log receipt (config hot-reload via config_updates topic)."""
         self.logger.info("intelligence_pipeline.sigusr1_received")
-        task = asyncio.create_task(self._reload_hmm_parameters())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-
-        def _log_exc(t: asyncio.Task) -> None:
-            if not t.cancelled() and (error := t.exception()):
-                self.logger.error("intelligence_pipeline.hmm_reload_failed", error=str(error))
-
-        task.add_done_callback(_log_exc)
-
-    async def _reload_hmm_parameters(self) -> None:
-        reloaded_names = self._executor.reload_hmm_parameters()
-        self.logger.info(
-            "intelligence_pipeline.hmm_reload_complete",
-            hmm_reload=True,
-            reloaded_plugin_names=reloaded_names,
-        )
 
     async def _process_loop(self) -> None:
         _cross_asset_topic = topic_cross_asset(self.settings.env_name)
@@ -726,17 +621,14 @@ class IntelligencePipeline(BaseDaemon):
                         elif _topic == _system_topic:
                             await self._handle_system_event(payload)
                         elif _topic == _contracts_topic:
-                            # MEDIUM-02: atomic contract hot-reload — never mutate in place.
-                            # Preserve last-known-good on failure; emit telemetry on both paths.
                             try:
                                 new_contracts = get_active_contracts(self.settings)
-                                self._contracts = new_contracts  # atomic reference swap
+                                self._contracts = new_contracts
                                 CONTRACTS_RELOAD_TOTAL.add(1, {"status": "success"})
                                 self.logger.info("contracts_reloaded", count=len(self._contracts))
                             except Exception as error:
                                 CONTRACTS_RELOAD_TOTAL.add(1, {"status": "failure"})
                                 self.logger.error("contracts_reload_failed", error=str(error))
-                                # Last-known-good preserved — no assignment on failure
                         elif _topic == self._config_updates_topic:
                             await self._handle_config_update(payload)
                         else:
@@ -744,10 +636,6 @@ class IntelligencePipeline(BaseDaemon):
                             if bar is None:
                                 await self._send_to_dlq(payload, Exception("Parse failed"))
                                 continue
-                            # STRUCTURAL: backpressure circuit breaker — drop INCOMING bar
-                            # (newest) when the per-key queue is full. try_enqueue uses
-                            # put_nowait so a full queue never stalls the Kafka consumer loop.
-                            # Dropping oldest would corrupt rolling windows and Kalman state.
                             if not self._worker_manager.try_enqueue(bar):
                                 PIPELINE_BACKPRESSURE_DROP_TOTAL.add(
                                     1, {"symbol": bar.symbol, "tf": bar.tf}
@@ -773,11 +661,6 @@ class IntelligencePipeline(BaseDaemon):
         return topic_intelligence_pipeline_dlq(self.settings.env_name)
 
     def _parse_bar(self, msg: dict) -> BarMessage | None:
-        # PERF-08: model_construct skips Pydantic validation on the hot path.
-        # Bars arrive from an internal trusted producer (bar-aggregator), so
-        # field shapes are guaranteed by the upstream contract. Falls back to
-        # full validation on error to surface schema violations via DLQ.
-        # ts arrives as ISO string from Kafka; model_construct won't coerce it.
         try:
             if isinstance(msg.get("ts"), str):
                 msg = {**msg, "ts": parse_iso_ts(msg["ts"])}
@@ -789,9 +672,8 @@ class IntelligencePipeline(BaseDaemon):
                 return None
 
     async def _process_bar_inner(self, bar: BarMessage, *, gap: bool = False) -> None:
-        """D-08 DAG router: gap detect → FPE → I7 → SignalProcessor → 4-way routing."""
+        """DAG router: gap detect -> FeatureFactory.compute() -> publish."""
         t0 = time.perf_counter()
-        # Gap detection — PERF-09: flag tracked as explicit parameter, not via model_copy.
         key = f"{bar.symbol}:{bar.tf}"
         prev_ts = self._last_bar_ts.get(key)
         if (
@@ -808,9 +690,6 @@ class IntelligencePipeline(BaseDaemon):
             **{ATTR_SYMBOL: bar.symbol, ATTR_TF: bar.tf},
         ):
             try:
-                # Hard 500ms outer timeout (D-12, 3-D): if the entire bar compute
-                # exceeds 500ms, DLQ the bar with reason bar_tier_timeout rather than
-                # blocking the consumer loop.
                 await asyncio.wait_for(self._process_bar_compute(bar, t0=t0, gap=gap), timeout=5.0)
             except TimeoutError:
                 env = self.settings.env_name
@@ -828,8 +707,6 @@ class IntelligencePipeline(BaseDaemon):
                     tf=bar.tf,
                     timeout_ms=500,
                 )
-                # Enqueue to DLQ — short 1s timeout so the handler cannot
-                # stall the consumer loop indefinitely.
                 await self._out_queue.enqueue_blocking(
                     topic_signal_dlq(env),
                     msg_key,
@@ -839,201 +716,117 @@ class IntelligencePipeline(BaseDaemon):
                 )
 
     async def _process_bar_compute(self, bar: BarMessage, *, t0: float, gap: bool = False) -> None:
-        """Core I1-I7 compute and output routing — called from inside observed_span."""
-        cache_snapshot = self._cache_mgr.snapshot()
-        i1_start = time.perf_counter()
+        """FeatureFactory compute and publish -- DB-ignorant hot path (D-09).
+
+        FeatureFactory.compute() is pure: bars list + cache + frozen config.
+        FeatureCache refreshed every regime_cache_refresh_bars bars (slow path).
+        Publish via asyncio.create_task() -- fire-and-forget, non-blocking.
+        msg= kwarg (NOT value=) per KafkaProducerClient contract.
+        """
+        assert self._feature_factory_config is not None, "FeatureFactoryConfig not prewarmed"
+
+        config = self._feature_factory_config
+        cache = self._get_cache(bar.symbol, bar.tf)
+
+        # Build bars list from history (list of dicts for FeatureFactory.compute())
+        raw_bars = self._bar_history.get(bar.symbol, bar.tf)
+        if not raw_bars:
+            return
+
+        bars_dicts = [
+            {
+                "open": b.open,
+                "high": b.high,
+                "low": b.low,
+                "close": b.close,
+                "volume": b.volume,
+                "ts": b.ts,
+            }
+            for b in raw_bars
+        ]
+
+        # Refresh regime features every N bars (slow path; compute() reads from cache)
+        cache.bars_since_regime_refresh += 1
+        if cache.bars_since_regime_refresh >= config.regime_cache_refresh_bars:
+            cache.refresh_regime(bars_dicts, config)
+
+        # Update CTF cache when HTF bar arrives
+        if bar.tf in ("15m", "1h", "4h", "1d"):
+            self._update_ctf_cache_from_bar(bar, cache)
+
         try:
-            fp_result = await self._feature_pipeline.run(bar, cache_snapshot, gap=gap)
+            vector = FeatureFactory.compute(bars_dicts, bar.symbol, bar.tf, cache, config)
         except Exception as error:
             self.logger.error(
-                "pipeline.i1_i6_error", symbol=bar.symbol, tf=bar.tf, error=str(error)
-            )
-            self._pipeline_errors.add(1)
-            return
-        i1_duration_ms = (time.perf_counter() - i1_start) * 1000
-        self._i1_latency_ms.record(i1_duration_ms, {"symbol": bar.symbol, "tf": bar.tf})
-        if fp_result.event is None:
-            return
-        self._cache_mgr.update_hmm_regime(fp_result.hmm_regime)  # D-25
-        event_dict = fp_result.event.model_dump()
-        # Cache HTF intel for lower-TF bars to use as cross-tf context (D-19)
-        if bar.tf in ("15m", "1h", "4h", "1d"):
-            await self._cache_mgr.update_htf_intel(bar.tf, event_dict)
-        msg_key = message_key(bar.symbol, bar.tf)
-        env = self.settings.env_name
-        intel_topic = (
-            topic_intelligence_shadow(env) if self._shadow_mode else topic_intelligence(env)
-        )
-        # I7 via run_i7_complete (D-20); alpha decay in SignalProcessor (D-21)
-        i7_start = time.perf_counter()
-        plugin_states = self._state_mgr.get_all_states_for(bar.symbol, bar.tf)
-        lock = self._state_mgr.get_lock((bar.symbol, bar.tf))
-        raw_signals = await self._executor.run_i7_complete(
-            fp_result.event, bar, cache_snapshot, plugin_states, lock, main_df=fp_result.main_df
-        )
-        if self._executor._last_i7_state_updates:
-            self._state_mgr.update_batch(self._executor._last_i7_state_updates)
-        i7_duration_ms = (time.perf_counter() - i7_start) * 1000
-        self._i7_latency_ms.record(i7_duration_ms, {"symbol": bar.symbol, "tf": bar.tf})
-        result = await self._sig_proc.process(
-            fp_result.event,
-            fp_result.tiered,
-            bar,
-            bar.symbol,
-            bar.tf,
-            raw_signals=raw_signals,
-            cache_snapshot=cache_snapshot,
-            flat_features=fp_result.flat_features,  # 3-E: precomputed once per bar
-        )
-        # 3-C batched enqueue: collect all non-None output payloads and submit via
-        # a single enqueue_many() call, replacing sequential enqueue_blocking calls.
-        # Intel: 3-B serialization fix — model_dump(mode="json") dict, not model_dump_json() string.
-        # i7_signals XOR dlq (mutually exclusive): success path vs DLQ path.
-        # winner: optional (absent when no winner this bar).
-        # journal: LOW priority — collected here, LOW priority item in batch.
-        i7_result = result.i7_result or {}
-        journal_record = await self._build_journal_record(
-            bar, fp_result.event, t0, msg_key, i7_result
-        )
-        _i7_signals_payload = result.signals_payload if result.success else None
-        _dlq_payload = result.dlq_payload if not result.success else None
-        _batch: list[tuple] = [
-            # Intel event (HIGH) — 3-B: dict payload not nested JSON string
-            (intel_topic, msg_key, fp_result.event.model_dump(mode="json"), PRIORITY_HIGH),
-            # i7 signals or DLQ (HIGH) — mutually exclusive
-            (
-                (
-                    topic_intelligence_i7_signals(env),
-                    msg_key,
-                    _i7_signals_payload,
-                    PRIORITY_HIGH,
-                )
-                if _i7_signals_payload
-                else (
-                    (topic_signal_dlq(env), msg_key, _dlq_payload, PRIORITY_HIGH)
-                    if _dlq_payload
-                    else None
-                )
-            ),
-            # Winner (HIGH) — None when no winner this bar
-            (
-                (topic_signals_aggregated(env), msg_key, result.winner_payload, PRIORITY_HIGH)
-                if result.winner_payload
-                else None
-            ),
-            # Journal (LOW) — silently dropped on timeout, never stalls pipeline
-            (
-                (
-                    topic_intelligence_journal(env),
-                    msg_key,
-                    journal_record,
-                    PRIORITY_LOW,
-                )
-                if journal_record
-                else None
-            ),
-        ]
-        await self._out_queue.enqueue_many(_batch, timeout_sec=5.0)
-        pipeline_latency_ms = (time.perf_counter() - t0) * 1000
-        self._pipeline_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
-        self._bar_e2e_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
-        self._bars_processed.add(1)
-        try:
-            for plugin_name, cb in self._executor.circuit_breakers.items():
-                state = getattr(getattr(cb, "state", None), "value", None)
-                if state == "open" and plugin_name not in self._cb_open_reported:
-                    self._cb_open_reported.add(plugin_name)
-                    self.logger.warning(
-                        "intelligence_pipeline.cb_open",
-                        plugin_id=plugin_name,
-                        failure_count=getattr(cb, "failures", -1),
-                    )
-                elif state != "open" and plugin_name in self._cb_open_reported:
-                    self._cb_open_reported.discard(plugin_name)
-                    self.logger.info("intelligence_pipeline.cb_closed", plugin_id=plugin_name)
-        except Exception as e:
-            self.logger.warning("intelligence_pipeline.cb_scan_failed", error=str(e))
-        # Journal enqueue is now part of the batched enqueue_many call above (3-C).
-        # _enqueue_intel_journal is replaced by _build_journal_record + enqueue_many.
-
-    def _assemble_checkpoint_extra(self) -> dict:
-        """Build the cross-owned extra_state dict (HIGH finding 5: no plugin_states key).
-
-        Final form (plan 05): kalman_state and setup_last_fire read from SignalProcessor.
-        """
-        return {
-            "kalman_state": self._sig_proc.get_kalman_state(),
-            "setup_last_fire": self._sig_proc.get_setup_last_fire(),
-            "last_bar_offset": self._last_bar_offset,
-        }
-
-    async def _build_journal_record(
-        self,
-        bar: BarMessage,
-        event: IntelligenceEvent,
-        t0: float,
-        msg_key: str,
-        i7_result: dict | None,
-    ) -> dict | None:
-        """Build a BarIntelligenceRecord dict for the intelligence journal topic.
-
-        Returns the record as a serialized dict (model_dump mode='json') so it can be
-        included in the batched enqueue_many call (3-C). Returns None on any error.
-
-        Journal is LOW priority — silently dropped by enqueue_many on timeout.
-        Previously this method also enqueued; now it only builds (3-C refactor).
-        """
-        try:
-            i7 = i7_result or {}
-            ranked_dicts: list[dict] = i7.get("ranked", [])
-            winner: dict | None = i7.get("winner")
-            i7_computed_at: datetime = i7.get("i7_computed_at", datetime.now(UTC))
-
-            ranked_signals = [signal_dict_to_ranked(s) for s in ranked_dicts]
-
-            if winner is None:
-                winner_plugin = None
-                winner_confidence = None
-                winner_direction = None
-            else:
-                winner_plugin = winner.get("setup_plugin")
-                winner_direction = winner.get("direction")
-                winner_confidence = winner.get("calibrated_confidence")
-                if winner_confidence is None:
-                    winner_confidence = winner.get("confidence")
-
-            record = BarIntelligenceRecord(
-                intelligence=event,
-                ranked_signals=ranked_signals,
-                winner_plugin=winner_plugin,
-                winner_confidence=winner_confidence,
-                winner_direction=winner_direction,
-                signals_evaluated=i7.get("signals_evaluated", 0),
-                signals_after_quality=i7.get("signals_after_quality", 0),
-                signals_after_regime=i7.get("signals_after_regime", 0),
-                signals_after_tod=i7.get("signals_after_tod", 0),
-                signals_after_calibration=i7.get("signals_after_calibration", 0),
-                ledger_written=len(ranked_dicts) > 0,
-                session_type=normalize_session_type(event.session_type),
-                i7_computed_at=i7_computed_at,
-                pipeline_latency_ms=(time.perf_counter() - t0) * 1000,
-            )
-            return record.model_dump(mode="json")
-        except Exception as error:
-            self.logger.warning(
-                "pipeline.journal_build_failed",
+                "pipeline.feature_factory_error",
                 symbol=bar.symbol,
                 tf=bar.tf,
                 error=str(error),
             )
-            return None
+            self._pipeline_errors.add(1)
+            return
+
+        # Regime label from HMM dominant state probability
+        # High hmm_regime_prob + low entropy = dominant regime active
+        hmm_prob = cache.hmm_regime_prob
+        if hmm_prob >= 0.6:
+            regime: str | None = "ranging" if cache.hmm_entropy < 0.5 else "trending_up"
+        elif hmm_prob >= 0.4:
+            regime = "ranging"
+        else:
+            regime = None  # uncertain / cold start
+
+        record = FeatureVectorRecord(
+            symbol=bar.symbol,
+            tf=bar.tf,
+            bar_ts=bar.ts,
+            pipeline_version=_PIPELINE_VERSION,
+            regime=regime,
+            regime_label_source="filtered",
+            vector=vector,
+        )
+
+        # Serialize: dataclasses.asdict() recursively converts FeatureVector to dict.
+        # bar_ts datetime must be ISO string for JSON Kafka transport.
+        record_dict = dataclasses.asdict(record)
+        record_dict["bar_ts"] = format_iso_ts(bar.ts)
+
+        # Fire-and-forget publish -- non-blocking hot path
+        # aiokafka batches internally via linger_ms; create_task keeps compute async.
+        env = self.settings.env_name
+        topic = topic_feature_vectors(env)
+        msg_key = message_key(bar.symbol, bar.tf)
+        task = asyncio.create_task(
+            self._kafka_producer.publish(
+                topic,
+                msg=record_dict,
+                key=msg_key,
+            )
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+        pipeline_latency_ms = (time.perf_counter() - t0) * 1000
+        self._pipeline_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
+        self._bar_e2e_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
+        self._bars_processed.add(1)
+
+    def _update_ctf_cache_from_bar(self, bar: BarMessage, cache: FeatureCache) -> None:
+        """Update CTF fields in FeatureCache when an HTF bar arrives.
+
+        CTF primitives are read by lower-TF compute() calls. Simple proxy:
+        bar intra-bar return as ctf_momentum; other fields hold prior cached values.
+        """
+        if bar.open > 0:
+            cache.ctf_momentum = (bar.close - bar.open) / bar.open
+
+    def _assemble_checkpoint_extra(self) -> dict:
+        return {
+            "last_bar_offset": self._last_bar_offset,
+        }
 
     async def _health_monitor_loop(self) -> None:
-        """Emit per-key worker queue gauges every 10 seconds.
-
-        Gauges are DEFINED in per_key_worker_manager.py (single source of truth, D-25).
-        This loop IMPORTS and reuses them — it does NOT create new gauge objects.
-        """
+        """Emit per-key worker queue gauges every 10 seconds."""
         while self.running:
             await asyncio.sleep(10)
             try:
