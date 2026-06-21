@@ -26,9 +26,9 @@ threat_model:
       severity: high
       mitigation: "Remove all TIER_I1..TIER_I7 dispatch from the compute path, replace with single FeatureFactory.compute() call; acceptance criterion greps for zero PluginExecutor/process_bar/TIER_I dispatch in the pipeline compute path"
     - id: T3
-      description: "Archiving I5/I6/I7 breaks imports elsewhere (register_plugins, tests, other services) - collection-time ImportError, system-wide breakage"
+      description: "Archiving I5/I6/I7 breaks imports elsewhere (register_plugins, __init__.py re-exports, tests, other services) - collection-time ImportError, system-wide breakage"
       severity: high
-      mitigation: "grep -r for archived module imports across src/ services/ tests/ before moving; update or remove references; run full unit suite as the gate (SC-10)"
+      mitigation: "grep -r for archived module imports across src/ services/ tests/ before moving; sweep all src/intelligence/ __init__.py files for re-exports of archived symbols; update or remove references; run pytest --collect-only and full unit suite as the gate (SC-10)"
     - id: T4
       description: "Plugins modified during archival (D-09 requires intact-without-modification archival; Phase 138 prunes/transforms)"
       severity: medium
@@ -40,9 +40,10 @@ must_haves:
     - "IntelligencePipeline calls FeatureFactory.compute() per bar and publishes FeatureVectorRecord to topic_feature_vectors"
     - "IntelligencePipeline has zero references to PluginRegistry/PluginExecutor process_bar dispatch and zero TIER_I1..TIER_I7 plugin loops in the compute path"
     - "All I5, I6, I7 code lives under src/intelligence/archive/ intact (unmodified)"
+    - "No src/intelligence/ __init__.py re-exports an archived I5/I6/I7 symbol"
     - "feature.* APR keys are prewarmed at pipeline init and FeatureFactoryConfig is built from them"
     - "A live 1m bar produces a feature_vectors row (smoke test)"
-    - "Full unit suite is green"
+    - "pytest --collect-only passes (no collection-time ImportError) and the full unit suite is green"
   artifacts:
     - path: "services/intelligence_pipeline.py"
       provides: "Pipeline cutover: FeatureFactory.compute() replaces plugin dispatch; feature.* prewarm; FeatureVectorRecord publish"
@@ -97,7 +98,7 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
   <files>services/intelligence_pipeline.py</files>
   <read_first>
     - services/intelligence_pipeline.py (FULL read: __init__ ~122, _prewarm_threshold_config ~540, _THRESHOLD_KEYS ~376, _process_bar_inner ~791, _process_bar_compute ~841, the TIER_I1..TIER_I7 imports ~68-76, PluginExecutor usage ~56, the _run_i1_to_i6 and SignalProcessor.process() dispatch referenced at top docstring lines 5-6)
-    - src/intelligence/feature_factory.py (FeatureFactory, FeatureFactoryConfig, FeatureCache from P3 - construction + compute signature)
+    - src/intelligence/feature_factory.py (FeatureFactory, FeatureFactoryConfig, FeatureCache from P3 - FeatureFactory is stateless; config is the compute() argument built once at init)
     - src/intelligence/feature_cache.py (FeatureCache lifecycle: per (symbol,tf), refresh_regime cadence, update_cross_asset)
     - src/intelligence/schemas.py (FeatureVectorRecord - the publish payload)
     - src/core/stream_keys.py (topic_feature_vectors - publish target)
@@ -107,9 +108,9 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
   <action>
     (1) Add the 16 feature.* keys to _THRESHOLD_KEYS (feature.momentum.window_short=5, window_long=20, zscore_window=252, feature.volume.zscore_window=20, feature.ofi.zscore_window=20, feature.cvd.slope_bars=5, feature.cmf.period=20, feature.vol.short_bars=5, feature.vol.long_bars=20, feature.hma.period=20, feature.adx.period=14, feature.hurst.window=252, feature.garch.window=100, feature.vix.zscore_window=252, feature.yield_curve.zscore_window=252, feature.regime.cache_refresh_bars=30) as additive entries.
 
-    (2) In _prewarm_threshold_config, after keys load, build a FeatureFactoryConfig from the prewarmed values and construct a FeatureFactory instance held on self (self._feature_factory). Maintain a per-(symbol, tf) FeatureCache dict (self._feature_caches) using the _state(key) factory pattern (CLAUDE.md parallel-dict rule).
+    (2) In _prewarm_threshold_config, after keys load, build a FeatureFactoryConfig from the prewarmed values once and hold it on self (self._feature_factory_config). Construct a stateless FeatureFactory instance held on self (self._feature_factory) - FeatureFactory has no constructor-held config; the config is passed to every compute() call. Maintain a per-(symbol, tf) FeatureCache dict (self._feature_caches) using the _state(key) factory pattern (CLAUDE.md parallel-dict rule).
 
-    (3) Replace the plugin-dispatch compute path in _process_bar_compute / _run_i1_to_i6 / SignalProcessor.process() with a single FeatureFactory.compute(bars, symbol, tf, cache, config) call producing a FeatureVector. Drive the FeatureCache: refresh regime features every regime_cache_refresh_bars; update cross-asset cache from cross-asset bar history; update CTF state on HTF bar arrival. Wrap the FeatureVector in a FeatureVectorRecord (symbol, tf, bar_ts, pipeline_version, regime, regime_label_source='filtered', vector) and publish to topic_feature_vectors via self._kafka_producer.publish(topic, msg=record_dict, key=...) - kwarg is msg= (NOT value=).
+    (3) Replace the plugin-dispatch compute path in _process_bar_compute / _run_i1_to_i6 / SignalProcessor.process() with a single FeatureFactory.compute(bars, symbol, tf, cache, self._feature_factory_config) call producing a FeatureVector. Drive the FeatureCache: refresh regime features every regime_cache_refresh_bars; update cross-asset cache from cross-asset bar history; update CTF state on HTF bar arrival. Wrap the FeatureVector in a FeatureVectorRecord (symbol, tf, bar_ts, pipeline_version, regime, regime_label_source='filtered', vector) and publish to topic_feature_vectors via self._kafka_producer.publish(topic, msg=record_dict, key=...) - kwarg is msg= (NOT value=).
 
     (4) Remove TIER_I1..TIER_I7 / PluginExecutor / register_plugins dispatch from the compute path and their imports. The pipeline no longer fires I7 plugins or writes signal_events. Preserve the BaseDaemon lifecycle, bar subscription (topic_market_bars + topic_market_bars_htf), checkpointing, and output-queue backpressure. The 4-way output routing collapses to the single feature_vectors output.
 
@@ -129,7 +130,7 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
 </task>
 
 <task type="auto">
-  <name>Task 2: Archive I5/I6/I7 intact + update register_plugins + fix broken imports</name>
+  <name>Task 2: Archive I5/I6/I7 intact + update register_plugins + sweep __init__.py re-exports + fix broken imports</name>
   <files>src/intelligence/archive/README.md, src/intelligence/register_plugins.py</files>
   <read_first>
     - src/intelligence/register_plugins.py (FULL - all TIER_I5/TIER_I6/TIER_I7/TIER_SMC import lines and tier list definitions to remove/relocate)
@@ -144,17 +145,20 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
 
     Update register_plugins.py: remove the TIER_I5/TIER_I6/TIER_I7/TIER_SMC imports and tier lists that referenced the archived modules. Keep TIER_I1..TIER_I4 only if the pipeline still needs them - but per cutover (Task 1) the pipeline no longer dispatches any tier, so register_plugins is no longer imported by the live pipeline. Confirm whether register_plugins is still imported anywhere live; if only by archived code/tests, neutralize the dangling imports.
 
+    Sweep ALL __init__.py files under src/intelligence/ for re-exports of archived I5/I6/I7 symbols: `grep -rn "import\|from" src/intelligence/**/__init__.py` (and src/intelligence/__init__.py). A package __init__.py that re-exports a moved symbol (e.g. `from .features.i5_patterns import X`, `from .confluence import Y`, `from .features.smc_context import Z`) will raise ImportError at collection even though no module body references it directly. Remove every such re-export line for archived symbols. This is in addition to the repo-wide import sweep below.
+
     Run a repo-wide sweep: `grep -rn "i5_patterns\|smc_context\|intelligence.confluence\|register_plugins" src/ services/ tests/` (excluding archive/). For each live reference to an archived module, either update the import to the archive path (for tests that intentionally test archived behavior) or remove it (for dead references). Tests that imported now-archived plugins must be moved alongside or marked skipped - do not leave collection-time ImportErrors.
 
     Write src/intelligence/archive/README.md documenting: what was archived (I5/I6/I7 module list), why (D-09 - institutional memory; Phase 138 IC discovery determines which I7 plugins become alpha scorers), and that the code is intact/unmodified.
   </action>
   <verify>
-    .venv/bin/python -c "import services.intelligence_pipeline; print('pipeline imports clean')" && ls src/intelligence/archive/ && .venv/bin/pytest tests/unit/ -q --collect-only 2>&1 | tail -5
+    .venv/bin/python -c "import services.intelligence_pipeline; print('pipeline imports clean')" && ls src/intelligence/archive/ && .venv/bin/pytest tests/unit/ --collect-only -q
   </verify>
   <acceptance_criteria>
     - `src/intelligence/archive/` contains the I5 (i5_patterns), I6 (smc_context, confluence), and I7 (trading signal) modules
     - `src/intelligence/archive/README.md` exists and lists the archived tiers
     - `grep -rn "i5_patterns\|smc_context\|intelligence\.confluence" src/ services/ tests/ --include=*.py | grep -v "/archive/"` returns 0 live references (all references are inside archive/ or removed)
+    - No `src/intelligence/` __init__.py re-exports an archived I5/I6/I7 symbol (verified by grepping the __init__.py files after the move)
     - `.venv/bin/pytest tests/unit/ --collect-only -q` exits 0 (no collection-time ImportError)
     - `git status` shows the moves as renames (git mv preserved file content; no content diff on moved files)
   </acceptance_criteria>
@@ -199,7 +203,8 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
 - IntelligencePipeline calls FeatureFactory.compute() per bar; publishes FeatureVectorRecord to topic_feature_vectors
 - feature.* APR prewarmed; FeatureFactoryConfig built at init
 - Zero PluginExecutor / process_bar / TIER_I dispatch in pipeline (SC-8)
-- All I5/I6/I7 under src/intelligence/archive/ intact; no live imports of archived modules (SC-7)
+- All I5/I6/I7 under src/intelligence/archive/ intact; no live imports of archived modules and no __init__.py re-exports of archived symbols (SC-7)
+- pytest --collect-only passes (no collection-time ImportError after the archive move)
 - Live 1m bar produces a feature_vectors row with regime_label_source='filtered' (SC-6 smoke test)
 - Backfill coverage within 5% of theoretical max (D-06 gate confirmed before cutover)
 - Full unit suite green (SC-10)
@@ -207,7 +212,7 @@ Output: retargeted pipeline, archived plugins, green suite, live smoke-test conf
 
 <success_criteria>
 SC-6 (pipeline calls FeatureFactory; writer persists to feature_vectors) satisfied end-to-end via live smoke test.
-SC-7 (I5/I6/I7 archived) satisfied: archive/ holds all three tiers intact; zero live references.
+SC-7 (I5/I6/I7 archived) satisfied: archive/ holds all three tiers intact; zero live references and no __init__.py re-exports of archived symbols.
 SC-8 (plugin registry dispatch removed) satisfied: zero dispatch references in IntelligencePipeline.
 SC-10 (unit tests green) satisfied: full tests/unit/ suite passes.
 </success_criteria>

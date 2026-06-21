@@ -27,7 +27,7 @@ threat_model:
 
 must_haves:
   truths:
-    - "feature_vectors hypertable exists with 36 typed columns (35 features + pipeline_version) and no JSONB"
+    - "feature_vectors hypertable exists with 41 total columns (5 key columns: symbol, tf, bar_ts, regime, regime_label_source; 36 non-key typed columns: 35 features + pipeline_version) and no JSONB"
     - "An INSERT into feature_vectors with regime_label_source='smoothed' is rejected by the DB"
     - "All feature.* APR keys and alpha.vector.v1_quant.members exist in config_state"
     - "ConfigService.set() accepts a key starting with 'alpha.'"
@@ -46,7 +46,9 @@ must_haves:
 ---
 
 <objective>
-Create the persistence and control-plane foundation for Phase 137: the `feature_vectors` TimescaleDB hypertable (36 typed columns, no JSONB), the `backfill_status` checkpoint table, all `feature.*` APR keys, and the `alpha.vector.v1_quant.members` key. Register the `alpha.` namespace prefix in `ConfigService` so the vector-membership key is writable, not just readable.
+Create the persistence and control-plane foundation for Phase 137: the `feature_vectors` TimescaleDB hypertable (41 total columns: 5 key columns + 36 non-key typed columns, no JSONB), the `backfill_status` checkpoint table, all `feature.*` APR keys, and the `alpha.vector.v1_quant.members` key. Register the `alpha.` namespace prefix in `ConfigService` so the vector-membership key is writable, not just readable.
+
+Column accounting (use this terminology consistently): the schema has 41 total columns. These break down as 5 key columns (symbol, tf, bar_ts, regime, regime_label_source) and 36 non-key typed columns (35 feature floats + pipeline_version). SC-1's "36 typed columns" refers to the 36 non-key typed columns; do not conflate it with the 41 total column count.
 
 Purpose: Every downstream plan (FeatureFactory compute, writer retarget, backfill) depends on this schema and these APR keys existing. The `alpha.` prefix is a one-line blocker that, if missed, silently orphans the vector-membership key.
 Output: Migration 155 applied; `feature_vectors` and `backfill_status` exist; `feature.*` + `alpha.vector.v1_quant.members` seeded; `alpha.` in OPS_PREFIXES.
@@ -97,9 +99,9 @@ Output: Migration 155 applied; `feature_vectors` and `backfill_status` exist; `f
   <action>
     Create `production/migrations/155_feature_vectors.sql`, idempotent and safe to re-run. Five sections:
 
-    (1) CREATE TABLE IF NOT EXISTS feature_vectors with these columns: `symbol text NOT NULL`, `tf text NOT NULL`, `bar_ts timestamptz NOT NULL`, `pipeline_version text NOT NULL`, `regime text`, `regime_label_source text NOT NULL DEFAULT 'filtered' CHECK (regime_label_source IN ('filtered','unknown'))`, then the 35 feature columns all typed `double precision` grouped exactly per 137-CONTEXT.md `<specifics>`: Bar-level (14): momentum_z_5, momentum_z_20, range_position, bar_close_pos, gap_z, informed_flow, volume_z, ofi_z, cvd_slope_z, cmf, rel_volume, vwap_dev_sigma, atr_z, vol_ratio. Session-level (4): poc_dist_atr, va_position, sr_support_dist, sr_resist_dist. Regime-level (7): hmm_regime_prob, hmm_entropy, hurst, shannon, garch_ratio, hma_slope_z, adx. Cross-asset (3): vix_z, flight_quality, yield_slope_z. Calendar (5): in_ny_session, in_overlap, dow_sin, dow_cos, month_position. Cross-timeframe (3): ctf_momentum, ctf_vwap_align, ctf_regime_align. PRIMARY KEY (symbol, tf, bar_ts). No JSONB columns. Then `SELECT create_hypertable('feature_vectors','bar_ts', chunk_time_interval => INTERVAL '3 months', if_not_exists => TRUE);` and `SELECT add_compression_policy('feature_vectors', INTERVAL '6 months', if_not_exists => TRUE);`
+    (1) CREATE TABLE IF NOT EXISTS feature_vectors with these columns: `symbol text NOT NULL`, `tf text NOT NULL`, `bar_ts timestamptz NOT NULL`, `pipeline_version text NOT NULL`, `regime text`, `regime_label_source text NOT NULL DEFAULT 'filtered' CHECK (regime_label_source IN ('filtered','unknown'))`, then the 35 feature columns all typed `double precision` grouped exactly per 137-CONTEXT.md `<specifics>`: Bar-level (14): momentum_z_5, momentum_z_20, range_position, bar_close_pos, gap_z, informed_flow, volume_z, ofi_z, cvd_slope_z, cmf, rel_volume, vwap_dev_sigma, atr_z, vol_ratio. Session-level (4): poc_dist_atr, va_position, sr_support_dist, sr_resist_dist. Regime-level (7): hmm_regime_prob, hmm_entropy, hurst, shannon, garch_ratio, hma_slope_z, adx. Cross-asset (3): vix_z, flight_quality, yield_slope_z. Calendar (5): in_ny_session, in_overlap, dow_sin, dow_cos, month_position. Cross-timeframe (3): ctf_momentum, ctf_vwap_align, ctf_regime_align. PRIMARY KEY (symbol, tf, bar_ts). No JSONB columns. This yields 41 total columns (5 key columns + 36 non-key typed columns: 35 features + pipeline_version). Then `SELECT create_hypertable('feature_vectors','bar_ts', chunk_time_interval => INTERVAL '3 months', if_not_exists => TRUE);` and `SELECT add_compression_policy('feature_vectors', INTERVAL '6 months', if_not_exists => TRUE);`
 
-    (2) CREATE TABLE IF NOT EXISTS backfill_status with: symbol text NOT NULL, tf text NOT NULL, status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_progress','complete','failed')), rows_written bigint, theoretical_max bigint, started_at timestamptz, completed_at timestamptz, error_msg text, PRIMARY KEY (symbol, tf).
+    (2) CREATE TABLE IF NOT EXISTS backfill_status with: symbol text NOT NULL, tf text NOT NULL, status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_progress','complete','failed')), fetch_complete boolean NOT NULL DEFAULT false, rows_written bigint, theoretical_max bigint, started_at timestamptz, completed_at timestamptz, error_msg text, PRIMARY KEY (symbol, tf). The fetch_complete column tracks IBKR fetch completion separately from compute completion (P5 fetch-stage checkpoint).
 
     (3) INSERT INTO config_schema the 16 feature.* keys (value_type, default_value, description with [conventional]/[initial_estimate] provenance) per 137-RESEARCH.md APR Seeding Migration: feature.momentum.window_short=5, feature.momentum.window_long=20, feature.momentum.zscore_window=252, feature.volume.zscore_window=20, feature.ofi.zscore_window=20, feature.cvd.slope_bars=5, feature.cmf.period=20, feature.vol.short_bars=5, feature.vol.long_bars=20, feature.hma.period=20, feature.adx.period=14, feature.hurst.window=252, feature.garch.window=100, feature.vix.zscore_window=252, feature.yield_curve.zscore_window=252, feature.regime.cache_refresh_bars=30. ON CONFLICT (config_key) DO NOTHING.
 
@@ -114,10 +116,11 @@ Output: Migration 155 applied; `feature_vectors` and `backfill_status` exist; `f
   </verify>
   <acceptance_criteria>
     - Running the migration twice in a row both exit 0 (idempotent)
-    - `SELECT count(*) FROM information_schema.columns WHERE table_name='feature_vectors'` returns 41 (6 meta + 35 feature columns)
+    - `SELECT count(*) FROM information_schema.columns WHERE table_name='feature_vectors'` returns 41 (5 key columns + 36 non-key typed columns: 35 features + pipeline_version)
     - `SELECT data_type FROM information_schema.columns WHERE table_name='feature_vectors' AND data_type='jsonb'` returns 0 rows
     - `SELECT count(*) FROM timescaledb_information.hypertables WHERE hypertable_name='feature_vectors'` returns 1
     - `INSERT INTO feature_vectors (symbol,tf,bar_ts,pipeline_version,regime_label_source) VALUES ('TEST','5m',now(),'3.0.0','smoothed')` fails with a CHECK constraint violation
+    - `backfill_status` has a `fetch_complete boolean NOT NULL DEFAULT false` column (verified via `\d backfill_status`)
     - `SELECT count(*) FROM config_state WHERE config_key LIKE 'feature.%'` returns >= 16
     - `SELECT config_value FROM config_state WHERE config_key='alpha.vector.v1_quant.members'` returns the 8-member comma list
   </acceptance_criteria>
@@ -127,15 +130,15 @@ Output: Migration 155 applied; `feature_vectors` and `backfill_status` exist; `f
 
 <verification>
 - Migration 155 applies cleanly and is idempotent (run twice, both succeed)
-- feature_vectors has 41 columns, zero JSONB, is a hypertable with 3-month chunks and 6-month compression
+- feature_vectors has 41 total columns (5 key + 36 non-key typed), zero JSONB, is a hypertable with 3-month chunks and 6-month compression
 - regime_label_source CHECK rejects 'smoothed'
-- backfill_status exists with status CHECK
+- backfill_status exists with status CHECK and a fetch_complete column
 - 16 feature.* keys + alpha.vector.v1_quant.members in config_state
 - ConfigService.OPS_PREFIXES contains 'alpha.'
 </verification>
 
 <success_criteria>
-SC-1 (feature_vectors hypertable with 36 typed columns) satisfied: table exists, typed columns, hypertable.
+SC-1 (feature_vectors hypertable with 36 typed columns) satisfied: table exists with 36 non-key typed columns (41 total), typed columns, hypertable.
 SC-3 (all feature.* APR keys seeded) satisfied: 16 keys + vector membership in config_state.
 SC-5 (regime_label_source='filtered' forward Viterbi only) enforced at DB layer: CHECK constraint admits only 'filtered'/'unknown'.
 </success_criteria>

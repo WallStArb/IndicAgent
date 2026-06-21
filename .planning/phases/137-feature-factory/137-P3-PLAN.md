@@ -19,7 +19,7 @@ threat_model:
     - id: T1
       description: "FeatureFactory calls ConfigService.get(), reads the DB, or touches Kafka at compute time - DAG Invariant 5 / D-08 violation, IO in the hot path"
       severity: high
-      mitigation: "FeatureFactoryConfig frozen dataclass passed at construction; compute() takes only (bars, symbol, tf, cache, config); acceptance criterion asserts compute() works with no ConfigService and no DB connection available"
+      mitigation: "FeatureFactory is stateless - no __init__ that stores config; FeatureFactoryConfig frozen dataclass is built once by the caller and passed as a compute() argument; compute() takes only (bars, symbol, tf, cache, config); acceptance criterion asserts compute() works with no ConfigService and no DB connection available"
     - id: T2
       description: "HMM uses backward smoother (lookahead bias) instead of forward Viterbi - contaminates regime labels (D-07)"
       severity: high
@@ -31,12 +31,13 @@ threat_model:
     - id: T4
       description: "Inline numeric constants (periods, z-windows, thresholds) hardcoded in feature_factory.py - APR architecture violation (SC-9)"
       severity: medium
-      mitigation: "All tunable numerics come from FeatureFactoryConfig fields; acceptance criterion greps for bare magic numbers in compute paths"
+      mitigation: "All tunable numerics come from the FeatureFactoryConfig argument passed to compute(); acceptance criterion greps for bare magic numbers in compute paths"
   block_on: [T1, T2]
 
 must_haves:
   truths:
     - "FeatureFactory.compute(bars, symbol, tf, cache, config) returns a FeatureVector with all 35 fields populated as floats"
+    - "FeatureFactory is stateless: config is a compute() argument, never stored as self._config"
     - "compute() performs zero IO - no ConfigService.get, no DB read, no Kafka"
     - "Regime features (hmm_regime_prob, hmm_entropy, hurst, shannon, garch_ratio) use forward-only computation served from FeatureCache with the cache_refresh_bars cadence"
     - "ofi_z and cvd_slope_z are computed via OHLCV proxy, never the tick path"
@@ -59,12 +60,18 @@ must_haves:
       pattern: "cache\\.(hmm_regime_prob|vix_z|ctf_momentum)"
     - from: "src/intelligence/feature_factory.py FeatureFactoryConfig"
       to: "config_state feature.* keys"
-      via: "fields loaded at pipeline init, passed frozen into FeatureFactory"
+      via: "fields loaded at pipeline init, passed as a frozen argument to compute()"
       pattern: "FeatureFactoryConfig"
 ---
 
 <objective>
 Build the pure-function feature library: `FeatureFactory.compute(bars, symbol, tf, cache, config) -> FeatureVector` producing all 35 primitives, plus the mutable `FeatureCache` state container that holds slow-changing regime, cross-asset, CTF, and session values. This is the core of Phase 137. All 35 primitive algorithms already exist in the codebase - this plan extracts their pure computational cores and assembles them into one stateless function with APR-backed parameters supplied via a frozen `FeatureFactoryConfig`.
+
+CONFIG CONTRACT (single source of truth - no other form is permitted): FeatureFactory is STATELESS. It has no `__init__` that stores config. The `FeatureFactoryConfig` frozen dataclass is built ONCE by the caller (IntelligencePipeline._prewarm_threshold_config in P6, or the backfill init in P5) and passed as an explicit argument on EVERY compute() call. The signature is exactly:
+
+    FeatureFactory.compute(bars, symbol, tf, cache: FeatureCache, config: FeatureFactoryConfig) -> FeatureVector
+
+There is NO `self._config`. compute() reads all tunable numerics from the `config` argument. Do not introduce a constructor-held config anywhere in this plan.
 
 TDD is mandatory here: each primitive has a defined input->output contract (e.g. `bar_close_pos = (close - low) / (high - low)`), so tests are written RED before extraction.
 
@@ -125,9 +132,9 @@ All three are computed in `feature_cache.py` from cross-asset ETF bars and read 
     - in_ny_session / in_overlap = 1.0/0.0 from bar_ts (NY 09:30-16:00 ET; overlap = London-NY 08:00-11:00 ET window per session_context.py)
     - dow_sin = sin(2*pi*weekday/5), dow_cos = cos(2*pi*weekday/5), month_position = day_of_month / days_in_month
 
-    GREEN: implement FeatureFactoryConfig frozen dataclass (16 int fields mapping to feature.* keys per A-PATTERNS.md), FeatureCache mutable dataclass (per A-PATTERNS.md, with cross-asset/regime/CTF/session defaults), and the bar-level + calendar primitive functions in feature_factory.py. All numeric parameters come from FeatureFactoryConfig - zero inline magic numbers (SC-9). Use a module-level `_rolling_zscore(value, history_array, window)` helper. compute() is not yet assembled; expose individual primitive functions for unit testing this task.
+    GREEN: implement FeatureFactoryConfig frozen dataclass (16 int fields mapping to feature.* keys per A-PATTERNS.md), FeatureCache mutable dataclass (per A-PATTERNS.md, with cross-asset/regime/CTF/session defaults), and the bar-level + calendar primitive functions in feature_factory.py. All numeric parameters come from the FeatureFactoryConfig argument - zero inline magic numbers (SC-9). Use a module-level `_rolling_zscore(value, history_array, window)` helper. compute() is not yet assembled; expose individual primitive functions for unit testing this task.
 
-    Add a module-level `set_config_service()` + `get_sync()` wrapper ONLY if needed for the pipeline-init injection pattern, but FeatureFactory.compute itself must take config as an argument (D-08). Prefer: FeatureFactory holds a FeatureFactoryConfig built once; compute() reads from self._config, never ConfigService.
+    FeatureFactory is stateless: do NOT add an __init__ that stores config, and do NOT read from self._config anywhere. The config is always passed as the explicit `config` argument to compute() and to any primitive helper that needs a parameter. The FeatureFactoryConfig instance is constructed by the caller (P5 backfill / P6 pipeline init), not by FeatureFactory.
   </action>
   <verify>
     .venv/bin/pytest tests/unit/test_feature_factory.py -q -k "bar_level or calendar or close_pos or rel_volume or momentum or proxy"
@@ -136,6 +143,7 @@ All three are computed in `feature_cache.py` from cross-asset ETF bars and read 
     - tests written before implementation fail RED, then pass GREEN (commit history shows test commit before impl commit)
     - `bar_close_pos` test: input high=10,low=8,close=9 -> 0.5; high==low -> 0.5 (no ZeroDivisionError)
     - `ofi_z`/`cvd_slope_z` tests assert the OHLCV proxy formula is used; `grep -n "tick_buffer" src/intelligence/feature_factory.py` returns 0 matches
+    - `grep -n "self._config" src/intelligence/feature_factory.py` returns 0 matches (config is an argument, not stored state)
     - `.venv/bin/pytest tests/unit/test_feature_factory.py -q` passes for the bar-level + calendar subset
     - `grep -nE "window=[0-9]|period=[0-9]|/ 252|/ 20[^0-9]" src/intelligence/feature_factory.py` returns 0 matches in primitive bodies (params from config)
   </acceptance_criteria>
@@ -165,7 +173,7 @@ All three are computed in `feature_cache.py` from cross-asset ETF bars and read 
 
     Cross-timeframe: ctf_momentum / ctf_vwap_align / ctf_regime_align read from FeatureCache HTF-cached state (populated when an HTF bar arrives). compute() reads them from cache; it does not compute HTF state itself.
 
-    All forward-only. No backward smoother. No inline magic numbers - params from FeatureFactoryConfig.
+    All forward-only. No backward smoother. No inline magic numbers - params from the FeatureFactoryConfig argument. FeatureFactory remains stateless (no self._config).
   </action>
   <verify>
     .venv/bin/pytest tests/unit/test_feature_factory.py -q -k "regime or hurst or shannon or garch or hmm or adx or session or vwap or ctf or sr"
@@ -200,7 +208,7 @@ All three are computed in `feature_cache.py` from cross-asset ETF bars and read 
         - yield_slope_z: z-score of TLT/SHY return ratio over yield_curve_zscore_window (2Y-10Y curve proxy)
         These write into FeatureCache.vix_z / flight_quality / yield_slope_z. compute() only reads them.
 
-    (2) Assemble `FeatureFactory.compute(bars, symbol, tf, cache, config) -> FeatureVector`: call every primitive function, read cache for regime/cross-asset/CTF/session values, construct and return the frozen FeatureVector with all 35 fields. Cold-start (insufficient history) yields 0.0 for continuous features (never NaN, never None).
+    (2) Assemble `FeatureFactory.compute(bars, symbol, tf, cache, config) -> FeatureVector`: call every primitive function, read cache for regime/cross-asset/CTF/session values, construct and return the frozen FeatureVector with all 35 fields. Cold-start (insufficient history) yields 0.0 for continuous features (never NaN, never None). compute() reads every tunable from the `config` argument - FeatureFactory stores no config (no self._config).
 
     (3) Purity + completeness tests:
         - compute() returns a FeatureVector with all 35 fields as finite floats
@@ -216,6 +224,7 @@ All three are computed in `feature_cache.py` from cross-asset ETF bars and read 
     - purity test passes: compute() produces output with no DB/Kafka/ConfigService access (asserted by running with a constructed config+cache and no live services)
     - determinism test: two compute() calls with identical inputs return equal FeatureVectors
     - cross-asset test: a FeatureCache populated via update_cross_asset surfaces vix_z/flight_quality/yield_slope_z in compute() output
+    - `grep -n "self._config" src/intelligence/feature_factory.py` returns 0 matches
     - `.venv/bin/pytest tests/unit/test_feature_factory.py -q` exits 0 (full file green)
     - `.venv/bin/ruff check src/intelligence/feature_factory.py src/intelligence/feature_cache.py` exits 0
   </acceptance_criteria>
@@ -226,6 +235,7 @@ All three are computed in `feature_cache.py` from cross-asset ETF bars and read 
 <verification>
 - Full tests/unit/test_feature_factory.py green (RED->GREEN history per primitive)
 - compute() pure: no ConfigService/DB/Kafka at compute time
+- FeatureFactory stateless: config is a compute() argument, no self._config
 - Forward-only HMM (no _smooth), OHLCV proxy flow (no tick_buffer)
 - All 35 fields finite, deterministic
 - Cross-asset proxies (vix_z/flight_quality/yield_slope_z) computed in FeatureCache from available ETFs (VXX/VIXY confirmed absent)
@@ -235,7 +245,7 @@ All three are computed in `feature_cache.py` from cross-asset ETF bars and read 
 
 <success_criteria>
 SC-2 (FeatureFactory.compute -> FeatureVector, all 35 primitives) satisfied.
-SC-9 (zero inline numeric constants in feature_factory.py) satisfied: all tunables from FeatureFactoryConfig.
+SC-9 (zero inline numeric constants in feature_factory.py) satisfied: all tunables from the FeatureFactoryConfig argument.
 </success_criteria>
 
 <output>

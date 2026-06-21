@@ -20,9 +20,9 @@ threat_model:
       severity: high
       mitigation: "Rename consumer group to 'feature_vector_writer_group'; acceptance criterion asserts the new group name and that the writer consumes topic_feature_vectors"
     - id: T2
-      description: "INSERT param count mismatches the 42-placeholder feature_vectors INSERT - asyncpg raises at flush, batch lost to DLQ silently"
+      description: "INSERT param count mismatches the 41-placeholder feature_vectors INSERT - asyncpg raises at flush, batch lost to DLQ silently"
       severity: medium
-      mitigation: "_record_to_insert_params returns exactly 42 values matching the column order; acceptance criterion asserts param count equals placeholder count via a unit test"
+      mitigation: "_record_to_insert_params returns exactly 41 values matching the column order; acceptance criterion asserts param count equals placeholder count via a unit test"
   block_on: [T1]
 
 must_haves:
@@ -48,6 +48,8 @@ must_haves:
 <objective>
 Retarget the existing `feature_writer` service from `intelligence_features` to `feature_vectors`. Reuse all proven `BaseWriter` infrastructure (batching, flush loop, DLQ, OTel metrics, health monitor) unchanged - only the topic, schema, INSERT SQL, schema-verify query, and consumer group change. Delete the cross-asset and expiry-map code paths that do not apply to `feature_vectors`.
 
+The feature_vectors INSERT has exactly 41 positional placeholders, one per column: 6 leading columns (symbol, tf, bar_ts, pipeline_version, regime, regime_label_source) + 35 feature floats = 41 (matches the 41 total columns from P1).
+
 Purpose: This is the persistence half of SC-6 (feature_writer persists to feature_vectors). The live pipeline (P6) publishes `FeatureVectorRecord` to `topic_feature_vectors`; this writer consumes and persists. Reusing the writer (D-12) avoids rebuilding proven engineering.
 Output: `feature_writer.py` writing to `feature_vectors` via `FeatureVectorRecord`, new consumer group, updated unit tests.
 </objective>
@@ -71,7 +73,7 @@ Output: `feature_writer.py` writing to `feature_vectors` via `FeatureVectorRecor
   <files>services/feature_writer.py</files>
   <read_first>
     - services/feature_writer.py (FULL read - current intelligence_features INSERT at line ~73, CONSUMER_GROUP at line ~60, _topic_name/_consumer_group/topics_consumed at lines ~321-330, _verify_schema at ~392, _flush_batch at ~376, the cross-asset/_build_expiry_map blocks to delete)
-    - .planning/phases/137-feature-factory/A-PATTERNS.md (section "services/feature_writer.py" - exact topic change, _INSERT_FEATURE_VECTOR_SQL with 42 placeholders, _parse_payload change, _REQUIRED_COLUMNS, consumer group rename, list of blocks to remove)
+    - .planning/phases/137-feature-factory/A-PATTERNS.md (section "services/feature_writer.py" - exact topic change, _INSERT_FEATURE_VECTOR_SQL with 41 placeholders, _parse_payload change, _REQUIRED_COLUMNS, consumer group rename, list of blocks to remove)
     - src/intelligence/schemas.py (FeatureVectorRecord / FeatureVector from P2 - the payload contract)
     - src/core/stream_keys.py (topic_feature_vectors / topic_feature_vectors_dlq from P2)
   </read_first>
@@ -82,9 +84,9 @@ Output: `feature_writer.py` writing to `feature_vectors` via `FeatureVectorRecor
 
     _topic_name() and topics_consumed return topic_feature_vectors(self.env_name).
 
-    Replace _INSERT_FEATURE_SQL with _INSERT_FEATURE_VECTOR_SQL: INSERT INTO feature_vectors with the column order (symbol, tf, bar_ts, pipeline_version, regime, regime_label_source, then 35 features in the cadence order from 137-CONTEXT.md `<specifics>`) and 42 positional placeholders $1..$42, ON CONFLICT (symbol, tf, bar_ts) DO NOTHING.
+    Replace _INSERT_FEATURE_SQL with _INSERT_FEATURE_VECTOR_SQL: INSERT INTO feature_vectors with the column order (symbol, tf, bar_ts, pipeline_version, regime, regime_label_source, then 35 features in the cadence order from 137-CONTEXT.md `<specifics>`) and 41 positional placeholders $1..$41 (6 leading columns + 35 features), ON CONFLICT (symbol, tf, bar_ts) DO NOTHING.
 
-    Add a module-level `_record_to_insert_params(record: FeatureVectorRecord) -> tuple` returning exactly 42 values in the INSERT column order, reading the 35 features from record.vector.
+    Add a module-level `_record_to_insert_params(record: FeatureVectorRecord) -> tuple` returning exactly 41 values in the INSERT column order, reading the 35 features from record.vector.
 
     Rewrite _parse_payload to construct a FeatureVectorRecord from the payload dict (reconstruct the nested FeatureVector), returning ([params], []) on success and ([], [payload]) on parse failure (increment _parse_errors_total). Return None only for entirely-wrong-schema payloads (DLQ contract from CLAUDE.md).
 
@@ -104,7 +106,7 @@ Output: `feature_writer.py` writing to `feature_vectors` via `FeatureVectorRecor
     - `grep -n "intelligence_features\|BarIntelligenceRecord\|topic_cross_asset\|_build_expiry_map\|_process_cross_asset_message" services/feature_writer.py` returns 0 matches
     - `CONSUMER_GROUP == "feature_vector_writer_group"`
     - `topics_consumed` returns a list containing the output of `topic_feature_vectors`
-    - The _INSERT_FEATURE_VECTOR_SQL has exactly 42 positional placeholders ($1..$42) and `_record_to_insert_params` returns a 42-tuple
+    - The _INSERT_FEATURE_VECTOR_SQL has exactly 41 positional placeholders ($1..$41) and `_record_to_insert_params` returns a 41-tuple
     - `.venv/bin/ruff check services/feature_writer.py` exits 0
   </acceptance_criteria>
 </task>
@@ -119,9 +121,9 @@ Output: `feature_writer.py` writing to `feature_vectors` via `FeatureVectorRecor
   </read_first>
   <action>
     Update the existing feature_writer unit tests to the new contract. Replace BarIntelligenceRecord fixtures with FeatureVectorRecord fixtures (a full 35-field FeatureVector). Assert:
-    - _parse_payload turns a valid FeatureVectorRecord payload dict into a 42-element insert-params tuple
+    - _parse_payload turns a valid FeatureVectorRecord payload dict into a 41-element insert-params tuple
     - _parse_payload on a malformed payload returns ([], [payload]) and increments parse errors
-    - _record_to_insert_params returns exactly 42 values in INSERT column order
+    - _record_to_insert_params returns exactly 41 values in INSERT column order
     - topics_consumed and CONSUMER_GROUP reflect feature_vectors
     Delete tests for _build_expiry_map / _compute_days_to_expiry / cross-asset processing (removed code). Do not test BaseWriter internals - only the writer-specific overrides.
     If the test file imports removed symbols, fix the imports (file/class rename test sweep per CLAUDE.md).
@@ -132,7 +134,7 @@ Output: `feature_writer.py` writing to `feature_vectors` via `FeatureVectorRecor
   <acceptance_criteria>
     - `.venv/bin/pytest tests/unit/service_tests/test_feature_writer.py -q` exits 0
     - `grep -n "BarIntelligenceRecord\|_build_expiry_map\|intelligence_features" tests/unit/service_tests/test_feature_writer.py` returns 0 matches
-    - A test asserts a valid FeatureVectorRecord payload parses to a 42-element params tuple
+    - A test asserts a valid FeatureVectorRecord payload parses to a 41-element params tuple
     - A test asserts CONSUMER_GROUP == 'feature_vector_writer_group'
   </acceptance_criteria>
 </task>
@@ -140,7 +142,7 @@ Output: `feature_writer.py` writing to `feature_vectors` via `FeatureVectorRecor
 </tasks>
 
 <verification>
-- feature_writer writes to feature_vectors via 42-param INSERT, ON CONFLICT DO NOTHING
+- feature_writer writes to feature_vectors via 41-param INSERT, ON CONFLICT DO NOTHING
 - Consumer group renamed (no offset collision)
 - Cross-asset / expiry code removed
 - Unit tests green
