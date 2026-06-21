@@ -63,7 +63,7 @@ class TestCHoCHReversal:
     """Tests for trad_CHoCHReversal plugin."""
 
     def _plugin(self):
-        from src.intelligence.trading.choch_reversal import CHoCHReversalPlugin
+        from src.intelligence.archive.trading_i7.choch_reversal import CHoCHReversalPlugin
 
         return CHoCHReversalPlugin()
 
@@ -116,7 +116,7 @@ class TestCHoCHReversal:
 
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
-        from src.intelligence.trading.choch_reversal import plugin
+        from src.intelligence.archive.trading_i7.choch_reversal import plugin
 
         assert plugin is not None
         assert plugin.name == "trad_CHoCHReversal"
@@ -131,7 +131,7 @@ class TestFVGFill:
     """Tests for trad_FVGFill plugin."""
 
     def _plugin(self):
-        from src.intelligence.trading.fvg_fill import FVGFillPlugin
+        from src.intelligence.archive.trading_i7.fvg_fill import FVGFillPlugin
 
         return FVGFillPlugin()
 
@@ -210,7 +210,7 @@ class TestFVGFill:
 
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
-        from src.intelligence.trading.fvg_fill import plugin
+        from src.intelligence.archive.trading_i7.fvg_fill import plugin
 
         assert plugin is not None
         assert plugin.name == "trad_FVGFill"
@@ -225,7 +225,7 @@ class TestPatternCompletion:
     """Tests for trad_PatternCompletion plugin."""
 
     def _plugin(self):
-        from src.intelligence.trading.pattern_completion import PatternCompletionPlugin
+        from src.intelligence.archive.trading_i7.pattern_completion import PatternCompletionPlugin
 
         return PatternCompletionPlugin()
 
@@ -366,7 +366,7 @@ class TestPatternCompletion:
 
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
-        from src.intelligence.trading.pattern_completion import plugin
+        from src.intelligence.archive.trading_i7.pattern_completion import plugin
 
         assert plugin is not None
         assert plugin.name == "trad_PatternCompletion"
@@ -381,7 +381,7 @@ class TestDivergenceStack:
     """Tests for trad_DivergenceStack plugin — 5-input weighted convergence score."""
 
     def _plugin(self):
-        from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
+        from src.intelligence.archive.trading_i7.divergence_stack import DivergenceStackPlugin
 
         return DivergenceStackPlugin()
 
@@ -481,7 +481,7 @@ class TestDivergenceStack:
 
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
-        from src.intelligence.trading.divergence_stack import plugin
+        from src.intelligence.archive.trading_i7.divergence_stack import plugin
 
         assert plugin is not None
         assert plugin.name == "trad_DivergenceStack"
@@ -496,7 +496,7 @@ class TestRegimeTransition:
     """Tests for trad_RegimeTransition plugin."""
 
     def _plugin(self):
-        from src.intelligence.trading.regime_transition import RegimeTransitionPlugin
+        from src.intelligence.archive.trading_i7.regime_transition import RegimeTransitionPlugin
 
         return RegimeTransitionPlugin()
 
@@ -561,7 +561,7 @@ class TestRegimeTransition:
 
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
-        from src.intelligence.trading.regime_transition import plugin
+        from src.intelligence.archive.trading_i7.regime_transition import plugin
 
         assert plugin is not None
         assert plugin.name == "trad_RegimeTransition"

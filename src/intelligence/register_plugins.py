@@ -1,5 +1,39 @@
 from __future__ import annotations
 
+from src.intelligence.archive.i5_patterns.bollinger_squeeze import plugin as squeeze_plugin
+from src.intelligence.archive.i5_patterns.candlestick_patterns import plugin as candlestick_plugin
+from src.intelligence.archive.i5_patterns.cmf_divergence import plugin as cmf_div_plugin
+from src.intelligence.archive.i5_patterns.confluence import plugin as confluence_plugin
+from src.intelligence.archive.i5_patterns.cup_handle import plugin as cup_handle_plugin
+from src.intelligence.archive.i5_patterns.double_top_bottom import plugin as double_tb_plugin
+from src.intelligence.archive.i5_patterns.flag_pennant import plugin as flag_pennant_plugin
+from src.intelligence.archive.i5_patterns.head_shoulders import plugin as head_shoulders_plugin
+from src.intelligence.archive.i5_patterns.key_level_reaction import (
+    plugin as key_level_reaction_plugin,
+)
+from src.intelligence.archive.i5_patterns.macd_divergence import plugin as macd_div_plugin
+from src.intelligence.archive.i5_patterns.measured_move import plugin as measured_move_plugin
+from src.intelligence.archive.i5_patterns.rsi_divergence import plugin as rsi_div_plugin
+from src.intelligence.archive.i5_patterns.trend_confluence import plugin as trend_confluence_plugin
+from src.intelligence.archive.i5_patterns.triangle_wedge import plugin as triangle_wedge_plugin
+from src.intelligence.archive.i5_patterns.volume_divergence import plugin as vol_div_plugin
+from src.intelligence.archive.smc_context.amd_cycle import plugin as amd_cycle_plugin
+from src.intelligence.archive.smc_context.bocpd_changepoint import plugin as bocpd_plugin
+from src.intelligence.archive.smc_context.bos_choch import plugin as bos_choch_plugin
+from src.intelligence.archive.smc_context.breaker_blocks import plugin as breaker_blocks_plugin
+from src.intelligence.archive.smc_context.fair_value_gap import plugin as fvg_plugin
+from src.intelligence.archive.smc_context.hmm_regime import HMMRegimePlugin
+from src.intelligence.archive.smc_context.ict_killzones import plugin as ict_killzones_plugin
+from src.intelligence.archive.smc_context.liquidity_pools import plugin as liquidity_pools_plugin
+from src.intelligence.archive.smc_context.liquidity_sweeps import plugin as liq_sweep_plugin
+from src.intelligence.archive.smc_context.mitigation_blocks import (
+    plugin as mitigation_blocks_plugin,
+)
+from src.intelligence.archive.smc_context.order_blocks import plugin as ob_plugin
+from src.intelligence.archive.smc_context.premium_discount import plugin as premium_discount_plugin
+from src.intelligence.archive.smc_context.supply_demand_zones import (
+    plugin as supply_demand_zones_plugin,
+)
 from src.intelligence.features.i1_indicators.ac_oscillator import plugin as ac_osc_plugin
 from src.intelligence.features.i1_indicators.adx import plugin as adx_plugin
 from src.intelligence.features.i1_indicators.aroon import plugin as aroon_plugin
@@ -33,42 +67,51 @@ from src.intelligence.features.i3_structure.support_resistance import plugin as 
 from src.intelligence.features.i3_structure.swing_detector import plugin as swing_plugin
 from src.intelligence.features.i3_structure.swing_momentum import plugin as swing_momentum_plugin
 from src.intelligence.features.i3_structure.trend_structure import plugin as trend_plugin
-from src.intelligence.features.i5_patterns.bollinger_squeeze import plugin as squeeze_plugin
-from src.intelligence.features.i5_patterns.candlestick_patterns import plugin as candlestick_plugin
-from src.intelligence.features.i5_patterns.cmf_divergence import plugin as cmf_div_plugin
-from src.intelligence.features.i5_patterns.confluence import plugin as confluence_plugin
-from src.intelligence.features.i5_patterns.cup_handle import plugin as cup_handle_plugin
-from src.intelligence.features.i5_patterns.double_top_bottom import plugin as double_tb_plugin
-from src.intelligence.features.i5_patterns.flag_pennant import plugin as flag_pennant_plugin
-from src.intelligence.features.i5_patterns.head_shoulders import plugin as head_shoulders_plugin
-from src.intelligence.features.i5_patterns.key_level_reaction import (
-    plugin as key_level_reaction_plugin,
-)
-from src.intelligence.features.i5_patterns.macd_divergence import plugin as macd_div_plugin
-from src.intelligence.features.i5_patterns.measured_move import plugin as measured_move_plugin
-from src.intelligence.features.i5_patterns.rsi_divergence import plugin as rsi_div_plugin
-from src.intelligence.features.i5_patterns.trend_confluence import plugin as trend_confluence_plugin
-from src.intelligence.features.i5_patterns.triangle_wedge import plugin as triangle_wedge_plugin
-from src.intelligence.features.i5_patterns.volume_divergence import plugin as vol_div_plugin
-from src.intelligence.features.smc_context.amd_cycle import plugin as amd_cycle_plugin
-from src.intelligence.features.smc_context.bocpd_changepoint import plugin as bocpd_plugin
-from src.intelligence.features.smc_context.bos_choch import plugin as bos_choch_plugin
-from src.intelligence.features.smc_context.breaker_blocks import plugin as breaker_blocks_plugin
-from src.intelligence.features.smc_context.fair_value_gap import plugin as fvg_plugin
-from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
-from src.intelligence.features.smc_context.ict_killzones import plugin as ict_killzones_plugin
-from src.intelligence.features.smc_context.liquidity_pools import plugin as liquidity_pools_plugin
-from src.intelligence.features.smc_context.liquidity_sweeps import plugin as liq_sweep_plugin
-from src.intelligence.features.smc_context.mitigation_blocks import (
-    plugin as mitigation_blocks_plugin,
-)
-from src.intelligence.features.smc_context.order_blocks import plugin as ob_plugin
-from src.intelligence.features.smc_context.premium_discount import plugin as premium_discount_plugin
-from src.intelligence.features.smc_context.supply_demand_zones import (
-    plugin as supply_demand_zones_plugin,
-)
 from src.intelligence.trading.volume_zscore import plugin as volume_zscore_plugin
 
+from .archive.confluence.cross_tf_momentum_divergence import plugin as ctf_momentum_div_plugin
+from .archive.confluence.cross_tf_orderflow_alignment import plugin as ctf_orderflow_align_plugin
+from .archive.confluence.cross_tf_regime_agreement import plugin as ctf_regime_agreement_plugin
+from .archive.confluence.cross_tf_sr_confluence import plugin as ctf_sr_confluence_plugin
+from .archive.confluence.cross_timeframe import plugin as ctf_plugin
+from .archive.confluence.squeeze_expansion_divergence import plugin as ctf_squeeze_exp_div_plugin
+from .archive.i5_patterns.mtf_volatility import plugin as mtf_vol_plugin
+from .archive.trading_i7.anchored_vwap_reversion import plugin as anchored_vwap_reversion_plugin
+from .archive.trading_i7.candlestick_pattern_setup import plugin as candlestick_pattern_setup_plugin
+from .archive.trading_i7.choch_reversal import plugin as choch_reversal_plugin
+from .archive.trading_i7.cross_asset_divergence import plugin as cross_asset_divergence_plugin
+from .archive.trading_i7.cvd_divergence import plugin as cvd_divergence_plugin
+from .archive.trading_i7.cvd_spike import plugin as cvd_spike_plugin
+from .archive.trading_i7.delta_exhaustion import plugin as delta_exhaustion_plugin
+from .archive.trading_i7.divergence_stack import plugin as divergence_stack_plugin
+from .archive.trading_i7.dual_divergence import plugin as dual_divergence_plugin
+from .archive.trading_i7.failed_breakout import plugin as failed_breakout_plugin
+from .archive.trading_i7.fvg_fill import plugin as fvg_fill_plugin
+from .archive.trading_i7.gap_analysis_setup import plugin as gap_analysis_setup_plugin
+from .archive.trading_i7.hvn_rejection import plugin as hvn_rejection_plugin
+from .archive.trading_i7.liquidity_hunt import plugin as liquidity_hunt_plugin
+from .archive.trading_i7.liquidity_sweep_reclaim import plugin as liq_sweep_reclaim_plugin
+from .archive.trading_i7.lvn_breakout import plugin as lvn_breakout_plugin
+from .archive.trading_i7.mean_reversion import plugin as mean_revert_plugin
+from .archive.trading_i7.momentum_breakout import plugin as momentum_breakout_plugin
+from .archive.trading_i7.mtf_alignment import plugin as mtf_align_plugin
+from .archive.trading_i7.ofi_continuation import plugin as ofi_continuation_plugin
+from .archive.trading_i7.ofi_divergence import plugin as ofi_divergence_plugin
+from .archive.trading_i7.ofi_spike import plugin as ofi_spike_plugin
+from .archive.trading_i7.orb15 import plugin as orb15_plugin
+from .archive.trading_i7.orb30 import plugin as orb30_plugin
+from .archive.trading_i7.pattern_completion import plugin as pattern_completion_plugin
+from .archive.trading_i7.poc_rejection import plugin as poc_rejection_plugin
+from .archive.trading_i7.prev_day_level_test import plugin as prev_day_level_test_plugin
+from .archive.trading_i7.regime_transition import plugin as regime_transition_plugin
+from .archive.trading_i7.second_leg_continuation import plugin as second_leg_continuation_plugin
+from .archive.trading_i7.session_extremes_setup import plugin as session_extremes_setup_plugin
+from .archive.trading_i7.squeeze_expansion import plugin as squeeze_exp_plugin
+from .archive.trading_i7.supply_demand_setup import plugin as supply_demand_setup_plugin
+from .archive.trading_i7.trend_following import plugin as trend_follow_plugin
+from .archive.trading_i7.vcp import plugin as vcp_plugin
+from .archive.trading_i7.vwap_deviation import plugin as vwap_deviation_plugin
+from .archive.trading_i7.vwap_reclaim import plugin as vwap_reclaim_plugin
 from .composites.acceleration_regime import plugin as accel_regime_plugin
 from .composites.adx_events import plugin as adx_events_plugin
 from .composites.derivative_oscillator import plugin as deriv_osc_plugin
@@ -80,12 +123,6 @@ from .composites.obv_momentum import plugin as obv_momentum_plugin
 from .composites.rsi_events import plugin as rsi_events_plugin
 from .composites.stochastic_events import plugin as stoch_events_plugin
 from .composites.volume_events import plugin as volume_events_plugin
-from .confluence.cross_tf_momentum_divergence import plugin as ctf_momentum_div_plugin
-from .confluence.cross_tf_orderflow_alignment import plugin as ctf_orderflow_align_plugin
-from .confluence.cross_tf_regime_agreement import plugin as ctf_regime_agreement_plugin
-from .confluence.cross_tf_sr_confluence import plugin as ctf_sr_confluence_plugin
-from .confluence.cross_timeframe import plugin as ctf_plugin
-from .confluence.squeeze_expansion_divergence import plugin as ctf_squeeze_exp_div_plugin
 from .context.anchored_vwap import plugin as anchored_vwap_plugin
 from .context.cross_asset_context import plugin as cross_asset_ctx_plugin
 from .context.garch_volatility import plugin as garch_vol_plugin
@@ -101,45 +138,8 @@ from .context.vix_regime import plugin as vix_regime_plugin
 from .context.volatility_regime import plugin as vol_regime_plugin
 from .context.volume_profile import plugin as volume_profile_plugin
 from .features.i3_structure.macd_events import plugin as macd_events_plugin
-from .features.i5_patterns.mtf_volatility import plugin as mtf_vol_plugin
 from .plugins import registry
 from .schemas import I2Events, I3Structure, I4Context, I5Patterns, I6Confluence, SMCContext
-from .trading.anchored_vwap_reversion import plugin as anchored_vwap_reversion_plugin
-from .trading.candlestick_pattern_setup import plugin as candlestick_pattern_setup_plugin
-from .trading.choch_reversal import plugin as choch_reversal_plugin
-from .trading.cross_asset_divergence import plugin as cross_asset_divergence_plugin
-from .trading.cvd_divergence import plugin as cvd_divergence_plugin
-from .trading.cvd_spike import plugin as cvd_spike_plugin
-from .trading.delta_exhaustion import plugin as delta_exhaustion_plugin
-from .trading.divergence_stack import plugin as divergence_stack_plugin
-from .trading.dual_divergence import plugin as dual_divergence_plugin
-from .trading.failed_breakout import plugin as failed_breakout_plugin
-from .trading.fvg_fill import plugin as fvg_fill_plugin
-from .trading.gap_analysis_setup import plugin as gap_analysis_setup_plugin
-from .trading.hvn_rejection import plugin as hvn_rejection_plugin
-from .trading.liquidity_hunt import plugin as liquidity_hunt_plugin
-from .trading.liquidity_sweep_reclaim import plugin as liq_sweep_reclaim_plugin
-from .trading.lvn_breakout import plugin as lvn_breakout_plugin
-from .trading.mean_reversion import plugin as mean_revert_plugin
-from .trading.momentum_breakout import plugin as momentum_breakout_plugin
-from .trading.mtf_alignment import plugin as mtf_align_plugin
-from .trading.ofi_continuation import plugin as ofi_continuation_plugin
-from .trading.ofi_divergence import plugin as ofi_divergence_plugin
-from .trading.ofi_spike import plugin as ofi_spike_plugin
-from .trading.orb15 import plugin as orb15_plugin
-from .trading.orb30 import plugin as orb30_plugin
-from .trading.pattern_completion import plugin as pattern_completion_plugin
-from .trading.poc_rejection import plugin as poc_rejection_plugin
-from .trading.prev_day_level_test import plugin as prev_day_level_test_plugin
-from .trading.regime_transition import plugin as regime_transition_plugin
-from .trading.second_leg_continuation import plugin as second_leg_continuation_plugin
-from .trading.session_extremes_setup import plugin as session_extremes_setup_plugin
-from .trading.squeeze_expansion import plugin as squeeze_exp_plugin
-from .trading.supply_demand_setup import plugin as supply_demand_setup_plugin
-from .trading.trend_following import plugin as trend_follow_plugin
-from .trading.vcp import plugin as vcp_plugin
-from .trading.vwap_deviation import plugin as vwap_deviation_plugin
-from .trading.vwap_reclaim import plugin as vwap_reclaim_plugin
 
 # Multi-TF HMM instances — one per timeframe with TF-appropriate lookbacks (Phase 82, D-02).
 # Kept in TIER_SMC (not TIER_I4) to minimize schema churn; HMM fields remain in SMCContext.

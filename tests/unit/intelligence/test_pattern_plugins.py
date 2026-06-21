@@ -10,7 +10,7 @@ from tests.unit.intelligence.helpers import make_ohlcv
 class TestRSIDivergence:
     def test_bullish_divergence(self):
         """Price makes lower low, RSI makes higher low → bullish divergence."""
-        from src.intelligence.features.i5_patterns.rsi_divergence import RSIDivergencePlugin
+        from src.intelligence.archive.i5_patterns.rsi_divergence import RSIDivergencePlugin
 
         rng = np.random.default_rng(42)
         # Build price that dips twice, second dip lower in price
@@ -37,7 +37,7 @@ class TestRSIDivergence:
 
     def test_no_divergence_trending(self):
         """Steady uptrend → no divergence."""
-        from src.intelligence.features.i5_patterns.rsi_divergence import RSIDivergencePlugin
+        from src.intelligence.archive.i5_patterns.rsi_divergence import RSIDivergencePlugin
 
         close = np.linspace(5000, 5500, 100)
         df = make_ohlcv(close)
@@ -48,7 +48,7 @@ class TestRSIDivergence:
         assert result.get("rsi_div_bearish", 0.0) == 0.0
 
     def test_empty_frames(self):
-        from src.intelligence.features.i5_patterns.rsi_divergence import RSIDivergencePlugin
+        from src.intelligence.archive.i5_patterns.rsi_divergence import RSIDivergencePlugin
 
         plugin = RSIDivergencePlugin()
         assert plugin.compute_full({}) == {}
@@ -56,7 +56,7 @@ class TestRSIDivergence:
 
     def test_compute_next_delegates(self):
         """compute_next should work (delegates to compute_full)."""
-        from src.intelligence.features.i5_patterns.rsi_divergence import RSIDivergencePlugin
+        from src.intelligence.archive.i5_patterns.rsi_divergence import RSIDivergencePlugin
 
         close = np.linspace(5000, 5500, 100)
         df = make_ohlcv(close)
@@ -71,7 +71,7 @@ class TestRSIDivergence:
 class TestBollingerSqueeze:
     def test_squeeze_active_low_volatility(self):
         """Very tight range → BB inside KC → squeeze active."""
-        from src.intelligence.features.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
+        from src.intelligence.archive.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
 
         # Flat price with extremely low volatility
         rng = np.random.default_rng(42)
@@ -86,7 +86,7 @@ class TestBollingerSqueeze:
 
     def test_squeeze_fired(self):
         """Squeeze followed by expansion → squeeze_fired detected."""
-        from src.intelligence.features.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
+        from src.intelligence.archive.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
 
         rng = np.random.default_rng(42)
         # 60 bars of tight range, then 20 bars of breakout
@@ -111,7 +111,7 @@ class TestBollingerSqueeze:
 
     def test_no_squeeze_volatile(self):
         """High volatility → no squeeze."""
-        from src.intelligence.features.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
+        from src.intelligence.archive.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
 
         rng = np.random.default_rng(42)
         close = 5000.0 + rng.normal(0, 100, 80)  # Very wide swings
@@ -122,7 +122,7 @@ class TestBollingerSqueeze:
         assert result.get("squeeze_active", 0.0) == 0.0
 
     def test_empty_frames(self):
-        from src.intelligence.features.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
+        from src.intelligence.archive.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
 
         plugin = BollingerSqueezePlugin()
         assert plugin.compute_full({}) == {}
@@ -134,7 +134,7 @@ class TestBollingerSqueeze:
 class TestVolumeDivergence:
     def test_bearish_volume_divergence(self):
         """Rising prices + declining OBV → bearish divergence."""
-        from src.intelligence.features.i5_patterns.volume_divergence import VolumeDivergencePlugin
+        from src.intelligence.archive.i5_patterns.volume_divergence import VolumeDivergencePlugin
 
         n = 60
         # Price trends up via sawtooth: +4, +4, -5 per cycle (net +3 per 3 bars)
@@ -160,7 +160,7 @@ class TestVolumeDivergence:
 
     def test_no_divergence_aligned(self):
         """Rising prices + rising volume → no divergence."""
-        from src.intelligence.features.i5_patterns.volume_divergence import VolumeDivergencePlugin
+        from src.intelligence.archive.i5_patterns.volume_divergence import VolumeDivergencePlugin
 
         n = 60
         close = np.linspace(5000, 5200, n)
@@ -173,7 +173,7 @@ class TestVolumeDivergence:
         assert result["vol_div_bullish"] == 0.0
 
     def test_empty_frames(self):
-        from src.intelligence.features.i5_patterns.volume_divergence import VolumeDivergencePlugin
+        from src.intelligence.archive.i5_patterns.volume_divergence import VolumeDivergencePlugin
 
         plugin = VolumeDivergencePlugin()
         assert plugin.compute_full({}) == {}
@@ -185,7 +185,7 @@ class TestVolumeDivergence:
 class TestConfluence:
     def test_overbought_confluence(self):
         """All indicators overbought → negative confluence score."""
-        from src.intelligence.features.i5_patterns.confluence import ConfluencePlugin
+        from src.intelligence.archive.i5_patterns.confluence import ConfluencePlugin
 
         features = {
             "rsi_14": 80.0,  # Overbought
@@ -215,7 +215,7 @@ class TestConfluence:
 
     def test_oversold_confluence(self):
         """All indicators oversold → positive confluence score."""
-        from src.intelligence.features.i5_patterns.confluence import ConfluencePlugin
+        from src.intelligence.archive.i5_patterns.confluence import ConfluencePlugin
 
         features = {
             "rsi_14": 20.0,  # Oversold → bullish
@@ -242,7 +242,7 @@ class TestConfluence:
 
     def test_partial_indicators(self):
         """Only 2 indicators available → n_signals=2."""
-        from src.intelligence.features.i5_patterns.confluence import ConfluencePlugin
+        from src.intelligence.archive.i5_patterns.confluence import ConfluencePlugin
 
         features = {"rsi_14": 45.0, "cci_14": -50.0}
         plugin = ConfluencePlugin()
@@ -261,7 +261,7 @@ class TestConfluence:
         assert result["confluence_n_signals"] == 2.0
 
     def test_empty_features(self):
-        from src.intelligence.features.i5_patterns.confluence import ConfluencePlugin
+        from src.intelligence.archive.i5_patterns.confluence import ConfluencePlugin
 
         plugin = ConfluencePlugin()
         assert plugin.compute_full({}) == {}
@@ -279,10 +279,10 @@ class TestConfluence:
 class TestRegistration:
     def test_all_patterns_registered(self):
         """All 4 pattern plugins appear in registry."""
-        from src.intelligence.features.i5_patterns.bollinger_squeeze import plugin as squeeze
-        from src.intelligence.features.i5_patterns.confluence import plugin as confluence
-        from src.intelligence.features.i5_patterns.rsi_divergence import plugin as rsi_div
-        from src.intelligence.features.i5_patterns.volume_divergence import plugin as vol_div
+        from src.intelligence.archive.i5_patterns.bollinger_squeeze import plugin as squeeze
+        from src.intelligence.archive.i5_patterns.confluence import plugin as confluence
+        from src.intelligence.archive.i5_patterns.rsi_divergence import plugin as rsi_div
+        from src.intelligence.archive.i5_patterns.volume_divergence import plugin as vol_div
         from src.intelligence.plugins import PluginRegistry
 
         reg = PluginRegistry()

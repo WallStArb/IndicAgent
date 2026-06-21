@@ -35,7 +35,7 @@ _SPIKE_GATE_FEATURES = SPIKE_GATE_FEATURES
 
 class TestOFIContinuation:
     def _make_plugin(self):
-        from src.intelligence.trading.ofi_continuation import OFIContinuationPlugin
+        from src.intelligence.archive.trading_i7.ofi_continuation import OFIContinuationPlugin
 
         return OFIContinuationPlugin()
 
@@ -110,7 +110,7 @@ class TestOFIContinuation:
 
     def test_module_level_plugin_instance(self):
         """Module-level plugin instance must have correct name."""
-        from src.intelligence.trading.ofi_continuation import plugin
+        from src.intelligence.archive.trading_i7.ofi_continuation import plugin
 
         assert plugin.name == "trad_OFIContinuation"
 
@@ -122,7 +122,7 @@ class TestOFIContinuation:
 
 class TestOFIDivergence:
     def _make_plugin(self):
-        from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+        from src.intelligence.archive.trading_i7.ofi_divergence import OFIDivergencePlugin
 
         return OFIDivergencePlugin()
 
@@ -201,7 +201,7 @@ class TestOFIDivergence:
         assert result.get("direction") == 0
 
     def test_module_level_plugin_instance(self):
-        from src.intelligence.trading.ofi_divergence import plugin
+        from src.intelligence.archive.trading_i7.ofi_divergence import plugin
 
         assert plugin.name == "trad_OFIDivergence"
 
@@ -211,7 +211,7 @@ class TestOFIDivergence:
 
 class TestOFISpike:
     def _make_plugin(self):
-        from src.intelligence.trading.ofi_spike import OFISpikePlugin
+        from src.intelligence.archive.trading_i7.ofi_spike import OFISpikePlugin
 
         return OFISpikePlugin()
 
@@ -283,6 +283,6 @@ class TestOFISpike:
         assert result.get("direction") == 0
 
     def test_module_level_plugin_instance(self):
-        from src.intelligence.trading.ofi_spike import plugin
+        from src.intelligence.archive.trading_i7.ofi_spike import plugin
 
         assert plugin.name == "trad_OFISpike"

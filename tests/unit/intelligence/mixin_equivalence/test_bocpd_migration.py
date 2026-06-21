@@ -15,7 +15,7 @@ from tests.unit.intelligence.mixin_equivalence.helpers import build_synthetic_fr
 
 def test_bocpd_uses_incremental_mixin():
     """BOCPD plugin is an instance of IncrementalMixin."""
-    from src.intelligence.features.smc_context.bocpd_changepoint import BOCPDChangePointPlugin
+    from src.intelligence.archive.smc_context.bocpd_changepoint import BOCPDChangePointPlugin
     from src.intelligence.plugins.mixins import IncrementalMixin
 
     assert isinstance(BOCPDChangePointPlugin(), IncrementalMixin)
@@ -23,7 +23,7 @@ def test_bocpd_uses_incremental_mixin():
 
 def test_bocpd_compute_full_returns_state():
     """BOCPD compute_full returns _state key with run_length_probs."""
-    from src.intelligence.features.smc_context.bocpd_changepoint import BOCPDChangePointPlugin
+    from src.intelligence.archive.smc_context.bocpd_changepoint import BOCPDChangePointPlugin
 
     plugin = BOCPDChangePointPlugin()
     frames = build_synthetic_frames(n_bars=200, seed=42)
@@ -38,7 +38,7 @@ def test_bocpd_compute_full_returns_state():
 
 def test_bocpd_posterior_normalization():
     """BOCPD run-length posteriors sum to approximately 1.0 after 2000 bars."""
-    from src.intelligence.features.smc_context.bocpd_changepoint import BOCPDChangePointPlugin
+    from src.intelligence.archive.smc_context.bocpd_changepoint import BOCPDChangePointPlugin
 
     plugin = BOCPDChangePointPlugin()
     frames = build_synthetic_frames(n_bars=2000, seed=42)
@@ -56,7 +56,7 @@ def test_bocpd_posterior_normalization():
 
 def test_bocpd_compute_next_returns_state():
     """BOCPD compute_full returns _state key and compute_next uses it."""
-    from src.intelligence.features.smc_context.bocpd_changepoint import BOCPDChangePointPlugin
+    from src.intelligence.archive.smc_context.bocpd_changepoint import BOCPDChangePointPlugin
 
     plugin = BOCPDChangePointPlugin()
     frames = build_synthetic_frames(n_bars=200, seed=42)

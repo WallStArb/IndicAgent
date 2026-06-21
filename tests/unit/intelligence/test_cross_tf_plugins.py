@@ -10,28 +10,28 @@ Tests cover:
 import pandas as pd
 import pytest
 
-from src.intelligence.confluence.cross_tf_orderflow_alignment import (
+from src.intelligence.archive.confluence.cross_tf_orderflow_alignment import (
     CrossTFOrderFlowAlignmentPlugin,
 )
-from src.intelligence.confluence.cross_tf_orderflow_alignment import (
+from src.intelligence.archive.confluence.cross_tf_orderflow_alignment import (
     plugin as orderflow_plugin,
 )
-from src.intelligence.confluence.cross_tf_regime_agreement import (
+from src.intelligence.archive.confluence.cross_tf_regime_agreement import (
     CrossTFRegimeAgreementPlugin,
 )
-from src.intelligence.confluence.cross_tf_regime_agreement import (
+from src.intelligence.archive.confluence.cross_tf_regime_agreement import (
     plugin as regime_plugin,
 )
-from src.intelligence.confluence.cross_tf_sr_confluence import (
+from src.intelligence.archive.confluence.cross_tf_sr_confluence import (
     CrossTFSRConfluencePlugin,
 )
-from src.intelligence.confluence.cross_tf_sr_confluence import (
+from src.intelligence.archive.confluence.cross_tf_sr_confluence import (
     plugin as sr_plugin,
 )
-from src.intelligence.confluence.squeeze_expansion_divergence import (
+from src.intelligence.archive.confluence.squeeze_expansion_divergence import (
     SqueezeExpansionDivergencePlugin,
 )
-from src.intelligence.confluence.squeeze_expansion_divergence import (
+from src.intelligence.archive.confluence.squeeze_expansion_divergence import (
     plugin as squeeze_plugin,
 )
 

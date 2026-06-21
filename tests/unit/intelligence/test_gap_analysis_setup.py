@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.intelligence.trading.gap_analysis_setup import GapAnalysisSetupPlugin
+from src.intelligence.archive.trading_i7.gap_analysis_setup import GapAnalysisSetupPlugin
 from tests.unit.intelligence.helpers import make_ohlcv
 
 # ---------------------------------------------------------------------------

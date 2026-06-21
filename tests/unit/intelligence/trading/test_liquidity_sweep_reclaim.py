@@ -8,7 +8,9 @@ from tests.unit.intelligence.helpers import make_ohlcv
 class TestLiquiditySweepReclaim:
     def test_bullish_sweep_reclaim_signal(self):
         """Bullish sweep + reclaimed + FVG → long signal."""
-        from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
+        from src.intelligence.archive.trading_i7.liquidity_sweep_reclaim import (
+            LiquiditySweepReclaimPlugin,
+        )
 
         close = np.concatenate(
             [
@@ -53,7 +55,9 @@ class TestLiquiditySweepReclaim:
 
     def test_no_signal_without_reclaim(self):
         """Sweep detected but NOT reclaimed → no signal."""
-        from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
+        from src.intelligence.archive.trading_i7.liquidity_sweep_reclaim import (
+            LiquiditySweepReclaimPlugin,
+        )
 
         close = np.full(100, 5050.0)
         df = make_ohlcv(close)
@@ -81,7 +85,9 @@ class TestLiquiditySweepReclaim:
 
     def test_no_signal_without_sweep(self):
         """No sweep detected → no signal."""
-        from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
+        from src.intelligence.archive.trading_i7.liquidity_sweep_reclaim import (
+            LiquiditySweepReclaimPlugin,
+        )
 
         close = np.full(100, 5050.0)
         df = make_ohlcv(close)

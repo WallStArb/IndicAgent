@@ -1,6 +1,6 @@
 """Tests for Trend Confluence pattern plugin."""
 
-from src.intelligence.features.i5_patterns.trend_confluence import TrendConfluencePlugin
+from src.intelligence.archive.i5_patterns.trend_confluence import TrendConfluencePlugin
 
 
 class TestTrendConfluence:

@@ -47,7 +47,7 @@ class TestEfficiencyNumericEquivalence:
         squeeze_duration, and squeeze_bandwidth_pctile must match compute_full
         on the full 500-bar window.
         """
-        from src.intelligence.features.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
+        from src.intelligence.archive.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
 
         df = synthetic_ohlcv_trending
         plugin = BollingerSqueezePlugin()

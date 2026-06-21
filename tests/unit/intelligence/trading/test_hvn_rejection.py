@@ -44,7 +44,7 @@ def _base_features(**kwargs):
 
 def test_fires_long_near_hvn_below():
     """close within 0.3*ATR of nearest_hvn_below + rsi_div_bullish > 0.3 → long signal."""
-    from src.intelligence.trading.hvn_rejection import HVNRejectionPlugin
+    from src.intelligence.archive.trading_i7.hvn_rejection import HVNRejectionPlugin
 
     plugin = HVNRejectionPlugin()
     # hvn_below=4990, ATR=10, 0.3*ATR=3 → close near 4991 (above hvn_below, approaching)
@@ -60,7 +60,7 @@ def test_fires_long_near_hvn_below():
 
 def test_fires_short_near_hvn_above():
     """close within 0.3*ATR of nearest_hvn_above + rsi_div_bearish > 0.3 → short signal."""
-    from src.intelligence.trading.hvn_rejection import HVNRejectionPlugin
+    from src.intelligence.archive.trading_i7.hvn_rejection import HVNRejectionPlugin
 
     plugin = HVNRejectionPlugin()
     # hvn_above=5010, ATR=10, 0.3*ATR=3 → close near 5009 (below hvn_above, approaching)
@@ -76,7 +76,7 @@ def test_fires_short_near_hvn_above():
 
 def test_no_signal_when_not_near_hvn():
     """close = 5000 (10 pts from both hvn_above and hvn_below → 1× ATR > 0.3)."""
-    from src.intelligence.trading.hvn_rejection import HVNRejectionPlugin
+    from src.intelligence.archive.trading_i7.hvn_rejection import HVNRejectionPlugin
 
     plugin = HVNRejectionPlugin()
     close = np.linspace(5000.0, 5000.5, 25)
@@ -91,7 +91,7 @@ def test_no_signal_when_not_near_hvn():
 
 def test_no_signal_when_no_reversal_at_hvn():
     """Near hvn_below but no reversal confirmation (rsi_div=0, stoch_k=50)."""
-    from src.intelligence.trading.hvn_rejection import HVNRejectionPlugin
+    from src.intelligence.archive.trading_i7.hvn_rejection import HVNRejectionPlugin
 
     plugin = HVNRejectionPlugin()
     close = np.linspace(4991.0, 4991.5, 25)
@@ -106,7 +106,7 @@ def test_no_signal_when_no_reversal_at_hvn():
 
 def test_fires_long_with_stoch_oversold_at_hvn():
     """stoch_k=15 < 30 → oversold at HVN below → long fires."""
-    from src.intelligence.trading.hvn_rejection import HVNRejectionPlugin
+    from src.intelligence.archive.trading_i7.hvn_rejection import HVNRejectionPlugin
 
     plugin = HVNRejectionPlugin()
     close = np.linspace(4991.0, 4991.5, 25)
@@ -120,7 +120,7 @@ def test_fires_long_with_stoch_oversold_at_hvn():
 
 def test_regime_type_is_mean_reversion():
     """Plugin must declare regime_type == 'mean_reversion'."""
-    from src.intelligence.trading.hvn_rejection import HVNRejectionPlugin
+    from src.intelligence.archive.trading_i7.hvn_rejection import HVNRejectionPlugin
 
     plugin = HVNRejectionPlugin()
     assert plugin.regime_type == "mean_reversion"
@@ -131,7 +131,7 @@ def test_regime_type_is_mean_reversion():
 
 def test_no_signal_when_hvn_fields_missing():
     """No nearest_hvn_above or nearest_hvn_below → no signal."""
-    from src.intelligence.trading.hvn_rejection import HVNRejectionPlugin
+    from src.intelligence.archive.trading_i7.hvn_rejection import HVNRejectionPlugin
 
     plugin = HVNRejectionPlugin()
     close = np.linspace(4991.0, 4991.5, 25)
@@ -144,6 +144,6 @@ def test_no_signal_when_hvn_fields_missing():
 
 def test_plugin_module_instance():
     """Module-level `plugin` instance must have correct name."""
-    from src.intelligence.trading.hvn_rejection import plugin
+    from src.intelligence.archive.trading_i7.hvn_rejection import plugin
 
     assert plugin.name == "trad_HVNRejection"

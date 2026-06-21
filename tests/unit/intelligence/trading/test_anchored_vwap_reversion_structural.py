@@ -82,7 +82,7 @@ def _make_frames(
 
 class TestAnchoredVWAPReversionStructural:
     def _plugin(self):
-        from src.intelligence.trading.anchored_vwap_reversion import (
+        from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
             AnchoredVWAPReversionPlugin,
         )
 
@@ -256,7 +256,7 @@ class TestNearZeroExitReclaim:
     """
 
     def _plugin(self):
-        from src.intelligence.trading.anchored_vwap_reversion import (
+        from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
             AnchoredVWAPReversionPlugin,
             VWAPReversionState,
         )

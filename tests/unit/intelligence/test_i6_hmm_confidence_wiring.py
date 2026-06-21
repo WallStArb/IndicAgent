@@ -210,7 +210,7 @@ class TestCVDDivergenceThreshold:
 
     def test_sub_threshold_cvd_returns_no_signal(self):
         """abs(cvd_div) < 0.002 must return no_signal (new floor enforced)."""
-        from src.intelligence.trading.cvd_divergence import CVDDivergencePlugin
+        from src.intelligence.archive.trading_i7.cvd_divergence import CVDDivergencePlugin
 
         plugin = CVDDivergencePlugin()
         # Feed sub-threshold divergence values for well above N=3 bars
@@ -230,7 +230,7 @@ class TestCVDDivergenceThreshold:
 
     def test_above_threshold_cvd_state_accumulates(self):
         """abs(cvd_div) >= 0.002 must pass the floor gate (state can accumulate)."""
-        from src.intelligence.trading.cvd_divergence import CVDDivergencePlugin
+        from src.intelligence.archive.trading_i7.cvd_divergence import CVDDivergencePlugin
 
         plugin = CVDDivergencePlugin()
         # Feed above-threshold divergence for enough bars to potentially fire

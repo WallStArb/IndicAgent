@@ -58,7 +58,9 @@ class TestCandlestickTier1Patterns:
         return {"i1": f, "i2": f, "i3": f, "i4": f, "i5": f, "smc": f, "i6": f}
 
     def test_three_white_soldiers_bullish(self):
-        from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
+        from src.intelligence.archive.trading_i7.candlestick_pattern_setup import (
+            CandlestickPatternSetupPlugin,
+        )
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
@@ -68,7 +70,9 @@ class TestCandlestickTier1Patterns:
         assert "three_white_soldiers" in result.get("signal_type", "")
 
     def test_three_black_crows_bearish(self):
-        from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
+        from src.intelligence.archive.trading_i7.candlestick_pattern_setup import (
+            CandlestickPatternSetupPlugin,
+        )
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
@@ -78,7 +82,9 @@ class TestCandlestickTier1Patterns:
         assert "three_black_crows" in result.get("signal_type", "")
 
     def test_morning_star_bullish(self):
-        from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
+        from src.intelligence.archive.trading_i7.candlestick_pattern_setup import (
+            CandlestickPatternSetupPlugin,
+        )
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
@@ -88,7 +94,9 @@ class TestCandlestickTier1Patterns:
         assert "morning_star" in result.get("signal_type", "")
 
     def test_evening_star_bearish(self):
-        from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
+        from src.intelligence.archive.trading_i7.candlestick_pattern_setup import (
+            CandlestickPatternSetupPlugin,
+        )
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
@@ -98,7 +106,9 @@ class TestCandlestickTier1Patterns:
         assert "evening_star" in result.get("signal_type", "")
 
     def test_three_inside_up_bullish(self):
-        from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
+        from src.intelligence.archive.trading_i7.candlestick_pattern_setup import (
+            CandlestickPatternSetupPlugin,
+        )
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
@@ -108,7 +118,9 @@ class TestCandlestickTier1Patterns:
         assert "three_inside_up" in result.get("signal_type", "")
 
     def test_three_inside_down_bearish(self):
-        from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
+        from src.intelligence.archive.trading_i7.candlestick_pattern_setup import (
+            CandlestickPatternSetupPlugin,
+        )
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
@@ -119,7 +131,9 @@ class TestCandlestickTier1Patterns:
 
     def test_harami_cross_follows_trend(self):
         """harami_cross has no intrinsic direction — aligns with trend_regime."""
-        from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
+        from src.intelligence.archive.trading_i7.candlestick_pattern_setup import (
+            CandlestickPatternSetupPlugin,
+        )
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
@@ -129,7 +143,9 @@ class TestCandlestickTier1Patterns:
         assert "harami_cross" in result.get("signal_type", "")
 
     def test_dark_cloud_cover_bearish(self):
-        from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
+        from src.intelligence.archive.trading_i7.candlestick_pattern_setup import (
+            CandlestickPatternSetupPlugin,
+        )
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
@@ -139,7 +155,9 @@ class TestCandlestickTier1Patterns:
         assert "dark_cloud_cover" in result.get("signal_type", "")
 
     def test_piercing_line_bullish(self):
-        from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
+        from src.intelligence.archive.trading_i7.candlestick_pattern_setup import (
+            CandlestickPatternSetupPlugin,
+        )
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(

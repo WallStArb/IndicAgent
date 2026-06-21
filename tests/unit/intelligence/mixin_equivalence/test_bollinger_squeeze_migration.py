@@ -9,7 +9,7 @@ from tests.unit.intelligence.mixin_equivalence.helpers import (
 
 def test_bollinger_squeeze_uses_incremental_mixin():
     """BollingerSqueeze plugin is an instance of IncrementalMixin."""
-    from src.intelligence.features.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
+    from src.intelligence.archive.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
     from src.intelligence.plugins.mixins import IncrementalMixin
 
     assert isinstance(BollingerSqueezePlugin(), IncrementalMixin)
@@ -17,7 +17,7 @@ def test_bollinger_squeeze_uses_incremental_mixin():
 
 def test_bollinger_squeeze_compute_next_returns_state():
     """BollingerSqueeze compute_full returns _state key and compute_next uses it."""
-    from src.intelligence.features.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
+    from src.intelligence.archive.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
 
     plugin = BollingerSqueezePlugin()
     frames = build_synthetic_frames(n_bars=200, seed=42)

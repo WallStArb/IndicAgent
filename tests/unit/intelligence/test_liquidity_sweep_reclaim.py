@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
+from src.intelligence.archive.trading_i7.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -125,7 +125,9 @@ class TestFlagStaysHotNoSignal:
         smc_on = _base_smc(sweep_detected=1.0, sweep_reclaimed=1.0)
         df = _make_df()
 
-        with patch("src.intelligence.trading.liquidity_sweep_reclaim.frame_trade") as mock_ft:
+        with patch(
+            "src.intelligence.archive.trading_i7.liquidity_sweep_reclaim.frame_trade"
+        ) as mock_ft:
             mock_ft.return_value = _mock_viable_frame()
             # Prime: send one off-bar so onset_guard has a False baseline
             plugin.compute_full(_build_frames(df, smc_off))
@@ -145,7 +147,9 @@ class TestRisingEdgeFiresOnce:
 
     def test_rising_edge_fires_on_bar6(self):
         """Bars 1-5: sweep_reclaimed=0. Bar 6: sweep_reclaimed=1. Must fire only on bar 6."""
-        with patch("src.intelligence.trading.liquidity_sweep_reclaim.frame_trade") as mock_ft:
+        with patch(
+            "src.intelligence.archive.trading_i7.liquidity_sweep_reclaim.frame_trade"
+        ) as mock_ft:
             mock_ft.return_value = _mock_viable_frame()
 
             plugin = LiquiditySweepReclaimPlugin()
@@ -167,7 +171,9 @@ class TestRisingEdgeFiresOnce:
 
     def test_after_rising_edge_flag_stays_hot_no_more_fires(self):
         """After bar 6 fires, bars 7+ with sweep_reclaimed still 1.0 must not fire again."""
-        with patch("src.intelligence.trading.liquidity_sweep_reclaim.frame_trade") as mock_ft:
+        with patch(
+            "src.intelligence.archive.trading_i7.liquidity_sweep_reclaim.frame_trade"
+        ) as mock_ft:
             mock_ft.return_value = _mock_viable_frame()
 
             plugin = LiquiditySweepReclaimPlugin()
@@ -202,7 +208,9 @@ class TestWickOnlyNoFire:
         )
         df_wick = _make_df(close=4195.0, high=4210.0, low=4185.0)
 
-        with patch("src.intelligence.trading.liquidity_sweep_reclaim.frame_trade") as mock_ft:
+        with patch(
+            "src.intelligence.archive.trading_i7.liquidity_sweep_reclaim.frame_trade"
+        ) as mock_ft:
             mock_ft.return_value = _mock_viable_frame()
 
             # First deliver off-bar so onset_guard primes for rising edge
@@ -222,7 +230,9 @@ class TestWickOnlyNoFire:
         )
         df_body = _make_df(close=4205.0, high=4210.0, low=4195.0)
 
-        with patch("src.intelligence.trading.liquidity_sweep_reclaim.frame_trade") as mock_ft:
+        with patch(
+            "src.intelligence.archive.trading_i7.liquidity_sweep_reclaim.frame_trade"
+        ) as mock_ft:
             mock_ft.return_value = _mock_viable_frame()
 
             plugin.compute_full(_build_frames(df_body, smc_off))
@@ -235,7 +245,9 @@ class TestDeduplicatePreventsRefire:
 
     def test_deduplicate_prevents_refire(self):
         """After bar 6 fires, reset onset (off bar), then re-fire with same level/type — blocked."""
-        with patch("src.intelligence.trading.liquidity_sweep_reclaim.frame_trade") as mock_ft:
+        with patch(
+            "src.intelligence.archive.trading_i7.liquidity_sweep_reclaim.frame_trade"
+        ) as mock_ft:
             mock_ft.return_value = _mock_viable_frame()
 
             plugin = LiquiditySweepReclaimPlugin()
@@ -259,7 +271,9 @@ class TestDeduplicatePreventsRefire:
 
     def test_different_sweep_level_fires_again(self):
         """New sweep_level (different event_id) must fire even if same sweep_type."""
-        with patch("src.intelligence.trading.liquidity_sweep_reclaim.frame_trade") as mock_ft:
+        with patch(
+            "src.intelligence.archive.trading_i7.liquidity_sweep_reclaim.frame_trade"
+        ) as mock_ft:
             mock_ft.return_value = _mock_viable_frame()
 
             plugin = LiquiditySweepReclaimPlugin()

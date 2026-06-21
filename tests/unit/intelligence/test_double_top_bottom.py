@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 # This import will FAIL until Task 2 creates the plugin — that's expected.
-from src.intelligence.features.i5_patterns.double_top_bottom import DoubleTBPlugin
+from src.intelligence.archive.i5_patterns.double_top_bottom import DoubleTBPlugin
 
 
 def _make_frames(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> dict:

@@ -61,7 +61,7 @@ def _base_features_short(**kwargs):
 
 def test_fires_long_near_poc_from_below():
     """close within 0.3*ATR below poc_price + rsi_div_bullish=0.5 → direction == 1."""
-    from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+    from src.intelligence.archive.trading_i7.poc_rejection import POCRejectionPlugin
 
     plugin = POCRejectionPlugin()
     # poc_price=5000, ATR=10, 0.3*ATR=3 → close must be in [4997, 5003]
@@ -76,7 +76,7 @@ def test_fires_long_near_poc_from_below():
 
 def test_fires_short_near_poc_from_above():
     """close within 0.3*ATR above poc_price + rsi_div_bearish=0.5 → direction == -1."""
-    from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+    from src.intelligence.archive.trading_i7.poc_rejection import POCRejectionPlugin
 
     plugin = POCRejectionPlugin()
     close = np.linspace(5002.0, 5002.5, 25)
@@ -90,7 +90,7 @@ def test_fires_short_near_poc_from_above():
 
 def test_no_signal_when_far_from_poc():
     """close = 4990 (10 pts below poc, ATR=10 → 1.0× ATR > 0.3 threshold) → no signal."""
-    from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+    from src.intelligence.archive.trading_i7.poc_rejection import POCRejectionPlugin
 
     plugin = POCRejectionPlugin()
     close = np.linspace(4990.0, 4990.5, 25)
@@ -104,7 +104,7 @@ def test_no_signal_when_far_from_poc():
 
 def test_no_signal_when_no_momentum_reversal():
     """Near poc but rsi_div_bullish=0.0 and stoch_k=50 → no reversal confirmation."""
-    from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+    from src.intelligence.archive.trading_i7.poc_rejection import POCRejectionPlugin
 
     plugin = POCRejectionPlugin()
     close = np.linspace(4997.5, 4998.0, 25)
@@ -119,7 +119,7 @@ def test_no_signal_when_no_momentum_reversal():
 
 def test_fires_with_stoch_oversold():
     """stoch_k=20 < 30 → oversold reversal signal → long fires near poc."""
-    from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+    from src.intelligence.archive.trading_i7.poc_rejection import POCRejectionPlugin
 
     plugin = POCRejectionPlugin()
     close = np.linspace(4997.5, 4998.0, 25)
@@ -133,7 +133,7 @@ def test_fires_with_stoch_oversold():
 
 def test_regime_type_is_mean_reversion():
     """Plugin must declare regime_type == 'mean_reversion'."""
-    from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+    from src.intelligence.archive.trading_i7.poc_rejection import POCRejectionPlugin
 
     plugin = POCRejectionPlugin()
     assert plugin.regime_type == "mean_reversion"
@@ -144,7 +144,7 @@ def test_regime_type_is_mean_reversion():
 
 def test_no_signal_when_poc_missing():
     """Missing poc_price → returns no signal."""
-    from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+    from src.intelligence.archive.trading_i7.poc_rejection import POCRejectionPlugin
 
     plugin = POCRejectionPlugin()
     close = np.linspace(4997.5, 4998.0, 25)
@@ -157,7 +157,7 @@ def test_no_signal_when_poc_missing():
 
 def test_plugin_module_instance():
     """Module-level `plugin` instance must have correct name."""
-    from src.intelligence.trading.poc_rejection import plugin
+    from src.intelligence.archive.trading_i7.poc_rejection import plugin
 
     assert plugin.name == "trad_POCRejection"
 
@@ -167,7 +167,7 @@ def test_plugin_module_instance():
 
 def test_tf_guard_returns_no_signal_on_1h():
     """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
-    from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+    from src.intelligence.archive.trading_i7.poc_rejection import POCRejectionPlugin
 
     plugin = POCRejectionPlugin()
     close = np.linspace(4997.0, 4999.0, 25)

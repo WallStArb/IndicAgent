@@ -21,7 +21,7 @@ class TestCandlestickPatterns:
         # min_lookback=3 — prepend a neutral filler bar as pp.
         import pandas as pd
 
-        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+        from src.intelligence.archive.i5_patterns.candlestick_patterns import (
             CandlestickPatternsPlugin,
         )
 
@@ -46,7 +46,7 @@ class TestCandlestickPatterns:
         # open=5005, close=5010, high=5011, low=4980 → body=5, lower_wick=25, upper_wick=1
         import pandas as pd
 
-        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+        from src.intelligence.archive.i5_patterns.candlestick_patterns import (
             CandlestickPatternsPlugin,
         )
 
@@ -67,7 +67,7 @@ class TestCandlestickPatterns:
     def test_doji_detected(self):
         import pandas as pd
 
-        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+        from src.intelligence.archive.i5_patterns.candlestick_patterns import (
             CandlestickPatternsPlugin,
         )
 
@@ -88,7 +88,7 @@ class TestCandlestickPatterns:
         assert result.get("doji_detected") in (0.0, 1.0)
 
     def test_returns_all_fields(self):
-        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+        from src.intelligence.archive.i5_patterns.candlestick_patterns import (
             CandlestickPatternsPlugin,
         )
 
@@ -113,7 +113,7 @@ class TestCandlestickPatterns:
         assert expected.issubset(result.keys())
 
     def test_empty_returns_empty(self):
-        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+        from src.intelligence.archive.i5_patterns.candlestick_patterns import (
             CandlestickPatternsPlugin,
         )
 
@@ -122,7 +122,7 @@ class TestCandlestickPatterns:
     def test_inside_bar_depth_gradient(self):
         import pandas as pd
 
-        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+        from src.intelligence.archive.i5_patterns.candlestick_patterns import (
             CandlestickPatternsPlugin,
         )
 
@@ -149,7 +149,7 @@ class TestCandlestickPatterns:
     def test_inside_bar_depth_zero_when_no_inside_bar(self):
         import pandas as pd
 
-        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+        from src.intelligence.archive.i5_patterns.candlestick_patterns import (
             CandlestickPatternsPlugin,
         )
 
@@ -172,7 +172,7 @@ class TestCandlestickPatterns:
     def test_outside_bar_expansion_gradient(self):
         import pandas as pd
 
-        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+        from src.intelligence.archive.i5_patterns.candlestick_patterns import (
             CandlestickPatternsPlugin,
         )
 
@@ -199,7 +199,7 @@ class TestCandlestickPatterns:
     def test_outside_bar_expansion_zero_when_no_outside_bar(self):
         import pandas as pd
 
-        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+        from src.intelligence.archive.i5_patterns.candlestick_patterns import (
             CandlestickPatternsPlugin,
         )
 
@@ -227,7 +227,7 @@ class TestCandlestickPatterns:
 
 class TestMTFVolatilityGradient:
     def test_expansion_continuous_values(self):
-        from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
+        from src.intelligence.archive.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 
         close = np.linspace(5000, 5100, 10)
         df = make_ohlcv(close)
@@ -254,7 +254,7 @@ class TestMTFVolatilityGradient:
         assert abs(result["mtf_vol_expansion_1h"] - 0.3) < 0.01
 
     def test_expansion_zero_when_contracting(self):
-        from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
+        from src.intelligence.archive.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 
         close = np.linspace(5000, 5100, 10)
         df = make_ohlcv(close)
@@ -278,7 +278,7 @@ class TestMTFVolatilityGradient:
         assert result["mtf_vol_expansion_1h"] == 0.0
 
     def test_squeeze_within_continuous(self):
-        from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
+        from src.intelligence.archive.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 
         close = np.linspace(5000, 5100, 10)
         df = make_ohlcv(close)
@@ -315,7 +315,7 @@ class TestMTFVolatilityGradient:
 
 class TestFlagPennant:
     def test_output_values_in_range(self):
-        from src.intelligence.features.i5_patterns.flag_pennant import FlagPennantPlugin
+        from src.intelligence.archive.i5_patterns.flag_pennant import FlagPennantPlugin
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)
@@ -328,7 +328,7 @@ class TestFlagPennant:
                 assert val in (0.0, 1.0), f"{field_name}={val} not binary"
 
     def test_returns_expected_fields(self):
-        from src.intelligence.features.i5_patterns.flag_pennant import FlagPennantPlugin
+        from src.intelligence.archive.i5_patterns.flag_pennant import FlagPennantPlugin
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)
@@ -345,7 +345,7 @@ class TestFlagPennant:
             assert expected.issubset(result.keys())
 
     def test_empty_returns_empty(self):
-        from src.intelligence.features.i5_patterns.flag_pennant import FlagPennantPlugin
+        from src.intelligence.archive.i5_patterns.flag_pennant import FlagPennantPlugin
 
         assert FlagPennantPlugin().compute_full({}) == {}
 
@@ -357,7 +357,7 @@ class TestFlagPennant:
 
 class TestCupHandle:
     def test_no_crash_on_trending_data(self):
-        from src.intelligence.features.i5_patterns.cup_handle import CupHandlePlugin
+        from src.intelligence.archive.i5_patterns.cup_handle import CupHandlePlugin
 
         close = np.linspace(5000, 5200, 80)
         df = make_ohlcv(close)
@@ -368,7 +368,7 @@ class TestCupHandle:
         assert isinstance(result, dict)
 
     def test_cup_handle_pattern_binary(self):
-        from src.intelligence.features.i5_patterns.cup_handle import CupHandlePlugin
+        from src.intelligence.archive.i5_patterns.cup_handle import CupHandlePlugin
 
         close = np.linspace(5000, 5100, 80)
         df = make_ohlcv(close)
@@ -380,7 +380,7 @@ class TestCupHandle:
             assert val in (0.0, 1.0)
 
     def test_insufficient_bars_returns_empty(self):
-        from src.intelligence.features.i5_patterns.cup_handle import CupHandlePlugin
+        from src.intelligence.archive.i5_patterns.cup_handle import CupHandlePlugin
 
         # Only 2 bars — below min_lookback (needs ~50+)
         close = np.array([5000.0, 5001.0])
@@ -398,7 +398,7 @@ class TestCupHandle:
 
 class TestMeasuredMove:
     def test_abcd_pattern_active_in_range(self):
-        from src.intelligence.features.i5_patterns.measured_move import MeasuredMovePlugin
+        from src.intelligence.archive.i5_patterns.measured_move import MeasuredMovePlugin
 
         close = np.linspace(5000, 5100, 20)
         df = make_ohlcv(close)
@@ -425,7 +425,7 @@ class TestMeasuredMove:
         assert val in (0.0, 0.5, 1.0)
 
     def test_missing_swing_returns_zero(self):
-        from src.intelligence.features.i5_patterns.measured_move import MeasuredMovePlugin
+        from src.intelligence.archive.i5_patterns.measured_move import MeasuredMovePlugin
 
         close = np.linspace(5000, 5100, 20)
         df = make_ohlcv(close)
@@ -435,7 +435,7 @@ class TestMeasuredMove:
         assert result.get("abcd_pattern_active") == 0.0
 
     def test_empty_returns_empty(self):
-        from src.intelligence.features.i5_patterns.measured_move import MeasuredMovePlugin
+        from src.intelligence.archive.i5_patterns.measured_move import MeasuredMovePlugin
 
         assert MeasuredMovePlugin().compute_full({}) == {}
 
@@ -483,7 +483,7 @@ class TestVolumeProfile:
 
 class TestKeyLevelReaction:
     def test_reaction_type_in_range(self):
-        from src.intelligence.features.i5_patterns.key_level_reaction import KeyLevelReactionPlugin
+        from src.intelligence.archive.i5_patterns.key_level_reaction import KeyLevelReactionPlugin
 
         close = np.linspace(5000, 5100, 10)
         df = make_ohlcv(close)
@@ -504,7 +504,7 @@ class TestKeyLevelReaction:
         assert val in (0.0, 1.0, 2.0, 3.0, 4.0)
 
     def test_confluence_count_non_negative(self):
-        from src.intelligence.features.i5_patterns.key_level_reaction import KeyLevelReactionPlugin
+        from src.intelligence.archive.i5_patterns.key_level_reaction import KeyLevelReactionPlugin
 
         close = np.linspace(5000, 5100, 10)
         df = make_ohlcv(close)
@@ -530,7 +530,7 @@ class TestKeyLevelReaction:
         assert result.get("key_level_confluence_count", 0) >= 0
 
     def test_no_levels_returns_none_reaction(self):
-        from src.intelligence.features.i5_patterns.key_level_reaction import KeyLevelReactionPlugin
+        from src.intelligence.archive.i5_patterns.key_level_reaction import KeyLevelReactionPlugin
 
         close = np.linspace(5000, 5100, 10)
         df = make_ohlcv(close)
@@ -540,7 +540,7 @@ class TestKeyLevelReaction:
         assert result.get("key_level_reaction_type") == 0.0
 
     def test_empty_returns_empty(self):
-        from src.intelligence.features.i5_patterns.key_level_reaction import KeyLevelReactionPlugin
+        from src.intelligence.archive.i5_patterns.key_level_reaction import KeyLevelReactionPlugin
 
         assert KeyLevelReactionPlugin().compute_full({}) == {}
 

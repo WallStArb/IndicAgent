@@ -90,7 +90,7 @@ def _frames(df, features: dict) -> dict:
 
 def _scenario_ofi_continuation():
     """OFIContinuation fires on sustained OFI + volume spike structural trigger (Phase 124)."""
-    from src.intelligence.trading.ofi_continuation import OFIContinuationPlugin
+    from src.intelligence.archive.trading_i7.ofi_continuation import OFIContinuationPlugin
 
     close = np.linspace(5000.0, 5010.0, 25)
     df = make_ohlcv(close)
@@ -112,7 +112,7 @@ def _scenario_ofi_divergence():
     """OFIDivergence fires after 2 bars of stable divergence sign."""
     import pandas as pd
 
-    from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+    from src.intelligence.archive.trading_i7.ofi_divergence import OFIDivergencePlugin
 
     closes = [5000.0 + i * 0.1 for i in range(30)]
     df = pd.DataFrame(
@@ -150,7 +150,7 @@ def _scenario_ofi_divergence():
 
 def _scenario_cvd_divergence():
     """CVDDivergence fires after 5 bars of opposing CVD vs price (Phase 118: raised from 3)."""
-    from src.intelligence.trading.cvd_divergence import CVDDivergencePlugin
+    from src.intelligence.archive.trading_i7.cvd_divergence import CVDDivergencePlugin
 
     close = np.linspace(5000.0, 5010.0, 25)
     df = make_ohlcv(close)
@@ -173,7 +173,7 @@ def _scenario_cvd_divergence():
 
 def _scenario_choch_reversal():
     """CHoCHReversal fires when choch_detected==1.0 and choch_direction set."""
-    from src.intelligence.trading.choch_reversal import CHoCHReversalPlugin
+    from src.intelligence.archive.trading_i7.choch_reversal import CHoCHReversalPlugin
 
     close = np.linspace(5000.0, 5200.0, 50)
     df = make_ohlcv(close)
@@ -197,7 +197,7 @@ def _scenario_choch_reversal():
 
 def _scenario_supply_demand_setup():
     """SupplyDemandSetup fires when in_demand_zone==1.0 with sufficient freshness."""
-    from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+    from src.intelligence.archive.trading_i7.supply_demand_setup import SupplyDemandSetupPlugin
 
     close = np.linspace(4990.0, 5000.0, 50)
     df = make_ohlcv(close)
@@ -230,7 +230,9 @@ def _scenario_supply_demand_setup():
 
 def _scenario_liquidity_sweep_reclaim():
     """LiquiditySweepReclaim fires when sweep_detected and sweep_reclaimed."""
-    from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
+    from src.intelligence.archive.trading_i7.liquidity_sweep_reclaim import (
+        LiquiditySweepReclaimPlugin,
+    )
 
     close = np.full(100, 5000.0)
     df = make_ohlcv(close)
@@ -256,7 +258,7 @@ def _scenario_liquidity_sweep_reclaim():
 
 def _scenario_liquidity_hunt():
     """LiquidityHunt fires when sweep at named SSL level with significance >= 0.60."""
-    from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+    from src.intelligence.archive.trading_i7.liquidity_hunt import LiquidityHuntPlugin
 
     atr = 8.0
     swept_level = 4992.0
@@ -292,7 +294,7 @@ def _scenario_liquidity_hunt():
 
 def _scenario_gap_analysis_setup():
     """GapAnalysisSetup fires when gap > 0.8*ATR in open vs prior close (Phase 118: raised from 0.3)."""
-    from src.intelligence.trading.gap_analysis_setup import GapAnalysisSetupPlugin
+    from src.intelligence.archive.trading_i7.gap_analysis_setup import GapAnalysisSetupPlugin
 
     n = 100
     atr = 10.0
@@ -321,7 +323,7 @@ def _scenario_gap_analysis_setup():
 
 def _scenario_prev_day_level_test():
     """PrevDayLevelTest fires when close is within 0.5*ATR of PDH."""
-    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+    from src.intelligence.archive.trading_i7.prev_day_level_test import PrevDayLevelTestPlugin
 
     n = 25
     close = np.full(n, 5048.0)
@@ -349,7 +351,7 @@ def _scenario_prev_day_level_test():
 
 def _scenario_momentum_breakout():
     """MomentumBreakout fires on ROC spike + volume expansion + structure break."""
-    from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+    from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
     n = 50
     close = np.full(n, 5015.0)
@@ -376,7 +378,7 @@ def _scenario_momentum_breakout():
 
 def _scenario_squeeze_expansion():
     """SqueezeExpansion fires on squeeze_fired + volume expansion + momentum."""
-    from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
+    from src.intelligence.archive.trading_i7.squeeze_expansion import SqueezeExpansionPlugin
 
     n = 50
     close = np.linspace(5000.0, 5050.0, n)
@@ -407,7 +409,7 @@ def _scenario_squeeze_expansion():
 
 def _scenario_trend_following():
     """TrendFollowing fires on pullback-to-MA reversal structural event (Phase 124)."""
-    from src.intelligence.trading.trend_following import TrendFollowingPlugin
+    from src.intelligence.archive.trading_i7.trend_following import TrendFollowingPlugin
 
     n = 100
     close = np.linspace(5000.0, 5200.0, n)
@@ -554,7 +556,7 @@ def test_plugin_does_not_populate_context_features():
     Annotation is now pipeline-layer responsibility (_annotate_signal in signal_processor).
     Plugin bodies return context_features={} (empty); pipeline overwrites with flat_features.
     """
-    from src.intelligence.trading.ofi_continuation import OFIContinuationPlugin
+    from src.intelligence.archive.trading_i7.ofi_continuation import OFIContinuationPlugin
 
     close = np.linspace(5000.0, 5010.0, 25)
     df = make_ohlcv(close)
@@ -592,7 +594,7 @@ def test_phase_126_ecl_fields_initialized_by_plugin():
     """
     import pandas as pd
 
-    from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+    from src.intelligence.archive.trading_i7.ofi_divergence import OFIDivergencePlugin
 
     closes = [5000.0 + i * 0.1 for i in range(30)]
     df = pd.DataFrame(

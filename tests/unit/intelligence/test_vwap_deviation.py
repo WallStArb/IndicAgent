@@ -25,7 +25,7 @@ def _features(price, vwap=5000.0, vwap_std=10.0, trend_regime=0.0):
 class TestVWAPDeviation:
     def test_long_signal_below_lower_band(self):
         """Price below vwap_lower_2 → vwap_reversion_long."""
-        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+        from src.intelligence.archive.trading_i7.vwap_deviation import VWAPDeviationPlugin
 
         close = np.full(50, 5000.0)
         close[-1] = 4975.0  # below vwap_lower_2 = 4980
@@ -57,7 +57,7 @@ class TestVWAPDeviation:
 
     def test_short_signal_above_upper_band(self):
         """Price above vwap_upper_2 → vwap_reversion_short."""
-        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+        from src.intelligence.archive.trading_i7.vwap_deviation import VWAPDeviationPlugin
 
         close = np.full(50, 5000.0)
         close[-1] = 5025.0  # above vwap_upper_2 = 5020
@@ -87,7 +87,7 @@ class TestVWAPDeviation:
 
     def test_no_signal_within_bands(self):
         """Price inside ±2σ → no signal."""
-        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+        from src.intelligence.archive.trading_i7.vwap_deviation import VWAPDeviationPlugin
 
         close = np.full(50, 5005.0)
         df = make_ohlcv(close)
@@ -112,7 +112,7 @@ class TestVWAPDeviation:
 
     def test_no_signal_zero_vwap_std(self):
         """vwap_std = 0 (no volume yet) → no signal."""
-        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+        from src.intelligence.archive.trading_i7.vwap_deviation import VWAPDeviationPlugin
 
         close = np.full(50, 4970.0)
         df = make_ohlcv(close)
@@ -136,7 +136,7 @@ class TestVWAPDeviation:
 
     def test_confidence_scales_with_deviation(self):
         """Larger sigma deviation → higher confidence."""
-        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+        from src.intelligence.archive.trading_i7.vwap_deviation import VWAPDeviationPlugin
 
         plugin = VWAPDeviationPlugin()
         close_moderate = np.full(50, 4978.0)  # ~2.2σ below
@@ -175,7 +175,7 @@ class TestVWAPDeviation:
 
     def test_regime_context_values(self):
         """regime_context identifies the current overextension direction."""
-        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+        from src.intelligence.archive.trading_i7.vwap_deviation import VWAPDeviationPlugin
 
         plugin = VWAPDeviationPlugin()
         close_low = np.full(50, 4970.0)
@@ -211,7 +211,7 @@ class TestVWAPDeviation:
 
     def test_insufficient_data_returns_empty(self):
         """Too few bars → empty dict."""
-        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+        from src.intelligence.archive.trading_i7.vwap_deviation import VWAPDeviationPlugin
 
         close = np.array([4975.0, 4974.0, 4973.0])
         df = make_ohlcv(close)
@@ -223,7 +223,7 @@ class TestVWAPDeviation:
 
     def test_no_signal_in_high_vol_at_exactly_2sigma(self):
         """High vol (vol_regime=2) at exactly 2.0σ — below 2.5σ threshold, no signal."""
-        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+        from src.intelligence.archive.trading_i7.vwap_deviation import VWAPDeviationPlugin
 
         vwap, vwap_std = 5000.0, 10.0
         # Place price at exactly 2.0σ below vwap
@@ -253,7 +253,7 @@ class TestVWAPDeviation:
 
     def test_signal_fires_above_dynamic_threshold_in_high_vol(self):
         """High vol (vol_regime=2) at 2.6σ — exceeds 2.5σ threshold, signal fires."""
-        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+        from src.intelligence.archive.trading_i7.vwap_deviation import VWAPDeviationPlugin
 
         vwap, vwap_std = 5000.0, 10.0
         price = vwap - 2.6 * vwap_std  # = 4974.0, above 2.5σ threshold
@@ -282,7 +282,7 @@ class TestVWAPDeviation:
 
     def test_extreme_vol_requires_3sigma(self):
         """Extreme vol (vol_regime=3) at 2.9σ — below 3.0σ threshold, no signal."""
-        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+        from src.intelligence.archive.trading_i7.vwap_deviation import VWAPDeviationPlugin
 
         vwap, vwap_std = 5000.0, 10.0
         price = vwap + 2.9 * vwap_std  # = 5029.0, below 3.0σ threshold

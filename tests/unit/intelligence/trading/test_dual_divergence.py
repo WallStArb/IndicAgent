@@ -35,7 +35,7 @@ def _make_frames(close_arr, features=None, symbol="ES", tf="1m"):
 
 class TestDualDivergence:
     def _make_plugin(self):
-        from src.intelligence.trading.dual_divergence import DualDivergencePlugin
+        from src.intelligence.archive.trading_i7.dual_divergence import DualDivergencePlugin
 
         return DualDivergencePlugin()
 
@@ -205,7 +205,7 @@ class TestDualDivergence:
             ), f"Expected cvd in supporting: {supporting}"
 
     def test_module_level_plugin_instance(self):
-        from src.intelligence.trading.dual_divergence import plugin
+        from src.intelligence.archive.trading_i7.dual_divergence import plugin
 
         assert plugin.name == "trad_DualDivergence"
 

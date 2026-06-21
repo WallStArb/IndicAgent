@@ -10,7 +10,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.intelligence.features.i5_patterns.candlestick_patterns import CandlestickPatternsPlugin
+from src.intelligence.archive.i5_patterns.candlestick_patterns import CandlestickPatternsPlugin
 
 # ---------------------------------------------------------------------------
 # DataFrame helpers — build synthetic 3-bar sequences

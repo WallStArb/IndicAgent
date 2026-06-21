@@ -169,7 +169,9 @@ def _trend_frames(
 
 def test_sweep_reclaim_no_boost_when_score_below_threshold():
     """LiquiditySweepReclaim: exhaustion_score=0.5 (below 0.6) → no boost applied."""
-    from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
+    from src.intelligence.archive.trading_i7.liquidity_sweep_reclaim import (
+        LiquiditySweepReclaimPlugin,
+    )
 
     plugin = LiquiditySweepReclaimPlugin()
     result = plugin.compute_full(
@@ -186,7 +188,7 @@ def test_sweep_reclaim_no_boost_when_score_below_threshold():
 
 def test_liquidity_hunt_no_boost_when_below_threshold():
     """LiquidityHunt: exhaustion_score=0.55 → no boost."""
-    from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+    from src.intelligence.archive.trading_i7.liquidity_hunt import LiquidityHuntPlugin
 
     plugin = LiquidityHuntPlugin()
     result = plugin.compute_full(
@@ -200,7 +202,7 @@ def test_liquidity_hunt_no_boost_when_below_threshold():
 
 def test_momentum_breakout_no_penalty_when_bars_below_threshold():
     """MomentumBreakout: score=0.8 but exhaustion_bars=2 → no penalty (bars threshold not met)."""
-    from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+    from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
     plugin = MomentumBreakoutPlugin()
     result = plugin.compute_full(
@@ -215,7 +217,7 @@ def test_momentum_breakout_no_penalty_when_bars_below_threshold():
 
 def test_momentum_breakout_no_penalty_when_score_below_threshold():
     """MomentumBreakout: exhaustion_bars=3 but score=0.6 (below 0.7) → no penalty."""
-    from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+    from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
     plugin = MomentumBreakoutPlugin()
     result = plugin.compute_full(

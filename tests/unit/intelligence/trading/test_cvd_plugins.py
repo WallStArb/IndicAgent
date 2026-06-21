@@ -40,7 +40,7 @@ _EXHAUSTION_GATE_FEATURES: dict = {
 
 class TestCVDDivergence:
     def _make_plugin(self):
-        from src.intelligence.trading.cvd_divergence import CVDDivergencePlugin
+        from src.intelligence.archive.trading_i7.cvd_divergence import CVDDivergencePlugin
 
         return CVDDivergencePlugin()
 
@@ -139,7 +139,7 @@ class TestCVDDivergence:
         assert result.get("direction") == 0
 
     def test_module_level_plugin_instance(self):
-        from src.intelligence.trading.cvd_divergence import plugin
+        from src.intelligence.archive.trading_i7.cvd_divergence import plugin
 
         assert plugin.name == "trad_CVDDivergence"
 
@@ -149,7 +149,7 @@ class TestCVDDivergence:
 
 class TestCVDSpike:
     def _make_plugin(self):
-        from src.intelligence.trading.cvd_spike import CVDSpikePlugin
+        from src.intelligence.archive.trading_i7.cvd_spike import CVDSpikePlugin
 
         return CVDSpikePlugin()
 
@@ -225,7 +225,7 @@ class TestCVDSpike:
         assert result.get("direction") == 0
 
     def test_module_level_plugin_instance(self):
-        from src.intelligence.trading.cvd_spike import plugin
+        from src.intelligence.archive.trading_i7.cvd_spike import plugin
 
         assert plugin.name == "trad_CVDSpike"
 
@@ -235,7 +235,7 @@ class TestCVDSpike:
 
 class TestDeltaExhaustion:
     def _make_plugin(self):
-        from src.intelligence.trading.delta_exhaustion import DeltaExhaustionPlugin
+        from src.intelligence.archive.trading_i7.delta_exhaustion import DeltaExhaustionPlugin
 
         return DeltaExhaustionPlugin()
 
@@ -331,6 +331,6 @@ class TestDeltaExhaustion:
         assert "direction" in result
 
     def test_module_level_plugin_instance(self):
-        from src.intelligence.trading.delta_exhaustion import plugin
+        from src.intelligence.archive.trading_i7.delta_exhaustion import plugin
 
         assert plugin.name == "trad_DeltaExhaustion"

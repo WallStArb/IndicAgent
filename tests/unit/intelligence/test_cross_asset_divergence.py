@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from src.intelligence.trading.cross_asset_divergence import (
+from src.intelligence.archive.trading_i7.cross_asset_divergence import (
     CrossAssetDivergencePlugin,
     plugin,
 )
@@ -201,7 +201,7 @@ class TestNoSignalNonEQIndex:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -222,7 +222,7 @@ class TestNoSignalNonEQIndex:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -243,7 +243,7 @@ class TestNoSignalNonEQIndex:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -264,7 +264,7 @@ class TestNoSignalNonEQIndex:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -400,7 +400,7 @@ class TestNoSignalBelowThreshold:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -445,7 +445,7 @@ class TestLowVolFlagSuppression:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -481,7 +481,7 @@ class TestDirectionLogic:
         }
         direction = _direction_for(hmm_regime, spread_z)
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=direction),
         ):
             return p.compute_full(frames)
@@ -540,7 +540,7 @@ class TestDirectionLogic:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -574,7 +574,7 @@ class TestActivePairRouting:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -625,7 +625,7 @@ class TestConfidenceFormula:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -723,7 +723,7 @@ class TestConfidenceFormula:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -759,7 +759,7 @@ class TestConfidenceFormula:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -794,7 +794,7 @@ class TestConfidenceFormula:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -819,7 +819,7 @@ class TestConfidenceFormula:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -847,7 +847,7 @@ class TestSupportingFactors:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -872,7 +872,7 @@ class TestSupportingFactors:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
@@ -895,7 +895,7 @@ class TestSupportingFactors:
             "main": _make_df(),
         }
         with patch(
-            "src.intelligence.trading.cross_asset_divergence.frame_trade",
+            "src.intelligence.archive.trading_i7.cross_asset_divergence.frame_trade",
             return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)

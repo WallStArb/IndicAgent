@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.intelligence.trading.divergence_stack import (
+from src.intelligence.archive.trading_i7.divergence_stack import (
     DIVERGENCE_MIN_AGREEING,
     DIVERGENCE_WEIGHTS,
     DivergenceStackPlugin,

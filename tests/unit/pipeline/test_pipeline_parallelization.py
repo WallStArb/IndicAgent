@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from services.intelligence_pipeline import I7_PLUGINS
 from src.intelligence.register_plugins import TIER_I1
+from src.intelligence.register_plugins import TIER_I7 as I7_PLUGINS
 from tests.unit.pipeline.pipeline_helpers import make_agent
 
 

@@ -61,7 +61,7 @@ def _make_frames(
 
 class TestOFIDivergencePlugin:
     def setup_method(self):
-        from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+        from src.intelligence.archive.trading_i7.ofi_divergence import OFIDivergencePlugin
 
         self.plugin = OFIDivergencePlugin()
 
@@ -97,7 +97,7 @@ class TestOFIDivergencePlugin:
         result = self.plugin.compute_full(frames_long)
         assert result.get("direction") == 1
 
-        from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+        from src.intelligence.archive.trading_i7.ofi_divergence import OFIDivergencePlugin
 
         plugin2 = OFIDivergencePlugin()
         frames_short = _make_frames(ofi_divergence=-2.0, ofi_ewma_5=-0.5)
@@ -116,7 +116,7 @@ class TestOFIDivergencePlugin:
 
     def test_peak_abs_used_in_confidence(self):
         """Higher peak divergence → higher confidence."""
-        from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+        from src.intelligence.archive.trading_i7.ofi_divergence import OFIDivergencePlugin
 
         plugin_low = OFIDivergencePlugin()
         frames_low = _make_frames(ofi_divergence=1.6)
@@ -136,7 +136,7 @@ class TestOFIDivergencePlugin:
 
     def test_ewma_agreement_boosts_confidence(self):
         """Fast EWMA agreeing with divergence direction boosts confidence."""
-        from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+        from src.intelligence.archive.trading_i7.ofi_divergence import OFIDivergencePlugin
 
         plugin_agree = OFIDivergencePlugin()
         frames_agree = _make_frames(ofi_divergence=2.0, ofi_ewma_5=0.8)
@@ -156,7 +156,7 @@ class TestOFIDivergencePlugin:
 
     def test_regime_type_is_any(self):
         """Plugin must declare regime_type='any' — no aggregator suppression."""
-        from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+        from src.intelligence.archive.trading_i7.ofi_divergence import OFIDivergencePlugin
 
         assert OFIDivergencePlugin.regime_type == "any"  # type: ignore[attr-defined]
 
@@ -190,6 +190,6 @@ class TestOFIDivergencePlugin:
 
     def test_plugin_module_export(self):
         """Module-level plugin singleton has correct name."""
-        from src.intelligence.trading.ofi_divergence import plugin
+        from src.intelligence.archive.trading_i7.ofi_divergence import plugin
 
         assert plugin.name == "trad_OFIDivergence"

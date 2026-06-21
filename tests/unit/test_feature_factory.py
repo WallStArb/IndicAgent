@@ -151,7 +151,7 @@ class TestBarLevelPrimitives:
             ["grep", "-n", "tick_buffer", "src/intelligence/feature_factory.py"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aba9cf76f412d31e1",
+            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aa80059502df68cba",
         )
         assert (
             result.returncode != 0 or result.stdout.strip() == ""
@@ -224,7 +224,7 @@ class TestBarLevelPrimitives:
             ["grep", "-n", "self._config", "src/intelligence/feature_factory.py"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aba9cf76f412d31e1",
+            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aa80059502df68cba",
         )
         assert (
             result.returncode != 0 or result.stdout.strip() == ""
@@ -353,7 +353,7 @@ class TestRegimePrimitives:
             ["grep", "-nE", "_smooth|smoothed|backward", "src/intelligence/feature_factory.py"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aba9cf76f412d31e1",
+            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aa80059502df68cba",
         )
         assert (
             result.returncode != 0 or result.stdout.strip() == ""
@@ -533,7 +533,7 @@ class TestComputePurity:
             ["grep", "-nE", "^(async def|    await )", "src/intelligence/feature_factory.py"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aba9cf76f412d31e1",
+            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aa80059502df68cba",
         )
         assert (
             result.returncode != 0 or result.stdout.strip() == ""
@@ -552,7 +552,7 @@ class TestComputePurity:
             ],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aba9cf76f412d31e1",
+            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aa80059502df68cba",
         )
         # Allow zero matches
         lines = [
