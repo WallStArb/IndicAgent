@@ -45,7 +45,7 @@ inventory below describes what Phase A will produce and what Phase B (IC Engine)
 
 **Schema:** `feature_vectors` — explicit typed columns (no JSONB), one row per
 (symbol, tf, bar_ts). Columns: `pipeline_version`, `regime`, `regime_label_source` (always
-`'filtered'` — forward Viterbi, causal), plus 36 named feature columns (see §VI.3). Open
+`'filtered'` — forward Viterbi, causal), plus 50 named feature columns (see §VI.3). Open
 prices for forward return computation come from `market_data_ohlcv` (column `open`,
 time column `timestamp`, timeframe column `timeframe`).
 
