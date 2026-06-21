@@ -1216,7 +1216,7 @@ Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from 
 9. Zero inline numeric constants in `feature_factory.py` - all APR-backed via `ConfigService.get()`
 10. Unit tests green
 
-**Plans:** 2/6 plans executed
+**Plans:** 3/6 plans executed
 
 Plans:
 
@@ -1227,7 +1227,7 @@ Plans:
 
 **Wave 2** *(blocked on P1+P2)*
 
-- [ ] 137-P3-PLAN.md - TDD: FeatureFactory pure-function library + FeatureCache + all 35 primitives (forward-only HMM, OHLCV proxy flow, cross-asset proxies - VXX/VIXY absent) (SC-2, SC-9)
+- [x] 137-P3-PLAN.md - TDD: FeatureFactory pure-function library + FeatureCache + all 35 primitives (forward-only HMM, OHLCV proxy flow, cross-asset proxies - VXX/VIXY absent) (SC-2, SC-9)
 
 **Wave 3** *(parallel - P4 blocked on P1+P2, P5 blocked on P1+P3)*
 
