@@ -1216,7 +1216,7 @@ Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from 
 9. Zero inline numeric constants in `feature_factory.py` - all APR-backed via `ConfigService.get()`
 10. Unit tests green
 
-**Plans:** 3/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 
@@ -1231,8 +1231,8 @@ Plans:
 
 **Wave 3** *(parallel - P4 blocked on P1+P2, P5 blocked on P1+P3)*
 
-- [ ] 137-P4-PLAN.md - feature_writer retarget to feature_vectors (consumer group rename, 42-param INSERT) (SC-6)
-- [ ] 137-P5-PLAN.md - Backfill oneshot: IBKR fetch (client-id 40) + FeatureFactory compute from market_data_ohlcv + checkpoint/resume + D-06 coverage gate (SC-4, SC-5)
+- [x] 137-P4-PLAN.md - feature_writer retarget to feature_vectors (consumer group rename, 42-param INSERT) (SC-6)
+- [x] 137-P5-PLAN.md - Backfill oneshot: IBKR fetch (client-id 40) + FeatureFactory compute from market_data_ohlcv + checkpoint/resume + D-06 coverage gate (SC-4, SC-5)
 
 **Wave 4** *(blocked on P3+P4+P5; backfill coverage gate must pass first)*
 
