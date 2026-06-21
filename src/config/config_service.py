@@ -48,6 +48,7 @@ class ConfigService:
         "macro.",
         "ui.",
         "weights.",
+        "alpha.",
     )
 
     def __init__(self, database_url: str, pool: asyncpg.Pool | None = None) -> None:
