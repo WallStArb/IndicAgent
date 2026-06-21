@@ -654,6 +654,7 @@ class IBKRProvider:
 
                 # Retry loop: up to 3 attempts with exponential backoff on Error 162.
                 ib_bars: list = []
+                issued_req_ids: list[int] = []
                 for attempt in range(3):
                     result = await self._ib.reqHistoricalDataAsync(
                         contract,
@@ -665,6 +666,8 @@ class IBKRProvider:
                         formatDate=1,
                     )
                     req_id = getattr(result, "reqId", -1)
+                    if req_id != -1:
+                        issued_req_ids.append(req_id)
                     is_pacing = req_id in _pacing_error_req_ids
                     if is_pacing:
                         _pacing_error_req_ids.discard(req_id)
@@ -689,6 +692,11 @@ class IBKRProvider:
                         await asyncio.sleep(backoff)
                         await _hist_rate_limiter.acquire()
                 else:
+                    # Yield to the event loop so any pending Error 162 callbacks
+                    # fire before we check _no_data_req_ids. Without this, the
+                    # error callback may not have run yet when reqHistoricalDataAsync
+                    # resolves with an empty result.
+                    await asyncio.sleep(0)
                     logger.error(
                         "ibkr.hist_chunk_failed_all_retries",
                         extra={
@@ -698,8 +706,9 @@ class IBKRProvider:
                             "chunk_end": chunk_end.isoformat(),
                         },
                     )
-                    if req_id in _no_data_req_ids:
-                        _no_data_req_ids.discard(req_id)
+                    no_data_ids = _no_data_req_ids & set(issued_req_ids)
+                    if no_data_ids:
+                        _no_data_req_ids.difference_update(no_data_ids)
                         logger.warning(
                             "ibkr.hist_no_data_abort",
                             extra={"symbol": symbol, "timeframe": timeframe},
