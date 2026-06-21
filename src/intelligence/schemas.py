@@ -1193,3 +1193,89 @@ SignalMetricsEvent = Annotated[
     MetricsComputedEvent | ICComputedEvent | MetricsDQFailureEvent,
     Field(discriminator="event_type"),
 ]
+
+
+# ---------------------------------------------------------------------------
+# v3.0 AlphaEngine: Feature Vector contracts (Phase 137)
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class FeatureVector:
+    """35 orthogonal feature primitives computed per bar by FeatureFactory.
+
+    Frozen dataclass (not Pydantic) per D-08: pure-function output, no IO,
+    immutable after construction. All fields typed float, no defaults — every
+    field must be supplied by the caller.
+
+    Groups and field order are binding (schema column names in feature_vectors):
+      Bar-level (14): momentum, range, flow, volume, microstructure
+      Session-level (4): volume profile, S/R proximity
+      Regime-level (7): HMM, entropy, GARCH, trend strength
+      Cross-asset (3): VIX, flight-to-quality, yield slope
+      Calendar (5): session flags, day-of-week encoding, month position
+      Cross-timeframe (3): momentum/VWAP/regime alignment from HTF cache
+    """
+
+    # Bar-level (14)
+    momentum_z_5: float
+    momentum_z_20: float
+    range_position: float
+    bar_close_pos: float
+    gap_z: float
+    informed_flow: float
+    volume_z: float
+    ofi_z: float
+    cvd_slope_z: float
+    cmf: float
+    rel_volume: float
+    vwap_dev_sigma: float
+    atr_z: float
+    vol_ratio: float
+    # Session-level (4)
+    poc_dist_atr: float
+    va_position: float
+    sr_support_dist: float
+    sr_resist_dist: float
+    # Regime-level (7)
+    hmm_regime_prob: float
+    hmm_entropy: float
+    hurst: float
+    shannon: float
+    garch_ratio: float
+    hma_slope_z: float
+    adx: float
+    # Cross-asset (3)
+    vix_z: float
+    flight_quality: float
+    yield_slope_z: float
+    # Calendar (5)
+    in_ny_session: float
+    in_overlap: float
+    dow_sin: float
+    dow_cos: float
+    month_position: float
+    # Cross-timeframe (3)
+    ctf_momentum: float
+    ctf_vwap_align: float
+    ctf_regime_align: float
+
+
+@dataclasses.dataclass(frozen=True)
+class FeatureVectorRecord:
+    """Wire envelope for Kafka transport: FeatureVector + persistence metadata.
+
+    Published by IntelligencePipeline after FeatureFactory.compute().
+    Consumed by feature_writer for persistence to feature_vectors hypertable.
+
+    regime_label_source is always 'filtered' per D-07 (forward Viterbi only;
+    backward smoother banned to prevent lookahead bias in IC measurement).
+    """
+
+    symbol: str
+    tf: str
+    bar_ts: datetime  # UTC bar open timestamp
+    pipeline_version: str  # e.g. "3.0.0"
+    regime: str | None  # HMM state label: "ranging", "trending_up", "trending_down"
+    regime_label_source: str  # always "filtered" (D-07)
+    vector: FeatureVector

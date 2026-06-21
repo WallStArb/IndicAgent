@@ -149,6 +149,15 @@ def topic_intelligence_journal(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.journal"
 
 
+def topic_feature_vectors(env_name: str) -> str:
+    """Kafka topic for FeatureVectorRecord per bar.
+
+    Published by IntelligencePipeline after FeatureFactory.compute().
+    Consumed by feature_writer for persistence to feature_vectors hypertable.
+    """
+    return f"{env_prefix(env_name)}intelligence.feature_vectors"
+
+
 def topic_intelligence_i7_signals(env_name: str) -> str:
     """Kafka topic carrying all ranked I7 signals per bar (pre-ledger write).
 
@@ -371,6 +380,15 @@ def topic_bar_writer_dlq(env_name: str) -> str:
 def topic_feature_writer_dlq(env_name: str) -> str:
     """Dead letter queue for FeatureWriter unparseable payloads."""
     return f"{env_prefix(env_name)}feature.writer.dlq"
+
+
+def topic_feature_vectors_dlq(env_name: str) -> str:
+    """Dead letter queue for feature_writer unparseable FeatureVectorRecord payloads.
+
+    Published by feature_writer when a FeatureVectorRecord cannot be deserialized
+    or inserted into feature_vectors. Enables investigation without data loss.
+    """
+    return f"{env_prefix(env_name)}intelligence.feature_vectors.dlq"
 
 
 def topic_signal_writer_dlq(env_name: str) -> str:
