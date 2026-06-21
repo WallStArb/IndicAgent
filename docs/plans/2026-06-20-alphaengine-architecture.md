@@ -55,7 +55,7 @@ Layer 3: EXECUTION          "How do we get filled?"
 
 ### Feature Factory
 
-A single module. 50 pure functions. One typed output. No plugin registry. No dynamic dispatch. No tiers.
+A single module. 54 pure functions. One typed output. No plugin registry. No dynamic dispatch. No tiers.
 
 Adding a feature = adding a field to `FeatureVector` = a schema migration. The architecture enforces discipline the plugin registry never could.
 
@@ -71,7 +71,7 @@ Adding a feature = adding a field to `FeatureVector` = a schema migration. The a
 | Bar close position (bar_close_pos) | Buying/selling pressure within bar |
 | Volume deviation (volume_z, rel_volume) | Attention and conviction proxy; high volume = informed participation |
 
-None of these alone is tradeable. An IC-weighted ensemble of genuinely orthogonal primitives is the edge. The 50-feature FeatureVector extends these seed concepts across all cadence layers (session, regime, cross-asset, calendar, cross-timeframe).
+None of these alone is tradeable. An IC-weighted ensemble of genuinely orthogonal primitives is the edge. The 54-feature FeatureVector extends these seed concepts across all cadence layers (session, regime, cross-asset, calendar, cross-timeframe).
 
 Features organized by natural update cadence:
 
@@ -135,7 +135,7 @@ ctf_vwap_align    price above/below HTF session VWAP (binary as float)
 ctf_regime_align  current TF regime matches HTF regime (binary as float)
 ```
 
-**Total: 50 features. Zero redundancy. One distinct information dimension each.**
+**Total: 54 features. Zero redundancy. One distinct information dimension each.**
 
 ### FeatureVector Contract
 
@@ -197,7 +197,7 @@ Measures Spearman IC between each `FeatureVector` field and forward returns, per
 - Lookahead windows: 1, 5, 20, 60 bars
 - Non-overlapping sub-sampling (every Nth bar) for independence
 - Bootstrap CI: 2000 resamples, percentile method
-- BH-FDR correction across full test batch (50 features × symbols × TFs × lookaheads)
+- BH-FDR correction across full test batch (54 features × symbols × TFs × lookaheads)
 - 3-fold expanding walk-forward validation
 - Gate: `ic_ci_lower > 0.0` at `n >= 500` independent observations
 
@@ -276,7 +276,7 @@ The architecture is vector-agnostic. Every vector feeds the same Feature Factory
 
 | Vector | Domain | V1 status | Feeds |
 |--------|--------|-----------|-------|
-| V1 Quant | Price/volume/structure/regime | Build now (50 features) | Layer 1 alpha_score |
+| V1 Quant | Price/volume/structure/regime | Build now (54 features) | Layer 1 alpha_score |
 | V2 Microstructure | Order flow | OFI/CVD in V1; tick upgrade later | Layer 1 |
 | V3 Macro | Cross-asset | VIX/yield in V1; expand later | Layer 1 |
 | V4 Calendar | Time structure | In V1 (session, dow, month) | Layer 1 |
@@ -401,7 +401,7 @@ SELECT create_hypertable('alpha_events', 'bar_ts', chunk_time_interval => INTERV
 **Retired:**
 - `signal_events` → `alpha_events`
 - `signal_ledger` view → `alpha_ledger` (alpha_events + trade_frames + trade_executions)
-- `feature_candidates` (long format) → `feature_vectors` (wide, all 50 features first-class)
+- `feature_candidates` (long format) → `feature_vectors` (wide, all 54 features first-class)
 - `feature_matrix` (promoted-only wide) → `feature_vectors` (no promotion split needed)
 
 ---
@@ -797,7 +797,7 @@ def _compute_with_breaker(feature_name: str, symbol: str, func, *args) -> float:
 
 ### IC Engine - Idempotency + Partial Completion
 
-The IC Engine processes up to `50 features × 58 symbols × 4 TFs × 4 regimes × 4 lookaheads = ~185K cells`. A crash at cell 80K must resume from 80K, not restart from zero.
+The IC Engine processes up to `54 features × 58 symbols × 4 TFs × 4 regimes × 4 lookaheads = ~200K cells`. A crash at cell 80K must resume from 80K, not restart from zero.
 
 **Idempotency:** all writes use `INSERT ... ON CONFLICT (feature, symbol, tf, regime, lookahead_bars, computed_at) DO NOTHING`. A re-run on a completed cell is a no-op.
 
@@ -809,7 +809,7 @@ The IC Engine processes up to `50 features × 58 symbols × 4 TFs × 4 regimes �
 
 A partial Ledoit-Wolf solve must never be observable. The system must not read a `weight_version` where some features have new weights and others have old weights.
 
-**Pattern:** wrap the entire batch insert for a new `weight_version` in a single Postgres transaction. Either all 50 weight rows for the new version commit or none do. `weight_version` increments inside the transaction -- it is never visible until the commit completes.
+**Pattern:** wrap the entire batch insert for a new `weight_version` in a single Postgres transaction. Either all 54 weight rows for the new version commit or none do. `weight_version` increments inside the transaction -- it is never visible until the commit completes.
 
 ```python
 async with pool.acquire() as conn:

@@ -277,7 +277,7 @@ A feature is eligible for V1 if:
 4. Present as a named column in the `feature_vectors` table schema (§XIV.2 of the
    architecture doc / §VI.3 below)
 
-### VI.3 V1 Feature Universe (50 features)
+### VI.3 V1 Feature Universe (54 features)
 
 All features are explicit typed columns in `feature_vectors` — no JSONB extraction.
 Column names match the DB schema exactly.
@@ -389,6 +389,20 @@ has a different institutional character than the overlap window. `power_hour` an
 | `ctf_vwap_align`  | Cross-TF VWAP alignment                          |
 | `ctf_regime_align`| Cross-TF HMM regime agreement                   |
 
+**Statistical process / liquidity (4 features)**
+| Column          | Character                                                           |
+|-----------------|---------------------------------------------------------------------|
+| `amihud_illiq_z`| `|return| / dollar_volume`, z-scored rolling — price impact proxy; high illiquidity predicts higher subsequent returns (Amihud 2002) |
+| `high_52w_dist` | `(close - rolling_max_252d) / rolling_max_252d` — distance from 52-week high; George & Hwang (2004) momentum anchor |
+| `ret_skew_z`    | Rolling skewness of returns (z-scored vs own history) — negative skew predicts drawdowns; positive skew predicts underperformance |
+| `ret_acf1_z`    | Spearman autocorrelation of return[t] vs return[t-1], rolling window, z-scored — positive = momentum microstructure, negative = mean-reversion |
+
+`amihud_illiq_z` uses `close × volume` as the dollar_volume proxy (no tick data required).
+`ret_acf1_z` is distinct from `momentum_z`: momentum is cumulative return; autocorrelation
+measures serial dependence of individual bar returns — orthogonal information dimensions.
+
+**Total: 54 features. Zero redundancy. One distinct information dimension each.**
+
 ### VI.3a Feature-to-Vector Domain Registry
 
 Every feature has a declared `vector_domain`. This mapping is a static constant in
@@ -396,18 +410,19 @@ Every feature has a declared `vector_domain`. This mapping is a static constant 
 The IC Engine reads it at startup and writes `vector_domain` to every `feature_ic_scores`
 and `ensemble_weights` row — enabling per-vector IC aggregation and decay monitoring.
 
-| Group                        | `vector_domain` | Features |
-|------------------------------|-----------------|---------|
-| Momentum                     | `'quant'`       | `momentum_z_5`, `momentum_z_20`, `range_position`, `bar_close_pos`, `gap_z` |
-| Oscillators                  | `'quant'`       | `rsi_fast`, `rsi_mid`, `rsi_slow`, `cci_fast`, `cci_mid`, `cci_slow` |
-| Trend freshness and strength | `'quant'`       | `aroon_fast`, `aroon_slow`, `hma_slope_z`, `adx` |
-| Volume and order flow        | `'quant'`       | `informed_flow`, `volume_z`, `ofi_z`, `ofi_div`, `cvd_slope_z`, `cmf`, `rel_volume` |
-| Volatility and market char   | `'quant'`       | `vwap_dev_sigma`, `atr_z`, `vol_ratio`, `hurst`, `shannon` |
-| HMM regime state             | `'quant'`       | `hmm_regime_prob`, `hmm_entropy`, `hmm_duration`, `garch_ratio` |
-| Market structure             | `'quant'`       | `poc_dist_atr`, `va_position`, `sr_support_dist`, `sr_resist_dist` |
-| Macro context                | `'macro'`       | `vix_z`, `flight_quality`, `yield_slope_z` |
-| Calendar / session           | `'calendar'`    | `in_ny_session`, `in_london_kz`, `in_overlap`, `power_hour`, `opening_range`, `above_wk_vwap`, `dow_sin`, `dow_cos`, `month_position` |
-| Cross-timeframe              | `'quant'`       | `ctf_momentum`, `ctf_vwap_align`, `ctf_regime_align` |
+| Group                          | `vector_domain` | Features |
+|--------------------------------|-----------------|---------|
+| Momentum                       | `'quant'`       | `momentum_z_5`, `momentum_z_20`, `range_position`, `bar_close_pos`, `gap_z` |
+| Oscillators                    | `'quant'`       | `rsi_fast`, `rsi_mid`, `rsi_slow`, `cci_fast`, `cci_mid`, `cci_slow` |
+| Trend freshness and strength   | `'quant'`       | `aroon_fast`, `aroon_slow`, `hma_slope_z`, `adx` |
+| Volume and order flow          | `'quant'`       | `informed_flow`, `volume_z`, `ofi_z`, `ofi_div`, `cvd_slope_z`, `cmf`, `rel_volume` |
+| Volatility and market char     | `'quant'`       | `vwap_dev_sigma`, `atr_z`, `vol_ratio`, `hurst`, `shannon` |
+| HMM regime state               | `'quant'`       | `hmm_regime_prob`, `hmm_entropy`, `hmm_duration`, `garch_ratio` |
+| Market structure               | `'quant'`       | `poc_dist_atr`, `va_position`, `sr_support_dist`, `sr_resist_dist` |
+| Statistical process / liquidity| `'quant'`       | `amihud_illiq_z`, `high_52w_dist`, `ret_skew_z`, `ret_acf1_z` |
+| Macro context                  | `'macro'`       | `vix_z`, `flight_quality`, `yield_slope_z` |
+| Calendar / session             | `'calendar'`    | `in_ny_session`, `in_london_kz`, `in_overlap`, `power_hour`, `opening_range`, `above_wk_vwap`, `dow_sin`, `dow_cos`, `month_position` |
+| Cross-timeframe                | `'quant'`       | `ctf_momentum`, `ctf_vwap_align`, `ctf_regime_align` |
 
 V2 Microstructure features (tick/L2 data, not yet ingested) will carry `'micro'`. When V2
 enters `feature_vectors`, adding rows to `FEATURE_VECTOR_DOMAIN` is the only registration
@@ -447,6 +462,7 @@ The following are excluded with stated reasons:
 | `smc.amd_phase`                  | Categorical                                                         |
 | `smc.breaker_block_type`         | Categorical                                                         |
 | Any feature with null rate > 1%  | Missing data biases IC estimates; excluded until coverage improves  |
+| Cross-sectional relative strength | Requires inter-symbol dependency at compute time (SPY return at bar T while computing symbol X) — breaks pure per-symbol FeatureFactory model; revisit when cross-sectional FeatureCache is designed |
 
 Patterns and SMC binary features (in_supply_zone, in_demand_zone, etc.) are candidates for
 **V2** after sufficient occurrence count is verified. A binary feature needs at least 500
@@ -577,10 +593,10 @@ the ensemble.
 
 ### IX.1 Test Count
 
-V1 feature universe: 50 features × 58 symbols × 4 TFs (5m/15m/1h/1d) × 1 regime
-(pooled, Phase A) × 4 lookaheads = 46,400 IC tests.
+V1 feature universe: 54 features × 58 symbols × 4 TFs (5m/15m/1h/1d) × 1 regime
+(pooled, Phase A) × 4 lookaheads = 50,112 IC tests.
 
-At BH-FDR q=0.05: expected false discoveries ≈ 0.05 × 46,400 = 2,320, assuming all tests
+At BH-FDR q=0.05: expected false discoveries ≈ 0.05 × 50,112 = 2,506, assuming all tests
 are pure noise. FDR correction is necessary but not sufficient.
 
 **Note on multi-period features:** RSI (×3), CCI (×3), and aroon (×2) produce correlated
