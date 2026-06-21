@@ -201,7 +201,7 @@ taxonomy:
     no_base_prefix: true
   runtime_processes:
     suffixes: [Provider, Merger, Aggregator, Analyzer, Writer, Tracker, Auditor, Monitor, Orchestrator, Trainer, Publisher]
-    plain_role_nouns: [IntelligencePipeline, AlphaSwarm, NarrativeSwarm, AlphaEngine, AnalogEngine]
+    plain_role_nouns: [IntelligencePipeline, AlphaSwarm, NarrativeSwarm, AlphaEngine, AnalogEngine, ICEngine, OutcomeLabeler, RegimeLabeler]
     rings: [2]
     inherits: BaseDaemon
   infrastructure_bases:
