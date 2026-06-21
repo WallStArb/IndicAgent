@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.47.0
+Version: 5.48.0
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
 
@@ -39,6 +39,7 @@ Version: 5.47.0
 ## Core Runtime Files
 
 - **DB queries:** `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "..."`. Plain `psql -U postgres` fails.
+- **Instrument asset class filter:** `instruments.contract_details->>'asset_class'` — values: `'equity'` (ETFs), `'futures'`, `'fx'`. No top-level column. Use `is_active = true AND contract_details->>'asset_class' = 'equity'` to target ETFs only.
 - **Historical backfill:** `run_historical_pipeline.py --client-id 40` (provider uses 35; default 56 exceeds `_MAX_CLIENT_ID=50`).
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
@@ -60,7 +61,7 @@ Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
 
 ### TimescaleDB Tables
 
-- `market_data_ohlcv` — raw OHLCV. Primary time column: `timestamp` (not `ts`)
+- `market_data_ohlcv` — raw OHLCV. Primary time column: `timestamp` (not `ts`). Timeframe column: `timeframe` (not `tf` — differs from `intelligence_features`).
 - `intelligence_features` — full feature vectors per bar. Column name: `ts` (not `feature_ts`)
 - **Signal Ledger Architecture (SLA, Phase 128+):**
   - `signal_events` — detection layer: one row per I7 plugin fire. Fields: `raw_confidence` (ICC), `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. Primary time: `ts`.
@@ -77,11 +78,13 @@ Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
 
 All tunable numeric values live in `config_state` under `<domain>.<concept>.<param>` — accessed via `ConfigService.get(key, default=X)`. Hard-coded numeric thresholds, weights, periods, or counts in `src/` are an architecture violation. Full spec: `docs/foundation/adaptive-parameter-registry.md`.
 
-**Namespaces:** `threshold.*` · `weights.*` · `feature.*` · `regime.*` · `shadow.*` · `signal.*` · `swarm.*` · `roll.*` · `ui.*` (dashboard preferences)
+**Namespaces:** `threshold.*` · `weights.*` · `feature.*` · `regime.*` · `shadow.*` · `signal.*` · `swarm.*` · `roll.*` · `ui.*` (dashboard preferences) · `alpha.*` (v3.0 IC engine, ensemble, emission, Kelly, trade framing)
 
 **Parameter lifecycle:** seed → user/operator preference → ml_learned → user_override. Every write recorded in `config_history` with `changed_by` and `reason`.
 
 **Adding a parameter:** (1) INSERT into `config_schema` + `config_state` in a migration; (2) load via `ConfigService.get()` at init; (3) remove the hard-coded constant. Description must note provenance: `[initial_estimate]`, `[conventional]`, `[rca_analysis]`, or `[user_preference]`, and whether it is an ML learning target.
+
+**Feature indicator periods are APR parameters, not schema elements.** Column names encode concept and scale (`rsi_fast`, `rsi_mid`, `rsi_slow`), not the period value. Periods live in APR under `feature.period.<indicator>.<scale>`. Changing a period updates APR + bumps `pipeline_version` — never a schema rename. Numbers in column names are only valid when the number defines the statistical concept (`momentum_z_5` = "5-bar return"), not when it is a tunable parameter.
 
 **Migrate-as-you-go:** Any numeric threshold, weight, period, or count encountered in `src/` that is not APR-backed MUST be migrated in the same session. Module-level constants and inline magic numbers are architecture violations. Pattern for module-level utilities: `_config_service: Any | None = None` + `set_config_service()` + `get_sync()` wrapper, registered in `intelligence_pipeline._prewarm_threshold_config()`. Pattern for plugin dataclasses: `_config_service: Any = field(default=None, compare=False, repr=False)`, read via `cfg.get_sync(key, fallback) if cfg else fallback`.
 

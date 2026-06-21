@@ -148,6 +148,11 @@ _hist_rate_limiter = _SlidingWindowRateLimiter()
 # (asyncio thread). GIL makes set.add/discard thread-safe without a lock.
 _pacing_error_req_ids: set[int] = set()
 
+# reqIds where Error 162 carried "no data" — distinct from pacing violations.
+# When a chunk has no data, all future chunks for the same symbol/TF will also have none.
+# fetch_historical_bars breaks the chunk loop immediately on these.
+_no_data_req_ids: set[int] = set()
+
 # Circuit breaker for IBKR connection attempts
 _ibkr_circuit_breaker = PluginCircuitBreaker(
     config=CircuitBreakerConfig(
@@ -186,6 +191,8 @@ def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None
         # Historical data query cancelled — pacing violation or IBKR-side rejection.
         # Stamp the reqId so fetch_historical_bars can detect it and back off with retry.
         _pacing_error_req_ids.add(reqId)
+        if "no data" in errorString.lower():
+            _no_data_req_ids.add(reqId)
         logger.warning(
             "ibkr.hist_pacing_error",
             extra={"reqId": reqId, "errorString": errorString},
@@ -691,6 +698,13 @@ class IBKRProvider:
                             "chunk_end": chunk_end.isoformat(),
                         },
                     )
+                    if req_id in _no_data_req_ids:
+                        _no_data_req_ids.discard(req_id)
+                        logger.warning(
+                            "ibkr.hist_no_data_abort",
+                            extra={"symbol": symbol, "timeframe": timeframe},
+                        )
+                        break  # No data for this symbol/TF — skip remaining chunks
 
                 for bar in ib_bars or []:
                     bar_ts = (

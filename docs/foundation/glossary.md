@@ -1,8 +1,8 @@
 # Glossary
 
-**Version:** 1.0
-**Status:** draft
-**Last Updated:** 2026-06-06
+**Version:** 2.0
+**Status:** active
+**Last Updated:** 2026-06-20
 
 ---
 
@@ -358,12 +358,14 @@ A daemon that maintains the state of a business object over time. Consumes event
 
 ### `plugin`
 
-A stateless computation unit in the I1-I7 intelligence pipeline. Receives a data frame, returns a dict of computed features. Has no Kafka connection, no DB access, no side effects. Named `PascalCasePlugin`.
+A stateless computation unit in the I5-I7 intelligence pipeline (v3.0+). Receives a `FeatureVector`, returns derived signals or pattern detections. Has no Kafka connection, no DB access, no side effects.
 
-**Not:** an agent, a service, or a daemon. Plugins are called synchronously within `IntelligencePipeline`.
+**Not:** an agent, a service, or a daemon. Not a synonym for an I1-I4 measurement function — those are pure functions in the FeatureFactory, not plugins. Plugins operate on already-computed features; they apply theories about what combinations of features mean. Measurements do not have theories.
+
+**v2.x note:** In v2.x, I1-I7 were all called plugins. In v3.0, I1-I4 were rewritten as pure measurement functions inside FeatureFactory. The term `plugin` now refers strictly to I5-I7 pattern and signal logic.
 
 **Banned:** (none)
-**Status:** active
+**Status:** active (v2.x I1-I7); v3.0 I5-I7 only
 
 ---
 
@@ -446,17 +448,21 @@ CFL closes Bias Layer 2: before CFL, ML models could only train on signals that 
 
 ### `AlphaEngine`
 
-The parametric IC measurement and ensemble alpha generation system (v3.0, System 1). Measures Spearman IC between each plugin's confidence score and subsequent forward returns. Produces IC Sharpe-weighted ensemble alpha across four orthogonal Intelligence Vector dimensions (V1 Quant, V2 Microstructure, V3 Macro, V4 Calendar). Runs entirely in the cold batch layer — no pgvector required.
+The v3.0 prediction engine: FeatureFactory → IC Engine → Ensemble → alpha emission. The full Layer 1 of the three-layer architecture. Parametric — measures Spearman IC between each `FeatureVector` column and subsequent forward returns, derives Ledoit-Wolf ensemble weights, scores every bar, emits `alpha_events` when `|alpha_score| > threshold AND ci_lower > 0`.
 
-**Distinction from AnalogEngine:** AlphaEngine is parametric (Spearman rank correlation across all observations). AnalogEngine is non-parametric (k-NN retrieval of similar historical states). Both annotate `signal_events` as additive ECL enrichment; neither gates emission.
+Runs entirely in the cold batch layer (weekly IC Engine, nightly Ensemble Builder, nightly Alpha Emitter). FeatureFactory runs in-process on the hot path, writing to `feature_vectors` as a DB sink only.
 
-**Plain role noun** — added to `naming-system.md` plain_role_nouns. Services prefixed `alpha-` (e.g. `indicagent-alpha-ic-engine`). APR namespace: `alpha.*`.
+**Distinction from AnalogEngine:** AlphaEngine is parametric (Spearman correlation across all observations on pre-specified features). AnalogEngine is non-parametric (k-NN retrieval of similar historical bar states). Gated: AnalogEngine does not start until AlphaEngine demonstrates IC > 0 with p < 0.05.
 
-**Status:** design (pre-implementation, v3.0)
+**Not:** an enrichment annotator on `signal_events`. AlphaEngine replaces the I5-I7 plugin stack as the primary alpha source. It does not annotate the old signal architecture — it supersedes it.
 
-**Canonical doc:** `docs/plans/2026-06-20-v30-reference-architecture.md`
+**Plain role noun.** Services prefixed `alpha-`. APR namespace: `alpha.*`.
 
-**Formerly called:** "Intelligence Vectors" (superseded name — avoid)
+**Status:** pre-implementation (v3.0 Phase A-C)
+
+**Canonical doc:** `docs/plans/2026-06-20-alphaengine-architecture.md`
+
+**Formerly called:** "Intelligence Vectors" (internal working name — avoid)
 
 ---
 
@@ -470,7 +476,7 @@ The non-parametric pgvector retrieval substrate (v3.0, System 2). Embeds full I1
 
 **Status:** design (pre-implementation, v3.0)
 
-**Canonical doc:** `docs/plans/2026-06-20-v30-reference-architecture.md` — also `docs/ideas/analog-engine-01` through `analog-engine-06` for per-layer detail.
+**Canonical doc:** `docs/plans/2026-06-20-analogengine-design.md` — also `docs/ideas/analog-engine-01` through `analog-engine-06` for per-layer detail.
 
 **Formerly called:** "VIL" / "Vector Intelligence Layer" (internal shorthand still acceptable in code comments; canonical name is AnalogEngine)
 
@@ -603,30 +609,34 @@ ADRs in IndicAgent live at `docs/architecture/` and are named `<concept>-ADR.md`
 
 ### `intelligence vector`
 
-An orthogonal source of scored market prediction. Each vector independently produces a continuous score per bar per symbol per timeframe in [-1, +1], representing directional conviction from a distinct information source. Vectors are designed to be statistically independent — combining them multiplies information rather than amplifying noise.
+An orthogonal source of alpha — a family of features derived from a distinct information domain, measured through IC, and combined into the ensemble. Vectors are statistically independent by design: combining them multiplies information rather than amplifying the same noise twice.
 
-IndicAgent's four vectors:
-- **Quant Vector (V1):** I1-I7 mathematical indicators, composites, and pattern plugin scores. The existing pipeline.
-- **Microstructure Vector (V2):** Order flow imbalance, CVD slope, trade size distribution. Captures *who* is trading, not *what the chart shows*.
-- **Macro Vector (V3):** Cross-asset relationships, VIX term structure, yield curve slope. Regime-speed signal (slow-moving).
-- **Calendar Vector (V4):** Day-of-week effects, month-end flows, options expiry, index reconstitution cycles. Purely time-based; orthogonal by construction.
+v3.0 vectors (V1 built first; V2+ gated on V1 demonstrating IC > 0):
+- **V1 Quant:** FeatureFactory measurements from price, volume, market structure, and regime state. The 50-column `FeatureVector`. Built in Phase A.
+- **V3 Macro:** Cross-asset signals — VIX z-score, yield curve slope, flight-to-quality. Regime-speed (slow-moving). Some columns already in V1 FeatureVector as macro context features; full vector adds breadth.
+- **V5 Flow / V7 Qual:** (future) Order flow microstructure; qualitative AI sentiment.
 
-**Not:** a synonym for "tier" (tiers I1-I7 are layers within the Quant Vector). Not a synonym for "signal" (a vector produces scores; signals are emitted when ensemble alpha crosses a threshold).
+**Not:** a synonym for "tier." I1-I4 are measurement layers within V1, not vectors themselves. Not a synonym for "signal" — a vector produces a score every bar; a signal is emitted only when the score crosses a threshold.
 
 **Banned:** "intelligence channel," "signal source," "alpha source" (use `intelligence vector`)
-**Status:** design (v3.0)
+**Status:** V1 design (v3.0 Phase A); V3+ gated
 
 ---
 
 ### `alpha score`
 
-The continuous directional conviction score produced by an I7 plugin or ensemble layer. A float in [-1, +1]. Negative = bearish conviction, positive = bullish conviction, magnitude = strength of conviction. Distinct from `raw_confidence` (ICC), which is unsigned magnitude [0, 1].
+The z-scored ensemble prediction for a given bar — the IC-weighted linear combination of rank-normalized `FeatureVector` columns, normalized to standard deviation units within a rolling 20-day window. Stored in `ensemble_alpha.alpha_score`.
 
-The `alpha_score` at the plugin level is computed as `raw_confidence × direction`. At the ensemble level it is the IC-weighted linear combination of plugin alpha scores, adjusted for inter-plugin correlation.
+```
+alpha_raw   = Σ sign(ic[f]) × centered_rank(feature[f]) × weight[f]
+alpha_score = (alpha_raw - rolling_mean) / rolling_std   # z-scored, ~N(0,1)
+```
 
-**Not:** synonymous with `raw_confidence` (unsigned ICC). Not the same as `counterfactual_pnl_r` (realized outcome).
+Positive = composite features predict upward price movement. Negative = downward. Magnitude = strength relative to recent history. An `alpha_event` is emitted when `|alpha_score| > threshold[symbol][tf][regime]` AND `ci_lower > 0`.
+
+**Not:** synonymous with `raw_confidence` (v2.x ICC, plugin-internal unsigned magnitude). Not the same as `counterfactual_pnl_r` (realized outcome). Not a per-feature score — `alpha_score` is the ensemble output, not any individual feature's contribution.
 **Banned:** "plugin score," "direction score," "conviction score" (use `alpha_score`)
-**Status:** design (v3.0 Phase B)
+**Status:** design (v3.0 Phase C); stored in `ensemble_alpha` table
 
 ---
 
@@ -638,25 +648,21 @@ IC = 0.03-0.05 is meaningful in practice. IC = 0.10 is exceptional. IC is always
 
 IC is regime-conditional: the same plugin may have IC = 0.07 in trending regimes and IC = -0.01 in mean-reverting regimes. HMM regime conditions ensemble weights.
 
-**Not:** mutual information (a different information-theoretic measure used for tag classification). Not `calibrated_confidence` (post-calibration output probability).
+**Not:** mutual information (a different information-theoretic measure). Not `calibrated_confidence` (v2.x post-calibration output probability).
 **Banned:** "predictive power score," "signal quality score" (use `IC` or `information coefficient`)
-**Status:** design (v3.0 Phase A); stored in `plugin_ic_scores` table
+**Status:** design (v3.0 Phase B); stored in `feature_ic_scores` table
 
 ---
 
 ### `ensemble alpha`
 
-The final combined alpha score produced by the Ensemble layer (I8-Quant) from all contributing intelligence vector scores. Computed as the IC-weighted, orthogonality-adjusted linear combination of active plugin alpha scores within and across vectors.
+The per-bar table that stores `alpha_raw` and `alpha_score` for every (symbol, tf, bar_ts) once ensemble weights exist. The unconditional output of the AlphaEngine — every bar is scored regardless of whether it will trigger an emission. Populated by the nightly Ensemble Builder.
 
-A signal is emitted when `ensemble_alpha` crosses the regime-adjusted threshold AND the ensemble confidence interval supports positive expected value.
+`ensemble_alpha` is the input to the Alpha Emitter, which filters for `|alpha_score| > threshold` and writes `alpha_events`. It is also the rolling window used by the Alpha Decay Monitor to recompute IC on recent data.
 
-```
-ensemble_alpha = Σ alpha_score[p] × ic_weight[p][regime][tf]
-                 for p in active_plugins
-                 where IC_CI_lower[p][regime][tf] > 0.0
-```
+**Table:** `ensemble_alpha`
 
-**Not:** a hand-crafted composite (weights come from measured IC, not human judgment). Not `raw_confidence` (plugin-level ICC).
+**Not:** a hand-crafted composite (weights come from IC Sharpe via Ledoit-Wolf, not human judgment). Not `raw_confidence` (v2.x plugin ICC). Not `alpha_events` — `ensemble_alpha` scores every bar; `alpha_events` only records threshold-crossing bars.
 **Banned:** "combined score," "aggregate signal," "signal composite" (use `ensemble alpha`)
 **Status:** design (v3.0 Phase C)
 
@@ -664,13 +670,168 @@ ensemble_alpha = Σ alpha_score[p] × ic_weight[p][regime][tf]
 
 ### `IC discovery`
 
-The empirical process of measuring Information Coefficient for each plugin score against future returns across regimes, timeframes, and lookahead windows. The mechanism by which edges are found rather than assumed.
+The empirical process of measuring Information Coefficient for each `FeatureVector` column against subsequent forward returns, across regimes, timeframes, and lookahead windows. The mechanism by which edges are found rather than assumed.
 
-IC discovery runs on the signal corpus (`signal_events.factor_scores` × `trade_frames.counterfactual_pnl_r`). Output is persisted to `plugin_ic_scores`. Plugins with `IC_CI_lower <= 0.0` at sufficient N are down-weighted to zero in the ensemble — they contribute no information regardless of how convincing their logic appears.
+IC discovery runs on `feature_vectors` × `outcome_labels`. Output is persisted to `feature_ic_scores`. Features with `ic_ci_lower <= 0.0` at sufficient N are down-weighted to zero in the ensemble — they contribute nothing regardless of how theoretically compelling they seem.
 
-**Not:** shadow mode (shadow measures realized/counterfactual P&L after signal emission; IC discovery measures raw feature predictiveness before signal emission).
+The feature universe is fully pre-specified before any IC is measured. Adding features after observing results is p-hacking.
+
+**Not:** shadow mode (shadow measures P&L after signal emission; IC discovery measures raw feature predictiveness before any emission threshold is applied). Not backtesting (IC is measured on a held-out walk-forward window, not the training window).
+
 **Banned:** "signal discovery," "edge discovery," "alpha discovery" (use `IC discovery`)
-**Status:** design (v3.0 Phase A); prerequisite: Phase 133 corpus rebuild
+**Status:** design (v3.0 Phase B); input: `feature_vectors` + `outcome_labels`; output: `feature_ic_scores`
+
+---
+
+---
+
+## v3.0 Primitive Measurements (I1-I4)
+
+I1-I4 are not plugins. They are pure measurement functions — they measure real, observable market phenomena. They carry no theory about what the measurements mean. Theory belongs to I5-I7 (patterns, confluence, signals). The distinction matters: a measurement that returns wrong data is a bug to fix; a theory that doesn't pan out is evidence to record.
+
+Rewritten in v3.0 as stateless functions inside `FeatureFactory`. No side effects, no Kafka, no DB access. Same input always produces the same output.
+
+### `I1 — price dynamics`
+
+Measurements of what price did: return magnitude, direction, position within bar, gap behavior. These are not predictions. They are factual descriptions of recent price action, normalized to be comparable across instruments and timeframes.
+
+**What I1 measures:** momentum (5-bar and 20-bar log return z-scores), intrabar position (`range_position`, `bar_close_pos`), and overnight gap magnitude (`gap_z`).
+
+**Why pure functions:** The same OHLCV bar always produces the same momentum_z_5. There is no state, no model, no judgment. If momentum_z_5 for SPY at 09:35 on 2026-06-20 is -0.8, it is always -0.8 regardless of when the function runs.
+
+**Code surface:** `FeatureFactory._compute_price_dynamics()`. Output columns: `momentum_z_5`, `momentum_z_20`, `range_position`, `bar_close_pos`, `gap_z`.
+
+---
+
+### `I2 — volume and order flow`
+
+Measurements of who participated and with what conviction. Volume tells you how many contracts traded; order flow tells you the directional intent behind that volume. These are observable facts from the tape — not inferences.
+
+**What I2 measures:** volume intensity (`volume_z`, `rel_volume`), directional flow (`ofi_z`, `ofi_div`, `cvd_slope_z`), flow persistence (`cmf`), and the composite informed-trader signal (`informed_flow`).
+
+**Why this is measurement, not theory:** `ofi_z` measures the imbalance between buyer-initiated and seller-initiated volume, z-scored. This is a fact about what happened in the order book. Whether that imbalance predicts future price is a theory — tested by IC measurement, not assumed.
+
+**Code surface:** `FeatureFactory._compute_volume_flow()`. Output columns: `informed_flow`, `volume_z`, `ofi_z`, `ofi_div`, `cvd_slope_z`, `cmf`, `rel_volume`.
+
+---
+
+### `I3 — market structure geometry`
+
+Measurements of where price is relative to the market's structural reference points: VWAP, value area, support/resistance, volatility envelope. These describe the geometry of the current bar's context within the larger price distribution.
+
+**What I3 measures:** position relative to VWAP (`vwap_dev_sigma`), position within volume-based value area (`va_position`, `poc_dist_atr`), distance to nearest structural levels (`sr_support_dist`, `sr_resist_dist`), volatility context (`atr_z`, `vol_ratio`), and market character signals (`hurst`, `shannon`, `garch_ratio`).
+
+**Why geometry, not pattern:** I3 describes where price is, not what it will do. `poc_dist_atr = 2.3` means price is 2.3 ATR units above the Point of Control. This is a measurement. Whether that distance predicts mean-reversion is an IC question.
+
+**Code surface:** `FeatureFactory._compute_structure()`. Output columns: `vwap_dev_sigma`, `atr_z`, `vol_ratio`, `poc_dist_atr`, `va_position`, `sr_support_dist`, `sr_resist_dist`, `hurst`, `shannon`, `garch_ratio`.
+
+---
+
+### `I4 — regime state`
+
+Measurements of what market regime the HMM classifier believes we are in, and with what confidence. Also includes macro context (VIX, yield curve, flight-to-quality) and temporal structure (session, calendar).
+
+**What I4 measures:** HMM regime quality (`hmm_regime_prob`, `hmm_entropy`, `hmm_duration`), trend direction and strength (`hma_slope_z`, `adx`), macro context (`vix_z`, `flight_quality`, `yield_slope_z`), session state (`in_ny_session`, `in_london_kz`, `in_overlap`, `power_hour`, `opening_range`, `above_wk_vwap`), calendar cyclicals (`dow_sin`, `dow_cos`, `month_position`), and cross-timeframe alignment (`ctf_momentum`, `ctf_vwap_align`, `ctf_regime_align`).
+
+**Why these survive:** Regime state is a real thing — the HMM is a model, but its output (`hmm_regime_prob = 0.87`) is a measurement of that model's certainty. Whether a high-confidence trending regime predicts IC in momentum features is an empirical question, not an assumption. Same for macro context: `vix_z` is a fact. Whether high `vix_z` conditions feature IC is discovered by stratified measurement.
+
+**Oscillators (APR-backed periods):** RSI and CCI measurements live in I4 at three scales (`rsi_fast/mid/slow`, `cci_fast/mid/slow`). Periods stored in APR (`feature.period.rsi.*`) — not baked into column names. Aroon freshness (`aroon_fast`, `aroon_slow`) similarly. See `docs/foundation/adaptive-parameter-registry.md §Feature Indicator Periods`.
+
+**Code surface:** `FeatureFactory._compute_regime()`. Output columns: all HMM, macro, session, calendar, CTF, oscillator columns.
+
+---
+
+## v3.0 Data Primitives
+
+### `FeatureVector`
+
+The typed struct of 50 measurements produced by FeatureFactory for a single (symbol, tf, bar). One row in `feature_vectors`. Contains exactly one value per I1-I4 measurement column — no JSONB, no nesting, no null-means-unknown ambiguity (null means the measurement was not computable for that bar, e.g. insufficient history).
+
+The FeatureVector is the atomic unit of v3.0. Everything downstream — IC measurement, ensemble weighting, alpha scoring — operates on FeatureVectors. The feature universe is pre-specified in the `feature_vectors` schema; adding a new measurement requires a schema migration, which is the intentional gate that prevents feature proliferation.
+
+**Not:** a plugin output (plugins receive FeatureVectors as input in I5-I7). Not a signal (signals are emitted when ensemble alpha crosses a threshold). Not a row in `intelligence_features` (v2.x JSONB table, superseded).
+
+**Canonical doc:** `docs/plans/2026-06-20-alphaengine-architecture.md §FeatureVector Contract`
+**Status:** design (v3.0 Phase A)
+
+---
+
+### `FeatureFactory`
+
+The in-process computation unit that produces `FeatureVector` from raw OHLCV bars. Replaces the I1-I4 plugin registry. Runs on every bar inside `IntelligencePipeline` — same DAG position as the old plugin stack, same latency budget. Writes to `feature_vectors` table via `FeatureWriter` (cold sink; never blocks the hot path).
+
+FeatureFactory is organized into cadence-matched tiers: bar-level (I1, I2, most of I3), session-level (intraday accumulators), regime-level (HMM, computed every 30 bars and cached), cross-asset (reads HTF cached state), calendar (pre-computed daily). The cadence matching eliminates recomputing slow signals at bar frequency.
+
+**Not:** a service. FeatureFactory has no systemd unit, no Kafka subscription, no independent lifecycle. It is a library called by `IntelligencePipeline`.
+
+**Code location:** `src/intelligence/feature_factory.py`
+**Status:** design (v3.0 Phase A)
+
+---
+
+### `outcome_labels`
+
+The table of executable forward returns computed from `market_data_ohlcv` via LEAD() window functions. One row per (symbol, tf, bar_ts). Stores log returns at four lookahead windows (1/5/20/60 bars), completeness flags (was the return window complete or did we hit end-of-data?), and gap flags (was there a market-hours gap before the entry bar?).
+
+The return formula is executable: `ln(open[T+N+1] / open[T+1])` — entry at open of T+1 (first executable bar), exit at open of T+N+1. Not `close[T] to close[T+N]`, which includes the unexecutable observation price as the entry.
+
+**Table:** `outcome_labels`
+**Populated by:** Outcome Labeler batch job (reads `market_data_ohlcv`)
+**Not:** a backtest. Labels are computed on actual historical prices, not simulated fills.
+**Status:** design (v3.0 Phase B)
+
+---
+
+### `IC Sharpe`
+
+The primary ensemble weighting signal. Computed as `mean(IC_t) / std(IC_t)` over a time series of IC values, each measured on non-overlapping windows of 2,000 independent observations. Measures not just whether a feature has IC, but whether it has *consistent* IC — a feature that is predictive in some windows and noise in others has low IC Sharpe even with high mean IC.
+
+IC Sharpe requires at least 10 IC windows (20,000 independent observations minimum). Features below this threshold are not eligible for ensemble weighting regardless of their IC point estimate.
+
+Ledoit-Wolf ensemble optimization uses the IC Sharpe time series (not raw IC) to build the covariance-adjusted weight vector. Features with high IC Sharpe and low cross-feature IC correlation earn the most weight.
+
+**Annualized for cross-TF comparison:** `IC_Sharpe_annualized = IC_Sharpe_bar × sqrt(bars_per_year)`. The annualized form is for comparison only — ensemble weights use bar-unit IC Sharpe.
+
+**Not:** a backtest Sharpe ratio (which measures P&L consistency). IC Sharpe measures predictive consistency, one step upstream.
+**Status:** design (v3.0 Phase B); stored in `feature_ic_scores.ic_sharpe`
+
+---
+
+### `alpha decay`
+
+The condition in which a feature's rolling IC bootstrap CI lower bound crosses zero, indicating its predictive power may no longer be distinguishable from noise in the current market regime. Triggers automatic weight zeroing in APR.
+
+Alpha decay is a first-class system event, not a failure state. Features decay as market regimes shift and return when regimes become favorable again. The two-window recovery hysteresis (`ci_lower > 0` for 2 consecutive rolling windows before partial restoration) prevents toggling.
+
+**Automated response:** `ensemble_weights.is_active = false` → APR `alpha.weights.<feature>.*  = 0.0` → logged to `config_history` with `changed_by = 'alpha_decay_monitor'`.
+
+**Not:** feature removal. A decayed feature remains in `feature_vectors` and continues accumulating IC observations. It is re-evaluated on each weekly IC Engine run.
+
+**Status:** design (v3.0 Phase E); monitored by `alpha-decay-monitor` batch service
+
+---
+
+### `alpha_events`
+
+The table of emitted alpha signals in v3.0 — one row per (symbol, tf, bar_ts) where `|alpha_score| > threshold`. The v3.0 equivalent of v2.x `signal_events`. Carries direction (`long`/`short`), alpha_score, threshold used, weight_version, regime, top contributing features, and lifecycle status (`pending` → `labeled` → `expired`).
+
+`alpha_events` is the boundary between prediction (Layer 1) and portfolio construction (Layer 2). The Portfolio layer reads `alpha_events` to construct trade frames; it does not read `ensemble_alpha` directly.
+
+**Table:** `alpha_events`
+**Not:** `ensemble_alpha` (which scores every bar). `alpha_events` is the filtered subset where the score crossed the emission threshold.
+**Replaces:** `signal_events` in v3.0 (v2.x `signal_events` is archived, not migrated)
+**Status:** design (v3.0 Phase C)
+
+---
+
+### `weight_version`
+
+A monotonically increasing integer that identifies a specific set of ensemble weights in `ensemble_weights`. Incremented on every run of the Ensemble Builder that produces any weight change. All rows in `ensemble_weights` with the same `weight_version` form a complete, consistent weight set.
+
+`ensemble_alpha` records the `weight_version` used to score each bar, creating a full audit trail: any historical `alpha_score` can be reproduced by finding the corresponding weight set.
+
+**Not:** a schema version or pipeline version. `weight_version` tracks ensemble calibration; `pipeline_version` tracks feature computation.
+**Status:** design (v3.0 Phase C)
 
 ---
 

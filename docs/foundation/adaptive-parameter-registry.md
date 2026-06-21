@@ -3,7 +3,7 @@
 **Canonical name:** Adaptive Parameter Registry (APR)
 **Informal alias:** param store (colloquial — acceptable in casual conversation, not in architecture docs or code comments)
 **Status:** current
-**Last Updated:** 2026-06-16
+**Last Updated:** 2026-06-20
 **Phase introduced:** 109 (infrastructure), extended Phase 121+ (plugin thresholds), Phase 125 (full migration)
 
 ---
@@ -255,6 +255,52 @@ self.my_threshold = await config_service.get("threshold.my_plugin.my_param", def
 
 ---
 
+## Feature Indicator Periods
+
+Indicator periods are APR parameters. They are not schema elements.
+
+This rule deserves its own section because the temptation to bake periods into column names is strong — `rsi_14` is readable, self-documenting, and obvious. It is also an architecture violation.
+
+**Why the period cannot be in the column name:**
+
+A column name is a schema element. Changing a column name requires an ALTER TABLE migration, a data backfill, and updates to every query and ORM that references it. If you later discover from IC measurement that `rsi_21` has higher IC Sharpe than `rsi_14` on ETFs at 1h, you cannot act on that finding without a schema migration. The schema has frozen a researcher's initial guess.
+
+**The correct design:**
+
+Column names encode the **concept and scale** — the researcher's hypothesis about what temporal horizon to examine. The specific period is an APR parameter that the IC Engine can optimize:
+
+```
+Column:  rsi_fast          rsi_mid           rsi_slow
+APR:     feature.period.rsi.fast = 7
+         feature.period.rsi.mid  = 14
+         feature.period.rsi.slow = 28
+```
+
+FeatureFactory reads the period from APR at compute time. When IC measurement shows a different period has higher predictive power, the APR value updates, `pipeline_version` bumps, and FeatureFactory recomputes for new bars — no schema change, no data ambiguity. Old bars carry the old `pipeline_version` so the IC Engine can isolate the effect of the period change.
+
+**The exception — when a number IS the concept:**
+
+`momentum_z_5` (5-bar log return) is correct. The 5 defines the statistical quantity being measured, not a tunable parameter. A 5-bar return and a 20-bar return are economically distinct concepts (scalping horizon vs. swing horizon). Changing 5 to 7 would produce a different feature, not the same feature with a better calibration.
+
+The test: if changing the number produces a **different concept**, it belongs in the column name. If changing it produces a **better calibration of the same concept**, it belongs in APR.
+
+**v3.0 `feature.period.*` namespace:**
+
+| APR key                    | Controls                             | ML target |
+|----------------------------|--------------------------------------|-----------|
+| `feature.period.rsi.fast`  | RSI period for fast-scale column     | Yes       |
+| `feature.period.rsi.mid`   | RSI period for mid-scale column      | Yes       |
+| `feature.period.rsi.slow`  | RSI period for slow-scale column     | Yes       |
+| `feature.period.cci.fast`  | CCI period for fast-scale column     | Yes       |
+| `feature.period.cci.mid`   | CCI period for mid-scale column      | Yes       |
+| `feature.period.cci.slow`  | CCI period for slow-scale column     | Yes       |
+| `feature.period.aroon.fast`| Aroon period for fast-scale column   | Yes       |
+| `feature.period.aroon.slow`| Aroon period for slow-scale column   | Yes       |
+
+All are ML learning targets. IC Engine measures IC at the current period, proposes an optimized period, and writes back via APR after significance gate (`n >= 500`, `p < 0.05`).
+
+---
+
 ## What Does NOT Belong Here
 
 | Category | Where it lives | Why |
@@ -264,6 +310,7 @@ self.my_threshold = await config_service.get("threshold.my_plugin.my_param", def
 | Table/column schemas | Migration files | STRUCT -- requires deployment |
 | Ring architecture | `src/core/` | Structural invariant |
 | Mathematical constants (π, contract multipliers) | Code | Not tunable |
+| Numbers that define a statistical concept (`momentum_z_5`) | Column name | The number IS the feature |
 | Per-user personalization | Future user preferences system | Requires user identity |
 
 ---

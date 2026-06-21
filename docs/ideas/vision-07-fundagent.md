@@ -220,7 +220,7 @@ FundAgent extends the existing architecture without violating invariants:
 - **DAG invariants preserved** — Fundamental data flows one direction: source → analysis → Kafka → consumers. No cycles. No service touches the database except Writers/Trackers. See `docs/concepts/dag-execution.md`.
 - **APR-governed** — All fundamental thresholds, weights, and regime parameters live in `config_state` under `fundamental.*` namespace. No hardcoded values. See `docs/foundation/adaptive-parameter-registry.md`.
 - **Shadow governance** — Every fundamental source enrolls in shadow. Promotion requires n ≥ 100 resolved signals and bootstrap CI > 0 at 95% confidence. See `docs/intelligence/intelligence-ai.md`.
-- **VIL-ready** — Fundamental state embeds alongside bar state for historical analog retrieval. See `docs/ideas/analog-engine-01-substrate.md`.
+- **VIL-ready** — Fundamental state embeds alongside bar state for historical analog retrieval. See `docs/ideas/analog-engine-substrate.md`.
 - **Ring compliance** — Would live in Ring 2 as `services/fund_agent.py`. See `docs/foundation/naming-system.md`.
 - **Typed events via `stream_keys.py`** — All topic keys constructed centrally. No hardcoded strings. See `src/core/stream_keys.py`.
 - **I4 regime integration** — Macro data primarily informs regime classification (HMM, BOCPD, Kalman). See `docs/intelligence/intelligence-foundation.md`.

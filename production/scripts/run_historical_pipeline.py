@@ -11,12 +11,11 @@ them in market_data_ohlcv. Short timeframes use named contracts; longer timefram
 use back-adjusted continuous contracts (ContFuture + ADJUSTED_LAST) to span rolls.
 
     Timeframe  Default depth  Notes
-    1m         90 days        ~75k bars/symbol; intraday patterns repeat on monthly cycles
-    5m         730 days       ~88k bars/symbol; 2yr for stable intraday+swing patterns
-    15m        1825 days      ~60k bars/symbol; 5yr bridges intraday and swing
-    1h         3650 days      ~18k bars/symbol; 10yr HMM anchor (2018 tantrum→COVID→rate shock→AI mania)
-    4h         3650 days      ~6.1k bars/symbol; 10yr macro regime depth
     1d         7300 days      ~5.2k bars/symbol; 20yr, negligible storage (~252 bars/yr)
+    1h         5475 days      ~27k bars/symbol; 15yr clears 20k IC floor (2011 EU crisis→GFC recovery→AI mania)
+    15m        3650 days      ~17k bars/symbol; 10yr matches 1h regime depth
+    5m         1631 days      ~196k bars/symbol; 4.5yr covers bull/bear/recovery cycle
+    1m         90 days        ~75k bars/symbol; intraday patterns repeat on monthly cycles
 
     Use --days N to cap ALL timeframes at N days (e.g. --days 2 for a gap-fill).
 
@@ -462,33 +461,30 @@ def _report_plugin_times() -> None:
 # NOTE: use_continuous only applies to FUTURES (see fetch loop at ~line 2376). For equities
 # and ETFs, the chunked named-contract path is always used regardless of this flag.
 _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
+    # 1d: maximum available history. Only ~252 bars/year so 7300d (20yr) = ~5.2k bars/symbol —
+    #     negligible storage. IBKR has clean data to 2005 (SPY probe 2026-06-19, minor gap
+    #     at 20yr edge). Spans dot-com bust recovery, GFC, QE era, 2022 rate shock, AI mania.
+    "1d": (7300, True),
+    # 1h: HMM/GARCH anchor TF. 5475d (15yr) reaches back to 2011 — capturing European debt
+    #     crisis, QE1/QE2/QE3, taper tantrum (2013), 2018 rate tantrum, COVID crash + recovery,
+    #     zero-rate era, 2022 rate shock, and AI mania. ~27k bars/symbol, clearing the 20k IC
+    #     observation floor. use_continuous=False: IBKR ContFuture + ADJUSTED_LAST requires
+    #     endDateTime="" (no chunking possible), timing out on COMEX instruments. Chunked
+    #     named-contract path (_MAX_CHUNK_DAYS=364) is reliable across all exchanges.
+    "1h": (5475, False),
+    # 15m: bridges intraday and swing. 3650d (10yr) matches 1h regime depth — captures
+    #     COVID crash → zero-rate era → 2022 rate shock arc at session-bar granularity.
+    #     ~17k bars/symbol. IBKR confirmed 10yr+ retention for liquid ETFs (SPY probe 2026-06-19).
+    "15m": (3650, True),
+    # 5m: intraday + swing structure. 1631d (4.5yr) extended to include 2022 bear market
+    #     for IC engine regime coverage (bull/bear/recovery cycle). ~196k bars/symbol.
+    #     IBKR confirmed 10yr retention (SPY probe 2026-06-19).
+    "5m": (1631, True),
     # 1m: intraday micro-patterns (time-of-day, session open/close, day-of-week). These
     #     repeat on weekly/monthly cycles so 90d captures all patterns with good repetition.
     #     ~75k bars/symbol. IBKR confirmed 10yr retention (SPY probe 2026-06-19) — 90d is
     #     a deliberate storage/compute tradeoff, not a retention constraint.
     "1m": (90, True),
-    # 5m: intraday + swing structure. More stable patterns than 1m so benefits from deeper
-    #     history. 730d (2yr) captures two full annual cycles. ~88k bars/symbol.
-    #     IBKR confirmed 10yr retention (SPY probe 2026-06-19).
-    "5m": (730, True),
-    # 15m: bridges intraday and swing. 1825d (5yr) captures two presidential cycles and the
-    #     COVID crash → zero-rate era → 2022 rate shock arc at session-bar granularity.
-    #     ~60k bars/symbol. IBKR confirmed 10yr+ retention for liquid ETFs (SPY probe 2026-06-19).
-    "15m": (1825, True),
-    # 1h: HMM/GARCH anchor TF. 3650d (10yr) reaches back to 2016 — capturing 2018 rate
-    #     tantrum, COVID crash + recovery (critical for extreme-vol regime detection),
-    #     zero-rate era, 2022 rate shock, and AI mania. ~18k bars/symbol (36× HMM floor).
-    #     use_continuous=False: IBKR ContFuture + ADJUSTED_LAST requires endDateTime=""
-    #     (no chunking possible), timing out on COMEX instruments. Chunked named-contract
-    #     path (_MAX_CHUNK_DAYS=364) is reliable across all exchanges.
-    "1h": (3650, False),
-    # 4h: macro regime depth. 3650d (10yr) confirmed clean (SPY probe 2026-06-19).
-    #     ~6.1k bars/symbol; captures GFC recovery, taper tantrum, 2018 selloff, COVID, rate shock.
-    "4h": (3650, True),
-    # 1d: maximum available history. Only ~252 bars/year so 7300d (20yr) = ~5.2k bars/symbol —
-    #     negligible storage. IBKR has clean data to 2005 (SPY probe 2026-06-19, minor gap
-    #     at 20yr edge). Spans dot-com bust recovery, GFC, QE era, 2022 rate shock, AI mania.
-    "1d": (7300, True),
 }
 
 # FX and crypto: IBKR *can* return higher-TF bars for major pairs (EURUSD, GBPUSD, etc.).
@@ -2151,7 +2147,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--timeframes",
-        default="1m,5m,15m,1h,4h,1d",
+        default="1d,1h,15m,5m,1m",
         help="Comma-separated timeframes (default: 1m,5m,15m,1h,4h,1d)",
     )
     parser.add_argument("--client-id", type=int, default=40, help="IBKR client ID (default: 40)")
@@ -2329,6 +2325,7 @@ def main() -> None:
         print("=== Stage 1: IBKR Fetch ===")
 
         async def _run_fetch_stage() -> int:
+            nonlocal db_conn
             provider = IBKRProvider(
                 host=settings.ib_host,
                 port=settings.ib_port,
@@ -2345,6 +2342,15 @@ def main() -> None:
             print()
             try:
                 for instrument in contracts:
+                    try:
+                        db_conn.cursor().execute("SELECT 1")
+                    except Exception:
+                        print("  DB connection stale — reconnecting before next symbol...")
+                        try:
+                            db_conn.close()
+                        except Exception:
+                            pass
+                        db_conn = connect_db(settings)
                     try:
                         qualified = await provider.qualify_instrument(instrument)
                         if not qualified:
@@ -2520,6 +2526,15 @@ def main() -> None:
 
                     except Exception as e:
                         print(f"  {instrument.symbol}: error — {e}")
+                        try:
+                            db_conn.cursor().execute("SELECT 1")
+                        except Exception:
+                            print("  DB connection lost — reconnecting...")
+                            try:
+                                db_conn.close()
+                            except Exception:
+                                pass
+                            db_conn = connect_db(settings)
                     await asyncio.sleep(2)  # IBKR pacing between instruments
             finally:
                 await provider.disconnect()

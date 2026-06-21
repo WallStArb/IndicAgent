@@ -1,15 +1,34 @@
-# Signal Layer Evolution
+# I7 Alpha Scorer Transition — From Signal Emitters to Score Producers
 
 **Date:** 2026-06-20
 **Status:** Design - pre-implementation
 **Milestone:** v3.0
-**Companion doc:** `docs/plans/2026-06-20-v30-reference-architecture.md` (the destination architecture)
+**Companion docs:**
+- `docs/plans/2026-06-20-alphaengine-architecture.md` — approved v3.0 architecture (AlphaEngine)
+- `docs/plans/2026-06-20-analogengine-design.md` — AnalogEngine (System 2) canonical design
+
+---
+
+## Why This Transition
+
+The v2.x I1-I7 pipeline is excellent feature engineering but has a structural flaw at the signal layer: I7 plugins use hand-crafted logic to decide when a feature combination constitutes a tradeable edge. A human encodes the belief that "RSI divergence + volume confirmation + CTF alignment = signal." This introduces researcher bias at exactly the wrong layer and produces a signal set where most plugins respond to the same underlying phenomenon -- correlated signals that don't multiply information.
+
+Renaissance's insight: you don't need complex signals. You need many simple, uncorrelated ones with positive measured IC, combined empirically.
+
+The shift is architectural:
+
+```
+v2.x:  Indicators → Confluence → Signal plugin logic → Binary signal → Ledger
+v3.0:  FeatureFactory → IC Engine → Ensemble alpha → alpha_events → Ledger
+```
+
+Signals stop being "a plugin decided it has an edge." Signals become "the IC-weighted ensemble of 35 orthogonal features crossed a regime-adjusted threshold that empirically produces positive EV."
 
 ---
 
 ## Purpose
 
-The VIL reference architecture describes what to build: AlphaEngine and AnalogEngine. This document describes what the existing I7 signals tier becomes — what retires, what survives in a different role, and how the transition preserves the Signal Ledger Architecture (SLA) as the measurement substrate.
+This document describes what the existing I7 signals tier becomes in the v3.0 transition -- what retires, what survives in a different role, and how the transition preserves the Signal Ledger Architecture (SLA) as the measurement substrate.
 
 ---
 
@@ -93,16 +112,16 @@ The DAG invariant holds. I1-I7 runs in-process in IntelligencePipeline. AlphaEng
 
 ## I7 Transition Protocol
 
-For each I7 plugin, after IC discovery on the Phase 133 corpus:
+For each I7 plugin, after IC discovery on the `intelligence_features` corpus (AlphaEngine Phase A — see AlphaEngine V1 Methodology spec):
 
 | IC result | Action |
 |-----------|--------|
 | `IC_CI_lower > 0.0` at `n >= 100` | Convert: remove emission decision, add `alpha_score` field |
 | `IC_CI_lower <= 0.0` at `n >= 100` | Down-weight to zero in APR; continue accumulating observations |
-| Insufficient `n` | No change; continue in shadow; re-evaluate after Phase 133 corpus grows |
+| Insufficient `n` | No change; continue in shadow; re-evaluate after ETF backfill accumulates observations |
 | Correlated duplicate (pairwise IC overlap) | Merge into surviving plugin or retire the weaker one |
 
-Conversion is backward-compatible with the SLA. `signal_events` gains an `alpha_score` column (Phase B from VIL reference doc). Existing rows have `alpha_score = NULL`, populated on rebuild when Phase 133 corpus is regenerated.
+Conversion is backward-compatible with the SLA. `signal_events` gains an `alpha_score` column (Phase B). Existing rows have `alpha_score = NULL`; populated prospectively from Phase B onwards as plugins begin emitting continuous scores.
 
 ---
 
@@ -120,7 +139,7 @@ The addition from AlphaEngine: `alpha_ensemble_alpha` and `iv_ci_lower` are adde
 |------|--------------|
 | `alpha score` | Continuous [-1,+1] directional conviction score per plugin per bar |
 | `ensemble alpha` | IC-weighted combination across active plugins; emission trigger |
-| `IC discovery` | Empirical measurement of plugin predictive power on Phase 133 corpus |
+| `IC discovery` | Empirical measurement of plugin predictive power on `intelligence_features` corpus using LEAD()-derived executable returns |
 | `Information Coefficient (IC)` | Spearman(alpha_score, forward_return); primary plugin quality measure |
 | `intelligence vector` | Orthogonal alpha source dimension (V1 Quant, V2 Microstructure, V3 Macro, V4 Calendar) |
 | `Intrinsic Confidence Composite (ICC)` | Unchanged 4-factor plugin-internal score; maps to alpha_score via direction |
@@ -129,6 +148,43 @@ The addition from AlphaEngine: `alpha_ensemble_alpha` and `iv_ci_lower` are adde
 | `AlphaEngine` | System 1 (parametric IC); replaces hand-coded emission decisions in I7 |
 | `Signal Ledger Architecture (SLA)` | Unchanged 3-table schema; additive columns only |
 | `counterfactual_pnl_r` | Unchanged ML training target on `trade_frames` |
+
+---
+
+## Observability and Traceability During Transition
+
+The transition from signal emitters to alpha scorers introduces a mixed-state period where some plugins have been converted and some have not. This state must be observable.
+
+### Plugin Conversion State Metric
+
+Add to `metrics.py` (Phase B):
+
+| Metric | Type | Labels | Purpose |
+|--------|------|--------|---------|
+| `i7_plugin_mode` | Gauge | `plugin_name` | `1` = alpha scorer (emits `alpha_score`, no binary emission decision), `0` = legacy emitter (unchanged). Emitted at pipeline startup. |
+| `i7_plugin_alpha_score_null_total` | Counter | `plugin_name`, `symbol`, `tf` | Bars where a converted plugin returned `alpha_score = None` — indicates an incomplete conversion |
+| `i7_conversion_complete` | Gauge | _(none)_ | `1` when all plugins in the IC-passing set have been converted; `0` during transition. North-star for Phase B completion. |
+
+These are emitted by `IntelligencePipeline` at init and per-bar respectively. They give Grafana a live view of how far through the transition the system is.
+
+### Traceability: `alpha_score` Column
+
+Once Phase B adds `alpha_score` to `signal_events`, every future signal row is fully traceable:
+
+```
+signal_events.alpha_score
+  → plugin_ic_scores (plugin_name, tf, regime, lookahead_bars) → IC, CI, weight
+  → feature_ic_scores (feature, symbol, tf, regime) → per-feature IC contribution
+  → feature_vectors (symbol, tf, bar_ts) → raw feature values at emission bar
+```
+
+Rows with `alpha_score IS NULL` are pre-transition rows. The ML model must distinguish these from converted rows -- include a boolean feature `is_v3_scored` in the training matrix derived from `alpha_score IS NOT NULL`.
+
+### No Observability Needed for Retired Plugins
+
+Plugins retired after IC discovery (IC_CI_lower <= 0.0, correlated duplicates) are removed from `TIER_I7` in `register_plugins.py`. Their absence from `i7_plugin_mode` gauge is the signal that retirement is complete. No separate "retired" state needed.
+
+Full observability and resilience contract for the IC Engine, Ensemble Builder, and Alpha Emitter: see `docs/plans/2026-06-20-alphaengine-architecture.md` Observability Contract and Resilience Contract sections, and `docs/plans/2026-06-20-alphaengine-ic-spec.md` §XIX-XX.
 
 ---
 

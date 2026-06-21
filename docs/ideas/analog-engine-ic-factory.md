@@ -10,21 +10,21 @@
 
 ## Foundation
 
-This document is an application of the **Vector Intelligence Layer** (`analog-engine-01-substrate.md`). VIL is the shared substrate — embed and retrieve. This document defines the **Predictive Feature Intelligence Layer**: the measurement factory that turns VIL retrievals into ground truth and trust weights.
+This document is an application of the **Vector Intelligence Layer** (`analog-engine-substrate.md`). VIL is the shared substrate — embed and retrieve. This document defines the **Predictive Feature Intelligence Layer**: the measurement factory that turns VIL retrievals into ground truth and trust weights.
 
 **Scope boundary — read this before anything else.** Two IC measurements exist in the v3.0 architecture and they are not the same thing:
 
-- **analog-engine-02 (this doc)** measures **feature-level IC** — which individual dimensions of the bar embedding predict forward returns. This determines which features deserve more weight in k-NN similarity re-ranking (`feature_ic_stats`). It answers: *which bar-state features define good analogs?*
+- **analog-engine-ic-factory (this doc)** measures **feature-level IC** — which individual dimensions of the bar embedding predict forward returns. This determines which features deserve more weight in k-NN similarity re-ranking (`feature_ic_stats`). It answers: *which bar-state features define good analogs?*
 - **AlphaEngine** measures **plugin-level IC** — whether a plugin's confidence score, as a time series, predicts forward returns (`plugin_ic_scores`). This determines ensemble weights and emission thresholds. It answers: *does this plugin carry edge?*
 
-These answer different questions at different granularities and must never be merged. A feature can have high embedding IC (it reliably distinguishes analog quality) while the plugin that computes it has zero ensemble IC (its directional score doesn't predict returns). analog-engine-02 has no opinion on plugin predictiveness — that is AlphaEngine's domain.
+These answer different questions at different granularities and must never be merged. A feature can have high embedding IC (it reliably distinguishes analog quality) while the plugin that computes it has zero ensemble IC (its directional score doesn't predict returns). analog-engine-ic-factory has no opinion on plugin predictiveness — that is AlphaEngine's domain.
 
-VIL owns the infrastructure (embed, retrieve). The **Scoring Engine** (`analog-engine-03-scoring-engine.md`) owns the transformation of analogs into scores. This layer sits between them and owns three things:
+VIL owns the infrastructure (embed, retrieve). The **Scoring Engine** (`analog-engine-scoring-engine.md`) owns the transformation of analogs into scores. This layer sits between them and owns three things:
 - **Outcome Labeler** — labels each historical bar with forward R-multiples at T+5/10/20 (the ground truth)
-- **IC Factory** — continuously measures *feature-level* predictiveness (IC, IC Sharpe, FDR correction, IC decay) — used by analog-engine-03 to re-rank the k-NN candidate set, not to weight the emission ensemble
-- **Analog Finder** — a thin VIL k-NN retrieval wrapper that returns the **raw analog set**; analog-engine-03 transforms it into scores
+- **IC Factory** — continuously measures *feature-level* predictiveness (IC, IC Sharpe, FDR correction, IC decay) — used by analog-engine-scoring-engine to re-rank the k-NN candidate set, not to weight the emission ensemble
+- **Analog Finder** — a thin VIL k-NN retrieval wrapper that returns the **raw analog set**; analog-engine-scoring-engine transforms it into scores
 
-This layer does not compute scores, distributions, or emission decisions — those belong to analog-engine-03 and AlphaEngine respectively. Do not read this as a standalone design. Without VIL beneath it and analog-engine-03 above it, it is only half a system.
+This layer does not compute scores, distributions, or emission decisions — those belong to analog-engine-scoring-engine and AlphaEngine respectively. Do not read this as a standalone design. Without VIL beneath it and analog-engine-scoring-engine above it, it is only half a system.
 
 ---
 
@@ -60,9 +60,9 @@ The solution is non-parametric and does not require a predictive model. It requi
 
 **The question:** when the current bar's intelligence state looks like this, find the K historical bars that looked most similar and ask what price did. The answer is a set of K analogs and their realized forward returns — the raw material everything else is built from.
 
-analog-engine-02 produces that raw material: the embedded bars (via VIL), the forward-return labels (Outcome Labeler), the trustworthiness of each feature (IC Factory), and the retrieval that pulls the K analogs (Analog Finder). It stops there. The transformation of those analogs into a score — the distribution, the sub-scores, the composite, the conviction envelope — is owned by the **Scoring Engine** (`analog-engine-03`). The granularity dial (plugin / TF / symbol / cross-asset) also lives there.
+analog-engine-ic-factory produces that raw material: the embedded bars (via VIL), the forward-return labels (Outcome Labeler), the trustworthiness of each feature (IC Factory), and the retrieval that pulls the K analogs (Analog Finder). It stops there. The transformation of those analogs into a score — the distribution, the sub-scores, the composite, the conviction envelope — is owned by the **Scoring Engine** (`analog-engine-scoring-engine`). The granularity dial (plugin / TF / symbol / cross-asset) also lives there.
 
-**The result:** an empirical memory for the intelligence pipeline. Every bar's intelligence state is connected to what price did next, and every feature carries a continuously-measured verdict on whether it predicts. analog-engine-03 reads these to produce the consumer-facing scores; LLM swarm agents, eAI fitness, and research tooling consume those.
+**The result:** an empirical memory for the intelligence pipeline. Every bar's intelligence state is connected to what price did next, and every feature carries a continuously-measured verdict on whether it predicts. analog-engine-scoring-engine reads these to produce the consumer-facing scores; LLM swarm agents, eAI fitness, and research tooling consume those.
 
 ---
 
@@ -70,7 +70,7 @@ analog-engine-02 produces that raw material: the embedded bars (via VIL), the fo
 
 | Consumer | What they gain |
 |---|---|
-| **analog-engine-03 (k-NN re-ranking)** | `feature_ic_stats` weights the candidate re-rank step: retrieve 200 by plain cosine, re-rank to final K by IC-weighted distance. The analog set that flows into Score Objects is defined by predictive similarity, not uniform similarity. |
+| **analog-engine-scoring-engine (k-NN re-ranking)** | `feature_ic_stats` weights the candidate re-rank step: retrieve 200 by plain cosine, re-rank to final K by IC-weighted distance. The analog set that flows into Score Objects is defined by predictive similarity, not uniform similarity. |
 | **LLM swarm agents** | Analog sets grounded in historically predictive similarity — the evidence injected into prompts is "47 bars that looked like this in the ways that matter, and here is what followed." |
 | **eAI fitness** | Score Objects built on IC-weighted retrieval are a tighter ground truth — agent predictions are measured against analog sets that reflect genuine similarity, not noisy feature parity. |
 | **Research / Superset** | "Which features define the best analogs at 10-bar horizon in trending regime?" is a query on `feature_ic_stats`. The IC Factory is the research surface for embedding quality, not plugin quality. |
@@ -101,19 +101,19 @@ RSI > 70 in a trending regime is a continuation signal. The same reading in a ra
 Searching all pairs and triples of 132 features is combinatorially intractable and statistically poisoned by multiple comparisons. PCA over the feature matrix finds natural confluences — principal components that explain variance in forward returns. Each PC is a data-discovered linear combination of features. No manual search, no false discovery from enumeration.
 
 **8. Signals have half-lives. Monitor continuously.**
-A feature with IC 0.07 today may be zero in six months as the edge gets arbitraged. analog-engine-02 *tracks* decay as a stored number — rolling 30-day and 90-day IC — and stops there. Acting on decay (down-weighting is automatic and continuous in analog-engine-03; any hard gate is a separate governance consumer) is a decision, made downstream, not in the measurement factory.
+A feature with IC 0.07 today may be zero in six months as the edge gets arbitraged. analog-engine-ic-factory *tracks* decay as a stored number — rolling 30-day and 90-day IC — and stops there. Acting on decay (down-weighting is automatic and continuous in analog-engine-scoring-engine; any hard gate is a separate governance consumer) is a decision, made downstream, not in the measurement factory.
 
 ---
 
-## What analog-engine-02 Hands to the Scoring Engine
+## What analog-engine-ic-factory Hands to the Scoring Engine
 
-The Analog Finder returns a raw analog set — the K most similar historical bars and their realized forward returns at each horizon — plus the IC Factory's per-feature trust weights. That is the boundary. Everything downstream is owned by `analog-engine-03`:
+The Analog Finder returns a raw analog set — the K most similar historical bars and their realized forward returns at each horizon — plus the IC Factory's per-feature trust weights. That is the boundary. Everything downstream is owned by `analog-engine-scoring-engine`:
 
-- **The granularity dial** (plugin / TF / symbol / cross-asset scoping) — analog-engine-03
-- **The return distribution** (shape, percentiles, moments, null result) — analog-engine-03
-- **The sub-scores and composite** (directional HR, expected R, Sharpe-at-horizon, IC-Sharpe-weighted blend) — analog-engine-03
+- **The granularity dial** (plugin / TF / symbol / cross-asset scoping) — analog-engine-scoring-engine
+- **The return distribution** (shape, percentiles, moments, null result) — analog-engine-scoring-engine
+- **The sub-scores and composite** (directional HR, expected R, Sharpe-at-horizon, IC-Sharpe-weighted blend) — analog-engine-scoring-engine
 
-analog-engine-02's contract is narrow and testable: given a query bar, return `list[AnalogResult]` (neighbor id, distance, forward returns, regime) and the current `feature_ic_stats`. It does not aggregate, rank, or score. See `analog-engine-03` for what is built on top.
+analog-engine-ic-factory's contract is narrow and testable: given a query bar, return `list[AnalogResult]` (neighbor id, distance, forward returns, regime) and the current `feature_ic_stats`. It does not aggregate, rank, or score. See `analog-engine-scoring-engine` for what is built on top.
 
 ---
 
@@ -123,17 +123,17 @@ Three pieces of machinery support the scoring layer. All build on VIL substrate 
 
 ### Outcome Labeler (nightly batch)
 
-Joins `intelligence_features` to `market_data_ohlcv` to compute forward returns for each bar. Uses VIL's `outcome_labels` table (see analog-engine-01 schema). Forward return in **R-multiples** (forward move / ATR at bar T) — normalizes across regimes and instruments, directly comparable to `pnl_r` in `signal_ledger`.
+Joins `intelligence_features` to `market_data_ohlcv` to compute forward returns for each bar. Uses VIL's `outcome_labels` table (see analog-engine-substrate schema). Forward return in **R-multiples** (forward move / ATR at bar T) — normalizes across regimes and instruments, directly comparable to `pnl_r` in `signal_ledger`.
 
 ### IC Factory (weekly batch)
 
-Reads `intelligence_features` + `outcome_labels`. Computes Spearman IC per feature × horizon × regime, rolling walk-forward. Applies Benjamini-Hochberg FDR correction. Computes IC Sharpe. **It makes no decisions.** The IC Factory measures and stores; it never suppresses, gates, or thresholds. A feature with no edge is simply recorded as having no edge — what to do with that fact is a consumer's concern. analog-engine-03 weights features continuously by IC Sharpe (a zero-IC feature contributes ~0 with no hard switch); any hard on/off would be a separate, explicit governance consumer, never the factory.
+Reads `intelligence_features` + `outcome_labels`. Computes Spearman IC per feature × horizon × regime, rolling walk-forward. Applies Benjamini-Hochberg FDR correction. Computes IC Sharpe. **It makes no decisions.** The IC Factory measures and stores; it never suppresses, gates, or thresholds. A feature with no edge is simply recorded as having no edge — what to do with that fact is a consumer's concern. analog-engine-scoring-engine weights features continuously by IC Sharpe (a zero-IC feature contributes ~0 with no hard switch); any hard on/off would be a separate, explicit governance consumer, never the factory.
 
 > **Measurement layers are append-only, assumption-free fact records. Decision layers are stateful, reversible, and live separately. A threshold is a decision; it never belongs in a measurement table.** Decisions live in `shadow_registry` (plugin-grain EV and correlation suppression); measurements live in `feature_ic_stats` and the VIL tables.
 
-Output feeds analog-engine-03 as quality metadata: which features have genuine predictive power, with what stability, at which horizon and regime. analog-engine-03 uses feature IC Sharpe to weight the **retrieval metric** (which features define similarity).
+Output feeds analog-engine-scoring-engine as quality metadata: which features have genuine predictive power, with what stability, at which horizon and regime. analog-engine-scoring-engine uses feature IC Sharpe to weight the **retrieval metric** (which features define similarity).
 
-**The IC computation is generic over "predictor."** analog-engine-03's composite blends four sub-scores and weights them by *their* IC Sharpe — each sub-score treated as a predictor and measured by the identical machinery (rolling Spearman vs realized returns, FDR-corrected). The IC math is one stateless utility: hand it a feature's history or a sub-score's history, same computation. The two differ only in *grain* and *ownership* — feature IC (`feature × horizon × regime`) is analog-engine-02's and lands in `feature_ic_stats`; sub-score IC (`sub-score × scope × level × horizon`) is analog-engine-03's and lands in an analog-engine-03-owned table. Shared utility and shared weekly cadence, separate owned sinks — never a shared table. Feature IC weights the retrieval metric; sub-score IC weights the blend (see analog-engine-03 → The Composite Z-Score). One tool, two levels.
+**The IC computation is generic over "predictor."** analog-engine-scoring-engine's composite blends four sub-scores and weights them by *their* IC Sharpe — each sub-score treated as a predictor and measured by the identical machinery (rolling Spearman vs realized returns, FDR-corrected). The IC math is one stateless utility: hand it a feature's history or a sub-score's history, same computation. The two differ only in *grain* and *ownership* — feature IC (`feature × horizon × regime`) is analog-engine-ic-factory's and lands in `feature_ic_stats`; sub-score IC (`sub-score × scope × level × horizon`) is analog-engine-scoring-engine's and lands in an analog-engine-scoring-engine-owned table. Shared utility and shared weekly cadence, separate owned sinks — never a shared table. Feature IC weights the retrieval metric; sub-score IC weights the blend (see analog-engine-scoring-engine → The Composite Z-Score). One tool, two levels.
 
 ```
 feature_ic_stats (
@@ -156,7 +156,7 @@ Queryable in Superset: "top 20 most stable features in trending regime at 10-bar
 
 ### Analog Finder (per-bar, at inference time)
 
-A thin VIL k-NN wrapper. Serializes the current bar's feature vector (via the VIL embedding spec), runs k-NN retrieval from `embeddings`, joins to `outcome_labels`, and returns the **raw analog set** — `list[AnalogResult]` (neighbor id, cosine distance, forward returns at each horizon, regime). It does **not** compute directional HR, distributions, or composite scores; analog-engine-03 does that.
+A thin VIL k-NN wrapper. Serializes the current bar's feature vector (via the VIL embedding spec), runs k-NN retrieval from `embeddings`, joins to `outcome_labels`, and returns the **raw analog set** — `list[AnalogResult]` (neighbor id, cosine distance, forward returns at each horizon, regime). It does **not** compute directional HR, distributions, or composite scores; analog-engine-scoring-engine does that.
 
 The Analog Finder is non-parametric. No functional form assumed. It answers exactly one question: in the K most similar past situations, what happened? Exposed on `BaseAIWorker` as `_find_analogs(k, scope, regime)` so the scoring engine and swarm agents share one retrieval path.
 
@@ -166,10 +166,10 @@ The Analog Finder is non-parametric. No functional form assumed. It answers exac
 
 | Component | Relationship |
 |---|---|
-| `analog-engine-01` (VIL substrate) | Foundation beneath. All embedding, retrieval, and table infrastructure is defined there. |
-| `analog-engine-03` (Scoring Engine) | Consumer above. Reads analog-engine-02's `list[AnalogResult]` + `feature_ic_stats` and transforms them into the Score Object. analog-engine-02 produces; analog-engine-03 scores. |
-| `analog-engine-04` (Correlation Intelligence) | Sibling measurement layer. analog-engine-02 measures prediction (IC); analog-engine-04 measures independence (effective-N) — the two orthogonal questions about any signal source. Shares the embedding pipeline and substrate. |
-| `shadow_registry` | A decision table (plugin-grain EV + correlation suppression). analog-engine-02 does **not** write to it — it produces IC facts a governance consumer may act on. The reuse with shadow_registry is conceptual (a future IC governance consumer could mirror its flag + self-expiry pattern), not a write path from the factory. |
+| `analog-engine-substrate` (VIL substrate) | Foundation beneath. All embedding, retrieval, and table infrastructure is defined there. |
+| `analog-engine-scoring-engine` (Scoring Engine) | Consumer above. Reads analog-engine-ic-factory's `list[AnalogResult]` + `feature_ic_stats` and transforms them into the Score Object. analog-engine-ic-factory produces; analog-engine-scoring-engine scores. |
+| `analog-engine-correlation` (Correlation Intelligence) | Sibling measurement layer. analog-engine-ic-factory measures prediction (IC); analog-engine-correlation measures independence (effective-N) — the two orthogonal questions about any signal source. Shares the embedding pipeline and substrate. |
+| `shadow_registry` | A decision table (plugin-grain EV + correlation suppression). analog-engine-ic-factory does **not** write to it — it produces IC facts a governance consumer may act on. The reuse with shadow_registry is conceptual (a future IC governance consumer could mirror its flag + self-expiry pattern), not a write path from the factory. |
 | `signal_ledger.pnl_r` | R-multiple convention shared. `outcome_labels.ret_N` is directly comparable to `pnl_r` — same unit, same meaning. |
 | `BaseAIWorker` | Analog Finder exposed as `_find_analogs(k, scope, regime)` — grounded historical context injected into LLM prompts. |
 | ML batch services | IC Factory runs on the same weekly timer cadence as `ml-training`. Could share infrastructure. |
@@ -178,8 +178,8 @@ The Analog Finder is non-parametric. No functional form assumed. It answers exac
 
 ## What This Is Not
 
-- **Not an action layer.** analog-engine-02 is a compute/transform agent: it reads data, computes IC, and writes facts to its own table. It takes no live action and has no blast radius — so the calibration-and-action gate lives entirely with the consumer, never here.
-- **Not a new signal plugin.** The outputs are facts, not signals — analog-engine-02 emits no I7 signals and takes no action. Downstream use of high-IC features as signal inputs is a separate decision, made by a consumer.
+- **Not an action layer.** analog-engine-ic-factory is a compute/transform agent: it reads data, computes IC, and writes facts to its own table. It takes no live action and has no blast radius — so the calibration-and-action gate lives entirely with the consumer, never here.
+- **Not a new signal plugin.** The outputs are facts, not signals — analog-engine-ic-factory emits no I7 signals and takes no action. Downstream use of high-IC features as signal inputs is a separate decision, made by a consumer.
 - **Not a replacement for shadow governance.** Shadow registry governs plugin EV. IC Factory *measures* feature predictiveness — it does not govern anything. These are different things — a plugin can have high EV and low IC (consistent small wins, direction not proportional to reading strength) or vice versa — and only EV governance acts; IC is a fact a consumer may choose to act on.
 - **Not a model.** The Analog Finder is retrieval, not parametric prediction. It provides empirical context for LLM inference, not a mechanical trading rule.
 
@@ -187,13 +187,13 @@ The Analog Finder is non-parametric. No functional form assumed. It answers exac
 
 ## Open Questions
 
-_Embedding serialization (what makes two states "similar"), vector dimension/PCA, regime-conditioned retrieval, and analog distance-weighting are owned by `analog-engine-01` (representation/retrieval) and `analog-engine-03` (scoring). The questions below are specific to the measurement factory._
+_Embedding serialization (what makes two states "similar"), vector dimension/PCA, regime-conditioned retrieval, and analog distance-weighting are owned by `analog-engine-substrate` (representation/retrieval) and `analog-engine-scoring-engine` (scoring). The questions below are specific to the measurement factory._
 
-- **Horizon declaration:** Should a feature declare its relevant horizon, or does the IC Factory always measure all horizons and let analog-engine-03 surface the full profile?
+- **Horizon declaration:** Should a feature declare its relevant horizon, or does the IC Factory always measure all horizons and let analog-engine-scoring-engine surface the full profile?
 - **Minimum history gate:** IC computation requires sufficient history for statistical power. → Governed by APR: `analog.ic.min_n_observations` (default 100). Rolling window length: APR `analog.ic.rolling_window_days` (default 90).
-- **(Deferred to a future governance consumer, not analog-engine-02):** if anyone ever wants a *hard* IC on/off — what IC Sharpe floor, over how many consecutive cycles, mirroring shadow_registry's demotion rule? This is explicitly out of the measurement factory's scope; analog-engine-02 only stores the facts such a consumer would read. Any threshold constants belong in APR under `analog.ic.*`.
+- **(Deferred to a future governance consumer, not analog-engine-ic-factory):** if anyone ever wants a *hard* IC on/off — what IC Sharpe floor, over how many consecutive cycles, mirroring shadow_registry's demotion rule? This is explicitly out of the measurement factory's scope; analog-engine-ic-factory only stores the facts such a consumer would read. Any threshold constants belong in APR under `analog.ic.*`.
 - **PCA refresh cadence:** Recompute principal components every weekly run, or hold them fixed across a longer window for stability?
-- **Sub-score IC grain (cross-doc) — resolved:** analog-engine-03 weights its composite sub-scores by *their* IC Sharpe, measured by this same machinery. Because a sub-score is a different grain (sub-score × scope × level × horizon) than a feature, sub-score IC lives in an **analog-engine-03-owned table**, not in `feature_ic_stats` — the two share only the stateless IC computation utility (and the same weekly batch), never a table. analog-engine-02 owns feature IC; analog-engine-03 owns sub-score IC. See analog-engine-03 → The Composite Z-Score.
+- **Sub-score IC grain (cross-doc) — resolved:** analog-engine-scoring-engine weights its composite sub-scores by *their* IC Sharpe, measured by this same machinery. Because a sub-score is a different grain (sub-score × scope × level × horizon) than a feature, sub-score IC lives in an **analog-engine-scoring-engine-owned table**, not in `feature_ic_stats` — the two share only the stateless IC computation utility (and the same weekly batch), never a table. analog-engine-ic-factory owns feature IC; analog-engine-scoring-engine owns sub-score IC. See analog-engine-scoring-engine → The Composite Z-Score.
 
 ---
 
@@ -201,10 +201,10 @@ _Embedding serialization (what makes two states "similar"), vector dimension/PCA
 
 | Principle | How this satisfies it |
 |---|---|
-| **Modularity** | Outcome Labeler, IC Factory, Analog Finder each have one job. The boundary to analog-engine-03 is a narrow `list[AnalogResult]` + `feature_ic_stats` contract. |
-| **Reuse** | Builds entirely on VIL substrate. The IC *measurement* machinery is generic over predictor (feature or sub-score — analog-engine-03's second client). Shares R-multiple convention with signal_ledger. Hands one retrieval path (`_find_analogs`) to both analog-engine-03 and swarm agents. |
-| **Separation of concerns** | Labeling (Outcome Labeler), discovery (IC Factory), and retrieval (Analog Finder) are distinct jobs. Scoring is a separate concern entirely — owned by analog-engine-03, not conflated here. |
+| **Modularity** | Outcome Labeler, IC Factory, Analog Finder each have one job. The boundary to analog-engine-scoring-engine is a narrow `list[AnalogResult]` + `feature_ic_stats` contract. |
+| **Reuse** | Builds entirely on VIL substrate. The IC *measurement* machinery is generic over predictor (feature or sub-score — analog-engine-scoring-engine's second client). Shares R-multiple convention with signal_ledger. Hands one retrieval path (`_find_analogs`) to both analog-engine-scoring-engine and swarm agents. |
+| **Separation of concerns** | Labeling (Outcome Labeler), discovery (IC Factory), and retrieval (Analog Finder) are distinct jobs. Scoring is a separate concern entirely — owned by analog-engine-scoring-engine, not conflated here. |
 | **Instrument everything** | IC stats, IC Sharpe, IC decay, FDR p-values, k-NN query latency — all stored as facts and Grafana/Superset visible. No decision events here; those are emitted by whatever consumer acts on the facts. |
-| **No action, no blast radius** | analog-engine-02 is a pure compute layer: it reads, measures, and writes facts to `feature_ic_stats`. It actions nothing and feeds no live lever, so there is no operational risk to guard against here — the decision to act on any fact is the consumer's, gated at the consumer's boundary. |
+| **No action, no blast radius** | analog-engine-ic-factory is a pure compute layer: it reads, measures, and writes facts to `feature_ic_stats`. It actions nothing and feeds no live lever, so there is no operational risk to guard against here — the decision to act on any fact is the consumer's, gated at the consumer's boundary. |
 | **Data quality over model complexity** | IC Sharpe and FDR correction enforce rigor. Probability spectrum surfaces uncertainty honestly rather than collapsing to a point estimate. |
 | **Compounding** | Every bar added to embeddings improves analog retrieval. IC Factory improves with more history. The substrate compounds in value with age. |
