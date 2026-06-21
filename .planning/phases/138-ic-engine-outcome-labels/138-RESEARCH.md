@@ -8,9 +8,9 @@
 
 ## Summary
 
-Phase 138 builds two oneshot batch services: `OutcomeLabeler` (LEAD()-based forward returns into `outcome_labels`) and `ICEngine` (Spearman IC per feature x symbol x TF x regime x lookahead into `feature_ic_scores`). Both are Ring 2 services in `services/`, using psycopg2 sync (matching `backfill_feature_factory.py` pattern), not asyncpg. Two new migrations are needed: 157 for `outcome_labels` and `feature_ic_scores` tables, and 158 for `alpha.ic.*` APR keys in `config_schema` + `config_state`. A critical prerequisite is discovered below: `feature_vectors.regime` is currently NULL for all rows (backfill sets `regime=None` with the comment "Regime label assigned by HMM downstream (Phase 138)"), which means Phase 138 must include a HMM regime labeling pass before regime-stratified IC is possible.
+Phase 138 builds two oneshot batch services: `OutcomeWriter` (LEAD()-based forward returns into `outcome_labels`) and `ICEngine` (Spearman IC per feature x symbol x TF x regime x lookahead into `feature_ic_scores`). Both are Ring 2 services in `services/`, using psycopg2 sync (matching `backfill_feature_factory.py` pattern), not asyncpg. Two new migrations are needed: 157 for `outcome_labels` and `feature_ic_scores` tables, and 158 for `alpha.ic.*` APR keys in `config_schema` + `config_state`. A critical prerequisite is discovered below: `feature_vectors.regime` is currently NULL for all rows (backfill sets `regime=None` with the comment "Regime label assigned by HMM downstream (Phase 138)"), which means Phase 138 must include a HMM regime labeling pass before regime-stratified IC is possible.
 
-**Primary recommendation:** Phase 138 has three deliverables in dependency order: (1) HMM regime labeler that populates `feature_vectors.regime` for all backfilled rows, (2) OutcomeLabeler, (3) ICEngine. The IC Engine can run pooled IC (regime=NULL in `feature_ic_scores`) as a fallback if HMM labeling is incomplete for some (symbol, tf) cells, but the spec prohibits pooled as a substitute for regime-stratified -- so the HMM labeler must be scoped in Phase 138 or the IC Engine must gate strictly on regime-labeled rows only.
+**Primary recommendation:** Phase 138 has three deliverables in dependency order: (1) HMM regime labeler that populates `feature_vectors.regime` for all backfilled rows, (2) OutcomeWriter, (3) ICEngine. The IC Engine can run pooled IC (regime=NULL in `feature_ic_scores`) as a fallback if HMM labeling is incomplete for some (symbol, tf) cells, but the spec prohibits pooled as a substitute for regime-stratified -- so the HMM labeler must be scoped in Phase 138 or the IC Engine must gate strictly on regime-labeled rows only.
 
 ---
 
@@ -62,7 +62,7 @@ The IC spec §XX says: "IC Engine queries `feature_ic_scores` for the current ru
 The IC spec §XVIII says: `docs/analysis/ic-discovery-report-{date}.md`. Not a DB table, not a CSV. The planner should include a task to write this markdown file with a console summary and a structured table of passing features.
 
 **Finding 12: Service auditor registration -- new oneshot services go at priority 8.**
-`_DAG_ORDER` in `service_auditor.py` already has `"indicagent-hmm-training": 8` as an example. Both `indicagent-outcome-labeler` and `indicagent-ic-engine` are oneshot timer services and belong at priority 8. `_AGENT_ID_TO_UNIT` only needs entries for daemon services (lag monitoring); oneshots do not go in that dict.
+`_DAG_ORDER` in `service_auditor.py` already has `"indicagent-hmm-training": 8` as an example. Both `indicagent-outcome-writer` and `indicagent-ic-engine` are oneshot timer services and belong at priority 8. `_AGENT_ID_TO_UNIT` only needs entries for daemon services (lag monitoring); oneshots do not go in that dict.
 
 ---
 
@@ -70,11 +70,11 @@ The IC spec §XVIII says: `docs/analysis/ic-discovery-report-{date}.md`. Not a D
 
 ### Prerequisite: FeatureFactory Backfill
 
-The Phase 137 backfill has not run yet. Phase 138 planning must begin with "run `python services/backfill_feature_factory.py`". This is a ~2-6 hour operation for 14 symbols x 4 TFs. Until it completes, both OutcomeLabeler and ICEngine have no input data. The planner should make this Task 1 of Phase 138.
+The Phase 137 backfill has not run yet. Phase 138 planning must begin with "run `python services/backfill_feature_factory.py`". This is a ~2-6 hour operation for 14 symbols x 4 TFs. Until it completes, both OutcomeWriter and ICEngine have no input data. The planner should make this Task 1 of Phase 138.
 
 ### Deliverable A: HMM Regime Labeler
 
-A new module `services/regime_labeler.py` (oneshot) that:
+A new module `services/regime_writer.py` (oneshot) that:
 1. Reads feature_vectors in (symbol, tf) chunks
 2. Calls the existing HMM trainer logic (from `src/intelligence/services/hmm_trainer.py`) on the bar sequence
 3. UPDATEs `feature_vectors SET regime = <state_label>, regime_label_source = 'filtered'`
@@ -83,7 +83,7 @@ The HMM state labels must be consistent text values (e.g. 'trending_up', 'trendi
 
 This labeler is scoped within Phase 138 (not a separate phase) because the backfill comment explicitly says "Phase 138" and regime labeling is a direct prerequisite to the ICEngine's primary output.
 
-### Deliverable B: OutcomeLabeler (`services/outcome_labeler.py`)
+### Deliverable B: OutcomeWriter (`services/outcome_writer.py`)
 
 Pattern: sync psycopg2 oneshot (matches backfill_feature_factory.py).
 
@@ -157,7 +157,7 @@ Sections: (1) Summary statistics (N tests, N passing FDR, N passing walk-forward
 
 1. `tests/unit/test_ic_engine_vectorized.py` -- tests that vectorized IC matches `scipy.stats.spearmanr` on a small matrix (n=100, 5 features, 2 lookaheads). Tolerance: abs(ic_vectorized - ic_spearmanr) < 1e-10.
 
-2. `tests/unit/test_outcome_labeler.py` -- synthesize 100 bars in a small in-memory table, verify:
+2. `tests/unit/test_outcome_writer.py` -- synthesize 100 bars in a small in-memory table, verify:
    - `return_1bar = ln(open[T+2]/open[T+1])` (not `ln(open[T+1]/open[T])`)
    - `complete_60bar = false` for last 60 rows
    - No lookahead bias: the LEAD() references only future rows
@@ -167,7 +167,7 @@ Sections: (1) Summary statistics (N tests, N passing FDR, N passing walk-forward
 4. `tests/unit/test_ic_engine_idempotency.py` -- run ICEngine compute twice on same data, verify second run writes 0 new rows to `feature_ic_scores` (all `ON CONFLICT DO NOTHING`).
 
 **Smoke tests** (manual):
-- Run `python services/outcome_labeler.py --symbols SPY --tf 5m` → verify `outcome_labels` has rows with non-null `return_5bar` and `complete_5bar = true`
+- Run `python services/outcome_writer.py --symbols SPY --tf 5m` → verify `outcome_labels` has rows with non-null `return_5bar` and `complete_5bar = true`
 - Run `python services/ic_engine.py --symbols SPY --tf 5m` → verify at least some features have `ic_ci_lower > 0`
 - Check IC report file at `docs/analysis/ic-discovery-report-{date}.md`
 
@@ -179,13 +179,13 @@ Sections: (1) Summary statistics (N tests, N passing FDR, N passing walk-forward
 The backfill is ~2-6 hours of IBKR fetch + compute. All IC work is blocked until `feature_vectors` is populated. Mitigation: make backfill Task 1, gate all subsequent tasks on its completion. The backfill is idempotent and resumable.
 
 **Risk 2: HMM regime labeling is undefined scope.**
-The HMM trainer (`src/intelligence/services/hmm_trainer.py`) exists for v2.x regime detection. It may not be directly usable for retroactively labeling `feature_vectors` rows. The labeler needs a function that takes a time-ordered bar array for a (symbol, tf) and returns a sequence of state labels. If the existing HMM trainer only trains (not labels), a separate Viterbi decoding step is needed. Risk is medium -- investigate `HMMTrainer.start()` to determine what it outputs before writing `regime_labeler.py`.
+The HMM trainer (`src/intelligence/services/hmm_trainer.py`) exists for v2.x regime detection. It may not be directly usable for retroactively labeling `feature_vectors` rows. The labeler needs a function that takes a time-ordered bar array for a (symbol, tf) and returns a sequence of state labels. If the existing HMM trainer only trains (not labels), a separate Viterbi decoding step is needed. Risk is medium -- investigate `HMMTrainer.start()` to determine what it outputs before writing `regime_writer.py`.
 
 **Risk 3: IC Sharpe gate fails for 1h TF.**
 SPY at 1h has 131K bars / 5 = 26K independent obs = only 13 IC windows (26K/2K). This meets the 10-window minimum but barely. For symbols with fewer 1h bars (some have 131,339 minimum), it's 13.1 windows. Any (symbol, tf) combination with < 20K independent obs must have `ic_sharpe = NULL` and `passes_walkforward = false`, excluded from ensemble. This is correct behavior per spec.
 
 **Risk 4: regime column populated with HMM integer strings not text labels.**
-The v2.x HMM may produce regime labels as integer strings ('0','1','2') per the MEMORY.md note. The IC spec expects meaningful text labels. The regime_labeler must define a canonical mapping (e.g. 0='ranging', 1='trending_up', 2='trending_down', 3='volatile') and store text labels. This mapping must be consistent across the entire Phase 138 pipeline.
+The v2.x HMM may produce regime labels as integer strings ('0','1','2') per the MEMORY.md note. The IC spec expects meaningful text labels. The regime_writer must define a canonical mapping (e.g. 0='ranging', 1='trending_up', 2='trending_down', 3='volatile') and store text labels. This mapping must be consistent across the entire Phase 138 pipeline.
 
 **Risk 5: BH-FDR p-value inflation from correlated tests.**
 The IC spec §IX.1 notes that RSI x3, CCI x3, aroon x2 produce correlated tests. BH-FDR is conservative under positive correlation (valid), but the expected false discoveries at q=0.05 with ~50K tests is 2,500 -- so even random noise passes ~2.5K tests. Walk-forward validation is the real guard. The FDR gate is necessary but not sufficient; the planner must ensure walk-forward is not skipped.

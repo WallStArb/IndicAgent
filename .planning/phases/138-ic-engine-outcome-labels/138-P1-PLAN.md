@@ -17,7 +17,7 @@ must_haves:
     - "outcome_labels and feature_ic_scores tables exist with correct columns and PK"
     - "alpha.ic.* APR keys are readable via ConfigService.get_sync"
     - "alpha. prefix is in OPS_PREFIXES so alpha.* keys load"
-    - "indicagent-outcome-labeler and indicagent-ic-engine registered in service_auditor"
+    - "indicagent-outcome-writer and indicagent-ic-engine registered in service_auditor"
   artifacts:
     - path: "production/migrations/157_ic_engine_tables.sql"
       provides: "outcome_labels hypertable + feature_ic_scores table DDL"
@@ -163,8 +163,8 @@ Output: Populated feature_vectors, outcome_labels + feature_ic_scores tables, se
     Then in src/config/config_service.py: confirm "alpha." is in OPS_PREFIXES. Phase 137 P1 may have added it. If absent, add the literal `"alpha."` to the OPS_PREFIXES collection. If already present, leave it and note that in the SUMMARY.
 
     Then in services/service_auditor.py _DAG_ORDER: add two entries at priority 8 (alongside indicagent-hmm-training:8 and indicagent-ml-training:8):
-      "indicagent-regime-labeler": 8,  # oneshot; populates feature_vectors.regime
-      "indicagent-outcome-labeler": 8,  # oneshot; LEAD() forward returns -> outcome_labels
+      "indicagent-regime-writer": 8,  # oneshot; populates feature_vectors.regime
+      "indicagent-outcome-writer": 8,  # oneshot; LEAD() forward returns -> outcome_labels
       "indicagent-ic-engine": 8,  # oneshot; Spearman IC -> feature_ic_scores
     Do NOT add these to _AGENT_ID_TO_UNIT (oneshots have no lag monitoring per Finding 12).
 
@@ -175,7 +175,7 @@ Output: Populated feature_vectors, outcome_labels + feature_ic_scores tables, se
     - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT config_value FROM config_state WHERE config_key='alpha.ic.fdr_alpha';"` returns 0.05
     - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM config_state WHERE config_key LIKE 'alpha.decay.%';"` returns >= 4
     - `grep -c '"alpha\."' src/config/config_service.py` returns >= 1 (alpha. in OPS_PREFIXES)
-    - `grep -c "indicagent-ic-engine\|indicagent-outcome-labeler\|indicagent-regime-labeler" services/service_auditor.py` returns >= 3
+    - `grep -c "indicagent-ic-engine\|indicagent-outcome-writer\|indicagent-regime-writer" services/service_auditor.py` returns >= 3
     - `.venv/bin/python -c "from src.config.config_service import ConfigService; print('ok')"` exits 0 (no syntax error)
   </acceptance_criteria>
   <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT config_key, config_value FROM config_state WHERE config_key LIKE 'alpha.ic.%' OR config_key LIKE 'alpha.decay.%' ORDER BY config_key;"</verify>

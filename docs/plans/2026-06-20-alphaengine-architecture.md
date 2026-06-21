@@ -539,7 +539,7 @@ Concept name (`snake_case`) drives all layer names per CLAUDE.md naming system.
 | `feature_factory` | `FeatureFactory` | (in-process, no service) | `feature_vectors` table | Ring 1 `src/intelligence/` |
 | `feature_vector` | `FeatureVector` | - | - | Ring 1 `src/intelligence/` |
 | `feature_cache` | `FeatureCache` | - | - | Ring 1 `src/intelligence/` |
-| `outcome_labeler` | `OutcomeLabeler` | `indicagent-outcome-labeler.service` | `outcome_labels` table | Ring 2 `services/` |
+| `outcome_writer` | `OutcomeWriter` | `indicagent-outcome-writer.service` | `outcome_labels` table | Ring 2 `services/` |
 | `ic_engine` | `ICEngine` | `indicagent-ic-engine.service` (oneshot) | `feature_ic_scores` table | Ring 2 `services/` |
 | `ensemble_builder` | `EnsembleBuilder` | `indicagent-ensemble-builder.service` (oneshot) | `ensemble_weights`, `ensemble_alpha` tables | Ring 2 `services/` |
 | `alpha_emitter` | `AlphaEmitter` | `indicagent-alpha-emitter.service` (oneshot) | `alpha_events` table | Ring 2 `services/` |
@@ -550,7 +550,7 @@ Concept name (`snake_case`) drives all layer names per CLAUDE.md naming system.
 ```
 src/intelligence/feature_factory.py     — FeatureVector dataclass + compute_features()
 src/intelligence/feature_cache.py       — FeatureCache (regime-level + calendar state)
-services/outcome_labeler.py             — OutcomeLabeler (oneshot batch)
+services/outcome_writer.py             — OutcomeWriter (oneshot batch)
 services/ic_engine.py                   — ICEngine (oneshot batch, weekly)
 services/ensemble_builder.py            — EnsembleBuilder (oneshot batch, weekly)
 services/alpha_emitter.py               — AlphaEmitter (oneshot batch, nightly)

@@ -1240,7 +1240,7 @@ Plans:
 
 ### Phase 138: IC Engine + Outcome Labels
 
-**Goal:** Measure Spearman IC per feature × symbol × TF × regime × lookahead. Build `OutcomeLabeler` (LEAD()-based forward returns → `outcome_labels`). Build `ICEngine` (→ `feature_ic_scores` with bootstrap CI, BH-FDR correction, walk-forward). Produce IC discovery report.
+**Goal:** Measure Spearman IC per feature × symbol × TF × regime × lookahead. Build `OutcomeWriter` (LEAD()-based forward returns → `outcome_labels`). Build `ICEngine` (→ `feature_ic_scores` with bootstrap CI, BH-FDR correction, walk-forward). Produce IC discovery report.
 
 **Depends on:** Phase 137
 
@@ -1262,8 +1262,8 @@ Plans:
 
 **Wave 2** *(parallel — both blocked on P1, no file conflicts)*
 
-- [ ] 138-P2-PLAN.md — HMM RegimeLabeler oneshot: per-(symbol,tf) Viterbi decoding → feature_vectors.regime canonical text labels (untracked-but-mandatory; regime is NULL for all rows) + D-06/OTel/spans
-- [ ] 138-P3-PLAN.md — OutcomeLabeler oneshot: causal LEAD() forward log returns ln(open[T+N+1]/open[T+1]) → outcome_labels + completeness flags + idempotent + D-06/OTel/spans (SC-1)
+- [ ] 138-P2-PLAN.md — HMM RegimeWriter oneshot: per-(symbol,tf) Viterbi decoding → feature_vectors.regime canonical text labels (untracked-but-mandatory; regime is NULL for all rows) + D-06/OTel/spans
+- [ ] 138-P3-PLAN.md — OutcomeWriter oneshot: causal LEAD() forward log returns ln(open[T+N+1]/open[T+1]) → outcome_labels + completeness flags + idempotent + D-06/OTel/spans (SC-1)
 
 **Wave 3** *(blocked on P2 + P3)*
 

@@ -6,17 +6,17 @@ wave: 4
 depends_on: ["138-04"]
 files_modified:
   - tests/unit/test_ic_engine_vectorized.py
-  - tests/unit/test_outcome_labeler.py
+  - tests/unit/test_outcome_writer.py
   - tests/unit/test_bh_fdr_mapping.py
   - tests/unit/test_ic_engine_idempotency.py
-  - tests/unit/test_regime_labeler.py
+  - tests/unit/test_regime_writer.py
   - docs/analysis/ic-discovery-report-2026-06-21.md
 autonomous: true
 
 must_haves:
   truths:
     - "Vectorized IC matches scipy.stats.spearmanr to 1e-10"
-    - "outcome_labeler forward return = ln(open[T+2]/open[T+1]) with no lookahead bias"
+    - "outcome_writer forward return = ln(open[T+2]/open[T+1]) with no lookahead bias"
     - "multipletests preserves input order — q-value at index i maps to p-value at index i"
     - "IC engine second run inserts 0 new rows (idempotent)"
     - "regime column is non-null after labeler with canonical text labels"
@@ -26,7 +26,7 @@ must_haves:
     - path: "tests/unit/test_ic_engine_vectorized.py"
       provides: "Vectorized IC == scipy.spearmanr assertion"
       contains: "spearmanr"
-    - path: "tests/unit/test_outcome_labeler.py"
+    - path: "tests/unit/test_outcome_writer.py"
       provides: "No-lookahead-bias forward return assertion"
       contains: "open"
     - path: "tests/unit/test_bh_fdr_mapping.py"
@@ -35,7 +35,7 @@ must_haves:
     - path: "tests/unit/test_ic_engine_idempotency.py"
       provides: "Idempotency assertion"
       contains: "DO NOTHING"
-    - path: "tests/unit/test_regime_labeler.py"
+    - path: "tests/unit/test_regime_writer.py"
       provides: "Canonical regime label assertion"
       contains: "regime"
     - path: "docs/analysis/ic-discovery-report-2026-06-21.md"
@@ -70,18 +70,18 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
 @CLAUDE.md
 @docs/plans/2026-06-20-alphaengine-ic-spec.md
 @services/ic_engine.py
-@services/outcome_labeler.py
-@services/regime_labeler.py
+@services/outcome_writer.py
+@services/regime_writer.py
 </context>
 
 <tasks>
 
 <task type="auto">
   <name>Task 1: Unit tests for vectorized IC, BH-FDR mapping, and outcome labeler math</name>
-  <files>tests/unit/test_ic_engine_vectorized.py, tests/unit/test_bh_fdr_mapping.py, tests/unit/test_outcome_labeler.py</files>
+  <files>tests/unit/test_ic_engine_vectorized.py, tests/unit/test_bh_fdr_mapping.py, tests/unit/test_outcome_writer.py</files>
   <read_first>
     - services/ic_engine.py (the vectorized IC function + BH-FDR call — import the actual functions; refactor a pure helper out if the IC math is inline so it is unit-testable)
-    - services/outcome_labeler.py (forward return formula — extract or replicate the ln(open[T+N+1]/open[T+1]) computation as a pure function if it is SQL-only)
+    - services/outcome_writer.py (forward return formula — extract or replicate the ln(open[T+N+1]/open[T+1]) computation as a pure function if it is SQL-only)
     - tests/unit/ (existing test style: pytest, no DB for pure-math tests, fixtures)
     - .planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md (Validation Architecture: tests 1,2,3)
     - CLAUDE.md (Tests section; unit tests must be CI-clean, no live DB)
@@ -98,7 +98,7 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
       - reject, q, _, _ = multipletests(pvals, alpha=0.05, method='fdr_bh')
       - Assert q is returned in INPUT order: the q-value at index of the smallest p (0.001) is the smallest q; assert len(q)==len(pvals) and that sorting indices of pvals and q correspond (q[argmin(pvals)] == min(q)). Explicitly assert multipletests does NOT sort the output.
 
-    Create tests/unit/test_outcome_labeler.py:
+    Create tests/unit/test_outcome_writer.py:
       - Synthesize an open-price array for ~100 bars.
       - Assert forward_log_return(opens, n=1)[T] == ln(opens[T+2]/opens[T+1]) for an interior T (NOT ln(opens[T+1]/opens[T])).
       - Assert the last n rows are NaN/None (complete_Nbar would be false).
@@ -107,21 +107,21 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
   <acceptance_criteria>
     - `.venv/bin/pytest tests/unit/test_ic_engine_vectorized.py -q` exits 0
     - `.venv/bin/pytest tests/unit/test_bh_fdr_mapping.py -q` exits 0
-    - `.venv/bin/pytest tests/unit/test_outcome_labeler.py -q` exits 0
+    - `.venv/bin/pytest tests/unit/test_outcome_writer.py -q` exits 0
     - test_ic_engine_vectorized asserts tolerance `1e-10`: `grep -c "1e-10" tests/unit/test_ic_engine_vectorized.py` returns >= 1
-    - test_outcome_labeler asserts the T+2/T+1 form: `grep -c "T+2\|opens\[.*2\|+ 2\]" tests/unit/test_outcome_labeler.py` returns >= 1
+    - test_outcome_writer asserts the T+2/T+1 form: `grep -c "T+2\|opens\[.*2\|+ 2\]" tests/unit/test_outcome_writer.py` returns >= 1
     - tests use NO live DB connection (pure numpy)
   </acceptance_criteria>
-  <verify>.venv/bin/pytest tests/unit/test_ic_engine_vectorized.py tests/unit/test_bh_fdr_mapping.py tests/unit/test_outcome_labeler.py -q</verify>
+  <verify>.venv/bin/pytest tests/unit/test_ic_engine_vectorized.py tests/unit/test_bh_fdr_mapping.py tests/unit/test_outcome_writer.py -q</verify>
   <done>Three pure-math unit tests green; IC matches scipy 1e-10; FDR order preserved; forward return causal.</done>
 </task>
 
 <task type="auto">
   <name>Task 2: Idempotency + regime labeler unit tests</name>
-  <files>tests/unit/test_ic_engine_idempotency.py, tests/unit/test_regime_labeler.py</files>
+  <files>tests/unit/test_ic_engine_idempotency.py, tests/unit/test_regime_writer.py</files>
   <read_first>
     - services/ic_engine.py (idempotency skip-set logic + ON CONFLICT)
-    - services/regime_labeler.py (canonical label mapping _REGIME_LABELS + state-ordering logic — extract a pure label-assignment helper if needed)
+    - services/regime_writer.py (canonical label mapping _REGIME_LABELS + state-ordering logic — extract a pure label-assignment helper if needed)
     - tests/unit/ (existing patterns for tests that need a fixture or mock conn)
     - .planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md (Validation Architecture: tests 4 idempotency; regime canonical-label test)
   </read_first>
@@ -129,18 +129,18 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
     Create tests/unit/test_ic_engine_idempotency.py:
       - Unit-level: assert the dedup logic — given an existing-tuples set, the engine's "should_skip(cell)" returns True for present tuples and False for new ones. If a pure skip function does not exist, refactor one out (e.g. `cell_already_present(existing_set, feature, symbol, tf, regime, lookahead)`). Assert ON CONFLICT DO NOTHING is present in the INSERT SQL string (read the SQL constant from the module and assert "DO NOTHING" in it).
 
-    Create tests/unit/test_regime_labeler.py:
-      - Refactor (if needed) a pure helper in regime_labeler.py that takes fitted HMM state means and returns the integer-state -> canonical-text mapping (ordering by mean return).
+    Create tests/unit/test_regime_writer.py:
+      - Refactor (if needed) a pure helper in regime_writer.py that takes fitted HMM state means and returns the integer-state -> canonical-text mapping (ordering by mean return).
       - Assert: given 3 states with means [0.0, +0.5, -0.5], the mapping yields exactly {ranging, trending_up, trending_down} and assigns trending_up to the +0.5 state, trending_down to the -0.5 state, ranging to the 0.0 state.
       - Assert all output labels are in the canonical text set and NONE is an integer string like '0'/'1'/'2'.
   </action>
   <acceptance_criteria>
     - `.venv/bin/pytest tests/unit/test_ic_engine_idempotency.py -q` exits 0
-    - `.venv/bin/pytest tests/unit/test_regime_labeler.py -q` exits 0
+    - `.venv/bin/pytest tests/unit/test_regime_writer.py -q` exits 0
     - test_ic_engine_idempotency asserts "DO NOTHING" present: `grep -c "DO NOTHING" tests/unit/test_ic_engine_idempotency.py` returns >= 1
-    - test_regime_labeler asserts no integer-string labels: `grep -c "trending_up\|trending_down\|ranging" tests/unit/test_regime_labeler.py` returns >= 1
+    - test_regime_writer asserts no integer-string labels: `grep -c "trending_up\|trending_down\|ranging" tests/unit/test_regime_writer.py` returns >= 1
   </acceptance_criteria>
-  <verify>.venv/bin/pytest tests/unit/test_ic_engine_idempotency.py tests/unit/test_regime_labeler.py -q</verify>
+  <verify>.venv/bin/pytest tests/unit/test_ic_engine_idempotency.py tests/unit/test_regime_writer.py -q</verify>
   <done>Idempotency skip logic + ON CONFLICT verified; regime canonical-label mapping verified.</done>
 </task>
 
@@ -170,7 +170,7 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
     - Report contains a passing-features table: `grep -c "passes_walkforward\|passes_fdr\|ic_sharpe\|IC Sharpe" docs/analysis/ic-discovery-report-2026-06-21.md` returns >= 1
     - Report references real symbols: `grep -c "SPY" docs/analysis/ic-discovery-report-2026-06-21.md` returns >= 1
     - `.venv/bin/pytest tests/unit/ -q` exits 0 (FULL suite green — no regression)
-    - `.venv/bin/ruff check tests/unit/test_ic_engine_vectorized.py tests/unit/test_outcome_labeler.py tests/unit/test_bh_fdr_mapping.py tests/unit/test_ic_engine_idempotency.py tests/unit/test_regime_labeler.py` passes
+    - `.venv/bin/ruff check tests/unit/test_ic_engine_vectorized.py tests/unit/test_outcome_writer.py tests/unit/test_bh_fdr_mapping.py tests/unit/test_ic_engine_idempotency.py tests/unit/test_regime_writer.py` passes
   </acceptance_criteria>
   <verify>.venv/bin/pytest tests/unit/ -q && ls -la docs/analysis/ic-discovery-report-2026-06-21.md</verify>
   <done>IC discovery report written with passing-features table; full tests/unit/ suite green.</done>

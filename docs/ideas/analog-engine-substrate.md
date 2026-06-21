@@ -300,7 +300,7 @@ The out-of-distribution monitor (above) is an aggregate over the null-result pat
 Retrieval must never mix `embedding_version` values. A query at version V retrieves only version-V vectors. A version bump without a backfill shrinks the comparable history — that shrinkage is surfaced via `vil_analog_count`, not hidden.
 
 **Batch job contract (inherits D-06):**
-All VIL batch jobs emit `JOB_COMPLETED_TOTAL{job=<unit-name>, status}` at exit on both success and failure. Job label must match the systemd unit `%n` suffix exactly. Specific jobs (e.g., `bar-embedding-batch`, `outcome-labeler`) define their own label values.
+All VIL batch jobs emit `JOB_COMPLETED_TOTAL{job=<unit-name>, status}` at exit on both success and failure. Job label must match the systemd unit `%n` suffix exactly. Specific jobs (e.g., `bar-embedding-batch`, `outcome-writer`) define their own label values.
 
 **SQL-native traceability:**
 All retrievals are SQL — they appear in `pg_stat_statements`, EXPLAIN ANALYZE, and query logs automatically. Use `EXPLAIN (ANALYZE, BUFFERS)` on slow retrievals before adding instrumentation. The database provides the trace.

@@ -61,7 +61,7 @@ Output: feature_ic_scores fully populated for backfilled universe, vectorized + 
 @docs/plans/2026-06-20-alphaengine-ic-spec.md
 @docs/ideas/analog-engine-ic-factory.md
 @services/backfill_feature_factory.py
-@services/outcome_labeler.py
+@services/outcome_writer.py
 @src/intelligence/schemas.py
 @src/core/service_utils.py
 @src/observability/metrics.py
@@ -103,7 +103,7 @@ Output: feature_ic_scores fully populated for backfilled universe, vectorized + 
     - .planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md (Findings 3,4,5,6,10; Risks 3,5,6; "Deliverable D" computation loop)
     - src/intelligence/schemas.py (FeatureVector — the 54 field names are the feature_name values; these map to feature_vectors columns)
     - services/backfill_feature_factory.py (Ring 2 oneshot template; _load_config_service; _JOB; JOB_COMPLETED_TOTAL; flush_and_shutdown_metrics)
-    - services/outcome_labeler.py (sibling pattern + outcome_labels schema usage)
+    - services/outcome_writer.py (sibling pattern + outcome_labels schema usage)
     - src/observability/spans.py (observed_span, ATTR_*)
     - CLAUDE.md (APR rules; UTC; crash-loud > silent-wrong; market_data/feature_vectors column names)
   </read_first>
@@ -118,8 +118,8 @@ Output: feature_ic_scores fully populated for backfilled universe, vectorized + 
 
     CRASH-LOUD GATES (Renaissance mandate #9) — run at startup BEFORE any compute, raise RuntimeError with a clear message if violated:
       - `SELECT count(*) FROM feature_vectors` == 0 -> raise "feature_vectors is empty"
-      - `SELECT count(*) FROM feature_vectors WHERE regime IS NOT NULL` == 0 -> raise "regime column is all-NULL — run regime_labeler first"
-      - `SELECT count(*) FROM outcome_labels` == 0 -> raise "outcome_labels is empty — run outcome_labeler first"
+      - `SELECT count(*) FROM feature_vectors WHERE regime IS NOT NULL` == 0 -> raise "regime column is all-NULL — run regime_writer first"
+      - `SELECT count(*) FROM outcome_labels` == 0 -> raise "outcome_labels is empty — run outcome_writer first"
     A run that "succeeds" with empty feature_ic_scores is a data-integrity failure.
 
     RUN constants: RUN_TS = datetime.now(UTC); TRAINING_WINDOW_END = MAX(bar_ts) FROM feature_vectors (locked once at start).
