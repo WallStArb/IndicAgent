@@ -1193,3 +1193,78 @@ SignalMetricsEvent = Annotated[
     MetricsComputedEvent | ICComputedEvent | MetricsDQFailureEvent,
     Field(discriminator="event_type"),
 ]
+
+
+# ── v3.0 Feature Vector contracts ─────────────────────────────────────────────
+# Stdlib dataclasses (not Pydantic) per D-08: frozen, no side effects, pure data.
+
+
+@dataclasses.dataclass(frozen=True)
+class FeatureVector:
+    """Frozen feature vector: exactly 35 float primitives per (symbol, tf, bar).
+
+    One instance per bar, produced by FeatureFactory.compute() and transported
+    to feature_writer via FeatureVectorRecord on topic_feature_vectors.
+
+    Field order matches the feature_vectors INSERT column list exactly.
+    """
+
+    # Bar-level (14)
+    momentum_z_5: float
+    momentum_z_20: float
+    range_position: float
+    bar_close_pos: float
+    gap_z: float
+    informed_flow: float
+    volume_z: float
+    ofi_z: float
+    cvd_slope_z: float
+    cmf: float
+    rel_volume: float
+    vwap_dev_sigma: float
+    atr_z: float
+    vol_ratio: float
+    # Session-level (4)
+    poc_dist_atr: float
+    va_position: float
+    sr_support_dist: float
+    sr_resist_dist: float
+    # Regime-level (7)
+    hmm_regime_prob: float
+    hmm_entropy: float
+    hurst: float
+    shannon: float
+    garch_ratio: float
+    hma_slope_z: float
+    adx: float
+    # Cross-asset (3)
+    vix_z: float
+    flight_quality: float
+    yield_slope_z: float
+    # Calendar (5)
+    in_ny_session: float
+    in_overlap: float
+    dow_sin: float
+    dow_cos: float
+    month_position: float
+    # Cross-timeframe (3)
+    ctf_momentum: float
+    ctf_vwap_align: float
+    ctf_regime_align: float
+
+
+@dataclasses.dataclass(frozen=True)
+class FeatureVectorRecord:
+    """Wire envelope for Kafka transport: FeatureVector + persistence metadata.
+
+    Published to topic_feature_vectors by IntelligencePipeline.
+    Consumed by feature_writer for persistence to feature_vectors hypertable.
+    """
+
+    symbol: str
+    tf: str
+    bar_ts: datetime  # UTC bar open timestamp
+    pipeline_version: str  # e.g. "3.0.0"
+    regime: str | None  # HMM state label: "ranging", "trending_up", "trending_down"
+    regime_label_source: str  # always "filtered" per D-07
+    vector: FeatureVector
