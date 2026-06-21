@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -56,6 +57,10 @@ class FeatureCache:
     ctf_vwap_align: float = 0.0
     ctf_regime_align: float = 0.0
 
+    # HMM duration and weekly VWAP (updated by caller per bar)
+    hmm_duration: float = 0.0  # bars in current HMM discrete regime state
+    above_wk_vwap: float = 0.0  # 1.0 if close > weekly VWAP, else 0.0
+
     # Session-level VP (reset at session open by caller)
     poc_dist_atr: float = 0.0
     va_position: float = 0.5
@@ -69,6 +74,14 @@ class FeatureCache:
     # Internal rolling history for regime features (HMA, ADX z-score)
     _hma_slope_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
     _adx_raw_history: deque = field(default_factory=lambda: deque(maxlen=500), repr=False)
+
+    # Internal state for hmm_duration tracking
+    _hmm_regime_label: int = field(default=-1, repr=False)
+
+    # Internal accumulators for weekly VWAP
+    _wk_tp_vol_sum: float = field(default=0.0, repr=False)
+    _wk_vol_sum: float = field(default=0.0, repr=False)
+    _wk_year_week: tuple = field(default=(-1, -1), repr=False)  # (iso_year, iso_week)
 
     def refresh_regime(self, bars: list[dict], config: FeatureFactoryConfig) -> None:
         """Recompute regime-level features from bars and update cache.
@@ -102,9 +115,12 @@ class FeatureCache:
         self.garch_ratio = _garch_ratio(closes, config.garch_window)
 
         # --- HMM forward pass (2D, log-return + realized-vol) ---
-        hmm_prob, hmm_entropy = _hmm_forward_2d(closes)
+        hmm_prob, hmm_entropy, hmm_label = _hmm_forward_2d(closes)
         self.hmm_regime_prob = hmm_prob
         self.hmm_entropy = hmm_entropy
+        if self._hmm_regime_label != -1 and hmm_label != self._hmm_regime_label:
+            self.hmm_duration = 0.0
+        self._hmm_regime_label = hmm_label
 
         # --- HMA slope z-score ---
         hma_val = _hma(closes, config.hma_period)
@@ -122,6 +138,48 @@ class FeatureCache:
         self.adx = adx_val
 
         self.bars_since_regime_refresh = 0
+
+    def update_wk_vwap(
+        self,
+        bar_ts: datetime,
+        high: float,
+        low: float,
+        close: float,
+        volume: float,
+    ) -> None:
+        """Update weekly VWAP state and set above_wk_vwap from current bar.
+
+        Resets accumulators at ISO week boundary. Called by the pipeline or backfill
+        once per bar, after FeatureFactory.compute().
+        """
+        iso = bar_ts.isocalendar()
+        year_week = (iso.year, iso.week)
+        if year_week != self._wk_year_week:
+            self._wk_tp_vol_sum = 0.0
+            self._wk_vol_sum = 0.0
+            self._wk_year_week = year_week
+        typical = (high + low + close) / 3.0
+        self._wk_tp_vol_sum += typical * volume
+        self._wk_vol_sum += volume
+        wk_vwap = self._wk_tp_vol_sum / self._wk_vol_sum if self._wk_vol_sum > 1e-10 else close
+        self.above_wk_vwap = float(close > wk_vwap)
+
+    def advance_bar(
+        self,
+        bar_ts: datetime,
+        high: float,
+        low: float,
+        close: float,
+        volume: float,
+    ) -> None:
+        """Update all per-bar mutable state after FeatureFactory.compute().
+
+        Called once per bar by the pipeline and backfill. Encapsulates:
+        - Weekly VWAP accumulation and above_wk_vwap flag
+        - HMM duration counter increment
+        """
+        self.update_wk_vwap(bar_ts, high, low, close, volume)
+        self.hmm_duration += 1.0
 
     def update_cross_asset(
         self,
@@ -284,16 +342,17 @@ _HMM_VARS_2D = np.array(
 _HMM_K = 3
 
 
-def _hmm_forward_2d(close: np.ndarray, vol_window: int = 20) -> tuple[float, float]:
+def _hmm_forward_2d(close: np.ndarray, vol_window: int = 20) -> tuple[float, float, int]:
     """Forward HMM pass (2D: log_return + realized_vol). No backward smoother.
 
-    Returns (dominant_state_prob, shannon_entropy_of_state_probs).
+    Returns (dominant_state_prob, shannon_entropy_of_state_probs, dominant_state_label).
+    dominant_state_label is the argmax of the final alpha vector (integer 0..K-1).
     Extracted from src/intelligence/features/smc_context/hmm_regime.py _forward_step.
     """
     if len(close) < vol_window + 1:
         # Cold start: uniform prior
         probs = np.full(_HMM_K, 1.0 / _HMM_K)
-        return float(np.max(probs)), _hmm_entropy(probs)
+        return float(np.max(probs)), _hmm_entropy(probs), 0
 
     log_returns = np.log(np.maximum(close[1:], 1e-10) / np.maximum(close[:-1], 1e-10))
     log_returns = np.where(np.isfinite(log_returns), log_returns, 0.0)
@@ -309,7 +368,8 @@ def _hmm_forward_2d(close: np.ndarray, vol_window: int = 20) -> tuple[float, flo
 
     dominant_prob = float(np.max(alpha))
     entropy = _hmm_entropy(alpha)
-    return dominant_prob, entropy
+    dominant_label = int(np.argmax(alpha))
+    return dominant_prob, entropy, dominant_label
 
 
 def _hmm_forward_step(obs: np.ndarray, alpha: np.ndarray) -> None:

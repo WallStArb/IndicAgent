@@ -1,4 +1,4 @@
-"""FeatureFactory — pure-function library for computing all 36 FeatureVector primitives.
+"""FeatureFactory — pure-function library for computing all 54 FeatureVector primitives.
 
 STATELESS CONTRACT (D-08): FeatureFactory has no __init__ and stores no config.
 The FeatureFactoryConfig frozen dataclass is built ONCE by the caller
@@ -18,6 +18,7 @@ CAUSAL PURITY:
 - OFI/CVD: OHLCV bar proxy path only. No live tick data path.
 - Cross-asset (vix_z/flight_quality/yield_slope_z): read from FeatureCache populated
   by update_cross_asset(). Not computed inside compute().
+- hmm_duration / above_wk_vwap: state tracked in FeatureCache; incremented/reset by caller.
 
 APR CONTRACT (SC-9): All tunable numeric values come from the FeatureFactoryConfig
 argument. Zero inline magic numbers in primitive bodies.
@@ -28,15 +29,88 @@ from __future__ import annotations
 import calendar
 import math
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import numpy as np
+from scipy.stats import skew as _scipy_skew
 
 from src.intelligence.feature_cache import (
     FeatureCache,
 )
 from src.intelligence.schemas import FeatureVector
+
+# ---------------------------------------------------------------------------
+# Feature-to-vector domain registry (IC Engine reads this at startup)
+# ---------------------------------------------------------------------------
+
+FEATURE_VECTOR_DOMAIN: dict[str, str] = {
+    # Momentum
+    "momentum_z_5": "quant",
+    "momentum_z_20": "quant",
+    "range_position": "quant",
+    "bar_close_pos": "quant",
+    "gap_z": "quant",
+    # Volume and order flow
+    "informed_flow": "quant",
+    "volume_z": "quant",
+    "ofi_z": "quant",
+    "ofi_div": "quant",
+    "cvd_slope_z": "quant",
+    "cmf": "quant",
+    "rel_volume": "quant",
+    "vwap_dev_sigma": "quant",
+    # Volatility
+    "atr_z": "quant",
+    "vol_ratio": "quant",
+    # Session-level / market structure
+    "poc_dist_atr": "structural",
+    "va_position": "structural",
+    "sr_support_dist": "structural",
+    "sr_resist_dist": "structural",
+    # Regime-level
+    "hmm_regime_prob": "regime",
+    "hmm_entropy": "regime",
+    "hmm_duration": "regime",
+    "hurst": "quant",
+    "shannon": "quant",
+    "garch_ratio": "regime",
+    "hma_slope_z": "quant",
+    "adx": "quant",
+    "aroon_fast": "quant",
+    "aroon_slow": "quant",
+    # Oscillators
+    "rsi_fast": "quant",
+    "rsi_mid": "quant",
+    "rsi_slow": "quant",
+    "cci_fast": "quant",
+    "cci_mid": "quant",
+    "cci_slow": "quant",
+    # Cross-asset / macro
+    "vix_z": "macro",
+    "flight_quality": "macro",
+    "yield_slope_z": "macro",
+    # Calendar / session
+    "in_ny_session": "calendar",
+    "in_london_kz": "calendar",
+    "in_overlap": "calendar",
+    "power_hour": "calendar",
+    "opening_range": "calendar",
+    "above_wk_vwap": "calendar",
+    "dow_sin": "calendar",
+    "dow_cos": "calendar",
+    "month_position": "calendar",
+    # Cross-timeframe
+    "ctf_momentum": "quant",
+    "ctf_vwap_align": "quant",
+    "ctf_regime_align": "regime",
+    # Statistical / liquidity
+    "amihud_illiq_z": "quant",
+    "high_52w_dist": "quant",
+    "ret_skew_z": "quant",
+    "ret_acf1_z": "quant",
+}
 
 # ---------------------------------------------------------------------------
 # APR-backed configuration (frozen, built once by caller)
@@ -50,6 +124,18 @@ _NY_SESSION_END_UTC_HOUR = 20
 # London-NY overlap: 08:00-11:00 ET = 12:00-15:00 UTC
 _OVERLAP_START_UTC_HOUR = 12
 _OVERLAP_END_UTC_HOUR = 15
+
+# London killzone: 07:00-10:00 UTC covers both winter (08:00) and summer (07:00) opens
+_LONDON_KZ_START_UTC_HOUR = 7
+_LONDON_KZ_END_UTC_HOUR = 10
+
+# Power hour: 3-4 PM ET. Approx UTC: 19:00-21:00 covers winter+summer
+_POWER_HOUR_START_UTC_HOUR = 19
+_POWER_HOUR_END_UTC_HOUR = 21
+
+# Opening range: 9:30-10:00 AM ET. UTC: 13:30-15:00 covers winter+summer
+_OPENING_RANGE_START_MINUTE = 810  # 13*60 + 30
+_OPENING_RANGE_END_MINUTE = 900  # 15*60
 
 
 @dataclass(frozen=True)
@@ -95,6 +181,23 @@ class FeatureFactoryConfig:
     vix_zscore_window: int  # feature.vix.zscore_window
     yield_curve_zscore_window: int  # feature.yield_curve.zscore_window
     regime_cache_refresh_bars: int  # feature.regime.cache_refresh_bars
+    # Oscillators (added in P7)
+    rsi_fast_period: int  # feature.period.rsi.fast
+    rsi_mid_period: int  # feature.period.rsi.mid
+    rsi_slow_period: int  # feature.period.rsi.slow
+    cci_fast_period: int  # feature.period.cci.fast
+    cci_mid_period: int  # feature.period.cci.mid
+    cci_slow_period: int  # feature.period.cci.slow
+    # Trend freshness
+    aroon_fast_period: int  # feature.period.aroon.fast
+    aroon_slow_period: int  # feature.period.aroon.slow
+    # Statistical / liquidity
+    amihud_zscore_window: int  # feature.amihud.zscore_window
+    ret_skew_window: int  # feature.ret_skew.window
+    ret_skew_zscore_window: int  # feature.ret_skew.zscore_window
+    ret_acf_window: int  # feature.ret_acf.window
+    ret_acf_zscore_window: int  # feature.ret_acf.zscore_window
+    high_52w_window: int  # feature.high_52w.window
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +513,175 @@ def _month_position(bar_ts: datetime) -> float:
     return bar_ts.day / days
 
 
+def _in_london_kz(bar_ts: datetime) -> float:
+    """1.0 if bar_ts is in the London killzone (07:00-10:00 UTC), else 0.0.
+
+    Covers London open in both winter (08:00 UTC) and summer (07:00 UTC).
+    """
+    return 1.0 if _LONDON_KZ_START_UTC_HOUR <= bar_ts.hour < _LONDON_KZ_END_UTC_HOUR else 0.0
+
+
+def _power_hour(bar_ts: datetime) -> float:
+    """1.0 if bar_ts is in power hour (3-4 PM ET, approx 19:00-21:00 UTC), else 0.0."""
+    return 1.0 if _POWER_HOUR_START_UTC_HOUR <= bar_ts.hour < _POWER_HOUR_END_UTC_HOUR else 0.0
+
+
+def _opening_range(bar_ts: datetime) -> float:
+    """1.0 if bar_ts is in the first 30 min of NY session (9:30-10:00 AM ET).
+
+    UTC approximation 13:30-15:00 covers both winter and summer offsets.
+    """
+    total_minutes = bar_ts.hour * 60 + bar_ts.minute
+    return 1.0 if _OPENING_RANGE_START_MINUTE <= total_minutes < _OPENING_RANGE_END_MINUTE else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Oscillator helpers (stateless, array-based)
+# ---------------------------------------------------------------------------
+
+
+def _rsi(closes: np.ndarray, period: int) -> float:
+    """Wilder's RSI. Returns 50.0 on cold start. Result clamped to [0.0, 100.0]."""
+    if len(closes) < period + 1:
+        return 50.0
+    deltas = np.diff(closes.astype(float))
+    return _rsi_wilder(
+        np.where(deltas > 0, deltas, 0.0), np.where(deltas < 0, -deltas, 0.0), period
+    )
+
+
+def _rsi_wilder(gains: np.ndarray, losses: np.ndarray, period: int) -> float:
+    """Wilder smoothing from pre-split gains/losses arrays."""
+    alpha = 1.0 / period
+    avg_gain = float(np.mean(gains[:period]))
+    avg_loss = float(np.mean(losses[:period]))
+    for i in range(period, len(gains)):
+        avg_gain = alpha * gains[i] + (1.0 - alpha) * avg_gain
+        avg_loss = alpha * losses[i] + (1.0 - alpha) * avg_loss
+    if avg_loss < 1e-10:
+        return 100.0 if avg_gain > 0 else 50.0
+    rs = avg_gain / avg_loss
+    return float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
+
+
+def _cci(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
+    """Commodity Channel Index: (typical - SMA_typical) / (0.015 * MAD).
+
+    Returns 0.0 when MAD < 1e-10 or insufficient bars.
+    Unbounded — typically in [-200, +200] but can exceed in extreme moves.
+    """
+    if len(closes) < period:
+        return 0.0
+    typical = (highs[-period:] + lows[-period:] + closes[-period:]) / 3.0
+    sma = float(np.mean(typical))
+    mad = float(np.mean(np.abs(typical - sma)))
+    if mad < 1e-10:
+        return 0.0
+    return float((float(typical[-1]) - sma) / (0.015 * mad))
+
+
+def _aroon_osc(highs: np.ndarray, lows: np.ndarray, period: int) -> float:
+    """Aroon Oscillator = (aroon_up - aroon_down) / 100, range [-1.0, 1.0].
+
+    Returns 0.0 when insufficient bars (< period + 1).
+    """
+    if len(highs) < period + 1:
+        return 0.0
+    window_h = highs[-(period + 1) :]
+    window_l = lows[-(period + 1) :]
+    aroon_up = int(np.argmax(window_h)) / period * 100.0
+    aroon_down = int(np.argmin(window_l)) / period * 100.0
+    return float(np.clip((aroon_up - aroon_down) / 100.0, -1.0, 1.0))
+
+
+# ---------------------------------------------------------------------------
+# Statistical / liquidity helpers (stateless, array-based)
+# ---------------------------------------------------------------------------
+
+
+def _amihud_illiq_z(closes: np.ndarray, volumes: np.ndarray, zscore_window: int) -> float:
+    """|log_return| / dollar_volume, z-scored vs rolling window.
+
+    dollar_volume proxy: close * volume (no tick data required).
+    Returns 0.0 on cold start or when all dollar volumes are zero.
+    """
+    if len(closes) < 2:
+        return 0.0
+    log_rets = np.abs(np.diff(np.log(np.maximum(closes, 1e-10))))
+    dollar_vols = closes[1:] * np.maximum(volumes[1:], 1.0)
+    illiq = log_rets / dollar_vols
+    return _zscore_last(illiq, zscore_window)
+
+
+def _high_52w_dist(closes: np.ndarray, window: int) -> float:
+    """(close - rolling_max) / rolling_max: distance from the N-bar high.
+
+    Returns 0.0 when close equals the rolling max (at the high).
+    Returns negative float when below the high.
+    """
+    if len(closes) < 2:
+        return 0.0
+    w = min(window, len(closes))
+    rolling_max = float(np.max(closes[-w:]))
+    if rolling_max < 1e-10:
+        return 0.0
+    return float((float(closes[-1]) - rolling_max) / rolling_max)
+
+
+def _rolling_stat_z(
+    log_rets: np.ndarray,
+    fn: Callable[[np.ndarray], float],
+    window: int,
+    zscore_window: int,
+) -> float:
+    """Apply fn over rolling windows of log_rets and z-score the result."""
+    if len(log_rets) < window:
+        return 0.0
+    series = np.array(
+        [fn(log_rets[max(0, i - window + 1) : i + 1]) for i in range(window - 1, len(log_rets))],
+        dtype=float,
+    )
+    return _zscore_last(series, zscore_window)
+
+
+def _ret_skew_z(closes: np.ndarray, skew_window: int, zscore_window: int) -> float:
+    """Rolling return skewness, z-scored vs own history."""
+    if len(closes) < skew_window + 3:
+        return 0.0
+    return _rolling_stat_z(
+        np.diff(np.log(np.maximum(closes, 1e-10))), _skewness, skew_window, zscore_window
+    )
+
+
+def _ret_acf1_z(closes: np.ndarray, acf_window: int, zscore_window: int) -> float:
+    """Rolling Pearson lag-1 autocorrelation of log returns, z-scored."""
+    if len(closes) < acf_window + 2:
+        return 0.0
+    return _rolling_stat_z(
+        np.diff(np.log(np.maximum(closes, 1e-10))), _pearson_acf1, acf_window, zscore_window
+    )
+
+
+def _skewness(arr: np.ndarray) -> float:
+    """Fisher's skewness via scipy. Returns 0.0 on < 3 elements or zero std."""
+    if len(arr) < 3:
+        return 0.0
+    result = float(_scipy_skew(arr))
+    return result if math.isfinite(result) else 0.0
+
+
+def _pearson_acf1(arr: np.ndarray) -> float:
+    """Pearson lag-1 autocorrelation. Returns 0.0 if std < 1e-10 or len < 2."""
+    if len(arr) < 2:
+        return 0.0
+    x = arr[:-1] - arr[:-1].mean()
+    y = arr[1:] - arr[1:].mean()
+    denom = float(np.sqrt(np.dot(x, x) * np.dot(y, y)))
+    if denom < 1e-10:
+        return 0.0
+    return float(np.dot(x, y) / denom)
+
+
 # ---------------------------------------------------------------------------
 # Batch z-score helper (stateless: computes from arrays, no deque accumulation)
 # ---------------------------------------------------------------------------
@@ -452,7 +724,7 @@ class FeatureFactory:
         cache: FeatureCache,
         config: FeatureFactoryConfig,
     ) -> FeatureVector:
-        """Compute all 36 FeatureVector primitives from bars + cache + config.
+        """Compute all 54 FeatureVector primitives from bars + cache + config.
 
         PURE FUNCTION: no IO, no ConfigService.get(), no DB reads, no Kafka.
         All tunable numerics come from the config argument (SC-9).
@@ -470,7 +742,7 @@ class FeatureFactory:
 
         Returns
         -------
-        FeatureVector with all 36 fields set to finite floats.
+        FeatureVector with all 54 fields set to finite floats.
         """
         if len(bars) < 2:
             return _cold_start_vector(cache, tf)
@@ -601,11 +873,42 @@ class FeatureFactory:
         # --- Regime-level primitives (all from cache — refreshed by caller) ---
         hmm_regime_prob_val = cache.hmm_regime_prob
         hmm_entropy_val = cache.hmm_entropy
+        hmm_duration_val = cache.hmm_duration
         hurst_val = cache.hurst
         shannon_val = cache.shannon
         garch_ratio_val = cache.garch_ratio
         hma_slope_z_val = cache.hma_slope_z
         adx_val = cache.adx
+
+        # --- Oscillators (shared deltas across RSI periods) ---
+        _close_deltas = np.diff(closes.astype(float))
+        _rsi_gains = np.where(_close_deltas > 0, _close_deltas, 0.0)
+        _rsi_losses = np.where(_close_deltas < 0, -_close_deltas, 0.0)
+        rsi_fast_val = (
+            _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_fast_period)
+            if len(closes) >= config.rsi_fast_period + 1
+            else 50.0
+        )
+        rsi_mid_val = (
+            _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_mid_period)
+            if len(closes) >= config.rsi_mid_period + 1
+            else 50.0
+        )
+        rsi_slow_val = (
+            _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_slow_period)
+            if len(closes) >= config.rsi_slow_period + 1
+            else 50.0
+        )
+        cci_fast_val = _cci(highs, lows, closes, config.cci_fast_period)
+        cci_mid_val = _cci(highs, lows, closes, config.cci_mid_period)
+        cci_slow_val = _cci(highs, lows, closes, config.cci_slow_period)
+
+        # --- Trend freshness ---
+        aroon_fast_val = _aroon_osc(highs, lows, config.aroon_fast_period)
+        aroon_slow_val = _aroon_osc(highs, lows, config.aroon_slow_period)
+
+        # --- OFI divergence ---
+        ofi_div_val = ofi_z_val - momentum_z_5_val
 
         # --- Cross-asset primitives (all from cache — populated by update_cross_asset) ---
         vix_z_val = cache.vix_z
@@ -614,7 +917,11 @@ class FeatureFactory:
 
         # --- Calendar primitives ---
         in_ny_session_val = _in_ny_session(bar_ts)
+        in_london_kz_val = _in_london_kz(bar_ts)
         in_overlap_val = _in_overlap(bar_ts)
+        power_hour_val = _power_hour(bar_ts)
+        opening_range_val = _opening_range(bar_ts)
+        above_wk_vwap_val = cache.above_wk_vwap
         dow_sin_val, dow_cos_val = _dow_encoding(bar_ts)
         month_position_val = _month_position(bar_ts)
 
@@ -623,24 +930,33 @@ class FeatureFactory:
         ctf_vwap_align_val = cache.ctf_vwap_align
         ctf_regime_align_val = cache.ctf_regime_align
 
+        # --- Statistical / liquidity ---
+        amihud_illiq_z_val = _amihud_illiq_z(closes, volumes, config.amihud_zscore_window)
+        high_52w_dist_val = _high_52w_dist(closes, config.high_52w_window)
+        ret_skew_z_val = _ret_skew_z(closes, config.ret_skew_window, config.ret_skew_zscore_window)
+        ret_acf1_z_val = _ret_acf1_z(closes, config.ret_acf_window, config.ret_acf_zscore_window)
+
         # Guard: replace any NaN/inf with 0.0 (cold-start safety)
         def _guard(v: float, fallback: float = 0.0) -> float:
             return v if math.isfinite(v) else fallback
 
         return FeatureVector(
-            # Bar-level (14)
+            # Momentum (5)
             momentum_z_5=_guard(momentum_z_5_val),
             momentum_z_20=_guard(momentum_z_20_val),
             range_position=_guard(range_position_val, 0.5),
             bar_close_pos=_guard(bar_close_pos_val, 0.5),
             gap_z=_guard(gap_z_val),
+            # Volume and order flow (8)
             informed_flow=_guard(informed_flow_val),
             volume_z=_guard(volume_z_val),
             ofi_z=_guard(ofi_z_val),
+            ofi_div=_guard(ofi_div_val),
             cvd_slope_z=_guard(cvd_slope_z_val),
             cmf=_guard(cmf_val),
             rel_volume=_guard(rel_volume_val, 1.0),
             vwap_dev_sigma=_guard(vwap_dev_sigma_val),
+            # Volatility (2)
             atr_z=_guard(atr_z_val),
             vol_ratio=_guard(vol_ratio_val, 1.0),
             # Session-level (4)
@@ -648,21 +964,35 @@ class FeatureFactory:
             va_position=_guard(va_position_val, 0.5),
             sr_support_dist=_guard(sr_support_dist_val),
             sr_resist_dist=_guard(sr_resist_dist_val),
-            # Regime-level (7)
+            # Regime-level (11)
             hmm_regime_prob=_guard(hmm_regime_prob_val),
             hmm_entropy=_guard(hmm_entropy_val),
+            hmm_duration=_guard(hmm_duration_val),
             hurst=_guard(hurst_val, 0.5),
             shannon=_guard(shannon_val, 1.0),
             garch_ratio=_guard(garch_ratio_val, 1.0),
             hma_slope_z=_guard(hma_slope_z_val),
             adx=_guard(adx_val),
+            aroon_fast=_guard(aroon_fast_val),
+            aroon_slow=_guard(aroon_slow_val),
+            # Oscillators (6)
+            rsi_fast=_guard(rsi_fast_val, 50.0),
+            rsi_mid=_guard(rsi_mid_val, 50.0),
+            rsi_slow=_guard(rsi_slow_val, 50.0),
+            cci_fast=_guard(cci_fast_val),
+            cci_mid=_guard(cci_mid_val),
+            cci_slow=_guard(cci_slow_val),
             # Cross-asset (3)
             vix_z=_guard(vix_z_val),
             flight_quality=_guard(flight_quality_val),
             yield_slope_z=_guard(yield_slope_z_val),
-            # Calendar (5)
+            # Calendar (9)
             in_ny_session=in_ny_session_val,
+            in_london_kz=in_london_kz_val,
             in_overlap=in_overlap_val,
+            power_hour=power_hour_val,
+            opening_range=opening_range_val,
+            above_wk_vwap=above_wk_vwap_val,
             dow_sin=dow_sin_val,
             dow_cos=dow_cos_val,
             month_position=month_position_val,
@@ -670,6 +1000,11 @@ class FeatureFactory:
             ctf_momentum=_guard(ctf_momentum_val),
             ctf_vwap_align=_guard(ctf_vwap_align_val),
             ctf_regime_align=_guard(ctf_regime_align_val),
+            # Statistical / liquidity (4)
+            amihud_illiq_z=_guard(amihud_illiq_z_val),
+            high_52w_dist=_guard(high_52w_dist_val),
+            ret_skew_z=_guard(ret_skew_z_val),
+            ret_acf1_z=_guard(ret_acf1_z_val),
         )
 
 
@@ -695,6 +1030,7 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         informed_flow=0.0,
         volume_z=0.0,
         ofi_z=0.0,
+        ofi_div=0.0,
         cvd_slope_z=0.0,
         cmf=0.0,
         rel_volume=1.0,
@@ -707,20 +1043,37 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         sr_resist_dist=sr_resist_dist,
         hmm_regime_prob=cache.hmm_regime_prob,
         hmm_entropy=cache.hmm_entropy,
+        hmm_duration=cache.hmm_duration,
         hurst=cache.hurst,
         shannon=cache.shannon,
         garch_ratio=cache.garch_ratio,
         hma_slope_z=cache.hma_slope_z,
         adx=cache.adx,
+        aroon_fast=0.0,
+        aroon_slow=0.0,
+        rsi_fast=50.0,
+        rsi_mid=50.0,
+        rsi_slow=50.0,
+        cci_fast=0.0,
+        cci_mid=0.0,
+        cci_slow=0.0,
         vix_z=cache.vix_z,
         flight_quality=cache.flight_quality,
         yield_slope_z=cache.yield_slope_z,
         in_ny_session=0.0,
+        in_london_kz=0.0,
         in_overlap=0.0,
+        power_hour=0.0,
+        opening_range=0.0,
+        above_wk_vwap=cache.above_wk_vwap,
         dow_sin=0.0,
         dow_cos=1.0,
         month_position=1.0,
         ctf_momentum=cache.ctf_momentum,
         ctf_vwap_align=cache.ctf_vwap_align,
         ctf_regime_align=cache.ctf_regime_align,
+        amihud_illiq_z=0.0,
+        high_52w_dist=0.0,
+        ret_skew_z=0.0,
+        ret_acf1_z=0.0,
     )

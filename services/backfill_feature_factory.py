@@ -183,23 +183,31 @@ _INSERT_FEATURE_VECTORS_SQL = """
 INSERT INTO feature_vectors (
     symbol, tf, bar_ts, pipeline_version, regime, regime_label_source,
     momentum_z_5, momentum_z_20, range_position, bar_close_pos,
-    gap_z, informed_flow, volume_z, ofi_z, cvd_slope_z, cmf,
+    gap_z, informed_flow, volume_z, ofi_z, ofi_div, cvd_slope_z, cmf,
     rel_volume, vwap_dev_sigma, atr_z, vol_ratio,
     poc_dist_atr, va_position, sr_support_dist, sr_resist_dist,
-    hmm_regime_prob, hmm_entropy, hurst, shannon, garch_ratio,
-    hma_slope_z, adx,
+    hmm_regime_prob, hmm_entropy, hmm_duration, hurst, shannon, garch_ratio,
+    hma_slope_z, adx, aroon_fast, aroon_slow,
+    rsi_fast, rsi_mid, rsi_slow, cci_fast, cci_mid, cci_slow,
     vix_z, flight_quality, yield_slope_z,
-    in_ny_session, in_overlap, dow_sin, dow_cos, month_position,
-    ctf_momentum, ctf_vwap_align, ctf_regime_align
+    in_ny_session, in_london_kz, in_overlap, power_hour, opening_range,
+    above_wk_vwap, dow_sin, dow_cos, month_position,
+    ctf_momentum, ctf_vwap_align, ctf_regime_align,
+    amihud_illiq_z, high_52w_dist, ret_skew_z, ret_acf1_z
 ) VALUES (
     %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s,
     %s, %s, %s, %s,
     %s, %s, %s, %s, %s, %s, %s,
+    %s, %s, %s, %s,
+    %s, %s, %s, %s,
+    %s, %s, %s, %s, %s, %s,
+    %s, %s, %s, %s,
+    %s, %s, %s, %s, %s, %s,
     %s, %s, %s,
     %s, %s, %s, %s, %s,
-    %s, %s, %s
+    %s, %s, %s, %s,
+    %s, %s, %s,
+    %s, %s, %s, %s
 )
 ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 """
@@ -247,6 +255,20 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         vix_zscore_window=int(cfg.get_sync("feature.vix.zscore_window", 252)),
         yield_curve_zscore_window=int(cfg.get_sync("feature.yield_curve.zscore_window", 252)),
         regime_cache_refresh_bars=int(cfg.get_sync("feature.regime.cache_refresh_bars", 30)),
+        rsi_fast_period=int(cfg.get_sync("feature.period.rsi.fast", 7)),
+        rsi_mid_period=int(cfg.get_sync("feature.period.rsi.mid", 14)),
+        rsi_slow_period=int(cfg.get_sync("feature.period.rsi.slow", 28)),
+        cci_fast_period=int(cfg.get_sync("feature.period.cci.fast", 10)),
+        cci_mid_period=int(cfg.get_sync("feature.period.cci.mid", 20)),
+        cci_slow_period=int(cfg.get_sync("feature.period.cci.slow", 40)),
+        aroon_fast_period=int(cfg.get_sync("feature.period.aroon.fast", 14)),
+        aroon_slow_period=int(cfg.get_sync("feature.period.aroon.slow", 25)),
+        amihud_zscore_window=int(cfg.get_sync("feature.amihud.zscore_window", 252)),
+        ret_skew_window=int(cfg.get_sync("feature.ret_skew.window", 60)),
+        ret_skew_zscore_window=int(cfg.get_sync("feature.ret_skew.zscore_window", 252)),
+        ret_acf_window=int(cfg.get_sync("feature.ret_acf.window", 30)),
+        ret_acf_zscore_window=int(cfg.get_sync("feature.ret_acf.zscore_window", 252)),
+        high_52w_window=int(cfg.get_sync("feature.high_52w.window", 252)),
     )
 
 
@@ -289,6 +311,7 @@ def _vector_to_params(
         fv.informed_flow,
         fv.volume_z,
         fv.ofi_z,
+        fv.ofi_div,
         fv.cvd_slope_z,
         fv.cmf,
         fv.rel_volume,
@@ -301,22 +324,39 @@ def _vector_to_params(
         fv.sr_resist_dist,
         fv.hmm_regime_prob,
         fv.hmm_entropy,
+        fv.hmm_duration,
         fv.hurst,
         fv.shannon,
         fv.garch_ratio,
         fv.hma_slope_z,
         fv.adx,
+        fv.aroon_fast,
+        fv.aroon_slow,
+        fv.rsi_fast,
+        fv.rsi_mid,
+        fv.rsi_slow,
+        fv.cci_fast,
+        fv.cci_mid,
+        fv.cci_slow,
         fv.vix_z,
         fv.flight_quality,
         fv.yield_slope_z,
         fv.in_ny_session,
+        fv.in_london_kz,
         fv.in_overlap,
+        fv.power_hour,
+        fv.opening_range,
+        fv.above_wk_vwap,
         fv.dow_sin,
         fv.dow_cos,
         fv.month_position,
         fv.ctf_momentum,
         fv.ctf_vwap_align,
         fv.ctf_regime_align,
+        fv.amihud_illiq_z,
+        fv.high_52w_dist,
+        fv.ret_skew_z,
+        fv.ret_acf1_z,
     )
 
 
@@ -742,7 +782,12 @@ def _compute_symbol_tf(
             continue
 
         bar_ts = window[-1]["ts"]
+        last_bar = window[-1]
         fv = FeatureFactory.compute(window, symbol, tf, cache, config)
+
+        cache.advance_bar(
+            bar_ts, last_bar["high"], last_bar["low"], last_bar["close"], last_bar["volume"]
+        )
 
         row = _vector_to_params(
             symbol=symbol,

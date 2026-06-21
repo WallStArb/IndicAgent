@@ -1202,34 +1202,40 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """35 orthogonal feature primitives computed per bar by FeatureFactory.
+    """54 orthogonal feature primitives computed per bar by FeatureFactory.
 
     Frozen dataclass (not Pydantic) per D-08: pure-function output, no IO,
     immutable after construction. All fields typed float, no defaults — every
     field must be supplied by the caller.
 
     Groups and field order are binding (schema column names in feature_vectors):
-      Bar-level (14): momentum, range, flow, volume, microstructure
+      Momentum (5): price velocity at two horizons, range, intra-bar, gap
+      Volume/flow (8): order flow, CVD, CMF, VWAP, OFI divergence
       Session-level (4): volume profile, S/R proximity
-      Regime-level (7): HMM, entropy, GARCH, trend strength
+      Regime-level (11): HMM, entropy, duration, GARCH, trend strength, Aroon
+      Oscillators (6): RSI and CCI at fast/mid/slow scales
       Cross-asset (3): VIX, flight-to-quality, yield slope
-      Calendar (5): session flags, day-of-week encoding, month position
+      Calendar (9): session flags, killzones, day-of-week encoding, month position
       Cross-timeframe (3): momentum/VWAP/regime alignment from HTF cache
+      Statistical/liquidity (4): Amihud, 52w anchor, skewness, autocorrelation
     """
 
-    # Bar-level (14)
+    # Momentum (5)
     momentum_z_5: float
     momentum_z_20: float
     range_position: float
     bar_close_pos: float
     gap_z: float
+    # Volume and order flow (8)
     informed_flow: float
     volume_z: float
     ofi_z: float
+    ofi_div: float
     cvd_slope_z: float
     cmf: float
     rel_volume: float
     vwap_dev_sigma: float
+    # Volatility (2) - part of bar-level computation
     atr_z: float
     vol_ratio: float
     # Session-level (4)
@@ -1237,21 +1243,35 @@ class FeatureVector:
     va_position: float
     sr_support_dist: float
     sr_resist_dist: float
-    # Regime-level (7)
+    # Regime-level (11)
     hmm_regime_prob: float
     hmm_entropy: float
+    hmm_duration: float
     hurst: float
     shannon: float
     garch_ratio: float
     hma_slope_z: float
     adx: float
+    aroon_fast: float
+    aroon_slow: float
+    # Oscillators (6)
+    rsi_fast: float
+    rsi_mid: float
+    rsi_slow: float
+    cci_fast: float
+    cci_mid: float
+    cci_slow: float
     # Cross-asset (3)
     vix_z: float
     flight_quality: float
     yield_slope_z: float
-    # Calendar (5)
+    # Calendar (9)
     in_ny_session: float
+    in_london_kz: float
     in_overlap: float
+    power_hour: float
+    opening_range: float
+    above_wk_vwap: float
     dow_sin: float
     dow_cos: float
     month_position: float
@@ -1259,6 +1279,11 @@ class FeatureVector:
     ctf_momentum: float
     ctf_vwap_align: float
     ctf_regime_align: float
+    # Statistical / liquidity (4)
+    amihud_illiq_z: float
+    high_52w_dist: float
+    ret_skew_z: float
+    ret_acf1_z: float
 
 
 @dataclasses.dataclass(frozen=True)

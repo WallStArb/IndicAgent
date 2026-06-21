@@ -3,7 +3,7 @@ phase: 137-feature-factory
 plan: 6
 type: execute
 wave: 4
-depends_on: [3, 4, 5]
+depends_on: [3, 4, 5, 7]
 files_modified:
   - services/intelligence_pipeline.py
   - src/intelligence/register_plugins.py
