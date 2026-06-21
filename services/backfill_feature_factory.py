@@ -43,7 +43,6 @@ sys.path.insert(0, str(project_root))
 
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
-from src.core.models import AssetClass
 from src.core.service_utils import setup_service_logging
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
@@ -218,6 +217,20 @@ def _connect_db(settings: Settings) -> Any:
     conn = psycopg2.connect(dsn=settings.database_url)
     conn.autocommit = True
     return conn
+
+
+def _filter_etf_contracts(contracts: list, symbols: list[str] | None) -> list:
+    """Return active ETF contracts, excluding futures and FX, optionally filtered to symbols."""
+    etf = [
+        c
+        for c in contracts
+        if not str(getattr(c, "asset_class", "")).lower().startswith("futures")
+        and not str(getattr(c, "asset_class", "")).lower().startswith("fx")
+    ]
+    if symbols:
+        wanted = set(symbols)
+        etf = [c for c in etf if c.symbol in wanted]
+    return etf
 
 
 def _load_config_service(conn: Any) -> ConfigService:
@@ -418,27 +431,7 @@ async def run_fetch_stage(
     from src.core.bar_normalizer import normalize_bars
 
     contracts = get_active_contracts(settings)
-    # ETFs only (equity asset class)
-    etf_contracts = [
-        c
-        for c in contracts
-        if str(getattr(c, "asset_class", "equity")).lower() in ("equity", "etf")
-        or (hasattr(c, "asset_class") and c.asset_class == AssetClass.EQUITY)
-    ]
-
-    if not etf_contracts:
-        # Fallback: filter on contract_details asset_class via name check
-        etf_contracts = [
-            c
-            for c in contracts
-            if not str(getattr(c, "asset_class", "")).lower().startswith("futures")
-            and not str(getattr(c, "asset_class", "")).lower().startswith("fx")
-        ]
-
-    if symbols:
-        wanted = set(symbols)
-        etf_contracts = [c for c in etf_contracts if c.symbol in wanted]
-
+    etf_contracts = _filter_etf_contracts(contracts, symbols)
     _logger.info("fetch_stage_start", contracts=len(etf_contracts), client_id=client_id)
 
     # Load existing status to skip already-fetched pairs
@@ -611,17 +604,7 @@ def run_compute_stage(
     )
 
     contracts = get_active_contracts(settings)
-    etf_contracts = [
-        c
-        for c in contracts
-        if not str(getattr(c, "asset_class", "")).lower().startswith("futures")
-        and not str(getattr(c, "asset_class", "")).lower().startswith("fx")
-    ]
-
-    if symbols:
-        wanted = set(symbols)
-        etf_contracts = [c for c in etf_contracts if c.symbol in wanted]
-
+    etf_contracts = _filter_etf_contracts(contracts, symbols)
     all_symbols = [c.symbol for c in etf_contracts]
     status_map = _load_status_map(db_conn, all_symbols, _TARGET_TFS)
     coverage: dict[tuple[str, str], dict] = {}
@@ -760,22 +743,14 @@ def _compute_symbol_tf(
 
     insert_batch: list[tuple] = []
     total_inserted = 0
-    bar_counter = 0
 
     for i in range(1, total_bars):
-        # Use a sliding window of up to _READ_CHUNK_BARS for memory efficiency
-        # while preserving enough history for stable indicator computation
         window_start = max(0, i - _READ_CHUNK_BARS)
         window = bars[window_start : i + 1]
-        bar_counter += 1
 
-        # Refresh regime features periodically
-        if bar_counter % config.regime_cache_refresh_bars == 0:
+        # Refresh regime features periodically (cross-asset seeded once before loop)
+        if i % config.regime_cache_refresh_bars == 0:
             cache.refresh_regime(window, config)
-            # Refresh cross-asset from all available daily bars
-            cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, config)
-        else:
-            cache.bars_since_regime_refresh += 1
 
         # Skip warm-up bars (insufficient history for stable features)
         if i < warm_up_bars:

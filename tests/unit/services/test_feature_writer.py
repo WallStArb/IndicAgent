@@ -24,6 +24,7 @@ def _make_valid_feature_vector():
         informed_flow=0.0,
         volume_z=0.0,
         ofi_z=0.0,
+        ofi_div=0.0,
         cvd_slope_z=0.0,
         cmf=0.0,
         rel_volume=1.0,
@@ -36,22 +37,39 @@ def _make_valid_feature_vector():
         sr_resist_dist=2.0,
         hmm_regime_prob=0.7,
         hmm_entropy=0.5,
+        hmm_duration=5.0,
         hurst=0.55,
         shannon=1.2,
         garch_ratio=1.1,
         hma_slope_z=0.15,
         adx=25.0,
+        aroon_fast=0.3,
+        aroon_slow=0.2,
+        rsi_fast=50.0,
+        rsi_mid=50.0,
+        rsi_slow=50.0,
+        cci_fast=0.0,
+        cci_mid=0.0,
+        cci_slow=0.0,
         vix_z=0.0,
         flight_quality=0.0,
         yield_slope_z=0.0,
         in_ny_session=1.0,
+        in_london_kz=0.0,
         in_overlap=0.0,
+        power_hour=0.0,
+        opening_range=0.0,
+        above_wk_vwap=1.0,
         dow_sin=0.3,
         dow_cos=0.9,
         month_position=0.5,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
+        amihud_illiq_z=0.0,
+        high_52w_dist=0.05,
+        ret_skew_z=0.0,
+        ret_acf1_z=0.0,
     )
 
 
@@ -90,15 +108,15 @@ def _make_valid_payload():
 # ── _record_to_insert_params ──────────────────────────────────────────────────
 
 
-def test_record_to_insert_params_returns_42_tuple():
-    """_record_to_insert_params returns exactly 42 elements matching INSERT columns."""
+def test_record_to_insert_params_returns_60_tuple():
+    """_record_to_insert_params returns exactly 60 elements matching INSERT columns."""
     from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_record()
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 42, f"Expected 42, got {len(params)}"
+    assert len(params) == 60, f"Expected 60, got {len(params)}"
 
 
 def test_record_to_insert_params_structural_columns():
@@ -137,7 +155,7 @@ def test_record_to_insert_params_regime_can_be_none():
 
 
 def test_record_to_insert_params_feature_values_match_vector():
-    """Feature float params ($7-$42) match the FeatureVector fields in order."""
+    """Feature float params ($7-$60) match the FeatureVector fields in order."""
     from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_record()
@@ -146,18 +164,20 @@ def test_record_to_insert_params_feature_values_match_vector():
 
     # $7 = momentum_z_5 (index 6)
     assert params[6] == v.momentum_z_5
-    # $19 = atr_z (index 18)
-    assert params[18] == v.atr_z
-    # $27 = hurst (index 26)
-    assert params[26] == v.hurst
-    # $42 = ctf_regime_align (index 41)
-    assert params[41] == v.ctf_regime_align
+    # $20 = atr_z (index 19)
+    assert params[19] == v.atr_z
+    # $29 = hurst (index 28)
+    assert params[28] == v.hurst
+    # $56 = ctf_regime_align (index 55)
+    assert params[55] == v.ctf_regime_align
+    # $60 = ret_acf1_z (index 59)
+    assert params[59] == v.ret_acf1_z
 
 
 # ── _parse_payload ────────────────────────────────────────────────────────────
 
 
-def test_parse_payload_valid_record_returns_42_param_tuple():
+def test_parse_payload_valid_record_returns_60_param_tuple():
     """Valid FeatureVectorRecord payload parses to a 42-element params tuple."""
     from services.feature_writer import FeatureWriter
 
@@ -172,7 +192,7 @@ def test_parse_payload_valid_record_returns_42_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 42, f"Expected 42-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 60, f"Expected 60-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -288,14 +308,14 @@ def test_insert_sql_targets_feature_vectors():
     assert "ON CONFLICT (symbol, tf, bar_ts) DO NOTHING" in _INSERT_FEATURE_VECTOR_SQL
 
 
-def test_insert_sql_has_42_placeholders():
-    """_INSERT_FEATURE_VECTOR_SQL must have exactly 42 positional placeholders $1..$42."""
+def test_insert_sql_has_60_placeholders():
+    """_INSERT_FEATURE_VECTOR_SQL must have exactly 60 positional placeholders $1..$60."""
     import re
 
     from services.feature_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 42, f"Expected 42 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 60, f"Expected 60 placeholders, got {len(placeholders)}"
 
 
 # ── _flush_batch ──────────────────────────────────────────────────────────────

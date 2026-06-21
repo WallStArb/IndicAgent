@@ -15,7 +15,6 @@ import dataclasses
 import os
 import signal as _signal
 import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
@@ -68,7 +67,6 @@ from src.intelligence.schemas import FeatureVectorRecord
 from src.observability.metrics import (
     CONTRACTS_RELOAD_TOTAL,
     PIPELINE_BACKPRESSURE_DROP_TOTAL,
-    THREAD_POOL_WORKERS,
     counter,
 )
 from src.observability.spans import ATTR_SYMBOL, ATTR_TF, observed_span
@@ -130,13 +128,6 @@ class IntelligencePipeline(BaseDaemon):
         # Per-(symbol, tf) FeatureCache — lazily created via _get_cache()
         self._feature_caches: dict[str, FeatureCache] = {}
 
-        # Thread pool (kept for CacheManager background tasks)
-        cpu_count = os.cpu_count() or 24
-        _configured = self.settings.intelligence_thread_pool_workers
-        _workers = _configured if _configured > 0 else max(4, cpu_count // 2)
-        self._thread_pool = ThreadPoolExecutor(max_workers=_workers, thread_name_prefix="intel_")
-        THREAD_POOL_WORKERS.add(_workers)
-
         self._config_service: ConfigService | None = None  # initialised in _setup()
         self._feature_factory_config: FeatureFactoryConfig | None = None
         self._feature_factory = FeatureFactory()
@@ -179,7 +170,6 @@ class IntelligencePipeline(BaseDaemon):
 
     async def stop(self) -> None:
         self.logger.info("agent.shutdown_initiated", agent=self.name)
-        self.logger.info("agent.thread_pool_shutdown", agent=self.name)
         await super().stop()
 
     async def _setup(self) -> None:
@@ -454,6 +444,21 @@ class IntelligencePipeline(BaseDaemon):
         ("feature.vix.zscore_window", 252),
         ("feature.yield_curve.zscore_window", 252),
         ("feature.regime.cache_refresh_bars", 30),
+        # --- migration 156: Phase 137 P7 oscillator + statistical/liquidity APR keys ---
+        ("feature.period.rsi.fast", 7),
+        ("feature.period.rsi.mid", 14),
+        ("feature.period.rsi.slow", 28),
+        ("feature.period.cci.fast", 10),
+        ("feature.period.cci.mid", 20),
+        ("feature.period.cci.slow", 40),
+        ("feature.period.aroon.fast", 14),
+        ("feature.period.aroon.slow", 25),
+        ("feature.amihud.zscore_window", 252),
+        ("feature.ret_skew.window", 60),
+        ("feature.ret_skew.zscore_window", 252),
+        ("feature.ret_acf.window", 30),
+        ("feature.ret_acf.zscore_window", 252),
+        ("feature.high_52w.window", 252),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -487,6 +492,20 @@ class IntelligencePipeline(BaseDaemon):
             vix_zscore_window=_int("feature.vix.zscore_window", 252),
             yield_curve_zscore_window=_int("feature.yield_curve.zscore_window", 252),
             regime_cache_refresh_bars=_int("feature.regime.cache_refresh_bars", 30),
+            rsi_fast_period=_int("feature.period.rsi.fast", 7),
+            rsi_mid_period=_int("feature.period.rsi.mid", 14),
+            rsi_slow_period=_int("feature.period.rsi.slow", 28),
+            cci_fast_period=_int("feature.period.cci.fast", 10),
+            cci_mid_period=_int("feature.period.cci.mid", 20),
+            cci_slow_period=_int("feature.period.cci.slow", 40),
+            aroon_fast_period=_int("feature.period.aroon.fast", 14),
+            aroon_slow_period=_int("feature.period.aroon.slow", 25),
+            amihud_zscore_window=_int("feature.amihud.zscore_window", 252),
+            ret_skew_window=_int("feature.ret_skew.window", 60),
+            ret_skew_zscore_window=_int("feature.ret_skew.zscore_window", 252),
+            ret_acf_window=_int("feature.ret_acf.window", 30),
+            ret_acf_zscore_window=_int("feature.ret_acf.zscore_window", 252),
+            high_52w_window=_int("feature.high_52w.window", 252),
         )
 
         self.logger.info(

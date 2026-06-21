@@ -77,23 +77,33 @@ _VERIFY_SCHEMA_SQL = (
 _INSERT_FEATURE_VECTOR_SQL = """
 INSERT INTO feature_vectors (
     symbol, tf, bar_ts, pipeline_version, regime, regime_label_source,
-    momentum_z_5, momentum_z_20, range_position, bar_close_pos, gap_z,
-    informed_flow, volume_z, ofi_z, cvd_slope_z, cmf, rel_volume,
-    vwap_dev_sigma, atr_z, vol_ratio,
+    momentum_z_5, momentum_z_20, range_position, bar_close_pos,
+    gap_z, informed_flow, volume_z, ofi_z, ofi_div, cvd_slope_z, cmf,
+    rel_volume, vwap_dev_sigma, atr_z, vol_ratio,
     poc_dist_atr, va_position, sr_support_dist, sr_resist_dist,
-    hmm_regime_prob, hmm_entropy, hurst, shannon, garch_ratio, hma_slope_z, adx,
+    hmm_regime_prob, hmm_entropy, hmm_duration, hurst, shannon, garch_ratio,
+    hma_slope_z, adx, aroon_fast, aroon_slow,
+    rsi_fast, rsi_mid, rsi_slow, cci_fast, cci_mid, cci_slow,
     vix_z, flight_quality, yield_slope_z,
-    in_ny_session, in_overlap, dow_sin, dow_cos, month_position,
-    ctf_momentum, ctf_vwap_align, ctf_regime_align
+    in_ny_session, in_london_kz, in_overlap, power_hour, opening_range,
+    above_wk_vwap, dow_sin, dow_cos, month_position,
+    ctf_momentum, ctf_vwap_align, ctf_regime_align,
+    amihud_illiq_z, high_52w_dist, ret_skew_z, ret_acf1_z
 )
 VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-    $21, $22, $23, $24,
-    $25, $26, $27, $28, $29, $30, $31,
-    $32, $33, $34,
-    $35, $36, $37, $38, $39,
-    $40, $41, $42
+    $7, $8, $9, $10,
+    $11, $12, $13, $14, $15, $16, $17,
+    $18, $19, $20, $21,
+    $22, $23, $24, $25,
+    $26, $27, $28, $29, $30, $31,
+    $32, $33, $34, $35,
+    $36, $37, $38, $39, $40, $41,
+    $42, $43, $44,
+    $45, $46, $47, $48, $49,
+    $50, $51, $52, $53,
+    $54, $55, $56,
+    $57, $58, $59, $60
 )
 ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 """
@@ -105,11 +115,11 @@ logger = structlog.get_logger(__name__)
 
 
 def _record_to_insert_params(record: FeatureVectorRecord) -> tuple:
-    """Build a 42-element tuple of INSERT parameters for _INSERT_FEATURE_VECTOR_SQL.
+    """Build a 60-element tuple of INSERT parameters for _INSERT_FEATURE_VECTOR_SQL.
 
     Column order matches the INSERT statement exactly:
     $1-$6: structural (symbol, tf, bar_ts, pipeline_version, regime, regime_label_source)
-    $7-$42: 36 feature floats in FeatureVector field order
+    $7-$60: 54 feature floats in FeatureVector field order
     """
     v: FeatureVector = record.vector
     return (
@@ -119,48 +129,70 @@ def _record_to_insert_params(record: FeatureVectorRecord) -> tuple:
         record.pipeline_version,  # $4  pipeline_version
         record.regime,  # $5  regime
         record.regime_label_source,  # $6 regime_label_source
-        # Bar-level (14)
+        # Momentum (5)
         v.momentum_z_5,  # $7
         v.momentum_z_20,  # $8
         v.range_position,  # $9
         v.bar_close_pos,  # $10
+        # Volume / order flow (8)
         v.gap_z,  # $11
         v.informed_flow,  # $12
         v.volume_z,  # $13
         v.ofi_z,  # $14
-        v.cvd_slope_z,  # $15
-        v.cmf,  # $16
-        v.rel_volume,  # $17
-        v.vwap_dev_sigma,  # $18
-        v.atr_z,  # $19
-        v.vol_ratio,  # $20
+        v.ofi_div,  # $15
+        v.cvd_slope_z,  # $16
+        v.cmf,  # $17
+        # Volatility (2)
+        v.rel_volume,  # $18
+        v.vwap_dev_sigma,  # $19
+        v.atr_z,  # $20
+        v.vol_ratio,  # $21
         # Session-level (4)
-        v.poc_dist_atr,  # $21
-        v.va_position,  # $22
-        v.sr_support_dist,  # $23
-        v.sr_resist_dist,  # $24
-        # Regime-level (7)
-        v.hmm_regime_prob,  # $25
-        v.hmm_entropy,  # $26
-        v.hurst,  # $27
-        v.shannon,  # $28
-        v.garch_ratio,  # $29
-        v.hma_slope_z,  # $30
-        v.adx,  # $31
+        v.poc_dist_atr,  # $22
+        v.va_position,  # $23
+        v.sr_support_dist,  # $24
+        v.sr_resist_dist,  # $25
+        # Regime-level (11)
+        v.hmm_regime_prob,  # $26
+        v.hmm_entropy,  # $27
+        v.hmm_duration,  # $28
+        v.hurst,  # $29
+        v.shannon,  # $30
+        v.garch_ratio,  # $31
+        v.hma_slope_z,  # $32
+        v.adx,  # $33
+        v.aroon_fast,  # $34
+        v.aroon_slow,  # $35
+        # Oscillators (6)
+        v.rsi_fast,  # $36
+        v.rsi_mid,  # $37
+        v.rsi_slow,  # $38
+        v.cci_fast,  # $39
+        v.cci_mid,  # $40
+        v.cci_slow,  # $41
         # Cross-asset (3)
-        v.vix_z,  # $32
-        v.flight_quality,  # $33
-        v.yield_slope_z,  # $34
-        # Calendar (5)
-        v.in_ny_session,  # $35
-        v.in_overlap,  # $36
-        v.dow_sin,  # $37
-        v.dow_cos,  # $38
-        v.month_position,  # $39
+        v.vix_z,  # $42
+        v.flight_quality,  # $43
+        v.yield_slope_z,  # $44
+        # Calendar (9)
+        v.in_ny_session,  # $45
+        v.in_london_kz,  # $46
+        v.in_overlap,  # $47
+        v.power_hour,  # $48
+        v.opening_range,  # $49
+        v.above_wk_vwap,  # $50
+        v.dow_sin,  # $51
+        v.dow_cos,  # $52
+        v.month_position,  # $53
         # Cross-timeframe (3)
-        v.ctf_momentum,  # $40
-        v.ctf_vwap_align,  # $41
-        v.ctf_regime_align,  # $42
+        v.ctf_momentum,  # $54
+        v.ctf_vwap_align,  # $55
+        v.ctf_regime_align,  # $56
+        # Statistical / liquidity (4)
+        v.amihud_illiq_z,  # $57
+        v.high_52w_dist,  # $58
+        v.ret_skew_z,  # $59
+        v.ret_acf1_z,  # $60
     )
 
 
@@ -170,7 +202,7 @@ def _record_to_insert_params(record: FeatureVectorRecord) -> tuple:
 class FeatureWriter(BaseWriter):
     """Async Kafka consumer agent: topic_feature_vectors -> buffer -> batch INSERT.
 
-    Consumes FeatureVectorRecord messages and batch-writes 42-column rows
+    Consumes FeatureVectorRecord messages and batch-writes 60-column rows
     to the feature_vectors TimescaleDB hypertable. Single atomic INSERT per bar.
     """
 
