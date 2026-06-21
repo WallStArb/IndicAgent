@@ -1252,7 +1252,26 @@ Plans:
 5. IC discovery report: which features pass FDR gate by regime and TF
 6. All `alpha.ic.*` APR keys seeded and loaded via `ConfigService.get()`
 
-**Plans:** TBD
+**Plans:** 5 plans (4 waves)
+
+Plans:
+
+**Wave 1** *(foundation — backfill + schema + APR seed)*
+
+- [ ] 138-P1-PLAN.md — Run FeatureFactory backfill (unblocks everything) + migration 157 (outcome_labels hypertable + feature_ic_scores) + migration 158 (alpha.ic.*/alpha.decay.* APR seeds) + alpha. in OPS_PREFIXES + service_auditor registration (SC-1, SC-2, SC-6)
+
+**Wave 2** *(parallel — both blocked on P1, no file conflicts)*
+
+- [ ] 138-P2-PLAN.md — HMM RegimeLabeler oneshot: per-(symbol,tf) Viterbi decoding → feature_vectors.regime canonical text labels (untracked-but-mandatory; regime is NULL for all rows) + D-06/OTel/spans
+- [ ] 138-P3-PLAN.md — OutcomeLabeler oneshot: causal LEAD() forward log returns ln(open[T+N+1]/open[T+1]) → outcome_labels + completeness flags + idempotent + D-06/OTel/spans (SC-1)
+
+**Wave 3** *(blocked on P2 + P3)*
+
+- [ ] 138-P4-PLAN.md — ICEngine oneshot: vectorized Spearman IC + manual bootstrap CI + BH-FDR + 3-fold walk-forward + IC Sharpe (20K-obs gate) → feature_ic_scores; regime-stratified; crash-loud; idempotent; D-06/6 OTel metrics/3 spans (SC-2, SC-3, SC-4, SC-6)
+
+**Wave 4** *(blocked on P4)*
+
+- [ ] 138-P5-PLAN.md — Unit tests (vectorized IC == scipy 1e-10, no-lookahead forward return, BH-FDR order preservation, idempotency, canonical regime labels) + IC discovery report docs/analysis/ic-discovery-report-{date}.md (SC-5)
 
 ### Phase 139: Ensemble + Alpha Emission
 
