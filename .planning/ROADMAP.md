@@ -1216,7 +1216,7 @@ Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from 
 9. Zero inline numeric constants in `feature_factory.py` - all APR-backed via `ConfigService.get()`
 10. Unit tests green
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/7 plans executed
 
 Plans:
 
@@ -1236,7 +1236,7 @@ Plans:
 
 **Wave 4** *(blocked on P3+P4+P5; backfill coverage gate must pass first)*
 
-- [ ] 137-P6-PLAN.md - Cutover: wire FeatureFactory into pipeline + feature.* prewarm + remove plugin dispatch + archive I5/I6/I7 intact + live smoke test + done-gate (SC-6, SC-7, SC-8, SC-10)
+- [x] 137-P6-PLAN.md - Cutover: wire FeatureFactory into pipeline + feature.* prewarm + remove plugin dispatch + archive I5/I6/I7 intact + live smoke test + done-gate (SC-6, SC-7, SC-8, SC-10)
 
 ### Phase 138: IC Engine + Outcome Labels
 
