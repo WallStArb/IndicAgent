@@ -64,7 +64,7 @@ class TestLiquidityHunt:
 
     def test_bsl_sweep_generates_short(self):
         """BSL swept + reclaimed + significance >= 0.60 → short signal."""
-        from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+        from src.intelligence.archive.trading_i7.liquidity_hunt import LiquidityHuntPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -81,7 +81,7 @@ class TestLiquidityHunt:
 
     def test_ssl_sweep_generates_long(self):
         """SSL swept + reclaimed + significance >= 0.60 → long signal."""
-        from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+        from src.intelligence.archive.trading_i7.liquidity_hunt import LiquidityHuntPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -96,7 +96,7 @@ class TestLiquidityHunt:
 
     def test_no_signal_low_significance(self):
         """Significance < 0.60 → no signal (random swing, not named level)."""
-        from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+        from src.intelligence.archive.trading_i7.liquidity_hunt import LiquidityHuntPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -119,7 +119,7 @@ class TestLiquidityHunt:
 
     def test_no_signal_sweep_not_reclaimed(self):
         """sweep_reclaimed=0 → no signal (breakout not a hunt)."""
-        from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+        from src.intelligence.archive.trading_i7.liquidity_hunt import LiquidityHuntPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -142,7 +142,7 @@ class TestLiquidityHunt:
 
     def test_confidence_higher_for_pwh_than_pdh(self):
         """PWH level (significance=1.0) → higher confidence than PDH (0.85)."""
-        from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+        from src.intelligence.archive.trading_i7.liquidity_hunt import LiquidityHuntPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -158,7 +158,7 @@ class TestLiquidityHunt:
 
     def test_fvg_boosts_confidence(self):
         """FVG in sweep direction adds confidence boost."""
-        from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+        from src.intelligence.archive.trading_i7.liquidity_hunt import LiquidityHuntPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -172,7 +172,7 @@ class TestLiquidityHunt:
 
     def test_opposing_zone_penalizes_confidence(self):
         """Hunting short but entering demand zone → confidence penalty."""
-        from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+        from src.intelligence.archive.trading_i7.liquidity_hunt import LiquidityHuntPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -186,7 +186,7 @@ class TestLiquidityHunt:
 
     def test_has_two_targets(self):
         """Signal output includes at least 2 price targets."""
-        from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+        from src.intelligence.archive.trading_i7.liquidity_hunt import LiquidityHuntPlugin
 
         df = make_ohlcv(np.full(100, 5000.0))
         plugin = LiquidityHuntPlugin()
@@ -196,7 +196,7 @@ class TestLiquidityHunt:
 
     def test_insufficient_data_returns_no_signal(self):
         """Too few bars → no signal."""
-        from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+        from src.intelligence.archive.trading_i7.liquidity_hunt import LiquidityHuntPlugin
 
         df = make_ohlcv(np.full(5, 5000.0))
         plugin = LiquidityHuntPlugin()

@@ -51,7 +51,7 @@ def _base_features(**kwargs):
 
 def test_no_signal_when_no_prior_session_data():
     """features with prior_session_high=None -> no_signal."""
-    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+    from src.intelligence.archive.trading_i7.prev_day_level_test import PrevDayLevelTestPlugin
 
     plugin = PrevDayLevelTestPlugin()
     close = np.full(25, 5050.0)
@@ -67,7 +67,7 @@ def test_no_signal_when_no_prior_session_data():
 
 def test_no_signal_when_price_far_from_levels():
     """close more than 0.5xATR from all three levels -> no_signal."""
-    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+    from src.intelligence.archive.trading_i7.prev_day_level_test import PrevDayLevelTestPlugin
 
     plugin = PrevDayLevelTestPlugin()
     # ATR=10, proximity=5.0; close at 5020 -> dist from PDH(5050)=30, PDL(4950)=70, PDC(5000)=20
@@ -82,7 +82,7 @@ def test_no_signal_when_price_far_from_levels():
 
 def test_no_signal_when_insufficient_lookback():
     """len(df) < min_lookback -> returns empty dict."""
-    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+    from src.intelligence.archive.trading_i7.prev_day_level_test import PrevDayLevelTestPlugin
 
     plugin = PrevDayLevelTestPlugin()
     close = np.full(5, 5050.0)
@@ -95,7 +95,7 @@ def test_no_signal_when_insufficient_lookback():
 
 def test_fires_fade_variant_near_pdh():
     """close within 0.5xATR of PDH + bearish bar (close < open) -> direction=-1, fade."""
-    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+    from src.intelligence.archive.trading_i7.prev_day_level_test import PrevDayLevelTestPlugin
 
     plugin = PrevDayLevelTestPlugin()
     # PDH=5050, ATR=10, proximity=5. close=5048 -> within 5 of PDH.
@@ -122,7 +122,7 @@ def test_fires_fade_variant_near_pdh():
 
 def test_fires_fade_variant_near_pdl():
     """close within 0.5xATR of PDL + bullish bar (close > open) -> direction=1, fade."""
-    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+    from src.intelligence.archive.trading_i7.prev_day_level_test import PrevDayLevelTestPlugin
 
     plugin = PrevDayLevelTestPlugin()
     # PDL=4950, ATR=10, proximity=5. close=4952 -> within 5 of PDL.
@@ -149,7 +149,7 @@ def test_fires_fade_variant_near_pdl():
 
 def test_fires_fade_variant_near_pdc():
     """close within 0.5xATR of PDC + reversal momentum -> fires with setup_variant='fade'."""
-    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+    from src.intelligence.archive.trading_i7.prev_day_level_test import PrevDayLevelTestPlugin
 
     plugin = PrevDayLevelTestPlugin()
     # PDC=5000, ATR=10, proximity=5. close=5003 (within 5 of PDC).
@@ -179,7 +179,7 @@ def test_fires_fade_variant_near_pdc():
 
 def test_fires_continuation_variant_after_breakout():
     """Price broke above PDH, then pulled back to within 0.5xATR above PDH -> continuation long."""
-    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+    from src.intelligence.archive.trading_i7.prev_day_level_test import PrevDayLevelTestPlugin
 
     plugin = PrevDayLevelTestPlugin()
 
@@ -215,7 +215,7 @@ def test_fires_continuation_variant_after_breakout():
 
 def test_no_signal_when_frame_not_viable():
     """When frame_trade returns viable=False (no structural levels) -> no_signal."""
-    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+    from src.intelligence.archive.trading_i7.prev_day_level_test import PrevDayLevelTestPlugin
 
     plugin = PrevDayLevelTestPlugin()
     # PDH=5050, ATR=10, close=5048 (within proximity, bearish)
@@ -246,7 +246,10 @@ def test_no_signal_when_frame_not_viable():
 
 def test_plugin_instance_exists():
     """Module-level plugin instance must exist."""
-    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin, plugin
+    from src.intelligence.archive.trading_i7.prev_day_level_test import (
+        PrevDayLevelTestPlugin,
+        plugin,
+    )
 
     assert isinstance(plugin, PrevDayLevelTestPlugin)
     assert plugin.name == "trad_PrevDayLevelTest"
@@ -255,7 +258,7 @@ def test_plugin_instance_exists():
 
 def test_tf_guard_returns_no_signal_on_1h():
     """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
-    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+    from src.intelligence.archive.trading_i7.prev_day_level_test import PrevDayLevelTestPlugin
 
     plugin = PrevDayLevelTestPlugin()
     close = np.linspace(5000.0, 5010.0, 25)

@@ -48,7 +48,7 @@ def _base_features(**kwargs):
 
 
 def test_no_signal_when_bos_not_detected():
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+    from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
     plugin = FailedBreakoutPlugin()
     close = np.linspace(5000.0, 5010.0, 25)
@@ -60,7 +60,7 @@ def test_no_signal_when_bos_not_detected():
 
 def test_no_signal_when_bos_detected_but_no_reversal_yet():
     """BOS just detected — bars_since_bos not past 3 but no close-back-through yet."""
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+    from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
     plugin = FailedBreakoutPlugin()
     close = np.linspace(5000.0, 4990.0, 25)  # price falling (bearish BOS)
@@ -74,7 +74,7 @@ def test_no_signal_when_bos_detected_but_no_reversal_yet():
 
 def test_no_signal_when_reversal_window_exceeds_3_bars():
     """BOS detected but bars_since_bos exceeds 3 with no reversal — state cleared, no signal."""
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+    from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
     plugin = FailedBreakoutPlugin()
     close = np.linspace(5000.0, 4985.0, 25)
@@ -96,7 +96,7 @@ def test_no_signal_when_reversal_window_exceeds_3_bars():
 
 def test_fires_on_bos_reversal_long():
     """Bearish BOS (bos_direction=-1), then close > bos_level within 3 bars -> long signal."""
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+    from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
     plugin = FailedBreakoutPlugin()
     close_below = np.linspace(5000.0, 4990.0, 25)
@@ -120,7 +120,7 @@ def test_fires_on_bos_reversal_long():
 
 def test_fires_on_bos_reversal_short():
     """Bullish BOS (bos_direction=1), then close < bos_level within 3 bars -> short signal."""
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+    from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
     plugin = FailedBreakoutPlugin()
     close_above = np.linspace(5000.0, 5010.0, 25)
@@ -142,7 +142,7 @@ def test_fires_on_bos_reversal_short():
 def test_fires_in_trend_regime_when_gate_passes():
     """hmm_regime=1.0 (trend, up >= 0.30) still fires — Phase 119 gate blocks only if BOTH
     up AND down are below 0.30. With hmm_prob_trending_up=0.8, gate passes."""
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+    from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
     plugin = FailedBreakoutPlugin()
     close_below = np.linspace(5000.0, 4990.0, 25)
@@ -167,7 +167,7 @@ def test_fires_in_trend_regime_when_gate_passes():
 
 def test_bos_level_persists_in_state():
     """State persists bos_level so second call with bos_detected=0 still uses it."""
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+    from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
     plugin = FailedBreakoutPlugin()
     close_below = np.linspace(5000.0, 4990.0, 25)
@@ -192,7 +192,7 @@ def test_bos_level_persists_in_state():
 
 def test_no_signal_when_frame_not_viable():
     """When frame_trade returns viable=False, plugin returns no_signal."""
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+    from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
     plugin = FailedBreakoutPlugin()
     close_below = np.linspace(5000.0, 4990.0, 25)
@@ -208,7 +208,7 @@ def test_no_signal_when_frame_not_viable():
     mock_frame.viable = False
 
     with patch(
-        "src.intelligence.trading.failed_breakout.frame_trade",
+        "src.intelligence.archive.trading_i7.failed_breakout.frame_trade",
         return_value=mock_frame,
     ):
         result = plugin.compute_full(_make_frames(close_above, feat_rev))
@@ -219,7 +219,7 @@ def test_no_signal_when_frame_not_viable():
 
 def test_feature_logging_fields():
     """Fired signal includes bos_level, bars_since_bos, delta in supporting_factors."""
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+    from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
     plugin = FailedBreakoutPlugin()
     close_below = np.linspace(5000.0, 4990.0, 25)
@@ -245,7 +245,7 @@ def test_feature_logging_fields():
 
 def test_min_lookback_guard():
     """Returns empty dict when df has fewer rows than min_lookback."""
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+    from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
     plugin = FailedBreakoutPlugin()
     close = np.array([5000.0] * 5)  # only 5 bars, min_lookback=20
@@ -256,9 +256,9 @@ def test_min_lookback_guard():
 
 def test_module_level_plugin_instance():
     """Module exports a plugin instance."""
-    import src.intelligence.trading.failed_breakout as mod
+    import src.intelligence.archive.trading_i7.failed_breakout as mod
 
     assert hasattr(mod, "plugin")
-    from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+    from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
     assert isinstance(mod.plugin, FailedBreakoutPlugin)

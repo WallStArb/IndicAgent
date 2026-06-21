@@ -12,7 +12,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from src.intelligence.features.smc_context.hmm_regime import (
+from src.intelligence.archive.smc_context.hmm_regime import (
     VELOCITY_WINDOW_BY_TF,
     HMMRegimePlugin,
 )
@@ -148,7 +148,7 @@ def test_hmm_regime_reload_parameters_with_tf_file(tmp_path: pytest.FixtureReque
 
     # Patch Path to point to our tmp file so no real filesystem access needed
     with patch(
-        "src.intelligence.features.smc_context.hmm_regime.Path",
+        "src.intelligence.archive.smc_context.hmm_regime.Path",
         side_effect=lambda p: (
             tmp_path / p.split("/")[-1] if "hmm_parameters" in str(p) else type(tmp_path)(p)
         ),

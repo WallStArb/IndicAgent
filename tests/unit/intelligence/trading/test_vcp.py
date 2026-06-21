@@ -86,7 +86,7 @@ def _run_contractions(plugin, n_contractions, symbol="ES", tf="1m", features=Non
 
 def test_no_signal_when_hmm_not_trend():
     """Both hmm_prob_trending_up and _down below 0.30 -> no_signal (continuous regime gate)."""
-    from src.intelligence.trading.vcp import VCPPlugin
+    from src.intelligence.archive.trading_i7.vcp import VCPPlugin
 
     plugin = VCPPlugin()
     features = _base_features(
@@ -102,7 +102,7 @@ def test_no_signal_when_hmm_not_trend():
 
 def test_no_signal_when_ctf_below_threshold():
     """abs(ctf_score) < 0.25 -> no_signal (I6 ctf gate replaces old hmm_regime_prob gate)."""
-    from src.intelligence.trading.vcp import VCPPlugin
+    from src.intelligence.archive.trading_i7.vcp import VCPPlugin
 
     plugin = VCPPlugin()
     features = _base_features(ctf_score=0.10)  # abs < 0.25 threshold
@@ -116,7 +116,7 @@ def test_no_signal_when_ctf_below_threshold():
 
 def test_no_signal_with_only_two_contractions():
     """Only 2 contractions -> no_signal (need >= 3)."""
-    from src.intelligence.trading.vcp import VCPPlugin
+    from src.intelligence.archive.trading_i7.vcp import VCPPlugin
 
     plugin = VCPPlugin()
     features = _base_features()
@@ -141,7 +141,7 @@ def test_no_signal_with_only_two_contractions():
 
 def test_fires_after_three_contractions():
     """3+ contractions with declining range/volume, then expansion bar -> fires."""
-    from src.intelligence.trading.vcp import VCPPlugin
+    from src.intelligence.archive.trading_i7.vcp import VCPPlugin
 
     plugin = VCPPlugin()
     features = _base_features(
@@ -183,7 +183,7 @@ def test_fires_after_three_contractions():
 
 def test_direction_follows_hmm_trend_long():
     """hmm_regime=1.0 -> direction=1 (long breakout)."""
-    from src.intelligence.trading.vcp import VCPPlugin
+    from src.intelligence.archive.trading_i7.vcp import VCPPlugin
 
     plugin = VCPPlugin()
     features = _base_features(
@@ -208,7 +208,7 @@ def test_direction_follows_hmm_trend_long():
 
 def test_direction_follows_hmm_trend_short():
     """hmm_regime=2.0 -> direction=-1 (short breakout)."""
-    from src.intelligence.trading.vcp import VCPPlugin
+    from src.intelligence.archive.trading_i7.vcp import VCPPlugin
 
     plugin = VCPPlugin()
     features = _base_features(
@@ -236,7 +236,7 @@ def test_direction_follows_hmm_trend_short():
 
 def test_state_resets_on_new_session():
     """Different session date -> contraction list clears (state reset)."""
-    from src.intelligence.trading.vcp import VCPPlugin
+    from src.intelligence.archive.trading_i7.vcp import VCPPlugin
 
     plugin = VCPPlugin()
     features = _base_features()
@@ -262,7 +262,7 @@ def test_state_resets_on_new_session():
 
 def test_contraction_count_in_output():
     """Valid VCP fire must include contraction_count >= 3 in output."""
-    from src.intelligence.trading.vcp import VCPPlugin
+    from src.intelligence.archive.trading_i7.vcp import VCPPlugin
 
     plugin = VCPPlugin()
     features = _base_features(
@@ -290,7 +290,7 @@ def test_contraction_count_in_output():
 
 def test_insufficient_lookback_returns_empty():
     """len(df) < min_lookback -> empty dict."""
-    from src.intelligence.trading.vcp import VCPPlugin
+    from src.intelligence.archive.trading_i7.vcp import VCPPlugin
 
     plugin = VCPPlugin()
     close = np.full(5, 5050.0)
@@ -314,7 +314,7 @@ def test_insufficient_lookback_returns_empty():
 
 def test_plugin_instance_exists():
     """Module-level plugin instance must exist."""
-    from src.intelligence.trading.vcp import VCPPlugin, plugin
+    from src.intelligence.archive.trading_i7.vcp import VCPPlugin, plugin
 
     assert isinstance(plugin, VCPPlugin)
     assert plugin.name == "trad_VCP"

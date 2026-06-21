@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.intelligence.features.i5_patterns.candlestick_patterns import plugin
+from src.intelligence.archive.i5_patterns.candlestick_patterns import plugin
 
 
 def _make_ohlc_frame(opens, highs, lows, closes):

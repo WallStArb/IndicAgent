@@ -50,7 +50,9 @@ def _base_features(**kwargs):
 @pytest.mark.skip(reason="HMM regime gate removed (ECL boundary violation fix)")
 def test_no_signal_in_ranging_regime():
     """Both hmm_prob_trending_up and _down below 0.30 -> no_signal (continuous regime gate)."""
-    from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+    from src.intelligence.archive.trading_i7.second_leg_continuation import (
+        SecondLegContinuationPlugin,
+    )
 
     plugin = SecondLegContinuationPlugin()
     close = np.full(60, 5050.0)
@@ -66,7 +68,9 @@ def test_no_signal_in_ranging_regime():
 
 def test_no_signal_when_amplitude_below_atr():
     """swing_high - swing_low < atr_14 -> no_signal (amplitude gate)."""
-    from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+    from src.intelligence.archive.trading_i7.second_leg_continuation import (
+        SecondLegContinuationPlugin,
+    )
 
     plugin = SecondLegContinuationPlugin()
     close = np.full(60, 5005.0)
@@ -83,7 +87,9 @@ def test_no_signal_when_amplitude_below_atr():
 
 def test_no_signal_when_swing_data_missing():
     """swing_high=None -> no_signal (guard for missing data)."""
-    from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+    from src.intelligence.archive.trading_i7.second_leg_continuation import (
+        SecondLegContinuationPlugin,
+    )
 
     plugin = SecondLegContinuationPlugin()
     close = np.full(60, 5050.0)
@@ -94,7 +100,9 @@ def test_no_signal_when_swing_data_missing():
 
 def test_no_signal_when_stale_swing():
     """swing_high_age_bars > 50 AND swing_low_age_bars > 50 -> no_signal (stale data)."""
-    from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+    from src.intelligence.archive.trading_i7.second_leg_continuation import (
+        SecondLegContinuationPlugin,
+    )
 
     plugin = SecondLegContinuationPlugin()
     close = np.full(60, 5050.0)
@@ -105,7 +113,9 @@ def test_no_signal_when_stale_swing():
 
 def test_no_signal_when_price_outside_fib_zone():
     """close above 61.8% retracement (already past ideal zone) -> no_signal."""
-    from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+    from src.intelligence.archive.trading_i7.second_leg_continuation import (
+        SecondLegContinuationPlugin,
+    )
 
     plugin = SecondLegContinuationPlugin()
     # swing_high=5100, swing_low=5000, amplitude=100
@@ -126,7 +136,9 @@ def test_no_signal_when_price_outside_fib_zone():
 
 def test_no_signal_insufficient_lookback():
     """len(df) < min_lookback -> empty dict."""
-    from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+    from src.intelligence.archive.trading_i7.second_leg_continuation import (
+        SecondLegContinuationPlugin,
+    )
 
     plugin = SecondLegContinuationPlugin()
     close = np.full(5, 5050.0)
@@ -139,7 +151,9 @@ def test_no_signal_insufficient_lookback():
 
 def test_fires_in_fib_zone_long():
     """close at 50% retracement (5050), swing_high=5100, swing_low=5000, hmm_regime=1.0 -> direction=1."""
-    from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+    from src.intelligence.archive.trading_i7.second_leg_continuation import (
+        SecondLegContinuationPlugin,
+    )
 
     plugin = SecondLegContinuationPlugin()
     # 50% retracement is midpoint: (5100+5000)/2 = 5050
@@ -162,7 +176,9 @@ def test_fires_in_fib_zone_long():
 
 def test_fires_in_fib_zone_short():
     """close in fib zone with dominant down regime -> direction=-1."""
-    from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+    from src.intelligence.archive.trading_i7.second_leg_continuation import (
+        SecondLegContinuationPlugin,
+    )
 
     plugin = SecondLegContinuationPlugin()
     # For bearish: swing_high=5100 (peak of downward leg 1), swing_low=5000
@@ -190,7 +206,9 @@ def test_fires_in_fib_zone_short():
 
 def test_targets_match_measured_move():
     """Targets should approximate entry + 1.0x, 1.272x, 1.618x amplitude."""
-    from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+    from src.intelligence.archive.trading_i7.second_leg_continuation import (
+        SecondLegContinuationPlugin,
+    )
 
     plugin = SecondLegContinuationPlugin()
     # swing_high=5100, swing_low=5000, amplitude=100
@@ -218,7 +236,7 @@ def test_targets_match_measured_move():
 
 def test_plugin_instance_exists():
     """Module-level plugin instance must exist."""
-    from src.intelligence.trading.second_leg_continuation import (
+    from src.intelligence.archive.trading_i7.second_leg_continuation import (
         SecondLegContinuationPlugin,
         plugin,
     )

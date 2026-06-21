@@ -8,7 +8,7 @@ from tests.unit.intelligence.helpers import make_ohlcv
 class TestMeanReversion:
     def test_bullish_reversion_at_support(self):
         """Price at support + RSI<30 + ranging regime → reversion_long."""
-        from src.intelligence.trading.mean_reversion import MeanReversionPlugin
+        from src.intelligence.archive.trading_i7.mean_reversion import MeanReversionPlugin
 
         close = np.full(100, 5000.0) + np.random.default_rng(1).normal(0, 2, 100)
         close[-1] = 4980.0  # price near support
@@ -51,7 +51,7 @@ class TestMeanReversion:
 
     def test_bearish_reversion_at_resistance(self):
         """Price at resistance + RSI>70 → reversion_short."""
-        from src.intelligence.trading.mean_reversion import MeanReversionPlugin
+        from src.intelligence.archive.trading_i7.mean_reversion import MeanReversionPlugin
 
         close = np.full(100, 5000.0) + np.random.default_rng(2).normal(0, 2, 100)
         close[-1] = 5020.0  # price near resistance
@@ -91,7 +91,7 @@ class TestMeanReversion:
 
     def test_no_signal_in_trending_regime(self):
         """trend_regime=0.8 (trending) → no signal generated."""
-        from src.intelligence.trading.mean_reversion import MeanReversionPlugin
+        from src.intelligence.archive.trading_i7.mean_reversion import MeanReversionPlugin
 
         close = np.linspace(5000, 5200, 100)
         df = make_ohlcv(close)
@@ -124,7 +124,7 @@ class TestMeanReversion:
 
     def test_no_signal_when_near_kalman_fair_value(self):
         """kalman_price_position < 1.0σ — price at fair value, no extension to revert."""
-        from src.intelligence.trading.mean_reversion import MeanReversionPlugin
+        from src.intelligence.archive.trading_i7.mean_reversion import MeanReversionPlugin
 
         close = np.full(100, 5000.0) + np.random.default_rng(10).normal(0, 2, 100)
         close[-1] = 4980.0
@@ -158,7 +158,7 @@ class TestMeanReversion:
 
     def test_signal_fires_when_kalman_price_displaced(self):
         """kalman_price_position >= 1.0σ — price is displaced, reversion valid."""
-        from src.intelligence.trading.mean_reversion import MeanReversionPlugin
+        from src.intelligence.archive.trading_i7.mean_reversion import MeanReversionPlugin
 
         close = np.full(100, 5000.0) + np.random.default_rng(11).normal(0, 2, 100)
         close[-1] = 4980.0
@@ -192,7 +192,7 @@ class TestMeanReversion:
 
     def test_missing_kalman_data_mean_reversion_unaffected(self):
         """No kalman_price_position in features → gate skipped, existing behavior unchanged."""
-        from src.intelligence.trading.mean_reversion import MeanReversionPlugin
+        from src.intelligence.archive.trading_i7.mean_reversion import MeanReversionPlugin
 
         close = np.full(100, 5000.0) + np.random.default_rng(12).normal(0, 2, 100)
         close[-1] = 4980.0

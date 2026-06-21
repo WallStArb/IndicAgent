@@ -17,8 +17,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from src.intelligence.trading.orb15 import ORB15Plugin
-from src.intelligence.trading.orb30 import ORB30Plugin
+from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
+from src.intelligence.archive.trading_i7.orb30 import ORB30Plugin
 
 _ET_TZ = ZoneInfo("America/New_York")
 _MIN_LOOKBACK = 20  # plugin.min_lookback = 20

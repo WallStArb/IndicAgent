@@ -10,7 +10,7 @@ Tests cover:
 
 import pytest
 
-from src.intelligence.confluence.cross_tf_momentum_divergence import (
+from src.intelligence.archive.confluence.cross_tf_momentum_divergence import (
     CrossTFMomentumDivergencePlugin,
     plugin,
 )

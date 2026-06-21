@@ -534,7 +534,7 @@ class TestMomentumContextCorrectness:
 class TestBollingerSqueezeCorrectness:
     def test_squeeze_active_when_bb_inside_keltner(self):
         """BB inside Keltner = squeeze_active == 1."""
-        from src.intelligence.features.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
+        from src.intelligence.archive.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
 
         features = {
             "bb_20_2_upper": 5020.0,
@@ -560,7 +560,7 @@ class TestBollingerSqueezeCorrectness:
 
     def test_no_squeeze_when_bb_outside_keltner(self):
         """BB outside Keltner = no squeeze."""
-        from src.intelligence.features.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
+        from src.intelligence.archive.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
 
         features = {
             "bb_20_2_upper": 5050.0,
@@ -593,7 +593,7 @@ class TestBollingerSqueezeCorrectness:
 class TestBOSCHoCHCorrectness:
     def test_bos_requires_close_not_wick(self):
         """BOS should trigger on close beyond swing level, not wick."""
-        from src.intelligence.features.smc_context.bos_choch import BOSCHoCHPlugin
+        from src.intelligence.archive.smc_context.bos_choch import BOSCHoCHPlugin
 
         # 65 bars: uptrend to ~5100, retrace, then consolidation
         close = np.concatenate(
@@ -628,7 +628,7 @@ class TestBOSCHoCHCorrectness:
 class TestFVGCorrectness:
     def test_fvg_bullish_bar_indexing(self):
         """Bullish FVG: bar[-3].high < bar[-1].low (3-bar gap)."""
-        from src.intelligence.features.smc_context.fair_value_gap import FairValueGapPlugin
+        from src.intelligence.archive.smc_context.fair_value_gap import FairValueGapPlugin
 
         # Repeat a pattern where bar[i].high < bar[i+2].low (bullish FVG)
         df = pd.DataFrame(
@@ -656,7 +656,7 @@ class TestFVGCorrectness:
 class TestLiquiditySweepsCorrectness:
     def test_sweep_detected_output_exists(self):
         """Plugin should return sweep_detected key."""
-        from src.intelligence.features.smc_context.liquidity_sweeps import LiquiditySweepsPlugin
+        from src.intelligence.archive.smc_context.liquidity_sweeps import LiquiditySweepsPlugin
 
         close = np.concatenate(
             [
@@ -687,7 +687,7 @@ class TestLiquiditySweepsCorrectness:
 class TestHMMCorrectness:
     def test_hmm_macd_key_name_is_correct(self):
         """Verify HMM uses macd_histogram_12_26_9 (not macd_hist_12_26_9)."""
-        from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
+        from src.intelligence.archive.smc_context.hmm_regime import HMMRegimePlugin
 
         source = inspect.getsource(HMMRegimePlugin)
         assert (
@@ -696,7 +696,7 @@ class TestHMMCorrectness:
 
     def test_hmm_regime_values_are_0_1_or_2(self):
         """HMM regime must be 0, 1, or 2."""
-        from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
+        from src.intelligence.archive.smc_context.hmm_regime import HMMRegimePlugin
 
         close = np.linspace(5000, 5200, 80)
         df = make_ohlcv(close)
@@ -726,7 +726,7 @@ class TestHMMCorrectness:
 class TestLiquidityPoolsCorrectness:
     def test_bsl_above_price_ssl_below(self):
         """BSL must be above current close; SSL must be below."""
-        from src.intelligence.features.smc_context.liquidity_pools import LiquidityPoolsPlugin
+        from src.intelligence.archive.smc_context.liquidity_pools import LiquidityPoolsPlugin
 
         close = np.concatenate(
             [
@@ -752,7 +752,7 @@ class TestLiquidityPoolsCorrectness:
 class TestSupplyDemandCorrectness:
     def test_freshness_decreases_or_zones_clear_after_retest(self):
         """demand_freshness should drop (or zones clear) after price revisits zone."""
-        from src.intelligence.features.smc_context.supply_demand_zones import (
+        from src.intelligence.archive.smc_context.supply_demand_zones import (
             SupplyDemandZonesPlugin,
         )
 

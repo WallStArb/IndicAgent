@@ -10,7 +10,9 @@ class TestZoneEnhancements:
 
     def test_liquidity_sweep_reclaim_boosted_by_named_level(self):
         """LiquiditySweepReclaim gains confidence when sweep was at a named pool level."""
-        from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
+        from src.intelligence.archive.trading_i7.liquidity_sweep_reclaim import (
+            LiquiditySweepReclaimPlugin,
+        )
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -48,7 +50,7 @@ class TestZoneEnhancements:
 
     def test_momentum_breakout_penalized_by_opposing_zone(self):
         """MomentumBreakout long penalized when in_supply_zone=1.0."""
-        from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+        from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
         close = np.linspace(5000, 5100, 100)
         df = make_ohlcv(close)
@@ -75,7 +77,7 @@ class TestZoneEnhancements:
 
     def test_trend_following_penalized_by_opposing_zone(self):
         """TrendFollowing long penalized when trending into supply zone."""
-        from src.intelligence.trading.trend_following import TrendFollowingPlugin
+        from src.intelligence.archive.trading_i7.trend_following import TrendFollowingPlugin
 
         close = np.linspace(5000, 5200, 100)
         df = make_ohlcv(close)

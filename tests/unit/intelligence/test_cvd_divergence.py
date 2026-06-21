@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.intelligence.trading.cvd_divergence import (
+from src.intelligence.archive.trading_i7.cvd_divergence import (
     _CONFIRMATION_BARS,
     _CVD_DIV_THRESHOLD,
     _CVD_DIV_UPPER_REF,

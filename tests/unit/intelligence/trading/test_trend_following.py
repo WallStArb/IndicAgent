@@ -51,7 +51,7 @@ class TestTrendFollowing:
         This is the key Phase 124 invariant: 'is trending' state alone does NOT fire.
         Price is flat relative to SMA (no pullback, no consolidation breakout).
         """
-        from src.intelligence.trading.trend_following import TrendFollowingPlugin
+        from src.intelligence.archive.trading_i7.trend_following import TrendFollowingPlugin
 
         plugin = TrendFollowingPlugin()
         close = np.full(100, 5000.0)
@@ -85,7 +85,7 @@ class TestTrendFollowing:
         - Feed a reversal bar: price crosses back above SMA
         - Verify: fires on reversal bar, deduplicate_event prevents immediate re-fire
         """
-        from src.intelligence.trading.trend_following import (
+        from src.intelligence.archive.trading_i7.trend_following import (
             TrendFollowingPlugin,
         )
 
@@ -144,7 +144,7 @@ class TestTrendFollowing:
         - Feed a breakout bar with close > consolidation_high
         - Verify: fires on breakout bar only
         """
-        from src.intelligence.trading.trend_following import TrendFollowingPlugin
+        from src.intelligence.archive.trading_i7.trend_following import TrendFollowingPlugin
 
         plugin = TrendFollowingPlugin()
         symbol, tf = "ES", "1m"
@@ -251,7 +251,7 @@ class TestTrendFollowing:
 
     def test_no_signal_in_weak_regime(self):
         """Weak/neutral regime -> no signal generated (context filter blocks even with structural event)."""
-        from src.intelligence.trading.trend_following import (
+        from src.intelligence.archive.trading_i7.trend_following import (
             TrendFollowingPlugin,
         )
 
@@ -280,7 +280,7 @@ class TestTrendFollowing:
 
     def test_insufficient_data_returns_empty(self):
         """Too few bars -> empty result."""
-        from src.intelligence.trading.trend_following import TrendFollowingPlugin
+        from src.intelligence.archive.trading_i7.trend_following import TrendFollowingPlugin
 
         close = np.array([5000.0, 5001.0, 5002.0])
         df = make_ohlcv(close)

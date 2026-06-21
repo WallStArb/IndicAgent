@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.intelligence.features.i5_patterns.triangle_wedge import TriangleWedgePlugin
+from src.intelligence.archive.i5_patterns.triangle_wedge import TriangleWedgePlugin
 
 
 def _make_frames(high, low, close):

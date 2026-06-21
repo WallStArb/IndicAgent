@@ -13,7 +13,7 @@ from tests.unit.intelligence.mixin_equivalence.helpers import build_synthetic_fr
 
 def test_hmm_uses_incremental_mixin():
     """HMMRegime plugin is an instance of IncrementalMixin."""
-    from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
+    from src.intelligence.archive.smc_context.hmm_regime import HMMRegimePlugin
     from src.intelligence.plugins.mixins import IncrementalMixin
 
     assert isinstance(HMMRegimePlugin(), IncrementalMixin)
@@ -21,7 +21,7 @@ def test_hmm_uses_incremental_mixin():
 
 def test_hmm_compute_full_returns_state():
     """HMMRegime compute_full returns _state key with alpha (forward probabilities)."""
-    from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
+    from src.intelligence.archive.smc_context.hmm_regime import HMMRegimePlugin
 
     plugin = HMMRegimePlugin()
     frames = build_synthetic_frames(n_bars=200, seed=42)
@@ -36,7 +36,7 @@ def test_hmm_compute_full_returns_state():
 
 def test_hmm_compute_next_returns_state():
     """HMMRegime compute_full returns _state key and compute_next uses it."""
-    from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
+    from src.intelligence.archive.smc_context.hmm_regime import HMMRegimePlugin
 
     plugin = HMMRegimePlugin()
     frames = build_synthetic_frames(n_bars=200, seed=42)

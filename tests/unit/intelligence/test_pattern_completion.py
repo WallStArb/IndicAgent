@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.intelligence.trading.pattern_completion import PatternCompletionPlugin
+from src.intelligence.archive.trading_i7.pattern_completion import PatternCompletionPlugin
 from tests.unit.intelligence.helpers import make_ohlcv
 
 # ---------------------------------------------------------------------------

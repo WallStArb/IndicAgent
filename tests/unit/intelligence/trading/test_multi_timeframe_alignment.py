@@ -8,7 +8,7 @@ from tests.unit.intelligence.helpers import make_ohlcv
 class TestMultiTimeframeAlignment:
     def test_strong_bullish_alignment(self):
         """CTF score > 0.7 + multiple TFs → long signal."""
-        from src.intelligence.trading.mtf_alignment import MTFAlignmentPlugin
+        from src.intelligence.archive.trading_i7.mtf_alignment import MTFAlignmentPlugin
 
         close = np.linspace(5000, 5100, 100)
         df = make_ohlcv(close)
@@ -42,7 +42,7 @@ class TestMultiTimeframeAlignment:
 
     def test_weak_alignment_no_signal(self):
         """CTF score < threshold → no signal."""
-        from src.intelligence.trading.mtf_alignment import MTFAlignmentPlugin
+        from src.intelligence.archive.trading_i7.mtf_alignment import MTFAlignmentPlugin
 
         close = np.full(100, 5050.0)
         df = make_ohlcv(close)
@@ -69,7 +69,7 @@ class TestMultiTimeframeAlignment:
 
     def test_minimum_timeframes_required(self):
         """High CTF score but only 1 TF aligned → no signal."""
-        from src.intelligence.trading.mtf_alignment import MTFAlignmentPlugin
+        from src.intelligence.archive.trading_i7.mtf_alignment import MTFAlignmentPlugin
 
         close = np.linspace(5000, 5100, 100)
         df = make_ohlcv(close)

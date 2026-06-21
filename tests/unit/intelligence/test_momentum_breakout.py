@@ -23,7 +23,7 @@ def _base_features(roc=0.5, swing_high=5010.0, swing_low=4990.0, trend_regime=0.
 class TestMomentumBreakout:
     def test_long_breakout_all_gates_pass(self):
         """ROC spike up + volume expansion + price above swing_high → momentum_breakout_long."""
-        from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+        from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
         close = np.full(50, 5010.0)
         close[-1] = 5015.0  # above swing_high=5010
@@ -55,7 +55,7 @@ class TestMomentumBreakout:
 
     def test_short_breakout_all_gates_pass(self):
         """ROC spike down + volume expansion + price below swing_low → momentum_breakout_short."""
-        from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+        from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
         close = np.full(50, 4990.0)
         close[-1] = 4985.0  # below swing_low=4990
@@ -84,7 +84,7 @@ class TestMomentumBreakout:
 
     def test_no_signal_roc_too_weak(self):
         """ROC below threshold → no signal even if volume and structure qualify."""
-        from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+        from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
         close = np.full(50, 5015.0)
         volume = np.full(50, 1000.0)
@@ -110,7 +110,7 @@ class TestMomentumBreakout:
 
     def test_no_signal_low_volume(self):
         """ROC spike + structure break but volume below 1.5x → no signal."""
-        from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+        from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
         close = np.full(50, 5015.0)  # above swing_high=5010
         volume = np.full(50, 1000.0)
@@ -136,7 +136,7 @@ class TestMomentumBreakout:
 
     def test_no_signal_no_structure_break(self):
         """Strong ROC + volume but price hasn't cleared swing_high → no signal."""
-        from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+        from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
         close = np.full(50, 5005.0)  # below swing_high=5010
         volume = np.full(50, 1000.0)
@@ -162,7 +162,7 @@ class TestMomentumBreakout:
 
     def test_no_signal_roc_direction_mismatch(self):
         """Positive ROC but only swing_low broken (not swing_high) → no signal."""
-        from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+        from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
         close = np.full(50, 5005.0)  # above swing_low=4990 but below swing_high=5010
         volume = np.full(50, 1000.0)
@@ -189,7 +189,7 @@ class TestMomentumBreakout:
 
     def test_inline_roc_fallback_when_feature_absent(self):
         """Plugin computes ROC from df if roc_14 not in features (fallback path)."""
-        from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+        from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
         # Build 50-bar series where roc_14 is large enough to trigger
         close = np.full(50, 5000.0)
@@ -227,7 +227,7 @@ class TestMomentumBreakout:
 
     def test_confidence_scales_with_roc_magnitude(self):
         """Larger ROC spike → higher confidence, all else equal."""
-        from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+        from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
         plugin = MomentumBreakoutPlugin()
         close = np.full(50, 5015.0)
@@ -266,7 +266,7 @@ class TestMomentumBreakout:
 
     def test_insufficient_data_returns_empty(self):
         """Too few bars → empty dict."""
-        from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+        from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
         close = np.array([5000.0, 5005.0, 5010.0])
         df = make_ohlcv(close)

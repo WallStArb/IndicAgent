@@ -27,7 +27,7 @@ class TestHMMGradientContinuity:
 
     def test_failed_breakout_confidence_scales_with_ranging_prob(self):
         """Ranging probability scales the +0.15 boost continuously."""
-        from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
+        from src.intelligence.archive.trading_i7.failed_breakout import FailedBreakoutPlugin
 
         df = make_ohlcv(np.full(100, 5000.0))
         plugin = FailedBreakoutPlugin()
@@ -59,7 +59,7 @@ class TestHMMGradientContinuity:
 
     def test_supply_demand_continuous_freshness_base(self):
         """Base confidence ramps continuously with freshness, not 3 steps."""
-        from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+        from src.intelligence.archive.trading_i7.supply_demand_setup import SupplyDemandSetupPlugin
 
         df = make_ohlcv(np.full(100, 5000.0))
         plugin = SupplyDemandSetupPlugin()
@@ -219,7 +219,7 @@ class TestHMMGradientContinuity:
 
     def test_momentum_breakout_regime_score_continuous(self):
         """regime_score is continuous from HMM probabilities, not 0.5/1.0/0.1 steps."""
-        from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+        from src.intelligence.archive.trading_i7.momentum_breakout import MomentumBreakoutPlugin
 
         close = np.linspace(5000, 5100, 100)
         df = make_ohlcv(close)
@@ -334,7 +334,7 @@ class TestHMMGradientContinuity:
 
     def test_squeeze_expansion_regime_score_bounded(self):
         """regime_score in squeeze_expansion ranges between 0.2 and 0.8."""
-        from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
+        from src.intelligence.archive.trading_i7.squeeze_expansion import SqueezeExpansionPlugin
 
         close = np.concatenate(
             [
@@ -381,7 +381,9 @@ class TestHMMGradientContinuity:
 
     def test_second_leg_untouched(self):
         """second_leg_continuation still uses binary eligibility gate correctly."""
-        from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+        from src.intelligence.archive.trading_i7.second_leg_continuation import (
+            SecondLegContinuationPlugin,
+        )
 
         close = np.linspace(5000, 5100, 100)
         df = make_ohlcv(close)
@@ -445,7 +447,7 @@ class TestHMMGradientContinuity:
 
     def test_vcp_untouched(self):
         """vcp still uses binary eligibility gate correctly."""
-        from src.intelligence.trading.vcp import VCPPlugin
+        from src.intelligence.archive.trading_i7.vcp import VCPPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)

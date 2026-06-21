@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.intelligence.trading.ofi_continuation import (
+from src.intelligence.archive.trading_i7.ofi_continuation import (
     _MAGNITUDE_FLOORS_DEFAULT,
     _MIN_BARS_DEFAULT,
     _UPPER_REF_MULTIPLIER,
@@ -165,7 +165,7 @@ def _fire_via_acceleration(
     The acceleration burst uses three bars where each delta is at least 1.5x the
     previous, so the second derivative (change-of-change) exceeds the threshold.
     """
-    from src.intelligence.trading.ofi_continuation import _MAGNITUDE_FLOORS_DEFAULT
+    from src.intelligence.archive.trading_i7.ofi_continuation import _MAGNITUDE_FLOORS_DEFAULT
 
     plugin = OFIContinuationPlugin()
     sign = 1.0 if ofi_ewma_20_final >= 0 else -1.0

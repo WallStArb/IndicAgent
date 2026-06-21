@@ -55,7 +55,7 @@ def _base_features(**kwargs):
 
 def test_no_signal_outside_session_window():
     """timestamp at 12:00 ET is outside 09:30-11:30 ET window -> no_signal."""
-    from src.intelligence.trading.orb15 import ORB15Plugin
+    from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
 
     plugin = ORB15Plugin()
     close = np.linspace(5000.0, 5010.0, 25)
@@ -67,7 +67,7 @@ def test_no_signal_outside_session_window():
 
 def test_no_signal_before_range_complete():
     """timestamp at 09:40 ET is during accumulation window (09:30-09:45) -> no_signal."""
-    from src.intelligence.trading.orb15 import ORB15Plugin
+    from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
 
     plugin = ORB15Plugin()
     close = np.linspace(5000.0, 5010.0, 25)
@@ -78,7 +78,7 @@ def test_no_signal_before_range_complete():
 
 def test_fires_on_breakout_long():
     """After range complete (09:45+ ET), close > orb_high + volume expansion -> long signal."""
-    from src.intelligence.trading.orb15 import ORB15Plugin
+    from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
 
     plugin = ORB15Plugin()
 
@@ -109,7 +109,7 @@ def test_fires_on_breakout_long():
 
 def test_fires_on_breakout_short():
     """After range complete, close < orb_low + volume expansion -> short signal."""
-    from src.intelligence.trading.orb15 import ORB15Plugin
+    from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
 
     plugin = ORB15Plugin()
 
@@ -133,7 +133,7 @@ def test_fires_on_breakout_short():
 
 def test_no_signal_without_volume_expansion():
     """Close above orb_high but volume < 1.5x average -> no_signal."""
-    from src.intelligence.trading.orb15 import ORB15Plugin
+    from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
 
     plugin = ORB15Plugin()
 
@@ -155,7 +155,7 @@ def test_no_signal_without_volume_expansion():
 
 def test_gap_bias_boosts_long_confidence():
     """Gap up (open > prior_session_close by > 0.1%) boosts long confidence."""
-    from src.intelligence.trading.orb15 import ORB15Plugin
+    from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
 
     plugin_gap = ORB15Plugin()
     plugin_flat = ORB15Plugin()
@@ -192,7 +192,7 @@ def test_gap_bias_boosts_long_confidence():
 
 def test_state_resets_on_new_session_date():
     """Different date causes range state to reset and re-accumulate."""
-    from src.intelligence.trading.orb15 import ORB15Plugin
+    from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
 
     plugin = ORB15Plugin()
 
@@ -216,7 +216,7 @@ def test_state_resets_on_new_session_date():
 
 def test_fires_only_once_per_direction():
     """After firing long, same direction does not re-fire in the same session."""
-    from src.intelligence.trading.orb15 import ORB15Plugin
+    from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
 
     plugin = ORB15Plugin()
 
@@ -245,7 +245,7 @@ def test_fires_only_once_per_direction():
 
 def test_min_lookback_guard():
     """Returns no_signal when df has fewer rows than min_lookback."""
-    from src.intelligence.trading.orb15 import ORB15Plugin
+    from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
 
     plugin = ORB15Plugin()
     close = np.array([5000.0] * 5)
@@ -257,17 +257,17 @@ def test_min_lookback_guard():
 
 def test_module_level_plugin_instance():
     """Module exports a plugin instance."""
-    import src.intelligence.trading.orb15 as mod
+    import src.intelligence.archive.trading_i7.orb15 as mod
 
     assert hasattr(mod, "plugin")
-    from src.intelligence.trading.orb15 import ORB15Plugin
+    from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
 
     assert isinstance(mod.plugin, ORB15Plugin)
 
 
 def test_tf_guard_returns_no_signal_on_1h():
     """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
-    from src.intelligence.trading.orb15 import ORB15Plugin
+    from src.intelligence.archive.trading_i7.orb15 import ORB15Plugin
 
     plugin = ORB15Plugin()
     close = np.linspace(5000.0, 5010.0, 25)

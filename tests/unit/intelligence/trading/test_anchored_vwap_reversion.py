@@ -50,7 +50,9 @@ def _base_features(**kwargs):
 
 def test_fires_short_when_above_sigma_threshold():
     """sigma=2.0, hmm_regime=0, hurst=0.45, close reclaims below vwap → direction == -1."""
-    from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
+    from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
+        AnchoredVWAPReversionPlugin,
+    )
 
     plugin = AnchoredVWAPReversionPlugin()
     # Close must be below session_vwap (5000) to confirm short reclaim
@@ -65,7 +67,9 @@ def test_fires_short_when_above_sigma_threshold():
 
 def test_fires_long_when_below_sigma_threshold():
     """sigma=-2.0, hmm_regime=0, hurst=0.45, close reclaims above vwap → direction == 1."""
-    from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
+    from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
+        AnchoredVWAPReversionPlugin,
+    )
 
     plugin = AnchoredVWAPReversionPlugin()
     # Close must be above session_vwap (5000) to confirm long reclaim
@@ -84,7 +88,9 @@ def test_fires_long_when_below_sigma_threshold():
 
 def test_no_signal_when_sigma_too_small():
     """sigma=0.5 → abs < sigma_min=1.0 threshold → no signal."""
-    from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
+    from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
+        AnchoredVWAPReversionPlugin,
+    )
 
     plugin = AnchoredVWAPReversionPlugin()
     close = np.linspace(5003.0, 5004.0, 25)
@@ -100,7 +106,9 @@ def test_no_signal_when_sigma_too_small():
 
 def test_fires_in_trending_regime():
     """hmm_regime=1 (trending) must not suppress — HMM is annotation only per ECL invariant."""
-    from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
+    from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
+        AnchoredVWAPReversionPlugin,
+    )
 
     plugin = AnchoredVWAPReversionPlugin()
     # Same setup as test_fires_short_when_above_sigma_threshold but with hmm_regime=1
@@ -115,7 +123,9 @@ def test_fires_in_trending_regime():
 
 def test_no_signal_when_hurst_too_high():
     """hurst_exponent=0.60 >= 0.55 → trending-like → no signal."""
-    from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
+    from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
+        AnchoredVWAPReversionPlugin,
+    )
 
     plugin = AnchoredVWAPReversionPlugin()
     close = np.linspace(5010.0, 5012.0, 25)
@@ -129,7 +139,9 @@ def test_no_signal_when_hurst_too_high():
 
 def test_confidence_is_in_range():
     """When signal fires, confidence must be in (0.0, 1.0]."""
-    from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
+    from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
+        AnchoredVWAPReversionPlugin,
+    )
 
     plugin = AnchoredVWAPReversionPlugin()
     # Close must cross below vwap (5000) to confirm short reclaim
@@ -145,7 +157,9 @@ def test_confidence_is_in_range():
 
 def test_targets_include_session_vwap():
     """T1 target must be session_vwap (5000.0) for short signal."""
-    from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
+    from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
+        AnchoredVWAPReversionPlugin,
+    )
 
     plugin = AnchoredVWAPReversionPlugin()
     close = np.linspace(5010.0, 5012.0, 25)
@@ -165,7 +179,9 @@ def test_targets_include_session_vwap():
 
 def test_regime_type_is_mean_reversion():
     """Plugin must declare regime_type == 'mean_reversion'."""
-    from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
+    from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
+        AnchoredVWAPReversionPlugin,
+    )
 
     plugin = AnchoredVWAPReversionPlugin()
     assert plugin.regime_type == "mean_reversion"
@@ -176,7 +192,9 @@ def test_regime_type_is_mean_reversion():
 
 def test_no_signal_when_required_features_missing():
     """Missing session_vwap_deviation_sigma → returns no signal."""
-    from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
+    from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
+        AnchoredVWAPReversionPlugin,
+    )
 
     plugin = AnchoredVWAPReversionPlugin()
     close = np.linspace(5010.0, 5012.0, 25)
@@ -190,7 +208,7 @@ def test_no_signal_when_required_features_missing():
 
 def test_plugin_module_instance():
     """Module-level `plugin` instance must have correct name."""
-    from src.intelligence.trading.anchored_vwap_reversion import plugin
+    from src.intelligence.archive.trading_i7.anchored_vwap_reversion import plugin
 
     assert plugin.name == "trad_AnchoredVWAPReversion"
 
@@ -200,7 +218,9 @@ def test_plugin_module_instance():
 
 def test_tf_guard_returns_no_signal_on_1h():
     """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
-    from src.intelligence.trading.anchored_vwap_reversion import AnchoredVWAPReversionPlugin
+    from src.intelligence.archive.trading_i7.anchored_vwap_reversion import (
+        AnchoredVWAPReversionPlugin,
+    )
 
     plugin = AnchoredVWAPReversionPlugin()
     close = np.linspace(5010.0, 5012.0, 25)

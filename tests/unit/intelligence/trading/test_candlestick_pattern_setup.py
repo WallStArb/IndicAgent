@@ -8,7 +8,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
+from src.intelligence.archive.trading_i7.candlestick_pattern_setup import (
+    CandlestickPatternSetupPlugin,
+)
 from tests.unit.intelligence.helpers import make_ohlcv
 
 # ---------------------------------------------------------------------------

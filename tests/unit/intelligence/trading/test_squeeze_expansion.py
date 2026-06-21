@@ -8,7 +8,7 @@ from tests.unit.intelligence.helpers import make_ohlcv
 class TestSqueezeExpansion:
     def test_bullish_squeeze_breakout(self):
         """Squeeze resolved + volume expansion + bullish momentum → long signal."""
-        from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
+        from src.intelligence.archive.trading_i7.squeeze_expansion import SqueezeExpansionPlugin
 
         close = np.concatenate(
             [
@@ -48,7 +48,7 @@ class TestSqueezeExpansion:
 
     def test_no_signal_during_active_squeeze(self):
         """Squeeze still active → no signal."""
-        from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
+        from src.intelligence.archive.trading_i7.squeeze_expansion import SqueezeExpansionPlugin
 
         close = np.full(100, 5050.0)
         df = make_ohlcv(close)
@@ -76,7 +76,7 @@ class TestSqueezeExpansion:
 
     def test_no_signal_without_volume_expansion(self):
         """Squeeze released but volume low → no signal."""
-        from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
+        from src.intelligence.archive.trading_i7.squeeze_expansion import SqueezeExpansionPlugin
 
         close = np.concatenate([np.full(80, 5050.0), np.linspace(5055, 5070, 20)])
         volume = np.full(100, 500.0)
@@ -110,7 +110,7 @@ class TestSqueezeExpansion:
 
     def test_no_signal_in_extreme_garch_vol(self):
         """garch_vol_regime=3 (extreme) — squeeze breakout blocked regardless of setup quality."""
-        from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
+        from src.intelligence.archive.trading_i7.squeeze_expansion import SqueezeExpansionPlugin
 
         close = np.concatenate(
             [
@@ -151,7 +151,7 @@ class TestSqueezeExpansion:
 
     def test_signal_fires_in_high_vol_not_extreme(self):
         """garch_vol_regime=2 (high, not extreme) — squeeze breakout allowed."""
-        from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
+        from src.intelligence.archive.trading_i7.squeeze_expansion import SqueezeExpansionPlugin
 
         close = np.concatenate(
             [
@@ -192,7 +192,7 @@ class TestSqueezeExpansion:
 
     def test_missing_garch_squeeze_passes(self):
         """No garch_vol_regime key — gate defaults to regime=1, signal fires normally."""
-        from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
+        from src.intelligence.archive.trading_i7.squeeze_expansion import SqueezeExpansionPlugin
 
         close = np.concatenate(
             [

@@ -73,7 +73,7 @@ class TestSupplyDemandSetup:
 
     def test_demand_zone_generates_long(self):
         """Price in demand zone + fresh → long signal."""
-        from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+        from src.intelligence.archive.trading_i7.supply_demand_setup import SupplyDemandSetupPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -89,7 +89,7 @@ class TestSupplyDemandSetup:
 
     def test_supply_zone_generates_short(self):
         """Price in supply zone + fresh → short signal."""
-        from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+        from src.intelligence.archive.trading_i7.supply_demand_setup import SupplyDemandSetupPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -104,7 +104,7 @@ class TestSupplyDemandSetup:
 
     def test_no_signal_when_not_in_zone(self):
         """Price not in any zone → no signal."""
-        from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+        from src.intelligence.archive.trading_i7.supply_demand_setup import SupplyDemandSetupPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -126,7 +126,7 @@ class TestSupplyDemandSetup:
 
     def test_no_signal_mitigated_zone(self):
         """Zone freshness below threshold → no signal."""
-        from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+        from src.intelligence.archive.trading_i7.supply_demand_setup import SupplyDemandSetupPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -148,7 +148,7 @@ class TestSupplyDemandSetup:
 
     def test_fresh_zone_higher_confidence_than_tested(self):
         """Fresh zone (1.0) has higher confidence than tested zone (0.5)."""
-        from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+        from src.intelligence.archive.trading_i7.supply_demand_setup import SupplyDemandSetupPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -164,7 +164,7 @@ class TestSupplyDemandSetup:
 
     def test_act_123_bonus_applied(self):
         """Sweep + FVG preceding zone entry → act_1_2_3_confirmed bonus."""
-        from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+        from src.intelligence.archive.trading_i7.supply_demand_setup import SupplyDemandSetupPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -177,7 +177,7 @@ class TestSupplyDemandSetup:
 
     def test_premium_discount_penalty_applied(self):
         """Demand zone in premium → lower confidence than demand zone in discount."""
-        from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+        from src.intelligence.archive.trading_i7.supply_demand_setup import SupplyDemandSetupPlugin
 
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
@@ -191,7 +191,7 @@ class TestSupplyDemandSetup:
 
     def test_has_two_targets(self):
         """Output includes at least 2 price targets."""
-        from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+        from src.intelligence.archive.trading_i7.supply_demand_setup import SupplyDemandSetupPlugin
 
         df = make_ohlcv(np.full(100, 5000.0))
         plugin = SupplyDemandSetupPlugin()
@@ -201,7 +201,7 @@ class TestSupplyDemandSetup:
 
     def test_insufficient_data_no_signal(self):
         """Too few bars → no signal."""
-        from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+        from src.intelligence.archive.trading_i7.supply_demand_setup import SupplyDemandSetupPlugin
 
         df = make_ohlcv(np.full(5, 5000.0))
         plugin = SupplyDemandSetupPlugin()

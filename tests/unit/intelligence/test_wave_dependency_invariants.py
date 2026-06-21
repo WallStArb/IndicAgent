@@ -1,6 +1,6 @@
 """Tests proving wave dependency structure is correct and mtf_volatility is independent."""
 
-from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
+from src.intelligence.archive.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 from src.intelligence.register_plugins import (
     I2_WAVE_A,
     I2_WAVE_B,

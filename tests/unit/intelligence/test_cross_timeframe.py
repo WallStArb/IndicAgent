@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.intelligence.confluence.cross_timeframe import CrossTimeframeConfluencePlugin
+from src.intelligence.archive.confluence.cross_timeframe import CrossTimeframeConfluencePlugin
 
 
 @pytest.fixture

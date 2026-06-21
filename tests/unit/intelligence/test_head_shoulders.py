@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.intelligence.features.i5_patterns.head_shoulders import HeadShouldersPlugin
+from src.intelligence.archive.i5_patterns.head_shoulders import HeadShouldersPlugin
 
 
 def _make_frames(high, low, close):

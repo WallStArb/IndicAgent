@@ -45,7 +45,7 @@ def _base_features(**kwargs):
 
 def test_fires_long_on_reclaim_from_below():
     """Prior bar below vwap, current bar above + rel_volume >= 1.2 → long signal."""
-    from src.intelligence.trading.vwap_reclaim import VWAPReclaimPlugin
+    from src.intelligence.archive.trading_i7.vwap_reclaim import VWAPReclaimPlugin
 
     plugin = VWAPReclaimPlugin()
     vwap = 5000.0
@@ -68,7 +68,7 @@ def test_fires_long_on_reclaim_from_below():
 
 def test_fires_short_on_break_from_above():
     """Prior bar above vwap, current bar below + rel_volume >= 1.2 → short signal."""
-    from src.intelligence.trading.vwap_reclaim import VWAPReclaimPlugin
+    from src.intelligence.archive.trading_i7.vwap_reclaim import VWAPReclaimPlugin
 
     plugin = VWAPReclaimPlugin()
     vwap = 5000.0
@@ -91,7 +91,7 @@ def test_fires_short_on_break_from_above():
 
 def test_no_signal_when_volume_too_low():
     """rel_volume=1.0 < 1.2 threshold → no signal."""
-    from src.intelligence.trading.vwap_reclaim import VWAPReclaimPlugin
+    from src.intelligence.archive.trading_i7.vwap_reclaim import VWAPReclaimPlugin
 
     plugin = VWAPReclaimPlugin()
     vwap = 5000.0
@@ -114,7 +114,7 @@ def test_no_signal_when_volume_too_low():
 
 def test_no_signal_when_no_cross():
     """Both bars above VWAP → no reclaim cross → no signal."""
-    from src.intelligence.trading.vwap_reclaim import VWAPReclaimPlugin
+    from src.intelligence.archive.trading_i7.vwap_reclaim import VWAPReclaimPlugin
 
     plugin = VWAPReclaimPlugin()
     vwap = 5000.0
@@ -137,7 +137,7 @@ def test_no_signal_when_no_cross():
 
 def test_state_bars_counters_track_correctly():
     """After 3 bars below VWAP, bars_below should be 3 in state."""
-    from src.intelligence.trading.vwap_reclaim import VWAPReclaimPlugin
+    from src.intelligence.archive.trading_i7.vwap_reclaim import VWAPReclaimPlugin
 
     plugin = VWAPReclaimPlugin()
     vwap = 5000.0
@@ -157,7 +157,7 @@ def test_state_bars_counters_track_correctly():
 
 def test_no_signal_on_immediate_recross():
     """No prior bars on wrong side → bars counter = 0 → no signal even with volume."""
-    from src.intelligence.trading.vwap_reclaim import VWAPReclaimPlugin
+    from src.intelligence.archive.trading_i7.vwap_reclaim import VWAPReclaimPlugin
 
     plugin = VWAPReclaimPlugin()
     vwap = 5000.0
@@ -193,7 +193,7 @@ def test_no_signal_on_immediate_recross():
 
 def test_regime_type_is_any():
     """Plugin must declare regime_type == 'any'."""
-    from src.intelligence.trading.vwap_reclaim import VWAPReclaimPlugin
+    from src.intelligence.archive.trading_i7.vwap_reclaim import VWAPReclaimPlugin
 
     plugin = VWAPReclaimPlugin()
     assert plugin.regime_type == "any"
@@ -204,7 +204,7 @@ def test_regime_type_is_any():
 
 def test_volume_fallback_when_rel_volume_none():
     """When rel_volume is None, falls back to bar_vol/avg_vol ratio."""
-    from src.intelligence.trading.vwap_reclaim import VWAPReclaimPlugin
+    from src.intelligence.archive.trading_i7.vwap_reclaim import VWAPReclaimPlugin
 
     plugin = VWAPReclaimPlugin()
     vwap = 5000.0
@@ -234,7 +234,7 @@ def test_volume_fallback_when_rel_volume_none():
 
 def test_plugin_module_instance():
     """Module-level `plugin` instance must have correct name."""
-    from src.intelligence.trading.vwap_reclaim import plugin
+    from src.intelligence.archive.trading_i7.vwap_reclaim import plugin
 
     assert plugin.name == "trad_VWAPReclaim"
 
@@ -244,7 +244,7 @@ def test_plugin_module_instance():
 
 def test_tf_guard_returns_no_signal_on_1h():
     """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
-    from src.intelligence.trading.vwap_reclaim import VWAPReclaimPlugin
+    from src.intelligence.archive.trading_i7.vwap_reclaim import VWAPReclaimPlugin
 
     plugin = VWAPReclaimPlugin()
     close = np.linspace(5000.0, 5010.0, 25)

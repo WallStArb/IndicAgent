@@ -54,7 +54,7 @@ def _base_features(**kwargs):
 
 def test_no_signal_before_range_complete():
     """timestamp at 09:50 ET is during 09:30-10:00 accumulation window -> no_signal."""
-    from src.intelligence.trading.orb30 import ORB30Plugin
+    from src.intelligence.archive.trading_i7.orb30 import ORB30Plugin
 
     plugin = ORB30Plugin()
     close = np.linspace(5000.0, 5010.0, 25)
@@ -65,7 +65,7 @@ def test_no_signal_before_range_complete():
 
 def test_fires_on_breakout_long():
     """After range complete (10:00+ ET), close > orb_high + volume expansion -> long signal."""
-    from src.intelligence.trading.orb30 import ORB30Plugin
+    from src.intelligence.archive.trading_i7.orb30 import ORB30Plugin
 
     plugin = ORB30Plugin()
 
@@ -94,7 +94,7 @@ def test_fires_on_breakout_long():
 
 def test_fires_on_breakout_short():
     """After range complete (10:00+ ET), close < orb_low + volume expansion -> short signal."""
-    from src.intelligence.trading.orb30 import ORB30Plugin
+    from src.intelligence.archive.trading_i7.orb30 import ORB30Plugin
 
     plugin = ORB30Plugin()
 
@@ -117,7 +117,7 @@ def test_fires_on_breakout_short():
 
 def test_session_gate_blocks_after_1130():
     """timestamp at 11:35 ET is outside 09:30-11:30 window -> no_signal."""
-    from src.intelligence.trading.orb30 import ORB30Plugin
+    from src.intelligence.archive.trading_i7.orb30 import ORB30Plugin
 
     plugin = ORB30Plugin()
     close = np.linspace(5000.0, 5010.0, 25)
@@ -129,7 +129,7 @@ def test_session_gate_blocks_after_1130():
 
 def test_no_signal_without_volume_expansion():
     """Close above orb_high but uniform low volume -> no_signal."""
-    from src.intelligence.trading.orb30 import ORB30Plugin
+    from src.intelligence.archive.trading_i7.orb30 import ORB30Plugin
 
     plugin = ORB30Plugin()
 
@@ -150,17 +150,17 @@ def test_no_signal_without_volume_expansion():
 
 def test_module_level_plugin_instance():
     """Module exports a plugin instance."""
-    import src.intelligence.trading.orb30 as mod
+    import src.intelligence.archive.trading_i7.orb30 as mod
 
     assert hasattr(mod, "plugin")
-    from src.intelligence.trading.orb30 import ORB30Plugin
+    from src.intelligence.archive.trading_i7.orb30 import ORB30Plugin
 
     assert isinstance(mod.plugin, ORB30Plugin)
 
 
 def test_tf_guard_returns_no_signal_on_1h():
     """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
-    from src.intelligence.trading.orb30 import ORB30Plugin
+    from src.intelligence.archive.trading_i7.orb30 import ORB30Plugin
 
     plugin = ORB30Plugin()
     close = np.linspace(5000.0, 5010.0, 25)
