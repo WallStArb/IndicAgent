@@ -382,4 +382,4 @@ def test_vector_to_params_length():
     ts = datetime(2026, 1, 7, 14, 0, tzinfo=UTC)
     fv = FeatureFactory.compute(bars, "SPY", "1m", cache, cfg)
     row = _vector_to_params("SPY", "1m", ts, "v3.0.0", None, fv)
-    assert len(row) == 61, f"Expected 61, got {len(row)}"
+    assert len(row) == 70, f"Expected 70, got {len(row)}"

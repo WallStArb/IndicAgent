@@ -1,25 +1,32 @@
 """Regression test pinning the column mapping in _record_to_insert_params.
 
 Verifies that the tuple produced by _record_to_insert_params
-carries data in the correct position for each INSERT column:
+carries data in the correct position for each INSERT column
+after migration 159 expanded the tuple from 61 to 70 elements:
 
-  $1  (params[0])  -> feature_vector_id  UUID (content-key)
-  $2  (params[1])  -> symbol             str
-  $3  (params[2])  -> tf                 str
-  $4  (params[3])  -> bar_ts             datetime
-  $5  (params[4])  -> pipeline_version   str
-  $6  (params[5])  -> regime             str | None
-  $7  (params[6])  -> regime_label_source str
-  $8  (params[7])  -> momentum_z_fast    float
-  $21 (params[20]) -> atr_z              float
-  $30 (params[29]) -> hurst              float
-  $55 (params[54]) -> ctf_momentum       float (may shift with Task 6 expansion)
+  $1  (params[0])  -> feature_vector_id       UUID (content-key)
+  $2  (params[1])  -> symbol                  str
+  $3  (params[2])  -> tf                      str
+  $4  (params[3])  -> bar_ts                  datetime
+  $5  (params[4])  -> pipeline_version        str
+  $6  (params[5])  -> feature_factory_version str  (NEW in 138-P1)
+  $7  (params[6])  -> regime                  str | None
+  $8  (params[7])  -> regime_label_source     str
+  $9  (params[8])  -> momentum_z_fast         float
+  $22 (params[21]) -> atr_z                   float
+  $31 (params[30]) -> hurst                   float
+  $56 (params[55]) -> ctf_momentum            float
+  $62 (params[61]) -> ret_acf1_z              float
+  $63 (params[62]) -> bar_close_ts            datetime  (NEW in 138-P1)
+  $70 (params[69]) -> volatility_rank_z       float | None  (NEW in 138-P1)
 
 This test will fail if any column shift occurs in _record_to_insert_params.
 """
 
 import uuid
 from datetime import UTC, datetime
+
+import pytest
 
 
 def _make_sentinel_record():
@@ -98,14 +105,14 @@ def _make_sentinel_record():
     )
 
 
-def test_params_length_is_61():
-    """_record_to_insert_params must return exactly 61 elements."""
+def test_params_length_is_70():
+    """_record_to_insert_params must return exactly 70 elements (post migration 159)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 61, f"Expected 61, got {len(params)}"
+    assert len(params) == 70, f"Expected 70, got {len(params)}"
 
 
 def test_feature_vector_id_at_index_0():
@@ -158,64 +165,97 @@ def test_pipeline_version_at_index_4():
     assert params[4] == "3.0.0", f"$5 must be '3.0.0', got {params[4]}"
 
 
-def test_regime_at_index_5():
-    """params[5] ($6) must be the regime string."""
+def test_feature_factory_version_at_index_5():
+    """params[5] ($6) must be feature_factory_version (NEW in 138-P1, Task 6)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[5] == "trending_up", f"$6 must be 'trending_up', got {params[5]}"
+    assert params[5] == "1.0.0", f"$6 must be '1.0.0', got {params[5]}"
 
 
-def test_momentum_z_fast_at_index_7():
-    """params[7] ($8) must be momentum_z_fast sentinel value 1.111."""
+def test_regime_at_index_6():
+    """params[6] ($7) must be the regime string (shifted by 1 from 138-P1)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[7] == pytest.approx(1.111), f"$8 (momentum_z_fast) wrong: {params[7]}"
+    assert params[6] == "trending_up", f"$7 must be 'trending_up', got {params[6]}"
 
 
-def test_atr_z_at_index_20():
-    """params[20] ($21) must be atr_z sentinel value 14.14."""
+def test_momentum_z_fast_at_index_8():
+    """params[8] ($9) must be momentum_z_fast sentinel value 1.111."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[20] == pytest.approx(14.14), f"$21 (atr_z) wrong: {params[20]}"
+    assert params[8] == pytest.approx(1.111), f"$9 (momentum_z_fast) wrong: {params[8]}"
 
 
-def test_hurst_at_index_29():
-    """params[29] ($30) must be hurst sentinel value 23.23."""
+def test_atr_z_at_index_21():
+    """params[21] ($22) must be atr_z sentinel value 14.14."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[29] == pytest.approx(23.23), f"$30 (hurst) wrong: {params[29]}"
+    assert params[21] == pytest.approx(14.14), f"$22 (atr_z) wrong: {params[21]}"
 
 
-def test_ctf_momentum_at_index_54():
-    """params[54] ($55) must be ctf_momentum sentinel value 48.48."""
+def test_hurst_at_index_30():
+    """params[30] ($31) must be hurst sentinel value 23.23."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[54] == pytest.approx(48.48), f"$55 (ctf_momentum) wrong: {params[54]}"
+    assert params[30] == pytest.approx(23.23), f"$31 (hurst) wrong: {params[30]}"
 
 
-def test_ret_acf1_z_at_index_60():
-    """params[60] ($61) must be ret_acf1_z sentinel value 54.54."""
+def test_ctf_momentum_at_index_55():
+    """params[55] ($56) must be ctf_momentum sentinel value 48.48."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[60] == pytest.approx(54.54), f"$61 (ret_acf1_z) wrong: {params[60]}"
+    assert params[55] == pytest.approx(48.48), f"$56 (ctf_momentum) wrong: {params[55]}"
+
+
+def test_ret_acf1_z_at_index_61():
+    """params[61] ($62) must be ret_acf1_z sentinel value 54.54."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert params[61] == pytest.approx(54.54), f"$62 (ret_acf1_z) wrong: {params[61]}"
+
+
+def test_bar_close_ts_at_index_62():
+    """params[62] ($63) must be bar_close_ts (datetime, computed as bar_ts + 1h)."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    # tf='1h' => bar_close_ts = bar_ts + 3600s
+    expected = datetime(2026, 6, 22, 15, 0, 0, tzinfo=UTC)
+    assert isinstance(params[62], datetime), f"$63 must be datetime, got {type(params[62])}"
+    assert params[62] == expected, f"$63 (bar_close_ts) wrong: {params[62]}"
+
+
+def test_volatility_rank_z_at_index_69():
+    """params[69] ($70) must be volatility_rank_z (None for cross-sectional fields)."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert params[69] is None, f"$70 (volatility_rank_z) must be None, got {params[69]}"
 
 
 def test_no_cross_contamination_between_feature_groups():
@@ -225,12 +265,9 @@ def test_no_cross_contamination_between_feature_groups():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    # momentum_z_fast = 1.111 must not appear at vol_ratio position
-    assert params[21] != pytest.approx(
+    # momentum_z_fast = 1.111 must not appear at vol_ratio position (index 22)
+    assert params[22] != pytest.approx(
         1.111
     ), "momentum_z_fast sentinel leaked into vol_ratio position"
-    # atr_z = 14.14 must not appear at momentum_z_fast position ($8 = index 7)
-    assert params[7] != pytest.approx(14.14), "atr_z sentinel leaked into momentum_z_fast position"
-
-
-import pytest
+    # atr_z = 14.14 must not appear at momentum_z_fast position ($9 = index 8)
+    assert params[8] != pytest.approx(14.14), "atr_z sentinel leaked into momentum_z_fast position"

@@ -46,17 +46,21 @@ from src.observability.spans import ATTR_BATCH_SIZE, ATTR_FLUSH_MS, observed_spa
 # ── Module-level constants ────────────────────────────────────────────────────
 
 # Spot-check set of columns that must exist in feature_vectors before startup.
+# Includes migration 159 columns so the service refuses to start against a stale schema.
 _REQUIRED_COLUMNS: frozenset[str] = frozenset(
     {
         "symbol",
         "tf",
         "bar_ts",
         "pipeline_version",
+        "feature_factory_version",
         "momentum_z_fast",
         "momentum_z_mid",
         "hurst",
         "atr_z",
         "feature_vector_id",
+        "bar_close_ts",
+        "momentum_z_slow",
     }
 )
 

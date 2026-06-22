@@ -260,13 +260,14 @@ def test_vector_to_params_regime_label_source() -> None:
         regime=None,
         fv=fv,
     )
-    # params[6] is regime_label_source in the INSERT column order
-    # (params[0] = feature_vector_id UUID, params[1]=symbol, ..., params[6]=regime_label_source)
-    assert params[6] == "filtered", f"Expected 'filtered', got {params[6]!r}"
+    # params[7] is regime_label_source in the INSERT column order (post migration 159).
+    # Column layout: [0]=feature_vector_id, [1]=symbol, [2]=tf, [3]=bar_ts,
+    #   [4]=pipeline_version, [5]=feature_factory_version, [6]=regime, [7]=regime_label_source
+    assert params[7] == "filtered", f"Expected 'filtered', got {params[7]!r}"
 
 
-def test_vector_to_params_all_36_features_present() -> None:
-    """All 36 FeatureVector fields must appear in the INSERT params tuple."""
+def test_vector_to_params_all_features_present() -> None:
+    """All FeatureVector fields must appear in the INSERT params tuple (70 total after migration 159)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -277,8 +278,8 @@ def test_vector_to_params_all_36_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 6 structural columns + 54 feature floats = 61 total
-    assert len(params) == 61, f"Expected 61 params, got {len(params)}"
+    # 1 content-key + 7 structural + 54 feature floats + 8 new columns = 70 total
+    assert len(params) == 70, f"Expected 70 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:
