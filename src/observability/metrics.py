@@ -1039,3 +1039,21 @@ MEMORY_PROMOTION_SKIPPED_N_ELIGIBLE = _meter.create_counter(
         "(nightly backfill not yet run; F6; labels: agent_id)"
     ),
 )
+
+# ---------------------------------------------------------------------------
+# Phase 138 — Regime writer metrics
+# ---------------------------------------------------------------------------
+
+REGIME_WRITER_ROWS_UPDATED_TOTAL = _meter.create_counter(
+    "regime_writer_rows_updated_total",
+    description="feature_vectors rows with regime set; labels symbol, tf",
+)
+REGIME_WRITER_RUN_LATENCY_SECONDS = _meter.create_histogram(
+    "regime_writer_run_latency_seconds",
+    description="Full regime labeler run duration",
+    unit="s",
+)
+REGIME_WRITER_NULL_REGIME_REMAINING = _meter.create_gauge(
+    "regime_writer_null_regime_remaining",
+    description="feature_vectors rows still regime=NULL after run; labels symbol, tf",
+)
