@@ -196,7 +196,7 @@ def _connect_db(settings: Settings) -> Any:
     conn = psycopg2.connect(dsn=settings.database_url)
     conn.autocommit = True
     # Register UUID adapter so psycopg2 can serialize uuid.UUID objects.
-    # Without this, feature_vector_id (content-key UUID) raises "can't adapt type 'UUID'".
+    # Without this, feature_vector_id (content-key UUID) raises can not adapt type UUID.
     psycopg2.extras.register_uuid()
     return conn
 
