@@ -28,9 +28,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import sys
-import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -48,6 +46,10 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.service_utils import setup_service_logging
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.features.feature_vector_persistence import (
+    FEATURE_VECTOR_INSERT_SQL_PSYCOPG2,
+    feature_vector_to_insert_params,
+)
 from src.intelligence.schemas import FeatureVector
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
@@ -180,40 +182,9 @@ FROM backfill_status
 WHERE symbol = ANY(%s) AND tf = ANY(%s)
 """
 
-_INSERT_FEATURE_VECTORS_SQL = """
-INSERT INTO feature_vectors (
-    feature_vector_id,
-    symbol, tf, bar_ts, pipeline_version, regime, regime_label_source,
-    momentum_z_5, momentum_z_20, range_position, bar_close_pos,
-    gap_z, informed_flow, volume_z, ofi_z, ofi_div, cvd_slope_z, cmf,
-    rel_volume, vwap_dev_sigma, atr_z, vol_ratio,
-    poc_dist_atr, va_position, sr_support_dist, sr_resist_dist,
-    hmm_regime_prob, hmm_entropy, hmm_duration, hurst, shannon, garch_ratio,
-    hma_slope_z, adx, aroon_fast, aroon_slow,
-    rsi_fast, rsi_mid, rsi_slow, cci_fast, cci_mid, cci_slow,
-    vix_z, flight_quality, yield_slope_z,
-    in_ny_session, in_london_kz, in_overlap, power_hour, opening_range,
-    above_wk_vwap, dow_sin, dow_cos, month_position,
-    ctf_momentum, ctf_vwap_align, ctf_regime_align,
-    amihud_illiq_z, high_52w_dist, ret_skew_z, ret_acf1_z
-) VALUES (
-    %s,
-    %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s,
-    %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s,
-    %s, %s, %s,
-    %s, %s, %s, %s, %s,
-    %s, %s, %s, %s,
-    %s, %s, %s,
-    %s, %s, %s, %s
-)
-ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
-"""
+# Canonical INSERT SQL imported from shared persistence module.
+# Do not inline SQL here — feature_vector_persistence.py is the single source of truth.
+_INSERT_FEATURE_VECTORS_SQL = FEATURE_VECTOR_INSERT_SQL_PSYCOPG2
 
 
 def _connect_db(settings: Settings) -> Any:
@@ -321,19 +292,6 @@ def _theoretical_max(tf: str, depth_years: int, warm_up_bars: int) -> int:
     return max(0, depth_years * _TRADING_DAYS_PER_YEAR * bars_per_day - warm_up_bars)
 
 
-def _make_feature_vector_id(
-    symbol: str, tf: str, bar_ts: datetime, pipeline_version: str
-) -> uuid.UUID:
-    """Compute the content-key UUID for a feature_vectors row.
-
-    SHA-256(symbol|tf|bar_ts_ns|pipeline_version)[:32] cast to UUID.
-    Idempotent across replays — same inputs always produce the same UUID.
-    """
-    bar_ts_ns = str(int(bar_ts.timestamp() * 1_000_000_000))
-    raw = hashlib.sha256(f"{symbol}|{tf}|{bar_ts_ns}|{pipeline_version}".encode()).hexdigest()[:32]
-    return uuid.UUID(raw)
-
-
 def _vector_to_params(
     symbol: str,
     tf: str,
@@ -342,70 +300,19 @@ def _vector_to_params(
     regime: str | None,
     fv: FeatureVector,
 ) -> tuple:
-    """Serialize a FeatureVector to a psycopg2 INSERT tuple."""
-    feature_vector_id = _make_feature_vector_id(symbol, tf, bar_ts, pipeline_version)
-    return (
-        feature_vector_id,
-        symbol,
-        tf,
-        bar_ts,
-        pipeline_version,
-        regime,
-        "filtered",  # regime_label_source always 'filtered' (D-07/SC-5)
-        fv.momentum_z_5,
-        fv.momentum_z_20,
-        fv.range_position,
-        fv.bar_close_pos,
-        fv.gap_z,
-        fv.informed_flow,
-        fv.volume_z,
-        fv.ofi_z,
-        fv.ofi_div,
-        fv.cvd_slope_z,
-        fv.cmf,
-        fv.rel_volume,
-        fv.vwap_dev_sigma,
-        fv.atr_z,
-        fv.vol_ratio,
-        fv.poc_dist_atr,
-        fv.va_position,
-        fv.sr_support_dist,
-        fv.sr_resist_dist,
-        fv.hmm_regime_prob,
-        fv.hmm_entropy,
-        fv.hmm_duration,
-        fv.hurst,
-        fv.shannon,
-        fv.garch_ratio,
-        fv.hma_slope_z,
-        fv.adx,
-        fv.aroon_fast,
-        fv.aroon_slow,
-        fv.rsi_fast,
-        fv.rsi_mid,
-        fv.rsi_slow,
-        fv.cci_fast,
-        fv.cci_mid,
-        fv.cci_slow,
-        fv.vix_z,
-        fv.flight_quality,
-        fv.yield_slope_z,
-        fv.in_ny_session,
-        fv.in_london_kz,
-        fv.in_overlap,
-        fv.power_hour,
-        fv.opening_range,
-        fv.above_wk_vwap,
-        fv.dow_sin,
-        fv.dow_cos,
-        fv.month_position,
-        fv.ctf_momentum,
-        fv.ctf_vwap_align,
-        fv.ctf_regime_align,
-        fv.amihud_illiq_z,
-        fv.high_52w_dist,
-        fv.ret_skew_z,
-        fv.ret_acf1_z,
+    """Delegate to the canonical shared serializer.
+
+    Backfill rows always use regime_label_source='filtered': all rows are
+    computed from market_data_ohlcv with causal forward-filter HMM only (D-07).
+    """
+    return feature_vector_to_insert_params(
+        symbol=symbol,
+        tf=tf,
+        bar_ts=bar_ts,
+        pipeline_version=pipeline_version,
+        regime=regime,
+        regime_label_source="filtered",
+        vector=fv,
     )
 
 

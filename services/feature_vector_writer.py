@@ -13,8 +13,6 @@ Last Updated: 2026-06-22
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import uuid
 from datetime import UTC, datetime
 from typing import Any  # noqa: F401
 
@@ -30,7 +28,12 @@ from src.core.stream_keys import (
     topic_feature_vectors,
     topic_feature_vectors_dlq,
 )
-from src.intelligence.schemas import FeatureVector, FeatureVectorRecord
+from src.intelligence.features.feature_vector_persistence import (
+    FEATURE_VECTOR_INSERT_SQL,
+    VALID_REGIME_LABEL_SOURCES,
+    feature_vector_to_insert_params,
+)
+from src.intelligence.schemas import FeatureVectorRecord
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     PERSISTENCE_CONSUMER_LAG,
@@ -69,145 +72,29 @@ _VERIFY_SCHEMA_SQL = (
     " WHERE table_name = 'feature_vectors' AND table_schema = 'public'"
 )
 
-_INSERT_FEATURE_VECTOR_SQL = """
-INSERT INTO feature_vectors (
-    feature_vector_id,
-    symbol, tf, bar_ts, pipeline_version, regime, regime_label_source,
-    momentum_z_5, momentum_z_20, range_position, bar_close_pos,
-    gap_z, informed_flow, volume_z, ofi_z, ofi_div, cvd_slope_z, cmf,
-    rel_volume, vwap_dev_sigma, atr_z, vol_ratio,
-    poc_dist_atr, va_position, sr_support_dist, sr_resist_dist,
-    hmm_regime_prob, hmm_entropy, hmm_duration, hurst, shannon, garch_ratio,
-    hma_slope_z, adx, aroon_fast, aroon_slow,
-    rsi_fast, rsi_mid, rsi_slow, cci_fast, cci_mid, cci_slow,
-    vix_z, flight_quality, yield_slope_z,
-    in_ny_session, in_london_kz, in_overlap, power_hour, opening_range,
-    above_wk_vwap, dow_sin, dow_cos, month_position,
-    ctf_momentum, ctf_vwap_align, ctf_regime_align,
-    amihud_illiq_z, high_52w_dist, ret_skew_z, ret_acf1_z
-)
-VALUES (
-    $1,
-    $2, $3, $4, $5, $6, $7,
-    $8, $9, $10, $11,
-    $12, $13, $14, $15, $16, $17, $18,
-    $19, $20, $21, $22,
-    $23, $24, $25, $26,
-    $27, $28, $29, $30, $31, $32,
-    $33, $34, $35, $36,
-    $37, $38, $39, $40, $41, $42,
-    $43, $44, $45,
-    $46, $47, $48, $49, $50,
-    $51, $52, $53, $54,
-    $55, $56, $57,
-    $58, $59, $60, $61
-)
-ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
-"""
+# Canonical SQL imported from shared persistence module.
+# Do not inline SQL here — feature_vector_persistence.py is the single source of truth.
+_INSERT_FEATURE_VECTOR_SQL = FEATURE_VECTOR_INSERT_SQL
 
 logger = structlog.get_logger(__name__)
 
 
-# ── Module-level pure functions (testable without class instantiation) ─────────
-
-
-def _make_feature_vector_id(
-    symbol: str, tf: str, bar_ts: datetime, pipeline_version: str
-) -> uuid.UUID:
-    """Compute the content-key UUID for a feature_vectors row.
-
-    SHA-256(symbol|tf|bar_ts_ns|pipeline_version)[:32] cast to UUID.
-    Idempotent across replays — same inputs always produce the same UUID.
-    """
-    bar_ts_ns = str(int(bar_ts.timestamp() * 1_000_000_000))
-    raw = hashlib.sha256(f"{symbol}|{tf}|{bar_ts_ns}|{pipeline_version}".encode()).hexdigest()[:32]
-    return uuid.UUID(raw)
+# ── Module-level pure functions ───────────────────────────────────────────────
 
 
 def _record_to_insert_params(record: FeatureVectorRecord) -> tuple:
-    """Build a 61-element tuple of INSERT parameters for _INSERT_FEATURE_VECTOR_SQL.
+    """Unpack a FeatureVectorRecord and delegate to the canonical serializer.
 
-    Column order matches the INSERT statement exactly:
-    $1:     feature_vector_id (content-key UUID)
-    $2-$7:  structural (symbol, tf, bar_ts, pipeline_version, regime, regime_label_source)
-    $8-$61: 54 feature floats in FeatureVector field order
+    Validates regime_label_source against the schema constraint before INSERT.
     """
-    feature_vector_id = _make_feature_vector_id(
-        record.symbol, record.tf, record.bar_ts, record.pipeline_version
-    )
-    v: FeatureVector = record.vector
-    return (
-        feature_vector_id,  # $1  feature_vector_id
-        record.symbol,  # $2  symbol
-        record.tf,  # $3  tf
-        record.bar_ts,  # $4  bar_ts
-        record.pipeline_version,  # $5  pipeline_version
-        record.regime,  # $6  regime
-        record.regime_label_source,  # $7  regime_label_source
-        # Momentum (4)
-        v.momentum_z_5,  # $8
-        v.momentum_z_20,  # $9
-        v.range_position,  # $10
-        v.bar_close_pos,  # $11
-        # Volume / order flow (7)
-        v.gap_z,  # $12
-        v.informed_flow,  # $13
-        v.volume_z,  # $14
-        v.ofi_z,  # $15
-        v.ofi_div,  # $16
-        v.cvd_slope_z,  # $17
-        v.cmf,  # $18
-        # Volatility / volume profile (4)
-        v.rel_volume,  # $19
-        v.vwap_dev_sigma,  # $20
-        v.atr_z,  # $21
-        v.vol_ratio,  # $22
-        # Session-level (4)
-        v.poc_dist_atr,  # $23
-        v.va_position,  # $24
-        v.sr_support_dist,  # $25
-        v.sr_resist_dist,  # $26
-        # Regime-level (11)
-        v.hmm_regime_prob,  # $27
-        v.hmm_entropy,  # $28
-        v.hmm_duration,  # $29
-        v.hurst,  # $30
-        v.shannon,  # $31
-        v.garch_ratio,  # $32
-        v.hma_slope_z,  # $33
-        v.adx,  # $34
-        v.aroon_fast,  # $35
-        v.aroon_slow,  # $36
-        # Oscillators (6)
-        v.rsi_fast,  # $37
-        v.rsi_mid,  # $38
-        v.rsi_slow,  # $39
-        v.cci_fast,  # $40
-        v.cci_mid,  # $41
-        v.cci_slow,  # $42
-        # Cross-asset (3)
-        v.vix_z,  # $43
-        v.flight_quality,  # $44
-        v.yield_slope_z,  # $45
-        # Calendar (9)
-        v.in_ny_session,  # $46
-        v.in_london_kz,  # $47
-        v.in_overlap,  # $48
-        v.power_hour,  # $49
-        v.opening_range,  # $50
-        v.above_wk_vwap,  # $51
-        v.dow_sin,  # $52
-        v.dow_cos,  # $53
-        v.month_position,  # $54
-        # Cross-timeframe (3)
-        v.ctf_momentum,  # $55
-        v.ctf_vwap_align,  # $56
-        v.ctf_regime_align,  # $57
-        # Statistical / liquidity (4)
-        v.amihud_illiq_z,  # $58
-        v.high_52w_dist,  # $59
-        v.ret_skew_z,  # $60
-        v.ret_acf1_z,  # $61
+    return feature_vector_to_insert_params(
+        symbol=record.symbol,
+        tf=record.tf,
+        bar_ts=record.bar_ts,
+        pipeline_version=record.pipeline_version,
+        regime=record.regime,
+        regime_label_source=record.regime_label_source,
+        vector=record.vector,
     )
 
 
@@ -312,6 +199,18 @@ class FeatureVectorWriter(BaseWriter):
                 self._parse_errors_total.add(1)
                 return [], [payload]
 
+            regime_label_source = payload.get("regime_label_source", "")
+            if regime_label_source not in VALID_REGIME_LABEL_SOURCES:
+                self.logger.error(
+                    "feature_vector_writer.invalid_regime_label_source",
+                    regime_label_source=regime_label_source,
+                    valid=sorted(VALID_REGIME_LABEL_SOURCES),
+                )
+                self._parse_errors_total.add(1)
+                return [], [payload]
+
+            from src.intelligence.schemas import FeatureVector
+
             vector = FeatureVector(**vector_data)
             record = FeatureVectorRecord(
                 symbol=payload["symbol"],
@@ -319,7 +218,7 @@ class FeatureVectorWriter(BaseWriter):
                 bar_ts=payload["bar_ts"],
                 pipeline_version=payload["pipeline_version"],
                 regime=payload.get("regime"),
-                regime_label_source=payload["regime_label_source"],
+                regime_label_source=regime_label_source,
                 vector=vector,
             )
         except (TypeError, KeyError, ValueError):
