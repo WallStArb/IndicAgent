@@ -289,8 +289,8 @@ the researcher does not pre-select. All periods enter the FDR correction togethe
 **Momentum (5 features)**
 | Column          | Character                                           |
 |-----------------|-----------------------------------------------------|
-| `momentum_z_5`  | 5-bar log return z-scored vs rolling window         |
-| `momentum_z_20` | 20-bar log return z-scored vs rolling window        |
+| `momentum_z_fast` | Fast-scale log return z-scored (APR: feature.momentum.window_fast) |
+| `momentum_z_mid`  | Mid-scale log return z-scored (APR: feature.momentum.window_mid)   |
 | `range_position`| (close - low) / (high - low), intrabar position     |
 | `bar_close_pos` | Buying pressure: close position within day range    |
 | `gap_z`         | Overnight gap z-scored vs rolling gap distribution  |
@@ -412,7 +412,7 @@ and `ensemble_weights` row — enabling per-vector IC aggregation and decay moni
 
 | Group                          | `vector_domain` | Features |
 |--------------------------------|-----------------|---------|
-| Momentum                       | `'quant'`       | `momentum_z_5`, `momentum_z_20`, `range_position`, `bar_close_pos`, `gap_z` |
+| Momentum                       | `'quant'`       | `momentum_z_fast`, `momentum_z_mid`, `range_position`, `bar_close_pos`, `gap_z` |
 | Oscillators                    | `'quant'`       | `rsi_fast`, `rsi_mid`, `rsi_slow`, `cci_fast`, `cci_mid`, `cci_slow` |
 | Trend freshness and strength   | `'quant'`       | `aroon_fast`, `aroon_slow`, `hma_slope_z`, `adx` |
 | Volume and order flow          | `'quant'`       | `informed_flow`, `volume_z`, `ofi_z`, `ofi_div`, `cvd_slope_z`, `cmf`, `rel_volume` |

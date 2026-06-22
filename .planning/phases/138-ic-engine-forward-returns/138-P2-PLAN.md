@@ -190,7 +190,7 @@ Output: BaseBatch base class, forward_returns + feature_ic_scores tables (with i
     - alpha.ic.walk_forward_folds = 3 [conventional]
     - alpha.ic.sharpe_window_size = 2000 [rca_analysis]
     - alpha.ic.sharpe_min_windows = 10 [conventional]
-    - alpha.ic.subsampling_n = 5 [conventional] — non-overlapping subsample stride
+    - alpha.ic.subsample_min_stride = 5 [conventional] — minimum sampling stride; actual stride used by IC engine = max(subsample_min_stride, lookahead_bars). This ensures non-overlapping observations for all lookaheads: a fixed stride of 5 on 20-bar lookahead would produce overlapping returns and corrupt the independence assumption. ML-learning-target: no.
     - alpha.ic.min_reliable_n = 100 [conventional] — n_independent threshold for reliable flag
     - alpha.decay.ci_lower_threshold = 0.0 (float) [conventional]
     - alpha.decay.materiality_threshold = 0.005 (float) [initial_estimate]
@@ -219,9 +219,11 @@ Output: BaseBatch base class, forward_returns + feature_ic_scores tables (with i
     Apply: PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -f production/migrations/161_alpha_ic_apr_keys.sql
   </action>
   <acceptance_criteria>
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM config_state WHERE config_key LIKE 'alpha.ic.%';"` returns >= 12 (includes 4 TF-specific bootstrap_block_size keys)
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM config_state WHERE config_key LIKE 'alpha.ic.%';"` returns >= 12 (includes 4 TF-specific bootstrap_block_size keys + subsample_min_stride)
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM config_state WHERE config_key = 'alpha.ic.subsampling_n';"` returns 0 (old name must not exist)
     - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT config_value FROM config_state WHERE config_key='alpha.ic.bootstrap_block_size.5m';"` returns 78
     - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT config_value FROM config_state WHERE config_key='alpha.ic.fdr_alpha';"` returns 0.05
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT config_value FROM config_state WHERE config_key='alpha.ic.subsample_min_stride';"` returns 5
     - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM config_state WHERE config_key LIKE 'alpha.decay.%';"` returns >= 4
     - `grep -c '"alpha\."' src/config/config_service.py` returns >= 1 (alpha. in OPS_PREFIXES)
     - `grep -c "indicagent-ic-engine\|indicagent-forward-return-writer\|indicagent-regime-writer" services/service_auditor.py` returns >= 6 (3 in _DAG_ORDER + 3 in _ONESHOT_UNITS)

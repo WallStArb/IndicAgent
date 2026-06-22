@@ -21,14 +21,16 @@ must_haves:
     - "FEATURE_FACTORY_VERSION = '1.0.0' module-level constant in feature_factory.py"
     - "Content-key formula includes feature_factory_version: SHA-256(symbol|tf|bar_ts_ns|pipeline_version|feature_factory_version)"
     - "Both write paths (feature_vector_writer + backfill_feature_factory) pass feature_factory_version into the INSERT tuple"
-    - "FeatureVector dataclass has 4 new computed fields: momentum_z_60, momentum_reversal_z, quarter_position, days_to_month_end"
-    - "FeatureVector dataclass has 3 new Optional[float] fields: momentum_rank_z, volume_rank_z, vol_rank_z (cross-sectional, NULL until Phase 139)"
+    - "FeatureVector dataclass has 4 new computed fields: momentum_z_slow, momentum_reversal_z, quarter_position, days_to_month_end"
+    - "FeatureVector dataclass has 3 new Optional[float] fields: momentum_rank_z, volume_rank_z, volatility_rank_z (cross-sectional, NULL until Phase 139)"
     - "FeatureFactory.compute() computes all 4 new feature values deterministically for every bar"
     - "FeatureVector docstring field-group breakdown sums to correct total and lists all groups"
     - "feature_vector_writer.py imports FeatureVector at module level, not inside _parse_payload"
     - "feature_vector_writer.py has import time at module level; no __import__() calls"
     - "feature_vector_writer.py has rows_parsed_by_symbol_tf_total counter incremented at parse time"
-    - "feature_vectors schema has 9 new columns: feature_factory_version, bar_close_ts, momentum_z_60, momentum_reversal_z, quarter_position, days_to_month_end, momentum_rank_z, volume_rank_z, vol_rank_z"
+    - "feature_vectors schema has 9 new columns: feature_factory_version, bar_close_ts, momentum_z_slow, momentum_reversal_z, quarter_position, days_to_month_end, momentum_rank_z, volume_rank_z, volatility_rank_z"
+    - "feature_vectors RENAMED columns: momentum_z_5 -> momentum_z_fast, momentum_z_20 -> momentum_z_mid (in same migration 159)"
+    - "APR keys renamed: feature.momentum.window_short -> feature.momentum.window_fast, feature.momentum.window_long -> feature.momentum.window_mid (in same migration 159)"
     - "batch_job_checkpoints table exists: job_key TEXT PK, state JSONB, updated_at TIMESTAMPTZ"
     - "feature_vector_to_insert_params() builds 70-element tuple in exact column-definition order"
     - "bar_close_ts populated in INSERT: bar_ts + TF duration for intraday; bar_ts + 1 day for 1d"
@@ -285,7 +287,7 @@ print('content-key versioning: ok')
 </task>
 
 <task type="auto">
-  <name>Task 4: New feature compute + FeatureVector dataclass expansion (Findings 9, 11, 12)</name>
+  <name>Task 4: New feature compute + FeatureVector dataclass expansion + naming remediation (Findings 9, 11, 12)</name>
   <files>src/intelligence/feature_factory.py, src/intelligence/schemas.py</files>
   <read_first>
     - src/intelligence/feature_factory.py (full read — find compute() method; find existing momentum_z_5, momentum_z_20 patterns to mirror; find calendar feature section with dow_sin/cos for quarter_position/days_to_month_end)
@@ -296,10 +298,16 @@ print('content-key versioning: ok')
     Add 7 new fields to FeatureVector and compute 4 of them in FeatureFactory.
 
     SCHEMAS (src/intelligence/schemas.py):
+    NAMING REMEDIATION FIRST (before adding new fields):
+    Rename existing momentum_z fields in the FeatureVector dataclass to use scale names,
+    consistent with rsi_fast/rsi_mid/rsi_slow and cci_fast/cci_mid/cci_slow patterns:
+    - `momentum_z_5` → `momentum_z_fast`  (APR-backed period; fast scale)
+    - `momentum_z_20` → `momentum_z_mid`   (APR-backed period; mid scale)
+
     Add to FeatureVector dataclass — 4 computed float fields (after existing momentum fields):
     ```python
-    momentum_z_60: float        # 60-bar return z-score; 3-month momentum for daily TF
-    momentum_reversal_z: float  # 1-bar return z-score (short-term reversal signal at fast horizon)
+    momentum_z_slow: float      # slow-scale return z-score (APR: feature.momentum.window_slow, default 60)
+    momentum_reversal_z: float  # 1-bar return z-score (concept-named: short-term reversal signal)
     ```
     After existing calendar fields (near dow_sin/cos, month_position):
     ```python
@@ -308,9 +316,9 @@ print('content-key versioning: ok')
     ```
     3 Optional cross-sectional fields (after all computed fields, at the end of the dataclass):
     ```python
-    momentum_rank_z: float | None = None  # cross-sectional rank; populated in Phase 139 enrichment pass
-    volume_rank_z: float | None = None
-    vol_rank_z: float | None = None
+    momentum_rank_z: float | None = None     # cross-sectional rank; populated in Phase 139
+    volume_rank_z: float | None = None       # cross-sectional volume rank; populated in Phase 139
+    volatility_rank_z: float | None = None   # cross-sectional volatility rank; populated in Phase 139
     ```
     NOTE: frozen=True dataclass does NOT allow default values on non-default fields. The Optional
     fields MUST come after all non-default fields. If the current ordering would cause a TypeError,
@@ -323,10 +331,16 @@ print('content-key versioning: ok')
     Update Total accordingly.
 
     COMPUTE (src/intelligence/feature_factory.py):
-    Mirror existing momentum z-score pattern for momentum_z_60:
-    - 60-bar log return: ln(close / close_60_bars_ago)
-    - z-score over the same rolling window as momentum_z_5/momentum_z_20 (use APR-backed period)
-    - If fewer than 60 bars of history available, set to 0.0 (same convention as existing short patterns)
+    Also rename _FactoryConfig fields and APR key strings:
+    - `momentum_window_short` → `momentum_window_fast`  (APR key: feature.momentum.window_fast)
+    - `momentum_window_long` → `momentum_window_mid`    (APR key: feature.momentum.window_mid)
+    - Add `momentum_window_slow: int  # feature.momentum.window_slow` (default 60)
+    Rename all local variables accordingly: `momentum_z_5_val` → `momentum_z_fast_val`, etc.
+
+    Mirror existing momentum z-score pattern for momentum_z_slow:
+    - slow-scale log return: ln(close / close_N_bars_ago) where N = config.momentum_window_slow
+    - z-score over the same rolling window as momentum_z_fast/momentum_z_mid (APR: feature.momentum.zscore_window)
+    - If fewer than momentum_window_slow bars of history available, set to 0.0 (same convention)
 
     momentum_reversal_z (1-bar return z-score):
     - 1-bar log return: ln(close / close_prev)
@@ -355,22 +369,27 @@ print('content-key versioning: ok')
     statistical constants, not tunable parameters — acceptable as module-level constants.
   </action>
   <acceptance_criteria>
-    - `grep -c "momentum_z_60\|momentum_reversal_z\|quarter_position\|days_to_month_end" src/intelligence/schemas.py` returns >= 4
-    - `grep -c "momentum_rank_z\|volume_rank_z\|vol_rank_z" src/intelligence/schemas.py` returns >= 3
+    - Old names gone from FeatureVector: `grep -c "momentum_z_5\b\|momentum_z_20\b\|momentum_z_60\|vol_rank_z" src/intelligence/schemas.py` returns 0
+    - `grep -c "momentum_z_slow\|momentum_reversal_z\|quarter_position\|days_to_month_end" src/intelligence/schemas.py` returns >= 4
+    - `grep -c "momentum_z_fast\|momentum_z_mid" src/intelligence/schemas.py` returns >= 2
+    - `grep -c "momentum_rank_z\|volume_rank_z\|volatility_rank_z" src/intelligence/schemas.py` returns >= 3
     - `.venv/bin/python -c "
 import dataclasses
 from src.intelligence.schemas import FeatureVector
 fields = [f.name for f in dataclasses.fields(FeatureVector)]
-for name in ['momentum_z_60', 'momentum_reversal_z', 'quarter_position', 'days_to_month_end', 'momentum_rank_z', 'volume_rank_z', 'vol_rank_z']:
+for name in ['momentum_z_fast', 'momentum_z_mid', 'momentum_z_slow', 'momentum_reversal_z', 'quarter_position', 'days_to_month_end', 'momentum_rank_z', 'volume_rank_z', 'volatility_rank_z']:
     assert name in fields, f'{name} missing from FeatureVector'
+for bad in ['momentum_z_5', 'momentum_z_20', 'momentum_z_60', 'vol_rank_z']:
+    assert bad not in fields, f'{bad} must be renamed'
 print(f'FeatureVector has {len(fields)} fields: ok')
 "` exits 0
-    - `grep -c "momentum_z_60\|momentum_reversal_z\|quarter_position\|days_to_month_end" src/intelligence/feature_factory.py` returns >= 4 (one compute block per feature)
-    - `grep -n "momentum_rank_z\|volume_rank_z\|vol_rank_z" src/intelligence/feature_factory.py` shows only None assignments (no compute logic)
+    - `grep -c "momentum_z_slow\|momentum_reversal_z\|quarter_position\|days_to_month_end" src/intelligence/feature_factory.py` returns >= 4
+    - `grep -n "momentum_rank_z\|volume_rank_z\|volatility_rank_z" src/intelligence/feature_factory.py` shows only None assignments (no compute logic)
+    - `grep -c "momentum_z_5\b\|momentum_z_20\b\|momentum_window_short\|momentum_window_long" src/intelligence/feature_factory.py` returns 0
     - Optional fields have defaults: `.venv/bin/python -c "
 import dataclasses
 from src.intelligence.schemas import FeatureVector
-opt_fields = [f for f in dataclasses.fields(FeatureVector) if f.name in ('momentum_rank_z','volume_rank_z','vol_rank_z')]
+opt_fields = [f for f in dataclasses.fields(FeatureVector) if f.name in ('momentum_rank_z','volume_rank_z','volatility_rank_z')]
 for f in opt_fields:
     assert f.default is None, f'{f.name} default must be None'
 print('optional field defaults: ok')
@@ -393,22 +412,39 @@ print('optional field defaults: ok')
     Create production/migrations/159_foundation_hardening.sql.
 
     Header comment block (mirror style of 158):
-    -- Migration 159: Foundation hardening — feature_vectors schema expansion + batch_job_checkpoints
-    -- Covers council review findings: F2 (feature_factory_version), F7 (bar_close_ts),
+    -- Migration 159: Foundation hardening — feature_vectors naming remediation + schema expansion + batch_job_checkpoints
+    -- Covers: momentum_z column renaming (5->fast, 20->mid), APR key renaming,
+    --   council review findings: F2 (feature_factory_version), F7 (bar_close_ts),
     --   F8 (batch_job_checkpoints), F9 (cross-sectional nullables), F11 (momentum), F12 (calendar)
-    -- Applied before backfill_feature_factory runs so all columns are present from the first write.
+    -- Applied before backfill_feature_factory runs so all columns are correct from the first write.
 
-    ALTER TABLE feature_vectors ADD COLUMN IF NOT EXISTS:
+    FIRST — naming remediation (before ADD COLUMN):
+    -- Column names must encode scale (concept), not period (tunable parameter).
+    -- Pattern: rsi_fast/rsi_mid/rsi_slow; cci_fast/cci_mid/cci_slow. Momentum follows same.
+    ALTER TABLE feature_vectors RENAME COLUMN momentum_z_5 TO momentum_z_fast;
+    ALTER TABLE feature_vectors RENAME COLUMN momentum_z_20 TO momentum_z_mid;
+
+    -- APR key rename for consistency (period values live in APR, not schema or key names)
+    UPDATE config_schema SET config_key = 'feature.momentum.window_fast'
+      WHERE config_key = 'feature.momentum.window_short';
+    UPDATE config_state  SET config_key = 'feature.momentum.window_fast'
+      WHERE config_key = 'feature.momentum.window_short';
+    UPDATE config_schema SET config_key = 'feature.momentum.window_mid'
+      WHERE config_key = 'feature.momentum.window_long';
+    UPDATE config_state  SET config_key = 'feature.momentum.window_mid'
+      WHERE config_key = 'feature.momentum.window_long';
+
+    THEN — ADD COLUMN IF NOT EXISTS:
     1. feature_factory_version VARCHAR(32) NOT NULL DEFAULT '1.0.0'
        -- Algorithm version; bump FEATURE_FACTORY_VERSION in feature_factory.py on any compute change.
        -- DEFAULT '1.0.0' applies to any existing rows (pre-migration rows are version 1.0.0 by definition).
     2. bar_close_ts TIMESTAMPTZ
        -- Bar close timestamp for forward return next-bar lookup.
        -- NULL on pre-migration rows; populated on all new writes. Consider NOT NULL constraint in Phase 139.
-    3. momentum_z_60 DOUBLE PRECISION
-       -- 60-bar return z-score (3-month momentum for daily TF). NULL on pre-migration rows.
+    3. momentum_z_slow DOUBLE PRECISION
+       -- Slow-scale return z-score (APR: feature.momentum.window_slow, default 60 bars). NULL on pre-migration rows.
     4. momentum_reversal_z DOUBLE PRECISION
-       -- 1-bar return z-score (short-term reversal). NULL on pre-migration rows.
+       -- 1-bar return z-score (short-term reversal, concept-named). NULL on pre-migration rows.
     5. quarter_position DOUBLE PRECISION
        -- Position within calendar quarter [0, 1]. NULL on pre-migration rows.
     6. days_to_month_end DOUBLE PRECISION
@@ -417,7 +453,7 @@ print('optional field defaults: ok')
        -- Cross-sectional momentum rank z-score. Populated by Phase 139 enrichment pass. NULL = not enriched.
     8. volume_rank_z DOUBLE PRECISION
        -- Cross-sectional volume rank z-score. Populated by Phase 139 enrichment pass.
-    9. vol_rank_z DOUBLE PRECISION
+    9. volatility_rank_z DOUBLE PRECISION
        -- Cross-sectional volatility rank z-score. Populated by Phase 139 enrichment pass.
 
     CREATE TABLE IF NOT EXISTS batch_job_checkpoints (
@@ -432,9 +468,11 @@ print('optional field defaults: ok')
     PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -f production/migrations/159_foundation_hardening.sql
   </action>
   <acceptance_criteria>
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "\d feature_vectors"` shows all 9 new columns
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "\d feature_vectors"` shows momentum_z_fast, momentum_z_mid (renamed) and all 9 new columns (momentum_z_slow, volatility_rank_z, etc.)
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM information_schema.columns WHERE table_name='feature_vectors' AND column_name IN ('momentum_z_5','momentum_z_20','vol_rank_z');"` returns 0 (old names gone)
     - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT column_name FROM information_schema.columns WHERE table_name='feature_vectors' AND column_name='feature_factory_version';"` returns 1 row
     - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT column_default FROM information_schema.columns WHERE table_name='feature_vectors' AND column_name='feature_factory_version';"` contains '1.0.0'
+    - APR keys renamed: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM config_state WHERE config_key IN ('feature.momentum.window_short','feature.momentum.window_long');"` returns 0
     - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM information_schema.tables WHERE table_name='batch_job_checkpoints';"` returns 1
     - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "\d batch_job_checkpoints"` shows job_key TEXT PK, state JSONB, updated_at TIMESTAMPTZ
     - migration file exists: `ls production/migrations/159_foundation_hardening.sql`
@@ -470,13 +508,13 @@ print('optional field defaults: ok')
     $8  regime_label_source
     $9-$62  54 original feature columns (in exact existing order — do not reorder)
     $63 bar_close_ts            -- NEW (Finding 7)
-    $64 momentum_z_60           -- NEW (Finding 11)
-    $65 momentum_reversal_z     -- NEW (Finding 11)
+    $64 momentum_z_slow         -- NEW (Finding 11; scale name, APR-backed period)
+    $65 momentum_reversal_z     -- NEW (Finding 11; concept-named)
     $66 quarter_position        -- NEW (Finding 12)
     $67 days_to_month_end       -- NEW (Finding 12)
     $68 momentum_rank_z         -- NEW (Finding 9, nullable)
     $69 volume_rank_z           -- NEW (Finding 9, nullable)
-    $70 vol_rank_z              -- NEW (Finding 9, nullable)
+    $70 volatility_rank_z       -- NEW (Finding 9, nullable; NOT vol_rank_z)
 
     bar_close_ts computation (Finding 7):
     Define a module-level mapping in feature_vector_persistence.py:
@@ -507,7 +545,8 @@ print('optional field defaults: ok')
     All tests must pass before this task is done.
   </action>
   <acceptance_criteria>
-    - `grep -c "feature_factory_version\|bar_close_ts\|momentum_z_60\|quarter_position\|momentum_rank_z" src/intelligence/features/feature_vector_persistence.py` returns >= 5 (one per new field in params)
+    - `grep -c "feature_factory_version\|bar_close_ts\|momentum_z_slow\|quarter_position\|momentum_rank_z" src/intelligence/features/feature_vector_persistence.py` returns >= 5 (one per new field in params)
+    - `grep -c "momentum_z_5\b\|momentum_z_20\b\|vol_rank_z" src/intelligence/features/feature_vector_persistence.py` returns 0 (old names gone)
     - `.venv/bin/python -c "
 from src.intelligence.features.feature_vector_persistence import feature_vector_to_insert_params
 import inspect
@@ -520,7 +559,7 @@ from src.intelligence.schemas import FeatureVector
 from src.intelligence.features.feature_vector_persistence import feature_vector_to_insert_params
 fields = [f.name for f in dataclasses.fields(FeatureVector)]
 vals = {f: 0.0 for f in fields if f not in ('momentum_rank_z','volume_rank_z','vol_rank_z')}
-vals.update({'momentum_rank_z': None, 'volume_rank_z': None, 'vol_rank_z': None})
+vals.update({'momentum_rank_z': None, 'volume_rank_z': None, 'volatility_rank_z': None})
 fv = FeatureVector(**vals)
 import uuid
 bar_ts = datetime.datetime(2024,1,1,tzinfo=datetime.timezone.utc)
@@ -541,8 +580,9 @@ print('70-param tuple: ok')
 <verification>
 - validate_feature_vector() raises ValueError on nan/inf before any INSERT in both write paths
 - FEATURE_FACTORY_VERSION = "1.0.0" in feature_factory.py; in content-key; in FeatureVectorRecord; in INSERT tuple
-- FeatureVector has 7 new fields (4 computed, 3 Optional[float]); FeatureFactory.compute() produces all 4
-- Migration 159 applied: 9 new columns on feature_vectors, batch_job_checkpoints table exists
+- momentum_z_5/20 renamed to momentum_z_fast/mid in DB and all code; no old names in src/services/tests/docs
+- FeatureVector has 7 new fields (4 computed, 3 Optional[float]); FeatureFactory.compute() produces all 4; all use scale names
+- Migration 159 applied: 2 columns renamed, APR keys renamed, 9 new columns added, batch_job_checkpoints table exists
 - feature_vector_to_insert_params() produces 70-element tuple; INSERT SQL matches
 - bar_close_ts populated correctly for all TFs
 - feature_vector_writer.py: module-level imports, no __import__, per-symbol counter
