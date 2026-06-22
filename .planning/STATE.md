@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
-status: Phase 138 in progress — P0 complete, P1 next
+status: Phase 138 in progress — P0 complete, P1 planned (foundation hardening)
 last_updated: "2026-06-22T14:45:00.000Z"
 last_activity: 2026-06-22 -- Phase 138-P0 complete (feature_vector_id migration, FeatureVectorWriter)
 progress:
@@ -83,7 +83,8 @@ See: .planning/PROJECT.md
 - [Phase 136]: Migration 130 Statement 3 UPDATE 0 rows: W2b exclusion at write time already eliminated all ctf_score keys from cross_timeframe_context; cleanup is durable
 - [Phase 138-P0]: TimescaleDB hypertables reject unique indexes unless partitioning column is included; use non-unique partial index + SHA-256 app-layer uniqueness
 - [Phase 138-P0]: Content-key formula: SHA-256(symbol|tf|bar_ts_ns|pipeline_version)[:32] as UUID; bar_ts_ns = int(bar_ts.timestamp() * 1e9)
-- [Phase 138-P0]: Migration 158 allocated for feature_vector_id; P1 migrations shifted to 159/160
+- [Phase 138-P0]: Migration 158 allocated for feature_vector_id; IC engine migrations shifted to 160/161
+- [Phase 138 replan 2026-06-22]: Inserted P1 (foundation hardening — council review 12 findings); backfill extracted to standalone P3; now 7 plans (P0 done, P1-P7 pending). Migration 159 = foundation DDL (9 new feature_vectors columns + batch_job_checkpoints). P2 and P3 run in parallel (wave 2). TF-specific bootstrap block size APR keys replace single key.
 
 ### Blockers / Concerns
 
@@ -99,7 +100,7 @@ Key decisions:
 - TimescaleDB hypertable cannot carry unique index without partitioning column (bar_ts); used non-unique partial index; SHA-256 uniqueness at application layer
 - P1/P2 migration numbers shifted 157->159, 158->160 to avoid collision with migration 158
 
-**Next session:** Execute 138-P1 (BaseBatchComputer base class + IC engine tables migration 159)
+**Next session:** Execute 138-P1 (foundation hardening — council review findings 1-12; migration 159)
 
 ### Last session (2026-06-22) — Phase 138 plans hardened; AlphaEngine doc written
 

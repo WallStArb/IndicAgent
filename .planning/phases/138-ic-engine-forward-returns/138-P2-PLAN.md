@@ -15,7 +15,6 @@ autonomous: true
 must_haves:
   truths:
     - "BaseBatch exists at src/core/agent/base_batch.py with job_name, compute_version, content_key(), run() template method, and D-06 job_completed_total emission"
-    - "feature_vectors has rows for at least 14 ETF symbols across 5m/15m/1h/1d"
     - "forward_returns and feature_ic_scores tables exist with correct columns and PK"
     - "feature_ic_scores has is_pooled BOOLEAN DEFAULT false column"
     - "feature_ic_scores has two separate unique indexes: one for pooled rows (is_pooled=true, regime=NULL), one for regime-stratified rows"
@@ -39,10 +38,6 @@ must_haves:
       provides: "_ONESHOT_UNITS with three new regime/IC oneshot entries"
       contains: "indicagent-regime-writer"
   key_links:
-    - from: "feature_vectors backfill"
-      to: "feature_vectors table"
-      via: "backfill_feature_factory.py compute stage"
-      pattern: "count.*feature_vectors"
     - from: "ConfigService"
       to: "config_state alpha.ic.* rows"
       via: "get_sync after migration 161 applied"
@@ -54,10 +49,10 @@ must_haves:
 ---
 
 <objective>
-Run the Phase 137 FeatureFactory backfill (prerequisite that blocks ALL of Phase 138), build BaseBatch (the shared base class for all Phase 138+ batch compute oneshots), and lay down the schema + APR foundation for the IC pipeline. This plan unblocks the regime labeler, outcome labeler, and IC engine.
+Build BaseBatch (the shared base class for all Phase 138+ batch compute oneshots) and lay down the schema + APR foundation for the IC pipeline. Pure infrastructure — no data population here (that is P3).
 
-Purpose: feature_vectors is currently EMPTY (RESEARCH.md Finding 1) and alpha.ic.* APR keys do not exist (Finding 9). Nothing downstream can run until both are fixed. BaseBatch is built here so P2/P3/P4 services can inherit from it — standardizing DB pool lifecycle, D-06 emission, content-addressed key generation, and error handling across all batch compute services. The is_pooled column (not NULL overloading) disambiguates pooled vs. regime-stratified IC rows. The _ONESHOT_UNITS registration prevents the auditor from treating idle IC batch services as dead daemons.
-Output: Populated feature_vectors, BaseBatch base class, forward_returns + feature_ic_scores tables (with is_pooled column), seeded alpha.* APR keys including bootstrap_block_size, OPS_PREFIXES updated, service_auditor registrations in both _DAG_ORDER and _ONESHOT_UNITS.
+Purpose: alpha.ic.* APR keys do not exist (Finding 9). BaseBatch is built here so P3/P4/P5 services can inherit from it — standardizing DB pool lifecycle, D-06 emission, content-addressed key generation, and error handling across all batch compute services. The is_pooled column (not NULL overloading) disambiguates pooled vs. regime-stratified IC rows. The _ONESHOT_UNITS registration prevents the auditor from treating idle IC batch services as dead daemons.
+Output: BaseBatch base class, forward_returns + feature_ic_scores tables (with is_pooled column), seeded alpha.* APR keys with TF-specific bootstrap block sizes, OPS_PREFIXES updated, service_auditor registrations in both _DAG_ORDER and _ONESHOT_UNITS.
 </objective>
 
 <execution_context>
@@ -118,42 +113,9 @@ Output: Populated feature_vectors, BaseBatch base class, forward_returns + featu
   </acceptance_criteria>
 </task>
 
-<task type="auto">
-  <name>Task 1: Run FeatureFactory backfill to populate feature_vectors</name>
-  <files>feature_vectors (DB table — populated, no source file edit)</files>
-  <read_first>
-    - services/backfill_feature_factory.py (the service being executed — understand --symbols, --compute-only, checkpointing)
-    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Finding 1, Finding 7, Risk 1)
-    - CLAUDE.md (Historical backfill note: client-id 40; instrument asset_class filter)
-  </read_first>
-  <action>
-    Execute the Phase 137 backfill. The service is idempotent and resumable (checkpointed via backfill_status).
-
-    1. Confirm data source coverage first:
-       PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT symbol, timeframe, count(*) FROM market_data_ohlcv WHERE timeframe IN ('5m','15m','1h','1d') GROUP BY symbol, timeframe ORDER BY symbol, timeframe;"
-    2. Run compute stage (market_data_ohlcv already has bars per RESEARCH.md, so fetch may be skipped):
-       .venv/bin/python services/backfill_feature_factory.py --compute-only --symbols SPY IWM TLT SHY GLD XLF XLE XLK XLV XLU XLB XLC XLI XLP XLY
-       Run in background; this is a multi-hour operation. Poll backfill_status.
-    3. If --compute-only reports missing OHLCV for some (symbol, tf), run the default both-stage mode for those symbols using --client-id 40 (NOT default 56 which exceeds _MAX_CLIENT_ID=50).
-    4. After completion, verify coverage gate below.
-
-    Do NOT modify backfill_feature_factory.py -- only run it. regime stays NULL here (it is set in P2).
-  </action>
-  <acceptance_criteria>
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_vectors;"` returns > 0
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT symbol) FROM feature_vectors;"` returns >= 14
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT tf) FROM feature_vectors WHERE tf IN ('5m','15m','1h','1d');"` returns 4
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_vectors WHERE symbol='SPY' AND tf='5m';"` returns > 50000 (per RESEARCH.md Finding 7: ~93K independent obs at N=5)
-    - `job_completed_total{job="backfill-feature-factory", status="success"}` observable (backfill emits it at exit)
-  </acceptance_criteria>
-  <verify>
-    PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, count(DISTINCT symbol) AS symbols, count(*) AS rows FROM feature_vectors GROUP BY tf ORDER BY tf;"
-  </verify>
-  <done>feature_vectors populated: >=14 symbols x 4 TFs, SPY 5m > 50K rows.</done>
-</task>
 
 <task type="auto">
-  <name>Task 2: Migration 157 — forward_returns + feature_ic_scores tables with is_pooled column</name>
+  <name>Task 1: Migration — forward_returns + feature_ic_scores tables with is_pooled column</name>
   <files>production/migrations/160_ic_engine_tables.sql</files>
   <read_first>
     - docs/plans/2026-06-20-alphaengine-ic-spec.md (§XIV.1 forward_returns DDL, §XIV.4 feature_ic_scores DDL)
@@ -207,7 +169,7 @@ Output: Populated feature_vectors, BaseBatch base class, forward_returns + featu
 </task>
 
 <task type="auto">
-  <name>Task 3: Migration 158 — seed alpha.ic.* / alpha.decay.* APR keys (including bootstrap_block_size) + OPS_PREFIXES + service_auditor</name>
+  <name>Task 2: Migration 158 — seed alpha.ic.* / alpha.decay.* APR keys (including bootstrap_block_size) + OPS_PREFIXES + service_auditor</name>
   <files>production/migrations/161_alpha_ic_apr_keys.sql, src/config/config_service.py, services/service_auditor.py</files>
   <read_first>
     - docs/plans/2026-06-20-alphaengine-architecture.md (APR table: alpha.ic.* and alpha.decay.* keys with defaults and provenance)
@@ -274,7 +236,6 @@ Output: Populated feature_vectors, BaseBatch base class, forward_returns + featu
 </tasks>
 
 <verification>
-- feature_vectors populated for >=14 symbols x 4 TFs
 - forward_returns + feature_ic_scores tables exist; is_pooled BOOLEAN column present; two unique indexes (pooled_uq + regime_uq) exist
 - alpha.ic.bootstrap_block_size=10 seeded and readable via ConfigService
 - alpha. in OPS_PREFIXES; three oneshots in BOTH _DAG_ORDER AND _ONESHOT_UNITS
