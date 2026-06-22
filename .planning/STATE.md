@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
-status: Phase 137 planned — ready to execute (6 plans, 4 waves)
-last_updated: "2026-06-21T12:45:24.065Z"
-last_activity: 2026-06-21 -- Phase 138 planning complete
+status: Phase 137 complete — Phase 138 ready to execute
+last_updated: "2026-06-21T15:00:00.000Z"
+last_activity: 2026-06-21 -- Phase 137 closed; Phase 138 ready to execute
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 12
-  completed_plans: 6
-  percent: 0
+  completed_plans: 7
+  percent: 33
 ---
 
 # Project State
@@ -88,6 +88,14 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
+### Last session (2026-06-21) — Phase 137 closed; Phase 138 ready to execute
+
+Phase 137 (feature-factory) fully complete. All 7 plans (P1-P6 + P7) executed. FeatureVector is 54 fields, migration 156 deployed, pipeline/feature_writer/backfill all wired for 54 fields. 4929 unit tests passing.
+
+Phase 138 (ic-engine-forward-returns) planned and reviewed. Cross-AI review incorporated: causal HMM, block bootstrap, is_pooled flag, embargo, _ONESHOT_UNITS.
+
+**Next session:** `/gsd-execute-phase 138`
+
 ### Last session (2026-06-20, session 4) — Phase 137 planned (6 plans, 4 waves)
 
 Phase 137: Feature Factory planning complete. All 10 success criteria covered. Verification passed.
@@ -164,11 +172,11 @@ v2.10 milestone closed. Phase 133 (corpus rebuild) CANCELLED — superseded by I
 ## Current Position
 
 Milestone: v2.10 — COMPLETE (2026-06-20)
-Milestone: v3.0 — STARTING — AlphaEngine (Intelligence Vectors, V1 Quant)
-Phase: 137 (feature-factory) — EXECUTING
-Plan: 1 of 6
+Milestone: v3.0 — IN PROGRESS — AlphaEngine (Intelligence Vectors, V1 Quant)
+Phase: 137 (feature-factory) — COMPLETE (7 plans: P1-P6 + P7; 2026-06-21)
+Phase: 138 (ic-engine-forward-returns) — PLANNED, ready to execute
 Phase: 135 (controlled-vocabulary-system) — deferred
-Last activity: 2026-06-21 -- Phase 138 planning complete
+Last activity: 2026-06-21 -- Phase 137 closed; Phase 138 ready to execute
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
