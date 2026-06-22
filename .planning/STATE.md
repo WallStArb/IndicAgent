@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
-status: Phase 137 complete — Phase 138 ready to execute
-last_updated: "2026-06-21T15:00:00.000Z"
-last_activity: 2026-06-21 -- Phase 137 closed; Phase 138 ready to execute
+status: Phase 138 in progress — P0 complete, P1 next
+last_updated: "2026-06-22T14:45:00.000Z"
+last_activity: 2026-06-22 -- Phase 138-P0 complete (feature_vector_id migration, FeatureVectorWriter)
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 12
-  completed_plans: 7
+  total_plans: 13
+  completed_plans: 9
   percent: 33
 ---
 
@@ -81,12 +81,48 @@ See: .planning/PROJECT.md
 - [Phase 123]: Phase 128 DB persistence deferred: signal_writer reads ECL fields end-to-end but LedgerEntry not extended until 3-table migration
 - [Phase 136]: ctf_score=NULL is table-wide in intelligence_features: replay script never wrote Phase-130 CTF dedicated columns; deferred to future fix
 - [Phase 136]: Migration 130 Statement 3 UPDATE 0 rows: W2b exclusion at write time already eliminated all ctf_score keys from cross_timeframe_context; cleanup is durable
+- [Phase 138-P0]: TimescaleDB hypertables reject unique indexes unless partitioning column is included; use non-unique partial index + SHA-256 app-layer uniqueness
+- [Phase 138-P0]: Content-key formula: SHA-256(symbol|tf|bar_ts_ns|pipeline_version)[:32] as UUID; bar_ts_ns = int(bar_ts.timestamp() * 1e9)
+- [Phase 138-P0]: Migration 158 allocated for feature_vector_id; P1 migrations shifted to 159/160
 
 ### Blockers / Concerns
 
 - Phase 099 (Guardrails): do not implement unless post-094 parse failure rate > 1%
 
 ## Session Continuity
+
+### Last session (2026-06-22, P0 execution) — 138-P0 complete
+
+Phase 138-P0 complete: feature_vector_id UUID content-key added to feature_vectors (migration 158), FeatureWriter renamed to FeatureVectorWriter (61-param INSERT), backfill_feature_factory updated with identical SHA-256 formula.
+
+Key decisions:
+- TimescaleDB hypertable cannot carry unique index without partitioning column (bar_ts); used non-unique partial index; SHA-256 uniqueness at application layer
+- P1/P2 migration numbers shifted 157->159, 158->160 to avoid collision with migration 158
+
+**Next session:** Execute 138-P1 (BaseBatchComputer base class + IC engine tables migration 159)
+
+### Last session (2026-06-22) — Phase 138 plans hardened; AlphaEngine doc written
+
+AlphaEngine concept doc written: `docs/intelligence/intelligence-alphaengine.md`. Covers IC methodology vocabulary, what gets cut (I5/I6/I7 all archived), observability/traceability carry-forward, and base class architecture.
+
+Key architecture corrections made (v3.0 ground truth):
+
+- I5/I6/I7 fully archived — not surviving as feature producers (earlier memory was stale)
+- I1-I4 rewritten as Feature Factory; old plugin implementation replaced entirely
+- `intelligence_features` NOT used in v3.0 (backward-looking Viterbi labels = look-ahead bias)
+- `feature_vectors` (Feature Factory output against `market_data_ohlcv`) is the training corpus
+
+Phase 138 plans updated:
+
+- P1: Added `BaseBatch` (Task 0) — new Ring 0 base class at `src/core/agent/base_batch.py`; provides DB pool lifecycle, D-06 emission, `content_key()` SHA-256, `run()` template, error handling. All Phase 138+ batch compute services extend it.
+- P1: `backfill_feature_factory.py` must be refactored to extend `BaseBatch` (validates the base class before P2/P3/P4)
+- P2/P3: Added "extends BaseBatch" as must_have truth
+- P4: Added 4 IC health OTel gauges as must_have: IC_SCORE_GAUGE, EFFECTIVE_N_GAUGE, FEATURES_SURVIVING_FDR_GAUGE, IC_SHARPE_GAUGE
+- P1 memory: `project_intelligence_vectors.md` corrected to reflect ground-up architecture
+
+Deferred: `docs/foundation/naming-system.md` Ring 0 exports table needs `BaseBatch` added — do after code exists.
+
+**Next session:** `/gsd-execute-phase 138`
 
 ### Last session (2026-06-21) — Phase 137 closed; Phase 138 ready to execute
 
