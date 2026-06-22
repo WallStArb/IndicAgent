@@ -44,8 +44,9 @@ from src.intelligence.schemas import FeatureVector
 def _make_config() -> FeatureFactoryConfig:
     """Minimal FeatureFactoryConfig with all fields for testing."""
     return FeatureFactoryConfig(
-        momentum_window_short=5,
-        momentum_window_long=20,
+        momentum_window_fast=5,
+        momentum_window_mid=20,
+        momentum_window_slow=60,
         momentum_zscore_window=30,
         volume_zscore_window=20,
         ofi_zscore_window=20,
@@ -114,11 +115,13 @@ def _make_bars(n: int = 50) -> list[dict]:
 def _make_zero_vector() -> FeatureVector:
     """Return an all-zero FeatureVector for testing."""
     return FeatureVector(
-        momentum_z_5=0.0,
-        momentum_z_20=0.0,
+        momentum_z_fast=0.0,
+        momentum_z_mid=0.0,
         range_position=0.5,
         bar_close_pos=0.5,
         gap_z=0.0,
+        momentum_z_slow=0.0,
+        momentum_reversal_z=0.0,
         informed_flow=0.0,
         volume_z=0.0,
         ofi_z=0.0,
@@ -161,6 +164,8 @@ def _make_zero_vector() -> FeatureVector:
         dow_sin=0.0,
         dow_cos=1.0,
         month_position=1.0,
+        quarter_position=0.0,
+        days_to_month_end=0.0,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
@@ -255,13 +260,14 @@ def test_vector_to_params_regime_label_source() -> None:
         regime=None,
         fv=fv,
     )
-    # params[6] is regime_label_source in the INSERT column order
-    # (params[0] = feature_vector_id UUID, params[1]=symbol, ..., params[6]=regime_label_source)
-    assert params[6] == "filtered", f"Expected 'filtered', got {params[6]!r}"
+    # params[7] is regime_label_source in the INSERT column order (post migration 159).
+    # Column layout: [0]=feature_vector_id, [1]=symbol, [2]=tf, [3]=bar_ts,
+    #   [4]=pipeline_version, [5]=feature_factory_version, [6]=regime, [7]=regime_label_source
+    assert params[7] == "filtered", f"Expected 'filtered', got {params[7]!r}"
 
 
-def test_vector_to_params_all_36_features_present() -> None:
-    """All 36 FeatureVector fields must appear in the INSERT params tuple."""
+def test_vector_to_params_all_features_present() -> None:
+    """All FeatureVector fields must appear in the INSERT params tuple (70 total after migration 159)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -272,8 +278,8 @@ def test_vector_to_params_all_36_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 6 structural columns + 54 feature floats = 61 total
-    assert len(params) == 61, f"Expected 61 params, got {len(params)}"
+    # 1 content-key + 7 structural + 54 feature floats + 8 new columns = 70 total
+    assert len(params) == 70, f"Expected 70 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:
@@ -527,12 +533,16 @@ def test_feature_factory_compute_returns_valid_vector() -> None:
     # Check it's a FeatureVector
     assert isinstance(fv, FeatureVector)
 
-    # All 36 fields are finite floats
+    # All required fields are finite floats; Optional cross-sectional fields may be None.
     import dataclasses
     import math
 
     for field in dataclasses.fields(fv):
         val = getattr(fv, field.name)
+        # Optional fields (momentum_rank_z, volume_rank_z, volatility_rank_z) are
+        # None until batch cross-sectional enrichment; skip them.
+        if val is None:
+            continue
         assert isinstance(val, float), f"{field.name} should be float, got {type(val)}"
         assert math.isfinite(val), f"{field.name} should be finite, got {val}"
 

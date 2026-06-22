@@ -35,8 +35,9 @@ UTC = UTC
 
 def _make_cfg(**overrides) -> FeatureFactoryConfig:
     defaults = dict(
-        momentum_window_short=5,
-        momentum_window_long=20,
+        momentum_window_fast=5,
+        momentum_window_mid=20,
+        momentum_window_slow=60,
         momentum_zscore_window=20,
         volume_zscore_window=20,
         ofi_zscore_window=20,
@@ -365,7 +366,7 @@ def test_hmm_duration_increments():
 
 def test_feature_vector_domain_complete():
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 54
+    assert len(FEATURE_VECTOR_DOMAIN) == 61
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 
@@ -381,4 +382,4 @@ def test_vector_to_params_length():
     ts = datetime(2026, 1, 7, 14, 0, tzinfo=UTC)
     fv = FeatureFactory.compute(bars, "SPY", "1m", cache, cfg)
     row = _vector_to_params("SPY", "1m", ts, "v3.0.0", None, fv)
-    assert len(row) == 61, f"Expected 61, got {len(row)}"
+    assert len(row) == 70, f"Expected 70, got {len(row)}"

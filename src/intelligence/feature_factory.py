@@ -42,16 +42,25 @@ from src.intelligence.feature_cache import (
 from src.intelligence.schemas import FeatureVector
 
 # ---------------------------------------------------------------------------
+# Algorithm version tracking
+# ---------------------------------------------------------------------------
+
+# Bump on any algorithm change; IC engine filters by version to avoid mixing IC estimates.
+FEATURE_FACTORY_VERSION: str = "1.0.0"
+
+# ---------------------------------------------------------------------------
 # Feature-to-vector domain registry (IC Engine reads this at startup)
 # ---------------------------------------------------------------------------
 
 FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     # Momentum
-    "momentum_z_5": "quant",
-    "momentum_z_20": "quant",
+    "momentum_z_fast": "quant",
+    "momentum_z_mid": "quant",
     "range_position": "quant",
     "bar_close_pos": "quant",
     "gap_z": "quant",
+    "momentum_z_slow": "quant",
+    "momentum_reversal_z": "quant",
     # Volume and order flow
     "informed_flow": "quant",
     "volume_z": "quant",
@@ -101,6 +110,8 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "dow_sin": "calendar",
     "dow_cos": "calendar",
     "month_position": "calendar",
+    "quarter_position": "calendar",
+    "days_to_month_end": "calendar",
     # Cross-timeframe
     "ctf_momentum": "quant",
     "ctf_vwap_align": "quant",
@@ -110,6 +121,10 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "high_52w_dist": "quant",
     "ret_skew_z": "quant",
     "ret_acf1_z": "quant",
+    # Cross-sectional (nullable — populated by Phase 139)
+    "momentum_rank_z": "quant",
+    "volume_rank_z": "quant",
+    "volatility_rank_z": "quant",
 }
 
 # ---------------------------------------------------------------------------
@@ -126,8 +141,9 @@ class FeatureFactoryConfig:
     APR keys (feature.* namespace) map directly to these fields.
 
     Fields:
-        momentum_window_short: APR feature.momentum.window_short
-        momentum_window_long: APR feature.momentum.window_long
+        momentum_window_fast: APR feature.momentum.window_fast
+        momentum_window_mid: APR feature.momentum.window_mid
+        momentum_window_slow: APR feature.momentum.window_slow
         momentum_zscore_window: APR feature.momentum.zscore_window
         volume_zscore_window: APR feature.volume.zscore_window
         ofi_zscore_window: APR feature.ofi.zscore_window
@@ -157,8 +173,9 @@ class FeatureFactoryConfig:
         opening_range_end_minute: APR feature.session.opening_range_end_minute
     """
 
-    momentum_window_short: int  # feature.momentum.window_short
-    momentum_window_long: int  # feature.momentum.window_long
+    momentum_window_fast: int  # feature.momentum.window_fast
+    momentum_window_mid: int  # feature.momentum.window_mid
+    momentum_window_slow: int  # feature.momentum.window_slow
     momentum_zscore_window: int  # feature.momentum.zscore_window
     volume_zscore_window: int  # feature.volume.zscore_window
     ofi_zscore_window: int  # feature.ofi.zscore_window
@@ -795,7 +812,7 @@ class FeatureFactory:
         # --- Bar-level primitives ---
         bar_close_pos_val = _bar_close_pos(high_, low_, close_)
 
-        range_bars = min(config.momentum_window_long, len(bars))
+        range_bars = min(config.momentum_window_mid, len(bars))
         range_position_val = _range_position(
             close_,
             highs[-range_bars:],
@@ -846,25 +863,49 @@ class FeatureFactory:
 
         vol_ratio_val = _vol_ratio(closes, config.vol_short_bars, config.vol_long_bars)
 
-        # momentum_z_5: log-return velocity over momentum_window_short, z-scored
-        ws = config.momentum_window_short
-        if len(closes) > ws:
-            mom_short_series = np.log(
-                np.maximum(closes[ws:], 1e-10) / np.maximum(closes[:-ws], 1e-10)
+        # momentum_z_fast: log-return velocity over momentum_window_fast, z-scored
+        wf = config.momentum_window_fast
+        if len(closes) > wf:
+            mom_fast_series = np.log(
+                np.maximum(closes[wf:], 1e-10) / np.maximum(closes[:-wf], 1e-10)
             )
-            momentum_z_5_val = _zscore_last(mom_short_series, config.momentum_zscore_window)
+            momentum_z_fast_val = _zscore_last(mom_fast_series, config.momentum_zscore_window)
         else:
-            momentum_z_5_val = 0.0
+            momentum_z_fast_val = 0.0
 
-        # momentum_z_20: log-return velocity over momentum_window_long, z-scored
-        wl = config.momentum_window_long
-        if len(closes) > wl:
-            mom_long_series = np.log(
-                np.maximum(closes[wl:], 1e-10) / np.maximum(closes[:-wl], 1e-10)
+        # momentum_z_mid: log-return velocity over momentum_window_mid, z-scored
+        wm = config.momentum_window_mid
+        if len(closes) > wm:
+            mom_mid_series = np.log(
+                np.maximum(closes[wm:], 1e-10) / np.maximum(closes[:-wm], 1e-10)
             )
-            momentum_z_20_val = _zscore_last(mom_long_series, config.momentum_zscore_window)
+            momentum_z_mid_val = _zscore_last(mom_mid_series, config.momentum_zscore_window)
         else:
-            momentum_z_20_val = 0.0
+            momentum_z_mid_val = 0.0
+
+        # momentum_z_slow: log-return velocity over momentum_window_slow, z-scored
+        wslow = config.momentum_window_slow
+        if len(closes) > wslow:
+            mom_slow_series = np.log(
+                np.maximum(closes[wslow:], 1e-10) / np.maximum(closes[:-wslow], 1e-10)
+            )
+            momentum_z_slow_val = _zscore_last(mom_slow_series, config.momentum_zscore_window)
+        else:
+            momentum_z_slow_val = 0.0
+
+        # momentum_reversal_z: 1-bar log return z-scored over fast zscore window
+        one_bar_return = (
+            math.log(max(float(closes[-1]), 1e-10) / max(float(closes[-2]), 1e-10))
+            if len(closes) >= 2
+            else 0.0
+        )
+        reversal_raw = np.diff(np.log(np.maximum(closes, 1e-10)))
+        reversal_window = min(config.momentum_zscore_window, len(reversal_raw))
+        momentum_reversal_z_val = (
+            _zscore_last(reversal_raw, reversal_window)
+            if len(reversal_raw) >= reversal_window
+            else 0.0
+        )
 
         cmf_val = _cmf(highs, lows, closes, volumes, config.cmf_period)
 
@@ -920,7 +961,7 @@ class FeatureFactory:
         aroon_slow_val = _aroon_osc(highs, lows, config.aroon_slow_period)
 
         # --- OFI divergence ---
-        ofi_div_val = ofi_z_val - momentum_z_5_val
+        ofi_div_val = ofi_z_val - momentum_z_fast_val
 
         # --- Cross-asset primitives (all from cache — populated by update_cross_asset) ---
         vix_z_val = cache.vix_z
@@ -936,6 +977,18 @@ class FeatureFactory:
         above_wk_vwap_val = cache.above_wk_vwap
         dow_sin_val, dow_cos_val = _dow_encoding(bar_ts)
         month_position_val = _month_position(bar_ts)
+
+        # quarter_position: position within calendar quarter [0, 1]
+        # month_in_quarter = 0, 1, or 2; day_in_quarter is approximate
+        _month_in_q = (bar_ts.month - 1) % 3  # 0, 1, 2
+        _day_in_q = _month_in_q * 30 + bar_ts.day
+        _QUARTER_LENGTH = 91.25  # statistical constant (365.25 / 4)
+        quarter_position_val = min(1.0, _day_in_q / _QUARTER_LENGTH)
+
+        # days_to_month_end: normalized days remaining to month end [0, 1]
+        _days_in_month = calendar.monthrange(bar_ts.year, bar_ts.month)[1]
+        _days_remaining = _days_in_month - bar_ts.day
+        days_to_month_end_val = _days_remaining / _days_in_month
 
         # --- Cross-timeframe primitives (from cache — populated when HTF bar arrives) ---
         ctf_momentum_val = cache.ctf_momentum
@@ -953,12 +1006,14 @@ class FeatureFactory:
             return v if math.isfinite(v) else fallback
 
         return FeatureVector(
-            # Momentum (5)
-            momentum_z_5=_guard(momentum_z_5_val),
-            momentum_z_20=_guard(momentum_z_20_val),
+            # Momentum (7)
+            momentum_z_fast=_guard(momentum_z_fast_val),
+            momentum_z_mid=_guard(momentum_z_mid_val),
             range_position=_guard(range_position_val, 0.5),
             bar_close_pos=_guard(bar_close_pos_val, 0.5),
             gap_z=_guard(gap_z_val),
+            momentum_z_slow=_guard(momentum_z_slow_val),
+            momentum_reversal_z=_guard(momentum_reversal_z_val),
             # Volume and order flow (8)
             informed_flow=_guard(informed_flow_val),
             volume_z=_guard(volume_z_val),
@@ -998,7 +1053,7 @@ class FeatureFactory:
             vix_z=_guard(vix_z_val),
             flight_quality=_guard(flight_quality_val),
             yield_slope_z=_guard(yield_slope_z_val),
-            # Calendar (9)
+            # Calendar (11)
             in_ny_session=in_ny_session_val,
             in_london_kz=in_london_kz_val,
             in_overlap=in_overlap_val,
@@ -1008,6 +1063,8 @@ class FeatureFactory:
             dow_sin=dow_sin_val,
             dow_cos=dow_cos_val,
             month_position=month_position_val,
+            quarter_position=_guard(quarter_position_val, 0.0),
+            days_to_month_end=_guard(days_to_month_end_val, 0.0),
             # Cross-timeframe (3)
             ctf_momentum=_guard(ctf_momentum_val),
             ctf_vwap_align=_guard(ctf_vwap_align_val),
@@ -1017,6 +1074,10 @@ class FeatureFactory:
             high_52w_dist=_guard(high_52w_dist_val),
             ret_skew_z=_guard(ret_skew_z_val),
             ret_acf1_z=_guard(ret_acf1_z_val),
+            # Cross-sectional (3, nullable — populated by Phase 139)
+            momentum_rank_z=None,
+            volume_rank_z=None,
+            volatility_rank_z=None,
         )
 
 
@@ -1034,11 +1095,13 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         sr_resist_dist = cache.sr_resist_dist
 
     return FeatureVector(
-        momentum_z_5=0.0,
-        momentum_z_20=0.0,
+        momentum_z_fast=0.0,
+        momentum_z_mid=0.0,
         range_position=0.5,
         bar_close_pos=0.5,
         gap_z=0.0,
+        momentum_z_slow=0.0,
+        momentum_reversal_z=0.0,
         informed_flow=0.0,
         volume_z=0.0,
         ofi_z=0.0,
@@ -1081,6 +1144,8 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         dow_sin=0.0,
         dow_cos=1.0,
         month_position=1.0,
+        quarter_position=0.0,
+        days_to_month_end=0.0,
         ctf_momentum=cache.ctf_momentum,
         ctf_vwap_align=cache.ctf_vwap_align,
         ctf_regime_align=cache.ctf_regime_align,
@@ -1088,4 +1153,7 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         high_52w_dist=0.0,
         ret_skew_z=0.0,
         ret_acf1_z=0.0,
+        momentum_rank_z=None,
+        volume_rank_z=None,
+        volatility_rank_z=None,
     )

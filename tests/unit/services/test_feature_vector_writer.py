@@ -13,11 +13,13 @@ def _make_valid_feature_vector():
     from src.intelligence.schemas import FeatureVector
 
     return FeatureVector(
-        momentum_z_5=0.1,
-        momentum_z_20=0.2,
+        momentum_z_fast=0.1,
+        momentum_z_mid=0.2,
         range_position=0.5,
         bar_close_pos=0.6,
         gap_z=0.0,
+        momentum_z_slow=0.0,
+        momentum_reversal_z=0.0,
         informed_flow=0.0,
         volume_z=0.0,
         ofi_z=0.0,
@@ -60,6 +62,8 @@ def _make_valid_feature_vector():
         dow_sin=0.3,
         dow_cos=0.9,
         month_position=0.5,
+        quarter_position=0.25,
+        days_to_month_end=0.5,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
@@ -79,6 +83,7 @@ def _make_valid_record():
         tf="5m",
         bar_ts=datetime(2026, 6, 20, 10, 0, 0, tzinfo=UTC),
         pipeline_version="3.0.0",
+        feature_factory_version="1.0.0",
         regime="ranging",
         regime_label_source="filtered",
         vector=_make_valid_feature_vector(),
@@ -104,15 +109,15 @@ def _make_valid_payload():
 # ── _record_to_insert_params ──────────────────────────────────────────────────
 
 
-def test_record_to_insert_params_returns_61_tuple():
-    """_record_to_insert_params returns exactly 61 elements matching INSERT columns."""
+def test_record_to_insert_params_returns_70_tuple():
+    """_record_to_insert_params returns exactly 70 elements matching INSERT columns (post migration 159)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_valid_record()
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 61, f"Expected 61, got {len(params)}"
+    assert len(params) == 70, f"Expected 70, got {len(params)}"
 
 
 def test_record_to_insert_params_feature_vector_id_is_uuid():
@@ -138,8 +143,9 @@ def test_record_to_insert_params_structural_columns():
     assert params[2] == "5m"  # $3 tf
     assert isinstance(params[3], datetime)  # $4 bar_ts
     assert params[4] == "3.0.0"  # $5 pipeline_version
-    assert params[5] == "ranging"  # $6 regime
-    assert params[6] == "filtered"  # $7 regime_label_source
+    assert params[5] == "1.0.0"  # $6 feature_factory_version (NEW in 138-P1)
+    assert params[6] == "ranging"  # $7 regime
+    assert params[7] == "filtered"  # $8 regime_label_source
 
 
 def test_record_to_insert_params_regime_can_be_none():
@@ -153,12 +159,13 @@ def test_record_to_insert_params_regime_can_be_none():
         tf=rec.tf,
         bar_ts=rec.bar_ts,
         pipeline_version=rec.pipeline_version,
+        feature_factory_version=rec.feature_factory_version,
         regime=None,
         regime_label_source=rec.regime_label_source,
         vector=rec.vector,
     )
     params = _record_to_insert_params(rec_no_regime)
-    assert params[5] is None, "regime should be None at index 5"
+    assert params[6] is None, "regime should be None at index 6"
 
 
 def test_record_to_insert_params_feature_values_match_vector():
@@ -169,16 +176,16 @@ def test_record_to_insert_params_feature_values_match_vector():
     params = _record_to_insert_params(record)
     v = record.vector
 
-    # $8 = momentum_z_5 (index 7)
-    assert params[7] == v.momentum_z_5
-    # $21 = atr_z (index 20)
-    assert params[20] == v.atr_z
-    # $30 = hurst (index 29)
-    assert params[29] == v.hurst
-    # $57 = ctf_regime_align (index 56)
-    assert params[56] == v.ctf_regime_align
-    # $61 = ret_acf1_z (index 60)
-    assert params[60] == v.ret_acf1_z
+    # $9 = momentum_z_fast (index 8; shifted +1 by feature_factory_version at $6)
+    assert params[8] == v.momentum_z_fast
+    # $22 = atr_z (index 21)
+    assert params[21] == v.atr_z
+    # $31 = hurst (index 30)
+    assert params[30] == v.hurst
+    # $58 = ctf_regime_align (index 57)
+    assert params[57] == v.ctf_regime_align
+    # $62 = ret_acf1_z (index 61)
+    assert params[61] == v.ret_acf1_z
 
 
 def test_feature_vector_id_is_deterministic():
@@ -197,7 +204,6 @@ def test_feature_vector_id_differs_for_different_inputs():
     import dataclasses
 
     from services.feature_vector_writer import _record_to_insert_params
-    from src.intelligence.schemas import FeatureVectorRecord
 
     rec1 = _make_valid_record()
     rec2 = dataclasses.replace(rec1, symbol="TLT")
@@ -210,13 +216,14 @@ def test_feature_vector_id_differs_for_different_inputs():
 # ── _parse_payload ────────────────────────────────────────────────────────────
 
 
-def test_parse_payload_valid_record_returns_61_param_tuple():
-    """Valid FeatureVectorRecord payload parses to a 61-element params tuple."""
+def test_parse_payload_valid_record_returns_70_param_tuple():
+    """Valid FeatureVectorRecord payload parses to a 70-element params tuple (post migration 159)."""
     from services.feature_vector_writer import FeatureVectorWriter
 
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
+    svc._rows_parsed_by_symbol_tf = MagicMock()
 
     payload = _make_valid_payload()
     valid, invalid = svc._parse_payload(payload)
@@ -225,7 +232,7 @@ def test_parse_payload_valid_record_returns_61_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 61, f"Expected 61-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 70, f"Expected 70-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -235,6 +242,7 @@ def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
+    svc._rows_parsed_by_symbol_tf = MagicMock()
 
     bad_payload = {"symbol": "SPY", "tf": "5m"}  # missing required fields
     valid, invalid = svc._parse_payload(bad_payload)
@@ -251,6 +259,7 @@ def test_parse_payload_non_dict_returns_empty():
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
+    svc._rows_parsed_by_symbol_tf = MagicMock()
 
     valid, invalid = svc._parse_payload(b"not-json")
     assert not valid
@@ -264,6 +273,7 @@ def test_parse_payload_missing_vector_returns_error():
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
+    svc._rows_parsed_by_symbol_tf = MagicMock()
 
     payload = _make_valid_payload()
     payload["vector"] = "not-a-dict"
@@ -323,7 +333,9 @@ def test_no_cross_asset_or_expiry_code():
     """Removed code paths must not exist in the module."""
     from services import feature_vector_writer
 
-    assert not hasattr(feature_vector_writer, "_build_expiry_map"), "_build_expiry_map must be removed"
+    assert not hasattr(
+        feature_vector_writer, "_build_expiry_map"
+    ), "_build_expiry_map must be removed"
     assert not hasattr(
         feature_vector_writer, "_compute_days_to_expiry"
     ), "_compute_days_to_expiry must be removed"
@@ -367,14 +379,14 @@ def test_insert_sql_targets_feature_vectors():
     assert "ON CONFLICT (symbol, tf, bar_ts) DO NOTHING" in _INSERT_FEATURE_VECTOR_SQL
 
 
-def test_insert_sql_has_61_placeholders():
-    """_INSERT_FEATURE_VECTOR_SQL must have exactly 61 positional placeholders $1..$61."""
+def test_insert_sql_has_70_placeholders():
+    """_INSERT_FEATURE_VECTOR_SQL must have exactly 70 positional placeholders $1..$70 (post migration 159)."""
     import re
 
     from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 61, f"Expected 61 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 70, f"Expected 70 placeholders, got {len(placeholders)}"
 
 
 def test_insert_sql_includes_feature_vector_id_column():

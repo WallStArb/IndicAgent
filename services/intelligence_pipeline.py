@@ -50,7 +50,11 @@ from src.core.stream_keys import (
     topic_system_events,
 )
 from src.intelligence.feature_cache import FeatureCache
-from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.feature_factory import (
+    FEATURE_FACTORY_VERSION,
+    FeatureFactory,
+    FeatureFactoryConfig,
+)
 from src.intelligence.pipeline import (
     CacheManager,
     OutputQueue,
@@ -491,8 +495,9 @@ class IntelligencePipeline(BaseDaemon):
             return int(v) if v is not None else default
 
         self._feature_factory_config = FeatureFactoryConfig(
-            momentum_window_short=_int("feature.momentum.window_short", 5),
-            momentum_window_long=_int("feature.momentum.window_long", 20),
+            momentum_window_fast=_int("feature.momentum.window_fast", 5),
+            momentum_window_mid=_int("feature.momentum.window_mid", 20),
+            momentum_window_slow=_int("feature.momentum.window_slow", 60),
             momentum_zscore_window=_int("feature.momentum.zscore_window", 252),
             volume_zscore_window=_int("feature.volume.zscore_window", 20),
             ofi_zscore_window=_int("feature.ofi.zscore_window", 20),
@@ -828,6 +833,7 @@ class IntelligencePipeline(BaseDaemon):
             tf=bar.tf,
             bar_ts=bar.ts,
             pipeline_version=_PIPELINE_VERSION,
+            feature_factory_version=FEATURE_FACTORY_VERSION,
             regime=regime,
             regime_label_source="filtered",
             vector=vector,

@@ -13,6 +13,7 @@ Last Updated: 2026-06-22
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime
 from typing import Any  # noqa: F401
 
@@ -33,7 +34,7 @@ from src.intelligence.features.feature_vector_persistence import (
     VALID_REGIME_LABEL_SOURCES,
     feature_vector_to_insert_params,
 )
-from src.intelligence.schemas import FeatureVectorRecord
+from src.intelligence.schemas import FeatureVector, FeatureVectorRecord
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     PERSISTENCE_CONSUMER_LAG,
@@ -45,17 +46,21 @@ from src.observability.spans import ATTR_BATCH_SIZE, ATTR_FLUSH_MS, observed_spa
 # ── Module-level constants ────────────────────────────────────────────────────
 
 # Spot-check set of columns that must exist in feature_vectors before startup.
+# Includes migration 159 columns so the service refuses to start against a stale schema.
 _REQUIRED_COLUMNS: frozenset[str] = frozenset(
     {
         "symbol",
         "tf",
         "bar_ts",
         "pipeline_version",
-        "momentum_z_5",
-        "momentum_z_20",
+        "feature_factory_version",
+        "momentum_z_fast",
+        "momentum_z_mid",
         "hurst",
         "atr_z",
         "feature_vector_id",
+        "bar_close_ts",
+        "momentum_z_slow",
     }
 )
 
@@ -92,6 +97,7 @@ def _record_to_insert_params(record: FeatureVectorRecord) -> tuple:
         tf=record.tf,
         bar_ts=record.bar_ts,
         pipeline_version=record.pipeline_version,
+        feature_factory_version=record.feature_factory_version,
         regime=record.regime,
         regime_label_source=record.regime_label_source,
         vector=record.vector,
@@ -149,6 +155,10 @@ class FeatureVectorWriter(BaseWriter):
         self._parse_errors_total = counter(
             "feature_writer_parse_errors_total",
             "Total FeatureVectorRecord parse failures",
+        )
+        self._rows_parsed_by_symbol_tf = counter(
+            "feature_writer_rows_parsed_by_symbol_tf_total",
+            "Rows successfully parsed per symbol and timeframe",
         )
         self._db_connected = point_gauge(
             "feature_writer_db_connected",
@@ -209,14 +219,13 @@ class FeatureVectorWriter(BaseWriter):
                 self._parse_errors_total.add(1)
                 return [], [payload]
 
-            from src.intelligence.schemas import FeatureVector
-
             vector = FeatureVector(**vector_data)
             record = FeatureVectorRecord(
                 symbol=payload["symbol"],
                 tf=payload["tf"],
                 bar_ts=payload["bar_ts"],
                 pipeline_version=payload["pipeline_version"],
+                feature_factory_version=payload.get("feature_factory_version", "1.0.0"),
                 regime=payload.get("regime"),
                 regime_label_source=regime_label_source,
                 vector=vector,
@@ -225,6 +234,7 @@ class FeatureVectorWriter(BaseWriter):
             self._parse_errors_total.add(1)
             return [], [payload]
 
+        self._rows_parsed_by_symbol_tf.add(1, {"symbol": record.symbol, "tf": record.tf})
         params = _record_to_insert_params(record)
         return [params], []
 
@@ -237,10 +247,10 @@ class FeatureVectorWriter(BaseWriter):
             raise RuntimeError("No database connection")
 
         async with observed_span("writer.flush", tracer=self.tracer) as span:
-            _fw_t0 = __import__("time").perf_counter()
+            _fw_t0 = time.perf_counter()
             await self.db_manager.execute_batch(_INSERT_FEATURE_VECTOR_SQL, batch)
             PERSISTENCE_BATCH_LATENCY.record(
-                __import__("time").perf_counter() - _fw_t0, self._batch_latency_attrs
+                time.perf_counter() - _fw_t0, self._batch_latency_attrs
             )
 
             self.batch_writes_total.add(1)
@@ -251,7 +261,7 @@ class FeatureVectorWriter(BaseWriter):
             self.logger.debug("feature_vector_writer.batch_flushed", rows=len(batch))
 
             span.set_attribute(ATTR_BATCH_SIZE, len(batch))
-            flush_ms = (__import__("time").perf_counter() - _fw_t0) * 1000
+            flush_ms = (time.perf_counter() - _fw_t0) * 1000
             span.set_attribute(ATTR_FLUSH_MS, flush_ms)
 
     async def _verify_schema(self) -> None:

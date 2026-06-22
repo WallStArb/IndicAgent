@@ -58,6 +58,10 @@ def make_agent() -> IntelligencePipeline:
     _db.execute_query = AsyncMock(return_value=[])
     agent._cache_mgr = CacheManager(db=_db, settings=agent.settings)
     agent._regime_cache = {}
+    agent._feature_caches = {}
+    agent._kafka_producer = AsyncMock()
+    agent._background_tasks = set()
+    agent._bar_e2e_latency = MagicMock()
     agent._out_queue = OutputQueue(producer=MagicMock(), maxsize=500)
     agent._transform_recorder = MagicMock()
     agent._regime_prob_min = 0.7
@@ -82,6 +86,56 @@ def make_agent() -> IntelligencePipeline:
         cis_scorer=CISScorer(),
         settings=agent.settings,
         transform_recorder=None,
+    )
+    # FeatureFactoryConfig required by _process_bar_compute() assertion.
+    # Seeded with default values matching APR defaults.
+    from src.intelligence.feature_factory import FeatureFactoryConfig
+
+    agent._feature_factory_config = FeatureFactoryConfig(
+        momentum_window_fast=5,
+        momentum_window_mid=20,
+        momentum_window_slow=60,
+        momentum_zscore_window=252,
+        volume_zscore_window=20,
+        ofi_zscore_window=20,
+        cvd_slope_bars=5,
+        cmf_period=20,
+        vol_short_bars=5,
+        vol_long_bars=20,
+        hma_period=20,
+        adx_period=14,
+        hurst_window=252,
+        garch_window=100,
+        vix_zscore_window=252,
+        yield_curve_zscore_window=252,
+        regime_cache_refresh_bars=30,
+        rsi_fast_period=7,
+        rsi_mid_period=14,
+        rsi_slow_period=28,
+        cci_fast_period=10,
+        cci_mid_period=20,
+        cci_slow_period=40,
+        aroon_fast_period=14,
+        aroon_slow_period=25,
+        amihud_zscore_window=252,
+        ret_skew_window=60,
+        ret_skew_zscore_window=252,
+        ret_acf_window=30,
+        ret_acf_zscore_window=252,
+        high_52w_window=252,
+        min_bars_warmup=16,
+        cross_asset_rv_window=20,
+        ny_session_start_utc_hour=13,
+        ny_session_start_utc_minute=30,
+        ny_session_end_utc_hour=20,
+        overlap_start_utc_hour=12,
+        overlap_end_utc_hour=15,
+        london_kz_start_utc_hour=7,
+        london_kz_end_utc_hour=10,
+        power_hour_start_utc_hour=19,
+        power_hour_end_utc_hour=21,
+        opening_range_start_minute=810,
+        opening_range_end_minute=900,
     )
     return agent
 
