@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
-"""Feature Writer Agent — persists FeatureVectorRecord to feature_vectors hypertable.
+"""Feature Vector Writer Agent — persists FeatureVectorRecord to feature_vectors hypertable.
 
 Consumes topic_feature_vectors via Kafka consumer group 'feature_vector_writer_group'
 and batch-writes complete rows to the feature_vectors TimescaleDB hypertable.
 
-Phase 137 P4: Retargeted to feature_vectors (v3.0).
 All BaseWriter infrastructure (batching, flush loop, DLQ, OTel) unchanged.
 
-Version: 4.0.0
-Last Updated: 2026-06-20
+Version: 4.1.0
+Last Updated: 2026-06-22
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
+import hashlib
+import uuid
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from typing import Any  # noqa: F401
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 
-from src.config.settings import Settings, get_active_symbols
+from src.config.settings import Settings, get_active_symbols  # noqa: F401
 from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
@@ -40,10 +39,6 @@ from src.observability.metrics import (
 )
 from src.observability.spans import ATTR_BATCH_SIZE, ATTR_FLUSH_MS, observed_span
 
-# OTel meter for feature writer-specific gauges
-_otel_metrics = __import__("opentelemetry").metrics
-_fw_meter = _otel_metrics.get_meter("indicagent")
-
 # ── Module-level constants ────────────────────────────────────────────────────
 
 # Spot-check set of columns that must exist in feature_vectors before startup.
@@ -57,13 +52,13 @@ _REQUIRED_COLUMNS: frozenset[str] = frozenset(
         "momentum_z_20",
         "hurst",
         "atr_z",
+        "feature_vector_id",
     }
 )
 
-BATCH_SIZE: int = 50
-FLUSH_INTERVAL_SECS: float = 5.0
 CONSUMER_GROUP: str = "feature_vector_writer_group"
-CONSUMER_NAME: str = "feature_writer_1"
+
+HEALTH_CHECK_INTERVAL_SECS: int = 30
 
 # ── Module-level SQL ──────────────────────────────────────────────────────────
 
@@ -76,6 +71,7 @@ _VERIFY_SCHEMA_SQL = (
 
 _INSERT_FEATURE_VECTOR_SQL = """
 INSERT INTO feature_vectors (
+    feature_vector_id,
     symbol, tf, bar_ts, pipeline_version, regime, regime_label_source,
     momentum_z_5, momentum_z_20, range_position, bar_close_pos,
     gap_z, informed_flow, volume_z, ofi_z, ofi_div, cvd_slope_z, cmf,
@@ -91,19 +87,20 @@ INSERT INTO feature_vectors (
     amihud_illiq_z, high_52w_dist, ret_skew_z, ret_acf1_z
 )
 VALUES (
-    $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16, $17,
-    $18, $19, $20, $21,
-    $22, $23, $24, $25,
-    $26, $27, $28, $29, $30, $31,
-    $32, $33, $34, $35,
-    $36, $37, $38, $39, $40, $41,
-    $42, $43, $44,
-    $45, $46, $47, $48, $49,
-    $50, $51, $52, $53,
-    $54, $55, $56,
-    $57, $58, $59, $60
+    $1,
+    $2, $3, $4, $5, $6, $7,
+    $8, $9, $10, $11,
+    $12, $13, $14, $15, $16, $17, $18,
+    $19, $20, $21, $22,
+    $23, $24, $25, $26,
+    $27, $28, $29, $30, $31, $32,
+    $33, $34, $35, $36,
+    $37, $38, $39, $40, $41, $42,
+    $43, $44, $45,
+    $46, $47, $48, $49, $50,
+    $51, $52, $53, $54,
+    $55, $56, $57,
+    $58, $59, $60, $61
 )
 ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 """
@@ -114,115 +111,132 @@ logger = structlog.get_logger(__name__)
 # ── Module-level pure functions (testable without class instantiation) ─────────
 
 
+def _make_feature_vector_id(
+    symbol: str, tf: str, bar_ts: datetime, pipeline_version: str
+) -> uuid.UUID:
+    """Compute the content-key UUID for a feature_vectors row.
+
+    SHA-256(symbol|tf|bar_ts_ns|pipeline_version)[:32] cast to UUID.
+    Idempotent across replays — same inputs always produce the same UUID.
+    """
+    bar_ts_ns = str(int(bar_ts.timestamp() * 1_000_000_000))
+    raw = hashlib.sha256(f"{symbol}|{tf}|{bar_ts_ns}|{pipeline_version}".encode()).hexdigest()[:32]
+    return uuid.UUID(raw)
+
+
 def _record_to_insert_params(record: FeatureVectorRecord) -> tuple:
-    """Build a 60-element tuple of INSERT parameters for _INSERT_FEATURE_VECTOR_SQL.
+    """Build a 61-element tuple of INSERT parameters for _INSERT_FEATURE_VECTOR_SQL.
 
     Column order matches the INSERT statement exactly:
-    $1-$6: structural (symbol, tf, bar_ts, pipeline_version, regime, regime_label_source)
-    $7-$60: 54 feature floats in FeatureVector field order
+    $1:     feature_vector_id (content-key UUID)
+    $2-$7:  structural (symbol, tf, bar_ts, pipeline_version, regime, regime_label_source)
+    $8-$61: 54 feature floats in FeatureVector field order
     """
+    feature_vector_id = _make_feature_vector_id(
+        record.symbol, record.tf, record.bar_ts, record.pipeline_version
+    )
     v: FeatureVector = record.vector
     return (
-        record.symbol,  # $1  symbol
-        record.tf,  # $2  tf
-        record.bar_ts,  # $3  bar_ts
-        record.pipeline_version,  # $4  pipeline_version
-        record.regime,  # $5  regime
-        record.regime_label_source,  # $6 regime_label_source
-        # Momentum (5)
-        v.momentum_z_5,  # $7
-        v.momentum_z_20,  # $8
-        v.range_position,  # $9
-        v.bar_close_pos,  # $10
-        # Volume / order flow (8)
-        v.gap_z,  # $11
-        v.informed_flow,  # $12
-        v.volume_z,  # $13
-        v.ofi_z,  # $14
-        v.ofi_div,  # $15
-        v.cvd_slope_z,  # $16
-        v.cmf,  # $17
-        # Volatility (2)
-        v.rel_volume,  # $18
-        v.vwap_dev_sigma,  # $19
-        v.atr_z,  # $20
-        v.vol_ratio,  # $21
+        feature_vector_id,  # $1  feature_vector_id
+        record.symbol,  # $2  symbol
+        record.tf,  # $3  tf
+        record.bar_ts,  # $4  bar_ts
+        record.pipeline_version,  # $5  pipeline_version
+        record.regime,  # $6  regime
+        record.regime_label_source,  # $7  regime_label_source
+        # Momentum (4)
+        v.momentum_z_5,  # $8
+        v.momentum_z_20,  # $9
+        v.range_position,  # $10
+        v.bar_close_pos,  # $11
+        # Volume / order flow (7)
+        v.gap_z,  # $12
+        v.informed_flow,  # $13
+        v.volume_z,  # $14
+        v.ofi_z,  # $15
+        v.ofi_div,  # $16
+        v.cvd_slope_z,  # $17
+        v.cmf,  # $18
+        # Volatility / volume profile (4)
+        v.rel_volume,  # $19
+        v.vwap_dev_sigma,  # $20
+        v.atr_z,  # $21
+        v.vol_ratio,  # $22
         # Session-level (4)
-        v.poc_dist_atr,  # $22
-        v.va_position,  # $23
-        v.sr_support_dist,  # $24
-        v.sr_resist_dist,  # $25
+        v.poc_dist_atr,  # $23
+        v.va_position,  # $24
+        v.sr_support_dist,  # $25
+        v.sr_resist_dist,  # $26
         # Regime-level (11)
-        v.hmm_regime_prob,  # $26
-        v.hmm_entropy,  # $27
-        v.hmm_duration,  # $28
-        v.hurst,  # $29
-        v.shannon,  # $30
-        v.garch_ratio,  # $31
-        v.hma_slope_z,  # $32
-        v.adx,  # $33
-        v.aroon_fast,  # $34
-        v.aroon_slow,  # $35
+        v.hmm_regime_prob,  # $27
+        v.hmm_entropy,  # $28
+        v.hmm_duration,  # $29
+        v.hurst,  # $30
+        v.shannon,  # $31
+        v.garch_ratio,  # $32
+        v.hma_slope_z,  # $33
+        v.adx,  # $34
+        v.aroon_fast,  # $35
+        v.aroon_slow,  # $36
         # Oscillators (6)
-        v.rsi_fast,  # $36
-        v.rsi_mid,  # $37
-        v.rsi_slow,  # $38
-        v.cci_fast,  # $39
-        v.cci_mid,  # $40
-        v.cci_slow,  # $41
+        v.rsi_fast,  # $37
+        v.rsi_mid,  # $38
+        v.rsi_slow,  # $39
+        v.cci_fast,  # $40
+        v.cci_mid,  # $41
+        v.cci_slow,  # $42
         # Cross-asset (3)
-        v.vix_z,  # $42
-        v.flight_quality,  # $43
-        v.yield_slope_z,  # $44
+        v.vix_z,  # $43
+        v.flight_quality,  # $44
+        v.yield_slope_z,  # $45
         # Calendar (9)
-        v.in_ny_session,  # $45
-        v.in_london_kz,  # $46
-        v.in_overlap,  # $47
-        v.power_hour,  # $48
-        v.opening_range,  # $49
-        v.above_wk_vwap,  # $50
-        v.dow_sin,  # $51
-        v.dow_cos,  # $52
-        v.month_position,  # $53
+        v.in_ny_session,  # $46
+        v.in_london_kz,  # $47
+        v.in_overlap,  # $48
+        v.power_hour,  # $49
+        v.opening_range,  # $50
+        v.above_wk_vwap,  # $51
+        v.dow_sin,  # $52
+        v.dow_cos,  # $53
+        v.month_position,  # $54
         # Cross-timeframe (3)
-        v.ctf_momentum,  # $54
-        v.ctf_vwap_align,  # $55
-        v.ctf_regime_align,  # $56
+        v.ctf_momentum,  # $55
+        v.ctf_vwap_align,  # $56
+        v.ctf_regime_align,  # $57
         # Statistical / liquidity (4)
-        v.amihud_illiq_z,  # $57
-        v.high_52w_dist,  # $58
-        v.ret_skew_z,  # $59
-        v.ret_acf1_z,  # $60
+        v.amihud_illiq_z,  # $58
+        v.high_52w_dist,  # $59
+        v.ret_skew_z,  # $60
+        v.ret_acf1_z,  # $61
     )
 
 
 # ── Service class ─────────────────────────────────────────────────────────────
 
 
-class FeatureWriter(BaseWriter):
+class FeatureVectorWriter(BaseWriter):
     """Async Kafka consumer agent: topic_feature_vectors -> buffer -> batch INSERT.
 
-    Consumes FeatureVectorRecord messages and batch-writes 60-column rows
+    Consumes FeatureVectorRecord messages and batch-writes 61-column rows
     to the feature_vectors TimescaleDB hypertable. Single atomic INSERT per bar.
     """
 
-    BATCH_SIZE = BATCH_SIZE
-    FLUSH_INTERVAL_SECS = FLUSH_INTERVAL_SECS
-
-    def __init__(self, config_file: str | None = None):
+    def __init__(self) -> None:
         self.start_time = datetime.now(tz=UTC)
 
-        config = self._load_config(config_file)
         super().__init__(
             max_idle_seconds=300,
         )
-        self.config = config
-        self._setup_logging()
+        setup_service_logging("logs/feature_vector_writer.log")
 
         self._kafka_consumer: KafkaConsumerClient | None = None
         self.db_manager: DatabaseManager | None = None
 
         self._kafka_bootstrap: str = self.settings.kafka_bootstrap_servers
+
+        # APR-backed batch parameters (read at _setup() with fallback defaults)
+        self.BATCH_SIZE: int = 50
+        self.FLUSH_INTERVAL_SECS: float = 5.0
 
         # OTel metrics (writer-specific)
         self.events_consumed_total = counter(
@@ -239,19 +253,19 @@ class FeatureWriter(BaseWriter):
         )
         self.service_uptime_seconds = point_gauge(
             "feature_writer_service_uptime_seconds",
-            "Feature writer service uptime in seconds",
+            "Feature vector writer service uptime in seconds",
         )
         self.error_count_total = counter(
             "feature_writer_errors_total",
-            "Total errors encountered by feature writer",
+            "Total errors encountered by feature vector writer",
         )
         self._parse_errors_total = counter(
             "feature_writer_parse_errors_total",
             "Total FeatureVectorRecord parse failures",
         )
-        self._db_connected = _fw_meter.create_gauge(
+        self._db_connected = point_gauge(
             "feature_writer_db_connected",
-            description="DB connection state (1=connected, 0=disconnected)",
+            "DB connection state (1=connected, 0=disconnected)",
         )
         self._batch_latency_attrs = {"agent_id": self._agent_label}
 
@@ -293,8 +307,6 @@ class FeatureWriter(BaseWriter):
             return [], [payload]
 
         try:
-            # FeatureVectorRecord contains a nested FeatureVector dataclass.
-            # The payload is a dict with 'vector' as a nested dict.
             vector_data = payload.get("vector")
             if not isinstance(vector_data, dict):
                 self._parse_errors_total.add(1)
@@ -320,7 +332,7 @@ class FeatureWriter(BaseWriter):
     async def _flush_batch(self, batch: list) -> None:
         if not self.db_manager:
             self.logger.warning(
-                "No database connection — cannot flush",
+                "feature_vector_writer.flush_no_db",
                 count=len(batch),
             )
             raise RuntimeError("No database connection")
@@ -337,7 +349,7 @@ class FeatureWriter(BaseWriter):
             self.events_buffered_gauge.set(0)
             # Single authoritative lag update after flush (not duplicated before + after)
             PERSISTENCE_CONSUMER_LAG.set(0, {"agent_id": self._agent_label})
-            self.logger.debug("Flushed feature_vectors batch", rows=len(batch))
+            self.logger.debug("feature_vector_writer.batch_flushed", rows=len(batch))
 
             span.set_attribute(ATTR_BATCH_SIZE, len(batch))
             flush_ms = (__import__("time").perf_counter() - _fw_t0) * 1000
@@ -355,19 +367,38 @@ class FeatureWriter(BaseWriter):
         if missing:
             raise RuntimeError(
                 f"feature_vectors schema mismatch - missing columns:"
-                f" {sorted(missing)}. Run migration 155"
-                f" (production/migrations/155_feature_vectors.sql)."
+                f" {sorted(missing)}. Run migration 155/158"
+                f" (production/migrations/)."
             )
 
     async def _setup(self) -> None:
-        """Connect DB and start Kafka consumer."""
+        """Connect DB, load APR config, and start Kafka consumer."""
         await self._connect_database()
         await self._verify_schema()
+        self._load_apr_config()
         await self._setup_kafka_clients()
+
+    def _load_apr_config(self) -> None:
+        """Load batch parameters from APR with fallback defaults."""
+        try:
+            from src.config.config_service import ConfigService
+
+            cfg = ConfigService(database_url=self.settings.database_url)
+            self.BATCH_SIZE = int(cfg.get_sync("threshold.feature_writer.batch_size", 50))
+            self.FLUSH_INTERVAL_SECS = float(
+                cfg.get_sync("threshold.feature_writer.flush_interval_secs", 5.0)
+            )
+        except Exception as error:
+            self.logger.warning(
+                "feature_vector_writer.apr_load_failed",
+                error=str(error),
+                batch_size=self.BATCH_SIZE,
+                flush_interval=self.FLUSH_INTERVAL_SECS,
+            )
 
     async def _run(self) -> None:
         """Main feature writing loop."""
-        self.logger.info("Feature Writer Agent started")
+        self.logger.info("feature_vector_writer.started")
         async with asyncio.TaskGroup() as tg:
             tg.create_task(self._process_loop())
             tg.create_task(self._periodic_flush_loop())
@@ -377,58 +408,17 @@ class FeatureWriter(BaseWriter):
         """Flush buffer, close Kafka consumer and DB pool."""
         await self._shutdown()
 
-    def _load_config(self, config_file: str | None) -> dict[str, Any]:
-        try:
-            _settings = Settings()
-        except Exception as error:
-            logger.warning("Settings() failed in _load_config — using defaults", error=str(error))
-            _settings = None
-
-        default_config: dict[str, Any] = {
-            "database": {"dsn": "postgresql://postgres:postgres@localhost:5432/indicagent"},
-            "service": {
-                "symbols": get_active_symbols(_settings),
-                "timeframes": ["1m", "5m", "15m", "1h"],
-                "processing_interval": 0.01,
-                "health_check_interval": 30,
-            },
-            "logging": {
-                "level": "INFO",
-                "file": "logs/feature_writer.log",
-                "max_size": "10MB",
-                "backup_count": 5,
-            },
-        }
-
-        if config_file and Path(config_file).exists():
-            with open(config_file) as f:
-                user_config = json.load(f)
-            for key, value in user_config.items():
-                if isinstance(value, dict) and key in default_config:
-                    default_config[key].update(value)
-                else:
-                    default_config[key] = value
-
-        return default_config
-
-    def _setup_logging(self) -> None:
-        setup_service_logging(
-            self.config["logging"]["file"],
-            level=self.config["logging"].get("level", "INFO"),
-            backup_count=self.config["logging"].get("backup_count", 5),
-        )
-
     async def _connect_database(self) -> None:
-        dsn = self.config["database"].get("dsn") or self.config["database"].get("url")
+        dsn = self.settings.database_url
         try:
             mgr = DatabaseManager(dsn)
             await mgr.initialize()
             self.db_manager = mgr
             self._db_connected.set(1)
-            self.logger.info("Connected to database")
+            self.logger.info("feature_vector_writer.db_connected")
         except Exception as error:
             self._db_connected.set(0)
-            self.logger.error("feature_writer.db_connect_failed", error=str(error))
+            self.logger.error("feature_vector_writer.db_connect_failed", error=str(error))
             raise
 
     async def _setup_kafka_clients(self) -> None:
@@ -446,7 +436,7 @@ class FeatureWriter(BaseWriter):
         # Wire up BaseWriter._consumer so _do_flush() can commit offsets
         self._consumer = self._kafka_consumer
         self.logger.info(
-            "Kafka consumer started",
+            "feature_vector_writer.kafka_consumer_started",
             topics=topics,
             group=CONSUMER_GROUP,
         )
@@ -463,7 +453,9 @@ class FeatureWriter(BaseWriter):
             try:
                 valid, invalid = self._parse_payload(payload)
                 if invalid:
-                    await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
+                    await self._maybe_route_to_dlq(
+                        payload, ValueError("FeatureVectorRecord parse failed")
+                    )
                     self.error_count_total.add(1)
                 if valid:
                     self._buffer_rows(valid)
@@ -475,7 +467,7 @@ class FeatureWriter(BaseWriter):
             except asyncio.CancelledError:
                 break
             except Exception as error:
-                self.logger.error("Error in processing loop", error=str(error))
+                self.logger.error("feature_vector_writer.process_loop_error", error=str(error))
                 self.error_count_total.add(1)
                 self._error_count += 1
 
@@ -488,12 +480,12 @@ class FeatureWriter(BaseWriter):
         """
         while self.running:
             try:
-                await asyncio.sleep(FLUSH_INTERVAL_SECS)
+                await asyncio.sleep(self.FLUSH_INTERVAL_SECS)
                 await self.maybe_flush()
             except asyncio.CancelledError:
                 break
             except Exception as error:
-                self.logger.error("Error in periodic flush loop", error=str(error))
+                self.logger.error("feature_vector_writer.flush_loop_error", error=str(error))
 
     async def _health_monitor_loop(self) -> None:
         while self.running:
@@ -501,25 +493,24 @@ class FeatureWriter(BaseWriter):
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
                 PERSISTENCE_CONSUMER_LAG.set(len(self._buffer), {"agent_id": self._agent_label})
-                interval = self.config["service"].get("health_check_interval", 30)
                 self.logger.info(
-                    "Health check",
+                    "feature_vector_writer.health_check",
                     uptime=uptime,
                     events_consumed=self._total_events,
                     batches_written=self._total_batches,
                     buffer_size=len(self._buffer),
                     errors=self._error_count,
                 )
-                await asyncio.sleep(interval)
+                await asyncio.sleep(HEALTH_CHECK_INTERVAL_SECS)
             except asyncio.CancelledError:
                 break
             except Exception as error:
-                self.logger.error("Error in health monitor", error=str(error))
+                self.logger.error("feature_vector_writer.health_monitor_error", error=str(error))
                 await asyncio.sleep(5)
 
     async def _shutdown(self) -> None:
         """Graceful shutdown: flush buffer, close connections."""
-        self.logger.info("Shutting down Feature Writer Agent")
+        self.logger.info("feature_vector_writer.shutdown_started")
 
         # Flush remaining buffered records before closing
         if self._buffer:
@@ -532,9 +523,9 @@ class FeatureWriter(BaseWriter):
             await self.db_manager.close()
 
         self.logger.info(
-            "Feature Writer Agent stopped",
-            total_events=getattr(self, "_total_events", 0),
-            total_batches=getattr(self, "_total_batches", 0),
+            "feature_vector_writer.stopped",
+            total_events=self._total_events,
+            total_batches=self._total_batches,
         )
 
 
@@ -542,13 +533,7 @@ class FeatureWriter(BaseWriter):
 
 
 async def main() -> None:
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Feature Writer Agent")
-    parser.add_argument("--config", help="Configuration file path")
-    args = parser.parse_args()
-
-    svc = FeatureWriter(args.config)
+    svc = FeatureVectorWriter()
     try:
         await svc.start()
     except KeyboardInterrupt:

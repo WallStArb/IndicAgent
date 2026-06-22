@@ -11,6 +11,7 @@ autonomous: true
 
 must_haves:
   truths:
+    - "ic_engine extends BaseBatch (src/core/agent/base_batch.py); D-06 emission is inherited, not reimplemented"
     - "feature_ic_scores has one row per (feature, symbol, tf, regime, lookahead, training_window_end)"
     - "Pooled rows have is_pooled=true; regime-stratified rows have is_pooled=false"
     - "Each row carries ic_value, p_value, bootstrap CI, BH-FDR q-value, walk-forward result, IC Sharpe"
@@ -21,13 +22,14 @@ must_haves:
     - "IC run raises RuntimeError with explicit message if feature_vectors empty, regime all-NULL, or forward_returns empty"
     - "ON CONFLICT targets feature_ic_scores_pooled_uq for pooled rows; feature_ic_scores_regime_uq for regime rows"
     - "Idempotent: second run inserts 0 rows"
-    - "ic_engine emits D-06 job_completed_total + 6 per-service OTel metrics + spans"
+    - "ic_engine emits 4 IC health OTel gauges after run: IC_SCORE_GAUGE (per feature x tf x regime), EFFECTIVE_N_GAUGE (per tf x regime), FEATURES_SURVIVING_FDR_GAUGE (per tf x regime), IC_SHARPE_GAUGE (per feature x tf x regime)"
+    - "ic_engine emits 6 per-run OTel metrics + spans"
   artifacts:
     - path: "services/ic_engine.py"
-      provides: "Vectorized Spearman IC engine with circular-block-bootstrap CI, BH-FDR, 60-bar-embargo walk-forward, IC Sharpe"
+      provides: "Vectorized Spearman IC engine with circular-block-bootstrap CI, BH-FDR, 60-bar-embargo walk-forward, IC Sharpe, BaseBatch inheritance, IC health gauges"
       min_lines: 450
     - path: "src/observability/metrics.py"
-      provides: "ic_engine_cells_completed_total, ic_engine_cells_skipped_total, ic_engine_run_latency_seconds, feature_ic_passing_fdr_total, feature_ic_passing_walkforward_total"
+      provides: "ic_engine_cells_completed_total, ic_engine_cells_skipped_total, ic_engine_run_latency_seconds, feature_ic_passing_fdr_total, feature_ic_passing_walkforward_total, IC_SCORE_GAUGE, EFFECTIVE_N_GAUGE, FEATURES_SURVIVING_FDR_GAUGE, IC_SHARPE_GAUGE"
       contains: "ic_engine_cells_completed_total"
   key_links:
     - from: "ic_engine.py"

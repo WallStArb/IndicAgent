@@ -98,14 +98,14 @@ The LEAD() window SQL produces NULLs for the last 60 bars (no forward data). `co
 
 ### Deliverable C: Migrations 157 + 158
 
-**Migration 157:** `production/migrations/157_ic_engine_tables.sql`
+**Migration 159:** `production/migrations/159_ic_engine_tables.sql`
 - CREATE TABLE `forward_returns` per IC spec §XIV.1 DDL
 - CREATE TABLE `feature_ic_scores` per IC spec §XIV.4 DDL
 - `SELECT create_hypertable('forward_returns', 'bar_ts', chunk_time_interval => INTERVAL '3 months')`
 - All indexes per spec
 - `docs/analysis/` directory creation note (for IC report file)
 
-**Migration 158:** `production/migrations/158_alpha_ic_apr_keys.sql`
+**Migration 160:** `production/migrations/160_alpha_ic_apr_keys.sql`
 - INSERT into `config_schema` + `config_state` for all `alpha.ic.*`, `alpha.decay.*`, `alpha.ensemble.*`, `alpha.kelly.*`, `alpha.portfolio.*` keys listed in the architecture doc APR table
 - `ON CONFLICT DO NOTHING` on all inserts
 

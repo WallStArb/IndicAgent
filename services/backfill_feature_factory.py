@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import sys
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -65,7 +67,7 @@ _JOB = "backfill-feature-factory"
 _DEFAULT_CLIENT_ID: int = 40
 
 # Target timeframes for backfill (1m is NOT a backfill target — live pipeline owns 1m)
-_TARGET_TFS: list[str] = ["5m", "15m", "1h", "1d"]
+_TARGET_TIMEFRAMES: list[str] = ["5m", "15m", "1h", "1d"]
 
 # Depth years per TF (D-09, phase 137 spec)
 _DEPTH_YEARS: dict[str, int] = {
@@ -180,6 +182,7 @@ WHERE symbol = ANY(%s) AND tf = ANY(%s)
 
 _INSERT_FEATURE_VECTORS_SQL = """
 INSERT INTO feature_vectors (
+    feature_vector_id,
     symbol, tf, bar_ts, pipeline_version, regime, regime_label_source,
     momentum_z_5, momentum_z_20, range_position, bar_close_pos,
     gap_z, informed_flow, volume_z, ofi_z, ofi_div, cvd_slope_z, cmf,
@@ -194,6 +197,7 @@ INSERT INTO feature_vectors (
     ctf_momentum, ctf_vwap_align, ctf_regime_align,
     amihud_illiq_z, high_52w_dist, ret_skew_z, ret_acf1_z
 ) VALUES (
+    %s,
     %s, %s, %s, %s, %s, %s,
     %s, %s, %s, %s,
     %s, %s, %s, %s, %s, %s, %s,
@@ -317,6 +321,19 @@ def _theoretical_max(tf: str, depth_years: int, warm_up_bars: int) -> int:
     return max(0, depth_years * _TRADING_DAYS_PER_YEAR * bars_per_day - warm_up_bars)
 
 
+def _make_feature_vector_id(
+    symbol: str, tf: str, bar_ts: datetime, pipeline_version: str
+) -> uuid.UUID:
+    """Compute the content-key UUID for a feature_vectors row.
+
+    SHA-256(symbol|tf|bar_ts_ns|pipeline_version)[:32] cast to UUID.
+    Idempotent across replays — same inputs always produce the same UUID.
+    """
+    bar_ts_ns = str(int(bar_ts.timestamp() * 1_000_000_000))
+    raw = hashlib.sha256(f"{symbol}|{tf}|{bar_ts_ns}|{pipeline_version}".encode()).hexdigest()[:32]
+    return uuid.UUID(raw)
+
+
 def _vector_to_params(
     symbol: str,
     tf: str,
@@ -326,7 +343,9 @@ def _vector_to_params(
     fv: FeatureVector,
 ) -> tuple:
     """Serialize a FeatureVector to a psycopg2 INSERT tuple."""
+    feature_vector_id = _make_feature_vector_id(symbol, tf, bar_ts, pipeline_version)
     return (
+        feature_vector_id,
         symbol,
         tf,
         bar_ts,
@@ -453,7 +472,7 @@ async def run_fetch_stage(
 
     # Load existing status to skip already-fetched pairs
     all_symbols = [c.symbol for c in etf_contracts]
-    status_map = _load_status_map(db_conn, all_symbols, _TARGET_TFS)
+    status_map = _load_status_map(db_conn, all_symbols, _TARGET_TIMEFRAMES)
 
     provider = IBKRProvider(
         host=settings.ib_host,
@@ -477,7 +496,7 @@ async def run_fetch_stage(
                     _logger.warning("qualify_failed", symbol=instrument.symbol)
                     continue
 
-                for tf in _TARGET_TFS:
+                for tf in _TARGET_TIMEFRAMES:
                     key = (instrument.symbol, tf)
                     existing = status_map.get(key, {})
 
@@ -605,7 +624,7 @@ def run_compute_stage(
     """
     cfg = _load_config_service(db_conn)
     config = _build_feature_factory_config(cfg)
-    coverage_gate = float(cfg.get_sync("threshold.backfill.coverage_gate", 0.80))
+    coverage_threshold = float(cfg.get_sync("threshold.backfill.coverage_threshold", 0.80))
 
     # Warm-up bars = dominant rolling window (momentum_zscore_window = 252)
     warm_up_bars = config.momentum_zscore_window
@@ -624,13 +643,13 @@ def run_compute_stage(
     contracts = get_active_contracts(settings)
     etf_contracts = _filter_etf_contracts(contracts, symbols)
     all_symbols = [c.symbol for c in etf_contracts]
-    status_map = _load_status_map(db_conn, all_symbols, _TARGET_TFS)
+    status_map = _load_status_map(db_conn, all_symbols, _TARGET_TIMEFRAMES)
     coverage: dict[tuple[str, str], dict] = {}
 
     for instrument in etf_contracts:
         symbol = instrument.symbol
 
-        for tf in _TARGET_TFS:
+        for tf in _TARGET_TIMEFRAMES:
             key = (symbol, tf)
             existing = status_map.get(key, {})
 
@@ -689,14 +708,15 @@ def run_compute_stage(
                     "pct": pct,
                 }
 
-                if pct < coverage_gate:
+                if pct < coverage_threshold:
                     _logger.warning(
-                        "coverage_below_gate",
+                        "coverage_below_threshold",
                         symbol=symbol,
                         tf=tf,
                         rows_written=rows_written,
                         theoretical_max=theoretical,
                         pct=round(pct, 4),
+                        threshold=coverage_threshold,
                     )
                 else:
                     _logger.info(
@@ -716,7 +736,7 @@ def run_compute_stage(
                 _logger.error("compute_failed", symbol=symbol, tf=tf, error=error_msg)
                 coverage[key] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
 
-    return coverage, coverage_gate
+    return coverage, coverage_threshold
 
 
 def _compute_symbol_tf(
@@ -787,7 +807,7 @@ def _compute_symbol_tf(
             tf=tf,
             bar_ts=bar_ts,
             pipeline_version=pipeline_version,
-            regime=None,  # Regime label assigned by HMM downstream (Phase 138)
+            regime=None,  # populated by regime_writer after batch compute completes
             fv=fv,
         )
         insert_batch.append(row)
@@ -821,29 +841,31 @@ def _batch_insert(conn: Any, rows: list[tuple]) -> None:
     conn.commit()
 
 
-def _log_coverage_report(coverage: dict[tuple[str, str], dict], coverage_gate: float) -> None:
-    """Log per-pair coverage vs theoretical_max; flag pairs below the APR coverage gate."""
-    below_gate: list[tuple[str, str, int, int, float]] = []
+def _log_coverage_report(coverage: dict[tuple[str, str], dict], coverage_threshold: float) -> None:
+    """Log per-pair coverage vs theoretical_max; flag pairs below the APR coverage threshold."""
+    below_threshold: list[tuple[str, str, int, int, float]] = []
     for (symbol, tf), data in sorted(coverage.items()):
         pct = data.get("pct", 0.0)
         rows = data.get("rows_written", 0)
         theoretical = data.get("theoretical_max", 0)
-        if pct < coverage_gate:
-            below_gate.append((symbol, tf, rows, theoretical, pct))
+        if pct < coverage_threshold:
+            below_threshold.append((symbol, tf, rows, theoretical, pct))
 
     _logger.info(
         "coverage_report",
         total_pairs=len(coverage),
-        below_80pct=len(below_gate),
+        below_threshold=len(below_threshold),
+        threshold=coverage_threshold,
     )
 
-    if below_gate:
+    if below_threshold:
         _logger.warning(
-            "d06_gate_candidates_below_80pct",
+            "coverage_below_threshold",
             pairs=[
                 {"symbol": s, "tf": t, "rows": r, "theoretical": th, "pct": round(p, 4)}
-                for s, t, r, th, p in below_gate
+                for s, t, r, th, p in below_threshold
             ],
+            threshold=coverage_threshold,
         )
 
 
@@ -924,13 +946,13 @@ def main() -> None:
 
         if run_compute:
             _logger.info("stage2_start")
-            coverage, coverage_gate = run_compute_stage(
+            coverage, coverage_threshold = run_compute_stage(
                 settings=settings,
                 symbols=symbols,
                 db_conn=db_conn,
                 pipeline_version=args.pipeline_version,
             )
-            _log_coverage_report(coverage, coverage_gate)
+            _log_coverage_report(coverage, coverage_threshold)
             _logger.info("stage2_complete", pairs_computed=len(coverage))
 
         JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": "success"})

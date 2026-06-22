@@ -11,11 +11,12 @@ autonomous: true
 
 must_haves:
   truths:
+    - "regime_writer extends BaseBatch (src/core/agent/base_batch.py); D-06 emission is inherited, not reimplemented"
     - "feature_vectors.regime is populated with canonical text labels for >95% of rows"
     - "Each (symbol, tf) is decoded with its own HMM fit; per-TF, not a shared 1m model"
     - "Regime labels are causal: forward-filter (alpha-pass only), NOT full-sequence Viterbi"
     - "HMM observation matrix is built from market_data_ohlcv (log-returns + ATR-proxy vol), NOT from feature_vectors which has no OHLCV columns"
-    - "regime_writer emits D-06 job_completed_total and per-service OTel metrics"
+    - "regime_writer emits per-service OTel metrics (regime_writer_rows_updated_total, regime_writer_run_latency_seconds, regime_writer_null_regime_remaining)"
   artifacts:
     - path: "services/regime_writer.py"
       provides: "Oneshot that UPDATEs feature_vectors.regime via causal forward-filter HMM decoding per (symbol, tf)"

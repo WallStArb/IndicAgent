@@ -11,6 +11,7 @@ autonomous: true
 
 must_haves:
   truths:
+    - "forward_return_writer extends BaseBatch (src/core/agent/base_batch.py); D-06 emission is inherited, not reimplemented"
     - "forward_returns has rows with executable forward log returns ln(open[T+N+1]/open[T+1])"
     - "Forward returns are causal -- no lookahead bias (validated by unit test in P5)"
     - "complete_Nbar=false for the last N rows of each (symbol, tf) series"

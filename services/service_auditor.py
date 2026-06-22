@@ -134,7 +134,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_writer": "indicagent-bar-writer",
     "bar_aggregator": "indicagent-bar-aggregator",
     "intelligence_pipeline": "indicagent-intelligence-pipeline",
-    "feature_writer": "indicagent-feature-writer",
+    "feature_vector_writer": "indicagent-feature-writer",
     "signal_tracker": "indicagent-signal-tracker-compute",
     "signal_writer": "indicagent-signal-writer",
     "llm_writer": "indicagent-llm-writer",

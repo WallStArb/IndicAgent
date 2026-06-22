@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parents[3]))
 from services.backfill_feature_factory import (
     _BARS_PER_DAY,
     _DEFAULT_CLIENT_ID,
-    _TARGET_TFS,
+    _TARGET_TIMEFRAMES,
     _TRADING_DAYS_PER_YEAR,
     _log_coverage_report,
     _theoretical_max,
@@ -255,8 +255,9 @@ def test_vector_to_params_regime_label_source() -> None:
         regime=None,
         fv=fv,
     )
-    # params[5] is regime_label_source in the INSERT column order
-    assert params[5] == "filtered", f"Expected 'filtered', got {params[5]!r}"
+    # params[6] is regime_label_source in the INSERT column order
+    # (params[0] = feature_vector_id UUID, params[1]=symbol, ..., params[6]=regime_label_source)
+    assert params[6] == "filtered", f"Expected 'filtered', got {params[6]!r}"
 
 
 def test_vector_to_params_all_36_features_present() -> None:
@@ -271,8 +272,8 @@ def test_vector_to_params_all_36_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 6 structural columns + 54 feature floats = 60 total
-    assert len(params) == 60, f"Expected 60 params, got {len(params)}"
+    # 1 content-key + 6 structural columns + 54 feature floats = 61 total
+    assert len(params) == 61, f"Expected 61 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:
@@ -287,9 +288,9 @@ def test_vector_to_params_symbol_tf_ts() -> None:
         regime=None,
         fv=fv,
     )
-    assert params[0] == "TLT"
-    assert params[1] == "1h"
-    assert params[2] == ts
+    assert params[1] == "TLT"
+    assert params[2] == "1h"
+    assert params[3] == ts
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +450,9 @@ def test_fetch_resume_skips_fetch_complete_pairs() -> None:
     mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
     # All TFs fetch_complete=true
-    status_map = {("SPY", tf): {"fetch_complete": True, "status": "complete"} for tf in _TARGET_TFS}
+    status_map = {
+        ("SPY", tf): {"fetch_complete": True, "status": "complete"} for tf in _TARGET_TIMEFRAMES
+    }
 
     async def _async_true() -> bool:
         return True
@@ -504,8 +507,8 @@ def test_fetch_resume_skips_fetch_complete_pairs() -> None:
 
 def test_target_tfs_excludes_1m() -> None:
     """1m is NOT a backfill target — live pipeline owns 1m."""
-    assert "1m" not in _TARGET_TFS
-    assert set(_TARGET_TFS) == {"5m", "15m", "1h", "1d"}
+    assert "1m" not in _TARGET_TIMEFRAMES
+    assert set(_TARGET_TIMEFRAMES) == {"5m", "15m", "1h", "1d"}
 
 
 # ---------------------------------------------------------------------------

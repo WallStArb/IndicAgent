@@ -394,28 +394,32 @@ class TestCtxWriterTeardownCallsSuper:
 
 
 class TestFeatureWriterInsertIncludesCtx:
-    """test_feature_writer_insert_includes_ctx_column"""
+    """Verifies FeatureVectorWriter (v3.0) INSERT targets feature_vectors, not intelligence_features.
+
+    Updated in 138-P0: feature_writer.py renamed to feature_vector_writer.py.
+    v3.0 writes to feature_vectors (54 typed float columns + feature_vector_id UUID).
+    The ctx_snapshots as-of join pattern belongs to the v2.x intelligence_features path,
+    which was archived in Phase 137.
+    """
 
     def test_feature_writer_insert_includes_ctx_column(self):
         import pathlib
 
         # Load module source to inspect SQL without executing any DB code
-        source_path = pathlib.Path("services/feature_writer.py").resolve()
+        source_path = pathlib.Path("services/feature_vector_writer.py").resolve()
 
         with open(source_path) as f:
             source = f.read()
 
-        # The INSERT SQL must include the ctx column
-        assert "ctx" in source, "feature_writer_agent must include 'ctx' in SQL"
-
-        # The as-of subquery must reference ctx_snapshots
+        # The INSERT SQL must target feature_vectors (v3.0 write path)
         assert (
-            "ctx_snapshots" in source
-        ), "feature_writer_agent must reference 'ctx_snapshots' for as-of join"
+            "feature_vectors" in source
+        ), "feature_vector_writer must INSERT into feature_vectors (v3.0 write path)"
 
-        # The subquery must use parameter binding (no f-string interpolation)
-        # Verify by checking that $1 and $2 are present (the ts and symbol params)
-        # and no string format markers appear next to ctx_snapshots
+        # Must use positional parameter binding ($N) — not string interpolation
+        assert "$1" in source, "feature_vector_writer must use $N parameter binding"
+
+        # Must include feature_vector_id (content-key, added in 138-P0)
         assert (
-            "$1" in source and "$2" in source
-        ), "feature_writer_agent must use $N parameter binding (no f-string)"
+            "feature_vector_id" in source
+        ), "feature_vector_writer must include feature_vector_id column (138-P0)"

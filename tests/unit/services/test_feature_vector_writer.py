@@ -1,7 +1,4 @@
-"""Tests for feature_writer — consumer group batch writer to feature_vectors hypertable.
-
-Phase 137 P4: Retargeted to feature_vectors via FeatureVectorRecord.
-"""
+"""Tests for feature_vector_writer — consumer group batch writer to feature_vectors hypertable."""
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -93,7 +90,6 @@ def _make_valid_payload():
     import dataclasses
 
     rec = _make_valid_record()
-    # Simulate how the pipeline would serialize: dict with nested vector dict
     return {
         "symbol": rec.symbol,
         "tf": rec.tf,
@@ -108,39 +104,50 @@ def _make_valid_payload():
 # ── _record_to_insert_params ──────────────────────────────────────────────────
 
 
-def test_record_to_insert_params_returns_60_tuple():
-    """_record_to_insert_params returns exactly 60 elements matching INSERT columns."""
-    from services.feature_writer import _record_to_insert_params
+def test_record_to_insert_params_returns_61_tuple():
+    """_record_to_insert_params returns exactly 61 elements matching INSERT columns."""
+    from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_valid_record()
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 60, f"Expected 60, got {len(params)}"
+    assert len(params) == 61, f"Expected 61, got {len(params)}"
 
 
-def test_record_to_insert_params_structural_columns():
-    """First 6 params are the structural columns in correct order."""
-    from services.feature_writer import _record_to_insert_params
+def test_record_to_insert_params_feature_vector_id_is_uuid():
+    """$1 is a UUID (feature_vector_id content key)."""
+    import uuid
+
+    from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_valid_record()
     params = _record_to_insert_params(record)
 
-    assert params[0] == "SPY"  # $1 symbol
-    assert params[1] == "5m"  # $2 tf
-    assert isinstance(params[2], datetime)  # $3 bar_ts
-    assert params[3] == "3.0.0"  # $4 pipeline_version
-    assert params[4] == "ranging"  # $5 regime
-    assert params[5] == "filtered"  # $6 regime_label_source
+    assert isinstance(params[0], uuid.UUID), f"Expected UUID at [0], got {type(params[0])}"
+
+
+def test_record_to_insert_params_structural_columns():
+    """Params $2-$7 are the structural columns in correct order."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_valid_record()
+    params = _record_to_insert_params(record)
+
+    assert params[1] == "SPY"  # $2 symbol
+    assert params[2] == "5m"  # $3 tf
+    assert isinstance(params[3], datetime)  # $4 bar_ts
+    assert params[4] == "3.0.0"  # $5 pipeline_version
+    assert params[5] == "ranging"  # $6 regime
+    assert params[6] == "filtered"  # $7 regime_label_source
 
 
 def test_record_to_insert_params_regime_can_be_none():
     """regime field is nullable — None passes through as None."""
-    from services.feature_writer import _record_to_insert_params
+    from services.feature_vector_writer import _record_to_insert_params
     from src.intelligence.schemas import FeatureVectorRecord
 
     rec = _make_valid_record()
-    # FeatureVectorRecord is frozen — build a new one with regime=None
     rec_no_regime = FeatureVectorRecord(
         symbol=rec.symbol,
         tf=rec.tf,
@@ -151,37 +158,63 @@ def test_record_to_insert_params_regime_can_be_none():
         vector=rec.vector,
     )
     params = _record_to_insert_params(rec_no_regime)
-    assert params[4] is None, "regime should be None"
+    assert params[5] is None, "regime should be None at index 5"
 
 
 def test_record_to_insert_params_feature_values_match_vector():
-    """Feature float params ($7-$60) match the FeatureVector fields in order."""
-    from services.feature_writer import _record_to_insert_params
+    """Feature float params ($8-$61) match FeatureVector fields in order."""
+    from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_valid_record()
     params = _record_to_insert_params(record)
     v = record.vector
 
-    # $7 = momentum_z_5 (index 6)
-    assert params[6] == v.momentum_z_5
-    # $20 = atr_z (index 19)
-    assert params[19] == v.atr_z
-    # $29 = hurst (index 28)
-    assert params[28] == v.hurst
-    # $56 = ctf_regime_align (index 55)
-    assert params[55] == v.ctf_regime_align
-    # $60 = ret_acf1_z (index 59)
-    assert params[59] == v.ret_acf1_z
+    # $8 = momentum_z_5 (index 7)
+    assert params[7] == v.momentum_z_5
+    # $21 = atr_z (index 20)
+    assert params[20] == v.atr_z
+    # $30 = hurst (index 29)
+    assert params[29] == v.hurst
+    # $57 = ctf_regime_align (index 56)
+    assert params[56] == v.ctf_regime_align
+    # $61 = ret_acf1_z (index 60)
+    assert params[60] == v.ret_acf1_z
+
+
+def test_feature_vector_id_is_deterministic():
+    """Same inputs always produce the same feature_vector_id (content-addressed)."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_valid_record()
+    params1 = _record_to_insert_params(record)
+    params2 = _record_to_insert_params(record)
+
+    assert params1[0] == params2[0], "feature_vector_id must be deterministic"
+
+
+def test_feature_vector_id_differs_for_different_inputs():
+    """Different (symbol, tf, bar_ts) produce different feature_vector_ids."""
+    import dataclasses
+
+    from services.feature_vector_writer import _record_to_insert_params
+    from src.intelligence.schemas import FeatureVectorRecord
+
+    rec1 = _make_valid_record()
+    rec2 = dataclasses.replace(rec1, symbol="TLT")
+    params1 = _record_to_insert_params(rec1)
+    params2 = _record_to_insert_params(rec2)
+
+    assert params1[0] != params2[0], "Different symbols must produce different feature_vector_ids"
 
 
 # ── _parse_payload ────────────────────────────────────────────────────────────
 
 
-def test_parse_payload_valid_record_returns_60_param_tuple():
-    """Valid FeatureVectorRecord payload parses to a 42-element params tuple."""
-    from services.feature_writer import FeatureWriter
+def test_parse_payload_valid_record_returns_61_param_tuple():
+    """Valid FeatureVectorRecord payload parses to a 61-element params tuple."""
+    from services.feature_vector_writer import FeatureVectorWriter
 
-    svc = FeatureWriter.__new__(FeatureWriter)
+    svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
 
@@ -192,14 +225,14 @@ def test_parse_payload_valid_record_returns_60_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 60, f"Expected 60-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 61, f"Expected 61-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
     """Malformed payload returns ([], [payload]) and increments parse errors."""
-    from services.feature_writer import FeatureWriter
+    from services.feature_vector_writer import FeatureVectorWriter
 
-    svc = FeatureWriter.__new__(FeatureWriter)
+    svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
 
@@ -213,9 +246,9 @@ def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
 
 def test_parse_payload_non_dict_returns_empty():
     """Non-dict payload returns ([], [payload]) without crashing."""
-    from services.feature_writer import FeatureWriter
+    from services.feature_vector_writer import FeatureVectorWriter
 
-    svc = FeatureWriter.__new__(FeatureWriter)
+    svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
 
@@ -226,9 +259,9 @@ def test_parse_payload_non_dict_returns_empty():
 
 def test_parse_payload_missing_vector_returns_error():
     """Payload with non-dict 'vector' field returns parse error."""
-    from services.feature_writer import FeatureWriter
+    from services.feature_vector_writer import FeatureVectorWriter
 
-    svc = FeatureWriter.__new__(FeatureWriter)
+    svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
 
@@ -246,16 +279,16 @@ def test_parse_payload_missing_vector_returns_error():
 
 def test_consumer_group_is_feature_vector_writer_group():
     """CONSUMER_GROUP must be 'feature_vector_writer_group' (T1: avoids offset collision)."""
-    from services.feature_writer import CONSUMER_GROUP
+    from services.feature_vector_writer import CONSUMER_GROUP
 
     assert CONSUMER_GROUP == "feature_vector_writer_group"
 
 
 def test_topics_consumed_returns_feature_vectors_topic():
     """topics_consumed must return a list containing topic_feature_vectors."""
-    from services.feature_writer import FeatureWriter
+    from services.feature_vector_writer import FeatureVectorWriter
 
-    svc = FeatureWriter.__new__(FeatureWriter)
+    svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.settings = MagicMock(env_name="development")
     topics = svc.topics_consumed
 
@@ -266,9 +299,9 @@ def test_topics_consumed_returns_feature_vectors_topic():
 
 def test_topics_produced_is_empty():
     """topics_produced must be empty — DB writer has no Kafka output."""
-    from services.feature_writer import FeatureWriter
+    from services.feature_vector_writer import FeatureVectorWriter
 
-    svc = FeatureWriter.__new__(FeatureWriter)
+    svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     assert svc.topics_produced == []
 
 
@@ -276,46 +309,79 @@ def test_topics_produced_is_empty():
 
 
 def test_no_intelligence_features_reference():
-    """feature_writer must not reference intelligence_features."""
+    """feature_vector_writer must not reference intelligence_features."""
     import inspect
 
-    from services import feature_writer
+    from services import feature_vector_writer
 
-    src = inspect.getsource(feature_writer)
+    src = inspect.getsource(feature_vector_writer)
     assert "intelligence_features" not in src
     assert "BarIntelligenceRecord" not in src
 
 
 def test_no_cross_asset_or_expiry_code():
     """Removed code paths must not exist in the module."""
-    from services import feature_writer
+    from services import feature_vector_writer
 
-    assert not hasattr(feature_writer, "_build_expiry_map"), "_build_expiry_map must be removed"
+    assert not hasattr(feature_vector_writer, "_build_expiry_map"), "_build_expiry_map must be removed"
     assert not hasattr(
-        feature_writer, "_compute_days_to_expiry"
+        feature_vector_writer, "_compute_days_to_expiry"
     ), "_compute_days_to_expiry must be removed"
     assert not hasattr(
-        feature_writer.FeatureWriter, "_process_cross_asset_message"
+        feature_vector_writer.FeatureVectorWriter, "_process_cross_asset_message"
     ), "_process_cross_asset_message must be removed"
+
+
+def test_no_hardcoded_dsn():
+    """No hardcoded postgres:postgres@localhost DSN in feature_vector_writer."""
+    import inspect
+
+    from services import feature_vector_writer
+
+    src = inspect.getsource(feature_vector_writer)
+    assert "postgres:postgres@localhost" not in src
+
+
+def test_no_load_config_method():
+    """_load_config method must not exist (replaced by APR)."""
+    from services import feature_vector_writer
+
+    assert not hasattr(
+        feature_vector_writer.FeatureVectorWriter, "_load_config"
+    ), "_load_config must be removed"
+
+
+def test_no_consumer_name_constant():
+    """CONSUMER_NAME dead code must be removed."""
+    from services import feature_vector_writer
+
+    assert not hasattr(feature_vector_writer, "CONSUMER_NAME"), "CONSUMER_NAME must be removed"
 
 
 def test_insert_sql_targets_feature_vectors():
     """_INSERT_FEATURE_VECTOR_SQL must target feature_vectors, not intelligence_features."""
-    from services.feature_writer import _INSERT_FEATURE_VECTOR_SQL
+    from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     assert "INSERT INTO feature_vectors" in _INSERT_FEATURE_VECTOR_SQL
     assert "intelligence_features" not in _INSERT_FEATURE_VECTOR_SQL
     assert "ON CONFLICT (symbol, tf, bar_ts) DO NOTHING" in _INSERT_FEATURE_VECTOR_SQL
 
 
-def test_insert_sql_has_60_placeholders():
-    """_INSERT_FEATURE_VECTOR_SQL must have exactly 60 positional placeholders $1..$60."""
+def test_insert_sql_has_61_placeholders():
+    """_INSERT_FEATURE_VECTOR_SQL must have exactly 61 positional placeholders $1..$61."""
     import re
 
-    from services.feature_writer import _INSERT_FEATURE_VECTOR_SQL
+    from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 60, f"Expected 60 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 61, f"Expected 61 placeholders, got {len(placeholders)}"
+
+
+def test_insert_sql_includes_feature_vector_id_column():
+    """_INSERT_FEATURE_VECTOR_SQL must include feature_vector_id as first column."""
+    from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
+
+    assert "feature_vector_id" in _INSERT_FEATURE_VECTOR_SQL
 
 
 # ── _flush_batch ──────────────────────────────────────────────────────────────
@@ -324,18 +390,18 @@ def test_insert_sql_has_60_placeholders():
 @pytest.mark.asyncio
 async def test_flush_batch_calls_execute_batch_with_feature_vectors_sql():
     """_flush_batch calls execute_batch with _INSERT_FEATURE_VECTOR_SQL."""
-    from services.feature_writer import (
+    from services.feature_vector_writer import (
         _INSERT_FEATURE_VECTOR_SQL,
-        FeatureWriter,
+        FeatureVectorWriter,
         _record_to_insert_params,
     )
 
-    svc = FeatureWriter.__new__(FeatureWriter)
+    svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc.batch_writes_total = MagicMock()
     svc.events_buffered_gauge = MagicMock()
     svc._total_batches = 0
-    svc._batch_latency_attrs = {"agent_id": "feature_writer"}
+    svc._batch_latency_attrs = {"agent_id": "feature_vector_writer"}
     svc.tracer = MagicMock()
 
     mock_db = MagicMock()
@@ -357,21 +423,21 @@ async def test_flush_batch_calls_execute_batch_with_feature_vectors_sql():
 # ── Lifecycle contract ────────────────────────────────────────────────────────
 
 
-def test_feature_writer_inherits_base_writer():
-    """FeatureWriter must inherit from BaseWriter (and BaseDaemon)."""
-    from services.feature_writer import FeatureWriter
+def test_feature_vector_writer_inherits_base_writer():
+    """FeatureVectorWriter must inherit from BaseWriter (and BaseDaemon)."""
+    from services.feature_vector_writer import FeatureVectorWriter
     from src.core.agent.base import BaseDaemon
     from src.core.agent.base_writer import BaseWriter
 
-    assert issubclass(FeatureWriter, BaseWriter)
-    assert issubclass(FeatureWriter, BaseDaemon)
+    assert issubclass(FeatureVectorWriter, BaseWriter)
+    assert issubclass(FeatureVectorWriter, BaseDaemon)
 
 
 def test_lag_threshold_messages_is_positive_int():
     """lag_threshold_messages must return a positive integer."""
-    from services.feature_writer import FeatureWriter
+    from services.feature_vector_writer import FeatureVectorWriter
 
-    svc = FeatureWriter.__new__(FeatureWriter)
+    svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     assert isinstance(svc.lag_threshold_messages, int)
     assert svc.lag_threshold_messages > 0
 
@@ -380,9 +446,9 @@ def test_no_signal_signal_calls():
     """No sync signal.signal() calls must remain in the service file."""
     import inspect
 
-    from services.feature_writer import FeatureWriter
+    from services.feature_vector_writer import FeatureVectorWriter
 
-    source = inspect.getsource(FeatureWriter)
+    source = inspect.getsource(FeatureVectorWriter)
     assert "signal.signal(" not in source, "signal.signal() must not appear"
 
 
@@ -394,17 +460,15 @@ async def test_connect_database_raises_on_db_failure():
     """_connect_database() must RAISE when DB initialization fails (ghost-run prevention)."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from services.feature_writer import FeatureWriter
+    from services.feature_vector_writer import FeatureVectorWriter
 
-    agent = FeatureWriter.__new__(FeatureWriter)
+    agent = FeatureVectorWriter.__new__(FeatureVectorWriter)
     agent.logger = MagicMock()
-    agent.config = {
-        "database": {"dsn": "postgresql://localhost:5432/test"},
-    }
+    agent.settings = MagicMock(database_url="postgresql://localhost:5432/test")
     agent.db_manager = None
     agent._db_connected = MagicMock()
 
-    with patch("services.feature_writer.DatabaseManager") as mock_db_cls:
+    with patch("services.feature_vector_writer.DatabaseManager") as mock_db_cls:
         mock_db_instance = AsyncMock()
         mock_db_instance.initialize = AsyncMock(side_effect=Exception("Connection refused"))
         mock_db_cls.return_value = mock_db_instance
@@ -420,7 +484,7 @@ async def test_connect_database_no_ghost_run_path():
     """_connect_database() must not contain self.db_manager = None ghost-run pattern."""
     import inspect
 
-    from services.feature_writer import FeatureWriter
+    from services.feature_vector_writer import FeatureVectorWriter
 
-    source = inspect.getsource(FeatureWriter._connect_database)
+    source = inspect.getsource(FeatureVectorWriter._connect_database)
     assert "self.db_manager = None" not in source
