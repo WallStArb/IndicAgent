@@ -103,6 +103,10 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-ml-discovery": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-feature-validation": 8,  # oneshot: timer-triggered daily, not a daemon
     "indicagent-hmm-training": 8,  # oneshot: timer-triggered monthly, not a daemon
+    # Phase 138 IC pipeline oneshots (inactive between IC pipeline runs is correct)
+    "indicagent-regime-writer": 8,  # oneshot; populates feature_vectors.regime
+    "indicagent-forward-return-writer": 8,  # oneshot; LEAD() forward returns -> forward_returns
+    "indicagent-ic-engine": 8,  # oneshot; Spearman IC -> feature_ic_scores
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-signal-auditor": 9,  # priority 9: observes signals written by layer 7 writers
     "indicagent-signal-replay": 9,  # priority 9: observes signal-ledger state
@@ -187,6 +191,10 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-hmm-training",  # Type=oneshot, timer-triggered monthly
         "indicagent-feature-parity-auditor",  # Type=oneshot, timer-triggered
         "indicagent-confidence-calibration-monitor",  # Type=oneshot, timer-triggered
+        # Phase 138 IC pipeline oneshots — inactive between IC pipeline runs is correct
+        "indicagent-regime-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
+        "indicagent-forward-return-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
+        "indicagent-ic-engine",  # Type=oneshot; inactive between IC pipeline runs is correct
     }
 )
 
