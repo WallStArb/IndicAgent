@@ -197,7 +197,6 @@ def test_feature_vector_id_differs_for_different_inputs():
     import dataclasses
 
     from services.feature_vector_writer import _record_to_insert_params
-    from src.intelligence.schemas import FeatureVectorRecord
 
     rec1 = _make_valid_record()
     rec2 = dataclasses.replace(rec1, symbol="TLT")
@@ -217,6 +216,7 @@ def test_parse_payload_valid_record_returns_61_param_tuple():
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
+    svc._rows_parsed_by_symbol_tf = MagicMock()
 
     payload = _make_valid_payload()
     valid, invalid = svc._parse_payload(payload)
@@ -235,6 +235,7 @@ def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
+    svc._rows_parsed_by_symbol_tf = MagicMock()
 
     bad_payload = {"symbol": "SPY", "tf": "5m"}  # missing required fields
     valid, invalid = svc._parse_payload(bad_payload)
@@ -251,6 +252,7 @@ def test_parse_payload_non_dict_returns_empty():
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
+    svc._rows_parsed_by_symbol_tf = MagicMock()
 
     valid, invalid = svc._parse_payload(b"not-json")
     assert not valid
@@ -264,6 +266,7 @@ def test_parse_payload_missing_vector_returns_error():
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
+    svc._rows_parsed_by_symbol_tf = MagicMock()
 
     payload = _make_valid_payload()
     payload["vector"] = "not-a-dict"
@@ -323,7 +326,9 @@ def test_no_cross_asset_or_expiry_code():
     """Removed code paths must not exist in the module."""
     from services import feature_vector_writer
 
-    assert not hasattr(feature_vector_writer, "_build_expiry_map"), "_build_expiry_map must be removed"
+    assert not hasattr(
+        feature_vector_writer, "_build_expiry_map"
+    ), "_build_expiry_map must be removed"
     assert not hasattr(
         feature_vector_writer, "_compute_days_to_expiry"
     ), "_compute_days_to_expiry must be removed"

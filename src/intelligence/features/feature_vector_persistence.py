@@ -15,7 +15,9 @@ Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
+import math
 import uuid
 from datetime import datetime
 
@@ -28,6 +30,24 @@ from src.intelligence.schemas import FeatureVector
 # 'unknown'  = regime computation failed or not yet run.
 # 'viterbi_batch' is explicitly excluded — it introduces look-ahead bias.
 VALID_REGIME_LABEL_SOURCES: frozenset[str] = frozenset({"filtered", "unknown"})
+
+
+# ── NaN/Inf guard ─────────────────────────────────────────────────────────────
+
+
+def validate_feature_vector(vector: FeatureVector) -> list[str]:
+    """Return list of non-finite field names (empty = clean). Caller decides action.
+
+    Iterates all dataclass fields and checks for nan/inf. The `v is not None` guard
+    handles Optional[float] fields that will be None for cross-sectional cols.
+    """
+    bad = []
+    for field in dataclasses.fields(vector):
+        v = getattr(vector, field.name)
+        if v is not None and not math.isfinite(v):
+            bad.append(field.name)
+    return bad
+
 
 # ── Canonical INSERT SQL ──────────────────────────────────────────────────────
 
@@ -146,6 +166,12 @@ def feature_vector_to_insert_params(
             f"regime_label_source={regime_label_source!r} not in"
             f" {VALID_REGIME_LABEL_SOURCES}. Only forward-filter HMM labels"
             f" are permitted in feature_vectors (look-ahead bias prevention)."
+        )
+
+    bad = validate_feature_vector(vector)
+    if bad:
+        raise ValueError(
+            f"Degenerate features (nan/inf): {bad}." f" symbol={symbol} tf={tf} bar_ts={bar_ts}"
         )
 
     feature_vector_id = make_feature_vector_id(symbol, tf, bar_ts, pipeline_version)

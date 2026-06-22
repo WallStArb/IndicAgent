@@ -151,6 +151,10 @@ class FeatureVectorWriter(BaseWriter):
             "feature_writer_parse_errors_total",
             "Total FeatureVectorRecord parse failures",
         )
+        self._rows_parsed_by_symbol_tf = counter(
+            "feature_writer_rows_parsed_by_symbol_tf_total",
+            "Rows successfully parsed per symbol and timeframe",
+        )
         self._db_connected = point_gauge(
             "feature_writer_db_connected",
             "DB connection state (1=connected, 0=disconnected)",
@@ -224,6 +228,7 @@ class FeatureVectorWriter(BaseWriter):
             self._parse_errors_total.add(1)
             return [], [payload]
 
+        self._rows_parsed_by_symbol_tf.add(1, {"symbol": record.symbol, "tf": record.tf})
         params = _record_to_insert_params(record)
         return [params], []
 
