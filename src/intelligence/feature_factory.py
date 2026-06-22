@@ -48,6 +48,9 @@ from src.intelligence.schemas import FeatureVector
 # Bump on any algorithm change; IC engine filters by version to avoid mixing IC estimates.
 FEATURE_FACTORY_VERSION: str = "1.0.0"
 
+# Calendar constant: average days per quarter (365.25 / 4). Not a tunable — fixed by definition.
+_QUARTER_LENGTH_DAYS: float = 91.25
+
 # ---------------------------------------------------------------------------
 # Feature-to-vector domain registry (IC Engine reads this at startup)
 # ---------------------------------------------------------------------------
@@ -894,11 +897,6 @@ class FeatureFactory:
             momentum_z_slow_val = 0.0
 
         # momentum_reversal_z: 1-bar log return z-scored over fast zscore window
-        one_bar_return = (
-            math.log(max(float(closes[-1]), 1e-10) / max(float(closes[-2]), 1e-10))
-            if len(closes) >= 2
-            else 0.0
-        )
         reversal_raw = np.diff(np.log(np.maximum(closes, 1e-10)))
         reversal_window = min(config.momentum_zscore_window, len(reversal_raw))
         momentum_reversal_z_val = (
@@ -982,8 +980,7 @@ class FeatureFactory:
         # month_in_quarter = 0, 1, or 2; day_in_quarter is approximate
         _month_in_q = (bar_ts.month - 1) % 3  # 0, 1, 2
         _day_in_q = _month_in_q * 30 + bar_ts.day
-        _QUARTER_LENGTH = 91.25  # statistical constant (365.25 / 4)
-        quarter_position_val = min(1.0, _day_in_q / _QUARTER_LENGTH)
+        quarter_position_val = min(1.0, _day_in_q / _QUARTER_LENGTH_DAYS)
 
         # days_to_month_end: normalized days remaining to month end [0, 1]
         _days_in_month = calendar.monthrange(bar_ts.year, bar_ts.month)[1]

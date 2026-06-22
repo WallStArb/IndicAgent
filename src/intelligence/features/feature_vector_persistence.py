@@ -21,6 +21,7 @@ import math
 import uuid
 from datetime import datetime, timedelta
 
+from src.core.service_utils import TF_SECONDS as _TF_SECONDS
 from src.intelligence.schemas import FeatureVector
 
 # ── Schema constraint ─────────────────────────────────────────────────────────
@@ -30,19 +31,6 @@ from src.intelligence.schemas import FeatureVector
 # 'unknown'  = regime computation failed or not yet run.
 # 'viterbi_batch' is explicitly excluded — it introduces look-ahead bias.
 VALID_REGIME_LABEL_SOURCES: frozenset[str] = frozenset({"filtered", "unknown"})
-
-# ── Bar close timestamp lookup ─────────────────────────────────────────────────
-
-# Seconds per timeframe for bar_close_ts computation.
-# bar_close_ts = bar_ts + TF duration (intraday) or bar_ts + 1 day (1d).
-_TF_SECONDS: dict[str, int] = {
-    "1m": 60,
-    "5m": 300,
-    "15m": 900,
-    "1h": 3600,
-    "4h": 14400,
-    "1d": 86400,
-}
 
 
 def _compute_bar_close_ts(bar_ts: datetime, tf: str) -> datetime:

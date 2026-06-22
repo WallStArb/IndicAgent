@@ -43,7 +43,7 @@ from opentelemetry import trace
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.config.config_service import ConfigService
+from services._batch_utils import load_config_service_sync as _load_config_service_shared
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import (
@@ -85,31 +85,6 @@ _UPDATE_BATCH_SIZE = 500
 
 
 # ---------------------------------------------------------------------------
-# APR loading
-# ---------------------------------------------------------------------------
-
-
-def _load_config_service(conn: Any) -> ConfigService:
-    """Load APR keys from config_state into a cache-only ConfigService.
-
-    Mirrors backfill_feature_factory.py:_load_config_service(). No DB connection
-    is stored in ConfigService — only the in-memory cache is populated.
-    """
-    cfg = ConfigService(database_url="")
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT cs.config_key, cs.config_value, csc.value_type "
-            "FROM config_state cs "
-            "JOIN config_schema csc USING (config_key)"
-        )
-        rows = cur.fetchall()
-    for config_key, config_value, value_type in rows:
-        cfg._cache[config_key] = cfg._parse_value(config_value, value_type)
-    _logger.info("config_service_loaded", key_count=len(cfg._cache))
-    return cfg
-
-
-# ---------------------------------------------------------------------------
 # Core HMM functions
 # ---------------------------------------------------------------------------
 
@@ -137,12 +112,13 @@ def _build_obs_matrix(
     # Aligned timestamps (skip first bar which has no return)
     ts_shifted = timestamps[1:]
 
-    # Realized vol: rolling std over vol_window bars of log returns
-    realized_vol = np.zeros(len(log_returns))
-    for i in range(len(log_returns)):
-        start = max(0, i - vol_window + 1)
-        window = log_returns[start : i + 1]
-        realized_vol[i] = float(np.std(window)) if len(window) >= 2 else 0.0
+    # Realized vol: rolling std over vol_window bars of log returns.
+    # sliding_window_view gives full-size windows from index vol_window-1 onwards.
+    if len(log_returns) >= vol_window:
+        windows = np.lib.stride_tricks.sliding_window_view(log_returns, vol_window)
+        realized_vol = np.concatenate([np.zeros(vol_window - 1), np.std(windows, axis=1)])
+    else:
+        realized_vol = np.zeros(len(log_returns))
 
     # Discard first vol_window rows where vol is unreliable
     valid_start = vol_window - 1
@@ -341,10 +317,10 @@ def _label_symbol_tf(
             # ------------------------------------------------------------------
             # Build (bar_ts, label) pairs aligned to market_data_ohlcv timestamps
             # ------------------------------------------------------------------
-            update_params = []
-            for ts, state_idx in zip(valid_ts, raw_states):
-                label = label_map[int(state_idx)]
-                update_params.append((label, symbol, tf, ts))
+            update_params = (
+                (label_map[int(state_idx)], symbol, tf, ts)
+                for ts, state_idx in zip(valid_ts, raw_states)
+            )
 
             # ------------------------------------------------------------------
             # Batch UPDATE feature_vectors.regime
@@ -363,26 +339,23 @@ def _label_symbol_tf(
                 )
             conn.commit()
             # psycopg2.extras.execute_batch rowcount is unreliable (reflects last batch only).
-            # Query the actual count of non-NULL regime rows instead.
+            # Single query returns both counts in one round trip.
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT count(*) FROM feature_vectors "
-                    "WHERE symbol = %s AND tf = %s AND regime IS NOT NULL",
+                    "SELECT "
+                    "  count(*) FILTER (WHERE regime IS NOT NULL), "
+                    "  count(*) FILTER (WHERE regime IS NULL) "
+                    "FROM feature_vectors WHERE symbol = %s AND tf = %s",
                     (symbol, tf),
                 )
-                n_updated = int(cur.fetchone()[0])
+                n_updated, remaining = cur.fetchone()
+                n_updated = int(n_updated)
+                remaining = int(remaining)
             REGIME_WRITER_ROWS_UPDATED_TOTAL.add(n_updated, {"symbol": symbol, "tf": tf})
 
             # ------------------------------------------------------------------
-            # Count remaining NULL regimes and record gauge
+            # Record null-remaining gauge
             # ------------------------------------------------------------------
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT count(*) FROM feature_vectors "
-                    "WHERE symbol = %s AND tf = %s AND regime IS NULL",
-                    (symbol, tf),
-                )
-                remaining = int(cur.fetchone()[0])
 
             REGIME_WRITER_NULL_REGIME_REMAINING.set(remaining, {"symbol": symbol, "tf": tf})
 
@@ -471,7 +444,7 @@ def main() -> None:
             )
             try:
                 # Load APR config
-                cfg = _load_config_service(conn)
+                cfg = _load_config_service_shared(conn)
                 n_components = int(cfg.get_sync("feature.hmm.n_components", 3))
                 vol_window = int(cfg.get_sync("feature.hmm.vol_window", 20))
                 n_iter = int(cfg.get_sync("feature.hmm.n_iter", 100))

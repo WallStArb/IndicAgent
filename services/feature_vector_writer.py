@@ -29,6 +29,7 @@ from src.core.stream_keys import (
     topic_feature_vectors,
     topic_feature_vectors_dlq,
 )
+from src.intelligence.feature_factory import FEATURE_FACTORY_VERSION
 from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL,
     VALID_REGIME_LABEL_SOURCES,
@@ -225,7 +226,9 @@ class FeatureVectorWriter(BaseWriter):
                 tf=payload["tf"],
                 bar_ts=payload["bar_ts"],
                 pipeline_version=payload["pipeline_version"],
-                feature_factory_version=payload.get("feature_factory_version", "1.0.0"),
+                feature_factory_version=payload.get(
+                    "feature_factory_version", FEATURE_FACTORY_VERSION
+                ),
                 regime=payload.get("regime"),
                 regime_label_source=regime_label_source,
                 vector=vector,

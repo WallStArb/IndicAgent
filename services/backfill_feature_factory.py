@@ -41,6 +41,7 @@ import structlog
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
 from src.core.service_utils import setup_service_logging
@@ -213,22 +214,6 @@ def _filter_etf_contracts(contracts: list, symbols: list[str] | None) -> list:
         wanted = set(symbols)
         etf = [c for c in etf if c.symbol in wanted]
     return etf
-
-
-def _load_config_service(conn: Any) -> ConfigService:
-    """Load APR feature.* keys into ConfigService cache-only mode."""
-    cfg = ConfigService(database_url="")
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT cs.config_key, cs.config_value, csc.value_type "
-            "FROM config_state cs "
-            "JOIN config_schema csc USING (config_key)"
-        )
-        rows = cur.fetchall()
-    for config_key, config_value, value_type in rows:
-        cfg._cache[config_key] = cfg._parse_value(config_value, value_type)
-    _logger.info("config_service_loaded", key_count=len(cfg._cache))
-    return cfg
 
 
 def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:

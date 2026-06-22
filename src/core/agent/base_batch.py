@@ -123,10 +123,10 @@ class BaseBatch(abc.ABC):
         """Open asyncpg connection pool (min=2, max=10)."""
         self._pool = await asyncpg.create_pool(
             self._db_dsn,
-            min_size=2,
+            min_size=1,
             max_size=10,
         )
-        self.logger.info("batch_computer.pool_open", job=self.job_name, min_size=2, max_size=10)
+        self.logger.info("batch_computer.pool_open", job=self.job_name, min_size=1, max_size=10)
 
     async def _teardown_pool(self) -> None:
         """Close asyncpg connection pool, tolerating already-closed pools."""
