@@ -5,50 +5,59 @@ type: execute
 wave: 2
 depends_on: ["138-01"]
 files_modified:
-  - services/regime_writer.py
-  - src/observability/metrics.py
+  - src/core/agent/base_batch.py
+  - production/migrations/160_ic_engine_tables.sql
+  - production/migrations/161_alpha_ic_apr_keys.sql
+  - src/config/config_service.py
+  - services/service_auditor.py
 autonomous: true
 
 must_haves:
   truths:
-    - "regime_writer extends BaseBatch (src/core/agent/base_batch.py); D-06 emission is inherited, not reimplemented"
-    - "feature_vectors.regime is populated with canonical text labels for >95% of rows"
-    - "Each (symbol, tf) is decoded with its own HMM fit; per-TF, not a shared 1m model"
-    - "Regime labels are causal: forward-filter (alpha-pass only), NOT full-sequence Viterbi"
-    - "HMM observation matrix is built from market_data_ohlcv (log-returns + ATR-proxy vol), NOT from feature_vectors which has no OHLCV columns"
-    - "regime_writer emits per-service OTel metrics (regime_writer_rows_updated_total, regime_writer_run_latency_seconds, regime_writer_null_regime_remaining)"
+    - "BaseBatch exists at src/core/agent/base_batch.py with job_name, compute_version, content_key(), run() template method, and D-06 job_completed_total emission"
+    - "feature_vectors has rows for at least 14 ETF symbols across 5m/15m/1h/1d"
+    - "forward_returns and feature_ic_scores tables exist with correct columns and PK"
+    - "feature_ic_scores has is_pooled BOOLEAN DEFAULT false column"
+    - "feature_ic_scores has two separate unique indexes: one for pooled rows (is_pooled=true, regime=NULL), one for regime-stratified rows"
+    - "alpha.ic.* APR keys with TF-specific bootstrap block sizes (alpha.ic.bootstrap_block_size.5m etc.) are readable via ConfigService.get_sync"
+    - "alpha. prefix is in OPS_PREFIXES so alpha.* keys load"
+    - "indicagent-regime-writer, indicagent-forward-return-writer, indicagent-ic-engine registered in BOTH _DAG_ORDER AND _ONESHOT_UNITS in service_auditor"
   artifacts:
-    - path: "services/regime_writer.py"
-      provides: "Oneshot that UPDATEs feature_vectors.regime via causal forward-filter HMM decoding per (symbol, tf)"
-      min_lines: 250
-    - path: "src/observability/metrics.py"
-      provides: "regime_writer_rows_updated_total, regime_writer_run_latency_seconds, regime_writer_null_regime_remaining"
-      contains: "regime_writer"
+    - path: "src/core/agent/base_batch.py"
+      provides: "BaseBatch abstract base class for all Phase 138+ batch compute oneshots"
+      contains: "BaseBatch"
+    - path: "production/migrations/160_ic_engine_tables.sql"
+      provides: "forward_returns hypertable + feature_ic_scores table DDL"
+      contains: "CREATE TABLE forward_returns"
+    - path: "production/migrations/161_alpha_ic_apr_keys.sql"
+      provides: "alpha.ic.* / alpha.decay.* APR seeds in config_schema + config_state"
+      contains: "alpha.ic.min_observations"
+    - path: "src/config/config_service.py"
+      provides: "alpha. in OPS_PREFIXES"
+      contains: "alpha."
+    - path: "services/service_auditor.py"
+      provides: "_ONESHOT_UNITS with three new regime/IC oneshot entries"
+      contains: "indicagent-regime-writer"
   key_links:
-    - from: "regime_writer.py"
-      to: "market_data_ohlcv (observation source)"
-      via: "SELECT timestamp, open, high, low, close, volume FROM market_data_ohlcv WHERE symbol=%s AND timeframe=%s ORDER BY timestamp ASC"
-      pattern: "market_data_ohlcv"
-    - from: "regime_writer.py"
-      to: "feature_vectors.regime column"
-      via: "UPDATE feature_vectors SET regime = %s WHERE symbol=%s AND tf=%s AND bar_ts=%s"
-      pattern: "UPDATE feature_vectors SET regime"
-    - from: "regime_writer.py causal_decode()"
-      to: "src/intelligence/features/smc_context/hmm_regime.py _forward_step()"
-      via: "manual alpha-pass loop mirroring the existing production forward filter"
-      pattern: "_forward_pass\\|alpha_pass\\|log_alpha"
+    - from: "feature_vectors backfill"
+      to: "feature_vectors table"
+      via: "backfill_feature_factory.py compute stage"
+      pattern: "count.*feature_vectors"
+    - from: "ConfigService"
+      to: "config_state alpha.ic.* rows"
+      via: "get_sync after migration 161 applied"
+      pattern: "alpha\\.ic\\."
+    - from: "service_auditor._evaluate_service_dynamic"
+      to: "_ONESHOT_UNITS check at line 508"
+      via: "frozenset membership: if unit in _ONESHOT_UNITS: return"
+      pattern: "_ONESHOT_UNITS"
 ---
 
 <objective>
-Build `services/regime_writer.py` — a Ring 2 oneshot that populates feature_vectors.regime (currently NULL for ALL rows, RESEARCH.md Finding 2). This is UNTRACKED-but-mandatory scope: regime-stratified IC is impossible without it, and pooled IC is not an acceptable substitute (IC spec §III.3).
+Run the Phase 137 FeatureFactory backfill (prerequisite that blocks ALL of Phase 138), build BaseBatch (the shared base class for all Phase 138+ batch compute oneshots), and lay down the schema + APR foundation for the IC pipeline. This plan unblocks the regime labeler, outcome labeler, and IC engine.
 
-Purpose: regime-conditioning is non-negotiable (Renaissance mandate #2). Global IC hides sign flips between trending and ranging regimes.
-
-CRITICAL CORRECTNESS ISSUES FIXED IN THIS REVISION (from REVIEWS.md):
-1. HMM obs matrix built from market_data_ohlcv (log-returns + ATR-proxy vol) — NOT feature_vectors which contains no close/OHLCV columns.
-2. Decoding uses forward-filter (alpha-pass only), mirroring `src/intelligence/features/smc_context/hmm_regime.py:_forward_step()` — NOT hmmlearn's `model.predict()` which runs full-sequence Viterbi over the complete history and leaks future information.
-
-Output: feature_vectors.regime set to canonical text labels for >95% of rows, per-(symbol, tf) HMM decoding, full D-06 + OTel instrumentation.
+Purpose: feature_vectors is currently EMPTY (RESEARCH.md Finding 1) and alpha.ic.* APR keys do not exist (Finding 9). Nothing downstream can run until both are fixed. BaseBatch is built here so P2/P3/P4 services can inherit from it — standardizing DB pool lifecycle, D-06 emission, content-addressed key generation, and error handling across all batch compute services. The is_pooled column (not NULL overloading) disambiguates pooled vs. regime-stratified IC rows. The _ONESHOT_UNITS registration prevents the auditor from treating idle IC batch services as dead daemons.
+Output: Populated feature_vectors, BaseBatch base class, forward_returns + feature_ic_scores tables (with is_pooled column), seeded alpha.* APR keys including bootstrap_block_size, OPS_PREFIXES updated, service_auditor registrations in both _DAG_ORDER and _ONESHOT_UNITS.
 </objective>
 
 <execution_context>
@@ -58,202 +67,224 @@ Output: feature_vectors.regime set to canonical text labels for >95% of rows, pe
 
 <context>
 @.planning/STATE.md
+@.planning/ROADMAP.md
 @.planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md
 @CLAUDE.md
 @docs/plans/2026-06-20-alphaengine-ic-spec.md
-@src/intelligence/features/smc_context/hmm_regime.py
+@docs/plans/2026-06-20-alphaengine-architecture.md
+@production/migrations/156_feature_vectors_expand.sql
 @services/backfill_feature_factory.py
-@src/core/service_utils.py
-@src/observability/metrics.py
-@src/observability/spans.py
 </context>
 
 <tasks>
 
 <task type="auto">
-  <name>Task 1: Add regime_writer OTel metrics to metrics.py</name>
-  <files>src/observability/metrics.py</files>
+  <name>Task 0: Build BaseBatch base class</name>
+  <files>src/core/agent/base_batch.py</files>
   <read_first>
-    - src/observability/metrics.py (counter(), histogram(), gauge() factories around lines 72-90; existing metric definition blocks for style)
-    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md
+    - src/core/agent/base_writer.py (inherit pattern, DB pool lifecycle, error handling style)
+    - src/core/agent/base_daemon.py (D-06 job_completed_total emission pattern)
+    - src/observability/metrics.py (JOB_COMPLETED_TOTAL counter, counter() factory)
+    - src/intelligence/trading/signal_schema.py:make_signal_id (SHA-256 content key pattern to replicate)
   </read_first>
   <action>
-    In src/observability/metrics.py, add a Phase 138 metrics section defining:
-    - REGIME_WRITER_ROWS_UPDATED_TOTAL = _meter.create_counter("regime_writer_rows_updated_total", description="feature_vectors rows with regime set; labels symbol, tf")
-    - REGIME_WRITER_RUN_LATENCY_SECONDS = _meter.create_histogram("regime_writer_run_latency_seconds", description="Full regime labeler run duration")
-    - REGIME_WRITER_NULL_REGIME_REMAINING = _meter.create_gauge("regime_writer_null_regime_remaining", description="feature_vectors rows still regime=NULL after run; labels symbol, tf")
-    Do NOT import prometheus_client.
+    Create src/core/agent/base_batch.py. This is the shared base class for all Phase 138+
+    batch compute oneshots (regime_writer, forward_return_writer, ic_engine, and future services).
+
+    Contract:
+    - Abstract class (ABC). Subclasses must define: job_name: str, compute_version: str, execute(pool) -> None
+    - __init__: accept db_dsn (from Settings), set up structlog logger via setup_service_logging()
+    - async run() template method:
+        1. _setup_pool() — asyncpg.create_pool(dsn, min_size=2, max_size=10)
+        2. t0 = time.monotonic()
+        3. try: await self.execute(self._pool)
+           status = "success"
+        4. except Exception as error: logger.error("batch_computer.failed", error=str(error)); status = "failure"; raise
+        5. finally: await _teardown_pool(); _emit_completion(status, time.monotonic() - t0)
+    - content_key(*parts: str) -> str staticmethod: SHA-256 of "|".join(str(p) for p in parts), hexdigest()[:32]
+      (mirrors make_signal_id pattern from signal_schema.py)
+    - _emit_completion(status: str, elapsed_s: float): JOB_COMPLETED_TOTAL.add(1, {"job": self.job_name, "status": status})
+      + logger.info("batch_computer.completed", job=self.job_name, status=status, elapsed_s=round(elapsed_s, 2))
+    - _setup_pool / _teardown_pool: standard asyncpg pool lifecycle
+
+    Do NOT add OTel histograms for per-row latency here — that belongs in subclasses.
+    Do NOT import from src/intelligence/ — this is Ring 0 infrastructure.
   </action>
   <acceptance_criteria>
-    - `grep -c "REGIME_WRITER_ROWS_UPDATED_TOTAL\|REGIME_WRITER_RUN_LATENCY_SECONDS\|REGIME_WRITER_NULL_REGIME_REMAINING" src/observability/metrics.py` returns 3
-    - `.venv/bin/python -c "from src.observability.metrics import REGIME_WRITER_ROWS_UPDATED_TOTAL, REGIME_WRITER_RUN_LATENCY_SECONDS, REGIME_WRITER_NULL_REGIME_REMAINING; print('ok')"` exits 0
-    - `grep -c "prometheus_client" src/observability/metrics.py` returns 0
+    - File exists at src/core/agent/base_batch.py
+    - Class BaseBatch is importable: from src.core.agent.base_batch import BaseBatch
+    - content_key("SPY", "5m", "1719014400000") returns a 32-char hex string deterministically
+    - Abstract: instantiating BaseBatch directly raises TypeError
   </acceptance_criteria>
-  <verify>.venv/bin/python -c "from src.observability.metrics import REGIME_WRITER_ROWS_UPDATED_TOTAL; print('ok')"</verify>
-  <done>Three regime_writer metrics importable from metrics.py.</done>
 </task>
 
 <task type="auto">
-  <name>Task 2: Build services/regime_writer.py oneshot with causal forward-filter HMM decoding</name>
-  <files>services/regime_writer.py</files>
+  <name>Task 1: Run FeatureFactory backfill to populate feature_vectors</name>
+  <files>feature_vectors (DB table — populated, no source file edit)</files>
   <read_first>
-    - src/intelligence/features/smc_context/hmm_regime.py (FULL READ — _forward_step() lines 378-416: the alpha-pass algorithm; _make_initial_state() lines 319-331: uniform prior init; _build_observation() lines 357-376: obs vector construction from log_return + realized_vol. This is the canonical causal HMM path — mirror it exactly.)
-    - services/backfill_feature_factory.py (Ring 2 oneshot template: _load_config_service lines ~235-249, argparse, setup_service_logging, JOB_COMPLETED_TOTAL emission at exit, flush_and_shutdown_metrics, psycopg2 sync DB pattern, _JOB constant)
-    - src/core/service_utils.py (setup_service_logging, format_iso_ts)
-    - src/observability/spans.py (observed_span signature, ATTR_* constants)
-    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Deliverable A, Risk 2, Risk 4)
-    - CLAUDE.md (market_data_ohlcv columns: timestamp not ts, timeframe not tf; APR rules: zero hardcoded numerics; UTC timestamps)
+    - services/backfill_feature_factory.py (the service being executed — understand --symbols, --compute-only, checkpointing)
+    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Finding 1, Finding 7, Risk 1)
+    - CLAUDE.md (Historical backfill note: client-id 40; instrument asset_class filter)
   </read_first>
   <action>
-    Create services/regime_writer.py as a sync psycopg2 oneshot mirroring backfill_feature_factory.py structure.
+    Execute the Phase 137 backfill. The service is idempotent and resumable (checkpointed via backfill_status).
 
-    Constants: _JOB = "regime-writer", log file "logs/regime_writer.log" via setup_service_logging.
+    1. Confirm data source coverage first:
+       PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT symbol, timeframe, count(*) FROM market_data_ohlcv WHERE timeframe IN ('5m','15m','1h','1d') GROUP BY symbol, timeframe ORDER BY symbol, timeframe;"
+    2. Run compute stage (market_data_ohlcv already has bars per RESEARCH.md, so fetch may be skipped):
+       .venv/bin/python services/backfill_feature_factory.py --compute-only --symbols SPY IWM TLT SHY GLD XLF XLE XLK XLV XLU XLB XLC XLI XLP XLY
+       Run in background; this is a multi-hour operation. Poll backfill_status.
+    3. If --compute-only reports missing OHLCV for some (symbol, tf), run the default both-stage mode for those symbols using --client-id 40 (NOT default 56 which exceeds _MAX_CLIENT_ID=50).
+    4. After completion, verify coverage gate below.
 
-    OBSERVATION MATRIX SOURCE (fixes HIGH review issue #2):
-    The HMM observation matrix MUST be built from market_data_ohlcv, NOT feature_vectors. feature_vectors contains the 54 computed feature fields -- it has NO close, open, high, low, or volume columns. Use:
-      SELECT timestamp, open, high, low, close, volume
-      FROM market_data_ohlcv
-      WHERE symbol = %s AND timeframe = %s
-      ORDER BY timestamp ASC
-    Build the obs matrix as: log_return = ln(close[t]/close[t-1]) for t>=1, realized_vol = rolling std of log_returns over a configurable window (default 20 bars, APR key feature.hmm.vol_window fallback 20). Shape: (n_bars, 2). This matches the 2D observation path in hmm_regime.py _build_observation() when only log_return + realized_vol are available.
-
-    ALIGNMENT: after forward-filter decoding, align decoded state at timestamp T to the feature_vectors bar_ts by exact timestamp equality (WHERE symbol=%s AND tf=%s AND bar_ts=market_data_ohlcv.timestamp). Only update feature_vectors rows that have a corresponding market_data_ohlcv bar.
-
-    CAUSAL DECODING (fixes HIGH review issue #1):
-    DO NOT use hmmlearn GaussianHMM.predict() on the full observation sequence. predict() is full-sequence Viterbi -- it uses the entire past+future path to decode each state, leaking future information even without an explicit backward smoother.
-
-    INSTEAD, implement a causal forward-filter decoder mirroring hmm_regime.py _forward_step():
-
-    def _causal_decode(obs_matrix: np.ndarray, means: np.ndarray, variances: np.ndarray, A: np.ndarray, K: int) -> np.ndarray:
-        '''Causal forward-filter (alpha-pass only) HMM decoding.
-
-        At each timestep t, the decoded state = argmax(alpha[t]) where alpha[t]
-        depends ONLY on observations obs[0..t] and the prior alpha[t-1].
-        No backward pass, no smoothing, no Viterbi over the full sequence.
-
-        Mirrors src/intelligence/features/smc_context/hmm_regime.py:_forward_step()
-        for batch-mode use. Do NOT replace with model.predict().
-        '''
-        n, d = obs_matrix.shape
-        states = np.zeros(n, dtype=int)
-        alpha = np.full(K, 1.0 / K)  # Uniform prior (mirrors _make_initial_state)
-        for t in range(n):
-            obs = obs_matrix[t]
-            # Emission log-probabilities (diagonal Gaussian)
-            log_emit = np.zeros(K)
-            for k in range(K):
-                diff = obs - means[k, :d]
-                var = variances[k, :d]
-                log_emit[k] = -0.5 * np.sum(diff**2 / np.maximum(var, 1e-300)) - 0.5 * np.sum(np.log(2 * np.pi * np.maximum(var, 1e-300)))
-            # Forward update in log space (mirrors _forward_step)
-            log_alpha = np.log(np.maximum(alpha, 1e-300))
-            log_alpha_new = np.zeros(K)
-            for k in range(K):
-                log_trans = log_alpha + np.log(np.maximum(A[:, k], 1e-300))
-                max_lt = np.max(log_trans)
-                log_alpha_new[k] = max_lt + np.log(np.sum(np.exp(log_trans - max_lt)))
-            log_alpha_new += log_emit
-            # Normalize
-            max_la = np.max(log_alpha_new)
-            alpha = np.exp(log_alpha_new - max_la)
-            alpha /= np.sum(alpha) if np.sum(alpha) > 0 else 1.0
-            states[t] = int(np.argmax(alpha))
-        return states
-
-    HMM FITTING: Use hmmlearn GaussianHMM ONLY for parameter estimation (fitting), not for decoding. Fit on the full observation matrix to estimate transition matrix A, emission means, and covariances. Then pass A, means, covariances into _causal_decode() for state assignment. This is the correct separation: fit on history to learn parameters, then decode causally.
-
-    APR loading via _load_config_service(conn): read feature.hmm.n_components (fallback 3), feature.hmm.vol_window (fallback 20). Zero inline numerics -- use cfg.get_sync.
-
-    CANONICAL REGIME LABEL MAPPING (RESEARCH.md Risk 4):
-    After _causal_decode() returns integer states, map to canonical text labels deterministically. Sort the K HMM states by their fitted emission mean[0] (log-return dimension):
-      - State with highest mean log-return -> "trending_up"
-      - State with most negative mean log-return -> "trending_down"
-      - Remaining state(s) -> "ranging"
-    This produces semantically stable labels regardless of which integer hmmlearn assigns. Define a helper extract in the module:
-
-    def _build_label_map(model: GaussianHMM, n_components: int) -> dict[int, str]:
-        means_ret = model.means_[:, 0]  # log-return dimension
-        order = np.argsort(means_ret)  # ascending: [-0.001, 0.0, +0.001]
-        label_map = {}
-        label_map[int(order[-1])] = "trending_up"   # highest mean return
-        label_map[int(order[0])]  = "trending_down"  # lowest mean return
-        for i in range(n_components):
-            if i not in label_map:
-                label_map[i] = "ranging"
-        return label_map
-
-    Core flow (per RESEARCH.md "Deliverable A"):
-    1. argparse: --symbols (nargs='*', default all distinct feature_vectors symbols), --tf (nargs='*', default ['5m','15m','1h','1d'])
-    2. Open psycopg2 conn; init_otel_providers; _load_config_service.
-    3. For each (symbol, tf):
-       - wrap in observed_span("regime_writer.label_symbol_tf", attributes={...symbol, tf...})
-       - SELECT timestamp, close FROM market_data_ohlcv WHERE symbol=%s AND timeframe=%s ORDER BY timestamp ASC
-       - Compute log_return array; compute realized_vol rolling std (vol_window bars). Discard first vol_window rows where vol is undefined (to avoid NaN).
-       - obs_matrix shape [n_valid_bars, 2]
-       - Skip (logged warning, continue) if obs_matrix rows < n_components * 50
-       - Fit: model = GaussianHMM(n_components=n_components, covariance_type='diag', n_iter=100).fit(obs_matrix)
-       - Decode causally: raw_states = _causal_decode(obs_matrix, model.means_, model.covars_[:, :, 0] if diag else model.covars_, model.transmat_, n_components)
-         (For 'diag' covariance_type, model.covars_ shape is (K, n_features); for 'full' it is (K, n_features, n_features) -- use diagonal for _causal_decode. For 'diag', covars_ is already the variance vector per state.)
-       - label_map = _build_label_map(model, n_components)
-       - Build list of (bar_ts, label) by joining the decoded timestamps back to the valid obs slice. The obs_matrix slice starts at bar index vol_window (first valid obs). Match market_data_ohlcv.timestamp to feature_vectors.bar_ts.
-       - Batch UPDATE feature_vectors SET regime = %s WHERE symbol=%s AND tf=%s AND bar_ts=%s using psycopg2.extras.execute_batch, batch_size=500.
-       - REGIME_WRITER_ROWS_UPDATED_TOTAL.add(n_rows, {"symbol": symbol, "tf": tf})
-       - After update: SELECT count(*) FROM feature_vectors WHERE symbol=%s AND tf=%s AND regime IS NULL; REGIME_WRITER_NULL_REGIME_REMAINING.set(remaining, {"symbol": symbol, "tf": tf})
-    4. Wrap full run in observed_span("regime_writer.run"); record REGIME_WRITER_RUN_LATENCY_SECONDS at end.
-    5. Emit JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": "success"|"failure"}) and call flush_and_shutdown_metrics() in finally block. On unhandled exception: log, emit status="failure", flush, sys.exit(1).
-
-    DAG invariant note: this oneshot is exempt from the "only writers touch DB" rule exactly as backfill_feature_factory.py is -- it is a batch labeling tool, not a real-time daemon. Add a docstring comment stating this.
+    Do NOT modify backfill_feature_factory.py -- only run it. regime stays NULL here (it is set in P2).
   </action>
   <acceptance_criteria>
-    - `.venv/bin/python services/regime_writer.py --symbols SPY --tf 5m` exits 0
-    - After run: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_vectors WHERE symbol='SPY' AND tf='5m' AND regime IS NULL;"` is < 5% of `SELECT count(*) FROM feature_vectors WHERE symbol='SPY' AND tf='5m'`
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT DISTINCT regime FROM feature_vectors WHERE symbol='SPY' AND tf='5m' AND regime IS NOT NULL;"` returns only canonical text values (subset of ranging, trending_up, trending_down) -- NO integer strings like '0'/'1'/'2'
-    - Causal decoding present, NOT hmmlearn predict(): `grep -c "model\.predict\b" services/regime_writer.py` returns 0
-    - Forward-filter decoder present: `grep -c "_causal_decode\|forward.filter\|alpha_pass\|log_alpha" services/regime_writer.py` returns >= 2
-    - OHLCV read from market_data_ohlcv not feature_vectors: `grep -c "market_data_ohlcv" services/regime_writer.py` returns >= 1 AND `grep -n "feature_vectors" services/regime_writer.py` shows feature_vectors referenced only in the UPDATE statement (not in the SELECT for observations)
-    - `grep -c "observed_span" services/regime_writer.py` returns >= 2 (run + label_symbol_tf)
-    - `grep -c "JOB_COMPLETED_TOTAL" services/regime_writer.py` returns >= 1 and `grep -c "flush_and_shutdown_metrics" services/regime_writer.py` returns >= 1
-    - No hardcoded numeric for n_components: `grep -n "n_components" services/regime_writer.py` shows it read via cfg.get_sync (not literal 3)
-    - `.venv/bin/ruff check services/regime_writer.py` passes
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_vectors;"` returns > 0
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT symbol) FROM feature_vectors;"` returns >= 14
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT tf) FROM feature_vectors WHERE tf IN ('5m','15m','1h','1d');"` returns 4
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_vectors WHERE symbol='SPY' AND tf='5m';"` returns > 50000 (per RESEARCH.md Finding 7: ~93K independent obs at N=5)
+    - `job_completed_total{job="backfill-feature-factory", status="success"}` observable (backfill emits it at exit)
   </acceptance_criteria>
-  <verify>.venv/bin/python services/regime_writer.py --symbols SPY --tf 5m && PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT regime, count(*) FROM feature_vectors WHERE symbol='SPY' AND tf='5m' GROUP BY regime;"</verify>
-  <done>regime_writer.py UPDATEs feature_vectors.regime with canonical text labels for >95% of SPY 5m rows; causal forward-filter decoding (not predict()); obs from market_data_ohlcv; D-06 + OTel + spans wired; APR-compliant.</done>
+  <verify>
+    PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, count(DISTINCT symbol) AS symbols, count(*) AS rows FROM feature_vectors GROUP BY tf ORDER BY tf;"
+  </verify>
+  <done>feature_vectors populated: >=14 symbols x 4 TFs, SPY 5m > 50K rows.</done>
 </task>
 
 <task type="auto">
-  <name>Task 3: Run regime labeler across all backfilled symbols/TFs</name>
-  <files>feature_vectors (DB table — regime column updated)</files>
+  <name>Task 2: Migration 157 — forward_returns + feature_ic_scores tables with is_pooled column</name>
+  <files>production/migrations/160_ic_engine_tables.sql</files>
   <read_first>
-    - services/regime_writer.py (just built)
-    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Finding 7: 14-15 symbols)
+    - docs/plans/2026-06-20-alphaengine-ic-spec.md (§XIV.1 forward_returns DDL, §XIV.4 feature_ic_scores DDL)
+    - production/migrations/156_feature_vectors_expand.sql (naming + style convention for migrations)
+    - production/migrations/155_feature_vectors.sql (create_hypertable + index pattern)
+    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Finding 10: training_window_end is dedup key)
   </read_first>
   <action>
-    Run .venv/bin/python services/regime_writer.py with no symbol filter (defaults to all feature_vectors symbols x 4 TFs). This is a multi-minute HMM fit pass; run in background and poll the null-regime gate. If any (symbol, tf) fails to converge (hmmlearn convergence warning), log it and continue -- do not crash the whole run for one cell. The global gate below must still pass.
+    Create production/migrations/160_ic_engine_tables.sql.
+
+    forward_returns (§XIV.1): columns symbol, tf, bar_ts, pipeline_version, regime_label_source (DEFAULT 'filtered'), return_1bar, return_5bar, return_20bar, return_60bar (all double precision), complete_1bar/complete_5bar/complete_20bar/complete_60bar (boolean DEFAULT false), has_gap_before_entry (boolean DEFAULT false), computed_at (timestamptz DEFAULT now()). PRIMARY KEY (symbol, tf, bar_ts). Then:
+    SELECT create_hypertable('forward_returns', 'bar_ts', chunk_time_interval => INTERVAL '3 months');
+    CREATE INDEX ON forward_returns (symbol, tf, bar_ts);
+
+    feature_ic_scores (§XIV.4 + review correction): all columns per spec including feature_name, vector_domain, symbol, tf, regime (nullable), lookahead_bars, training_window_end, n_independent, reliable, ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate, bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, wf_ic_sharpe, passes_walkforward, ic_sharpe, ic_sharpe_n_windows, regime_label_source (DEFAULT 'filtered'), is_decaying (DEFAULT false), decay_detected_at, recovery_eligible_at, computed_at.
+
+    CRITICAL ADDITION (fixes HIGH review issue #4): Add is_pooled BOOLEAN DEFAULT false NOT NULL column to feature_ic_scores. This explicitly distinguishes:
+    - Pooled rows: is_pooled=true, regime=NULL (cross-regime IC run)
+    - Regime-stratified rows: is_pooled=false, regime='trending_up' etc.
+    Using NULL alone to mean "pooled" is dangerous for ON CONFLICT semantics and data interpretation.
+
+    PRIMARY KEY: (feature_name, symbol, tf, regime, lookahead_bars, training_window_end) — Postgres treats each NULL regime as distinct, so this PK works for regime rows but NOT for pooled rows where regime IS NULL.
+
+    TWO SEPARATE UNIQUE INDEXES replacing the partial-index-only approach:
+
+    Index 1 (pooled rows):
+    CREATE UNIQUE INDEX feature_ic_scores_pooled_uq
+      ON feature_ic_scores (feature_name, symbol, tf, lookahead_bars, training_window_end)
+      WHERE is_pooled = true;
+
+    Index 2 (regime-stratified rows):
+    CREATE UNIQUE INDEX feature_ic_scores_regime_uq
+      ON feature_ic_scores (feature_name, symbol, tf, regime, lookahead_bars, training_window_end)
+      WHERE is_pooled = false AND regime IS NOT NULL;
+
+    Add a comment block explaining why two indexes: ON CONFLICT for pooled rows targets feature_ic_scores_pooled_uq (WHERE is_pooled=true); ON CONFLICT for regime rows targets feature_ic_scores_regime_uq (WHERE is_pooled=false AND regime IS NOT NULL). Never rely on NULL uniqueness in Postgres.
+
+    Apply the migration:
+    PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -f production/migrations/160_ic_engine_tables.sql
   </action>
   <acceptance_criteria>
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT round(100.0 * count(*) FILTER (WHERE regime IS NULL) / count(*), 2) FROM feature_vectors;"` returns < 5.0
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT regime) FROM feature_vectors WHERE regime IS NOT NULL;"` returns >= 2 (real regime separation, not all one label)
-    - `job_completed_total{job="regime-writer", status="success"}` emitted
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "\d forward_returns"` shows columns return_1bar/5/20/60, complete_*bar, has_gap_before_entry, PK (symbol, tf, bar_ts)
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM timescaledb_information.hypertables WHERE hypertable_name='forward_returns';"` returns 1
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "\d feature_ic_scores"` shows is_pooled column (boolean not null default false), ic_sharpe, passes_walkforward, passes_fdr, bh_adjusted_p, training_window_end columns
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT indexname FROM pg_indexes WHERE tablename='feature_ic_scores' AND indexname IN ('feature_ic_scores_pooled_uq','feature_ic_scores_regime_uq');"` returns 2 rows
+    - `grep -c "is_pooled" production/migrations/160_ic_engine_tables.sql` returns >= 3 (column def + two index WHERE clauses)
+    - migration file exists at production/migrations/160_ic_engine_tables.sql
   </acceptance_criteria>
-  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, regime, count(*) FROM feature_vectors WHERE regime IS NOT NULL GROUP BY tf, regime ORDER BY tf, regime;"</verify>
-  <done>>95% of all feature_vectors rows have a canonical text regime label; >= 2 distinct regimes present.</done>
+  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "\d feature_ic_scores"</verify>
+  <done>forward_returns (hypertable) and feature_ic_scores tables exist; is_pooled column present; two unique indexes (pooled_uq + regime_uq) present.</done>
+</task>
+
+<task type="auto">
+  <name>Task 3: Migration 158 — seed alpha.ic.* / alpha.decay.* APR keys (including bootstrap_block_size) + OPS_PREFIXES + service_auditor</name>
+  <files>production/migrations/161_alpha_ic_apr_keys.sql, src/config/config_service.py, services/service_auditor.py</files>
+  <read_first>
+    - docs/plans/2026-06-20-alphaengine-architecture.md (APR table: alpha.ic.* and alpha.decay.* keys with defaults and provenance)
+    - production/migrations/153_hmm_garch_kalman_apr.sql (pattern for config_schema + config_state INSERT with value_type and provenance descriptions)
+    - src/config/config_service.py (OPS_PREFIXES — find the tuple/list and confirm whether "alpha." is already present from Phase 137 P1)
+    - services/service_auditor.py (_DAG_ORDER dict lines ~57-122; _ONESHOT_UNITS frozenset lines ~170-191 — BOTH must be updated)
+    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Finding 9, Finding 12)
+  </read_first>
+  <action>
+    Create production/migrations/161_alpha_ic_apr_keys.sql. INSERT into config_schema AND config_state (ON CONFLICT DO NOTHING) for these exact keys with these defaults and value_type='int' unless noted:
+    - alpha.ic.min_observations = 500 [rca_analysis]
+    - alpha.ic.bootstrap_resamples = 2000 [conventional]
+    - alpha.ic.bootstrap_block_size.5m = 78 (value_type int) [initial_estimate]
+    - alpha.ic.bootstrap_block_size.15m = 26 (value_type int) [initial_estimate]
+    - alpha.ic.bootstrap_block_size.1h = 10 (value_type int) [conventional]
+    - alpha.ic.bootstrap_block_size.1d = 10 (value_type int) [conventional] — circular block bootstrap block size; optimal block length grows O(N^(1/3)) per Hall & Horowitz 1996; APR allows override without code change; ML-learning-target: no
+    - alpha.ic.fdr_alpha = 0.05 (value_type float) [conventional]
+    - alpha.ic.walk_forward_folds = 3 [conventional]
+    - alpha.ic.sharpe_window_size = 2000 [rca_analysis]
+    - alpha.ic.sharpe_min_windows = 10 [conventional]
+    - alpha.ic.subsampling_n = 5 [conventional] — non-overlapping subsample stride
+    - alpha.ic.min_reliable_n = 100 [conventional] — n_independent threshold for reliable flag
+    - alpha.decay.ci_lower_threshold = 0.0 (float) [conventional]
+    - alpha.decay.materiality_threshold = 0.005 (float) [initial_estimate]
+    - alpha.decay.regime_shift_fraction = 0.60 (float) [initial_estimate]
+    - alpha.decay.recovery_min_observations = 2000 [rca_analysis]
+    Each description string must end with the provenance tag in brackets and note ML-learning-target status. Match the column set used by migration 153.
+
+    Then in src/config/config_service.py: confirm "alpha." is in OPS_PREFIXES. Phase 137 P1 may have added it. If absent, add the literal "alpha." to the OPS_PREFIXES collection. If already present, leave it and note in the SUMMARY.
+
+    Then in services/service_auditor.py — TWO locations must be updated (fixes HIGH review issue #3):
+
+    LOCATION 1 — _DAG_ORDER dict: add three entries at priority 8 (alongside other oneshots at line ~105):
+      "indicagent-regime-writer": 8,  # oneshot; populates feature_vectors.regime
+      "indicagent-forward-return-writer": 8,  # oneshot; LEAD() forward returns -> forward_returns
+      "indicagent-ic-engine": 8,  # oneshot; Spearman IC -> feature_ic_scores
+
+    LOCATION 2 — _ONESHOT_UNITS frozenset (lines ~170-191): add the same three entries:
+      "indicagent-regime-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
+      "indicagent-forward-return-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
+      "indicagent-ic-engine",  # Type=oneshot; inactive between IC pipeline runs is correct
+
+    REASON: service_auditor._evaluate_service_dynamic() skips services in _ONESHOT_UNITS (line ~508: `if unit in _ONESHOT_UNITS: return`). Without this, an idle ic-engine service will be misidentified as a dead daemon and incorrectly restarted. _DAG_ORDER registration alone is insufficient.
+
+    Do NOT add these to _AGENT_ID_TO_UNIT (oneshots have no Kafka consumer lag monitoring per Finding 12).
+
+    Apply: PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -f production/migrations/161_alpha_ic_apr_keys.sql
+  </action>
+  <acceptance_criteria>
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM config_state WHERE config_key LIKE 'alpha.ic.%';"` returns >= 12 (includes 4 TF-specific bootstrap_block_size keys)
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT config_value FROM config_state WHERE config_key='alpha.ic.bootstrap_block_size.5m';"` returns 78
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT config_value FROM config_state WHERE config_key='alpha.ic.fdr_alpha';"` returns 0.05
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM config_state WHERE config_key LIKE 'alpha.decay.%';"` returns >= 4
+    - `grep -c '"alpha\."' src/config/config_service.py` returns >= 1 (alpha. in OPS_PREFIXES)
+    - `grep -c "indicagent-ic-engine\|indicagent-forward-return-writer\|indicagent-regime-writer" services/service_auditor.py` returns >= 6 (3 in _DAG_ORDER + 3 in _ONESHOT_UNITS)
+    - `grep -n "indicagent-regime-writer" services/service_auditor.py` shows entries in BOTH _DAG_ORDER block AND _ONESHOT_UNITS block (two separate line numbers)
+    - `.venv/bin/python -c "from src.config.config_service import ConfigService; print('ok')"` exits 0 (no syntax error)
+    - `.venv/bin/python -c "from services.service_auditor import _ONESHOT_UNITS; assert 'indicagent-regime-writer' in _ONESHOT_UNITS; print('ok')"` exits 0
+  </acceptance_criteria>
+  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT config_key, config_value FROM config_state WHERE config_key LIKE 'alpha.ic.%' OR config_key LIKE 'alpha.decay.%' ORDER BY config_key;"</verify>
+  <done>All alpha.ic.* (including bootstrap_block_size) and alpha.decay.* keys seeded; OPS_PREFIXES has alpha.; three oneshots in BOTH _DAG_ORDER AND _ONESHOT_UNITS.</done>
 </task>
 
 </tasks>
 
 <verification>
-- feature_vectors.regime populated with canonical text labels for >95% of rows
-- Per-(symbol, tf) HMM decoding (not shared model); causal forward-filter (not Viterbi/predict())
-- HMM obs from market_data_ohlcv (log-returns + realized vol); no feature_vectors OHLCV reference
-- regime_writer emits D-06 + 3 OTel metrics + 2 spans; APR-compliant
+- feature_vectors populated for >=14 symbols x 4 TFs
+- forward_returns + feature_ic_scores tables exist; is_pooled BOOLEAN column present; two unique indexes (pooled_uq + regime_uq) exist
+- alpha.ic.bootstrap_block_size=10 seeded and readable via ConfigService
+- alpha. in OPS_PREFIXES; three oneshots in BOTH _DAG_ORDER AND _ONESHOT_UNITS
 </verification>
 
 <success_criteria>
-- All task acceptance criteria pass
-- Global null-regime fraction < 5%
-- .venv/bin/pytest tests/unit/ -q stays GREEN
+- All three task acceptance criteria pass
+- .venv/bin/pytest tests/unit/ -q stays GREEN (no regression from config_service / service_auditor edits)
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/138-ic-engine-forward-returns/138-02-SUMMARY.md` documenting the regime label distribution per (symbol, tf), the canonical label mapping used, and any (symbol, tf) cells that failed HMM convergence.
+After completion, create `.planning/phases/138-ic-engine-forward-returns/138-02-SUMMARY.md` documenting feature_vectors row counts per (symbol, tf), the actual alpha.* keys seeded, whether alpha. was already in OPS_PREFIXES, and confirmation that all three oneshots appear in both _DAG_ORDER and _ONESHOT_UNITS.
 </output>
