@@ -50,3 +50,6 @@ Three extensions (independent, not sequential):
 ## Context
 
 Full design: `docs/ideas/i8-intelligence-extensions.md`
+
+---
+**Updated 2026-06-22** — v2.x I8 plugin infrastructure is archived, but the underlying value (qualitative/AI-derived features) is relevant to v3.0 context_features. LLM-scored earnings sentiment, macro regime summaries, and news signals are natural candidates for the TF-agnostic feature store (cadence: daily, joined to `feature_vectors` by date at IC computation time). Revisit after `context_features` table is designed: `.planning/todos/pending/2026-06-22-tf-agnostic-feature-architecture.md`.

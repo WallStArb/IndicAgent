@@ -53,3 +53,6 @@ Note: MacroComputeAgent already exists for yield_curve + FTQ — this is a separ
 
 Architecture: `docs/ideas/qualitative-intelligence-layer.md`
 Implementation plan: `docs/plans/2026-05-02-unified-intelligence-design.md` (Phase 3: P-MACRO-01)
+
+---
+**Updated 2026-06-22** — v2.x qualitative lane concept is superseded, but the data (earnings dates, macro event calendar) is a concrete candidate for the TF-agnostic `context_features` table (cadence: event-driven/daily, no natural bar TF). Revisit when `context_features` is implemented: `.planning/todos/pending/2026-06-22-tf-agnostic-feature-architecture.md`.

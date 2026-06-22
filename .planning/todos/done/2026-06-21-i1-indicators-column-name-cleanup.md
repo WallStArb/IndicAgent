@@ -24,3 +24,6 @@ naturally when those consumers are migrated to `FeatureVector` in Phase 140+.
 
 Rename `I1Indicators` fields to functional names (`rsi_fast`, `atr_mid`, etc.) after
 v2.x AI context / narrative consumers are migrated to v3.0 FeatureVector reads.
+
+---
+**RETIRED 2026-06-22** — v3.0 is now executing (Phase 138). `I1Indicators` consumers (AI context, narrative routes) are archived with v2.x. The naming convention is enforced on `FeatureVector` directly — confirmed today with momentum_z_fast/mid/slow pattern locked in Phase 138 plans.

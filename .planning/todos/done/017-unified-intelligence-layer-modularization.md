@@ -33,3 +33,6 @@ The unified intelligence design requires that "each domain must remain independe
 ## Context
 
 Implementation plan: `docs/plans/2026-05-02-unified-intelligence-design.md` (Phase 1: P-QUANT-01)
+
+---
+**RETIRED 2026-06-22** — v3.0 Feature Factory (`src/intelligence/feature_factory.py`) is the modularization: 54 pure functions, fully decoupled from service runtime, no plugin registry. The versioned library concept is realized via `FEATURE_FACTORY_VERSION`. `docs/plans/2026-05-02-unified-intelligence-design.md` is superseded.

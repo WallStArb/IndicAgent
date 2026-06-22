@@ -41,3 +41,6 @@ From architecture doc: "Keep news sentiment out of the first slice; it introduce
 
 Architecture: `docs/ideas/qualitative-intelligence-layer.md`
 Implementation plan: `docs/plans/2026-05-02-unified-intelligence-design.md` (P-CTX-05)
+
+---
+**Updated 2026-06-22** — v2.x qualitative lane superseded, but news sentiment is a valid TF-agnostic feature candidate (cadence: intraday/daily NLP scores, no natural bar alignment). Would live in `context_features` and join at IC computation time. Lower priority than earnings/macro — still needs NLP quality validation. Cross-reference: `.planning/todos/pending/2026-06-22-tf-agnostic-feature-architecture.md`.

@@ -37,3 +37,6 @@ Full design at `docs/ideas/macro-cross-asset-intelligence-improvements.md`. Prio
 "Segment relentlessly" — a signal that works globally is weaker than one segmented by regime.
 "Never drop data that could contain signal" — `ftq_score` exists in DB but is never joined to
 outcomes. Fix the labeling first, then let the data speak on whether regime gating helps.
+
+---
+**RETIRED 2026-06-22** — v2.x concept (I4Context, intelligence_features, feature_pipeline_executor all archived in v3.0). The underlying need — macro/cross-asset context feeding the model — is addressed by the TF-agnostic feature store design: `.planning/todos/pending/2026-06-22-tf-agnostic-feature-architecture.md`. The specific signals (ftq_score, yield_curve_slope, corr_z) are candidates for `context_features` when Phase B+ implements that table.

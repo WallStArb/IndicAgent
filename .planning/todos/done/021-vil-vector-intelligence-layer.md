@@ -18,3 +18,6 @@ The VIL (Vector Intelligence Layer) design exists as 6 idea docs but has never b
 ## Solution
 
 Defer until signals and features are stable and well-calibrated (post v2.9 Signal Quality Renaissance). Once the feature vector is trusted and signals are earning promotion through shadow governance, revisit the VIL docs (`vil-01` through `vil-06`) and plan a milestone. The scoring engine (vil-03) and correlation intelligence (vil-04) are likely the highest-value starting points. Treat as a Layer 5 above the existing I1-I7 stack.
+
+---
+**RETIRED 2026-06-22** — AlphaEngine (Phase 138) is the v3.0 answer to VIL. The IC ensemble with Ledoit-Wolf effective-N adjustment handles cross-feature correlation; IC Sharpe weighting is the scoring engine; FDR + walk-forward is the gate. VIL's 6 idea docs (vil-01 through vil-06) are superseded by the IC methodology spec at `docs/plans/2026-06-20-alphaengine-ic-spec.md`.
