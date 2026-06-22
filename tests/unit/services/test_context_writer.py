@@ -405,21 +405,30 @@ class TestFeatureWriterInsertIncludesCtx:
     def test_feature_writer_insert_includes_ctx_column(self):
         import pathlib
 
-        # Load module source to inspect SQL without executing any DB code
-        source_path = pathlib.Path("services/feature_vector_writer.py").resolve()
+        # Load writer module source to confirm it references the canonical persistence module
+        writer_source_path = pathlib.Path("services/feature_vector_writer.py").resolve()
+        with open(writer_source_path) as f:
+            writer_source = f.read()
 
-        with open(source_path) as f:
-            source = f.read()
-
-        # The INSERT SQL must target feature_vectors (v3.0 write path)
+        # The writer must reference the feature_vectors table (via import or constant)
         assert (
-            "feature_vectors" in source
+            "feature_vectors" in writer_source
         ), "feature_vector_writer must INSERT into feature_vectors (v3.0 write path)"
 
-        # Must use positional parameter binding ($N) — not string interpolation
-        assert "$1" in source, "feature_vector_writer must use $N parameter binding"
+        # The writer delegates SQL to feature_vector_persistence — check that module
+        # for $N parameter binding and feature_vector_id (canonical single source of truth).
+        persistence_path = pathlib.Path(
+            "src/intelligence/features/feature_vector_persistence.py"
+        ).resolve()
+        with open(persistence_path) as f:
+            persistence_source = f.read()
+
+        # Canonical INSERT SQL must use positional parameter binding ($N)
+        assert (
+            "$1" in persistence_source
+        ), "feature_vector_persistence must use $N parameter binding in INSERT SQL"
 
         # Must include feature_vector_id (content-key, added in 138-P0)
         assert (
-            "feature_vector_id" in source
-        ), "feature_vector_writer must include feature_vector_id column (138-P0)"
+            "feature_vector_id" in persistence_source
+        ), "feature_vector_persistence must include feature_vector_id column (138-P0)"

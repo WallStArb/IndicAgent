@@ -13,11 +13,13 @@ def _make_valid_feature_vector():
     from src.intelligence.schemas import FeatureVector
 
     return FeatureVector(
-        momentum_z_5=0.1,
-        momentum_z_20=0.2,
+        momentum_z_fast=0.1,
+        momentum_z_mid=0.2,
         range_position=0.5,
         bar_close_pos=0.6,
         gap_z=0.0,
+        momentum_z_slow=0.0,
+        momentum_reversal_z=0.0,
         informed_flow=0.0,
         volume_z=0.0,
         ofi_z=0.0,
@@ -60,6 +62,8 @@ def _make_valid_feature_vector():
         dow_sin=0.3,
         dow_cos=0.9,
         month_position=0.5,
+        quarter_position=0.25,
+        days_to_month_end=0.5,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
@@ -171,8 +175,8 @@ def test_record_to_insert_params_feature_values_match_vector():
     params = _record_to_insert_params(record)
     v = record.vector
 
-    # $8 = momentum_z_5 (index 7)
-    assert params[7] == v.momentum_z_5
+    # $8 = momentum_z_fast (index 7)
+    assert params[7] == v.momentum_z_fast
     # $21 = atr_z (index 20)
     assert params[20] == v.atr_z
     # $30 = hurst (index 29)

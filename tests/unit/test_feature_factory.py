@@ -31,8 +31,9 @@ from src.intelligence.schemas import FeatureVector
 def _make_config(**overrides: int) -> FeatureFactoryConfig:
     """Return a minimal FeatureFactoryConfig for testing. All numeric params explicit."""
     defaults = dict(
-        momentum_window_short=5,
-        momentum_window_long=20,
+        momentum_window_fast=5,
+        momentum_window_mid=20,
+        momentum_window_slow=60,
         momentum_zscore_window=30,
         volume_zscore_window=20,
         ofi_zscore_window=20,
@@ -206,19 +207,19 @@ class TestBarLevelPrimitives:
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         assert math.isfinite(fv.informed_flow)
 
-    def test_momentum_z_5_finite(self) -> None:
+    def test_momentum_z_fast_finite(self) -> None:
         bars = _make_bars(60)
         config = _make_config()
         cache = _make_cache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
-        assert math.isfinite(fv.momentum_z_5)
+        assert math.isfinite(fv.momentum_z_fast)
 
-    def test_momentum_z_20_finite(self) -> None:
+    def test_momentum_z_mid_finite(self) -> None:
         bars = _make_bars(60)
         config = _make_config()
         cache = _make_cache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
-        assert math.isfinite(fv.momentum_z_20)
+        assert math.isfinite(fv.momentum_z_mid)
 
     def test_atr_z_finite(self) -> None:
         bars = _make_bars(60)
@@ -500,9 +501,13 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 54, f"Expected 54 fields, got {len(fields)}"
+        assert len(fields) == 61, f"Expected 61 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
+            # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,
+            # volatility_rank_z) are None until batch enrichment; skip them.
+            if val is None:
+                continue
             assert math.isfinite(val), f"Field {f.name} is not finite: {val}"
 
     def test_determinism(self) -> None:

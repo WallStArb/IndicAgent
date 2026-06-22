@@ -58,7 +58,7 @@ FEATURE_VECTOR_INSERT_SQL = """
 INSERT INTO feature_vectors (
     feature_vector_id,
     symbol, tf, bar_ts, pipeline_version, regime, regime_label_source,
-    momentum_z_5, momentum_z_20, range_position, bar_close_pos,
+    momentum_z_fast, momentum_z_mid, range_position, bar_close_pos,
     gap_z, informed_flow, volume_z, ofi_z, ofi_div, cvd_slope_z, cmf,
     rel_volume, vwap_dev_sigma, atr_z, vol_ratio,
     poc_dist_atr, va_position, sr_support_dist, sr_resist_dist,
@@ -192,9 +192,9 @@ def feature_vector_to_insert_params(
         pipeline_version,  # $5
         regime,  # $6  nullable
         regime_label_source,  # $7
-        # Momentum (5)
-        vector.momentum_z_5,  # $8
-        vector.momentum_z_20,  # $9
+        # Momentum (5 original; new fields added in Task 6)
+        vector.momentum_z_fast,  # $8
+        vector.momentum_z_mid,  # $9
         vector.range_position,  # $10
         vector.bar_close_pos,  # $11
         vector.gap_z,  # $12

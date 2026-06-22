@@ -495,8 +495,9 @@ class IntelligencePipeline(BaseDaemon):
             return int(v) if v is not None else default
 
         self._feature_factory_config = FeatureFactoryConfig(
-            momentum_window_short=_int("feature.momentum.window_short", 5),
-            momentum_window_long=_int("feature.momentum.window_long", 20),
+            momentum_window_fast=_int("feature.momentum.window_fast", 5),
+            momentum_window_mid=_int("feature.momentum.window_mid", 20),
+            momentum_window_slow=_int("feature.momentum.window_slow", 60),
             momentum_zscore_window=_int("feature.momentum.zscore_window", 252),
             volume_zscore_window=_int("feature.volume.zscore_window", 20),
             ofi_zscore_window=_int("feature.ofi.zscore_window", 20),

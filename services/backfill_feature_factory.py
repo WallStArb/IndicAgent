@@ -231,8 +231,9 @@ def _load_config_service(conn: Any) -> ConfigService:
 def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
     """Build FeatureFactoryConfig from APR keys. All fields from feature.* namespace."""
     return FeatureFactoryConfig(
-        momentum_window_short=int(cfg.get_sync("feature.momentum.window_short", 5)),
-        momentum_window_long=int(cfg.get_sync("feature.momentum.window_long", 20)),
+        momentum_window_fast=int(cfg.get_sync("feature.momentum.window_fast", 5)),
+        momentum_window_mid=int(cfg.get_sync("feature.momentum.window_mid", 20)),
+        momentum_window_slow=int(cfg.get_sync("feature.momentum.window_slow", 60)),
         momentum_zscore_window=int(cfg.get_sync("feature.momentum.zscore_window", 252)),
         volume_zscore_window=int(cfg.get_sync("feature.volume.zscore_window", 20)),
         ofi_zscore_window=int(cfg.get_sync("feature.ofi.zscore_window", 20)),

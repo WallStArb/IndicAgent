@@ -1,6 +1,6 @@
 """Regression test pinning the column mapping in _record_to_insert_params.
 
-Verifies that the 61-element tuple produced by _record_to_insert_params
+Verifies that the tuple produced by _record_to_insert_params
 carries data in the correct position for each INSERT column:
 
   $1  (params[0])  -> feature_vector_id  UUID (content-key)
@@ -10,11 +10,10 @@ carries data in the correct position for each INSERT column:
   $5  (params[4])  -> pipeline_version   str
   $6  (params[5])  -> regime             str | None
   $7  (params[6])  -> regime_label_source str
-  $8  (params[7])  -> momentum_z_5       float
+  $8  (params[7])  -> momentum_z_fast    float
   $21 (params[20]) -> atr_z              float
   $30 (params[29]) -> hurst              float
-  $55 (params[54]) -> ctf_momentum       float
-  $61 (params[60]) -> ret_acf1_z         float
+  $55 (params[54]) -> ctf_momentum       float (may shift with Task 6 expansion)
 
 This test will fail if any column shift occurs in _record_to_insert_params.
 """
@@ -28,11 +27,13 @@ def _make_sentinel_record():
     from src.intelligence.schemas import FeatureVector, FeatureVectorRecord
 
     fv = FeatureVector(
-        momentum_z_5=1.111,
-        momentum_z_20=2.222,
+        momentum_z_fast=1.111,
+        momentum_z_mid=2.222,
         range_position=3.333,
         bar_close_pos=4.444,
         gap_z=5.555,
+        momentum_z_slow=6.601,
+        momentum_reversal_z=6.602,
         informed_flow=6.666,
         volume_z=7.777,
         ofi_z=8.888,
@@ -75,6 +76,8 @@ def _make_sentinel_record():
         dow_sin=45.45,
         dow_cos=46.46,
         month_position=47.47,
+        quarter_position=47.48,
+        days_to_month_end=47.49,
         ctf_momentum=48.48,
         ctf_vwap_align=49.49,
         ctf_regime_align=50.50,
@@ -165,14 +168,14 @@ def test_regime_at_index_5():
     assert params[5] == "trending_up", f"$6 must be 'trending_up', got {params[5]}"
 
 
-def test_momentum_z_5_at_index_7():
-    """params[7] ($8) must be momentum_z_5 sentinel value 1.111."""
+def test_momentum_z_fast_at_index_7():
+    """params[7] ($8) must be momentum_z_fast sentinel value 1.111."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[7] == pytest.approx(1.111), f"$8 (momentum_z_5) wrong: {params[7]}"
+    assert params[7] == pytest.approx(1.111), f"$8 (momentum_z_fast) wrong: {params[7]}"
 
 
 def test_atr_z_at_index_20():
@@ -222,12 +225,12 @@ def test_no_cross_contamination_between_feature_groups():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    # momentum_z_5 = 1.111 must not appear at vol_ratio position ($22 = index 21)
+    # momentum_z_fast = 1.111 must not appear at vol_ratio position
     assert params[21] != pytest.approx(
         1.111
-    ), "momentum_z_5 sentinel leaked into vol_ratio position"
-    # atr_z = 14.14 must not appear at momentum_z_5 position ($8 = index 7)
-    assert params[7] != pytest.approx(14.14), "atr_z sentinel leaked into momentum_z_5 position"
+    ), "momentum_z_fast sentinel leaked into vol_ratio position"
+    # atr_z = 14.14 must not appear at momentum_z_fast position ($8 = index 7)
+    assert params[7] != pytest.approx(14.14), "atr_z sentinel leaked into momentum_z_fast position"
 
 
 import pytest

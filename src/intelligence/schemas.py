@@ -1202,32 +1202,36 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """54 orthogonal feature primitives computed per bar by FeatureFactory.
+    """61 orthogonal feature primitives computed per bar by FeatureFactory.
 
     Frozen dataclass (not Pydantic) per D-08: pure-function output, no IO,
-    immutable after construction. All fields typed float, no defaults — every
-    field must be supplied by the caller.
+    immutable after construction. Non-optional fields typed float, no defaults
+    — every field must be supplied by the caller. Optional fields are
+    cross-sectional ranks populated by Phase 139 enrichment pass.
 
     Groups and field order are binding (schema column names in feature_vectors):
-      Momentum (5): price velocity at two horizons, range, intra-bar close position, gap
+      Momentum (7): fast/mid/slow return z-scores, range, intra-bar close position, gap, reversal z
       Volume/flow (8): informed flow, volume, OFI, OFI divergence, CVD slope, CMF, rel volume, VWAP dev
       Volatility (2): ATR z-score, short/long vol ratio
       Session-level (4): volume profile POC/VA, S/R proximity
       Regime-level (10): HMM prob/entropy/duration, Hurst, Shannon, GARCH ratio, HMA slope, ADX, Aroon fast/slow
       Oscillators (6): RSI and CCI at fast/mid/slow scales
       Cross-asset (3): VIX z-score, flight-to-quality, yield slope
-      Calendar (9): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position
+      Calendar (11): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end
       Cross-timeframe (3): momentum/VWAP/regime alignment from HTF cache
       Statistical/liquidity (4): Amihud illiquidity, 52w high distance, return skewness, return autocorrelation
-      Total: 54
+      Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
+      Total: 61 (58 required + 3 optional)
     """
 
-    # Momentum (5)
-    momentum_z_5: float
-    momentum_z_20: float
+    # Momentum (7 total: 5 original + 2 new scale-named)
+    momentum_z_fast: float  # fast-scale return z-score (APR: feature.momentum.window_fast)
+    momentum_z_mid: float  # mid-scale return z-score (APR: feature.momentum.window_mid)
     range_position: float
     bar_close_pos: float
     gap_z: float
+    momentum_z_slow: float  # slow-scale return z-score (APR: feature.momentum.window_slow)
+    momentum_reversal_z: float  # 1-bar return z-score (concept-named: short-term reversal)
     # Volume and order flow (8)
     informed_flow: float
     volume_z: float
@@ -1267,7 +1271,7 @@ class FeatureVector:
     vix_z: float
     flight_quality: float
     yield_slope_z: float
-    # Calendar (9)
+    # Calendar (11: 9 original + 2 new)
     in_ny_session: float
     in_london_kz: float
     in_overlap: float
@@ -1277,6 +1281,8 @@ class FeatureVector:
     dow_sin: float
     dow_cos: float
     month_position: float
+    quarter_position: float  # position within calendar quarter [0, 1]; earnings/rebalancing cycle
+    days_to_month_end: float  # (days remaining to month end) / (days in month) [0, 1]
     # Cross-timeframe (3)
     ctf_momentum: float
     ctf_vwap_align: float
@@ -1286,6 +1292,10 @@ class FeatureVector:
     high_52w_dist: float
     ret_skew_z: float
     ret_acf1_z: float
+    # Cross-sectional (3, nullable — populated by Phase 139 enrichment pass)
+    momentum_rank_z: float | None = None  # cross-sectional momentum rank z-score
+    volume_rank_z: float | None = None  # cross-sectional volume rank z-score
+    volatility_rank_z: float | None = None  # cross-sectional volatility rank z-score
 
 
 @dataclasses.dataclass(frozen=True)

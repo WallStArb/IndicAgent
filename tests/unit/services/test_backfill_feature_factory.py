@@ -44,8 +44,9 @@ from src.intelligence.schemas import FeatureVector
 def _make_config() -> FeatureFactoryConfig:
     """Minimal FeatureFactoryConfig with all fields for testing."""
     return FeatureFactoryConfig(
-        momentum_window_short=5,
-        momentum_window_long=20,
+        momentum_window_fast=5,
+        momentum_window_mid=20,
+        momentum_window_slow=60,
         momentum_zscore_window=30,
         volume_zscore_window=20,
         ofi_zscore_window=20,
@@ -114,11 +115,13 @@ def _make_bars(n: int = 50) -> list[dict]:
 def _make_zero_vector() -> FeatureVector:
     """Return an all-zero FeatureVector for testing."""
     return FeatureVector(
-        momentum_z_5=0.0,
-        momentum_z_20=0.0,
+        momentum_z_fast=0.0,
+        momentum_z_mid=0.0,
         range_position=0.5,
         bar_close_pos=0.5,
         gap_z=0.0,
+        momentum_z_slow=0.0,
+        momentum_reversal_z=0.0,
         informed_flow=0.0,
         volume_z=0.0,
         ofi_z=0.0,
@@ -161,6 +164,8 @@ def _make_zero_vector() -> FeatureVector:
         dow_sin=0.0,
         dow_cos=1.0,
         month_position=1.0,
+        quarter_position=0.0,
+        days_to_month_end=0.0,
         ctf_momentum=0.0,
         ctf_vwap_align=0.0,
         ctf_regime_align=0.0,
@@ -527,12 +532,16 @@ def test_feature_factory_compute_returns_valid_vector() -> None:
     # Check it's a FeatureVector
     assert isinstance(fv, FeatureVector)
 
-    # All 36 fields are finite floats
+    # All required fields are finite floats; Optional cross-sectional fields may be None.
     import dataclasses
     import math
 
     for field in dataclasses.fields(fv):
         val = getattr(fv, field.name)
+        # Optional fields (momentum_rank_z, volume_rank_z, volatility_rank_z) are
+        # None until batch cross-sectional enrichment; skip them.
+        if val is None:
+            continue
         assert isinstance(val, float), f"{field.name} should be float, got {type(val)}"
         assert math.isfinite(val), f"{field.name} should be finite, got {val}"
 
