@@ -1209,15 +1209,17 @@ class FeatureVector:
     field must be supplied by the caller.
 
     Groups and field order are binding (schema column names in feature_vectors):
-      Momentum (5): price velocity at two horizons, range, intra-bar, gap
-      Volume/flow (8): order flow, CVD, CMF, VWAP, OFI divergence
-      Session-level (4): volume profile, S/R proximity
-      Regime-level (11): HMM, entropy, duration, GARCH, trend strength, Aroon
+      Momentum (5): price velocity at two horizons, range, intra-bar close position, gap
+      Volume/flow (8): informed flow, volume, OFI, OFI divergence, CVD slope, CMF, rel volume, VWAP dev
+      Volatility (2): ATR z-score, short/long vol ratio
+      Session-level (4): volume profile POC/VA, S/R proximity
+      Regime-level (10): HMM prob/entropy/duration, Hurst, Shannon, GARCH ratio, HMA slope, ADX, Aroon fast/slow
       Oscillators (6): RSI and CCI at fast/mid/slow scales
-      Cross-asset (3): VIX, flight-to-quality, yield slope
-      Calendar (9): session flags, killzones, day-of-week encoding, month position
+      Cross-asset (3): VIX z-score, flight-to-quality, yield slope
+      Calendar (9): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position
       Cross-timeframe (3): momentum/VWAP/regime alignment from HTF cache
-      Statistical/liquidity (4): Amihud, 52w anchor, skewness, autocorrelation
+      Statistical/liquidity (4): Amihud illiquidity, 52w high distance, return skewness, return autocorrelation
+      Total: 54
     """
 
     # Momentum (5)

@@ -13,6 +13,7 @@ Last Updated: 2026-06-22
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime
 from typing import Any  # noqa: F401
 
@@ -33,7 +34,7 @@ from src.intelligence.features.feature_vector_persistence import (
     VALID_REGIME_LABEL_SOURCES,
     feature_vector_to_insert_params,
 )
-from src.intelligence.schemas import FeatureVectorRecord
+from src.intelligence.schemas import FeatureVector, FeatureVectorRecord
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     PERSISTENCE_CONSUMER_LAG,
@@ -209,8 +210,6 @@ class FeatureVectorWriter(BaseWriter):
                 self._parse_errors_total.add(1)
                 return [], [payload]
 
-            from src.intelligence.schemas import FeatureVector
-
             vector = FeatureVector(**vector_data)
             record = FeatureVectorRecord(
                 symbol=payload["symbol"],
@@ -237,10 +236,10 @@ class FeatureVectorWriter(BaseWriter):
             raise RuntimeError("No database connection")
 
         async with observed_span("writer.flush", tracer=self.tracer) as span:
-            _fw_t0 = __import__("time").perf_counter()
+            _fw_t0 = time.perf_counter()
             await self.db_manager.execute_batch(_INSERT_FEATURE_VECTOR_SQL, batch)
             PERSISTENCE_BATCH_LATENCY.record(
-                __import__("time").perf_counter() - _fw_t0, self._batch_latency_attrs
+                time.perf_counter() - _fw_t0, self._batch_latency_attrs
             )
 
             self.batch_writes_total.add(1)
@@ -251,7 +250,7 @@ class FeatureVectorWriter(BaseWriter):
             self.logger.debug("feature_vector_writer.batch_flushed", rows=len(batch))
 
             span.set_attribute(ATTR_BATCH_SIZE, len(batch))
-            flush_ms = (__import__("time").perf_counter() - _fw_t0) * 1000
+            flush_ms = (time.perf_counter() - _fw_t0) * 1000
             span.set_attribute(ATTR_FLUSH_MS, flush_ms)
 
     async def _verify_schema(self) -> None:
