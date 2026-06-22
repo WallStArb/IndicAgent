@@ -459,6 +459,21 @@ class IntelligencePipeline(BaseDaemon):
         ("feature.ret_acf.window", 30),
         ("feature.ret_acf.zscore_window", 252),
         ("feature.high_52w.window", 252),
+        # --- migration 157: cache warmup, cross-asset, session ---
+        ("feature.cache.min_bars_warmup", 16),
+        ("feature.cross_asset.rv_window", 20),
+        ("feature.session.ny_start_utc_hour", 13),
+        ("feature.session.ny_start_utc_minute", 30),
+        ("feature.session.ny_end_utc_hour", 20),
+        ("feature.session.overlap_start_utc_hour", 12),
+        ("feature.session.overlap_end_utc_hour", 15),
+        ("feature.session.london_kz_start_utc_hour", 7),
+        ("feature.session.london_kz_end_utc_hour", 10),
+        ("feature.session.power_hour_start_utc_hour", 19),
+        ("feature.session.power_hour_end_utc_hour", 21),
+        ("feature.session.opening_range_start_minute", 810),
+        ("feature.session.opening_range_end_minute", 900),
+        ("threshold.backfill.coverage_gate", 0.80),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -506,6 +521,19 @@ class IntelligencePipeline(BaseDaemon):
             ret_acf_window=_int("feature.ret_acf.window", 30),
             ret_acf_zscore_window=_int("feature.ret_acf.zscore_window", 252),
             high_52w_window=_int("feature.high_52w.window", 252),
+            min_bars_warmup=_int("feature.cache.min_bars_warmup", 16),
+            cross_asset_rv_window=_int("feature.cross_asset.rv_window", 20),
+            ny_session_start_utc_hour=_int("feature.session.ny_start_utc_hour", 13),
+            ny_session_start_utc_minute=_int("feature.session.ny_start_utc_minute", 30),
+            ny_session_end_utc_hour=_int("feature.session.ny_end_utc_hour", 20),
+            overlap_start_utc_hour=_int("feature.session.overlap_start_utc_hour", 12),
+            overlap_end_utc_hour=_int("feature.session.overlap_end_utc_hour", 15),
+            london_kz_start_utc_hour=_int("feature.session.london_kz_start_utc_hour", 7),
+            london_kz_end_utc_hour=_int("feature.session.london_kz_end_utc_hour", 10),
+            power_hour_start_utc_hour=_int("feature.session.power_hour_start_utc_hour", 19),
+            power_hour_end_utc_hour=_int("feature.session.power_hour_end_utc_hour", 21),
+            opening_range_start_minute=_int("feature.session.opening_range_start_minute", 810),
+            opening_range_end_minute=_int("feature.session.opening_range_end_minute", 900),
         )
 
         self.logger.info(

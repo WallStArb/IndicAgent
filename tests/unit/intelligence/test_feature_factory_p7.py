@@ -65,6 +65,19 @@ def _make_cfg(**overrides) -> FeatureFactoryConfig:
         ret_acf_window=5,
         ret_acf_zscore_window=20,
         high_52w_window=20,
+        min_bars_warmup=16,
+        cross_asset_rv_window=20,
+        ny_session_start_utc_hour=13,
+        ny_session_start_utc_minute=30,
+        ny_session_end_utc_hour=20,
+        overlap_start_utc_hour=12,
+        overlap_end_utc_hour=15,
+        london_kz_start_utc_hour=7,
+        london_kz_end_utc_hour=10,
+        power_hour_start_utc_hour=19,
+        power_hour_end_utc_hour=21,
+        opening_range_start_minute=810,
+        opening_range_end_minute=900,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -269,34 +282,38 @@ def test_pearson_acf1_cold_start():
 
 def test_in_london_kz_inside():
     ts = datetime(2026, 1, 7, 8, 30, tzinfo=UTC)
-    from src.intelligence.feature_factory import _in_london_kz
-
-    assert _in_london_kz(ts) == 1.0
+    cfg = _make_cfg()
+    assert _in_london_kz(ts, cfg) == 1.0
 
 
 def test_in_london_kz_outside():
     ts = datetime(2026, 1, 7, 12, 0, tzinfo=UTC)
-    assert _in_london_kz(ts) == 0.0
+    cfg = _make_cfg()
+    assert _in_london_kz(ts, cfg) == 0.0
 
 
 def test_power_hour_inside():
     ts = datetime(2026, 1, 7, 19, 30, tzinfo=UTC)
-    assert _power_hour(ts) == 1.0
+    cfg = _make_cfg()
+    assert _power_hour(ts, cfg) == 1.0
 
 
 def test_power_hour_outside():
     ts = datetime(2026, 1, 7, 15, 0, tzinfo=UTC)
-    assert _power_hour(ts) == 0.0
+    cfg = _make_cfg()
+    assert _power_hour(ts, cfg) == 0.0
 
 
 def test_opening_range_inside():
     ts = datetime(2026, 1, 7, 14, 0, tzinfo=UTC)
-    assert _opening_range(ts) == 1.0
+    cfg = _make_cfg()
+    assert _opening_range(ts, cfg) == 1.0
 
 
 def test_opening_range_outside():
     ts = datetime(2026, 1, 7, 16, 0, tzinfo=UTC)
-    assert _opening_range(ts) == 0.0
+    cfg = _make_cfg()
+    assert _opening_range(ts, cfg) == 0.0
 
 
 # ---------------------------------------------------------------------------

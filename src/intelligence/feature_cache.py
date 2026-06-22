@@ -96,7 +96,7 @@ class FeatureCache:
         config:
             Frozen config with all tunable parameters from APR.
         """
-        if len(bars) < 16:  # Minimum for any regime computation
+        if len(bars) < config.min_bars_warmup:
             self.bars_since_regime_refresh = 0
             return
 
@@ -206,8 +206,7 @@ class FeatureCache:
         if len(spy_bars) >= 2:
             spy_closes = np.array([b["close"] for b in spy_bars], dtype=float)
             spy_returns = np.diff(np.log(np.maximum(spy_closes, 1e-10)))
-            # Realized vol over last 20 returns
-            rv_window = min(20, len(spy_returns))
+            rv_window = min(config.cross_asset_rv_window, len(spy_returns))
             realized_vol = float(np.std(spy_returns[-rv_window:]))
             self._spy_realized_vol_history.append(realized_vol)
             self.vix_z = _zscore_from_deque(self._spy_realized_vol_history, window)

@@ -282,6 +282,23 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         ret_acf_window=int(cfg.get_sync("feature.ret_acf.window", 30)),
         ret_acf_zscore_window=int(cfg.get_sync("feature.ret_acf.zscore_window", 252)),
         high_52w_window=int(cfg.get_sync("feature.high_52w.window", 252)),
+        min_bars_warmup=int(cfg.get_sync("feature.cache.min_bars_warmup", 16)),
+        cross_asset_rv_window=int(cfg.get_sync("feature.cross_asset.rv_window", 20)),
+        ny_session_start_utc_hour=int(cfg.get_sync("feature.session.ny_start_utc_hour", 13)),
+        ny_session_start_utc_minute=int(cfg.get_sync("feature.session.ny_start_utc_minute", 30)),
+        ny_session_end_utc_hour=int(cfg.get_sync("feature.session.ny_end_utc_hour", 20)),
+        overlap_start_utc_hour=int(cfg.get_sync("feature.session.overlap_start_utc_hour", 12)),
+        overlap_end_utc_hour=int(cfg.get_sync("feature.session.overlap_end_utc_hour", 15)),
+        london_kz_start_utc_hour=int(cfg.get_sync("feature.session.london_kz_start_utc_hour", 7)),
+        london_kz_end_utc_hour=int(cfg.get_sync("feature.session.london_kz_end_utc_hour", 10)),
+        power_hour_start_utc_hour=int(
+            cfg.get_sync("feature.session.power_hour_start_utc_hour", 19)
+        ),
+        power_hour_end_utc_hour=int(cfg.get_sync("feature.session.power_hour_end_utc_hour", 21)),
+        opening_range_start_minute=int(
+            cfg.get_sync("feature.session.opening_range_start_minute", 810)
+        ),
+        opening_range_end_minute=int(cfg.get_sync("feature.session.opening_range_end_minute", 900)),
     )
 
 
@@ -577,7 +594,7 @@ def run_compute_stage(
     symbols: list[str] | None,
     db_conn: Any,
     pipeline_version: str = "3.0.0",
-) -> dict[tuple[str, str], dict]:
+) -> tuple[dict[tuple[str, str], dict], float]:
     """Compute FeatureVectors from market_data_ohlcv and batch-insert into feature_vectors.
 
     Reads bars in chunked sliding windows (T3: never full history at once).
@@ -588,6 +605,7 @@ def run_compute_stage(
     """
     cfg = _load_config_service(db_conn)
     config = _build_feature_factory_config(cfg)
+    coverage_gate = float(cfg.get_sync("threshold.backfill.coverage_gate", 0.80))
 
     # Warm-up bars = dominant rolling window (momentum_zscore_window = 252)
     warm_up_bars = config.momentum_zscore_window
@@ -671,7 +689,7 @@ def run_compute_stage(
                     "pct": pct,
                 }
 
-                if pct < 0.80:
+                if pct < coverage_gate:
                     _logger.warning(
                         "coverage_below_gate",
                         symbol=symbol,
@@ -698,7 +716,7 @@ def run_compute_stage(
                 _logger.error("compute_failed", symbol=symbol, tf=tf, error=error_msg)
                 coverage[key] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
 
-    return coverage
+    return coverage, coverage_gate
 
 
 def _compute_symbol_tf(
@@ -803,14 +821,14 @@ def _batch_insert(conn: Any, rows: list[tuple]) -> None:
     conn.commit()
 
 
-def _log_coverage_report(coverage: dict[tuple[str, str], dict]) -> None:
-    """Log per-pair coverage vs theoretical_max; flag pairs below 80%."""
+def _log_coverage_report(coverage: dict[tuple[str, str], dict], coverage_gate: float) -> None:
+    """Log per-pair coverage vs theoretical_max; flag pairs below the APR coverage gate."""
     below_gate: list[tuple[str, str, int, int, float]] = []
     for (symbol, tf), data in sorted(coverage.items()):
         pct = data.get("pct", 0.0)
         rows = data.get("rows_written", 0)
         theoretical = data.get("theoretical_max", 0)
-        if pct < 0.80:
+        if pct < coverage_gate:
             below_gate.append((symbol, tf, rows, theoretical, pct))
 
     _logger.info(
@@ -906,13 +924,13 @@ def main() -> None:
 
         if run_compute:
             _logger.info("stage2_start")
-            coverage = run_compute_stage(
+            coverage, coverage_gate = run_compute_stage(
                 settings=settings,
                 symbols=symbols,
                 db_conn=db_conn,
                 pipeline_version=args.pipeline_version,
             )
-            _log_coverage_report(coverage)
+            _log_coverage_report(coverage, coverage_gate)
             _logger.info("stage2_complete", pairs_computed=len(coverage))
 
         JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": "success"})

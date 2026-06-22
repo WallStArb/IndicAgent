@@ -74,6 +74,19 @@ def _make_config() -> FeatureFactoryConfig:
         ret_acf_window=20,
         ret_acf_zscore_window=30,
         high_52w_window=30,
+        min_bars_warmup=16,
+        cross_asset_rv_window=20,
+        ny_session_start_utc_hour=13,
+        ny_session_start_utc_minute=30,
+        ny_session_end_utc_hour=20,
+        overlap_start_utc_hour=12,
+        overlap_end_utc_hour=15,
+        london_kz_start_utc_hour=7,
+        london_kz_end_utc_hour=10,
+        power_hour_start_utc_hour=19,
+        power_hour_end_utc_hour=21,
+        opening_range_start_minute=810,
+        opening_range_end_minute=900,
     )
 
 
@@ -258,8 +271,8 @@ def test_vector_to_params_all_36_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 6 structural columns + 36 feature floats = 42 total
-    assert len(params) == 42, f"Expected 42 params, got {len(params)}"
+    # 6 structural columns + 54 feature floats = 60 total
+    assert len(params) == 60, f"Expected 60 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:
@@ -302,7 +315,7 @@ def test_coverage_gate_below_80pct_flagged(caplog: pytest.LogCaptureFixture) -> 
     }
 
     with caplog.at_level(logging.WARNING):
-        _log_coverage_report(coverage)
+        _log_coverage_report(coverage, 0.80)
 
     # The below-gate pair should appear in warning output
     assert any(
@@ -325,7 +338,7 @@ def test_coverage_gate_above_80pct_no_warning(caplog: pytest.LogCaptureFixture) 
     }
 
     with caplog.at_level(logging.WARNING):
-        _log_coverage_report(coverage)
+        _log_coverage_report(coverage, 0.80)
 
     # No D-06 gate warning expected
     gate_warnings = [
@@ -399,7 +412,7 @@ def test_compute_resume_skips_complete_pairs() -> None:
         mock_cfg_load.return_value = MagicMock()
         mock_cfg_build.return_value = _make_config()
 
-        coverage = run_compute_stage(
+        coverage, _ = run_compute_stage(
             settings=settings,
             symbols=None,
             db_conn=mock_conn,

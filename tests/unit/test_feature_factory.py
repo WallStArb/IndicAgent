@@ -47,6 +47,33 @@ def _make_config(**overrides: int) -> FeatureFactoryConfig:
         vix_zscore_window=30,
         yield_curve_zscore_window=30,
         regime_cache_refresh_bars=10,
+        rsi_fast_period=7,
+        rsi_mid_period=14,
+        rsi_slow_period=28,
+        cci_fast_period=10,
+        cci_mid_period=20,
+        cci_slow_period=40,
+        aroon_fast_period=14,
+        aroon_slow_period=25,
+        amihud_zscore_window=20,
+        ret_skew_window=10,
+        ret_skew_zscore_window=20,
+        ret_acf_window=5,
+        ret_acf_zscore_window=20,
+        high_52w_window=20,
+        min_bars_warmup=16,
+        cross_asset_rv_window=20,
+        ny_session_start_utc_hour=13,
+        ny_session_start_utc_minute=30,
+        ny_session_end_utc_hour=20,
+        overlap_start_utc_hour=12,
+        overlap_end_utc_hour=15,
+        london_kz_start_utc_hour=7,
+        london_kz_end_utc_hour=10,
+        power_hour_start_utc_hour=19,
+        power_hour_end_utc_hour=21,
+        opening_range_start_minute=810,
+        opening_range_end_minute=900,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -151,7 +178,7 @@ class TestBarLevelPrimitives:
             ["grep", "-n", "tick_buffer", "src/intelligence/feature_factory.py"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aa80059502df68cba",
+            cwd="/home/bg/dev/indicagent",
         )
         assert (
             result.returncode != 0 or result.stdout.strip() == ""
@@ -224,7 +251,7 @@ class TestBarLevelPrimitives:
             ["grep", "-n", "self._config", "src/intelligence/feature_factory.py"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aa80059502df68cba",
+            cwd="/home/bg/dev/indicagent",
         )
         assert (
             result.returncode != 0 or result.stdout.strip() == ""
@@ -353,7 +380,7 @@ class TestRegimePrimitives:
             ["grep", "-nE", "_smooth|smoothed|backward", "src/intelligence/feature_factory.py"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aa80059502df68cba",
+            cwd="/home/bg/dev/indicagent",
         )
         assert (
             result.returncode != 0 or result.stdout.strip() == ""
@@ -473,7 +500,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 36, f"Expected 36 fields, got {len(fields)}"
+        assert len(fields) == 54, f"Expected 54 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             assert math.isfinite(val), f"Field {f.name} is not finite: {val}"
@@ -502,24 +529,7 @@ class TestComputePurity:
         """
         bars = _make_bars(60)
         # Build config/cache manually — no ConfigService involved
-        config = FeatureFactoryConfig(
-            momentum_window_short=5,
-            momentum_window_long=20,
-            momentum_zscore_window=30,
-            volume_zscore_window=20,
-            ofi_zscore_window=20,
-            cvd_slope_bars=5,
-            cmf_period=20,
-            vol_short_bars=5,
-            vol_long_bars=20,
-            hma_period=20,
-            adx_period=14,
-            hurst_window=64,
-            garch_window=50,
-            vix_zscore_window=30,
-            yield_curve_zscore_window=30,
-            regime_cache_refresh_bars=10,
-        )
+        config = _make_config()
         cache = FeatureCache()
         # Must not raise even with no DB/ConfigService/Kafka
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
@@ -533,7 +543,7 @@ class TestComputePurity:
             ["grep", "-nE", "^(async def|    await )", "src/intelligence/feature_factory.py"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aa80059502df68cba",
+            cwd="/home/bg/dev/indicagent",
         )
         assert (
             result.returncode != 0 or result.stdout.strip() == ""
@@ -552,7 +562,7 @@ class TestComputePurity:
             ],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent/.claude/worktrees/agent-aa80059502df68cba",
+            cwd="/home/bg/dev/indicagent",
         )
         # Allow zero matches
         lines = [

@@ -116,27 +116,6 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
 # APR-backed configuration (frozen, built once by caller)
 # ---------------------------------------------------------------------------
 
-# NY session: 09:30-16:00 ET = 13:30-20:00 UTC
-_NY_SESSION_START_UTC_HOUR = 13
-_NY_SESSION_START_UTC_MINUTE = 30
-_NY_SESSION_END_UTC_HOUR = 20
-
-# London-NY overlap: 08:00-11:00 ET = 12:00-15:00 UTC
-_OVERLAP_START_UTC_HOUR = 12
-_OVERLAP_END_UTC_HOUR = 15
-
-# London killzone: 07:00-10:00 UTC covers both winter (08:00) and summer (07:00) opens
-_LONDON_KZ_START_UTC_HOUR = 7
-_LONDON_KZ_END_UTC_HOUR = 10
-
-# Power hour: 3-4 PM ET. Approx UTC: 19:00-21:00 covers winter+summer
-_POWER_HOUR_START_UTC_HOUR = 19
-_POWER_HOUR_END_UTC_HOUR = 21
-
-# Opening range: 9:30-10:00 AM ET. UTC: 13:30-15:00 covers winter+summer
-_OPENING_RANGE_START_MINUTE = 810  # 13*60 + 30
-_OPENING_RANGE_END_MINUTE = 900  # 15*60
-
 
 @dataclass(frozen=True)
 class FeatureFactoryConfig:
@@ -163,6 +142,19 @@ class FeatureFactoryConfig:
         vix_zscore_window: APR feature.vix.zscore_window
         yield_curve_zscore_window: APR feature.yield_curve.zscore_window
         regime_cache_refresh_bars: APR feature.regime.cache_refresh_bars
+        min_bars_warmup: APR feature.cache.min_bars_warmup
+        cross_asset_rv_window: APR feature.cross_asset.rv_window
+        ny_session_start_utc_hour: APR feature.session.ny_start_utc_hour
+        ny_session_start_utc_minute: APR feature.session.ny_start_utc_minute
+        ny_session_end_utc_hour: APR feature.session.ny_end_utc_hour
+        overlap_start_utc_hour: APR feature.session.overlap_start_utc_hour
+        overlap_end_utc_hour: APR feature.session.overlap_end_utc_hour
+        london_kz_start_utc_hour: APR feature.session.london_kz_start_utc_hour
+        london_kz_end_utc_hour: APR feature.session.london_kz_end_utc_hour
+        power_hour_start_utc_hour: APR feature.session.power_hour_start_utc_hour
+        power_hour_end_utc_hour: APR feature.session.power_hour_end_utc_hour
+        opening_range_start_minute: APR feature.session.opening_range_start_minute
+        opening_range_end_minute: APR feature.session.opening_range_end_minute
     """
 
     momentum_window_short: int  # feature.momentum.window_short
@@ -181,6 +173,21 @@ class FeatureFactoryConfig:
     vix_zscore_window: int  # feature.vix.zscore_window
     yield_curve_zscore_window: int  # feature.yield_curve.zscore_window
     regime_cache_refresh_bars: int  # feature.regime.cache_refresh_bars
+    # Cache warmup / cross-asset
+    min_bars_warmup: int  # feature.cache.min_bars_warmup
+    cross_asset_rv_window: int  # feature.cross_asset.rv_window
+    # Session / calendar (APR-backed so DST/market-hour adjustments are operationally safe)
+    ny_session_start_utc_hour: int  # feature.session.ny_start_utc_hour
+    ny_session_start_utc_minute: int  # feature.session.ny_start_utc_minute
+    ny_session_end_utc_hour: int  # feature.session.ny_end_utc_hour
+    overlap_start_utc_hour: int  # feature.session.overlap_start_utc_hour
+    overlap_end_utc_hour: int  # feature.session.overlap_end_utc_hour
+    london_kz_start_utc_hour: int  # feature.session.london_kz_start_utc_hour
+    london_kz_end_utc_hour: int  # feature.session.london_kz_end_utc_hour
+    power_hour_start_utc_hour: int  # feature.session.power_hour_start_utc_hour
+    power_hour_end_utc_hour: int  # feature.session.power_hour_end_utc_hour
+    opening_range_start_minute: int  # feature.session.opening_range_start_minute
+    opening_range_end_minute: int  # feature.session.opening_range_end_minute
     # Oscillators (added in P7)
     rsi_fast_period: int  # feature.period.rsi.fast
     rsi_mid_period: int  # feature.period.rsi.mid
@@ -481,20 +488,19 @@ def _vwap_dev_sigma(
 # ---------------------------------------------------------------------------
 
 
-def _in_ny_session(bar_ts: datetime) -> float:
-    """1.0 if bar_ts is within NY RTH (13:30-20:00 UTC), else 0.0."""
-    utc_hour = bar_ts.hour
-    utc_minute = bar_ts.minute
-    total_minutes = utc_hour * 60 + utc_minute
-    start_minutes = _NY_SESSION_START_UTC_HOUR * 60 + _NY_SESSION_START_UTC_MINUTE
-    end_minutes = _NY_SESSION_END_UTC_HOUR * 60
+def _in_ny_session(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
+    """1.0 if bar_ts is within NY RTH, else 0.0."""
+    total_minutes = bar_ts.hour * 60 + bar_ts.minute
+    start_minutes = config.ny_session_start_utc_hour * 60 + config.ny_session_start_utc_minute
+    end_minutes = config.ny_session_end_utc_hour * 60
     return 1.0 if start_minutes <= total_minutes < end_minutes else 0.0
 
 
-def _in_overlap(bar_ts: datetime) -> float:
-    """1.0 if bar_ts is in London-NY overlap (12:00-15:00 UTC), else 0.0."""
-    utc_hour = bar_ts.hour
-    return 1.0 if _OVERLAP_START_UTC_HOUR <= utc_hour < _OVERLAP_END_UTC_HOUR else 0.0
+def _in_overlap(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
+    """1.0 if bar_ts is in London-NY overlap, else 0.0."""
+    return (
+        1.0 if config.overlap_start_utc_hour <= bar_ts.hour < config.overlap_end_utc_hour else 0.0
+    )
 
 
 def _dow_encoding(bar_ts: datetime) -> tuple[float, float]:
@@ -513,26 +519,32 @@ def _month_position(bar_ts: datetime) -> float:
     return bar_ts.day / days
 
 
-def _in_london_kz(bar_ts: datetime) -> float:
-    """1.0 if bar_ts is in the London killzone (07:00-10:00 UTC), else 0.0.
-
-    Covers London open in both winter (08:00 UTC) and summer (07:00 UTC).
-    """
-    return 1.0 if _LONDON_KZ_START_UTC_HOUR <= bar_ts.hour < _LONDON_KZ_END_UTC_HOUR else 0.0
-
-
-def _power_hour(bar_ts: datetime) -> float:
-    """1.0 if bar_ts is in power hour (3-4 PM ET, approx 19:00-21:00 UTC), else 0.0."""
-    return 1.0 if _POWER_HOUR_START_UTC_HOUR <= bar_ts.hour < _POWER_HOUR_END_UTC_HOUR else 0.0
+def _in_london_kz(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
+    """1.0 if bar_ts is in the London killzone, else 0.0."""
+    return (
+        1.0
+        if config.london_kz_start_utc_hour <= bar_ts.hour < config.london_kz_end_utc_hour
+        else 0.0
+    )
 
 
-def _opening_range(bar_ts: datetime) -> float:
-    """1.0 if bar_ts is in the first 30 min of NY session (9:30-10:00 AM ET).
+def _power_hour(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
+    """1.0 if bar_ts is in power hour, else 0.0."""
+    return (
+        1.0
+        if config.power_hour_start_utc_hour <= bar_ts.hour < config.power_hour_end_utc_hour
+        else 0.0
+    )
 
-    UTC approximation 13:30-15:00 covers both winter and summer offsets.
-    """
+
+def _opening_range(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
+    """1.0 if bar_ts is in the first 30 min of NY session, else 0.0."""
     total_minutes = bar_ts.hour * 60 + bar_ts.minute
-    return 1.0 if _OPENING_RANGE_START_MINUTE <= total_minutes < _OPENING_RANGE_END_MINUTE else 0.0
+    return (
+        1.0
+        if config.opening_range_start_minute <= total_minutes < config.opening_range_end_minute
+        else 0.0
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -916,11 +928,11 @@ class FeatureFactory:
         yield_slope_z_val = cache.yield_slope_z
 
         # --- Calendar primitives ---
-        in_ny_session_val = _in_ny_session(bar_ts)
-        in_london_kz_val = _in_london_kz(bar_ts)
-        in_overlap_val = _in_overlap(bar_ts)
-        power_hour_val = _power_hour(bar_ts)
-        opening_range_val = _opening_range(bar_ts)
+        in_ny_session_val = _in_ny_session(bar_ts, config)
+        in_london_kz_val = _in_london_kz(bar_ts, config)
+        in_overlap_val = _in_overlap(bar_ts, config)
+        power_hour_val = _power_hour(bar_ts, config)
+        opening_range_val = _opening_range(bar_ts, config)
         above_wk_vwap_val = cache.above_wk_vwap
         dow_sin_val, dow_cos_val = _dow_encoding(bar_ts)
         month_position_val = _month_position(bar_ts)
