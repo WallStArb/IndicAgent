@@ -143,14 +143,9 @@ class _SlidingWindowRateLimiter:
 
 _hist_rate_limiter = _SlidingWindowRateLimiter()
 
-# reqIds that received Error 162 during reqHistoricalDataAsync.
-# Written by _on_ib_error (ib_insync thread), consumed+cleared by fetch_historical_bars
-# (asyncio thread). GIL makes set.add/discard thread-safe without a lock.
-_pacing_error_req_ids: set[int] = set()
-
-# reqIds where Error 162 carried "no data" — distinct from pacing violations.
-# When a chunk has no data, all future chunks for the same symbol/TF will also have none.
-# fetch_historical_bars breaks the chunk loop immediately on these.
+# reqIds where Error 162 carried "no data".
+# Written by _on_ib_error (ib_insync thread), consumed+cleared by _fetch_historical_bars_impl
+# (asyncio thread). GIL makes set.add/difference_update thread-safe without a lock.
 _no_data_req_ids: set[int] = set()
 
 # Circuit breaker for IBKR connection attempts
@@ -188,9 +183,6 @@ def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None
             extra={"reqId": reqId, "errorString": errorString},
         )
     elif errorCode == 162:
-        # Historical data query cancelled — pacing violation or IBKR-side rejection.
-        # Stamp the reqId so fetch_historical_bars can detect it and back off with retry.
-        _pacing_error_req_ids.add(reqId)
         if "no data" in errorString.lower():
             _no_data_req_ids.add(reqId)
         logger.warning(
@@ -570,6 +562,30 @@ class IBKRProvider:
         if not self._ib:
             raise RuntimeError("Not connected. Call connect() first.")
 
+        # _try_connect (nested inside connect_ibkr) unregisters _on_ib_error in its
+        # finally block, so re-register here for the duration of the fetch — Error 162
+        # "no data" callbacks must populate _no_data_req_ids while chunks are in flight.
+        # NOTE: not re-entrant — do not call concurrently on the same IBKRProvider instance.
+        self._ib.errorEvent += _on_ib_error
+        try:
+            return await self._fetch_historical_bars_impl(
+                symbol=symbol,
+                timeframe=timeframe,
+                start=start,
+                end=end,
+                continuous=continuous,
+            )
+        finally:
+            self._ib.errorEvent -= _on_ib_error
+
+    async def _fetch_historical_bars_impl(
+        self,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        continuous: bool = False,
+    ) -> list[OHLCVBar]:
         named_contract = self._qualified_contracts.get(symbol)
         if not named_contract:
             logger.warning(
@@ -652,9 +668,14 @@ class IBKRProvider:
                 else:
                     duration_str = f"{max(1, (chunk_end - chunk_start).days + 1)} D"
 
-                # Retry loop: up to 3 attempts with exponential backoff on Error 162.
+                # reqHistoricalDataAsync resolves to a bar list (no .reqId), so a
+                # specific request cannot be matched to an error callback. Instead,
+                # snapshot _no_data_req_ids before the chunk and diff afterwards to
+                # detect any "no data" (Error 162) callbacks that fired during it.
+                no_data_baseline = frozenset(_no_data_req_ids)
+
+                # Retry up to 3 times with exponential backoff on an empty result.
                 ib_bars: list = []
-                issued_req_ids: list[int] = []
                 for attempt in range(3):
                     result = await self._ib.reqHistoricalDataAsync(
                         contract,
@@ -665,13 +686,6 @@ class IBKRProvider:
                         useRTH=use_rth,
                         formatDate=1,
                     )
-                    req_id = getattr(result, "reqId", -1)
-                    if req_id != -1:
-                        issued_req_ids.append(req_id)
-                    is_pacing = req_id in _pacing_error_req_ids
-                    if is_pacing:
-                        _pacing_error_req_ids.discard(req_id)
-
                     if result:
                         ib_bars = result
                         break
@@ -685,7 +699,6 @@ class IBKRProvider:
                                 "timeframe": timeframe,
                                 "chunk_end": chunk_end.isoformat(),
                                 "attempt": attempt + 1,
-                                "pacing_error": is_pacing,
                                 "backoff_s": backoff,
                             },
                         )
@@ -706,9 +719,9 @@ class IBKRProvider:
                             "chunk_end": chunk_end.isoformat(),
                         },
                     )
-                    no_data_ids = _no_data_req_ids & set(issued_req_ids)
-                    if no_data_ids:
-                        _no_data_req_ids.difference_update(no_data_ids)
+                    new_no_data = _no_data_req_ids - no_data_baseline
+                    if new_no_data:
+                        _no_data_req_ids.difference_update(new_no_data)
                         logger.warning(
                             "ibkr.hist_no_data_abort",
                             extra={"symbol": symbol, "timeframe": timeframe},
