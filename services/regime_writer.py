@@ -263,8 +263,17 @@ def _label_symbol_tf(
         try:
             # ------------------------------------------------------------------
             # Fetch OHLCV from market_data_ohlcv (NOT feature_vectors)
+            # Use a server-side named cursor to stream large datasets without
+            # loading all rows into client memory (avoids large memory spikes).
+            # autocommit=True on the connection avoids implicit transaction
+            # wrapping which can conflict with concurrent write activity.
             # ------------------------------------------------------------------
-            with conn.cursor() as cur:
+            timestamps = []
+            closes = []
+            # Server-side cursor requires no active transaction — commit any
+            # open transaction first.
+            conn.commit()
+            with conn.cursor("ohlcv_stream") as cur:
                 cur.execute(
                     "SELECT timestamp, close "
                     "FROM market_data_ohlcv "
@@ -272,18 +281,21 @@ def _label_symbol_tf(
                     "ORDER BY timestamp ASC",
                     (symbol, tf),
                 )
-                rows = cur.fetchall()
+                while True:
+                    batch = cur.fetchmany(10000)
+                    if not batch:
+                        break
+                    for r in batch:
+                        timestamps.append(r[0])
+                        closes.append(float(r[1]))
 
-            if not rows:
+            if not timestamps:
                 _logger.warning(
                     "regime_writer.no_ohlcv",
                     symbol=symbol,
                     tf=tf,
                 )
                 return 0
-
-            timestamps = [r[0] for r in rows]
-            closes = [float(r[1]) for r in rows]
 
             # ------------------------------------------------------------------
             # Build observation matrix
@@ -450,7 +462,13 @@ def main() -> None:
         dsn = settings.database_url
 
         with tracer.start_as_current_span("regime_writer.run") as run_span:
-            conn = psycopg2.connect(dsn)
+            conn = psycopg2.connect(
+                dsn,
+                # Disable idle-in-transaction timeout for this long-running batch
+                # session. The default (30s) kills server-side cursors during HMM
+                # computation which keeps connections open while processing rows.
+                options="-c idle_in_transaction_session_timeout=0",
+            )
             try:
                 # Load APR config
                 cfg = _load_config_service(conn)
@@ -495,11 +513,24 @@ def main() -> None:
                                 error=str(error),
                             )
                             failures.append(cell)
-                            # rollback any uncommitted state for this cell
+                            # Attempt rollback; if connection is broken, reopen it so
+                            # subsequent cells can proceed (handles server OOM kills).
                             try:
                                 conn.rollback()
                             except Exception:
-                                pass
+                                _logger.warning(
+                                    "regime_writer.reconnecting",
+                                    cell=cell,
+                                    note="Connection lost; reopening for remaining cells",
+                                )
+                                try:
+                                    conn.close()
+                                except Exception:
+                                    pass
+                                conn = psycopg2.connect(
+                                    dsn,
+                                    options="-c idle_in_transaction_session_timeout=0",
+                                )
                             # continue to next cell — do not abort the whole run
                             continue
 
