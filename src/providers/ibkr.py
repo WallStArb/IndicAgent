@@ -668,12 +668,6 @@ class IBKRProvider:
                 else:
                     duration_str = f"{max(1, (chunk_end - chunk_start).days + 1)} D"
 
-                # reqHistoricalDataAsync resolves to a bar list (no .reqId), so a
-                # specific request cannot be matched to an error callback. Instead,
-                # snapshot _no_data_req_ids before the chunk and diff afterwards to
-                # detect any "no data" (Error 162) callbacks that fired during it.
-                no_data_baseline = frozenset(_no_data_req_ids)
-
                 # Retry up to 3 times with exponential backoff on an empty result.
                 ib_bars: list = []
                 for attempt in range(3):
@@ -705,10 +699,13 @@ class IBKRProvider:
                         await asyncio.sleep(backoff)
                         await _hist_rate_limiter.acquire()
                 else:
-                    # Yield to the event loop so any pending Error 162 callbacks
-                    # fire before we check _no_data_req_ids. Without this, the
-                    # error callback may not have run yet when reqHistoricalDataAsync
-                    # resolves with an empty result.
+                    # Yield so pending Error 162 callbacks fire before we check
+                    # _no_data_req_ids — the callback may not have run yet when
+                    # reqHistoricalDataAsync resolves with an empty result.
+                    # Snapshot before the yield so we only catch errors from this chunk.
+                    # reqHistoricalDataAsync returns a bar list (no .reqId), so requests
+                    # cannot be matched to callbacks; set diff is the only option.
+                    no_data_baseline = _no_data_req_ids.copy()
                     await asyncio.sleep(0)
                     logger.error(
                         "ibkr.hist_chunk_failed_all_retries",
