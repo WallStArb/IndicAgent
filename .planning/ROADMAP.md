@@ -1252,7 +1252,7 @@ Plans:
 5. IC discovery report: which features pass FDR gate by regime and TF
 6. All `alpha.ic.*` APR keys seeded and loaded via `ConfigService.get()`
 
-**Plans:** 7 plans (6 waves) — replanned 2026-06-22 after council review
+**Plans:** 4/8 plans executed
 
 Plans:
 

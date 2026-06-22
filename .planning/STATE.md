@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
 status: Phase 138 in progress — P0 complete, P1 planned (foundation hardening)
-last_updated: "2026-06-22T14:45:00.000Z"
-last_activity: 2026-06-22 -- Phase 138-P0 complete (feature_vector_id migration, FeatureVectorWriter)
+last_updated: "2026-06-22T17:42:58.190Z"
+last_activity: 2026-06-22 -- Phase 138 execution started
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 13
-  completed_plans: 9
+  total_plans: 15
+  completed_plans: 8
   percent: 33
 ---
 
@@ -20,7 +20,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 137 — feature-factory
+**Current focus:** Phase 138 — ic-engine-forward-returns
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
@@ -81,6 +81,12 @@ See: .planning/PROJECT.md
 - [Phase 123]: Phase 128 DB persistence deferred: signal_writer reads ECL fields end-to-end but LedgerEntry not extended until 3-table migration
 - [Phase 136]: ctf_score=NULL is table-wide in intelligence_features: replay script never wrote Phase-130 CTF dedicated columns; deferred to future fix
 - [Phase 136]: Migration 130 Statement 3 UPDATE 0 rows: W2b exclusion at write time already eliminated all ctf_score keys from cross_timeframe_context; cleanup is durable
+- [Phase 138 council review 2026-06-22]: HMM_RANDOM_STATE = 42 — module-level constant in regime_writer.py; changing it invalidates all feature_ic_scores rows and requires full regime_writer + ic_engine re-run
+- [Phase 138 council review 2026-06-22]: Pooled IC rows (is_pooled=true) are DIAGNOSTIC ARTIFACTS ONLY — written to feature_ic_scores for comparison; Phase 139+ ensemble reads exclusively WHERE is_pooled = false
+- [Phase 138 council review 2026-06-22]: IC Sharpe sharpe_window_size = 2000 is in RAW bars (before subsampling); gate is n_raw_bars >= sharpe_min_windows * sharpe_window_size (= 20,000 raw bars), not n_independent
+- [Phase 138 council review 2026-06-22]: ON CONFLICT for partial indexes must use column list + WHERE clause — CREATE UNIQUE INDEX produces an index not a named constraint; ON CONFLICT ON CONSTRAINT only works with ADD CONSTRAINT
+- [Phase 138 council review 2026-06-22]: regime_label_source DEFAULT is 'forward_filter' (not 'filtered') in both forward_returns and feature_ic_scores
+- [Phase 138 council review 2026-06-22]: APR key is alpha.ic.subsample_min_stride (seeded in migration 161), NOT alpha.ic.subsampling_n
 - [Phase 138-P0]: TimescaleDB hypertables reject unique indexes unless partitioning column is included; use non-unique partial index + SHA-256 app-layer uniqueness
 - [Phase 138-P0]: Content-key formula: SHA-256(symbol|tf|bar_ts_ns|pipeline_version)[:32] as UUID; bar_ts_ns = int(bar_ts.timestamp() * 1e9)
 - [Phase 138-P0]: Migration 158 allocated for feature_vector_id; IC engine migrations shifted to 160/161
@@ -97,6 +103,7 @@ See: .planning/PROJECT.md
 Phase 138-P0 complete: feature_vector_id UUID content-key added to feature_vectors (migration 158), FeatureWriter renamed to FeatureVectorWriter (61-param INSERT), backfill_feature_factory updated with identical SHA-256 formula.
 
 Key decisions:
+
 - TimescaleDB hypertable cannot carry unique index without partitioning column (bar_ts); used non-unique partial index; SHA-256 uniqueness at application layer
 - P1/P2 migration numbers shifted 157->159, 158->160 to avoid collision with migration 158
 
@@ -210,10 +217,11 @@ v2.10 milestone closed. Phase 133 (corpus rebuild) CANCELLED — superseded by I
 
 Milestone: v2.10 — COMPLETE (2026-06-20)
 Milestone: v3.0 — IN PROGRESS — AlphaEngine (Intelligence Vectors, V1 Quant)
-Phase: 137 (feature-factory) — COMPLETE (7 plans: P1-P6 + P7; 2026-06-21)
+Phase: 138 (ic-engine-forward-returns) — EXECUTING
+Plan: 1 of 8
 Phase: 138 (ic-engine-forward-returns) — PLANNED, ready to execute
 Phase: 135 (controlled-vocabulary-system) — deferred
-Last activity: 2026-06-21 -- Phase 137 closed; Phase 138 ready to execute
+Last activity: 2026-06-22 -- Phase 138 execution started
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
