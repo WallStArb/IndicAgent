@@ -50,7 +50,11 @@ from src.core.stream_keys import (
     topic_system_events,
 )
 from src.intelligence.feature_cache import FeatureCache
-from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.feature_factory import (
+    FEATURE_FACTORY_VERSION,
+    FeatureFactory,
+    FeatureFactoryConfig,
+)
 from src.intelligence.pipeline import (
     CacheManager,
     OutputQueue,
@@ -828,6 +832,7 @@ class IntelligencePipeline(BaseDaemon):
             tf=bar.tf,
             bar_ts=bar.ts,
             pipeline_version=_PIPELINE_VERSION,
+            feature_factory_version=FEATURE_FACTORY_VERSION,
             regime=regime,
             regime_label_source="filtered",
             vector=vector,

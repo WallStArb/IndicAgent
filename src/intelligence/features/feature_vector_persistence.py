@@ -108,17 +108,19 @@ def make_feature_vector_id(
     tf: str,
     bar_ts: datetime,
     pipeline_version: str,
+    feature_factory_version: str,
 ) -> uuid.UUID:
     """Derive the content-key UUID for a feature_vectors row.
 
-    SHA-256(symbol|tf|bar_ts_ns|pipeline_version)[:32] cast to UUID.
+    SHA-256(symbol|tf|bar_ts_ns|pipeline_version|feature_factory_version)[:32] as UUID.
     Deterministic and idempotent: same inputs always produce the same UUID.
     bar_ts_ns = nanosecond epoch integer to avoid sub-second precision loss.
+    feature_factory_version isolates IC estimates across algorithm changes.
     """
     bar_ts_ns = str(int(bar_ts.timestamp() * 1_000_000_000))
-    digest = hashlib.sha256(f"{symbol}|{tf}|{bar_ts_ns}|{pipeline_version}".encode()).hexdigest()[
-        :32
-    ]
+    digest = hashlib.sha256(
+        f"{symbol}|{tf}|{bar_ts_ns}|{pipeline_version}|{feature_factory_version}".encode()
+    ).hexdigest()[:32]
     return uuid.UUID(digest)
 
 
@@ -130,6 +132,7 @@ def feature_vector_to_insert_params(
     tf: str,
     bar_ts: datetime,
     pipeline_version: str,
+    feature_factory_version: str,
     regime: str | None,
     regime_label_source: str,
     vector: FeatureVector,
@@ -146,6 +149,8 @@ def feature_vector_to_insert_params(
         tf: Timeframe string (e.g. '5m', '1h', '1d').
         bar_ts: UTC bar open timestamp.
         pipeline_version: Semver string stamped by the FeatureFactory run.
+        feature_factory_version: Algorithm version from FEATURE_FACTORY_VERSION constant.
+            Included in content-key; rows from different versions sort independently.
         regime: HMM regime label or None if not yet assigned.
         regime_label_source: Must be in VALID_REGIME_LABEL_SOURCES.
             Callers are responsible for passing a valid value — this function
@@ -160,6 +165,7 @@ def feature_vector_to_insert_params(
 
     Raises:
         ValueError: If regime_label_source is not in VALID_REGIME_LABEL_SOURCES.
+        ValueError: If vector contains nan/inf in any field.
     """
     if regime_label_source not in VALID_REGIME_LABEL_SOURCES:
         raise ValueError(
@@ -174,7 +180,9 @@ def feature_vector_to_insert_params(
             f"Degenerate features (nan/inf): {bad}." f" symbol={symbol} tf={tf} bar_ts={bar_ts}"
         )
 
-    feature_vector_id = make_feature_vector_id(symbol, tf, bar_ts, pipeline_version)
+    feature_vector_id = make_feature_vector_id(
+        symbol, tf, bar_ts, pipeline_version, feature_factory_version
+    )
 
     return (
         feature_vector_id,  # $1  content-key UUID

@@ -42,6 +42,13 @@ from src.intelligence.feature_cache import (
 from src.intelligence.schemas import FeatureVector
 
 # ---------------------------------------------------------------------------
+# Algorithm version tracking
+# ---------------------------------------------------------------------------
+
+# Bump on any algorithm change; IC engine filters by version to avoid mixing IC estimates.
+FEATURE_FACTORY_VERSION: str = "1.0.0"
+
+# ---------------------------------------------------------------------------
 # Feature-to-vector domain registry (IC Engine reads this at startup)
 # ---------------------------------------------------------------------------
 

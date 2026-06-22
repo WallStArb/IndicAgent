@@ -1303,6 +1303,7 @@ class FeatureVectorRecord:
     tf: str
     bar_ts: datetime  # UTC bar open timestamp
     pipeline_version: str  # e.g. "3.0.0"
+    feature_factory_version: str  # e.g. "1.0.0"; bump on any compute algorithm change
     regime: str | None  # HMM state label: "ranging", "trending_up", "trending_down"
     regime_label_source: str  # always "filtered" (D-07)
     vector: FeatureVector

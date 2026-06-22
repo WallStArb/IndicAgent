@@ -45,7 +45,11 @@ from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
 from src.core.service_utils import setup_service_logging
 from src.intelligence.feature_cache import FeatureCache
-from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.feature_factory import (
+    FEATURE_FACTORY_VERSION,
+    FeatureFactory,
+    FeatureFactoryConfig,
+)
 from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL_PSYCOPG2,
     feature_vector_to_insert_params,
@@ -304,12 +308,14 @@ def _vector_to_params(
 
     Backfill rows always use regime_label_source='filtered': all rows are
     computed from market_data_ohlcv with causal forward-filter HMM only (D-07).
+    FEATURE_FACTORY_VERSION is injected here so all batch rows are version-stamped.
     """
     return feature_vector_to_insert_params(
         symbol=symbol,
         tf=tf,
         bar_ts=bar_ts,
         pipeline_version=pipeline_version,
+        feature_factory_version=FEATURE_FACTORY_VERSION,
         regime=regime,
         regime_label_source="filtered",
         vector=fv,

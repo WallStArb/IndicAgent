@@ -88,6 +88,7 @@ def _make_sentinel_record():
         tf="1h",
         bar_ts=datetime(2026, 6, 22, 14, 0, 0, tzinfo=UTC),
         pipeline_version="3.0.0",
+        feature_factory_version="1.0.0",
         regime="trending_up",
         regime_label_source="filtered",
         vector=fv,
