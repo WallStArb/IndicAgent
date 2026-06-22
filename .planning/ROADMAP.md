@@ -1240,12 +1240,12 @@ Plans:
 
 ### Phase 138: IC Engine + Outcome Labels
 
-**Goal:** Measure Spearman IC per feature × symbol × TF × regime × lookahead. Build `OutcomeWriter` (LEAD()-based forward returns → `outcome_labels`). Build `ICEngine` (→ `feature_ic_scores` with bootstrap CI, BH-FDR correction, walk-forward). Produce IC discovery report.
+**Goal:** Measure Spearman IC per feature × symbol × TF × regime × lookahead. Build `ForwardReturnWriter` (LEAD()-based forward returns → `forward_returns`). Build `ICEngine` (→ `feature_ic_scores` with bootstrap CI, BH-FDR correction, walk-forward). Produce IC discovery report.
 
 **Depends on:** Phase 137
 
 **Success Criteria:**
-1. `outcome_labels` table populated via LEAD() — causal, no lookahead bias
+1. `forward_returns` table populated via LEAD() — causal, no lookahead bias
 2. `feature_ic_scores`: one row per (feature, symbol, tf, regime, lookahead) with IC mean, CI bounds, p-value, BH-FDR q-value
 3. IC Sharpe gate enforced: min 10 windows × 2,000 obs = 20,000 independent observations
 4. Walk-forward validation (3 folds) complete — out-of-sample IC confirms in-sample
@@ -1258,12 +1258,12 @@ Plans:
 
 **Wave 1** *(foundation — backfill + schema + APR seed)*
 
-- [ ] 138-P1-PLAN.md — Run FeatureFactory backfill (unblocks everything) + migration 157 (outcome_labels hypertable + feature_ic_scores) + migration 158 (alpha.ic.*/alpha.decay.* APR seeds) + alpha. in OPS_PREFIXES + service_auditor registration (SC-1, SC-2, SC-6)
+- [ ] 138-P1-PLAN.md — Run FeatureFactory backfill (unblocks everything) + migration 157 (forward_returns hypertable + feature_ic_scores) + migration 158 (alpha.ic.*/alpha.decay.* APR seeds) + alpha. in OPS_PREFIXES + service_auditor registration (SC-1, SC-2, SC-6)
 
 **Wave 2** *(parallel — both blocked on P1, no file conflicts)*
 
 - [ ] 138-P2-PLAN.md — HMM RegimeWriter oneshot: per-(symbol,tf) Viterbi decoding → feature_vectors.regime canonical text labels (untracked-but-mandatory; regime is NULL for all rows) + D-06/OTel/spans
-- [ ] 138-P3-PLAN.md — OutcomeWriter oneshot: causal LEAD() forward log returns ln(open[T+N+1]/open[T+1]) → outcome_labels + completeness flags + idempotent + D-06/OTel/spans (SC-1)
+- [ ] 138-P3-PLAN.md — ForwardReturnWriter oneshot: causal LEAD() forward log returns ln(open[T+N+1]/open[T+1]) → forward_returns + completeness flags + idempotent + D-06/OTel/spans (SC-1)
 
 **Wave 3** *(blocked on P2 + P3)*
 

@@ -131,7 +131,7 @@ weights, and feature_matrix research-vs-production conflation.
 - `ensemble_weights.weight` non-negative; direction via `ic_sign` column; applied as
   `sign(ic) × centered_score × weight` at ensemble time
 
-- `has_gap_before_entry` flag on outcome_labels; gap and non-gap IC measured separately
+- `has_gap_before_entry` flag on forward_returns; gap and non-gap IC measured separately
 - `pipeline_version` migration required on `intelligence_features` before Phase 137
 
 **Doc written:** `docs/plans/2026-06-20-alphaengine-v1-methodology.md`

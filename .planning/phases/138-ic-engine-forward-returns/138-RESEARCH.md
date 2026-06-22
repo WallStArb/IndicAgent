@@ -8,9 +8,9 @@
 
 ## Summary
 
-Phase 138 builds two oneshot batch services: `OutcomeWriter` (LEAD()-based forward returns into `outcome_labels`) and `ICEngine` (Spearman IC per feature x symbol x TF x regime x lookahead into `feature_ic_scores`). Both are Ring 2 services in `services/`, using psycopg2 sync (matching `backfill_feature_factory.py` pattern), not asyncpg. Two new migrations are needed: 157 for `outcome_labels` and `feature_ic_scores` tables, and 158 for `alpha.ic.*` APR keys in `config_schema` + `config_state`. A critical prerequisite is discovered below: `feature_vectors.regime` is currently NULL for all rows (backfill sets `regime=None` with the comment "Regime label assigned by HMM downstream (Phase 138)"), which means Phase 138 must include a HMM regime labeling pass before regime-stratified IC is possible.
+Phase 138 builds two oneshot batch services: `ForwardReturnWriter` (LEAD()-based forward returns into `forward_returns`) and `ICEngine` (Spearman IC per feature x symbol x TF x regime x lookahead into `feature_ic_scores`). Both are Ring 2 services in `services/`, using psycopg2 sync (matching `backfill_feature_factory.py` pattern), not asyncpg. Two new migrations are needed: 157 for `forward_returns` and `feature_ic_scores` tables, and 158 for `alpha.ic.*` APR keys in `config_schema` + `config_state`. A critical prerequisite is discovered below: `feature_vectors.regime` is currently NULL for all rows (backfill sets `regime=None` with the comment "Regime label assigned by HMM downstream (Phase 138)"), which means Phase 138 must include a HMM regime labeling pass before regime-stratified IC is possible.
 
-**Primary recommendation:** Phase 138 has three deliverables in dependency order: (1) HMM regime labeler that populates `feature_vectors.regime` for all backfilled rows, (2) OutcomeWriter, (3) ICEngine. The IC Engine can run pooled IC (regime=NULL in `feature_ic_scores`) as a fallback if HMM labeling is incomplete for some (symbol, tf) cells, but the spec prohibits pooled as a substitute for regime-stratified -- so the HMM labeler must be scoped in Phase 138 or the IC Engine must gate strictly on regime-labeled rows only.
+**Primary recommendation:** Phase 138 has three deliverables in dependency order: (1) HMM regime labeler that populates `feature_vectors.regime` for all backfilled rows, (2) ForwardReturnWriter, (3) ICEngine. The IC Engine can run pooled IC (regime=NULL in `feature_ic_scores`) as a fallback if HMM labeling is incomplete for some (symbol, tf) cells, but the spec prohibits pooled as a substitute for regime-stratified -- so the HMM labeler must be scoped in Phase 138 or the IC Engine must gate strictly on regime-labeled rows only.
 
 ---
 
@@ -53,7 +53,7 @@ Current data: 14 symbols with 5m (469K bars each), 15 symbols with 1h (131K bars
 The IC spec §V.3 SQL uses `ROWS BETWEEN CURRENT ROW AND 61 FOLLOWING`. Without specifying `ROWS`, TimescaleDB defaults to `RANGE UNBOUNDED PRECEDING` which does not give LEAD() access to forward rows. The explicit `ROWS` clause is required. Verified: the EXPLAIN output shows WindowAgg with ROWS clause is handled correctly by the compressed hypertable.
 
 **Finding 9: alpha.ic.* APR keys do not exist yet -- migration 157/158 must seed them.**
-`SELECT config_key FROM config_state WHERE config_key LIKE 'alpha.ic.%'` returns 0 rows. The architecture doc lists 14 `alpha.ic.*` and `alpha.decay.*` and `alpha.ensemble.*` keys. Migration 157 should create outcome_labels + feature_ic_scores tables. Migration 158 should seed all `alpha.*` APR keys. The ICEngine service loads them using the same `_load_config_service()` + `cfg.get_sync(key, fallback)` pattern as `backfill_feature_factory.py` lines 237-249.
+`SELECT config_key FROM config_state WHERE config_key LIKE 'alpha.ic.%'` returns 0 rows. The architecture doc lists 14 `alpha.ic.*` and `alpha.decay.*` and `alpha.ensemble.*` keys. Migration 157 should create forward_returns + feature_ic_scores tables. Migration 158 should seed all `alpha.*` APR keys. The ICEngine service loads them using the same `_load_config_service()` + `cfg.get_sync(key, fallback)` pattern as `backfill_feature_factory.py` lines 237-249.
 
 **Finding 10: partial completion via RUN_TS requires exacttimestamp match.**
 The IC spec §XX says: "IC Engine queries `feature_ic_scores` for the current run's `computed_at` timestamp (set once at process start)". This means if the process crashes and restarts, a new `RUN_TS = datetime.now(UTC)` is assigned. The second run will NOT see the first run's partial work as "completed_for_this_run". The correct interpretation: on restart, skip rows where `(feature, symbol, tf, regime, lookahead_bars)` already exists for ANY `computed_at` in the current data window (not just current RUN_TS). The current spec's language is subtly wrong for crash recovery -- use `ON CONFLICT DO NOTHING` on the primary key `(feature_name, symbol, tf, regime, lookahead_bars, training_window_end)` instead, and on startup skip any tuple already present in `feature_ic_scores` for the current `training_window_end`.
@@ -62,7 +62,7 @@ The IC spec §XX says: "IC Engine queries `feature_ic_scores` for the current ru
 The IC spec §XVIII says: `docs/analysis/ic-discovery-report-{date}.md`. Not a DB table, not a CSV. The planner should include a task to write this markdown file with a console summary and a structured table of passing features.
 
 **Finding 12: Service auditor registration -- new oneshot services go at priority 8.**
-`_DAG_ORDER` in `service_auditor.py` already has `"indicagent-hmm-training": 8` as an example. Both `indicagent-outcome-writer` and `indicagent-ic-engine` are oneshot timer services and belong at priority 8. `_AGENT_ID_TO_UNIT` only needs entries for daemon services (lag monitoring); oneshots do not go in that dict.
+`_DAG_ORDER` in `service_auditor.py` already has `"indicagent-hmm-training": 8` as an example. Both `indicagent-forward-return-writer` and `indicagent-ic-engine` are oneshot timer services and belong at priority 8. `_AGENT_ID_TO_UNIT` only needs entries for daemon services (lag monitoring); oneshots do not go in that dict.
 
 ---
 
@@ -70,7 +70,7 @@ The IC spec §XVIII says: `docs/analysis/ic-discovery-report-{date}.md`. Not a D
 
 ### Prerequisite: FeatureFactory Backfill
 
-The Phase 137 backfill has not run yet. Phase 138 planning must begin with "run `python services/backfill_feature_factory.py`". This is a ~2-6 hour operation for 14 symbols x 4 TFs. Until it completes, both OutcomeWriter and ICEngine have no input data. The planner should make this Task 1 of Phase 138.
+The Phase 137 backfill has not run yet. Phase 138 planning must begin with "run `python services/backfill_feature_factory.py`". This is a ~2-6 hour operation for 14 symbols x 4 TFs. Until it completes, both ForwardReturnWriter and ICEngine have no input data. The planner should make this Task 1 of Phase 138.
 
 ### Deliverable A: HMM Regime Labeler
 
@@ -83,7 +83,7 @@ The HMM state labels must be consistent text values (e.g. 'trending_up', 'trendi
 
 This labeler is scoped within Phase 138 (not a separate phase) because the backfill comment explicitly says "Phase 138" and regime labeling is a direct prerequisite to the ICEngine's primary output.
 
-### Deliverable B: OutcomeWriter (`services/outcome_writer.py`)
+### Deliverable B: ForwardReturnWriter (`services/forward_return_writer.py`)
 
 Pattern: sync psycopg2 oneshot (matches backfill_feature_factory.py).
 
@@ -91,17 +91,17 @@ Core logic:
 1. Query `SELECT DISTINCT symbol, tf FROM market_data_ohlcv` to determine scope
 2. For each (symbol, tf), run the LEAD() SQL from IC spec §V.3 against `market_data_ohlcv`
 3. JOIN result with `feature_vectors` to only write rows where a feature_vector exists
-4. Batch-insert into `outcome_labels` with `ON CONFLICT (symbol, tf, bar_ts) DO NOTHING`
-5. High-water mark pattern: `SELECT MAX(bar_ts) FROM outcome_labels WHERE symbol=$1 AND tf=$2` and start from there on incremental runs
+4. Batch-insert into `forward_returns` with `ON CONFLICT (symbol, tf, bar_ts) DO NOTHING`
+5. High-water mark pattern: `SELECT MAX(bar_ts) FROM forward_returns WHERE symbol=$1 AND tf=$2` and start from there on incremental runs
 
 The LEAD() window SQL produces NULLs for the last 60 bars (no forward data). `complete_60bar = false` for those rows. This is correct -- the completeness flags tell the ICEngine to exclude them from 60-bar lookahead IC computation.
 
 ### Deliverable C: Migrations 157 + 158
 
 **Migration 157:** `production/migrations/157_ic_engine_tables.sql`
-- CREATE TABLE `outcome_labels` per IC spec §XIV.1 DDL
+- CREATE TABLE `forward_returns` per IC spec §XIV.1 DDL
 - CREATE TABLE `feature_ic_scores` per IC spec §XIV.4 DDL
-- `SELECT create_hypertable('outcome_labels', 'bar_ts', chunk_time_interval => INTERVAL '3 months')`
+- `SELECT create_hypertable('forward_returns', 'bar_ts', chunk_time_interval => INTERVAL '3 months')`
 - All indexes per spec
 - `docs/analysis/` directory creation note (for IC report file)
 
@@ -119,7 +119,7 @@ Computation loop:
 3. Load `alpha.ic.*` APR keys via `_load_config_service()` pattern from backfill_feature_factory.py
 4. For each (symbol, tf):
    a. Load full feature matrix from `feature_vectors` up to TRAINING_WINDOW_END
-   b. Load forward returns from `outcome_labels` (JOIN by symbol, tf, bar_ts)
+   b. Load forward returns from `forward_returns` (JOIN by symbol, tf, bar_ts)
    c. For each regime (4 distinct values from `feature_vectors.regime` for this symbol/tf):
       - Filter to rows matching this regime
       - Apply N-bar subsampling (`rn % N == 0` per IC spec §VIII.2)
@@ -157,7 +157,7 @@ Sections: (1) Summary statistics (N tests, N passing FDR, N passing walk-forward
 
 1. `tests/unit/test_ic_engine_vectorized.py` -- tests that vectorized IC matches `scipy.stats.spearmanr` on a small matrix (n=100, 5 features, 2 lookaheads). Tolerance: abs(ic_vectorized - ic_spearmanr) < 1e-10.
 
-2. `tests/unit/test_outcome_writer.py` -- synthesize 100 bars in a small in-memory table, verify:
+2. `tests/unit/test_forward_return_writer.py` -- synthesize 100 bars in a small in-memory table, verify:
    - `return_1bar = ln(open[T+2]/open[T+1])` (not `ln(open[T+1]/open[T])`)
    - `complete_60bar = false` for last 60 rows
    - No lookahead bias: the LEAD() references only future rows
@@ -167,7 +167,7 @@ Sections: (1) Summary statistics (N tests, N passing FDR, N passing walk-forward
 4. `tests/unit/test_ic_engine_idempotency.py` -- run ICEngine compute twice on same data, verify second run writes 0 new rows to `feature_ic_scores` (all `ON CONFLICT DO NOTHING`).
 
 **Smoke tests** (manual):
-- Run `python services/outcome_writer.py --symbols SPY --tf 5m` → verify `outcome_labels` has rows with non-null `return_5bar` and `complete_5bar = true`
+- Run `python services/forward_return_writer.py --symbols SPY --tf 5m` → verify `forward_returns` has rows with non-null `return_5bar` and `complete_5bar = true`
 - Run `python services/ic_engine.py --symbols SPY --tf 5m` → verify at least some features have `ic_ci_lower > 0`
 - Check IC report file at `docs/analysis/ic-discovery-report-{date}.md`
 

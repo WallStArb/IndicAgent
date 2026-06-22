@@ -106,7 +106,7 @@ The bar to graduate from this doc to its own `vil-NN`: the idea is being activel
 
 ## 8. Pinned Inter-Layer Contracts (architecture hardening)
 
-**Idea.** One authoritative definition of the contracts between layers — `AnalogResult` and the five tables (`embeddings`, `outcome_labels`, `similarity_pairs`, `feature_ic_stats`, `score_cache`) — so a layer can swap its internals freely as long as the contract holds.
+**Idea.** One authoritative definition of the contracts between layers — `AnalogResult` and the five tables (`embeddings`, `forward_returns`, `similarity_pairs`, `feature_ic_stats`, `score_cache`) — so a layer can swap its internals freely as long as the contract holds.
 
 **Why it's real.** Right now the inter-layer interfaces are table schemas: decoupled (good) but weakly enforced (no type-checker, manual versioning, silent drift). Pinning them turns "what this column means" from tribal knowledge into a stable interface — the thing that lets the architecture evolve without cross-layer surprises.
 

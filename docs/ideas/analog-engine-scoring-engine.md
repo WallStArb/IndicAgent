@@ -70,7 +70,7 @@ IC Factory weights are refreshed weekly. Embeddings carry `computed_at`. Retriev
 One k-NN query returns the analog set. The scoring engine runs a sequential transformation pipeline on that result — no additional retrieval.
 
 ```
-k-NN analog set (K neighbors + their outcome_labels)
+k-NN analog set (K neighbors + their forward_returns)
         │
         ▼
    Sub-scores ─── directional_hr, expected_r, sharpe_horizon, alignment_z (L2)
@@ -464,7 +464,7 @@ All four representations are derived from the same k-NN result. No additional re
 |---|---|
 | `analog-engine-substrate` | Substrate. Provides k-NN retrieval and table infrastructure. |
 | `analog-engine-ic-factory` | Produces all three inputs: analog set (Analog Finder), IC Sharpe weights (IC Factory), outcome labels (Outcome Labeler). |
-| `analog-engine-correlation` | Sibling measurement layer (independence). It uses `similarity_pairs` from VIL; scoring engine uses `embeddings` + `outcome_labels`. Independent concerns. |
+| `analog-engine-correlation` | Sibling measurement layer (independence). It uses `similarity_pairs` from VIL; scoring engine uses `embeddings` + `forward_returns`. Independent concerns. |
 | `analog-engine-ideas` (cost-aware net scoring) | Cost-aware net scoring folds a cost transform into `expected_r` → `expected_r_net`. |
 | `AlphaEngine` | Parallel cold-batch system. AlphaEngine owns emission — its `ensemble_alpha` is the signal trigger. AnalogEngine owns enrichment — its `analog_score` is one feature the ML model learns from. Neither system reads the other's tables at run time. |
 | `signal_ledger.pnl_r` | R-multiple convention shared. `expected_r` is directly comparable to `pnl_r`. |

@@ -48,7 +48,7 @@ The plan has the right overall decomposition: schema/control-plane first, causal
 - Introduce an explicit pooled-regime discriminator instead of using NULL to mean "pooled."
 - Split IC persistence into fold-level detail and aggregate summary.
 - Use circular block bootstrap for confidence intervals and a purged/embargoed walk-forward split.
-- Add a hard runtime gate that refuses to proceed if `feature_vectors`, `outcome_labels`, or regime coverage are empty below threshold.
+- Add a hard runtime gate that refuses to proceed if `feature_vectors`, `forward_returns`, or regime coverage are empty below threshold.
 - Make new oneshot services first-class in `service_auditor`: add to `_ONESHOT_UNITS` and verify inactive timer jobs are skipped not restarted.
 - Emit `job_completed_total{job,status}` and flush OTel in `finally` blocks, so failure paths still export the exit signal.
 - Expand the IC discovery artifact to include fold-level IC, sample counts, sign stability, and effective-N by regime/TF/lookahead; export a CSV/JSON companion.
@@ -95,7 +95,7 @@ The Phase 138 plan demonstrates solid architectural foundations but introduces s
 - Implement pre-run validation that raises RuntimeError on < 500 obs per symbol/tf (APR-gated threshold).
 - Wrap migrations in atomic DB transactions; document rollback steps.
 - Guard HMM construction with early return if NaN count > 5% or matrix size < n_components * minimum.
-- Add WHERE bar_ts <= TRAINING_WINDOW_END to outcome_writer to avoid future-gap rows.
+- Add WHERE bar_ts <= TRAINING_WINDOW_END to forward_return_writer to avoid future-gap rows.
 - Insert runtime check: `if n_independent < min_reliable_n: continue` — documented in logs.
 - Add a metric indicating walk-forward validation coverage rate across regimes.
 - Enforce APR-backed numeric gates (min_obs, min_reliable_n, Sharpe floor) with runtime checks.
@@ -113,7 +113,7 @@ Both reviewers independently rated Phase 138 as **HIGH RISK**. The architectural
 ### Agreed Strengths
 
 - Wave ordering is correct: schema → regime labeler → outcome writer → IC engine → tests. Clean DAG.
-- Separating `outcome_labels` from `feature_vectors` is the right SoC decision.
+- Separating `forward_returns` from `feature_vectors` is the right SoC decision.
 - Regime-stratified IC (not pooled) is non-negotiable and the plan enforces this.
 - APR-backed thresholds + FeatureVector-derived feature names are the right design.
 - D-06, OTel, idempotency, walk-forward: all explicitly scoped. Right operational bar.
@@ -124,7 +124,7 @@ Both reviewers independently rated Phase 138 as **HIGH RISK**. The architectural
 
 2. **[HIGH] feature_vectors has no OHLCV columns.** Plan 2 references `feature_vectors.close` which does not exist. The observation matrix for HMM must be built from `market_data_ohlcv`, not the feature table.
 
-3. **[HIGH] Empty-input guards are comments, not code.** Both reviewers flag that "blocked prerequisite" notes are insufficient. The ICEngine must raise `RuntimeError` at startup if `feature_vectors`, `outcome_labels`, or regime coverage fall below threshold — not just log a warning and continue.
+3. **[HIGH] Empty-input guards are comments, not code.** Both reviewers flag that "blocked prerequisite" notes are insufficient. The ICEngine must raise `RuntimeError` at startup if `feature_vectors`, `forward_returns`, or regime coverage fall below threshold — not just log a warning and continue.
 
 4. **[HIGH] NULL regime is overloaded.** Using `NULL` to mean both "pooled" and "regime unknown/missing" is ambiguous for `ON CONFLICT` semantics and data interpretation. Both reviewers independently flag this as a correctness risk.
 

@@ -1,5 +1,5 @@
 ---
-phase: 138-ic-engine-outcome-labels
+phase: 138-ic-engine-forward-returns
 plan: 02
 type: execute
 wave: 2
@@ -47,7 +47,7 @@ Output: feature_vectors.regime set to canonical text labels for >95% of rows, pe
 
 <context>
 @.planning/STATE.md
-@.planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md
+@.planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md
 @CLAUDE.md
 @docs/plans/2026-06-20-alphaengine-ic-spec.md
 @services/backfill_feature_factory.py
@@ -64,7 +64,7 @@ Output: feature_vectors.regime set to canonical text labels for >95% of rows, pe
   <files>src/observability/metrics.py</files>
   <read_first>
     - src/observability/metrics.py (counter(), gauge(), point_gauge() factories around lines 72-90; existing metric definition blocks for style)
-    - .planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md
+    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md
   </read_first>
   <action>
     In src/observability/metrics.py, add a Phase 138 metrics section defining:
@@ -91,7 +91,7 @@ Output: feature_vectors.regime set to canonical text labels for >95% of rows, pe
     - services/backfill_feature_factory.py (Ring 2 oneshot template: _load_config_service lines 235-249, argparse, setup_service_logging, JOB_COMPLETED_TOTAL emission at exit, flush_and_shutdown_metrics, psycopg2 sync DB pattern, _JOB constant)
     - src/core/service_utils.py (setup_service_logging, format_iso_ts)
     - src/observability/spans.py (observed_span signature, ATTR_* constants)
-    - .planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md (Deliverable A, Risk 2, Risk 4)
+    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Deliverable A, Risk 2, Risk 4)
     - CLAUDE.md (APR rules: zero hardcoded numerics; DAG invariant: only writers touch DB but oneshots are exempt like backfill; D-06; UTC timestamps)
   </read_first>
   <action>
@@ -140,7 +140,7 @@ Output: feature_vectors.regime set to canonical text labels for >95% of rows, pe
   <files>feature_vectors (DB table — regime column updated)</files>
   <read_first>
     - services/regime_writer.py (just built)
-    - .planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md (Finding 7: 14-15 symbols)
+    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Finding 7: 14-15 symbols)
   </read_first>
   <action>
     Run `.venv/bin/python services/regime_writer.py` with no symbol filter (defaults to all feature_vectors symbols x 4 TFs). This is a multi-minute-to-hour HMM fit pass; run in background and poll the null-regime gate. If any (symbol, tf) fails to converge, log it and continue (do not crash the whole run for one cell — but the global gate below must still pass).
@@ -169,5 +169,5 @@ Output: feature_vectors.regime set to canonical text labels for >95% of rows, pe
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/138-ic-engine-outcome-labels/138-02-SUMMARY.md` documenting the regime label distribution per (symbol, tf), the canonical label mapping used, and any (symbol, tf) cells that failed HMM convergence.
+After completion, create `.planning/phases/138-ic-engine-forward-returns/138-02-SUMMARY.md` documenting the regime label distribution per (symbol, tf), the canonical label mapping used, and any (symbol, tf) cells that failed HMM convergence.
 </output>

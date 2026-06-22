@@ -22,7 +22,7 @@ That infrastructure does not exist in this system. This document defines it.
 
 The Vector Intelligence Layer is a **retrieval substrate**. Its job is exactly two things:
 
-1. **Embed** — encode bar states, plugin histories, and signals as L2-normalized vectors and store them in pgvector, alongside what price did afterward (`outcome_labels`)
+1. **Embed** — encode bar states, plugin histories, and signals as L2-normalized vectors and store them in pgvector, alongside what price did afterward (`forward_returns`)
 2. **Retrieve** — given a query vector (the current bar) and a scope, return the K most similar historical vectors via k-NN, joined to their outcome labels
 
 That is the full scope of VIL. It returns analog sets. **It does not score them.**
@@ -157,7 +157,7 @@ CREATE TABLE embeddings (
 CREATE INDEX ON embeddings USING hnsw (embedding vector_cosine_ops);
 
 -- Outcome labels: what price did after each bar
-CREATE TABLE outcome_labels (
+CREATE TABLE forward_returns (
     entity_type   TEXT        NOT NULL,
     entity_id     TEXT        NOT NULL,
     horizon_bars  INTEGER     NOT NULL,  -- 5, 10, 20, 60
@@ -188,7 +188,7 @@ CREATE TABLE similarity_pairs (
 
 ## The Retrieval Primitive
 
-Every consumer hits VIL through one query shape: embed the current entity, k-NN against `embeddings` at a scope, join to `outcome_labels`. The return is a list of analogs:
+Every consumer hits VIL through one query shape: embed the current entity, k-NN against `embeddings` at a scope, join to `forward_returns`. The return is a list of analogs:
 
 ```python
 @dataclass
@@ -221,7 +221,7 @@ This same primitive is exposed on `BaseAIWorker` as `_find_analogs(k, scope, reg
 │  as L2-normalized  did after each     → list[Analog  │
 │  vectors (per the  bar at T+5/10/20    Result] +     │
 │  serialization     in R-multiples      outcomes      │
-│  spec), store      (outcome_labels)                  │
+│  spec), store      (forward_returns)                  │
 └─────────────────────────────────────────────────────┘
         │                                      ▲
         ▼                                      │
@@ -250,7 +250,7 @@ VIL is a **cold/warm analytical layer** — it reads the sinks the hot path alre
 ### Kafka: consume-where-convenient, never produce
 
 - **Input:** read TimescaleDB in batch. Do **not** stream embeddings off Kafka — it can't serve the history VIL needs, and a stateful streaming consumer is moving parts and maintenance for freshness VIL does not require (historical similarity need not be sub-second fresh). The one live touchpoint reuses what exists: an AI worker is already consuming the intelligence stream and holds the current feature vector — it serializes that for its analog query. No new topic, no extra read.
-- **Output:** analytical *state* → tables (`embeddings`, `outcome_labels`, `similarity_pairs`, `feature_ic_stats`, `score_cache`); *metrics/alerts* (OOD rate, effective-N) → OTel → Grafana. **VIL produces nothing to Kafka and needs no new topics** — its outputs are state (which belongs in TimescaleDB) or signals-to-humans (which belong in the existing observability fabric).
+- **Output:** analytical *state* → tables (`embeddings`, `forward_returns`, `similarity_pairs`, `feature_ic_stats`, `score_cache`); *metrics/alerts* (OOD rate, effective-N) → OTel → Grafana. **VIL produces nothing to Kafka and needs no new topics** — its outputs are state (which belongs in TimescaleDB) or signals-to-humans (which belong in the existing observability fabric).
 
 The efficiency argument is the same as the architectural one: keeping a DB-bound layer off a sub-ms path is what *makes* the hot path fast. Measurement is asynchronous to execution — the fabric never slows the live pipeline. Automation is the existing pattern: systemd timers with `Persistent=true` (a missed run fires on next boot), zero manual steps.
 
@@ -261,7 +261,7 @@ VIL reads from existing tables. It adds nothing to the intelligence pipeline's h
 | Producer | What it provides | VIL use |
 |---|---|---|
 | Intelligence pipeline (I1-I7) | `intelligence_features` — all plugin outputs per bar | Source for bar feature vectors → `embeddings` |
-| Market data (`market_data_ohlcv`) | Raw OHLCV | Source for `outcome_labels` (forward returns at T+5/10/20) |
+| Market data (`market_data_ohlcv`) | Raw OHLCV | Source for `forward_returns` (forward returns at T+5/10/20) |
 | Signal ledger (`signal_ledger`) | Plugin output history per bar, direction, confidence | Source for plugin history vectors → `embeddings` (`entity_type='plugin'`) |
 
 ---
@@ -272,7 +272,7 @@ VIL's direct consumers are the application layers. End consumers reach VIL throu
 
 | Consumer | What it reads from VIL | What it does with it |
 |---|---|---|
-| **analog-engine-ic-factory** (IC Factory) | retrieval results + `outcome_labels` | Labels outcomes (Outcome Labeler); measures feature-level IC for k-NN re-ranking (IC Factory); wraps retrieval (Analog Finder) |
+| **analog-engine-ic-factory** (IC Factory) | retrieval results + `forward_returns` | Labels outcomes (Outcome Labeler); measures feature-level IC for k-NN re-ranking (IC Factory); wraps retrieval (Analog Finder) |
 | **analog-engine-scoring-engine** (Scoring Engine) | `list[AnalogResult]` from retrieval | Transforms analogs into the Score Object; writes `score_cache`; nightly `analog-enricher` cold-annotates `signal_events` with four enrichment columns |
 | **analog-engine-correlation** (Correlation) | `embeddings` + `similarity_pairs` (`entity_type='plugin'`) | Plugin effective-N and redundancy suppression |
 | **analog-engine-ideas** (platform ideas) | the fabric, scoped to new entities/questions | Holding doc: regime discovery, lead-lag, hypothesis backtester, episodic memory, decay observatory, cost-aware scoring |
@@ -300,7 +300,7 @@ The out-of-distribution monitor (above) is an aggregate over the null-result pat
 Retrieval must never mix `embedding_version` values. A query at version V retrieves only version-V vectors. A version bump without a backfill shrinks the comparable history — that shrinkage is surfaced via `vil_analog_count`, not hidden.
 
 **Batch job contract (inherits D-06):**
-All VIL batch jobs emit `JOB_COMPLETED_TOTAL{job=<unit-name>, status}` at exit on both success and failure. Job label must match the systemd unit `%n` suffix exactly. Specific jobs (e.g., `bar-embedding-batch`, `outcome-writer`) define their own label values.
+All VIL batch jobs emit `JOB_COMPLETED_TOTAL{job=<unit-name>, status}` at exit on both success and failure. Job label must match the systemd unit `%n` suffix exactly. Specific jobs (e.g., `bar-embedding-batch`, `forward-return-writer`) define their own label values.
 
 **SQL-native traceability:**
 All retrievals are SQL — they appear in `pg_stat_statements`, EXPLAIN ANALYZE, and query logs automatically. Use `EXPLAIN (ANALYZE, BUFFERS)` on slow retrievals before adding instrumentation. The database provides the trace.
@@ -325,7 +325,7 @@ VIL ships the substrate; the application layers (analog-engine-ic-factory/03/04)
 
 **Phase 1 — Substrate (prerequisite for everything)**
 - `CREATE EXTENSION vector` (binary already in image; extension not yet enabled)
-- Schema migration: `embeddings`, `outcome_labels`, `similarity_pairs`
+- Schema migration: `embeddings`, `forward_returns`, `similarity_pairs`
 - The embedding serialization spec implemented for `entity_type='bar'` (the hardest case — sets the pattern)
 - Nightly batch: bar embedding computation + outcome labeling (forward returns in R-multiples at T+5/10/20/60)
 - The `retrieve()` primitive + an API endpoint returning `list[AnalogResult]`
@@ -350,7 +350,7 @@ Scoring (the granularity dial, distributions, composite, surface) is **not** a V
 ## Relationship to Existing Work
 
 - **analog-engine-correlation (Correlation Intelligence):** Consumer — the independence measurement layer, generic over `entity_type`. Plugin correlation is its flagship application (writes/reads `entity_type='plugin'` rows in VIL's `embeddings`/`similarity_pairs`; owns effective-N and suppression), and supersedes the archived Phase 112 hand-rolled matrix. Generalizes to signals, agents, features, instruments.
-- **analog-engine-ic-factory (Predictive Feature Intelligence):** Consumer/sibling, not subsumed. Owns the Outcome Labeler, IC Factory, and the Analog Finder retrieval wrapper. Produces `outcome_labels` and `feature_ic_stats`.
+- **analog-engine-ic-factory (Predictive Feature Intelligence):** Consumer/sibling, not subsumed. Owns the Outcome Labeler, IC Factory, and the Analog Finder retrieval wrapper. Produces `forward_returns` and `feature_ic_stats`.
 - **analog-engine-scoring-engine (Scoring Engine):** The scoring layer. Consumes `list[AnalogResult]` + IC weights, produces the Score Object and owns `score_cache`. Everything VIL used to claim about "scores" lives here.
 - **Phase 112 (archived):** Operational detail (systemd schedule, asyncpg patterns, suppression gating, OTel metrics) preserved in `.planning/phases/archive/112-plugin-correlation/`. Remains valid for analog-engine-correlation implementation.
 - **eAI (ai-03, ai-11, eai-phase-recommendations):** Measures its fitness dimensions against analog-engine-scoring-engine scores, which rest on VIL retrieval. VIL is the foundation of that ground truth, two layers down.

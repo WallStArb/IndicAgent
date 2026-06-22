@@ -34,12 +34,12 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 | Shadow transitions | `{env}.intelligence.shadow.transitions` | shadow governance tables | shadow writer/auditor agents | Shadow state is audit/promotion metadata. |
 | v3.0 feature vectors (per-bar) | `{env}.intelligence.feature_vectors` | `feature_vectors` | `FeatureWriter` | 54-scalar typed feature primitives per bar. No JSONB — all columns. IC Engine reads this; never writes to it. |
 | v3.0 regime labels (per bar) | None (batch UPDATE) | `feature_vectors.regime` | `RegimeWriter` | HMM Viterbi per-(symbol,tf) sequence; UPDATEs `feature_vectors.regime` and `regime_label_source`. Single canonical writer — IC Engine reads but never writes regime. |
-| v3.0 outcome labels (forward returns) | None (batch INSERT) | `outcome_labels` | `OutcomeWriter` | Causal LEAD()-based log returns `ln(open[T+N+1]/open[T+1])` at 1/5/20/60 bar horizons. IC Engine reads; never writes. Immutable after insert — no updates. |
+| v3.0 outcome labels (forward returns) | None (batch INSERT) | `forward_returns` | `ForwardReturnWriter` | Causal LEAD()-based log returns `ln(open[T+N+1]/open[T+1])` at 1/5/20/60 bar horizons. IC Engine reads; never writes. Immutable after insert — no updates. |
 | v3.0 IC scores (per feature×symbol×tf×regime×lookahead) | None (batch INSERT) | `feature_ic_scores` | `ICEngine` | Spearman IC + bootstrap CI + BH-FDR + walk-forward results. `AlphaDecayMonitor` (Phase 139) writes `is_decaying` flag only — ICEngine owns all other columns. |
 | v3.0 IC discovery report | None (file write) | `docs/analysis/ic-discovery-report-{date}.md` | `ICEngine` | Markdown report of features passing FDR + walk-forward gates by regime and TF. Written at end of each IC Engine run. Not a DB table — filesystem artifact. |
 
 <!-- src: signal_events table, trade_frames table, trade_executions table, signal_ledger_full view — verified 2026-06-16 -->
-<!-- v3.0 rows added 2026-06-21: feature_vectors, regime labels, outcome_labels, feature_ic_scores, IC discovery report -->
+<!-- v3.0 rows added 2026-06-21: feature_vectors, regime labels, forward_returns, feature_ic_scores, IC discovery report -->
 
 ## Signal Ledger Architecture (SLA) Note
 

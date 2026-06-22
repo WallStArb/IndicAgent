@@ -78,7 +78,7 @@ Shared cold and warm storage is acceptable for training data and artifacts, but 
 Tools:
 - `check_cis_nulls()` — verify CIS fields populated in signal_ledger
 - `validate_feature_coverage(symbol, tf, date_range)` — gaps in intelligence_features
-- `check_outcome_labels()` — signals with missing/null outcomes
+- `check_forward_returns()` — signals with missing/null outcomes
 - `flag_data_anomalies()` — outlier feature values, impossible values
 - `compute_data_quality_score()` — aggregate score 0-1, gates Training Agent
 

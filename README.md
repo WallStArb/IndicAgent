@@ -544,7 +544,7 @@ VIL is the foundation of a five-layer empirical intelligence stack. Each layer h
 
 ```
 vil-01  Substrate         Embed · label · retrieve → list[AnalogResult]
-                          Three tables (embeddings, outcome_labels, similarity_pairs)
+                          Three tables (embeddings, forward_returns, similarity_pairs)
                           One retrieval primitive - scoped k-NN, regime filter, distance gate
 
 vil-02  Feature IC        Outcome Labeler - forward R-multiples per bar at T+5/10/20/60

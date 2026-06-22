@@ -1,12 +1,12 @@
 ---
-phase: 138-ic-engine-outcome-labels
+phase: 138-ic-engine-forward-returns
 plan: 05
 type: execute
 wave: 4
 depends_on: ["138-04"]
 files_modified:
   - tests/unit/test_ic_engine_vectorized.py
-  - tests/unit/test_outcome_writer.py
+  - tests/unit/test_forward_return_writer.py
   - tests/unit/test_bh_fdr_mapping.py
   - tests/unit/test_ic_engine_idempotency.py
   - tests/unit/test_regime_writer.py
@@ -16,7 +16,7 @@ autonomous: true
 must_haves:
   truths:
     - "Vectorized IC matches scipy.stats.spearmanr to 1e-10"
-    - "outcome_writer forward return = ln(open[T+2]/open[T+1]) with no lookahead bias"
+    - "forward_return_writer forward return = ln(open[T+2]/open[T+1]) with no lookahead bias"
     - "multipletests preserves input order — q-value at index i maps to p-value at index i"
     - "IC engine second run inserts 0 new rows (idempotent)"
     - "regime column is non-null after labeler with canonical text labels"
@@ -26,7 +26,7 @@ must_haves:
     - path: "tests/unit/test_ic_engine_vectorized.py"
       provides: "Vectorized IC == scipy.spearmanr assertion"
       contains: "spearmanr"
-    - path: "tests/unit/test_outcome_writer.py"
+    - path: "tests/unit/test_forward_return_writer.py"
       provides: "No-lookahead-bias forward return assertion"
       contains: "open"
     - path: "tests/unit/test_bh_fdr_mapping.py"
@@ -66,11 +66,11 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
 
 <context>
 @.planning/STATE.md
-@.planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md
+@.planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md
 @CLAUDE.md
 @docs/plans/2026-06-20-alphaengine-ic-spec.md
 @services/ic_engine.py
-@services/outcome_writer.py
+@services/forward_return_writer.py
 @services/regime_writer.py
 </context>
 
@@ -78,12 +78,12 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
 
 <task type="auto">
   <name>Task 1: Unit tests for vectorized IC, BH-FDR mapping, and outcome labeler math</name>
-  <files>tests/unit/test_ic_engine_vectorized.py, tests/unit/test_bh_fdr_mapping.py, tests/unit/test_outcome_writer.py</files>
+  <files>tests/unit/test_ic_engine_vectorized.py, tests/unit/test_bh_fdr_mapping.py, tests/unit/test_forward_return_writer.py</files>
   <read_first>
     - services/ic_engine.py (the vectorized IC function + BH-FDR call — import the actual functions; refactor a pure helper out if the IC math is inline so it is unit-testable)
-    - services/outcome_writer.py (forward return formula — extract or replicate the ln(open[T+N+1]/open[T+1]) computation as a pure function if it is SQL-only)
+    - services/forward_return_writer.py (forward return formula — extract or replicate the ln(open[T+N+1]/open[T+1]) computation as a pure function if it is SQL-only)
     - tests/unit/ (existing test style: pytest, no DB for pure-math tests, fixtures)
-    - .planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md (Validation Architecture: tests 1,2,3)
+    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Validation Architecture: tests 1,2,3)
     - CLAUDE.md (Tests section; unit tests must be CI-clean, no live DB)
   </read_first>
   <action>
@@ -98,7 +98,7 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
       - reject, q, _, _ = multipletests(pvals, alpha=0.05, method='fdr_bh')
       - Assert q is returned in INPUT order: the q-value at index of the smallest p (0.001) is the smallest q; assert len(q)==len(pvals) and that sorting indices of pvals and q correspond (q[argmin(pvals)] == min(q)). Explicitly assert multipletests does NOT sort the output.
 
-    Create tests/unit/test_outcome_writer.py:
+    Create tests/unit/test_forward_return_writer.py:
       - Synthesize an open-price array for ~100 bars.
       - Assert forward_log_return(opens, n=1)[T] == ln(opens[T+2]/opens[T+1]) for an interior T (NOT ln(opens[T+1]/opens[T])).
       - Assert the last n rows are NaN/None (complete_Nbar would be false).
@@ -107,12 +107,12 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
   <acceptance_criteria>
     - `.venv/bin/pytest tests/unit/test_ic_engine_vectorized.py -q` exits 0
     - `.venv/bin/pytest tests/unit/test_bh_fdr_mapping.py -q` exits 0
-    - `.venv/bin/pytest tests/unit/test_outcome_writer.py -q` exits 0
+    - `.venv/bin/pytest tests/unit/test_forward_return_writer.py -q` exits 0
     - test_ic_engine_vectorized asserts tolerance `1e-10`: `grep -c "1e-10" tests/unit/test_ic_engine_vectorized.py` returns >= 1
-    - test_outcome_writer asserts the T+2/T+1 form: `grep -c "T+2\|opens\[.*2\|+ 2\]" tests/unit/test_outcome_writer.py` returns >= 1
+    - test_forward_return_writer asserts the T+2/T+1 form: `grep -c "T+2\|opens\[.*2\|+ 2\]" tests/unit/test_forward_return_writer.py` returns >= 1
     - tests use NO live DB connection (pure numpy)
   </acceptance_criteria>
-  <verify>.venv/bin/pytest tests/unit/test_ic_engine_vectorized.py tests/unit/test_bh_fdr_mapping.py tests/unit/test_outcome_writer.py -q</verify>
+  <verify>.venv/bin/pytest tests/unit/test_ic_engine_vectorized.py tests/unit/test_bh_fdr_mapping.py tests/unit/test_forward_return_writer.py -q</verify>
   <done>Three pure-math unit tests green; IC matches scipy 1e-10; FDR order preserved; forward return causal.</done>
 </task>
 
@@ -123,7 +123,7 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
     - services/ic_engine.py (idempotency skip-set logic + ON CONFLICT)
     - services/regime_writer.py (canonical label mapping _REGIME_LABELS + state-ordering logic — extract a pure label-assignment helper if needed)
     - tests/unit/ (existing patterns for tests that need a fixture or mock conn)
-    - .planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md (Validation Architecture: tests 4 idempotency; regime canonical-label test)
+    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Validation Architecture: tests 4 idempotency; regime canonical-label test)
   </read_first>
   <action>
     Create tests/unit/test_ic_engine_idempotency.py:
@@ -150,7 +150,7 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
   <read_first>
     - services/ic_engine.py (report-writing function if present; if the engine already writes the report, just run it — else add a --report flag or a standalone query)
     - docs/plans/2026-06-20-alphaengine-ic-spec.md (§XVIII report path + sections)
-    - .planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md (IC Discovery Report Format; Finding 11; Risk 6 mkdir docs/analysis/)
+    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (IC Discovery Report Format; Finding 11; Risk 6 mkdir docs/analysis/)
     - CLAUDE.md (Done-Coding SOP)
   </read_first>
   <action>
@@ -170,7 +170,7 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
     - Report contains a passing-features table: `grep -c "passes_walkforward\|passes_fdr\|ic_sharpe\|IC Sharpe" docs/analysis/ic-discovery-report-2026-06-21.md` returns >= 1
     - Report references real symbols: `grep -c "SPY" docs/analysis/ic-discovery-report-2026-06-21.md` returns >= 1
     - `.venv/bin/pytest tests/unit/ -q` exits 0 (FULL suite green — no regression)
-    - `.venv/bin/ruff check tests/unit/test_ic_engine_vectorized.py tests/unit/test_outcome_writer.py tests/unit/test_bh_fdr_mapping.py tests/unit/test_ic_engine_idempotency.py tests/unit/test_regime_writer.py` passes
+    - `.venv/bin/ruff check tests/unit/test_ic_engine_vectorized.py tests/unit/test_forward_return_writer.py tests/unit/test_bh_fdr_mapping.py tests/unit/test_ic_engine_idempotency.py tests/unit/test_regime_writer.py` passes
   </acceptance_criteria>
   <verify>.venv/bin/pytest tests/unit/ -q && ls -la docs/analysis/ic-discovery-report-2026-06-21.md</verify>
   <done>IC discovery report written with passing-features table; full tests/unit/ suite green.</done>
@@ -191,5 +191,5 @@ Output: 5 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md.
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/138-ic-engine-outcome-labels/138-05-SUMMARY.md` documenting the test results, the report path, and a short summary of which features carried the strongest edge (top by IC Sharpe, passing walk-forward).
+After completion, create `.planning/phases/138-ic-engine-forward-returns/138-05-SUMMARY.md` documenting the test results, the report path, and a short summary of which features carried the strongest edge (top by IC Sharpe, passing walk-forward).
 </output>

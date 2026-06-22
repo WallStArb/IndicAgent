@@ -144,7 +144,7 @@ Reads: feature_vectors, market_data_ohlcv, alpha_events
 ═══════════════════════════════════════════════════════════════════
 
   outcome-labeler     reads: market_data_ohlcv
-                      writes: outcome_labels (T+5/10/20/60 R-multiples)
+                      writes: forward_returns (T+5/10/20/60 R-multiples)
                       schedule: nightly
                       note: shared input for both systems; run once
 
@@ -160,7 +160,7 @@ Reads: feature_vectors, market_data_ohlcv, alpha_events
                       writes: embeddings (entity_type='signal')
                       schedule: nightly
 
-  analog-ic-factory      reads: embeddings + outcome_labels
+  analog-ic-factory      reads: embeddings + forward_returns
                       writes: feature_ic_stats
                                (feature-level IC used for k-NN re-ranking
                                 weights in the embedding; distinct from
@@ -172,7 +172,7 @@ Reads: feature_vectors, market_data_ohlcv, alpha_events
                               effective_n_scores
                       schedule: weekly
 
-  scoring-engine      reads: embeddings + feature_ic_stats + outcome_labels
+  scoring-engine      reads: embeddings + feature_ic_stats + forward_returns
                       writes: score_cache (Score Objects per bar/symbol/tf)
                       note: transform only; does not execute k-NN internally
                       schedule: nightly
@@ -348,7 +348,7 @@ CREATE TABLE embeddings (
 CREATE INDEX ON embeddings USING hnsw (embedding vector_cosine_ops);
 
 -- Forward returns per bar (shared input for both systems)
-CREATE TABLE outcome_labels (
+CREATE TABLE forward_returns (
     entity_type   TEXT        NOT NULL,
     entity_id     TEXT        NOT NULL,
     horizon_bars  INTEGER     NOT NULL,  -- 5, 10, 20, 60

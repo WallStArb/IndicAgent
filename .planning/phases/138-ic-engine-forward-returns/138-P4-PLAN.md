@@ -1,5 +1,5 @@
 ---
-phase: 138-ic-engine-outcome-labels
+phase: 138-ic-engine-forward-returns
 plan: 04
 type: execute
 wave: 3
@@ -17,7 +17,7 @@ must_haves:
     - "BH-FDR is applied per (symbol, tf) batch with order-preserving cell mapping"
     - "Walk-forward (3 expanding folds) confirms out-of-sample IC; passes_walkforward stricter than passes_fdr"
     - "IC Sharpe gated at min 20,000 independent obs (10 windows x 2,000); else ic_sharpe=NULL"
-    - "IC run CRASHES LOUD if feature_vectors empty, regime all-NULL, or outcome_labels empty"
+    - "IC run CRASHES LOUD if feature_vectors empty, regime all-NULL, or forward_returns empty"
     - "Idempotent: second run inserts 0 rows (ON CONFLICT DO NOTHING, training_window_end dedup)"
     - "ic_engine emits D-06 job_completed_total + 6 per-service OTel metrics + spans"
   artifacts:
@@ -32,7 +32,7 @@ must_haves:
       to: "feature_ic_scores table"
       via: "INSERT ... ON CONFLICT DO NOTHING (training_window_end dedup)"
       pattern: "INSERT INTO feature_ic_scores"
-    - from: "feature_vectors (X) JOIN outcome_labels (Y)"
+    - from: "feature_vectors (X) JOIN forward_returns (Y)"
       to: "Spearman IC per cell"
       via: "rankdata(X, axis=0) + vectorized corrcoef on ranks"
       pattern: "rankdata"
@@ -56,12 +56,12 @@ Output: feature_ic_scores fully populated for backfilled universe, vectorized + 
 
 <context>
 @.planning/STATE.md
-@.planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md
+@.planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md
 @CLAUDE.md
 @docs/plans/2026-06-20-alphaengine-ic-spec.md
 @docs/ideas/analog-engine-ic-factory.md
 @services/backfill_feature_factory.py
-@services/outcome_writer.py
+@services/forward_return_writer.py
 @src/intelligence/schemas.py
 @src/core/service_utils.py
 @src/observability/metrics.py
@@ -100,10 +100,10 @@ Output: feature_ic_scores fully populated for backfilled universe, vectorized + 
     - services/ic_engine.py (the file being created — does not exist yet)
     - docs/plans/2026-06-20-alphaengine-ic-spec.md (§V forward return, §VIII bootstrap/subsampling, §IX BH-FDR + walk-forward, §X IC Sharpe, §XIV.4 feature_ic_scores columns, §XX restart logic)
     - docs/ideas/analog-engine-ic-factory.md ("What Simons Would Demand" — all 7 points are mandatory design constraints)
-    - .planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md (Findings 3,4,5,6,10; Risks 3,5,6; "Deliverable D" computation loop)
+    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Findings 3,4,5,6,10; Risks 3,5,6; "Deliverable D" computation loop)
     - src/intelligence/schemas.py (FeatureVector — the 54 field names are the feature_name values; these map to feature_vectors columns)
     - services/backfill_feature_factory.py (Ring 2 oneshot template; _load_config_service; _JOB; JOB_COMPLETED_TOTAL; flush_and_shutdown_metrics)
-    - services/outcome_writer.py (sibling pattern + outcome_labels schema usage)
+    - services/forward_return_writer.py (sibling pattern + forward_returns schema usage)
     - src/observability/spans.py (observed_span, ATTR_*)
     - CLAUDE.md (APR rules; UTC; crash-loud > silent-wrong; market_data/feature_vectors column names)
   </read_first>
@@ -114,12 +114,12 @@ Output: feature_ic_scores fully populated for backfilled universe, vectorized + 
 
     APR loading via _load_config_service(conn): read all via cfg.get_sync — min_observations (alpha.ic.min_observations, fb 500), bootstrap_resamples (alpha.ic.bootstrap_resamples, fb 2000), fdr_alpha (alpha.ic.fdr_alpha, fb 0.05), walk_forward_folds (alpha.ic.walk_forward_folds, fb 3), sharpe_window_size (alpha.ic.sharpe_window_size, fb 2000), sharpe_min_windows (alpha.ic.sharpe_min_windows, fb 10), subsampling_n (alpha.ic.subsampling_n, fb 5), min_reliable_n (alpha.ic.min_reliable_n, fb 100). ZERO inline numerics in compute logic.
 
-    Lookaheads: [1,5,20,60] mapping to outcome_labels.return_1bar/5bar/20bar/60bar (statistical-concept column names, allowed).
+    Lookaheads: [1,5,20,60] mapping to forward_returns.return_1bar/5bar/20bar/60bar (statistical-concept column names, allowed).
 
     CRASH-LOUD GATES (Renaissance mandate #9) — run at startup BEFORE any compute, raise RuntimeError with a clear message if violated:
       - `SELECT count(*) FROM feature_vectors` == 0 -> raise "feature_vectors is empty"
       - `SELECT count(*) FROM feature_vectors WHERE regime IS NOT NULL` == 0 -> raise "regime column is all-NULL — run regime_writer first"
-      - `SELECT count(*) FROM outcome_labels` == 0 -> raise "outcome_labels is empty — run outcome_writer first"
+      - `SELECT count(*) FROM forward_returns` == 0 -> raise "forward_returns is empty — run forward_return_writer first"
     A run that "succeeds" with empty feature_ic_scores is a data-integrity failure.
 
     RUN constants: RUN_TS = datetime.now(UTC); TRAINING_WINDOW_END = MAX(bar_ts) FROM feature_vectors (locked once at start).
@@ -129,7 +129,7 @@ Output: feature_ic_scores fully populated for backfilled universe, vectorized + 
 
     COMPUTE LOOP — for each (symbol, tf), wrap in observed_span("ic_engine.compute_symbol_tf"):
       a. Load feature matrix: SELECT bar_ts, regime, <54 feature columns> FROM feature_vectors WHERE symbol=%s AND tf=%s AND bar_ts <= TRAINING_WINDOW_END ORDER BY bar_ts. Load into numpy arrays (X shape [n_bars, 54]).
-      b. Load forward returns: JOIN outcome_labels by (symbol, tf, bar_ts) — get return_1bar/5bar/20bar/60bar + complete flags aligned to the same bar_ts order (exact timestamp match, mandate #10).
+      b. Load forward returns: JOIN forward_returns by (symbol, tf, bar_ts) — get return_1bar/5bar/20bar/60bar + complete flags aligned to the same bar_ts order (exact timestamp match, mandate #10).
       c. Distinct regimes for this (symbol, tf): the set of non-NULL regime values present. ALSO compute a pooled (regime=NULL) pass.
       d. For each regime in {distinct regimes} + {None pooled}:
          - mask rows to this regime (pooled = all rows)
@@ -181,7 +181,7 @@ Output: feature_ic_scores fully populated for backfilled universe, vectorized + 
   <files>feature_ic_scores (DB table — populated)</files>
   <read_first>
     - services/ic_engine.py (just built)
-    - .planning/phases/138-ic-engine-outcome-labels/138-RESEARCH.md (Finding 3 full-run estimate ~2.8 min bootstrap phase; Risk 3 1h TF marginal)
+    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Finding 3 full-run estimate ~2.8 min bootstrap phase; Risk 3 1h TF marginal)
   </read_first>
   <action>
     Run `.venv/bin/python services/ic_engine.py` with no symbol filter. Run in background; poll feature_ic_scores counts. Then verify idempotency by re-running SPY 5m.
@@ -212,5 +212,5 @@ Output: feature_ic_scores fully populated for backfilled universe, vectorized + 
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/138-ic-engine-outcome-labels/138-04-SUMMARY.md` documenting feature_ic_scores counts per (symbol, tf, regime), how many features passed FDR and walk-forward, the top features by IC Sharpe, and any (symbol, tf) cells below the 20K IC-Sharpe gate.
+After completion, create `.planning/phases/138-ic-engine-forward-returns/138-04-SUMMARY.md` documenting feature_ic_scores counts per (symbol, tf, regime), how many features passed FDR and walk-forward, the top features by IC Sharpe, and any (symbol, tf) cells below the 20K IC-Sharpe gate.
 </output>

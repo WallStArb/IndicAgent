@@ -672,14 +672,14 @@ The per-bar table that stores `alpha_raw` and `alpha_score` for every (symbol, t
 
 The empirical process of measuring Information Coefficient for each `FeatureVector` column against subsequent forward returns, across regimes, timeframes, and lookahead windows. The mechanism by which edges are found rather than assumed.
 
-IC discovery runs on `feature_vectors` × `outcome_labels`. Output is persisted to `feature_ic_scores`. Features with `ic_ci_lower <= 0.0` at sufficient N are down-weighted to zero in the ensemble — they contribute nothing regardless of how theoretically compelling they seem.
+IC discovery runs on `feature_vectors` × `forward_returns`. Output is persisted to `feature_ic_scores`. Features with `ic_ci_lower <= 0.0` at sufficient N are down-weighted to zero in the ensemble — they contribute nothing regardless of how theoretically compelling they seem.
 
 The feature universe is fully pre-specified before any IC is measured. Adding features after observing results is p-hacking.
 
 **Not:** shadow mode (shadow measures P&L after signal emission; IC discovery measures raw feature predictiveness before any emission threshold is applied). Not backtesting (IC is measured on a held-out walk-forward window, not the training window).
 
 **Banned:** "signal discovery," "edge discovery," "alpha discovery" (use `IC discovery`)
-**Status:** design (v3.0 Phase B); input: `feature_vectors` + `outcome_labels`; output: `feature_ic_scores`
+**Status:** design (v3.0 Phase B); input: `feature_vectors` + `forward_returns`; output: `feature_ic_scores`
 
 ---
 
@@ -769,13 +769,13 @@ FeatureFactory is organized into cadence-matched tiers: bar-level (I1, I2, most 
 
 ---
 
-### `outcome_labels`
+### `forward_returns`
 
 The table of executable forward returns computed from `market_data_ohlcv` via LEAD() window functions. One row per (symbol, tf, bar_ts). Stores log returns at four lookahead windows (1/5/20/60 bars), completeness flags (was the return window complete or did we hit end-of-data?), and gap flags (was there a market-hours gap before the entry bar?).
 
 The return formula is executable: `ln(open[T+N+1] / open[T+1])` — entry at open of T+1 (first executable bar), exit at open of T+N+1. Not `close[T] to close[T+N]`, which includes the unexecutable observation price as the entry.
 
-**Table:** `outcome_labels`
+**Table:** `forward_returns`
 **Populated by:** Outcome Labeler batch job (reads `market_data_ohlcv`)
 **Not:** a backtest. Labels are computed on actual historical prices, not simulated fills.
 **Status:** design (v3.0 Phase B)

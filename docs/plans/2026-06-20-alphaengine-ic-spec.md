@@ -871,7 +871,7 @@ required (see §XIII.5).
 active weight in the current `weight_version`:
 
 1. Pull the most recent W=2,000 independent observations (same N-bar sub-sampling as
-   §VIII.2) from `feature_vectors` × `outcome_labels`
+   §VIII.2) from `feature_vectors` × `forward_returns`
 2. Compute Spearman IC + 2,000-resample bootstrap CI
 3. Write a new row to `feature_ic_scores` with `training_window_end = today`
 
@@ -956,10 +956,10 @@ fraction.
 
 All tables use UTC timestamps. All tables are created in the `public` schema.
 
-### XIV.1 outcome_labels
+### XIV.1 forward_returns
 
 ```sql
-CREATE TABLE outcome_labels (
+CREATE TABLE forward_returns (
     symbol              text             NOT NULL,
     tf                  text             NOT NULL,
     bar_ts              timestamptz      NOT NULL,  -- ts of the observation bar
@@ -980,9 +980,9 @@ CREATE TABLE outcome_labels (
     computed_at         timestamptz      NOT NULL DEFAULT now(),
     PRIMARY KEY (symbol, tf, bar_ts)
 );
-SELECT create_hypertable('outcome_labels', 'bar_ts',
+SELECT create_hypertable('forward_returns', 'bar_ts',
     chunk_time_interval => INTERVAL '3 months');
-CREATE INDEX ON outcome_labels (symbol, tf, bar_ts);
+CREATE INDEX ON forward_returns (symbol, tf, bar_ts);
 ```
 
 ### XIV.2 feature_vectors (replaces both feature_candidates and feature_matrix)
@@ -1134,7 +1134,7 @@ market_data_ohlcv (source, written by BarWriter)
         ▼
 [1] Outcome Labeler (oneshot on demand + nightly increment)
     Reads:  market_data_ohlcv (open, timestamp, timeframe, symbol)
-    Writes: outcome_labels
+    Writes: forward_returns
     Idempotent: yes (upsert on PK)
     High-water mark: last bar_ts processed per (symbol, tf)
 
@@ -1146,7 +1146,7 @@ market_data_ohlcv (source, written by BarWriter)
         ▼
 [3] IC Engine (weekly full re-run + daily incremental)
     Reads:  feature_vectors (all 50 feature columns, rank-normalized at read time)
-            outcome_labels (forward returns)
+            forward_returns (forward returns)
     Writes: feature_ic_scores
     Idempotent: yes (upsert on PK including training_window_end)
     Trigger: weekly on Sunday 02:00 UTC
@@ -1163,7 +1163,7 @@ market_data_ohlcv (source, written by BarWriter)
         ▼                              ▼
 [5] Alpha Decay Monitor (daily)    [6] Alpha Emitter (nightly)
     Reads:  feature_vectors,           Reads:  ensemble_alpha
-            outcome_labels (rolling)           APR alpha.threshold.*
+            forward_returns (rolling)           APR alpha.threshold.*
     Writes: ensemble_weights           Writes: alpha_events
             APR alpha.weights.*        Trigger: nightly after [4]
     Trigger: daily at 06:00 UTC

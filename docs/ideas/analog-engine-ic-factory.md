@@ -56,7 +56,7 @@ This is not the same question as "does plugin X carry edge?" (AlphaEngine's ques
 
 The solution is non-parametric and does not require a predictive model. It requires a substrate and a question.
 
-**The substrate:** embed each bar's I1-I7 intelligence state as a vector, store it alongside what price did afterward. This is the VIL foundation — `intelligence_features` encoded, `outcome_labels` computed, both indexed for retrieval.
+**The substrate:** embed each bar's I1-I7 intelligence state as a vector, store it alongside what price did afterward. This is the VIL foundation — `intelligence_features` encoded, `forward_returns` computed, both indexed for retrieval.
 
 **The question:** when the current bar's intelligence state looks like this, find the K historical bars that looked most similar and ask what price did. The answer is a set of K analogs and their realized forward returns — the raw material everything else is built from.
 
@@ -123,11 +123,11 @@ Three pieces of machinery support the scoring layer. All build on VIL substrate 
 
 ### Outcome Labeler (nightly batch)
 
-Joins `intelligence_features` to `market_data_ohlcv` to compute forward returns for each bar. Uses VIL's `outcome_labels` table (see analog-engine-substrate schema). Forward return in **R-multiples** (forward move / ATR at bar T) — normalizes across regimes and instruments, directly comparable to `pnl_r` in `signal_ledger`.
+Joins `intelligence_features` to `market_data_ohlcv` to compute forward returns for each bar. Uses VIL's `forward_returns` table (see analog-engine-substrate schema). Forward return in **R-multiples** (forward move / ATR at bar T) — normalizes across regimes and instruments, directly comparable to `pnl_r` in `signal_ledger`.
 
 ### IC Factory (weekly batch)
 
-Reads `intelligence_features` + `outcome_labels`. Computes Spearman IC per feature × horizon × regime, rolling walk-forward. Applies Benjamini-Hochberg FDR correction. Computes IC Sharpe. **It makes no decisions.** The IC Factory measures and stores; it never suppresses, gates, or thresholds. A feature with no edge is simply recorded as having no edge — what to do with that fact is a consumer's concern. analog-engine-scoring-engine weights features continuously by IC Sharpe (a zero-IC feature contributes ~0 with no hard switch); any hard on/off would be a separate, explicit governance consumer, never the factory.
+Reads `intelligence_features` + `forward_returns`. Computes Spearman IC per feature × horizon × regime, rolling walk-forward. Applies Benjamini-Hochberg FDR correction. Computes IC Sharpe. **It makes no decisions.** The IC Factory measures and stores; it never suppresses, gates, or thresholds. A feature with no edge is simply recorded as having no edge — what to do with that fact is a consumer's concern. analog-engine-scoring-engine weights features continuously by IC Sharpe (a zero-IC feature contributes ~0 with no hard switch); any hard on/off would be a separate, explicit governance consumer, never the factory.
 
 > **Measurement layers are append-only, assumption-free fact records. Decision layers are stateful, reversible, and live separately. A threshold is a decision; it never belongs in a measurement table.** Decisions live in `shadow_registry` (plugin-grain EV and correlation suppression); measurements live in `feature_ic_stats` and the VIL tables.
 
@@ -156,7 +156,7 @@ Queryable in Superset: "top 20 most stable features in trending regime at 10-bar
 
 ### Analog Finder (per-bar, at inference time)
 
-A thin VIL k-NN wrapper. Serializes the current bar's feature vector (via the VIL embedding spec), runs k-NN retrieval from `embeddings`, joins to `outcome_labels`, and returns the **raw analog set** — `list[AnalogResult]` (neighbor id, cosine distance, forward returns at each horizon, regime). It does **not** compute directional HR, distributions, or composite scores; analog-engine-scoring-engine does that.
+A thin VIL k-NN wrapper. Serializes the current bar's feature vector (via the VIL embedding spec), runs k-NN retrieval from `embeddings`, joins to `forward_returns`, and returns the **raw analog set** — `list[AnalogResult]` (neighbor id, cosine distance, forward returns at each horizon, regime). It does **not** compute directional HR, distributions, or composite scores; analog-engine-scoring-engine does that.
 
 The Analog Finder is non-parametric. No functional form assumed. It answers exactly one question: in the K most similar past situations, what happened? Exposed on `BaseAIWorker` as `_find_analogs(k, scope, regime)` so the scoring engine and swarm agents share one retrieval path.
 
@@ -170,7 +170,7 @@ The Analog Finder is non-parametric. No functional form assumed. It answers exac
 | `analog-engine-scoring-engine` (Scoring Engine) | Consumer above. Reads analog-engine-ic-factory's `list[AnalogResult]` + `feature_ic_stats` and transforms them into the Score Object. analog-engine-ic-factory produces; analog-engine-scoring-engine scores. |
 | `analog-engine-correlation` (Correlation Intelligence) | Sibling measurement layer. analog-engine-ic-factory measures prediction (IC); analog-engine-correlation measures independence (effective-N) — the two orthogonal questions about any signal source. Shares the embedding pipeline and substrate. |
 | `shadow_registry` | A decision table (plugin-grain EV + correlation suppression). analog-engine-ic-factory does **not** write to it — it produces IC facts a governance consumer may act on. The reuse with shadow_registry is conceptual (a future IC governance consumer could mirror its flag + self-expiry pattern), not a write path from the factory. |
-| `signal_ledger.pnl_r` | R-multiple convention shared. `outcome_labels.ret_N` is directly comparable to `pnl_r` — same unit, same meaning. |
+| `signal_ledger.pnl_r` | R-multiple convention shared. `forward_returns.ret_N` is directly comparable to `pnl_r` — same unit, same meaning. |
 | `BaseAIWorker` | Analog Finder exposed as `_find_analogs(k, scope, regime)` — grounded historical context injected into LLM prompts. |
 | ML batch services | IC Factory runs on the same weekly timer cadence as `ml-training`. Could share infrastructure. |
 

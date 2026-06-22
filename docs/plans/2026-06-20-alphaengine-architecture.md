@@ -396,7 +396,7 @@ CREATE TABLE alpha_events (
 SELECT create_hypertable('alpha_events', 'bar_ts', chunk_time_interval => INTERVAL '3 months');
 ```
 
-**Existing tables unchanged:** `outcome_labels`, `feature_ic_scores`, `ensemble_weights`, `ensemble_alpha`, `trade_frames`, `trade_executions`, `market_data_ohlcv`.
+**Existing tables unchanged:** `forward_returns`, `feature_ic_scores`, `ensemble_weights`, `ensemble_alpha`, `trade_frames`, `trade_executions`, `market_data_ohlcv`.
 
 **Retired:**
 - `signal_events` → `alpha_events`
@@ -426,7 +426,7 @@ Nothing earns weight without measured evidence. Self-correcting at every layer.
 Archive I5-I7. Rewrite I1-I4 as pure function library producing `FeatureVector`. Cadence-matched computation (bar-level in-process, regime-level cached every 30 bars, calendar pre-computed daily). Write to `feature_vectors` table. Intelligence pipeline unchanged in DAG topology -- Feature Factory replaces the plugin registry as the per-bar computation unit.
 
 **Phase B — IC Engine + Outcome Labels**
-Outcome Labeler: LEAD()-based executable returns → `outcome_labels`. IC Engine: Spearman IC per feature × symbol × TF × regime × lookahead → `feature_ic_scores`. FDR correction, walk-forward, IC discovery report. Reveals which of 35 features actually predict returns.
+Outcome Labeler: LEAD()-based executable returns → `forward_returns`. IC Engine: Spearman IC per feature × symbol × TF × regime × lookahead → `feature_ic_scores`. FDR correction, walk-forward, IC discovery report. Reveals which of 35 features actually predict returns.
 
 **Phase C — Ensemble + Alpha Emission**
 Ledoit-Wolf ensemble weights → `ensemble_weights`. Score all historical bars → `ensemble_alpha`. Empirical emission threshold from transaction cost model. Alpha Emitter → `alpha_events`. **Shadow mode only -- no live execution.**
@@ -539,7 +539,7 @@ Concept name (`snake_case`) drives all layer names per CLAUDE.md naming system.
 | `feature_factory` | `FeatureFactory` | (in-process, no service) | `feature_vectors` table | Ring 1 `src/intelligence/` |
 | `feature_vector` | `FeatureVector` | - | - | Ring 1 `src/intelligence/` |
 | `feature_cache` | `FeatureCache` | - | - | Ring 1 `src/intelligence/` |
-| `outcome_writer` | `OutcomeWriter` | `indicagent-outcome-writer.service` | `outcome_labels` table | Ring 2 `services/` |
+| `forward_return_writer` | `ForwardReturnWriter` | `indicagent-forward-return-writer.service` | `forward_returns` table | Ring 2 `services/` |
 | `ic_engine` | `ICEngine` | `indicagent-ic-engine.service` (oneshot) | `feature_ic_scores` table | Ring 2 `services/` |
 | `ensemble_builder` | `EnsembleBuilder` | `indicagent-ensemble-builder.service` (oneshot) | `ensemble_weights`, `ensemble_alpha` tables | Ring 2 `services/` |
 | `alpha_emitter` | `AlphaEmitter` | `indicagent-alpha-emitter.service` (oneshot) | `alpha_events` table | Ring 2 `services/` |
@@ -550,7 +550,7 @@ Concept name (`snake_case`) drives all layer names per CLAUDE.md naming system.
 ```
 src/intelligence/feature_factory.py     — FeatureVector dataclass + compute_features()
 src/intelligence/feature_cache.py       — FeatureCache (regime-level + calendar state)
-services/outcome_writer.py             — OutcomeWriter (oneshot batch)
+services/forward_return_writer.py             — ForwardReturnWriter (oneshot batch)
 services/ic_engine.py                   — ICEngine (oneshot batch, weekly)
 services/ensemble_builder.py            — EnsembleBuilder (oneshot batch, weekly)
 services/alpha_emitter.py               — AlphaEmitter (oneshot batch, nightly)
@@ -737,7 +737,7 @@ These are monitored by the existing `feature_validation_agent` and `bar_auditor`
 | `feature_vectors_completeness` | Gauge | `feature`, `symbol`, `tf` | Fraction of expected bars with non-null value -- < 0.95 triggers alert |
 | `feature_vectors_rows_total` | Gauge | `symbol`, `tf` | Total rows per (symbol, TF) -- monitors backfill progress |
 | `alpha_events_rows_total` | Gauge | `symbol`, `tf` | Alpha events accumulated -- IC Sharpe requires 20K independent obs |
-| `outcome_labels_coverage` | Gauge | `lookahead`, `symbol`, `tf` | Fraction of `feature_vectors` rows with labeled forward returns |
+| `forward_returns_coverage` | Gauge | `lookahead`, `symbol`, `tf` | Fraction of `feature_vectors` rows with labeled forward returns |
 
 ### Grafana Dashboard Requirements
 
