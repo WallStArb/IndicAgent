@@ -100,14 +100,11 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-### Last session (2026-06-22, P0 execution) — 138-P0 complete
+### Last session (2026-06-23) — batch vectorization perf work complete
 
-Phase 138-P0 complete: feature_vector_id UUID content-key added to feature_vectors (migration 158), FeatureWriter renamed to FeatureVectorWriter (61-param INSERT), backfill_feature_factory updated with identical SHA-256 formula.
+FeatureFactory backfill O(n²) bottleneck eliminated. 12 `_*_series_full` functions added to `feature_factory.py`. `backfill_feature_factory.py` now precomputes all series once before the bar loop and reduces per-bar window 2000 → 50. Simplifier extracted `_fixed_window_zscore_series`, `_precompute_series`, `_assert_parity` helpers. 20 parity tests (including cold-start boundary tests) all pass.
 
-Key decisions:
-
-- TimescaleDB hypertable cannot carry unique index without partitioning column (bar_ts); used non-unique partial index; SHA-256 uniqueness at application layer
-- P1/P2 migration numbers shifted 157->159, 158->160 to avoid collision with migration 158
+Key commits: `696967cd..3f72e43f` (13 commits on main). Also fixed stale `indicagent-intelligence-pipeline` → `indicagent-feature-vector-pipeline` refs in test_service_auditor and an AttributeError in FeatureVectorPipeline settings access (both from the `IntelligencePipeline → FeatureVectorPipeline` rename).
 
 **Next session:** Execute 138-P1 (foundation hardening — council review findings 1-12; migration 159)
 
