@@ -5,12 +5,19 @@ type: execute
 wave: 4
 depends_on: ["138-02", "138-03"]
 files_modified:
+  - production/migrations/162_hmm_probability_vector.sql
+  - services/regime_writer.py
   - services/forward_return_writer.py
   - src/observability/metrics.py
 autonomous: true
 
 must_haves:
   truths:
+    - "migration 162 applied: feature_vectors has hmm_prob_trending_up, hmm_prob_ranging, hmm_prob_trending_down columns"
+    - "regime_writer.py _causal_decode() returns (states, alpha_history); generator replaced by explicit duration-tracking loop; UPDATE writes all 6 enrichment columns"
+    - "hmm_prob_trending_up + hmm_prob_ranging + hmm_prob_trending_down sum to 1.0 per bar (within float precision); no hmm_direction_score column"
+    - "All regime_writer unit tests updated for tuple return; full suite green"
+    - ">95% of feature_vectors rows have regime label + full alpha vector before forward_return_writer runs"
     - "forward_return_writer extends BaseBatch (src/core/agent/base_batch.py); D-06 emission is inherited, not reimplemented"
     - "forward_returns has rows with executable forward log returns ln(open[T+N+1]/open[T+1])"
     - "Forward returns are causal -- no lookahead bias (validated by unit test in P5)"
@@ -68,6 +75,126 @@ Output: forward_returns populated for all backfilled (symbol, tf), with complete
 </context>
 
 <tasks>
+
+<task type="auto">
+  <name>Task 0: Migration 162 + amend regime_writer to write the full HMM probability vector</name>
+  <files>production/migrations/162_hmm_probability_vector.sql, services/regime_writer.py, tests/unit/services/test_regime_writer.py</files>
+  <read_first>
+    - services/regime_writer.py (FULL READ — _causal_decode() lines 133-192: current return type np.ndarray; _label_symbol_tf() lines 222-380: the generator at lines 320-323 and UPDATE at lines 328-339; understand _build_label_map() state ordering)
+    - tests/unit/services/test_regime_writer.py (FULL READ — find all tests that call _causal_decode() or assert on its return type; these break when return becomes a tuple)
+    - production/migrations/161_alpha_ic_apr_keys.sql (style reference: header comment block format)
+    - CLAUDE.md (UTC timestamps, no hardcoded numerics)
+  </read_first>
+  <action>
+    CONTEXT: regime_writer.py (built in P4) currently writes only feature_vectors.regime (the text label).
+    The forward-filter already computes alpha[t] = [P(up), P(ranging), P(down)] at each bar but discards
+    it after argmax. This task preserves the full vector. The 3 raw probabilities are ground truth —
+    hmm_regime_prob and hmm_entropy are derivatives of them (max(alpha) and -sum(p*log(p))). Storing the
+    raw vector in separate typed columns (not JSONB) makes them direct IC features without any decoding.
+    hmm_direction_score = P(up) - P(down) is NOT stored — trivially derivable at query time.
+
+    STEP 1 — Create production/migrations/162_hmm_probability_vector.sql:
+
+    -- Migration 162: Add raw HMM forward-filter probability columns to feature_vectors.
+    -- Ground truth alpha vector: hmm_regime_prob = max(alpha), hmm_entropy = -sum(p*log(p))
+    -- are derivatives. Populated by regime_writer.py alongside regime label.
+    -- hmm_direction_score = hmm_prob_trending_up - hmm_prob_trending_down at query time.
+    ALTER TABLE feature_vectors
+      ADD COLUMN IF NOT EXISTS hmm_prob_trending_up   DOUBLE PRECISION,
+      ADD COLUMN IF NOT EXISTS hmm_prob_ranging        DOUBLE PRECISION,
+      ADD COLUMN IF NOT EXISTS hmm_prob_trending_down  DOUBLE PRECISION;
+
+    Apply: PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -f production/migrations/162_hmm_probability_vector.sql
+
+    STEP 2 — Amend services/regime_writer.py (3 surgical changes only):
+
+    Change 1 — _causal_decode() return type:
+      Add `alpha_history = np.zeros((n, K))` before the loop.
+      At end of each timestep iteration, after computing and normalizing alpha, add:
+        alpha_history[t] = alpha
+      Change the docstring Returns: line to:
+        "Returns: (states, alpha_history) where states[t] = argmax(alpha[t]) and
+         alpha_history[t] is the normalized probability vector over K states."
+      Change `return states` to `return states, alpha_history`.
+
+    Change 2 — _label_symbol_tf() unpack and loop replacement:
+      At the _causal_decode call site, change:
+        raw_states = _causal_decode(...)
+      to:
+        raw_states, alpha_history = _causal_decode(...)
+
+      After computing label_map, add state-index lookups:
+        up_state   = next(k for k, v in label_map.items() if v == _LABEL_TRENDING_UP)
+        down_state = next(k for k, v in label_map.items() if v == _LABEL_TRENDING_DOWN)
+        rang_state = next(k for k, v in label_map.items() if v == _LABEL_RANGING)
+
+      Replace the generator expression for update_params with an explicit loop — the
+      generator cannot support index-based alpha_history access and stateful duration
+      tracking simultaneously:
+
+        update_rows = []
+        prev_state: int | None = None
+        duration = 0
+        for i, (ts, state_idx) in enumerate(zip(valid_ts, raw_states)):
+            state_idx = int(state_idx)
+            if state_idx == prev_state:
+                duration += 1
+            else:
+                duration = 1
+                prev_state = state_idx
+            alpha = alpha_history[i]
+            p_up      = float(alpha[up_state])
+            p_ranging = float(alpha[rang_state])
+            p_down    = float(alpha[down_state])
+            prob_val  = float(np.max(alpha))
+            entropy_val = float(-np.sum(alpha * np.log(np.maximum(alpha, 1e-300))))
+            update_rows.append((
+                label_map[state_idx],  # regime
+                p_up, p_ranging, p_down,
+                prob_val,              # hmm_regime_prob
+                entropy_val,           # hmm_entropy
+                float(duration),       # hmm_duration
+                symbol, tf, ts,
+            ))
+
+    Change 3 — expand the UPDATE SQL:
+      Replace the existing single-column UPDATE SQL with:
+        UPDATE feature_vectors
+        SET regime              = %s,
+            hmm_prob_trending_up  = %s,
+            hmm_prob_ranging      = %s,
+            hmm_prob_trending_down = %s,
+            hmm_regime_prob       = %s,
+            hmm_entropy           = %s,
+            hmm_duration          = %s
+        WHERE symbol = %s AND tf = %s AND bar_ts = %s
+      Pass update_rows (list) to execute_batch instead of the old generator.
+
+    STEP 3 — Update tests/unit/services/test_regime_writer.py:
+      Find every test that calls _causal_decode() directly or asserts on its return value.
+      Update those tests to unpack the tuple: `states, alpha_history = _causal_decode(...)`.
+      Add assertions:
+        - alpha_history.shape == (len(obs_matrix), K)
+        - np.allclose(alpha_history.sum(axis=1), 1.0)  # probabilities sum to 1 per bar
+      Do not add new tests beyond what is needed to fix the broken assertions.
+  </action>
+  <acceptance_criteria>
+    - Migration applied: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM information_schema.columns WHERE table_name='feature_vectors' AND column_name IN ('hmm_prob_trending_up','hmm_prob_ranging','hmm_prob_trending_down');"` returns 3
+    - Return type changed: `grep -c "return states, alpha_history" services/regime_writer.py` returns 1
+    - Generator gone: `grep -c "update_params\s*=" services/regime_writer.py` returns 0
+    - Explicit loop present: `grep -c "update_rows" services/regime_writer.py` returns >= 2 (definition + execute_batch call)
+    - UPDATE expanded: `grep -c "hmm_prob_trending_up" services/regime_writer.py` returns >= 2 (SQL + tuple)
+    - No direction score stored: `grep -c "hmm_direction_score" services/regime_writer.py` returns 0
+    - Smoke test (SPY 5m — verifies code correctness, not corpus coverage):
+      `.venv/bin/python services/regime_writer.py --symbols SPY --tf 5m` exits 0
+    - Probabilities sum to 1: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT max(abs(hmm_prob_trending_up + hmm_prob_ranging + hmm_prob_trending_down - 1.0)) FROM feature_vectors WHERE symbol='SPY' AND tf='5m' AND hmm_prob_trending_up IS NOT NULL;"` returns < 1e-9
+    - Tests updated and green: `.venv/bin/pytest tests/unit/services/test_regime_writer.py -q` GREEN (no skipped)
+    - Full suite: `.venv/bin/pytest tests/unit/ -q` GREEN
+    - `.venv/bin/ruff check services/regime_writer.py` passes
+  </acceptance_criteria>
+  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT regime, round(hmm_prob_trending_up::numeric,3) p_up, round(hmm_prob_ranging::numeric,3) p_rang, round(hmm_prob_trending_down::numeric,3) p_down, round((hmm_prob_trending_up+hmm_prob_ranging+hmm_prob_trending_down)::numeric,6) sum1, hmm_duration FROM feature_vectors WHERE symbol='SPY' AND tf='5m' AND hmm_prob_trending_up IS NOT NULL ORDER BY bar_ts LIMIT 5;"</verify>
+  <done>Migration 162 applied; _causal_decode returns (states, alpha_history); generator replaced by explicit duration-tracking loop; UPDATE writes all 6 enrichment columns; probabilities sum to 1.0; tests updated and green.</done>
+</task>
 
 <task type="auto">
   <name>Task 1: Add forward_return_writer OTel metrics to metrics.py</name>
@@ -164,11 +291,53 @@ Output: forward_returns populated for all backfilled (symbol, tf), with complete
 </task>
 
 <task type="auto">
-  <name>Task 3: Run outcome labeler across all backfilled symbols/TFs</name>
+  <name>Task 3: Full regime_writer corpus run — all symbols x TFs</name>
+  <files>feature_vectors (DB table — regime + enrichment columns populated)</files>
+  <read_first>
+    - services/regime_writer.py (just amended in Task 0)
+  </read_first>
+  <precondition>
+    feature_vectors must be populated by backfill_feature_factory.py before this task runs.
+    Verify: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT symbol) FROM feature_vectors WHERE bar_ts IS NOT NULL;"` returns >= 14 symbols.
+    Do not proceed if feature_vectors is empty or sparse — regime_writer with insufficient obs
+    per cell logs a warning and skips; a near-empty corpus produces no IC value.
+  </precondition>
+  <action>
+    Run the amended regime_writer for all (symbol, tf) combinations. This is the production
+    corpus labeling run — NOT a smoke test. All backfilled symbols x 4 TFs.
+
+    Run in background (HMM fitting is CPU-bound, ~minutes per cell):
+      nohup .venv/bin/python services/regime_writer.py > logs/regime_writer_corpus.log 2>&1 &
+
+    Poll progress: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, regime, count(*) FROM feature_vectors WHERE regime IS NOT NULL GROUP BY tf, regime ORDER BY tf, regime;"`
+
+    This re-runs over SPY/5m (already smoke-tested in Task 0) — idempotent by value because
+    HMM_RANDOM_STATE=42 and same OHLCV data produce identical results. ON CONFLICT is not
+    applicable here (UPDATE semantics), so re-run simply overwrites with identical values.
+  </action>
+  <acceptance_criteria>
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT round(100.0*count(*) FILTER (WHERE regime IS NULL)/count(*),2) FROM feature_vectors;"` returns < 5.0
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT regime) FROM feature_vectors WHERE regime IS NOT NULL;"` returns >= 2 (real regime separation)
+    - Raw probs populated: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT round(100.0*count(*) FILTER (WHERE hmm_prob_trending_up IS NULL)/count(*),2) FROM feature_vectors WHERE regime IS NOT NULL;"` returns 0.0 (every labeled row has the full alpha vector)
+    - Probs sum to 1 globally: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT max(abs(hmm_prob_trending_up + hmm_prob_ranging + hmm_prob_trending_down - 1.0)) FROM feature_vectors WHERE hmm_prob_trending_up IS NOT NULL;"` returns < 1e-9
+    - `job_completed_total{job="regime-writer", status="success"}` emitted
+  </acceptance_criteria>
+  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, regime, count(*), round(avg(hmm_prob_trending_up)::numeric,3) avg_p_up, round(avg(hmm_entropy)::numeric,3) avg_ent FROM feature_vectors WHERE regime IS NOT NULL GROUP BY tf, regime ORDER BY tf, regime;"</verify>
+  <done>>95% of feature_vectors rows have canonical regime labels + full alpha vector; probabilities sum to 1.0 globally; IC engine has the regime stratification it needs.</done>
+</task>
+
+<task type="auto">
+  <name>Task 4: Run forward_return_writer across all backfilled symbols/TFs</name>
   <files>forward_returns (DB table -- populated)</files>
   <read_first>
-    - services/forward_return_writer.py (just built)
+    - services/forward_return_writer.py (just built in Task 2)
   </read_first>
+  <precondition>
+    Same data gate as Task 3 — feature_vectors must be populated.
+    Task 3 and Task 4 are independent and can run concurrently (Task 3 writes to
+    feature_vectors regime columns; Task 4 reads feature_vectors bar_ts only and
+    writes to forward_returns). No write conflict.
+  </precondition>
   <action>
     Run .venv/bin/python services/forward_return_writer.py with no symbol filter (all feature_vectors symbols x 4 TFs). Run in background; poll forward_returns row counts.
   </action>
@@ -185,11 +354,14 @@ Output: forward_returns populated for all backfilled (symbol, tf), with complete
 </tasks>
 
 <verification>
+- migration 162 applied; regime_writer _causal_decode returns (states, alpha_history); generator → explicit loop with duration tracking; UPDATE writes regime + 5 enrichment columns; tests green
+- >95% of feature_vectors rows have regime labels + full alpha vector (hmm_prob_trending_up/ranging/down sum to 1.0)
 - forward_returns has causal forward log returns; formula validated against raw LEAD()
 - TRAINING_WINDOW_END gate is explicit in WHERE clause (not just a comment)
 - Every forward_returns row has a matching feature_vectors row (exact bar_ts)
 - complete_Nbar flags correct; idempotent re-run writes 0 rows
 - D-06 + 3 OTel metrics + 2 spans wired; APR-compliant
+- P6 IC engine preconditions met: feature_vectors.regime populated, forward_returns populated
 </verification>
 
 <success_criteria>
