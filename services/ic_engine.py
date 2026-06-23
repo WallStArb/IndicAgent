@@ -352,6 +352,10 @@ def _expand(nd_arr: np.ndarray, mask: np.ndarray, n: int) -> np.ndarray:
     return out
 
 
+def _nan_to_none(v: float) -> float | None:
+    return None if np.isnan(v) else float(v)
+
+
 def _p_values_from_ic(ic_vector: np.ndarray, n: int) -> np.ndarray:
     """Two-tailed p-values from IC via t-approximation.
 
@@ -427,30 +431,25 @@ def _compute_ic_rolling_metrics(
     sharpe_nd = np.where(std_ic > 1e-10, mean_ic / std_ic, 0.0)
 
     # Sortino: penalise only negative-IC windows (target = 0)
-    # NaN per feature when that feature has no negative windows
+    # NaN per feature when that feature has no negative windows (ratio undefined)
     neg_mask = window_ics < 0  # [n_windows, n_non_degenerate]
+    sum_neg = neg_mask.sum(axis=0)  # reused for both gate and denominator
     semi_dev = np.where(
-        neg_mask.any(axis=0),
-        np.sqrt(
-            np.where(neg_mask, window_ics**2, 0.0).sum(axis=0) / np.maximum(neg_mask.sum(axis=0), 1)
-        ),
+        sum_neg > 0,
+        np.sqrt(np.where(neg_mask, window_ics**2, 0.0).sum(axis=0) / sum_neg),
         np.nan,
     )
-    sortino_nd = np.where(
-        np.isnan(semi_dev),
-        np.nan,
-        np.where(semi_dev > 1e-10, mean_ic / semi_dev, np.nan),
-    )
+    sortino_nd = np.where(semi_dev > 1e-10, mean_ic / semi_dev, np.nan)
 
     win_rate_nd = (window_ics > 0).mean(axis=0)
 
-    sharpe_arr = nan_result.copy()
-    sortino_arr = nan_result.copy()
-    win_rate_arr = nan_result.copy()
-    sharpe_arr[non_degenerate_mask] = sharpe_nd
-    sortino_arr[non_degenerate_mask] = sortino_nd
-    win_rate_arr[non_degenerate_mask] = win_rate_nd
-    return sharpe_arr, sortino_arr, win_rate_arr, n_windows
+    n = n_total_features
+    return (
+        _expand(sharpe_nd, non_degenerate_mask, n),
+        _expand(sortino_nd, non_degenerate_mask, n),
+        _expand(win_rate_nd, non_degenerate_mask, n),
+        n_windows,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -751,41 +750,21 @@ def _compute_symbol_tf(
                             "is_pooled": is_pooled,
                             "n_independent": int(n_valid),
                             "reliable": bool(n_valid >= min_reliable_n),
-                            "ic_value": None if np.isnan(ic_val) else float(ic_val),
+                            "ic_value": _nan_to_none(ic_val),
                             "ic_sign": (None if np.isnan(ic_val) else (1 if ic_val > 0 else -1)),
-                            "p_value": None if np.isnan(p_val) else float(p_val),
-                            "ic_ci_lower": (
-                                None
-                                if np.isnan(ci_lower_full[feat_idx])
-                                else float(ci_lower_full[feat_idx])
-                            ),
-                            "ic_ci_upper": (
-                                None
-                                if np.isnan(ci_upper_full[feat_idx])
-                                else float(ci_upper_full[feat_idx])
-                            ),
+                            "p_value": _nan_to_none(p_val),
+                            "ic_ci_lower": _nan_to_none(ci_lower_full[feat_idx]),
+                            "ic_ci_upper": _nan_to_none(ci_upper_full[feat_idx]),
                             "passes_ci_gate": bool(passes_ci_full[feat_idx]),
                             "bh_adjusted_p": None,  # filled after BH-FDR pass
                             "passes_fdr": None,  # filled after BH-FDR pass
                             "wf_fold_count": wf_fold_count,
                             "wf_pass_count": int(wf_pass_full[feat_idx]),
                             "passes_walkforward": bool(passes_wf_full[feat_idx]),
-                            "ic_sharpe": (
-                                None
-                                if np.isnan(ic_sharpe_arr[feat_idx])
-                                else float(ic_sharpe_arr[feat_idx])
-                            ),
+                            "ic_sharpe": _nan_to_none(ic_sharpe_arr[feat_idx]),
                             "ic_sharpe_n_windows": int(n_sharpe_windows),
-                            "ic_sortino": (
-                                None
-                                if np.isnan(ic_sortino_arr[feat_idx])
-                                else float(ic_sortino_arr[feat_idx])
-                            ),
-                            "ic_win_rate": (
-                                None
-                                if np.isnan(ic_win_rate_arr[feat_idx])
-                                else float(ic_win_rate_arr[feat_idx])
-                            ),
+                            "ic_sortino": _nan_to_none(ic_sortino_arr[feat_idx]),
+                            "ic_win_rate": _nan_to_none(ic_win_rate_arr[feat_idx]),
                             "regime_label_source": "forward_filter",
                             "computed_at": run_ts,
                         }
@@ -856,6 +835,13 @@ def _compute_symbol_tf(
 # IC health gauge emission
 # ---------------------------------------------------------------------------
 
+# Optional per-cell gauges: (result_dict_key, gauge). Extend here to add ic_skew etc.
+_OPTIONAL_IC_GAUGES = [
+    ("ic_sharpe", IC_SHARPE_GAUGE),
+    ("ic_sortino", IC_SORTINO_GAUGE),
+    ("ic_win_rate", IC_WIN_RATE_GAUGE),
+]
+
 
 def _emit_health_gauges(symbol: str, tf: str, results: list[dict]) -> None:
     """Emit IC health OTel gauges after computing a (symbol, tf) cell."""
@@ -869,12 +855,9 @@ def _emit_health_gauges(symbol: str, tf: str, results: list[dict]) -> None:
             "lookahead": str(r["lookahead_bars"]),
         }
         IC_SCORE_GAUGE.set(r["ic_value"], base_attrs)
-        if r.get("ic_sharpe") is not None:
-            IC_SHARPE_GAUGE.set(r["ic_sharpe"], base_attrs)
-        if r.get("ic_sortino") is not None:
-            IC_SORTINO_GAUGE.set(r["ic_sortino"], base_attrs)
-        if r.get("ic_win_rate") is not None:
-            IC_WIN_RATE_GAUGE.set(r["ic_win_rate"], base_attrs)
+        for _key, _gauge in _OPTIONAL_IC_GAUGES:
+            if r[_key] is not None:
+                _gauge.set(r[_key], base_attrs)
 
     # Effective N and features surviving FDR per (tf, regime)
     by_regime: dict[str, list[dict]] = {}
