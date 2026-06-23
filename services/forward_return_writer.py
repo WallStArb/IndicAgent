@@ -27,10 +27,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 import time
+import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +81,21 @@ _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 
 # Fallback only — actual value read from APR at runtime via cfg.get_sync()
 _INSERT_BATCH_SIZE_DEFAULT = 500
+
+
+def _make_forward_return_id(
+    symbol: str, tf: str, bar_ts: datetime, pipeline_version: str
+) -> uuid.UUID:
+    """SHA-256(symbol|tf|bar_ts_ns|pipeline_version)[:32] as UUID.
+
+    Mirrors make_feature_vector_id in feature_vector_persistence.py.
+    bar_ts_ns uses nanosecond epoch to avoid sub-second precision loss.
+    """
+    bar_ts_ns = str(int(bar_ts.timestamp() * 1_000_000_000))
+    digest = hashlib.sha256(f"{symbol}|{tf}|{bar_ts_ns}|{pipeline_version}".encode()).hexdigest()[
+        :32
+    ]
+    return uuid.UUID(digest)
 
 
 # ---------------------------------------------------------------------------
@@ -222,12 +240,12 @@ def _build_insert_sql(scales: tuple[str, ...]) -> str:
     complete_vals = ", ".join(f"%(complete_{s})s" for s in scales)
     return f"""
 INSERT INTO forward_returns (
-    symbol, tf, bar_ts, pipeline_version,
+    forward_return_id, symbol, tf, bar_ts, pipeline_version,
     {return_cols},
     {complete_cols}
 )
 VALUES (
-    %(symbol)s, %(tf)s, %(bar_ts)s, %(pipeline_version)s,
+    %(forward_return_id)s, %(symbol)s, %(tf)s, %(bar_ts)s, %(pipeline_version)s,
     {return_vals},
     {complete_vals}
 )
@@ -310,6 +328,10 @@ def _label_symbol_tf(
             return 0
 
         insert_rows = [dict(zip(col_names, r)) for r in rows]
+        for row in insert_rows:
+            row["forward_return_id"] = _make_forward_return_id(
+                row["symbol"], row["tf"], row["bar_ts"], row["pipeline_version"]
+            )
 
         with conn.cursor() as cur:
             psycopg2.extras.execute_batch(
@@ -394,6 +416,7 @@ def main() -> None:
 
     try:
         settings = Settings()
+        psycopg2.extras.register_uuid()
         with observed_span("forward_return_writer.run", tracer):
             conn = psycopg2.connect(
                 settings.database_url,
