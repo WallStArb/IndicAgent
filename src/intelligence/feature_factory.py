@@ -1142,6 +1142,288 @@ class FeatureFactory:
             volatility_rank_z=None,
         )
 
+    @staticmethod
+    def compute_batch(
+        bars: list[dict],
+        symbol: str,
+        tf: str,
+        cache: FeatureCache,
+        config: FeatureFactoryConfig,
+        warm_up_bars: int = 0,
+    ) -> list[tuple[datetime, FeatureVector]]:
+        """Compute FeatureVector for every bar in bars in O(n). Returns (bar_ts, fv) pairs.
+
+        Precomputes all series_full functions once, then loops over bars indexing series[i].
+        Non-series features (cmf, cci, aroon, vol_ratio, range_position, bar_close_pos, informed_flow)
+        are computed per bar with bounded windows. Cache-backed features (hmm, hurst, etc.) are
+        read from cache. Calendar features computed per bar from timestamps.
+        """
+        if len(bars) < 2:
+            return []
+
+        # Extract numpy arrays once
+        opens = np.array([b["open"] for b in bars], dtype=float)
+        highs = np.array([b["high"] for b in bars], dtype=float)
+        lows = np.array([b["low"] for b in bars], dtype=float)
+        closes = np.array([b["close"] for b in bars], dtype=float)
+        volumes = np.array([b["volume"] for b in bars], dtype=float)
+
+        # Precompute all series — call each _*_series_full once
+        atr_series = _atr_series_full(highs, lows, closes, config.adx_period)
+        atr_padded = np.concatenate([[0.0], atr_series])  # length = n
+        atr_z_series = _rolling_zscore_series(atr_padded, config.momentum_zscore_window)
+
+        gap_z_series = _gap_z_series_full(opens, highs, lows, closes, config.adx_period, config.momentum_zscore_window)
+        rel_volume_series = _rel_volume_series_full(volumes, config.volume_zscore_window)
+        ofi_z_series = _ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window)
+        cvd_slope_z_series = _cvd_slope_z_series_full(closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window)
+        volume_z_series = _volume_z_series_full(volumes, config.volume_zscore_window)
+
+        momentum_z_fast_series = _momentum_z_series_full(closes, config.momentum_window_fast, config.momentum_zscore_window)
+        momentum_z_mid_series = _momentum_z_series_full(closes, config.momentum_window_mid, config.momentum_zscore_window)
+        momentum_z_slow_series = _momentum_z_series_full(closes, config.momentum_window_slow, config.momentum_zscore_window)
+        momentum_reversal_z_series = _momentum_reversal_z_series_full(closes, config.momentum_zscore_window)
+
+        vwap_dev_sigma_series = _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes)
+
+        rsi_fast_series = _rsi_series_full(closes, config.rsi_fast_period)
+        rsi_mid_series = _rsi_series_full(closes, config.rsi_mid_period)
+        rsi_slow_series = _rsi_series_full(closes, config.rsi_slow_period)
+
+        amihud_illiq_z_series = _amihud_illiq_z_series_full(closes, volumes, config.amihud_zscore_window)
+        high_52w_dist_series = _high_52w_dist_series_full(closes, config.high_52w_window)
+        ret_skew_z_series = _ret_skew_z_series_full(closes, config.ret_skew_window, config.ret_skew_zscore_window)
+        ret_acf1_z_series = _ret_acf1_z_series_full(closes, config.ret_acf_window, config.ret_acf_zscore_window)
+
+        # MIN_WINDOW for non-series features (cci_slow=40, aroon_slow=26, vol_ratio=21, cmf=20, range_position=20)
+        MIN_WINDOW = 50
+        results: list[tuple[datetime, FeatureVector]] = []
+
+        for i in range(1, len(bars)):
+            # Periodically refresh regime
+            if i % config.regime_cache_refresh_bars == 0:
+                window_start = max(0, i - MIN_WINDOW)
+                cache.refresh_regime(bars[window_start:i+1], config)
+
+            # Skip warm-up
+            if i < warm_up_bars:
+                bar = bars[i]
+                cache.advance_bar(
+                    bar["ts"],
+                    float(bar["high"]),
+                    float(bar["low"]),
+                    float(bar["close"]),
+                    float(bar["volume"]),
+                )
+                continue
+
+            # Build bounded window for non-series features
+            window_start = max(0, i - MIN_WINDOW)
+            window_bars = bars[window_start:i+1]
+
+            # Extract window arrays
+            w_opens = np.array([b["open"] for b in window_bars], dtype=float)
+            w_highs = np.array([b["high"] for b in window_bars], dtype=float)
+            w_lows = np.array([b["low"] for b in window_bars], dtype=float)
+            w_closes = np.array([b["close"] for b in window_bars], dtype=float)
+            w_volumes = np.array([b["volume"] for b in window_bars], dtype=float)
+
+            bar = bars[i]
+            bar_ts = bar["ts"]
+            open_ = float(bar["open"])
+            high_ = float(bar["high"])
+            low_ = float(bar["low"])
+            close_ = float(bar["close"])
+            vol_ = float(bar["volume"])
+
+            # Ensure ts is timezone-aware UTC
+            if isinstance(bar_ts, datetime) and bar_ts.tzinfo is None:
+                bar_ts = bar_ts.replace(tzinfo=UTC)
+
+            # Series-backed features (index into precomputed series)
+            atr_val = float(atr_series[i-1]) if i-1 < len(atr_series) else 0.0
+            atr_z_val = float(atr_z_series[i]) if i < len(atr_z_series) else 0.0
+
+            gap_z_val = float(gap_z_series[i]) if i < len(gap_z_series) else 0.0
+            rel_volume_val = float(rel_volume_series[i]) if i < len(rel_volume_series) else 1.0
+            ofi_z_val = float(ofi_z_series[i]) if i < len(ofi_z_series) else 0.0
+            cvd_slope_z_val = float(cvd_slope_z_series[i]) if i < len(cvd_slope_z_series) else 0.0
+            volume_z_val = float(volume_z_series[i]) if i < len(volume_z_series) else 0.0
+
+            momentum_z_fast_val = float(momentum_z_fast_series[i]) if i < len(momentum_z_fast_series) else 0.0
+            momentum_z_mid_val = float(momentum_z_mid_series[i]) if i < len(momentum_z_mid_series) else 0.0
+            momentum_z_slow_val = float(momentum_z_slow_series[i]) if i < len(momentum_z_slow_series) else 0.0
+            momentum_reversal_z_val = float(momentum_reversal_z_series[i]) if i < len(momentum_reversal_z_series) else 0.0
+
+            vwap_dev_sigma_val = float(vwap_dev_sigma_series[i]) if i < len(vwap_dev_sigma_series) else 0.0
+
+            rsi_fast_val = float(rsi_fast_series[i]) if i < len(rsi_fast_series) else 50.0
+            rsi_mid_val = float(rsi_mid_series[i]) if i < len(rsi_mid_series) else 50.0
+            rsi_slow_val = float(rsi_slow_series[i]) if i < len(rsi_slow_series) else 50.0
+
+            amihud_illiq_z_val = float(amihud_illiq_z_series[i]) if i < len(amihud_illiq_z_series) else 0.0
+            high_52w_dist_val = float(high_52w_dist_series[i]) if i < len(high_52w_dist_series) else 0.0
+            ret_skew_z_val = float(ret_skew_z_series[i]) if i < len(ret_skew_z_series) else 0.0
+            ret_acf1_z_val = float(ret_acf1_z_series[i]) if i < len(ret_acf1_z_series) else 0.0
+
+            # Non-series features (compute on bounded window)
+            bar_close_pos_val = _bar_close_pos(high_, low_, close_)
+
+            range_bars = min(config.momentum_window_mid, len(window_bars))
+            range_position_val = _range_position(close_, w_highs[-range_bars:], w_lows[-range_bars:])
+
+            informed_flow_val = _informed_flow(open_, close_, atr_val)
+            vol_ratio_val = _vol_ratio(w_closes, config.vol_short_bars, config.vol_long_bars)
+            cmf_val = _cmf(w_highs, w_lows, w_closes, w_volumes, config.cmf_period)
+
+            # Session-level primitives (from cache; 1d TF defaults to neutral)
+            if tf == "1d":
+                poc_dist_atr_val = 0.0
+                va_position_val = 0.5
+                sr_support_dist_val = 0.0
+                sr_resist_dist_val = 0.0
+            else:
+                poc_dist_atr_val = cache.poc_dist_atr
+                va_position_val = cache.va_position
+                sr_support_dist_val = cache.sr_support_dist
+                sr_resist_dist_val = cache.sr_resist_dist
+
+            # Regime-level primitives (all from cache)
+            hmm_regime_prob_val = cache.hmm_regime_prob
+            hmm_entropy_val = cache.hmm_entropy
+            hmm_duration_val = cache.hmm_duration
+            hurst_val = cache.hurst
+            shannon_val = cache.shannon
+            garch_ratio_val = cache.garch_ratio
+            hma_slope_z_val = cache.hma_slope_z
+            adx_val = cache.adx
+
+            # Oscillators (non-series)
+            cci_fast_val = _cci(w_highs, w_lows, w_closes, config.cci_fast_period)
+            cci_mid_val = _cci(w_highs, w_lows, w_closes, config.cci_mid_period)
+            cci_slow_val = _cci(w_highs, w_lows, w_closes, config.cci_slow_period)
+
+            aroon_fast_val = _aroon_osc(w_highs, w_lows, config.aroon_fast_period)
+            aroon_slow_val = _aroon_osc(w_highs, w_lows, config.aroon_slow_period)
+
+            # OFI divergence
+            ofi_div_val = ofi_z_val - momentum_z_fast_val
+
+            # Cross-asset primitives (all from cache)
+            vix_z_val = cache.vix_z
+            flight_quality_val = cache.flight_quality
+            yield_slope_z_val = cache.yield_slope_z
+
+            # Calendar primitives
+            in_ny_session_val = _in_ny_session(bar_ts, config)
+            in_london_kz_val = _in_london_kz(bar_ts, config)
+            in_overlap_val = _in_overlap(bar_ts, config)
+            power_hour_val = _power_hour(bar_ts, config)
+            opening_range_val = _opening_range(bar_ts, config)
+            above_wk_vwap_val = cache.above_wk_vwap
+            dow_sin_val, dow_cos_val = _dow_encoding(bar_ts)
+            month_position_val = _month_position(bar_ts)
+
+            _month_in_q = (bar_ts.month - 1) % 3
+            _day_in_q = _month_in_q * 30 + bar_ts.day
+            quarter_position_val = min(1.0, _day_in_q / _QUARTER_LENGTH_DAYS)
+
+            _days_in_month = calendar.monthrange(bar_ts.year, bar_ts.month)[1]
+            _days_remaining = _days_in_month - bar_ts.day
+            days_to_month_end_val = _days_remaining / _days_in_month
+
+            # Cross-timeframe primitives (from cache)
+            ctf_momentum_val = cache.ctf_momentum
+            ctf_vwap_align_val = cache.ctf_vwap_align
+            ctf_regime_align_val = cache.ctf_regime_align
+
+            # Guard function
+            def _guard(v: float, fallback: float = 0.0) -> float:
+                return v if math.isfinite(v) else fallback
+
+            # Build FeatureVector
+            fv = FeatureVector(
+                # Momentum (7)
+                momentum_z_fast=_guard(momentum_z_fast_val),
+                momentum_z_mid=_guard(momentum_z_mid_val),
+                range_position=_guard(range_position_val, 0.5),
+                bar_close_pos=_guard(bar_close_pos_val, 0.5),
+                gap_z=_guard(gap_z_val),
+                momentum_z_slow=_guard(momentum_z_slow_val),
+                momentum_reversal_z=_guard(momentum_reversal_z_val),
+                # Volume and order flow (8)
+                informed_flow=_guard(informed_flow_val),
+                volume_z=_guard(volume_z_val),
+                ofi_z=_guard(ofi_z_val),
+                ofi_div=_guard(ofi_div_val),
+                cvd_slope_z=_guard(cvd_slope_z_val),
+                cmf=_guard(cmf_val),
+                rel_volume=_guard(rel_volume_val, 1.0),
+                vwap_dev_sigma=_guard(vwap_dev_sigma_val),
+                # Volatility (2)
+                atr_z=_guard(atr_z_val),
+                vol_ratio=_guard(vol_ratio_val, 1.0),
+                # Session-level (4)
+                poc_dist_atr=_guard(poc_dist_atr_val),
+                va_position=_guard(va_position_val, 0.5),
+                sr_support_dist=_guard(sr_support_dist_val),
+                sr_resist_dist=_guard(sr_resist_dist_val),
+                # Regime-level (11)
+                hmm_regime_prob=_guard(hmm_regime_prob_val),
+                hmm_entropy=_guard(hmm_entropy_val),
+                hmm_duration=_guard(hmm_duration_val),
+                hurst=_guard(hurst_val, 0.5),
+                shannon=_guard(shannon_val, 1.0),
+                garch_ratio=_guard(garch_ratio_val, 1.0),
+                hma_slope_z=_guard(hma_slope_z_val),
+                adx=_guard(adx_val),
+                aroon_fast=_guard(aroon_fast_val),
+                aroon_slow=_guard(aroon_slow_val),
+                # Oscillators (6)
+                rsi_fast=_guard(rsi_fast_val, 50.0),
+                rsi_mid=_guard(rsi_mid_val, 50.0),
+                rsi_slow=_guard(rsi_slow_val, 50.0),
+                cci_fast=_guard(cci_fast_val),
+                cci_mid=_guard(cci_mid_val),
+                cci_slow=_guard(cci_slow_val),
+                # Cross-asset (3)
+                vix_z=_guard(vix_z_val),
+                flight_quality=_guard(flight_quality_val),
+                yield_slope_z=_guard(yield_slope_z_val),
+                # Calendar (11)
+                in_ny_session=in_ny_session_val,
+                in_london_kz=in_london_kz_val,
+                in_overlap=in_overlap_val,
+                power_hour=power_hour_val,
+                opening_range=opening_range_val,
+                above_wk_vwap=above_wk_vwap_val,
+                dow_sin=dow_sin_val,
+                dow_cos=dow_cos_val,
+                month_position=month_position_val,
+                quarter_position=_guard(quarter_position_val, 0.0),
+                days_to_month_end=_guard(days_to_month_end_val, 0.0),
+                # Cross-timeframe (3)
+                ctf_momentum=_guard(ctf_momentum_val),
+                ctf_vwap_align=_guard(ctf_vwap_align_val),
+                ctf_regime_align=_guard(ctf_regime_align_val),
+                # Statistical / liquidity (4)
+                amihud_illiq_z=_guard(amihud_illiq_z_val),
+                high_52w_dist=_guard(high_52w_dist_val),
+                ret_skew_z=_guard(ret_skew_z_val),
+                ret_acf1_z=_guard(ret_acf1_z_val),
+                # Cross-sectional (3, nullable — populated by Phase 139)
+                momentum_rank_z=None,
+                volume_rank_z=None,
+                volatility_rank_z=None,
+            )
+
+            results.append((bar_ts, fv))
+
+            # Advance cache state
+            cache.advance_bar(bar_ts, high_, low_, close_, vol_)
+
+        return results
+
 
 def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
     """Return a valid FeatureVector with cold-start defaults (0.0 / neutral values)."""
