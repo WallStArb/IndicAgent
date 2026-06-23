@@ -733,6 +733,8 @@ def _rolling_stat_z(
     if called inside a loop over n bars — O(n²) total. In batch contexts use
     _ret_skew_z_series_full / _ret_acf1_z_series_full instead (vectorized O(n)).
     """
+    # WARNING: O(n × window) per call. Never call this inside a loop over n bars.
+    # Use _ret_skew_z_series_full / _ret_acf1_z_series_full for batch contexts.
     if len(log_rets) < window:
         return 0.0
     series = np.array(
@@ -896,6 +898,76 @@ def _rsi_series_full(closes: np.ndarray, period: int) -> np.ndarray:
         else:
             rs = avg_gain / avg_loss
             result[i + 1] = float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
+    return result
+
+
+def _ret_skew_z_series_full(closes: np.ndarray, skew_window: int, zscore_window: int) -> np.ndarray:
+    """Rolling return skewness z-score series. result[i] == streaming ret_skew_z at bar i.
+    O(n × skew_window) total — called once, vs O(n² × skew_window) previously.
+    Returns zeros for i < skew_window (cold start).
+    """
+    n = len(closes)
+    if n < skew_window + 3:
+        return np.zeros(n, dtype=float)
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    # skew_vals[k] = skewness(log_rets[k : k+skew_window]) for k=0..n-1-skew_window
+    skew_vals = np.array(
+        [_skewness(log_rets[k : k + skew_window]) for k in range(len(log_rets) - skew_window + 1)],
+        dtype=float,
+    )
+    z = _rolling_zscore_series(skew_vals, zscore_window)
+    z[: zscore_window - 1] = 0.0
+    # result[skew_window + k] = z[k], prepend skew_window zeros for cold-start bars
+    return np.concatenate([np.zeros(skew_window, dtype=float), z])
+
+
+def _ret_acf1_z_series_full(closes: np.ndarray, acf_window: int, zscore_window: int) -> np.ndarray:
+    """Rolling lag-1 autocorrelation z-score series. result[i] == streaming ret_acf1_z at bar i.
+    O(n × acf_window) total. Returns zeros for i < acf_window (cold start).
+    """
+    n = len(closes)
+    if n < acf_window + 2:
+        return np.zeros(n, dtype=float)
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    acf_vals = np.array(
+        [
+            _pearson_acf1(log_rets[k : k + acf_window])
+            for k in range(len(log_rets) - acf_window + 1)
+        ],
+        dtype=float,
+    )
+    z = _rolling_zscore_series(acf_vals, zscore_window)
+    z[: zscore_window - 1] = 0.0
+    return np.concatenate([np.zeros(acf_window, dtype=float), z])
+
+
+def _amihud_illiq_z_series_full(
+    closes: np.ndarray, volumes: np.ndarray, zscore_window: int
+) -> np.ndarray:
+    """Amihud illiquidity z-score series. result[i] == streaming amihud_illiq_z at bar i.
+    Prepends 0.0 at index 0 (cold start — streaming returns 0.0 when len(closes) < 2).
+    """
+    n = len(closes)
+    if n < 2:
+        return np.zeros(n, dtype=float)
+    log_rets_abs = np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))
+    dollar_vols = closes[1:].astype(float) * np.maximum(volumes[1:].astype(float), 1.0)
+    illiq = log_rets_abs / dollar_vols
+    z = _rolling_zscore_series(illiq, zscore_window)
+    return np.concatenate([[0.0], z])
+
+
+def _high_52w_dist_series_full(closes: np.ndarray, window: int) -> np.ndarray:
+    """Distance from rolling-max series. result[i] == streaming high_52w_dist at bar i.
+    O(n × window) — called once vs per-bar (not per-bar O(n^2) total).
+    """
+    n = len(closes)
+    result = np.zeros(n, dtype=float)
+    for b in range(1, n):
+        w = min(window, b + 1)
+        rolling_max = float(np.max(closes[b + 1 - w : b + 1]))
+        if rolling_max >= 1e-10:
+            result[b] = (float(closes[b]) - rolling_max) / rolling_max
     return result
 
 
@@ -1188,10 +1260,29 @@ class FeatureFactory:
         ctf_regime_align_val = cache.ctf_regime_align
 
         # --- Statistical / liquidity ---
-        amihud_illiq_z_val = _amihud_illiq_z(closes, volumes, config.amihud_zscore_window)
-        high_52w_dist_val = _high_52w_dist(closes, config.high_52w_window)
-        ret_skew_z_val = _ret_skew_z(closes, config.ret_skew_window, config.ret_skew_zscore_window)
-        ret_acf1_z_val = _ret_acf1_z(closes, config.ret_acf_window, config.ret_acf_zscore_window)
+        if precomputed is not None and "amihud_illiq_z" in precomputed:
+            amihud_illiq_z_val = precomputed["amihud_illiq_z"]
+        else:
+            amihud_illiq_z_val = _amihud_illiq_z(closes, volumes, config.amihud_zscore_window)
+
+        if precomputed is not None and "high_52w_dist" in precomputed:
+            high_52w_dist_val = precomputed["high_52w_dist"]
+        else:
+            high_52w_dist_val = _high_52w_dist(closes, config.high_52w_window)
+
+        if precomputed is not None and "ret_skew_z" in precomputed:
+            ret_skew_z_val = precomputed["ret_skew_z"]
+        else:
+            ret_skew_z_val = _ret_skew_z(
+                closes, config.ret_skew_window, config.ret_skew_zscore_window
+            )
+
+        if precomputed is not None and "ret_acf1_z" in precomputed:
+            ret_acf1_z_val = precomputed["ret_acf1_z"]
+        else:
+            ret_acf1_z_val = _ret_acf1_z(
+                closes, config.ret_acf_window, config.ret_acf_zscore_window
+            )
 
         # Guard: replace any NaN/inf with 0.0 (cold-start safety)
         def _guard(v: float, fallback: float = 0.0) -> float:

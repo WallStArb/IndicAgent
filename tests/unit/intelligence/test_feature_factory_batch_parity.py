@@ -356,3 +356,54 @@ def test_rsi_slow_parity(ohlcv, cfg, streaming):
         assert (
             abs(batch[i] - fv.rsi_slow) < 1e-8
         ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.rsi_slow:.10f}"
+
+
+# ---------------------------------------------------------------------------
+# Task 4: Statistical series
+# ---------------------------------------------------------------------------
+
+
+def test_ret_skew_z_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _ret_skew_z_series_full
+
+    batch = _ret_skew_z_series_full(
+        ohlcv["closes"], cfg.ret_skew_window, cfg.ret_skew_zscore_window
+    )
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        assert (
+            abs(batch[i] - fv.ret_skew_z) < 1e-8
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.ret_skew_z:.10f}"
+
+
+def test_ret_acf1_z_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _ret_acf1_z_series_full
+
+    batch = _ret_acf1_z_series_full(ohlcv["closes"], cfg.ret_acf_window, cfg.ret_acf_zscore_window)
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        assert (
+            abs(batch[i] - fv.ret_acf1_z) < 1e-8
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.ret_acf1_z:.10f}"
+
+
+def test_amihud_illiq_z_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _amihud_illiq_z_series_full
+
+    batch = _amihud_illiq_z_series_full(ohlcv["closes"], ohlcv["volumes"], cfg.amihud_zscore_window)
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        assert (
+            abs(batch[i] - fv.amihud_illiq_z) < 1e-8
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.amihud_illiq_z:.10f}"
+
+
+def test_high_52w_dist_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _high_52w_dist_series_full
+
+    batch = _high_52w_dist_series_full(ohlcv["closes"], cfg.high_52w_window)
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        assert (
+            abs(batch[i] - fv.high_52w_dist) < 1e-8
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.high_52w_dist:.10f}"
