@@ -104,7 +104,7 @@ _MAX_CHUNK_DAYS: dict[str, int] = {
     "15m": 59,  # per-request limit: 60 days
     "1h": 29,  # 30-day chunks — >30d fails for ETFs without extended history subscription
     "4h": 29,
-    "1d": 29,  # 30-day chunks — same; 7300d backfill = ~243 chunks but reliable
+    "1d": 364,  # 1-year chunks — daily bars support full-year requests; ~20 chunks for 20yr
 }
 
 # IBKR enforces a hard limit of 60 historical data requests per 10-minute sliding window.
@@ -673,8 +673,11 @@ class IBKRProvider:
                     duration_str = f"{max(1, (chunk_end - chunk_start).days + 1)} D"
 
                 # Retry up to 3 times with exponential backoff on an empty result.
+                # Snapshot _no_data_req_ids BEFORE the request so callbacks that fire
+                # during reqHistoricalDataAsync are captured in the diff.
                 ib_bars: list = []
                 for attempt in range(3):
+                    no_data_before = _no_data_req_ids.copy()
                     result = await self._ib.reqHistoricalDataAsync(
                         contract,
                         endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
@@ -687,6 +690,20 @@ class IBKRProvider:
                     if result:
                         ib_bars = result
                         break
+
+                    # Yield so any late Error 162 callbacks can fire.
+                    await asyncio.sleep(0)
+                    if _no_data_req_ids - no_data_before:
+                        _no_data_req_ids.difference_update(_no_data_req_ids - no_data_before)
+                        logger.warning(
+                            "ibkr.hist_no_data_skip",
+                            extra={
+                                "symbol": symbol,
+                                "timeframe": timeframe,
+                                "chunk_end": chunk_end.isoformat(),
+                            },
+                        )
+                        break  # Definitive "no data" — don't retry
 
                     if attempt < 2:
                         backoff = 65 * (2**attempt)  # 65s then 130s

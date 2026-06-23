@@ -2444,6 +2444,14 @@ def main() -> None:
                                     start=start_dt,
                                     end=end_dt,
                                 )
+                                try:
+                                    db_conn.cursor().execute("SELECT 1")
+                                except Exception:
+                                    try:
+                                        db_conn.close()
+                                    except Exception:
+                                        pass
+                                    db_conn = connect_db(settings)
                                 n = store_bars(db_conn, canonical, instrument.symbol, tf)
                                 total_bars += n
                                 if n > 0:
