@@ -1,4 +1,4 @@
-"""Tests for intelligence_pipeline_agent publisher-side normalization.
+"""Tests for feature_vector_pipeline_agent publisher-side normalization.
 
 Phase 81 D-01: Publisher sets is_backfill, timestamp, ttl_bars defaults
 on all signals before publishing.
@@ -27,7 +27,7 @@ def _apply_publisher_normalization(
     *,
     stamp_signal_id: bool = False,
 ) -> list[dict]:
-    """Replicate the publisher-side normalization from intelligence_pipeline_agent.
+    """Replicate the publisher-side normalization from feature_vector_pipeline_agent.
 
     Extracted from services/intelligence_pipeline.py _publish_signals_or_dlq.
     stamp_signal_id=True also replicates the signal_id setdefault added in the

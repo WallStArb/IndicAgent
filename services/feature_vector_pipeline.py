@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""IntelligencePipeline — v3.0 FeatureFactory pipeline.
+"""FeatureVectorPipeline — v3.0 FeatureFactory pipeline.
 
 Computes all 36 FeatureVector primitives via FeatureFactory.compute() per bar,
 wraps in FeatureVectorRecord, and publishes to topic_feature_vectors.
@@ -86,11 +86,11 @@ _PIPELINE_VERSION = "3.0.0"
 
 
 # ---------------------------------------------------------------------------
-# IntelligencePipeline
+# FeatureVectorPipeline
 # ---------------------------------------------------------------------------
 
 
-class IntelligencePipeline(BaseDaemon):
+class FeatureVectorPipeline(BaseDaemon):
     """v3.0 pipeline: FeatureFactory.compute() per bar, publish to topic_feature_vectors.
 
     D-09 cutover: replaces I5/I6/I7 PluginExecutor dispatch with a single
@@ -114,7 +114,7 @@ class IntelligencePipeline(BaseDaemon):
         self._contracts = get_active_contracts(self.settings)
         if not self._contracts:
             raise RuntimeError(
-                "intelligence_pipeline_agent: no active instruments at startup. "
+                "feature_vector_pipeline_agent: no active instruments at startup. "
                 "DB unreachable or instruments table empty. Check DB connectivity "
                 "and ensure production/scripts/migrate_instruments.py has been run."
             )
@@ -137,23 +137,23 @@ class IntelligencePipeline(BaseDaemon):
         self._feature_factory = FeatureFactory()
 
         self._shadow_mode: bool = os.environ.get("INTELLIGENCE_PIPELINE_SHADOW", "0") == "1"
-        self._consumer_group = "intelligence_pipeline_group"
+        self._consumer_group = "feature_vector_pipeline_group"
         self._background_tasks: set = set()
 
         self._bars_processed = counter(
-            "intelligence_pipeline_bars_processed_total",
+            "feature_vector_pipeline_bars_processed_total",
             "Bars processed through FeatureFactory pipeline",
         )
         self._pipeline_errors = counter(
-            "intelligence_pipeline_pipeline_errors_total",
+            "feature_vector_pipeline_errors_total",
             "Pipeline processing errors",
         )
         self._bar_timeout_total = counter(
-            "intelligence_pipeline_bar_timeout_total",
+            "feature_vector_pipeline_bar_timeout_total",
             "Bars that exceeded the 500ms hard outer timeout and were DLQ'd",
         )
         self._pipeline_latency = self._meter.create_histogram(
-            "intelligence_pipeline_pipeline_latency_ms",
+            "feature_vector_pipeline_latency_ms",
             description="Per-bar pipeline latency in milliseconds",
         )
         self._bar_e2e_latency = self._meter.create_histogram(
@@ -229,7 +229,7 @@ class IntelligencePipeline(BaseDaemon):
 
         await self._seed_bar_history_from_db()
 
-        _symbol_filter_list = self.settings.intelligence_pipeline_symbol_filter
+        _symbol_filter_list = self.settings.feature_vector_pipeline_symbol_filter
         symbol_filter = frozenset(_symbol_filter_list) if _symbol_filter_list else None
         self._cache_mgr = CacheManager(
             db=self._db,
@@ -246,7 +246,7 @@ class IntelligencePipeline(BaseDaemon):
         listener_task = self._cache_mgr.start_instruments_listener()
         self._background_tasks.add(listener_task)
         listener_task.add_done_callback(self._background_tasks.discard)
-        self.logger.info("intelligence_pipeline.instruments_listener_started")
+        self.logger.info("feature_vector_pipeline.instruments_listener_started")
 
         # Per-key concurrency (PERF-07)
         self._worker_manager = PerKeyWorkerManager(
@@ -542,7 +542,7 @@ class IntelligencePipeline(BaseDaemon):
         )
 
         self.logger.info(
-            "intelligence_pipeline.feature_config_loaded",
+            "feature_vector_pipeline.feature_config_loaded",
             key_count=len(self._THRESHOLD_KEYS),
             regime_cache_refresh_bars=self._feature_factory_config.regime_cache_refresh_bars,
         )
@@ -556,7 +556,7 @@ class IntelligencePipeline(BaseDaemon):
         self._config_service.invalidate(key)
         default = next((d for k, d in self._THRESHOLD_KEYS if k == key), None)
         await self._config_service.get(key, default)
-        self.logger.info("intelligence_pipeline.config_reloaded", config_key=key)
+        self.logger.info("feature_vector_pipeline.config_reloaded", config_key=key)
 
     async def _seed_bar_history_from_db(self) -> None:
         try:
@@ -625,7 +625,7 @@ class IntelligencePipeline(BaseDaemon):
                     await self._kafka_consumer.stop()
                 except Exception as error:
                     self.logger.warning(
-                        "intelligence_pipeline.shutdown_consumer_error", error=str(error)
+                        "feature_vector_pipeline.shutdown_consumer_error", error=str(error)
                     )
 
         def _signal_handler() -> None:
@@ -636,7 +636,7 @@ class IntelligencePipeline(BaseDaemon):
 
     def _on_feature_config_reload(self) -> None:
         """SIGUSR1 handler: log receipt (config hot-reload via config_updates topic)."""
-        self.logger.info("intelligence_pipeline.sigusr1_received")
+        self.logger.info("feature_vector_pipeline.sigusr1_received")
 
     async def _process_loop(self) -> None:
         _cross_asset_topic = topic_cross_asset(self.settings.env_name)
@@ -908,5 +908,5 @@ class IntelligencePipeline(BaseDaemon):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    agent = IntelligencePipeline()
+    agent = FeatureVectorPipeline()
     asyncio.run(agent.start())

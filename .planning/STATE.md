@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
 status: Ready to execute
-last_updated: "2026-06-23T09:47:19.558Z"
+last_updated: "2026-06-23T12:22:23.299Z"
 last_activity: 2026-06-23
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 16
-  completed_plans: 15
-  percent: 33
+  completed_plans: 16
+  percent: 67
 ---
 
 # Project State
@@ -111,109 +111,13 @@ Key decisions:
 
 **Next session:** Execute 138-P1 (foundation hardening — council review findings 1-12; migration 159)
 
-### Last session (2026-06-22) — Phase 138 plans hardened; AlphaEngine doc written
+### Sessions 2026-06-20 to 2026-06-22 (archived summary)
 
-AlphaEngine concept doc written: `docs/intelligence/intelligence-alphaengine.md`. Covers IC methodology vocabulary, what gets cut (I5/I6/I7 all archived), observability/traceability carry-forward, and base class architecture.
-
-Key architecture corrections made (v3.0 ground truth):
-
-- I5/I6/I7 fully archived — not surviving as feature producers (earlier memory was stale)
-- I1-I4 rewritten as Feature Factory; old plugin implementation replaced entirely
-- `intelligence_features` NOT used in v3.0 (backward-looking Viterbi labels = look-ahead bias)
-- `feature_vectors` (Feature Factory output against `market_data_ohlcv`) is the training corpus
-
-Phase 138 plans updated:
-
-- P1: Added `BaseBatch` (Task 0) — new Ring 0 base class at `src/core/agent/base_batch.py`; provides DB pool lifecycle, D-06 emission, `content_key()` SHA-256, `run()` template, error handling. All Phase 138+ batch compute services extend it.
-- P1: `backfill_feature_factory.py` must be refactored to extend `BaseBatch` (validates the base class before P2/P3/P4)
-- P2/P3: Added "extends BaseBatch" as must_have truth
-- P4: Added 4 IC health OTel gauges as must_have: IC_SCORE_GAUGE, EFFECTIVE_N_GAUGE, FEATURES_SURVIVING_FDR_GAUGE, IC_SHARPE_GAUGE
-- P1 memory: `project_intelligence_vectors.md` corrected to reflect ground-up architecture
-
-Deferred: `docs/foundation/naming-system.md` Ring 0 exports table needs `BaseBatch` added — do after code exists.
-
-**Next session:** `/gsd-execute-phase 138`
-
-### Last session (2026-06-21) — Phase 137 closed; Phase 138 ready to execute
-
-Phase 137 (feature-factory) fully complete. All 7 plans (P1-P6 + P7) executed. FeatureVector is 54 fields, migration 156 deployed, pipeline/feature_writer/backfill all wired for 54 fields. 4929 unit tests passing.
-
-Phase 138 (ic-engine-forward-returns) planned and reviewed. Cross-AI review incorporated: causal HMM, block bootstrap, is_pooled flag, embargo, _ONESHOT_UNITS.
-
-**Next session:** `/gsd-execute-phase 138`
-
-### Last session (2026-06-20, session 4) — Phase 137 planned (6 plans, 4 waves)
-
-Phase 137: Feature Factory planning complete. All 10 success criteria covered. Verification passed.
-
-Wave structure:
-
-- Wave 1 (parallel): 137-P1 schema+APR migration 155 + 137-P2 contracts (stream key + dataclasses)
-- Wave 2: 137-P3 FeatureFactory TDD (35 primitives + FeatureCache; VXX/VIXY absent, SPY/TLT/SHY proxies)
-- Wave 3 (parallel): 137-P4 feature_writer retarget + 137-P5 backfill oneshot (IBKR fetch + checkpoint/resume)
-- Wave 4: 137-P6 cutover (pipeline wire + I5/I6/I7 archive + smoke test + done-gate)
-
-Key discoveries from research:
-
-- `market_data_ohlcv` is empty — IBKR fetch is Wave 1/P5's first step, planned explicitly
-- `alpha.` prefix missing from OPS_PREFIXES — blocker in 137-P1 T1, resolved before migration runs
-- VXX/VIXY not in 58-ETF universe — cross-asset proxies: vix_z via SPY realized-vol, flight_quality via TLT/SPY divergence, yield_slope_z via TLT/SHY ratio
-
-**Next session:** `/gsd-execute-phase 137`
-
-### Last session (2026-06-20, session 3) — Phase 137 context updated, ready to plan
-
-Three open items from the methodology session resolved:
-
-- **I7 cutover timing locked:** Phase 137 ends with the cutover (D-09 updated). I7 runs live until Phase 137's final deliverable. No shadow/parallel period — atomic wire-and-cut once backfill and unit tests pass. Done gate: feature_vectors within 5% of theoretical max + live bar smoke test + I5-I7 in archive + zero plugin dispatch refs.
-- **Canonical refs updated:** `v30-alphaengine-strategy.md` and `v30-i7-transition.md` added. I7 archival approach confirmed: all of I5-I7 archived intact without modification; Phase 138 IC discovery handles the alpha scorer transformation.
-- **pipeline_version migration resolved (D-13):** IC spec §IV.1 confirms no migration on `intelligence_features` needed — `feature_vectors` has it in DDL natively. STATE note from session 2 is closed.
-
-### Last session (2026-06-20, session 2) — AlphaEngine V1 methodology spec written
-
-Deep brainstorming on Renaissance alignment. Council-of-engineers review found and resolved six
-critical gaps: lookahead bias in forward returns, HMM regime smoothing bias, serial
-autocorrelation in IC standard errors, multiple testing scale, direction encoding in ensemble
-weights, and feature_matrix research-vs-production conflation.
-
-**Key decisions:**
-
-- Regime-conditional IC mandatory from start — pooled IC is not a fallback, it is excluded
-- IC Sharpe requires 20,000 independent obs — no interim proxy; get the data
-- Forward returns via LEAD() on `bar->>'o'` within `intelligence_features` — no join to OHLCV
-- `feature_candidates` (long) for research; `feature_matrix` (wide) for promoted-only production
-- `ensemble_weights.weight` non-negative; direction via `ic_sign` column; applied as
-  `sign(ic) × centered_score × weight` at ensemble time
-
-- `has_gap_before_entry` flag on forward_returns; gap and non-gap IC measured separately
-- `pipeline_version` migration required on `intelligence_features` before Phase 137
-
-**Doc written:** `docs/plans/2026-06-20-alphaengine-v1-methodology.md`
-
-**DB facts confirmed (intelligence_features):**
-
-- Column names: `tf` (not timeframe), `ts`, `smc` (HMM fields), `bar` (OHLCV: o/c)
-- HMM state in `smc`: `hmm_prob_trending_up`, `hmm_prob_ranging`, `hmm_prob_trending_down`
-- Data: 1m 2mo, 5m 6mo, 15m 10mo, 1h 5.5yr — needs ETF backfill for IC Sharpe minimum
-
-**Next session:**
-
-1. Update stale docs (from previous session pending list in memory)
-2. Plan Phase 137 — backfill requirement first, then IC measurement batch jobs
-
-### Last session (2026-06-20, session 1) — v2.10 complete; starting v3.0 AlphaEngine build
-
-v2.10 milestone closed. Phase 133 (corpus rebuild) CANCELLED — superseded by Intelligence Vectors architecture. In the new model IC measurement runs on `intelligence_features` (all bars), not `signal_events` (selection-biased). The corpus rebuild would have produced training data for the OLD binary-signal paradigm; that paradigm is being replaced.
-
-**v3.0 design docs:**
-
-- `docs/ideas/signal-08-intelligence-refactor.md` — north star, phasing A-E
-- `docs/plans/2026-06-20-intelligence-vectors-architecture.md` — AlphaEngine technical design
-- `docs/plans/2026-06-20-v30-reference-architecture.md` — v3.0 reference architecture
-
-**Starting with AlphaEngine only (not AnalogEngine).**
-
-**Next:** Plan Phase 137 — IC measurement on existing signal_events corpus (737 signals, 21+ plugins)
+- v2.10 closed; v3.0 started — Feature Factory (Phase 137, 7 plans) complete; IC engine (Phase 138) planned and executing
+- I5/I6/I7 fully archived; I1-I4 replaced by Feature Factory; `feature_vectors` (not `intelligence_features`) is v3.0 training corpus
+- `BaseBatch` Ring 0 base class: `src/core/agent/base_batch.py`; all Phase 138+ batch compute extends it
+- AlphaEngine methodology doc: `docs/intelligence/intelligence-alphaengine.md`; IC methodology: `docs/plans/2026-06-20-alphaengine-v1-methodology.md`
+- Regime-conditional IC only (pooled IC is diagnostic artifact, `is_pooled=true`); IC Sharpe gate: 20,000 independent obs
 
 ## Current Position
 

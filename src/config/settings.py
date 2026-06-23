@@ -37,10 +37,10 @@ class Settings(BaseSettings):
         validation_alias="INTELLIGENCE_THREAD_POOL_WORKERS",
         description="Thread pool worker count for intelligence pipeline. 0 = cpu_count * 2 (auto).",
     )
-    intelligence_pipeline_symbol_filter: list[str] = Field(
+    feature_vector_pipeline_symbol_filter: list[str] = Field(
         default_factory=list,
-        alias="INTELLIGENCE_PIPELINE_SYMBOL_FILTER",
-        description="Symbol filter for intelligence pipeline sharding. Empty = all active contracts.",
+        alias="FEATURE_VECTOR_PIPELINE_SYMBOL_FILTER",
+        description="Symbol filter for feature vector pipeline sharding. Empty = all active contracts.",
     )
     intelligence_output_drain_batch_size: int = Field(
         default=20,
@@ -69,9 +69,9 @@ class Settings(BaseSettings):
             "stateful plugins (supports_incremental=True) run anyway with a WARNING log."
         ),
     )
-    intelligence_pipeline_queue_maxsize: int = Field(
+    feature_vector_pipeline_queue_maxsize: int = Field(
         default=100,
-        alias="INTELLIGENCE_PIPELINE_QUEUE_MAXSIZE",
+        alias="FEATURE_VECTOR_PIPELINE_QUEUE_MAXSIZE",
         description="Per-key worker queue depth; controls back-pressure on the bar ingestion path (PERF-07, Plan 06).",
     )
     replay_batch_size: int = Field(

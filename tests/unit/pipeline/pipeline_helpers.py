@@ -14,7 +14,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import AsyncMock, MagicMock
 
-from services.intelligence_pipeline import IntelligencePipeline
+from services.feature_vector_pipeline import FeatureVectorPipeline
 from src.core.bar_history import BarHistory
 from src.intelligence.pipeline.cache_manager import CacheManager
 from src.intelligence.pipeline.executor import PluginExecutor
@@ -25,8 +25,8 @@ from src.intelligence.trading.cis_scorer import CISScorer
 from src.observability.plugin_observer import NoOpPluginObserver
 
 
-def make_agent() -> IntelligencePipeline:
-    """Create an IntelligencePipeline via __new__() with required attrs.
+def make_agent() -> FeatureVectorPipeline:
+    """Create an FeatureVectorPipeline via __new__() with required attrs.
 
     Bypasses __init__ so tests can inject only the state they need without
     touching live Kafka, DB, or plugin registry.  Pattern from CLAUDE.md.
@@ -34,8 +34,8 @@ def make_agent() -> IntelligencePipeline:
     Cache state is seeded via the public seed_* API on agent._cache_mgr.
     Never mutate agent._cache_mgr._* private attributes directly.
     """
-    agent = IntelligencePipeline.__new__(IntelligencePipeline)
-    agent.name = "intelligence_pipeline_agent"
+    agent = FeatureVectorPipeline.__new__(FeatureVectorPipeline)
+    agent.name = "feature_vector_pipeline_agent"
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
     agent.tracer = MagicMock()

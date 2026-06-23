@@ -193,11 +193,11 @@ def test_all_live_services_in_dag_order():
     assert _DAG_ORDER["indicagent-dashboard"] == 10
 
 
-def test_intelligence_pipeline_priority_is_6():
-    """intelligence-pipeline must be priority 6 (after cross-asset=5, before writers=7)."""
+def test_feature_vector_pipeline_priority_is_6():
+    """feature-vector-pipeline must be priority 6 (after cross-asset=5, before writers=7)."""
     from services.service_auditor import _DAG_ORDER
 
-    assert _DAG_ORDER["indicagent-intelligence-pipeline"] == 6
+    assert _DAG_ORDER["indicagent-feature-vector-pipeline"] == 6
     # cross-asset/macro are 5 (upstream), feature-writer is 7 (downstream)
     assert _DAG_ORDER["indicagent-cross-asset"] == 5
     assert _DAG_ORDER["indicagent-feature-writer"] == 7

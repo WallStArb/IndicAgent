@@ -68,19 +68,19 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-bar-auditor": 3,  # priority 3: parallel with bar-aggregator (3)
     "indicagent-bar-writer": 4,  # priority 4: downstream of bar-aggregator (3)
     # Layer 3 — intelligence pipeline (I1-I7)
-    "indicagent-cross-asset": 5,  # priority 5: cross-asset context; intelligence-pipeline depends on its topic output
+    "indicagent-cross-asset": 5,  # priority 5: cross-asset context; feature-vector-pipeline depends on its topic output
     "indicagent-macro-compute": 5,  # priority 5: parallel with cross-asset (5)
-    "indicagent-intelligence-pipeline": 6,  # priority 6: downstream of cross-asset (5) and bar-aggregator (4); upstream of feature/signal writers (7+)
+    "indicagent-feature-vector-pipeline": 6,  # priority 6: downstream of cross-asset (5) and bar-aggregator (4); upstream of feature/signal writers (7+)
     # Layer 4 — persistence writers (parallel, all consume pipeline output)
-    "indicagent-feature-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
-    "indicagent-signal-tracker-compute": 7,  # priority 7: downstream of intelligence-pipeline (6)
-    "indicagent-signal-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
-    "indicagent-lifecycle-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
-    "indicagent-lineage-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
-    "indicagent-ctx-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
+    "indicagent-feature-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
+    "indicagent-signal-tracker-compute": 7,  # priority 7: downstream of feature-vector-pipeline (6)
+    "indicagent-signal-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
+    "indicagent-lifecycle-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
+    "indicagent-lineage-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
+    "indicagent-ctx-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
     # Layer 5 — AI/LLM layer (consumes intelligence journal / i7 signals)
     "indicagent-alpha-swarm": 8,  # priority 8: downstream of signal-writer (7)
-    "indicagent-narrative-compute": 8,  # priority 8: downstream of intelligence-pipeline (6)
+    "indicagent-narrative-compute": 8,  # priority 8: downstream of feature-vector-pipeline (6)
     "indicagent-llm-writer": 8,  # priority 8: downstream of alpha-swarm / narrative-compute (8)
     "indicagent-swarm-ledger-writer": 8,  # priority 8: downstream of alpha-swarm (8)
     # Layer 6 — analytics and rolling metrics (consume ledger / lifecycle events)
@@ -137,7 +137,7 @@ _DAG_ORDER: dict[str, int] = {
 _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_writer": "indicagent-bar-writer",
     "bar_aggregator": "indicagent-bar-aggregator",
-    "intelligence_pipeline": "indicagent-intelligence-pipeline",
+    "feature_vector_pipeline": "indicagent-feature-vector-pipeline",
     "feature_vector_writer": "indicagent-feature-writer",
     "signal_tracker": "indicagent-signal-tracker-compute",
     "signal_writer": "indicagent-signal-writer",

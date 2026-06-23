@@ -29,8 +29,9 @@ Version: 5.48.0
 
 ## Architecture
 
-**Layers:** I1-I4 Mathematical · I5-I7 Pattern/Signal · I8 AI (Ollama, default `nemotron-3-nano:4b` via `OLLAMA_MODEL`)
-**Pipeline:** `IBKR TWS → intelligence_pipeline (I1-I7 in-process) → signal_ledger + intelligence_features → feature_writer → TimescaleDB → SSE → Dashboard`
+**Layers (v3.0):** Feature Factory (replaces I1-I4) · I5-I7 archived · I8 AI (Ollama, default `nemotron-3-nano:4b` via `OLLAMA_MODEL`)
+**Pipeline (v2.x live):** `IBKR TWS → intelligence_pipeline (I1-I7 in-process) → signal_ledger + intelligence_features → feature_writer → TimescaleDB → SSE → Dashboard`
+**Pipeline (v3.0):** `IBKR TWS → FeatureVectorWriter → feature_vectors → IC engine → alpha_events`
 **Typed Bus:** `IntelligenceEvent` (`src/intelligence/schemas.py`) — tiered JSONB (i1/i2/i3/i4/i5/smc/i6), persisted to `intelligence_features` by `feature_writer`.
 
 **Service DAG:** canonical registry is `_DAG_ORDER` in `services/service_auditor.py`. Live state: `systemctl list-units --all | grep indicagent`. Monitoring: Grafana `:3001`.
@@ -85,40 +86,23 @@ All tunable numeric values live in `config_state` under `<domain>.<concept>.<par
 **Adding a parameter:** (1) INSERT into `config_schema` + `config_state` in a migration; (2) load via `ConfigService.get()` at init; (3) remove the hard-coded constant. Description must note provenance: `[initial_estimate]`, `[conventional]`, `[rca_analysis]`, or `[user_preference]`, and whether it is an ML learning target.
 
 **APR mandate covers 4 categories beyond thresholds/weights/periods:**
-1. **Seeds that affect algorithm output** → APR. e.g., `HMM_RANDOM_STATE = 42` → `alpha.hmm.random_state`. Description must warn: changing invalidates downstream outputs, requires full re-run.
-2. **Behavioral lists** — lists controlling WHAT the algorithm processes → APR as JSON. e.g., `active_tfs`, `active_symbols_filter`. Load via `json.loads(cfg.get_sync(key, default_json))`.
-3. **Infrastructure performance constants** — batch sizes, queue depths, timeouts → APR under `infra.*`. e.g., `_INSERT_BATCH_SIZE = 500` → `infra.backfill.insert_batch_size`.
-4. **Operator-visible switches** — already covered by `ui.*`; any operator-facing toggle belongs here regardless of current namespace.
+1. **Seeds that affect algorithm output** → APR (e.g., `HMM_RANDOM_STATE = 42` → `alpha.hmm.random_state`; warn in description that changing invalidates downstream outputs).
+2. **Behavioral lists** — lists controlling WHAT the algorithm processes → APR as JSON; load via `json.loads(cfg.get_sync(key, default_json))`.
+3. **Infrastructure performance constants** — batch sizes, queue depths, timeouts → `infra.*`.
+4. **Operator-visible switches** — any operator-facing toggle regardless of namespace.
 
-**APR-exempt constants (do NOT migrate these):**
+**APR-exempt:** service identity (`_JOB`, log paths, unit names), schema identifiers (column/table names), statistical concept definitions (the `5` in `momentum_z_5`), derived/computed values, mathematical constants, DAG topology. Full exempt list: `docs/foundation/adaptive-parameter-registry.md`.
 
-| Category | Examples | Why exempt |
-|----------|----------|------------|
-| Service identity | `_JOB`, log paths, systemd unit names | Infrastructure; restart required to change |
-| Schema identifiers | column names, table names, index names | Structural; migration required |
-| Statistical concept definitions | the `5` in `momentum_z_5` (changing produces different concept) | Immutable by definition |
-| Derived/computed values | `embargo_bars = max(active_lookaheads)` | Computed from APR; no independent value |
-| Mathematical constants | π, unit conversions (60s/min), HMM state count `K=3` | True constants; domain-invariant |
-| DAG topology | which plugins run, which topics exist | Structural; code/config change required |
-
-**Feature indicator periods are APR parameters, not schema elements.** Column names encode concept and scale (`rsi_fast`, `rsi_mid`, `rsi_slow`), not the period value. Periods live in APR under `feature.period.<indicator>.<scale>`. Changing a period updates APR + bumps `pipeline_version` — never a schema rename. Numbers in column names are only valid when the number defines the statistical concept (`momentum_z_5` = "5-bar z-score over 5 bars — changing to 7 bars is a different statistic"), not when it is a tunable calibration parameter.
-
-**Gradient column naming:** When a number in a column name is a tunable calibration parameter rather than a concept definition, use gradient scale identifiers instead. Pattern: `return_fast` column + `alpha.ic.lookahead.fast = 1` APR key. To experiment with a 2-bar fast lookahead: update APR, re-run the writer — no migration, no rename. Compare: `momentum_z_5` (5 bars defines the statistic) vs. `return_fast` (1 bar calibrates "fast," which can change). **Approved scale qualifiers:** `fast`, `mid`, `slow`, `extended` (speed/horizon); `low`, `mid`, `high` (magnitude); `primary`, `secondary` (rank). Full table: `docs/foundation/naming-system.md §7`.
+**Gradient column naming:** Use scale qualifiers (`fast`/`mid`/`slow`, `low`/`mid`/`high`, `primary`/`secondary`) instead of numbers for tunable calibration params. `return_fast` column + `alpha.ic.lookahead.fast = 1` APR key — update APR to change, no migration. Compare: `momentum_z_5` (5 defines the statistic, immutable) vs. `return_fast` (1 calibrates "fast," tunable). Full spec: `docs/foundation/naming-system.md §7`.
 
 **Migrate-as-you-go:** Any numeric threshold, weight, period, or count encountered in `src/` or `services/` that is not APR-backed MUST be migrated in the same session. Module-level constants and inline magic numbers are architecture violations. Pattern for module-level utilities: `_config_service: Any | None = None` + `set_config_service()` + `get_sync()` wrapper, registered in `intelligence_pipeline._prewarm_threshold_config()`. Pattern for plugin dataclasses: `_config_service: Any = field(default=None, compare=False, repr=False)`, read via `cfg.get_sync(key, fallback) if cfg else fallback`.
 
 **`ui.*` requires one-line change first:** add `"ui."` to `OPS_PREFIXES` in `src/config/config_service.py`.
 **Dashboard:** `/config/parameters` — view/edit all parameters, full change history per key.
 
-## Plugin System
+## Plugin System (v2.x — I5-I7 archived in v3.0)
 
-138 plugins across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details.
-- Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
-- **Shadow Governance:** `shadow_registry` DB table. Promotion: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0`. Demotion: EV[R] < -0.05 for 3 consecutive cycles.
-- **Confluence requirement:** Every signal-generation plugin must consume `ctf_*` sub-scores (`requires_i6_confluence=True`). Enforced by `validate_tier()` — raises `ArchitectureViolation` otherwise.
-- **Signal-generation plugin integrity:** 6 GOOD patterns: 4-factor ICC, dual regime+confluence gate before OHLCV extraction, `shadow_only=True`. Full pattern spec: `docs/signals/signals-confidence-patterns.md`.
-
-**Adding an AI Agent:** Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE.py`. Mandatory attrs: `agent_id`, `group`, `tiers_needed`, `latency_budget_ms`, `shadow_only`, `prompt_version`. Register in group service + call `shadow_registry_ensure()` at startup.
+Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py`. Shadow governance: `shadow_registry` table; promotion `n >= 100 AND bootstrap_ci_lower(pnl_r) > 0.0`. Adding an AI agent: `src/intelligence/ai/AUTHORING.md`.
 
 ## DAG Invariants
 
@@ -161,12 +145,12 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **Ollama JSON enforcement (nemotron-3-nano:4b):** system message MUST start with `"OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE."` Add `"Begin your response with { and end with }."` at end of user prompt.
 - **Swarm raw signal confidence**: `calibrated_confidence` is null in Kafka payloads. Gate on `raw_signal.get("confidence")` or `raw_signal.get("pre_quality_confidence")`.
 
-**Signal Logic**
+**Signal Logic (v2.x)**
 - **Aggregator `active` must come from `all_ranked`**: `active = [s for s in all_ranked if s.get("regime_eligible", True)]` — never from raw `signals`.
-- **SLA column reference (Phase 128+):** `signal_events`: `raw_confidence`, `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. `trade_frames`: `entry_type`, `entry_price`, `stop_price`, `target_price`, `counterfactual_pnl_r`, `was_selected`. `trade_executions`: `actual_pnl_r`, `actual_fill_price`, `exit_reason`. Query via `signal_ledger` (the JOIN view, renamed from signal_ledger_full in Phase 130).
-- **signal_schema_version**: single constant `SIGNAL_SCHEMA_VERSION` in `src/intelligence/trading/signal_schema.py` — no hardcoded version strings.
+- **SLA columns:** `signal_events` / `trade_frames` / `trade_executions`; query via `signal_ledger` JOIN view. Full column ref: `docs/operations/operations-database.md`.
+- **signal_schema_version**: single constant `SIGNAL_SCHEMA_VERSION` in `src/intelligence/trading/signal_schema.py`.
 - **entry_type values**: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`.
-- **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"`, `"expired"` — raw string literals, no enum.
+- **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"`, `"expired"` — raw strings, no enum.
 - **`signal_computed_at` is nullable**: always `COALESCE(signal_computed_at, timestamp)` in SQL.
 
 **Services**
