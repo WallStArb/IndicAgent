@@ -232,29 +232,6 @@ class FeatureFactoryConfig:
 # ---------------------------------------------------------------------------
 
 
-def _rolling_zscore(value: float, history: deque, window: int) -> float:
-    """Compute z-score of value against rolling window history.
-
-    Parameters
-    ----------
-    value: Current observation to append and score.
-    history: Rolling deque (caller manages maxlen).
-    window: Number of bars to use for mean/std.
-
-    Returns
-    -------
-    z-score as float. Returns 0.0 when insufficient history or near-zero std.
-    """
-    history.append(value)
-    if len(history) < window:
-        return 0.0
-    arr = np.array(list(history)[-window:])
-    std = float(arr.std())
-    if std < 1e-8:
-        return 0.0
-    return float((value - float(arr.mean())) / std)
-
-
 # ---------------------------------------------------------------------------
 # Bar-level primitive functions
 # ---------------------------------------------------------------------------
@@ -302,87 +279,12 @@ def _rel_volume(volume: float, vol_history: deque, window: int) -> float:
     return volume / mean_vol if mean_vol > 1e-10 else 1.0
 
 
-def _gap_z(
-    open_price: float,
-    prev_close: float,
-    atr: float,
-    gap_history: deque,
-    window: int,
-) -> float:
-    """Gap z-score: (open - prev_close) / ATR, z-scored over window.
-
-    Returns 0.0 when ATR is zero or cold-start.
-    """
-    raw_gap = (open_price - prev_close) / atr if atr > 1e-10 else 0.0
-    return _rolling_zscore(raw_gap, gap_history, window)
-
-
 def _informed_flow(open_price: float, close: float, atr: float) -> float:
     """Directional informed flow proxy: (close - open) / ATR.
 
     Returns 0.0 when ATR is zero.
     """
     return (close - open_price) / atr if atr > 1e-10 else 0.0
-
-
-def _ofi_z(
-    high: float,
-    low: float,
-    close: float,
-    volume: float,
-    ofi_history: deque,
-    window: int,
-    eps: float = 1e-10,
-) -> float:
-    """Order flow imbalance proxy (OHLCV-only, never tick path).
-
-    Formula: (close - low) / (high - low + eps) * volume, z-scored.
-    """
-    raw = (close - low) / (high - low + eps) * volume
-    return _rolling_zscore(raw, ofi_history, window)
-
-
-def _cvd_accumulate(
-    high: float,
-    low: float,
-    close: float,
-    volume: float,
-    session_cvd: list[float],
-    eps: float = 1e-10,
-) -> float:
-    """Accumulate one bar into session CVD using OHLCV proxy (never tick path).
-
-    Formula: (2*close - high - low) / (high - low + eps) * volume
-    Returns the new cumulative session CVD value.
-    """
-    raw = (2.0 * close - high - low) / (high - low + eps) * volume
-    if session_cvd:
-        new_val = session_cvd[-1] + raw
-    else:
-        new_val = raw
-    session_cvd.append(new_val)
-    return new_val
-
-
-def _cvd_slope_z(
-    session_cvd: list[float],
-    cvd_history: deque,
-    slope_bars: int,
-    zscore_window: int,
-) -> float:
-    """CVD slope z-score: slope of session CVD over slope_bars, z-scored.
-
-    Returns 0.0 on cold start.
-    """
-    if len(session_cvd) < slope_bars + 1:
-        return 0.0
-    slope = (session_cvd[-1] - session_cvd[-slope_bars - 1]) / slope_bars
-    return _rolling_zscore(slope, cvd_history, zscore_window)
-
-
-def _volume_z(volume: float, vol_z_history: deque, window: int) -> float:
-    """Volume z-score over rolling window."""
-    return _rolling_zscore(volume, vol_z_history, window)
 
 
 def _vol_ratio(closes: np.ndarray, short_bars: int, long_bars: int) -> float:
@@ -399,24 +301,11 @@ def _vol_ratio(closes: np.ndarray, short_bars: int, long_bars: int) -> float:
     return vol_short / vol_long if vol_long > 1e-10 else 1.0
 
 
-def _momentum_z(
-    closes: np.ndarray,
-    window: int,
-    zscore_history: deque,
-    zscore_window: int,
-) -> float:
-    """Log-return velocity over window, z-scored.
-
-    Returns 0.0 on cold start.
-    """
-    if len(closes) < window + 1:
-        return 0.0
-    log_return = math.log(max(float(closes[-1]), 1e-10) / max(float(closes[-(window + 1)]), 1e-10))
-    return _rolling_zscore(log_return, zscore_history, zscore_window)
-
-
 def _atr_wilder(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
-    """ATR using Wilder's EWM smoothing. Returns 0.0 on insufficient data."""
+    """ATR using Wilder's EWM smoothing. Returns 0.0 on insufficient data.
+
+    Reference implementation — used in tests only.
+    """
     n = len(closes)
     if n < period + 1:
         return 0.0
@@ -507,23 +396,6 @@ def _fixed_window_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
     return z
 
 
-def _atr_z(
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    period: int,
-    atr_z_history: deque,
-    zscore_window: int,
-) -> tuple[float, float]:
-    """ATR value and its z-score.
-
-    Returns (atr_value, atr_z_score).
-    """
-    atr = _atr_wilder(highs, lows, closes, period)
-    z = _rolling_zscore(atr, atr_z_history, zscore_window)
-    return atr, z
-
-
 def _cmf(
     highs: np.ndarray,
     lows: np.ndarray,
@@ -548,31 +420,6 @@ def _cmf(
     mfv = mfm * v
     vol_sum = float(np.sum(v))
     return float(np.sum(mfv)) / vol_sum if vol_sum > 1e-10 else 0.0
-
-
-def _vwap_dev_sigma(
-    opens: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    volumes: np.ndarray,
-) -> float:
-    """VWAP deviation in sigma units: (close - session_vwap) / session_vwap_std.
-
-    Uses typical price ((high+low+close)/3) for VWAP computation.
-    Returns 0.0 on cold start or degenerate std.
-    """
-    if len(closes) < 2:
-        return 0.0
-    typical = (highs + lows + closes) / 3.0
-    cum_tp_vol = np.cumsum(typical * volumes)
-    cum_vol = np.cumsum(volumes)
-    vwap_arr = np.where(cum_vol > 1e-10, cum_tp_vol / cum_vol, typical)
-    vwap = float(vwap_arr[-1])
-    std = float(np.std(closes - vwap_arr))
-    if std < 1e-10:
-        return 0.0
-    return (float(closes[-1]) - vwap) / std
 
 
 # ---------------------------------------------------------------------------
@@ -701,77 +548,6 @@ def _aroon_osc(highs: np.ndarray, lows: np.ndarray, period: int) -> float:
 # ---------------------------------------------------------------------------
 # Statistical / liquidity helpers (stateless, array-based)
 # ---------------------------------------------------------------------------
-
-
-def _amihud_illiq_z(closes: np.ndarray, volumes: np.ndarray, zscore_window: int) -> float:
-    """|log_return| / dollar_volume, z-scored vs rolling window.
-
-    dollar_volume proxy: close * volume (no tick data required).
-    Returns 0.0 on cold start or when all dollar volumes are zero.
-    """
-    if len(closes) < 2:
-        return 0.0
-    log_rets = np.abs(np.diff(np.log(np.maximum(closes, 1e-10))))
-    dollar_vols = closes[1:] * np.maximum(volumes[1:], 1.0)
-    illiq = log_rets / dollar_vols
-    return _zscore_last(illiq, zscore_window)
-
-
-def _high_52w_dist(closes: np.ndarray, window: int) -> float:
-    """(close - rolling_max) / rolling_max: distance from the N-bar high.
-
-    Returns 0.0 when close equals the rolling max (at the high).
-    Returns negative float when below the high.
-    """
-    if len(closes) < 2:
-        return 0.0
-    w = min(window, len(closes))
-    rolling_max = float(np.max(closes[-w:]))
-    if rolling_max < 1e-10:
-        return 0.0
-    return float((float(closes[-1]) - rolling_max) / rolling_max)
-
-
-def _rolling_stat_z(
-    log_rets: np.ndarray,
-    fn: Callable[[np.ndarray], float],
-    window: int,
-    zscore_window: int,
-) -> float:
-    """Apply fn over rolling windows of log_rets and z-score the result.
-
-    STREAMING ONLY. The inner comprehension is O(n * window) per call. Safe when
-    called once per incoming bar (window bounded by _READ_CHUNK_BARS). Catastrophic
-    if called inside a loop over n bars — O(n²) total. In batch contexts use
-    _ret_skew_z_series_full / _ret_acf1_z_series_full instead (vectorized O(n)).
-    """
-    # WARNING: O(n × window) per call. Never call this inside a loop over n bars.
-    # Use _ret_skew_z_series_full / _ret_acf1_z_series_full for batch contexts.
-    if len(log_rets) < window:
-        return 0.0
-    series = np.array(
-        [fn(log_rets[max(0, i - window + 1) : i + 1]) for i in range(window - 1, len(log_rets))],
-        dtype=float,
-    )
-    return _zscore_last(series, zscore_window)
-
-
-def _ret_skew_z(closes: np.ndarray, skew_window: int, zscore_window: int) -> float:
-    """Rolling return skewness, z-scored vs own history."""
-    if len(closes) < skew_window + 3:
-        return 0.0
-    return _rolling_stat_z(
-        np.diff(np.log(np.maximum(closes, 1e-10))), _skewness, skew_window, zscore_window
-    )
-
-
-def _ret_acf1_z(closes: np.ndarray, acf_window: int, zscore_window: int) -> float:
-    """Rolling Pearson lag-1 autocorrelation of log returns, z-scored."""
-    if len(closes) < acf_window + 2:
-        return 0.0
-    return _rolling_stat_z(
-        np.diff(np.log(np.maximum(closes, 1e-10))), _pearson_acf1, acf_window, zscore_window
-    )
 
 
 def _skewness(arr: np.ndarray) -> float:
@@ -1012,6 +788,49 @@ def _vwap_dev_sigma_series_full(
     return result
 
 
+def _gap_z_series_full(
+    opens: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    period: int,
+    zscore_window: int,
+) -> np.ndarray:
+    """Gap-z series: ATR-normalized open gap, rolling z-scored."""
+    n = len(closes)
+    result = np.zeros(n, dtype=float)
+    if n < 2:
+        return result
+
+    # ATR series (length = n-1)
+    atr_core = _atr_series_full(highs, lows, closes, period)
+
+    # For gap computation, we need ATR at position j to normalize gap[j+1]
+    # gap[j+1] = (open[j+1] - close[j]) / ATR[j]
+    # atr_core has length n-1, where atr_core[k] = ATR after bar index k+1
+    # So atr_for_gap[k] = ATR for gap at position k+1
+    atr_for_gap = atr_core[:-1] if len(atr_core) >= 2 else atr_core
+
+    # Compute gap_raw: (open[i] - close[i-1]) / ATR[i-1]
+    # opens[2:] corresponds to gap at positions 2..n-1
+    # closes[1:-1] corresponds to close at positions 1..n-2
+    if len(atr_for_gap) > 0 and len(opens) >= 2 and len(closes) >= 2:
+        gap_high = min(len(opens) - 2, len(atr_for_gap))
+        gap_raw = (opens[2 : 2 + gap_high] - closes[1 : 1 + gap_high]) / np.where(
+            atr_for_gap[:gap_high] > 1e-10, atr_for_gap[:gap_high], 1.0
+        )
+        # Z-score the gap series
+        gap_z_core = _rolling_zscore_series(
+            np.concatenate([[0.0], gap_raw]), zscore_window
+        )
+        # Build result: position 0 = 0.0, position 1 = 0.0 (no prev close), then gap_z values
+        result = np.zeros(n, dtype=float)
+        if len(gap_z_core) > 2:
+            result[2 : 2 + len(gap_z_core) - 2] = gap_z_core[2:]
+
+    return result
+
+
 def _rel_volume_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
     """Relative volume series. result[i] == streaming rel_volume at bar i.
     Uses cumulative sum for O(n) rolling mean.
@@ -1049,7 +868,6 @@ class FeatureFactory:
         tf: str,
         cache: FeatureCache,
         config: FeatureFactoryConfig,
-        precomputed: dict | None = None,
     ) -> FeatureVector:
         """Compute all 54 FeatureVector primitives from bars + cache + config.
 
@@ -1094,21 +912,13 @@ class FeatureFactory:
             bar_ts = bar_ts.replace(tzinfo=UTC)
 
         # --- ATR (needed by gap_z and informed_flow) ---
-        zw = config.momentum_zscore_window
-        if precomputed is not None and "atr" in precomputed:
-            atr_val = precomputed["atr"]
-            atr_z_val = precomputed.get("atr_z", 0.0)
-        else:
-            atr_val = _atr_wilder(highs, lows, closes, config.adx_period)
-            # ATR z-score: compute ATR for each suffix, then z-score the series
-            atr_series = np.array(
-                [
-                    _atr_wilder(highs[: i + 1], lows[: i + 1], closes[: i + 1], config.adx_period)
-                    for i in range(max(0, len(closes) - zw - 1), len(closes))
-                ],
-                dtype=float,
-            )
-            atr_z_val = _zscore_last(atr_series, min(zw, len(atr_series)))
+        # ATR series computation
+        atr_series = _atr_series_full(highs, lows, closes, config.adx_period)
+        atr_val = float(atr_series[-1]) if len(atr_series) > 0 else 0.0
+        # ATR z-score: pad with 0.0, then z-score the series
+        atr_padded = np.concatenate([[0.0], atr_series])
+        atr_z_series = _rolling_zscore_series(atr_padded, config.momentum_zscore_window)
+        atr_z_val = float(atr_z_series[-1]) if len(atr_z_series) > 0 else 0.0
 
         # --- Bar-level primitives ---
         bar_close_pos_val = _bar_close_pos(high_, low_, close_)
@@ -1121,119 +931,51 @@ class FeatureFactory:
         )
 
         # rel_volume: vol_ / mean(volumes over volume_zscore_window)
-        if precomputed is not None and "rel_volume" in precomputed:
-            rel_volume_val = precomputed["rel_volume"]
-        else:
-            vol_window = min(config.volume_zscore_window, len(volumes))
-            mean_vol = float(np.mean(volumes[-vol_window:]))
-            rel_volume_val = vol_ / mean_vol if mean_vol > 1e-10 else 1.0
+        rel_volume_series = _rel_volume_series_full(volumes, config.volume_zscore_window)
+        rel_volume_val = float(rel_volume_series[-1]) if len(rel_volume_series) > 0 else 1.0
 
         prev_close = float(closes[-2])
         # gap_z: (open - prev_close) / atr, z-scored over momentum_zscore_window
-        if precomputed is not None and "gap_z" in precomputed:
-            gap_z_val = precomputed["gap_z"]
-        else:
-            gap_raw_series = np.array(
-                [
-                    (float(bars[i]["open"]) - float(bars[i - 1]["close"]))
-                    / (_atr_wilder(highs[:i], lows[:i], closes[:i], config.adx_period) or 1.0)
-                    for i in range(max(1, len(bars) - zw), len(bars))
-                ],
-                dtype=float,
-            )
-            gap_z_val = _zscore_last(gap_raw_series, min(zw, len(gap_raw_series)))
+        gap_z_series = _gap_z_series_full(opens, highs, lows, closes, config.adx_period, config.momentum_zscore_window)
+        gap_z_val = float(gap_z_series[-1]) if len(gap_z_series) > 0 else 0.0
 
         informed_flow_val = _informed_flow(open_, close_, atr_val)
 
         # ofi_z: OHLCV proxy, z-scored over ofi_zscore_window
-        if precomputed is not None and "ofi_z" in precomputed:
-            ofi_z_val = precomputed["ofi_z"]
-        else:
-            ofi_raw = (closes - lows) / (highs - lows + 1e-10) * volumes
-            ofi_z_val = _zscore_last(ofi_raw, config.ofi_zscore_window)
+        ofi_z_series = _ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window)
+        ofi_z_val = float(ofi_z_series[-1]) if len(ofi_z_series) > 0 else 0.0
 
         # cvd_slope_z: cumulative CVD slope over slope_bars, z-scored
-        if precomputed is not None and "cvd_slope_z" in precomputed:
-            cvd_slope_z_val = precomputed["cvd_slope_z"]
-        else:
-            cvd_raw = (2.0 * closes - highs - lows) / (highs - lows + 1e-10) * volumes
-            cum_cvd = np.cumsum(cvd_raw)
-            slope_bars = config.cvd_slope_bars
-            if len(cum_cvd) > slope_bars:
-                cvd_slopes = np.array(
-                    [
-                        (cum_cvd[i] - cum_cvd[i - slope_bars]) / slope_bars
-                        for i in range(slope_bars, len(cum_cvd))
-                    ],
-                    dtype=float,
-                )
-                cvd_slope_z_val = _zscore_last(cvd_slopes, config.ofi_zscore_window)
-            else:
-                cvd_slope_z_val = 0.0
+        cvd_slope_z_series = _cvd_slope_z_series_full(closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window)
+        cvd_slope_z_val = float(cvd_slope_z_series[-1]) if len(cvd_slope_z_series) > 0 else 0.0
 
         # volume_z: rolling z-score of volume
-        if precomputed is not None and "volume_z" in precomputed:
-            volume_z_val = precomputed["volume_z"]
-        else:
-            volume_z_val = _zscore_last(volumes, config.volume_zscore_window)
+        volume_z_series = _volume_z_series_full(volumes, config.volume_zscore_window)
+        volume_z_val = float(volume_z_series[-1]) if len(volume_z_series) > 0 else 0.0
 
         vol_ratio_val = _vol_ratio(closes, config.vol_short_bars, config.vol_long_bars)
 
         # momentum_z_fast: log-return velocity over momentum_window_fast, z-scored
-        wf = config.momentum_window_fast
-        if precomputed is not None and "momentum_z_fast" in precomputed:
-            momentum_z_fast_val = precomputed["momentum_z_fast"]
-        elif len(closes) > wf:
-            mom_fast_series = np.log(
-                np.maximum(closes[wf:], 1e-10) / np.maximum(closes[:-wf], 1e-10)
-            )
-            momentum_z_fast_val = _zscore_last(mom_fast_series, config.momentum_zscore_window)
-        else:
-            momentum_z_fast_val = 0.0
+        momentum_z_fast_series = _momentum_z_series_full(closes, config.momentum_window_fast, config.momentum_zscore_window)
+        momentum_z_fast_val = float(momentum_z_fast_series[-1]) if len(momentum_z_fast_series) > 0 else 0.0
 
         # momentum_z_mid: log-return velocity over momentum_window_mid, z-scored
-        wm = config.momentum_window_mid
-        if precomputed is not None and "momentum_z_mid" in precomputed:
-            momentum_z_mid_val = precomputed["momentum_z_mid"]
-        elif len(closes) > wm:
-            mom_mid_series = np.log(
-                np.maximum(closes[wm:], 1e-10) / np.maximum(closes[:-wm], 1e-10)
-            )
-            momentum_z_mid_val = _zscore_last(mom_mid_series, config.momentum_zscore_window)
-        else:
-            momentum_z_mid_val = 0.0
+        momentum_z_mid_series = _momentum_z_series_full(closes, config.momentum_window_mid, config.momentum_zscore_window)
+        momentum_z_mid_val = float(momentum_z_mid_series[-1]) if len(momentum_z_mid_series) > 0 else 0.0
 
         # momentum_z_slow: log-return velocity over momentum_window_slow, z-scored
-        wslow = config.momentum_window_slow
-        if precomputed is not None and "momentum_z_slow" in precomputed:
-            momentum_z_slow_val = precomputed["momentum_z_slow"]
-        elif len(closes) > wslow:
-            mom_slow_series = np.log(
-                np.maximum(closes[wslow:], 1e-10) / np.maximum(closes[:-wslow], 1e-10)
-            )
-            momentum_z_slow_val = _zscore_last(mom_slow_series, config.momentum_zscore_window)
-        else:
-            momentum_z_slow_val = 0.0
+        momentum_z_slow_series = _momentum_z_series_full(closes, config.momentum_window_slow, config.momentum_zscore_window)
+        momentum_z_slow_val = float(momentum_z_slow_series[-1]) if len(momentum_z_slow_series) > 0 else 0.0
 
         # momentum_reversal_z: 1-bar log return z-scored over fast zscore window
-        if precomputed is not None and "momentum_reversal_z" in precomputed:
-            momentum_reversal_z_val = precomputed["momentum_reversal_z"]
-        else:
-            reversal_raw = np.diff(np.log(np.maximum(closes, 1e-10)))
-            reversal_window = min(config.momentum_zscore_window, len(reversal_raw))
-            momentum_reversal_z_val = (
-                _zscore_last(reversal_raw, reversal_window)
-                if len(reversal_raw) >= reversal_window
-                else 0.0
-            )
+        momentum_reversal_z_series = _momentum_reversal_z_series_full(closes, config.momentum_zscore_window)
+        momentum_reversal_z_val = float(momentum_reversal_z_series[-1]) if len(momentum_reversal_z_series) > 0 else 0.0
 
         cmf_val = _cmf(highs, lows, closes, volumes, config.cmf_period)
 
         # vwap_dev_sigma
-        if precomputed is not None and "vwap_dev_sigma" in precomputed:
-            vwap_dev_sigma_val = precomputed["vwap_dev_sigma"]
-        else:
-            vwap_dev_sigma_val = _vwap_dev_sigma(opens, highs, lows, closes, volumes)
+        vwap_dev_sigma_series = _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes)
+        vwap_dev_sigma_val = float(vwap_dev_sigma_series[-1]) if len(vwap_dev_sigma_series) > 0 else 0.0
 
         # --- Session-level primitives (from cache; 1d TF defaults to neutral) ---
         if tf == "1d":
@@ -1258,29 +1000,14 @@ class FeatureFactory:
         adx_val = cache.adx
 
         # --- Oscillators (shared deltas across RSI periods) ---
-        if precomputed is not None and "rsi_fast" in precomputed:
-            rsi_fast_val = precomputed["rsi_fast"]
-            rsi_mid_val = precomputed["rsi_mid"]
-            rsi_slow_val = precomputed["rsi_slow"]
-        else:
-            _close_deltas = np.diff(closes.astype(float))
-            _rsi_gains = np.where(_close_deltas > 0, _close_deltas, 0.0)
-            _rsi_losses = np.where(_close_deltas < 0, -_close_deltas, 0.0)
-            rsi_fast_val = (
-                _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_fast_period)
-                if len(closes) >= config.rsi_fast_period + 1
-                else 50.0
-            )
-            rsi_mid_val = (
-                _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_mid_period)
-                if len(closes) >= config.rsi_mid_period + 1
-                else 50.0
-            )
-            rsi_slow_val = (
-                _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_slow_period)
-                if len(closes) >= config.rsi_slow_period + 1
-                else 50.0
-            )
+        rsi_fast_series = _rsi_series_full(closes, config.rsi_fast_period)
+        rsi_fast_val = float(rsi_fast_series[-1]) if len(rsi_fast_series) > 0 else 50.0
+
+        rsi_mid_series = _rsi_series_full(closes, config.rsi_mid_period)
+        rsi_mid_val = float(rsi_mid_series[-1]) if len(rsi_mid_series) > 0 else 50.0
+
+        rsi_slow_series = _rsi_series_full(closes, config.rsi_slow_period)
+        rsi_slow_val = float(rsi_slow_series[-1]) if len(rsi_slow_series) > 0 else 50.0
         cci_fast_val = _cci(highs, lows, closes, config.cci_fast_period)
         cci_mid_val = _cci(highs, lows, closes, config.cci_mid_period)
         cci_slow_val = _cci(highs, lows, closes, config.cci_slow_period)
@@ -1324,29 +1051,17 @@ class FeatureFactory:
         ctf_regime_align_val = cache.ctf_regime_align
 
         # --- Statistical / liquidity ---
-        if precomputed is not None and "amihud_illiq_z" in precomputed:
-            amihud_illiq_z_val = precomputed["amihud_illiq_z"]
-        else:
-            amihud_illiq_z_val = _amihud_illiq_z(closes, volumes, config.amihud_zscore_window)
+        amihud_illiq_z_series = _amihud_illiq_z_series_full(closes, volumes, config.amihud_zscore_window)
+        amihud_illiq_z_val = float(amihud_illiq_z_series[-1]) if len(amihud_illiq_z_series) > 0 else 0.0
 
-        if precomputed is not None and "high_52w_dist" in precomputed:
-            high_52w_dist_val = precomputed["high_52w_dist"]
-        else:
-            high_52w_dist_val = _high_52w_dist(closes, config.high_52w_window)
+        high_52w_dist_series = _high_52w_dist_series_full(closes, config.high_52w_window)
+        high_52w_dist_val = float(high_52w_dist_series[-1]) if len(high_52w_dist_series) > 0 else 0.0
 
-        if precomputed is not None and "ret_skew_z" in precomputed:
-            ret_skew_z_val = precomputed["ret_skew_z"]
-        else:
-            ret_skew_z_val = _ret_skew_z(
-                closes, config.ret_skew_window, config.ret_skew_zscore_window
-            )
+        ret_skew_z_series = _ret_skew_z_series_full(closes, config.ret_skew_window, config.ret_skew_zscore_window)
+        ret_skew_z_val = float(ret_skew_z_series[-1]) if len(ret_skew_z_series) > 0 else 0.0
 
-        if precomputed is not None and "ret_acf1_z" in precomputed:
-            ret_acf1_z_val = precomputed["ret_acf1_z"]
-        else:
-            ret_acf1_z_val = _ret_acf1_z(
-                closes, config.ret_acf_window, config.ret_acf_zscore_window
-            )
+        ret_acf1_z_series = _ret_acf1_z_series_full(closes, config.ret_acf_window, config.ret_acf_zscore_window)
+        ret_acf1_z_val = float(ret_acf1_z_series[-1]) if len(ret_acf1_z_series) > 0 else 0.0
 
         # Guard: replace any NaN/inf with 0.0 (cold-start safety)
         def _guard(v: float, fallback: float = 0.0) -> float:
@@ -1426,6 +1141,288 @@ class FeatureFactory:
             volume_rank_z=None,
             volatility_rank_z=None,
         )
+
+    @staticmethod
+    def compute_batch(
+        bars: list[dict],
+        symbol: str,
+        tf: str,
+        cache: FeatureCache,
+        config: FeatureFactoryConfig,
+        warm_up_bars: int = 0,
+    ) -> list[tuple[datetime, FeatureVector]]:
+        """Compute FeatureVector for every bar in bars in O(n). Returns (bar_ts, fv) pairs.
+
+        Precomputes all series_full functions once, then loops over bars indexing series[i].
+        Non-series features (cmf, cci, aroon, vol_ratio, range_position, bar_close_pos, informed_flow)
+        are computed per bar with bounded windows. Cache-backed features (hmm, hurst, etc.) are
+        read from cache. Calendar features computed per bar from timestamps.
+        """
+        if len(bars) < 2:
+            return []
+
+        # Extract numpy arrays once
+        opens = np.array([b["open"] for b in bars], dtype=float)
+        highs = np.array([b["high"] for b in bars], dtype=float)
+        lows = np.array([b["low"] for b in bars], dtype=float)
+        closes = np.array([b["close"] for b in bars], dtype=float)
+        volumes = np.array([b["volume"] for b in bars], dtype=float)
+
+        # Precompute all series — call each _*_series_full once
+        atr_series = _atr_series_full(highs, lows, closes, config.adx_period)
+        atr_padded = np.concatenate([[0.0], atr_series])  # length = n
+        atr_z_series = _rolling_zscore_series(atr_padded, config.momentum_zscore_window)
+
+        gap_z_series = _gap_z_series_full(opens, highs, lows, closes, config.adx_period, config.momentum_zscore_window)
+        rel_volume_series = _rel_volume_series_full(volumes, config.volume_zscore_window)
+        ofi_z_series = _ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window)
+        cvd_slope_z_series = _cvd_slope_z_series_full(closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window)
+        volume_z_series = _volume_z_series_full(volumes, config.volume_zscore_window)
+
+        momentum_z_fast_series = _momentum_z_series_full(closes, config.momentum_window_fast, config.momentum_zscore_window)
+        momentum_z_mid_series = _momentum_z_series_full(closes, config.momentum_window_mid, config.momentum_zscore_window)
+        momentum_z_slow_series = _momentum_z_series_full(closes, config.momentum_window_slow, config.momentum_zscore_window)
+        momentum_reversal_z_series = _momentum_reversal_z_series_full(closes, config.momentum_zscore_window)
+
+        vwap_dev_sigma_series = _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes)
+
+        rsi_fast_series = _rsi_series_full(closes, config.rsi_fast_period)
+        rsi_mid_series = _rsi_series_full(closes, config.rsi_mid_period)
+        rsi_slow_series = _rsi_series_full(closes, config.rsi_slow_period)
+
+        amihud_illiq_z_series = _amihud_illiq_z_series_full(closes, volumes, config.amihud_zscore_window)
+        high_52w_dist_series = _high_52w_dist_series_full(closes, config.high_52w_window)
+        ret_skew_z_series = _ret_skew_z_series_full(closes, config.ret_skew_window, config.ret_skew_zscore_window)
+        ret_acf1_z_series = _ret_acf1_z_series_full(closes, config.ret_acf_window, config.ret_acf_zscore_window)
+
+        # MIN_WINDOW for non-series features (cci_slow=40, aroon_slow=26, vol_ratio=21, cmf=20, range_position=20)
+        MIN_WINDOW = 50
+        results: list[tuple[datetime, FeatureVector]] = []
+
+        for i in range(1, len(bars)):
+            # Periodically refresh regime
+            if i % config.regime_cache_refresh_bars == 0:
+                window_start = max(0, i - MIN_WINDOW)
+                cache.refresh_regime(bars[window_start:i+1], config)
+
+            # Skip warm-up
+            if i < warm_up_bars:
+                bar = bars[i]
+                cache.advance_bar(
+                    bar["ts"],
+                    float(bar["high"]),
+                    float(bar["low"]),
+                    float(bar["close"]),
+                    float(bar["volume"]),
+                )
+                continue
+
+            # Build bounded window for non-series features
+            window_start = max(0, i - MIN_WINDOW)
+            window_bars = bars[window_start:i+1]
+
+            # Extract window arrays
+            w_opens = np.array([b["open"] for b in window_bars], dtype=float)
+            w_highs = np.array([b["high"] for b in window_bars], dtype=float)
+            w_lows = np.array([b["low"] for b in window_bars], dtype=float)
+            w_closes = np.array([b["close"] for b in window_bars], dtype=float)
+            w_volumes = np.array([b["volume"] for b in window_bars], dtype=float)
+
+            bar = bars[i]
+            bar_ts = bar["ts"]
+            open_ = float(bar["open"])
+            high_ = float(bar["high"])
+            low_ = float(bar["low"])
+            close_ = float(bar["close"])
+            vol_ = float(bar["volume"])
+
+            # Ensure ts is timezone-aware UTC
+            if isinstance(bar_ts, datetime) and bar_ts.tzinfo is None:
+                bar_ts = bar_ts.replace(tzinfo=UTC)
+
+            # Series-backed features (index into precomputed series)
+            atr_val = float(atr_series[i-1]) if i-1 < len(atr_series) else 0.0
+            atr_z_val = float(atr_z_series[i]) if i < len(atr_z_series) else 0.0
+
+            gap_z_val = float(gap_z_series[i]) if i < len(gap_z_series) else 0.0
+            rel_volume_val = float(rel_volume_series[i]) if i < len(rel_volume_series) else 1.0
+            ofi_z_val = float(ofi_z_series[i]) if i < len(ofi_z_series) else 0.0
+            cvd_slope_z_val = float(cvd_slope_z_series[i]) if i < len(cvd_slope_z_series) else 0.0
+            volume_z_val = float(volume_z_series[i]) if i < len(volume_z_series) else 0.0
+
+            momentum_z_fast_val = float(momentum_z_fast_series[i]) if i < len(momentum_z_fast_series) else 0.0
+            momentum_z_mid_val = float(momentum_z_mid_series[i]) if i < len(momentum_z_mid_series) else 0.0
+            momentum_z_slow_val = float(momentum_z_slow_series[i]) if i < len(momentum_z_slow_series) else 0.0
+            momentum_reversal_z_val = float(momentum_reversal_z_series[i]) if i < len(momentum_reversal_z_series) else 0.0
+
+            vwap_dev_sigma_val = float(vwap_dev_sigma_series[i]) if i < len(vwap_dev_sigma_series) else 0.0
+
+            rsi_fast_val = float(rsi_fast_series[i]) if i < len(rsi_fast_series) else 50.0
+            rsi_mid_val = float(rsi_mid_series[i]) if i < len(rsi_mid_series) else 50.0
+            rsi_slow_val = float(rsi_slow_series[i]) if i < len(rsi_slow_series) else 50.0
+
+            amihud_illiq_z_val = float(amihud_illiq_z_series[i]) if i < len(amihud_illiq_z_series) else 0.0
+            high_52w_dist_val = float(high_52w_dist_series[i]) if i < len(high_52w_dist_series) else 0.0
+            ret_skew_z_val = float(ret_skew_z_series[i]) if i < len(ret_skew_z_series) else 0.0
+            ret_acf1_z_val = float(ret_acf1_z_series[i]) if i < len(ret_acf1_z_series) else 0.0
+
+            # Non-series features (compute on bounded window)
+            bar_close_pos_val = _bar_close_pos(high_, low_, close_)
+
+            range_bars = min(config.momentum_window_mid, len(window_bars))
+            range_position_val = _range_position(close_, w_highs[-range_bars:], w_lows[-range_bars:])
+
+            informed_flow_val = _informed_flow(open_, close_, atr_val)
+            vol_ratio_val = _vol_ratio(w_closes, config.vol_short_bars, config.vol_long_bars)
+            cmf_val = _cmf(w_highs, w_lows, w_closes, w_volumes, config.cmf_period)
+
+            # Session-level primitives (from cache; 1d TF defaults to neutral)
+            if tf == "1d":
+                poc_dist_atr_val = 0.0
+                va_position_val = 0.5
+                sr_support_dist_val = 0.0
+                sr_resist_dist_val = 0.0
+            else:
+                poc_dist_atr_val = cache.poc_dist_atr
+                va_position_val = cache.va_position
+                sr_support_dist_val = cache.sr_support_dist
+                sr_resist_dist_val = cache.sr_resist_dist
+
+            # Regime-level primitives (all from cache)
+            hmm_regime_prob_val = cache.hmm_regime_prob
+            hmm_entropy_val = cache.hmm_entropy
+            hmm_duration_val = cache.hmm_duration
+            hurst_val = cache.hurst
+            shannon_val = cache.shannon
+            garch_ratio_val = cache.garch_ratio
+            hma_slope_z_val = cache.hma_slope_z
+            adx_val = cache.adx
+
+            # Oscillators (non-series)
+            cci_fast_val = _cci(w_highs, w_lows, w_closes, config.cci_fast_period)
+            cci_mid_val = _cci(w_highs, w_lows, w_closes, config.cci_mid_period)
+            cci_slow_val = _cci(w_highs, w_lows, w_closes, config.cci_slow_period)
+
+            aroon_fast_val = _aroon_osc(w_highs, w_lows, config.aroon_fast_period)
+            aroon_slow_val = _aroon_osc(w_highs, w_lows, config.aroon_slow_period)
+
+            # OFI divergence
+            ofi_div_val = ofi_z_val - momentum_z_fast_val
+
+            # Cross-asset primitives (all from cache)
+            vix_z_val = cache.vix_z
+            flight_quality_val = cache.flight_quality
+            yield_slope_z_val = cache.yield_slope_z
+
+            # Calendar primitives
+            in_ny_session_val = _in_ny_session(bar_ts, config)
+            in_london_kz_val = _in_london_kz(bar_ts, config)
+            in_overlap_val = _in_overlap(bar_ts, config)
+            power_hour_val = _power_hour(bar_ts, config)
+            opening_range_val = _opening_range(bar_ts, config)
+            above_wk_vwap_val = cache.above_wk_vwap
+            dow_sin_val, dow_cos_val = _dow_encoding(bar_ts)
+            month_position_val = _month_position(bar_ts)
+
+            _month_in_q = (bar_ts.month - 1) % 3
+            _day_in_q = _month_in_q * 30 + bar_ts.day
+            quarter_position_val = min(1.0, _day_in_q / _QUARTER_LENGTH_DAYS)
+
+            _days_in_month = calendar.monthrange(bar_ts.year, bar_ts.month)[1]
+            _days_remaining = _days_in_month - bar_ts.day
+            days_to_month_end_val = _days_remaining / _days_in_month
+
+            # Cross-timeframe primitives (from cache)
+            ctf_momentum_val = cache.ctf_momentum
+            ctf_vwap_align_val = cache.ctf_vwap_align
+            ctf_regime_align_val = cache.ctf_regime_align
+
+            # Guard function
+            def _guard(v: float, fallback: float = 0.0) -> float:
+                return v if math.isfinite(v) else fallback
+
+            # Build FeatureVector
+            fv = FeatureVector(
+                # Momentum (7)
+                momentum_z_fast=_guard(momentum_z_fast_val),
+                momentum_z_mid=_guard(momentum_z_mid_val),
+                range_position=_guard(range_position_val, 0.5),
+                bar_close_pos=_guard(bar_close_pos_val, 0.5),
+                gap_z=_guard(gap_z_val),
+                momentum_z_slow=_guard(momentum_z_slow_val),
+                momentum_reversal_z=_guard(momentum_reversal_z_val),
+                # Volume and order flow (8)
+                informed_flow=_guard(informed_flow_val),
+                volume_z=_guard(volume_z_val),
+                ofi_z=_guard(ofi_z_val),
+                ofi_div=_guard(ofi_div_val),
+                cvd_slope_z=_guard(cvd_slope_z_val),
+                cmf=_guard(cmf_val),
+                rel_volume=_guard(rel_volume_val, 1.0),
+                vwap_dev_sigma=_guard(vwap_dev_sigma_val),
+                # Volatility (2)
+                atr_z=_guard(atr_z_val),
+                vol_ratio=_guard(vol_ratio_val, 1.0),
+                # Session-level (4)
+                poc_dist_atr=_guard(poc_dist_atr_val),
+                va_position=_guard(va_position_val, 0.5),
+                sr_support_dist=_guard(sr_support_dist_val),
+                sr_resist_dist=_guard(sr_resist_dist_val),
+                # Regime-level (11)
+                hmm_regime_prob=_guard(hmm_regime_prob_val),
+                hmm_entropy=_guard(hmm_entropy_val),
+                hmm_duration=_guard(hmm_duration_val),
+                hurst=_guard(hurst_val, 0.5),
+                shannon=_guard(shannon_val, 1.0),
+                garch_ratio=_guard(garch_ratio_val, 1.0),
+                hma_slope_z=_guard(hma_slope_z_val),
+                adx=_guard(adx_val),
+                aroon_fast=_guard(aroon_fast_val),
+                aroon_slow=_guard(aroon_slow_val),
+                # Oscillators (6)
+                rsi_fast=_guard(rsi_fast_val, 50.0),
+                rsi_mid=_guard(rsi_mid_val, 50.0),
+                rsi_slow=_guard(rsi_slow_val, 50.0),
+                cci_fast=_guard(cci_fast_val),
+                cci_mid=_guard(cci_mid_val),
+                cci_slow=_guard(cci_slow_val),
+                # Cross-asset (3)
+                vix_z=_guard(vix_z_val),
+                flight_quality=_guard(flight_quality_val),
+                yield_slope_z=_guard(yield_slope_z_val),
+                # Calendar (11)
+                in_ny_session=in_ny_session_val,
+                in_london_kz=in_london_kz_val,
+                in_overlap=in_overlap_val,
+                power_hour=power_hour_val,
+                opening_range=opening_range_val,
+                above_wk_vwap=above_wk_vwap_val,
+                dow_sin=dow_sin_val,
+                dow_cos=dow_cos_val,
+                month_position=month_position_val,
+                quarter_position=_guard(quarter_position_val, 0.0),
+                days_to_month_end=_guard(days_to_month_end_val, 0.0),
+                # Cross-timeframe (3)
+                ctf_momentum=_guard(ctf_momentum_val),
+                ctf_vwap_align=_guard(ctf_vwap_align_val),
+                ctf_regime_align=_guard(ctf_regime_align_val),
+                # Statistical / liquidity (4)
+                amihud_illiq_z=_guard(amihud_illiq_z_val),
+                high_52w_dist=_guard(high_52w_dist_val),
+                ret_skew_z=_guard(ret_skew_z_val),
+                ret_acf1_z=_guard(ret_acf1_z_val),
+                # Cross-sectional (3, nullable — populated by Phase 139)
+                momentum_rank_z=None,
+                volume_rank_z=None,
+                volatility_rank_z=None,
+            )
+
+            results.append((bar_ts, fv))
+
+            # Advance cache state
+            cache.advance_bar(bar_ts, high_, low_, close_, vol_)
+
+        return results
 
 
 def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
