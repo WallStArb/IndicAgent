@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
-status: Ready to execute
-last_updated: "2026-06-23T16:37:15.627Z"
+status: ready_to_plan
+last_updated: 2026-06-23T17:44:39.536Z
 last_activity: 2026-06-23 -- Phase 137b execution started
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 24
-  completed_plans: 22
-  percent: 92
+  completed_plans: 18
+  percent: 67
+stopped_at: Phase 137b complete (2/2) — ready to discuss Phase 138
 ---
 
 # Project State
@@ -20,11 +21,11 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 138 — IC Engine Forward Returns (P1-P7 complete, P3 backfill partial)
+**Current focus:** Phase 138 — ic engine forward returns
 
 ## v3.0 AlphaEngine — Phase 138 IC Engine Forward Returns (2026-06-22 to 2026-06-23)
 
-**Status:** P1-P7 COMPLETE, P3 PARTIAL (backfill incomplete)
+**Status:** Ready to plan
 
 | Plan | Name | Status | Date | Notes |
 |------|------|--------|------|-------|
@@ -157,10 +158,10 @@ Key commits: `696967cd..3f72e43f` (13 commits on main). Also fixed stale `indica
 
 Milestone: v2.10 — COMPLETE (2026-06-20)
 Milestone: v3.0 — IN PROGRESS — AlphaEngine (Intelligence Vectors, V1 Quant)
-Phase: 137b (feature-factory-single-path) — COMPLETE
+Phase: 138
 Phase: 138 (ic-engine-forward-returns) — P1-P7 COMPLETE, P3 partial (backfill incomplete)
 Phase: 135 (controlled-vocabulary-system) — deferred
-Last activity: 2026-06-23 -- Phase 138 P1-P7 execution complete; migration 167 applied (regime_label_source fix)
+Last activity: 2026-06-23
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
