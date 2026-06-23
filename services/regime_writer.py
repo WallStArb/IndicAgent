@@ -65,8 +65,8 @@ _logger = structlog.get_logger(__name__)
 
 _JOB = "regime-writer"
 
-# Reproducible HMM parameter estimation across runs.
-HMM_RANDOM_STATE = 42
+# HMM random state loaded from APR at runtime: alpha.hmm.random_state (default 42).
+# Changing it invalidates all regime labels in feature_vectors — requires full re-run.
 
 # Default target timeframes (matches backfill_feature_factory.py targets).
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
@@ -229,6 +229,7 @@ def _label_symbol_tf(
     n_components: int,
     vol_window: int,
     n_iter: int,
+    hmm_random_state: int,
     tracer: Any,
 ) -> int:
     """Fit HMM and UPDATE feature_vectors.regime for one (symbol, tf) cell.
@@ -299,7 +300,7 @@ def _label_symbol_tf(
                 n_components=n_components,
                 covariance_type="diag",
                 n_iter=n_iter,
-                random_state=HMM_RANDOM_STATE,
+                random_state=hmm_random_state,
             )
             model.fit(obs_matrix)
 
@@ -490,6 +491,7 @@ def main() -> None:
                 n_components = int(cfg.get_sync("feature.hmm.n_components", 3))
                 vol_window = int(cfg.get_sync("feature.hmm.vol_window", 20))
                 n_iter = int(cfg.get_sync("feature.hmm.n_iter", 100))
+                hmm_random_state = int(cfg.get_sync("alpha.hmm.random_state", 42))
 
                 # Resolve symbols
                 symbols = args.symbols if args.symbols else _discover_symbols(conn)
@@ -517,6 +519,7 @@ def main() -> None:
                                 n_components=n_components,
                                 vol_window=vol_window,
                                 n_iter=n_iter,
+                                hmm_random_state=hmm_random_state,
                                 tracer=tracer,
                             )
                             total_updated += n

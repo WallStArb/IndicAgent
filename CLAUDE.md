@@ -76,17 +76,36 @@ Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
 
 ## Adaptive Parameter Registry (APR)
 
-All tunable numeric values live in `config_state` under `<domain>.<concept>.<param>` — accessed via `ConfigService.get(key, default=X)`. Hard-coded numeric thresholds, weights, periods, or counts in `src/` are an architecture violation. Full spec: `docs/foundation/adaptive-parameter-registry.md`.
+All tunable numeric values live in `config_state` under `<domain>.<concept>.<param>` — accessed via `ConfigService.get(key, default=X)`. Hard-coded numeric thresholds, weights, periods, or counts in `src/` or `services/` are an architecture violation. Full spec: `docs/foundation/adaptive-parameter-registry.md`.
 
-**Namespaces:** `threshold.*` · `weights.*` · `feature.*` · `regime.*` · `shadow.*` · `signal.*` · `swarm.*` · `roll.*` · `ui.*` (dashboard preferences) · `alpha.*` (v3.0 IC engine, ensemble, emission, Kelly, trade framing)
+**Namespaces:** `threshold.*` · `weights.*` · `feature.*` · `regime.*` · `shadow.*` · `signal.*` · `swarm.*` · `roll.*` · `ui.*` (dashboard preferences) · `alpha.*` (v3.0 IC engine, ensemble, emission, Kelly, trade framing) · `infra.*` (batch sizes, queue depths, timeouts, audit intervals)
 
 **Parameter lifecycle:** seed → user/operator preference → ml_learned → user_override. Every write recorded in `config_history` with `changed_by` and `reason`.
 
 **Adding a parameter:** (1) INSERT into `config_schema` + `config_state` in a migration; (2) load via `ConfigService.get()` at init; (3) remove the hard-coded constant. Description must note provenance: `[initial_estimate]`, `[conventional]`, `[rca_analysis]`, or `[user_preference]`, and whether it is an ML learning target.
 
-**Feature indicator periods are APR parameters, not schema elements.** Column names encode concept and scale (`rsi_fast`, `rsi_mid`, `rsi_slow`), not the period value. Periods live in APR under `feature.period.<indicator>.<scale>`. Changing a period updates APR + bumps `pipeline_version` — never a schema rename. Numbers in column names are only valid when the number defines the statistical concept (`momentum_z_5` = "5-bar return"), not when it is a tunable parameter.
+**APR mandate covers 4 categories beyond thresholds/weights/periods:**
+1. **Seeds that affect algorithm output** → APR. e.g., `HMM_RANDOM_STATE = 42` → `alpha.hmm.random_state`. Description must warn: changing invalidates downstream outputs, requires full re-run.
+2. **Behavioral lists** — lists controlling WHAT the algorithm processes → APR as JSON. e.g., `active_tfs`, `active_symbols_filter`. Load via `json.loads(cfg.get_sync(key, default_json))`.
+3. **Infrastructure performance constants** — batch sizes, queue depths, timeouts → APR under `infra.*`. e.g., `_INSERT_BATCH_SIZE = 500` → `infra.backfill.insert_batch_size`.
+4. **Operator-visible switches** — already covered by `ui.*`; any operator-facing toggle belongs here regardless of current namespace.
 
-**Migrate-as-you-go:** Any numeric threshold, weight, period, or count encountered in `src/` that is not APR-backed MUST be migrated in the same session. Module-level constants and inline magic numbers are architecture violations. Pattern for module-level utilities: `_config_service: Any | None = None` + `set_config_service()` + `get_sync()` wrapper, registered in `intelligence_pipeline._prewarm_threshold_config()`. Pattern for plugin dataclasses: `_config_service: Any = field(default=None, compare=False, repr=False)`, read via `cfg.get_sync(key, fallback) if cfg else fallback`.
+**APR-exempt constants (do NOT migrate these):**
+
+| Category | Examples | Why exempt |
+|----------|----------|------------|
+| Service identity | `_JOB`, log paths, systemd unit names | Infrastructure; restart required to change |
+| Schema identifiers | column names, table names, index names | Structural; migration required |
+| Statistical concept definitions | the `5` in `momentum_z_5` (changing produces different concept) | Immutable by definition |
+| Derived/computed values | `embargo_bars = max(active_lookaheads)` | Computed from APR; no independent value |
+| Mathematical constants | π, unit conversions (60s/min), HMM state count `K=3` | True constants; domain-invariant |
+| DAG topology | which plugins run, which topics exist | Structural; code/config change required |
+
+**Feature indicator periods are APR parameters, not schema elements.** Column names encode concept and scale (`rsi_fast`, `rsi_mid`, `rsi_slow`), not the period value. Periods live in APR under `feature.period.<indicator>.<scale>`. Changing a period updates APR + bumps `pipeline_version` — never a schema rename. Numbers in column names are only valid when the number defines the statistical concept (`momentum_z_5` = "5-bar z-score over 5 bars — changing to 7 bars is a different statistic"), not when it is a tunable calibration parameter.
+
+**Gradient column naming:** When a number in a column name is a tunable calibration parameter rather than a concept definition, use gradient scale identifiers instead. Pattern: `return_fast` column + `alpha.ic.lookahead.fast = 1` APR key. To experiment with a 2-bar fast lookahead: update APR, re-run the writer — no migration, no rename. Compare: `momentum_z_5` (5 bars defines the statistic) vs. `return_fast` (1 bar calibrates "fast," which can change).
+
+**Migrate-as-you-go:** Any numeric threshold, weight, period, or count encountered in `src/` or `services/` that is not APR-backed MUST be migrated in the same session. Module-level constants and inline magic numbers are architecture violations. Pattern for module-level utilities: `_config_service: Any | None = None` + `set_config_service()` + `get_sync()` wrapper, registered in `intelligence_pipeline._prewarm_threshold_config()`. Pattern for plugin dataclasses: `_config_service: Any = field(default=None, compare=False, repr=False)`, read via `cfg.get_sync(key, fallback) if cfg else fallback`.
 
 **`ui.*` requires one-line change first:** add `"ui."` to `OPS_PREFIXES` in `src/config/config_service.py`.
 **Dashboard:** `/config/parameters` — view/edit all parameters, full change history per key.
@@ -168,7 +187,7 @@ Every `BaseDaemon` subclass auto-inherits 5 mandatory OTel signals (D-26, non-ne
 - **Redpanda**: Kafka-compatible. Topics: dots, via `stream_keys.py`. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Restart daemons on futures expiry.
 - **Roll flow:** `roll-batch` nightly 8pm (`production/scripts/roll_batch.py`) — promotes front-month in `contract_metadata`, broadcasts via Kafka.
-- **Docker**: `cd production && docker compose up -d` after `docker-compose.yml` changes.
+- **Docker**: `cd production && docker compose up -d` after `docker-compose.yml` changes. All services have `logging: max-size/max-file` caps — do not remove them (TimescaleDB grew a 29GB log without them).
 - **Ollama:** Docker (`ollama/ollama:rocm`). `docker exec ollama ollama <cmd>`. Kill `alpha_swarm` + `narrative_compute` before swapping models.
 
 > Sudo, INDICAGENT_ENV debug, more: `docs/operations/operations-infrastructure.md`

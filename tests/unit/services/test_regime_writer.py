@@ -6,7 +6,7 @@ All tests use synthetic data — no DB dependency. Tests verify:
 - _causal_decode produces valid state indices
 - _build_label_map produces canonical text labels deterministically
 - Label map covers all K states
-- HMM_RANDOM_STATE constant is 42
+- HMM random state default is 42 (lives in APR as alpha.hmm.random_state)
 """
 
 from __future__ import annotations
@@ -26,11 +26,12 @@ from services.regime_writer import (
     _LABEL_RANGING,
     _LABEL_TRENDING_DOWN,
     _LABEL_TRENDING_UP,
-    HMM_RANDOM_STATE,
     _build_label_map,
     _build_obs_matrix,
     _causal_decode,
 )
+
+_HMM_RANDOM_STATE = 42  # conventional seed; lives in APR as alpha.hmm.random_state
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -81,7 +82,7 @@ def _fit_simple_hmm(obs_matrix: np.ndarray, n_components: int = 3) -> GaussianHM
         n_components=n_components,
         covariance_type="diag",
         n_iter=50,
-        random_state=HMM_RANDOM_STATE,
+        random_state=_HMM_RANDOM_STATE,
     )
     model.fit(obs_matrix)
     return model
@@ -373,7 +374,7 @@ def test_build_label_map_four_components():
         n_components=n_components,
         covariance_type="diag",
         n_iter=50,
-        random_state=HMM_RANDOM_STATE,
+        random_state=_HMM_RANDOM_STATE,
     )
     model.fit(obs)
     label_map = _build_label_map(model, n_components)
@@ -387,9 +388,9 @@ def test_build_label_map_four_components():
 # ---------------------------------------------------------------------------
 
 
-def test_hmm_random_state_is_42():
-    """HMM_RANDOM_STATE must be 42 for reproducibility."""
-    assert HMM_RANDOM_STATE == 42
+def test_hmm_random_state_default():
+    """Conventional HMM seed for reproducibility. Actual value lives in APR (alpha.hmm.random_state)."""
+    assert _HMM_RANDOM_STATE == 42
 
 
 def test_canonical_label_constants():

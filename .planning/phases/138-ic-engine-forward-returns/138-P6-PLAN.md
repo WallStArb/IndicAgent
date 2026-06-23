@@ -62,6 +62,14 @@ MAJOR CORRECTNESS UPDATES IN THIS REVISION (from REVIEWS.md):
 4. is_pooled=true for pooled IC rows; is_pooled=false for regime-stratified rows. ON CONFLICT targets two separate indexes.
 5. Crash-loud gates are explicit RuntimeError with exact error messages -- not just "should check" language.
 
+POOLED IC ROLE: Pooled rows (is_pooled=true, regime=NULL) are written as DIAGNOSTIC ARTIFACTS ONLY. They exist to compare against regime-stratified IC and catch cases where regime conditioning hurts (degenerate regimes, thin data). Phase 139 ensemble EXCLUSIVELY reads WHERE is_pooled = false rows. The IC discovery report presents pooled IC in a separate "Comparison: Pooled vs. Regime-Stratified" section, clearly marked diagnostic. Never promote a pooled IC score to the ensemble.
+
+IC SHARPE WINDOW DEFINITION: sharpe_window_size = 2000 means 2000 RAW bars per rolling window (before striding). Within each window, IC is computed from non-overlapping subsampled observations at stride = max(subsample_min_stride, lookahead_bars). Gate: n_raw_bars >= sharpe_min_windows * sharpe_window_size (= 20,000 raw bars). Use n_raw_bars (total bars for this symbol/tf/regime before subsampling) for this gate check, NOT n_independent.
+
+TRAINING_WINDOW_END CONSUMER NOTE: feature_ic_scores is an append-only record. When ic_engine reruns with new data, training_window_end changes and new rows are inserted alongside old ones (idempotent per training_window_end). Consumers always query MAX(training_window_end) per (feature_name, symbol, tf, regime, lookahead_bars, is_pooled) to get current scores. No is_current flag needed.
+
+NULL CROSS-SECTIONAL FEATURES: momentum_rank_z, volume_rank_z, volatility_rank_z are all-NULL in Phase 138 (cross-sectional fields, populated in Phase 139). They will all be skipped via the std < 1e-8 degenerate gate. Their IC_ENGINE_CELLS_SKIPPED_TOTAL{skip_reason="degenerate_feature"} increments are expected and correct — they represent planned absence, not data error. Log them at DEBUG not WARNING.
+
 Output: feature_ic_scores fully populated, vectorized + statistically correct + idempotent + crash-loud + fully instrumented.
 </objective>
 
@@ -94,17 +102,27 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
   </read_first>
   <action>
     In src/observability/metrics.py add (per observability mandate §XIX):
+
+    Per-run flow metrics:
     - IC_ENGINE_CELLS_COMPLETED_TOTAL = _meter.create_counter("ic_engine_cells_completed_total", description="cells with committed feature_ic_scores row; labels symbol, tf, regime")
     - IC_ENGINE_CELLS_SKIPPED_TOTAL = _meter.create_counter("ic_engine_cells_skipped_total", description="cells skipped; labels symbol, tf, skip_reason in {insufficient_n, already_present, missing_regime, degenerate_feature}")
     - IC_ENGINE_RUN_LATENCY_SECONDS = _meter.create_histogram("ic_engine_run_latency_seconds", description="full IC Engine run duration")
     - FEATURE_IC_PASSING_FDR_TOTAL = _meter.create_gauge("feature_ic_passing_fdr_total", description="features passing BH-FDR gate; labels symbol, tf")
     - FEATURE_IC_PASSING_WALKFORWARD_TOTAL = _meter.create_gauge("feature_ic_passing_walkforward_total", description="features passing walk-forward gate; labels symbol, tf")
-    Reuse OUTCOME_LABELS_COVERAGE (already defined in P3). No prometheus_client.
+
+    Post-run IC health gauges (emitted after full run; scraped by Grafana for AlphaEngine health):
+    - IC_SCORE_GAUGE = _meter.create_gauge("feature_ic_score", description="Spearman IC value per cell; labels feature_name, symbol, tf, regime, lookahead_bars, is_pooled")
+    - EFFECTIVE_N_GAUGE = _meter.create_gauge("ic_engine_effective_n", description="effective independent observations used in IC computation; labels symbol, tf, regime")
+    - FEATURES_SURVIVING_FDR_GAUGE = _meter.create_gauge("ic_engine_features_surviving_fdr", description="count of features passing BH-FDR gate per (symbol, tf, regime); labels symbol, tf, regime")
+    - IC_SHARPE_GAUGE = _meter.create_gauge("ic_engine_ic_sharpe", description="IC Sharpe ratio per cell (NULL rows not emitted); labels feature_name, symbol, tf, regime, lookahead_bars")
+
+    Reuse OUTCOME_LABELS_COVERAGE (already defined in P5). No prometheus_client.
   </action>
   <acceptance_criteria>
-    - `.venv/bin/python -c "from src.observability.metrics import IC_ENGINE_CELLS_COMPLETED_TOTAL, IC_ENGINE_CELLS_SKIPPED_TOTAL, IC_ENGINE_RUN_LATENCY_SECONDS, FEATURE_IC_PASSING_FDR_TOTAL, FEATURE_IC_PASSING_WALKFORWARD_TOTAL; print('ok')"` exits 0
+    - `.venv/bin/python -c "from src.observability.metrics import IC_ENGINE_CELLS_COMPLETED_TOTAL, IC_ENGINE_CELLS_SKIPPED_TOTAL, IC_ENGINE_RUN_LATENCY_SECONDS, FEATURE_IC_PASSING_FDR_TOTAL, FEATURE_IC_PASSING_WALKFORWARD_TOTAL, IC_SCORE_GAUGE, EFFECTIVE_N_GAUGE, FEATURES_SURVIVING_FDR_GAUGE, IC_SHARPE_GAUGE; print('ok')"` exits 0
     - `grep -c "OUTCOME_LABELS_COVERAGE = " src/observability/metrics.py` returns 1 (not redefined)
     - `grep -c "degenerate_feature" src/observability/metrics.py` returns >= 1 (skip_reason documented in description)
+    - `grep -c "IC_SCORE_GAUGE\|EFFECTIVE_N_GAUGE\|FEATURES_SURVIVING_FDR_GAUGE\|IC_SHARPE_GAUGE" src/observability/metrics.py` returns >= 4
   </acceptance_criteria>
   <verify>.venv/bin/python -c "from src.observability.metrics import IC_ENGINE_CELLS_COMPLETED_TOTAL; print('ok')"</verify>
   <done>Five ic_engine metrics importable; degenerate_feature skip_reason documented.</done>
@@ -131,9 +149,27 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
       _FEATURE_NAMES = [f.name for f in dataclasses.fields(FeatureVector)]
     This stays in sync automatically -- do NOT hardcode 54 names.
 
-    APR loading via _load_config_service(conn): read ALL via cfg.get_sync -- min_observations (alpha.ic.min_observations, fb 500), bootstrap_resamples (alpha.ic.bootstrap_resamples, fb 2000), bootstrap_block_size (alpha.ic.bootstrap_block_size, fb 10), fdr_alpha (alpha.ic.fdr_alpha, fb 0.05), walk_forward_folds (alpha.ic.walk_forward_folds, fb 3), sharpe_window_size (alpha.ic.sharpe_window_size, fb 2000), sharpe_min_windows (alpha.ic.sharpe_min_windows, fb 10), subsampling_n (alpha.ic.subsampling_n, fb 5), min_reliable_n (alpha.ic.min_reliable_n, fb 100). ZERO inline numerics in compute logic.
+    SCALES (schema-structural constant — gradient names are column identifiers):
+      _SCALES: tuple[str, ...] = ("fast", "mid", "slow", "extended")
+      # Schema holds the concept (fast/mid/slow/extended); APR holds the period in bars
+      # (alpha.ic.lookahead.{scale}). Adding a new scale requires a migration; changing
+      # a period is an APR update only.
 
-    Lookaheads [1,5,20,60] map to forward_returns.return_1bar/5bar/20bar/60bar (statistical-concept column names, allowed).
+    APR loading via _load_config_service(conn): read ALL via cfg.get_sync --
+      lookahead periods: alpha.ic.lookahead.{scale} for each scale in _SCALES (fb: 1, 5, 20, 60)
+      min_observations (alpha.ic.min_observations, fb 500), bootstrap_resamples (alpha.ic.bootstrap_resamples, fb 2000),
+      bootstrap_block_size (alpha.ic.bootstrap_block_size, fb 10), fdr_alpha (alpha.ic.fdr_alpha, fb 0.05),
+      walk_forward_folds (alpha.ic.walk_forward_folds, fb 3), sharpe_window_size (alpha.ic.sharpe_window_size, fb 2000),
+      sharpe_min_windows (alpha.ic.sharpe_min_windows, fb 10), subsample_min_stride (alpha.ic.subsample_min_stride, fb 5),
+      min_reliable_n (alpha.ic.min_reliable_n, fb 100). ZERO inline numerics in compute logic.
+    NOTE: the APR key is alpha.ic.subsample_min_stride (seeded in migration 161) — NOT alpha.ic.subsampling_n.
+    Variable name in code: subsample_min_stride. Actual stride used per cell = max(subsample_min_stride, lookahead_bars).
+
+    LOOKAHEADS dict (built from APR):
+      _SCALE_FALLBACKS = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
+      lookaheads = {scale: int(cfg.get_sync(f"alpha.ic.lookahead.{scale}", fb)) for scale, fb in _SCALE_FALLBACKS.items()}
+      # lookaheads["fast"] = 1, lookaheads["mid"] = 5, etc. by default.
+      # active_lookaheads list = list(lookaheads.values()) — always process all scales.
 
     CRASH-LOUD GATES (Renaissance mandate #9) -- enforced code, not comments. Run at startup BEFORE any compute. Each gate raises RuntimeError with an exact error message:
 
@@ -205,11 +241,14 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
 
     COMPUTE LOOP -- for each (symbol, tf), wrap in observed_span("ic_engine.compute_symbol_tf"):
       a. Load feature matrix: SELECT bar_ts, regime, <54 feature columns> FROM feature_vectors WHERE symbol=%s AND tf=%s AND bar_ts <= TRAINING_WINDOW_END ORDER BY bar_ts. Load into numpy arrays (X shape [n_bars, 54]).
-      b. Load forward returns: JOIN forward_returns by (symbol, tf, bar_ts) -- get return_1bar/5bar/20bar/60bar + complete flags aligned to the same bar_ts order (exact timestamp match, mandate #10).
+      b. Load forward returns: JOIN forward_returns by (symbol, tf, bar_ts) -- get return_fast/mid/slow/extended + complete_fast/mid/slow/extended aligned to the same bar_ts order (exact timestamp match, mandate #10).
       c. Distinct regimes for this (symbol, tf): the set of non-NULL regime values present. ALSO compute a pooled pass (is_pooled=True, regime=None).
       d. For each regime in {distinct regimes} + {None for pooled}:
          - mask rows to this regime (pooled = all rows); set is_pooled flag accordingly
-         - SUBSAMPLE: keep every subsampling_n-th row (non-overlapping independence) -> X_sub, returns_sub. n_independent = rows kept.
+         - SUBSAMPLE: compute stride = max(subsample_min_stride, lookahead_bars). Keep every
+           stride-th row (non-overlapping independence) -> X_sub, returns_sub.
+           n_independent = len(X_sub). This removes the serial autocorrelation that inflates
+           naive IC standard errors. stride is per-lookahead (recalculate inside the lookahead loop).
          - if n_independent < min_reliable_n: skip cell, IC_ENGINE_CELLS_SKIPPED_TOTAL.add(1, {symbol, tf, skip_reason:"insufficient_n"}); continue.
 
          DEGENERATE FEATURE SKIP (fixes REVIEWS.md MEDIUM issue #8):
@@ -230,23 +269,26 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
              - p_value per feature via t-approximation: t = ic * sqrt((n-2) / max(1-ic^2, 1e-10)); p = 2 * (1 - t_cdf(abs(t), df=n-2)).
              - CIRCULAR BLOCK BOOTSTRAP CI (APR-backed block_size): wrap in observed_span("ic_engine.bootstrap_ci"). Call _circular_block_bootstrap_ic(ranks_X, ranks_Y, bootstrap_block_size, bootstrap_resamples, rng). ic_ci_lower/upper from percentile. passes_ci_gate = ic_ci_lower[j] > 0 (for each feature j). NaN for degenerate features.
 
-             WALK-FORWARD WITH 60-BAR EMBARGO (fixes REVIEWS.md MEDIUM issue #7):
-             Split the subsampled series chronologically into walk_forward_folds expanding windows. The embargo between training-fold-end and test-fold-start MUST be max(lookaheads) = 60 bars. This prevents overlapping forward-return labels from leaking across the fold boundary. Implementation:
+             WALK-FORWARD WITH EMBARGO (fixes REVIEWS.md MEDIUM issue #7):
+             Split the subsampled series chronologically into walk_forward_folds expanding windows.
+             The embargo between training-fold-end and test-fold-start equals max(lookaheads.values())
+             bars -- this prevents overlapping forward-return labels from leaking across the fold
+             boundary (a bar near train_end has a forward return window that extends embargo_bars
+             bars forward; the test set must start after that window closes).
 
                total_n = len(X_sub)
-               embargo_bars = 60  # MUST be max(lookaheads); prevents label overlap
-               # Compute fold boundaries: fold k test window ends at total_n * (k+1) / walk_forward_folds
+               embargo_bars = max(lookaheads.values())  # derived from APR; equals 60 for default extended=60
                fold_ics = []
                for k in range(walk_forward_folds):
                    train_end_idx = int(total_n * (k + 1) / (walk_forward_folds + 1))
-                   test_start_idx = train_end_idx + embargo_bars  # 60-bar gap
+                   test_start_idx = train_end_idx + embargo_bars
                    test_end_idx = int(total_n * (k + 2) / (walk_forward_folds + 1))
                    if test_start_idx >= test_end_idx or (test_end_idx - test_start_idx) < min_reliable_n:
                        continue  # not enough test data after embargo
-                   X_train = X_sub[:train_end_idx]
                    X_test = X_sub[test_start_idx:test_end_idx]
                    Y_test = returns_sub[test_start_idx:test_end_idx, N_idx]
-                   # Rerank test data using training ranks as reference (expanding window)
+                   # Spearman IC ranks within the test window (no reference to training distribution
+                   # needed -- Spearman correlation is invariant to monotone transforms of each series).
                    ranks_X_test = rankdata(X_test, axis=0)
                    ranks_Y_test = rankdata(Y_test)
                    oos_ic = vectorized_ic(ranks_X_test, ranks_Y_test)  # shape [n_features]
@@ -261,39 +303,69 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
                    passes_walkforward = wf_pass_count == walk_forward_folds  # strictest gate
                else:
                    passes_walkforward = np.zeros(n_features, dtype=bool)
-               Note: embargo_bars is not a hardcoded magic number -- it equals max(lookaheads) which is always 60 for the [1,5,20,60] lookahead set. Add a comment explaining this derivation.
 
-             - IC SHARPE (IC spec §X.1): only computable if n_independent >= sharpe_min_windows * sharpe_window_size. Below threshold: ic_sharpe=NULL. Compute IC per rolling window of sharpe_window_size, ic_sharpe = mean/std across windows.
+             - IC SHARPE (IC spec §X.1): sharpe_window_size is in RAW bars. Gate uses
+               n_raw_bars_regime = count of rows in the regime-masked series (after filtering to
+               this specific regime, before subsampling). Gate: n_raw_bars_regime >=
+               sharpe_min_windows * sharpe_window_size (default: 10 * 2000 = 20,000 raw bars).
+               This is intentionally conservative: thin regimes correctly suppress IC Sharpe rather
+               than produce unreliable rolling-window estimates. For example, a trending_down regime
+               with only 5,000 bars in a 5m series would not get IC Sharpe (5K < 20K gate). Below
+               threshold: ic_sharpe=NULL, ic_sharpe_n_windows=NULL. Above threshold: divide the
+               regime-masked raw bar series into non-overlapping windows of sharpe_window_size bars;
+               within each window subsample at stride=max(subsample_min_stride, lookahead_bars) and
+               compute Spearman IC; ic_sharpe = mean(window_ICs) / std(window_ICs);
+               ic_sharpe_n_windows = number of windows used.
              - Append result dict for this cell to a per-(symbol,tf) list AND append p_value to a flat pvals array with a PARALLEL list of (feature_name, regime, lookahead, is_pooled) tuples (order correspondence for FDR).
 
       e. BH-FDR per (symbol, tf) batch: reject, q_values, _, _ = statsmodels.stats.multitest.multipletests(pvals_array, alpha=fdr_alpha, method='fdr_bh'). multipletests PRESERVES input order. Set bh_adjusted_p and passes_fdr per cell by index.
 
-      f. Batch INSERT all cells INTO feature_ic_scores. For each row, set is_pooled appropriately. Use TWO separate INSERT statements to target the correct unique index:
+      f. Batch INSERT all cells INTO feature_ic_scores. For each row, set is_pooled appropriately. Use TWO separate INSERT statements targeting the correct partial unique index.
+
+         CRITICAL: feature_ic_scores_regime_uq and feature_ic_scores_pooled_uq are created with CREATE UNIQUE INDEX (not ADD CONSTRAINT), so ON CONFLICT ON CONSTRAINT is NOT valid — Postgres only allows ON CONFLICT ON CONSTRAINT for table constraints, not indexes. Use the column list + WHERE clause form that exactly matches each partial index predicate:
 
          For regime-stratified rows (is_pooled=False, regime IS NOT NULL):
            INSERT INTO feature_ic_scores (..., regime, is_pooled, ...)
            VALUES (%s, ..., %s, false, ...)
-           ON CONFLICT ON CONSTRAINT feature_ic_scores_regime_uq DO NOTHING
+           ON CONFLICT (feature_name, symbol, tf, regime, lookahead_bars, training_window_end)
+             WHERE is_pooled = false AND regime IS NOT NULL
+           DO NOTHING
 
          For pooled rows (is_pooled=True, regime=NULL):
            INSERT INTO feature_ic_scores (..., regime, is_pooled, ...)
            VALUES (%s, ..., NULL, true, ...)
-           ON CONFLICT ON CONSTRAINT feature_ic_scores_pooled_uq DO NOTHING
+           ON CONFLICT (feature_name, symbol, tf, lookahead_bars, training_window_end)
+             WHERE is_pooled = true
+           DO NOTHING
 
-         Do NOT attempt to use the PK as conflict target for regime=NULL rows -- Postgres NULL uniqueness means this silently allows duplicate pooled rows.
+         Do NOT attempt ON CONFLICT ON CONSTRAINT — it will fail at runtime. The WHERE clause in ON CONFLICT must exactly match the partial index predicate for Postgres to recognise the index.
 
       g. IC_ENGINE_CELLS_COMPLETED_TOTAL.add(n_committed, {symbol, tf, regime}); FEATURE_IC_PASSING_FDR_TOTAL.set(n_passing_fdr, {symbol, tf}); FEATURE_IC_PASSING_WALKFORWARD_TOTAL.set(n_passing_wf, {symbol, tf}).
 
     Wrap full run in observed_span("ic_engine.run"); record IC_ENGINE_RUN_LATENCY_SECONDS. Emit JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": ...}) in finally block; flush_and_shutdown_metrics(); sys.exit(1) on failure.
 
+    POST-RUN IC HEALTH GAUGES: after the full compute loop completes (before D-06 emission),
+    query feature_ic_scores for the current training_window_end and emit the 4 health gauges.
+    This allows Grafana to scrape IC health without needing to parse the discovery report:
+      - IC_SCORE_GAUGE.set(ic_value, {"feature_name": ..., "symbol": ..., "tf": ..., "regime": ..., "lookahead_bars": str(n), "is_pooled": str(is_pooled)}) for each non-NULL ic_value row
+      - EFFECTIVE_N_GAUGE.set(n_independent, {"symbol": ..., "tf": ..., "regime": ...}) per (symbol, tf, regime) from the compute loop
+      - FEATURES_SURVIVING_FDR_GAUGE.set(n_passing_fdr, {"symbol": ..., "tf": ..., "regime": ...}) per (symbol, tf, regime)
+      - IC_SHARPE_GAUGE.set(ic_sharpe, {"feature_name": ..., "symbol": ..., "tf": ..., "regime": ..., "lookahead_bars": str(n)}) for each row where ic_sharpe IS NOT NULL
+
+    REPORT-ONLY MODE: implement --report-only argparse flag. When set, skip all IC computation;
+    query the current feature_ic_scores (MAX training_window_end) and write the IC discovery
+    report (markdown + JSON) only. This is the flag P8 Task 5 calls. Implement it in ic_engine.py
+    in P6 -- do not defer to P8.
+
     DAG-invariant docstring note: oneshot batch tool, exempt like backfill_feature_factory.py.
-    argparse: --symbols (default all feature_vectors symbols), --tf (default 4 TFs).
+    argparse: --symbols (default all feature_vectors symbols), --tf (default 4 TFs),
+    --report-only (skip IC computation; write discovery report from existing feature_ic_scores).
   </action>
   <acceptance_criteria>
-    - `.venv/bin/python services/ic_engine.py --symbols SPY --tf 5m` exits 0
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE symbol='SPY' AND tf='5m';"` returns > 0
-    - Pooled rows have is_pooled=true: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE symbol='SPY' AND tf='5m' AND is_pooled=true AND regime IS NULL;"` returns > 0
-    - Regime rows have is_pooled=false: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE symbol='SPY' AND tf='5m' AND is_pooled=false AND regime IS NOT NULL;"` returns > 0
+    - `.venv/bin/python services/ic_engine.py --symbols VUG --tf 1h` exits 0 (VUG 1h is the only symbol with feature_vectors data at this stage; full corpus run is P8)
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE symbol='VUG' AND tf='1h';"` returns > 0
+    - Pooled rows have is_pooled=true: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE symbol='VUG' AND tf='1h' AND is_pooled=true AND regime IS NULL;"` returns > 0
+    - Regime rows have is_pooled=false: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE symbol='VUG' AND tf='1h' AND is_pooled=false AND regime IS NOT NULL;"` returns > 0
     - No rows have is_pooled=false with regime=NULL (the ambiguous case eliminated): `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE is_pooled=false AND regime IS NULL;"` returns 0
     - Circular block bootstrap present: `grep -c "_circular_block_bootstrap_ic\|block_size\|n_blocks" services/ic_engine.py` returns >= 3
     - IID bootstrap absent: `grep -c "scipy.stats.bootstrap" services/ic_engine.py` returns 0
@@ -304,57 +376,48 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
     - bootstrap_block_size from APR: `grep -c "bootstrap_block_size\|alpha\.ic\.bootstrap_block_size" services/ic_engine.py` returns >= 2
     - BH-FDR populated: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE bh_adjusted_p IS NOT NULL AND symbol='SPY' AND tf='5m';"` returns > 0
     - walk-forward populated: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE passes_walkforward IS NOT NULL AND symbol='SPY' AND tf='5m';"` returns > 0
-    - IC Sharpe gate: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE ic_sharpe IS NOT NULL AND n_independent < 20000 AND symbol='SPY' AND tf='5m';"` returns 0
+    - IC Sharpe gate: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE ic_sharpe IS NOT NULL AND ic_sharpe_n_windows < 10 AND symbol='SPY' AND tf='5m';"` returns 0 (ic_sharpe only non-NULL when enough windows exist)
     - CRASH-LOUD verified: `.venv/bin/python -c "import sys; sys.exit(0)" && echo "verify gate manually by running with NONEXISTENT symbol and confirming non-zero exit"` -- confirm in acceptance that a fresh test with empty feature_vectors exits non-zero (can be tested by mocking if needed)
     - `grep -c "rankdata" services/ic_engine.py` returns >= 1
     - `grep -c "multipletests" services/ic_engine.py` returns >= 1
     - `grep -c "observed_span" services/ic_engine.py` returns >= 3 (run, compute_symbol_tf, bootstrap_ci)
     - `grep -c "JOB_COMPLETED_TOTAL\|flush_and_shutdown_metrics" services/ic_engine.py` returns >= 2
     - `grep -c "dataclasses.fields\|fields(FeatureVector)" services/ic_engine.py` returns >= 1
+    - Lookahead periods from APR: `grep -c "alpha\.ic\.lookahead\." services/ic_engine.py` returns >= 4
+    - embargo_bars derived: `grep -c "max(lookaheads" services/ic_engine.py` returns >= 1
+    - No hardcoded embargo: `grep -c "embargo_bars\s*=\s*60" services/ic_engine.py` returns 0
+    - No X_train dead variable: `grep -c "X_train\s*=" services/ic_engine.py` returns 0
+    - Report-only flag present: `grep -c "report.only\|report_only" services/ic_engine.py` returns >= 2 (argparse + usage)
+    - IC health gauges emitted: `grep -c "IC_SCORE_GAUGE\|EFFECTIVE_N_GAUGE\|FEATURES_SURVIVING_FDR_GAUGE\|IC_SHARPE_GAUGE" services/ic_engine.py` returns >= 4
+    - Per-regime n_raw_bars gate: `grep -c "n_raw_bars_regime\|n_raw_bars" services/ic_engine.py` returns >= 2
+    - `grep -c "stride\s*=\s*max" services/ic_engine.py` returns >= 1
     - `.venv/bin/ruff check services/ic_engine.py` passes
   </acceptance_criteria>
-  <verify>.venv/bin/python services/ic_engine.py --symbols SPY --tf 5m && PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT regime, is_pooled, count(*), count(*) FILTER (WHERE passes_fdr) fdr, count(*) FILTER (WHERE passes_walkforward) wf FROM feature_ic_scores WHERE symbol='SPY' AND tf='5m' GROUP BY regime, is_pooled;"</verify>
-  <done>ic_engine.py produces complete feature_ic_scores rows for SPY 5m; circular-block-bootstrap CI; 60-bar embargo walk-forward; degenerate feature skip; is_pooled column correct; crash-loud gates raise RuntimeError; D-06 + 5 OTel metrics + 3 spans wired; APR-compliant.</done>
-</task>
-
-<task type="auto">
-  <name>Task 3: Run IC engine across all backfilled symbols/TFs</name>
-  <files>feature_ic_scores (DB table -- populated)</files>
-  <read_first>
-    - services/ic_engine.py (just built)
-    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Finding 3 full-run estimate ~2.8 min bootstrap phase; Risk 3 1h TF marginal)
-  </read_first>
-  <action>
-    Run .venv/bin/python services/ic_engine.py with no symbol filter. Run in background; poll feature_ic_scores counts. Then verify idempotency by re-running SPY 5m.
-  </action>
-  <acceptance_criteria>
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT symbol) FROM feature_ic_scores;"` returns >= 14
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE passes_walkforward = true;"` returns >= 1 (at least one feature survives the hardest gate)
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE is_pooled=false AND regime IS NULL;"` returns 0 (no ambiguous rows)
-    - Idempotency: capture `SELECT count(*) FROM feature_ic_scores`, re-run `.venv/bin/python services/ic_engine.py --symbols SPY --tf 5m`, count again -- counts EQUAL (0 new rows)
-    - `job_completed_total{job="ic-engine", status="success"}` emitted
-  </acceptance_criteria>
-  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, is_pooled, count(*) total, count(*) FILTER (WHERE passes_fdr) fdr, count(*) FILTER (WHERE passes_walkforward) wf FROM feature_ic_scores GROUP BY tf, is_pooled ORDER BY tf, is_pooled;"</verify>
-  <done>feature_ic_scores populated for >=14 symbols x 4 TFs; is_pooled/regime correctly set; idempotent re-run confirmed.</done>
+  <verify>.venv/bin/python services/ic_engine.py --symbols VUG --tf 1h && PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT regime, is_pooled, count(*), count(*) FILTER (WHERE passes_fdr) fdr, count(*) FILTER (WHERE passes_walkforward) wf FROM feature_ic_scores WHERE symbol='VUG' AND tf='1h' GROUP BY regime, is_pooled;"</verify>
+  <done>ic_engine.py produces complete feature_ic_scores rows for VUG 1h; circular-block-bootstrap CI; embargo = max(lookaheads.values()) bars; degenerate feature skip (DEBUG log); is_pooled correct; crash-loud RuntimeError gates; --report-only flag implemented; 4 IC health gauges emitted; stride = max(subsample_min_stride, lookahead_bars) per cell; lookahead periods from APR (alpha.ic.lookahead.*); D-06 + 9 OTel + 3 spans; APR-compliant. Full corpus run is P8.</done>
 </task>
 
 </tasks>
 
 <verification>
-- feature_ic_scores complete: IC, CI (circular block bootstrap), p, BH-FDR q, walk-forward (60-bar embargo), IC Sharpe per cell
+- feature_ic_scores complete for VUG 1h (smoke test): IC, CI (circular block bootstrap), p, BH-FDR q, walk-forward (embargo = max(lookaheads.values()) bars), IC Sharpe per cell
 - is_pooled=true for pooled rows; is_pooled=false for regime-stratified rows; no is_pooled=false+regime=NULL ambiguity
 - bootstrap_block_size from APR (alpha.ic.bootstrap_block_size); no iid bootstrap
-- Degenerate features (std < 1e-8) skipped with IC_ENGINE_CELLS_SKIPPED_TOTAL degenerate_feature
+- Degenerate features (std < 1e-8) skipped with IC_ENGINE_CELLS_SKIPPED_TOTAL degenerate_feature; logged at DEBUG
 - Crash-loud: three RuntimeError gates with explicit messages; no silent empty success
-- Idempotent; D-06 + 5 OTel + 3 spans; APR-compliant
+- embargo_bars = max(lookaheads.values()); no hardcoded 60; no X_train dead variable
+- lookahead periods from APR (alpha.ic.lookahead.*); _SCALES tuple is the schema constant
+- 4 IC health gauges emitted post-run: IC_SCORE_GAUGE, EFFECTIVE_N_GAUGE, FEATURES_SURVIVING_FDR_GAUGE, IC_SHARPE_GAUGE
+- --report-only flag implemented and functional
+- IC Sharpe gate uses per-regime n_raw_bars; thin regimes correctly yield ic_sharpe=NULL
+- Idempotent; D-06 + 9 OTel signals + 3 spans; APR-compliant; full corpus run deferred to P8
 </verification>
 
 <success_criteria>
-- All task acceptance criteria pass
-- At least one feature passes_walkforward across the universe
+- All task acceptance criteria pass (VUG 1h smoke test)
 - .venv/bin/pytest tests/unit/ -q stays GREEN
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/138-ic-engine-forward-returns/138-06-SUMMARY.md` documenting feature_ic_scores counts per (symbol, tf, regime, is_pooled), how many features passed FDR and walk-forward, the top features by IC Sharpe, and any (symbol, tf) cells below the 20K IC-Sharpe gate.
+After completion, create `.planning/phases/138-ic-engine-forward-returns/138-06-SUMMARY.md` documenting: 5 OTel metrics added, ic_engine.py line count, VUG 1h smoke test results (feature_ic_scores row counts, FDR and walk-forward pass counts), and code patterns used (circular bootstrap, embargo, degenerate skip). Note that full corpus run is P8.
 </output>

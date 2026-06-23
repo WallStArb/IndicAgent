@@ -65,10 +65,13 @@ _logger = structlog.get_logger(__name__)
 
 _JOB = "forward-return-writer"
 
-# Statistical-concept-defining lookaheads — these numbers define the column names
-# (return_1bar/5bar/20bar/60bar) and are NOT tunable parameters. APR rules allow
-# numbers in column names when they define the statistical concept.
-_LOOKAHEADS: list[int] = [1, 5, 20, 60]
+# Gradient scale identifiers — schema column names for forward return horizons.
+# Schema holds the concept (fast/mid/slow/extended); APR holds the period in bars
+# under alpha.ic.lookahead.{scale}. Loaded at runtime from APR.
+_SCALES: tuple[str, ...] = ("fast", "mid", "slow", "extended")
+
+# Fallback defaults used only when APR key is absent (pre-migration bootstrap).
+_SCALE_FALLBACKS: dict[str, int] = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
 
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 
@@ -101,22 +104,44 @@ def observed_span(name: str, tracer: Any, **attrs: Any) -> Generator[Any]:
 # SQL
 # ---------------------------------------------------------------------------
 
+
 # LEAD() CTE: computes all lookahead opens in one pass per (symbol, tf).
 # ROWS BETWEEN CURRENT ROW AND 61 FOLLOWING — explicit frame to avoid default
 # range-frame semantics which can produce unexpected results on ties (RESEARCH.md F8).
 # Only bars with timestamp <= TRAINING_WINDOW_END are included in the window.
-_FORWARD_RETURN_SQL = """
+def _build_forward_return_sql(lookaheads: dict[str, int]) -> str:
+    """Build LEAD()-based SQL using APR-backed lookahead periods.
+
+    lookaheads maps scale name -> period in bars (e.g. {"fast": 1, "mid": 5, ...}).
+    The max period + 1 determines the ROWS BETWEEN frame size.
+    """
+    max_n = max(lookaheads.values())
+    frame_size = max_n + 1
+
+    lead_cols = "\n        ".join(
+        f"LEAD(m.open, {n + 1}) OVER w AS open_{scale}" for scale, n in lookaheads.items()
+    )
+    # open_t1 is always needed for the entry price (T+1 open)
+    lead_t1 = "LEAD(m.open, 1) OVER w AS open_entry"
+
+    return_cols = "\n    ".join(
+        f"CASE WHEN open_entry > 0 AND open_{scale} > 0 "
+        f"THEN ln(open_{scale} / open_entry) END AS return_{scale},"
+        for scale in lookaheads
+    )
+    complete_cols = "\n    ".join(
+        f"(open_{scale} IS NOT NULL) AS complete_{scale}," for scale in lookaheads
+    )
+
+    return f"""
 WITH windowed AS (
     SELECT
         m.timestamp                            AS bar_ts,
         m.symbol,
         m.timeframe                            AS tf,
         fv.pipeline_version,
-        LEAD(m.open, 1)  OVER w               AS open_t1,
-        LEAD(m.open, 2)  OVER w               AS open_t2,
-        LEAD(m.open, 6)  OVER w               AS open_t6,
-        LEAD(m.open, 21) OVER w               AS open_t21,
-        LEAD(m.open, 61) OVER w               AS open_t61
+        {lead_t1},
+        {lead_cols}
     FROM market_data_ohlcv m
     JOIN feature_vectors fv
         ON fv.symbol   = m.symbol
@@ -128,7 +153,7 @@ WITH windowed AS (
     WINDOW w AS (
         PARTITION BY m.symbol, m.timeframe
         ORDER BY m.timestamp
-        ROWS BETWEEN CURRENT ROW AND 61 FOLLOWING
+        ROWS BETWEEN CURRENT ROW AND {frame_size} FOLLOWING
     )
 )
 SELECT
@@ -136,29 +161,30 @@ SELECT
     symbol,
     tf,
     pipeline_version,
-    CASE WHEN open_t1 > 0 AND open_t2  > 0 THEN ln(open_t2  / open_t1) END AS return_1bar,
-    CASE WHEN open_t1 > 0 AND open_t6  > 0 THEN ln(open_t6  / open_t1) END AS return_5bar,
-    CASE WHEN open_t1 > 0 AND open_t21 > 0 THEN ln(open_t21 / open_t1) END AS return_20bar,
-    CASE WHEN open_t1 > 0 AND open_t61 > 0 THEN ln(open_t61 / open_t1) END AS return_60bar,
-    (open_t2  IS NOT NULL) AS complete_1bar,
-    (open_t6  IS NOT NULL) AS complete_5bar,
-    (open_t21 IS NOT NULL) AS complete_20bar,
-    (open_t61 IS NOT NULL) AS complete_60bar
+    {return_cols}
+    {complete_cols}
 FROM windowed
 WHERE bar_ts > %(hwm)s
 ORDER BY bar_ts
 """
 
-_INSERT_SQL = """
+
+def _build_insert_sql(scales: tuple[str, ...]) -> str:
+    """Build INSERT SQL for gradient-named return columns."""
+    return_cols = ", ".join(f"return_{s}" for s in scales)
+    complete_cols = ", ".join(f"complete_{s}" for s in scales)
+    return_vals = ", ".join(f"%(return_{s})s" for s in scales)
+    complete_vals = ", ".join(f"%(complete_{s})s" for s in scales)
+    return f"""
 INSERT INTO forward_returns (
     symbol, tf, bar_ts, pipeline_version,
-    return_1bar, return_5bar, return_20bar, return_60bar,
-    complete_1bar, complete_5bar, complete_20bar, complete_60bar
+    {return_cols},
+    {complete_cols}
 )
 VALUES (
     %(symbol)s, %(tf)s, %(bar_ts)s, %(pipeline_version)s,
-    %(return_1bar)s, %(return_5bar)s, %(return_20bar)s, %(return_60bar)s,
-    %(complete_1bar)s, %(complete_5bar)s, %(complete_20bar)s, %(complete_60bar)s
+    {return_vals},
+    {complete_vals}
 )
 ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 """
@@ -186,6 +212,7 @@ def _label_symbol_tf(
     tf: str,
     training_window_end: Any,
     tracer: Any,
+    lookaheads: dict[str, int],
     batch_size: int = _INSERT_BATCH_SIZE_DEFAULT,
 ) -> int:
     """Compute and insert forward returns for one (symbol, tf) cell.
@@ -195,9 +222,10 @@ def _label_symbol_tf(
     with observed_span(
         "forward_return_writer.label_symbol_tf", tracer, symbol=symbol, tf=tf
     ) as span:
-        # High-water mark: on subsequent runs, recompute the tail window (last 61 bars
-        # before the current max) so previously-incomplete rows get completeness updates
-        # as future bars arrive. On first run, MAX(bar_ts) is NULL — use epoch to fetch all.
+        max_n = max(lookaheads.values())
+        # High-water mark: on subsequent runs, recompute the tail window (last max_n+1 bars
+        # before the current max) so previously-incomplete rows get completeness updates.
+        # On first run, MAX(bar_ts) is NULL — use epoch to fetch all.
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT MAX(bar_ts) FROM forward_returns WHERE symbol = %s AND tf = %s",
@@ -208,17 +236,18 @@ def _label_symbol_tf(
         if max_bar_ts is None:
             hwm = "1970-01-01T00:00:00+00:00"
         else:
-            # Map tf to a PostgreSQL interval for the 61-bar lookback window
-            _TF_INTERVAL = {
-                "5m": "305 minutes",
-                "15m": "915 minutes",
-                "1h": "61 hours",
-                "1d": "61 days",
-            }
-            interval = _TF_INTERVAL.get(tf, "61 days")
+            _TF_MINUTES = {"5m": 5, "15m": 15, "1h": 60, "1d": 1440}
+            minutes_per_bar = _TF_MINUTES.get(tf, 1440)
+            lookback_minutes = (max_n + 1) * minutes_per_bar
             with conn.cursor() as cur:
-                cur.execute("SELECT %s::timestamptz - INTERVAL %s", (max_bar_ts, interval))
+                cur.execute(
+                    "SELECT %s::timestamptz - INTERVAL %s",
+                    (max_bar_ts, f"{lookback_minutes} minutes"),
+                )
                 hwm = cur.fetchone()[0]
+
+        forward_return_sql = _build_forward_return_sql(lookaheads)
+        insert_sql = _build_insert_sql(_SCALES)
 
         params = {
             "symbol": symbol,
@@ -228,7 +257,7 @@ def _label_symbol_tf(
         }
 
         with conn.cursor() as cur:
-            cur.execute(_FORWARD_RETURN_SQL, params)
+            cur.execute(forward_return_sql, params)
             rows = cur.fetchall()
             col_names = [d[0] for d in cur.description]
 
@@ -240,7 +269,7 @@ def _label_symbol_tf(
         with conn.cursor() as cur:
             psycopg2.extras.execute_batch(
                 cur,
-                _INSERT_SQL,
+                insert_sql,
                 insert_rows,
                 page_size=batch_size,
             )
@@ -265,12 +294,12 @@ def _label_symbol_tf(
 # ---------------------------------------------------------------------------
 
 
-def _emit_coverage(conn: Any, symbols: list[str], tfs: list[str]) -> None:
-    """Compute and emit OUTCOME_LABELS_COVERAGE per (lookahead, symbol, tf)."""
+def _emit_coverage(conn: Any, symbols: list[str], tfs: list[str], scales: tuple[str, ...]) -> None:
+    """Compute and emit OUTCOME_LABELS_COVERAGE per (scale, symbol, tf)."""
     for symbol in symbols:
         for tf in tfs:
-            for n in _LOOKAHEADS:
-                col = f"complete_{n}bar"
+            for scale in scales:
+                col = f"complete_{scale}"
                 try:
                     with conn.cursor() as cur:
                         cur.execute(
@@ -284,14 +313,14 @@ def _emit_coverage(conn: Any, symbols: list[str], tfs: list[str]) -> None:
                     if row and row[1] > 0:
                         fraction = row[0] / row[1]
                         OUTCOME_LABELS_COVERAGE.set(
-                            fraction, {"lookahead": str(n), "symbol": symbol, "tf": tf}
+                            fraction, {"lookahead_scale": scale, "symbol": symbol, "tf": tf}
                         )
                 except Exception as error:
                     _logger.warning(
                         "forward_return_writer.coverage_gauge_error",
                         symbol=symbol,
                         tf=tf,
-                        lookahead=n,
+                        scale=scale,
                         error=str(error),
                     )
 
@@ -330,6 +359,13 @@ def main() -> None:
                 batch_size = int(
                     cfg.get_sync("alpha.ic.insert_batch_size", _INSERT_BATCH_SIZE_DEFAULT)
                 )
+
+                # Load lookahead periods from APR (alpha.ic.lookahead.{scale})
+                lookaheads = {
+                    scale: int(cfg.get_sync(f"alpha.ic.lookahead.{scale}", fb))
+                    for scale, fb in _SCALE_FALLBACKS.items()
+                }
+                _logger.info("forward_return_writer.lookaheads", lookaheads=lookaheads)
 
                 # TRAINING_WINDOW_END gate — must be computed and logged before any SQL
                 with conn.cursor() as cur:
@@ -371,6 +407,7 @@ def main() -> None:
                                 tf=tf,
                                 training_window_end=training_window_end,
                                 tracer=tracer,
+                                lookaheads=lookaheads,
                                 batch_size=batch_size,
                             )
                             total_inserted += n
@@ -397,7 +434,7 @@ def main() -> None:
                 elapsed_s = time.monotonic() - t0
                 FORWARD_RETURN_WRITER_RUN_LATENCY_SECONDS.record(elapsed_s)
 
-                _emit_coverage(conn, symbols, tfs)
+                _emit_coverage(conn, symbols, tfs, _SCALES)
 
                 _logger.info(
                     "forward_return_writer.run_complete",
