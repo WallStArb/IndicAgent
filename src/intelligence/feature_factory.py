@@ -1012,6 +1012,49 @@ def _vwap_dev_sigma_series_full(
     return result
 
 
+def _gap_z_series_full(
+    opens: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    period: int,
+    zscore_window: int,
+) -> np.ndarray:
+    """Gap-z series: ATR-normalized open gap, rolling z-scored."""
+    n = len(closes)
+    result = np.zeros(n, dtype=float)
+    if n < 2:
+        return result
+
+    # ATR series (length = n-1)
+    atr_core = _atr_series_full(highs, lows, closes, period)
+
+    # For gap computation, we need ATR at position j to normalize gap[j+1]
+    # gap[j+1] = (open[j+1] - close[j]) / ATR[j]
+    # atr_core has length n-1, where atr_core[k] = ATR after bar index k+1
+    # So atr_for_gap[k] = ATR for gap at position k+1
+    atr_for_gap = atr_core[:-1] if len(atr_core) >= 2 else atr_core
+
+    # Compute gap_raw: (open[i] - close[i-1]) / ATR[i-1]
+    # opens[2:] corresponds to gap at positions 2..n-1
+    # closes[1:-1] corresponds to close at positions 1..n-2
+    if len(atr_for_gap) > 0 and len(opens) >= 2 and len(closes) >= 2:
+        gap_high = min(len(opens) - 2, len(atr_for_gap))
+        gap_raw = (opens[2 : 2 + gap_high] - closes[1 : 1 + gap_high]) / np.where(
+            atr_for_gap[:gap_high] > 1e-10, atr_for_gap[:gap_high], 1.0
+        )
+        # Z-score the gap series
+        gap_z_core = _rolling_zscore_series(
+            np.concatenate([[0.0], gap_raw]), zscore_window
+        )
+        # Build result: position 0 = 0.0, position 1 = 0.0 (no prev close), then gap_z values
+        result = np.zeros(n, dtype=float)
+        if len(gap_z_core) > 2:
+            result[2 : 2 + len(gap_z_core) - 2] = gap_z_core[2:]
+
+    return result
+
+
 def _rel_volume_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
     """Relative volume series. result[i] == streaming rel_volume at bar i.
     Uses cumulative sum for O(n) rolling mean.
