@@ -196,6 +196,7 @@ def _load_apr(conn: Any, tf: str) -> dict[str, Any]:
         "sharpe_min_windows": int(cfg.get_sync("alpha.ic.sharpe_min_windows", 10)),
         "subsample_min_stride": int(cfg.get_sync("alpha.ic.subsample_min_stride", 5)),
         "min_reliable_n": int(cfg.get_sync("alpha.ic.min_reliable_n", 100)),
+        "bootstrap_seed": int(cfg.get_sync("alpha.ic.bootstrap_seed", 42)),
         # Lookaheads per scale -- loaded from APR; column names are gradient-scale identifiers
         "lookaheads": {
             scale: int(cfg.get_sync(f"alpha.ic.lookahead.{scale}", fb))
@@ -500,7 +501,7 @@ def _compute_symbol_tf(
         # Distinct non-NULL regimes
         distinct_regimes = [r for r in set(regime_aligned) if r is not None]
         # Process: each distinct regime + one pooled pass
-        regime_passes = [(r, False) for r in distinct_regimes] + [(_POOLED_REGIME_SENTINEL, True)]
+        regime_passes = list(distinct_regimes) + [_POOLED_REGIME_SENTINEL]
 
         # Collect all result dicts + parallel p-value list for BH-FDR per (symbol,tf)
         all_results: list[dict] = []
@@ -510,7 +511,8 @@ def _compute_symbol_tf(
         n_committed = 0
         n_skipped = 0
 
-        for regime_label, is_pooled in regime_passes:
+        for regime_label in regime_passes:
+            is_pooled = regime_label == _POOLED_REGIME_SENTINEL
             # Mask rows for this regime
             if is_pooled:
                 mask = np.ones(len(aligned_idx), dtype=bool)
@@ -760,7 +762,8 @@ def _compute_symbol_tf(
         # ------------------------------------------------------------------
         # Per-cell OTel metrics
         # ------------------------------------------------------------------
-        for regime_label, is_pooled in regime_passes:
+        for regime_label in regime_passes:
+            is_pooled = regime_label == _POOLED_REGIME_SENTINEL
             regime_results = [
                 r
                 for r in all_results
@@ -913,17 +916,17 @@ def main() -> None:
                 }
             _logger.info("ic_engine.existing_keys", count=len(existing_keys))
 
-            # ----------------------------------------------------------
-            # Main compute loop
-            # ----------------------------------------------------------
-            rng = np.random.default_rng(seed=None)  # non-deterministic per run
-            total_committed = 0
-            total_skipped = 0
-            all_results_global: list[dict] = []
-
             # APR is TF-specific (bootstrap_block_size varies by TF); load once per TF
             # rather than once per (symbol, tf) to avoid 58x redundant DB round-trips.
             apr_cache = {tf: _load_apr(conn, tf) for tf in tfs}
+
+            # ----------------------------------------------------------
+            # Main compute loop
+            # ----------------------------------------------------------
+            rng = np.random.default_rng(seed=apr_cache[tfs[0]]["bootstrap_seed"])
+            total_committed = 0
+            total_skipped = 0
+            all_results_global: list[dict] = []
 
             for symbol in symbols:
                 for tf in tfs:
