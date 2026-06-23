@@ -17,3 +17,15 @@ Discovered during Task 4 test verification. Confirmed pre-existing by git stash 
 **Root cause:** `pipeline_helpers.make_agent()` uses `__new__()` bypass and was missing many `__init__` attributes. 138-P1 added `_feature_factory_config`, `_feature_caches`, `_kafka_producer`, `_background_tasks`, `_bar_e2e_latency` to unblock AttributeErrors. Remaining failures are semantic test/impl mismatches that require updating test assertions to match how IntelligencePipeline now routes data.
 
 **Recommended fix:** Update test assertions in `test_orchestrator_integration.py` to reflect current `_process_bar_compute` routing. Or use `_wire_agent` to mock `_kafka_producer.publish` and `_out_queue.enqueue_blocking` and verify call args match actual code path.
+
+## Pre-existing Test Failures (out of scope for 138-P8)
+
+### tests/unit/services/test_pipeline_backpressure.py::test_intel_and_journal_use_blocking_enqueue
+
+**Status:** Failing before 138-P8 work started (confirmed — no code changes in P8).
+
+**Failure:** `FileNotFoundError: No such file or directory: 'services/intelligence_pipeline.py'`
+
+**Root cause:** Test reads `services/intelligence_pipeline.py` source for a text assertion. That file was renamed to `feature_vector_pipeline.py` during the IntelligencePipeline -> FeatureVectorPipeline rename. Test was not updated.
+
+**Recommended fix:** Update test to read `services/feature_vector_pipeline.py` instead.

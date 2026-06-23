@@ -4,13 +4,13 @@ milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
 status: executing
 last_updated: "2026-06-23T22:33:21.244Z"
-last_activity: 2026-06-23 -- Phase 139 planning complete
+last_activity: 2026-06-23 -- Phase 138 P8 complete (IC pipeline data run + discovery report)
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 19
-  completed_plans: 17
-  percent: 67
+  total_plans: 20
+  completed_plans: 18
+  percent: 75
 ---
 
 # Project State
@@ -24,26 +24,27 @@ See: .planning/PROJECT.md
 
 ## v3.0 AlphaEngine — Phase 138 IC Engine Forward Returns (2026-06-22 to 2026-06-23)
 
-**Status:** Ready to execute
+**Status:** Complete
 
 | Plan | Name | Status | Date | Notes |
 |------|------|--------|------|-------|
-| P0 | Feature Vector ID + FeatureVectorWriter | ✅ Complete | 2026-06-22 | Migration 158, 61-param INSERT |
-| P1 | Foundation Hardening | ✅ Complete | 2026-06-22 | NaN guard, feature_factory_version, 7 new fields |
-| P2 | IC Engine Foundation | ✅ Complete | 2026-06-22 | BaseBatch, forward_returns, feature_ic_scores tables, APR keys |
-| P3 | FeatureFactory Backfill | ⚠️ Partial | 2026-06-22 | 90-min cutoff, VUG/1h test data only |
-| P4 | Regime Writer | ✅ Complete | 2026-06-22 | Causal HMM regime labeler |
-| P5 | Forward Return Writer | ✅ Complete | 2026-06-22 | Writes forward_returns table |
-| P6 | IC Engine | ✅ Complete | 2026-06-22 | Vectorized Spearman IC computation |
-| P6.5 | IC Sortino/Win Rate | ✅ Complete | 2026-06-23 | Migration 164, OTel gauges |
-| P7 | IC Math Helpers + Tests | ✅ Complete | 2026-06-23 | Pure functions, unit tests |
+| P0 | Feature Vector ID + FeatureVectorWriter | Complete | 2026-06-22 | Migration 158, 61-param INSERT |
+| P1 | Foundation Hardening | Complete | 2026-06-22 | NaN guard, feature_factory_version, 7 new fields |
+| P2 | IC Engine Foundation | Complete | 2026-06-22 | BaseBatch, forward_returns, feature_ic_scores tables, APR keys |
+| P3 | FeatureFactory Backfill | Complete | 2026-06-23 | 4-symbol full backfill (SPY/TLT/XLF/QQQ) |
+| P4 | Regime Writer | Complete | 2026-06-22 | Causal HMM regime labeler |
+| P5 | Forward Return Writer | Complete | 2026-06-22 | Writes forward_returns table |
+| P6 | IC Engine | Complete | 2026-06-22 | Vectorized Spearman IC computation |
+| P6.5 | IC Sortino/Win Rate | Complete | 2026-06-23 | Migration 164, OTel gauges |
+| P7 | IC Math Helpers + Tests | Complete | 2026-06-23 | Pure functions, unit tests |
+| P8 | IC Pipeline Data Run | Complete | 2026-06-23 | 12,444 IC scores; 683 passing features; discovery report |
 
 **Data State:**
 
-- feature_vectors: 0 rows (junk test data purged 2026-06-23)
-- forward_returns: 0 rows (junk test data purged 2026-06-23)
-- feature_ic_scores: 0 rows (junk test data purged 2026-06-23)
-- batch_job_checkpoints: 0 rows (purged 2026-06-23)
+- feature_vectors: 3,787,423 rows (SPY/TLT/XLF/QQQ x 4 TFs; 100% regime coverage)
+- forward_returns: 3,787,423 rows (1:1 match with feature_vectors)
+- feature_ic_scores: 12,444 rows (1,022 pass walk-forward; 683 non-pooled passers)
+- batch_job_checkpoints: rows present
 - market_data_ohlcv: 52,438,690 rows (preserved)
 
 **Known Issues (FIXED 2026-06-23):**
@@ -140,13 +141,13 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-### Last session (2026-06-23) — batch vectorization perf work complete
+### Last session (2026-06-23) — Phase 138 P8 complete: IC pipeline data run + discovery report
 
-FeatureFactory backfill O(n²) bottleneck eliminated. 12 `_*_series_full` functions added to `feature_factory.py`. `backfill_feature_factory.py` now precomputes all series once before the bar loop and reduces per-bar window 2000 → 50. Simplifier extracted `_fixed_window_zscore_series`, `_precompute_series`, `_assert_parity` helpers. 20 parity tests (including cold-start boundary tests) all pass.
+IC engine corpus run completed for SPY, TLT, XLF, QQQ x 4 TFs. 12,444 IC score rows computed in 150s. 1,022 rows pass walk-forward; 683 non-pooled passers in JSON discovery report. Top feature: `quarter_position` (TLT, 15m, trending_up, IC Sharpe 0.870). 1d non-pooled rows empty (below 20K IC Sharpe gate per symbol). IC discovery report written atomically to `docs/analysis/ic-discovery-report.{md,json}`. Unit tests: 5165 passed, 1 pre-existing failure (test_pipeline_backpressure — stale intelligence_pipeline.py reference, unrelated to Phase 138 changes).
 
-Key commits: `696967cd..3f72e43f` (13 commits on main). Also fixed stale `indicagent-intelligence-pipeline` → `indicagent-feature-vector-pipeline` refs in test_service_auditor and an AttributeError in FeatureVectorPipeline settings access (both from the `IntelligencePipeline → FeatureVectorPipeline` rename).
+Key commits: `4b2fb375` (138-P8 summary + reports)
 
-**Next session:** Execute 138-P1 (foundation hardening — council review findings 1-12; migration 159)
+**Next session:** Execute Phase 139 (ensemble alpha emission)
 
 ### Sessions 2026-06-20 to 2026-06-23 (archived summary)
 
@@ -161,9 +162,9 @@ Key commits: `696967cd..3f72e43f` (13 commits on main). Also fixed stale `indica
 Milestone: v2.10 — COMPLETE (2026-06-20)
 Milestone: v3.0 — IN PROGRESS — AlphaEngine (Intelligence Vectors, V1 Quant)
 Phase: 138
-Phase: 138 (ic-engine-forward-returns) — P1-P7 COMPLETE, P3 partial (backfill incomplete)
+Phase: 138 (ic-engine-forward-returns) — COMPLETE (P0-P8 all done; 12,444 IC scores; discovery report at docs/analysis/)
 Phase: 135 (controlled-vocabulary-system) — deferred
-Last activity: 2026-06-23 -- Phase 139 planning complete
+Last activity: 2026-06-23 -- Phase 138 P8 complete; Phase 139 planned and ready
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
