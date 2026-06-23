@@ -123,6 +123,16 @@ def streaming(ohlcv, cfg):
     return results
 
 
+def _assert_parity(batch: np.ndarray, streaming: dict, field: str, tol: float = 1e-8) -> None:
+    """Assert batch[i] matches the named streaming FeatureVector field at every checked bar."""
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        expected = getattr(fv, field)
+        assert (
+            abs(batch[i] - expected) < tol
+        ), f"{field} bar {i}: batch={batch[i]:.10f} streaming={expected:.10f}"
+
+
 # ---------------------------------------------------------------------------
 # Task 1: Momentum series
 # ---------------------------------------------------------------------------
@@ -134,11 +144,7 @@ def test_momentum_z_fast_parity(ohlcv, cfg, streaming):
     batch = _momentum_z_series_full(
         ohlcv["closes"], cfg.momentum_window_fast, cfg.momentum_zscore_window
     )
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.momentum_z_fast) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.momentum_z_fast:.10f}"
+    _assert_parity(batch, streaming, "momentum_z_fast")
 
 
 def test_momentum_z_mid_parity(ohlcv, cfg, streaming):
@@ -147,11 +153,7 @@ def test_momentum_z_mid_parity(ohlcv, cfg, streaming):
     batch = _momentum_z_series_full(
         ohlcv["closes"], cfg.momentum_window_mid, cfg.momentum_zscore_window
     )
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.momentum_z_mid) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.momentum_z_mid:.10f}"
+    _assert_parity(batch, streaming, "momentum_z_mid")
 
 
 def test_momentum_z_slow_parity(ohlcv, cfg, streaming):
@@ -160,22 +162,14 @@ def test_momentum_z_slow_parity(ohlcv, cfg, streaming):
     batch = _momentum_z_series_full(
         ohlcv["closes"], cfg.momentum_window_slow, cfg.momentum_zscore_window
     )
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.momentum_z_slow) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.momentum_z_slow:.10f}"
+    _assert_parity(batch, streaming, "momentum_z_slow")
 
 
 def test_momentum_reversal_z_parity(ohlcv, cfg, streaming):
     from src.intelligence.feature_factory import _momentum_reversal_z_series_full
 
     batch = _momentum_reversal_z_series_full(ohlcv["closes"], cfg.momentum_zscore_window)
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.momentum_reversal_z) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.momentum_reversal_z:.10f}"
+    _assert_parity(batch, streaming, "momentum_reversal_z")
 
 
 # ---------------------------------------------------------------------------
@@ -279,11 +273,7 @@ def test_volume_z_parity(ohlcv, cfg, streaming):
     from src.intelligence.feature_factory import _volume_z_series_full
 
     batch = _volume_z_series_full(ohlcv["volumes"], cfg.volume_zscore_window)
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.volume_z) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.volume_z:.10f}"
+    _assert_parity(batch, streaming, "volume_z")
 
 
 def test_ofi_z_parity(ohlcv, cfg, streaming):
@@ -296,11 +286,7 @@ def test_ofi_z_parity(ohlcv, cfg, streaming):
         ohlcv["volumes"],
         cfg.ofi_zscore_window,
     )
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.ofi_z) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.ofi_z:.10f}"
+    _assert_parity(batch, streaming, "ofi_z")
 
 
 def test_cvd_slope_z_parity(ohlcv, cfg, streaming):
@@ -314,11 +300,7 @@ def test_cvd_slope_z_parity(ohlcv, cfg, streaming):
         cfg.cvd_slope_bars,
         cfg.ofi_zscore_window,
     )
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.cvd_slope_z) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.cvd_slope_z:.10f}"
+    _assert_parity(batch, streaming, "cvd_slope_z")
 
 
 # ---------------------------------------------------------------------------
@@ -330,33 +312,21 @@ def test_rsi_fast_parity(ohlcv, cfg, streaming):
     from src.intelligence.feature_factory import _rsi_series_full
 
     batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_fast_period)
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.rsi_fast) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.rsi_fast:.10f}"
+    _assert_parity(batch, streaming, "rsi_fast")
 
 
 def test_rsi_mid_parity(ohlcv, cfg, streaming):
     from src.intelligence.feature_factory import _rsi_series_full
 
     batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_mid_period)
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.rsi_mid) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.rsi_mid:.10f}"
+    _assert_parity(batch, streaming, "rsi_mid")
 
 
 def test_rsi_slow_parity(ohlcv, cfg, streaming):
     from src.intelligence.feature_factory import _rsi_series_full
 
     batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_slow_period)
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.rsi_slow) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.rsi_slow:.10f}"
+    _assert_parity(batch, streaming, "rsi_slow")
 
 
 def test_rsi_fast_transition_boundary(ohlcv, cfg):
@@ -392,44 +362,28 @@ def test_ret_skew_z_parity(ohlcv, cfg, streaming):
     batch = _ret_skew_z_series_full(
         ohlcv["closes"], cfg.ret_skew_window, cfg.ret_skew_zscore_window
     )
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.ret_skew_z) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.ret_skew_z:.10f}"
+    _assert_parity(batch, streaming, "ret_skew_z")
 
 
 def test_ret_acf1_z_parity(ohlcv, cfg, streaming):
     from src.intelligence.feature_factory import _ret_acf1_z_series_full
 
     batch = _ret_acf1_z_series_full(ohlcv["closes"], cfg.ret_acf_window, cfg.ret_acf_zscore_window)
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.ret_acf1_z) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.ret_acf1_z:.10f}"
+    _assert_parity(batch, streaming, "ret_acf1_z")
 
 
 def test_amihud_illiq_z_parity(ohlcv, cfg, streaming):
     from src.intelligence.feature_factory import _amihud_illiq_z_series_full
 
     batch = _amihud_illiq_z_series_full(ohlcv["closes"], ohlcv["volumes"], cfg.amihud_zscore_window)
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.amihud_illiq_z) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.amihud_illiq_z:.10f}"
+    _assert_parity(batch, streaming, "amihud_illiq_z")
 
 
 def test_high_52w_dist_parity(ohlcv, cfg, streaming):
     from src.intelligence.feature_factory import _high_52w_dist_series_full
 
     batch = _high_52w_dist_series_full(ohlcv["closes"], cfg.high_52w_window)
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.high_52w_dist) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.high_52w_dist:.10f}"
+    _assert_parity(batch, streaming, "high_52w_dist")
 
 
 # ---------------------------------------------------------------------------
@@ -443,23 +397,15 @@ def test_vwap_dev_sigma_parity(ohlcv, cfg, streaming):
     batch = _vwap_dev_sigma_series_full(
         ohlcv["opens"], ohlcv["highs"], ohlcv["lows"], ohlcv["closes"], ohlcv["volumes"]
     )
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        # 1e-6 tolerance: running std via cumsum accumulates float error vs numpy's one-shot std
-        assert (
-            abs(batch[i] - fv.vwap_dev_sigma) < 1e-6
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.vwap_dev_sigma:.10f}"
+    # 1e-6 tolerance: running std via cumsum accumulates float error vs numpy's one-shot std
+    _assert_parity(batch, streaming, "vwap_dev_sigma", tol=1e-6)
 
 
 def test_rel_volume_parity(ohlcv, cfg, streaming):
     from src.intelligence.feature_factory import _rel_volume_series_full
 
     batch = _rel_volume_series_full(ohlcv["volumes"], cfg.volume_zscore_window)
-    assert len(batch) == N
-    for i, fv in streaming.items():
-        assert (
-            abs(batch[i] - fv.rel_volume) < 1e-8
-        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.rel_volume:.10f}"
+    _assert_parity(batch, streaming, "rel_volume")
 
 
 # ---------------------------------------------------------------------------

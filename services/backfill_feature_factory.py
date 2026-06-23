@@ -662,6 +662,67 @@ def run_compute_stage(
     return coverage, coverage_threshold
 
 
+def _precompute_series(bars: list[dict], config: FeatureFactoryConfig) -> dict[str, np.ndarray]:
+    """Vectorize every expensive per-bar feature into one O(n) pass over all bars.
+
+    Returns a dict keyed by the exact `precomputed` field names consumed by
+    FeatureFactory.compute(). For each key, arr[i] equals the streaming value of
+    that feature at bar i, so the per-bar loop only does an O(1) index lookup.
+    """
+    highs = np.array([b["high"] for b in bars], dtype=float)
+    lows = np.array([b["low"] for b in bars], dtype=float)
+    closes = np.array([b["close"] for b in bars], dtype=float)
+    opens = np.array([b["open"] for b in bars], dtype=float)
+    volumes = np.array([b["volume"] for b in bars], dtype=float)
+    zw = int(config.momentum_zscore_window)
+
+    # ATR series: _atr_series_full returns length=total_bars-1 where index k = ATR(bars[0..k+1]).
+    # Prepend 0.0 at index 0 to match streaming's atr_series[j=0] = 0.0 (1-bar, insufficient data).
+    # After prepend: atr_padded[j] = ATR(bars[0..j]) — same indexing as streaming's atr_series[j].
+    atr_core = _atr_series_full(highs, lows, closes, config.adx_period)
+    atr_padded = np.concatenate([[0.0], atr_core])  # length = total_bars
+    atr_z = _rolling_zscore_series(atr_padded, zw)
+
+    # Gap series: gap at bar i = (open[i] - close[i-1]) / ATR(first i bars).
+    # Streaming uses _atr_wilder(highs[:i], lows[:i], closes[:i]) = ATR of i bars
+    # = atr_core[i-2] (0-based: atr_core[k] = ATR of k+2 bars).
+    atr_for_gap = atr_core[:-1]  # length = total_bars-2; atr_for_gap[j] = ATR(j+2 bars)
+    gap_raw = (opens[2:] - closes[1:-1]) / np.where(atr_for_gap > 1e-10, atr_for_gap, 1.0)
+    # Prepend 0.0 so effective window at index j+1 (= position i-1) = min(zw, j+2) = min(zw, i),
+    # matching streaming's gap_raw_series window.
+    gap_z_core = _rolling_zscore_series(np.concatenate([[0.0], gap_raw]), zw)
+    # gap_z_core[i-1] = gap_z at bar i for i>=2; prepend one 0.0 → gap_z[i] = gap_z at bar i.
+    gap_z = np.concatenate([[0.0], gap_z_core])  # length = total_bars
+
+    return {
+        "atr": atr_padded,
+        "atr_z": atr_z,
+        "gap_z": gap_z,
+        "momentum_z_fast": _momentum_z_series_full(closes, config.momentum_window_fast, zw),
+        "momentum_z_mid": _momentum_z_series_full(closes, config.momentum_window_mid, zw),
+        "momentum_z_slow": _momentum_z_series_full(closes, config.momentum_window_slow, zw),
+        "momentum_reversal_z": _momentum_reversal_z_series_full(closes, zw),
+        "volume_z": _volume_z_series_full(volumes, config.volume_zscore_window),
+        "ofi_z": _ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window),
+        "cvd_slope_z": _cvd_slope_z_series_full(
+            closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
+        ),
+        "rsi_fast": _rsi_series_full(closes, config.rsi_fast_period),
+        "rsi_mid": _rsi_series_full(closes, config.rsi_mid_period),
+        "rsi_slow": _rsi_series_full(closes, config.rsi_slow_period),
+        "ret_skew_z": _ret_skew_z_series_full(
+            closes, config.ret_skew_window, config.ret_skew_zscore_window
+        ),
+        "ret_acf1_z": _ret_acf1_z_series_full(
+            closes, config.ret_acf_window, config.ret_acf_zscore_window
+        ),
+        "amihud_illiq_z": _amihud_illiq_z_series_full(closes, volumes, config.amihud_zscore_window),
+        "high_52w_dist": _high_52w_dist_series_full(closes, config.high_52w_window),
+        "vwap_dev_sigma": _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes),
+        "rel_volume": _rel_volume_series_full(volumes, config.volume_zscore_window),
+    }
+
+
 def _compute_symbol_tf(
     conn: Any,
     symbol: str,
@@ -703,81 +764,8 @@ def _compute_symbol_tf(
     _logger.info("compute_bars_loaded", symbol=symbol, tf=tf, total_bars=total_bars)
 
     # Vectorized precompute — O(n) total, eliminates O(n²) inner loops.
-    # Each _*_series_full call runs ONCE over all n bars; the per-bar loop
-    # does O(1) index lookups instead of O(n) recomputation.
-    _highs_full = np.array([b["high"] for b in bars], dtype=float)
-    _lows_full = np.array([b["low"] for b in bars], dtype=float)
-    _closes_full = np.array([b["close"] for b in bars], dtype=float)
-    _opens_full = np.array([b["open"] for b in bars], dtype=float)
-    _volumes_full = np.array([b["volume"] for b in bars], dtype=float)
-    _zw = int(config.momentum_zscore_window)
-
-    # ATR series: _atr_series_full returns length=total_bars-1 where index k = ATR(bars[0..k+1]).
-    # Prepend 0.0 at index 0 to match streaming's atr_series[j=0] = 0.0 (1-bar, insufficient data).
-    # After prepend: _atr_padded[j] = ATR(bars[0..j]) — same indexing as streaming's atr_series[j].
-    # _atr_padded has length = total_bars.
-    _atr_core = _atr_series_full(_highs_full, _lows_full, _closes_full, config.adx_period)
-    _atr_padded = np.concatenate([[0.0], _atr_core])  # length = total_bars
-    _atr_z_full = _rolling_zscore_series(_atr_padded, _zw)
-
-    # Gap series: gap at bar i = (open[i] - close[i-1]) / ATR(first i bars).
-    # Streaming uses _atr_wilder(highs[:i], lows[:i], closes[:i]) = ATR of i bars
-    # = _atr_core[i-2] (0-based: _atr_core[k] = ATR of k+2 bars).
-    # _atr_for_gap[j] = _atr_core[j] = ATR(j+2 bars); provides denominator for gap at bar j+2.
-    # Prepend one extra 0.0 so that at array index j+1, eff_w = min(zw, j+2) = min(zw, i),
-    # matching streaming's gap_raw_series window = min(zw, i).
-    _atr_for_gap = _atr_core[:-1]  # length = total_bars-2; _atr_for_gap[j] = ATR(j+2 bars)
-    _gap_raw = (_opens_full[2:] - _closes_full[1:-1]) / np.where(
-        _atr_for_gap > 1e-10, _atr_for_gap, 1.0
-    )
-    # Prepend 0.0 so effective window at index j+1 (= position i-1) = min(zw, j+2) = min(zw, i).
-    _gap_raw_padded = np.concatenate([[0.0], _gap_raw])  # length = total_bars-1
-    _gap_z_core = _rolling_zscore_series(_gap_raw_padded, _zw)
-    # _gap_z_core[i-1] = gap_z at bar i for i>=2; prepend one 0.0 → _gap_z_full[i] = gap_z at bar i.
-    _gap_z_full = np.concatenate([[0.0], _gap_z_core])  # length = total_bars
-
-    # Momentum (Task 1)
-    _mom_fast_z_full = _momentum_z_series_full(_closes_full, config.momentum_window_fast, _zw)
-    _mom_mid_z_full = _momentum_z_series_full(_closes_full, config.momentum_window_mid, _zw)
-    _mom_slow_z_full = _momentum_z_series_full(_closes_full, config.momentum_window_slow, _zw)
-    _mom_rev_z_full = _momentum_reversal_z_series_full(_closes_full, _zw)
-
-    # Volume / OFI / CVD (Task 2)
-    _volume_z_full = _volume_z_series_full(_volumes_full, config.volume_zscore_window)
-    _ofi_z_full = _ofi_z_series_full(
-        _closes_full, _highs_full, _lows_full, _volumes_full, config.ofi_zscore_window
-    )
-    _cvd_slope_z_full = _cvd_slope_z_series_full(
-        _closes_full,
-        _highs_full,
-        _lows_full,
-        _volumes_full,
-        config.cvd_slope_bars,
-        config.ofi_zscore_window,
-    )
-
-    # RSI (Task 3)
-    _rsi_fast_full = _rsi_series_full(_closes_full, config.rsi_fast_period)
-    _rsi_mid_full = _rsi_series_full(_closes_full, config.rsi_mid_period)
-    _rsi_slow_full = _rsi_series_full(_closes_full, config.rsi_slow_period)
-
-    # Statistical (Task 4)
-    _ret_skew_z_full = _ret_skew_z_series_full(
-        _closes_full, config.ret_skew_window, config.ret_skew_zscore_window
-    )
-    _ret_acf1_z_full = _ret_acf1_z_series_full(
-        _closes_full, config.ret_acf_window, config.ret_acf_zscore_window
-    )
-    _amihud_z_full = _amihud_illiq_z_series_full(
-        _closes_full, _volumes_full, config.amihud_zscore_window
-    )
-    _high52w_full = _high_52w_dist_series_full(_closes_full, config.high_52w_window)
-
-    # vwap + rel_volume (Task 5)
-    _vwap_sig_full = _vwap_dev_sigma_series_full(
-        _opens_full, _highs_full, _lows_full, _closes_full, _volumes_full
-    )
-    _rel_vol_full = _rel_volume_series_full(_volumes_full, config.volume_zscore_window)
+    # series[k][i] == streaming FeatureFactory.compute(bars[:i+1]) for feature k.
+    series = _precompute_series(bars, config)
 
     insert_batch: list[tuple] = []
     total_inserted = 0
@@ -804,27 +792,7 @@ def _compute_symbol_tf(
             tf,
             cache,
             config,
-            precomputed={
-                "atr": float(_atr_padded[i]),
-                "atr_z": float(_atr_z_full[i]),
-                "gap_z": float(_gap_z_full[i]),
-                "momentum_z_fast": float(_mom_fast_z_full[i]),
-                "momentum_z_mid": float(_mom_mid_z_full[i]),
-                "momentum_z_slow": float(_mom_slow_z_full[i]),
-                "momentum_reversal_z": float(_mom_rev_z_full[i]),
-                "volume_z": float(_volume_z_full[i]),
-                "ofi_z": float(_ofi_z_full[i]),
-                "cvd_slope_z": float(_cvd_slope_z_full[i]),
-                "rsi_fast": float(_rsi_fast_full[i]),
-                "rsi_mid": float(_rsi_mid_full[i]),
-                "rsi_slow": float(_rsi_slow_full[i]),
-                "ret_skew_z": float(_ret_skew_z_full[i]),
-                "ret_acf1_z": float(_ret_acf1_z_full[i]),
-                "amihud_illiq_z": float(_amihud_z_full[i]),
-                "high_52w_dist": float(_high52w_full[i]),
-                "vwap_dev_sigma": float(_vwap_sig_full[i]),
-                "rel_volume": float(_rel_vol_full[i]),
-            },
+            precomputed={k: float(arr[i]) for k, arr in series.items()},
         )
 
         cache.advance_bar(

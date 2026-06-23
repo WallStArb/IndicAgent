@@ -495,6 +495,18 @@ def _rolling_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
     return out
 
 
+def _fixed_window_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
+    """Rolling z-score series matching streaming `_zscore_last(arr, window)`.
+
+    `_rolling_zscore_series` expands the window until it saturates; the streaming
+    `_zscore_last` instead returns 0.0 until `window` samples exist. This forces
+    that fixed-window cold-start by zeroing the first `window - 1` positions.
+    """
+    z = _rolling_zscore_series(arr, window)
+    z[: window - 1] = 0.0
+    return z
+
+
 def _atr_z(
     highs: np.ndarray,
     lows: np.ndarray,
@@ -817,8 +829,7 @@ def _momentum_z_series_full(closes: np.ndarray, window: int, zscore_window: int)
     if n <= window:
         return np.zeros(n, dtype=float)
     log_returns = np.log(np.maximum(closes[window:], 1e-10) / np.maximum(closes[:-window], 1e-10))
-    z = _rolling_zscore_series(log_returns, zscore_window)
-    z[: zscore_window - 1] = 0.0  # match _zscore_last cold-start: returns 0.0 when len < window
+    z = _fixed_window_zscore_series(log_returns, zscore_window)
     return np.concatenate([np.zeros(window, dtype=float), z])
 
 
@@ -834,9 +845,7 @@ def _momentum_reversal_z_series_full(closes: np.ndarray, zscore_window: int) -> 
 
 def _volume_z_series_full(volumes: np.ndarray, zscore_window: int) -> np.ndarray:
     """Volume z-score series. result[i] == streaming volume_z at bar i."""
-    z = _rolling_zscore_series(volumes.astype(float), zscore_window)
-    z[: zscore_window - 1] = 0.0  # match _zscore_last cold-start: returns 0.0 when len < window
-    return z
+    return _fixed_window_zscore_series(volumes.astype(float), zscore_window)
 
 
 def _ofi_z_series_full(
@@ -848,9 +857,7 @@ def _ofi_z_series_full(
 ) -> np.ndarray:
     """OFI z-score series. result[i] == streaming ofi_z at bar i."""
     ofi_raw = (closes - lows) / (highs - lows + 1e-10) * volumes
-    z = _rolling_zscore_series(ofi_raw.astype(float), zscore_window)
-    z[: zscore_window - 1] = 0.0  # match _zscore_last cold-start: returns 0.0 when len < window
-    return z
+    return _fixed_window_zscore_series(ofi_raw.astype(float), zscore_window)
 
 
 def _cvd_slope_z_series_full(
@@ -870,8 +877,7 @@ def _cvd_slope_z_series_full(
     cvd_raw = (2.0 * closes - highs - lows) / (highs - lows + 1e-10) * volumes
     cum_cvd = np.cumsum(cvd_raw.astype(float))
     slope_vals = (cum_cvd[slope_bars:] - cum_cvd[: n - slope_bars]) / slope_bars
-    z = _rolling_zscore_series(slope_vals, zscore_window)
-    z[: zscore_window - 1] = 0.0  # match _zscore_last cold-start: returns 0.0 when len < window
+    z = _fixed_window_zscore_series(slope_vals, zscore_window)
     return np.concatenate([np.zeros(slope_bars, dtype=float), z])
 
 
@@ -921,8 +927,7 @@ def _ret_skew_z_series_full(closes: np.ndarray, skew_window: int, zscore_window:
         [_skewness(log_rets[k : k + skew_window]) for k in range(len(log_rets) - skew_window + 1)],
         dtype=float,
     )
-    z = _rolling_zscore_series(skew_vals, zscore_window)
-    z[: zscore_window - 1] = 0.0
+    z = _fixed_window_zscore_series(skew_vals, zscore_window)
     # result[skew_window + k] = z[k], prepend skew_window zeros for cold-start bars
     return np.concatenate([np.zeros(skew_window, dtype=float), z])
 
@@ -942,8 +947,7 @@ def _ret_acf1_z_series_full(closes: np.ndarray, acf_window: int, zscore_window: 
         ],
         dtype=float,
     )
-    z = _rolling_zscore_series(acf_vals, zscore_window)
-    z[: zscore_window - 1] = 0.0
+    z = _fixed_window_zscore_series(acf_vals, zscore_window)
     return np.concatenate([np.zeros(acf_window, dtype=float), z])
 
 
@@ -959,8 +963,7 @@ def _amihud_illiq_z_series_full(
     log_rets_abs = np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))
     dollar_vols = closes[1:].astype(float) * np.maximum(volumes[1:].astype(float), 1.0)
     illiq = log_rets_abs / dollar_vols
-    z = _rolling_zscore_series(illiq, zscore_window)
-    z[: zscore_window - 1] = 0.0  # match _zscore_last cold-start: returns 0.0 when len < window
+    z = _fixed_window_zscore_series(illiq, zscore_window)
     return np.concatenate([[0.0], z])
 
 
