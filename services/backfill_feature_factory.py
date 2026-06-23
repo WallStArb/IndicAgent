@@ -52,20 +52,6 @@ from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
     FeatureFactory,
     FeatureFactoryConfig,
-    _amihud_illiq_z_series_full,
-    _atr_series_full,
-    _cvd_slope_z_series_full,
-    _high_52w_dist_series_full,
-    _momentum_reversal_z_series_full,
-    _momentum_z_series_full,
-    _ofi_z_series_full,
-    _rel_volume_series_full,
-    _ret_acf1_z_series_full,
-    _ret_skew_z_series_full,
-    _rolling_zscore_series,
-    _rsi_series_full,
-    _volume_z_series_full,
-    _vwap_dev_sigma_series_full,
 )
 from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL_PSYCOPG2,
@@ -115,11 +101,6 @@ _INSERT_BATCH_SIZE: int = 500
 
 # Chunk read size from market_data_ohlcv (T3: never load full history at once)
 _READ_CHUNK_BARS: int = 2000
-
-# Minimum window passed to FeatureFactory.compute() per bar once all expensive
-# series are precomputed. Must cover the largest non-precomputed feature window:
-# cci_slow_period=40 is the binding constraint. Extra margin for safety.
-_MIN_BATCH_WINDOW: int = 50
 
 # Warm-up guard: number of bars needed before first valid feature vector.
 # Use the momentum_zscore_window (252) as the dominant window + headroom.
@@ -662,67 +643,6 @@ def run_compute_stage(
     return coverage, coverage_threshold
 
 
-def _precompute_series(bars: list[dict], config: FeatureFactoryConfig) -> dict[str, np.ndarray]:
-    """Vectorize every expensive per-bar feature into one O(n) pass over all bars.
-
-    Returns a dict keyed by the exact `precomputed` field names consumed by
-    FeatureFactory.compute(). For each key, arr[i] equals the streaming value of
-    that feature at bar i, so the per-bar loop only does an O(1) index lookup.
-    """
-    highs = np.array([b["high"] for b in bars], dtype=float)
-    lows = np.array([b["low"] for b in bars], dtype=float)
-    closes = np.array([b["close"] for b in bars], dtype=float)
-    opens = np.array([b["open"] for b in bars], dtype=float)
-    volumes = np.array([b["volume"] for b in bars], dtype=float)
-    zw = int(config.momentum_zscore_window)
-
-    # ATR series: _atr_series_full returns length=total_bars-1 where index k = ATR(bars[0..k+1]).
-    # Prepend 0.0 at index 0 to match streaming's atr_series[j=0] = 0.0 (1-bar, insufficient data).
-    # After prepend: atr_padded[j] = ATR(bars[0..j]) — same indexing as streaming's atr_series[j].
-    atr_core = _atr_series_full(highs, lows, closes, config.adx_period)
-    atr_padded = np.concatenate([[0.0], atr_core])  # length = total_bars
-    atr_z = _rolling_zscore_series(atr_padded, zw)
-
-    # Gap series: gap at bar i = (open[i] - close[i-1]) / ATR(first i bars).
-    # Streaming uses _atr_wilder(highs[:i], lows[:i], closes[:i]) = ATR of i bars
-    # = atr_core[i-2] (0-based: atr_core[k] = ATR of k+2 bars).
-    atr_for_gap = atr_core[:-1]  # length = total_bars-2; atr_for_gap[j] = ATR(j+2 bars)
-    gap_raw = (opens[2:] - closes[1:-1]) / np.where(atr_for_gap > 1e-10, atr_for_gap, 1.0)
-    # Prepend 0.0 so effective window at index j+1 (= position i-1) = min(zw, j+2) = min(zw, i),
-    # matching streaming's gap_raw_series window.
-    gap_z_core = _rolling_zscore_series(np.concatenate([[0.0], gap_raw]), zw)
-    # gap_z_core[i-1] = gap_z at bar i for i>=2; prepend one 0.0 → gap_z[i] = gap_z at bar i.
-    gap_z = np.concatenate([[0.0], gap_z_core])  # length = total_bars
-
-    return {
-        "atr": atr_padded,
-        "atr_z": atr_z,
-        "gap_z": gap_z,
-        "momentum_z_fast": _momentum_z_series_full(closes, config.momentum_window_fast, zw),
-        "momentum_z_mid": _momentum_z_series_full(closes, config.momentum_window_mid, zw),
-        "momentum_z_slow": _momentum_z_series_full(closes, config.momentum_window_slow, zw),
-        "momentum_reversal_z": _momentum_reversal_z_series_full(closes, zw),
-        "volume_z": _volume_z_series_full(volumes, config.volume_zscore_window),
-        "ofi_z": _ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window),
-        "cvd_slope_z": _cvd_slope_z_series_full(
-            closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
-        ),
-        "rsi_fast": _rsi_series_full(closes, config.rsi_fast_period),
-        "rsi_mid": _rsi_series_full(closes, config.rsi_mid_period),
-        "rsi_slow": _rsi_series_full(closes, config.rsi_slow_period),
-        "ret_skew_z": _ret_skew_z_series_full(
-            closes, config.ret_skew_window, config.ret_skew_zscore_window
-        ),
-        "ret_acf1_z": _ret_acf1_z_series_full(
-            closes, config.ret_acf_window, config.ret_acf_zscore_window
-        ),
-        "amihud_illiq_z": _amihud_illiq_z_series_full(closes, volumes, config.amihud_zscore_window),
-        "high_52w_dist": _high_52w_dist_series_full(closes, config.high_52w_window),
-        "vwap_dev_sigma": _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes),
-        "rel_volume": _rel_volume_series_full(volumes, config.volume_zscore_window),
-    }
-
-
 def _compute_symbol_tf(
     conn: Any,
     symbol: str,
@@ -763,42 +683,15 @@ def _compute_symbol_tf(
 
     _logger.info("compute_bars_loaded", symbol=symbol, tf=tf, total_bars=total_bars)
 
-    # Vectorized precompute — O(n) total, eliminates O(n²) inner loops.
-    # series[k][i] == streaming FeatureFactory.compute(bars[:i+1]) for feature k.
-    series = _precompute_series(bars, config)
+    # Use FeatureFactory.compute_batch() for O(n) batch computation
+    batch_results = FeatureFactory.compute_batch(
+        bars, symbol, tf, cache, config, warm_up_bars=warm_up_bars
+    )
 
     insert_batch: list[tuple] = []
     total_inserted = 0
 
-    for i in range(1, total_bars):
-        # _MIN_BATCH_WINDOW (50) covers all non-precomputed features:
-        # cci_slow=40, aroon_slow=26, vol_ratio=21, cmf=20, range_position=20.
-        window_start = max(0, i - _MIN_BATCH_WINDOW)
-        window = bars[window_start : i + 1]
-
-        # Refresh regime features periodically (cross-asset seeded once before loop)
-        if i % config.regime_cache_refresh_bars == 0:
-            cache.refresh_regime(window, config)
-
-        # Skip warm-up bars (insufficient history for stable features)
-        if i < warm_up_bars:
-            continue
-
-        bar_ts = window[-1]["ts"]
-        last_bar = window[-1]
-        fv = FeatureFactory.compute(
-            window,
-            symbol,
-            tf,
-            cache,
-            config,
-            precomputed={k: float(arr[i]) for k, arr in series.items()},
-        )
-
-        cache.advance_bar(
-            bar_ts, last_bar["high"], last_bar["low"], last_bar["close"], last_bar["volume"]
-        )
-
+    for bar_ts, fv in batch_results:
         row = _vector_to_params(
             symbol=symbol,
             tf=tf,
