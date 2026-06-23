@@ -8,7 +8,6 @@ OHLCV-proxy flow, and cross-asset proxies.
 from __future__ import annotations
 
 import math
-from collections import deque
 from datetime import UTC, datetime
 
 import numpy as np
@@ -19,7 +18,7 @@ from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
-    _rolling_zscore,
+    _rolling_zscore_series,
 )
 from src.intelligence.schemas import FeatureVector
 
@@ -123,22 +122,18 @@ def _make_cache(**overrides: float) -> FeatureCache:
 
 class TestRollingZscore:
     def test_returns_zero_when_insufficient_history(self) -> None:
-        h: deque = deque(maxlen=30)
-        z = _rolling_zscore(5.0, h, window=30)
+        arr = np.array([5.0])
+        z = _rolling_zscore_series(arr, window=30)[-1]
         assert z == 0.0
 
     def test_returns_nonzero_when_sufficient_history(self) -> None:
-        h: deque = deque(maxlen=30)
-        for v in range(30):
-            _rolling_zscore(float(v), h, window=30)
-        z = _rolling_zscore(100.0, h, window=30)
+        arr = np.array([float(v) for v in range(30)] + [100.0])
+        z = _rolling_zscore_series(arr, window=30)[-1]
         assert z != 0.0
 
     def test_near_zero_std_returns_zero(self) -> None:
-        h: deque = deque(maxlen=30)
-        for _ in range(30):
-            _rolling_zscore(5.0, h, window=30)
-        z = _rolling_zscore(5.0, h, window=30)
+        arr = np.full(30, 5.0)
+        z = _rolling_zscore_series(arr, window=30)[-1]
         assert z == 0.0
 
 
