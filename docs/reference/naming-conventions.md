@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Status:** current
-**Last Updated:** 2026-05-30
+**Last Updated:** 2026-06-22
 
 Quick-lookup reference for naming on every surface. All claims derive from the canonical spec.
 <!-- src: docs/foundation/naming-system.md -->
@@ -92,6 +92,26 @@ Always constructed via `src/core/stream_keys.py` — never inline f-strings.
 | Timeframe column | Always `tf` | `tf` |
 | All other columns | Full `snake_case` noun phrase | `exit_reason`, `pnl_r`, `failure_probability` |
 | Index | `idx_<table>_<cols>` | `idx_signal_ledger_symbol_ts` |
+
+---
+
+## Gradient Scale Qualifiers
+
+<!-- src: docs/foundation/naming-system.md §7 -->
+
+Only these terms may appear as scale qualifiers in column names, APR keys, and variable names:
+
+| Scale | Approved terms | Example |
+|-------|---------------|---------|
+| Speed / horizon (2-level) | `fast`, `slow` | `aroon_fast`, `aroon_slow` |
+| Speed / horizon (3-level) | `fast`, `mid`, `slow` | `rsi_fast`, `rsi_mid`, `rsi_slow` |
+| Speed / horizon (4-level) | `fast`, `mid`, `slow`, `extended` | `return_extended` |
+| Magnitude / intensity | `low`, `mid`, `high` | threshold tiers, confidence bands |
+| Rank / quality | `primary`, `secondary` | signal tiers, confirmation layers |
+
+Numbers in names are valid **only** when the number defines the statistical concept (`momentum_z_5` = 5-bar z-score — changing it to 7 bars is a different statistic). For tunable calibration parameters, use a gradient term: `return_fast` column + `alpha.ic.lookahead.fast = 1` APR key.
+
+**Prohibited:** `near`, `ultra`, `short`, `long`, `tight`, `wide`, or any term not in this table. Adding a new term requires updating `docs/foundation/naming-system.md §7` first.
 
 ---
 

@@ -102,9 +102,9 @@ _MAX_CHUNK_DAYS: dict[str, int] = {
     "1m": 6,  # per-request limit: 7 days; retention: 10+ years (see above)
     "5m": 29,  # per-request limit: 30 days
     "15m": 59,  # per-request limit: 60 days
-    "1h": 89,  # 90-day chunks — 364d fails for some ETFs (subscription limit on large windows)
-    "4h": 89,
-    "1d": 89,  # 90-day chunks — same reason; 7300d backfill = ~81 chunks, ~14min/symbol
+    "1h": 29,  # 30-day chunks — >30d fails for ETFs without extended history subscription
+    "4h": 29,
+    "1d": 29,  # 30-day chunks — same; 7300d backfill = ~243 chunks but reliable
 }
 
 # IBKR enforces a hard limit of 60 historical data requests per 10-minute sliding window.
