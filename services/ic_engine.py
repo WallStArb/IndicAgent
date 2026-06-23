@@ -74,6 +74,8 @@ from src.observability.metrics import (
     IC_ENGINE_RUN_LATENCY_SECONDS,
     IC_SCORE_GAUGE,
     IC_SHARPE_GAUGE,
+    IC_SORTINO_GAUGE,
+    IC_WIN_RATE_GAUGE,
     JOB_COMPLETED_TOTAL,
     flush_and_shutdown_metrics,
 )
@@ -118,7 +120,8 @@ _INSERT_BODY = """
         training_window_end, is_pooled, n_independent, reliable,
         ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate,
         bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, passes_walkforward,
-        ic_sharpe, ic_sharpe_n_windows, regime_label_source, computed_at
+        ic_sharpe, ic_sharpe_n_windows, ic_sortino, ic_win_rate,
+        regime_label_source, computed_at
     )
     VALUES (
         %(feature_name)s, %(vector_domain)s, %(symbol)s, %(tf)s, %(regime)s,
@@ -126,7 +129,8 @@ _INSERT_BODY = """
         %(n_independent)s, %(reliable)s, %(ic_value)s, %(ic_sign)s, %(p_value)s,
         %(ic_ci_lower)s, %(ic_ci_upper)s, %(passes_ci_gate)s, %(bh_adjusted_p)s,
         %(passes_fdr)s, %(wf_fold_count)s, %(wf_pass_count)s, %(passes_walkforward)s,
-        %(ic_sharpe)s, %(ic_sharpe_n_windows)s, %(regime_label_source)s, %(computed_at)s
+        %(ic_sharpe)s, %(ic_sharpe_n_windows)s, %(ic_sortino)s, %(ic_win_rate)s,
+        %(regime_label_source)s, %(computed_at)s
     )
 """
 _POOLED_INSERT_SQL = (
@@ -362,7 +366,7 @@ def _p_values_from_ic(ic_vector: np.ndarray, n: int) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def _compute_ic_sharpe(
+def _compute_ic_rolling_metrics(
     X_sub: np.ndarray,
     returns_sub: np.ndarray,
     scale_idx: int,
@@ -370,31 +374,35 @@ def _compute_ic_sharpe(
     apr: dict[str, Any],
     non_degenerate_mask: np.ndarray,
     n_total_features: int,
-) -> tuple[np.ndarray, int]:
-    """Compute IC Sharpe via rolling window of sharpe_window_size bars.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """Compute IC Sharpe, Sortino, and win rate via rolling non-overlapping windows.
 
-    Gate: n_windows_possible >= sharpe_min_windows (checked on the actual complete rows).
-    Returns array of NaN when gate not met.
+    Gate: n_windows_possible >= sharpe_min_windows.
+    Returns NaN arrays when gate not met.
 
-    IC Sharpe = mean(IC_per_window) / std(IC_per_window), per feature.
+    IC Sharpe   = mean(window_ICs) / std(window_ICs)          [symmetric]
+    IC Sortino  = mean(window_ICs) / semi_dev(neg windows)     [downside only]
+                  NaN when no windows have IC < 0 (ratio undefined)
+    IC win rate = fraction of windows where IC > 0             [stability]
+
+    Returns: (sharpe_arr, sortino_arr, win_rate_arr, n_windows)
     """
     sharpe_window_size = apr["sharpe_window_size"]
     sharpe_min_windows = apr["sharpe_min_windows"]
 
-    result = np.full(n_total_features, np.nan)
+    nan_result = np.full(n_total_features, np.nan)
     n_windows = 0
 
     if complete_mask.sum() < 2:
-        return result, n_windows
+        return nan_result, nan_result.copy(), nan_result.copy(), n_windows
 
     X_aligned = X_sub[complete_mask]
     Y_aligned = returns_sub[complete_mask, scale_idx]
 
-    # Compute IC per rolling window (non-overlapping)
     n = len(X_aligned)
     n_windows_possible = n // sharpe_window_size
     if n_windows_possible < sharpe_min_windows:
-        return result, n_windows
+        return nan_result, nan_result.copy(), nan_result.copy(), n_windows
 
     window_ics_list = []
     for w in range(n_windows_possible):
@@ -406,19 +414,43 @@ def _compute_ic_sharpe(
             continue
         rx = rankdata(wx, axis=0)
         ry = rankdata(wy)
-        ic_w = _vectorized_ic(rx, ry)
-        window_ics_list.append(ic_w)
+        window_ics_list.append(_vectorized_ic(rx, ry))
 
     n_windows = len(window_ics_list)
     if n_windows < sharpe_min_windows:
-        return result, n_windows
+        return nan_result, nan_result.copy(), nan_result.copy(), n_windows
 
     window_ics = np.array(window_ics_list)  # [n_windows, n_non_degenerate]
     mean_ic = window_ics.mean(axis=0)
     std_ic = window_ics.std(axis=0)
-    sharpe = np.where(std_ic > 1e-10, mean_ic / std_ic, 0.0)
-    result[non_degenerate_mask] = sharpe
-    return result, n_windows
+
+    sharpe_nd = np.where(std_ic > 1e-10, mean_ic / std_ic, 0.0)
+
+    # Sortino: penalise only negative-IC windows (target = 0)
+    # NaN per feature when that feature has no negative windows
+    neg_mask = window_ics < 0  # [n_windows, n_non_degenerate]
+    semi_dev = np.where(
+        neg_mask.any(axis=0),
+        np.sqrt(
+            np.where(neg_mask, window_ics**2, 0.0).sum(axis=0) / np.maximum(neg_mask.sum(axis=0), 1)
+        ),
+        np.nan,
+    )
+    sortino_nd = np.where(
+        np.isnan(semi_dev),
+        np.nan,
+        np.where(semi_dev > 1e-10, mean_ic / semi_dev, np.nan),
+    )
+
+    win_rate_nd = (window_ics > 0).mean(axis=0)
+
+    sharpe_arr = nan_result.copy()
+    sortino_arr = nan_result.copy()
+    win_rate_arr = nan_result.copy()
+    sharpe_arr[non_degenerate_mask] = sharpe_nd
+    sortino_arr[non_degenerate_mask] = sortino_nd
+    win_rate_arr[non_degenerate_mask] = win_rate_nd
+    return sharpe_arr, sortino_arr, win_rate_arr, n_windows
 
 
 # ---------------------------------------------------------------------------
@@ -677,16 +709,18 @@ def _compute_symbol_tf(
                 passes_wf_full[non_degenerate_mask] = passes_wf_nd
 
                 # -------------------------------------------------------
-                # IC Sharpe (rolling window; gate: n_raw_bars >= threshold)
+                # IC Sharpe / Sortino / win rate (rolling windows)
                 # -------------------------------------------------------
-                ic_sharpe_arr, n_sharpe_windows = _compute_ic_sharpe(
-                    X_sub,
-                    returns_sub,
-                    scale_idx,
-                    complete_sub[:, scale_idx],
-                    apr,
-                    non_degenerate_mask,
-                    n_features,
+                ic_sharpe_arr, ic_sortino_arr, ic_win_rate_arr, n_sharpe_windows = (
+                    _compute_ic_rolling_metrics(
+                        X_sub,
+                        returns_sub,
+                        scale_idx,
+                        complete_sub[:, scale_idx],
+                        apr,
+                        non_degenerate_mask,
+                        n_features,
+                    )
                 )
 
                 # -------------------------------------------------------
@@ -742,6 +776,16 @@ def _compute_symbol_tf(
                                 else float(ic_sharpe_arr[feat_idx])
                             ),
                             "ic_sharpe_n_windows": int(n_sharpe_windows),
+                            "ic_sortino": (
+                                None
+                                if np.isnan(ic_sortino_arr[feat_idx])
+                                else float(ic_sortino_arr[feat_idx])
+                            ),
+                            "ic_win_rate": (
+                                None
+                                if np.isnan(ic_win_rate_arr[feat_idx])
+                                else float(ic_win_rate_arr[feat_idx])
+                            ),
                             "regime_label_source": "forward_filter",
                             "computed_at": run_ts,
                         }
@@ -827,6 +871,10 @@ def _emit_health_gauges(symbol: str, tf: str, results: list[dict]) -> None:
         IC_SCORE_GAUGE.set(r["ic_value"], base_attrs)
         if r.get("ic_sharpe") is not None:
             IC_SHARPE_GAUGE.set(r["ic_sharpe"], base_attrs)
+        if r.get("ic_sortino") is not None:
+            IC_SORTINO_GAUGE.set(r["ic_sortino"], base_attrs)
+        if r.get("ic_win_rate") is not None:
+            IC_WIN_RATE_GAUGE.set(r["ic_win_rate"], base_attrs)
 
     # Effective N and features surviving FDR per (tf, regime)
     by_regime: dict[str, list[dict]] = {}

@@ -1125,3 +1125,17 @@ IC_SHARPE_GAUGE = _meter.create_gauge(
     "ic_engine_ic_sharpe",
     description="IC Sharpe per feature x tf x regime; labels feature_name, tf, regime, lookahead",
 )
+IC_SORTINO_GAUGE = _meter.create_gauge(
+    "ic_engine_ic_sortino",
+    description=(
+        "IC Sortino per feature x tf x regime (mean/semi-deviation from 0). "
+        "NULL when all windows positive or sharpe gate not met; labels feature_name, tf, regime, lookahead"
+    ),
+)
+IC_WIN_RATE_GAUGE = _meter.create_gauge(
+    "ic_engine_ic_win_rate",
+    description=(
+        "Fraction of rolling windows where IC > 0 per feature x tf x regime. "
+        "NULL when sharpe gate not met; labels feature_name, tf, regime, lookahead"
+    ),
+)
