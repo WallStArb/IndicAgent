@@ -321,6 +321,26 @@ def _vectorized_ic(ranks_X: np.ndarray, ranks_Y: np.ndarray) -> np.ndarray:
     return np.where(denom > 1e-10, (X_c * Y_c[:, None]).sum(axis=0) / denom, 0.0)
 
 
+def compute_ic_vectorized(X: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Compute vectorized Spearman IC between each column of X and y.
+
+    Public wrapper around _vectorized_ic that accepts raw (unranked) inputs
+    and handles ranking internally. Equivalent to scipy.stats.spearmanr(X[:,j], y)
+    for each feature j, but computed simultaneously across all features via
+    vectorized Pearson-on-ranks.
+
+    Args:
+        X: Shape [n_obs, n_features] -- raw feature values (not pre-ranked).
+        y: Shape [n_obs] -- raw return vector (not pre-ranked).
+
+    Returns:
+        ic_vector: Shape [n_features] -- Spearman IC per feature.
+    """
+    ranks_X = rankdata(X, axis=0)
+    ranks_y = rankdata(y)
+    return _vectorized_ic(ranks_X, ranks_y)
+
+
 def _expand(nd_arr: np.ndarray, mask: np.ndarray, n: int) -> np.ndarray:
     """Scatter nd_arr (non-degenerate features) into a NaN-filled n-length float array."""
     out = np.full(n, np.nan)

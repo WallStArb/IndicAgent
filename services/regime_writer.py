@@ -195,18 +195,26 @@ def _causal_decode(
     return states, alpha_history
 
 
-def _build_label_map(model: GaussianHMM, n_components: int) -> dict[int, str]:
+def _build_label_map(means: np.ndarray) -> dict[int, str]:
     """Map integer HMM states to canonical regime text labels.
 
-    Sorted deterministically by fitted emission mean[0] (log-return dimension):
+    Sorted deterministically by fitted emission mean[:, 0] (log-return dimension):
       - State with highest mean log-return -> "trending_up"
       - State with lowest mean log-return  -> "trending_down"
       - Remaining state(s)                 -> "ranging"
 
     This produces semantically stable labels regardless of which integer
     hmmlearn assigns to which state.
+
+    Args:
+        means: Shape (K, n_features) -- emission means from fitted HMM.
+                Column 0 is the log-return dimension used for sorting.
+
+    Returns:
+        dict mapping integer state index -> canonical text label.
     """
-    means_ret = model.means_[:, 0]  # log-return dimension
+    n_components = means.shape[0]
+    means_ret = means[:, 0]  # log-return dimension
     order = np.argsort(means_ret)  # ascending: [most_neg, ..., most_pos]
     label_map: dict[int, str] = {}
     label_map[int(order[-1])] = _LABEL_TRENDING_UP  # highest mean return
@@ -316,7 +324,7 @@ def _label_symbol_tf(
                 n_components,
             )
 
-            label_map = _build_label_map(model, n_components)
+            label_map = _build_label_map(model.means_)
 
             # State index lookups for alpha vector column mapping
             up_state = next(k for k, v in label_map.items() if v == _LABEL_TRENDING_UP)

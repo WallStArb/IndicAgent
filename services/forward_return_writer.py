@@ -34,6 +34,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import psycopg2
 import psycopg2.extras
 import structlog
@@ -98,6 +99,47 @@ def observed_span(name: str, tracer: Any, **attrs: Any) -> Generator[Any]:
             span.set_status(StatusCode.ERROR, str(error))
             span.record_exception(error)
             raise
+
+
+# ---------------------------------------------------------------------------
+# Pure forward return helper (unit-testable, no DB)
+# ---------------------------------------------------------------------------
+
+
+def forward_log_return(opens: np.ndarray, n: int) -> np.ndarray:
+    """Compute forward log return: ln(open[T+N+1] / open[T+1]) for each T.
+
+    This mirrors the SQL LEAD()-based formula in _build_forward_return_sql():
+      - Entry at T+1 open (next bar's open, simulating market-on-open entry)
+      - Exit at T+N+1 open (N bars later, simulating market-on-open exit)
+
+    The last n rows have no complete forward return (opens[T+N+1] is unknown)
+    and are set to NaN.
+
+    Args:
+        opens: Array of length M open prices, ordered by time.
+        n: Lookahead in bars (1=fast, 5=mid, 20=slow, 60=extended).
+
+    Returns:
+        Array of length M float64. Value at index T = ln(opens[T+n+1] / opens[T+1]).
+        Indices where T+n+1 >= M are NaN (complete_Nbar would be False in SQL).
+        Index T uses only opens at indices > T (no lookahead bias).
+    """
+    opens_arr = np.asarray(opens, dtype=float)
+    m = len(opens_arr)
+    result = np.full(m, np.nan)
+    # result[T] = ln(opens[T+n+1] / opens[T+1]) for T in [0, m-n-2]
+    # Requires: T+1 < m (entry) and T+n+1 < m (exit)
+    # So valid T range: 0 <= T <= m - n - 2
+    valid_end = m - n - 1  # last valid T (inclusive) = m - n - 2
+    if valid_end > 0:
+        entry_idx = np.arange(1, valid_end + 1)  # T+1
+        exit_idx = np.arange(n + 1, valid_end + n + 1)  # T+n+1
+        entry_prices = opens_arr[entry_idx]
+        exit_prices = opens_arr[exit_idx]
+        valid = (entry_prices > 0) & (exit_prices > 0)
+        result[:valid_end] = np.where(valid, np.log(exit_prices / entry_prices), np.nan)
+    return result
 
 
 # ---------------------------------------------------------------------------

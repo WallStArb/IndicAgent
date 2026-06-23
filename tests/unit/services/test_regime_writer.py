@@ -291,7 +291,7 @@ def test_build_label_map_covers_all_states():
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
-    label_map = _build_label_map(model, n_components)
+    label_map = _build_label_map(model.means_)
 
     assert set(label_map.keys()) == set(range(n_components))
 
@@ -304,7 +304,7 @@ def test_build_label_map_canonical_values():
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
-    label_map = _build_label_map(model, n_components)
+    label_map = _build_label_map(model.means_)
 
     valid_labels = {_LABEL_TRENDING_UP, _LABEL_TRENDING_DOWN, _LABEL_RANGING}
     for state, label in label_map.items():
@@ -319,7 +319,7 @@ def test_build_label_map_trending_up_has_highest_mean():
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
-    label_map = _build_label_map(model, n_components)
+    label_map = _build_label_map(model.means_)
 
     up_state = [k for k, v in label_map.items() if v == _LABEL_TRENDING_UP][0]
     down_state = [k for k, v in label_map.items() if v == _LABEL_TRENDING_DOWN][0]
@@ -337,7 +337,7 @@ def test_build_label_map_trending_down_has_lowest_mean():
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
-    label_map = _build_label_map(model, n_components)
+    label_map = _build_label_map(model.means_)
 
     down_state = [k for k, v in label_map.items() if v == _LABEL_TRENDING_DOWN][0]
 
@@ -355,7 +355,7 @@ def test_build_label_map_exactly_one_trending_up():
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
-    label_map = _build_label_map(model, n_components)
+    label_map = _build_label_map(model.means_)
 
     up_count = sum(1 for v in label_map.values() if v == _LABEL_TRENDING_UP)
     down_count = sum(1 for v in label_map.values() if v == _LABEL_TRENDING_DOWN)
@@ -377,7 +377,7 @@ def test_build_label_map_four_components():
         random_state=_HMM_RANDOM_STATE,
     )
     model.fit(obs)
-    label_map = _build_label_map(model, n_components)
+    label_map = _build_label_map(model.means_)
 
     ranging_count = sum(1 for v in label_map.values() if v == _LABEL_RANGING)
     assert ranging_count == 2
