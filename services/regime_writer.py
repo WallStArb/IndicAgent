@@ -154,10 +154,12 @@ def _causal_decode(
         K: number of hidden states
 
     Returns:
-        states: (n,) int array of decoded state indices
+        (states, alpha_history) where states[t] = argmax(alpha[t]) and
+        alpha_history[t] is the normalized probability vector over K states.
     """
     n, d = obs_matrix.shape
     states = np.zeros(n, dtype=int)
+    alpha_history = np.zeros((n, K))
     # Uniform prior — mirrors _make_initial_state in hmm_regime.py
     alpha = np.full(K, 1.0 / K)
 
@@ -188,8 +190,9 @@ def _causal_decode(
         alpha /= total if total > 0 else 1.0
 
         states[t] = int(np.argmax(alpha))
+        alpha_history[t] = alpha
 
-    return states
+    return states, alpha_history
 
 
 def _build_label_map(model: GaussianHMM, n_components: int) -> dict[int, str]:
@@ -304,7 +307,7 @@ def _label_symbol_tf(
             # Causal forward-filter decoding (NOT model.predict())
             # model.covars_ shape for 'diag': (K, n_features) — already variances
             # ------------------------------------------------------------------
-            raw_states = _causal_decode(
+            raw_states, alpha_history = _causal_decode(
                 obs_matrix,
                 model.means_,
                 model.covars_,
@@ -314,27 +317,66 @@ def _label_symbol_tf(
 
             label_map = _build_label_map(model, n_components)
 
-            # ------------------------------------------------------------------
-            # Build (bar_ts, label) pairs aligned to market_data_ohlcv timestamps
-            # ------------------------------------------------------------------
-            update_params = (
-                (label_map[int(state_idx)], symbol, tf, ts)
-                for ts, state_idx in zip(valid_ts, raw_states)
-            )
+            # State index lookups for alpha vector column mapping
+            up_state = next(k for k, v in label_map.items() if v == _LABEL_TRENDING_UP)
+            down_state = next(k for k, v in label_map.items() if v == _LABEL_TRENDING_DOWN)
+            rang_state = next(k for k, v in label_map.items() if v == _LABEL_RANGING)
 
             # ------------------------------------------------------------------
-            # Batch UPDATE feature_vectors.regime
+            # Build update rows with full HMM probability vector.
+            # Explicit loop (not generator) — required for index-based alpha_history
+            # access and stateful duration counter simultaneously.
+            # ------------------------------------------------------------------
+            update_rows = []
+            prev_state: int | None = None
+            duration = 0
+            for i, (ts, state_idx) in enumerate(zip(valid_ts, raw_states)):
+                state_idx = int(state_idx)
+                if state_idx == prev_state:
+                    duration += 1
+                else:
+                    duration = 1
+                    prev_state = state_idx
+                alpha = alpha_history[i]
+                p_up = float(alpha[up_state])  # hmm_prob_trending_up
+                p_ranging = float(alpha[rang_state])
+                p_down = float(alpha[down_state])
+                prob_val = float(np.max(alpha))
+                entropy_val = float(-np.sum(alpha * np.log(np.maximum(alpha, 1e-300))))
+                update_rows.append(
+                    (
+                        label_map[state_idx],  # regime
+                        p_up,
+                        p_ranging,
+                        p_down,
+                        prob_val,  # hmm_regime_prob
+                        entropy_val,  # hmm_entropy
+                        float(duration),  # hmm_duration
+                        symbol,
+                        tf,
+                        ts,
+                    )
+                )
+
+            # ------------------------------------------------------------------
+            # Batch UPDATE feature_vectors with regime + full probability vector
             # ------------------------------------------------------------------
             update_sql = (
                 "UPDATE feature_vectors "
-                "SET regime = %s "
+                "SET regime               = %s, "
+                "    hmm_prob_trending_up  = %s, "
+                "    hmm_prob_ranging      = %s, "
+                "    hmm_prob_trending_down = %s, "
+                "    hmm_regime_prob       = %s, "
+                "    hmm_entropy           = %s, "
+                "    hmm_duration          = %s "
                 "WHERE symbol = %s AND tf = %s AND bar_ts = %s"
             )
             with conn.cursor() as cur:
                 psycopg2.extras.execute_batch(
                     cur,
                     update_sql,
-                    update_params,
+                    update_rows,
                     page_size=_UPDATE_BATCH_SIZE,
                 )
             conn.commit()

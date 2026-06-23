@@ -1057,3 +1057,21 @@ REGIME_WRITER_NULL_REGIME_REMAINING = _meter.create_gauge(
     "regime_writer_null_regime_remaining",
     description="feature_vectors rows still regime=NULL after run; labels symbol, tf",
 )
+
+# ---------------------------------------------------------------------------
+# forward_return_writer (P5)
+# ---------------------------------------------------------------------------
+
+FORWARD_RETURN_WRITER_ROWS_WRITTEN_TOTAL = _meter.create_counter(
+    "forward_return_writer_rows_written_total",
+    description="rows inserted into forward_returns; labels symbol, tf",
+)
+FORWARD_RETURN_WRITER_RUN_LATENCY_SECONDS = _meter.create_histogram(
+    "forward_return_writer_run_latency_seconds",
+    description="Full outcome labeler run duration",
+    unit="s",
+)
+OUTCOME_LABELS_COVERAGE = _meter.create_gauge(
+    "forward_returns_coverage",
+    description="fraction of feature_vectors rows with labeled forward returns; labels lookahead, symbol, tf",
+)

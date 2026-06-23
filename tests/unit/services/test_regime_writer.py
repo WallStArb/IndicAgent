@@ -162,12 +162,16 @@ def test_causal_decode_valid_states():
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
-    states = _causal_decode(obs, model.means_, model.covars_, model.transmat_, n_components)
+    states, alpha_history = _causal_decode(
+        obs, model.means_, model.covars_, model.transmat_, n_components
+    )
 
     assert states.shape == (obs.shape[0],)
     assert np.all(states >= 0) and np.all(
         states < n_components
     ), f"State indices out of range [0, {n_components-1}]: {np.unique(states)}"
+    assert alpha_history.shape == (obs.shape[0], n_components)
+    assert np.allclose(alpha_history.sum(axis=1), 1.0)
 
 
 def test_causal_decode_no_predict():
@@ -181,7 +185,9 @@ def test_causal_decode_no_predict():
     model = _fit_simple_hmm(obs, n_components)
 
     # Our causal decoder
-    causal_states = _causal_decode(obs, model.means_, model.covars_, model.transmat_, n_components)
+    causal_states, alpha_history = _causal_decode(
+        obs, model.means_, model.covars_, model.transmat_, n_components
+    )
 
     # hmmlearn Viterbi (full-sequence, non-causal)
     viterbi_states = model.predict(obs)
@@ -191,6 +197,8 @@ def test_causal_decode_no_predict():
     assert causal_states.shape == viterbi_states.shape
     # Causal states must be valid regardless of whether they match Viterbi
     assert np.all(causal_states >= 0) and np.all(causal_states < n_components)
+    assert alpha_history.shape == (obs.shape[0], n_components)
+    assert np.allclose(alpha_history.sum(axis=1), 1.0)
 
 
 def test_causal_decode_deterministic():
@@ -202,10 +210,15 @@ def test_causal_decode_deterministic():
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
 
-    states1 = _causal_decode(obs, model.means_, model.covars_, model.transmat_, n_components)
-    states2 = _causal_decode(obs, model.means_, model.covars_, model.transmat_, n_components)
+    states1, alpha_history1 = _causal_decode(
+        obs, model.means_, model.covars_, model.transmat_, n_components
+    )
+    states2, alpha_history2 = _causal_decode(
+        obs, model.means_, model.covars_, model.transmat_, n_components
+    )
 
     np.testing.assert_array_equal(states1, states2)
+    np.testing.assert_array_almost_equal(alpha_history1, alpha_history2)
 
 
 def test_causal_decode_uses_only_past_observations():
@@ -225,12 +238,12 @@ def test_causal_decode_uses_only_past_observations():
 
     # Decode on first half of obs
     half = len(obs) // 2
-    states_half = _causal_decode(
+    states_half, _ = _causal_decode(
         obs[:half], model.means_, model.covars_, model.transmat_, n_components
     )
 
     # Decode on full sequence
-    states_full = _causal_decode(obs, model.means_, model.covars_, model.transmat_, n_components)
+    states_full, _ = _causal_decode(obs, model.means_, model.covars_, model.transmat_, n_components)
 
     # The decoded state at each position in the first half must be identical
     # between the two decoding runs — future observations cannot change past states
@@ -255,9 +268,13 @@ def test_causal_decode_single_obs():
     model = _fit_simple_hmm(obs, n_components)
 
     single_obs = obs[:1]  # shape (1, 2)
-    states = _causal_decode(single_obs, model.means_, model.covars_, model.transmat_, n_components)
+    states, alpha_history = _causal_decode(
+        single_obs, model.means_, model.covars_, model.transmat_, n_components
+    )
     assert states.shape == (1,)
     assert 0 <= states[0] < n_components
+    assert alpha_history.shape == (1, n_components)
+    assert np.allclose(alpha_history.sum(axis=1), 1.0)
 
 
 # ---------------------------------------------------------------------------
