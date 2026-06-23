@@ -830,6 +830,49 @@ def _momentum_reversal_z_series_full(closes: np.ndarray, zscore_window: int) -> 
     return np.concatenate([[0.0], z])
 
 
+def _volume_z_series_full(volumes: np.ndarray, zscore_window: int) -> np.ndarray:
+    """Volume z-score series. result[i] == streaming volume_z at bar i."""
+    z = _rolling_zscore_series(volumes.astype(float), zscore_window)
+    z[: zscore_window - 1] = 0.0  # match _zscore_last cold-start: returns 0.0 when len < window
+    return z
+
+
+def _ofi_z_series_full(
+    closes: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    volumes: np.ndarray,
+    zscore_window: int,
+) -> np.ndarray:
+    """OFI z-score series. result[i] == streaming ofi_z at bar i."""
+    ofi_raw = (closes - lows) / (highs - lows + 1e-10) * volumes
+    z = _rolling_zscore_series(ofi_raw.astype(float), zscore_window)
+    z[: zscore_window - 1] = 0.0  # match _zscore_last cold-start: returns 0.0 when len < window
+    return z
+
+
+def _cvd_slope_z_series_full(
+    closes: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    volumes: np.ndarray,
+    slope_bars: int,
+    zscore_window: int,
+) -> np.ndarray:
+    """CVD slope z-score series. result[i] == streaming cvd_slope_z at bar i.
+    Returns zeros for i < slope_bars (cold start: len(cum_cvd) <= slope_bars).
+    """
+    n = len(closes)
+    if n <= slope_bars:
+        return np.zeros(n, dtype=float)
+    cvd_raw = (2.0 * closes - highs - lows) / (highs - lows + 1e-10) * volumes
+    cum_cvd = np.cumsum(cvd_raw.astype(float))
+    slope_vals = (cum_cvd[slope_bars:] - cum_cvd[: n - slope_bars]) / slope_bars
+    z = _rolling_zscore_series(slope_vals, zscore_window)
+    z[: zscore_window - 1] = 0.0  # match _zscore_last cold-start: returns 0.0 when len < window
+    return np.concatenate([np.zeros(slope_bars, dtype=float), z])
+
+
 # ---------------------------------------------------------------------------
 # FeatureFactory — stateless pure-function class
 # ---------------------------------------------------------------------------
@@ -945,27 +988,36 @@ class FeatureFactory:
         informed_flow_val = _informed_flow(open_, close_, atr_val)
 
         # ofi_z: OHLCV proxy, z-scored over ofi_zscore_window
-        ofi_raw = (closes - lows) / (highs - lows + 1e-10) * volumes
-        ofi_z_val = _zscore_last(ofi_raw, config.ofi_zscore_window)
+        if precomputed is not None and "ofi_z" in precomputed:
+            ofi_z_val = precomputed["ofi_z"]
+        else:
+            ofi_raw = (closes - lows) / (highs - lows + 1e-10) * volumes
+            ofi_z_val = _zscore_last(ofi_raw, config.ofi_zscore_window)
 
         # cvd_slope_z: cumulative CVD slope over slope_bars, z-scored
-        cvd_raw = (2.0 * closes - highs - lows) / (highs - lows + 1e-10) * volumes
-        cum_cvd = np.cumsum(cvd_raw)
-        slope_bars = config.cvd_slope_bars
-        if len(cum_cvd) > slope_bars:
-            cvd_slopes = np.array(
-                [
-                    (cum_cvd[i] - cum_cvd[i - slope_bars]) / slope_bars
-                    for i in range(slope_bars, len(cum_cvd))
-                ],
-                dtype=float,
-            )
-            cvd_slope_z_val = _zscore_last(cvd_slopes, config.ofi_zscore_window)
+        if precomputed is not None and "cvd_slope_z" in precomputed:
+            cvd_slope_z_val = precomputed["cvd_slope_z"]
         else:
-            cvd_slope_z_val = 0.0
+            cvd_raw = (2.0 * closes - highs - lows) / (highs - lows + 1e-10) * volumes
+            cum_cvd = np.cumsum(cvd_raw)
+            slope_bars = config.cvd_slope_bars
+            if len(cum_cvd) > slope_bars:
+                cvd_slopes = np.array(
+                    [
+                        (cum_cvd[i] - cum_cvd[i - slope_bars]) / slope_bars
+                        for i in range(slope_bars, len(cum_cvd))
+                    ],
+                    dtype=float,
+                )
+                cvd_slope_z_val = _zscore_last(cvd_slopes, config.ofi_zscore_window)
+            else:
+                cvd_slope_z_val = 0.0
 
         # volume_z: rolling z-score of volume
-        volume_z_val = _zscore_last(volumes, config.volume_zscore_window)
+        if precomputed is not None and "volume_z" in precomputed:
+            volume_z_val = precomputed["volume_z"]
+        else:
+            volume_z_val = _zscore_last(volumes, config.volume_zscore_window)
 
         vol_ratio_val = _vol_ratio(closes, config.vol_short_bars, config.vol_long_bars)
 

@@ -267,3 +267,54 @@ def test_momentum_reversal_z_transition_boundary(ohlcv, cfg):
     assert (
         abs(batch[past_sat] - fv_past.momentum_reversal_z) < 1e-8
     ), f"bar {past_sat} (past saturation): batch={batch[past_sat]:.10f} streaming={fv_past.momentum_reversal_z:.10f}"
+
+
+# ---------------------------------------------------------------------------
+# Task 2: Volume / OFI / CVD series
+# ---------------------------------------------------------------------------
+
+
+def test_volume_z_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _volume_z_series_full
+
+    batch = _volume_z_series_full(ohlcv["volumes"], cfg.volume_zscore_window)
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        assert (
+            abs(batch[i] - fv.volume_z) < 1e-8
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.volume_z:.10f}"
+
+
+def test_ofi_z_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _ofi_z_series_full
+
+    batch = _ofi_z_series_full(
+        ohlcv["closes"],
+        ohlcv["highs"],
+        ohlcv["lows"],
+        ohlcv["volumes"],
+        cfg.ofi_zscore_window,
+    )
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        assert (
+            abs(batch[i] - fv.ofi_z) < 1e-8
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.ofi_z:.10f}"
+
+
+def test_cvd_slope_z_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _cvd_slope_z_series_full
+
+    batch = _cvd_slope_z_series_full(
+        ohlcv["closes"],
+        ohlcv["highs"],
+        ohlcv["lows"],
+        ohlcv["volumes"],
+        cfg.cvd_slope_bars,
+        cfg.ofi_zscore_window,
+    )
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        assert (
+            abs(batch[i] - fv.cvd_slope_z) < 1e-8
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.cvd_slope_z:.10f}"
