@@ -954,6 +954,7 @@ def _amihud_illiq_z_series_full(
     dollar_vols = closes[1:].astype(float) * np.maximum(volumes[1:].astype(float), 1.0)
     illiq = log_rets_abs / dollar_vols
     z = _rolling_zscore_series(illiq, zscore_window)
+    z[: zscore_window - 1] = 0.0  # match _zscore_last cold-start: returns 0.0 when len < window
     return np.concatenate([[0.0], z])
 
 
