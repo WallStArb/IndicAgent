@@ -175,3 +175,95 @@ def test_momentum_reversal_z_parity(ohlcv, cfg, streaming):
         assert (
             abs(batch[i] - fv.momentum_reversal_z) < 1e-8
         ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.momentum_reversal_z:.10f}"
+
+
+# ---------------------------------------------------------------------------
+# Transition-boundary tests: verify cold-start/warm boundary exact parity
+# ---------------------------------------------------------------------------
+
+
+def _streaming_at(bar_idx: int, ohlcv: dict, cfg: FeatureFactoryConfig) -> object:
+    """Compute streaming FeatureVector at a specific bar index (inclusive)."""
+    cache = FeatureCache()
+    return FeatureFactory.compute(ohlcv["bars"][: bar_idx + 1], "SPY", "5m", cache, cfg)
+
+
+def test_momentum_z_fast_transition_boundary(ohlcv, cfg):
+    """Batch must match streaming exactly at cold-start boundary for momentum_z_fast."""
+    from src.intelligence.feature_factory import _momentum_z_series_full
+
+    batch = _momentum_z_series_full(
+        ohlcv["closes"], cfg.momentum_window_fast, cfg.momentum_zscore_window
+    )
+
+    wf = cfg.momentum_window_fast
+    zw = cfg.momentum_zscore_window
+
+    # Last bar where streaming returns 0.0 (insufficient history for z-score)
+    last_cold = wf + zw - 2
+    fv_cold = _streaming_at(last_cold, ohlcv, cfg)
+    assert (
+        abs(batch[last_cold] - fv_cold.momentum_z_fast) < 1e-8
+    ), f"bar {last_cold} (last cold): batch={batch[last_cold]:.10f} streaming={fv_cold.momentum_z_fast:.10f}"
+
+    # First bar where streaming returns non-zero
+    first_warm = wf + zw - 1
+    fv_warm = _streaming_at(first_warm, ohlcv, cfg)
+    assert (
+        abs(batch[first_warm] - fv_warm.momentum_z_fast) < 1e-8
+    ), f"bar {first_warm} (first warm): batch={batch[first_warm]:.10f} streaming={fv_warm.momentum_z_fast:.10f}"
+
+    # A few bars past the transition
+    past_warm = wf + zw + 5
+    fv_past = _streaming_at(past_warm, ohlcv, cfg)
+    assert (
+        abs(batch[past_warm] - fv_past.momentum_z_fast) < 1e-8
+    ), f"bar {past_warm} (past warm): batch={batch[past_warm]:.10f} streaming={fv_past.momentum_z_fast:.10f}"
+
+
+def test_momentum_reversal_z_transition_boundary(ohlcv, cfg):
+    """Batch must match streaming exactly at the reversal cold-start boundary.
+
+    The reversal path uses an expanding zscore window (min(zscore_window, len)),
+    so streaming returns 0.0 only at bar 1 (single log-return, std=0) and transitions
+    to non-zero at bar 2. The batch _rolling_zscore_series uses the same expanding
+    semantics. Checks parity at bar 1 (cold), bar 2 (first non-zero), and several
+    bars into the fully-saturated window region.
+    """
+    from src.intelligence.feature_factory import _momentum_reversal_z_series_full
+
+    batch = _momentum_reversal_z_series_full(ohlcv["closes"], cfg.momentum_zscore_window)
+
+    zw = cfg.momentum_zscore_window
+
+    # Bar 1: single log-return; std=0 so streaming returns 0.0
+    fv_bar1 = _streaming_at(1, ohlcv, cfg)
+    assert (
+        abs(batch[1] - fv_bar1.momentum_reversal_z) < 1e-8
+    ), f"bar 1 (cold): batch={batch[1]:.10f} streaming={fv_bar1.momentum_reversal_z:.10f}"
+
+    # Bar 2: first non-zero; expanding window of 2
+    fv_bar2 = _streaming_at(2, ohlcv, cfg)
+    assert (
+        abs(batch[2] - fv_bar2.momentum_reversal_z) < 1e-8
+    ), f"bar 2 (first warm): batch={batch[2]:.10f} streaming={fv_bar2.momentum_reversal_z:.10f}"
+
+    # Bar at zscore_window - 1: last bar where expanding window is still < zscore_window
+    last_expanding = zw - 1
+    fv_last_exp = _streaming_at(last_expanding, ohlcv, cfg)
+    assert (
+        abs(batch[last_expanding] - fv_last_exp.momentum_reversal_z) < 1e-8
+    ), f"bar {last_expanding} (last expanding): batch={batch[last_expanding]:.10f} streaming={fv_last_exp.momentum_reversal_z:.10f}"
+
+    # Bar at zscore_window: first bar with fully-saturated window
+    fv_sat = _streaming_at(zw, ohlcv, cfg)
+    assert (
+        abs(batch[zw] - fv_sat.momentum_reversal_z) < 1e-8
+    ), f"bar {zw} (first saturated): batch={batch[zw]:.10f} streaming={fv_sat.momentum_reversal_z:.10f}"
+
+    # A few bars past saturation
+    past_sat = zw + 5
+    fv_past = _streaming_at(past_sat, ohlcv, cfg)
+    assert (
+        abs(batch[past_sat] - fv_past.momentum_reversal_z) < 1e-8
+    ), f"bar {past_sat} (past saturation): batch={batch[past_sat]:.10f} streaming={fv_past.momentum_reversal_z:.10f}"

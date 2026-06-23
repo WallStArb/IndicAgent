@@ -816,6 +816,7 @@ def _momentum_z_series_full(closes: np.ndarray, window: int, zscore_window: int)
         return np.zeros(n, dtype=float)
     log_returns = np.log(np.maximum(closes[window:], 1e-10) / np.maximum(closes[:-window], 1e-10))
     z = _rolling_zscore_series(log_returns, zscore_window)
+    z[: zscore_window - 1] = 0.0  # match _zscore_last cold-start: returns 0.0 when len < window
     return np.concatenate([np.zeros(window, dtype=float), z])
 
 
