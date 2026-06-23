@@ -20,7 +20,7 @@ CORRECTNESS INVARIANTS:
 - ON CONFLICT uses column list + WHERE clause (partial index; not named CONSTRAINT).
 - Idempotent: ON CONFLICT DO NOTHING. Re-run inserts 0 rows.
 - Crash-loud: three startup gates raise RuntimeError with explicit messages.
-- IC Sharpe gate: n_raw_bars >= sharpe_min_windows * sharpe_window_size (in raw bars).
+- IC Sharpe gate: n_windows_possible >= sharpe_min_windows (checked on actual complete rows).
 
 DAG invariant note: this oneshot is exempt from the "only writer subclasses touch DB"
 rule exactly as backfill_feature_factory.py is -- it is a batch measurement tool,
@@ -107,6 +107,40 @@ _POOLED_REGIME_SENTINEL = "_pooled"
 
 # Default TFs if not passed via --tf
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
+
+# ---------------------------------------------------------------------------
+# Module-level INSERT SQL (shared body; conflict clause differs by row type)
+# ---------------------------------------------------------------------------
+
+_INSERT_BODY = """
+    INSERT INTO feature_ic_scores (
+        feature_name, vector_domain, symbol, tf, regime, lookahead_bars,
+        training_window_end, is_pooled, n_independent, reliable,
+        ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate,
+        bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, passes_walkforward,
+        ic_sharpe, ic_sharpe_n_windows, regime_label_source, computed_at
+    )
+    VALUES (
+        %(feature_name)s, %(vector_domain)s, %(symbol)s, %(tf)s, %(regime)s,
+        %(lookahead_bars)s, %(training_window_end)s, %(is_pooled)s,
+        %(n_independent)s, %(reliable)s, %(ic_value)s, %(ic_sign)s, %(p_value)s,
+        %(ic_ci_lower)s, %(ic_ci_upper)s, %(passes_ci_gate)s, %(bh_adjusted_p)s,
+        %(passes_fdr)s, %(wf_fold_count)s, %(wf_pass_count)s, %(passes_walkforward)s,
+        %(ic_sharpe)s, %(ic_sharpe_n_windows)s, %(regime_label_source)s, %(computed_at)s
+    )
+"""
+_POOLED_INSERT_SQL = (
+    _INSERT_BODY
+    + "    ON CONFLICT (feature_name, symbol, tf, lookahead_bars, training_window_end)\n"
+    + "        WHERE is_pooled = true\n"
+    + "    DO NOTHING\n"
+)
+_REGIME_INSERT_SQL = (
+    _INSERT_BODY
+    + "    ON CONFLICT (feature_name, symbol, tf, regime, lookahead_bars, training_window_end)\n"
+    + "        WHERE is_pooled = false AND regime IS NOT NULL\n"
+    + "    DO NOTHING\n"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -241,11 +275,17 @@ def _circular_block_bootstrap_ic(
     n, p = ranks_X.shape
     n_blocks = math.ceil(n / block_size)
     boot_ics = np.zeros((n_boot, p))
+
+    # Pre-compute all block start indices in one RNG call, then broadcast offsets
+    # to build the full index matrix [n_boot, n_blocks*block_size] without a Python loop.
+    all_starts = rng.integers(0, n, size=(n_boot, n_blocks))
+    offsets = np.arange(block_size)
+    idx_mat = (all_starts[:, :, None] + offsets).reshape(n_boot, -1) % n
+    idx_mat = idx_mat[:, :n]
+
     for b in range(n_boot):
-        starts = rng.integers(0, n, size=n_blocks)
-        idx = np.concatenate([np.arange(s, s + block_size) % n for s in starts])[:n]
-        bX = ranks_X[idx]
-        bY = ranks_Y[idx]
+        bX = ranks_X[idx_mat[b]]
+        bY = ranks_Y[idx_mat[b]]
         # Vectorized Pearson on ranks == Spearman IC for this bootstrap sample
         bX_c = bX - bX.mean(axis=0)
         bY_c = bY - bY.mean()
@@ -280,6 +320,13 @@ def _vectorized_ic(ranks_X: np.ndarray, ranks_Y: np.ndarray) -> np.ndarray:
     return np.where(denom > 1e-10, (X_c * Y_c[:, None]).sum(axis=0) / denom, 0.0)
 
 
+def _expand(nd_arr: np.ndarray, mask: np.ndarray, n: int) -> np.ndarray:
+    """Scatter nd_arr (non-degenerate features) into a NaN-filled n-length float array."""
+    out = np.full(n, np.nan)
+    out[mask] = nd_arr
+    return out
+
+
 def _p_values_from_ic(ic_vector: np.ndarray, n: int) -> np.ndarray:
     """Two-tailed p-values from IC via t-approximation.
 
@@ -297,38 +344,30 @@ def _p_values_from_ic(ic_vector: np.ndarray, n: int) -> np.ndarray:
 def _compute_ic_sharpe(
     X_sub: np.ndarray,
     returns_sub: np.ndarray,
-    n_raw_bars: int,
     scale_idx: int,
     complete_mask: np.ndarray,
     apr: dict[str, Any],
     non_degenerate_mask: np.ndarray,
     n_total_features: int,
 ) -> tuple[np.ndarray, int]:
-    """Compute IC Sharpe via rolling window of sharpe_window_size raw bars.
+    """Compute IC Sharpe via rolling window of sharpe_window_size bars.
 
-    Gate: n_raw_bars >= sharpe_min_windows * sharpe_window_size.
-    Below this: returns array of NaN (IC Sharpe not computable).
+    Gate: n_windows_possible >= sharpe_min_windows (checked on the actual complete rows).
+    Returns array of NaN when gate not met.
 
     IC Sharpe = mean(IC_per_window) / std(IC_per_window), per feature.
     """
     sharpe_window_size = apr["sharpe_window_size"]
     sharpe_min_windows = apr["sharpe_min_windows"]
-    required_n = sharpe_min_windows * sharpe_window_size
 
     result = np.full(n_total_features, np.nan)
     n_windows = 0
 
-    if n_raw_bars < required_n:
+    if complete_mask.sum() < 2:
         return result, n_windows
 
-    # Align complete rows for this scale within the subsampled array
-    complete_at_sub = complete_mask
-    aligned_mask = complete_at_sub
-    if aligned_mask.sum() < 2:
-        return result, n_windows
-
-    X_aligned = X_sub[aligned_mask]
-    Y_aligned = returns_sub[aligned_mask, scale_idx]
+    X_aligned = X_sub[complete_mask]
+    Y_aligned = returns_sub[complete_mask, scale_idx]
 
     # Compute IC per rolling window (non-overlapping)
     n = len(X_aligned)
@@ -459,14 +498,14 @@ def _compute_symbol_tf(
                 complete_mat[i, j] = bool(row[1 + n_scales + j])
 
         # Distinct non-NULL regimes
-        distinct_regimes = [r for r in set(regime_aligned.tolist()) if r is not None]
+        distinct_regimes = [r for r in set(regime_aligned) if r is not None]
         # Process: each distinct regime + one pooled pass
         regime_passes = [(r, False) for r in distinct_regimes] + [(_POOLED_REGIME_SENTINEL, True)]
 
         # Collect all result dicts + parallel p-value list for BH-FDR per (symbol,tf)
         all_results: list[dict] = []
         pvals_flat: list[float] = []
-        pval_to_result_idx: list[tuple[int, int]] = []  # (result_idx, feature_idx)
+        pval_result_idxs: list[int] = []
 
         n_committed = 0
         n_skipped = 0
@@ -476,7 +515,7 @@ def _compute_symbol_tf(
             if is_pooled:
                 mask = np.ones(len(aligned_idx), dtype=bool)
             else:
-                mask = np.array([r == regime_label for r in regime_aligned.tolist()], dtype=bool)
+                mask = regime_aligned == regime_label
 
             X_regime = X_aligned[mask]
             returns_regime = returns_mat[mask]
@@ -495,14 +534,11 @@ def _compute_symbol_tf(
             n_independent = len(sub_idx)
 
             if n_independent < min_reliable_n:
-                for _ in _FEATURE_NAMES:
-                    for scale in _SCALES:
-                        cell_key = (_, symbol, tf, regime_label, lookaheads[scale], is_pooled)
-                        if cell_key not in existing_keys:
-                            IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                                1, {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"}
-                            )
-                            n_skipped += 1
+                n_cells = len(_FEATURE_NAMES) * len(_SCALES)
+                IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
+                    n_cells, {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"}
+                )
+                n_skipped += n_cells
                 continue
 
             # ------------------------------------------------------------------
@@ -537,11 +573,10 @@ def _compute_symbol_tf(
                 n_valid = valid_mask.sum()
 
                 if n_valid < min_reliable_n:
-                    for feat_name in _FEATURE_NAMES:
-                        IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                            1,
-                            {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"},
-                        )
+                    IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
+                        len(_FEATURE_NAMES),
+                        {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"},
+                    )
                     n_skipped += len(_FEATURE_NAMES)
                     continue
 
@@ -556,10 +591,8 @@ def _compute_symbol_tf(
                 p_vector_nd = _p_values_from_ic(ic_vector_nd, n_valid)
 
                 # Expand back to full feature space (NaN for degenerate)
-                ic_full = np.full(n_features, np.nan)
-                p_full = np.full(n_features, np.nan)
-                ic_full[non_degenerate_mask] = ic_vector_nd
-                p_full[non_degenerate_mask] = p_vector_nd
+                ic_full = _expand(ic_vector_nd, non_degenerate_mask, n_features)
+                p_full = _expand(p_vector_nd, non_degenerate_mask, n_features)
 
                 # -------------------------------------------------------
                 # Circular block bootstrap CI
@@ -580,10 +613,8 @@ def _compute_symbol_tf(
                         rng,
                     )
 
-                ci_lower_full = np.full(n_features, np.nan)
-                ci_upper_full = np.full(n_features, np.nan)
-                ci_lower_full[non_degenerate_mask] = ci_lower_nd
-                ci_upper_full[non_degenerate_mask] = ci_upper_nd
+                ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
+                ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)
                 passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
 
                 # -------------------------------------------------------
@@ -629,7 +660,6 @@ def _compute_symbol_tf(
                 ic_sharpe_arr, n_sharpe_windows = _compute_ic_sharpe(
                     X_sub,
                     returns_sub,
-                    n_raw_bars,
                     scale_idx,
                     complete_sub[:, scale_idx],
                     apr,
@@ -696,7 +726,7 @@ def _compute_symbol_tf(
                     )
                     if not np.isnan(p_val):
                         pvals_flat.append(float(p_val))
-                        pval_to_result_idx.append((result_idx, feat_idx))
+                        pval_result_idxs.append(result_idx)
                     else:
                         # No p-value (degenerate) -- mark passes_fdr=False
                         all_results[-1]["bh_adjusted_p"] = None
@@ -707,66 +737,22 @@ def _compute_symbol_tf(
         # ------------------------------------------------------------------
         if pvals_flat:
             reject, p_corrected, _, _ = multipletests(pvals_flat, alpha=fdr_alpha, method="fdr_bh")
-            for flat_idx, (result_idx, _) in enumerate(pval_to_result_idx):
+            for flat_idx, result_idx in enumerate(pval_result_idxs):
                 all_results[result_idx]["bh_adjusted_p"] = float(p_corrected[flat_idx])
                 all_results[result_idx]["passes_fdr"] = bool(reject[flat_idx])
 
         # ------------------------------------------------------------------
-        # Batch INSERT into feature_ic_scores
+        # Batch INSERT into feature_ic_scores (SQL defined at module level)
         # ------------------------------------------------------------------
-        # Pooled rows: ON CONFLICT on pooled_uq partial index (column list + WHERE)
-        pooled_insert_sql = """
-            INSERT INTO feature_ic_scores (
-                feature_name, vector_domain, symbol, tf, regime, lookahead_bars,
-                training_window_end, is_pooled, n_independent, reliable,
-                ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate,
-                bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, passes_walkforward,
-                ic_sharpe, ic_sharpe_n_windows, regime_label_source, computed_at
-            )
-            VALUES (
-                %(feature_name)s, %(vector_domain)s, %(symbol)s, %(tf)s, %(regime)s,
-                %(lookahead_bars)s, %(training_window_end)s, %(is_pooled)s,
-                %(n_independent)s, %(reliable)s, %(ic_value)s, %(ic_sign)s, %(p_value)s,
-                %(ic_ci_lower)s, %(ic_ci_upper)s, %(passes_ci_gate)s, %(bh_adjusted_p)s,
-                %(passes_fdr)s, %(wf_fold_count)s, %(wf_pass_count)s, %(passes_walkforward)s,
-                %(ic_sharpe)s, %(ic_sharpe_n_windows)s, %(regime_label_source)s, %(computed_at)s
-            )
-            ON CONFLICT (feature_name, symbol, tf, lookahead_bars, training_window_end)
-                WHERE is_pooled = true
-            DO NOTHING
-        """
-
-        # Regime-stratified rows: ON CONFLICT on regime_uq partial index
-        regime_insert_sql = """
-            INSERT INTO feature_ic_scores (
-                feature_name, vector_domain, symbol, tf, regime, lookahead_bars,
-                training_window_end, is_pooled, n_independent, reliable,
-                ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate,
-                bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, passes_walkforward,
-                ic_sharpe, ic_sharpe_n_windows, regime_label_source, computed_at
-            )
-            VALUES (
-                %(feature_name)s, %(vector_domain)s, %(symbol)s, %(tf)s, %(regime)s,
-                %(lookahead_bars)s, %(training_window_end)s, %(is_pooled)s,
-                %(n_independent)s, %(reliable)s, %(ic_value)s, %(ic_sign)s, %(p_value)s,
-                %(ic_ci_lower)s, %(ic_ci_upper)s, %(passes_ci_gate)s, %(bh_adjusted_p)s,
-                %(passes_fdr)s, %(wf_fold_count)s, %(wf_pass_count)s, %(passes_walkforward)s,
-                %(ic_sharpe)s, %(ic_sharpe_n_windows)s, %(regime_label_source)s, %(computed_at)s
-            )
-            ON CONFLICT (feature_name, symbol, tf, regime, lookahead_bars, training_window_end)
-                WHERE is_pooled = false AND regime IS NOT NULL
-            DO NOTHING
-        """
-
         pooled_rows = [r for r in all_results if r["is_pooled"]]
         regime_rows = [r for r in all_results if not r["is_pooled"]]
 
         if pooled_rows:
             with conn.cursor() as cur:
-                psycopg2.extras.execute_batch(cur, pooled_insert_sql, pooled_rows)
+                psycopg2.extras.execute_batch(cur, _POOLED_INSERT_SQL, pooled_rows)
         if regime_rows:
             with conn.cursor() as cur:
-                psycopg2.extras.execute_batch(cur, regime_insert_sql, regime_rows)
+                psycopg2.extras.execute_batch(cur, _REGIME_INSERT_SQL, regime_rows)
         conn.commit()
 
         n_committed = len(all_results)
@@ -935,10 +921,13 @@ def main() -> None:
             total_skipped = 0
             all_results_global: list[dict] = []
 
+            # APR is TF-specific (bootstrap_block_size varies by TF); load once per TF
+            # rather than once per (symbol, tf) to avoid 58x redundant DB round-trips.
+            apr_cache = {tf: _load_apr(conn, tf) for tf in tfs}
+
             for symbol in symbols:
                 for tf in tfs:
-                    # Load APR per (tf) for TF-specific block size
-                    apr = _load_apr(conn, tf)
+                    apr = apr_cache[tf]
 
                     _logger.info("ic_engine.processing_cell", symbol=symbol, tf=tf)
                     try:
