@@ -435,6 +435,66 @@ def _atr_wilder(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period:
     return atr
 
 
+def _atr_series_full(
+    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int
+) -> np.ndarray:
+    """Full Wilder ATR series in O(n). result[j] = ATR after bar index j+1.
+    Length = len(closes) - 1. Returns empty array when len(closes) < 2.
+
+    Matches _atr_wilder semantics exactly: result[j] = 0.0 when j+2 < period+1
+    (insufficient bars). Non-zero values begin at j = period-1.
+    """
+    n = len(closes)
+    if n < 2:
+        return np.zeros(0, dtype=float)
+    tr = np.maximum(
+        highs[1:] - lows[1:],
+        np.maximum(np.abs(highs[1:] - closes[:-1]), np.abs(lows[1:] - closes[:-1])),
+    )
+    alpha = 1.0 / max(period, 1)
+    atr = np.zeros(len(tr), dtype=float)
+    # _atr_wilder requires n >= period+1, i.e. len(tr) >= period.
+    # The EWM always seeds from tr[0] and accumulates forward. We zero out positions
+    # where _atr_wilder would return 0.0 (j < period-1), but carry the EWM state
+    # forward so position j = period-1 onward is numerically identical to _atr_wilder.
+    if len(tr) < period:
+        return atr  # all zeros — no valid position exists
+    running = float(tr[0])
+    for k in range(1, len(tr)):
+        running = alpha * float(tr[k]) + (1.0 - alpha) * running
+        if k >= period - 1:
+            atr[k] = running
+    return atr
+
+
+def _rolling_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
+    """Rolling z-score series matching _zscore_last semantics.
+
+    At position i, scores arr[i] against arr[max(0, i-window+1):i+1] using the
+    effective window min(window, i+1) — the series expands until it saturates at
+    `window` elements. This matches _zscore_last(arr[:i+1], min(window, i+1)).
+
+    Uses cumulative sums — O(n) total.
+    Returns 0.0 where fewer than 2 samples or std < 1e-8.
+    """
+    n = len(arr)
+    out = np.zeros(n, dtype=float)
+    if n < 2 or window < 2:
+        return out
+    cs = np.cumsum(arr)
+    cs2 = np.cumsum(arr * arr)
+    for i in range(1, n):
+        eff_w = min(window, i + 1)
+        start = i + 1 - eff_w  # first index included (0-based)
+        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
+        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
+        mean = s / eff_w
+        var = max(s2 / eff_w - mean * mean, 0.0)
+        std = math.sqrt(var)
+        out[i] = (arr[i] - mean) / std if std > 1e-8 else 0.0
+    return out
+
+
 def _atr_z(
     highs: np.ndarray,
     lows: np.ndarray,
@@ -755,6 +815,7 @@ class FeatureFactory:
         tf: str,
         cache: FeatureCache,
         config: FeatureFactoryConfig,
+        precomputed: dict | None = None,
     ) -> FeatureVector:
         """Compute all 54 FeatureVector primitives from bars + cache + config.
 
@@ -799,18 +860,21 @@ class FeatureFactory:
             bar_ts = bar_ts.replace(tzinfo=UTC)
 
         # --- ATR (needed by gap_z and informed_flow) ---
-        atr_val = _atr_wilder(highs, lows, closes, config.adx_period)
-
-        # ATR z-score: compute ATR for each suffix, then z-score the series
         zw = config.momentum_zscore_window
-        atr_series = np.array(
-            [
-                _atr_wilder(highs[: i + 1], lows[: i + 1], closes[: i + 1], config.adx_period)
-                for i in range(max(0, len(closes) - zw - 1), len(closes))
-            ],
-            dtype=float,
-        )
-        atr_z_val = _zscore_last(atr_series, min(zw, len(atr_series)))
+        if precomputed is not None and "atr" in precomputed:
+            atr_val = precomputed["atr"]
+            atr_z_val = precomputed.get("atr_z", 0.0)
+        else:
+            atr_val = _atr_wilder(highs, lows, closes, config.adx_period)
+            # ATR z-score: compute ATR for each suffix, then z-score the series
+            atr_series = np.array(
+                [
+                    _atr_wilder(highs[: i + 1], lows[: i + 1], closes[: i + 1], config.adx_period)
+                    for i in range(max(0, len(closes) - zw - 1), len(closes))
+                ],
+                dtype=float,
+            )
+            atr_z_val = _zscore_last(atr_series, min(zw, len(atr_series)))
 
         # --- Bar-level primitives ---
         bar_close_pos_val = _bar_close_pos(high_, low_, close_)
@@ -829,15 +893,18 @@ class FeatureFactory:
 
         prev_close = float(closes[-2])
         # gap_z: (open - prev_close) / atr, z-scored over momentum_zscore_window
-        gap_raw_series = np.array(
-            [
-                (float(bars[i]["open"]) - float(bars[i - 1]["close"]))
-                / (_atr_wilder(highs[:i], lows[:i], closes[:i], config.adx_period) or 1.0)
-                for i in range(max(1, len(bars) - zw), len(bars))
-            ],
-            dtype=float,
-        )
-        gap_z_val = _zscore_last(gap_raw_series, min(zw, len(gap_raw_series)))
+        if precomputed is not None and "gap_z" in precomputed:
+            gap_z_val = precomputed["gap_z"]
+        else:
+            gap_raw_series = np.array(
+                [
+                    (float(bars[i]["open"]) - float(bars[i - 1]["close"]))
+                    / (_atr_wilder(highs[:i], lows[:i], closes[:i], config.adx_period) or 1.0)
+                    for i in range(max(1, len(bars) - zw), len(bars))
+                ],
+                dtype=float,
+            )
+            gap_z_val = _zscore_last(gap_raw_series, min(zw, len(gap_raw_series)))
 
         informed_flow_val = _informed_flow(open_, close_, atr_val)
 

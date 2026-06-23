@@ -41,6 +41,8 @@ import structlog
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+import numpy as np
+
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
@@ -50,6 +52,8 @@ from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
     FeatureFactory,
     FeatureFactoryConfig,
+    _atr_series_full,
+    _rolling_zscore_series,
 )
 from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL_PSYCOPG2,
@@ -681,6 +685,37 @@ def _compute_symbol_tf(
 
     _logger.info("compute_bars_loaded", symbol=symbol, tf=tf, total_bars=total_bars)
 
+    # Vectorized precompute — O(n) total, eliminates O(n²) ATR/gap inner loops
+    _highs_full = np.array([b["high"] for b in bars], dtype=float)
+    _lows_full = np.array([b["low"] for b in bars], dtype=float)
+    _closes_full = np.array([b["close"] for b in bars], dtype=float)
+    _opens_full = np.array([b["open"] for b in bars], dtype=float)
+    _zw = int(config.momentum_zscore_window)
+
+    # ATR series: _atr_series_full returns length=total_bars-1 where index k = ATR(bars[0..k+1]).
+    # Prepend 0.0 at index 0 to match streaming's atr_series[j=0] = 0.0 (1-bar, insufficient data).
+    # After prepend: _atr_padded[j] = ATR(bars[0..j]) — same indexing as streaming's atr_series[j].
+    # _atr_padded has length = total_bars.
+    _atr_core = _atr_series_full(_highs_full, _lows_full, _closes_full, config.adx_period)
+    _atr_padded = np.concatenate([[0.0], _atr_core])  # length = total_bars
+    _atr_z_full = _rolling_zscore_series(_atr_padded, _zw)
+
+    # Gap series: gap at bar i = (open[i] - close[i-1]) / ATR(first i bars).
+    # Streaming uses _atr_wilder(highs[:i], lows[:i], closes[:i]) = ATR of i bars
+    # = _atr_core[i-2] (0-based: _atr_core[k] = ATR of k+2 bars).
+    # _atr_for_gap[j] = _atr_core[j] = ATR(j+2 bars); provides denominator for gap at bar j+2.
+    # Prepend one extra 0.0 so that at array index j+1, eff_w = min(zw, j+2) = min(zw, i),
+    # matching streaming's gap_raw_series window = min(zw, i).
+    _atr_for_gap = _atr_core[:-1]  # length = total_bars-2; _atr_for_gap[j] = ATR(j+2 bars)
+    _gap_raw = (_opens_full[2:] - _closes_full[1:-1]) / np.where(
+        _atr_for_gap > 1e-10, _atr_for_gap, 1.0
+    )
+    # Prepend 0.0 so effective window at index j+1 (= position i-1) = min(zw, j+2) = min(zw, i).
+    _gap_raw_padded = np.concatenate([[0.0], _gap_raw])  # length = total_bars-1
+    _gap_z_core = _rolling_zscore_series(_gap_raw_padded, _zw)
+    # _gap_z_core[i-1] = gap_z at bar i for i>=2; prepend one 0.0 → _gap_z_full[i] = gap_z at bar i.
+    _gap_z_full = np.concatenate([[0.0], _gap_z_core])  # length = total_bars
+
     insert_batch: list[tuple] = []
     total_inserted = 0
 
@@ -698,7 +733,18 @@ def _compute_symbol_tf(
 
         bar_ts = window[-1]["ts"]
         last_bar = window[-1]
-        fv = FeatureFactory.compute(window, symbol, tf, cache, config)
+        fv = FeatureFactory.compute(
+            window,
+            symbol,
+            tf,
+            cache,
+            config,
+            precomputed={
+                "atr": float(_atr_padded[i]),
+                "atr_z": float(_atr_z_full[i]),
+                "gap_z": float(_gap_z_full[i]),
+            },
+        )
 
         cache.advance_bar(
             bar_ts, last_bar["high"], last_bar["low"], last_bar["close"], last_bar["volume"]
