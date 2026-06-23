@@ -17,10 +17,13 @@ autonomous: true
 must_haves:
   truths:
     - "EnsembleBuilder reads feature_ic_scores (is_pooled=false, passes_walkforward=true), derives Ledoit-Wolf weights, and writes ensemble_weights + ensemble_alpha"
+    - "EnsembleBuilder skips strata where derive_weights() returns a zero-sum weight vector (all features have non-positive IC Sharpe)"
     - "AlphaEmitter reads ensemble_alpha above threshold, enforces effective_N >= gate, writes alpha_events, and publishes to Kafka topic alpha.events"
+    - "AlphaEmitter emission gate is direction-aware: long signals require alpha_ci_lower > 0; short signals require alpha_ci_upper < 0"
+    - "AlphaEmitter skips rows where effective_n == 0 (zero-weight stratum guard before CI math)"
     - "Both services extend BaseBatch and emit D-06 job_completed_total automatically"
     - "All numeric parameters (cap, gate, per-TF thresholds, weight_version) are loaded from APR via ConfigService, not hardcoded"
-    - "Kafka publish uses await producer.publish(msg=...) — never value=, always awaited"
+    - "Kafka publish uses await producer.publish(topic_alpha_events(settings.env_name), msg=...) — topic is the first positional argument, always awaited"
     - "EnsembleBuilder commits a new weight_version atomically (all weight rows for a version or none)"
     - "Both services are registered in service_auditor _DAG_ORDER and _ONESHOT_UNITS"
   artifacts:
@@ -39,8 +42,8 @@ must_haves:
       provides: "oneshot systemd unit"
       contains: "Type=oneshot"
     - path: "tests/unit/test_alpha_emitter.py"
-      provides: "Kafka publish await + effective_N gate coverage"
-      min_lines: 40
+      provides: "Kafka publish await + effective_N gate + direction-aware gate coverage"
+      min_lines: 50
   key_links:
     - from: "services/ensemble_builder.py"
       to: "src/intelligence/ensemble"
@@ -48,8 +51,8 @@ must_haves:
       pattern: "from src.intelligence.ensemble"
     - from: "services/alpha_emitter.py"
       to: "alpha.events Kafka topic"
-      via: "topic_alpha_events + producer.publish(msg=...)"
-      pattern: "publish\\(msg="
+      via: "topic_alpha_events + producer.publish(topic_alpha_events(...), msg=...)"
+      pattern: "publish\\(topic_alpha_events"
     - from: "services/service_auditor.py"
       to: "ensemble-builder + alpha-emitter units"
       via: "_DAG_ORDER and _ONESHOT_UNITS registration"
@@ -101,7 +104,7 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     1. Query feature_ic_scores WHERE symbol=$1 AND tf=$2 AND regime=$3 AND is_pooled=false AND passes_walkforward=true AND reliable=true AND ic_sharpe IS NOT NULL.
     2. select_features_per_stratum() to pick best lookahead per feature_name. Skip stratum if count < min_passing_features.
     3. Load the feature value matrix X from feature_vectors for that (symbol, tf, regime) over the selected feature columns; pass to compute_shrinkage_covariance() (records shrinkage for the OTel gauge). Note: shrinkage informs diagnostics; weights are derived from IC Sharpe per Pattern 2.
-    4. derive_weights(ic_sharpes, max_feature_weight) → weights; effective_n(weights).
+    4. derive_weights(ic_sharpes, max_feature_weight) → weights; effective_n(weights). Zero-weight guard: if weights.sum() == 0 (all features have non-positive IC Sharpe), log a warning with fields symbol, tf, regime, and reason="zero_weight_vector", then continue to the next stratum — do not write ensemble_weights or ensemble_alpha for this stratum. Increment ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE.
     5. Write ensemble_weights rows in a single transaction (atomic weight_version commit per architecture doc): one row per feature with weight_version from APR, raw_weight, weight, ic_sharpe, lookahead_bars, effective_n. Use ON CONFLICT (symbol, tf, regime, weight_version, feature_name) DO NOTHING for idempotency.
     6. Score ensemble_alpha for every feature_vectors bar in that stratum: for each bar, compute_alpha_score(feature_values, weights, ic_signs, ic_ci_lower, ic_ci_upper) → (alpha_score, ci_lower, ci_upper); write ensemble_alpha rows with effective_n and n_features_active. ON CONFLICT (symbol, tf, bar_ts, weight_version) DO NOTHING.
 
@@ -114,11 +117,13 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     grep -n "class EnsembleBuilder(BaseBatch)" services/ensemble_builder.py returns a match.
     grep -n "from src.intelligence.ensemble" services/ensemble_builder.py returns a match.
     grep -nE "0\.20|3\.0|= 1\.5|= 1\.2" services/ensemble_builder.py returns nothing outside APR-default fallbacks in cfg.get calls (no inline magic thresholds in compute logic).
+    grep -n "zero_weight_vector" services/ensemble_builder.py returns a match (zero-weight guard present).
     .venv/bin/ruff check services/ensemble_builder.py exits 0.
   </verify>
   <acceptance_criteria>
     - services/ensemble_builder.py contains `class EnsembleBuilder(BaseBatch)` with `job_name = "ensemble-builder"`
     - Imports select_features_per_stratum, compute_shrinkage_covariance, derive_weights, effective_n, compute_alpha_score from src.intelligence.ensemble
+    - Zero-weight guard: when derive_weights returns a zero-sum vector, the stratum is skipped (log + continue) — no weights or alpha rows written
     - ensemble_weights INSERT is wrapped in `async with conn.transaction():` (atomic weight_version)
     - Both INSERTs use ON CONFLICT DO NOTHING (idempotent re-run)
     - Two startup RuntimeError gates exist (empty feature_ic_scores passing rows; empty feature_vectors)
@@ -134,6 +139,7 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     - src/core/agent/base_batch.py lines 102-116 (content_key staticmethod for event_id)
     - .planning/phases/139-ensemble-alpha-emission/139-RESEARCH.md (Pattern 5 AlphaEmitter shadow-mode Kafka publishing lines 222-251, Pitfall 5 await publish, Phase Structure P3 emission gate logic lines 580-586, content-key formula line 250)
     - src/core/stream_keys.py (topic_alpha_events from P1)
+    - src/core/kafka/producer.py (KafkaProducerClient — the publish(topic, msg, key) signature; topic is the first positional argument, not a kwarg)
     - docs/plans/2026-06-20-alphaengine-architecture.md (Alpha Emitter idempotency via PK lines 829-835, top_features NOT NULL data integrity invariant; Observability Contract Alpha Emitter metrics lines 679-689)
     - CLAUDE.md key rules: KafkaProducerClient.publish kwarg is msg=; await producer.publish; structlog event= collision; exception variable error; UTC timestamps
   </read_first>
@@ -146,12 +152,16 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
 
     Construct a KafkaProducerClient and the topic via topic_alpha_events(settings.env_name). Initialize the producer in execute() (await any start/connect per the existing producer contract; read src/core/kafka/producer.py for the exact lifecycle).
 
-    Emission loop: read ensemble_alpha rows for the current weight_version. For each row apply the emission gate: abs(alpha_score) > threshold[tf] AND alpha_ci_lower > 0 AND effective_n >= effective_n_gate. On reject, increment ALPHA_EMITTER_REJECTIONS_TOTAL with rejection_reason in {ci_lower_negative, effective_n_low, threshold_miss}. On pass:
-    - direction = 'long' if alpha_score > 0 else 'short'.
+    Emission loop: read ensemble_alpha rows for the current weight_version. For each row, first apply the zero-weight guard: if effective_n == 0, skip the row entirely before any CI math (log at debug level with reason="zero_weight_stratum"). Then apply the direction-aware emission gate:
+    - Determine direction: 'long' if alpha_score > 0, 'short' if alpha_score < 0. Skip (don't emit) if alpha_score == 0.
+    - Long gate: alpha_score > threshold[tf] AND alpha_ci_lower > 0 AND effective_n >= effective_n_gate.
+    - Short gate: abs(alpha_score) > threshold[tf] AND alpha_ci_upper < 0 AND effective_n >= effective_n_gate.
+    - Equivalently: ((alpha_score > 0 AND alpha_ci_lower > 0) OR (alpha_score < 0 AND alpha_ci_upper < 0)) AND abs(alpha_score) > threshold[tf] AND effective_n >= effective_n_gate.
+    On reject, increment ALPHA_EMITTER_REJECTIONS_TOTAL with the appropriate rejection_reason: 'ci_not_directional' (for the CI direction check — ci_lower <= 0 on a long, or ci_upper >= 0 on a short), 'effective_n_low', 'threshold_miss', or 'zero_weight_stratum'. On pass:
     - event_id = BaseBatch.content_key(symbol, tf, str(int(bar_ts.timestamp()*1e9)), ensemble_version).
     - Build top_features dict (top contributing features and their weight*value — query ensemble_weights for that stratum/weight_version; this MUST be non-empty per the NOT NULL invariant).
-    - Write alpha_events row (event_id PK, ON CONFLICT DO NOTHING) including ensemble_version, weight_version, regime, alpha_score, ci bounds, effective_n, n_features_active, emission_threshold, direction, top_features jsonb. Pass the dict directly to asyncpg (no json.dumps).
-    - Publish JSON payload to Kafka: await self._producer.publish(msg=payload) — payload matches the RESEARCH.md alpha_event schema (event_id, symbol, tf, bar_ts ISO via format_iso_ts, ensemble_version, weight_version, alpha_score, ci bounds, effective_n, regime, n_features_active, top_features, emitted_at).
+    - Write alpha_events row (ON CONFLICT (event_id, bar_ts) DO NOTHING) including ensemble_version, weight_version, regime, alpha_score, ci bounds, effective_n, n_features_active, emission_threshold, direction, top_features jsonb. Pass the dict directly to asyncpg (no json.dumps).
+    - Publish JSON payload to Kafka: await self._producer.publish(topic_alpha_events(settings.env_name), msg=payload) — topic_alpha_events(settings.env_name) is the first positional argument, msg= is the keyword argument. payload matches the RESEARCH.md alpha_event schema (event_id, symbol, tf, bar_ts ISO via format_iso_ts, ensemble_version, weight_version, alpha_score, ci bounds, effective_n, regime, n_features_active, top_features, emitted_at).
     - Increment ALPHA_EMITTER_EMISSIONS_TOTAL{symbol,tf,direction,regime} and ALPHA_EMITTER_BARS_SCORED_TOTAL.
 
     Shadow mode: emission writes alpha_events + publishes to Kafka only — no execution, no trade. Document this in the module docstring.
@@ -161,17 +171,24 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
   <verify>
     .venv/bin/python -c "import ast; ast.parse(open('services/alpha_emitter.py').read()); print('parse ok')" prints parse ok.
     grep -n "class AlphaEmitter(BaseBatch)" services/alpha_emitter.py returns a match.
-    grep -nE "publish\(msg=" services/alpha_emitter.py returns a match (correct kwarg).
+    grep -nE "publish\(topic_alpha_events" services/alpha_emitter.py returns a match (correct call with topic as first arg).
+    grep -n "publish(msg=" services/alpha_emitter.py returns nothing (old bare-kwarg form absent).
     grep -n "value=" services/alpha_emitter.py returns nothing (wrong kwarg absent).
     grep -n "await self._producer.publish" services/alpha_emitter.py returns a match (awaited).
+    grep -n "alpha_ci_upper" services/alpha_emitter.py returns a match (short-direction CI check present).
+    grep -n "zero_weight_stratum" services/alpha_emitter.py returns a match (zero effective_n guard present).
     .venv/bin/ruff check services/alpha_emitter.py exits 0.
   </verify>
   <acceptance_criteria>
     - services/alpha_emitter.py contains `class AlphaEmitter(BaseBatch)` with `job_name = "alpha-emitter"`
-    - Emission gate enforces all three conditions: abs(alpha_score) > threshold, alpha_ci_lower > 0, effective_n >= effective_n_gate
-    - Kafka publish uses `await self._producer.publish(msg=...)` and grep for `value=` returns nothing
+    - Emission gate is direction-aware: long path checks alpha_ci_lower > 0; short path checks alpha_ci_upper < 0
+    - Zero-weight guard: rows where effective_n == 0 are skipped before CI math (log + continue, rejection_reason='zero_weight_stratum')
+    - Kafka publish uses `await self._producer.publish(topic_alpha_events(settings.env_name), msg=...)` — topic_alpha_events(settings.env_name) is the first positional argument
+    - grep for bare `publish(msg=` (without topic arg) returns nothing
+    - grep for `value=` returns nothing (wrong kwarg absent)
     - top_features is populated (non-empty dict) before alpha_events insert — never NULL
-    - alpha_events insert uses event_id from BaseBatch.content_key and ON CONFLICT DO NOTHING
+    - alpha_events insert uses ON CONFLICT (event_id, bar_ts) DO NOTHING (matching the composite PK from P1)
+    - event_id from BaseBatch.content_key is still used as the unique identifier in the payload
     - Per-TF thresholds read from alpha.quant.threshold.{tf} APR keys, not literals
     - `.venv/bin/ruff check services/alpha_emitter.py` exits 0
   </acceptance_criteria>
@@ -193,7 +210,15 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
 
     Create tests/unit/test_ensemble_builder.py: unit-test the pure data-shaping logic that lives in the service module if any (e.g., stratum grouping, threshold lookup), and assert the service class exposes job_name == "ensemble-builder" and is a BaseBatch subclass. Mock asyncpg pool; do not require a live DB.
 
-    Create tests/unit/test_alpha_emitter.py: assert AlphaEmitter.job_name == "alpha-emitter"; test _threshold_for_tf returns the correct APR-loaded value per TF; test the emission gate predicate (a row with effective_n below gate is rejected with reason effective_n_low; a row with alpha_ci_lower <= 0 rejected ci_lower_negative; abs(alpha_score) below threshold rejected threshold_miss; a passing row produces direction long/short correctly). Mock the KafkaProducerClient and assert publish is awaited with msg= kwarg using mock_producer.publish.assert_awaited_once_with style (catches the unawaited-coroutine and wrong-kwarg traps from RESEARCH.md Pitfall 5). Use AsyncMock for the producer.
+    Create tests/unit/test_alpha_emitter.py: assert AlphaEmitter.job_name == "alpha-emitter"; test _threshold_for_tf returns the correct APR-loaded value per TF; test the emission gate predicate covering all rejection paths and both directions:
+    - A row with effective_n below gate is rejected with reason 'effective_n_low'.
+    - A row with effective_n == 0 is rejected with reason 'zero_weight_stratum' (before CI math).
+    - A long row (alpha_score > 0) with alpha_ci_lower <= 0 is rejected with reason 'ci_not_directional'.
+    - A short row (alpha_score < 0) with alpha_ci_upper >= 0 is rejected with reason 'ci_not_directional'.
+    - abs(alpha_score) below threshold is rejected with reason 'threshold_miss'.
+    - A passing long row: alpha_score=2.0, alpha_ci_lower=0.5, alpha_ci_upper=3.5, threshold=1.0, effective_n=4.0 → produces direction='long' and emits.
+    - A passing short row: alpha_score=-2.0, alpha_ci_upper=-0.5, alpha_ci_lower=-3.5, threshold=1.0, effective_n=4.0 → produces direction='short' and emits.
+    Mock the KafkaProducerClient and assert publish is awaited with the topic as first positional arg and msg= kwarg, using AsyncMock and mock_producer.publish.assert_awaited_once_with(topic_alpha_events(...), msg=...) — catches both the unawaited-coroutine and wrong-kwarg and missing-topic-arg traps from RESEARCH.md Pitfall 5.
   </action>
   <verify>
     grep -n "indicagent-ensemble-builder" services/service_auditor.py returns matches in both _DAG_ORDER and _ONESHOT_UNITS.
@@ -206,8 +231,9 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     - Both systemd unit files exist and contain `Type=oneshot`
     - `grep -c "indicagent-ensemble-builder" services/service_auditor.py` >= 2 (DAG_ORDER + ONESHOT_UNITS)
     - `grep -c "indicagent-alpha-emitter" services/service_auditor.py` >= 2
-    - test_alpha_emitter.py asserts `mock_producer.publish.assert_awaited` with msg= kwarg
-    - test_alpha_emitter.py covers all three rejection reasons (ci_lower_negative, effective_n_low, threshold_miss)
+    - test_alpha_emitter.py covers all rejection reasons: ci_not_directional, effective_n_low, threshold_miss, zero_weight_stratum
+    - test_alpha_emitter.py covers passing long (alpha_score=2.0, ci_lower=0.5 → direction='long') and passing short (alpha_score=-2.0, ci_upper=-0.5 → direction='short')
+    - test_alpha_emitter.py asserts `mock_producer.publish` was called with topic_alpha_events(...) as first arg and msg= kwarg (AsyncMock assert_awaited_once_with)
     - `.venv/bin/pytest tests/unit/test_ensemble_builder.py tests/unit/test_alpha_emitter.py -q` exits 0
     - Existing service_auditor unit tests still pass
   </acceptance_criteria>
@@ -217,8 +243,10 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
 
 <verification>
 - EnsembleBuilder and AlphaEmitter both subclass BaseBatch and parse/lint clean
+- EnsembleBuilder skips zero-weight strata (zero-sum derive_weights output) with log and continue
 - All numeric parameters loaded via the asyncpg-loaded APR config dict (cfg.get) — no inline magic thresholds in compute logic
-- Kafka publish awaited with msg= kwarg (verified by test)
+- Kafka publish awaited with topic as first positional arg and msg= kwarg (verified by test)
+- Emission gate is direction-aware: short signals check alpha_ci_upper < 0 (not alpha_ci_lower > 0)
 - Both units registered in service_auditor _DAG_ORDER and _ONESHOT_UNITS
 - `.venv/bin/pytest tests/unit/test_ensemble_builder.py tests/unit/test_alpha_emitter.py tests/unit/service_tests/test_service_auditor.py -q` green
 - `.venv/bin/ruff check services/ensemble_builder.py services/alpha_emitter.py` exits 0
@@ -226,9 +254,10 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
 
 <success_criteria>
 - EnsembleBuilder writes ensemble_weights (Ledoit-Wolf, 0.20 cap) + ensemble_alpha (z-scored composite, CI bounds) — success criteria 1, 2
-- AlphaEmitter enforces effective_N >= gate before emission and publishes to alpha.events Kafka topic in shadow mode — success criteria 4, 5
+- EnsembleBuilder skips strata with zero-sum weight vectors (log + continue, no silent empty writes)
+- AlphaEmitter enforces direction-aware CI gate (ci_lower > 0 for longs; ci_upper < 0 for shorts) and effective_N >= gate before emission, then publishes to alpha.events Kafka topic in shadow mode — success criteria 4, 5
 - Emission threshold read from alpha.quant.threshold.{tf} APR — success criterion 3
-- All alpha.ensemble.* APR keys loaded via ConfigService.get — success criterion 6
+- All alpha.ensemble.* APR keys loaded via asyncpg-loaded config dict — success criterion 6
 </success_criteria>
 
 <output>
