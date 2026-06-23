@@ -15,16 +15,16 @@ from src.intelligence.feature_factory import (
     FEATURE_VECTOR_DOMAIN,
     FeatureFactory,
     FeatureFactoryConfig,
-    _amihud_illiq_z,
+    _amihud_illiq_z_series_full,
     _aroon_osc,
     _cci,
-    _high_52w_dist,
+    _high_52w_dist_series_full,
     _in_london_kz,
     _opening_range,
     _pearson_acf1,
     _power_hour,
-    _ret_acf1_z,
-    _ret_skew_z,
+    _ret_acf1_z_series_full,
+    _ret_skew_z_series_full,
     _rsi,
     _skewness,
 )
@@ -201,18 +201,18 @@ def test_ofi_div_in_feature_vector():
 def test_amihud_zero_returns():
     closes = np.full(30, 100.0)
     volumes = np.full(30, 1000.0)
-    assert _amihud_illiq_z(closes, volumes, 20) == 0.0
+    assert _amihud_illiq_z_series_full(closes, volumes, 20)[-1] == 0.0
 
 
 def test_amihud_cold_start():
-    assert _amihud_illiq_z(np.array([100.0]), np.array([1000.0]), 20) == 0.0
+    assert _amihud_illiq_z_series_full(np.array([100.0]), np.array([1000.0]), 20)[-1] == 0.0
 
 
 def test_amihud_finite():
     rng = np.random.default_rng(11)
     closes = 100.0 + np.cumsum(rng.standard_normal(40))
     volumes = rng.uniform(500, 2000, 40)
-    assert math.isfinite(_amihud_illiq_z(closes, volumes, 20))
+    assert math.isfinite(_amihud_illiq_z_series_full(closes, volumes, 20)[-1])
 
 
 # ---------------------------------------------------------------------------
@@ -222,17 +222,17 @@ def test_amihud_finite():
 
 def test_high_52w_at_high():
     closes = np.linspace(90.0, 100.0, 30)
-    assert _high_52w_dist(closes, 20) == pytest.approx(0.0)
+    assert _high_52w_dist_series_full(closes, 20)[-1] == pytest.approx(0.0)
 
 
 def test_high_52w_below_high():
     closes = np.array([100.0] * 20 + [90.0])
-    result = _high_52w_dist(closes, 21)
+    result = _high_52w_dist_series_full(closes, 21)[-1]
     assert result < 0.0
 
 
 def test_high_52w_cold_start():
-    assert _high_52w_dist(np.array([100.0]), 20) == 0.0
+    assert _high_52w_dist_series_full(np.array([100.0]), 20)[-1] == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -242,13 +242,13 @@ def test_high_52w_cold_start():
 
 def test_ret_skew_cold_start():
     closes = np.linspace(100.0, 105.0, 5)
-    assert _ret_skew_z(closes, 10, 20) == 0.0
+    assert _ret_skew_z_series_full(closes, 10, 20)[-1] == 0.0
 
 
 def test_ret_skew_finite():
     rng = np.random.default_rng(99)
     closes = 100.0 + np.cumsum(rng.standard_normal(80))
-    assert math.isfinite(_ret_skew_z(closes, 10, 20))
+    assert math.isfinite(_ret_skew_z_series_full(closes, 10, 20)[-1])
 
 
 def test_skewness_uniform_returns_zero():
@@ -263,13 +263,13 @@ def test_skewness_uniform_returns_zero():
 
 def test_ret_acf1_cold_start():
     closes = np.linspace(100.0, 101.0, 4)
-    assert _ret_acf1_z(closes, 5, 20) == 0.0
+    assert _ret_acf1_z_series_full(closes, 5, 20)[-1] == 0.0
 
 
 def test_ret_acf1_finite():
     rng = np.random.default_rng(55)
     closes = 100.0 + np.cumsum(rng.standard_normal(60))
-    assert math.isfinite(_ret_acf1_z(closes, 5, 20))
+    assert math.isfinite(_ret_acf1_z_series_full(closes, 5, 20)[-1])
 
 
 def test_pearson_acf1_cold_start():
