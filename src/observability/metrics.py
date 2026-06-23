@@ -1075,3 +1075,53 @@ OUTCOME_LABELS_COVERAGE = _meter.create_gauge(
     "forward_returns_coverage",
     description="fraction of feature_vectors rows with labeled forward returns; labels lookahead, symbol, tf",
 )
+
+# ---------------------------------------------------------------------------
+# ic_engine (P6) — IC measurement substrate for v3.0 AlphaEngine
+# ---------------------------------------------------------------------------
+
+IC_ENGINE_CELLS_COMPLETED_TOTAL = _meter.create_counter(
+    "ic_engine_cells_completed_total",
+    description=(
+        "Cells with committed feature_ic_scores row; labels symbol, tf, regime. "
+        "skip_reason values: insufficient_n, already_present, missing_regime, degenerate_feature"
+    ),
+)
+IC_ENGINE_CELLS_SKIPPED_TOTAL = _meter.create_counter(
+    "ic_engine_cells_skipped_total",
+    description=(
+        "Cells skipped before IC computation; labels symbol, tf, "
+        "skip_reason in {insufficient_n, already_present, missing_regime, degenerate_feature}"
+    ),
+)
+IC_ENGINE_RUN_LATENCY_SECONDS = _meter.create_histogram(
+    "ic_engine_run_latency_seconds",
+    description="Full IC Engine run duration",
+    unit="s",
+)
+FEATURE_IC_PASSING_FDR_TOTAL = _meter.create_gauge(
+    "feature_ic_passing_fdr_total",
+    description="Count of features passing BH-FDR gate per (symbol, tf)",
+)
+FEATURE_IC_PASSING_WALKFORWARD_TOTAL = _meter.create_gauge(
+    "feature_ic_passing_walkforward_total",
+    description="Count of features passing walk-forward gate per (symbol, tf)",
+)
+
+# IC health gauges — emitted after each full run (§XIX observability mandate)
+IC_SCORE_GAUGE = _meter.create_gauge(
+    "ic_engine_ic_score",
+    description="Spearman IC per feature x tf x regime; labels feature_name, tf, regime, lookahead",
+)
+EFFECTIVE_N_GAUGE = _meter.create_gauge(
+    "ic_engine_effective_n",
+    description="Effective independent observations per (tf, regime); labels tf, regime",
+)
+FEATURES_SURVIVING_FDR_GAUGE = _meter.create_gauge(
+    "ic_engine_features_surviving_fdr",
+    description="Count of features surviving BH-FDR per (tf, regime); labels tf, regime",
+)
+IC_SHARPE_GAUGE = _meter.create_gauge(
+    "ic_engine_ic_sharpe",
+    description="IC Sharpe per feature x tf x regime; labels feature_name, tf, regime, lookahead",
+)

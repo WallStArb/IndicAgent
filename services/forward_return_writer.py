@@ -118,20 +118,23 @@ def _build_forward_return_sql(lookaheads: dict[str, int]) -> str:
     max_n = max(lookaheads.values())
     frame_size = max_n + 1
 
-    lead_cols = "\n        ".join(
+    # Build comma-separated LEAD column list (each needs a comma separator)
+    lead_col_list = [
         f"LEAD(m.open, {n + 1}) OVER w AS open_{scale}" for scale, n in lookaheads.items()
-    )
-    # open_t1 is always needed for the entry price (T+1 open)
+    ]
+    lead_cols = ",\n        ".join(lead_col_list)
+    # open_entry = LEAD(open, 1) is always needed for the entry price (T+1 open)
     lead_t1 = "LEAD(m.open, 1) OVER w AS open_entry"
 
-    return_cols = "\n    ".join(
+    return_col_list = [
         f"CASE WHEN open_entry > 0 AND open_{scale} > 0 "
-        f"THEN ln(open_{scale} / open_entry) END AS return_{scale},"
+        f"THEN ln(open_{scale} / open_entry) END AS return_{scale}"
         for scale in lookaheads
-    )
-    complete_cols = "\n    ".join(
-        f"(open_{scale} IS NOT NULL) AS complete_{scale}," for scale in lookaheads
-    )
+    ]
+    return_cols = ",\n    ".join(return_col_list)
+
+    complete_col_list = [f"(open_{scale} IS NOT NULL) AS complete_{scale}" for scale in lookaheads]
+    complete_cols = ",\n    ".join(complete_col_list)
 
     return f"""
 WITH windowed AS (
@@ -161,7 +164,7 @@ SELECT
     symbol,
     tf,
     pipeline_version,
-    {return_cols}
+    {return_cols},
     {complete_cols}
 FROM windowed
 WHERE bar_ts > %(hwm)s
