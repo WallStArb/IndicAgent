@@ -378,6 +378,7 @@ def _compute_ic_rolling_metrics(
     apr: dict[str, Any],
     non_degenerate_mask: np.ndarray,
     n_total_features: int,
+    stride: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     """Compute IC Sharpe, Sortino, and win rate via rolling non-overlapping windows.
 
@@ -389,9 +390,15 @@ def _compute_ic_rolling_metrics(
                   NaN when no windows have IC < 0 (ratio undefined)
     IC win rate = fraction of windows where IC > 0             [stability]
 
+    Args:
+        stride: Subsampling stride used to create X_sub/returns_sub. sharpe_window_size
+                from APR is in RAW bars, so we divide by stride to get subsampled bars.
+
     Returns: (sharpe_arr, sortino_arr, win_rate_arr, n_windows)
     """
-    sharpe_window_size = apr["sharpe_window_size"]
+    # sharpe_window_size is in RAW bars; convert to SUBSAMPLED bars
+    sharpe_window_size_raw = apr["sharpe_window_size"]
+    sharpe_window_size = max(1, sharpe_window_size_raw // stride)
     sharpe_min_windows = apr["sharpe_min_windows"]
 
     nan_result = np.full(n_total_features, np.nan)
@@ -719,6 +726,7 @@ def _compute_symbol_tf(
                         apr,
                         non_degenerate_mask,
                         n_features,
+                        stride,  # Convert raw-window-size to subsampled-window-size
                     )
                 )
 

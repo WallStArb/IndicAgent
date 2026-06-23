@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
 status: Ready to execute
-last_updated: "2026-06-23T12:22:23.299Z"
-last_activity: 2026-06-23
+last_updated: "2026-06-23T16:37:15.627Z"
+last_activity: 2026-06-23 -- Phase 137b execution started
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 16
-  completed_plans: 16
-  percent: 67
+  total_plans: 24
+  completed_plans: 22
+  percent: 92
 ---
 
 # Project State
@@ -20,7 +20,42 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 138 — ic-engine-forward-returns
+**Current focus:** Phase 138 — IC Engine Forward Returns (P1-P7 complete, P3 backfill partial)
+
+## v3.0 AlphaEngine — Phase 138 IC Engine Forward Returns (2026-06-22 to 2026-06-23)
+
+**Status:** P1-P7 COMPLETE, P3 PARTIAL (backfill incomplete)
+
+| Plan | Name | Status | Date | Notes |
+|------|------|--------|------|-------|
+| P0 | Feature Vector ID + FeatureVectorWriter | ✅ Complete | 2026-06-22 | Migration 158, 61-param INSERT |
+| P1 | Foundation Hardening | ✅ Complete | 2026-06-22 | NaN guard, feature_factory_version, 7 new fields |
+| P2 | IC Engine Foundation | ✅ Complete | 2026-06-22 | BaseBatch, forward_returns, feature_ic_scores tables, APR keys |
+| P3 | FeatureFactory Backfill | ⚠️ Partial | 2026-06-22 | 90-min cutoff, VUG/1h test data only |
+| P4 | Regime Writer | ✅ Complete | 2026-06-22 | Causal HMM regime labeler |
+| P5 | Forward Return Writer | ✅ Complete | 2026-06-22 | Writes forward_returns table |
+| P6 | IC Engine | ✅ Complete | 2026-06-22 | Vectorized Spearman IC computation |
+| P6.5 | IC Sortino/Win Rate | ✅ Complete | 2026-06-23 | Migration 164, OTel gauges |
+| P7 | IC Math Helpers + Tests | ✅ Complete | 2026-06-23 | Pure functions, unit tests |
+
+**Data State:**
+- feature_vectors: 0 rows (junk test data purged 2026-06-23)
+- forward_returns: 0 rows (junk test data purged 2026-06-23)
+- feature_ic_scores: 0 rows (junk test data purged 2026-06-23)
+- batch_job_checkpoints: 0 rows (purged 2026-06-23)
+- market_data_ohlcv: 52,438,690 rows (preserved)
+
+**Known Issues (FIXED 2026-06-23):**
+- Schema default for feature_ic_scores.regime_label_source was 'filtered', fixed to 'forward_filter' in migration 167
+- IC Sharpe NULL bug: Gate used raw-bar window size against subsampled data; fixed by dividing window_size by stride in _compute_ic_rolling_metrics
+- P3 backfill requires full corpus run (~20-30h estimated)
+- alpha_events table not created (removed from scope during replan)
+
+**Key Decisions (Council Review 2026-06-22):**
+- regime_label_source DEFAULT is 'forward_filter' (not 'filtered')
+- Pooled IC rows (is_pooled=true) are diagnostic artifacts only
+- HMM_RANDOM_STATE = 42 (module-level constant)
+- IC Sharpe gate: 20,000 independent observations minimum
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
@@ -93,6 +128,8 @@ See: .planning/PROJECT.md
 - [Phase 138 replan 2026-06-22]: Inserted P1 (foundation hardening — council review 12 findings); backfill extracted to standalone P3; now 7 plans (P0 done, P1-P7 pending). Migration 159 = foundation DDL (9 new feature_vectors columns + batch_job_checkpoints). P2 and P3 run in parallel (wave 2). TF-specific bootstrap block size APR keys replace single key.
 - [Phase 138-P7]: _build_label_map() signature changed to accept means: np.ndarray instead of model: GaussianHMM -- more testable, call site passes model.means_
 - [Phase 138-P7]: BH-FDR order-preservation test uses pairwise monotone check (p[i]<p[j] => q[i]<=q[j]) not argsort equality -- handles cummin ties correctly
+- [Migration 167, 2026-06-23]: Fixed feature_ic_scores.regime_label_source DEFAULT from 'filtered' to 'forward_filter' per council review decision; forward_returns already had correct default
+- [IC Sharpe bug fix 2026-06-23]: _compute_ic_rolling_metrics now divides sharpe_window_size by stride to convert from RAW bars to SUBSAMPLED bars. sharpe_window_size=2000 (raw) with stride=10 → 200 bars per window in subsampled data. Fix ensures 20,000 raw bars → 10 windows (not 1).
 
 ### Blockers / Concerns
 
@@ -108,9 +145,9 @@ Key commits: `696967cd..3f72e43f` (13 commits on main). Also fixed stale `indica
 
 **Next session:** Execute 138-P1 (foundation hardening — council review findings 1-12; migration 159)
 
-### Sessions 2026-06-20 to 2026-06-22 (archived summary)
+### Sessions 2026-06-20 to 2026-06-23 (archived summary)
 
-- v2.10 closed; v3.0 started — Feature Factory (Phase 137, 7 plans) complete; IC engine (Phase 138) planned and executing
+- v2.10 closed; v3.0 started — Feature Factory (Phase 137, 7 plans) complete; IC engine (Phase 138) P1-P7 complete; P3 backfill partial (VUG/1h test data only)
 - I5/I6/I7 fully archived; I1-I4 replaced by Feature Factory; `feature_vectors` (not `intelligence_features`) is v3.0 training corpus
 - `BaseBatch` Ring 0 base class: `src/core/agent/base_batch.py`; all Phase 138+ batch compute extends it
 - AlphaEngine methodology doc: `docs/intelligence/intelligence-alphaengine.md`; IC methodology: `docs/plans/2026-06-20-alphaengine-v1-methodology.md`
@@ -120,11 +157,10 @@ Key commits: `696967cd..3f72e43f` (13 commits on main). Also fixed stale `indica
 
 Milestone: v2.10 — COMPLETE (2026-06-20)
 Milestone: v3.0 — IN PROGRESS — AlphaEngine (Intelligence Vectors, V1 Quant)
-Phase: 138 (ic-engine-forward-returns) — EXECUTING
-Plan: 2 of 9
-Phase: 138 (ic-engine-forward-returns) — PLANNED, ready to execute
+Phase: 137b (feature-factory-single-path) — COMPLETE
+Phase: 138 (ic-engine-forward-returns) — P1-P7 COMPLETE, P3 partial (backfill incomplete)
 Phase: 135 (controlled-vocabulary-system) — deferred
-Last activity: 2026-06-23
+Last activity: 2026-06-23 -- Phase 138 P1-P7 execution complete; migration 167 applied (regime_label_source fix)
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
