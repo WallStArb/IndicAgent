@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
-status: Phase 138 in progress — P6 complete (ic_engine.py built); P7 (unit tests) next; P8 blocked on data
-last_updated: "2026-06-23T02:00:00.000Z"
-last_activity: 2026-06-23 -- P6 ic_engine.py complete; P7 unit tests queued
+status: Ready to execute
+last_updated: "2026-06-23T09:47:19.558Z"
+last_activity: 2026-06-23
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 18
-  completed_plans: 14
+  total_plans: 16
+  completed_plans: 15
   percent: 33
 ---
 
@@ -91,6 +91,8 @@ See: .planning/PROJECT.md
 - [Phase 138-P0]: Content-key formula: SHA-256(symbol|tf|bar_ts_ns|pipeline_version)[:32] as UUID; bar_ts_ns = int(bar_ts.timestamp() * 1e9)
 - [Phase 138-P0]: Migration 158 allocated for feature_vector_id; IC engine migrations shifted to 160/161
 - [Phase 138 replan 2026-06-22]: Inserted P1 (foundation hardening — council review 12 findings); backfill extracted to standalone P3; now 7 plans (P0 done, P1-P7 pending). Migration 159 = foundation DDL (9 new feature_vectors columns + batch_job_checkpoints). P2 and P3 run in parallel (wave 2). TF-specific bootstrap block size APR keys replace single key.
+- [Phase 138-P7]: _build_label_map() signature changed to accept means: np.ndarray instead of model: GaussianHMM -- more testable, call site passes model.means_
+- [Phase 138-P7]: BH-FDR order-preservation test uses pairwise monotone check (p[i]<p[j] => q[i]<=q[j]) not argsort equality -- handles cummin ties correctly
 
 ### Blockers / Concerns
 
@@ -218,10 +220,10 @@ v2.10 milestone closed. Phase 133 (corpus rebuild) CANCELLED — superseded by I
 Milestone: v2.10 — COMPLETE (2026-06-20)
 Milestone: v3.0 — IN PROGRESS — AlphaEngine (Intelligence Vectors, V1 Quant)
 Phase: 138 (ic-engine-forward-returns) — EXECUTING
-Plan: 1 of 9
+Plan: 2 of 9
 Phase: 138 (ic-engine-forward-returns) — PLANNED, ready to execute
 Phase: 135 (controlled-vocabulary-system) — deferred
-Last activity: 2026-06-23 -- Phase 138 execution started
+Last activity: 2026-06-23
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
@@ -232,3 +234,4 @@ Last activity: 2026-06-23 -- Phase 138 execution started
 | Phase 123 P01 | 20 | 5 tasks | 26 files |
 | Phase 136 P05 | 12 | 3 tasks | 0 files |
 | Phase 136 P06 | 5 | 3 tasks | 0 files |
+| Phase 138 P07 | 25 | 2 tasks | 10 files |

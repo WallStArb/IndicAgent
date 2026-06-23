@@ -1280,7 +1280,7 @@ Plans:
 
 **Wave 5** *(blocked on P6)*
 
-- [ ] 138-P7-PLAN.md — Unit tests: vectorized IC == scipy 1e-10, BH-FDR order-preservation, forward return causality, causal HMM decoding (forward-filter != Viterbi), circular block bootstrap CI correctness, idempotency, regime label mapping
+- [x] 138-P7-PLAN.md — Unit tests: vectorized IC == scipy 1e-10, BH-FDR order-preservation, forward return causality, causal HMM decoding (forward-filter != Viterbi), circular block bootstrap CI correctness, idempotency, regime label mapping
 
 **Wave 6** *(blocked on data — requires full corpus from backfill_feature_factory)*
 
