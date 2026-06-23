@@ -1300,4 +1300,9 @@ Plans:
 5. `effective_N >= 3.0` gate enforced before any emission
 6. All `alpha.ensemble.*` APR keys seeded and loaded via `ConfigService.get()`
 
-**Plans:** TBD
+**Plans:** 3 plans in 3 waves
+
+Plans:
+- [ ] 139-P1-PLAN.md — Migration 168 (ensemble_weights/ensemble_alpha/alpha_events) + 9 APR keys + pure ensemble math library + topic_alpha_events + OTel gauges + unit tests (wave 1)
+- [ ] 139-P2-PLAN.md — EnsembleBuilder + AlphaEmitter services (BaseBatch), service_auditor registration, systemd units, service tests (wave 2)
+- [ ] 139-P3-PLAN.md — Corpus scoring run (gates on Phase 138 P8 data) + IC discovery report (wave 3)
