@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
-status: ready_to_plan
-last_updated: 2026-06-23T17:44:39.536Z
-last_activity: 2026-06-23 -- Phase 137b execution started
+status: executing
+last_updated: "2026-06-23T22:33:21.244Z"
+last_activity: 2026-06-23 -- Phase 139 planning complete
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 24
-  completed_plans: 18
+  total_plans: 19
+  completed_plans: 17
   percent: 67
-stopped_at: Phase 137b complete (2/2) — ready to discuss Phase 138
 ---
 
 # Project State
@@ -25,7 +24,7 @@ See: .planning/PROJECT.md
 
 ## v3.0 AlphaEngine — Phase 138 IC Engine Forward Returns (2026-06-22 to 2026-06-23)
 
-**Status:** Ready to plan
+**Status:** Ready to execute
 
 | Plan | Name | Status | Date | Notes |
 |------|------|--------|------|-------|
@@ -40,6 +39,7 @@ See: .planning/PROJECT.md
 | P7 | IC Math Helpers + Tests | ✅ Complete | 2026-06-23 | Pure functions, unit tests |
 
 **Data State:**
+
 - feature_vectors: 0 rows (junk test data purged 2026-06-23)
 - forward_returns: 0 rows (junk test data purged 2026-06-23)
 - feature_ic_scores: 0 rows (junk test data purged 2026-06-23)
@@ -47,12 +47,14 @@ See: .planning/PROJECT.md
 - market_data_ohlcv: 52,438,690 rows (preserved)
 
 **Known Issues (FIXED 2026-06-23):**
+
 - Schema default for feature_ic_scores.regime_label_source was 'filtered', fixed to 'forward_filter' in migration 167
 - IC Sharpe NULL bug: Gate used raw-bar window size against subsampled data; fixed by dividing window_size by stride in _compute_ic_rolling_metrics
 - P3 backfill requires full corpus run (~20-30h estimated)
 - alpha_events table not created (removed from scope during replan)
 
 **Key Decisions (Council Review 2026-06-22):**
+
 - regime_label_source DEFAULT is 'forward_filter' (not 'filtered')
 - Pooled IC rows (is_pooled=true) are diagnostic artifacts only
 - HMM_RANDOM_STATE = 42 (module-level constant)
@@ -161,7 +163,7 @@ Milestone: v3.0 — IN PROGRESS — AlphaEngine (Intelligence Vectors, V1 Quant)
 Phase: 138
 Phase: 138 (ic-engine-forward-returns) — P1-P7 COMPLETE, P3 partial (backfill incomplete)
 Phase: 135 (controlled-vocabulary-system) — deferred
-Last activity: 2026-06-23
+Last activity: 2026-06-23 -- Phase 139 planning complete
 
 **Phase 126 research artifact**: `docs/plans/2026-06-14-phase-126-signal-universe-hardening.md`
 
