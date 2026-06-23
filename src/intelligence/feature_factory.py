@@ -972,6 +972,53 @@ def _high_52w_dist_series_full(closes: np.ndarray, window: int) -> np.ndarray:
     return result
 
 
+def _vwap_dev_sigma_series_full(
+    opens: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    volumes: np.ndarray,
+) -> np.ndarray:
+    """VWAP deviation in sigma series. result[i] == streaming vwap_dev_sigma at bar i.
+    Uses running VWAP (cumsum) + running std (Welford via cumsums) — O(n) total.
+    Parity tolerance 1e-6 due to cumulative floating-point accumulation vs np.std.
+    """
+    n = len(closes)
+    result = np.zeros(n, dtype=float)
+    if n < 2:
+        return result
+    typical = (highs.astype(float) + lows.astype(float) + closes.astype(float)) / 3.0
+    cum_tp_vol = np.cumsum(typical * volumes.astype(float))
+    cum_vol = np.cumsum(volumes.astype(float))
+    vwap_arr = np.where(cum_vol > 1e-10, cum_tp_vol / cum_vol, typical)
+    dev = closes.astype(float) - vwap_arr
+    cum_dev = np.cumsum(dev)
+    cum_dev_sq = np.cumsum(dev * dev)
+    counts = np.arange(1, n + 1, dtype=float)
+    mean_dev = cum_dev / counts
+    var = np.maximum(cum_dev_sq / counts - mean_dev * mean_dev, 0.0)
+    std_arr = np.sqrt(var)
+    mask = std_arr > 1e-10
+    result[mask] = (closes.astype(float)[mask] - vwap_arr[mask]) / std_arr[mask]
+    return result
+
+
+def _rel_volume_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
+    """Relative volume series. result[i] == streaming rel_volume at bar i.
+    Uses cumulative sum for O(n) rolling mean.
+    """
+    n = len(volumes)
+    result = np.ones(n, dtype=float)
+    cs = np.cumsum(volumes.astype(float))
+    for b in range(n):
+        eff_w = min(window, b + 1)
+        start = b + 1 - eff_w
+        total = cs[b] - (cs[start - 1] if start > 0 else 0.0)
+        mean_v = total / eff_w
+        result[b] = float(volumes[b]) / mean_v if mean_v > 1e-10 else 1.0
+    return result
+
+
 # ---------------------------------------------------------------------------
 # FeatureFactory — stateless pure-function class
 # ---------------------------------------------------------------------------
@@ -1065,9 +1112,12 @@ class FeatureFactory:
         )
 
         # rel_volume: vol_ / mean(volumes over volume_zscore_window)
-        vol_window = min(config.volume_zscore_window, len(volumes))
-        mean_vol = float(np.mean(volumes[-vol_window:]))
-        rel_volume_val = vol_ / mean_vol if mean_vol > 1e-10 else 1.0
+        if precomputed is not None and "rel_volume" in precomputed:
+            rel_volume_val = precomputed["rel_volume"]
+        else:
+            vol_window = min(config.volume_zscore_window, len(volumes))
+            mean_vol = float(np.mean(volumes[-vol_window:]))
+            rel_volume_val = vol_ / mean_vol if mean_vol > 1e-10 else 1.0
 
         prev_close = float(closes[-2])
         # gap_z: (open - prev_close) / atr, z-scored over momentum_zscore_window
@@ -1170,7 +1220,11 @@ class FeatureFactory:
 
         cmf_val = _cmf(highs, lows, closes, volumes, config.cmf_period)
 
-        vwap_dev_sigma_val = _vwap_dev_sigma(opens, highs, lows, closes, volumes)
+        # vwap_dev_sigma
+        if precomputed is not None and "vwap_dev_sigma" in precomputed:
+            vwap_dev_sigma_val = precomputed["vwap_dev_sigma"]
+        else:
+            vwap_dev_sigma_val = _vwap_dev_sigma(opens, highs, lows, closes, volumes)
 
         # --- Session-level primitives (from cache; 1d TF defaults to neutral) ---
         if tf == "1d":

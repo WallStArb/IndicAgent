@@ -407,3 +407,33 @@ def test_high_52w_dist_parity(ohlcv, cfg, streaming):
         assert (
             abs(batch[i] - fv.high_52w_dist) < 1e-8
         ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.high_52w_dist:.10f}"
+
+
+# ---------------------------------------------------------------------------
+# Task 5: vwap_dev_sigma + rel_volume
+# ---------------------------------------------------------------------------
+
+
+def test_vwap_dev_sigma_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _vwap_dev_sigma_series_full
+
+    batch = _vwap_dev_sigma_series_full(
+        ohlcv["opens"], ohlcv["highs"], ohlcv["lows"], ohlcv["closes"], ohlcv["volumes"]
+    )
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        # 1e-6 tolerance: running std via cumsum accumulates float error vs numpy's one-shot std
+        assert (
+            abs(batch[i] - fv.vwap_dev_sigma) < 1e-6
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.vwap_dev_sigma:.10f}"
+
+
+def test_rel_volume_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _rel_volume_series_full
+
+    batch = _rel_volume_series_full(ohlcv["volumes"], cfg.volume_zscore_window)
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        assert (
+            abs(batch[i] - fv.rel_volume) < 1e-8
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.rel_volume:.10f}"
