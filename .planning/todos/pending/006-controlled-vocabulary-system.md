@@ -1,7 +1,8 @@
 ---
 created: 2026-06-18
-priority: medium
-phase_target: post-134
+priority: low
+phase_target: Phase C+ (v3.0 alpha_events era)
+v3_note: Phase 134 dependency is v2.x signal_events; v3.0 equivalent would seed alpha_events taxonomy; defer until alpha_events schema is stable post-Phase 138
 tags: [architecture, vocabulary, taxonomy, modularity, dashboard, api]
 ---
 

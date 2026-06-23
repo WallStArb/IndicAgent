@@ -1,8 +1,10 @@
 ---
 title: TF-agnostic feature store architecture
 area: architecture
-priority: medium
+priority: high
+v3_phase: Phase B+ (after IC engine live)
 deferred_from: Phase 138 naming discussion (2026-06-22)
+gate: prove one concrete TF-agnostic feature is needed and defined before designing the pipe
 ---
 
 ## The Problem

@@ -5,6 +5,7 @@ type: execute
 wave: 5
 depends_on: ["138-04", "138-05"]
 files_modified:
+  - production/migrations/164_ic_sortino_winrate.sql
   - services/ic_engine.py
   - src/observability/metrics.py
 autonomous: true
@@ -14,7 +15,7 @@ must_haves:
     - "ic_engine extends BaseBatch (src/core/agent/base_batch.py); D-06 emission is inherited, not reimplemented"
     - "feature_ic_scores has one row per (feature, symbol, tf, regime, lookahead, training_window_end)"
     - "Pooled rows have is_pooled=true; regime-stratified rows have is_pooled=false"
-    - "Each row carries ic_value, p_value, bootstrap CI, BH-FDR q-value, walk-forward result, IC Sharpe"
+    - "Each row carries ic_value, p_value, bootstrap CI, BH-FDR q-value, walk-forward result, IC Sharpe, IC Sortino, IC win rate"
     - "Bootstrap CI uses circular block bootstrap (from batch_agent_memory.py pattern), not iid"
     - "Bootstrap block size is APR-backed and TF-specific: cfg.get_sync(f'alpha.ic.bootstrap_block_size.{tf}', 10)"
     - "Walk-forward has 60-bar purge/embargo between training end and test fold start"
@@ -22,14 +23,14 @@ must_haves:
     - "IC run raises RuntimeError with explicit message if feature_vectors empty, regime all-NULL, or forward_returns empty"
     - "ON CONFLICT targets feature_ic_scores_pooled_uq for pooled rows; feature_ic_scores_regime_uq for regime rows"
     - "Idempotent: second run inserts 0 rows"
-    - "ic_engine emits 4 IC health OTel gauges after run: IC_SCORE_GAUGE (per feature x tf x regime), EFFECTIVE_N_GAUGE (per tf x regime), FEATURES_SURVIVING_FDR_GAUGE (per tf x regime), IC_SHARPE_GAUGE (per feature x tf x regime)"
+    - "ic_engine emits 6 IC health OTel gauges after run: IC_SCORE_GAUGE (per feature x tf x regime), EFFECTIVE_N_GAUGE (per tf x regime), FEATURES_SURVIVING_FDR_GAUGE (per tf x regime), IC_SHARPE_GAUGE, IC_SORTINO_GAUGE, IC_WIN_RATE_GAUGE (per feature x tf x regime)"
     - "ic_engine emits 6 per-run OTel metrics + spans"
   artifacts:
     - path: "services/ic_engine.py"
-      provides: "Vectorized Spearman IC engine with circular-block-bootstrap CI, BH-FDR, 60-bar-embargo walk-forward, IC Sharpe, BaseBatch inheritance, IC health gauges"
+      provides: "Vectorized Spearman IC engine with circular-block-bootstrap CI, BH-FDR, 60-bar-embargo walk-forward, IC Sharpe + Sortino + win rate, BaseBatch inheritance, IC health gauges"
       min_lines: 450
     - path: "src/observability/metrics.py"
-      provides: "ic_engine_cells_completed_total, ic_engine_cells_skipped_total, ic_engine_run_latency_seconds, feature_ic_passing_fdr_total, feature_ic_passing_walkforward_total, IC_SCORE_GAUGE, EFFECTIVE_N_GAUGE, FEATURES_SURVIVING_FDR_GAUGE, IC_SHARPE_GAUGE"
+      provides: "ic_engine_cells_completed_total, ic_engine_cells_skipped_total, ic_engine_run_latency_seconds, feature_ic_passing_fdr_total, feature_ic_passing_walkforward_total, IC_SCORE_GAUGE, EFFECTIVE_N_GAUGE, FEATURES_SURVIVING_FDR_GAUGE, IC_SHARPE_GAUGE, IC_SORTINO_GAUGE, IC_WIN_RATE_GAUGE"
       contains: "ic_engine_cells_completed_total"
   key_links:
     - from: "ic_engine.py"
@@ -95,6 +96,23 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
 <tasks>
 
 <task type="auto">
+  <name>Task 0: Run migration 164 — add ic_sortino and ic_win_rate columns</name>
+  <files>production/migrations/164_ic_sortino_winrate.sql</files>
+  <read_first>
+    - production/migrations/164_ic_sortino_winrate.sql
+  </read_first>
+  <action>
+    Apply migration 164 to add ic_sortino and ic_win_rate to feature_ic_scores:
+      PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -f production/migrations/164_ic_sortino_winrate.sql
+  </action>
+  <acceptance_criteria>
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "\d feature_ic_scores" | grep -c "ic_sortino\|ic_win_rate"` returns 2
+  </acceptance_criteria>
+  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "\d feature_ic_scores" | grep "ic_sortino\|ic_win_rate"</verify>
+  <done>ic_sortino and ic_win_rate columns present in feature_ic_scores.</done>
+</task>
+
+<task type="auto">
   <name>Task 1: Add ic_engine OTel metrics to metrics.py</name>
   <files>src/observability/metrics.py</files>
   <read_first>
@@ -115,14 +133,16 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
     - EFFECTIVE_N_GAUGE = _meter.create_gauge("ic_engine_effective_n", description="effective independent observations used in IC computation; labels symbol, tf, regime")
     - FEATURES_SURVIVING_FDR_GAUGE = _meter.create_gauge("ic_engine_features_surviving_fdr", description="count of features passing BH-FDR gate per (symbol, tf, regime); labels symbol, tf, regime")
     - IC_SHARPE_GAUGE = _meter.create_gauge("ic_engine_ic_sharpe", description="IC Sharpe ratio per cell (NULL rows not emitted); labels feature_name, symbol, tf, regime, lookahead_bars")
+    - IC_SORTINO_GAUGE = _meter.create_gauge("ic_engine_ic_sortino", description="IC Sortino ratio per cell — mean(window_ICs)/semi_deviation(target=0); NULL when all windows positive or gate not met; labels feature_name, symbol, tf, regime, lookahead_bars")
+    - IC_WIN_RATE_GAUGE = _meter.create_gauge("ic_engine_ic_win_rate", description="fraction of rolling windows where IC > 0; labels feature_name, symbol, tf, regime, lookahead_bars")
 
     Reuse OUTCOME_LABELS_COVERAGE (already defined in P5). No prometheus_client.
   </action>
   <acceptance_criteria>
-    - `.venv/bin/python -c "from src.observability.metrics import IC_ENGINE_CELLS_COMPLETED_TOTAL, IC_ENGINE_CELLS_SKIPPED_TOTAL, IC_ENGINE_RUN_LATENCY_SECONDS, FEATURE_IC_PASSING_FDR_TOTAL, FEATURE_IC_PASSING_WALKFORWARD_TOTAL, IC_SCORE_GAUGE, EFFECTIVE_N_GAUGE, FEATURES_SURVIVING_FDR_GAUGE, IC_SHARPE_GAUGE; print('ok')"` exits 0
+    - `.venv/bin/python -c "from src.observability.metrics import IC_ENGINE_CELLS_COMPLETED_TOTAL, IC_ENGINE_CELLS_SKIPPED_TOTAL, IC_ENGINE_RUN_LATENCY_SECONDS, FEATURE_IC_PASSING_FDR_TOTAL, FEATURE_IC_PASSING_WALKFORWARD_TOTAL, IC_SCORE_GAUGE, EFFECTIVE_N_GAUGE, FEATURES_SURVIVING_FDR_GAUGE, IC_SHARPE_GAUGE, IC_SORTINO_GAUGE, IC_WIN_RATE_GAUGE; print('ok')"` exits 0
     - `grep -c "OUTCOME_LABELS_COVERAGE = " src/observability/metrics.py` returns 1 (not redefined)
     - `grep -c "degenerate_feature" src/observability/metrics.py` returns >= 1 (skip_reason documented in description)
-    - `grep -c "IC_SCORE_GAUGE\|EFFECTIVE_N_GAUGE\|FEATURES_SURVIVING_FDR_GAUGE\|IC_SHARPE_GAUGE" src/observability/metrics.py` returns >= 4
+    - `grep -c "IC_SCORE_GAUGE\|EFFECTIVE_N_GAUGE\|FEATURES_SURVIVING_FDR_GAUGE\|IC_SHARPE_GAUGE\|IC_SORTINO_GAUGE\|IC_WIN_RATE_GAUGE" src/observability/metrics.py` returns >= 6
   </acceptance_criteria>
   <verify>.venv/bin/python -c "from src.observability.metrics import IC_ENGINE_CELLS_COMPLETED_TOTAL; print('ok')"</verify>
   <done>Five ic_engine metrics importable; degenerate_feature skip_reason documented.</done>
@@ -304,18 +324,31 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
                else:
                    passes_walkforward = np.zeros(n_features, dtype=bool)
 
-             - IC SHARPE (IC spec §X.1): sharpe_window_size is in RAW bars. Gate uses
-               n_raw_bars_regime = count of rows in the regime-masked series (after filtering to
-               this specific regime, before subsampling). Gate: n_raw_bars_regime >=
+             - IC SHARPE / SORTINO / WIN RATE (IC spec §X.1): sharpe_window_size is in RAW bars.
+               Gate uses n_raw_bars_regime = count of rows in the regime-masked series (after
+               filtering to this specific regime, before subsampling). Gate: n_raw_bars_regime >=
                sharpe_min_windows * sharpe_window_size (default: 10 * 2000 = 20,000 raw bars).
-               This is intentionally conservative: thin regimes correctly suppress IC Sharpe rather
-               than produce unreliable rolling-window estimates. For example, a trending_down regime
-               with only 5,000 bars in a 5m series would not get IC Sharpe (5K < 20K gate). Below
-               threshold: ic_sharpe=NULL, ic_sharpe_n_windows=NULL. Above threshold: divide the
+               This is intentionally conservative: thin regimes correctly suppress these metrics
+               rather than produce unreliable rolling-window estimates. For example, a trending_down
+               regime with only 5,000 bars in a 5m series would not get any rolling window metrics
+               (5K < 20K gate). Below threshold: ic_sharpe=NULL, ic_sortino=NULL,
+               ic_win_rate=NULL, ic_sharpe_n_windows=NULL. Above threshold: divide the
                regime-masked raw bar series into non-overlapping windows of sharpe_window_size bars;
                within each window subsample at stride=max(subsample_min_stride, lookahead_bars) and
-               compute Spearman IC; ic_sharpe = mean(window_ICs) / std(window_ICs);
-               ic_sharpe_n_windows = number of windows used.
+               compute Spearman IC to produce window_ICs (array of per-window IC values). Then:
+
+                 ic_sharpe = mean(window_ICs) / std(window_ICs)   [symmetric penalisation]
+                 ic_sharpe_n_windows = len(window_ICs)
+
+                 # Sortino: penalise only negative-IC windows (target = 0)
+                 neg_ics = window_ICs[window_ICs < 0]
+                 if len(neg_ics) > 0:
+                     semi_dev = np.sqrt(np.mean(neg_ics ** 2))     # semi-deviation from 0
+                     ic_sortino = mean(window_ICs) / semi_dev if semi_dev > 1e-10 else None
+                 else:
+                     ic_sortino = None   # all windows positive — ratio undefined
+
+                 ic_win_rate = np.mean(window_ICs > 0)             # fraction of windows IC > 0
              - Append result dict for this cell to a per-(symbol,tf) list AND append p_value to a flat pvals array with a PARALLEL list of (feature_name, regime, lookahead, is_pooled) tuples (order correspondence for FDR).
 
       e. BH-FDR per (symbol, tf) batch: reject, q_values, _, _ = statsmodels.stats.multitest.multipletests(pvals_array, alpha=fdr_alpha, method='fdr_bh'). multipletests PRESERVES input order. Set bh_adjusted_p and passes_fdr per cell by index.
@@ -351,6 +384,8 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
       - EFFECTIVE_N_GAUGE.set(n_independent, {"symbol": ..., "tf": ..., "regime": ...}) per (symbol, tf, regime) from the compute loop
       - FEATURES_SURVIVING_FDR_GAUGE.set(n_passing_fdr, {"symbol": ..., "tf": ..., "regime": ...}) per (symbol, tf, regime)
       - IC_SHARPE_GAUGE.set(ic_sharpe, {"feature_name": ..., "symbol": ..., "tf": ..., "regime": ..., "lookahead_bars": str(n)}) for each row where ic_sharpe IS NOT NULL
+      - IC_SORTINO_GAUGE.set(ic_sortino, {"feature_name": ..., "symbol": ..., "tf": ..., "regime": ..., "lookahead_bars": str(n)}) for each row where ic_sortino IS NOT NULL
+      - IC_WIN_RATE_GAUGE.set(ic_win_rate, {"feature_name": ..., "symbol": ..., "tf": ..., "regime": ..., "lookahead_bars": str(n)}) for each row where ic_win_rate IS NOT NULL
 
     REPORT-ONLY MODE: implement --report-only argparse flag. When set, skip all IC computation;
     query the current feature_ic_scores (MAX training_window_end) and write the IC discovery
@@ -377,6 +412,9 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
     - BH-FDR populated: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE bh_adjusted_p IS NOT NULL AND symbol='SPY' AND tf='5m';"` returns > 0
     - walk-forward populated: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE passes_walkforward IS NOT NULL AND symbol='SPY' AND tf='5m';"` returns > 0
     - IC Sharpe gate: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE ic_sharpe IS NOT NULL AND ic_sharpe_n_windows < 10 AND symbol='SPY' AND tf='5m';"` returns 0 (ic_sharpe only non-NULL when enough windows exist)
+    - ic_win_rate in [0,1]: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE ic_win_rate IS NOT NULL AND (ic_win_rate < 0 OR ic_win_rate > 1);"` returns 0
+    - ic_sortino and ic_win_rate co-NULL with ic_sharpe: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE ic_sharpe IS NULL AND ic_win_rate IS NOT NULL;"` returns 0 (win_rate absent when sharpe gate not met)
+    - ic_sortino NULL when all windows positive: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE ic_win_rate = 1.0 AND ic_sortino IS NOT NULL;"` returns 0
     - CRASH-LOUD verified: `.venv/bin/python -c "import sys; sys.exit(0)" && echo "verify gate manually by running with NONEXISTENT symbol and confirming non-zero exit"` -- confirm in acceptance that a fresh test with empty feature_vectors exits non-zero (can be tested by mocking if needed)
     - `grep -c "rankdata" services/ic_engine.py` returns >= 1
     - `grep -c "multipletests" services/ic_engine.py` returns >= 1
@@ -388,28 +426,29 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
     - No hardcoded embargo: `grep -c "embargo_bars\s*=\s*60" services/ic_engine.py` returns 0
     - No X_train dead variable: `grep -c "X_train\s*=" services/ic_engine.py` returns 0
     - Report-only flag present: `grep -c "report.only\|report_only" services/ic_engine.py` returns >= 2 (argparse + usage)
-    - IC health gauges emitted: `grep -c "IC_SCORE_GAUGE\|EFFECTIVE_N_GAUGE\|FEATURES_SURVIVING_FDR_GAUGE\|IC_SHARPE_GAUGE" services/ic_engine.py` returns >= 4
+    - IC health gauges emitted: `grep -c "IC_SCORE_GAUGE\|EFFECTIVE_N_GAUGE\|FEATURES_SURVIVING_FDR_GAUGE\|IC_SHARPE_GAUGE\|IC_SORTINO_GAUGE\|IC_WIN_RATE_GAUGE" services/ic_engine.py` returns >= 6
     - Per-regime n_raw_bars gate: `grep -c "n_raw_bars_regime\|n_raw_bars" services/ic_engine.py` returns >= 2
     - `grep -c "stride\s*=\s*max" services/ic_engine.py` returns >= 1
     - `.venv/bin/ruff check services/ic_engine.py` passes
   </acceptance_criteria>
   <verify>.venv/bin/python services/ic_engine.py --symbols VUG --tf 1h && PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT regime, is_pooled, count(*), count(*) FILTER (WHERE passes_fdr) fdr, count(*) FILTER (WHERE passes_walkforward) wf FROM feature_ic_scores WHERE symbol='VUG' AND tf='1h' GROUP BY regime, is_pooled;"</verify>
-  <done>ic_engine.py produces complete feature_ic_scores rows for VUG 1h; circular-block-bootstrap CI; embargo = max(lookaheads.values()) bars; degenerate feature skip (DEBUG log); is_pooled correct; crash-loud RuntimeError gates; --report-only flag implemented; 4 IC health gauges emitted; stride = max(subsample_min_stride, lookahead_bars) per cell; lookahead periods from APR (alpha.ic.lookahead.*); D-06 + 9 OTel + 3 spans; APR-compliant. Full corpus run is P8.</done>
+  <done>ic_engine.py produces complete feature_ic_scores rows for VUG 1h; circular-block-bootstrap CI; embargo = max(lookaheads.values()) bars; degenerate feature skip (DEBUG log); is_pooled correct; crash-loud RuntimeError gates; --report-only flag implemented; 6 IC health gauges emitted (including IC_SORTINO_GAUGE, IC_WIN_RATE_GAUGE); ic_sortino (semi-deviation from 0, NULL when all windows positive) and ic_win_rate (% windows IC>0) computed alongside ic_sharpe from same window_ICs array; stride = max(subsample_min_stride, lookahead_bars) per cell; lookahead periods from APR (alpha.ic.lookahead.*); D-06 + 9 OTel + 3 spans; APR-compliant. Full corpus run is P8.</done>
 </task>
 
 </tasks>
 
 <verification>
-- feature_ic_scores complete for VUG 1h (smoke test): IC, CI (circular block bootstrap), p, BH-FDR q, walk-forward (embargo = max(lookaheads.values()) bars), IC Sharpe per cell
+- feature_ic_scores complete for VUG 1h (smoke test): IC, CI (circular block bootstrap), p, BH-FDR q, walk-forward (embargo = max(lookaheads.values()) bars), IC Sharpe, IC Sortino, IC win rate per cell
 - is_pooled=true for pooled rows; is_pooled=false for regime-stratified rows; no is_pooled=false+regime=NULL ambiguity
 - bootstrap_block_size from APR (alpha.ic.bootstrap_block_size); no iid bootstrap
 - Degenerate features (std < 1e-8) skipped with IC_ENGINE_CELLS_SKIPPED_TOTAL degenerate_feature; logged at DEBUG
 - Crash-loud: three RuntimeError gates with explicit messages; no silent empty success
 - embargo_bars = max(lookaheads.values()); no hardcoded 60; no X_train dead variable
 - lookahead periods from APR (alpha.ic.lookahead.*); _SCALES tuple is the schema constant
-- 4 IC health gauges emitted post-run: IC_SCORE_GAUGE, EFFECTIVE_N_GAUGE, FEATURES_SURVIVING_FDR_GAUGE, IC_SHARPE_GAUGE
+- 6 IC health gauges emitted post-run: IC_SCORE_GAUGE, EFFECTIVE_N_GAUGE, FEATURES_SURVIVING_FDR_GAUGE, IC_SHARPE_GAUGE, IC_SORTINO_GAUGE, IC_WIN_RATE_GAUGE
 - --report-only flag implemented and functional
-- IC Sharpe gate uses per-regime n_raw_bars; thin regimes correctly yield ic_sharpe=NULL
+- IC Sharpe / Sortino / win rate gate uses per-regime n_raw_bars; thin regimes correctly yield NULL for all three
+- ic_sortino is NULL when all rolling windows have IC > 0 (ratio undefined); ic_win_rate stays populated
 - Idempotent; D-06 + 9 OTel signals + 3 spans; APR-compliant; full corpus run deferred to P8
 </verification>
 
@@ -419,5 +458,5 @@ Output: feature_ic_scores fully populated, vectorized + statistically correct + 
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/138-ic-engine-forward-returns/138-06-SUMMARY.md` documenting: 5 OTel metrics added, ic_engine.py line count, VUG 1h smoke test results (feature_ic_scores row counts, FDR and walk-forward pass counts), and code patterns used (circular bootstrap, embargo, degenerate skip). Note that full corpus run is P8.
+After completion, create `.planning/phases/138-ic-engine-forward-returns/138-06-SUMMARY.md` documenting: 7 OTel metrics added (including IC_SORTINO_GAUGE, IC_WIN_RATE_GAUGE), ic_engine.py line count, VUG 1h smoke test results (feature_ic_scores row counts, FDR and walk-forward pass counts, sample ic_sharpe/ic_sortino/ic_win_rate values), and code patterns used (circular bootstrap, embargo, degenerate skip, Sortino semi-deviation). Note that full corpus run is P8.
 </output>

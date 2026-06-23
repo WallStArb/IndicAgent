@@ -17,7 +17,6 @@ must_haves:
     - "regime_writer.py _causal_decode() returns (states, alpha_history); generator replaced by explicit duration-tracking loop; UPDATE writes all 6 enrichment columns"
     - "hmm_prob_trending_up + hmm_prob_ranging + hmm_prob_trending_down sum to 1.0 per bar (within float precision); no hmm_direction_score column"
     - "All regime_writer unit tests updated for tuple return; full suite green"
-    - ">95% of feature_vectors rows have regime label + full alpha vector before forward_return_writer runs"
     - "forward_return_writer extends BaseBatch (src/core/agent/base_batch.py); D-06 emission is inherited, not reimplemented"
     - "forward_returns has rows with executable forward log returns ln(open[T+N+1]/open[T+1])"
     - "Forward returns are causal -- no lookahead bias (validated by unit test in P5)"
@@ -160,15 +159,20 @@ Output: forward_returns populated for all backfilled (symbol, tf), with complete
     Change 3 — expand the UPDATE SQL:
       Replace the existing single-column UPDATE SQL with:
         UPDATE feature_vectors
-        SET regime              = %s,
+        SET regime                = %s,
             hmm_prob_trending_up  = %s,
             hmm_prob_ranging      = %s,
             hmm_prob_trending_down = %s,
             hmm_regime_prob       = %s,
             hmm_entropy           = %s,
-            hmm_duration          = %s
+            hmm_duration          = %s,
+            regime_label_source   = 'forward_filter'
         WHERE symbol = %s AND tf = %s AND bar_ts = %s
       Pass update_rows (list) to execute_batch instead of the old generator.
+      NOTE: regime_label_source is a string literal in the SQL, NOT a parameter in the tuple.
+      This is the canonical source value per STATE.md council decision. Explicit write is
+      required even if the column has a DDL default -- DDL defaults are set at INSERT time,
+      not UPDATE time.
 
     STEP 3 — Update tests/unit/services/test_regime_writer.py:
       Find every test that calls _causal_decode() directly or asserts on its return value.
@@ -184,7 +188,10 @@ Output: forward_returns populated for all backfilled (symbol, tf), with complete
     - Generator gone: `grep -c "update_params\s*=" services/regime_writer.py` returns 0
     - Explicit loop present: `grep -c "update_rows" services/regime_writer.py` returns >= 2 (definition + execute_batch call)
     - UPDATE expanded: `grep -c "hmm_prob_trending_up" services/regime_writer.py` returns >= 2 (SQL + tuple)
+    - regime_label_source written: `grep -c "regime_label_source" services/regime_writer.py` returns >= 1
     - No direction score stored: `grep -c "hmm_direction_score" services/regime_writer.py` returns 0
+    - HMM seed from APR: `grep -c "alpha\.hmm\.random_state" services/regime_writer.py` returns >= 1
+    - No hardcoded seed: `grep -c "HMM_RANDOM_STATE\s*=\s*42\|random_state\s*=\s*42" services/regime_writer.py` returns 0
     - Smoke test (SPY 5m — verifies code correctness, not corpus coverage):
       `.venv/bin/python services/regime_writer.py --symbols SPY --tf 5m` exits 0
     - Probabilities sum to 1: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT max(abs(hmm_prob_trending_up + hmm_prob_ranging + hmm_prob_trending_down - 1.0)) FROM feature_vectors WHERE symbol='SPY' AND tf='5m' AND hmm_prob_trending_up IS NOT NULL;"` returns < 1e-9
@@ -193,7 +200,7 @@ Output: forward_returns populated for all backfilled (symbol, tf), with complete
     - `.venv/bin/ruff check services/regime_writer.py` passes
   </acceptance_criteria>
   <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT regime, round(hmm_prob_trending_up::numeric,3) p_up, round(hmm_prob_ranging::numeric,3) p_rang, round(hmm_prob_trending_down::numeric,3) p_down, round((hmm_prob_trending_up+hmm_prob_ranging+hmm_prob_trending_down)::numeric,6) sum1, hmm_duration FROM feature_vectors WHERE symbol='SPY' AND tf='5m' AND hmm_prob_trending_up IS NOT NULL ORDER BY bar_ts LIMIT 5;"</verify>
-  <done>Migration 162 applied; _causal_decode returns (states, alpha_history); generator replaced by explicit duration-tracking loop; UPDATE writes all 6 enrichment columns; probabilities sum to 1.0; tests updated and green.</done>
+  <done>Migration 162 applied; _causal_decode returns (states, alpha_history); generator replaced by explicit duration-tracking loop; UPDATE writes all 6 enrichment columns + regime_label_source='forward_filter'; probabilities sum to 1.0; HMM seed read from APR (alpha.hmm.random_state); tests updated and green.</done>
 </task>
 
 <task type="auto">
@@ -232,7 +239,31 @@ Output: forward_returns populated for all backfilled (symbol, tf), with complete
   <action>
     Create services/forward_return_writer.py as a sync psycopg2 oneshot mirroring backfill_feature_factory.py.
 
-    Constants: _JOB = "forward-return-writer", log "logs/forward_return_writer.log". Lookaheads from APR -- read alpha.ic.lookaheads if present else module fallback _LOOKAHEADS = [1, 5, 20, 60] with a comment that these correspond to return_1bar/5bar/20bar/60bar columns (these are statistical-concept-defining numbers in column names, allowed per APR rules).
+    Constants: _JOB = "forward-return-writer", log "logs/forward_return_writer.log".
+
+    LOOKAHEADS (schema-structural constant, NOT APR):
+      _LOOKAHEADS = [1, 5, 20, 60]
+      # Schema-coupled: these integers ARE the column names in forward_returns
+      # (return_1bar/5bar/20bar/60bar). Adding a new lookahead requires a migration
+      # to add columns; update this constant and the migration together.
+      # Statistical-concept numbers in column names are APR-exempt per CLAUDE.md.
+      # IC engine controls which subset to process via APR (alpha.ic.active_lookaheads).
+
+    HMM_RANDOM_STATE (APR-backed): Read from APR via cfg.get_sync('alpha.hmm.random_state', 42)
+    in regime_writer.py. This replaces the module-level constant HMM_RANDOM_STATE = 42 from P4.
+    The seed is APR-backed so it is visible and auditable in /config/parameters. The APR
+    description MUST include: "[initial_estimate] seed=42; CHANGING THIS INVALIDATES ALL
+    regime labels and feature_ic_scores rows -- requires full regime_writer + ic_engine re-run."
+    Seeded in migration 161 as alpha.hmm.random_state with value 42.
+
+    STEP 4 (added): Amend services/regime_writer.py to read HMM_RANDOM_STATE from APR:
+      - In _label_symbol_tf() (or the HMM init call), replace the module constant with:
+        hmm_random_state = int(cfg.get_sync('alpha.hmm.random_state', 42))
+        model = GaussianHMM(..., random_state=hmm_random_state)
+      - Remove or rename the module-level HMM_RANDOM_STATE = 42 constant; replace with a
+        comment referencing the APR key.
+      - This requires cfg to be available in the function scope -- pass it from the caller
+        or use the same _load_config_service pattern as backfill_feature_factory.py.
 
     Forward return formula (IC spec §V -- executable, causal): for lookahead N, return at bar T = ln(open[T+N+1] / open[T+1]). Entry at T+1 open, exit at T+N+1 open. This is the ONLY correct formula.
 
@@ -258,7 +289,33 @@ Output: forward_returns populated for all backfilled (symbol, tf), with complete
 
     JOIN gate: only emit rows where bar_ts has a matching feature_vectors row (exact timestamp equality -- RESEARCH.md mandate #10). Use:
       JOIN feature_vectors fv ON fv.symbol = m.symbol AND fv.tf = m.timeframe AND fv.bar_ts = m.timestamp
-    The WHERE m.timestamp <= TRAINING_WINDOW_END clause must appear BEFORE the JOIN in the CTE or WHERE clause so the window computation only sees bars within the training window. pipeline_version from fv if present.
+
+    TRAINING_WINDOW_END placement (critical): Apply TRAINING_WINDOW_END ONLY as a filter on
+    OUTPUT rows, NOT inside the CTE that computes LEAD(). The LEAD() window must span ALL
+    available market_data_ohlcv bars for this (symbol, tf) -- including bars after the training
+    cutoff -- so that future open prices are available as Y targets for bars near
+    TRAINING_WINDOW_END. Using future prices as Y is not lookahead bias; Y is inherently a future
+    price by construction. Lookahead bias would be using future FEATURES (X) -- the JOIN to
+    feature_vectors already prevents that.
+
+    Correct structure:
+      WITH leads AS (
+        SELECT m.timestamp, m.symbol, m.timeframe, m.open,
+               LEAD(m.open, 1)  OVER w AS open_t1,
+               ...
+               LEAD(m.open, 61) OVER w AS open_t61
+        FROM market_data_ohlcv m
+        WHERE m.symbol = %s AND m.timeframe = %s  -- NO training_window_end restriction here
+        WINDOW w AS (ORDER BY m.timestamp ROWS BETWEEN CURRENT ROW AND 61 FOLLOWING)
+      )
+      SELECT ...
+      FROM leads l
+      JOIN feature_vectors fv ON fv.symbol = l.symbol AND fv.tf = l.timeframe AND fv.bar_ts = l.timestamp
+      WHERE l.timestamp <= %s  -- TRAINING_WINDOW_END in the outer WHERE on source bars only
+
+    The JOIN to feature_vectors is the primary gate (feature_vectors has no rows after
+    TRAINING_WINDOW_END). TRAINING_WINDOW_END in the outer WHERE is belt-and-suspenders.
+    pipeline_version from fv if present.
 
     Flow:
     1. argparse --symbols (default all distinct feature_vectors symbols), --tf (default ['5m','15m','1h','1d'])
@@ -290,85 +347,21 @@ Output: forward_returns populated for all backfilled (symbol, tf), with complete
   <done>forward_return_writer.py produces causal forward returns for SPY 5m; formula validated against raw LEAD(); TRAINING_WINDOW_END gate enforced; JOIN gate clean; D-06 + OTel + spans wired.</done>
 </task>
 
-<task type="auto">
-  <name>Task 3: Full regime_writer corpus run — all symbols x TFs</name>
-  <files>feature_vectors (DB table — regime + enrichment columns populated)</files>
-  <read_first>
-    - services/regime_writer.py (just amended in Task 0)
-  </read_first>
-  <precondition>
-    feature_vectors must be populated by backfill_feature_factory.py before this task runs.
-    Verify: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT symbol) FROM feature_vectors WHERE bar_ts IS NOT NULL;"` returns >= 14 symbols.
-    Do not proceed if feature_vectors is empty or sparse — regime_writer with insufficient obs
-    per cell logs a warning and skips; a near-empty corpus produces no IC value.
-  </precondition>
-  <action>
-    Run the amended regime_writer for all (symbol, tf) combinations. This is the production
-    corpus labeling run — NOT a smoke test. All backfilled symbols x 4 TFs.
-
-    Run in background (HMM fitting is CPU-bound, ~minutes per cell):
-      nohup .venv/bin/python services/regime_writer.py > logs/regime_writer_corpus.log 2>&1 &
-
-    Poll progress: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, regime, count(*) FROM feature_vectors WHERE regime IS NOT NULL GROUP BY tf, regime ORDER BY tf, regime;"`
-
-    This re-runs over SPY/5m (already smoke-tested in Task 0) — idempotent by value because
-    HMM_RANDOM_STATE=42 and same OHLCV data produce identical results. ON CONFLICT is not
-    applicable here (UPDATE semantics), so re-run simply overwrites with identical values.
-  </action>
-  <acceptance_criteria>
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT round(100.0*count(*) FILTER (WHERE regime IS NULL)/count(*),2) FROM feature_vectors;"` returns < 5.0
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT regime) FROM feature_vectors WHERE regime IS NOT NULL;"` returns >= 2 (real regime separation)
-    - Raw probs populated: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT round(100.0*count(*) FILTER (WHERE hmm_prob_trending_up IS NULL)/count(*),2) FROM feature_vectors WHERE regime IS NOT NULL;"` returns 0.0 (every labeled row has the full alpha vector)
-    - Probs sum to 1 globally: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT max(abs(hmm_prob_trending_up + hmm_prob_ranging + hmm_prob_trending_down - 1.0)) FROM feature_vectors WHERE hmm_prob_trending_up IS NOT NULL;"` returns < 1e-9
-    - `job_completed_total{job="regime-writer", status="success"}` emitted
-  </acceptance_criteria>
-  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, regime, count(*), round(avg(hmm_prob_trending_up)::numeric,3) avg_p_up, round(avg(hmm_entropy)::numeric,3) avg_ent FROM feature_vectors WHERE regime IS NOT NULL GROUP BY tf, regime ORDER BY tf, regime;"</verify>
-  <done>>95% of feature_vectors rows have canonical regime labels + full alpha vector; probabilities sum to 1.0 globally; IC engine has the regime stratification it needs.</done>
-</task>
-
-<task type="auto">
-  <name>Task 4: Run forward_return_writer across all backfilled symbols/TFs</name>
-  <files>forward_returns (DB table -- populated)</files>
-  <read_first>
-    - services/forward_return_writer.py (just built in Task 2)
-  </read_first>
-  <precondition>
-    Same data gate as Task 3 — feature_vectors must be populated.
-    Task 3 and Task 4 are independent and can run concurrently (Task 3 writes to
-    feature_vectors regime columns; Task 4 reads feature_vectors bar_ts only and
-    writes to forward_returns). No write conflict.
-  </precondition>
-  <action>
-    Run .venv/bin/python services/forward_return_writer.py with no symbol filter (all feature_vectors symbols x 4 TFs). Run in background; poll forward_returns row counts.
-  </action>
-  <acceptance_criteria>
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT symbol) FROM forward_returns;"` returns >= 14
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT round(100.0*count(*) FILTER (WHERE complete_5bar)/count(*),1) FROM forward_returns WHERE tf='5m';"` returns > 95.0 (only the last 6 bars per series should be incomplete for 5bar)
-    - Re-run idempotency: running `.venv/bin/python services/forward_return_writer.py --symbols SPY --tf 5m` a second time inserts 0 new rows. Capture count before/after; they must be equal.
-    - `job_completed_total{job="forward-return-writer", status="success"}` emitted
-  </acceptance_criteria>
-  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, count(*) FROM forward_returns GROUP BY tf ORDER BY tf;"</verify>
-  <done>forward_returns populated for >=14 symbols x 4 TFs; TRAINING_WINDOW_END gate confirmed; idempotent re-run confirmed.</done>
-</task>
-
 </tasks>
 
 <verification>
 - migration 162 applied; regime_writer _causal_decode returns (states, alpha_history); generator → explicit loop with duration tracking; UPDATE writes regime + 5 enrichment columns; tests green
-- >95% of feature_vectors rows have regime labels + full alpha vector (hmm_prob_trending_up/ranging/down sum to 1.0)
-- forward_returns has causal forward log returns; formula validated against raw LEAD()
-- TRAINING_WINDOW_END gate is explicit in WHERE clause (not just a comment)
-- Every forward_returns row has a matching feature_vectors row (exact bar_ts)
+- forward_return_writer: causal forward log returns; formula validated against raw LEAD(); TRAINING_WINDOW_END gate explicit in WHERE clause; every forward_returns row has a matching feature_vectors row
 - complete_Nbar flags correct; idempotent re-run writes 0 rows
 - D-06 + 3 OTel metrics + 2 spans wired; APR-compliant
-- P6 IC engine preconditions met: feature_vectors.regime populated, forward_returns populated
+- Corpus runs deferred to P8 (depend on backfill_feature_factory completing full corpus)
 </verification>
 
 <success_criteria>
-- All task acceptance criteria pass
+- All task acceptance criteria pass (code correctness only — corpus runs are P8)
 - .venv/bin/pytest tests/unit/ -q stays GREEN
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/138-ic-engine-forward-returns/138-05-SUMMARY.md` documenting forward_returns row counts per (symbol, tf), completeness fractions per lookahead, the TRAINING_WINDOW_END value used, and confirmation of the causal formula validation.
+After completion, create `.planning/phases/138-ic-engine-forward-returns/138-05-SUMMARY.md` documenting: migration 162 applied, regime_writer changes (tuple return, explicit loop, 6 enrichment columns), forward_return_writer build (formula, TRAINING_WINDOW_END gate, smoke test counts for VUG 1h), and unit test green count. Note that corpus runs are in P8.
 </output>

@@ -102,9 +102,9 @@ _MAX_CHUNK_DAYS: dict[str, int] = {
     "1m": 6,  # per-request limit: 7 days; retention: 10+ years (see above)
     "5m": 29,  # per-request limit: 30 days
     "15m": 59,  # per-request limit: 60 days
-    "1h": 364,  # per-request limit: 1 year
-    "4h": 364,
-    "1d": 364,
+    "1h": 89,  # 90-day chunks — 364d fails for some ETFs (subscription limit on large windows)
+    "4h": 89,
+    "1d": 89,  # 90-day chunks — same reason; 7300d backfill = ~81 chunks, ~14min/symbol
 }
 
 # IBKR enforces a hard limit of 60 historical data requests per 10-minute sliding window.
@@ -650,10 +650,14 @@ class IBKRProvider:
                 )
         else:
             chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
-            chunk_start = start
+            chunk_end = end
             first_chunk = True
 
-            while chunk_start < end:
+            # Chunk backward from end→start so recent (high-value) bars are stored
+            # first. A mid-run disconnect still leaves useful data. The no-data early
+            # exit also fires as soon as we pass the instrument's launch date rather
+            # than burning through years of empty pre-launch chunks going forward.
+            while chunk_end > start:
                 if not first_chunk:
                     await asyncio.sleep(10)  # baseline courtesy pacing between chunks
                 first_chunk = False
@@ -661,7 +665,7 @@ class IBKRProvider:
                 # Pre-emptive rate limit: sleep if approaching IBKR's 60 req/10min ceiling.
                 await _hist_rate_limiter.acquire()
 
-                chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), end)
+                chunk_start = max(chunk_end - timedelta(days=chunk_days - 1), start)
                 window_seconds = int((chunk_end - chunk_start).total_seconds())
                 if window_seconds < 86400:
                     duration_str = f"{max(120, window_seconds + 60)} S"
@@ -747,7 +751,7 @@ class IBKRProvider:
                         )
                     )
 
-                chunk_start = chunk_end + timedelta(days=1)
+                chunk_end = chunk_start - timedelta(days=1)
 
         all_bars.sort(key=lambda b: b.timestamp)
         return all_bars

@@ -1,10 +1,10 @@
 ---
 created: 2026-05-03T19:00:00.000Z
-title: "Macro Event Provider Lane (P-CTX-03b)"
+title: "Macro Event Provider Lane — v3.0 context_features"
 area: qualitative
-priority: 6
-resolves_phase: 89
-tier: feature
+priority: medium
+v3_phase: Phase B+ — gated on context_features table (see 2026-06-22-tf-agnostic-feature-architecture)
+note: v2.x agent/topic design superseded; reframes as global rows in context_features (symbol=NULL for FOMC/CPI/NFP; joined to feature_vectors at IC computation by DATE(bar_ts))
 files:
   - docs/ideas/qualitative-intelligence-layer.md
   - services/macro_event_provider_agent.py

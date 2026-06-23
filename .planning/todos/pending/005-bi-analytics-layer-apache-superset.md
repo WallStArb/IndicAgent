@@ -2,7 +2,8 @@
 created: 2026-04-23T15:53:50.381Z
 title: BI Analytics Layer — Apache Superset
 area: tooling
-priority: 10
+priority: low
+v3_phase: Phase B+ — natural trigger is when IC scores + feature_ic_scores table are populated and need exploration; Superset connects directly to TimescaleDB
 files:
   - docs/ideas/bi-analytics-layer-design.md
 ---

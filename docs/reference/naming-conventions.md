@@ -187,7 +187,7 @@ Given concept `signal_tracker`:
 
 ## Operational Files (Surface 6)
 
-<!-- src: docs/foundation/naming-system.md §10 -->
+<!-- src: docs/foundation/naming-system.md §11 -->
 
 | Location | Purpose | Rule |
 |----------|---------|------|
@@ -202,7 +202,7 @@ Given concept `signal_tracker`:
 
 ## What Does Not Change
 
-<!-- src: docs/foundation/naming-system.md §9 -->
+<!-- src: docs/foundation/naming-system.md §10 -->
 
 - Kafka topic strings — current pattern is correct
 - DB table names — `signal_ledger`, `intelligence_features`, `llm_calls` stay

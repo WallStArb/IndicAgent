@@ -16,6 +16,7 @@ must_haves:
     - "Each (symbol, tf) is decoded with its own HMM fit; per-TF, not a shared 1m model"
     - "Regime labels are causal: forward-filter (alpha-pass only), NOT full-sequence Viterbi"
     - "HMM observation matrix is built from market_data_ohlcv (log-returns + ATR-proxy vol), NOT from feature_vectors which has no OHLCV columns"
+    - "HMM fits use HMM_RANDOM_STATE = 42 (module-level constant) for cross-run reproducibility — changing this constant invalidates all existing IC scores and requires a full regime_writer + ic_engine re-run"
     - "regime_writer emits per-service OTel metrics (regime_writer_rows_updated_total, regime_writer_run_latency_seconds, regime_writer_null_regime_remaining)"
   artifacts:
     - path: "services/regime_writer.py"
@@ -108,6 +109,7 @@ Output: feature_vectors.regime set to canonical text labels for >95% of rows, pe
     Create services/regime_writer.py as a sync psycopg2 oneshot mirroring backfill_feature_factory.py structure.
 
     Constants: _JOB = "regime-writer", log file "logs/regime_writer.log" via setup_service_logging.
+    HMM_RANDOM_STATE = 42  # module-level constant; changing this invalidates all existing feature_ic_scores rows — requires full regime_writer + ic_engine re-run
 
     OBSERVATION MATRIX SOURCE (fixes HIGH review issue #2):
     The HMM observation matrix MUST be built from market_data_ohlcv, NOT feature_vectors. feature_vectors contains the 54 computed feature fields -- it has NO close, open, high, low, or volume columns. Use:
@@ -191,7 +193,7 @@ Output: feature_vectors.regime set to canonical text labels for >95% of rows, pe
        - Compute log_return array; compute realized_vol rolling std (vol_window bars). Discard first vol_window rows where vol is undefined (to avoid NaN).
        - obs_matrix shape [n_valid_bars, 2]
        - Skip (logged warning, continue) if obs_matrix rows < n_components * 50
-       - Fit: model = GaussianHMM(n_components=n_components, covariance_type='diag', n_iter=100).fit(obs_matrix)
+       - Fit: model = GaussianHMM(n_components=n_components, covariance_type='diag', n_iter=100, random_state=HMM_RANDOM_STATE).fit(obs_matrix)
        - Decode causally: raw_states = _causal_decode(obs_matrix, model.means_, model.covars_[:, :, 0] if diag else model.covars_, model.transmat_, n_components)
          (For 'diag' covariance_type, model.covars_ shape is (K, n_features); for 'full' it is (K, n_features, n_features) -- use diagonal for _causal_decode. For 'diag', covars_ is already the variance vector per state.)
        - label_map = _build_label_map(model, n_components)
@@ -214,6 +216,8 @@ Output: feature_vectors.regime set to canonical text labels for >95% of rows, pe
     - `grep -c "observed_span" services/regime_writer.py` returns >= 2 (run + label_symbol_tf)
     - `grep -c "JOB_COMPLETED_TOTAL" services/regime_writer.py` returns >= 1 and `grep -c "flush_and_shutdown_metrics" services/regime_writer.py` returns >= 1
     - No hardcoded numeric for n_components: `grep -n "n_components" services/regime_writer.py` shows it read via cfg.get_sync (not literal 3)
+    - Fixed random_state: `grep -c "HMM_RANDOM_STATE" services/regime_writer.py` returns >= 2 (definition + use in GaussianHMM constructor)
+    - `grep -c "random_state=HMM_RANDOM_STATE" services/regime_writer.py` returns >= 1
     - `.venv/bin/ruff check services/regime_writer.py` passes
   </acceptance_criteria>
   <verify>.venv/bin/python services/regime_writer.py --symbols SPY --tf 5m && PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT regime, count(*) FROM feature_vectors WHERE symbol='SPY' AND tf='5m' GROUP BY regime;"</verify>

@@ -19,5 +19,9 @@ storage:
     wal:
       path: /var/tempo/wal
 
+compactor:
+  compaction:
+    block_retention: 168h
+
 usage_report:
   reporting_enabled: false

@@ -1,8 +1,10 @@
 ---
 created: 2026-05-03T18:00:00.000Z
-title: I8 Intelligence Extensions
+title: I8 Intelligence Extensions (v3.0 — context_features)
 area: intelligence
-priority: 8
+priority: medium
+v3_phase: Phase B+ — gated on context_features table design (see tf-agnostic-feature-architecture)
+note: v2.x I8 plugin infrastructure archived; value reframes as daily LLM-scored features (earnings sentiment, macro summaries, news) joining feature_vectors by date at IC computation time
 tier: feature
 files:
   - src/intelligence/ai/narrative/

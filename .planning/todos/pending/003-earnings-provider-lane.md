@@ -1,10 +1,10 @@
 ---
 created: 2026-05-03T19:00:00.000Z
-title: "Earnings Provider Lane (P-CTX-03a)"
+title: "Earnings Provider Lane — v3.0 context_features"
 area: qualitative
-priority: 5
-resolves_phase: 89
-tier: feature
+priority: medium
+v3_phase: Phase B+ — gated on context_features table (see 2026-06-22-tf-agnostic-feature-architecture)
+note: v2.x agent/topic design superseded; reframes as event-driven rows in context_features (feature_date = earnings_date, symbol-scoped)
 files:
   - docs/ideas/qualitative-intelligence-layer.md
   - services/earnings_provider_agent.py

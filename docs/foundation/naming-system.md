@@ -1,7 +1,7 @@
 # Naming System
 
 **Status:** current
-**Last Updated:** 2026-05-30
+**Last Updated:** 2026-06-22
 **Design spec:** `docs/plans/2026-05-30-renaissance-naming-system-design.md`
 
 ---
@@ -404,7 +404,29 @@ Would a practitioner write this on a whiteboard in a mathematics, finance, or CS
 
 ---
 
-## 7. The Ring 0 Portability Contract
+## 7. Gradient Scale Vocabulary
+
+When a column name, APR key, or variable name contains a scale qualifier — a word describing where on a spectrum the value falls — only terms from this table are permitted. Adding a new gradient term requires updating this section first.
+
+### Canonical Terms
+
+| Scale | Approved terms | Typical use |
+|-------|---------------|-------------|
+| Speed / horizon (2-level) | `fast`, `slow` | `aroon_fast`, `aroon_slow` |
+| Speed / horizon (3-level) | `fast`, `mid`, `slow` | `rsi_fast`, `rsi_mid`, `rsi_slow` |
+| Speed / horizon (4-level) | `fast`, `mid`, `slow`, `extended` | IC lookahead horizons (`return_extended`) |
+| Magnitude / intensity | `low`, `mid`, `high` | Threshold tiers, confidence bands |
+| Rank / quality | `primary`, `secondary` | Signal tiers, confirmation layers |
+
+### Rule
+
+Only terms from the table above may appear as scale qualifiers in column names, APR keys, and variable names. Numbers in names are valid **only** when the number defines the statistical concept — `momentum_z_5` means "5-bar z-score"; changing it to 7 bars produces a different statistic, not a recalibrated version of the same one. When the number is a tunable calibration parameter, use a gradient term instead: `return_fast` column + `alpha.ic.lookahead.fast = 1` APR key. See CLAUDE.md §APR for the full pattern.
+
+**Prohibited:** inventing terms outside this table (`near`, `ultra`, `short`, `long`, `tight`, `wide`). If a new gradient term is genuinely needed, update this table first — this section is the single source of truth.
+
+---
+
+## 8. The Ring 0 Portability Contract
 
 ### What Ring 0 Exports
 
@@ -445,7 +467,7 @@ Ring 0 has zero dependencies on outer rings. Any file in `src/core/` importing f
 
 ---
 
-## 8. CI Enforcement
+## 9. CI Enforcement
 
 The taxonomy is only durable if violations fail the build.
 
@@ -492,7 +514,7 @@ Four or more segments is a strong signal the concept hasn't been named precisely
 
 ---
 
-## 9. Stable Conventions
+## 10. Stable Conventions
 
 These do not change as part of any rename or refactor:
 
@@ -507,7 +529,7 @@ These do not change as part of any rename or refactor:
 
 ---
 
-## 10. Operational Files — Surface 6
+## 11. Operational Files — Surface 6
 
 These are the non-code file categories that appear at the project root and in supporting directories. Each has a single canonical location and a deletion rule.
 

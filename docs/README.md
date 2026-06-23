@@ -48,7 +48,8 @@ The reference implementation of the recipe-card format. Four files, four angles.
 
 | File | Description |
 |------|-------------|
-| `intelligence-foundation.md` | I1-I8 definitions, data flow philosophy, tier contracts |
+| `intelligence-foundation.md` | I1-I8 definitions, data flow philosophy, tier contracts (v2.x) |
+| `intelligence-alphaengine.md` | IC-weighted factor model — vocabulary, methodology, and why the plugin approach was replaced (v3.0) |
 | `intelligence-plugins.md` | Plugin protocol, how to add a plugin, 132-plugin inventory |
 | `intelligence-ai.md` | Swarm agents, LLM chain, shadow governance |
 | `intelligence-operations.md` | Services, monitoring, debugging the intelligence pipeline |

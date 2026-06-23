@@ -126,11 +126,11 @@ Output: BaseBatch base class, forward_returns + feature_ic_scores tables (with i
   <action>
     Create production/migrations/160_ic_engine_tables.sql.
 
-    forward_returns (§XIV.1): columns symbol, tf, bar_ts, pipeline_version, regime_label_source (DEFAULT 'filtered'), return_1bar, return_5bar, return_20bar, return_60bar (all double precision), complete_1bar/complete_5bar/complete_20bar/complete_60bar (boolean DEFAULT false), has_gap_before_entry (boolean DEFAULT false), computed_at (timestamptz DEFAULT now()). PRIMARY KEY (symbol, tf, bar_ts). Then:
+    forward_returns (§XIV.1): columns symbol, tf, bar_ts, pipeline_version, regime_label_source (DEFAULT 'forward_filter'), return_1bar, return_5bar, return_20bar, return_60bar (all double precision), complete_1bar/complete_5bar/complete_20bar/complete_60bar (boolean DEFAULT false), has_gap_before_entry (boolean DEFAULT false), computed_at (timestamptz DEFAULT now()). PRIMARY KEY (symbol, tf, bar_ts). Then:
     SELECT create_hypertable('forward_returns', 'bar_ts', chunk_time_interval => INTERVAL '3 months');
     CREATE INDEX ON forward_returns (symbol, tf, bar_ts);
 
-    feature_ic_scores (§XIV.4 + review correction): all columns per spec including feature_name, vector_domain, symbol, tf, regime (nullable), lookahead_bars, training_window_end, n_independent, reliable, ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate, bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, wf_ic_sharpe, passes_walkforward, ic_sharpe, ic_sharpe_n_windows, regime_label_source (DEFAULT 'filtered'), is_decaying (DEFAULT false), decay_detected_at, recovery_eligible_at, computed_at.
+    feature_ic_scores (§XIV.4 + review correction): all columns per spec including feature_name, vector_domain, symbol, tf, regime (nullable), lookahead_bars, training_window_end, n_independent, reliable, ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate, bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, wf_ic_sharpe, passes_walkforward, ic_sharpe, ic_sharpe_n_windows, regime_label_source (DEFAULT 'forward_filter'), is_decaying (DEFAULT false), decay_detected_at, recovery_eligible_at, computed_at.
 
     CRITICAL ADDITION (fixes HIGH review issue #4): Add is_pooled BOOLEAN DEFAULT false NOT NULL column to feature_ic_scores. This explicitly distinguishes:
     - Pooled rows: is_pooled=true, regime=NULL (cross-regime IC run)

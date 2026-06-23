@@ -9,6 +9,11 @@ services:
     container_name: timescaledb
     restart: unless-stopped
     shm_size: '512m'
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d indicagent"]
       interval: 10s
@@ -40,6 +45,11 @@ services:
     container_name: redpanda
     restart: unless-stopped
     mem_limit: 6g
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "rpk", "cluster", "info"]
       interval: 10s
@@ -75,6 +85,11 @@ services:
     image: ollama/ollama:rocm
     container_name: ollama
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
     ports:
       - "127.0.0.1:11434:11434"
     environment:
@@ -97,6 +112,11 @@ services:
     container_name: indicagent-node-exporter
     restart: unless-stopped
     pid: host
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -114,6 +134,11 @@ services:
     image: prometheuscommunity/postgres-exporter:latest
     container_name: indicagent-postgres-exporter
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     environment:
       DATA_SOURCE_NAME: "postgresql://postgres:postgres@timescaledb:5432/indicagent?sslmode=disable"
       PG_EXPORTER_DISABLE_DEFAULT_METRICS: "false"
@@ -128,12 +153,17 @@ services:
     image: prom/prometheus:v3.12.0
     container_name: indicagent-prometheus
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
       - "--web.enable-lifecycle"
-      - "--storage.tsdb.retention.time=30d"
-      - "--storage.tsdb.retention.size=10GB"
+      - "--storage.tsdb.retention.time=10d"
+      - "--storage.tsdb.retention.size=3GB"
     ports:
       - "9090:9090"
     volumes:
@@ -149,6 +179,11 @@ services:
     image: grafana/grafana:13.0.1-security-01
     container_name: indicagent-grafana
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
     ports:
       - "3001:3000"
     environment:
@@ -165,6 +200,11 @@ services:
     image: grafana/tempo:3.0.0
     container_name: indicagent-tempo
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     volumes:
       - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
@@ -174,6 +214,11 @@ services:
     image: otel/opentelemetry-collector-contrib:0.153.0
     container_name: indicagent-otel-collector
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
     command: ["--config=/etc/otelcol/config.yaml"]
     environment:
       - INDICAGENT_ENV=${INDICAGENT_ENV:-dev}
@@ -194,6 +239,11 @@ services:
     image: prom/alertmanager:v0.32.1
     container_name: indicagent-alertmanager
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     ports:
       - "9093:9093"
     volumes:
@@ -205,6 +255,11 @@ services:
     image: grafana/loki:3.7.2
     container_name: indicagent-loki
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
     ports:
       - "3100:3100"
     volumes:
@@ -212,40 +267,16 @@ services:
       - ./loki-config.yaml:/etc/loki/config.yaml:ro
     command: -config.file=/etc/loki/config.yaml
 
-  mlflow:
-    image: ghcr.io/mlflow/mlflow:latest
-    container_name: indicagent-mlflow
-    ports:
-      - "5000:5000"
-    volumes:
-      - mlflow_data:/mlflow
-    command: >
-      mlflow server
-      --backend-store-uri sqlite:///mlflow/mlflow.db
-      --default-artifact-root /mlflow/artifacts
-      --host 0.0.0.0
-      --port 5000
-    restart: unless-stopped
-
-  langfuse:
-    image: langfuse/langfuse:2
-    container_name: indicagent-langfuse
-    ports:
-      - "3010:3000"
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@timescaledb:5432/langfuse
-      NEXTAUTH_URL: http://localhost:3010
-      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
-      SALT: ${LANGFUSE_SALT}
-    depends_on:
-      - timescaledb
-    restart: unless-stopped
-
   # IB Gateway — headless, live trading via Docker
   ib-gateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable
     container_name: ib-gateway
     restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
     environment:
       TWS_USERID: ${TWS_USERID}
       TWS_PASSWORD: ${TWS_PASSWORD}
@@ -278,7 +309,6 @@ volumes:
   prometheus-data:
   grafana-data:
   tempo-data:
-  mlflow_data:
   loki-data:
   ib-gateway-settings:
 

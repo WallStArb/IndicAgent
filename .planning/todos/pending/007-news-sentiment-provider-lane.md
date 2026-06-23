@@ -1,9 +1,10 @@
 ---
 created: 2026-05-03T19:00:00.000Z
-title: "News Sentiment Provider Lane (P-CTX-05)"
+title: "News Sentiment Provider Lane — v3.0 context_features"
 area: qualitative
-priority: 9
-tier: feature
+priority: low
+v3_phase: Phase C+ — lowest priority among context_features providers; ships after earnings/macro proven
+note: v2.x agent/topic design superseded; reframes as intraday/daily NLP scores in context_features; needs NLP quality validation before IC measurement
 files:
   - docs/ideas/qualitative-intelligence-layer.md
 ---

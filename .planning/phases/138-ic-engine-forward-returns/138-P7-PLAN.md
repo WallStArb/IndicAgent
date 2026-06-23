@@ -11,20 +11,22 @@ files_modified:
   - tests/unit/test_ic_engine_idempotency.py
   - tests/unit/test_regime_writer.py
   - tests/unit/test_causal_hmm_decoding.py
+  - tests/unit/test_circular_block_bootstrap.py
   - docs/analysis/ic-discovery-report-2026-06-21.md
   - docs/analysis/ic-discovery-report-2026-06-21.json
 autonomous: true
 
 must_haves:
   truths:
+    - "Circular block bootstrap CI width shrinks as N increases on AR(1) synthetic data"
+    - "Circular block bootstrap CI is wider with larger block_size on correlated data (accounts for more autocorrelation)"
+    - "Circular wrap verified: start index near n wraps correctly without index error"
     - "Vectorized IC matches scipy.stats.spearmanr to 1e-10"
     - "forward_return_writer forward return = ln(open[T+2]/open[T+1]) with no lookahead bias"
     - "multipletests preserves input order -- q-value at index i maps to p-value at index i"
     - "IC engine second run inserts 0 new rows (idempotent)"
     - "regime column is non-null after labeler with canonical text labels"
     - "Forward-filter decoding produces different results than full-sequence Viterbi on a known test sequence"
-    - "IC discovery report (markdown) exists with passing-features table by regime and TF"
-    - "IC discovery report (JSON) exists with machine-readable passing-features list for Phase 139"
     - "tests/unit/ is fully GREEN"
   artifacts:
     - path: "tests/unit/test_ic_engine_vectorized.py"
@@ -45,12 +47,9 @@ must_haves:
     - path: "tests/unit/test_causal_hmm_decoding.py"
       provides: "Forward-filter vs full-Viterbi causal correctness assertion"
       contains: "_causal_decode"
-    - path: "docs/analysis/ic-discovery-report-2026-06-21.md"
-      provides: "IC discovery report (markdown)"
-      contains: "IC Sharpe"
-    - path: "docs/analysis/ic-discovery-report-2026-06-21.json"
-      provides: "IC discovery report (JSON sidecar for Phase 139 automation)"
-      contains: "passing_features"
+    - path: "tests/unit/test_circular_block_bootstrap.py"
+      provides: "Circular block bootstrap CI statistical correctness: CI shrinks with N, wider with larger block_size on autocorrelated data, circular wrap handles edge indices"
+      contains: "_circular_block_bootstrap_ic"
   key_links:
     - from: "test_ic_engine_vectorized.py"
       to: "ic_engine vectorized IC function"
@@ -60,22 +59,20 @@ must_haves:
       to: "regime_writer._causal_decode()"
       via: "construct deterministic 20-bar sequence; assert causal decode != Viterbi on same input"
       pattern: "_causal_decode"
-    - from: "ic_engine run output"
-      to: "docs/analysis/ic-discovery-report-{date}.md and .json"
-      via: "feature_ic_scores query -> markdown table + JSON artifact"
-      pattern: "ic-discovery-report"
 ---
 
 <objective>
 Lock in correctness with unit tests for every statistical gate -- including a new test for causal HMM decoding correctness -- and produce the IC discovery report in both markdown and JSON formats.
 
-Purpose: FDR is necessary but not sufficient; tests prove the math is right and walk-forward is the real guard (Renaissance mandate #4). The causal HMM test specifically verifies that _causal_decode() and hmmlearn Viterbi produce DIFFERENT outputs on a deterministic sequence where causality matters. The JSON sidecar enables Phase 139 ensemble construction to automate feature selection without parsing markdown.
+Purpose: FDR is necessary but not sufficient; tests prove the math is right and walk-forward is the real guard (Renaissance mandate #4). The causal HMM test specifically verifies that _causal_decode() and hmmlearn Viterbi produce DIFFERENT outputs on a deterministic sequence where causality matters.
 
 ADDITIONS IN THIS REVISION (from REVIEWS.md):
 - test_causal_hmm_decoding.py: new test proving forward-filter != full-sequence Viterbi (HIGH review issue #1)
-- docs/analysis/ic-discovery-report-2026-06-21.json: machine-readable sidecar (LOW review issue #9)
+- test_circular_block_bootstrap.py: statistical correctness tests for the bootstrap implementation
 
-Output: 6 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md + docs/analysis/ic-discovery-report-{date}.json.
+Note: IC discovery report (markdown + JSON) and corpus runs are deferred to P8 (require full corpus in feature_ic_scores).
+
+Output: 6 unit tests (all GREEN).
 </objective>
 
 <execution_context>
@@ -96,8 +93,8 @@ Output: 6 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md +
 <tasks>
 
 <task type="auto">
-  <name>Task 1: Unit tests for vectorized IC, BH-FDR mapping, outcome labeler math, and causal HMM decoding</name>
-  <files>tests/unit/test_ic_engine_vectorized.py, tests/unit/test_bh_fdr_mapping.py, tests/unit/test_forward_return_writer.py, tests/unit/test_causal_hmm_decoding.py</files>
+  <name>Task 1: Unit tests for vectorized IC, BH-FDR mapping, outcome labeler math, causal HMM decoding, and circular block bootstrap</name>
+  <files>tests/unit/test_ic_engine_vectorized.py, tests/unit/test_bh_fdr_mapping.py, tests/unit/test_forward_return_writer.py, tests/unit/test_causal_hmm_decoding.py, tests/unit/test_circular_block_bootstrap.py</files>
   <read_first>
     - services/ic_engine.py (the vectorized IC function + BH-FDR call -- import the actual functions; refactor a pure helper out if the IC math is inline so it is unit-testable)
     - services/forward_return_writer.py (forward return formula -- extract or replicate the ln(open[T+N+1]/open[T+1]) computation as a pure function if it is SQL-only)
@@ -107,7 +104,22 @@ Output: 6 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md +
     - CLAUDE.md (Tests section; unit tests must be CI-clean, no live DB)
   </read_first>
   <action>
-    If the IC math, bootstrap, FDR, or forward-return logic is buried inline in the service files, FIRST refactor a pure function out (e.g. compute_ic_vectorized(X, y), forward_log_return(opens, n)) so it is importable and DB-free. Update the service to call the helper. Required for unit testability.
+    BEFORE writing any test, verify these pure module-level functions exist and are importable
+    from their respective service modules. If any is still inline, refactor it out FIRST:
+
+    - services/ic_engine.py: `compute_ic_vectorized(X: np.ndarray, y: np.ndarray) -> np.ndarray`
+      (the vectorized Pearson-on-ranks IC; used in the main loop and in walk-forward folds)
+    - services/ic_engine.py: `_circular_block_bootstrap_ic(ranks_X, ranks_Y, block_size, n_boot, rng)`
+      (already mandated as module-level in P6 action; verify it is, not nested)
+    - services/forward_return_writer.py: `forward_log_return(opens: np.ndarray, n: int) -> np.ndarray`
+      (pure Python/numpy; extracts the ln(open[T+N+1]/open[T+1]) formula from SQL for unit testing)
+    - services/regime_writer.py: `_causal_decode(obs_matrix, means, covars, transmat, n_components)`
+      (already module-level from P4; verify it remains so after P5 edits)
+    - services/regime_writer.py: `_build_label_map(means: np.ndarray) -> dict[int, str]`
+      (pure label assignment helper; must be module-level for Task 2 test)
+
+    Extraction is NOT conditional. These functions MUST be importable before any test is written.
+    Update the service to call the helper if extraction is needed.
 
     Create tests/unit/test_ic_engine_vectorized.py:
       - Build a deterministic numpy matrix X (n=100, 5 features) and 2 lookahead return vectors y with a fixed seed.
@@ -140,6 +152,31 @@ Output: 6 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md +
       - Add a docstring explaining WHY this test exists: "GaussianHMM.predict() is full-sequence Viterbi. It is NOT causal. _causal_decode() is the causal forward-filter. This test verifies they differ on a sequence where future information matters -- if they agree, the causal decoder is likely implemented incorrectly."
 
     Ensure _causal_decode is importable from services.regime_writer (or from a shared helper module if it was extracted). If it is a nested function, refactor it to module-level before writing this test.
+
+    Create tests/unit/test_circular_block_bootstrap.py (NEW — closes FLAG 2 from council review):
+    This tests the most novel statistical component directly. Import _circular_block_bootstrap_ic from services.ic_engine (refactor to module-level pure function if needed).
+
+    Test 1 — CI shrinks with N (statistical consistency):
+      - Synthesize two AR(1) sequences X (n=500, phi=0.3) and Y (n=500) with fixed rng seed.
+      - Compute CI with n=100 (first 100 obs) and n=500 (all obs), block_size=10, n_boot=500.
+      - Assert CI width (upper - lower) at n=500 < CI width at n=100 for all features.
+      - This verifies the bootstrap is producing meaningful uncertainty estimates that improve with data.
+
+    Test 2 — CI wider with larger block_size on correlated data:
+      - Synthesize AR(1) with phi=0.7 (high autocorrelation), n=300, fixed seed.
+      - Compute CI with block_size=5 and block_size=50, n_boot=500.
+      - Assert mean CI width at block_size=50 > mean CI width at block_size=5.
+      - This verifies the bootstrap correctly accounts for autocorrelation structure.
+
+    Test 3 — Circular wrap correctness:
+      - Call _circular_block_bootstrap_ic with n=20, block_size=7 (forces wrap: 7*3=21 > 20).
+      - Assert no IndexError raised; output shape is (n_boot, n_features); all values finite.
+
+    Test 4 — Determinism:
+      - Two calls with identical rng seed produce identical ci_lower, ci_upper arrays.
+      - rng = np.random.default_rng(42)
+
+    All tests: pure numpy, no DB, no Kafka.
   </action>
   <acceptance_criteria>
     - `.venv/bin/pytest tests/unit/test_ic_engine_vectorized.py -q` exits 0
@@ -152,6 +189,10 @@ Output: 6 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md +
     - test_causal_hmm_decoding asserts NOT array_equal: `grep -c "NOT\|not.*equal\|array_equal\|allclose" tests/unit/test_causal_hmm_decoding.py` returns >= 1
     - test_causal_hmm_decoding has docstring explaining causal vs Viterbi: `grep -c "Viterbi\|causal\|predict" tests/unit/test_causal_hmm_decoding.py` returns >= 3
     - tests use NO live DB connection (pure numpy / hmmlearn only)
+    - All pure functions importable without DB: `.venv/bin/python -c "from services.ic_engine import compute_ic_vectorized, _circular_block_bootstrap_ic; from services.regime_writer import _causal_decode, _build_label_map; print('ok')"` exits 0
+    - `.venv/bin/pytest tests/unit/test_circular_block_bootstrap.py -q` exits 0
+    - `grep -c "_circular_block_bootstrap_ic" tests/unit/test_circular_block_bootstrap.py` returns >= 4 (one call per test)
+    - CI width shrinks test present: `grep -c "CI width\|ci_width\|upper - lower\|upper-lower" tests/unit/test_circular_block_bootstrap.py` returns >= 1
   </acceptance_criteria>
   <verify>.venv/bin/pytest tests/unit/test_ic_engine_vectorized.py tests/unit/test_bh_fdr_mapping.py tests/unit/test_forward_return_writer.py tests/unit/test_causal_hmm_decoding.py -q</verify>
   <done>Four pure-math unit tests green; IC matches scipy 1e-10; FDR order preserved; forward return causal; forward-filter != Viterbi confirmed.</done>
@@ -186,86 +227,20 @@ Output: 6 unit tests (all GREEN) + docs/analysis/ic-discovery-report-{date}.md +
   <done>Idempotency skip logic + both ON CONFLICT statements verified; regime canonical-label mapping verified including no integer-string labels.</done>
 </task>
 
-<task type="auto">
-  <name>Task 3: Generate IC discovery report (markdown + JSON sidecar) + full unit-suite green</name>
-  <files>docs/analysis/ic-discovery-report-2026-06-21.md, docs/analysis/ic-discovery-report-2026-06-21.json</files>
-  <read_first>
-    - services/ic_engine.py (report-writing function if present; if the engine already writes the report, just run it -- else add a --report-only flag)
-    - docs/plans/2026-06-20-alphaengine-ic-spec.md (§XVIII report path + sections)
-    - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (IC Discovery Report Format; Finding 11; Risk 6 mkdir docs/analysis/)
-    - CLAUDE.md (Done-Coding SOP)
-  </read_first>
-  <action>
-    Ensure docs/analysis/ exists (Path("docs/analysis/").mkdir(parents=True, exist_ok=True) -- Risk 6). The ic_engine.py from P4 should write the report at the end of its run; if it does not yet, add a report-generation function to ic_engine.py that queries feature_ic_scores and writes both output files, and add a --report-only mode that regenerates them from existing feature_ic_scores without recomputing IC.
-
-    MARKDOWN REPORT: docs/analysis/ic-discovery-report-2026-06-21.md with sections (IC spec §XVIII / RESEARCH.md format):
-      1. Summary statistics -- total tests, N passing FDR, N passing walk-forward, N with non-null IC Sharpe
-      2. Per-feature table -- columns: feature_name, symbol, tf, regime, is_pooled, lookahead_bars, ic_value, ic_ci_lower, passes_fdr, passes_walkforward, ic_sharpe (sorted, top features first)
-      3. Top features by IC Sharpe
-      4. Features failing both gates (count summary)
-
-    JSON SIDECAR (NEW -- fixes REVIEWS.md LOW issue #9): docs/analysis/ic-discovery-report-2026-06-21.json
-    This is the machine-readable artifact for Phase 139 ensemble construction. Format:
-      {
-        "generated_at": "<ISO-8601 timestamp>",
-        "training_window_end": "<ISO-8601 timestamp>",
-        "total_cells": N,
-        "cells_passing_fdr": N,
-        "cells_passing_walkforward": N,
-        "passing_features": [
-          {
-            "feature_name": "momentum_z_5",
-            "symbol": "SPY",
-            "tf": "5m",
-            "regime": "trending_up",
-            "is_pooled": false,
-            "lookahead_bars": 5,
-            "ic_value": 0.042,
-            "ic_ci_lower": 0.011,
-            "ic_sharpe": 1.23,
-            "passes_fdr": true,
-            "passes_walkforward": true
-          },
-          ...
-        ]
-      }
-    The "passing_features" array contains ONLY rows where passes_walkforward=true. Include all columns shown above. This file enables Phase 139 to `json.load()` the passing features without parsing markdown.
-
-    Write both files atomically (write to .tmp then rename) to avoid partial writes. Log paths at INFO after writing.
-
-    Then run the FULL unit suite and confirm green.
-  </action>
-  <acceptance_criteria>
-    - `ls docs/analysis/ic-discovery-report-2026-06-21.md` succeeds
-    - `ls docs/analysis/ic-discovery-report-2026-06-21.json` succeeds
-    - Markdown report contains a passing-features table: `grep -c "passes_walkforward\|passes_fdr\|ic_sharpe\|IC Sharpe" docs/analysis/ic-discovery-report-2026-06-21.md` returns >= 1
-    - Markdown report references is_pooled column: `grep -c "is_pooled\|pooled" docs/analysis/ic-discovery-report-2026-06-21.md` returns >= 1
-    - Markdown report references real symbols: `grep -c "SPY" docs/analysis/ic-discovery-report-2026-06-21.md` returns >= 1
-    - JSON sidecar is valid JSON: `.venv/bin/python -c "import json; data=json.load(open('docs/analysis/ic-discovery-report-2026-06-21.json')); assert 'passing_features' in data; assert 'training_window_end' in data; print(f'passing_features: {len(data[\"passing_features\"])}')"` exits 0
-    - JSON sidecar contains passing_features with expected fields: `.venv/bin/python -c "import json; d=json.load(open('docs/analysis/ic-discovery-report-2026-06-21.json')); f=d['passing_features'][0] if d['passing_features'] else {}; required={'feature_name','symbol','tf','regime','is_pooled','lookahead_bars','ic_value','ic_sharpe','passes_walkforward'}; missing=required-set(f.keys()); assert not missing, missing; print('ok')"` exits 0
-    - `.venv/bin/pytest tests/unit/ -q` exits 0 (FULL suite green -- no regression)
-    - `.venv/bin/ruff check tests/unit/test_ic_engine_vectorized.py tests/unit/test_forward_return_writer.py tests/unit/test_bh_fdr_mapping.py tests/unit/test_ic_engine_idempotency.py tests/unit/test_regime_writer.py tests/unit/test_causal_hmm_decoding.py` passes
-  </acceptance_criteria>
-  <verify>.venv/bin/pytest tests/unit/ -q && ls -la docs/analysis/ic-discovery-report-2026-06-21.md docs/analysis/ic-discovery-report-2026-06-21.json</verify>
-  <done>IC discovery report (markdown + JSON) written; JSON passing_features array valid; full tests/unit/ suite green including causal HMM test.</done>
-</task>
-
 </tasks>
 
 <verification>
 - All 6 unit tests green: vectorized IC == scipy 1e-10; FDR order preserved; forward return causal; idempotency + regime labels verified; causal HMM forward-filter != Viterbi
-- IC discovery report (markdown) exists with passing-features table including is_pooled column
-- IC discovery report (JSON sidecar) exists with passing_features array for Phase 139 automation
+- Circular block bootstrap: CI shrinks with N, wider with larger block_size, circular wrap correct, deterministic
 - Full tests/unit/ suite green
+- IC discovery report and corpus runs deferred to P8
 </verification>
 
 <success_criteria>
 - All task acceptance criteria pass
 - .venv/bin/pytest tests/unit/ -q exits 0
-- docs/analysis/ic-discovery-report-2026-06-21.md and .json both exist
-- JSON sidecar is valid and parseable by Phase 139 ensemble construction scripts
 </success_criteria>
 
 <output>
-After completion, create `.planning/phases/138-ic-engine-forward-returns/138-07-SUMMARY.md` documenting the test results, the report paths, and a short summary of which features carried the strongest edge (top by IC Sharpe, passing walk-forward), plus the count in the JSON passing_features array.
+After completion, create `.planning/phases/138-ic-engine-forward-returns/138-07-SUMMARY.md` documenting the 6 test files written, key assertions (IC tolerance, causal HMM delta, bootstrap CI behavior), and full unit suite green count. Note that corpus runs and the IC discovery report are in P8.
 </output>

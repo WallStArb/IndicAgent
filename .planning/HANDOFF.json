@@ -1,78 +1,55 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-23T00:03:07Z",
+  "timestamp": "2026-06-23T00:30:00Z",
   "phase": "138",
   "phase_name": "ic-engine-forward-returns",
   "phase_dir": ".planning/phases/138-ic-engine-forward-returns",
-  "plan": 5,
-  "task": 0,
-  "total_tasks": 5,
-  "status": "paused",
+  "plan": 6,
+  "task": 1,
+  "total_tasks": 2,
+  "status": "ready",
   "completed_tasks": [
     {"id": "P0", "name": "feature_vector_id UUID content-key", "status": "done", "commit": "P0 merged"},
     {"id": "P1", "name": "Foundation hardening — migration 159, NaN validator, feature_factory_version, 7 new fields", "status": "done", "commit": "P1 merged"},
     {"id": "P2", "name": "BaseBatch base class + forward_returns hypertable + feature_ic_scores + APR keys", "status": "done", "commit": "P2 merged"},
     {"id": "P3", "name": "backfill_feature_factory UUID bug fix + partial backfill started", "status": "done", "commit": "6de8f2d8"},
-    {"id": "P4", "name": "regime_writer.py — causal forward-filter HMM, canonical label mapping, OTel", "status": "done", "commit": "b6a93742"}
+    {"id": "P4", "name": "regime_writer.py — causal forward-filter HMM, canonical label mapping, OTel", "status": "done", "commit": "b6a93742"},
+    {"id": "P5-T0-T2", "name": "Migration 162, regime_writer HMM alpha vector, forward_return_writer", "status": "done", "commit": "f9442ad3"},
+    {"id": "P5-SUMMARY", "name": "P5 SUMMARY written; Tasks 3-4 extracted to P8", "status": "done"}
   ],
   "remaining_tasks": [
-    {"id": "P5-T0", "name": "Migration 162 + amend regime_writer (alpha_history, loop, 6 enrichment cols) + fix tests", "status": "not_started"},
-    {"id": "P5-T1", "name": "Add forward_return_writer OTel metrics", "status": "not_started"},
-    {"id": "P5-T2", "name": "Build services/forward_return_writer.py", "status": "not_started"},
-    {"id": "P5-T3", "name": "Full regime_writer corpus run (all symbols/TFs)", "status": "blocked_on_data"},
-    {"id": "P5-T4", "name": "Full forward_return_writer corpus run", "status": "blocked_on_data"},
-    {"id": "P6", "name": "IC engine — Spearman IC, block bootstrap, BH-FDR, walk-forward, IC Sharpe", "status": "not_started"},
-    {"id": "P7", "name": "Validation", "status": "not_started"}
+    {"id": "P6-T1", "name": "Add ic_engine OTel metrics to metrics.py (5 new metrics)", "status": "not_started"},
+    {"id": "P6-T2", "name": "Build services/ic_engine.py — vectorized IC, circular-block-bootstrap CI, BH-FDR, 60-bar-embargo walk-forward, IC Sharpe", "status": "not_started"},
+    {"id": "P7-T1", "name": "Unit tests — vectorized IC, BH-FDR mapping, forward return math, causal HMM decoding, circular bootstrap", "status": "not_started"},
+    {"id": "P7-T2", "name": "Unit tests — idempotency + regime labeler", "status": "not_started"},
+    {"id": "P8", "name": "Corpus runs + IC discovery report (data-only plan; runs after backfill_feature_factory completes full corpus)", "status": "blocked_on_data"}
   ],
   "blockers": [
     {
-      "description": "17 symbols missing OHLCV bars across target TFs (5m/15m/1h/1d). AMLP/OIH/SCHD/SMH/USMV missing 1d; ARKK/CIBR/INDA/KWEB/MTUM/QUAL/TLT missing 1h+1d; IEF/PFF/SHY/XLC missing 15m+1h+1d; VTV missing 5m+15m.",
+      "description": "bars still being fetched for remaining symbols. backfill_feature_factory needs all 58 symbols x 4 TFs complete before P8 can run.",
       "type": "human_action",
-      "workaround": "Run historical pipeline per-TF for missing symbols (commands in .continue-here.md)"
-    },
-    {
-      "description": "backfill_feature_factory killed (PID 589865). feature_vectors has only VUG/1h (61k rows). Must restart after all bars complete.",
-      "type": "human_action",
-      "workaround": "After bars complete: nohup .venv/bin/python services/backfill_feature_factory.py --compute-only > logs/backfill_feature_factory.log 2>&1 &"
-    }
-  ],
-  "human_actions_pending": [
-    {
-      "action": "Fetch missing OHLCV bars for 17 symbols (see commands in .continue-here.md)",
-      "context": "backfill_feature_factory was killed because it was running on incomplete bar data. Bars must be complete before restarting feature computation.",
-      "blocking": true
-    },
-    {
-      "action": "After bars complete: restart backfill_feature_factory --compute-only and wait for corpus to populate",
-      "context": "Estimated 20-30 hours total. feature_vectors needs all 58 symbols x 4 TFs before P5 data tasks can run.",
-      "blocking": true
+      "workaround": "P6+P7 are pure code and can proceed now. P8 is blocked on data."
     }
   ],
   "decisions": [
     {
-      "decision": "Store 3 raw HMM forward-filter probability columns: hmm_prob_trending_up, hmm_prob_ranging, hmm_prob_trending_down",
-      "rationale": "Full alpha vector is ground truth. hmm_regime_prob=max(alpha) and hmm_entropy=-sum(p*log(p)) are derivatives — redundant if raw probs stored. hmm_direction_score=P(up)-P(down) derivable at query time — NOT stored.",
+      "decision": "Plan restructure: corpus runs extracted from P5/P6/P7 into new P8",
+      "rationale": "Data tasks were scattered across P5 T3-4, P6 T3, P7 T3. All consolidated into P8. P5/P6/P7 are now pure code plans.",
       "phase": "138"
     },
     {
-      "decision": "_causal_decode() returns (states, alpha_history) tuple instead of just states",
-      "rationale": "Generator in _label_symbol_tf cannot support alpha_history index access + stateful duration tracking simultaneously. Generator replaced with explicit loop.",
-      "phase": "138"
-    },
-    {
-      "decision": "Full regime_writer corpus run placed in P5 Task 3 (not P4 or a separate plan)",
-      "rationale": "regime_writer code (P4) was built without data. Data tasks placed in P5 so they execute after bars + feature_vectors are ready. Tasks 3 and 4 in P5 are independent and can run concurrently.",
-      "phase": "138"
-    },
-    {
-      "decision": "Migration 162 adds 3 raw HMM prob columns to feature_vectors",
-      "rationale": "Migration 159 (P1) already applied. New columns need separate migration.",
+      "decision": "P6 smoke test uses VUG 1h instead of SPY 5m",
+      "rationale": "Only VUG/1h has feature_vectors data at this stage.",
       "phase": "138"
     }
   ],
   "uncommitted_files": [
-    ".planning/phases/138-ic-engine-forward-returns/138-P5-PLAN.md"
+    ".planning/phases/138-ic-engine-forward-returns/138-P5-PLAN.md",
+    ".planning/phases/138-ic-engine-forward-returns/138-P5-SUMMARY.md",
+    ".planning/phases/138-ic-engine-forward-returns/138-P6-PLAN.md",
+    ".planning/phases/138-ic-engine-forward-returns/138-P7-PLAN.md",
+    ".planning/phases/138-ic-engine-forward-returns/138-P8-PLAN.md",
+    ".planning/HANDOFF.json"
   ],
-  "next_action": "Verify OHLCV bars are complete for all 58 symbols x 4 TFs, then restart backfill_feature_factory. While waiting for corpus, execute P5 Tasks 0-2 (code work only — no data needed).",
-  "context_notes": "Session was primarily planning work — P5 amended to incorporate HMM probability vector enrichment and Renaissance council findings. No code was written. The bars gap was discovered late in the session. P5 Tasks 0-2 are pure code work and can proceed immediately."
+  "next_action": "Execute P6: add 5 ic_engine OTel metrics to metrics.py (Task 1), then build services/ic_engine.py (Task 2). Smoke test uses VUG 1h. P7 unit tests follow. P8 waits for backfill_feature_factory to complete full corpus."
 }
