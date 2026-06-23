@@ -91,7 +91,7 @@ Output: Migration 168, `src/intelligence/ensemble/` module (4 pure-function file
     Section 1 — DDL for three tables (use exact columns from RESEARCH.md DB Schema):
     - ensemble_weights: columns symbol text, tf text, regime text, weight_version text, feature_name text, ic_sharpe double precision, raw_weight double precision, weight double precision NOT NULL, lookahead_bars integer NOT NULL, effective_n double precision, computed_at timestamptz NOT NULL DEFAULT now(); PRIMARY KEY (symbol, tf, regime, weight_version, feature_name); NOT a hypertable; CREATE INDEX IF NOT EXISTS ensemble_weights_lookup_idx ON ensemble_weights (symbol, tf, regime, weight_version).
     - ensemble_alpha: columns symbol text, tf text, bar_ts timestamptz, weight_version text, regime text, alpha_score double precision NOT NULL, alpha_ci_lower double precision, alpha_ci_upper double precision, effective_n double precision, n_features_active integer, computed_at timestamptz NOT NULL DEFAULT now(); PRIMARY KEY (symbol, tf, bar_ts, weight_version); SELECT create_hypertable('ensemble_alpha', 'bar_ts', chunk_time_interval => INTERVAL '3 months', if_not_exists => TRUE); CREATE INDEX IF NOT EXISTS ensemble_alpha_symbol_tf_idx ON ensemble_alpha (symbol, tf, bar_ts DESC).
-    - alpha_events: columns event_id text, symbol text, tf text, bar_ts timestamptz, ensemble_version text NOT NULL, weight_version text NOT NULL, regime text, alpha_score double precision NOT NULL, alpha_ci_lower double precision, alpha_ci_upper double precision, effective_n double precision, n_features_active integer, emission_threshold double precision, direction text NOT NULL CHECK (direction IN ('long','short')), feature_contributions jsonb NOT NULL, emitted_at timestamptz NOT NULL DEFAULT now(); PRIMARY KEY (event_id); SELECT create_hypertable('alpha_events', 'bar_ts', chunk_time_interval => INTERVAL '3 months', if_not_exists => TRUE); CREATE INDEX IF NOT EXISTS alpha_events_symbol_tf_idx ON alpha_events (symbol, tf, bar_ts DESC). Note: feature_contributions is NOT NULL — the architecture doc traceability invariant requires top_features never be null on an emission.
+    - alpha_events: columns event_id text, symbol text, tf text, bar_ts timestamptz, ensemble_version text NOT NULL, weight_version text NOT NULL, regime text, alpha_score double precision NOT NULL, alpha_ci_lower double precision, alpha_ci_upper double precision, effective_n double precision, n_features_active integer, emission_threshold double precision, direction text NOT NULL CHECK (direction IN ('long','short')), top_features jsonb NOT NULL, emitted_at timestamptz NOT NULL DEFAULT now(); PRIMARY KEY (event_id); SELECT create_hypertable('alpha_events', 'bar_ts', chunk_time_interval => INTERVAL '3 months', if_not_exists => TRUE); CREATE INDEX IF NOT EXISTS alpha_events_symbol_tf_idx ON alpha_events (symbol, tf, bar_ts DESC). Note: top_features is NOT NULL — the architecture doc traceability invariant requires top_features never be null on an emission.
     All CREATE TABLE use IF NOT EXISTS.
 
     Section 2 — config_schema INSERTs (mirror migration 161 column set: config_key, value_type, default_value, min_value, max_value, description) for the 9 keys, with provenance tags in description:
@@ -112,14 +112,14 @@ Output: Migration 168, `src/intelligence/ensemble/` module (4 pure-function file
   </action>
   <verify>
     PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "\d ensemble_weights" shows the weight, effective_n, lookahead_bars columns.
-    PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "\d alpha_events" shows feature_contributions jsonb NOT NULL and direction CHECK constraint.
+    PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "\d alpha_events" shows top_features jsonb NOT NULL and direction CHECK constraint.
     PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT count(*) FROM config_state WHERE config_key LIKE 'alpha.ensemble.%' OR config_key LIKE 'alpha.quant.threshold.%'" returns 9.
     PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT count(*) FROM timescaledb_information.hypertables WHERE hypertable_name IN ('ensemble_alpha','alpha_events')" returns 2.
   </verify>
   <acceptance_criteria>
     - File production/migrations/168_ensemble_tables.sql exists
     - `\d ensemble_weights` lists PRIMARY KEY (symbol, tf, regime, weight_version, feature_name)
-    - `\d alpha_events` shows feature_contributions as NOT NULL and a CHECK on direction
+    - `\d alpha_events` shows top_features as NOT NULL and a CHECK on direction
     - SELECT count over config_state for the two namespaces returns exactly 9
     - ensemble_alpha and alpha_events are registered hypertables (count = 2)
     - Re-running the migration produces no errors and no duplicate rows (idempotent via IF NOT EXISTS + ON CONFLICT)
@@ -184,7 +184,7 @@ Output: Migration 168, `src/intelligence/ensemble/` module (4 pure-function file
     - ALPHA_EMITTER_REJECTIONS_TOTAL = create_up_down_counter "alpha_emitter_rejections_total" (labels symbol, tf, rejection_reason)
     Use the existing module helpers (the wrappers around _meter.create_*) so descriptions are populated; do not call prometheus_client.
 
-    Create tests/unit/test_ensemble_math.py covering: derive_weights returns zeros for all-negative IC Sharpe; derive_weights respects the cap when one feature dominates (assert max <= cap); derive_weights sums to 1.0; effective_n equals 1/sum(w^2) on a known vector (e.g. 5 equal weights of 0.2 -> effective_n 5.0); compute_alpha_score with NaN feature values treats them as 0; compute_alpha_score CI bounds bracket the point estimate; compute_shrinkage_covariance returns shape [n_features, n_features] and shrinkage in [0,1]; select_features_per_stratum keeps the max-ic_sharpe row per feature_name when duplicate lookaheads exist. Tests import from src.intelligence.ensemble only — no DB.
+    Create tests/unit/test_ensemble_math.py covering: derive_weights returns zeros for all-negative IC Sharpe; derive_weights respects the cap when one feature dominates (assert max <= cap); derive_weights sums to 1.0; effective_n equals 1/sum(w^2) on a known vector (e.g. 5 equal weights of 0.2 -> effective_n 5.0); compute_alpha_score with NaN feature values treats them as 0; compute_alpha_score CI bounds bracket the point estimate; compute_alpha_score sign-flip — feature_values=[1.0], weights=[1.0], ic_signs=[-1], ci_lower=[0.0], ci_upper=[0.1] returns alpha_score < 0 (negative IC sign flips a positive feature into a negative contribution); compute_alpha_score sign-keep — same inputs with ic_signs=[+1] returns alpha_score > 0 (positive IC sign keeps the contribution positive); compute_shrinkage_covariance returns shape [n_features, n_features] and shrinkage in [0,1]; select_features_per_stratum keeps the max-ic_sharpe row per feature_name when duplicate lookaheads exist. Tests import from src.intelligence.ensemble only — no DB.
   </action>
   <verify>
     .venv/bin/python -c "from src.core.stream_keys import topic_alpha_events; print(topic_alpha_events('prod').endswith('alpha.events'))" prints True.
@@ -195,8 +195,9 @@ Output: Migration 168, `src/intelligence/ensemble/` module (4 pure-function file
     - `grep -n "def topic_alpha_events" src/core/stream_keys.py` returns a match
     - `from src.observability.metrics import ENSEMBLE_EFFECTIVE_N_GAUGE, ENSEMBLE_FEATURE_WEIGHT_GAUGE, ALPHA_EMITTER_EMISSIONS_TOTAL, ALPHA_EMITTER_REJECTIONS_TOTAL` imports without error
     - `grep -n "prometheus_client" src/observability/metrics.py` returns nothing (OTel only)
-    - `.venv/bin/pytest tests/unit/test_ensemble_math.py -q` exits 0 with at least 8 test cases
+    - `.venv/bin/pytest tests/unit/test_ensemble_math.py -q` exits 0 with at least 10 test cases
     - effective_n test asserts 5 equal 0.2 weights yield effective_n == 5.0 (within 1e-9)
+    - compute_alpha_score test asserts ic_signs=[-1] on a positive feature yields alpha_score < 0, and ic_signs=[+1] yields alpha_score > 0
   </acceptance_criteria>
 </task>
 

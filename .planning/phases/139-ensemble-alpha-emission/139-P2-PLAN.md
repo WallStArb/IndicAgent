@@ -77,7 +77,6 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
 @.planning/phases/139-ensemble-alpha-emission/139-P1-PLAN.md
 @src/core/agent/base_batch.py
 @services/ic_engine.py
-@services/_batch_utils.py
 </context>
 
 <tasks>
@@ -96,7 +95,7 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
 
     Startup crash-loud gates in execute() (mirror ic_engine._assert_prerequisites): raise RuntimeError if feature_ic_scores has zero rows WHERE is_pooled = false AND passes_walkforward = true; raise RuntimeError if feature_vectors is empty (needed to score ensemble_alpha). These gates make a "successful" empty run impossible.
 
-    APR loading: load via services._batch_utils.load_config_service_sync — but since BaseBatch uses asyncpg, open a short psycopg2 connection at startup ONLY to load config (matching _batch_utils signature), OR fetch config rows directly via asyncpg from config_state JOIN config_schema and build the same dict. Read: alpha.ensemble.max_feature_weight, alpha.ensemble.effective_n_gate, alpha.ensemble.weight_version, alpha.ensemble.lookahead_selection, alpha.ensemble.min_passing_features. No inline numeric fallbacks beyond the documented APR defaults.
+    APR loading (asyncpg only, per RESEARCH.md Pitfall 6 — no psycopg2, no _batch_utils): inside execute(pool), fetch the config rows directly via the asyncpg pool with `SELECT config_key, config_value FROM config_state WHERE config_key LIKE 'alpha.%'`, then build a plain dict {config_key: config_value} from the returned rows. Wrap it in a small `cfg.get(key, default)` accessor (or use dict.get) and read every parameter through it: alpha.ensemble.max_feature_weight, alpha.ensemble.effective_n_gate, alpha.ensemble.weight_version, alpha.ensemble.lookahead_selection, alpha.ensemble.min_passing_features. config_value is text, so cast numeric values to float/int at read time. No inline numeric fallbacks beyond the documented APR defaults passed as the get() default.
 
     Core loop per (symbol, tf, regime):
     1. Query feature_ic_scores WHERE symbol=$1 AND tf=$2 AND regime=$3 AND is_pooled=false AND passes_walkforward=true AND reliable=true AND ic_sharpe IS NOT NULL.
@@ -114,7 +113,7 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     .venv/bin/python -c "import ast,sys; ast.parse(open('services/ensemble_builder.py').read()); print('parse ok')" prints parse ok.
     grep -n "class EnsembleBuilder(BaseBatch)" services/ensemble_builder.py returns a match.
     grep -n "from src.intelligence.ensemble" services/ensemble_builder.py returns a match.
-    grep -nE "0\.20|3\.0|= 1\.5|= 1\.2" services/ensemble_builder.py returns nothing outside APR-default fallbacks in get_sync calls (no inline magic thresholds in compute logic).
+    grep -nE "0\.20|3\.0|= 1\.5|= 1\.2" services/ensemble_builder.py returns nothing outside APR-default fallbacks in cfg.get calls (no inline magic thresholds in compute logic).
     .venv/bin/ruff check services/ensemble_builder.py exits 0.
   </verify>
   <acceptance_criteria>
@@ -123,7 +122,7 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     - ensemble_weights INSERT is wrapped in `async with conn.transaction():` (atomic weight_version)
     - Both INSERTs use ON CONFLICT DO NOTHING (idempotent re-run)
     - Two startup RuntimeError gates exist (empty feature_ic_scores passing rows; empty feature_vectors)
-    - max_feature_weight, effective_n_gate, weight_version, min_passing_features read via cfg.get_sync with the alpha.ensemble.* keys
+    - max_feature_weight, effective_n_gate, weight_version, min_passing_features read from the asyncpg-loaded config dict (SELECT ... FROM config_state WHERE config_key LIKE 'alpha.%') via cfg.get with the alpha.ensemble.* keys
     - `.venv/bin/ruff check services/ensemble_builder.py` exits 0
   </acceptance_criteria>
 </task>
@@ -141,7 +140,7 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
   <action>
     Create services/alpha_emitter.py with class AlphaEmitter(BaseBatch): job_name = "alpha-emitter", compute_version = "1.0.0", ensemble_version = "v1.0.0" (class attr used in content_key and alpha_events.ensemble_version). asyncpg throughout.
 
-    APR loading: alpha.ensemble.effective_n_gate, alpha.ensemble.weight_version, alpha.quant.threshold.5m / .15m / .1h / .1d. Provide a helper _threshold_for_tf(tf) returning the matching APR threshold (no inline literals — fall through to APR get_sync defaults only).
+    APR loading: alpha.ensemble.effective_n_gate, alpha.ensemble.weight_version, alpha.quant.threshold.5m / .15m / .1h / .1d. Provide a helper _threshold_for_tf(tf) returning the matching APR threshold from the asyncpg-loaded config dict (no inline literals — fall through to the cfg.get default only).
 
     Startup crash-loud gate: raise RuntimeError if ensemble_alpha is empty (nothing to emit from). This prevents a silent "success" with zero events.
 
@@ -150,9 +149,9 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     Emission loop: read ensemble_alpha rows for the current weight_version. For each row apply the emission gate: abs(alpha_score) > threshold[tf] AND alpha_ci_lower > 0 AND effective_n >= effective_n_gate. On reject, increment ALPHA_EMITTER_REJECTIONS_TOTAL with rejection_reason in {ci_lower_negative, effective_n_low, threshold_miss}. On pass:
     - direction = 'long' if alpha_score > 0 else 'short'.
     - event_id = BaseBatch.content_key(symbol, tf, str(int(bar_ts.timestamp()*1e9)), ensemble_version).
-    - Build feature_contributions dict (top contributing features and their weight*value — query ensemble_weights for that stratum/weight_version; this MUST be non-empty per the NOT NULL invariant).
-    - Write alpha_events row (event_id PK, ON CONFLICT DO NOTHING) including ensemble_version, weight_version, regime, alpha_score, ci bounds, effective_n, n_features_active, emission_threshold, direction, feature_contributions jsonb. Pass the dict directly to asyncpg (no json.dumps).
-    - Publish JSON payload to Kafka: await self._producer.publish(msg=payload) — payload matches the RESEARCH.md alpha_event schema (event_id, symbol, tf, bar_ts ISO via format_iso_ts, ensemble_version, weight_version, alpha_score, ci bounds, effective_n, regime, n_features_active, feature_contributions, emitted_at).
+    - Build top_features dict (top contributing features and their weight*value — query ensemble_weights for that stratum/weight_version; this MUST be non-empty per the NOT NULL invariant).
+    - Write alpha_events row (event_id PK, ON CONFLICT DO NOTHING) including ensemble_version, weight_version, regime, alpha_score, ci bounds, effective_n, n_features_active, emission_threshold, direction, top_features jsonb. Pass the dict directly to asyncpg (no json.dumps).
+    - Publish JSON payload to Kafka: await self._producer.publish(msg=payload) — payload matches the RESEARCH.md alpha_event schema (event_id, symbol, tf, bar_ts ISO via format_iso_ts, ensemble_version, weight_version, alpha_score, ci bounds, effective_n, regime, n_features_active, top_features, emitted_at).
     - Increment ALPHA_EMITTER_EMISSIONS_TOTAL{symbol,tf,direction,regime} and ALPHA_EMITTER_BARS_SCORED_TOTAL.
 
     Shadow mode: emission writes alpha_events + publishes to Kafka only — no execution, no trade. Document this in the module docstring.
@@ -171,7 +170,7 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     - services/alpha_emitter.py contains `class AlphaEmitter(BaseBatch)` with `job_name = "alpha-emitter"`
     - Emission gate enforces all three conditions: abs(alpha_score) > threshold, alpha_ci_lower > 0, effective_n >= effective_n_gate
     - Kafka publish uses `await self._producer.publish(msg=...)` and grep for `value=` returns nothing
-    - feature_contributions is populated (non-empty dict) before alpha_events insert — never NULL
+    - top_features is populated (non-empty dict) before alpha_events insert — never NULL
     - alpha_events insert uses event_id from BaseBatch.content_key and ON CONFLICT DO NOTHING
     - Per-TF thresholds read from alpha.quant.threshold.{tf} APR keys, not literals
     - `.venv/bin/ruff check services/alpha_emitter.py` exits 0
@@ -218,7 +217,7 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
 
 <verification>
 - EnsembleBuilder and AlphaEmitter both subclass BaseBatch and parse/lint clean
-- All numeric parameters loaded via APR get_sync — no inline magic thresholds in compute logic
+- All numeric parameters loaded via the asyncpg-loaded APR config dict (cfg.get) — no inline magic thresholds in compute logic
 - Kafka publish awaited with msg= kwarg (verified by test)
 - Both units registered in service_auditor _DAG_ORDER and _ONESHOT_UNITS
 - `.venv/bin/pytest tests/unit/test_ensemble_builder.py tests/unit/test_alpha_emitter.py tests/unit/service_tests/test_service_auditor.py -q` green

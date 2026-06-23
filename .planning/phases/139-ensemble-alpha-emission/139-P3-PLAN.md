@@ -94,13 +94,13 @@ If the corpus is not yet present when P3 is reached, the EnsembleBuilder startup
     PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT count(*) FROM ensemble_weights" returns > 0 (when corpus present).
     PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT count(*) FROM ensemble_alpha" returns > 0.
     PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT count(*) FROM alpha_events WHERE effective_n < (SELECT config_value::float FROM config_state WHERE config_key='alpha.ensemble.effective_n_gate')" returns 0 (gate enforced).
-    PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT count(*) FROM alpha_events WHERE feature_contributions IS NULL" returns 0 (traceability invariant).
+    PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT count(*) FROM alpha_events WHERE top_features IS NULL" returns 0 (traceability invariant).
   </verify>
   <acceptance_criteria>
     - ensemble_weights row count > 0 (or SUMMARY records blocked-on-corpus state with the exact row-count query output)
     - ensemble_alpha row count > 0
     - Zero alpha_events rows with effective_n below the APR gate
-    - Zero alpha_events rows with NULL feature_contributions
+    - Zero alpha_events rows with NULL top_features
     - Kafka topic alpha.events shows at least 1 consumed message (rpk consume output non-empty), OR SUMMARY documents the blocked-on-corpus state
     - Both service runs exited 0 (job_completed_total status=success in logs)
   </acceptance_criteria>
@@ -146,7 +146,7 @@ If the corpus is not yet present when P3 is reached, the EnsembleBuilder startup
 <verification>
 - ensemble_weights, ensemble_alpha, alpha_events populated (or SUMMARY records the blocked-on-corpus state with query output)
 - effective_N gate provably enforced: zero alpha_events below the APR gate
-- feature_contributions never NULL: zero violations
+- top_features never NULL: zero violations
 - Kafka alpha.events topic received messages
 - IC discovery report (md + json) generated with emission_rate and per-stratum metrics
 </verification>
