@@ -1252,31 +1252,39 @@ Plans:
 5. IC discovery report: which features pass FDR gate by regime and TF
 6. All `alpha.ic.*` APR keys seeded and loaded via `ConfigService.get()`
 
-**Plans:** 4/8 plans executed
+**Plans:** 7/9 plans executed
 
 Plans:
 
-**Wave 1**
+**Wave 0** *(completed)*
 
-- [ ] 138-P1-PLAN.md — Foundation hardening (council review 12 findings): NaN/Inf validator, feature_factory_version throughout stack, 7 new FeatureVector fields + compute (momentum_z_60, reversal_z, quarter_position, days_to_month_end, 3 nullable cross-sectional), migration 159 (9 new feature_vectors columns + batch_job_checkpoints), 70-param INSERT, per-symbol observability counter
+- [x] 138-P0-PLAN.md — FeatureVectorWriter UUID content-key: migration 158, idempotent ON CONFLICT (2026-06-22)
 
-**Wave 2** *(parallel — P2 and P3 both blocked on P1 only, no file conflicts)*
+**Wave 1** *(completed)*
 
-- [ ] 138-P2-PLAN.md — Infrastructure: BaseBatch abstract base class (pool lifecycle, D-06, content_key()) + migration 160 (forward_returns hypertable + feature_ic_scores with is_pooled + two unique indexes) + migration 161 (alpha.ic.*/alpha.decay.* APR seeds, TF-specific bootstrap block sizes) + alpha. in OPS_PREFIXES + service_auditor ONESHOT_UNITS registration
-- [ ] 138-P3-PLAN.md — Run FeatureFactory backfill: populate feature_vectors (>=14 symbols x 4 TFs); verify all P1 fields non-NULL (feature_factory_version, bar_close_ts, new feature columns); coverage gate; D-06
+- [x] 138-P1-PLAN.md — Foundation hardening (council review 12 findings): NaN/Inf validator, feature_factory_version throughout stack, 7 new FeatureVector fields + compute (momentum_z_60, reversal_z, quarter_position, days_to_month_end, 3 nullable cross-sectional), migration 159 (9 new feature_vectors columns + batch_job_checkpoints), 70-param INSERT, per-symbol observability counter (2026-06-22)
 
-**Wave 3** *(parallel — both blocked on P2 + P3)*
+**Wave 2** *(completed — parallel)*
 
-- [ ] 138-P4-PLAN.md — HMM RegimeWriter oneshot: per-(symbol,tf) causal forward-filter decoding (NOT Viterbi) from market_data_ohlcv → feature_vectors.regime canonical text labels + D-06/OTel/spans
-- [ ] 138-P5-PLAN.md — ForwardReturnWriter oneshot: causal LEAD() forward log returns ln(open[T+N+1]/open[T+1]) → forward_returns + completeness flags + TRAINING_WINDOW_END gate + idempotent + D-06/OTel/spans
+- [x] 138-P2-PLAN.md — Infrastructure: BaseBatch abstract base class (pool lifecycle, D-06, content_key()) + migration 160 (forward_returns hypertable + feature_ic_scores with is_pooled + two unique indexes) + migration 161 (alpha.ic.*/alpha.decay.* APR seeds, TF-specific bootstrap block sizes) + alpha. in OPS_PREFIXES + service_auditor ONESHOT_UNITS registration (2026-06-22)
+- [x] 138-P3-PLAN.md — Run FeatureFactory backfill: populate feature_vectors (VUG/1h partial corpus; UUID fix); full corpus deferred to P8 (2026-06-22)
 
-**Wave 4** *(blocked on P4 + P5)*
+**Wave 3** *(completed — parallel)*
 
-- [ ] 138-P6-PLAN.md — ICEngine oneshot: vectorized Spearman IC + circular-block-bootstrap CI (TF-specific APR block size) + BH-FDR + 3-fold walk-forward (60-bar embargo) + IC Sharpe + degenerate-feature skip → feature_ic_scores; crash-loud gates; idempotent; D-06/OTel/spans
+- [x] 138-P4-PLAN.md — HMM RegimeWriter oneshot: per-(symbol,tf) causal forward-filter decoding (NOT Viterbi) from market_data_ohlcv → feature_vectors.regime canonical text labels + full HMM alpha vector (hmm_prob_*) + D-06/OTel/spans; migration 162 (2026-06-22)
+- [x] 138-P5-PLAN.md — ForwardReturnWriter oneshot: causal LEAD() forward log returns ln(open[T+N+1]/open[T+1]) → forward_returns + completeness flags + TRAINING_WINDOW_END gate + idempotent + D-06/OTel/spans (2026-06-23)
+
+**Wave 4** *(completed — blocked on P4 + P5)*
+
+- [x] 138-P6-PLAN.md — ICEngine oneshot: vectorized Spearman IC + circular-block-bootstrap CI (APR block size) + BH-FDR + 3-fold walk-forward (60-bar embargo) + IC Sharpe/Sortino/win rate + degenerate-feature skip → feature_ic_scores; crash-loud gates; idempotent; D-06/OTel/spans; migration 164; --report-only flag (2026-06-23)
 
 **Wave 5** *(blocked on P6)*
 
-- [ ] 138-P7-PLAN.md — Unit tests + IC discovery report (markdown + JSON sidecar for Phase 139)
+- [ ] 138-P7-PLAN.md — Unit tests: vectorized IC == scipy 1e-10, BH-FDR order-preservation, forward return causality, causal HMM decoding (forward-filter != Viterbi), circular block bootstrap CI correctness, idempotency, regime label mapping
+
+**Wave 6** *(blocked on data — requires full corpus from backfill_feature_factory)*
+
+- [ ] 138-P8-PLAN.md — Corpus runs + IC discovery report: full regime_writer + forward_return_writer + ic_engine runs across 58 symbols × 4 TFs; ic-discovery-report.md + ic-discovery-report.json; blocked until backfill_feature_factory completes full 58-symbol corpus
 
 ### Phase 139: Ensemble + Alpha Emission
 
