@@ -252,7 +252,7 @@ class FeatureVectorPipeline(BaseDaemon):
         self._worker_manager = PerKeyWorkerManager(
             processor=self._process_bar_inner,
             symbol_filter=symbol_filter,
-            queue_maxsize=self.settings.intelligence_pipeline_queue_maxsize,
+            queue_maxsize=self.settings.feature_vector_pipeline_queue_maxsize,
         )
         self._worker_manager.start_per_key_workers()
 

@@ -41,7 +41,7 @@ def test_dag_order_covers_required_services():
         "indicagent-bar-aggregator",
         "indicagent-bar-writer",
         "indicagent-bar-auditor",
-        "indicagent-intelligence-pipeline",
+        "indicagent-feature-vector-pipeline",
         "indicagent-signal-tracker-compute",
         "indicagent-signal-writer",
         "indicagent-feature-writer",
@@ -72,8 +72,12 @@ def test_dag_order_sources_before_sinks():
 
     assert _DAG_ORDER["indicagent-ibkr-provider"] < _DAG_ORDER["indicagent-provider-merger"]
     assert _DAG_ORDER["indicagent-provider-merger"] < _DAG_ORDER["indicagent-bar-aggregator"]
-    assert _DAG_ORDER["indicagent-bar-aggregator"] < _DAG_ORDER["indicagent-intelligence-pipeline"]
-    assert _DAG_ORDER["indicagent-intelligence-pipeline"] < _DAG_ORDER["indicagent-feature-writer"]
+    assert (
+        _DAG_ORDER["indicagent-bar-aggregator"] < _DAG_ORDER["indicagent-feature-vector-pipeline"]
+    )
+    assert (
+        _DAG_ORDER["indicagent-feature-vector-pipeline"] < _DAG_ORDER["indicagent-feature-writer"]
+    )
 
 
 # -- systemctl parsing ─────────────────────────────────────────────────────────
@@ -111,7 +115,7 @@ async def test_discover_services_returns_sorted_list():
     mock_stdout = (
         b"indicagent-bar-writer.service loaded active running\n"
         b"indicagent-ibkr-provider.service loaded active running\n"
-        b"indicagent-intelligence-pipeline.service loaded active running\n"
+        b"indicagent-feature-vector-pipeline.service loaded active running\n"
     )
 
     mock_proc = AsyncMock()
@@ -124,7 +128,7 @@ async def test_discover_services_returns_sorted_list():
     # Unit names are normalized (stripped of .service suffix) to match _DAG_ORDER keys
     assert result[0] == "indicagent-ibkr-provider"
     assert result[1] == "indicagent-bar-writer"
-    assert result[2] == "indicagent-intelligence-pipeline"
+    assert result[2] == "indicagent-feature-vector-pipeline"
 
 
 @pytest.mark.asyncio

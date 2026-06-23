@@ -890,6 +890,12 @@ def _rsi_series_full(closes: np.ndarray, period: int) -> np.ndarray:
     alpha = 1.0 / period
     avg_gain = float(np.mean(gains[:period]))
     avg_loss = float(np.mean(losses[:period]))
+    # Write bar `period` from the SMA seed (matches streaming _rsi_wilder with exactly period deltas)
+    if avg_loss < 1e-10:
+        result[period] = 100.0 if avg_gain > 0 else 50.0
+    else:
+        rs = avg_gain / avg_loss
+        result[period] = float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
     for i in range(period, len(gains)):
         avg_gain = alpha * gains[i] + (1.0 - alpha) * avg_gain
         avg_loss = alpha * losses[i] + (1.0 - alpha) * avg_loss

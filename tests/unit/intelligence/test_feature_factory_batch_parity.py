@@ -359,6 +359,28 @@ def test_rsi_slow_parity(ohlcv, cfg, streaming):
         ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.rsi_slow:.10f}"
 
 
+def test_rsi_fast_transition_boundary(ohlcv, cfg):
+    """result[period] must match streaming at exactly period+1 closes."""
+    from src.intelligence.feature_factory import _rsi_series_full
+
+    period = cfg.rsi_fast_period
+    batch = _rsi_series_full(ohlcv["closes"], period)
+
+    # bar = period: streaming has exactly period+1 closes → SMA seed only
+    cache = FeatureCache()
+    fv = FeatureFactory.compute(ohlcv["bars"][: period + 1], "SPY", "5m", cache, cfg)
+    assert (
+        abs(batch[period] - fv.rsi_fast) < 1e-8
+    ), f"bar {period}: batch={batch[period]:.10f} streaming={fv.rsi_fast:.10f}"
+
+    # bar = period+1: first EMA update
+    cache2 = FeatureCache()
+    fv2 = FeatureFactory.compute(ohlcv["bars"][: period + 2], "SPY", "5m", cache2, cfg)
+    assert (
+        abs(batch[period + 1] - fv2.rsi_fast) < 1e-8
+    ), f"bar {period+1}: batch={batch[period+1]:.10f} streaming={fv2.rsi_fast:.10f}"
+
+
 # ---------------------------------------------------------------------------
 # Task 4: Statistical series
 # ---------------------------------------------------------------------------
