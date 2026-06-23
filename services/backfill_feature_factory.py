@@ -52,8 +52,20 @@ from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
     FeatureFactory,
     FeatureFactoryConfig,
+    _amihud_illiq_z_series_full,
     _atr_series_full,
+    _cvd_slope_z_series_full,
+    _high_52w_dist_series_full,
+    _momentum_reversal_z_series_full,
+    _momentum_z_series_full,
+    _ofi_z_series_full,
+    _rel_volume_series_full,
+    _ret_acf1_z_series_full,
+    _ret_skew_z_series_full,
     _rolling_zscore_series,
+    _rsi_series_full,
+    _volume_z_series_full,
+    _vwap_dev_sigma_series_full,
 )
 from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL_PSYCOPG2,
@@ -103,6 +115,11 @@ _INSERT_BATCH_SIZE: int = 500
 
 # Chunk read size from market_data_ohlcv (T3: never load full history at once)
 _READ_CHUNK_BARS: int = 2000
+
+# Minimum window passed to FeatureFactory.compute() per bar once all expensive
+# series are precomputed. Must cover the largest non-precomputed feature window:
+# cci_slow_period=40 is the binding constraint. Extra margin for safety.
+_MIN_BATCH_WINDOW: int = 50
 
 # Warm-up guard: number of bars needed before first valid feature vector.
 # Use the momentum_zscore_window (252) as the dominant window + headroom.
@@ -685,11 +702,14 @@ def _compute_symbol_tf(
 
     _logger.info("compute_bars_loaded", symbol=symbol, tf=tf, total_bars=total_bars)
 
-    # Vectorized precompute — O(n) total, eliminates O(n²) ATR/gap inner loops
+    # Vectorized precompute — O(n) total, eliminates O(n²) inner loops.
+    # Each _*_series_full call runs ONCE over all n bars; the per-bar loop
+    # does O(1) index lookups instead of O(n) recomputation.
     _highs_full = np.array([b["high"] for b in bars], dtype=float)
     _lows_full = np.array([b["low"] for b in bars], dtype=float)
     _closes_full = np.array([b["close"] for b in bars], dtype=float)
     _opens_full = np.array([b["open"] for b in bars], dtype=float)
+    _volumes_full = np.array([b["volume"] for b in bars], dtype=float)
     _zw = int(config.momentum_zscore_window)
 
     # ATR series: _atr_series_full returns length=total_bars-1 where index k = ATR(bars[0..k+1]).
@@ -716,11 +736,56 @@ def _compute_symbol_tf(
     # _gap_z_core[i-1] = gap_z at bar i for i>=2; prepend one 0.0 → _gap_z_full[i] = gap_z at bar i.
     _gap_z_full = np.concatenate([[0.0], _gap_z_core])  # length = total_bars
 
+    # Momentum (Task 1)
+    _mom_fast_z_full = _momentum_z_series_full(_closes_full, config.momentum_window_fast, _zw)
+    _mom_mid_z_full = _momentum_z_series_full(_closes_full, config.momentum_window_mid, _zw)
+    _mom_slow_z_full = _momentum_z_series_full(_closes_full, config.momentum_window_slow, _zw)
+    _mom_rev_z_full = _momentum_reversal_z_series_full(_closes_full, _zw)
+
+    # Volume / OFI / CVD (Task 2)
+    _volume_z_full = _volume_z_series_full(_volumes_full, config.volume_zscore_window)
+    _ofi_z_full = _ofi_z_series_full(
+        _closes_full, _highs_full, _lows_full, _volumes_full, config.ofi_zscore_window
+    )
+    _cvd_slope_z_full = _cvd_slope_z_series_full(
+        _closes_full,
+        _highs_full,
+        _lows_full,
+        _volumes_full,
+        config.cvd_slope_bars,
+        config.ofi_zscore_window,
+    )
+
+    # RSI (Task 3)
+    _rsi_fast_full = _rsi_series_full(_closes_full, config.rsi_fast_period)
+    _rsi_mid_full = _rsi_series_full(_closes_full, config.rsi_mid_period)
+    _rsi_slow_full = _rsi_series_full(_closes_full, config.rsi_slow_period)
+
+    # Statistical (Task 4)
+    _ret_skew_z_full = _ret_skew_z_series_full(
+        _closes_full, config.ret_skew_window, config.ret_skew_zscore_window
+    )
+    _ret_acf1_z_full = _ret_acf1_z_series_full(
+        _closes_full, config.ret_acf_window, config.ret_acf_zscore_window
+    )
+    _amihud_z_full = _amihud_illiq_z_series_full(
+        _closes_full, _volumes_full, config.amihud_zscore_window
+    )
+    _high52w_full = _high_52w_dist_series_full(_closes_full, config.high_52w_window)
+
+    # vwap + rel_volume (Task 5)
+    _vwap_sig_full = _vwap_dev_sigma_series_full(
+        _opens_full, _highs_full, _lows_full, _closes_full, _volumes_full
+    )
+    _rel_vol_full = _rel_volume_series_full(_volumes_full, config.volume_zscore_window)
+
     insert_batch: list[tuple] = []
     total_inserted = 0
 
     for i in range(1, total_bars):
-        window_start = max(0, i - _READ_CHUNK_BARS)
+        # _MIN_BATCH_WINDOW (50) covers all non-precomputed features:
+        # cci_slow=40, aroon_slow=26, vol_ratio=21, cmf=20, range_position=20.
+        window_start = max(0, i - _MIN_BATCH_WINDOW)
         window = bars[window_start : i + 1]
 
         # Refresh regime features periodically (cross-asset seeded once before loop)
@@ -743,6 +808,22 @@ def _compute_symbol_tf(
                 "atr": float(_atr_padded[i]),
                 "atr_z": float(_atr_z_full[i]),
                 "gap_z": float(_gap_z_full[i]),
+                "momentum_z_fast": float(_mom_fast_z_full[i]),
+                "momentum_z_mid": float(_mom_mid_z_full[i]),
+                "momentum_z_slow": float(_mom_slow_z_full[i]),
+                "momentum_reversal_z": float(_mom_rev_z_full[i]),
+                "volume_z": float(_volume_z_full[i]),
+                "ofi_z": float(_ofi_z_full[i]),
+                "cvd_slope_z": float(_cvd_slope_z_full[i]),
+                "rsi_fast": float(_rsi_fast_full[i]),
+                "rsi_mid": float(_rsi_mid_full[i]),
+                "rsi_slow": float(_rsi_slow_full[i]),
+                "ret_skew_z": float(_ret_skew_z_full[i]),
+                "ret_acf1_z": float(_ret_acf1_z_full[i]),
+                "amihud_illiq_z": float(_amihud_z_full[i]),
+                "high_52w_dist": float(_high52w_full[i]),
+                "vwap_dev_sigma": float(_vwap_sig_full[i]),
+                "rel_volume": float(_rel_vol_full[i]),
             },
         )
 

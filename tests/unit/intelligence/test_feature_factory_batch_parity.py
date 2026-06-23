@@ -7,6 +7,7 @@ tests stay fast (momentum_zscore_window=30, etc.).
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -437,3 +438,118 @@ def test_rel_volume_parity(ohlcv, cfg, streaming):
         assert (
             abs(batch[i] - fv.rel_volume) < 1e-8
         ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.rel_volume:.10f}"
+
+
+# ---------------------------------------------------------------------------
+# Task 6: Integration smoke test
+# ---------------------------------------------------------------------------
+
+
+def test_full_precomputed_produces_valid_feature_vectors(ohlcv, cfg):
+    """Verify the full precomputed path produces valid, non-zero FeatureVectors."""
+    from src.intelligence.feature_factory import (
+        _amihud_illiq_z_series_full,
+        _atr_series_full,
+        _cvd_slope_z_series_full,
+        _high_52w_dist_series_full,
+        _momentum_reversal_z_series_full,
+        _momentum_z_series_full,
+        _ofi_z_series_full,
+        _rel_volume_series_full,
+        _ret_acf1_z_series_full,
+        _ret_skew_z_series_full,
+        _rolling_zscore_series,
+        _rsi_series_full,
+        _volume_z_series_full,
+        _vwap_dev_sigma_series_full,
+    )
+
+    closes = ohlcv["closes"]
+    highs = ohlcv["highs"]
+    lows = ohlcv["lows"]
+    opens = ohlcv["opens"]
+    volumes = ohlcv["volumes"]
+    bars = ohlcv["bars"]
+    zw = cfg.momentum_zscore_window
+
+    atr_core = _atr_series_full(highs, lows, closes, cfg.adx_period)
+    atr_padded = np.concatenate([[0.0], atr_core])
+    atr_z_full = _rolling_zscore_series(atr_padded, zw)
+    atr_for_gap = atr_core[:-1]
+    gap_raw = (opens[2:] - closes[1:-1]) / np.where(atr_for_gap > 1e-10, atr_for_gap, 1.0)
+    gap_raw_padded = np.concatenate([[0.0], gap_raw])
+    gap_z_core = _rolling_zscore_series(gap_raw_padded, zw)
+    gap_z_full = np.concatenate([[0.0], gap_z_core])
+
+    precomputed_arrays = {
+        "atr_padded": atr_padded,
+        "atr_z": atr_z_full,
+        "gap_z": gap_z_full,
+        "mom_fast_z": _momentum_z_series_full(closes, cfg.momentum_window_fast, zw),
+        "mom_mid_z": _momentum_z_series_full(closes, cfg.momentum_window_mid, zw),
+        "mom_slow_z": _momentum_z_series_full(closes, cfg.momentum_window_slow, zw),
+        "mom_rev_z": _momentum_reversal_z_series_full(closes, zw),
+        "volume_z": _volume_z_series_full(volumes, cfg.volume_zscore_window),
+        "ofi_z": _ofi_z_series_full(closes, highs, lows, volumes, cfg.ofi_zscore_window),
+        "cvd_slope_z": _cvd_slope_z_series_full(
+            closes, highs, lows, volumes, cfg.cvd_slope_bars, cfg.ofi_zscore_window
+        ),
+        "rsi_fast": _rsi_series_full(closes, cfg.rsi_fast_period),
+        "rsi_mid": _rsi_series_full(closes, cfg.rsi_mid_period),
+        "rsi_slow": _rsi_series_full(closes, cfg.rsi_slow_period),
+        "ret_skew_z": _ret_skew_z_series_full(
+            closes, cfg.ret_skew_window, cfg.ret_skew_zscore_window
+        ),
+        "ret_acf1_z": _ret_acf1_z_series_full(
+            closes, cfg.ret_acf_window, cfg.ret_acf_zscore_window
+        ),
+        "amihud_illiq_z": _amihud_illiq_z_series_full(closes, volumes, cfg.amihud_zscore_window),
+        "high_52w_dist": _high_52w_dist_series_full(closes, cfg.high_52w_window),
+        "vwap_dev_sigma": _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes),
+        "rel_volume": _rel_volume_series_full(volumes, cfg.volume_zscore_window),
+    }
+
+    min_window = 50
+    vectors_produced = 0
+    for i in range(300, 350):
+        cache = FeatureCache()
+        window_start = max(0, i - min_window)
+        window = bars[window_start : i + 1]
+        fv = FeatureFactory.compute(
+            window,
+            "SPY",
+            "5m",
+            cache,
+            cfg,
+            precomputed={
+                "atr": float(precomputed_arrays["atr_padded"][i]),
+                "atr_z": float(precomputed_arrays["atr_z"][i]),
+                "gap_z": float(precomputed_arrays["gap_z"][i]),
+                "momentum_z_fast": float(precomputed_arrays["mom_fast_z"][i]),
+                "momentum_z_mid": float(precomputed_arrays["mom_mid_z"][i]),
+                "momentum_z_slow": float(precomputed_arrays["mom_slow_z"][i]),
+                "momentum_reversal_z": float(precomputed_arrays["mom_rev_z"][i]),
+                "volume_z": float(precomputed_arrays["volume_z"][i]),
+                "ofi_z": float(precomputed_arrays["ofi_z"][i]),
+                "cvd_slope_z": float(precomputed_arrays["cvd_slope_z"][i]),
+                "rsi_fast": float(precomputed_arrays["rsi_fast"][i]),
+                "rsi_mid": float(precomputed_arrays["rsi_mid"][i]),
+                "rsi_slow": float(precomputed_arrays["rsi_slow"][i]),
+                "ret_skew_z": float(precomputed_arrays["ret_skew_z"][i]),
+                "ret_acf1_z": float(precomputed_arrays["ret_acf1_z"][i]),
+                "amihud_illiq_z": float(precomputed_arrays["amihud_illiq_z"][i]),
+                "high_52w_dist": float(precomputed_arrays["high_52w_dist"][i]),
+                "vwap_dev_sigma": float(precomputed_arrays["vwap_dev_sigma"][i]),
+                "rel_volume": float(precomputed_arrays["rel_volume"][i]),
+            },
+        )
+        # Every produced vector must have finite values
+        import dataclasses
+
+        for field in dataclasses.fields(fv):
+            val = getattr(fv, field.name)
+            if val is not None:
+                assert math.isfinite(val), f"bar {i} field {field.name} is not finite: {val}"
+        vectors_produced += 1
+
+    assert vectors_produced == 50
