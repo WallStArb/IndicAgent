@@ -726,7 +726,13 @@ def _rolling_stat_z(
     window: int,
     zscore_window: int,
 ) -> float:
-    """Apply fn over rolling windows of log_rets and z-score the result."""
+    """Apply fn over rolling windows of log_rets and z-score the result.
+
+    STREAMING ONLY. The inner comprehension is O(n * window) per call. Safe when
+    called once per incoming bar (window bounded by _READ_CHUNK_BARS). Catastrophic
+    if called inside a loop over n bars — O(n²) total. In batch contexts use
+    _ret_skew_z_series_full / _ret_acf1_z_series_full instead (vectorized O(n)).
+    """
     if len(log_rets) < window:
         return 0.0
     series = np.array(
@@ -792,6 +798,35 @@ def _zscore_last(series: np.ndarray, window: int) -> float:
     if std < 1e-8:
         return 0.0
     return float((float(series[-1]) - float(window_data.mean())) / std)
+
+
+# ---------------------------------------------------------------------------
+# Batch series functions — O(n) total, backfill compute stage only.
+# result[i] matches FeatureFactory.compute(bars[:i+1], ...) for the named feature.
+# The streaming per-bar functions above are untouched — live pipeline uses them.
+# ---------------------------------------------------------------------------
+
+
+def _momentum_z_series_full(closes: np.ndarray, window: int, zscore_window: int) -> np.ndarray:
+    """Log-return velocity series, z-scored. result[i] == streaming momentum_z at bar i.
+    Returns zeros for i < window (cold start matches streaming's 0.0).
+    """
+    n = len(closes)
+    if n <= window:
+        return np.zeros(n, dtype=float)
+    log_returns = np.log(np.maximum(closes[window:], 1e-10) / np.maximum(closes[:-window], 1e-10))
+    z = _rolling_zscore_series(log_returns, zscore_window)
+    return np.concatenate([np.zeros(window, dtype=float), z])
+
+
+def _momentum_reversal_z_series_full(closes: np.ndarray, zscore_window: int) -> np.ndarray:
+    """1-bar log-return z-scored series. result[i] == streaming momentum_reversal_z at bar i."""
+    n = len(closes)
+    if n < 2:
+        return np.zeros(n, dtype=float)
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    z = _rolling_zscore_series(log_rets, zscore_window)
+    return np.concatenate([[0.0], z])
 
 
 # ---------------------------------------------------------------------------
@@ -935,7 +970,9 @@ class FeatureFactory:
 
         # momentum_z_fast: log-return velocity over momentum_window_fast, z-scored
         wf = config.momentum_window_fast
-        if len(closes) > wf:
+        if precomputed is not None and "momentum_z_fast" in precomputed:
+            momentum_z_fast_val = precomputed["momentum_z_fast"]
+        elif len(closes) > wf:
             mom_fast_series = np.log(
                 np.maximum(closes[wf:], 1e-10) / np.maximum(closes[:-wf], 1e-10)
             )
@@ -945,7 +982,9 @@ class FeatureFactory:
 
         # momentum_z_mid: log-return velocity over momentum_window_mid, z-scored
         wm = config.momentum_window_mid
-        if len(closes) > wm:
+        if precomputed is not None and "momentum_z_mid" in precomputed:
+            momentum_z_mid_val = precomputed["momentum_z_mid"]
+        elif len(closes) > wm:
             mom_mid_series = np.log(
                 np.maximum(closes[wm:], 1e-10) / np.maximum(closes[:-wm], 1e-10)
             )
@@ -955,7 +994,9 @@ class FeatureFactory:
 
         # momentum_z_slow: log-return velocity over momentum_window_slow, z-scored
         wslow = config.momentum_window_slow
-        if len(closes) > wslow:
+        if precomputed is not None and "momentum_z_slow" in precomputed:
+            momentum_z_slow_val = precomputed["momentum_z_slow"]
+        elif len(closes) > wslow:
             mom_slow_series = np.log(
                 np.maximum(closes[wslow:], 1e-10) / np.maximum(closes[:-wslow], 1e-10)
             )
@@ -964,13 +1005,16 @@ class FeatureFactory:
             momentum_z_slow_val = 0.0
 
         # momentum_reversal_z: 1-bar log return z-scored over fast zscore window
-        reversal_raw = np.diff(np.log(np.maximum(closes, 1e-10)))
-        reversal_window = min(config.momentum_zscore_window, len(reversal_raw))
-        momentum_reversal_z_val = (
-            _zscore_last(reversal_raw, reversal_window)
-            if len(reversal_raw) >= reversal_window
-            else 0.0
-        )
+        if precomputed is not None and "momentum_reversal_z" in precomputed:
+            momentum_reversal_z_val = precomputed["momentum_reversal_z"]
+        else:
+            reversal_raw = np.diff(np.log(np.maximum(closes, 1e-10)))
+            reversal_window = min(config.momentum_zscore_window, len(reversal_raw))
+            momentum_reversal_z_val = (
+                _zscore_last(reversal_raw, reversal_window)
+                if len(reversal_raw) >= reversal_window
+                else 0.0
+            )
 
         cmf_val = _cmf(highs, lows, closes, volumes, config.cmf_period)
 

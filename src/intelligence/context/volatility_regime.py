@@ -68,7 +68,11 @@ class VolatilityRegimePlugin:
         sma = np.convolve(close, np.ones(self.bb_period) / self.bb_period, mode="valid")
         if len(sma) < self.lookback:
             return {}
-        # Per-window std: each element uses the exact same bb_period bars as its SMA
+        # Per-window std: each element uses the exact same bb_period bars as its SMA.
+        # STREAMING ONLY — this comprehension is O(n * bb_period) per call, safe when the
+        # close array is bounded by the live pipeline's window. If this ever enters a batch
+        # loop over n bars (growing series) it becomes O(n²). Use a vectorized rolling-std
+        # (e.g. pandas rolling or stride-trick) if a batch path is needed.
         bb_std = np.array([np.std(close[i : i + self.bb_period]) for i in range(len(sma))])
         bb_upper = sma + 2 * bb_std
         bb_lower = sma - 2 * bb_std
