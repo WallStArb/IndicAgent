@@ -41,7 +41,6 @@ import structlog
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import numpy as np
 
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.config_service import ConfigService

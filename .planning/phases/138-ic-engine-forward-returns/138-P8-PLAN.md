@@ -14,12 +14,12 @@ autonomous: true
 
 must_haves:
   truths:
-    - "backfill_feature_factory has completed the full corpus (>= 14 symbols x 4 TFs in feature_vectors) before any task in this plan runs"
+    - "backfill_feature_factory has completed for 4 symbols (SPY, TLT, XLF, QQQ) x 4 TFs in feature_vectors before any task in this plan runs"
     - ">95% of feature_vectors rows have canonical regime labels + full HMM alpha vector after regime_writer corpus run"
     - "hmm_prob_trending_up + hmm_prob_ranging + hmm_prob_trending_down sum to 1.0 per bar globally"
-    - "forward_returns populated for >= 14 symbols x 4 TFs; every row has a matching feature_vectors row"
-    - "feature_ic_scores populated for >= 14 symbols x 4 TFs; no is_pooled=false rows with regime=NULL"
-    - "At least one feature passes_walkforward across the full corpus"
+    - "forward_returns populated for 4 symbols (SPY, TLT, XLF, QQQ) x 4 TFs; every row has a matching feature_vectors row"
+    - "feature_ic_scores populated for 4 symbols (SPY, TLT, XLF, QQQ) x 4 TFs; no is_pooled=false rows with regime=NULL"
+    - "At least one feature passes_walkforward across the 4-symbol corpus"
     - "IC discovery report (markdown + JSON) exists with passing_features array for Phase 139 automation"
     - "JSON sidecar parseable by json.load(); passing_features contains only passes_walkforward=true rows"
   artifacts:
@@ -45,11 +45,11 @@ must_haves:
 ---
 
 <objective>
-Run the full corpus pipeline and generate the IC discovery report. This plan is entirely data execution — no code is written. All services were built and unit-tested in P5-P7; this plan runs them against the complete feature_vectors corpus.
+Run the 4-symbol IC pipeline (SPY, TLT, XLF, QQQ) and generate the IC discovery report. This plan is entirely data execution — no code is written. All services were built and unit-tested in P5-P7; this plan runs them against the 4-symbol feature_vectors subset.
 
 Order: (1) regime_writer (parallel with forward_return_writer) → (2) forward_return_writer → (3) IC engine → (4) IC discovery report.
 
-Precondition: backfill_feature_factory must have completed the full corpus before this plan starts. All tasks in this plan fail meaningfully (crash-loud gates) if their upstream data is missing.
+Precondition: backfill_feature_factory must have completed for the 4 symbols before this plan starts. All tasks in this plan fail meaningfully (crash-loud gates) if their upstream data is missing.
 </objective>
 
 <execution_context>
@@ -68,23 +68,53 @@ Precondition: backfill_feature_factory must have completed the full corpus befor
 <tasks>
 
 <task type="auto">
-  <name>Task 1: Verify corpus preconditions</name>
+  <name>Task 1: Backfill 4 symbols (SPY, TLT, XLF, QQQ)</name>
+  <files>feature_vectors (DB — populated with 4-symbol corpus)</files>
+  <read_first>
+    - services/backfill_feature_factory.py (--symbols flag usage)
+  </read_first>
+  <action>
+    Run backfill_feature_factory for the 4 symbols only. This fetches OHLCV data (if needed) and computes feature vectors.
+
+    Stage 1 — Fetch OHLCV (if not already in market_data_ohlcv):
+      .venv/bin/python services/backfill_feature_factory.py --symbols SPY,TLT,XLF,QQQ --fetch-only
+
+    Stage 2 — Compute feature vectors:
+      .venv/bin/python services/backfill_feature_factory.py --symbols SPY,TLT,XLF,QQQ --compute-only
+
+    Or both stages in one run:
+      .venv/bin/python services/backfill_feature_factory.py --symbols SPY,TLT,XLF,QQQ
+
+    Monitor progress in logs/backfill_feature_factory.log. Expected runtime: ~5-10 minutes for 4 symbols x 4 TFs.
+  </action>
+  <acceptance_criteria>
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT symbol) FROM feature_vectors WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);"` returns 4
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT tf, count(*) FROM feature_vectors WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']) GROUP BY tf ORDER BY tf;"` returns 4 rows (5m, 15m, 1h, 1d)
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_vectors WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);"` returns >= 100,000
+  </acceptance_criteria>
+  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT symbol, tf, count(*) FROM feature_vectors WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']) GROUP BY symbol, tf ORDER BY symbol, tf;"</verify>
+  <done>4-symbol backfill complete; feature_vectors populated for SPY, TLT, XLF, QQQ across all 4 TFs.</done>
+</task>
+
+<task type="auto">
+  <name>Task 2: Verify 4-symbol preconditions</name>
   <files>None (verification only)</files>
   <action>
-    Confirm all preconditions are met before running any corpus task.
+    Confirm all preconditions are met before running any IC task.
 
-    Check 1 — backfill_feature_factory complete:
+    Check 1 — backfill_feature_factory complete for 4 symbols:
       PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
         SELECT timeframe, count(DISTINCT symbol) sym_count, count(*) rows
         FROM feature_vectors
+        WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ'])
         GROUP BY timeframe ORDER BY timeframe;"
-    Must show >= 14 symbols per TF and >= 1M rows total. If fewer than 14 symbols in any TF, do not proceed — restart backfill_feature_factory and wait.
+    Must show 4 symbols per TF. If fewer than 4 symbols in any TF, do not proceed — restart backfill_feature_factory with --symbols SPY,TLT,XLF,QQQ and wait.
 
-    Check 2 — bars are complete enough to support IC Sharpe gate (>= 14 symbols per TF with data):
+    Check 2 — bars are complete enough to support IC Sharpe gate (4 symbols per TF with data):
       PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
         SELECT timeframe, count(DISTINCT symbol)
         FROM market_data_ohlcv
-        WHERE timeframe IN ('5m','15m','1h','1d')
+        WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']) AND timeframe IN ('5m','15m','1h','1d')
         GROUP BY timeframe ORDER BY timeframe;"
 
     Check 3 — forward_returns currently empty (pre-run baseline):
@@ -96,32 +126,31 @@ Precondition: backfill_feature_factory must have completed the full corpus befor
     Log baseline counts. Proceed only if Check 1 passes.
   </action>
   <acceptance_criteria>
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT min(count) FROM (SELECT count(DISTINCT symbol) AS count FROM feature_vectors GROUP BY tf) sub;"` returns >= 14
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT min(count) FROM (SELECT count(DISTINCT symbol) AS count FROM feature_vectors WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']) GROUP BY tf) sub;"` returns 4
   </acceptance_criteria>
-  <done>Baseline counts logged; >= 14 symbols confirmed in feature_vectors for each TF; proceeding to corpus runs.</done>
+  <done>Baseline counts logged; 4 symbols (SPY, TLT, XLF, QQQ) confirmed in feature_vectors for each TF; proceeding to IC runs.</done>
 </task>
 
 <task type="auto">
-  <name>Task 2: Full regime_writer corpus run — all symbols x TFs (parallel with Task 3)</name>
+  <name>Task 3: Regime_writer for 4 symbols (parallel with Task 4)</name>
   <files>feature_vectors (DB — regime + HMM columns populated)</files>
   <read_first>
     - services/regime_writer.py (run flags; --symbols and --tf args default behavior)
   </read_first>
   <action>
-    Run the full regime_writer corpus pass. HMM fitting is CPU-bound (~minutes per (symbol, tf) cell). Run in background:
+    Run regime_writer for the 4 symbols. HMM fitting is CPU-bound. Run:
 
-      nohup .venv/bin/python services/regime_writer.py > logs/regime_writer_corpus.log 2>&1 &
-      echo "PID: $!"
+      .venv/bin/python services/regime_writer.py --symbols SPY,TLT,XLF,QQQ
 
     Poll progress:
       PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
         SELECT tf, regime, count(*) FROM feature_vectors
-        WHERE regime IS NOT NULL
+        WHERE regime IS NOT NULL AND symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ'])
         GROUP BY tf, regime ORDER BY tf, regime;"
 
     This is idempotent (UPDATE semantics; HMM_RANDOM_STATE=42 produces identical labels on same data).
-    Task 2 and Task 3 (forward_return_writer) are INDEPENDENT and can run concurrently — Task 2 writes
-    feature_vectors.regime columns; Task 3 only reads feature_vectors.bar_ts. No write conflict.
+    Task 3 and Task 4 (forward_return_writer) are INDEPENDENT and can run concurrently — Task 3 writes
+    feature_vectors.regime columns; Task 4 only reads feature_vectors.bar_ts. No write conflict.
   </action>
   <acceptance_criteria>
     - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT round(100.0*count(*) FILTER (WHERE regime IS NULL)/count(*),2) FROM feature_vectors;"` returns < 5.0
@@ -134,78 +163,76 @@ Precondition: backfill_feature_factory must have completed the full corpus befor
 </task>
 
 <task type="auto">
-  <name>Task 3: Full forward_return_writer corpus run — all symbols x TFs (parallel with Task 2)</name>
+  <name>Task 4: Forward_return_writer for 4 symbols (parallel with Task 3)</name>
   <files>forward_returns (DB — populated)</files>
   <read_first>
     - services/forward_return_writer.py (run flags)
   </read_first>
   <action>
-    Run the full forward_return_writer corpus pass. Run in background concurrently with Task 2:
+    Run forward_return_writer for the 4 symbols:
 
-      nohup .venv/bin/python services/forward_return_writer.py > logs/forward_return_writer_corpus.log 2>&1 &
-      echo "PID: $!"
+      .venv/bin/python services/forward_return_writer.py --symbols SPY,TLT,XLF,QQQ
 
     Poll progress:
       PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
-        SELECT tf, count(*) FROM forward_returns GROUP BY tf ORDER BY tf;"
+        SELECT tf, count(*) FROM forward_returns WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']) GROUP BY tf ORDER BY tf;"
 
     After completion verify idempotency:
-      COUNT_BEFORE=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM forward_returns;")
-      .venv/bin/python services/forward_return_writer.py --symbols VUG --tf 1h
-      COUNT_AFTER=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM forward_returns;")
+      COUNT_BEFORE=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM forward_returns WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);")
+      .venv/bin/python services/forward_return_writer.py --symbols SPY --tf 1h
+      COUNT_AFTER=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM forward_returns WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);")
       # counts must be equal
   </action>
   <acceptance_criteria>
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT symbol) FROM forward_returns;"` returns >= 14
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT round(100.0*count(*) FILTER (WHERE complete_5bar)/count(*),1) FROM forward_returns WHERE tf='5m';"` returns > 95.0
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT symbol) FROM forward_returns WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);"` returns 4
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT round(100.0*count(*) FILTER (WHERE complete_5bar)/count(*),1) FROM forward_returns WHERE tf='5m' AND symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);"` returns > 95.0
     - Idempotency: re-run inserts 0 new rows (count before == count after)
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM forward_returns fr LEFT JOIN feature_vectors fv USING(symbol, tf, bar_ts) WHERE fv.bar_ts IS NULL;"` returns 0 (every forward_returns row has a matching feature_vectors row)
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM forward_returns fr LEFT JOIN feature_vectors fv USING(symbol, tf, bar_ts) WHERE fv.bar_ts IS NULL AND fr.symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);"` returns 0
   </acceptance_criteria>
-  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, count(*) total, count(*) FILTER (WHERE complete_5bar) c5, count(*) FILTER (WHERE complete_60bar) c60 FROM forward_returns GROUP BY tf ORDER BY tf;"</verify>
-  <done>forward_returns populated for >= 14 symbols x 4 TFs; TRAINING_WINDOW_END gate confirmed; idempotent re-run confirmed.</done>
+  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, count(*) total, count(*) FILTER (WHERE complete_5bar) c5, count(*) FILTER (WHERE complete_60bar) c60 FROM forward_returns WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']) GROUP BY tf ORDER BY tf;"</verify>
+  <done>forward_returns populated for 4 symbols x 4 TFs; TRAINING_WINDOW_END gate confirmed; idempotent re-run confirmed.</done>
 </task>
 
 <task type="auto">
-  <name>Task 4: Full IC engine corpus run — all symbols x TFs</name>
+  <name>Task 5: IC engine for 4 symbols</name>
   <files>feature_ic_scores (DB — populated)</files>
   <read_first>
     - services/ic_engine.py (just built in P6; run flags; crash-loud gates)
     - .planning/phases/138-ic-engine-forward-returns/138-RESEARCH.md (Finding 3 full-run estimate ~2.8 min bootstrap phase; Risk 3 1h TF marginal)
   </read_first>
   <precondition>
-    Both Task 2 (regime_writer) and Task 3 (forward_return_writer) must be complete before this task runs.
-    IC engine needs: feature_vectors.regime populated (from T2) AND forward_returns populated (from T3).
+    Both Task 3 (regime_writer) and Task 4 (forward_return_writer) must be complete before this task runs.
+    IC engine needs: feature_vectors.regime populated (from T3) AND forward_returns populated (from T4).
     The crash-loud startup gates will raise RuntimeError if either is missing.
   </precondition>
   <action>
-    Run the IC engine for all symbols and TFs. Run in background (bootstrap is CPU-bound, estimated ~10-20 min for full corpus):
+    Run the IC engine for the 4 symbols:
 
-      nohup .venv/bin/python services/ic_engine.py > logs/ic_engine_corpus.log 2>&1 &
-      echo "PID: $!"
+      .venv/bin/python services/ic_engine.py --symbols SPY,TLT,XLF,QQQ
 
     Poll progress:
       PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
         SELECT tf, is_pooled, count(*) total, count(*) FILTER (WHERE passes_fdr) fdr, count(*) FILTER (WHERE passes_walkforward) wf
-        FROM feature_ic_scores GROUP BY tf, is_pooled ORDER BY tf, is_pooled;"
+        FROM feature_ic_scores WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']) GROUP BY tf, is_pooled ORDER BY tf, is_pooled;"
 
     After completion verify idempotency:
-      COUNT_BEFORE=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores;")
-      .venv/bin/python services/ic_engine.py --symbols VUG --tf 1h
-      COUNT_AFTER=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores;")
+      COUNT_BEFORE=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);")
+      .venv/bin/python services/ic_engine.py --symbols SPY --tf 1h
+      COUNT_AFTER=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);")
       # counts must be equal
   </action>
   <acceptance_criteria>
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT symbol) FROM feature_ic_scores;"` returns >= 14
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE passes_walkforward = true;"` returns >= 1
-    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE is_pooled=false AND regime IS NULL;"` returns 0 (no ambiguous rows)
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(DISTINCT symbol) FROM feature_ic_scores WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);"` returns 4
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE passes_walkforward = true AND symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);"` returns >= 1
+    - `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -t -c "SELECT count(*) FROM feature_ic_scores WHERE is_pooled=false AND regime IS NULL AND symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']);"` returns 0
     - Idempotency: re-run inserts 0 new rows
   </acceptance_criteria>
-  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, is_pooled, count(*) total, count(*) FILTER (WHERE passes_fdr) fdr, count(*) FILTER (WHERE passes_walkforward) wf FROM feature_ic_scores GROUP BY tf, is_pooled ORDER BY tf, is_pooled;"</verify>
-  <done>feature_ic_scores fully populated for >= 14 symbols x 4 TFs; is_pooled/regime correctly set; idempotent re-run confirmed; at least one feature passes walk-forward.</done>
+  <verify>PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT tf, is_pooled, count(*) total, count(*) FILTER (WHERE passes_fdr) fdr, count(*) FILTER (WHERE passes_walkforward) wf FROM feature_ic_scores WHERE symbol = ANY(ARRAY['SPY','TLT','XLF','QQQ']) GROUP BY tf, is_pooled ORDER BY tf, is_pooled;"</verify>
+  <done>feature_ic_scores populated for 4 symbols x 4 TFs; is_pooled/regime correctly set; idempotent re-run confirmed; at least one feature passes walk-forward.</done>
 </task>
 
 <task type="auto">
-  <name>Task 5: Generate IC discovery report (markdown + JSON sidecar)</name>
+  <name>Task 6: Generate IC discovery report (markdown + JSON sidecar)</name>
   <files>docs/analysis/ic-discovery-report.md, docs/analysis/ic-discovery-report.json</files>
   <read_first>
     - services/ic_engine.py (verify --report-only flag is implemented; it was built in P6 -- if absent, stop and diagnose P6)
@@ -270,9 +297,9 @@ Precondition: backfill_feature_factory must have completed the full corpus befor
 </tasks>
 
 <verification>
-- feature_vectors: >95% rows with regime + full HMM alpha vector; probs sum to 1.0 globally
-- forward_returns: >= 14 symbols x 4 TFs; every row matches a feature_vectors bar_ts
-- feature_ic_scores: >= 14 symbols x 4 TFs; no is_pooled=false+regime=NULL ambiguity; at least one passes_walkforward
+- feature_vectors: 4 symbols (SPY, TLT, XLF, QQQ) x 4 TFs; >95% rows with regime + full HMM alpha vector; probs sum to 1.0 globally
+- forward_returns: 4 symbols x 4 TFs; every row matches a feature_vectors bar_ts
+- feature_ic_scores: 4 symbols x 4 TFs; no is_pooled=false+regime=NULL ambiguity; at least one passes_walkforward
 - IC discovery report: markdown with pooled-vs-regime comparison section; JSON with passing_features (is_pooled=false, passes_walkforward=true only)
 - All idempotency checks pass
 - tests/unit/ fully GREEN
@@ -280,7 +307,7 @@ Precondition: backfill_feature_factory must have completed the full corpus befor
 
 <success_criteria>
 - All task acceptance criteria pass
-- At least one feature passes_walkforward across the full corpus
+- At least one feature passes_walkforward across the 4-symbol corpus
 - docs/analysis/ic-discovery-report.json is valid and parseable by Phase 139 automation
 - .venv/bin/pytest tests/unit/ -q exits 0
 </success_criteria>

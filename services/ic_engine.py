@@ -396,7 +396,9 @@ def _compute_ic_rolling_metrics(
 
     Returns: (sharpe_arr, sortino_arr, win_rate_arr, n_windows)
     """
-    # sharpe_window_size is in RAW bars; convert to SUBSAMPLED bars
+    # sharpe_window_size is in RAW bars; convert to SUBSAMPLED bars via floor division.
+    # Precision loss: e.g., 1999 raw bars with stride=10 → 199 subsampled bars (10% loss from 200).
+    # Floor division ensures we never exceed available subsampled data.
     sharpe_window_size_raw = apr["sharpe_window_size"]
     sharpe_window_size = max(1, sharpe_window_size_raw // stride)
     sharpe_min_windows = apr["sharpe_min_windows"]

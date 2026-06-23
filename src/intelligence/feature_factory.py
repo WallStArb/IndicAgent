@@ -29,7 +29,6 @@ from __future__ import annotations
 import calendar
 import math
 from collections import deque
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -820,9 +819,7 @@ def _gap_z_series_full(
             atr_for_gap[:gap_high] > 1e-10, atr_for_gap[:gap_high], 1.0
         )
         # Z-score the gap series
-        gap_z_core = _rolling_zscore_series(
-            np.concatenate([[0.0], gap_raw]), zscore_window
-        )
+        gap_z_core = _rolling_zscore_series(np.concatenate([[0.0], gap_raw]), zscore_window)
         # Build result: position 0 = 0.0, position 1 = 0.0 (no prev close), then gap_z values
         result = np.zeros(n, dtype=float)
         if len(gap_z_core) > 2:
@@ -936,7 +933,9 @@ class FeatureFactory:
 
         prev_close = float(closes[-2])
         # gap_z: (open - prev_close) / atr, z-scored over momentum_zscore_window
-        gap_z_series = _gap_z_series_full(opens, highs, lows, closes, config.adx_period, config.momentum_zscore_window)
+        gap_z_series = _gap_z_series_full(
+            opens, highs, lows, closes, config.adx_period, config.momentum_zscore_window
+        )
         gap_z_val = float(gap_z_series[-1]) if len(gap_z_series) > 0 else 0.0
 
         informed_flow_val = _informed_flow(open_, close_, atr_val)
@@ -946,7 +945,9 @@ class FeatureFactory:
         ofi_z_val = float(ofi_z_series[-1]) if len(ofi_z_series) > 0 else 0.0
 
         # cvd_slope_z: cumulative CVD slope over slope_bars, z-scored
-        cvd_slope_z_series = _cvd_slope_z_series_full(closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window)
+        cvd_slope_z_series = _cvd_slope_z_series_full(
+            closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
+        )
         cvd_slope_z_val = float(cvd_slope_z_series[-1]) if len(cvd_slope_z_series) > 0 else 0.0
 
         # volume_z: rolling z-score of volume
@@ -956,26 +957,44 @@ class FeatureFactory:
         vol_ratio_val = _vol_ratio(closes, config.vol_short_bars, config.vol_long_bars)
 
         # momentum_z_fast: log-return velocity over momentum_window_fast, z-scored
-        momentum_z_fast_series = _momentum_z_series_full(closes, config.momentum_window_fast, config.momentum_zscore_window)
-        momentum_z_fast_val = float(momentum_z_fast_series[-1]) if len(momentum_z_fast_series) > 0 else 0.0
+        momentum_z_fast_series = _momentum_z_series_full(
+            closes, config.momentum_window_fast, config.momentum_zscore_window
+        )
+        momentum_z_fast_val = (
+            float(momentum_z_fast_series[-1]) if len(momentum_z_fast_series) > 0 else 0.0
+        )
 
         # momentum_z_mid: log-return velocity over momentum_window_mid, z-scored
-        momentum_z_mid_series = _momentum_z_series_full(closes, config.momentum_window_mid, config.momentum_zscore_window)
-        momentum_z_mid_val = float(momentum_z_mid_series[-1]) if len(momentum_z_mid_series) > 0 else 0.0
+        momentum_z_mid_series = _momentum_z_series_full(
+            closes, config.momentum_window_mid, config.momentum_zscore_window
+        )
+        momentum_z_mid_val = (
+            float(momentum_z_mid_series[-1]) if len(momentum_z_mid_series) > 0 else 0.0
+        )
 
         # momentum_z_slow: log-return velocity over momentum_window_slow, z-scored
-        momentum_z_slow_series = _momentum_z_series_full(closes, config.momentum_window_slow, config.momentum_zscore_window)
-        momentum_z_slow_val = float(momentum_z_slow_series[-1]) if len(momentum_z_slow_series) > 0 else 0.0
+        momentum_z_slow_series = _momentum_z_series_full(
+            closes, config.momentum_window_slow, config.momentum_zscore_window
+        )
+        momentum_z_slow_val = (
+            float(momentum_z_slow_series[-1]) if len(momentum_z_slow_series) > 0 else 0.0
+        )
 
         # momentum_reversal_z: 1-bar log return z-scored over fast zscore window
-        momentum_reversal_z_series = _momentum_reversal_z_series_full(closes, config.momentum_zscore_window)
-        momentum_reversal_z_val = float(momentum_reversal_z_series[-1]) if len(momentum_reversal_z_series) > 0 else 0.0
+        momentum_reversal_z_series = _momentum_reversal_z_series_full(
+            closes, config.momentum_zscore_window
+        )
+        momentum_reversal_z_val = (
+            float(momentum_reversal_z_series[-1]) if len(momentum_reversal_z_series) > 0 else 0.0
+        )
 
         cmf_val = _cmf(highs, lows, closes, volumes, config.cmf_period)
 
         # vwap_dev_sigma
         vwap_dev_sigma_series = _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes)
-        vwap_dev_sigma_val = float(vwap_dev_sigma_series[-1]) if len(vwap_dev_sigma_series) > 0 else 0.0
+        vwap_dev_sigma_val = (
+            float(vwap_dev_sigma_series[-1]) if len(vwap_dev_sigma_series) > 0 else 0.0
+        )
 
         # --- Session-level primitives (from cache; 1d TF defaults to neutral) ---
         if tf == "1d":
@@ -1051,16 +1070,26 @@ class FeatureFactory:
         ctf_regime_align_val = cache.ctf_regime_align
 
         # --- Statistical / liquidity ---
-        amihud_illiq_z_series = _amihud_illiq_z_series_full(closes, volumes, config.amihud_zscore_window)
-        amihud_illiq_z_val = float(amihud_illiq_z_series[-1]) if len(amihud_illiq_z_series) > 0 else 0.0
+        amihud_illiq_z_series = _amihud_illiq_z_series_full(
+            closes, volumes, config.amihud_zscore_window
+        )
+        amihud_illiq_z_val = (
+            float(amihud_illiq_z_series[-1]) if len(amihud_illiq_z_series) > 0 else 0.0
+        )
 
         high_52w_dist_series = _high_52w_dist_series_full(closes, config.high_52w_window)
-        high_52w_dist_val = float(high_52w_dist_series[-1]) if len(high_52w_dist_series) > 0 else 0.0
+        high_52w_dist_val = (
+            float(high_52w_dist_series[-1]) if len(high_52w_dist_series) > 0 else 0.0
+        )
 
-        ret_skew_z_series = _ret_skew_z_series_full(closes, config.ret_skew_window, config.ret_skew_zscore_window)
+        ret_skew_z_series = _ret_skew_z_series_full(
+            closes, config.ret_skew_window, config.ret_skew_zscore_window
+        )
         ret_skew_z_val = float(ret_skew_z_series[-1]) if len(ret_skew_z_series) > 0 else 0.0
 
-        ret_acf1_z_series = _ret_acf1_z_series_full(closes, config.ret_acf_window, config.ret_acf_zscore_window)
+        ret_acf1_z_series = _ret_acf1_z_series_full(
+            closes, config.ret_acf_window, config.ret_acf_zscore_window
+        )
         ret_acf1_z_val = float(ret_acf1_z_series[-1]) if len(ret_acf1_z_series) > 0 else 0.0
 
         # Guard: replace any NaN/inf with 0.0 (cold-start safety)
@@ -1173,16 +1202,28 @@ class FeatureFactory:
         atr_padded = np.concatenate([[0.0], atr_series])  # length = n
         atr_z_series = _rolling_zscore_series(atr_padded, config.momentum_zscore_window)
 
-        gap_z_series = _gap_z_series_full(opens, highs, lows, closes, config.adx_period, config.momentum_zscore_window)
+        gap_z_series = _gap_z_series_full(
+            opens, highs, lows, closes, config.adx_period, config.momentum_zscore_window
+        )
         rel_volume_series = _rel_volume_series_full(volumes, config.volume_zscore_window)
         ofi_z_series = _ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window)
-        cvd_slope_z_series = _cvd_slope_z_series_full(closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window)
+        cvd_slope_z_series = _cvd_slope_z_series_full(
+            closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
+        )
         volume_z_series = _volume_z_series_full(volumes, config.volume_zscore_window)
 
-        momentum_z_fast_series = _momentum_z_series_full(closes, config.momentum_window_fast, config.momentum_zscore_window)
-        momentum_z_mid_series = _momentum_z_series_full(closes, config.momentum_window_mid, config.momentum_zscore_window)
-        momentum_z_slow_series = _momentum_z_series_full(closes, config.momentum_window_slow, config.momentum_zscore_window)
-        momentum_reversal_z_series = _momentum_reversal_z_series_full(closes, config.momentum_zscore_window)
+        momentum_z_fast_series = _momentum_z_series_full(
+            closes, config.momentum_window_fast, config.momentum_zscore_window
+        )
+        momentum_z_mid_series = _momentum_z_series_full(
+            closes, config.momentum_window_mid, config.momentum_zscore_window
+        )
+        momentum_z_slow_series = _momentum_z_series_full(
+            closes, config.momentum_window_slow, config.momentum_zscore_window
+        )
+        momentum_reversal_z_series = _momentum_reversal_z_series_full(
+            closes, config.momentum_zscore_window
+        )
 
         vwap_dev_sigma_series = _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes)
 
@@ -1190,10 +1231,16 @@ class FeatureFactory:
         rsi_mid_series = _rsi_series_full(closes, config.rsi_mid_period)
         rsi_slow_series = _rsi_series_full(closes, config.rsi_slow_period)
 
-        amihud_illiq_z_series = _amihud_illiq_z_series_full(closes, volumes, config.amihud_zscore_window)
+        amihud_illiq_z_series = _amihud_illiq_z_series_full(
+            closes, volumes, config.amihud_zscore_window
+        )
         high_52w_dist_series = _high_52w_dist_series_full(closes, config.high_52w_window)
-        ret_skew_z_series = _ret_skew_z_series_full(closes, config.ret_skew_window, config.ret_skew_zscore_window)
-        ret_acf1_z_series = _ret_acf1_z_series_full(closes, config.ret_acf_window, config.ret_acf_zscore_window)
+        ret_skew_z_series = _ret_skew_z_series_full(
+            closes, config.ret_skew_window, config.ret_skew_zscore_window
+        )
+        ret_acf1_z_series = _ret_acf1_z_series_full(
+            closes, config.ret_acf_window, config.ret_acf_zscore_window
+        )
 
         # MIN_WINDOW for non-series features (cci_slow=40, aroon_slow=26, vol_ratio=21, cmf=20, range_position=20)
         MIN_WINDOW = 50
@@ -1203,7 +1250,7 @@ class FeatureFactory:
             # Periodically refresh regime
             if i % config.regime_cache_refresh_bars == 0:
                 window_start = max(0, i - MIN_WINDOW)
-                cache.refresh_regime(bars[window_start:i+1], config)
+                cache.refresh_regime(bars[window_start : i + 1], config)
 
             # Skip warm-up
             if i < warm_up_bars:
@@ -1219,7 +1266,7 @@ class FeatureFactory:
 
             # Build bounded window for non-series features
             window_start = max(0, i - MIN_WINDOW)
-            window_bars = bars[window_start:i+1]
+            window_bars = bars[window_start : i + 1]
 
             # Extract window arrays
             w_opens = np.array([b["open"] for b in window_bars], dtype=float)
@@ -1241,7 +1288,7 @@ class FeatureFactory:
                 bar_ts = bar_ts.replace(tzinfo=UTC)
 
             # Series-backed features (index into precomputed series)
-            atr_val = float(atr_series[i-1]) if i-1 < len(atr_series) else 0.0
+            atr_val = float(atr_series[i - 1]) if i - 1 < len(atr_series) else 0.0
             atr_z_val = float(atr_z_series[i]) if i < len(atr_z_series) else 0.0
 
             gap_z_val = float(gap_z_series[i]) if i < len(gap_z_series) else 0.0
@@ -1250,19 +1297,33 @@ class FeatureFactory:
             cvd_slope_z_val = float(cvd_slope_z_series[i]) if i < len(cvd_slope_z_series) else 0.0
             volume_z_val = float(volume_z_series[i]) if i < len(volume_z_series) else 0.0
 
-            momentum_z_fast_val = float(momentum_z_fast_series[i]) if i < len(momentum_z_fast_series) else 0.0
-            momentum_z_mid_val = float(momentum_z_mid_series[i]) if i < len(momentum_z_mid_series) else 0.0
-            momentum_z_slow_val = float(momentum_z_slow_series[i]) if i < len(momentum_z_slow_series) else 0.0
-            momentum_reversal_z_val = float(momentum_reversal_z_series[i]) if i < len(momentum_reversal_z_series) else 0.0
+            momentum_z_fast_val = (
+                float(momentum_z_fast_series[i]) if i < len(momentum_z_fast_series) else 0.0
+            )
+            momentum_z_mid_val = (
+                float(momentum_z_mid_series[i]) if i < len(momentum_z_mid_series) else 0.0
+            )
+            momentum_z_slow_val = (
+                float(momentum_z_slow_series[i]) if i < len(momentum_z_slow_series) else 0.0
+            )
+            momentum_reversal_z_val = (
+                float(momentum_reversal_z_series[i]) if i < len(momentum_reversal_z_series) else 0.0
+            )
 
-            vwap_dev_sigma_val = float(vwap_dev_sigma_series[i]) if i < len(vwap_dev_sigma_series) else 0.0
+            vwap_dev_sigma_val = (
+                float(vwap_dev_sigma_series[i]) if i < len(vwap_dev_sigma_series) else 0.0
+            )
 
             rsi_fast_val = float(rsi_fast_series[i]) if i < len(rsi_fast_series) else 50.0
             rsi_mid_val = float(rsi_mid_series[i]) if i < len(rsi_mid_series) else 50.0
             rsi_slow_val = float(rsi_slow_series[i]) if i < len(rsi_slow_series) else 50.0
 
-            amihud_illiq_z_val = float(amihud_illiq_z_series[i]) if i < len(amihud_illiq_z_series) else 0.0
-            high_52w_dist_val = float(high_52w_dist_series[i]) if i < len(high_52w_dist_series) else 0.0
+            amihud_illiq_z_val = (
+                float(amihud_illiq_z_series[i]) if i < len(amihud_illiq_z_series) else 0.0
+            )
+            high_52w_dist_val = (
+                float(high_52w_dist_series[i]) if i < len(high_52w_dist_series) else 0.0
+            )
             ret_skew_z_val = float(ret_skew_z_series[i]) if i < len(ret_skew_z_series) else 0.0
             ret_acf1_z_val = float(ret_acf1_z_series[i]) if i < len(ret_acf1_z_series) else 0.0
 
@@ -1270,7 +1331,9 @@ class FeatureFactory:
             bar_close_pos_val = _bar_close_pos(high_, low_, close_)
 
             range_bars = min(config.momentum_window_mid, len(window_bars))
-            range_position_val = _range_position(close_, w_highs[-range_bars:], w_lows[-range_bars:])
+            range_position_val = _range_position(
+                close_, w_highs[-range_bars:], w_lows[-range_bars:]
+            )
 
             informed_flow_val = _informed_flow(open_, close_, atr_val)
             vol_ratio_val = _vol_ratio(w_closes, config.vol_short_bars, config.vol_long_bars)
