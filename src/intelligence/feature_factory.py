@@ -873,6 +873,32 @@ def _cvd_slope_z_series_full(
     return np.concatenate([np.zeros(slope_bars, dtype=float), z])
 
 
+def _rsi_series_full(closes: np.ndarray, period: int) -> np.ndarray:
+    """Wilder RSI for every bar in O(n). result[i] == streaming RSI at bar i.
+    Returns 50.0 for i <= period (cold start matches streaming's fallback).
+    Single forward Wilder pass — numerically identical to _rsi_wilder at every bar.
+    """
+    n = len(closes)
+    result = np.full(n, 50.0, dtype=float)
+    if n < period + 1:
+        return result
+    deltas = np.diff(closes.astype(float))
+    gains = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+    alpha = 1.0 / period
+    avg_gain = float(np.mean(gains[:period]))
+    avg_loss = float(np.mean(losses[:period]))
+    for i in range(period, len(gains)):
+        avg_gain = alpha * gains[i] + (1.0 - alpha) * avg_gain
+        avg_loss = alpha * losses[i] + (1.0 - alpha) * avg_loss
+        if avg_loss < 1e-10:
+            result[i + 1] = 100.0 if avg_gain > 0 else 50.0
+        else:
+            rs = avg_gain / avg_loss
+            result[i + 1] = float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
+    return result
+
+
 # ---------------------------------------------------------------------------
 # FeatureFactory — stateless pure-function class
 # ---------------------------------------------------------------------------
@@ -1096,24 +1122,29 @@ class FeatureFactory:
         adx_val = cache.adx
 
         # --- Oscillators (shared deltas across RSI periods) ---
-        _close_deltas = np.diff(closes.astype(float))
-        _rsi_gains = np.where(_close_deltas > 0, _close_deltas, 0.0)
-        _rsi_losses = np.where(_close_deltas < 0, -_close_deltas, 0.0)
-        rsi_fast_val = (
-            _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_fast_period)
-            if len(closes) >= config.rsi_fast_period + 1
-            else 50.0
-        )
-        rsi_mid_val = (
-            _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_mid_period)
-            if len(closes) >= config.rsi_mid_period + 1
-            else 50.0
-        )
-        rsi_slow_val = (
-            _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_slow_period)
-            if len(closes) >= config.rsi_slow_period + 1
-            else 50.0
-        )
+        if precomputed is not None and "rsi_fast" in precomputed:
+            rsi_fast_val = precomputed["rsi_fast"]
+            rsi_mid_val = precomputed["rsi_mid"]
+            rsi_slow_val = precomputed["rsi_slow"]
+        else:
+            _close_deltas = np.diff(closes.astype(float))
+            _rsi_gains = np.where(_close_deltas > 0, _close_deltas, 0.0)
+            _rsi_losses = np.where(_close_deltas < 0, -_close_deltas, 0.0)
+            rsi_fast_val = (
+                _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_fast_period)
+                if len(closes) >= config.rsi_fast_period + 1
+                else 50.0
+            )
+            rsi_mid_val = (
+                _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_mid_period)
+                if len(closes) >= config.rsi_mid_period + 1
+                else 50.0
+            )
+            rsi_slow_val = (
+                _rsi_wilder(_rsi_gains, _rsi_losses, config.rsi_slow_period)
+                if len(closes) >= config.rsi_slow_period + 1
+                else 50.0
+            )
         cci_fast_val = _cci(highs, lows, closes, config.cci_fast_period)
         cci_mid_val = _cci(highs, lows, closes, config.cci_mid_period)
         cci_slow_val = _cci(highs, lows, closes, config.cci_slow_period)

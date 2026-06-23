@@ -318,3 +318,41 @@ def test_cvd_slope_z_parity(ohlcv, cfg, streaming):
         assert (
             abs(batch[i] - fv.cvd_slope_z) < 1e-8
         ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.cvd_slope_z:.10f}"
+
+
+# ---------------------------------------------------------------------------
+# Task 3: RSI series
+# ---------------------------------------------------------------------------
+
+
+def test_rsi_fast_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _rsi_series_full
+
+    batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_fast_period)
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        assert (
+            abs(batch[i] - fv.rsi_fast) < 1e-8
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.rsi_fast:.10f}"
+
+
+def test_rsi_mid_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _rsi_series_full
+
+    batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_mid_period)
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        assert (
+            abs(batch[i] - fv.rsi_mid) < 1e-8
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.rsi_mid:.10f}"
+
+
+def test_rsi_slow_parity(ohlcv, cfg, streaming):
+    from src.intelligence.feature_factory import _rsi_series_full
+
+    batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_slow_period)
+    assert len(batch) == N
+    for i, fv in streaming.items():
+        assert (
+            abs(batch[i] - fv.rsi_slow) < 1e-8
+        ), f"bar {i}: batch={batch[i]:.10f} streaming={fv.rsi_slow:.10f}"
