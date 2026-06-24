@@ -30,6 +30,7 @@ import argparse
 import asyncio
 import bisect
 import dataclasses
+import math
 import sys
 from collections import deque
 from datetime import UTC, datetime, timedelta
@@ -55,6 +56,7 @@ from src.intelligence.feature_cache import (
     FeatureCache,
     _hmm_forward_step,
     _wilder_rsi_series,
+    _zscore_from_deque,
 )
 from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
@@ -216,35 +218,92 @@ def _build_cross_asset_series(
     shy_bars: list[dict],
     config: FeatureFactoryConfig,
 ) -> dict:
-    """Build date → (vix_z, flight_quality, yield_slope_z) with incremental causal alignment.
+    """Build date → (vix_z, flight_quality, yield_slope_z) incrementally in O(D).
 
-    Calls FeatureCache.update_cross_asset() once per trading date, advancing the
-    slice to that date each time. Each call appends one sample to the cache's
-    internal deques — building history correctly with zero look-ahead bias.
+    Uses a single aligned dict structure (no parallel lists) and maintains
+    incremental state instead of re-materializing full bar slices each date.
+
+    Assumption: SPY/TLT/SHY trade the same US calendar days, so min(spy_end, tlt_end)
+    equals spy_end for every date. flight_quality anchors to the first available close
+    for each symbol (equivalent to the batch formula when all series start together).
     """
-    spy_dates = [b["ts"].date() for b in spy_bars]
-    tlt_dates = [b["ts"].date() for b in tlt_bars]
-    shy_dates = [b["ts"].date() for b in shy_bars]
+    symbol_bars: dict[str, list[dict]] = {"spy": spy_bars, "tlt": tlt_bars, "shy": shy_bars}
+    symbol_dates: dict[str, list] = {k: [b["ts"].date() for b in v] for k, v in symbol_bars.items()}
+    all_dates = sorted(set().union(*[set(d) for d in symbol_dates.values()]))
 
-    all_dates = sorted(set(spy_dates) | set(tlt_dates) | set(shy_dates))
-    cache = FeatureCache()
+    # Incremental state — O(1) per date
+    cursors: dict[str, int] = {k: 0 for k in symbol_bars}
+    spy_log_rets: deque = deque(maxlen=config.cross_asset_rv_window)
+    yield_ratio_history: deque = deque(maxlen=config.yield_curve_zscore_window)
+    spy_realized_vol_history: deque = deque(maxlen=config.vix_zscore_window)
+
+    spy_prev_close: float = 0.0
+    tlt_prev_close: float = 0.0
+    shy_prev_close: float = 0.0
+    spy_first_close: float = 0.0  # flight_quality period-start anchor
+    tlt_first_close: float = 0.0
+
+    vix_z: float = 0.0
+    flight_quality: float = 0.0
+    yield_slope_z: float = 0.0
     result: dict = {}
 
     for d in all_dates:
-        spy_end = bisect.bisect_right(spy_dates, d)
-        tlt_end = bisect.bisect_right(tlt_dates, d)
-        shy_end = bisect.bisect_right(shy_dates, d)
+        for k in symbol_bars:
+            cursors[k] = bisect.bisect_right(symbol_dates[k], d)
+
+        spy_end = cursors["spy"]
+        tlt_end = cursors["tlt"]
+        shy_end = cursors["shy"]
 
         if spy_end < 2 or tlt_end < 2 or shy_end < 2:
+            # Advance prev_close trackers even during skip so first diff is correct
+            if spy_end >= 1:
+                spy_prev_close = float(spy_bars[spy_end - 1]["close"])
+            if tlt_end >= 1:
+                tlt_prev_close = float(tlt_bars[tlt_end - 1]["close"])
+            if shy_end >= 1:
+                shy_prev_close = float(shy_bars[shy_end - 1]["close"])
             continue
 
-        cache.update_cross_asset(
-            spy_bars[:spy_end],
-            tlt_bars[:tlt_end],
-            shy_bars[:shy_end],
-            config,
-        )
-        result[d] = (cache.vix_z, cache.flight_quality, cache.yield_slope_z)
+        spy_close = float(spy_bars[spy_end - 1]["close"])
+        tlt_close = float(tlt_bars[tlt_end - 1]["close"])
+        shy_close = float(shy_bars[shy_end - 1]["close"])
+
+        # Set period-start anchors once (first date with ≥2 bars for all three)
+        if spy_first_close == 0.0:
+            spy_first_close = float(spy_bars[0]["close"])
+            tlt_first_close = float(tlt_bars[0]["close"])
+
+        # vix_z: append new SPY log return; compute realized vol; z-score over history
+        if spy_prev_close > 1e-10:
+            spy_ret = math.log(spy_close / spy_prev_close)
+            spy_log_rets.append(spy_ret)
+            rv_window = min(config.cross_asset_rv_window, len(spy_log_rets))
+            realized_vol = float(np.std(list(spy_log_rets)[-rv_window:]))
+            spy_realized_vol_history.append(realized_vol)
+            vix_z = _zscore_from_deque(spy_realized_vol_history, config.vix_zscore_window)
+
+        # flight_quality: cumulative TLT/SPY divergence from period start (O(1))
+        if spy_first_close > 1e-10 and tlt_first_close > 1e-10:
+            tlt_ret_total = tlt_close / tlt_first_close - 1.0
+            spy_ret_total = spy_close / spy_first_close - 1.0
+            flight_quality = tlt_ret_total - spy_ret_total
+
+        # yield_slope_z: one-period TLT/SHY log-return ratio; z-score over history
+        if tlt_prev_close > 1e-10 and shy_prev_close > 1e-10:
+            tlt_log_ret = math.log(tlt_close / tlt_prev_close)
+            shy_log_ret = math.log(shy_close / shy_prev_close)
+            yield_ratio_history.append(tlt_log_ret - shy_log_ret)
+            yield_slope_z = _zscore_from_deque(
+                yield_ratio_history, config.yield_curve_zscore_window
+            )
+
+        result[d] = (vix_z, flight_quality, yield_slope_z)
+
+        spy_prev_close = spy_close
+        tlt_prev_close = tlt_close
+        shy_prev_close = shy_close
 
     return result
 

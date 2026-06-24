@@ -11,11 +11,14 @@ Tests cover:
 
 from __future__ import annotations
 
+import bisect
+import math
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
 # Ensure project root on sys.path for direct import
@@ -555,3 +558,79 @@ def test_feature_factory_cold_start_returns_vector() -> None:
 
     fv = FeatureFactory.compute(bars, "SPY", "5m", cache, config)
     assert isinstance(fv, FeatureVector)
+
+
+# ---------------------------------------------------------------------------
+# Test 9: _build_cross_asset_series — O(D) incremental parity
+# ---------------------------------------------------------------------------
+
+
+def _make_daily_bars(n: int, seed: int, start_close: float = 100.0) -> list[dict]:
+    rng = np.random.default_rng(seed)
+    closes = start_close * np.cumprod(1 + rng.normal(0, 0.01, n))
+    base = datetime(2020, 1, 2, 21, 0, tzinfo=UTC)
+    return [
+        {
+            "ts": base + timedelta(days=i),
+            "open": float(closes[i] * 0.999),
+            "high": float(closes[i] * 1.001),
+            "low": float(closes[i] * 0.999),
+            "close": float(closes[i]),
+            "volume": 1_000_000.0,
+        }
+        for i in range(n)
+    ]
+
+
+def _reference_cross_asset_series(spy_bars, tlt_bars, shy_bars, config) -> dict:
+    """Original O(D×N) implementation — reference for parity testing."""
+    spy_dates = [b["ts"].date() for b in spy_bars]
+    tlt_dates = [b["ts"].date() for b in tlt_bars]
+    shy_dates = [b["ts"].date() for b in shy_bars]
+    all_dates = sorted(set(spy_dates) | set(tlt_dates) | set(shy_dates))
+    cache = FeatureCache()
+    result = {}
+    for d in all_dates:
+        spy_end = bisect.bisect_right(spy_dates, d)
+        tlt_end = bisect.bisect_right(tlt_dates, d)
+        shy_end = bisect.bisect_right(shy_dates, d)
+        if spy_end < 2 or tlt_end < 2 or shy_end < 2:
+            continue
+        cache.update_cross_asset(spy_bars[:spy_end], tlt_bars[:tlt_end], shy_bars[:shy_end], config)
+        result[d] = (cache.vix_z, cache.flight_quality, cache.yield_slope_z)
+    return result
+
+
+class TestBuildCrossAssetSeries:
+    def test_parity_with_reference_implementation(self) -> None:
+        """New incremental O(D) implementation must produce identical values to O(D×N) reference."""
+        from services.backfill_feature_factory import _build_cross_asset_series
+
+        config = _make_config()
+        spy = _make_daily_bars(300, seed=1, start_close=450.0)
+        tlt = _make_daily_bars(300, seed=2, start_close=95.0)
+        shy = _make_daily_bars(300, seed=3, start_close=86.0)
+
+        reference = _reference_cross_asset_series(spy, tlt, shy, config)
+        result = _build_cross_asset_series(spy, tlt, shy, config)
+
+        assert set(result.keys()) == set(reference.keys()), "date keys differ"
+        for d in reference:
+            ref_vix, ref_fq, ref_ys = reference[d]
+            res_vix, res_fq, res_ys = result[d]
+            assert abs(res_vix - ref_vix) < 1e-10, f"{d}: vix_z {res_vix} != {ref_vix}"
+            assert abs(res_fq - ref_fq) < 1e-10, f"{d}: flight_quality {res_fq} != {ref_fq}"
+            assert abs(res_ys - ref_ys) < 1e-10, f"{d}: yield_slope_z {res_ys} != {ref_ys}"
+
+    def test_all_values_finite(self) -> None:
+        from services.backfill_feature_factory import _build_cross_asset_series
+
+        config = _make_config()
+        spy = _make_daily_bars(50, seed=10)
+        tlt = _make_daily_bars(50, seed=11)
+        shy = _make_daily_bars(50, seed=12)
+        result = _build_cross_asset_series(spy, tlt, shy, config)
+        for d, (vix, fq, ys) in result.items():
+            assert math.isfinite(vix), f"{d}: vix_z not finite"
+            assert math.isfinite(fq), f"{d}: flight_quality not finite"
+            assert math.isfinite(ys), f"{d}: yield_slope_z not finite"
