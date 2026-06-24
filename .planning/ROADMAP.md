@@ -24,7 +24,7 @@
 - ✅ **v2.9 Signal Quality Renaissance** — Phases 117-122 (shipped 2026-06-13; 5.18M noise signals deleted, 21 setups refactored, param store wired)
 - ✅ **v2.10 Data Architecture Evolution** — Phases 123-136 (SHIPPED 2026-06-20; ECL + APR + signal hardening + clean replay + 3-table migration + type safety + post-reboot repair)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
-- 🚀 **v3.0 Intelligence Vectors — AlphaEngine** — Starting (IC measurement → continuous scores → IC-weighted ensemble)
+- 🚀 **v3.0 Intelligence Vectors — AlphaEngine** — In progress: Phase 137 ✅ · Phase 138 ✅ (code) · full corpus data run underway · Phase 139 next
 
 ## Phases
 
@@ -1216,7 +1216,7 @@ Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from 
 9. Zero inline numeric constants in `feature_factory.py` - all APR-backed via `ConfigService.get()`
 10. Unit tests green
 
-**Plans:** 6/7 plans executed
+**Status:** COMPLETE (7/7 plans, 2026-06-21)
 
 Plans:
 
@@ -1252,7 +1252,7 @@ Plans:
 5. IC discovery report: which features pass FDR gate by regime and TF
 6. All `alpha.ic.*` APR keys seeded and loaded via `ConfigService.get()`
 
-**Plans:** 7/9 plans executed
+**Status:** COMPLETE — code (9/9 plans, 2026-06-23); full corpus data run (58 ETFs × 4 TFs) pending after OHLCV gap fill
 
 Plans:
 
@@ -1284,7 +1284,7 @@ Plans:
 
 **Wave 6** *(blocked on data — requires full corpus from backfill_feature_factory)*
 
-- [ ] 138-P8-PLAN.md — Corpus runs + IC discovery report: full regime_writer + forward_return_writer + ic_engine runs across 58 symbols × 4 TFs; ic-discovery-report.md + ic-discovery-report.json; blocked until backfill_feature_factory completes full 58-symbol corpus
+- [~] 138-P8-PLAN.md — Corpus runs + IC discovery report: 4-symbol validation run complete (12,444 IC scores, discovery report written 2026-06-23); full 58-symbol corpus run pending (OHLCV gap fill → truncate_derived_tables → backfill_feature_factory → regime_writer → forward_return_writer → ic_engine)
 
 ### Phase 139: Ensemble + Alpha Emission
 
