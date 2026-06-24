@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -328,7 +329,7 @@ class AlphaEmitter(BaseBatch):
                         n_features_active,
                         threshold,
                         direction,
-                        top_features,  # asyncpg sends dict directly as JSONB — no json.dumps
+                        json.dumps(top_features),  # asyncpg requires json-encoded string for JSONB
                         now,
                     )
 
