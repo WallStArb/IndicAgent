@@ -26,7 +26,6 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -191,116 +190,103 @@ class AlphaEmitter(BaseBatch):
         reject_count = 0
         now = datetime.now(UTC)
 
+        # Pass 1: filter rows in memory — no connection held during gate evaluation
+        pending_events: list[dict] = []
+        for row in alpha_rows:
+            symbol = row["symbol"]
+            tf = row["tf"]
+            bar_ts = row["bar_ts"]
+            alpha_score = float(row["alpha_score"])
+            alpha_ci_lower = float(row["alpha_ci_lower"])
+            alpha_ci_upper = float(row["alpha_ci_upper"])
+            eff_n = float(row["effective_n"])
+            n_features_active = int(row["n_features_active"])
+            regime = row["regime"] or "_pooled"
+
+            threshold = self._threshold_for_tf(tf, cfg)
+
+            ALPHA_EMITTER_BARS_SCORED_TOTAL.add(1, {"symbol": symbol, "tf": tf})
+
+            # Gate 1: zero-weight stratum guard
+            if eff_n == 0:
+                ALPHA_EMITTER_REJECTIONS_TOTAL.add(
+                    1, {"symbol": symbol, "tf": tf, "rejection_reason": "zero_weight_stratum"}
+                )
+                reject_count += 1
+                continue
+
+            # Gate 2: effective-N gate (non-zero but below minimum)
+            if eff_n < effective_n_gate:
+                ALPHA_EMITTER_REJECTIONS_TOTAL.add(
+                    1, {"symbol": symbol, "tf": tf, "rejection_reason": "effective_n_low"}
+                )
+                reject_count += 1
+                continue
+
+            # Gate 3: threshold gate (skip zero-score and sub-threshold)
+            if abs(alpha_score) <= threshold:
+                ALPHA_EMITTER_REJECTIONS_TOTAL.add(
+                    1, {"symbol": symbol, "tf": tf, "rejection_reason": "threshold_miss"}
+                )
+                reject_count += 1
+                continue
+
+            is_long = alpha_score > 0
+
+            # Gate 4: direction-aware CI gate (only after threshold passes)
+            ci_pass = alpha_ci_lower > 0 if is_long else alpha_ci_upper < 0
+            if not ci_pass:
+                ALPHA_EMITTER_REJECTIONS_TOTAL.add(
+                    1, {"symbol": symbol, "tf": tf, "rejection_reason": "ci_not_directional"}
+                )
+                reject_count += 1
+                continue
+
+            # Build top_features from preloaded cache — no per-emission query
+            cached_weights = weights_cache.get((symbol, tf, regime), [])
+            top_features: dict[str, float] = {
+                r["feature_name"]: r["weight"] for r in cached_weights[:top_features_count]
+            }
+
+            # top_features NOT NULL invariant (architecture traceability)
+            if not top_features:
+                self.logger.warning(
+                    "alpha_emitter.top_features_empty",
+                    symbol=symbol,
+                    tf=tf,
+                    regime=regime,
+                    reason="no_weights_in_cache_for_stratum",
+                )
+                continue
+
+            direction = "long" if is_long else "short"
+            bar_ts_ns = str(int(bar_ts.timestamp() * 1e9))
+            event_id = BaseBatch.content_key(symbol, tf, bar_ts_ns, self.ensemble_version)
+
+            pending_events.append(
+                {
+                    "event_id": event_id,
+                    "symbol": symbol,
+                    "tf": tf,
+                    "bar_ts": bar_ts,
+                    "weight_version": weight_version,
+                    "regime": regime,
+                    "alpha_score": alpha_score,
+                    "alpha_ci_lower": alpha_ci_lower,
+                    "alpha_ci_upper": alpha_ci_upper,
+                    "eff_n": eff_n,
+                    "n_features_active": n_features_active,
+                    "threshold": threshold,
+                    "direction": direction,
+                    "top_features": top_features,
+                }
+            )
+
+        # Pass 2: bulk insert — one connection acquisition, no Kafka I/O while held
         try:
-            async with pool.acquire() as conn:
-                for row in alpha_rows:
-                    symbol = row["symbol"]
-                    tf = row["tf"]
-                    bar_ts = row["bar_ts"]
-                    alpha_score = float(row["alpha_score"])
-                    alpha_ci_lower = float(row["alpha_ci_lower"])
-                    alpha_ci_upper = float(row["alpha_ci_upper"])
-                    eff_n = float(row["effective_n"])
-                    n_features_active = int(row["n_features_active"])
-                    regime = row["regime"] or "_pooled"
-
-                    threshold = self._threshold_for_tf(tf, cfg)
-
-                    ALPHA_EMITTER_BARS_SCORED_TOTAL.add(1, {"symbol": symbol, "tf": tf})
-
-                    # Zero-weight stratum guard — skip before any CI math
-                    if eff_n == 0:
-                        ALPHA_EMITTER_REJECTIONS_TOTAL.add(
-                            1,
-                            {
-                                "symbol": symbol,
-                                "tf": tf,
-                                "rejection_reason": "zero_weight_stratum",
-                            },
-                        )
-                        reject_count += 1
-                        self.logger.debug(
-                            "alpha_emitter.rejected",
-                            reason="zero_weight_stratum",
-                            symbol=symbol,
-                            tf=tf,
-                        )
-                        continue
-
-                    # Determine direction
-                    if alpha_score == 0:
-                        ALPHA_EMITTER_REJECTIONS_TOTAL.add(
-                            1,
-                            {"symbol": symbol, "tf": tf, "rejection_reason": "threshold_miss"},
-                        )
-                        reject_count += 1
-                        continue
-
-                    is_long = alpha_score > 0
-
-                    # Direction-aware CI gate
-                    if is_long:
-                        ci_pass = alpha_ci_lower > 0
-                    else:
-                        ci_pass = alpha_ci_upper < 0
-
-                    if not ci_pass:
-                        ALPHA_EMITTER_REJECTIONS_TOTAL.add(
-                            1,
-                            {
-                                "symbol": symbol,
-                                "tf": tf,
-                                "rejection_reason": "ci_not_directional",
-                            },
-                        )
-                        reject_count += 1
-                        continue
-
-                    # Threshold gate
-                    if abs(alpha_score) <= threshold:
-                        ALPHA_EMITTER_REJECTIONS_TOTAL.add(
-                            1,
-                            {"symbol": symbol, "tf": tf, "rejection_reason": "threshold_miss"},
-                        )
-                        reject_count += 1
-                        continue
-
-                    # Effective-N gate
-                    if eff_n < effective_n_gate:
-                        ALPHA_EMITTER_REJECTIONS_TOTAL.add(
-                            1,
-                            {"symbol": symbol, "tf": tf, "rejection_reason": "effective_n_low"},
-                        )
-                        reject_count += 1
-                        continue
-
-                    # --- Build top_features from weights_cache (no per-emission query) ---
-                    cache_key = (symbol, tf, regime)
-                    cached_weights = weights_cache.get(cache_key, [])
-                    top_features: dict[str, float] = {
-                        r["feature_name"]: r["weight"] for r in cached_weights[:top_features_count]
-                    }
-
-                    # top_features NOT NULL invariant (architecture traceability)
-                    if not top_features:
-                        self.logger.warning(
-                            "alpha_emitter.top_features_empty",
-                            symbol=symbol,
-                            tf=tf,
-                            regime=regime,
-                            reason="no_weights_in_cache_for_stratum",
-                        )
-                        # Cannot satisfy NOT NULL invariant — skip this row
-                        continue
-
-                    direction = "long" if is_long else "short"
-
-                    # Content key: deterministic event_id for idempotent re-runs
-                    bar_ts_ns = str(int(bar_ts.timestamp() * 1e9))
-                    event_id = BaseBatch.content_key(symbol, tf, bar_ts_ns, self.ensemble_version)
-
-                    # Write alpha_events row
-                    await conn.execute(
+            if pending_events:
+                async with pool.acquire() as conn:
+                    await conn.executemany(
                         """
                         INSERT INTO alpha_events (
                             event_id, symbol, tf, bar_ts,
@@ -311,59 +297,63 @@ class AlphaEmitter(BaseBatch):
                             top_features, emitted_at
                         ) VALUES (
                             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                            $11, $12, $13, $14, $15, $16
+                            $11, $12, $13, $14, $15::jsonb, $16
                         )
                         ON CONFLICT (event_id, bar_ts) DO NOTHING
                         """,
-                        event_id,
-                        symbol,
-                        tf,
-                        bar_ts,
-                        self.ensemble_version,
-                        weight_version,
-                        regime,
-                        alpha_score,
-                        alpha_ci_lower,
-                        alpha_ci_upper,
-                        eff_n,
-                        n_features_active,
-                        threshold,
-                        direction,
-                        json.dumps(top_features),  # asyncpg requires json-encoded string for JSONB
-                        now,
+                        [
+                            (
+                                e["event_id"],
+                                e["symbol"],
+                                e["tf"],
+                                e["bar_ts"],
+                                self.ensemble_version,
+                                e["weight_version"],
+                                e["regime"],
+                                e["alpha_score"],
+                                e["alpha_ci_lower"],
+                                e["alpha_ci_upper"],
+                                e["eff_n"],
+                                e["n_features_active"],
+                                e["threshold"],
+                                e["direction"],
+                                e["top_features"],
+                                now,
+                            )
+                            for e in pending_events
+                        ],
                     )
 
-                    # Publish to Kafka
-                    payload = {
-                        "event_id": event_id,
-                        "symbol": symbol,
-                        "tf": tf,
-                        "bar_ts": format_iso_ts(bar_ts),
-                        "ensemble_version": self.ensemble_version,
-                        "weight_version": weight_version,
-                        "alpha_score": alpha_score,
-                        "alpha_ci_lower": alpha_ci_lower,
-                        "alpha_ci_upper": alpha_ci_upper,
-                        "effective_n": eff_n,
-                        "regime": regime,
-                        "n_features_active": n_features_active,
-                        "top_features": top_features,
-                        "direction": direction,
-                        "emitted_at": format_iso_ts(now),
-                    }
-                    # topic_alpha_events(env) is the first positional arg; msg= is the kwarg
-                    await self._producer.publish(topic, msg=payload)
-
-                    ALPHA_EMITTER_EMISSIONS_TOTAL.add(
-                        1,
-                        {
-                            "symbol": symbol,
-                            "tf": tf,
-                            "direction": direction,
-                            "regime": regime,
-                        },
-                    )
-                    emit_count += 1
+            # Pass 3: publish to Kafka — connection already released
+            for e in pending_events:
+                payload = {
+                    "event_id": e["event_id"],
+                    "symbol": e["symbol"],
+                    "tf": e["tf"],
+                    "bar_ts": format_iso_ts(e["bar_ts"]),
+                    "ensemble_version": self.ensemble_version,
+                    "weight_version": e["weight_version"],
+                    "alpha_score": e["alpha_score"],
+                    "alpha_ci_lower": e["alpha_ci_lower"],
+                    "alpha_ci_upper": e["alpha_ci_upper"],
+                    "effective_n": e["eff_n"],
+                    "regime": e["regime"],
+                    "n_features_active": e["n_features_active"],
+                    "top_features": e["top_features"],
+                    "direction": e["direction"],
+                    "emitted_at": format_iso_ts(now),
+                }
+                await self._producer.publish(topic, msg=payload)
+                ALPHA_EMITTER_EMISSIONS_TOTAL.add(
+                    1,
+                    {
+                        "symbol": e["symbol"],
+                        "tf": e["tf"],
+                        "direction": e["direction"],
+                        "regime": e["regime"],
+                    },
+                )
+                emit_count += 1
 
         finally:
             await self._producer.stop()

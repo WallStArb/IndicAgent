@@ -208,9 +208,6 @@ class EnsembleBuilder(BaseBatch):
                 """)
             self.logger.info("ensemble_builder.strata_found", stratum_count=len(strata_rows))
 
-            total_weights_written = 0
-            total_alpha_written = 0
-
             for stratum in strata_rows:
                 symbol = stratum["symbol"]
                 tf = stratum["tf"]
@@ -228,8 +225,6 @@ class EnsembleBuilder(BaseBatch):
                     max_cluster_corr=max_cluster_corr,
                     max_cluster_weight=max_cluster_weight,
                 )
-                total_weights_written += 1
-                total_alpha_written += 1
 
         self.logger.info(
             "ensemble_builder.complete",
