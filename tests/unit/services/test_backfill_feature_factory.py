@@ -634,3 +634,73 @@ class TestBuildCrossAssetSeries:
             assert math.isfinite(vix), f"{d}: vix_z not finite"
             assert math.isfinite(fq), f"{d}: flight_quality not finite"
             assert math.isfinite(ys), f"{d}: yield_slope_z not finite"
+
+
+# ---------------------------------------------------------------------------
+# Test 10: compute_batch external state injection
+# ---------------------------------------------------------------------------
+
+
+class TestComputeBatchExternalInjection:
+    def test_cross_asset_from_dict_not_cache(self) -> None:
+        """When cross_asset_by_date supplied, FeatureVector uses dict values not cache zeros."""
+        config = _make_config()
+        cache = FeatureCache()  # vix_z=0.0, flight_quality=0.0, yield_slope_z=0.0
+
+        bars = _make_bars(60)
+        bar_date = bars[-1]["ts"].date()
+        cross_asset = {bar_date: (1.23, 0.45, -0.67)}
+
+        results = FeatureFactory.compute_batch(
+            bars,
+            "SPY",
+            "5m",
+            cache,
+            config,
+            warm_up_bars=5,
+            cross_asset_by_date=cross_asset,
+        )
+        assert results, "no results returned"
+        _, fv = results[-1]
+        assert abs(fv.vix_z - 1.23) < 1e-10, f"vix_z={fv.vix_z}, expected 1.23"
+        assert abs(fv.flight_quality - 0.45) < 1e-10
+        assert abs(fv.yield_slope_z - -0.67) < 1e-10
+
+    def test_vp_sr_none_when_batch_mode(self) -> None:
+        """VP/SR fields are None when cross_asset_by_date is provided (batch path)."""
+        config = _make_config()
+        cache = FeatureCache()
+        bars = _make_bars(60)
+        cross_asset = {}  # empty — all dates fall back to (0,0,0)
+
+        results = FeatureFactory.compute_batch(
+            bars,
+            "SPY",
+            "5m",
+            cache,
+            config,
+            warm_up_bars=5,
+            cross_asset_by_date=cross_asset,
+        )
+        assert results
+        for _, fv in results:
+            assert fv.poc_dist_atr is None, f"poc_dist_atr={fv.poc_dist_atr}, expected None"
+            assert fv.va_position is None
+            assert fv.sr_support_dist is None
+            assert fv.sr_resist_dist is None
+
+    def test_live_path_unchanged_reads_from_cache(self) -> None:
+        """When cross_asset_by_date=None (default), cache values flow into FeatureVector."""
+        config = _make_config()
+        cache = FeatureCache()
+        cache.vix_z = 9.99
+        cache.flight_quality = 8.88
+        cache.yield_slope_z = 7.77
+
+        bars = _make_bars(60)
+        results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, config, warm_up_bars=5)
+        assert results
+        _, fv = results[-1]
+        assert abs(fv.vix_z - 9.99) < 1e-10
+        assert abs(fv.flight_quality - 8.88) < 1e-10
+        assert abs(fv.yield_slope_z - 7.77) < 1e-10

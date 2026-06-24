@@ -26,6 +26,7 @@ argument. Zero inline magic numbers in primitive bodies.
 
 from __future__ import annotations
 
+import bisect
 import calendar
 import math
 from collections import deque
@@ -1179,6 +1180,9 @@ class FeatureFactory:
         cache: FeatureCache,
         config: FeatureFactoryConfig,
         warm_up_bars: int = 0,
+        cross_asset_by_date: dict | None = None,
+        ctf_by_ts: dict | None = None,
+        ctf_ts_list: list | None = None,
     ) -> list[tuple[datetime, FeatureVector]]:
         """Compute FeatureVector for every bar in bars in O(n). Returns (bar_ts, fv) pairs.
 
@@ -1186,6 +1190,14 @@ class FeatureFactory:
         Non-series features (cmf, cci, aroon, vol_ratio, range_position, bar_close_pos, informed_flow)
         are computed per bar with bounded windows. Cache-backed features (hmm, hurst, etc.) are
         read from cache. Calendar features computed per bar from timestamps.
+
+        When cross_asset_by_date is provided (batch path):
+          - cross-asset (vix_z, flight_quality, yield_slope_z) read from dict keyed by date
+          - CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align) read from ctf_by_ts via bisect
+          - VP/SR (poc_dist_atr, va_position, sr_support_dist, sr_resist_dist) set to None
+            (not computable from OHLCV batch; requires I3 intraday injection)
+        When cross_asset_by_date is None (live path):
+          - all three groups read from cache (unchanged behavior)
         """
         if len(bars) < 2:
             return []
@@ -1346,8 +1358,13 @@ class FeatureFactory:
             vol_ratio_val = _vol_ratio(w_closes, config.vol_short_bars, config.vol_long_bars)
             cmf_val = _cmf(w_highs, w_lows, w_closes, w_volumes, config.cmf_period)
 
-            # Session-level primitives (from cache; 1d TF defaults to neutral)
-            if tf == "1d":
+            # Session-level (VP/SR): None in batch path; 1d defaults to neutral; else from cache
+            if cross_asset_by_date is not None:
+                poc_dist_atr_val = None
+                va_position_val = None
+                sr_support_dist_val = None
+                sr_resist_dist_val = None
+            elif tf == "1d":
                 poc_dist_atr_val = 0.0
                 va_position_val = 0.5
                 sr_support_dist_val = 0.0
@@ -1379,10 +1396,14 @@ class FeatureFactory:
             # OFI divergence
             ofi_div_val = ofi_z_val - momentum_z_fast_val
 
-            # Cross-asset primitives (all from cache)
-            vix_z_val = cache.vix_z
-            flight_quality_val = cache.flight_quality
-            yield_slope_z_val = cache.yield_slope_z
+            # Cross-asset: from pre-built causal dict (batch) or cache (live)
+            if cross_asset_by_date is not None:
+                _ca = cross_asset_by_date.get(bar_ts.date(), (0.0, 0.0, 0.0))
+                vix_z_val, flight_quality_val, yield_slope_z_val = _ca
+            else:
+                vix_z_val = cache.vix_z
+                flight_quality_val = cache.flight_quality
+                yield_slope_z_val = cache.yield_slope_z
 
             # Calendar primitives
             in_ny_session_val = _in_ny_session(bar_ts, config)
@@ -1402,13 +1423,24 @@ class FeatureFactory:
             _days_remaining = _days_in_month - bar_ts.day
             days_to_month_end_val = _days_remaining / _days_in_month
 
-            # Cross-timeframe primitives (from cache)
-            ctf_momentum_val = cache.ctf_momentum
-            ctf_vwap_align_val = cache.ctf_vwap_align
-            ctf_regime_align_val = cache.ctf_regime_align
+            # CTF: from pre-built causal dict (batch) or cache (live)
+            if ctf_by_ts is not None and ctf_ts_list is not None:
+                _idx = bisect.bisect_right(ctf_ts_list, bar_ts) - 1
+                if _idx >= 0:
+                    ctf_momentum_val, ctf_vwap_align_val, ctf_regime_align_val = ctf_by_ts[
+                        ctf_ts_list[_idx]
+                    ]
+                else:
+                    ctf_momentum_val = ctf_vwap_align_val = ctf_regime_align_val = 0.0
+            else:
+                ctf_momentum_val = cache.ctf_momentum
+                ctf_vwap_align_val = cache.ctf_vwap_align
+                ctf_regime_align_val = cache.ctf_regime_align
 
-            # Guard function
-            def _guard(v: float, fallback: float = 0.0) -> float:
+            # Guard: replace NaN/inf with fallback; None passes through (batch VP/SR)
+            def _guard(v: float | None, fallback: float = 0.0) -> float | None:
+                if v is None:
+                    return None
                 return v if math.isfinite(v) else fallback
 
             # Build FeatureVector

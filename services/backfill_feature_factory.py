@@ -29,7 +29,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import bisect
-import dataclasses
 import math
 import sys
 from collections import deque
@@ -860,46 +859,28 @@ def _compute_symbol_tf(
     _logger.info("compute_bars_loaded", symbol=symbol, tf=tf, total_bars=total_bars)
 
     batch_results = FeatureFactory.compute_batch(
-        bars, symbol, tf, cache, config, warm_up_bars=warm_up_bars
+        bars,
+        symbol,
+        tf,
+        cache,
+        config,
+        warm_up_bars=warm_up_bars,
+        cross_asset_by_date=cross_asset_by_date,
+        ctf_by_ts=ctf_by_ts if ctf_by_ts else None,
+        ctf_ts_list=htf_ts_list if htf_ts_list else None,
     )
 
     insert_batch: list[tuple] = []
     total_inserted = 0
-    _no_ctf = (0.0, 0.0, 0.0)
 
     for bar_ts, fv in batch_results:
-        # 1. Cross-asset: look up causal daily state for this bar's date
-        ca = cross_asset_by_date.get(bar_ts.date(), _no_ctf)
-
-        # 2. CTF: most recent HTF bar timestamp ≤ bar_ts (htf_ts_list is constant per symbol/tf)
-        if htf_ts_list:
-            idx = bisect.bisect_right(htf_ts_list, bar_ts) - 1
-            ctf = ctf_by_ts[htf_ts_list[idx]] if idx >= 0 else _no_ctf
-        else:
-            ctf = _no_ctf
-
-        # 3. Inject all corrected values; VP/SR → None (not computable in batch)
-        fv_fixed = dataclasses.replace(
-            fv,
-            vix_z=ca[0],
-            flight_quality=ca[1],
-            yield_slope_z=ca[2],
-            ctf_momentum=ctf[0],
-            ctf_vwap_align=ctf[1],
-            ctf_regime_align=ctf[2],
-            poc_dist_atr=None,
-            va_position=None,
-            sr_support_dist=None,
-            sr_resist_dist=None,
-        )
-
         row = _vector_to_params(
             symbol=symbol,
             tf=tf,
             bar_ts=bar_ts,
             pipeline_version=pipeline_version,
             regime=None,
-            fv=fv_fixed,
+            fv=fv,
         )
         insert_batch.append(row)
 
