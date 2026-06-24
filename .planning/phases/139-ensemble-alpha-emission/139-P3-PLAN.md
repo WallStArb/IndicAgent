@@ -114,7 +114,7 @@ If the corpus is not yet present when P3 is reached, the EnsembleBuilder startup
     - docs/plans/2026-06-20-alphaengine-architecture.md (Observability Contract — traceability chain lines 571-584, the metrics the report should surface)
   </read_first>
   <action>
-    Create services/generate_ic_discovery_report.py — a read-only report generator (psycopg2 or asyncpg, read-only queries; not a BaseBatch service, it produces docs not DB rows). It queries:
+    Create services/generate_ic_discovery_report.py — a read-only report generator (asyncpg, read-only queries; not a BaseBatch service, it produces docs not DB rows). It queries:
     - Per (symbol, tf, regime): count of passing features (from ensemble_weights for the active weight_version), the weight vector (feature_name -> weight, sorted desc), effective_n.
     - Per (symbol, tf): bars scored (ensemble_alpha count), alpha events emitted (alpha_events count), emission_rate = emissions / bars_scored.
     - Overall: total strata with weights, total alpha events, mean/median effective_n, distribution of emission directions (long/short).

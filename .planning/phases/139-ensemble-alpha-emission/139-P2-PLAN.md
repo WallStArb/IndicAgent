@@ -16,13 +16,17 @@ autonomous: true
 
 must_haves:
   truths:
-    - "EnsembleBuilder reads feature_ic_scores (is_pooled=false, passes_walkforward=true), derives Ledoit-Wolf weights, and writes ensemble_weights + ensemble_alpha"
+    - "EnsembleBuilder reads feature_ic_scores (is_pooled=false, passes_walkforward=true), derives IC-Sharpe weights, applies LW cluster deflation (cluster_deflate_weights), and writes ensemble_weights + ensemble_alpha"
+    - "EnsembleBuilder scores ensemble_alpha via vectorized matmul (X @ signed_weights) with bulk executemany insert — no per-bar Python loop"
+    - "EnsembleBuilder feature_vectors query includes WHERE regime_label = stratum_regime — no cross-regime score contamination"
     - "EnsembleBuilder skips strata where derive_weights() returns a zero-sum weight vector (all features have non-positive IC Sharpe)"
     - "AlphaEmitter reads ensemble_alpha above threshold, enforces effective_N >= gate, writes alpha_events, and publishes to Kafka topic alpha.events"
     - "AlphaEmitter emission gate is direction-aware: long signals require alpha_ci_lower > 0; short signals require alpha_ci_upper < 0"
     - "AlphaEmitter skips rows where effective_n == 0 (zero-weight stratum guard before CI math)"
     - "Both services extend BaseBatch and emit D-06 job_completed_total automatically"
-    - "All numeric parameters (cap, gate, per-TF thresholds, weight_version) are loaded from APR via ConfigService, not hardcoded"
+    - "AlphaEmitter preloads all ensemble_weights at execute() start into weights_cache = {(symbol, tf, regime): [rows]} — zero per-emission queries for top_features"
+    - "AlphaEmitter reads alpha.ensemble.top_features_count APR key and includes only the top-N features (by abs(weight)) in alpha_events.top_features"
+    - "All numeric parameters (cap, gate, cluster thresholds, per-TF thresholds, weight_version, top_features_count) are loaded from APR, not hardcoded"
     - "Kafka publish uses await producer.publish(topic_alpha_events(settings.env_name), msg=...) — topic is the first positional argument, always awaited"
     - "EnsembleBuilder commits a new weight_version atomically (all weight rows for a version or none)"
     - "Both services are registered in service_auditor _DAG_ORDER and _ONESHOT_UNITS"
@@ -103,10 +107,15 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     Core loop per (symbol, tf, regime):
     1. Query feature_ic_scores WHERE symbol=$1 AND tf=$2 AND regime=$3 AND is_pooled=false AND passes_walkforward=true AND reliable=true AND ic_sharpe IS NOT NULL.
     2. select_features_per_stratum() to pick best lookahead per feature_name. Skip stratum if count < min_passing_features.
-    3. Load the feature value matrix X from feature_vectors for that (symbol, tf, regime) over the selected feature columns; pass to compute_shrinkage_covariance() (records shrinkage for the OTel gauge). Note: shrinkage informs diagnostics; weights are derived from IC Sharpe per Pattern 2.
-    4. derive_weights(ic_sharpes, max_feature_weight) → weights; effective_n(weights). Zero-weight guard: if weights.sum() == 0 (all features have non-positive IC Sharpe), log a warning with fields symbol, tf, regime, and reason="zero_weight_vector", then continue to the next stratum — do not write ensemble_weights or ensemble_alpha for this stratum. Increment ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE.
-    5. Write ensemble_weights rows in a single transaction (atomic weight_version commit per architecture doc): one row per feature with weight_version from APR, raw_weight, weight, ic_sharpe, lookahead_bars, effective_n. Use ON CONFLICT (symbol, tf, regime, weight_version, feature_name) DO NOTHING for idempotency.
-    6. Score ensemble_alpha for every feature_vectors bar in that stratum: for each bar, compute_alpha_score(feature_values, weights, ic_signs, ic_ci_lower, ic_ci_upper) → (alpha_score, ci_lower, ci_upper); write ensemble_alpha rows with effective_n and n_features_active. ON CONFLICT (symbol, tf, bar_ts, weight_version) DO NOTHING.
+    3. Bulk-load the feature value matrix X from feature_vectors for this stratum: SELECT <feature_cols> FROM feature_vectors WHERE symbol=$1 AND tf=$2 AND regime_label=$3 ORDER BY bar_ts. This gives [n_bars, n_features] for the scoring matmul AND feeds compute_shrinkage_covariance(). The WHERE regime_label=$3 filter ensures IC weights trained on one regime do not score bars from a different regime — omitting this filter is a hidden cross-regime bias (Finding 2 blocker).
+    4. derive_weights(ic_sharpes, max_feature_weight) → raw_weights. Then compute_shrinkage_covariance(X) → (cov_matrix, shrinkage) to get the LW covariance; convert to correlation matrix (divide each element by sqrt of the product of corresponding diagonal variances). Apply cluster_deflate_weights(raw_weights, corr_matrix, max_cluster_corr, max_cluster_weight) → weights. effective_n(weights). Emit ENSEMBLE_SHRINKAGE_INTENSITY_GAUGE{symbol, tf, weight_version} with the shrinkage scalar. Zero-weight guard: if weights.sum() == 0 after deflation, log a warning with fields symbol, tf, regime, and reason="zero_weight_vector", then continue to the next stratum. Increment ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE.
+    5. Write ensemble_weights rows in a single transaction (atomic weight_version commit per architecture doc): one row per feature with weight_version from APR, raw_weight, weight (post-deflation), ic_sharpe, lookahead_bars, effective_n. Use ON CONFLICT (symbol, tf, regime, weight_version, feature_name) DO NOTHING for idempotency.
+    6. Score ensemble_alpha via vectorized matmul (no per-bar Python loop — Finding 1 performance fix):
+       - signed_weights = weights * ic_signs [n_features] — computed once per stratum.
+       - alpha_scores = X @ signed_weights [n_bars] — single matmul replacing the per-bar loop.
+       - ic_sigma = (ic_ci_upper - ic_ci_lower) / 3.92 per feature; margin = 1.96 * sqrt(dot(weights**2, ic_sigma**2)) — constant per stratum, computed once.
+       - ci_lower_arr = alpha_scores - margin; ci_upper_arr = alpha_scores + margin.
+       - Bulk-insert all n_bars rows into ensemble_alpha via conn.executemany(INSERT ... ON CONFLICT (symbol, tf, bar_ts, weight_version) DO NOTHING, rows). Set effective_n and n_features_active as constants for the stratum.
 
     Emit OTel gauges from P1: ENSEMBLE_FEATURE_WEIGHT_GAUGE per feature, ENSEMBLE_EFFECTIVE_N_GAUGE, ENSEMBLE_SHRINKAGE_INTENSITY_GAUGE, ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE — labeled symbol, tf, weight_version. Call init_otel_providers("indicagent-ensemble-builder") at startup; BaseBatch.run() already calls flush_and_shutdown_metrics().
 
@@ -122,12 +131,16 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
   </verify>
   <acceptance_criteria>
     - services/ensemble_builder.py contains `class EnsembleBuilder(BaseBatch)` with `job_name = "ensemble-builder"`
-    - Imports select_features_per_stratum, compute_shrinkage_covariance, derive_weights, effective_n, compute_alpha_score from src.intelligence.ensemble
-    - Zero-weight guard: when derive_weights returns a zero-sum vector, the stratum is skipped (log + continue) — no weights or alpha rows written
+    - Imports select_features_per_stratum, compute_shrinkage_covariance, derive_weights, cluster_deflate_weights, effective_n from src.intelligence.ensemble
+    - feature_vectors SELECT includes `WHERE symbol=$1 AND tf=$2 AND regime_label=$3` — regime filter present (grep for regime_label in the query string)
+    - Scoring uses matmul: `X @ signed_weights` replaces per-bar loop (grep for `@ signed_weights` or `matmul`)
+    - Bulk insert uses `conn.executemany(` for ensemble_alpha rows (not a Python for-loop with individual INSERTs)
+    - LW cluster deflation: `cluster_deflate_weights` is called after `derive_weights` and before writing ensemble_weights
+    - Zero-weight guard: when weights.sum() == 0 after deflation, the stratum is skipped (log + continue) — no weights or alpha rows written
     - ensemble_weights INSERT is wrapped in `async with conn.transaction():` (atomic weight_version)
     - Both INSERTs use ON CONFLICT DO NOTHING (idempotent re-run)
     - Two startup RuntimeError gates exist (empty feature_ic_scores passing rows; empty feature_vectors)
-    - max_feature_weight, effective_n_gate, weight_version, min_passing_features read from the asyncpg-loaded config dict (SELECT ... FROM config_state WHERE config_key LIKE 'alpha.%') via cfg.get with the alpha.ensemble.* keys
+    - max_feature_weight, effective_n_gate, weight_version, min_passing_features, max_cluster_corr, max_cluster_weight read from the asyncpg-loaded config dict via cfg.get with alpha.ensemble.* keys
     - `.venv/bin/ruff check services/ensemble_builder.py` exits 0
   </acceptance_criteria>
 </task>
@@ -146,11 +159,13 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
   <action>
     Create services/alpha_emitter.py with class AlphaEmitter(BaseBatch): job_name = "alpha-emitter", compute_version = "1.0.0", ensemble_version = "v1.0.0" (class attr used in content_key and alpha_events.ensemble_version). asyncpg throughout.
 
-    APR loading: alpha.ensemble.effective_n_gate, alpha.ensemble.weight_version, alpha.quant.threshold.5m / .15m / .1h / .1d. Provide a helper _threshold_for_tf(tf) returning the matching APR threshold from the asyncpg-loaded config dict (no inline literals — fall through to the cfg.get default only).
+    APR loading: alpha.ensemble.effective_n_gate, alpha.ensemble.weight_version, alpha.ensemble.top_features_count (default 10), alpha.quant.threshold.5m / .15m / .1h / .1d. Provide a helper _threshold_for_tf(tf) returning the matching APR threshold from the asyncpg-loaded config dict (no inline literals — fall through to the cfg.get default only).
 
     Startup crash-loud gate: raise RuntimeError if ensemble_alpha is empty (nothing to emit from). This prevents a silent "success" with zero events.
 
     Construct a KafkaProducerClient and the topic via topic_alpha_events(settings.env_name). Initialize the producer in execute() (await any start/connect per the existing producer contract; read src/core/kafka/producer.py for the exact lifecycle).
+
+    Preload: before the emission loop, SELECT * FROM ensemble_weights WHERE weight_version = $weight_version and build weights_cache = {(symbol, tf, regime): [rows]} (one query, not one per emission). This eliminates the N+1 query pattern — 100K emitted events no longer each query the same weight rows (Finding 3). Weights are constant per stratum; the preload pays once.
 
     Emission loop: read ensemble_alpha rows for the current weight_version. For each row, first apply the zero-weight guard: if effective_n == 0, skip the row entirely before any CI math (log at debug level with reason="zero_weight_stratum"). Then apply the direction-aware emission gate:
     - Determine direction: 'long' if alpha_score > 0, 'short' if alpha_score < 0. Skip (don't emit) if alpha_score == 0.
@@ -159,7 +174,7 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     - Equivalently: ((alpha_score > 0 AND alpha_ci_lower > 0) OR (alpha_score < 0 AND alpha_ci_upper < 0)) AND abs(alpha_score) > threshold[tf] AND effective_n >= effective_n_gate.
     On reject, increment ALPHA_EMITTER_REJECTIONS_TOTAL with the appropriate rejection_reason: 'ci_not_directional' (for the CI direction check — ci_lower <= 0 on a long, or ci_upper >= 0 on a short), 'effective_n_low', 'threshold_miss', or 'zero_weight_stratum'. On pass:
     - event_id = BaseBatch.content_key(symbol, tf, str(int(bar_ts.timestamp()*1e9)), ensemble_version).
-    - Build top_features dict (top contributing features and their weight*value — query ensemble_weights for that stratum/weight_version; this MUST be non-empty per the NOT NULL invariant).
+    - Build top_features dict from weights_cache[(symbol, tf, regime)] (no per-emission query — cache was preloaded): sort rows by abs(weight) descending, take top-N where N = top_features_count from APR, build {feature_name: weight} dict. This MUST be non-empty (top_features NOT NULL invariant from P1 architecture doc).
     - Write alpha_events row (ON CONFLICT (event_id, bar_ts) DO NOTHING) including ensemble_version, weight_version, regime, alpha_score, ci bounds, effective_n, n_features_active, emission_threshold, direction, top_features jsonb. Pass the dict directly to asyncpg (no json.dumps).
     - Publish JSON payload to Kafka: await self._producer.publish(topic_alpha_events(settings.env_name), msg=payload) — topic_alpha_events(settings.env_name) is the first positional argument, msg= is the keyword argument. payload matches the RESEARCH.md alpha_event schema (event_id, symbol, tf, bar_ts ISO via format_iso_ts, ensemble_version, weight_version, alpha_score, ci bounds, effective_n, regime, n_features_active, top_features, emitted_at).
     - Increment ALPHA_EMITTER_EMISSIONS_TOTAL{symbol,tf,direction,regime} and ALPHA_EMITTER_BARS_SCORED_TOTAL.
@@ -181,6 +196,10 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
   </verify>
   <acceptance_criteria>
     - services/alpha_emitter.py contains `class AlphaEmitter(BaseBatch)` with `job_name = "alpha-emitter"`
+    - weights_cache is preloaded before the emission loop via a single SELECT ... FROM ensemble_weights WHERE weight_version = $version (grep for `weights_cache` dict initialization before the per-row loop)
+    - No ensemble_weights query inside the per-row emission loop (grep for `FROM ensemble_weights` inside the loop body returns nothing)
+    - top_features built from weights_cache[(symbol, tf, regime)] sliced to top top_features_count rows by abs(weight)
+    - top_features_count read from alpha.ensemble.top_features_count APR key (grep for `top_features_count` in APR load block)
     - Emission gate is direction-aware: long path checks alpha_ci_lower > 0; short path checks alpha_ci_upper < 0
     - Zero-weight guard: rows where effective_n == 0 are skipped before CI math (log + continue, rejection_reason='zero_weight_stratum')
     - Kafka publish uses `await self._producer.publish(topic_alpha_events(settings.env_name), msg=...)` — topic_alpha_events(settings.env_name) is the first positional argument
@@ -218,6 +237,8 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     - abs(alpha_score) below threshold is rejected with reason 'threshold_miss'.
     - A passing long row: alpha_score=2.0, alpha_ci_lower=0.5, alpha_ci_upper=3.5, threshold=1.0, effective_n=4.0 → produces direction='long' and emits.
     - A passing short row: alpha_score=-2.0, alpha_ci_upper=-0.5, alpha_ci_lower=-3.5, threshold=1.0, effective_n=4.0 → produces direction='short' and emits.
+    - weights_cache preload test: after execute() is called, the mock conn.fetch for ensemble_weights is called exactly once regardless of how many ensemble_alpha rows are processed (assert call_count == 1 for the ensemble_weights fetch).
+    - top_features_count test: when top_features_count=3 and weights_cache has 10 features, top_features dict in the emitted payload contains exactly 3 keys (the top-3 by abs(weight)).
     Mock the KafkaProducerClient and assert publish is awaited with the topic as first positional arg and msg= kwarg, using AsyncMock and mock_producer.publish.assert_awaited_once_with(topic_alpha_events(...), msg=...) — catches both the unawaited-coroutine and wrong-kwarg and missing-topic-arg traps from RESEARCH.md Pitfall 5.
   </action>
   <verify>
@@ -234,6 +255,8 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
     - test_alpha_emitter.py covers all rejection reasons: ci_not_directional, effective_n_low, threshold_miss, zero_weight_stratum
     - test_alpha_emitter.py covers passing long (alpha_score=2.0, ci_lower=0.5 → direction='long') and passing short (alpha_score=-2.0, ci_upper=-0.5 → direction='short')
     - test_alpha_emitter.py asserts `mock_producer.publish` was called with topic_alpha_events(...) as first arg and msg= kwarg (AsyncMock assert_awaited_once_with)
+    - test_alpha_emitter.py asserts ensemble_weights fetch is called exactly once per execute() run (weights_cache preload — no N+1)
+    - test_alpha_emitter.py asserts top_features has exactly top_features_count keys when weights_cache has more than top_features_count features
     - `.venv/bin/pytest tests/unit/test_ensemble_builder.py tests/unit/test_alpha_emitter.py -q` exits 0
     - Existing service_auditor unit tests still pass
   </acceptance_criteria>
@@ -243,8 +266,13 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
 
 <verification>
 - EnsembleBuilder and AlphaEmitter both subclass BaseBatch and parse/lint clean
-- EnsembleBuilder skips zero-weight strata (zero-sum derive_weights output) with log and continue
-- All numeric parameters loaded via the asyncpg-loaded APR config dict (cfg.get) — no inline magic thresholds in compute logic
+- EnsembleBuilder feature_vectors query includes WHERE regime_label = stratum_regime (no cross-regime scoring)
+- EnsembleBuilder scores via vectorized matmul (X @ signed_weights) + conn.executemany bulk insert — no per-bar Python loop
+- EnsembleBuilder applies LW cluster deflation (cluster_deflate_weights) after derive_weights
+- EnsembleBuilder skips zero-weight strata (zero-sum weights after deflation) with log and continue
+- AlphaEmitter preloads weights_cache with one query before emission loop (weights_cache preload test passes)
+- AlphaEmitter top_features sliced to top_features_count by abs(weight)
+- All numeric parameters loaded via the asyncpg-loaded APR config dict (cfg.get) — no inline magic thresholds
 - Kafka publish awaited with topic as first positional arg and msg= kwarg (verified by test)
 - Emission gate is direction-aware: short signals check alpha_ci_upper < 0 (not alpha_ci_lower > 0)
 - Both units registered in service_auditor _DAG_ORDER and _ONESHOT_UNITS
@@ -253,7 +281,7 @@ Output: services/ensemble_builder.py, services/alpha_emitter.py, two systemd uni
 </verification>
 
 <success_criteria>
-- EnsembleBuilder writes ensemble_weights (Ledoit-Wolf, 0.20 cap) + ensemble_alpha (z-scored composite, CI bounds) — success criteria 1, 2
+- EnsembleBuilder writes ensemble_weights (IC-Sharpe + 0.20 cap + LW cluster deflation) + ensemble_alpha (vectorized composite scores, CI bounds) — success criteria 1, 2
 - EnsembleBuilder skips strata with zero-sum weight vectors (log + continue, no silent empty writes)
 - AlphaEmitter enforces direction-aware CI gate (ci_lower > 0 for longs; ci_upper < 0 for shorts) and effective_N >= gate before emission, then publishes to alpha.events Kafka topic in shadow mode — success criteria 4, 5
 - Emission threshold read from alpha.quant.threshold.{tf} APR — success criterion 3
