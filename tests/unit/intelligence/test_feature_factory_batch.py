@@ -134,3 +134,40 @@ class TestMinWindowDerived:
         for _, fv in results:
             assert math.isfinite(fv.cci_slow), f"cci_slow not finite: {fv.cci_slow}"
             assert math.isfinite(fv.aroon_slow), f"aroon_slow not finite: {fv.aroon_slow}"
+
+
+class TestWilderRsiSeries:
+    def test_terminal_value_matches_rsi_simple(self) -> None:
+        """_wilder_rsi_series[-1] must equal _rsi_simple for every prefix length."""
+        from src.intelligence.feature_cache import _rsi_simple, _wilder_rsi_series
+
+        rng = np.random.default_rng(42)
+        closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.01, 200))
+        period = 14
+
+        series = _wilder_rsi_series(closes, period)
+        assert len(series) == len(closes)
+
+        for n in range(2, len(closes) + 1):
+            scalar = _rsi_simple(closes[:n], period)
+            batch = float(series[n - 1])
+            assert (
+                abs(batch - scalar) < 1e-8
+            ), f"n={n}: series={batch:.10f} scalar={scalar:.10f} delta={abs(batch-scalar):.2e}"
+
+    def test_cold_start_returns_50(self) -> None:
+        from src.intelligence.feature_cache import _wilder_rsi_series
+
+        closes = np.array([100.0, 101.0, 102.0], dtype=float)
+        series = _wilder_rsi_series(closes, period=14)
+        assert series[0] == 50.0
+        assert series[1] == 50.0
+        assert series[2] == 50.0  # only 3 bars, period=14 → all cold
+
+    def test_values_in_range(self) -> None:
+        from src.intelligence.feature_cache import _wilder_rsi_series
+
+        rng = np.random.default_rng(7)
+        closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.02, 500))
+        series = _wilder_rsi_series(closes, period=14)
+        assert np.all(series >= 0.0) and np.all(series <= 100.0)

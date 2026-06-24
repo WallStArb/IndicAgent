@@ -54,6 +54,7 @@ from src.intelligence.feature_cache import (
     _HMM_K,
     FeatureCache,
     _hmm_forward_step,
+    _wilder_rsi_series,
 )
 from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
@@ -268,24 +269,9 @@ def _build_ctf_series(
 
     period = config.rsi_mid_period
 
-    # ctf_momentum: Wilder RSI streaming, normalized to [-1, +1]
-    ctf_mom = np.full(n, 0.0, dtype=float)
-    if n > period:
-        deltas = np.diff(closes)
-        gains = np.where(deltas > 0, deltas, 0.0)
-        losses = np.where(deltas < 0, -deltas, 0.0)
-        alpha = 1.0 / period
-        avg_gain = float(np.mean(gains[:period]))
-        avg_loss = float(np.mean(losses[:period]))
-        for i in range(period, len(gains)):
-            avg_gain = alpha * float(gains[i]) + (1.0 - alpha) * avg_gain
-            avg_loss = alpha * float(losses[i]) + (1.0 - alpha) * avg_loss
-            rsi = (
-                100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
-                if avg_loss > 1e-10
-                else (100.0 if avg_gain > 0 else 50.0)
-            )
-            ctf_mom[i + 1] = float(np.clip((rsi - 50.0) / 50.0, -1.0, 1.0))
+    # ctf_momentum: Wilder RSI per bar, normalized to [-1, +1]. Single shared impl.
+    rsi_series = _wilder_rsi_series(closes, period)
+    ctf_mom = np.clip((rsi_series - 50.0) / 50.0, -1.0, 1.0)
 
     # ctf_vwap_align: sign(close - cumulative VWAP)
     typical = (highs + lows + closes) / 3.0

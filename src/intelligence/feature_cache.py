@@ -242,10 +242,16 @@ class FeatureCache:
 # ---------------------------------------------------------------------------
 
 
-def _rsi_simple(closes: np.ndarray, period: int) -> float:
-    """Wilder's RSI. Returns 50.0 on cold start. Result in [0.0, 100.0]."""
-    if len(closes) < period + 1:
-        return 50.0
+def _wilder_rsi_series(closes: np.ndarray, period: int) -> np.ndarray:
+    """Wilder RSI at every bar index. Length == len(closes). Cold-start entries = 50.0.
+
+    Single source of truth for Wilder smoothing. _rsi_simple is a thin wrapper.
+    Used by both the live-path scalar accessor and the batch CTF series builder.
+    """
+    n = len(closes)
+    out = np.full(n, 50.0, dtype=float)
+    if n < period + 1:
+        return out
     deltas = np.diff(closes.astype(float))
     gains = np.where(deltas > 0, deltas, 0.0)
     losses = np.where(deltas < 0, -deltas, 0.0)
@@ -255,10 +261,17 @@ def _rsi_simple(closes: np.ndarray, period: int) -> float:
     for i in range(period, len(gains)):
         avg_gain = alpha * float(gains[i]) + (1.0 - alpha) * avg_gain
         avg_loss = alpha * float(losses[i]) + (1.0 - alpha) * avg_loss
-    if avg_loss < 1e-10:
-        return 100.0 if avg_gain > 0 else 50.0
-    rs = avg_gain / avg_loss
-    return float(min(100.0, max(0.0, 100.0 - 100.0 / (1.0 + rs))))
+        if avg_loss < 1e-10:
+            rsi = 100.0 if avg_gain > 0 else 50.0
+        else:
+            rsi = 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
+        out[i + 1] = float(np.clip(rsi, 0.0, 100.0))
+    return out
+
+
+def _rsi_simple(closes: np.ndarray, period: int) -> float:
+    """Terminal Wilder RSI scalar. Thin wrapper over _wilder_rsi_series."""
+    return float(_wilder_rsi_series(closes, period)[-1])
 
 
 def _hurst_rs(close: np.ndarray, min_window: int = 16) -> float:
