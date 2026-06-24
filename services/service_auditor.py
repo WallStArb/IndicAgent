@@ -107,6 +107,9 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-regime-writer": 8,  # oneshot; populates feature_vectors.regime
     "indicagent-forward-return-writer": 8,  # oneshot; LEAD() forward returns -> forward_returns
     "indicagent-ic-engine": 8,  # oneshot; Spearman IC -> feature_ic_scores
+    # Phase 139 ensemble + alpha emission oneshots (inactive between IC pipeline runs is correct)
+    "indicagent-ensemble-builder": 8,  # oneshot; feature_ic_scores -> ensemble_weights + ensemble_alpha
+    "indicagent-alpha-emitter": 8,  # oneshot; ensemble_alpha -> alpha_events + Kafka alpha.events
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-signal-auditor": 9,  # priority 9: observes signals written by layer 7 writers
     "indicagent-signal-replay": 9,  # priority 9: observes signal-ledger state
@@ -195,6 +198,9 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-regime-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
         "indicagent-forward-return-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
         "indicagent-ic-engine",  # Type=oneshot; inactive between IC pipeline runs is correct
+        # Phase 139 ensemble + alpha emission oneshots — inactive between IC pipeline runs is correct
+        "indicagent-ensemble-builder",  # Type=oneshot; inactive between IC pipeline runs is correct
+        "indicagent-alpha-emitter",  # Type=oneshot; inactive between IC pipeline runs is correct
     }
 )
 
