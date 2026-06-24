@@ -1247,10 +1247,12 @@ class FeatureFactory:
         results: list[tuple[datetime, FeatureVector]] = []
 
         for i in range(1, len(bars)):
-            # Periodically refresh regime
+            # Periodically refresh regime — use hurst_window (APR: feature.hurst.window,
+            # default 500) so HMM gets sufficient history. MIN_WINDOW=50 is only for
+            # bounded per-bar features (CCI, Aroon, etc.) below.
             if i % config.regime_cache_refresh_bars == 0:
-                window_start = max(0, i - MIN_WINDOW)
-                cache.refresh_regime(bars[window_start : i + 1], config)
+                regime_window_start = max(0, i - config.hurst_window)
+                cache.refresh_regime(bars[regime_window_start : i + 1], config)
 
             # Skip warm-up
             if i < warm_up_bars:

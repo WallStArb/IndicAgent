@@ -1244,11 +1244,11 @@ class FeatureVector:
     # Volatility (2) - part of bar-level computation
     atr_z: float
     vol_ratio: float
-    # Session-level (4)
-    poc_dist_atr: float
-    va_position: float
-    sr_support_dist: float
-    sr_resist_dist: float
+    # Session-level (4, nullable in batch — requires I3 intraday injection unavailable in batch path)
+    poc_dist_atr: float | None
+    va_position: float | None
+    sr_support_dist: float | None
+    sr_resist_dist: float | None
     # Regime-level (11)
     hmm_regime_prob: float
     hmm_entropy: float

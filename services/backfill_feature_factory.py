@@ -28,11 +28,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import bisect
+import dataclasses
 import sys
+from collections import deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import psycopg2
 import psycopg2.extras
 import structlog
@@ -46,7 +50,11 @@ from services._batch_utils import load_config_service_sync as _load_config_servi
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
 from src.core.service_utils import setup_service_logging
-from src.intelligence.feature_cache import FeatureCache
+from src.intelligence.feature_cache import (
+    _HMM_K,
+    FeatureCache,
+    _hmm_forward_step,
+)
 from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
     FeatureFactory,
@@ -110,6 +118,14 @@ _FALLBACK_WARM_UP_BARS: int = 252
 _SPY = "SPY"
 _TLT = "TLT"
 _SHY = "SHY"
+
+# CTF higher-timeframe mapping: source TF → HTF used for CTF features
+_CTF_HIGHER_TF: dict[str, str | None] = {
+    "5m": "1h",
+    "15m": "1h",
+    "1h": "1d",
+    "1d": None,
+}
 
 # ---------------------------------------------------------------------------
 # DB helpers (psycopg2 sync — mirrors run_historical_pipeline.py pattern)
@@ -191,6 +207,112 @@ WHERE symbol = ANY(%s) AND tf = ANY(%s)
 # Canonical INSERT SQL imported from shared persistence module.
 # Do not inline SQL here — feature_vector_persistence.py is the single source of truth.
 _INSERT_FEATURE_VECTORS_SQL = FEATURE_VECTOR_INSERT_SQL_PSYCOPG2
+
+
+def _build_cross_asset_series(
+    spy_bars: list[dict],
+    tlt_bars: list[dict],
+    shy_bars: list[dict],
+    config: FeatureFactoryConfig,
+) -> dict:
+    """Build date → (vix_z, flight_quality, yield_slope_z) with incremental causal alignment.
+
+    Calls FeatureCache.update_cross_asset() once per trading date, advancing the
+    slice to that date each time. Each call appends one sample to the cache's
+    internal deques — building history correctly with zero look-ahead bias.
+    """
+    spy_dates = [b["ts"].date() for b in spy_bars]
+    tlt_dates = [b["ts"].date() for b in tlt_bars]
+    shy_dates = [b["ts"].date() for b in shy_bars]
+
+    all_dates = sorted(set(spy_dates) | set(tlt_dates) | set(shy_dates))
+    cache = FeatureCache()
+    result: dict = {}
+
+    for d in all_dates:
+        spy_end = bisect.bisect_right(spy_dates, d)
+        tlt_end = bisect.bisect_right(tlt_dates, d)
+        shy_end = bisect.bisect_right(shy_dates, d)
+
+        if spy_end < 2 or tlt_end < 2 or shy_end < 2:
+            continue
+
+        cache.update_cross_asset(
+            spy_bars[:spy_end],
+            tlt_bars[:tlt_end],
+            shy_bars[:shy_end],
+            config,
+        )
+        result[d] = (cache.vix_z, cache.flight_quality, cache.yield_slope_z)
+
+    return result
+
+
+def _build_ctf_series(
+    htf_bars: list[dict],
+    config: FeatureFactoryConfig,
+) -> dict:
+    """Build {htf_bar_ts: (ctf_momentum, ctf_vwap_align, ctf_regime_align)} in O(n).
+
+    Single-pass streaming computation: Wilder RSI + cumulative VWAP + HMM forward.
+    Avoids O(n²) slice reprocessing. All values are causal — bar k uses only bars 0..k.
+    """
+    n = len(htf_bars)
+    if n < 2:
+        return {}
+
+    closes = np.array([b["close"] for b in htf_bars], dtype=float)
+    highs = np.array([b["high"] for b in htf_bars], dtype=float)
+    lows = np.array([b["low"] for b in htf_bars], dtype=float)
+    volumes = np.array([b["volume"] for b in htf_bars], dtype=float)
+
+    period = config.rsi_mid_period
+
+    # ctf_momentum: Wilder RSI streaming, normalized to [-1, +1]
+    ctf_mom = np.full(n, 0.0, dtype=float)
+    if n > period:
+        deltas = np.diff(closes)
+        gains = np.where(deltas > 0, deltas, 0.0)
+        losses = np.where(deltas < 0, -deltas, 0.0)
+        alpha = 1.0 / period
+        avg_gain = float(np.mean(gains[:period]))
+        avg_loss = float(np.mean(losses[:period]))
+        for i in range(period, len(gains)):
+            avg_gain = alpha * float(gains[i]) + (1.0 - alpha) * avg_gain
+            avg_loss = alpha * float(losses[i]) + (1.0 - alpha) * avg_loss
+            rsi = (
+                100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
+                if avg_loss > 1e-10
+                else (100.0 if avg_gain > 0 else 50.0)
+            )
+            ctf_mom[i + 1] = float(np.clip((rsi - 50.0) / 50.0, -1.0, 1.0))
+
+    # ctf_vwap_align: sign(close - cumulative VWAP)
+    typical = (highs + lows + closes) / 3.0
+    cum_tp_vol = np.cumsum(typical * volumes)
+    cum_vol = np.cumsum(volumes)
+    vwap = np.where(cum_vol > 1e-10, cum_tp_vol / cum_vol, closes)
+    ctf_vwap = np.where(closes > vwap + 1e-10, 1.0, np.where(closes < vwap - 1e-10, -1.0, 0.0))
+
+    # ctf_regime_align: HMM forward pass — 0.0 (ranging) or 1.0 (trending)
+    ctf_regime = np.zeros(n, dtype=float)
+    hmm_alpha = np.full(_HMM_K, 1.0 / _HMM_K, dtype=float)
+    log_rets = np.diff(np.log(np.maximum(closes, 1e-10)))
+    log_rets = np.where(np.isfinite(log_rets), log_rets, 0.0)
+    ret_buf: deque = deque(maxlen=20)
+    obs_buf = np.zeros(2, dtype=float)
+    for i, ret in enumerate(log_rets):
+        ret_buf.append(float(ret))
+        obs_buf[0] = float(ret)
+        obs_buf[1] = float(np.std(ret_buf)) if len(ret_buf) >= 2 else 0.005
+        _hmm_forward_step(obs_buf, hmm_alpha)
+        label = int(np.argmax(hmm_alpha))
+        ctf_regime[i + 1] = 0.0 if label == 0 else 1.0
+
+    return {
+        htf_bars[k]["ts"]: (float(ctf_mom[k]), float(ctf_vwap[k]), float(ctf_regime[k]))
+        for k in range(n)
+    }
 
 
 def _connect_db(settings: Settings) -> Any:
@@ -532,7 +654,7 @@ def run_compute_stage(
     # Warm-up bars = dominant rolling window (momentum_zscore_window = 252)
     warm_up_bars = config.momentum_zscore_window
 
-    # Pre-load cross-asset ETF bars for FeatureCache.update_cross_asset()
+    # Pre-load cross-asset ETF bars and build incremental causal series (once for all symbols)
     spy_bars = _fetch_bars_from_db(db_conn, _SPY, "1d")
     tlt_bars = _fetch_bars_from_db(db_conn, _TLT, "1d")
     shy_bars = _fetch_bars_from_db(db_conn, _SHY, "1d")
@@ -542,6 +664,8 @@ def run_compute_stage(
         tlt=len(tlt_bars),
         shy=len(shy_bars),
     )
+    cross_asset_by_date = _build_cross_asset_series(spy_bars, tlt_bars, shy_bars, config)
+    _logger.info("cross_asset_series_built", dates=len(cross_asset_by_date))
 
     contracts = get_active_contracts(settings)
     etf_contracts = _filter_etf_contracts(contracts, symbols)
@@ -589,9 +713,7 @@ def run_compute_stage(
                     config=config,
                     pipeline_version=pipeline_version,
                     warm_up_bars=warm_up_bars,
-                    spy_bars=spy_bars,
-                    tlt_bars=tlt_bars,
-                    shy_bars=shy_bars,
+                    cross_asset_by_date=cross_asset_by_date,
                 )
 
                 depth_years = _DEPTH_YEARS[tf]
@@ -649,24 +771,34 @@ def _compute_symbol_tf(
     config: FeatureFactoryConfig,
     pipeline_version: str,
     warm_up_bars: int,
-    spy_bars: list[dict],
-    tlt_bars: list[dict],
-    shy_bars: list[dict],
+    cross_asset_by_date: dict,
 ) -> int:
     """Compute FeatureVectors for one (symbol, tf) pair.
 
-    Reads bars in a growing sliding window (keep full history for compute
-    correctness — FeatureFactory.compute is stateless and needs full array).
-    Writes in batches of _INSERT_BATCH_SIZE.
+    Post-injects three groups of corrected values into every FeatureVector:
+      1. Cross-asset (vix_z, flight_quality, yield_slope_z): from pre-built
+         incremental causal series keyed by date.
+      2. CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align): from O(n) single-pass
+         series keyed by HTF bar timestamp; looked up by bisect for each source bar.
+      3. VP/SR (poc_dist_atr, va_position, sr_support_dist, sr_resist_dist): NULL —
+         not computable from OHLCV batch without intraday I3 injection.
 
     Returns total rows inserted into feature_vectors.
     """
+    # Build CTF series for this symbol (O(n) single pass over HTF bars)
+    htf_tf = _CTF_HIGHER_TF.get(tf)
+    ctf_by_ts: dict = {}
+    htf_ts_list: list = []
+    if htf_tf:
+        htf_bars = _fetch_bars_from_db(conn, symbol, htf_tf)
+        if htf_bars:
+            ctf_by_ts = _build_ctf_series(htf_bars, config)
+            htf_ts_list = sorted(ctf_by_ts.keys())
+            _logger.debug(
+                "ctf_series_built", symbol=symbol, tf=tf, htf_tf=htf_tf, htf_bars=len(htf_bars)
+            )
+
     cache = FeatureCache()
-
-    # Pre-seed cross-asset state from daily cross-asset bars
-    cache.update_cross_asset(spy_bars, tlt_bars, shy_bars, config)
-
-    # Load all bars — sliding window to avoid OOM on large sets
     bars = _fetch_bars_from_db(conn, symbol, tf)
     total_bars = len(bars)
 
@@ -682,22 +814,47 @@ def _compute_symbol_tf(
 
     _logger.info("compute_bars_loaded", symbol=symbol, tf=tf, total_bars=total_bars)
 
-    # Use FeatureFactory.compute_batch() for O(n) batch computation
     batch_results = FeatureFactory.compute_batch(
         bars, symbol, tf, cache, config, warm_up_bars=warm_up_bars
     )
 
     insert_batch: list[tuple] = []
     total_inserted = 0
+    _no_ctf = (0.0, 0.0, 0.0)
 
     for bar_ts, fv in batch_results:
+        # 1. Cross-asset: look up causal daily state for this bar's date
+        ca = cross_asset_by_date.get(bar_ts.date(), _no_ctf)
+
+        # 2. CTF: most recent HTF bar timestamp ≤ bar_ts (htf_ts_list is constant per symbol/tf)
+        if htf_ts_list:
+            idx = bisect.bisect_right(htf_ts_list, bar_ts) - 1
+            ctf = ctf_by_ts[htf_ts_list[idx]] if idx >= 0 else _no_ctf
+        else:
+            ctf = _no_ctf
+
+        # 3. Inject all corrected values; VP/SR → None (not computable in batch)
+        fv_fixed = dataclasses.replace(
+            fv,
+            vix_z=ca[0],
+            flight_quality=ca[1],
+            yield_slope_z=ca[2],
+            ctf_momentum=ctf[0],
+            ctf_vwap_align=ctf[1],
+            ctf_regime_align=ctf[2],
+            poc_dist_atr=None,
+            va_position=None,
+            sr_support_dist=None,
+            sr_resist_dist=None,
+        )
+
         row = _vector_to_params(
             symbol=symbol,
             tf=tf,
             bar_ts=bar_ts,
             pipeline_version=pipeline_version,
-            regime=None,  # populated by regime_writer after batch compute completes
-            fv=fv,
+            regime=None,
+            fv=fv_fixed,
         )
         insert_batch.append(row)
 
@@ -713,7 +870,6 @@ def _compute_symbol_tf(
                 total_bars=total_bars,
             )
 
-    # Flush remaining batch
     if insert_batch:
         _batch_insert(conn, insert_batch)
         total_inserted += len(insert_batch)

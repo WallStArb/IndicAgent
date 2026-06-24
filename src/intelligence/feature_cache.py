@@ -242,6 +242,25 @@ class FeatureCache:
 # ---------------------------------------------------------------------------
 
 
+def _rsi_simple(closes: np.ndarray, period: int) -> float:
+    """Wilder's RSI. Returns 50.0 on cold start. Result in [0.0, 100.0]."""
+    if len(closes) < period + 1:
+        return 50.0
+    deltas = np.diff(closes.astype(float))
+    gains = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+    alpha = 1.0 / period
+    avg_gain = float(np.mean(gains[:period]))
+    avg_loss = float(np.mean(losses[:period]))
+    for i in range(period, len(gains)):
+        avg_gain = alpha * float(gains[i]) + (1.0 - alpha) * avg_gain
+        avg_loss = alpha * float(losses[i]) + (1.0 - alpha) * avg_loss
+    if avg_loss < 1e-10:
+        return 100.0 if avg_gain > 0 else 50.0
+    rs = avg_gain / avg_loss
+    return float(min(100.0, max(0.0, 100.0 - 100.0 / (1.0 + rs))))
+
+
 def _hurst_rs(close: np.ndarray, min_window: int = 16) -> float:
     """Rescaled range (R/S) estimate of the Hurst exponent.
 

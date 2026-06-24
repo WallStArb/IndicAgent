@@ -3,14 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
 status: executing
-last_updated: "2026-06-23T23:00:00.000Z"
-last_activity: 2026-06-23 -- Phase 138 complete; full corpus OHLCV gap fill running; truncate + re-backfill pending before Phase 139
+last_updated: "2026-06-24T06:23:18.328Z"
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 20
-  completed_plans: 18
-  percent: 75
+  total_plans: 19
+  completed_plans: 19
+  percent: 67
 ---
 
 # Project State
@@ -20,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Full corpus data run — filling OHLCV gaps, then re-running backfill_feature_factory + IC pipeline across all 58 ETFs before Phase 139
+**Current focus:** Phase 139 — ensemble-alpha-emission
 
 ## v3.0 Phase Summary
 
@@ -59,18 +58,23 @@ See: .planning/PROJECT.md
 Preparing to run the complete IC pipeline across all 58 active ETFs.
 
 **Step 1 — OHLCV gap fill (running now):**
+
 ```bash
 bash production/scripts/backfill_missing_timeframes.sh
 ```
+
 Filling 8 symbols with zero/missing intraday TFs: XLU, XLV, XLY, XOP, XRT (need 5m/15m/1h), VTV, IBIT (need 5m/15m), IEF (need 15m).
 
 **Step 2 — Truncate derived tables:**
+
 ```bash
 bash production/scripts/truncate_derived_tables.sh
 ```
+
 Clears feature_vectors, forward_returns, feature_ic_scores, backfill_status.
 
 **Step 3 — Full corpus IC pipeline:**
+
 ```bash
 .venv/bin/python services/backfill_feature_factory.py          # ~20-30h, all 58 ETFs × 4 TFs
 .venv/bin/python services/regime_writer.py --backfill
@@ -100,6 +104,7 @@ Clears feature_vectors, forward_returns, feature_ic_scores, backfill_status.
 Phase 138 code complete (all 9 plans). 4-symbol validation run produced 12,444 IC scores. Found 8 symbols with zero/missing intraday TFs in market_data_ohlcv. Gap fill running now (backfill_missing_timeframes.sh). After gap fill: truncate derived tables, run full corpus pipeline (~20-30h), then Phase 139.
 
 Created scripts:
+
 - `production/scripts/truncate_derived_tables.sh` — truncates feature_vectors, forward_returns, feature_ic_scores, backfill_status
 - `production/scripts/backfill_missing_timeframes.sh` — updated with 2026-06-23 gap audit (replaces old 6-symbol list)
 
