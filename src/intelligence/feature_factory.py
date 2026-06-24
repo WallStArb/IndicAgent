@@ -1265,7 +1265,7 @@ class FeatureFactory:
 
         for i in range(1, len(bars)):
             # Periodically refresh regime — use hurst_window (APR: feature.hurst.window,
-            # default 500) so HMM gets sufficient history. MIN_WINDOW=50 is only for
+            # default 500) so HMM gets sufficient history. MIN_WINDOW (APR-derived, default 40) is only for
             # bounded per-bar features (CCI, Aroon, etc.) below.
             if i % config.regime_cache_refresh_bars == 0:
                 regime_window_start = max(0, i - config.hurst_window)

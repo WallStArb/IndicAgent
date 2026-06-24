@@ -866,8 +866,8 @@ def _compute_symbol_tf(
         config,
         warm_up_bars=warm_up_bars,
         cross_asset_by_date=cross_asset_by_date,
-        ctf_by_ts=ctf_by_ts if ctf_by_ts else None,
-        ctf_ts_list=htf_ts_list if htf_ts_list else None,
+        ctf_by_ts=ctf_by_ts or None,
+        ctf_ts_list=htf_ts_list or None,
     )
 
     insert_batch: list[tuple] = []
