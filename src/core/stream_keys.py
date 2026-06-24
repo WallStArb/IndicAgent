@@ -168,6 +168,19 @@ def topic_intelligence_i7_signals(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.i7.signals"
 
 
+def topic_alpha_events(env_name: str) -> str:
+    """Kafka topic for alpha emission events from AlphaEngine v3.0.
+
+    Published by AlphaEmitter (services/alpha_emitter.py) when ensemble alpha score
+    crosses the per-TF emission threshold (alpha.quant.threshold.{tf} APR key) and
+    the effective_N gate is met (alpha.ensemble.effective_n_gate).
+
+    Payload schema: see alpha_events DB table (production/migrations/168_ensemble_tables.sql).
+    topic pattern: <env>.alpha.events (dots only, via stream_keys.py).
+    """
+    return f"{env_prefix(env_name)}alpha.events"
+
+
 def topic_intelligence_shadow(env_name: str) -> str:
     """Kafka topic for shadow rollout output from IntelligencePipeline.
 
