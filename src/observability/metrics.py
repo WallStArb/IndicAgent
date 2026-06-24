@@ -1139,3 +1139,61 @@ IC_WIN_RATE_GAUGE = _meter.create_gauge(
         "NULL when sharpe gate not met; labels feature_name, tf, regime, lookahead"
     ),
 )
+
+# ---------------------------------------------------------------------------
+# Phase 139 Ensemble + Alpha Emission metrics
+# ---------------------------------------------------------------------------
+
+# Ensemble weight gauges — emitted by EnsembleBuilder after each weight solve
+ENSEMBLE_FEATURE_WEIGHT_GAUGE = _meter.create_gauge(
+    "ensemble_feature_weight",
+    description=(
+        "Post-cap post-deflation weight per feature in the ensemble. "
+        "Labels: feature, symbol, tf, weight_version"
+    ),
+)
+ENSEMBLE_EFFECTIVE_N_GAUGE = _meter.create_gauge(
+    "ensemble_effective_n",
+    description=(
+        "Effective N (inverse HHI = 1/sum(w^2)) of ensemble weights per stratum. "
+        "Labels: symbol, tf, weight_version"
+    ),
+)
+ENSEMBLE_SHRINKAGE_INTENSITY_GAUGE = _meter.create_gauge(
+    "ensemble_shrinkage_intensity",
+    description=(
+        "Ledoit-Wolf shrinkage coefficient in [0,1] for the feature covariance estimate. "
+        "0 = pure sample covariance; 1 = full shrinkage to scaled identity. "
+        "Labels: symbol, tf, weight_version"
+    ),
+)
+ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE = _meter.create_gauge(
+    "ensemble_features_zero_weight_total",
+    description=(
+        "Count of features with zero weight after cap + cluster deflation. "
+        "Labels: symbol, tf, weight_version"
+    ),
+)
+
+# Alpha emitter counters — emitted by AlphaEmitter after each batch run
+ALPHA_EMITTER_EMISSIONS_TOTAL = _meter.create_up_down_counter(
+    "alpha_emitter_emissions_total",
+    description=(
+        "Total alpha events emitted (cumulative per batch run). "
+        "Labels: symbol, tf, direction, regime"
+    ),
+)
+ALPHA_EMITTER_BARS_SCORED_TOTAL = _meter.create_up_down_counter(
+    "alpha_emitter_bars_scored_total",
+    description=(
+        "Total bars scored by the ensemble alpha computation (cumulative per batch run). "
+        "Labels: symbol, tf"
+    ),
+)
+ALPHA_EMITTER_REJECTIONS_TOTAL = _meter.create_up_down_counter(
+    "alpha_emitter_rejections_total",
+    description=(
+        "Total bars rejected before emission (below threshold or failed effective_N gate). "
+        "Labels: symbol, tf, rejection_reason"
+    ),
+)
