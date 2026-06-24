@@ -2,17 +2,40 @@
 
 ## What This Is
 
-IndicAgent is a real-time market intelligence platform covering 23 instruments across equity index, energy, metals, rates, volatility, agriculture, FX, and crypto. It ingests live tick data, runs a 7-tier plugin pipeline (I1–I8) producing 121 plugins of technical indicators, market structure analysis, pattern detection, smart money concepts, CIS composite scoring, and AI-generated signal narratives. Every intelligence output flows through a canonical typed `IntelligenceEvent` bus persisted to a TimescaleDB feature store with complete i7/i8/days_to_expiry enrichment. Signal integrity is enforced via regime-aware gating, Hurst/Shannon entropy quality gates, Kalman-smoothed CIS, isotonic calibration, and time-of-day Bayesian multipliers. OFI and CVD microstructure features provide order-flow intelligence at I1. A dedicated cross-asset service monitors equity index spread dynamics. Automated futures roll detection propagates contract transitions through the pipeline without restarts.
+IndicAgent is a quantitative market intelligence platform built on Renaissance-style empirical IC measurement. It operates two coexisting pipelines:
+
+**v2.x Real-Time Pipeline (live):** Covers 23 instruments across equity index, energy, metals, rates, volatility, agriculture, FX, and crypto. Ingests live tick data via IBKR TWS, runs a 7-tier plugin pipeline (I1–I8) producing 121 plugins of technical indicators, market structure analysis, pattern detection, smart money concepts, CIS composite scoring, and AI-generated signal narratives through a canonical typed `IntelligenceEvent` bus persisted to TimescaleDB.
+
+**v3.0 AlphaEngine (batch):** Covers 58 ETFs across 4 timeframes (5m/15m/1h/1d). A Feature Factory computes 54 features per bar into `feature_vectors`. An IC Engine measures rolling information coefficients per feature, producing IC-ranked `feature_ic_scores`. An Ensemble layer (Ledoit-Wolf cluster deflation) derives IC-weighted `ensemble_alpha` scores and emits qualifying entries to `alpha_events` via Kafka. Alpha is earned empirically — no hand-crafted signal logic, no synthetic IC.
 
 ## Core Value
 
-Every intelligence output — indicator, pattern, signal, narrative — flows through one canonical typed bus that both internal and external consumers can trust.
+Alpha must be demonstrated empirically before any ensemble weight is assigned. IC is measured on the full unbiased feature corpus, not on selection-biased signal events.
 
 ## Requirements
 
 ### Validated
 
 (Shipped and verified in production)
+
+**v3.0 AlphaEngine — Feature Factory, IC Engine, Ensemble + Alpha Emission (2026-06-24):**
+- ✓ Feature Factory: 54 features per bar (momentum, microstructure, regime, volume, pattern) computed for 58 ETFs × 4 TFs into `feature_vectors` via `backfill_feature_factory.py` (batch) and live FeatureVectorWriter — v3.0
+- ✓ IC Engine: rolling IC (Spearman, 252-bar window) per feature × symbol × tf × regime; IC Sharpe gate (Sharpe≥0 over stride periods); walk-forward validation into `feature_ic_scores` — v3.0
+- ✓ Forward Returns: `return_fast/mid/slow/extended` computed causally into `feature_vectors`; `regime` column populated by HMM (42-seed, forward_filter source) — v3.0
+- ✓ Ensemble Trainer: Ledoit-Wolf cluster deflation; IC-weighted ensemble alpha → `ensemble_weights` + `ensemble_alpha` — v3.0
+- ✓ Alpha Publisher: direction-aware CI gates + effective_N gate; qualifying rows → `alpha_events` (DB) + `alpha.events` (Kafka) — v3.0
+- ✓ BaseBatch Ring 0 base class (`src/core/agent/base_batch.py`): pool lifecycle, D-06 oneshot contract, content_key() — all Phase 138+ batch services extend it — v3.0
+- ✓ Gradient column naming: `return_fast/mid/slow/extended`; `momentum_z_fast/mid/slow`; `volatility_rank_z` — APR keys calibrate, no migrations needed — v3.0
+- ✓ APR namespace `alpha.*`: IC lookahead periods, subsample stride, Sharpe gate, CI gates, Kelly fraction, emission thresholds — v3.0
+- ✓ `alpha_events` table (migration 168): symbol, tf, bar_ts, alpha_score, direction, ensemble_version, ci_lower, effective_n — v3.0
+
+**v2.10 Data Architecture Evolution (2026-06-20):**
+- ✓ 3-table signal architecture: `signal_events` / `trade_frames` / `trade_executions` — v2.10
+- ✓ `counterfactual_pnl_r` (CFL) as ML training target — v2.10
+- ✓ ECL boundary restored (37 I7 plugins intrinsic-only) — v2.10
+- ✓ 51 APR constants externalized — v2.10
+- ✓ 1.44M rows migrated from legacy `signal_ledger` — v2.10
+- ✓ PG ENUM types for signal status — v2.10
 
 **v1.9 I7 Alpha Engine (2026-03-18):**
 - ✓ CIS self-improving learning loop: DB weight loading, binary win labels, asset-cluster segmented logistic regression (5 clusters) — v1.9
@@ -186,31 +209,28 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v2.4 Observability Hardening — Phase 68 complete)
+### Current State (v3.0 complete — 2026-06-24)
 
+**v3.0 AlphaEngine status:** Phases 137-139 shipped. 19 plans, 379 files, +51,563/-5,018 lines. Full 58-symbol corpus run in progress (started 2026-06-24; 31/58 symbols done at time of writing).
+
+**v2.x Real-Time Pipeline (still operational):**
 - 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
-- 9 active systemd services: feature-pipeline, signal-generator, signal-lifecycle, ai-narrative, feature-writer, llm-writer, cross-asset, api, gap-fill-timer
-- **Phase 053.1 (2026-03-28):** BarWriterAgent + BarAuditorAgent implemented. Bar persistence DAG: `market.bars/htf → BarWriterAgent → market_data_ohlcv`; `BarAuditorAgent → topic_gap_requests → DataProviderAgent (_gap_requests_loop)`. FCA `_ohlcv_buffer` removed (D-08). `gap_fill_service` retired. 25/25 unit tests. 12/12 must-haves verified.
-- **Phase 053.3 (2026-03-28):** RollComputeAgent extracted from DataProviderAgent (tws_daemon → data_provider_agent rename). `RollEvent` typed schema (8 fields) + `topic_roll_events()` (`{env}.market.events.roll`). `DataProviderAgent` is now DB-ignorant: no roll detection. `RollComputeAgent(BaseAgent)` owns all roll detection, publishes typed `RollEvent`, Golden Signals on :9122. `signal_generator_agent` migrated from `topic_system_events` to `topic_roll_events`; `parse_roll_event` validates via pydantic `model_validate()`. `ROLL_MONITOR_ENABLED` flag removed. 12/12 must-haves verified.
-- **Phase 52.8 (2026-03-28):** W3C trace context propagation wired into Kafka transport layer. `_KafkaHeadersCarrier` adapter bridges OTel propagators to AIOKafka `list[tuple[str, bytes]]` header format. `inject(carrier)` in `KafkaProducerClient.publish()` stamps every outgoing message with `traceparent`. `extract(carrier)` + `otel_context.attach/detach` in `KafkaConsumerClient.messages()` attaches upstream span context before yield, detaches in `finally`. Zero signature changes, zero per-message spans, zero conditional guards — OTel no-op handles disabled tracing. Enables end-to-end bar journey traces in Grafana Tempo (IndicatorComputeAgent → SignalGeneratorAgent → FeatureWriterAgent in single waterfall). 15 unit tests passing.
-- **Phase 52.7 (2026-03-28):** Grafana Tempo deployed as 6th Docker Compose service (`grafana/tempo:2.10.3`). OTLP HTTP on port 4318 (host-published for systemd agents), 7-day local retention, separate WAL/traces paths. Grafana datasource provisioned at `tempo:3200` (Docker DNS, not host-published) with service map linked to Prometheus. `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` added to 5 agent systemd unit files (the 4 Phase 52.6 pipeline agents — IndicatorComputeAgent, IntelligenceComputeAgent, SignalGeneratorAgent, FeatureWriterAgent — plus FeatureComputeAgent); `indicagent-intelligence-compute.service` recovered into version control (was deployed but not committed); `PYTHONUNBUFFERED=1` completed across all 10 unit files. Validated: TEMPO-01–05.
-- **Phase 52.6 (2026-03-28):** BaseAgent enhanced with lifecycle contract (_setup/_teardown, metrics_port, tracer, topics_consumed/produced, running property, _send_to_dlq). ProcessManifest replaces singleton AgentRegistry. All 4 pipeline agents (IndicatorComputeAgent, SignalGeneratorAgent, IntelligenceComputeAgent, FeatureWriterAgent) migrated to enhanced BaseAgent. init_tracing() in all 4 service entrypoints — OTel spans ready for Phase 52.7 Tempo infra. Validated: AGENT-01–05.
-- Signal pipeline: in-process 6-stage pipeline in SignalGeneratorAgent (now BaseAgent) (quality_gate → regime_gate → tod_adjuster → calibrator → ranker → winner_selector); publishes `BarIntelligenceRecord` per bar; single atomic INSERT per bar to `intelligence_features`
-- FeaturePipelineService: unified I1–I6 execution, live 1m OHLCV written to `market_data_ohlcv`, cross-asset + VIX frames injected before I6
-- All 36 I7 plugins emit `_shadow` dict with I6 ctf_* sub-scores — ML training foundation ready for v2.3
-- Cross-asset unconditionally active (CROSS_ASSET_ENABLED flag removed); roll monitor awaiting D-21 re-validation (todo 023 in done — scaffolding removed, operational gate pending)
-- `signal_ledger`: 58 fields + generated columns (effective_ts, pipeline_lag_ms) + CHECK constraints + composite lifecycle index
-- data_quality_check.py on 15-min systemd timer; 10 Prometheus gauges; IC scores for 3,227 plugin-regime slices
+- Signal architecture: `signal_events` / `trade_frames` / `trade_executions`; query via `signal_ledger` JOIN view
+- Active systemd services: `intelligence-pipeline`, `signal-lifecycle`, `feature-writer`, `llm-writer`, `ai-narrative`, `bar-writer`, `bar-auditor`, `bar-aggregator`, `api`, `roll-compute`, `cross-asset`, `context-writer`, `lineage-writer`
 
-**Infrastructure:** Ollama (:11434, qwen3.5:9b default), PostgreSQL/TimescaleDB (:5432), Redpanda, IBKR TWS at 192.168.1.157:7497
+**v3.0 Batch Pipeline:**
+- `feature_vectors`: 54 features × 58 ETFs × 4 TFs (5m/15m/1h/1d); 29M+ rows after full corpus
+- `feature_ic_scores`: rolling IC Sharpe per feature × symbol × tf × regime; `is_pooled=false` for ensemble
+- `ensemble_weights`: Ledoit-Wolf deflated IC weights per `weight_version`
+- `ensemble_alpha`: per-bar alpha scores; gates → `alpha_events` + `alpha.events` Kafka topic
+- Services: `indicagent-ensemble-trainer` (oneshot), `indicagent-alpha-publisher` (oneshot)
 
-**Known issues / tech debt (v2.0 audit):**
-- validate_alpha.py re-run needed for DerivOsc + AC Osc once N≥30 signals accumulate (todo 023)
-- trad_DualDivergence IS_SHADOW=True (awaiting live confirmation before promotion — tracked in Phase 50)
-- Phase 43 broken CI test: test_held_lock_blocks_concurrent_waiter — threading.Lock migration (tracked in Phase 49)
-- 6 zombie DAG unit files in production/systemd/ (hygiene — todo 024)
-- Stale Wants=indicagent-indicator.service in feature-writer unit (hygiene — todo 024)
-- Two migrations share number 043 — next migration must start at 044
+**Infrastructure:** Ollama (:11434, `nemotron-3-nano:4b` default), PostgreSQL/TimescaleDB (:5432), Redpanda, IBKR TWS at 192.168.68.53:7497 (Docker `ib-gateway`)
+
+**Pending after corpus completes:**
+- Regenerate IC discovery report (`services/generate_ic_discovery_report.py`)
+- Run EnsembleTrainer + AlphaPublisher on full corpus; review alpha_events distribution
+- Plan next milestone (v3.1 or v4.0)
 
 ## Key Decisions
 
@@ -253,6 +273,12 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 | BarIntelligenceRecord single atomic INSERT | Eliminate 2-phase i7/i8 partial-row UPSERT pattern; complete rows at insert time; i8 patched via LLMWriterService UPDATE | ✓ Good — no partial rows, no race conditions |
 | VIX + cross-asset promoted to I4 (not I6) | Per-TF VIX z-score in I6 poisoned ML training data (different z per TF for same market moment); macro regime belongs in I4 | ✓ Good — I4Context +4 fields; ML training matrix now has stable vix_z feature |
 | _shadow dict capture at I7 with placeholder weights | Capture I6 ctf_* scores into _shadow now; Phase 49 learns weights via ML; zero confidence modification today | ✓ Good — dataset complete; weights deferred avoids premature optimization |
+| IC on feature_vectors not intelligence_features (v3.0) | intelligence_features rows only exist for bars that triggered I7 plugins — selection bias; feature_vectors covers every bar unconditionally | ✓ Good — Phase 133 (signal_events corpus) cancelled; unbiased IC is the ground truth |
+| Feature Factory as standalone batch (not live pipeline) | IC requires years of historical data; computing 54 features in real-time adds no value until ensemble weights are learned | ✓ Good — backfill_feature_factory.py + FeatureVectorWriter for live; corpus run generates training corpus |
+| Gradient column naming over numeric suffixes (v3.0) | `return_fast/mid/slow/extended` lets APR calibrate "what is fast" without schema migrations; numeric suffix bakes the period into the schema | ✓ Good — `alpha.ic.lookahead.fast` APR key drives period; rename column, not period |
+| Ledoit-Wolf cluster deflation for ensemble weights | Naive IC weighting double-counts correlated features; Ledoit-Wolf + k-means clustering deflates correlated feature groups before summing weights | ✓ Good — EnsembleTrainer uses sklearn LedoitWolf; cluster assignments logged for inspection |
+| HMM regime label from forward_filter not filtered | forward_filter is the smoothed posterior; filtered is the instantaneous estimate; using filtered on a look-ahead-biased label poisons IC measurement | ✓ Good — DEFAULT set to forward_filter in schema; changing invalidates all feature_ic_scores |
+| HMM_RANDOM_STATE=42 in APR not hardcoded | Changing the seed invalidates all downstream IC scores and requires full re-run; APR key makes the constraint explicit and discoverable | ✓ Good — `alpha.hmm.random_state` APR key; description warns re-run required on change |
 
 ## Constraints
 
@@ -260,6 +286,14 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No ib_insync outside providers**: All IBKR logic in `src/providers/ibkr.py`
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
+
+## Completed: v3.0 — Intelligence Vectors (AlphaEngine) (SHIPPED 2026-06-24)
+
+Feature Factory (54 features, 58 ETFs × 4 TFs into `feature_vectors`). IC Engine (rolling Spearman IC + walk-forward Sharpe gate → `feature_ic_scores`). Ensemble Trainer (Ledoit-Wolf cluster deflation → `ensemble_weights` + `ensemble_alpha`). Alpha Publisher (CI gates → `alpha_events` + Kafka). BaseBatch Ring 0 base class. Gradient column naming. APR `alpha.*` namespace. 3 phases, 19 plans.
+
+Archive: `.planning/milestones/v3.0-ROADMAP.md`
+
+---
 
 ## Completed: v2.10 — Data Architecture Evolution (SHIPPED 2026-06-20)
 
@@ -269,23 +303,9 @@ Archive: `.planning/milestones/v2.10-ROADMAP.md`
 
 ---
 
-## Current Milestone: v3.0 — Intelligence Vectors (AlphaEngine)
+## Next: TBD
 
-**Goal:** Replace binary I7 signal plugins with continuous IC-weighted score producers. The existing indicator→signal pipeline is excellent feature engineering but has a structural flaw: hand-crafted logic decides when a feature combination constitutes a tradeable edge. Renaissance's insight: measure IC empirically, weight predictors by IC × orthogonality, emit alpha when ensemble CI supports positive EV.
-
-**Architecture decisions (made — not conditional):**
-- Renaissance first principles: IC must be demonstrated before any ensemble weight; IC Sharpe (stability) beats raw IC
-- AlphaEngine first (V1 Quant: existing 138 I1-I7 plugins); AnalogEngine (pgvector/VIL) deferred until AlphaEngine validated
-- Phase 133 (binary corpus rebuild) CANCELLED — IC measurement belongs on `intelligence_features` (all bars), not `signal_events` (selection-biased)
-- Design docs: `docs/ideas/signal-08-intelligence-refactor.md` (north star), `docs/plans/2026-06-20-intelligence-vectors-architecture.md` (AlphaEngine technical design)
-
-**Build order (AlphaEngine V1 Quant):**
-- Phase 137: IC measurement on existing `signal_events` corpus (exploratory; selection-biased baseline)
-- Phase B: Plugin continuous scores — I7 plugins emit `alpha_score` unconditionally alongside binary signal
-- Phase C: IC measurement on `intelligence_features` (all bars, unbiased) — this is the real IC
-- Phase D: Ensemble layer — IC-weighted aggregation → alpha emission; `alpha_quant` replaces hand-crafted confidence
-
-**After AlphaEngine V1:** V2 Microstructure, V3 Macro, V4 Calendar vectors; then AnalogEngine (VIL/pgvector substrate)
+Plan after corpus run completes and IC discovery report is reviewed.
 
 ---
 ## Evolution
@@ -306,4 +326,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-18
+*Last updated: 2026-06-24 (v3.0 milestone complete)*
