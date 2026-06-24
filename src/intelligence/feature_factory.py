@@ -1263,6 +1263,11 @@ class FeatureFactory:
         )
         results: list[tuple[datetime, FeatureVector]] = []
 
+        def _guard(v: float | None, fallback: float = 0.0) -> float | None:
+            if v is None:
+                return None
+            return v if math.isfinite(v) else fallback
+
         for i in range(1, len(bars)):
             # Periodically refresh regime — use hurst_window (APR: feature.hurst.window,
             # default 500) so HMM gets sufficient history. MIN_WINDOW (APR-derived, default 40) is only for
@@ -1436,12 +1441,6 @@ class FeatureFactory:
                 ctf_momentum_val = cache.ctf_momentum
                 ctf_vwap_align_val = cache.ctf_vwap_align
                 ctf_regime_align_val = cache.ctf_regime_align
-
-            # Guard: replace NaN/inf with fallback; None passes through (batch VP/SR)
-            def _guard(v: float | None, fallback: float = 0.0) -> float | None:
-                if v is None:
-                    return None
-                return v if math.isfinite(v) else fallback
 
             # Build FeatureVector
             fv = FeatureVector(

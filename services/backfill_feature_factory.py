@@ -228,7 +228,7 @@ def _build_cross_asset_series(
     """
     symbol_bars: dict[str, list[dict]] = {"spy": spy_bars, "tlt": tlt_bars, "shy": shy_bars}
     symbol_dates: dict[str, list] = {k: [b["ts"].date() for b in v] for k, v in symbol_bars.items()}
-    all_dates = sorted(set().union(*[set(d) for d in symbol_dates.values()]))
+    all_dates = sorted(set().union(*symbol_dates.values()))
 
     # Incremental state — O(1) per date
     cursors: dict[str, int] = {k: 0 for k in symbol_bars}
@@ -278,8 +278,7 @@ def _build_cross_asset_series(
         if spy_prev_close > 1e-10:
             spy_ret = math.log(spy_close / spy_prev_close)
             spy_log_rets.append(spy_ret)
-            rv_window = min(config.cross_asset_rv_window, len(spy_log_rets))
-            realized_vol = float(np.std(list(spy_log_rets)[-rv_window:]))
+            realized_vol = float(np.std(spy_log_rets))
             spy_realized_vol_history.append(realized_vol)
             vix_z = _zscore_from_deque(spy_realized_vol_history, config.vix_zscore_window)
 
