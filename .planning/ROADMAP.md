@@ -24,7 +24,7 @@
 - ✅ **v2.9 Signal Quality Renaissance** — Phases 117-122 (shipped 2026-06-13; 5.18M noise signals deleted, 21 setups refactored, param store wired)
 - ✅ **v2.10 Data Architecture Evolution** — Phases 123-136 (SHIPPED 2026-06-20; ECL + APR + signal hardening + clean replay + 3-table migration + type safety + post-reboot repair)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
-- 🚀 **v3.0 Intelligence Vectors — AlphaEngine** — In progress: Phase 137 ✅ · Phase 138 ✅ (code) · full corpus data run underway · Phase 139 next
+- ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-139 (SHIPPED 2026-06-24; Feature Factory + IC Engine + Ensemble + Alpha Emission; full corpus run underway)
 
 ## Phases
 
@@ -1192,117 +1192,13 @@ Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from 
 
 </details>
 
-## v3.0 Intelligence Vectors — AlphaEngine
+<details>
+<summary>✅ v3.0 Intelligence Vectors — AlphaEngine (Phases 137-139) — SHIPPED 2026-06-24</summary>
 
-**Milestone goal:** Replace binary signal plugins with empirical IC measurement. Feature Factory computes 35 orthogonal primitives from raw OHLCV. IC Engine measures predictive power per feature × symbol × TF × regime. Ensemble weighs features by IC. AlphaEmitter publishes `alpha_events` (shadow mode). Live execution runs on a separate platform connected via the Kafka spine.
+- [x] **Phase 137: Feature Factory** — 54-feature typed `feature_vectors` hypertable; `FeatureFactory.compute()`; `BaseBatch` Ring 0 base class; I5/I6/I7 archived (7/7 plans, 2026-06-21)
+- [x] **Phase 138: IC Engine + Forward Returns** — Vectorized Spearman IC, circular-block-bootstrap CI, BH-FDR, 3-fold walk-forward, causal HMM regime labeling, forward returns via LEAD() (9/9 plans, 2026-06-23)
+- [x] **Phase 139: Ensemble + Alpha Emission** — Ledoit-Wolf ensemble weights, IC-weighted alpha matmul, direction-aware CI gate, shadow `alpha_events` emission (3/3 plans, 2026-06-24; 14/14 verification truths)
 
-**Build order:** Phase 137 → Phase 138 → Phase 139. Phases 137-139 are the complete v3.0 scope on this platform.
+Full details: `.planning/milestones/v3.0-ROADMAP.md`
 
-### Phase 137: Feature Factory
-
-**Goal:** Build `FeatureFactory` (`src/intelligence/feature_factory.py`) producing a typed `FeatureVector` from raw OHLCV bars. Create `feature_vectors` TimescaleDB hypertable. Run historical backfill across 58 ETFs × 4 TFs. Archive I5-I7. Wire intelligence pipeline to call `FeatureFactory.compute()` per bar.
-
-**Depends on:** Phase 136 (v2.10 complete)
-
-**Success Criteria:**
-1. `feature_vectors` hypertable created with 36 typed columns (no JSONB) - schema per `docs/plans/2026-06-20-v30-system-design.md`
-2. `FeatureFactory.compute(bars, symbol, tf)` → `FeatureVector` frozen dataclass: all 35 primitives implemented
-3. All `feature.*` APR keys seeded in `config_state` (periods, z-score windows, cache refresh cadence)
-4. Historical backfill complete: 58 ETFs × 4 TFs at target depths (5m: 5yr, 15m: 10yr, 1h: 15yr, 1d: 20yr) - row counts validated vs IC spec §II
-5. `regime_label_source = 'filtered'` (forward Viterbi, causal) - no backward smoother
-6. Intelligence pipeline calls `FeatureFactory.compute()` per bar; feature_writer persists to `feature_vectors`
-7. I5/I6/I7 archived (code preserved, removed from pipeline dispatch)
-8. Plugin registry dispatch removed from `IntelligencePipeline` - replaced by single `FeatureFactory` call
-9. Zero inline numeric constants in `feature_factory.py` - all APR-backed via `ConfigService.get()`
-10. Unit tests green
-
-**Status:** COMPLETE (7/7 plans, 2026-06-21)
-
-Plans:
-
-**Wave 1** *(foundation, parallel - no file conflicts)*
-
-- [x] 137-P1-PLAN.md - Schema + APR: migration 155 (feature_vectors hypertable + backfill_status + feature.*/alpha.vector seeds) + alpha. prefix in OPS_PREFIXES (SC-1, SC-3, SC-5)
-- [x] 137-P2-PLAN.md - Contracts: topic_feature_vectors in stream_keys + FeatureVector/FeatureVectorRecord dataclasses in schemas (SC-2)
-
-**Wave 2** *(blocked on P1+P2)*
-
-- [x] 137-P3-PLAN.md - TDD: FeatureFactory pure-function library + FeatureCache + all 35 primitives (forward-only HMM, OHLCV proxy flow, cross-asset proxies - VXX/VIXY absent) (SC-2, SC-9)
-
-**Wave 3** *(parallel - P4 blocked on P1+P2, P5 blocked on P1+P3)*
-
-- [x] 137-P4-PLAN.md - feature_writer retarget to feature_vectors (consumer group rename, 42-param INSERT) (SC-6)
-- [x] 137-P5-PLAN.md - Backfill oneshot: IBKR fetch (client-id 40) + FeatureFactory compute from market_data_ohlcv + checkpoint/resume + D-06 coverage gate (SC-4, SC-5)
-
-**Wave 4** *(blocked on P3+P4+P5; backfill coverage gate must pass first)*
-
-- [x] 137-P6-PLAN.md - Cutover: wire FeatureFactory into pipeline + feature.* prewarm + remove plugin dispatch + archive I5/I6/I7 intact + live smoke test + done-gate (SC-6, SC-7, SC-8, SC-10)
-
-### Phase 138: IC Engine + Outcome Labels
-
-**Goal:** Measure Spearman IC per feature × symbol × TF × regime × lookahead. Build `ForwardReturnWriter` (LEAD()-based forward returns → `forward_returns`). Build `ICEngine` (→ `feature_ic_scores` with bootstrap CI, BH-FDR correction, walk-forward). Produce IC discovery report.
-
-**Depends on:** Phase 137
-
-**Success Criteria:**
-1. `forward_returns` table populated via LEAD() — causal, no lookahead bias
-2. `feature_ic_scores`: one row per (feature, symbol, tf, regime, lookahead) with IC mean, CI bounds, p-value, BH-FDR q-value
-3. IC Sharpe gate enforced: min 10 windows × 2,000 obs = 20,000 independent observations
-4. Walk-forward validation (3 folds) complete — out-of-sample IC confirms in-sample
-5. IC discovery report: which features pass FDR gate by regime and TF
-6. All `alpha.ic.*` APR keys seeded and loaded via `ConfigService.get()`
-
-**Status:** COMPLETE — code (9/9 plans, 2026-06-23); full corpus data run (58 ETFs × 4 TFs) pending after OHLCV gap fill
-
-Plans:
-
-**Wave 0** *(completed)*
-
-- [x] 138-P0-PLAN.md — FeatureVectorWriter UUID content-key: migration 158, idempotent ON CONFLICT (2026-06-22)
-
-**Wave 1** *(completed)*
-
-- [x] 138-P1-PLAN.md — Foundation hardening (council review 12 findings): NaN/Inf validator, feature_factory_version throughout stack, 7 new FeatureVector fields + compute (momentum_z_60, reversal_z, quarter_position, days_to_month_end, 3 nullable cross-sectional), migration 159 (9 new feature_vectors columns + batch_job_checkpoints), 70-param INSERT, per-symbol observability counter (2026-06-22)
-
-**Wave 2** *(completed — parallel)*
-
-- [x] 138-P2-PLAN.md — Infrastructure: BaseBatch abstract base class (pool lifecycle, D-06, content_key()) + migration 160 (forward_returns hypertable + feature_ic_scores with is_pooled + two unique indexes) + migration 161 (alpha.ic.*/alpha.decay.* APR seeds, TF-specific bootstrap block sizes) + alpha. in OPS_PREFIXES + service_auditor ONESHOT_UNITS registration (2026-06-22)
-- [x] 138-P3-PLAN.md — Run FeatureFactory backfill: populate feature_vectors (VUG/1h partial corpus; UUID fix); full corpus deferred to P8 (2026-06-22)
-
-**Wave 3** *(completed — parallel)*
-
-- [x] 138-P4-PLAN.md — HMM RegimeWriter oneshot: per-(symbol,tf) causal forward-filter decoding (NOT Viterbi) from market_data_ohlcv → feature_vectors.regime canonical text labels + full HMM alpha vector (hmm_prob_*) + D-06/OTel/spans; migration 162 (2026-06-22)
-- [x] 138-P5-PLAN.md — ForwardReturnWriter oneshot: causal LEAD() forward log returns ln(open[T+N+1]/open[T+1]) → forward_returns + completeness flags + TRAINING_WINDOW_END gate + idempotent + D-06/OTel/spans (2026-06-23)
-
-**Wave 4** *(completed — blocked on P4 + P5)*
-
-- [x] 138-P6-PLAN.md — ICEngine oneshot: vectorized Spearman IC + circular-block-bootstrap CI (APR block size) + BH-FDR + 3-fold walk-forward (60-bar embargo) + IC Sharpe/Sortino/win rate + degenerate-feature skip → feature_ic_scores; crash-loud gates; idempotent; D-06/OTel/spans; migration 164; --report-only flag (2026-06-23)
-
-**Wave 5** *(blocked on P6)*
-
-- [x] 138-P7-PLAN.md — Unit tests: vectorized IC == scipy 1e-10, BH-FDR order-preservation, forward return causality, causal HMM decoding (forward-filter != Viterbi), circular block bootstrap CI correctness, idempotency, regime label mapping
-
-**Wave 6** *(blocked on data — requires full corpus from backfill_feature_factory)*
-
-- [~] 138-P8-PLAN.md — Corpus runs + IC discovery report: 4-symbol validation run complete (12,444 IC scores, discovery report written 2026-06-23); full 58-symbol corpus run pending (OHLCV gap fill → truncate_derived_tables → backfill_feature_factory → regime_writer → forward_return_writer → ic_engine)
-
-### Phase 139: Ensemble + Alpha Emission
-
-**Goal:** Ledoit-Wolf shrinkage covariance → `ensemble_weights`. Score all historical bars → `ensemble_alpha`. Empirical emission threshold from transaction cost model. Build `AlphaEmitter` publishing to `alpha_events`. Shadow mode only — alpha events consumed by external execution platform via Kafka.
-
-**Depends on:** Phase 138
-
-**Success Criteria:**
-1. `ensemble_weights`: Ledoit-Wolf weights per (symbol, tf, regime, weight_version), max per-feature cap = 0.20
-2. `ensemble_alpha`: composite alpha score (z-scored), CI bounds, per (symbol, tf, bar_ts)
-3. Emission threshold calibrated from transaction cost model — `alpha.quant.threshold.*` APR keys seeded
-4. `alpha_events` populated in shadow mode — published to Kafka topic for downstream consumption
-5. `effective_N >= 3.0` gate enforced before any emission
-6. All `alpha.ensemble.*` APR keys seeded and loaded via `ConfigService.get()`
-
-**Plans:** 3/3 plans complete
-
-Plans:
-- [x] 139-P1-PLAN.md — Migration 168 (ensemble_weights/ensemble_alpha/alpha_events) + 9 APR keys + pure ensemble math library + topic_alpha_events + OTel gauges + unit tests (wave 1)
-- [x] 139-P2-PLAN.md — EnsembleBuilder + AlphaEmitter services (BaseBatch), service_auditor registration, systemd units, service tests (wave 2)
-- [x] 139-P3-PLAN.md — Corpus scoring run (gates on Phase 138 P8 data) + IC discovery report (wave 3)
+</details>

@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
-status: executing
-last_updated: "2026-06-24T06:23:18.328Z"
+status: milestone_archived
+last_updated: "2026-06-24T10:00:00.000Z"
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 19
-  completed_plans: 19
-  percent: 67
+  completed_plans: 20
+  percent: 100
 ---
 
 # Project State
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 139 — ensemble-alpha-emission
+**Current focus:** Milestone complete
 
 ## v3.0 Phase Summary
 
@@ -53,36 +53,22 @@ See: .planning/PROJECT.md
 
 **Top feature (4-symbol):** `quarter_position` (TLT, 15m, trending_up, IC Sharpe 0.870)
 
-## Full Corpus Run — In Progress
+## Full Corpus Run — RUNNING (started 2026-06-24)
 
-Preparing to run the complete IC pipeline across all 58 active ETFs.
-
-**Step 1 — OHLCV gap fill (running now):**
+All 6 pipeline steps running end-to-end via `corpus_pipeline_run.sh`.
 
 ```bash
-bash production/scripts/backfill_missing_timeframes.sh
+nohup bash production/scripts/corpus_pipeline_run.sh > logs/corpus_pipeline/nohup.log 2>&1 &
+tail -f logs/corpus_pipeline/nohup.log
 ```
 
-Filling 8 symbols with zero/missing intraday TFs: XLU, XLV, XLY, XOP, XRT (need 5m/15m/1h), VTV, IBIT (need 5m/15m), IEF (need 15m).
+**Pipeline steps:** feature_factory → regime_writer → forward_return_writer → ic_engine → ensemble_trainer → alpha_publisher
 
-**Step 2 — Truncate derived tables:**
+**Pre-run state:** All derived tables truncated (including alpha_events). backfill_status seeded from market_data_ohlcv (232 rows = 58 symbols × 4 TFs) because truncation cleared fetch_complete flags — `--compute-only` requires these.
 
-```bash
-bash production/scripts/truncate_derived_tables.sh
-```
+**Expected duration:** ~20-30h (step 1 dominates).
 
-Clears feature_vectors, forward_returns, feature_ic_scores, backfill_status.
-
-**Step 3 — Full corpus IC pipeline:**
-
-```bash
-.venv/bin/python services/backfill_feature_factory.py          # ~20-30h, all 58 ETFs × 4 TFs
-.venv/bin/python services/regime_writer.py --backfill
-.venv/bin/python services/forward_return_writer.py --backfill
-.venv/bin/python services/ic_engine.py --backfill
-```
-
-**After full corpus run:** Phase 138 P8 is complete and Phase 139 can begin.
+**After run completes:** Review IC discovery report, commit all work, then begin next milestone.
 
 ## Key Decisions (load-bearing — don't re-derive)
 
@@ -99,16 +85,19 @@ Clears feature_vectors, forward_returns, feature_ic_scores, backfill_status.
 
 ## Session Continuity
 
-### Current session (2026-06-23) — Post Phase 138, preparing full corpus
+### Current session (2026-06-24) — Corpus pipeline running
 
-Phase 138 code complete (all 9 plans). 4-symbol validation run produced 12,444 IC scores. Found 8 symbols with zero/missing intraday TFs in market_data_ohlcv. Gap fill running now (backfill_missing_timeframes.sh). After gap fill: truncate derived tables, run full corpus pipeline (~20-30h), then Phase 139.
+Full corpus pipeline launched. All naming violations fixed (EnsembleBuilder→EnsembleTrainer, AlphaEmitter→AlphaPublisher, run_corpus_pipeline.sh→corpus_pipeline_run.sh). All unit tests green (5,245 pass).
 
-Created scripts:
+**Gotcha:** `--compute-only` silently skips all symbols if backfill_status is empty (requires fetch_complete=true per row). After any truncation, seed backfill_status first:
+```sql
+INSERT INTO backfill_status (symbol, tf, fetch_complete, status)
+SELECT DISTINCT symbol, timeframe, true, 'pending'
+FROM market_data_ohlcv WHERE timeframe IN ('5m', '15m', '1h', '1d')
+ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
+```
 
-- `production/scripts/truncate_derived_tables.sh` — truncates feature_vectors, forward_returns, feature_ic_scores, backfill_status
-- `production/scripts/backfill_missing_timeframes.sh` — updated with 2026-06-23 gap audit (replaces old 6-symbol list)
-
-**Next:** Wait for gap fill to complete → truncate → full corpus backfill → Phase 139 (`/gsd-execute-phase 139`)
+**Next:** Wait for corpus_pipeline_run.sh to complete → review IC discovery report → commit → next milestone
 
 ### Previous session (2026-06-23) — Phase 138 P8
 
