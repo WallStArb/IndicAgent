@@ -105,9 +105,12 @@ async def _get_feature_columns(conn: asyncpg.Connection) -> list[str]:
             "symbol",
             "tf",
             "bar_ts",
+            "bar_close_ts",
             "feature_factory_version",
+            "feature_vector_id",
+            "pipeline_version",
             "regime",
-            "regime_label",
+            "regime_label_source",
             "created_at",
         }
     )
@@ -319,7 +322,7 @@ class EnsembleBuilder(BaseBatch):
             f"""
             SELECT {col_list}, bar_ts
             FROM feature_vectors
-            WHERE symbol = $1 AND tf = $2 AND regime_label = $3
+            WHERE symbol = $1 AND tf = $2 AND regime = $3
             ORDER BY bar_ts
             """,
             symbol,
@@ -452,6 +455,7 @@ class EnsembleBuilder(BaseBatch):
                 tf,
                 bar_ts_list[i],
                 weight_version,
+                regime,
                 float(alpha_scores[i]),
                 float(ci_lower_arr[i]),
                 float(ci_upper_arr[i]),
@@ -465,10 +469,10 @@ class EnsembleBuilder(BaseBatch):
         await conn.executemany(
             """
             INSERT INTO ensemble_alpha
-                (symbol, tf, bar_ts, weight_version,
+                (symbol, tf, bar_ts, weight_version, regime,
                  alpha_score, alpha_ci_lower, alpha_ci_upper,
                  effective_n, n_features_active, computed_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (symbol, tf, bar_ts, weight_version) DO NOTHING
             """,
             alpha_rows,
