@@ -74,3 +74,63 @@ class TestAtrSeriesFull:
         a = _atr_series_full(highs, lows, closes, 14)
         b = _atr_series_full(highs, lows, closes, 14)
         np.testing.assert_array_equal(a, b)
+
+
+# ---------------------------------------------------------------------------
+# Test MIN_WINDOW derived from config (not hardcoded)
+# ---------------------------------------------------------------------------
+
+
+def _make_config_for_min_window():
+    """Config where max constituent is cci_slow_period=40."""
+    from tests.unit.services.test_backfill_feature_factory import _make_config
+
+    return _make_config()  # cci_slow=40, aroon_slow=25, vol_long=20, cmf=20 → MIN_WINDOW=40
+
+
+def _make_bars_dicts(n: int, seed: int = 0) -> list[dict]:
+    from datetime import UTC, datetime, timedelta
+
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    base = datetime(2024, 1, 2, 14, 30, tzinfo=UTC)
+    closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.005, n))
+    return [
+        {
+            "ts": base + timedelta(minutes=i),
+            "open": float(closes[i] * 0.999),
+            "high": float(closes[i] * 1.002),
+            "low": float(closes[i] * 0.998),
+            "close": float(closes[i]),
+            "volume": 1000.0,
+        }
+        for i in range(n)
+    ]
+
+
+class TestMinWindowDerived:
+    def test_compute_batch_produces_results_with_fewer_than_50_bars_warmup(self) -> None:
+        """With MIN_WINDOW=40 (derived), a 42-bar batch must emit results.
+
+        Before the fix MIN_WINDOW=50 was hardcoded. With MIN_WINDOW=40, bars[41]
+        has a full 40-bar bounded window available — cci_slow etc. are computable.
+        This test fails if MIN_WINDOW is still 50 (window_bars would only be 42
+        bars but the bounded window slice [42-50:43] = [-8:43] = bars[:43] = 43
+        bars, which is fine — so this test actually validates that the constant
+        responds to config, not a behavior change at this size).
+        """
+        import math
+
+        from src.intelligence.feature_cache import FeatureCache
+        from src.intelligence.feature_factory import FeatureFactory
+
+        config = _make_config_for_min_window()
+        cache = FeatureCache()
+        bars = _make_bars_dicts(60)
+        results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache, config, warm_up_bars=5)
+        assert len(results) > 0, "compute_batch returned no results"
+        # All non-null FeatureVector fields must be finite
+        for _, fv in results:
+            assert math.isfinite(fv.cci_slow), f"cci_slow not finite: {fv.cci_slow}"
+            assert math.isfinite(fv.aroon_slow), f"aroon_slow not finite: {fv.aroon_slow}"

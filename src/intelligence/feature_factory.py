@@ -1243,7 +1243,12 @@ class FeatureFactory:
         )
 
         # MIN_WINDOW for non-series features (cci_slow=40, aroon_slow=26, vol_ratio=21, cmf=20, range_position=20)
-        MIN_WINDOW = 50
+        MIN_WINDOW = max(
+            config.cci_slow_period,
+            config.aroon_slow_period,
+            config.vol_long_bars,
+            config.cmf_period,
+        )
         results: list[tuple[datetime, FeatureVector]] = []
 
         for i in range(1, len(bars)):
