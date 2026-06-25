@@ -2,9 +2,9 @@
 # Full v3.0 corpus pipeline — 6 steps from market_data_ohlcv to alpha_events.
 #
 # Usage:
-#   bash production/scripts/run_corpus_pipeline.sh              # all 6 steps
-#   bash production/scripts/run_corpus_pipeline.sh --from-step 3  # resume at step N
-#   bash production/scripts/run_corpus_pipeline.sh --symbols SPY,TLT  # subset
+#   bash production/scripts/corpus_pipeline_run.sh              # all 6 steps
+#   bash production/scripts/corpus_pipeline_run.sh --from-step 3  # resume at step N
+#   bash production/scripts/corpus_pipeline_run.sh --symbols SPY,TLT  # subset
 #
 # Prerequisites: market_data_ohlcv populated (run backfill_missing_timeframes.sh first).
 # Each step logs to logs/corpus_pipeline/step<N>_<name>_<timestamp>.log
@@ -103,7 +103,7 @@ run_step() {
         STEP_ERRORS+=("step $step ($name)")
         echo
         echo "  Pipeline halted. Fix the error then resume with:"
-        echo "    bash production/scripts/run_corpus_pipeline.sh --from-step $step${SYMBOLS_ARG:+ --symbols $SYMBOLS_ARG}"
+        echo "    bash production/scripts/corpus_pipeline_run.sh --from-step $step${SYMBOLS_ARG:+ --symbols $SYMBOLS_ARG}"
         exit "$rc"
     fi
 }
@@ -155,13 +155,13 @@ run_step 4 "ic_engine" \
     "$PYTHON" services/ic_engine.py \
     "${SPACE_SYMBOLS[@]}"
 
-# Step 5 — Ensemble Builder (feature_ic_scores + feature_vectors → ensemble_weights + ensemble_alpha)
-run_step 5 "ensemble_builder" \
-    "$PYTHON" services/ensemble_builder.py
+# Step 5 — Ensemble Trainer (feature_ic_scores + feature_vectors → ensemble_weights + ensemble_alpha)
+run_step 5 "ensemble_trainer" \
+    "$PYTHON" services/ensemble_trainer.py
 
-# Step 6 — Alpha Emitter (ensemble_alpha → alpha_events + Kafka)
-run_step 6 "alpha_emitter" \
-    "$PYTHON" services/alpha_emitter.py
+# Step 6 — Alpha Publisher (ensemble_alpha → alpha_events + Kafka)
+run_step 6 "alpha_publisher" \
+    "$PYTHON" services/alpha_publisher.py
 
 # ---------------------------------------------------------------------------
 # Summary

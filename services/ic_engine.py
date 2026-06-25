@@ -39,9 +39,11 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import math
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -171,9 +173,17 @@ def _observed_span(name: str, tracer: Any, **attrs: Any):
 
 def _connect_db(settings: Settings) -> Any:
     """Open a psycopg2 connection to the TimescaleDB instance."""
-    # Extract DSN components from the async URL (postgresql+asyncpg:// -> postgresql://)
-    db_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    conn = psycopg2.connect(db_url)
+    return _connect_db_from_url(settings.database_url)
+
+
+def _connect_db_from_url(db_url: str) -> Any:
+    """Open a psycopg2 connection from a raw DB URL.
+
+    Accepts both asyncpg-style (postgresql+asyncpg://) and plain (postgresql://)
+    URLs so workers can connect via the passed DSN without re-instantiating Settings.
+    """
+    sync_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
+    conn = psycopg2.connect(sync_url)
     conn.autocommit = False
     return conn
 
@@ -471,7 +481,7 @@ def _compute_symbol_tf(
     symbol: str,
     tf: str,
     training_window_end: Any,
-    existing_keys: set[tuple],
+    existing_keys: set[tuple] | frozenset[tuple],
     apr: dict[str, Any],
     tracer: Any,
     rng: np.random.Generator,
@@ -884,6 +894,141 @@ def _emit_health_gauges(symbol: str, tf: str, results: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# ProcessPoolExecutor worker support
+# ---------------------------------------------------------------------------
+
+
+def _derive_worker_rng_seed(symbol: str, bootstrap_seed: int) -> int:
+    """Deterministic per-symbol RNG seed for ProcessPoolExecutor workers.
+
+    Uses hashlib (not Python's built-in hash()) to avoid PYTHONHASHSEED
+    randomization, which is per-process and would make seeds non-reproducible
+    across ic_engine invocations even with a fixed bootstrap_seed APR key.
+
+    Derived as bootstrap_seed + MD5(symbol)[:4] % 2**31.
+    """
+    symbol_hash = int(hashlib.md5(symbol.encode()).hexdigest()[:8], 16)
+    return bootstrap_seed + symbol_hash % (2**31)
+
+
+def _run_ic_worker(args: tuple) -> dict:
+    """Worker function for ProcessPoolExecutor -- runs in subprocess.
+
+    Each worker processes one symbol x all TFs with its own DB connection
+    and deterministic per-symbol RNG. No OTel tracer -- workers log only.
+
+    Args:
+        args: (symbol, tfs, dsn, training_window_end, existing_keys_frozen,
+               apr_cache, run_ts, bootstrap_seed)
+
+    Returns:
+        dict with keys: symbol, all_results (list), n_committed (int),
+        n_skipped (int), error (str|None)
+    """
+    (
+        symbol,
+        tfs,
+        dsn,
+        training_window_end,
+        existing_keys_frozen,
+        apr_cache,
+        run_ts,
+        bootstrap_seed,
+    ) = args
+
+    from src.core.service_utils import setup_service_logging
+
+    setup_service_logging("logs/ic_engine.log")
+    worker_log = structlog.get_logger(__name__)
+
+    import contextlib
+
+    @contextlib.contextmanager
+    def _noop_span(name, **attrs):
+        class _Noop:
+            def set_attribute(self, k, v):
+                pass
+
+            def set_status(self, *a):
+                pass
+
+            def record_exception(self, *a):
+                pass
+
+        yield _Noop()
+
+    class _NoopTracer:
+        def start_as_current_span(self, name, attributes=None):
+            return _noop_span(name)
+
+    noop_tracer = _NoopTracer()
+
+    rng_seed = _derive_worker_rng_seed(symbol, bootstrap_seed)
+    rng = np.random.default_rng(seed=rng_seed)
+    # frozenset supports O(1) `in` lookups identically to set; no conversion needed.
+    existing_keys = existing_keys_frozen
+
+    conn = None
+    all_results = []
+    total_committed = 0
+    total_skipped = 0
+    error_msg = None
+
+    try:
+        # Use the DSN passed from the main process rather than re-instantiating Settings(),
+        # which re-reads env vars and would diverge if the subprocess environment differs.
+        conn = _connect_db_from_url(dsn)
+        for tf in tfs:
+            apr = apr_cache[tf]
+            try:
+                stats = _compute_symbol_tf(
+                    conn=conn,
+                    symbol=symbol,
+                    tf=tf,
+                    training_window_end=training_window_end,
+                    existing_keys=existing_keys,
+                    apr=apr,
+                    tracer=noop_tracer,
+                    rng=rng,
+                    run_ts=run_ts,
+                )
+                total_committed += stats.get("n_committed", 0)
+                total_skipped += stats.get("n_skipped", 0)
+                all_results.extend(stats.get("all_results", []))
+            except Exception as error:
+                worker_log.error(
+                    "ic_engine.worker_cell_failed",
+                    symbol=symbol,
+                    tf=tf,
+                    error=str(error),
+                )
+                # Rollback the aborted transaction so subsequent TFs can proceed.
+                # psycopg2 leaves connections in aborted state after any exception;
+                # without rollback all remaining TFs silently fail with InFailedSqlTransaction.
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+    except Exception as error:
+        error_msg = str(error)
+        worker_log.error("ic_engine.worker_failed", symbol=symbol, error=error_msg)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    return {
+        "symbol": symbol,
+        "all_results": all_results,
+        "n_committed": total_committed,
+        "n_skipped": total_skipped,
+        "error": error_msg,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -904,6 +1049,12 @@ def main() -> None:
         default=_DEFAULT_TFS,
         help="Timeframes to process (default: 5m 15m 1h 1d)",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers (default: APR infra.ic_engine.workers, fallback 1)",
+    )
     args = parser.parse_args()
 
     try:
@@ -917,6 +1068,7 @@ def main() -> None:
     exit_code = 0
 
     settings = Settings()
+    conn = None
     conn = _connect_db(settings)
 
     try:
@@ -981,60 +1133,71 @@ def main() -> None:
             # rather than once per (symbol, tf) to avoid 58x redundant DB round-trips.
             apr_cache = {tf: _load_apr(conn, tf) for tf in tfs}
 
+            # Load n_workers from APR (infra namespace) before closing conn
+            _full_cfg = _load_config_service(conn)
+            n_workers = args.workers
+            if n_workers is None:
+                n_workers = int(_full_cfg.get_sync("infra.ic_engine.workers", 1))
+            bootstrap_seed = apr_cache[tfs[0]]["bootstrap_seed"]
+
             # ----------------------------------------------------------
-            # Main compute loop
+            # Build worker args then close main conn -- workers open their own
             # ----------------------------------------------------------
-            rng = np.random.default_rng(seed=apr_cache[tfs[0]]["bootstrap_seed"])
+            existing_keys_frozen = frozenset(existing_keys)
+            worker_args = [
+                (
+                    symbol,
+                    tfs,
+                    settings.database_url,
+                    training_window_end,
+                    existing_keys_frozen,
+                    apr_cache,
+                    run_ts,
+                    bootstrap_seed,
+                )
+                for symbol in symbols
+            ]
+
+            _logger.info(
+                "ic_engine.starting_parallel",
+                n_symbols=len(symbols),
+                n_workers=n_workers,
+            )
+            conn.close()
+            conn = None  # prevent double-close in finally
+
+            # ----------------------------------------------------------
+            # Main compute loop (ProcessPoolExecutor)
+            # ----------------------------------------------------------
             total_committed = 0
             total_skipped = 0
             all_results_global: list[dict] = []
 
-            for symbol in symbols:
-                for tf in tfs:
-                    apr = apr_cache[tf]
-
-                    _logger.info("ic_engine.processing_cell", symbol=symbol, tf=tf)
-                    try:
-                        stats = _compute_symbol_tf(
-                            conn=conn,
-                            symbol=symbol,
-                            tf=tf,
-                            training_window_end=training_window_end,
-                            existing_keys=existing_keys,
-                            apr=apr,
-                            tracer=tracer,
-                            rng=rng,
-                            run_ts=run_ts,
-                        )
-                        n_committed = stats.get("n_committed", 0)
-                        n_skipped = stats.get("n_skipped", 0)
-                        total_committed += n_committed
-                        total_skipped += n_skipped
-                        cell_results = stats.get("all_results", [])
-                        all_results_global.extend(cell_results)
-
-                        # Emit IC health gauges per cell
-                        if cell_results:
-                            _emit_health_gauges(symbol, tf, cell_results)
-
-                        _logger.info(
-                            "ic_engine.cell_done",
-                            symbol=symbol,
-                            tf=tf,
-                            n_committed=n_committed,
-                            n_skipped=n_skipped,
-                            n_passing_fdr=stats.get("n_passing_fdr", 0),
-                            n_passing_wf=stats.get("n_passing_wf", 0),
-                        )
-                    except Exception as error:
+            with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                for result in pool.map(_run_ic_worker, worker_args, chunksize=1):
+                    symbol = result["symbol"]
+                    if result["error"]:
                         _logger.error(
-                            "ic_engine.cell_failed",
+                            "ic_engine.symbol_failed",
                             symbol=symbol,
-                            tf=tf,
-                            error=str(error),
+                            error=result["error"],
                         )
                         status = "failure"
                         exit_code = 1
+                    total_committed += result["n_committed"]
+                    total_skipped += result["n_skipped"]
+                    all_results_global.extend(result["all_results"])
+                    if result["all_results"]:
+                        for tf in tfs:
+                            tf_results = [r for r in result["all_results"] if r.get("tf") == tf]
+                            if tf_results:
+                                _emit_health_gauges(symbol, tf, tf_results)
+                    _logger.info(
+                        "ic_engine.symbol_done",
+                        symbol=symbol,
+                        n_committed=result["n_committed"],
+                        n_skipped=result["n_skipped"],
+                    )
 
             elapsed = time.monotonic() - t0
             IC_ENGINE_RUN_LATENCY_SECONDS.record(elapsed)
@@ -1052,7 +1215,8 @@ def main() -> None:
         status = "failure"
         exit_code = 1
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
         JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": status})
         flush_and_shutdown_metrics()
 

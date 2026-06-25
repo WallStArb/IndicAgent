@@ -1,5 +1,5 @@
 [Unit]
-Description=IndicAgent Alpha Emitter — ensemble_alpha -> alpha_events + Kafka shadow emission oneshot
+Description=IndicAgent Alpha Publisher — ensemble_alpha -> alpha_events + Kafka shadow emission oneshot
 After=network.target indicagent-infrastructure.target
 Requires=indicagent-infrastructure.target
 
@@ -10,7 +10,7 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python /home/bg/dev/indicagent/services/alpha_emitter.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python /home/bg/dev/indicagent/services/alpha_publisher.py
 TimeoutStartSec=3600
 
 [Install]

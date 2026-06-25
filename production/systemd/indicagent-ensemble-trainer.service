@@ -1,5 +1,5 @@
 [Unit]
-Description=IndicAgent Ensemble Builder — IC-weighted ensemble weights + alpha scoring oneshot
+Description=IndicAgent Ensemble Trainer — IC-weighted ensemble weights + alpha scoring oneshot
 After=network.target indicagent-infrastructure.target
 Requires=indicagent-infrastructure.target
 
@@ -10,7 +10,7 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python /home/bg/dev/indicagent/services/ensemble_builder.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python /home/bg/dev/indicagent/services/ensemble_trainer.py
 TimeoutStartSec=7200
 
 [Install]

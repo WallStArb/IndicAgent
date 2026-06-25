@@ -27,8 +27,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +40,7 @@ import psycopg2.extras
 import structlog
 from hmmlearn.hmm import GaussianHMM
 from opentelemetry import trace
+from sklearn.preprocessing import StandardScaler
 
 # Set up sys.path before project imports
 project_root = Path(__file__).parent.parent
@@ -92,40 +95,95 @@ _UPDATE_BATCH_SIZE = 500
 def _build_obs_matrix(
     timestamps: list,
     closes: list[float],
+    volumes: list[float],
     vol_window: int,
+    momentum_window: int,
+    vol_of_vol_window: int,
 ) -> tuple[np.ndarray, list]:
-    """Build (n_valid, 2) observation matrix from OHLCV close prices.
+    """Build (n_valid, 5) observation matrix from OHLCV prices and volumes.
 
     Observation dimensions:
-      [0] log_return  = ln(close[t] / close[t-1])
+      [0] log_return   = ln(close[t] / close[t-1])
       [1] realized_vol = rolling std of log_returns over vol_window bars
+      [2] momentum     = sum(log_returns[-momentum_window:]) / (realized_vol + eps)
+                         Directional drift signal, vol-normalized.
+      [3] vol_of_vol   = rolling std of realized_vol over vol_of_vol_window bars
+                         Regime transition indicator: stable regimes have stable vol.
+      [4] rel_volume   = log(volume[t]) - rolling mean(log(volume), vol_window)
+                         Volume anomaly relative to recent baseline.
 
-    The first vol_window rows are discarded because realized_vol is undefined
-    (insufficient history). Returns aligned (obs_matrix, valid_timestamps).
+    valid_start = max(vol_window, momentum_window, vol_of_vol_window) - 1
+    All rows before valid_start are discarded (insufficient window history).
+    Returns (obs_matrix, valid_timestamps).
     """
     closes_arr = np.array(closes, dtype=float)
-    n = len(closes_arr)
+    volumes_arr = np.maximum(np.array(volumes, dtype=float), 1.0)  # guard zero volume
 
-    # Log returns: length n-1 (index 0 = return at bar 1 relative to bar 0)
     log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
-
-    # Aligned timestamps (skip first bar which has no return)
+    log_volumes = np.log(volumes_arr[1:])  # aligned to log_returns
     ts_shifted = timestamps[1:]
 
-    # Realized vol: rolling std over vol_window bars of log returns.
-    # sliding_window_view gives full-size windows from index vol_window-1 onwards.
-    if len(log_returns) >= vol_window:
-        windows = np.lib.stride_tricks.sliding_window_view(log_returns, vol_window)
-        realized_vol = np.concatenate([np.zeros(vol_window - 1), np.std(windows, axis=1)])
+    if len(log_returns) < max(vol_window, momentum_window, vol_of_vol_window):
+        return np.empty((0, 5), dtype=float), []
+
+    # --- realized_vol: rolling std over vol_window ---
+    windows_ret = np.lib.stride_tricks.sliding_window_view(log_returns, vol_window)
+    realized_vol = np.concatenate(
+        [
+            np.zeros(vol_window - 1),
+            np.std(windows_ret, axis=1),
+        ]
+    )
+
+    # --- momentum: sum of log_returns over momentum_window / (realized_vol + eps) ---
+    windows_mom = np.lib.stride_tricks.sliding_window_view(log_returns, momentum_window)
+    mom_raw = np.concatenate(
+        [
+            np.zeros(momentum_window - 1),
+            np.sum(windows_mom, axis=1),
+        ]
+    )
+    momentum = mom_raw / np.maximum(realized_vol, 1e-8)
+
+    # --- vol_of_vol: rolling std of realized_vol over vol_of_vol_window ---
+    if len(realized_vol) >= vol_of_vol_window:
+        windows_vov = np.lib.stride_tricks.sliding_window_view(realized_vol, vol_of_vol_window)
+        vol_of_vol = np.concatenate(
+            [
+                np.zeros(vol_of_vol_window - 1),
+                np.std(windows_vov, axis=1),
+            ]
+        )
     else:
-        realized_vol = np.zeros(len(log_returns))
+        vol_of_vol = np.zeros(len(log_returns))
 
-    # Discard first vol_window rows where vol is unreliable
-    valid_start = vol_window - 1
+    # --- rel_volume: log_volume - rolling mean(log_volume, vol_window) ---
+    if len(log_volumes) >= vol_window:
+        windows_vol = np.lib.stride_tricks.sliding_window_view(log_volumes, vol_window)
+        rolling_mean_logvol = np.concatenate(
+            [
+                np.zeros(vol_window - 1),
+                np.mean(windows_vol, axis=1),
+            ]
+        )
+    else:
+        rolling_mean_logvol = np.zeros(len(log_returns))
+    rel_volume = log_volumes - rolling_mean_logvol
+
+    # --- discard rows before all windows are warm ---
+    valid_start = max(vol_window, momentum_window, vol_of_vol_window) - 1
     if valid_start >= len(log_returns):
-        return np.empty((0, 2), dtype=float), []
+        return np.empty((0, 5), dtype=float), []
 
-    obs = np.column_stack([log_returns[valid_start:], realized_vol[valid_start:]])
+    obs = np.column_stack(
+        [
+            log_returns[valid_start:],
+            realized_vol[valid_start:],
+            momentum[valid_start:],
+            vol_of_vol[valid_start:],
+            rel_volume[valid_start:],
+        ]
+    )
     valid_ts = ts_shifted[valid_start:]
     return obs, valid_ts
 
@@ -136,60 +194,61 @@ def _causal_decode(
     variances: np.ndarray,
     A: np.ndarray,
     K: int,
-) -> np.ndarray:
-    """Causal forward-filter (alpha-pass only) HMM decoding.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Causal forward-filter (alpha-pass only) HMM decoding - vectorized.
 
-    At each timestep t, the decoded state = argmax(alpha[t]) where alpha[t]
-    depends ONLY on observations obs[0..t] and the prior alpha[t-1].
-    No backward pass, no smoothing, no Viterbi over the full sequence.
+    Precomputes log emission probabilities for all timesteps as a batch
+    (n, K) matrix before the sequential alpha-pass loop, eliminating the
+    K-sized Python loop that ran per timestep in the original implementation.
 
-    Mirrors src/intelligence/features/smc_context/hmm_regime.py:_forward_step()
-    for batch-mode use. Do NOT replace with model.predict().
+    The sequential t-loop is retained - causality requires alpha[t] to depend
+    only on alpha[t-1]. Each loop iteration is pure numpy K-vector ops.
 
     Args:
-        obs_matrix: (n, d) observation matrix
-        means: (K, d) emission means per state
-        variances: (K, d) emission variances per state (diagonal covariance)
+        obs_matrix: (n, d) observation matrix (StandardScaler-transformed)
+        means: (K, d) emission means per state (in scaled space)
+        variances: (K, d) emission variances per state (in scaled space, diagonal)
         A: (K, K) transition matrix
         K: number of hidden states
 
     Returns:
-        (states, alpha_history) where states[t] = argmax(alpha[t]) and
-        alpha_history[t] is the normalized probability vector over K states.
+        (states, alpha_history): states[t] = argmax(alpha[t]),
+        alpha_history[t] = normalized probability vector over K states.
     """
     n, d = obs_matrix.shape
+    var_clipped = np.maximum(variances[:, :d], 1e-300)  # (K, d)
+
+    # Precompute log emission for all timesteps: shape (n, K)
+    # diff[t, k, j] = obs[t, j] - means[k, j]
+    diff = obs_matrix[:, np.newaxis, :] - means[np.newaxis, :, :d]  # (n, K, d)
+    log_emit = (
+        -0.5 * np.sum(diff**2 / var_clipped[np.newaxis, :, :], axis=2)
+        - 0.5 * np.sum(np.log(2 * np.pi * var_clipped), axis=1)[np.newaxis, :]
+    )  # (n, K)
+
+    log_A = np.log(np.maximum(A, 1e-300))  # (K, K): log_A[i, j] = log P(i -> j)
+
     states = np.zeros(n, dtype=int)
     alpha_history = np.zeros((n, K))
-    # Uniform prior — mirrors _make_initial_state in hmm_regime.py
-    alpha = np.full(K, 1.0 / K)
+    alpha = np.full(K, 1.0 / K)  # uniform prior
 
     for t in range(n):
-        obs = obs_matrix[t]
-        # Emission log-probabilities (diagonal Gaussian)
-        log_emit = np.zeros(K)
-        for k in range(K):
-            diff = obs - means[k, :d]
-            var = variances[k, :d]
-            log_emit[k] = -0.5 * np.sum(diff**2 / np.maximum(var, 1e-300)) - 0.5 * np.sum(
-                np.log(2 * np.pi * np.maximum(var, 1e-300))
-            )
-
-        # Forward update in log space (mirrors _forward_step in hmm_regime.py)
+        # log_alpha_prev + log_A: broadcast (K,) over (K, K)
+        # log_trans[i, j] = log_alpha[i] + log_A[i, j]
         log_alpha = np.log(np.maximum(alpha, 1e-300))
-        log_alpha_new = np.zeros(K)
-        for k in range(K):
-            log_trans = log_alpha + np.log(np.maximum(A[:, k], 1e-300))
-            max_lt = np.max(log_trans)
-            log_alpha_new[k] = max_lt + np.log(np.sum(np.exp(log_trans - max_lt)))
-        log_alpha_new += log_emit
+        log_trans = log_alpha[:, np.newaxis] + log_A  # (K, K)
+        # logsumexp over source states for each target state j
+        max_lt = log_trans.max(axis=0)  # (K,)
+        log_alpha_new = max_lt + np.log(np.sum(np.exp(log_trans - max_lt), axis=0))
+        log_alpha_new += log_emit[t]  # add emission
 
-        # Normalize
-        max_la = np.max(log_alpha_new)
+        # Normalize in log space then exponentiate
+        max_la = log_alpha_new.max()
         alpha = np.exp(log_alpha_new - max_la)
-        total = np.sum(alpha)
+        total = alpha.sum()
         alpha /= total if total > 0 else 1.0
 
-        states[t] = int(np.argmax(alpha))
+        states[t] = int(alpha.argmax())
         alpha_history[t] = alpha
 
     return states, alpha_history
@@ -238,6 +297,8 @@ def _label_symbol_tf(
     vol_window: int,
     n_iter: int,
     hmm_random_state: int,
+    momentum_window: int,
+    vol_of_vol_window: int,
     tracer: Any,
 ) -> int:
     """Fit HMM and UPDATE feature_vectors.regime for one (symbol, tf) cell.
@@ -258,12 +319,13 @@ def _label_symbol_tf(
             # ------------------------------------------------------------------
             timestamps = []
             closes = []
+            volumes = []
             # Server-side cursor requires no active transaction — commit any
             # open transaction first.
             conn.commit()
             with conn.cursor("ohlcv_stream") as cur:
                 cur.execute(
-                    "SELECT timestamp, close "
+                    "SELECT timestamp, close, volume "
                     "FROM market_data_ohlcv "
                     "WHERE symbol = %s AND timeframe = %s "
                     "ORDER BY timestamp ASC",
@@ -276,6 +338,7 @@ def _label_symbol_tf(
                     for r in batch:
                         timestamps.append(r[0])
                         closes.append(float(r[1]))
+                        volumes.append(float(r[2]))
 
             if not timestamps:
                 _logger.warning(
@@ -288,7 +351,14 @@ def _label_symbol_tf(
             # ------------------------------------------------------------------
             # Build observation matrix
             # ------------------------------------------------------------------
-            obs_matrix, valid_ts = _build_obs_matrix(timestamps, closes, vol_window)
+            obs_matrix, valid_ts = _build_obs_matrix(
+                timestamps,
+                closes,
+                volumes,
+                vol_window=vol_window,
+                momentum_window=momentum_window,
+                vol_of_vol_window=vol_of_vol_window,
+            )
 
             min_rows = n_components * _MIN_OBS_FACTOR
             if len(valid_ts) < min_rows:
@@ -300,6 +370,12 @@ def _label_symbol_tf(
                     min_required=min_rows,
                 )
                 return 0
+
+            # Standardize per-series: fit on this series, transform in-place.
+            # Both fit() and _causal_decode() receive the scaled matrix so
+            # means/covars are in scaled space — internally consistent.
+            scaler = StandardScaler()
+            obs_matrix = scaler.fit_transform(obs_matrix)
 
             # ------------------------------------------------------------------
             # Fit HMM (parameter estimation only, NOT decoding)
@@ -314,12 +390,15 @@ def _label_symbol_tf(
 
             # ------------------------------------------------------------------
             # Causal forward-filter decoding (NOT model.predict())
-            # model.covars_ shape for 'diag': (K, n_features) — already variances
+            # model.covars_ shape for 'diag': (K, d, d) with zeros off-diagonal.
+            # Extract diagonal only for _causal_decode: (K, d)
             # ------------------------------------------------------------------
+            d = model.means_.shape[1]
+            covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
             raw_states, alpha_history = _causal_decode(
                 obs_matrix,
                 model.means_,
-                model.covars_,
+                covars_diag,
                 model.transmat_,
                 n_components,
             )
@@ -444,6 +523,138 @@ def _discover_symbols(conn: Any) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Subprocess worker for ProcessPoolExecutor
+# ---------------------------------------------------------------------------
+
+
+def _run_symbol_worker(args: tuple) -> dict:
+    """Worker function for ProcessPoolExecutor — runs in subprocess.
+
+    Opens its own psycopg2 connection (connections are not picklable and
+    must not be shared across processes). No OTel tracer — workers log only;
+    main process aggregates results and emits metrics.
+
+    Args:
+        args: (symbol, tfs, dsn, n_components, vol_window, momentum_window,
+               vol_of_vol_window, n_iter, hmm_random_state)
+               Packed as a tuple for ProcessPoolExecutor.map compatibility.
+
+    Returns:
+        dict with keys: symbol, results (list of {tf, n_updated}), error (str|None)
+    """
+    (
+        symbol,
+        tfs,
+        dsn,
+        n_components,
+        vol_window,
+        momentum_window,
+        vol_of_vol_window,
+        n_iter,
+        hmm_random_state,
+    ) = args
+
+    # Initialize logging in subprocess (each process needs its own handler)
+    setup_service_logging("logs/regime_writer.log")
+    worker_log = structlog.get_logger(__name__)
+
+    conn = None
+    results = []
+    error_msg = None
+
+    try:
+        conn = psycopg2.connect(
+            dsn,
+            options="-c idle_in_transaction_session_timeout=0",
+        )
+
+        # No-op tracer for worker — spans are not emitted from subprocesses
+        @contextlib.contextmanager
+        def _noop_span(name, **attrs):
+            class _Noop:
+                def set_attribute(self, k, v):
+                    pass
+
+                def set_status(self, *a):
+                    pass
+
+                def record_exception(self, *a):
+                    pass
+
+            yield _Noop()
+
+        class _NoopTracer:
+            def start_as_current_span(self, name, attributes=None):
+                return _noop_span(name)
+
+        noop_tracer = _NoopTracer()
+
+        for tf in tfs:
+            try:
+                n = _label_symbol_tf(
+                    conn=conn,
+                    symbol=symbol,
+                    tf=tf,
+                    n_components=n_components,
+                    vol_window=vol_window,
+                    momentum_window=momentum_window,
+                    vol_of_vol_window=vol_of_vol_window,
+                    n_iter=n_iter,
+                    hmm_random_state=hmm_random_state,
+                    tracer=noop_tracer,
+                )
+                results.append({"tf": tf, "n_updated": n})
+            except Exception as error:
+                worker_log.error(
+                    "regime_writer.worker_cell_failed",
+                    symbol=symbol,
+                    tf=tf,
+                    error=str(error),
+                )
+                results.append({"tf": tf, "n_updated": 0, "error": str(error)})
+                try:
+                    conn.rollback()
+                except Exception:
+                    # Connection is dead (e.g. server OOM). Attempt to reopen so
+                    # remaining TFs for this symbol can proceed rather than failing
+                    # with InFailedSqlTransaction.
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    try:
+                        conn = psycopg2.connect(
+                            dsn,
+                            options="-c idle_in_transaction_session_timeout=0",
+                        )
+                        worker_log.warning(
+                            "regime_writer.worker_reconnected",
+                            symbol=symbol,
+                            tf=tf,
+                        )
+                    except Exception as reconnect_error:
+                        worker_log.error(
+                            "regime_writer.worker_reconnect_failed",
+                            symbol=symbol,
+                            error=str(reconnect_error),
+                        )
+                        # Cannot recover; remaining TFs for this symbol will fail.
+                        break
+
+    except Exception as error:
+        error_msg = str(error)
+        worker_log.error("regime_writer.worker_failed", symbol=symbol, error=error_msg)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    return {"symbol": symbol, "results": results, "error": error_msg}
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -462,6 +673,12 @@ def main() -> None:
         nargs="*",
         default=_DEFAULT_TFS,
         help=f"Timeframes to label (default: {_DEFAULT_TFS})",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers (default: APR infra.regime_writer.workers, fallback 1)",
     )
     args = parser.parse_args()
 
@@ -486,102 +703,98 @@ def main() -> None:
         dsn = settings.database_url
 
         with tracer.start_as_current_span("regime_writer.run") as run_span:
-            conn = psycopg2.connect(
+            # Open a short-lived connection for APR load + symbol discovery, then close it.
+            # Workers open their own connections — nothing is shared across processes.
+            _conn = psycopg2.connect(
                 dsn,
-                # Disable idle-in-transaction timeout for this long-running batch
-                # session. The default (30s) kills server-side cursors during HMM
-                # computation which keeps connections open while processing rows.
                 options="-c idle_in_transaction_session_timeout=0",
             )
             try:
-                # Load APR config
-                cfg = _load_config_service_shared(conn)
+                cfg = _load_config_service_shared(_conn)
                 n_components = int(cfg.get_sync("feature.hmm.n_components", 3))
                 vol_window = int(cfg.get_sync("feature.hmm.vol_window", 20))
-                n_iter = int(cfg.get_sync("feature.hmm.n_iter", 100))
+                n_iter = int(cfg.get_sync("feature.hmm.n_iter", 200))
                 hmm_random_state = int(cfg.get_sync("alpha.hmm.random_state", 42))
+                momentum_window = int(cfg.get_sync("feature.hmm.obs_momentum_window", 20))
+                vol_of_vol_window = int(cfg.get_sync("feature.hmm.obs_vol_of_vol_window", 20))
 
-                # Resolve symbols
-                symbols = args.symbols if args.symbols else _discover_symbols(conn)
+                symbols = args.symbols if args.symbols else _discover_symbols(_conn)
                 tfs: list[str] = args.tf
 
-                _logger.info(
-                    "regime_writer.starting",
-                    symbols_count=len(symbols),
-                    tfs=tfs,
-                    n_components=n_components,
-                    vol_window=vol_window,
-                    n_iter=n_iter,
-                )
-
-                total_updated = 0
-                failures: list[str] = []
-
-                for symbol in symbols:
-                    for tf in tfs:
-                        try:
-                            n = _label_symbol_tf(
-                                conn=conn,
-                                symbol=symbol,
-                                tf=tf,
-                                n_components=n_components,
-                                vol_window=vol_window,
-                                n_iter=n_iter,
-                                hmm_random_state=hmm_random_state,
-                                tracer=tracer,
-                            )
-                            total_updated += n
-                        except Exception as error:
-                            cell = f"{symbol}/{tf}"
-                            _logger.error(
-                                "regime_writer.cell_failed",
-                                cell=cell,
-                                error=str(error),
-                            )
-                            failures.append(cell)
-                            # Attempt rollback; if connection is broken, reopen it so
-                            # subsequent cells can proceed (handles server OOM kills).
-                            try:
-                                conn.rollback()
-                            except Exception:
-                                _logger.warning(
-                                    "regime_writer.reconnecting",
-                                    cell=cell,
-                                    note="Connection lost; reopening for remaining cells",
-                                )
-                                try:
-                                    conn.close()
-                                except Exception:
-                                    pass
-                                conn = psycopg2.connect(
-                                    dsn,
-                                    options="-c idle_in_transaction_session_timeout=0",
-                                )
-                            # continue to next cell — do not abort the whole run
-                            continue
-
-                elapsed_s = time.monotonic() - t0
-                REGIME_WRITER_RUN_LATENCY_SECONDS.record(elapsed_s)
-
-                run_span.set_attribute("total_updated", total_updated)
-                run_span.set_attribute("failed_cells", len(failures))
-
-                _logger.info(
-                    "regime_writer.run_complete",
-                    total_updated=total_updated,
-                    failed_cells=failures,
-                    elapsed_s=round(elapsed_s, 2),
-                )
-
-                if failures:
-                    _logger.warning(
-                        "regime_writer.partial_failure",
-                        failed_cells=failures,
-                        note="Some cells failed; overall run still marked success if >0 cells completed",
-                    )
-
+                n_workers = args.workers
+                if n_workers is None:
+                    n_workers = int(cfg.get_sync("infra.regime_writer.workers", 1))
             finally:
-                conn.close()
+                _conn.close()
+            # dsn is passed to workers; no connection is held in main beyond this point.
+
+            _logger.info(
+                "regime_writer.starting",
+                symbols_count=len(symbols),
+                tfs=tfs,
+                n_components=n_components,
+                vol_window=vol_window,
+                momentum_window=momentum_window,
+                vol_of_vol_window=vol_of_vol_window,
+                n_iter=n_iter,
+                n_workers=n_workers,
+            )
+
+            worker_args = [
+                (
+                    symbol,
+                    tfs,
+                    dsn,
+                    n_components,
+                    vol_window,
+                    momentum_window,
+                    vol_of_vol_window,
+                    n_iter,
+                    hmm_random_state,
+                )
+                for symbol in symbols
+            ]
+
+            total_updated = 0
+            failures: list[str] = []
+
+            with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                for result in pool.map(_run_symbol_worker, worker_args, chunksize=1):
+                    symbol = result["symbol"]
+                    if result["error"]:
+                        failures.append(symbol)
+                        _logger.error(
+                            "regime_writer.symbol_failed",
+                            symbol=symbol,
+                            error=result["error"],
+                        )
+                    for cell in result["results"]:
+                        n = cell.get("n_updated", 0)
+                        total_updated += n
+                        tf = cell["tf"]
+                        REGIME_WRITER_ROWS_UPDATED_TOTAL.add(n, {"symbol": symbol, "tf": tf})
+                        if "error" in cell:
+                            failures.append(f"{symbol}/{tf}")
+
+            elapsed_s = time.monotonic() - t0
+            REGIME_WRITER_RUN_LATENCY_SECONDS.record(elapsed_s)
+
+            run_span.set_attribute("total_updated", total_updated)
+            run_span.set_attribute("failed_cells", len(failures))
+
+            _logger.info(
+                "regime_writer.run_complete",
+                total_updated=total_updated,
+                failed_cells=failures,
+                elapsed_s=round(elapsed_s, 2),
+            )
+
+            if failures:
+                _logger.warning(
+                    "regime_writer.partial_failure",
+                    failed_cells=failures,
+                    note="Some cells failed; overall run still marked success if >0 cells completed",
+                )
 
     except Exception as error:
         status = "failure"

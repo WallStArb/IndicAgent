@@ -31,7 +31,7 @@ def test_intel_and_journal_use_blocking_enqueue():
     import ast
     from pathlib import Path
 
-    source = Path("services/intelligence_pipeline.py").read_text()
+    source = Path("services/feature_vector_pipeline.py").read_text()
 
     # Must use enqueue_blocking for intel + journal
     assert (
