@@ -140,20 +140,30 @@ run_step 1 "feature_factory" \
     --compute-only \
     "${FF_SYMBOLS[@]}"
 
+# Capture freeze point after step 1 — always executed so --from-step N resumes still lock it.
+# This value is passed explicitly to forward_return_writer and ic_engine to stabilize PKs
+# across multi-run builds (avoids training_window_end drift if new bars arrive mid-pipeline).
+TRAINING_WINDOW_END=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
+    -tAc "SELECT MAX(bar_ts) FROM feature_vectors")
+
 # Step 2 — Regime Writer (feature_vectors → regime_label column)
 run_step 2 "regime_writer" \
     "$PYTHON" services/regime_writer.py \
     "${SPACE_SYMBOLS[@]}"
 
 # Step 3 — Forward Return Writer (feature_vectors → forward_returns)
+# forward_returns must be truncated and re-run after the ET session-boundary fix
+# (complete_{scale} flags changed for intraday TFs — 5m, 15m, 1h).
 run_step 3 "forward_return_writer" \
     "$PYTHON" services/forward_return_writer.py \
-    "${SPACE_SYMBOLS[@]}"
+    "${SPACE_SYMBOLS[@]}" \
+    --training-window-end "$TRAINING_WINDOW_END"
 
 # Step 4 — IC Engine (feature_vectors + forward_returns → feature_ic_scores)
 run_step 4 "ic_engine" \
     "$PYTHON" services/ic_engine.py \
-    "${SPACE_SYMBOLS[@]}"
+    "${SPACE_SYMBOLS[@]}" \
+    --training-window-end "$TRAINING_WINDOW_END"
 
 # Step 5 — Ensemble Trainer (feature_ic_scores + feature_vectors → ensemble_weights + ensemble_alpha)
 run_step 5 "ensemble_trainer" \

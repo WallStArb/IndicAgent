@@ -611,29 +611,13 @@ def _compute_symbol_tf(
             complete_regime = complete_mat[mask]
             n_regime_raw = X_regime.shape[0]
 
-            # Subsample: keep every stride-th row for non-overlapping independence.
-            # stride = max(subsample_min_stride, max_lookahead) ensures independence
-            # for all lookaheads including the 60-bar window.
-            max_lookahead = max(lookaheads.values())
-            stride = max(subsample_min_stride, max_lookahead)
-            sub_idx = np.arange(0, n_regime_raw, stride)
-            X_sub = X_regime[sub_idx]
-            returns_sub = returns_regime[sub_idx]
-            complete_sub = complete_regime[sub_idx]
-            n_independent = len(sub_idx)
-
-            if n_independent < min_reliable_n:
-                n_cells = len(_FEATURE_NAMES) * len(_SCALES)
-                IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
-                    n_cells, {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"}
-                )
-                n_skipped += n_cells
-                continue
-
             # ------------------------------------------------------------------
-            # Degenerate feature detection (std < 1e-8 = constant column)
+            # Degenerate feature detection on FULL regime data (std < 1e-8 = constant column).
+            # Using X_regime (not a subsample) ensures the mask is stable across all scales
+            # regardless of stride. A feature constant in the full regime is constant in any
+            # subsample — but the converse may not hold for large strides.
             # ------------------------------------------------------------------
-            feature_stds = np.std(X_sub, axis=0)
+            feature_stds = np.std(X_regime, axis=0)
             degenerate_mask = feature_stds < 1e-8
             non_degenerate_mask = ~degenerate_mask
             n_degenerate = degenerate_mask.sum()
@@ -645,15 +629,37 @@ def _compute_symbol_tf(
                     )
                 n_skipped += n_degenerate
 
-            # Pre-rank the non-degenerate feature columns once per (regime, lookahead)
-            X_sub_nd = X_sub[:, non_degenerate_mask]
-            if X_sub_nd.shape[1] == 0:
+            # Non-degenerate slice of full regime matrix — shared across scales.
+            X_regime_nd = X_regime[:, non_degenerate_mask]
+            if X_regime_nd.shape[1] == 0:
                 continue
 
-            ranks_X_full = rankdata(X_sub_nd, axis=0)  # [n_independent, n_non_degen]
+            # embargo_bars for walk-forward: max lookahead across all scales.
+            # Set once per regime so all scales share the same embargo boundary.
+            embargo_bars = max(lookaheads.values())
 
             for scale_idx, scale in enumerate(_SCALES):
                 lookahead_bars = lookaheads[scale]
+
+                # Per-scale subsampling: stride = max(min_stride, lookahead_bars).
+                # Fast scale (lookahead=1) uses stride=min_stride, giving ~N/5 obs per regime.
+                # Extended scale (lookahead=60) uses stride=60, giving ~N/60 obs per regime.
+                # Previously all scales used stride=60, starving fast scale by 60x.
+                scale_stride = max(subsample_min_stride, lookahead_bars)
+                sub_idx = np.arange(0, n_regime_raw, scale_stride)
+                X_sub_scale = X_regime[sub_idx]  # full features for _compute_ic_rolling_metrics
+                X_sub_nd = X_regime_nd[sub_idx]  # non-degen columns for rankdata
+                returns_sub = returns_regime[sub_idx]
+                complete_sub = complete_regime[sub_idx]
+                n_independent = len(sub_idx)
+
+                if n_independent < min_reliable_n:
+                    IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
+                        len(_FEATURE_NAMES),
+                        {"symbol": symbol, "tf": tf, "skip_reason": "insufficient_n"},
+                    )
+                    n_skipped += len(_FEATURE_NAMES)
+                    continue
 
                 # Filter to complete rows for this lookahead
                 scale_complete = complete_sub[:, scale_idx]
@@ -669,7 +675,7 @@ def _compute_symbol_tf(
                     n_skipped += len(_FEATURE_NAMES)
                     continue
 
-                ranks_X_scale = ranks_X_full[valid_mask]
+                ranks_X_scale = rankdata(X_sub_nd, axis=0)[valid_mask]
                 Y_scale = returns_scale[valid_mask]
                 ranks_Y = rankdata(Y_scale)
 
@@ -709,10 +715,9 @@ def _compute_symbol_tf(
                 # -------------------------------------------------------
                 # Walk-forward with 60-bar embargo
                 # -------------------------------------------------------
-                # embargo_bars = max(lookaheads) = 60 bars.
+                # embargo_bars = max(lookaheads) = 60 bars (set once per regime above).
                 # This equals the maximum forward-return window in the [1,5,20,60]
                 # set. Derived from APR-backed lookaheads, not a magic number.
-                embargo_bars = max_lookahead  # 60 for the current lookahead set
 
                 fold_ics_list: list[np.ndarray] = []
                 for k in range(walk_forward_folds):
@@ -748,14 +753,14 @@ def _compute_symbol_tf(
                 # -------------------------------------------------------
                 ic_sharpe_arr, ic_sortino_arr, ic_win_rate_arr, n_sharpe_windows = (
                     _compute_ic_rolling_metrics(
-                        X_sub,
+                        X_sub_scale,  # full feature matrix; _compute_ic_rolling_metrics applies non_degenerate_mask internally
                         returns_sub,
                         scale_idx,
                         complete_sub[:, scale_idx],
                         apr,
                         non_degenerate_mask,
                         n_features,
-                        stride,  # Convert raw-window-size to subsampled-window-size
+                        scale_stride,  # per-scale stride for raw→subsampled window conversion
                     )
                 )
 
@@ -1052,6 +1057,13 @@ def main() -> None:
         default=None,
         help="Number of parallel workers (default: APR infra.ic_engine.workers, fallback 1)",
     )
+    parser.add_argument(
+        "--training-window-end",
+        default=None,
+        help="Explicit training window end (ISO 8601, timezone-aware/UTC). "
+        "Default: MAX(bar_ts) FROM feature_vectors with a warning. "
+        "Set explicitly to keep PKs stable across multi-run corpus builds.",
+    )
     args = parser.parse_args()
 
     try:
@@ -1080,9 +1092,26 @@ def main() -> None:
             # ----------------------------------------------------------
             run_ts = datetime.now(UTC)
 
-            with conn.cursor() as cur:
-                cur.execute("SELECT MAX(bar_ts) FROM feature_vectors")
-                training_window_end = cur.fetchone()[0]
+            if args.training_window_end:
+                training_window_end = datetime.fromisoformat(args.training_window_end)
+                if training_window_end.tzinfo is None:
+                    raise ValueError(
+                        "--training-window-end must be timezone-aware ISO 8601 (UTC). "
+                        "Naive datetimes are rejected to preserve the UTC-only invariant."
+                    )
+                training_window_end = training_window_end.astimezone(UTC)
+                _logger.info(
+                    "ic_engine.training_window_end_explicit", value=str(training_window_end)
+                )
+            else:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT MAX(bar_ts) FROM feature_vectors")
+                    training_window_end = cur.fetchone()[0]
+                _logger.warning(
+                    "ic_engine.training_window_end_from_max",
+                    value=str(training_window_end),
+                    note="Pass --training-window-end to stabilize PKs across runs",
+                )
 
             _logger.info(
                 "ic_engine.run_constants",
@@ -1168,7 +1197,6 @@ def main() -> None:
             # ----------------------------------------------------------
             total_committed = 0
             total_skipped = 0
-            all_results_global: list[dict] = []
 
             with ProcessPoolExecutor(max_workers=n_workers) as pool:
                 for result in pool.map(_run_ic_worker, worker_args, chunksize=1):
@@ -1183,7 +1211,6 @@ def main() -> None:
                         exit_code = 1
                     total_committed += result["n_committed"]
                     total_skipped += result["n_skipped"]
-                    all_results_global.extend(result["all_results"])
                     if result["all_results"]:
                         for tf in tfs:
                             tf_results = [r for r in result["all_results"] if r.get("tf") == tf]

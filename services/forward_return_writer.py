@@ -33,7 +33,7 @@ import time
 import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -169,14 +169,22 @@ def forward_log_return(opens: np.ndarray, n: int) -> np.ndarray:
 # ROWS BETWEEN CURRENT ROW AND 61 FOLLOWING — explicit frame to avoid default
 # range-frame semantics which can produce unexpected results on ties (RESEARCH.md F8).
 # Only bars with timestamp <= TRAINING_WINDOW_END are included in the window.
-def _build_forward_return_sql(lookaheads: dict[str, int]) -> str:
+def _build_forward_return_sql(lookaheads: dict[str, int], tf: str) -> str:
     """Build LEAD()-based SQL using APR-backed lookahead periods.
 
     lookaheads maps scale name -> period in bars (e.g. {"fast": 1, "mid": 5, ...}).
     The max period + 1 determines the ROWS BETWEEN frame size.
+
+    For intraday timeframes (5m, 15m, 1h), the complete_{scale} flag also checks that
+    the forward bar falls on the same ET calendar date as the current bar, preventing
+    overnight-gap contamination (e.g. a 15:55 ET bar matching the next morning's 09:30
+    open across the overnight gap).
+
+    For daily (1d), no session-boundary check is applied — gaps are the expected signal.
     """
     max_n = max(lookaheads.values())
     frame_size = max_n + 1
+    is_intraday = tf in ("5m", "15m", "1h")
 
     # Build comma-separated LEAD column list (each needs a comma separator)
     lead_col_list = [
@@ -193,7 +201,31 @@ def _build_forward_return_sql(lookaheads: dict[str, int]) -> str:
     ]
     return_cols = ",\n    ".join(return_col_list)
 
-    complete_col_list = [f"(open_{scale} IS NOT NULL) AS complete_{scale}" for scale in lookaheads]
+    if is_intraday:
+        # Add forward-timestamp LEAD columns to detect overnight crossings.
+        fwd_ts_col_list = [
+            f"LEAD(m.timestamp, {n + 1}) OVER w AS fwd_ts_{scale}"
+            for scale, n in lookaheads.items()
+        ]
+        fwd_ts_cols = ",\n        ".join(fwd_ts_col_list)
+        fwd_ts_select = f",\n        {fwd_ts_cols}"
+
+        # complete_{scale}: open must be present AND forward bar is same ET calendar date.
+        # AT TIME ZONE 'America/New_York' is DST-aware (handles spring-forward/fall-back).
+        complete_col_list = [
+            f"(\n        open_{scale} IS NOT NULL\n"
+            f"        AND (fwd_ts_{scale} AT TIME ZONE 'America/New_York')::date\n"
+            f"            = (bar_ts AT TIME ZONE 'America/New_York')::date\n"
+            f"    ) AS complete_{scale}"
+            for scale in lookaheads
+        ]
+    else:
+        # Daily: overnight gaps are part of the signal; no session-boundary gate.
+        fwd_ts_select = ""
+        complete_col_list = [
+            f"(open_{scale} IS NOT NULL) AS complete_{scale}" for scale in lookaheads
+        ]
+
     complete_cols = ",\n    ".join(complete_col_list)
 
     return f"""
@@ -204,7 +236,7 @@ WITH windowed AS (
         m.timeframe                            AS tf,
         fv.pipeline_version,
         {lead_t1},
-        {lead_cols}
+        {lead_cols}{fwd_ts_select}
     FROM market_data_ohlcv m
     JOIN feature_vectors fv
         ON fv.symbol   = m.symbol
@@ -309,7 +341,7 @@ def _label_symbol_tf(
                 )
                 hwm = cur.fetchone()[0]
 
-        forward_return_sql = _build_forward_return_sql(lookaheads)
+        forward_return_sql = _build_forward_return_sql(lookaheads, tf)
         insert_sql = _build_insert_sql(_SCALES)
 
         params = {
@@ -403,6 +435,13 @@ def main() -> None:
     )
     parser.add_argument("--symbols", nargs="*", default=None)
     parser.add_argument("--tf", nargs="*", default=_DEFAULT_TFS)
+    parser.add_argument(
+        "--training-window-end",
+        default=None,
+        help="Explicit training window end (ISO 8601, timezone-aware/UTC). "
+        "Default: MAX(bar_ts) FROM feature_vectors with a warning. "
+        "Set explicitly to keep PKs stable across multi-run corpus builds.",
+    )
     args = parser.parse_args()
 
     try:
@@ -435,10 +474,29 @@ def main() -> None:
                 }
                 _logger.info("forward_return_writer.lookaheads", lookaheads=lookaheads)
 
-                # TRAINING_WINDOW_END gate — must be computed and logged before any SQL
-                with conn.cursor() as cur:
-                    cur.execute("SELECT MAX(bar_ts) FROM feature_vectors")
-                    training_window_end = cur.fetchone()[0]
+                # TRAINING_WINDOW_END gate — must be computed and logged before any SQL.
+                # Pass --training-window-end explicitly to stabilize PKs across runs.
+                if args.training_window_end:
+                    training_window_end = datetime.fromisoformat(args.training_window_end)
+                    if training_window_end.tzinfo is None:
+                        raise ValueError(
+                            "--training-window-end must be timezone-aware ISO 8601 (UTC). "
+                            "Naive datetimes are rejected to preserve the UTC-only invariant."
+                        )
+                    training_window_end = training_window_end.astimezone(UTC)
+                    _logger.info(
+                        "forward_return_writer.training_window_end_explicit",
+                        value=str(training_window_end),
+                    )
+                else:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT MAX(bar_ts) FROM feature_vectors")
+                        training_window_end = cur.fetchone()[0]
+                    _logger.warning(
+                        "forward_return_writer.training_window_end_from_max",
+                        value=str(training_window_end),
+                        note="Pass --training-window-end to stabilize PKs across runs",
+                    )
 
                 if training_window_end is None:
                     _logger.error(
