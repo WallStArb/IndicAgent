@@ -89,6 +89,16 @@ def _cfg_str(cfg: dict[str, Any], key: str, default: str) -> str:
     return str(val) if val is not None else default
 
 
+def _meta_eligible(fdr_pass_rows: list[dict], min_fraction: float) -> set[str]:
+    """Return feature names whose BH-FDR pass-rate across eligible cells meets the threshold.
+
+    Denominator is restricted to cells that pass all ensemble eligibility filters
+    (is_pooled=false, reliable=true, ic_sharpe IS NOT NULL, passes_walkforward=true)
+    — the same population consumed by _process_stratum.
+    """
+    return {r["feature_name"] for r in fdr_pass_rows if r["fdr_pass_rate"] >= min_fraction}
+
+
 # ---------------------------------------------------------------------------
 # FeatureVector column names — matches FeatureVector dataclass field ordering.
 # We select only the numeric feature columns from feature_vectors.
@@ -176,6 +186,10 @@ class EnsembleTrainer(BaseBatch):
             min_passing_features = _cfg_int(cfg, "alpha.ensemble.min_passing_features", 5)
             max_cluster_corr = _cfg_float(cfg, "alpha.ensemble.max_cluster_correlation", 0.80)
             max_cluster_weight = _cfg_float(cfg, "alpha.ensemble.max_cluster_weight", 0.40)
+            # 0.50 is conservative — favors broad, stable factors; may suppress niche features
+            # that are strong in only a subset of symbols/TFs. Revisit APR value after measuring
+            # empirical pass-rate distribution from first clean corpus run.
+            meta_fdr_min_fraction = _cfg_float(cfg, "alpha.ensemble.meta_fdr_min_fraction", 0.50)
 
             self.logger.info(
                 "ensemble_trainer.config_loaded",
@@ -185,10 +199,45 @@ class EnsembleTrainer(BaseBatch):
                 min_passing_features=min_passing_features,
                 max_cluster_corr=max_cluster_corr,
                 max_cluster_weight=max_cluster_weight,
+                meta_fdr_min_fraction=meta_fdr_min_fraction,
             )
 
             # --- Startup gates ---
             await _assert_prerequisites(conn)
+
+            # --- Meta-FDR gate: feature must pass BH-FDR in >=meta_fdr_min_fraction of cells ---
+            # Denominator mirrors _process_stratum WHERE clause exactly — cells that fail
+            # passes_walkforward or have NULL ic_sharpe are never consumed by the ensemble,
+            # so including them would artificially deflate every feature's pass-rate.
+            fdr_pass_rows = await conn.fetch("""
+                SELECT feature_name,
+                       SUM(CASE WHEN passes_fdr THEN 1 ELSE 0 END)::float / COUNT(*) AS fdr_pass_rate,
+                       COUNT(*) AS n_cells
+                FROM feature_ic_scores
+                WHERE is_pooled = false
+                  AND reliable = true
+                  AND ic_sharpe IS NOT NULL
+                  AND passes_walkforward = true
+                GROUP BY feature_name
+                """)
+            meta_eligible_features = _meta_eligible(list(fdr_pass_rows), meta_fdr_min_fraction)
+            n_total_cells = sum(r["n_cells"] for r in fdr_pass_rows)
+            self.logger.info(
+                "ensemble_trainer.meta_fdr_gate",
+                n_eligible=len(meta_eligible_features),
+                n_total_features=len(fdr_pass_rows),
+                min_fraction=meta_fdr_min_fraction,
+                n_total_cells_evaluated=n_total_cells,
+            )
+            if fdr_pass_rows:
+                max_cells = max(r["n_cells"] for r in fdr_pass_rows)
+                min_cells = min(r["n_cells"] for r in fdr_pass_rows)
+                if min_cells < 0.10 * max_cells:
+                    self.logger.warning(
+                        "ensemble_trainer.meta_fdr_low_coverage",
+                        min_cells=min_cells,
+                        max_cells=max_cells,
+                    )
 
             # --- Discover feature columns ---
             feature_cols = await _get_feature_columns(conn)
@@ -224,6 +273,7 @@ class EnsembleTrainer(BaseBatch):
                     min_passing_features=min_passing_features,
                     max_cluster_corr=max_cluster_corr,
                     max_cluster_weight=max_cluster_weight,
+                    meta_eligible_features=meta_eligible_features,
                 )
 
         self.logger.info(
@@ -243,6 +293,7 @@ class EnsembleTrainer(BaseBatch):
         min_passing_features: int,
         max_cluster_corr: float,
         max_cluster_weight: float,
+        meta_eligible_features: set[str],
     ) -> None:
         """Process one (symbol, tf, regime) stratum end-to-end."""
         log = self.logger.bind(symbol=symbol, tf=tf, regime=regime)
@@ -260,6 +311,8 @@ class EnsembleTrainer(BaseBatch):
             tf,
             regime,
         )
+        # Meta-FDR gate: keep only features that pass BH-FDR in >=min_fraction of eligible cells
+        ic_rows = [r for r in ic_rows if r["feature_name"] in meta_eligible_features]
         if not ic_rows:
             log.debug("ensemble_trainer.stratum_no_ic_rows")
             return
