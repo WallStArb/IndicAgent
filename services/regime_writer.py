@@ -87,6 +87,28 @@ _LABEL_RANGING = "ranging"
 _UPDATE_BATCH_SIZE = 500
 
 
+@contextlib.contextmanager
+def _noop_span(name, **attrs):
+    class _Noop:
+        def set_attribute(self, k, v):
+            pass
+
+        def set_status(self, *a):
+            pass
+
+        def record_exception(self, *a):
+            pass
+
+    yield _Noop()
+
+
+class _NoopTracer:
+    """Subprocess-safe tracer stub — OTel spans must not be emitted from workers."""
+
+    def start_as_current_span(self, name, attributes=None):
+        return _noop_span(name)
+
+
 # ---------------------------------------------------------------------------
 # Core HMM functions
 # ---------------------------------------------------------------------------
@@ -146,28 +168,22 @@ def _build_obs_matrix(
     momentum = mom_raw / np.maximum(realized_vol, 1e-8)
 
     # --- vol_of_vol: rolling std of realized_vol over vol_of_vol_window ---
-    if len(realized_vol) >= vol_of_vol_window:
-        windows_vov = np.lib.stride_tricks.sliding_window_view(realized_vol, vol_of_vol_window)
-        vol_of_vol = np.concatenate(
-            [
-                np.zeros(vol_of_vol_window - 1),
-                np.std(windows_vov, axis=1),
-            ]
-        )
-    else:
-        vol_of_vol = np.zeros(len(log_returns))
+    windows_vov = np.lib.stride_tricks.sliding_window_view(realized_vol, vol_of_vol_window)
+    vol_of_vol = np.concatenate(
+        [
+            np.zeros(vol_of_vol_window - 1),
+            np.std(windows_vov, axis=1),
+        ]
+    )
 
     # --- rel_volume: log_volume - rolling mean(log_volume, vol_window) ---
-    if len(log_volumes) >= vol_window:
-        windows_vol = np.lib.stride_tricks.sliding_window_view(log_volumes, vol_window)
-        rolling_mean_logvol = np.concatenate(
-            [
-                np.zeros(vol_window - 1),
-                np.mean(windows_vol, axis=1),
-            ]
-        )
-    else:
-        rolling_mean_logvol = np.zeros(len(log_returns))
+    windows_vol = np.lib.stride_tricks.sliding_window_view(log_volumes, vol_window)
+    rolling_mean_logvol = np.concatenate(
+        [
+            np.zeros(vol_window - 1),
+            np.mean(windows_vol, axis=1),
+        ]
+    )
     rel_volume = log_volumes - rolling_mean_logvol
 
     # --- discard rows before all windows are warm ---
@@ -567,25 +583,6 @@ def _run_symbol_worker(args: tuple) -> dict:
             dsn,
             options="-c idle_in_transaction_session_timeout=0",
         )
-
-        # No-op tracer for worker — spans are not emitted from subprocesses
-        @contextlib.contextmanager
-        def _noop_span(name, **attrs):
-            class _Noop:
-                def set_attribute(self, k, v):
-                    pass
-
-                def set_status(self, *a):
-                    pass
-
-                def record_exception(self, *a):
-                    pass
-
-            yield _Noop()
-
-        class _NoopTracer:
-            def start_as_current_span(self, name, attributes=None):
-                return _noop_span(name)
 
         noop_tracer = _NoopTracer()
 

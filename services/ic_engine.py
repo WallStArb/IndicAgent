@@ -155,6 +155,28 @@ _REGIME_INSERT_SQL = (
 
 
 @contextmanager
+def _noop_span(name, **attrs):
+    class _Noop:
+        def set_attribute(self, k, v):
+            pass
+
+        def set_status(self, *a):
+            pass
+
+        def record_exception(self, *a):
+            pass
+
+    yield _Noop()
+
+
+class _NoopTracer:
+    """Subprocess-safe tracer stub — OTel spans must not be emitted from workers."""
+
+    def start_as_current_span(self, name, attributes=None):
+        return _noop_span(name)
+
+
+@contextmanager
 def _observed_span(name: str, tracer: Any, **attrs: Any):
     """Sync context manager wrapping an OTel span with ERROR auto-record."""
     with tracer.start_as_current_span(name, attributes=attrs) as span:
@@ -940,26 +962,6 @@ def _run_ic_worker(args: tuple) -> dict:
 
     setup_service_logging("logs/ic_engine.log")
     worker_log = structlog.get_logger(__name__)
-
-    import contextlib
-
-    @contextlib.contextmanager
-    def _noop_span(name, **attrs):
-        class _Noop:
-            def set_attribute(self, k, v):
-                pass
-
-            def set_status(self, *a):
-                pass
-
-            def record_exception(self, *a):
-                pass
-
-        yield _Noop()
-
-    class _NoopTracer:
-        def start_as_current_span(self, name, attributes=None):
-            return _noop_span(name)
 
     noop_tracer = _NoopTracer()
 
