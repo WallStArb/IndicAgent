@@ -6,6 +6,7 @@ wave: 2
 depends_on: [P0, P1]
 files_modified:
   - services/ic_engine.py
+  - tests/unit/test_ic_engine_clustering.py
 autonomous: true
 
 must_haves:

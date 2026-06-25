@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Intelligence Vectors — AlphaEngine
 status: milestone_archived
-last_updated: "2026-06-24T10:00:00.000Z"
+last_updated: "2026-06-25T18:34:06.966Z"
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 19
-  completed_plans: 20
-  percent: 100
+  total_phases: 7
+  completed_phases: 4
+  total_plans: 36
+  completed_plans: 22
+  percent: 57
 ---
 
 # Project State
@@ -90,6 +90,7 @@ tail -f logs/corpus_pipeline/nohup.log
 Full corpus pipeline launched. All naming violations fixed (EnsembleBuilder→EnsembleTrainer, AlphaEmitter→AlphaPublisher, run_corpus_pipeline.sh→corpus_pipeline_run.sh). All unit tests green (5,245 pass).
 
 **Gotcha:** `--compute-only` silently skips all symbols if backfill_status is empty (requires fetch_complete=true per row). After any truncation, seed backfill_status first:
+
 ```sql
 INSERT INTO backfill_status (symbol, tf, fetch_complete, status)
 SELECT DISTINCT symbol, timeframe, true, 'pending'

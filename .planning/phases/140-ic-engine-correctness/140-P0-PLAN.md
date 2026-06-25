@@ -8,6 +8,8 @@ files_modified:
   - services/ic_engine.py
   - services/forward_return_writer.py
   - production/scripts/corpus_pipeline_run.sh
+  - tests/unit/test_ic_engine_stride.py
+  - tests/unit/test_forward_return_session_boundary.py
 autonomous: true
 
 must_haves:
