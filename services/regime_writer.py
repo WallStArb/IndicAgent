@@ -161,11 +161,7 @@ def _build_obs_matrix(
     rolling_mean_logvol = _rolling(log_volumes, vol_window, np.mean)
     rel_volume = log_volumes - rolling_mean_logvol
 
-    # --- discard rows before all windows are warm ---
     valid_start = max(vol_window, momentum_window, vol_of_vol_window) - 1
-    if valid_start >= len(log_returns):
-        return np.empty((0, 5), dtype=float), []
-
     obs = np.column_stack(
         [
             log_returns[valid_start:],
