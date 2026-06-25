@@ -745,7 +745,7 @@ def run_compute_stage(
                 # Mark in_progress on main connection before handing off to worker
                 with db_conn.cursor() as cur:
                     cur.execute(_MARK_COMPUTE_STATUS_SQL, (symbol, tf, "in_progress"))
-                db_conn.commit()
+                # db_conn.autocommit=True — no explicit commit needed
 
         if needs_compute:
             pending_symbols.append(symbol)
@@ -765,7 +765,6 @@ def run_compute_stage(
             pipeline_version,
             warm_up_bars,
             cross_asset_by_date,
-            status_map,
         )
         for symbol in pending_symbols
     ]
@@ -832,7 +831,7 @@ def _run_compute_worker(args: tuple) -> dict:
 
     Args:
         args: (symbol, tfs, dsn, config, pipeline_version, warm_up_bars,
-               cross_asset_by_date, status_map)
+               cross_asset_by_date)
                Packed as a tuple for ProcessPoolExecutor.map compatibility.
 
     Returns:
@@ -847,7 +846,6 @@ def _run_compute_worker(args: tuple) -> dict:
         pipeline_version,
         warm_up_bars,
         cross_asset_by_date,
-        status_map,
     ) = args
 
     # Initialize logging in subprocess (each process needs its own handler)
@@ -860,21 +858,12 @@ def _run_compute_worker(args: tuple) -> dict:
 
     try:
         conn = psycopg2.connect(dsn)
+        # autocommit=True prevents InFailedSqlTransaction from poisoning later TFs
+        # on per-cell exceptions; no conn.rollback() needed.
         conn.autocommit = True
         psycopg2.extras.register_uuid()
 
         for tf in tfs:
-            key = (symbol, tf)
-            existing = status_map.get(key, {})
-
-            # Skip if fetch not complete or already done
-            if not existing.get("fetch_complete"):
-                worker_log.warning("worker_skip_no_fetch", symbol=symbol, tf=tf)
-                continue
-            if existing.get("status") == "complete":
-                worker_log.info("worker_skip_complete", symbol=symbol, tf=tf)
-                continue
-
             try:
                 rows_written = _compute_symbol_tf(
                     conn=conn,
