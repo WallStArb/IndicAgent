@@ -38,6 +38,7 @@ import psycopg2.extras
 import structlog
 from hmmlearn.hmm import GaussianHMM
 from opentelemetry import trace
+from sklearn.preprocessing import StandardScaler
 
 # Set up sys.path before project imports
 project_root = Path(__file__).parent.parent
@@ -92,40 +93,95 @@ _UPDATE_BATCH_SIZE = 500
 def _build_obs_matrix(
     timestamps: list,
     closes: list[float],
+    volumes: list[float],
     vol_window: int,
+    momentum_window: int,
+    vol_of_vol_window: int,
 ) -> tuple[np.ndarray, list]:
-    """Build (n_valid, 2) observation matrix from OHLCV close prices.
+    """Build (n_valid, 5) observation matrix from OHLCV prices and volumes.
 
     Observation dimensions:
-      [0] log_return  = ln(close[t] / close[t-1])
+      [0] log_return   = ln(close[t] / close[t-1])
       [1] realized_vol = rolling std of log_returns over vol_window bars
+      [2] momentum     = sum(log_returns[-momentum_window:]) / (realized_vol + eps)
+                         Directional drift signal, vol-normalized.
+      [3] vol_of_vol   = rolling std of realized_vol over vol_of_vol_window bars
+                         Regime transition indicator: stable regimes have stable vol.
+      [4] rel_volume   = log(volume[t]) - rolling mean(log(volume), vol_window)
+                         Volume anomaly relative to recent baseline.
 
-    The first vol_window rows are discarded because realized_vol is undefined
-    (insufficient history). Returns aligned (obs_matrix, valid_timestamps).
+    valid_start = max(vol_window, momentum_window, vol_of_vol_window) - 1
+    All rows before valid_start are discarded (insufficient window history).
+    Returns (obs_matrix, valid_timestamps).
     """
     closes_arr = np.array(closes, dtype=float)
-    n = len(closes_arr)
+    volumes_arr = np.maximum(np.array(volumes, dtype=float), 1.0)  # guard zero volume
 
-    # Log returns: length n-1 (index 0 = return at bar 1 relative to bar 0)
     log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
-
-    # Aligned timestamps (skip first bar which has no return)
+    log_volumes = np.log(volumes_arr[1:])  # aligned to log_returns
     ts_shifted = timestamps[1:]
 
-    # Realized vol: rolling std over vol_window bars of log returns.
-    # sliding_window_view gives full-size windows from index vol_window-1 onwards.
-    if len(log_returns) >= vol_window:
-        windows = np.lib.stride_tricks.sliding_window_view(log_returns, vol_window)
-        realized_vol = np.concatenate([np.zeros(vol_window - 1), np.std(windows, axis=1)])
+    if len(log_returns) < vol_window:
+        return np.empty((0, 5), dtype=float), []
+
+    # --- realized_vol: rolling std over vol_window ---
+    windows_ret = np.lib.stride_tricks.sliding_window_view(log_returns, vol_window)
+    realized_vol = np.concatenate(
+        [
+            np.zeros(vol_window - 1),
+            np.std(windows_ret, axis=1),
+        ]
+    )
+
+    # --- momentum: sum of log_returns over momentum_window / (realized_vol + eps) ---
+    windows_mom = np.lib.stride_tricks.sliding_window_view(log_returns, momentum_window)
+    mom_raw = np.concatenate(
+        [
+            np.zeros(momentum_window - 1),
+            np.sum(windows_mom, axis=1),
+        ]
+    )
+    momentum = mom_raw / np.maximum(realized_vol, 1e-8)
+
+    # --- vol_of_vol: rolling std of realized_vol over vol_of_vol_window ---
+    if len(realized_vol) >= vol_of_vol_window:
+        windows_vov = np.lib.stride_tricks.sliding_window_view(realized_vol, vol_of_vol_window)
+        vol_of_vol = np.concatenate(
+            [
+                np.zeros(vol_of_vol_window - 1),
+                np.std(windows_vov, axis=1),
+            ]
+        )
     else:
-        realized_vol = np.zeros(len(log_returns))
+        vol_of_vol = np.zeros(len(log_returns))
 
-    # Discard first vol_window rows where vol is unreliable
-    valid_start = vol_window - 1
+    # --- rel_volume: log_volume - rolling mean(log_volume, vol_window) ---
+    if len(log_volumes) >= vol_window:
+        windows_vol = np.lib.stride_tricks.sliding_window_view(log_volumes, vol_window)
+        rolling_mean_logvol = np.concatenate(
+            [
+                np.zeros(vol_window - 1),
+                np.mean(windows_vol, axis=1),
+            ]
+        )
+    else:
+        rolling_mean_logvol = np.zeros(len(log_returns))
+    rel_volume = log_volumes - rolling_mean_logvol
+
+    # --- discard rows before all windows are warm ---
+    valid_start = max(vol_window, momentum_window, vol_of_vol_window) - 1
     if valid_start >= len(log_returns):
-        return np.empty((0, 2), dtype=float), []
+        return np.empty((0, 5), dtype=float), []
 
-    obs = np.column_stack([log_returns[valid_start:], realized_vol[valid_start:]])
+    obs = np.column_stack(
+        [
+            log_returns[valid_start:],
+            realized_vol[valid_start:],
+            momentum[valid_start:],
+            vol_of_vol[valid_start:],
+            rel_volume[valid_start:],
+        ]
+    )
     valid_ts = ts_shifted[valid_start:]
     return obs, valid_ts
 
@@ -238,6 +294,8 @@ def _label_symbol_tf(
     vol_window: int,
     n_iter: int,
     hmm_random_state: int,
+    momentum_window: int,
+    vol_of_vol_window: int,
     tracer: Any,
 ) -> int:
     """Fit HMM and UPDATE feature_vectors.regime for one (symbol, tf) cell.
@@ -258,12 +316,13 @@ def _label_symbol_tf(
             # ------------------------------------------------------------------
             timestamps = []
             closes = []
+            volumes = []
             # Server-side cursor requires no active transaction — commit any
             # open transaction first.
             conn.commit()
             with conn.cursor("ohlcv_stream") as cur:
                 cur.execute(
-                    "SELECT timestamp, close "
+                    "SELECT timestamp, close, volume "
                     "FROM market_data_ohlcv "
                     "WHERE symbol = %s AND timeframe = %s "
                     "ORDER BY timestamp ASC",
@@ -276,6 +335,7 @@ def _label_symbol_tf(
                     for r in batch:
                         timestamps.append(r[0])
                         closes.append(float(r[1]))
+                        volumes.append(float(r[2]))
 
             if not timestamps:
                 _logger.warning(
@@ -288,7 +348,14 @@ def _label_symbol_tf(
             # ------------------------------------------------------------------
             # Build observation matrix
             # ------------------------------------------------------------------
-            obs_matrix, valid_ts = _build_obs_matrix(timestamps, closes, vol_window)
+            obs_matrix, valid_ts = _build_obs_matrix(
+                timestamps,
+                closes,
+                volumes,
+                vol_window=vol_window,
+                momentum_window=momentum_window,
+                vol_of_vol_window=vol_of_vol_window,
+            )
 
             min_rows = n_components * _MIN_OBS_FACTOR
             if len(valid_ts) < min_rows:
@@ -300,6 +367,12 @@ def _label_symbol_tf(
                     min_required=min_rows,
                 )
                 return 0
+
+            # Standardize per-series: fit on this series, transform in-place.
+            # Both fit() and _causal_decode() receive the scaled matrix so
+            # means/covars are in scaled space — internally consistent.
+            scaler = StandardScaler()
+            obs_matrix = scaler.fit_transform(obs_matrix)
 
             # ------------------------------------------------------------------
             # Fit HMM (parameter estimation only, NOT decoding)
@@ -498,8 +571,10 @@ def main() -> None:
                 cfg = _load_config_service_shared(conn)
                 n_components = int(cfg.get_sync("feature.hmm.n_components", 3))
                 vol_window = int(cfg.get_sync("feature.hmm.vol_window", 20))
-                n_iter = int(cfg.get_sync("feature.hmm.n_iter", 100))
+                n_iter = int(cfg.get_sync("feature.hmm.n_iter", 200))
                 hmm_random_state = int(cfg.get_sync("alpha.hmm.random_state", 42))
+                momentum_window = int(cfg.get_sync("feature.hmm.obs_momentum_window", 20))
+                vol_of_vol_window = int(cfg.get_sync("feature.hmm.obs_vol_of_vol_window", 20))
 
                 # Resolve symbols
                 symbols = args.symbols if args.symbols else _discover_symbols(conn)
@@ -512,6 +587,8 @@ def main() -> None:
                     n_components=n_components,
                     vol_window=vol_window,
                     n_iter=n_iter,
+                    momentum_window=momentum_window,
+                    vol_of_vol_window=vol_of_vol_window,
                 )
 
                 total_updated = 0
@@ -528,6 +605,8 @@ def main() -> None:
                                 vol_window=vol_window,
                                 n_iter=n_iter,
                                 hmm_random_state=hmm_random_state,
+                                momentum_window=momentum_window,
+                                vol_of_vol_window=vol_of_vol_window,
                                 tracer=tracer,
                             )
                             total_updated += n
