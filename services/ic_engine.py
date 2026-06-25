@@ -199,13 +199,8 @@ def _connect_db(settings: Settings) -> Any:
 
 
 def _connect_db_from_url(db_url: str) -> Any:
-    """Open a psycopg2 connection from a raw DB URL.
-
-    Accepts both asyncpg-style (postgresql+asyncpg://) and plain (postgresql://)
-    URLs so workers can connect via the passed DSN without re-instantiating Settings.
-    """
-    sync_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-    conn = psycopg2.connect(sync_url)
+    """Open a psycopg2 connection from a raw DB URL."""
+    conn = psycopg2.connect(db_url)
     conn.autocommit = False
     return conn
 

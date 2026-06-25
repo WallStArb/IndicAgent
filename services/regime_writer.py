@@ -114,6 +114,12 @@ class _NoopTracer:
 # ---------------------------------------------------------------------------
 
 
+def _rolling(arr: np.ndarray, window: int, fn) -> np.ndarray:
+    """Apply fn over a sliding window, zero-padding the warm-up prefix."""
+    windows = np.lib.stride_tricks.sliding_window_view(arr, window)
+    return np.concatenate([np.zeros(window - 1), fn(windows, axis=1)])
+
+
 def _build_obs_matrix(
     timestamps: list,
     closes: list[float],
@@ -148,42 +154,11 @@ def _build_obs_matrix(
     if len(log_returns) < max(vol_window, momentum_window, vol_of_vol_window):
         return np.empty((0, 5), dtype=float), []
 
-    # --- realized_vol: rolling std over vol_window ---
-    windows_ret = np.lib.stride_tricks.sliding_window_view(log_returns, vol_window)
-    realized_vol = np.concatenate(
-        [
-            np.zeros(vol_window - 1),
-            np.std(windows_ret, axis=1),
-        ]
-    )
-
-    # --- momentum: sum of log_returns over momentum_window / (realized_vol + eps) ---
-    windows_mom = np.lib.stride_tricks.sliding_window_view(log_returns, momentum_window)
-    mom_raw = np.concatenate(
-        [
-            np.zeros(momentum_window - 1),
-            np.sum(windows_mom, axis=1),
-        ]
-    )
+    realized_vol = _rolling(log_returns, vol_window, np.std)
+    mom_raw = _rolling(log_returns, momentum_window, np.sum)
     momentum = mom_raw / np.maximum(realized_vol, 1e-8)
-
-    # --- vol_of_vol: rolling std of realized_vol over vol_of_vol_window ---
-    windows_vov = np.lib.stride_tricks.sliding_window_view(realized_vol, vol_of_vol_window)
-    vol_of_vol = np.concatenate(
-        [
-            np.zeros(vol_of_vol_window - 1),
-            np.std(windows_vov, axis=1),
-        ]
-    )
-
-    # --- rel_volume: log_volume - rolling mean(log_volume, vol_window) ---
-    windows_vol = np.lib.stride_tricks.sliding_window_view(log_volumes, vol_window)
-    rolling_mean_logvol = np.concatenate(
-        [
-            np.zeros(vol_window - 1),
-            np.mean(windows_vol, axis=1),
-        ]
-    )
+    vol_of_vol = _rolling(realized_vol, vol_of_vol_window, np.std)
+    rolling_mean_logvol = _rolling(log_volumes, vol_window, np.mean)
     rel_volume = log_volumes - rolling_mean_logvol
 
     # --- discard rows before all windows are warm ---
