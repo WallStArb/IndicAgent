@@ -192,60 +192,61 @@ def _causal_decode(
     variances: np.ndarray,
     A: np.ndarray,
     K: int,
-) -> np.ndarray:
-    """Causal forward-filter (alpha-pass only) HMM decoding.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Causal forward-filter (alpha-pass only) HMM decoding - vectorized.
 
-    At each timestep t, the decoded state = argmax(alpha[t]) where alpha[t]
-    depends ONLY on observations obs[0..t] and the prior alpha[t-1].
-    No backward pass, no smoothing, no Viterbi over the full sequence.
+    Precomputes log emission probabilities for all timesteps as a batch
+    (n, K) matrix before the sequential alpha-pass loop, eliminating the
+    K-sized Python loop that ran per timestep in the original implementation.
 
-    Mirrors src/intelligence/features/smc_context/hmm_regime.py:_forward_step()
-    for batch-mode use. Do NOT replace with model.predict().
+    The sequential t-loop is retained - causality requires alpha[t] to depend
+    only on alpha[t-1]. Each loop iteration is pure numpy K-vector ops.
 
     Args:
-        obs_matrix: (n, d) observation matrix
-        means: (K, d) emission means per state
-        variances: (K, d) emission variances per state (diagonal covariance)
+        obs_matrix: (n, d) observation matrix (StandardScaler-transformed)
+        means: (K, d) emission means per state (in scaled space)
+        variances: (K, d) emission variances per state (in scaled space, diagonal)
         A: (K, K) transition matrix
         K: number of hidden states
 
     Returns:
-        (states, alpha_history) where states[t] = argmax(alpha[t]) and
-        alpha_history[t] is the normalized probability vector over K states.
+        (states, alpha_history): states[t] = argmax(alpha[t]),
+        alpha_history[t] = normalized probability vector over K states.
     """
     n, d = obs_matrix.shape
+    var_clipped = np.maximum(variances[:, :d], 1e-300)  # (K, d)
+
+    # Precompute log emission for all timesteps: shape (n, K)
+    # diff[t, k, j] = obs[t, j] - means[k, j]
+    diff = obs_matrix[:, np.newaxis, :] - means[np.newaxis, :, :d]  # (n, K, d)
+    log_emit = (
+        -0.5 * np.sum(diff**2 / var_clipped[np.newaxis, :, :], axis=2)
+        - 0.5 * np.sum(np.log(2 * np.pi * var_clipped), axis=1)[np.newaxis, :]
+    )  # (n, K)
+
+    log_A = np.log(np.maximum(A, 1e-300))  # (K, K): log_A[i, j] = log P(i -> j)
+
     states = np.zeros(n, dtype=int)
     alpha_history = np.zeros((n, K))
-    # Uniform prior — mirrors _make_initial_state in hmm_regime.py
-    alpha = np.full(K, 1.0 / K)
+    alpha = np.full(K, 1.0 / K)  # uniform prior
 
     for t in range(n):
-        obs = obs_matrix[t]
-        # Emission log-probabilities (diagonal Gaussian)
-        log_emit = np.zeros(K)
-        for k in range(K):
-            diff = obs - means[k, :d]
-            var = variances[k, :d]
-            log_emit[k] = -0.5 * np.sum(diff**2 / np.maximum(var, 1e-300)) - 0.5 * np.sum(
-                np.log(2 * np.pi * np.maximum(var, 1e-300))
-            )
-
-        # Forward update in log space (mirrors _forward_step in hmm_regime.py)
+        # log_alpha_prev + log_A: broadcast (K,) over (K, K)
+        # log_trans[i, j] = log_alpha[i] + log_A[i, j]
         log_alpha = np.log(np.maximum(alpha, 1e-300))
-        log_alpha_new = np.zeros(K)
-        for k in range(K):
-            log_trans = log_alpha + np.log(np.maximum(A[:, k], 1e-300))
-            max_lt = np.max(log_trans)
-            log_alpha_new[k] = max_lt + np.log(np.sum(np.exp(log_trans - max_lt)))
-        log_alpha_new += log_emit
+        log_trans = log_alpha[:, np.newaxis] + log_A  # (K, K)
+        # logsumexp over source states for each target state j
+        max_lt = log_trans.max(axis=0)  # (K,)
+        log_alpha_new = max_lt + np.log(np.sum(np.exp(log_trans - max_lt), axis=0))
+        log_alpha_new += log_emit[t]  # add emission
 
-        # Normalize
-        max_la = np.max(log_alpha_new)
+        # Normalize in log space then exponentiate
+        max_la = log_alpha_new.max()
         alpha = np.exp(log_alpha_new - max_la)
-        total = np.sum(alpha)
+        total = alpha.sum()
         alpha /= total if total > 0 else 1.0
 
-        states[t] = int(np.argmax(alpha))
+        states[t] = int(alpha.argmax())
         alpha_history[t] = alpha
 
     return states, alpha_history

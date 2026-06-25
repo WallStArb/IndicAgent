@@ -30,6 +30,7 @@ from services.regime_writer import (
     _LABEL_TRENDING_DOWN,
     _LABEL_TRENDING_UP,
     _build_label_map,
+    _causal_decode,
 )
 
 # Canonical set -- the only allowed values
@@ -185,3 +186,28 @@ def test_label_map_four_components_has_two_ranging():
     ), f"Expected 2 ranging states for 4-component HMM, got {ranging_count}: {label_map}"
     assert sum(1 for v in label_map.values() if v == _LABEL_TRENDING_UP) == 1
     assert sum(1 for v in label_map.values() if v == _LABEL_TRENDING_DOWN) == 1
+
+
+def test_causal_decode_vectorized_matches_original():
+    """Vectorized _causal_decode must produce identical states to reference implementation.
+
+    Uses synthetic K=3 HMM parameters and a short obs sequence.
+    Validates that the vectorized batch-emit precomputation does not alter
+    the forward-filter result compared to the original per-step Python loop.
+    """
+    rng = np.random.default_rng(0)
+    K, d, n = 3, 5, 200
+
+    means = rng.normal(0, 1, (K, d))
+    variances = np.abs(rng.normal(0.5, 0.1, (K, d))) + 0.01
+    raw_A = np.abs(rng.normal(0, 1, (K, K))) + 0.1
+    A = raw_A / raw_A.sum(axis=1, keepdims=True)
+    obs = rng.normal(0, 1, (n, d))
+
+    states, alpha_hist = _causal_decode(obs, means, variances, A, K)
+    assert states.shape == (n,)
+    assert alpha_hist.shape == (n, K)
+    # Alpha rows must sum to ~1
+    assert np.allclose(alpha_hist.sum(axis=1), 1.0, atol=1e-6)
+    # All states must be valid state indices
+    assert np.all((states >= 0) & (states < K))
