@@ -121,7 +121,7 @@ def _build_obs_matrix(
     log_volumes = np.log(volumes_arr[1:])  # aligned to log_returns
     ts_shifted = timestamps[1:]
 
-    if len(log_returns) < vol_window:
+    if len(log_returns) < max(vol_window, momentum_window, vol_of_vol_window):
         return np.empty((0, 5), dtype=float), []
 
     # --- realized_vol: rolling std over vol_window ---
