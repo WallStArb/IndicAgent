@@ -76,6 +76,12 @@ def _make_timestamps(n: int):
     return [base + timedelta(hours=i) for i in range(n)]
 
 
+def _make_volumes(n: int, seed: int = 7) -> list[float]:
+    """Generate n synthetic daily volumes with log-normal distribution."""
+    rng = np.random.default_rng(seed)
+    return list(rng.lognormal(mean=14.0, sigma=0.5, size=n))
+
+
 def _fit_simple_hmm(obs_matrix: np.ndarray, n_components: int = 3) -> GaussianHMM:
     """Fit a GaussianHMM on synthetic obs matrix for use in tests."""
     model = GaussianHMM(
@@ -94,26 +100,35 @@ def _fit_simple_hmm(obs_matrix: np.ndarray, n_components: int = 3) -> GaussianHM
 
 
 def test_build_obs_matrix_shape():
-    """obs_matrix should have shape (n-1-vol_window, 2)."""
+    """obs_matrix should have shape (n-1-vol_window, 5) for 5D observation vector."""
     n = 200
     vol_window = 20
+    momentum_window = 20
+    vol_of_vol_window = 20
     closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
     timestamps = _make_timestamps(n)
 
-    obs, valid_ts = _build_obs_matrix(timestamps, closes, vol_window)
+    obs, valid_ts = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window, momentum_window, vol_of_vol_window
+    )
 
-    # n closes -> n-1 log returns -> drop first (vol_window-1) for warm-up
-    # Remaining: (n-1) - (vol_window-1) = n - vol_window
+    # n closes -> n-1 log returns -> drop first (max_window-1) for warm-up
+    # With all windows equal to vol_window: remaining = (n-1) - (vol_window-1) = n - vol_window
     expected_rows = n - vol_window
-    assert obs.shape == (expected_rows, 2), f"Expected ({expected_rows}, 2), got {obs.shape}"
+    assert obs.shape == (expected_rows, 5), f"Expected ({expected_rows}, 5), got {obs.shape}"
     assert len(valid_ts) == expected_rows
 
 
 def test_build_obs_matrix_no_nan():
     """obs_matrix must not contain NaN or Inf."""
-    closes = _make_trending_up_closes(300)
-    timestamps = _make_timestamps(300)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 300
+    closes = _make_trending_up_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     assert not np.any(np.isnan(obs)), "obs_matrix contains NaN"
     assert not np.any(np.isinf(obs)), "obs_matrix contains Inf"
@@ -121,9 +136,13 @@ def test_build_obs_matrix_no_nan():
 
 def test_build_obs_matrix_log_return_sign():
     """Trending-up closes should yield mostly positive log-returns in col 0."""
-    closes = _make_trending_up_closes(500)
-    timestamps = _make_timestamps(500)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 500
+    closes = _make_trending_up_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     positive_fraction = np.mean(obs[:, 0] > 0)
     assert (
@@ -133,9 +152,13 @@ def test_build_obs_matrix_log_return_sign():
 
 def test_build_obs_matrix_insufficient_data():
     """With fewer closes than vol_window+2, obs matrix should be empty."""
-    closes = [100.0] * 10
-    timestamps = _make_timestamps(10)
-    obs, valid_ts = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 10
+    closes = [100.0] * n
+    volumes = [1e6] * n
+    timestamps = _make_timestamps(n)
+    obs, valid_ts = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     assert obs.shape[0] == 0
     assert len(valid_ts) == 0
@@ -143,9 +166,13 @@ def test_build_obs_matrix_insufficient_data():
 
 def test_build_obs_matrix_timestamp_alignment():
     """valid_ts length must match obs_matrix row count."""
-    closes = _make_ranging_closes(150)
-    timestamps = _make_timestamps(150)
-    obs, valid_ts = _build_obs_matrix(timestamps, closes, vol_window=10)
+    n = 150
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, valid_ts = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=10, momentum_window=10, vol_of_vol_window=10
+    )
 
     assert len(valid_ts) == obs.shape[0]
 
@@ -157,14 +184,20 @@ def test_build_obs_matrix_timestamp_alignment():
 
 def test_causal_decode_valid_states():
     """All decoded states must be in [0, K-1]."""
-    closes = _make_ranging_closes(400)
-    timestamps = _make_timestamps(400)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 400
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
+    d = model.means_.shape[1]
+    covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
     states, alpha_history = _causal_decode(
-        obs, model.means_, model.covars_, model.transmat_, n_components
+        obs, model.means_, covars_diag, model.transmat_, n_components
     )
 
     assert states.shape == (obs.shape[0],)
@@ -178,16 +211,22 @@ def test_causal_decode_valid_states():
 def test_causal_decode_no_predict():
     """Causal decode should not use model.predict() — this test verifies the
     function produces different results than Viterbi when forced forward-only."""
-    closes = _make_ranging_closes(300)
-    timestamps = _make_timestamps(300)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 300
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
+    d = model.means_.shape[1]
+    covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
 
     # Our causal decoder
     causal_states, alpha_history = _causal_decode(
-        obs, model.means_, model.covars_, model.transmat_, n_components
+        obs, model.means_, covars_diag, model.transmat_, n_components
     )
 
     # hmmlearn Viterbi (full-sequence, non-causal)
@@ -204,18 +243,24 @@ def test_causal_decode_no_predict():
 
 def test_causal_decode_deterministic():
     """Same obs, model must produce same decoded states (no randomness in decode)."""
-    closes = _make_ranging_closes(250)
-    timestamps = _make_timestamps(250)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 250
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
+    d = model.means_.shape[1]
+    covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
 
     states1, alpha_history1 = _causal_decode(
-        obs, model.means_, model.covars_, model.transmat_, n_components
+        obs, model.means_, covars_diag, model.transmat_, n_components
     )
     states2, alpha_history2 = _causal_decode(
-        obs, model.means_, model.covars_, model.transmat_, n_components
+        obs, model.means_, covars_diag, model.transmat_, n_components
     )
 
     np.testing.assert_array_equal(states1, states2)
@@ -230,21 +275,27 @@ def test_causal_decode_uses_only_past_observations():
     or smoothing were present, the additional future obs[T+1..T+k] would
     change the decoded state at T.
     """
-    closes = _make_ranging_closes(300)
-    timestamps = _make_timestamps(300)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 300
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
+    d = model.means_.shape[1]
+    covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
 
     # Decode on first half of obs
     half = len(obs) // 2
     states_half, _ = _causal_decode(
-        obs[:half], model.means_, model.covars_, model.transmat_, n_components
+        obs[:half], model.means_, covars_diag, model.transmat_, n_components
     )
 
     # Decode on full sequence
-    states_full, _ = _causal_decode(obs, model.means_, model.covars_, model.transmat_, n_components)
+    states_full, _ = _causal_decode(obs, model.means_, covars_diag, model.transmat_, n_components)
 
     # The decoded state at each position in the first half must be identical
     # between the two decoding runs — future observations cannot change past states
@@ -261,16 +312,22 @@ def test_causal_decode_uses_only_past_observations():
 
 def test_causal_decode_single_obs():
     """Decoder must handle n=1 observation without crash."""
-    closes = _make_ranging_closes(200)
-    timestamps = _make_timestamps(200)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 200
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
+    d = model.means_.shape[1]
+    covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
 
-    single_obs = obs[:1]  # shape (1, 2)
+    single_obs = obs[:1]  # shape (1, 5)
     states, alpha_history = _causal_decode(
-        single_obs, model.means_, model.covars_, model.transmat_, n_components
+        single_obs, model.means_, covars_diag, model.transmat_, n_components
     )
     assert states.shape == (1,)
     assert 0 <= states[0] < n_components
@@ -285,9 +342,13 @@ def test_causal_decode_single_obs():
 
 def test_build_label_map_covers_all_states():
     """label_map must contain an entry for every state 0..K-1."""
-    closes = _make_ranging_closes(400)
-    timestamps = _make_timestamps(400)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 400
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
@@ -298,9 +359,13 @@ def test_build_label_map_covers_all_states():
 
 def test_build_label_map_canonical_values():
     """All label values must be one of the three canonical strings."""
-    closes = _make_ranging_closes(400)
-    timestamps = _make_timestamps(400)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 400
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
@@ -313,9 +378,13 @@ def test_build_label_map_canonical_values():
 
 def test_build_label_map_trending_up_has_highest_mean():
     """The state mapped to trending_up must have the highest mean log-return."""
-    closes = _make_ranging_closes(500)
-    timestamps = _make_timestamps(500)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
@@ -331,9 +400,13 @@ def test_build_label_map_trending_up_has_highest_mean():
 
 def test_build_label_map_trending_down_has_lowest_mean():
     """The state mapped to trending_down must have the lowest mean log-return."""
-    closes = _make_ranging_closes(500)
-    timestamps = _make_timestamps(500)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
@@ -349,9 +422,13 @@ def test_build_label_map_trending_down_has_lowest_mean():
 
 def test_build_label_map_exactly_one_trending_up():
     """There must be exactly one 'trending_up' state."""
-    closes = _make_ranging_closes(500)
-    timestamps = _make_timestamps(500)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     n_components = 3
     model = _fit_simple_hmm(obs, n_components)
@@ -365,9 +442,13 @@ def test_build_label_map_exactly_one_trending_up():
 
 def test_build_label_map_four_components():
     """With 4 components, 2 states should be 'ranging' (remaining)."""
-    closes = _make_ranging_closes(1000)
-    timestamps = _make_timestamps(1000)
-    obs, _ = _build_obs_matrix(timestamps, closes, vol_window=20)
+    n = 1000
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    obs, _ = _build_obs_matrix(
+        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
+    )
 
     n_components = 4
     model = GaussianHMM(
