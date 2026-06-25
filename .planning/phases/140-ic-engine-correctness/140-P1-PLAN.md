@@ -69,13 +69,13 @@ Output: `production/migrations/171_ic_correctness.sql`, applied to the live data
     2. New APR key `alpha.ensemble.meta_fdr_min_fraction` (float, default 0.50). Follow the 170 pattern:
        INSERT into config_schema (config_key, value_type, default_value, min_value, max_value, description)
        with value_type 'float', min 0.0, max 1.0, and description:
-       `'[initial_estimate] Minimum fraction of (symbol, tf) cells in which a feature must pass BH-FDR before it is eligible for ensemble weight. Guards meta-level false discovery across the 232-cell universe. Candidate ML learning target.'`
+       `'[initial_estimate] Minimum fraction of (symbol, tf) cells in which a feature must pass BH-FDR before it is eligible for ensemble weight. Guards meta-level false discovery across the 232-cell universe. Conservative starting value; revisit after the first clean corpus run — 0.50 may suppress niche alpha that is genuinely strong in a subset of symbols/TFs if set too high. Candidate ML learning target.'`
        Then INSERT into config_state (config_key, config_value, version) VALUES (..., '0.50', 1)
        ON CONFLICT (config_key) DO NOTHING. (Both INSERTs use ON CONFLICT DO NOTHING.)
 
     3. New APR key `alpha.ic.cluster_max_corr` (float, default 0.70). config_schema value_type 'float',
        min 0.0, max 1.0, description:
-       `'[initial_estimate] Correlation distance threshold for hierarchical clustering of features before BH-FDR. Features with pairwise correlation >= this value cluster together; only the cluster representative receives multiple-testing correction. Candidate ML learning target.'`
+       `'[initial_estimate] Correlation threshold driving distance-threshold dendrogram clustering of features before BH-FDR. It is converted to a correlation-distance cutoff for scipy fcluster(criterion=distance); this is a dendrogram distance cutoff, NOT a guarantee that every pair within a cluster exceeds this correlation. Only the cluster representative receives multiple-testing correction. Candidate ML learning target.'`
        config_state value '0.70', version 1, ON CONFLICT DO NOTHING for both.
 
     4. Update existing key `alpha.ic.sharpe_min_windows` from 10 to 30:
@@ -102,12 +102,12 @@ Output: `production/migrations/171_ic_correctness.sql`, applied to the live data
   <acceptance_criteria>
     - Artifact: `production/migrations/171_ic_correctness.sql` exists.
     - Behavior: `\d feature_ic_scores` shows a nullable `cluster_id smallint` column with the documented comment.
-    - Behavior: config_state row `alpha.ensemble.meta_fdr_min_fraction` = `0.50`.
-    - Behavior: config_state row `alpha.ic.cluster_max_corr` = `0.70`.
+    - Behavior: config_state row `alpha.ensemble.meta_fdr_min_fraction` = `0.50`; its config_schema description carries the `[initial_estimate]` provenance tag and the "revisit after first clean corpus run; may suppress niche alpha if set too high" note.
+    - Behavior: config_state row `alpha.ic.cluster_max_corr` = `0.70`; its description describes distance-threshold dendrogram clustering and explicitly disclaims the pairwise-correlation guarantee.
     - Behavior: config_state row `alpha.ic.sharpe_min_windows` = `30` (was `10`).
     - Source: re-running the migration is idempotent (ADD COLUMN IF NOT EXISTS, ON CONFLICT DO NOTHING, idempotent UPDATE).
   </acceptance_criteria>
-  <done>cluster_id column exists; the two new APR keys are seeded; sharpe_min_windows is 30. P2 and P3 plans can now read these.</done>
+  <done>cluster_id column exists; the two new APR keys are seeded with accurate provenance/semantics; sharpe_min_windows is 30. P2 and P3 plans can now read these.</done>
 </task>
 
 </tasks>
@@ -120,10 +120,11 @@ Output: `production/migrations/171_ic_correctness.sql`, applied to the live data
 
 <success_criteria>
 - feature_ic_scores.cluster_id column present (nullable SMALLINT)
-- alpha.ensemble.meta_fdr_min_fraction = 0.50, alpha.ic.cluster_max_corr = 0.70 seeded
+- alpha.ensemble.meta_fdr_min_fraction = 0.50, alpha.ic.cluster_max_corr = 0.70 seeded with accurate descriptions
 - alpha.ic.sharpe_min_windows raised to 30
 </success_criteria>
 
 <output>
 After completion, create `.planning/phases/140-ic-engine-correctness/140-P1-SUMMARY.md`
 </output>
+</content>

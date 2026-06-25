@@ -11,14 +11,14 @@ autonomous: true
 
 must_haves:
   truths:
-    - "Features are hierarchically clustered on their correlation matrix per (symbol, tf, regime) before BH-FDR"
+    - "Features are grouped by distance-threshold dendrogram clustering on their correlation matrix per (symbol, tf, regime) before BH-FDR (a dendrogram cutoff, not a strict pairwise-correlation guarantee)"
     - "Only the cluster representative (highest |ic_value| in the cluster) has its p-value entered into the BH-FDR batch"
     - "Non-representative cluster members are written with passes_fdr=false and bh_adjusted_p=NULL"
     - "Every feature_ic_scores row gets a cluster_id reflecting its cluster within that run"
     - "The cluster correlation threshold is read from APR key alpha.ic.cluster_max_corr"
   artifacts:
     - path: "services/ic_engine.py"
-      provides: "Hierarchical clustering + representative-only BH-FDR + cluster_id persistence"
+      provides: "Distance-threshold hierarchical clustering + representative-only BH-FDR + cluster_id persistence"
       contains: "fcluster"
   key_links:
     - from: "ic_engine clustering (scipy linkage/fcluster)"
@@ -36,7 +36,7 @@ Add feature-collinearity clustering to the IC engine so BH-FDR is applied to one
 
 Purpose: BH-FDR assumes approximately independent hypotheses. Correlated features (e.g. momentum_z_fast/mid/slow) violate this, biasing multiple-testing correction and downstream ensemble weights. Clustering + representative selection restores the independence assumption.
 
-Output: Per-(symbol, tf, regime) hierarchical clustering in `_compute_symbol_tf`, cluster_id persisted on every row, and BH-FDR run on representatives only.
+Output: Per-(symbol, tf, regime) distance-threshold hierarchical clustering in `_compute_symbol_tf`, cluster_id persisted on every row, and BH-FDR run on representatives only.
 </objective>
 
 <execution_context>
@@ -85,7 +85,7 @@ Output: Per-(symbol, tf, regime) hierarchical clustering in `_compute_symbol_tf`
 </task>
 
 <task type="auto">
-  <name>Task 2: Hierarchical clustering + representative-only BH-FDR</name>
+  <name>Task 2: Distance-threshold clustering + representative-only BH-FDR</name>
   <read_first>
     - services/ic_engine.py (the post-P0 regime loop: degenerate detection on X_regime, per-scale subsampling, the result-dict append, and the BH-FDR block at ~lines 817-824)
     - .planning/phases/140-ic-engine-correctness/140-RESEARCH.md (Issue 4, "Cluster-Aware BH-FDR", Pitfall 4, "Don't Hand-Roll" table, and the scipy code block)
@@ -93,6 +93,15 @@ Output: Per-(symbol, tf, regime) hierarchical clustering in `_compute_symbol_tf`
   </read_first>
   <action>
     Implement per-(symbol, tf, regime) feature clustering in `_compute_symbol_tf` (services/ic_engine.py).
+
+    SEMANTICS (important — do not overstate in code comments or docstrings): this is
+    DISTANCE-THRESHOLD DENDROGRAM CLUSTERING. `fcluster(Z, t=dist_threshold, criterion="distance")` cuts the
+    average-linkage dendrogram at a correlation-distance cutoff derived from `cluster_max_corr`. It does NOT
+    guarantee that every pair of features within a resulting cluster has pairwise correlation >= cluster_max_corr
+    (transitive linkage can merge features whose direct correlation is below the threshold). Comments must say
+    "distance-threshold dendrogram clustering", not "all pairs within a cluster exceed the threshold". The
+    purpose is to collapse obviously-collinear factor families to one representative for BH-FDR, not to certify
+    a pairwise correlation floor.
 
     1. Imports at top of file:
        `from scipy.cluster.hierarchy import linkage, fcluster`
@@ -102,28 +111,35 @@ Output: Per-(symbol, tf, regime) hierarchical clustering in `_compute_symbol_tf`
        `cluster_max_corr = apr["cluster_max_corr"]` (add `cluster_max_corr` to whatever `_load_apr` returns,
        reading config key `alpha.ic.cluster_max_corr` with fallback 0.70). Do NOT hardcode 0.70 in the loop.
 
-    3. Inside the regime loop, AFTER degenerate detection produces `non_degenerate_mask` and `X_regime_nd`,
-       and BEFORE the per-scale loop, compute clusters on the full non-degenerate regime matrix (one set of
-       clusters per (symbol, tf, regime), stable across scales):
+    3. Extract the clustering into a small pure, unit-testable helper near the top of ic_engine.py:
        ```
-       n_nd = X_regime_nd.shape[1]
-       if n_nd >= 2:
-           corr = np.corrcoef(X_regime_nd.T)            # [n_nd, n_nd]
-           corr = np.nan_to_num(corr, nan=0.0)          # guard constant-after-degenerate edge cases
+       def _cluster_features(X_nd: np.ndarray, cluster_max_corr: float) -> np.ndarray:
+           """Distance-threshold dendrogram clustering of non-degenerate feature columns.
+
+           Returns a 1-based int cluster label per column (len == X_nd.shape[1]).
+           NOTE: this is a dendrogram distance cutoff, NOT a guarantee that all pairs
+           within a cluster exceed cluster_max_corr.
+           """
+           n_nd = X_nd.shape[1]
+           if n_nd < 2:
+               return np.ones(n_nd, dtype=int)
+           corr = np.corrcoef(X_nd.T)
+           corr = np.nan_to_num(corr, nan=0.0)              # guard constant-after-degenerate edge cases
            dist = np.sqrt(0.5 * (1.0 - np.clip(corr, -1.0, 1.0)))
            np.fill_diagonal(dist, 0.0)
            Z = linkage(squareform(dist, checks=False), method="average")
-           # cluster_max_corr is a CORRELATION threshold; convert to distance threshold
-           dist_threshold = np.sqrt(0.5 * (1.0 - cluster_max_corr))
-           cluster_ids_nd = fcluster(Z, t=dist_threshold, criterion="distance")  # 1-based ints, len n_nd
-       else:
-           cluster_ids_nd = np.ones(n_nd, dtype=int)
+           dist_threshold = np.sqrt(0.5 * (1.0 - cluster_max_corr))  # correlation -> distance cutoff
+           return fcluster(Z, t=dist_threshold, criterion="distance")  # 1-based ints, len n_nd
        ```
+
+    4. Inside the regime loop, AFTER degenerate detection produces `non_degenerate_mask` and `X_regime_nd`,
+       and BEFORE the per-scale loop, call the helper once per (symbol, tf, regime) (stable across scales):
+       `cluster_ids_nd = _cluster_features(X_regime_nd, cluster_max_corr)`.
        Expand `cluster_ids_nd` back to full feature space with a sentinel for degenerate features:
-       build `cluster_id_full` (len n_features) where degenerate positions are None/0 and non-degenerate
+       build `cluster_id_full` (len n_features) where degenerate positions are None and non-degenerate
        positions take their cluster id. Use the same `_expand`-style mapping already used for ic_full.
 
-    4. Representative selection: a representative must be chosen using IC magnitude, but IC is computed
+    5. Representative selection: a representative must be chosen using IC magnitude, but IC is computed
        per-scale. Decide representatives at the point BH-FDR is collected. The existing code accumulates
        `pvals_flat` / `pval_result_idxs` across all scales+regimes for one (symbol, tf), then runs
        `multipletests` once (lines ~817-824). Change this so that within each (regime, scale, cluster) group,
@@ -142,7 +158,7 @@ Output: Per-(symbol, tf, regime) hierarchical clustering in `_compute_symbol_tf`
        IMPORTANT: do not change the per-scale IC / CI / walk-forward / Sharpe computation. Clustering only
        changes (a) which features enter the BH-FDR batch and (b) the cluster_id written on each row.
 
-    5. Write `cluster_id` into each result dict (replace the `None` placeholder from Task 1) using the integer
+    6. Write `cluster_id` into each result dict (replace the `None` placeholder from Task 1) using the integer
        from `cluster_id_full[feat_idx]` (cast to int, or None for degenerate). cluster_id is local to the run
        (Pitfall 4) — that is acceptable and documented in the migration comment.
 
@@ -153,19 +169,24 @@ Output: Per-(symbol, tf, regime) hierarchical clustering in `_compute_symbol_tf`
   <verify>
     - `.venv/bin/ruff check services/ic_engine.py` — clean
     - `grep -n "fcluster\|linkage\|squareform" services/ic_engine.py` confirms scipy imports + use
+    - `grep -n "_cluster_features" services/ic_engine.py` confirms the pure helper is defined and called
     - `grep -n "cluster_max_corr" services/ic_engine.py` confirms APR-backed threshold (no literal 0.70 in loop)
     - Run unit test below
     - After a scoped ic_engine run (1 symbol, post-migration): `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "SELECT count(DISTINCT cluster_id) FROM feature_ic_scores WHERE cluster_id IS NOT NULL"` > 1
   </verify>
   <acceptance_criteria>
-    - Source: scipy `linkage`, `fcluster`, `squareform` imported and used to cluster `X_regime_nd`.
-    - Source: cluster threshold read from `apr["cluster_max_corr"]` (APR `alpha.ic.cluster_max_corr`); no numeric correlation literal in the clustering block.
+    - Source: scipy `linkage`, `fcluster`, `squareform` imported and used inside `_cluster_features` to cluster `X_regime_nd`.
+    - Source: cluster threshold read from `apr["cluster_max_corr"]` (APR `alpha.ic.cluster_max_corr`); no numeric correlation literal in the clustering call site.
+    - Source: code comments/docstring describe "distance-threshold dendrogram clustering" and do NOT assert a pairwise-correlation guarantee within clusters.
     - Source: only one feature per `(regime, lookahead, cluster_id)` group (max abs ic_value) is appended to `pvals_flat`; non-representatives get `passes_fdr=False`, `bh_adjusted_p=None`.
     - Source: each result dict's `cluster_id` is set from the per-regime cluster assignment.
-    - Behavior: a unit test `tests/unit/test_ic_engine_clustering.py` builds a synthetic X with two perfectly-correlated feature pairs plus one independent feature, runs the clustering snippet (extract it into a small pure helper `_cluster_features(X_nd, cluster_max_corr) -> np.ndarray` so it is unit-testable), and asserts: correlated pairs share a cluster id, the independent feature is in its own cluster, and total clusters == 3.
+    - Behavior (main case): a unit test `tests/unit/test_ic_engine_clustering.py` builds a synthetic `X_nd` with two perfectly-correlated feature pairs plus one independent feature, calls `_cluster_features(X_nd, cluster_max_corr)`, and asserts: each correlated pair shares a cluster id, the independent feature is in its own cluster, and the number of distinct clusters == 3. (Perfect correlation -> distance 0, so this case is a hard guarantee; it is not relied on for the general transitive case.)
+    - Behavior (edge cases — finding 6): the same test adds:
+        (a) single-feature input — `X_nd` of shape `(n_rows, 1)` -> `_cluster_features` returns a length-1 array with a single cluster label (the n_nd<2 branch), so the lone feature is still clustered and its row would be written with a non-null cluster_id;
+        (b) all-features-perfectly-correlated input — every column identical/perfectly correlated -> `_cluster_features` returns exactly one distinct cluster label for all columns (one cluster), which downstream means all but the highest-|ic_value| member are marked non-representative (passes_fdr=False).
     - Test: `.venv/bin/pytest tests/unit/test_ic_engine_clustering.py -q` passes.
   </acceptance_criteria>
-  <done>BH-FDR runs on one representative per correlated cluster; every IC row carries its cluster_id; the correlation threshold is APR-tunable.</done>
+  <done>BH-FDR runs on one representative per distance-threshold cluster; every IC row carries its cluster_id; the correlation threshold is APR-tunable; edge cases (single feature, all-correlated) are covered.</done>
 </task>
 
 </tasks>
@@ -178,7 +199,7 @@ Output: Per-(symbol, tf, regime) hierarchical clustering in `_compute_symbol_tf`
 </verification>
 
 <success_criteria>
-- Hierarchical clustering applied per (symbol, tf, regime) using alpha.ic.cluster_max_corr
+- Distance-threshold dendrogram clustering applied per (symbol, tf, regime) using alpha.ic.cluster_max_corr
 - Only cluster representatives receive BH-FDR; members carry cluster_id and passes_fdr=false
 - cluster_id column populated on every new IC row
 </success_criteria>
@@ -186,3 +207,4 @@ Output: Per-(symbol, tf, regime) hierarchical clustering in `_compute_symbol_tf`
 <output>
 After completion, create `.planning/phases/140-ic-engine-correctness/140-P2-SUMMARY.md`
 </output>
+</content>

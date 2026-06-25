@@ -85,16 +85,22 @@ Output: Refactored per-scale subsampling, ET session-boundary forward-return lab
        `(n_features,)` and is shared across all scales (a feature either has variance over the regime
        or it does not — it is NOT recomputed per scale).
 
-    3. Inside `for scale_idx, scale in enumerate(_SCALES):` compute per-scale subsampling at the TOP of the loop body:
+    3. Inside `for scale_idx, scale in enumerate(_SCALES):` compute per-scale subsampling at the TOP of the loop body.
+       Two matrices are required — they serve different purposes and MUST NOT be conflated:
        ```
        lookahead_bars = lookaheads[scale]
        scale_stride = max(subsample_min_stride, lookahead_bars)
        sub_idx = np.arange(0, n_regime_raw, scale_stride)
-       X_sub_nd = X_regime_nd[sub_idx]
+       X_sub_scale = X_regime[sub_idx]              # shape [n_sub, n_features] — passed to _compute_ic_rolling_metrics
+       X_sub_nd    = X_regime_nd[sub_idx]           # shape [n_sub, n_non_degen] — used for rankdata only
        returns_sub = returns_regime[sub_idx]
        complete_sub = complete_regime[sub_idx]
        n_independent = len(sub_idx)
        ```
+       `X_sub_scale` retains ALL feature columns (including degenerate); `_compute_ic_rolling_metrics` applies
+       `non_degenerate_mask` internally (line 451: `wx = X_aligned[start:end][:, non_degenerate_mask]`) and
+       expands results back to `n_total_features` width. Passing the pre-filtered `X_sub_nd` would cause a
+       column-count mismatch inside the function. Keep `X_sub_nd` for rankdata only (step 4).
        Keep the existing `if n_independent < min_reliable_n:` skip guard but move it inside the scale loop
        (it now gates per scale). Preserve the existing `IC_ENGINE_CELLS_SKIPPED_TOTAL` insufficient_n metric.
 
@@ -105,12 +111,13 @@ Output: Refactored per-scale subsampling, ET session-boundary forward-return lab
        `ranks_X_scale = ranks_X_full[valid_mask]`, change it to `ranks_X_scale = ranks_X_scale[valid_mask]`
        (rank the per-scale subsample, then filter by valid_mask).
 
-    5. Update the `_compute_ic_rolling_metrics(...)` call at lines 749-760: pass `X_sub_nd` (not the old
-       `X_sub`), `returns_sub`, `scale_idx`, `complete_sub[:, scale_idx]`, `apr`, `non_degenerate_mask`,
-       `n_features`, and `scale_stride` as the final argument (NOT the deleted `stride`/`max_lookahead`).
-       NOTE: `_compute_ic_rolling_metrics` already expects the full-feature `X` and uses `non_degenerate_mask`
-       internally — verify the signature; if it expects the non-degenerate matrix, pass `X_sub_nd`. Read the
-       function body before changing the call to confirm which matrix shape it expects.
+    5. Update the `_compute_ic_rolling_metrics(...)` call at lines 749-760: pass `X_sub_scale` (the full-feature
+       per-scale subsample, shape [n_sub, n_features]), `returns_sub`, `scale_idx`,
+       `complete_sub[:, scale_idx]`, `apr`, `non_degenerate_mask`, `n_features`, and `scale_stride` as the
+       final argument (NOT the deleted `stride`/`max_lookahead`). Do NOT pass `X_sub_nd` — confirmed: the
+       function signature at line 400 takes `X_sub: np.ndarray` with full feature width; line 451 applies
+       `[:, non_degenerate_mask]` internally; lines 484-486 expand results back to `n_total_features` via
+       `_expand`. Passing pre-filtered `X_sub_nd` would silently corrupt the expand step.
 
     6. The walk-forward embargo currently uses `embargo_bars = max_lookahead`. Since `max_lookahead` is deleted,
        set `embargo_bars = max(lookaheads.values())` locally (it remains the maximum forward window = 60, an
@@ -124,12 +131,13 @@ Output: Refactored per-scale subsampling, ET session-boundary forward-return lab
     - `grep -n "scale_stride" services/ic_engine.py` returns the per-scale assignment and the metrics call
     - `grep -n "max_lookahead =" services/ic_engine.py` returns nothing (variable removed)
     - `grep -n "np.std(X_regime" services/ic_engine.py` confirms degenerate detection on full regime data
+    - `grep -n "X_sub_scale" services/ic_engine.py` appears at `X_sub_scale = X_regime[sub_idx]` and the `_compute_ic_rolling_metrics` call; `grep -n "X_sub_nd" services/ic_engine.py` appears only at `rankdata(X_sub_nd, ...)` — never at the metrics call
     - Run a scoped ic_engine on one symbol after the migration plan lands, OR add the unit test below
   </verify>
   <acceptance_criteria>
     - Source: regime-level subsampling block (old lines 617-623) is deleted; `scale_stride = max(subsample_min_stride, lookahead_bars)` appears inside the `for scale_idx, scale in enumerate(_SCALES):` loop.
     - Source: `feature_stds = np.std(X_regime, axis=0)` — degenerate detection uses `X_regime`, not a subsample.
-    - Source: `_compute_ic_rolling_metrics` call passes `scale_stride` as its stride argument; no reference to a single regime-level `stride` remains.
+    - Source: `_compute_ic_rolling_metrics` call passes `X_sub_scale` (shape [n_sub, n_features]) — NOT `X_sub_nd` — as its first argument, and `scale_stride` as its stride argument; no reference to a single regime-level `stride` remains.
     - Behavior: a unit test in tests/unit/ (add `tests/unit/test_ic_engine_stride.py`) asserts that for lookaheads {fast:1, mid:5, slow:20, extended:60} and a fixed-size regime matrix, `len(np.arange(0, n, max(min_stride, lookahead)))` for fast is strictly greater than for extended (per-scale independence count differs by scale).
     - Behavior (degenerate-mask reuse regression — finding 6): the same test constructs an `X_regime` of shape `(n_rows, n_features)` with at least one constant (degenerate) column, computes `non_degenerate_mask = ~(np.std(X_regime, axis=0) < 1e-8)`, and asserts: (a) `non_degenerate_mask.shape == (n_features,)`, i.e. it is computed on full-regime feature space, not a subsample; (b) the mask is identical when recomputed on any per-scale subsample of a non-pathological feature set — proving the mask is computed ONCE on `X_regime` and shared across scales, never recomputed per scale.
     - Test: `.venv/bin/pytest tests/unit/test_ic_engine_stride.py -q` passes.
