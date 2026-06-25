@@ -55,6 +55,8 @@ import psycopg2.extras
 import structlog
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
+from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.spatial.distance import squareform
 from scipy.stats import rankdata
 from scipy.stats import t as t_dist
 from statsmodels.stats.multitest import multipletests
@@ -123,7 +125,7 @@ _INSERT_BODY = """
         ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate,
         bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, passes_walkforward,
         ic_sharpe, ic_sharpe_n_windows, ic_sortino, ic_win_rate,
-        regime_label_source, computed_at
+        regime_label_source, computed_at, cluster_id
     )
     VALUES (
         %(feature_name)s, %(vector_domain)s, %(symbol)s, %(tf)s, %(regime)s,
@@ -132,7 +134,7 @@ _INSERT_BODY = """
         %(ic_ci_lower)s, %(ic_ci_upper)s, %(passes_ci_gate)s, %(bh_adjusted_p)s,
         %(passes_fdr)s, %(wf_fold_count)s, %(wf_pass_count)s, %(passes_walkforward)s,
         %(ic_sharpe)s, %(ic_sharpe_n_windows)s, %(ic_sortino)s, %(ic_win_rate)s,
-        %(regime_label_source)s, %(computed_at)s
+        %(regime_label_source)s, %(computed_at)s, %(cluster_id)s
     )
 """
 _POOLED_INSERT_SQL = (
@@ -228,6 +230,7 @@ def _load_apr(conn: Any, tf: str) -> dict[str, Any]:
         "subsample_min_stride": int(cfg.get_sync("alpha.ic.subsample_min_stride", 5)),
         "min_reliable_n": int(cfg.get_sync("alpha.ic.min_reliable_n", 100)),
         "bootstrap_seed": int(cfg.get_sync("alpha.ic.bootstrap_seed", 42)),
+        "cluster_max_corr": float(cfg.get_sync("alpha.ic.cluster_max_corr", 0.70)),
         # Lookaheads per scale -- loaded from APR; column names are gradient-scale identifiers
         "lookaheads": {
             scale: int(cfg.get_sync(f"alpha.ic.lookahead.{scale}", fb))
@@ -393,6 +396,31 @@ def _p_values_from_ic(ic_vector: np.ndarray, n: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# Collinearity clustering
+# ---------------------------------------------------------------------------
+
+
+def _cluster_features(X_nd: np.ndarray, cluster_max_corr: float) -> np.ndarray:
+    """Distance-threshold dendrogram clustering of non-degenerate feature columns.
+
+    Returns a 1-based int cluster label per column (len == X_nd.shape[1]).
+    NOTE: this is a dendrogram distance cutoff, NOT a guarantee that all pairs
+    within a cluster exceed cluster_max_corr (transitive linkage can merge features
+    whose direct correlation is below the threshold).
+    """
+    n_nd = X_nd.shape[1]
+    if n_nd < 2:
+        return np.ones(n_nd, dtype=int)
+    corr = np.corrcoef(X_nd.T)
+    corr = np.nan_to_num(corr, nan=0.0)
+    dist = np.sqrt(0.5 * (1.0 - np.clip(corr, -1.0, 1.0)))
+    np.fill_diagonal(dist, 0.0)
+    Z = linkage(squareform(dist, checks=False), method="average")
+    dist_threshold = np.sqrt(0.5 * (1.0 - cluster_max_corr))
+    return fcluster(Z, t=dist_threshold, criterion="distance")  # 1-based ints
+
+
+# ---------------------------------------------------------------------------
 # IC Sharpe computation
 # ---------------------------------------------------------------------------
 
@@ -515,6 +543,7 @@ def _compute_symbol_tf(
     bootstrap_resamples = apr["bootstrap_resamples"]
     fdr_alpha = apr["fdr_alpha"]
     walk_forward_folds = apr["walk_forward_folds"]
+    cluster_max_corr = apr["cluster_max_corr"]
     n_features = len(_FEATURE_NAMES)
 
     with _observed_span("ic_engine.compute_symbol_tf", tracer, symbol=symbol, tf=tf):
@@ -637,6 +666,27 @@ def _compute_symbol_tf(
             # embargo_bars for walk-forward: max lookahead across all scales.
             # Set once per regime so all scales share the same embargo boundary.
             embargo_bars = max(lookaheads.values())
+
+            # ------------------------------------------------------------------
+            # Distance-threshold dendrogram clustering per (symbol, tf, regime)
+            # NOTE: dendrogram distance cutoff -- transitive linkage can merge
+            # features whose direct pairwise correlation is below cluster_max_corr.
+            # ------------------------------------------------------------------
+            cluster_ids_nd = _cluster_features(X_sub_nd, cluster_max_corr)
+            # Expand to full feature space: None for degenerate, cluster_id for non-degenerate
+            cluster_id_full: list[int | None] = [None] * n_features
+            nd_positions = np.where(non_degenerate_mask)[0]
+            for _i, _pos in enumerate(nd_positions):
+                cluster_id_full[_pos] = int(cluster_ids_nd[_i])
+
+            _logger.info(
+                "ic_engine.clustering",
+                symbol=symbol,
+                tf=tf,
+                regime=regime_label,
+                n_clusters=int(cluster_ids_nd.max()) if len(cluster_ids_nd) > 0 else 0,
+                n_features=len(cluster_ids_nd),
+            )
 
             for scale_idx, scale in enumerate(_SCALES):
                 lookahead_bars = lookaheads[scale]
@@ -765,7 +815,8 @@ def _compute_symbol_tf(
                 )
 
                 # -------------------------------------------------------
-                # Collect results for BH-FDR (done per symbol/tf batch)
+                # Collect results -- BH-FDR is applied after all regimes/scales
+                # using representative-only selection per cluster.
                 # -------------------------------------------------------
                 for feat_idx, feat_name in enumerate(_FEATURE_NAMES):
                     cell_key = (feat_name, symbol, tf, regime_label, lookahead_bars, is_pooled)
@@ -779,7 +830,6 @@ def _compute_symbol_tf(
 
                     ic_val = ic_full[feat_idx]
                     p_val = p_full[feat_idx]
-                    result_idx = len(all_results)
                     all_results.append(
                         {
                             "feature_name": feat_name,
@@ -809,19 +859,56 @@ def _compute_symbol_tf(
                             "ic_win_rate": _nan_to_none(ic_win_rate_arr[feat_idx]),
                             "regime_label_source": "forward_filter",
                             "computed_at": run_ts,
+                            "cluster_id": cluster_id_full[feat_idx],
                         }
                     )
-                    if not np.isnan(p_val):
-                        pvals_flat.append(float(p_val))
-                        pval_result_idxs.append(result_idx)
-                    else:
-                        # No p-value (degenerate) -- mark passes_fdr=False
-                        all_results[-1]["bh_adjusted_p"] = None
-                        all_results[-1]["passes_fdr"] = False
 
         # ------------------------------------------------------------------
-        # BH-FDR correction across all cells for this (symbol, tf)
+        # BH-FDR correction -- representative-only per (regime, lookahead, cluster)
+        #
+        # Within each (regime_label, lookahead_bars, cluster_id) group only the
+        # feature with max(abs(ic_value)) enters multipletests. Non-representatives
+        # receive passes_fdr=False and bh_adjusted_p=None directly. Degenerate
+        # features (cluster_id is None) are also excluded from BH-FDR.
         # ------------------------------------------------------------------
+
+        # Mark degenerate features (no p-value) immediately.
+        for r in all_results:
+            if r["p_value"] is None:
+                r["bh_adjusted_p"] = None
+                r["passes_fdr"] = False
+
+        # Group non-degenerate results by (regime, lookahead, cluster_id).
+        # Key: (regime_label, lookahead_bars, cluster_id) -> list of (abs_ic, result_idx)
+        cluster_groups: dict[tuple, list[tuple[float, int]]] = {}
+        for result_idx, r in enumerate(all_results):
+            cid = r["cluster_id"]
+            if cid is None:
+                # Degenerate -- already handled above.
+                continue
+            p_val = r["p_value"]
+            if p_val is None:
+                # Also degenerate (no p-value despite cluster_id -- shouldn't occur).
+                r["bh_adjusted_p"] = None
+                r["passes_fdr"] = False
+                continue
+            group_key = (r["regime"], r["lookahead_bars"], cid)
+            ic_val = r["ic_value"]
+            abs_ic = abs(ic_val) if ic_val is not None else 0.0
+            cluster_groups.setdefault(group_key, []).append((abs_ic, result_idx))
+
+        # Within each group pick the representative (max abs IC); the rest are non-reps.
+        for group_key, candidates in cluster_groups.items():
+            # Sort descending by abs IC to pick representative.
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            rep_result_idx = candidates[0][1]
+            pvals_flat.append(float(all_results[rep_result_idx]["p_value"]))
+            pval_result_idxs.append(rep_result_idx)
+            # Non-representatives: FDR excluded.
+            for _, non_rep_idx in candidates[1:]:
+                all_results[non_rep_idx]["bh_adjusted_p"] = None
+                all_results[non_rep_idx]["passes_fdr"] = False
+
         if pvals_flat:
             reject, p_corrected, _, _ = multipletests(pvals_flat, alpha=fdr_alpha, method="fdr_bh")
             for flat_idx, result_idx in enumerate(pval_result_idxs):
