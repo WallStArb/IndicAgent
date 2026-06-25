@@ -32,6 +32,7 @@ import bisect
 import math
 import sys
 from collections import deque
+from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -681,12 +682,14 @@ def run_compute_stage(
     symbols: list[str] | None,
     db_conn: Any,
     pipeline_version: str = "3.0.0",
+    n_workers: int = 1,
 ) -> tuple[dict[tuple[str, str], dict], float]:
     """Compute FeatureVectors from market_data_ohlcv and batch-insert into feature_vectors.
 
     Reads bars in chunked sliding windows (T3: never full history at once).
     Checkpointed per (symbol, tf): skips status='complete' pairs.
     Records per-pair coverage vs theoretical_max (D-06 gate).
+    Uses ProcessPoolExecutor for symbol-level parallelism when n_workers > 1.
 
     Returns coverage map: {(symbol, tf): {"rows_written": N, "theoretical_max": M, "pct": P}}
     """
@@ -715,17 +718,17 @@ def run_compute_stage(
     all_symbols = [c.symbol for c in etf_contracts]
     status_map = _load_status_map(db_conn, all_symbols, _TARGET_TIMEFRAMES)
     coverage: dict[tuple[str, str], dict] = {}
+    dsn = settings.database_url
 
+    # Collect symbols that need compute (skip already-complete and unfetched)
+    pending_symbols: list[str] = []
     for instrument in etf_contracts:
         symbol = instrument.symbol
-
+        needs_compute = False
         for tf in _TARGET_TIMEFRAMES:
             key = (symbol, tf)
             existing = status_map.get(key, {})
-
-            # Skip if already computed
             if existing.get("status") == "complete":
-                _logger.info("compute_skip_complete", symbol=symbol, tf=tf)
                 rows_written = existing.get("rows_written", 0) or 0
                 theoretical = existing.get("theoretical_max", 0) or 0
                 pct = rows_written / theoretical if theoretical > 0 else 0.0
@@ -734,23 +737,147 @@ def run_compute_stage(
                     "theoretical_max": theoretical,
                     "pct": pct,
                 }
-                continue
-
-            # Only compute if fetch is complete
-            if not existing.get("fetch_complete"):
+                _logger.info("compute_skip_complete", symbol=symbol, tf=tf)
+            elif not existing.get("fetch_complete"):
                 _logger.warning("compute_skip_no_fetch", symbol=symbol, tf=tf)
+            else:
+                needs_compute = True
+                # Mark in_progress on main connection before handing off to worker
+                with db_conn.cursor() as cur:
+                    cur.execute(_MARK_COMPUTE_STATUS_SQL, (symbol, tf, "in_progress"))
+                db_conn.commit()
+
+        if needs_compute:
+            pending_symbols.append(symbol)
+
+    if not pending_symbols:
+        return coverage, coverage_threshold
+
+    # Close main connection before spawning workers — connections are not picklable
+    db_conn.close()
+
+    worker_args = [
+        (
+            symbol,
+            _TARGET_TIMEFRAMES,
+            dsn,
+            config,
+            pipeline_version,
+            warm_up_bars,
+            cross_asset_by_date,
+            status_map,
+        )
+        for symbol in pending_symbols
+    ]
+
+    _logger.info(
+        "compute_stage_parallel",
+        pending_symbols=len(pending_symbols),
+        n_workers=n_workers,
+    )
+
+    with ProcessPoolExecutor(max_workers=n_workers) as pool:
+        for result in pool.map(_run_compute_worker, worker_args, chunksize=1):
+            symbol = result["symbol"]
+            if result["error"]:
+                _logger.error(
+                    "compute_worker_failed",
+                    symbol=symbol,
+                    error=result["error"],
+                )
+            for cell in result["results"]:
+                tf = cell["tf"]
+                key = (symbol, tf)
+                coverage[key] = {
+                    "rows_written": cell["rows_written"],
+                    "theoretical_max": cell["theoretical_max"],
+                    "pct": cell["pct"],
+                }
+                if cell.get("error"):
+                    _logger.error(
+                        "compute_cell_failed",
+                        symbol=symbol,
+                        tf=tf,
+                        error=cell["error"],
+                    )
+                elif cell["pct"] < coverage_threshold:
+                    _logger.warning(
+                        "coverage_below_threshold",
+                        symbol=symbol,
+                        tf=tf,
+                        rows_written=cell["rows_written"],
+                        theoretical_max=cell["theoretical_max"],
+                        pct=round(cell["pct"], 4),
+                        threshold=coverage_threshold,
+                    )
+                else:
+                    _logger.info(
+                        "compute_complete",
+                        symbol=symbol,
+                        tf=tf,
+                        rows_written=cell["rows_written"],
+                        theoretical_max=cell["theoretical_max"],
+                        pct=round(cell["pct"], 4),
+                    )
+
+    return coverage, coverage_threshold
+
+
+def _run_compute_worker(args: tuple) -> dict:
+    """Worker function for ProcessPoolExecutor — runs in subprocess.
+
+    Opens its own psycopg2 connection (connections are not picklable and
+    must not be shared across processes). No OTel tracer — workers log only;
+    main process aggregates results and emits metrics.
+
+    Args:
+        args: (symbol, tfs, dsn, config, pipeline_version, warm_up_bars,
+               cross_asset_by_date, status_map)
+               Packed as a tuple for ProcessPoolExecutor.map compatibility.
+
+    Returns:
+        dict with keys: symbol, results (list of {tf, rows_written, theoretical_max,
+        pct, error?}), error (str|None)
+    """
+    (
+        symbol,
+        tfs,
+        dsn,
+        config,
+        pipeline_version,
+        warm_up_bars,
+        cross_asset_by_date,
+        status_map,
+    ) = args
+
+    # Initialize logging in subprocess (each process needs its own handler)
+    setup_service_logging("logs/backfill_feature_factory.log")
+    worker_log = structlog.get_logger(__name__)
+
+    conn = None
+    results = []
+    error_msg = None
+
+    try:
+        conn = psycopg2.connect(dsn)
+        conn.autocommit = True
+        psycopg2.extras.register_uuid()
+
+        for tf in tfs:
+            key = (symbol, tf)
+            existing = status_map.get(key, {})
+
+            # Skip if fetch not complete or already done
+            if not existing.get("fetch_complete"):
+                worker_log.warning("worker_skip_no_fetch", symbol=symbol, tf=tf)
                 continue
-
-            _logger.info("compute_start", symbol=symbol, tf=tf)
-
-            # Mark in_progress
-            with db_conn.cursor() as cur:
-                cur.execute(_MARK_COMPUTE_STATUS_SQL, (symbol, tf, "in_progress"))
-            db_conn.commit()
+            if existing.get("status") == "complete":
+                worker_log.info("worker_skip_complete", symbol=symbol, tf=tf)
+                continue
 
             try:
                 rows_written = _compute_symbol_tf(
-                    conn=db_conn,
+                    conn=conn,
                     symbol=symbol,
                     tf=tf,
                     config=config,
@@ -763,48 +890,55 @@ def run_compute_stage(
                 theoretical = _theoretical_max(tf, depth_years, warm_up_bars)
                 pct = rows_written / theoretical if theoretical > 0 else 0.0
 
-                with db_conn.cursor() as cur:
+                with conn.cursor() as cur:
                     cur.execute(
                         _MARK_COMPUTE_COMPLETE_SQL,
                         (rows_written, theoretical, symbol, tf),
                     )
-                db_conn.commit()
 
-                coverage[key] = {
-                    "rows_written": rows_written,
-                    "theoretical_max": theoretical,
-                    "pct": pct,
-                }
-
-                if pct < coverage_threshold:
-                    _logger.warning(
-                        "coverage_below_threshold",
-                        symbol=symbol,
-                        tf=tf,
-                        rows_written=rows_written,
-                        theoretical_max=theoretical,
-                        pct=round(pct, 4),
-                        threshold=coverage_threshold,
-                    )
-                else:
-                    _logger.info(
-                        "compute_complete",
-                        symbol=symbol,
-                        tf=tf,
-                        rows_written=rows_written,
-                        theoretical_max=theoretical,
-                        pct=round(pct, 4),
-                    )
+                results.append(
+                    {
+                        "tf": tf,
+                        "rows_written": rows_written,
+                        "theoretical_max": theoretical,
+                        "pct": pct,
+                    }
+                )
 
             except Exception as error:
-                error_msg = str(error)
-                with db_conn.cursor() as cur:
-                    cur.execute(_MARK_COMPUTE_FAILED_SQL, (error_msg, symbol, tf))
-                db_conn.commit()
-                _logger.error("compute_failed", symbol=symbol, tf=tf, error=error_msg)
-                coverage[key] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
+                error_str = str(error)
+                worker_log.error(
+                    "worker_cell_failed",
+                    symbol=symbol,
+                    tf=tf,
+                    error=error_str,
+                )
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(_MARK_COMPUTE_FAILED_SQL, (error_str, symbol, tf))
+                except Exception:
+                    pass
+                results.append(
+                    {
+                        "tf": tf,
+                        "rows_written": 0,
+                        "theoretical_max": 0,
+                        "pct": 0.0,
+                        "error": error_str,
+                    }
+                )
 
-    return coverage, coverage_threshold
+    except Exception as error:
+        error_msg = str(error)
+        worker_log.error("worker_failed", symbol=symbol, error=error_msg)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    return {"symbol": symbol, "results": results, "error": error_msg}
 
 
 def _compute_symbol_tf(
@@ -974,6 +1108,12 @@ def _parse_args() -> argparse.Namespace:
         default="3.0.0",
         help="Pipeline version string stamped on feature_vectors rows (default: 3.0.0)",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers (default: APR infra.feature_factory.workers, fallback 1)",
+    )
     return parser.parse_args()
 
 
@@ -990,6 +1130,15 @@ def main() -> None:
     run_fetch = not args.compute_only
     run_compute = not args.fetch_only
 
+    # Load n_workers from CLI arg or APR. Use a short-lived query on the main
+    # connection before workers spawn; run_compute_stage closes db_conn itself.
+    n_workers: int = 1
+    if args.workers is not None:
+        n_workers = args.workers
+    elif run_compute:
+        cfg_tmp = _load_config_service(db_conn)
+        n_workers = int(cfg_tmp.get_sync("infra.feature_factory.workers", 1))
+
     _logger.info(
         "backfill_start",
         run_fetch=run_fetch,
@@ -997,6 +1146,7 @@ def main() -> None:
         client_id=args.client_id,
         symbols=symbols,
         pipeline_version=args.pipeline_version,
+        n_workers=n_workers,
     )
 
     coverage: dict[tuple[str, str], dict] = {}
@@ -1016,12 +1166,16 @@ def main() -> None:
 
         if run_compute:
             _logger.info("stage2_start")
+            # run_compute_stage closes db_conn before spawning workers.
+            # Do not close db_conn in finally when compute ran.
             coverage, coverage_threshold = run_compute_stage(
                 settings=settings,
                 symbols=symbols,
                 db_conn=db_conn,
                 pipeline_version=args.pipeline_version,
+                n_workers=n_workers,
             )
+            db_conn = None  # already closed inside run_compute_stage
             _log_coverage_report(coverage, coverage_threshold)
             _logger.info("stage2_complete", pairs_computed=len(coverage))
 
@@ -1033,7 +1187,8 @@ def main() -> None:
         _logger.error("backfill_failed", error=str(error))
         raise
     finally:
-        db_conn.close()
+        if db_conn is not None:
+            db_conn.close()
         flush_and_shutdown_metrics()
 
 
