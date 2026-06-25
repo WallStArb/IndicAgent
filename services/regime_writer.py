@@ -615,7 +615,31 @@ def _run_symbol_worker(args: tuple) -> dict:
                 try:
                     conn.rollback()
                 except Exception:
-                    pass
+                    # Connection is dead (e.g. server OOM). Attempt to reopen so
+                    # remaining TFs for this symbol can proceed rather than failing
+                    # with InFailedSqlTransaction.
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    try:
+                        conn = psycopg2.connect(
+                            dsn,
+                            options="-c idle_in_transaction_session_timeout=0",
+                        )
+                        worker_log.warning(
+                            "regime_writer.worker_reconnected",
+                            symbol=symbol,
+                            tf=tf,
+                        )
+                    except Exception as reconnect_error:
+                        worker_log.error(
+                            "regime_writer.worker_reconnect_failed",
+                            symbol=symbol,
+                            error=str(reconnect_error),
+                        )
+                        # Cannot recover; remaining TFs for this symbol will fail.
+                        break
 
     except Exception as error:
         error_msg = str(error)
