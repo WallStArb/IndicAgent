@@ -1198,7 +1198,39 @@ Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from 
 - [x] **Phase 137: Feature Factory** — 54-feature typed `feature_vectors` hypertable; `FeatureFactory.compute()`; `BaseBatch` Ring 0 base class; I5/I6/I7 archived (7/7 plans, 2026-06-21)
 - [x] **Phase 138: IC Engine + Forward Returns** — Vectorized Spearman IC, circular-block-bootstrap CI, BH-FDR, 3-fold walk-forward, causal HMM regime labeling, forward returns via LEAD() (9/9 plans, 2026-06-23)
 - [x] **Phase 139: Ensemble + Alpha Emission** — Ledoit-Wolf ensemble weights, IC-weighted alpha matmul, direction-aware CI gate, shadow `alpha_events` emission (3/3 plans, 2026-06-24; 14/14 verification truths)
+- [ ] **Phase 140: IC Engine Correctness** — Fix stride-per-scale bug, overnight gap contamination in forward returns, BH-FDR meta-level gate, feature collinearity clustering, IC Sharpe min_windows, OOM cleanup, training-window-end CLI arg (P0+P1+P2 items 7-8 from todo 001)
 
 Full details: `.planning/milestones/v3.0-ROADMAP.md`
 
 </details>
+
+### Phase 140: IC Engine Correctness 📋 PENDING
+
+**Goal:** Fix seven correctness and methodology issues in the IC engine identified by first-principles review (todo 001). P0 issues must be resolved before the next corpus run. P2 item 6 (rolling HMM refit) is excluded — separate phase.
+
+**Depends on:** Phase 139
+
+**Source:** `.planning/todos/pending/001-ic-engine-correctness-p0.md`
+
+**Issues addressed (ordered by impact):**
+
+P0 — Correctness blockers:
+1. Stride = max_lookahead applied to all scales (`ic_engine.py:590-592`) — subsample per scale with `stride = lookahead_bars`
+2. Overnight gap contamination in intraday forward returns (`forward_return_writer.py`) — flag cross-session transitions, set `complete_{scale} = false`
+
+P1 — Statistical methodology:
+3. BH-FDR meta-level gate — require feature to pass FDR in >50% of (symbol, tf) cells for ensemble weight
+4. Feature collinearity corrupts BH-FDR — hierarchical clustering on correlation matrix, correct one representative per cluster
+5. IC Sharpe min_windows = 10 too low (SE ≈ 0.32) — raise `alpha.ic.sharpe_min_windows` to 30
+
+P2 — Quick cleanups (excluded: rolling HMM refit):
+7. Remove `all_results_global` accumulation (`ic_engine.py:990,1014`) — list never read after loop
+8. `--training-window-end` CLI arg — default to MAX with warning to prevent PK drift across runs
+
+**Plans:** 4 plans in 2 waves
+
+Plans:
+- [ ] 140-P0-PLAN.md — Wave 1: P0 correctness (per-scale stride fix + ET session-boundary forward returns) + P2 cleanups (remove all_results_global, --training-window-end CLI arg)
+- [ ] 140-P1-PLAN.md — Wave 1: Migration 171 (cluster_id column + alpha.ensemble.meta_fdr_min_fraction + alpha.ic.cluster_max_corr + sharpe_min_windows 10→30)
+- [ ] 140-P2-PLAN.md — Wave 2: Feature collinearity hierarchical clustering + representative-only BH-FDR + cluster_id persistence
+- [ ] 140-P3-PLAN.md — Wave 2: BH-FDR meta-level gate in ensemble_trainer (require feature to pass FDR in ≥50% of cells)
