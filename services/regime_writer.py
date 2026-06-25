@@ -27,8 +27,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -518,6 +520,114 @@ def _discover_symbols(conn: Any) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Subprocess worker for ProcessPoolExecutor
+# ---------------------------------------------------------------------------
+
+
+def _run_symbol_worker(args: tuple) -> dict:
+    """Worker function for ProcessPoolExecutor — runs in subprocess.
+
+    Opens its own psycopg2 connection (connections are not picklable and
+    must not be shared across processes). No OTel tracer — workers log only;
+    main process aggregates results and emits metrics.
+
+    Args:
+        args: (symbol, tfs, dsn, n_components, vol_window, momentum_window,
+               vol_of_vol_window, n_iter, hmm_random_state)
+               Packed as a tuple for ProcessPoolExecutor.map compatibility.
+
+    Returns:
+        dict with keys: symbol, results (list of {tf, n_updated}), error (str|None)
+    """
+    (
+        symbol,
+        tfs,
+        dsn,
+        n_components,
+        vol_window,
+        momentum_window,
+        vol_of_vol_window,
+        n_iter,
+        hmm_random_state,
+    ) = args
+
+    # Initialize logging in subprocess (each process needs its own handler)
+    setup_service_logging("logs/regime_writer.log")
+    worker_log = structlog.get_logger(__name__)
+
+    conn = None
+    results = []
+    error_msg = None
+
+    try:
+        conn = psycopg2.connect(
+            dsn,
+            options="-c idle_in_transaction_session_timeout=0",
+        )
+
+        # No-op tracer for worker — spans are not emitted from subprocesses
+        @contextlib.contextmanager
+        def _noop_span(name, **attrs):
+            class _Noop:
+                def set_attribute(self, k, v):
+                    pass
+
+                def set_status(self, *a):
+                    pass
+
+                def record_exception(self, *a):
+                    pass
+
+            yield _Noop()
+
+        class _NoopTracer:
+            def start_as_current_span(self, name, attributes=None):
+                return _noop_span(name)
+
+        noop_tracer = _NoopTracer()
+
+        for tf in tfs:
+            try:
+                n = _label_symbol_tf(
+                    conn=conn,
+                    symbol=symbol,
+                    tf=tf,
+                    n_components=n_components,
+                    vol_window=vol_window,
+                    momentum_window=momentum_window,
+                    vol_of_vol_window=vol_of_vol_window,
+                    n_iter=n_iter,
+                    hmm_random_state=hmm_random_state,
+                    tracer=noop_tracer,
+                )
+                results.append({"tf": tf, "n_updated": n})
+            except Exception as error:
+                worker_log.error(
+                    "regime_writer.worker_cell_failed",
+                    symbol=symbol,
+                    tf=tf,
+                    error=str(error),
+                )
+                results.append({"tf": tf, "n_updated": 0, "error": str(error)})
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+    except Exception as error:
+        error_msg = str(error)
+        worker_log.error("regime_writer.worker_failed", symbol=symbol, error=error_msg)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    return {"symbol": symbol, "results": results, "error": error_msg}
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -536,6 +646,12 @@ def main() -> None:
         nargs="*",
         default=_DEFAULT_TFS,
         help=f"Timeframes to label (default: {_DEFAULT_TFS})",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers (default: APR infra.regime_writer.workers, fallback 1)",
     )
     args = parser.parse_args()
 
@@ -560,16 +676,14 @@ def main() -> None:
         dsn = settings.database_url
 
         with tracer.start_as_current_span("regime_writer.run") as run_span:
-            conn = psycopg2.connect(
+            # Open a short-lived connection for APR load + symbol discovery, then close it.
+            # Workers open their own connections — nothing is shared across processes.
+            _conn = psycopg2.connect(
                 dsn,
-                # Disable idle-in-transaction timeout for this long-running batch
-                # session. The default (30s) kills server-side cursors during HMM
-                # computation which keeps connections open while processing rows.
                 options="-c idle_in_transaction_session_timeout=0",
             )
             try:
-                # Load APR config
-                cfg = _load_config_service_shared(conn)
+                cfg = _load_config_service_shared(_conn)
                 n_components = int(cfg.get_sync("feature.hmm.n_components", 3))
                 vol_window = int(cfg.get_sync("feature.hmm.vol_window", 20))
                 n_iter = int(cfg.get_sync("feature.hmm.n_iter", 200))
@@ -577,91 +691,83 @@ def main() -> None:
                 momentum_window = int(cfg.get_sync("feature.hmm.obs_momentum_window", 20))
                 vol_of_vol_window = int(cfg.get_sync("feature.hmm.obs_vol_of_vol_window", 20))
 
-                # Resolve symbols
-                symbols = args.symbols if args.symbols else _discover_symbols(conn)
+                symbols = args.symbols if args.symbols else _discover_symbols(_conn)
                 tfs: list[str] = args.tf
 
-                _logger.info(
-                    "regime_writer.starting",
-                    symbols_count=len(symbols),
-                    tfs=tfs,
-                    n_components=n_components,
-                    vol_window=vol_window,
-                    n_iter=n_iter,
-                    momentum_window=momentum_window,
-                    vol_of_vol_window=vol_of_vol_window,
-                )
-
-                total_updated = 0
-                failures: list[str] = []
-
-                for symbol in symbols:
-                    for tf in tfs:
-                        try:
-                            n = _label_symbol_tf(
-                                conn=conn,
-                                symbol=symbol,
-                                tf=tf,
-                                n_components=n_components,
-                                vol_window=vol_window,
-                                n_iter=n_iter,
-                                hmm_random_state=hmm_random_state,
-                                momentum_window=momentum_window,
-                                vol_of_vol_window=vol_of_vol_window,
-                                tracer=tracer,
-                            )
-                            total_updated += n
-                        except Exception as error:
-                            cell = f"{symbol}/{tf}"
-                            _logger.error(
-                                "regime_writer.cell_failed",
-                                cell=cell,
-                                error=str(error),
-                            )
-                            failures.append(cell)
-                            # Attempt rollback; if connection is broken, reopen it so
-                            # subsequent cells can proceed (handles server OOM kills).
-                            try:
-                                conn.rollback()
-                            except Exception:
-                                _logger.warning(
-                                    "regime_writer.reconnecting",
-                                    cell=cell,
-                                    note="Connection lost; reopening for remaining cells",
-                                )
-                                try:
-                                    conn.close()
-                                except Exception:
-                                    pass
-                                conn = psycopg2.connect(
-                                    dsn,
-                                    options="-c idle_in_transaction_session_timeout=0",
-                                )
-                            # continue to next cell — do not abort the whole run
-                            continue
-
-                elapsed_s = time.monotonic() - t0
-                REGIME_WRITER_RUN_LATENCY_SECONDS.record(elapsed_s)
-
-                run_span.set_attribute("total_updated", total_updated)
-                run_span.set_attribute("failed_cells", len(failures))
-
-                _logger.info(
-                    "regime_writer.run_complete",
-                    total_updated=total_updated,
-                    failed_cells=failures,
-                    elapsed_s=round(elapsed_s, 2),
-                )
-
-                if failures:
-                    _logger.warning(
-                        "regime_writer.partial_failure",
-                        failed_cells=failures,
-                        note="Some cells failed; overall run still marked success if >0 cells completed",
-                    )
-
+                n_workers = args.workers
+                if n_workers is None:
+                    n_workers = int(cfg.get_sync("infra.regime_writer.workers", 1))
             finally:
-                conn.close()
+                _conn.close()
+            # dsn is passed to workers; no connection is held in main beyond this point.
+
+            _logger.info(
+                "regime_writer.starting",
+                symbols_count=len(symbols),
+                tfs=tfs,
+                n_components=n_components,
+                vol_window=vol_window,
+                momentum_window=momentum_window,
+                vol_of_vol_window=vol_of_vol_window,
+                n_iter=n_iter,
+                n_workers=n_workers,
+            )
+
+            worker_args = [
+                (
+                    symbol,
+                    tfs,
+                    dsn,
+                    n_components,
+                    vol_window,
+                    momentum_window,
+                    vol_of_vol_window,
+                    n_iter,
+                    hmm_random_state,
+                )
+                for symbol in symbols
+            ]
+
+            total_updated = 0
+            failures: list[str] = []
+
+            with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                for result in pool.map(_run_symbol_worker, worker_args, chunksize=1):
+                    symbol = result["symbol"]
+                    if result["error"]:
+                        failures.append(symbol)
+                        _logger.error(
+                            "regime_writer.symbol_failed",
+                            symbol=symbol,
+                            error=result["error"],
+                        )
+                    for cell in result["results"]:
+                        n = cell.get("n_updated", 0)
+                        total_updated += n
+                        tf = cell["tf"]
+                        REGIME_WRITER_ROWS_UPDATED_TOTAL.add(n, {"symbol": symbol, "tf": tf})
+                        if "error" in cell:
+                            failures.append(f"{symbol}/{tf}")
+
+            elapsed_s = time.monotonic() - t0
+            REGIME_WRITER_RUN_LATENCY_SECONDS.record(elapsed_s)
+
+            run_span.set_attribute("total_updated", total_updated)
+            run_span.set_attribute("failed_cells", len(failures))
+
+            _logger.info(
+                "regime_writer.run_complete",
+                total_updated=total_updated,
+                failed_cells=failures,
+                elapsed_s=round(elapsed_s, 2),
+            )
+
+            if failures:
+                _logger.warning(
+                    "regime_writer.partial_failure",
+                    failed_cells=failures,
+                    note="Some cells failed; overall run still marked success if >0 cells completed",
+                )
 
     except Exception as error:
         status = "failure"

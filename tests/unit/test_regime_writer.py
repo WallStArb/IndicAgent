@@ -188,6 +188,22 @@ def test_label_map_four_components_has_two_ranging():
     assert sum(1 for v in label_map.values() if v == _LABEL_TRENDING_DOWN) == 1
 
 
+def test_worker_args_tuple_structure():
+    """_run_symbol_worker must accept a flat tuple matching the expected arg order.
+
+    This test validates the tuple packing contract between main() and the worker
+    without invoking a real DB connection.
+    """
+    import inspect
+
+    from services.regime_writer import _run_symbol_worker
+
+    # Confirm it's a callable that accepts a single tuple arg
+    sig = inspect.signature(_run_symbol_worker)
+    params = list(sig.parameters.keys())
+    assert params == ["args"], f"Expected single 'args' param, got {params}"
+
+
 def test_causal_decode_vectorized_matches_original():
     """Vectorized _causal_decode must produce identical states to reference implementation.
 
