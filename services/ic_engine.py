@@ -672,7 +672,7 @@ def _compute_symbol_tf(
             # NOTE: dendrogram distance cutoff -- transitive linkage can merge
             # features whose direct pairwise correlation is below cluster_max_corr.
             # ------------------------------------------------------------------
-            cluster_ids_nd = _cluster_features(X_sub_nd, cluster_max_corr)
+            cluster_ids_nd = _cluster_features(X_regime_nd, cluster_max_corr)
             # Expand to full feature space: None for degenerate, cluster_id for non-degenerate
             cluster_id_full: list[int | None] = [None] * n_features
             nd_positions = np.where(non_degenerate_mask)[0]
@@ -872,23 +872,15 @@ def _compute_symbol_tf(
         # features (cluster_id is None) are also excluded from BH-FDR.
         # ------------------------------------------------------------------
 
-        # Mark degenerate features (no p-value) immediately.
-        for r in all_results:
-            if r["p_value"] is None:
-                r["bh_adjusted_p"] = None
-                r["passes_fdr"] = False
-
-        # Group non-degenerate results by (regime, lookahead, cluster_id).
+        # Group results by (regime, lookahead, cluster_id) in a single pass.
+        # Degenerate features (cluster_id is None, which implies p_value is None) are
+        # excluded from BH-FDR and marked immediately.
         # Key: (regime_label, lookahead_bars, cluster_id) -> list of (abs_ic, result_idx)
         cluster_groups: dict[tuple, list[tuple[float, int]]] = {}
         for result_idx, r in enumerate(all_results):
             cid = r["cluster_id"]
             if cid is None:
-                # Degenerate -- already handled above.
-                continue
-            p_val = r["p_value"]
-            if p_val is None:
-                # Also degenerate (no p-value despite cluster_id -- shouldn't occur).
+                # Degenerate: no variance in regime data -> no p-value.
                 r["bh_adjusted_p"] = None
                 r["passes_fdr"] = False
                 continue
@@ -899,9 +891,7 @@ def _compute_symbol_tf(
 
         # Within each group pick the representative (max abs IC); the rest are non-reps.
         for group_key, candidates in cluster_groups.items():
-            # Sort descending by abs IC to pick representative.
-            candidates.sort(key=lambda x: x[0], reverse=True)
-            rep_result_idx = candidates[0][1]
+            rep_result_idx = max(candidates, key=lambda x: x[0])[1]
             pvals_flat.append(float(all_results[rep_result_idx]["p_value"]))
             pval_result_idxs.append(rep_result_idx)
             # Non-representatives: FDR excluded.

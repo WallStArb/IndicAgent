@@ -220,7 +220,7 @@ class EnsembleTrainer(BaseBatch):
                   AND passes_walkforward = true
                 GROUP BY feature_name
                 """)
-            meta_eligible_features = _meta_eligible(list(fdr_pass_rows), meta_fdr_min_fraction)
+            meta_eligible_features = _meta_eligible(fdr_pass_rows, meta_fdr_min_fraction)
             n_total_cells = sum(r["n_cells"] for r in fdr_pass_rows)
             self.logger.info(
                 "ensemble_trainer.meta_fdr_gate",
@@ -230,8 +230,8 @@ class EnsembleTrainer(BaseBatch):
                 n_total_cells_evaluated=n_total_cells,
             )
             if fdr_pass_rows:
-                max_cells = max(r["n_cells"] for r in fdr_pass_rows)
-                min_cells = min(r["n_cells"] for r in fdr_pass_rows)
+                cells = [r["n_cells"] for r in fdr_pass_rows]
+                min_cells, max_cells = min(cells), max(cells)
                 if min_cells < 0.10 * max_cells:
                     self.logger.warning(
                         "ensemble_trainer.meta_fdr_low_coverage",
