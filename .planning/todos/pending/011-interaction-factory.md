@@ -2,7 +2,7 @@
 
 **Status:** Pending
 **Priority:** Post-primitives-expansion
-**Depends on:** 010-feature-registry (metadata required), primitives expansion landed (~100+ tier-0 atomics), IC engine stable on full 58-symbol corpus
+**Depends on:** 009-feature-registry (metadata required), primitives expansion landed (~100+ tier-0 atomics), IC engine stable on full 58-symbol corpus
 **Concept doc:** `docs/ideas/interaction-factory.md`
 
 ## What

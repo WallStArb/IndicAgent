@@ -315,9 +315,9 @@ oscillator 6 · regime 10 · macro 3 · calendar 11 · cross_tf 3 = **61**
 
 ## Relationship to Other Todos
 
-- `009-ic-engine-correctness-methodology.md` — primitive-only IC pass requires `tier` filter; registry is the prerequisite
+- `001-ic-engine-correctness-p0.md` — primitive-only IC pass requires `tier` filter; registry is the prerequisite
 - `docs/ideas/renaissance-primitives-ohlcv.md` — new primitives add as `status = 'candidate'`; promoted to `active` only after IC validation
-- `008-asset-class-regime-model.md` — regime features (`hmm_*`) classified `2_theory`; asset-class regime replacement would add new tier-0 features
+- `006-asset-class-regime-model.md` — regime features (`hmm_*`) classified `2_theory`; asset-class regime replacement would add new tier-0 features
 
 ## Trigger
 
