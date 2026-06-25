@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Alpha Emitter — oneshot that reads ensemble_alpha and publishes qualifying alpha events.
+"""Alpha Publisher — oneshot that reads ensemble_alpha and publishes qualifying alpha events.
 
 Reads ensemble_alpha rows for the current weight_version, applies direction-aware CI gates
 and effective_N gate, writes qualifying rows to alpha_events (DB), and publishes to the
@@ -16,11 +16,11 @@ CORRECTNESS INVARIANTS:
 - All numeric parameters loaded from APR via asyncpg-fetched config dict.
 - event_id = BaseBatch.content_key(symbol, tf, bar_ts_ns, ensemble_version).
 
-DAG invariant: compute (EnsembleBuilder) ≠ transport (AlphaEmitter). This service reads
+DAG invariant: compute (EnsembleTrainer) ≠ transport (AlphaPublisher). This service reads
 DB and publishes to Kafka — it does not compute weights or score bars.
 
 Usage:
-    python services/alpha_emitter.py
+    python services/alpha_publisher.py
 """
 
 from __future__ import annotations
@@ -43,9 +43,9 @@ from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import topic_alpha_events
 from src.observability.metrics import (
-    ALPHA_EMITTER_BARS_SCORED_TOTAL,
-    ALPHA_EMITTER_EMISSIONS_TOTAL,
-    ALPHA_EMITTER_REJECTIONS_TOTAL,
+    ALPHA_PUBLISHER_BARS_SCORED_TOTAL,
+    ALPHA_PUBLISHER_EMISSIONS_TOTAL,
+    ALPHA_PUBLISHER_REJECTIONS_TOTAL,
 )
 from src.observability.otel import OTelInitError, init_otel_providers
 
@@ -80,18 +80,18 @@ def _cfg_str(cfg: dict[str, Any], key: str, default: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# AlphaEmitter
+# AlphaPublisher
 # ---------------------------------------------------------------------------
 
 
-class AlphaEmitter(BaseBatch):
+class AlphaPublisher(BaseBatch):
     """Batch compute service: ensemble_alpha → alpha_events (DB) + Kafka alpha.events topic.
 
     Shadow mode: alpha events are written and published for external consumption only.
     No execution engine, no trade framing, no position sizing in this service.
     """
 
-    job_name = "alpha-emitter"
+    job_name = "alpha-publisher"
     compute_version = "1.0.0"
     ensemble_version = "v1.0.0"
 
@@ -122,7 +122,7 @@ class AlphaEmitter(BaseBatch):
             top_features_count = _cfg_int(cfg, "alpha.ensemble.top_features_count", 10)
 
             self.logger.info(
-                "alpha_emitter.config_loaded",
+                "alpha_publisher.config_loaded",
                 effective_n_gate=effective_n_gate,
                 weight_version=weight_version,
                 top_features_count=top_features_count,
@@ -136,8 +136,8 @@ class AlphaEmitter(BaseBatch):
             )
             if not n_alpha:
                 raise RuntimeError(
-                    f"AlphaEmitter startup gate FAILED: ensemble_alpha is empty for "
-                    f"weight_version={weight_version!r}. Run ensemble_builder.py first."
+                    f"AlphaPublisher startup gate FAILED: ensemble_alpha is empty for "
+                    f"weight_version={weight_version!r}. Run ensemble_trainer.py first."
                 )
 
             # --- Preload weights_cache (one query, not N+1) ---
@@ -157,7 +157,7 @@ class AlphaEmitter(BaseBatch):
                 weights_cache[key].sort(key=lambda x: abs(x["weight"]), reverse=True)
 
             self.logger.info(
-                "alpha_emitter.weights_cache_loaded",
+                "alpha_publisher.weights_cache_loaded",
                 n_strata=len(weights_cache),
                 n_weight_rows=len(weight_rows),
             )
@@ -181,7 +181,7 @@ class AlphaEmitter(BaseBatch):
             await self._producer.start()
         except Exception as error:
             self.logger.error(
-                "alpha_emitter.kafka_start_failed",
+                "alpha_publisher.kafka_start_failed",
                 error=str(error),
             )
             raise
@@ -205,11 +205,11 @@ class AlphaEmitter(BaseBatch):
 
             threshold = self._threshold_for_tf(tf, cfg)
 
-            ALPHA_EMITTER_BARS_SCORED_TOTAL.add(1, {"symbol": symbol, "tf": tf})
+            ALPHA_PUBLISHER_BARS_SCORED_TOTAL.add(1, {"symbol": symbol, "tf": tf})
 
             # Gate 1: zero-weight stratum guard
             if eff_n == 0:
-                ALPHA_EMITTER_REJECTIONS_TOTAL.add(
+                ALPHA_PUBLISHER_REJECTIONS_TOTAL.add(
                     1, {"symbol": symbol, "tf": tf, "rejection_reason": "zero_weight_stratum"}
                 )
                 reject_count += 1
@@ -217,7 +217,7 @@ class AlphaEmitter(BaseBatch):
 
             # Gate 2: effective-N gate (non-zero but below minimum)
             if eff_n < effective_n_gate:
-                ALPHA_EMITTER_REJECTIONS_TOTAL.add(
+                ALPHA_PUBLISHER_REJECTIONS_TOTAL.add(
                     1, {"symbol": symbol, "tf": tf, "rejection_reason": "effective_n_low"}
                 )
                 reject_count += 1
@@ -225,7 +225,7 @@ class AlphaEmitter(BaseBatch):
 
             # Gate 3: threshold gate (skip zero-score and sub-threshold)
             if abs(alpha_score) <= threshold:
-                ALPHA_EMITTER_REJECTIONS_TOTAL.add(
+                ALPHA_PUBLISHER_REJECTIONS_TOTAL.add(
                     1, {"symbol": symbol, "tf": tf, "rejection_reason": "threshold_miss"}
                 )
                 reject_count += 1
@@ -236,7 +236,7 @@ class AlphaEmitter(BaseBatch):
             # Gate 4: direction-aware CI gate (only after threshold passes)
             ci_pass = alpha_ci_lower > 0 if is_long else alpha_ci_upper < 0
             if not ci_pass:
-                ALPHA_EMITTER_REJECTIONS_TOTAL.add(
+                ALPHA_PUBLISHER_REJECTIONS_TOTAL.add(
                     1, {"symbol": symbol, "tf": tf, "rejection_reason": "ci_not_directional"}
                 )
                 reject_count += 1
@@ -251,7 +251,7 @@ class AlphaEmitter(BaseBatch):
             # top_features NOT NULL invariant (architecture traceability)
             if not top_features:
                 self.logger.warning(
-                    "alpha_emitter.top_features_empty",
+                    "alpha_publisher.top_features_empty",
                     symbol=symbol,
                     tf=tf,
                     regime=regime,
@@ -344,7 +344,7 @@ class AlphaEmitter(BaseBatch):
                     "emitted_at": format_iso_ts(now),
                 }
                 await self._producer.publish(topic, msg=payload)
-                ALPHA_EMITTER_EMISSIONS_TOTAL.add(
+                ALPHA_PUBLISHER_EMISSIONS_TOTAL.add(
                     1,
                     {
                         "symbol": e["symbol"],
@@ -359,7 +359,7 @@ class AlphaEmitter(BaseBatch):
             await self._producer.stop()
 
         self.logger.info(
-            "alpha_emitter.complete",
+            "alpha_publisher.complete",
             emitted=emit_count,
             rejected=reject_count,
             total_bars=len(alpha_rows),
@@ -372,10 +372,10 @@ class AlphaEmitter(BaseBatch):
 
 if __name__ == "__main__":
     try:
-        init_otel_providers("indicagent-alpha-emitter")
+        init_otel_providers("indicagent-alpha-publisher")
     except OTelInitError as error:
-        _logger.warning("alpha_emitter.otel_init_failed", error=str(error))
+        _logger.warning("alpha_publisher.otel_init_failed", error=str(error))
 
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    asyncio.run(AlphaEmitter(db_dsn=db_dsn).run())
+    asyncio.run(AlphaPublisher(db_dsn=db_dsn).run())

@@ -1,4 +1,4 @@
-"""Unit tests for AlphaEmitter service.
+"""Unit tests for AlphaPublisher service.
 
 Covers:
 - Class contract (job_name, BaseBatch subclass)
@@ -24,7 +24,7 @@ import pytest
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from services.alpha_emitter import AlphaEmitter
+from services.alpha_publisher import AlphaPublisher
 from src.core.agent.base_batch import BaseBatch
 from src.core.stream_keys import topic_alpha_events
 
@@ -43,9 +43,9 @@ _DEFAULT_CFG: dict = {
 }
 
 
-def _make_emitter() -> AlphaEmitter:
-    """Create an AlphaEmitter without triggering DB connections."""
-    return AlphaEmitter(db_dsn="postgresql://localhost/test")
+def _make_emitter() -> AlphaPublisher:
+    """Create an AlphaPublisher without triggering DB connections."""
+    return AlphaPublisher(db_dsn="postgresql://localhost/test")
 
 
 def _make_alpha_row(
@@ -82,26 +82,26 @@ def _make_alpha_row(
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaEmitterClassContract:
+class TestAlphaPublisherClassContract:
     def test_job_name(self) -> None:
-        assert AlphaEmitter.job_name == "alpha-emitter"
+        assert AlphaPublisher.job_name == "alpha-publisher"
 
     def test_compute_version(self) -> None:
-        assert AlphaEmitter.compute_version == "1.0.0"
+        assert AlphaPublisher.compute_version == "1.0.0"
 
     def test_ensemble_version(self) -> None:
-        assert AlphaEmitter.ensemble_version == "v1.0.0"
+        assert AlphaPublisher.ensemble_version == "v1.0.0"
 
     def test_is_base_batch_subclass(self) -> None:
-        assert issubclass(AlphaEmitter, BaseBatch)
+        assert issubclass(AlphaPublisher, BaseBatch)
 
     def test_has_execute_method(self) -> None:
-        assert hasattr(AlphaEmitter, "execute")
-        assert callable(AlphaEmitter.execute)
+        assert hasattr(AlphaPublisher, "execute")
+        assert callable(AlphaPublisher.execute)
 
     def test_instantiation(self) -> None:
         emitter = _make_emitter()
-        assert emitter.job_name == "alpha-emitter"
+        assert emitter.job_name == "alpha-publisher"
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ async def _run_emitter_with_single_row(
     top_features_count: str = "10",
     threshold_5m: str = "1.5",
 ) -> tuple[AsyncMock, AsyncMock]:
-    """Helper: run AlphaEmitter.execute() with one alpha row and return (mock_producer, mock_conn)."""
+    """Helper: run AlphaPublisher.execute() with one alpha row and return (mock_producer, mock_conn)."""
     emitter = _make_emitter()
 
     cfg_rows = [MagicMock() for _ in _DEFAULT_CFG.items()]
@@ -240,8 +240,8 @@ async def _run_emitter_with_single_row(
     settings_mock.kafka_bootstrap_servers = "localhost:9092"
 
     with (
-        patch("services.alpha_emitter.Settings", return_value=settings_mock),
-        patch("services.alpha_emitter.KafkaProducerClient", return_value=mock_producer),
+        patch("services.alpha_publisher.Settings", return_value=settings_mock),
+        patch("services.alpha_publisher.KafkaProducerClient", return_value=mock_producer),
     ):
         await emitter.execute(mock_pool)
 

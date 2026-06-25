@@ -390,12 +390,15 @@ def _label_symbol_tf(
 
             # ------------------------------------------------------------------
             # Causal forward-filter decoding (NOT model.predict())
-            # model.covars_ shape for 'diag': (K, n_features) — already variances
+            # model.covars_ shape for 'diag': (K, d, d) with zeros off-diagonal.
+            # Extract diagonal only for _causal_decode: (K, d)
             # ------------------------------------------------------------------
+            d = model.means_.shape[1]
+            covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
             raw_states, alpha_history = _causal_decode(
                 obs_matrix,
                 model.means_,
-                model.covars_,
+                covars_diag,
                 model.transmat_,
                 n_components,
             )

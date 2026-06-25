@@ -264,7 +264,7 @@ def _build_markdown_report(
             f"> **{_NO_DATA_MARKER}**",
             "",
             "Corpus tables (ensemble_weights, ensemble_alpha, alpha_events) are empty.",
-            "Run `ensemble_builder.py` and `alpha_emitter.py` after the full corpus data",
+            "Run `ensemble_trainer.py` and `alpha_publisher.py` after the full corpus data",
             "pipeline (Phase 138 P8) completes.",
         ]
         return "\n".join(lines)

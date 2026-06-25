@@ -171,7 +171,7 @@ def topic_intelligence_i7_signals(env_name: str) -> str:
 def topic_alpha_events(env_name: str) -> str:
     """Kafka topic for alpha emission events from AlphaEngine v3.0.
 
-    Published by AlphaEmitter (services/alpha_emitter.py) when ensemble alpha score
+    Published by AlphaPublisher (services/alpha_publisher.py) when ensemble alpha score
     crosses the per-TF emission threshold (alpha.quant.threshold.{tf} APR key) and
     the effective_N gate is met (alpha.ensemble.effective_n_gate).
 

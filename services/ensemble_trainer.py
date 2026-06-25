@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ensemble Builder — oneshot that derives IC-weighted ensemble weights and scores ensemble alpha.
+"""Ensemble Trainer — oneshot that derives IC-weighted ensemble weights and scores ensemble alpha.
 
 Reads feature_ic_scores (is_pooled=false, passes_walkforward=true), applies Ledoit-Wolf
 cluster deflation, and writes:
@@ -20,7 +20,7 @@ DAG invariant note: this oneshot is exempt from the "only writer subclasses touc
 exactly as backfill_feature_factory.py is — it is a batch compute tool, not a real-time daemon.
 
 Usage:
-    python services/ensemble_builder.py
+    python services/ensemble_trainer.py
 """
 
 from __future__ import annotations
@@ -137,24 +137,24 @@ async def _assert_prerequisites(conn: asyncpg.Connection) -> None:
     )
     if not n_ic:
         raise RuntimeError(
-            "EnsembleBuilder startup gate FAILED: no feature_ic_scores rows with "
+            "EnsembleTrainer startup gate FAILED: no feature_ic_scores rows with "
             "is_pooled=false AND passes_walkforward=true. Run ic_engine.py first."
         )
 
     n_fv = await conn.fetchval("SELECT count(*) FROM feature_vectors")
     if not n_fv:
         raise RuntimeError(
-            "EnsembleBuilder startup gate FAILED: feature_vectors is empty. "
+            "EnsembleTrainer startup gate FAILED: feature_vectors is empty. "
             "Run backfill_feature_factory.py + regime_writer.py first."
         )
 
 
 # ---------------------------------------------------------------------------
-# EnsembleBuilder
+# EnsembleTrainer
 # ---------------------------------------------------------------------------
 
 
-class EnsembleBuilder(BaseBatch):
+class EnsembleTrainer(BaseBatch):
     """Batch compute service: feature_ic_scores → ensemble_weights + ensemble_alpha.
 
     Reads IC scores per (symbol, tf, regime), applies LW shrinkage covariance and
@@ -162,7 +162,7 @@ class EnsembleBuilder(BaseBatch):
     via vectorized matmul.
     """
 
-    job_name = "ensemble-builder"
+    job_name = "ensemble-trainer"
     compute_version = "1.0.0"
 
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
@@ -178,7 +178,7 @@ class EnsembleBuilder(BaseBatch):
             max_cluster_weight = _cfg_float(cfg, "alpha.ensemble.max_cluster_weight", 0.40)
 
             self.logger.info(
-                "ensemble_builder.config_loaded",
+                "ensemble_trainer.config_loaded",
                 max_feature_weight=max_feature_weight,
                 effective_n_gate=effective_n_gate,
                 weight_version=weight_version,
@@ -194,7 +194,7 @@ class EnsembleBuilder(BaseBatch):
             feature_cols = await _get_feature_columns(conn)
             if not feature_cols:
                 raise RuntimeError(
-                    "EnsembleBuilder: no feature columns found in feature_vectors. "
+                    "EnsembleTrainer: no feature columns found in feature_vectors. "
                     "Check table schema."
                 )
 
@@ -206,7 +206,7 @@ class EnsembleBuilder(BaseBatch):
                   AND ic_sharpe IS NOT NULL AND regime IS NOT NULL
                 ORDER BY symbol, tf, regime
                 """)
-            self.logger.info("ensemble_builder.strata_found", stratum_count=len(strata_rows))
+            self.logger.info("ensemble_trainer.strata_found", stratum_count=len(strata_rows))
 
             for stratum in strata_rows:
                 symbol = stratum["symbol"]
@@ -227,7 +227,7 @@ class EnsembleBuilder(BaseBatch):
                 )
 
         self.logger.info(
-            "ensemble_builder.complete",
+            "ensemble_trainer.complete",
             strata_processed=len(strata_rows),
         )
 
@@ -261,14 +261,14 @@ class EnsembleBuilder(BaseBatch):
             regime,
         )
         if not ic_rows:
-            log.debug("ensemble_builder.stratum_no_ic_rows")
+            log.debug("ensemble_trainer.stratum_no_ic_rows")
             return
 
         # Step 2: Select best lookahead per feature
         selected = select_features_per_stratum([dict(r) for r in ic_rows])
         if len(selected) < min_passing_features:
             log.debug(
-                "ensemble_builder.stratum_skipped_min_features",
+                "ensemble_trainer.stratum_skipped_min_features",
                 n_features=len(selected),
                 min_required=min_passing_features,
             )
@@ -286,7 +286,7 @@ class EnsembleBuilder(BaseBatch):
         col_subset = [c for c in feature_cols if c in feature_names]
         if len(col_subset) < min_passing_features:
             log.debug(
-                "ensemble_builder.stratum_skipped_missing_cols",
+                "ensemble_trainer.stratum_skipped_missing_cols",
                 n_cols=len(col_subset),
                 min_required=min_passing_features,
             )
@@ -297,7 +297,7 @@ class EnsembleBuilder(BaseBatch):
         feature_name_to_col = {name: col_idx[name] for name in feature_names if name in col_idx}
         if len(feature_name_to_col) < min_passing_features:
             log.debug(
-                "ensemble_builder.stratum_skipped_col_mismatch", n_mapped=len(feature_name_to_col)
+                "ensemble_trainer.stratum_skipped_col_mismatch", n_mapped=len(feature_name_to_col)
             )
             return
 
@@ -325,7 +325,7 @@ class EnsembleBuilder(BaseBatch):
             regime,
         )
         if len(fv_rows) < 2:
-            log.debug("ensemble_builder.stratum_insufficient_bars", n_bars=len(fv_rows))
+            log.debug("ensemble_trainer.stratum_insufficient_bars", n_bars=len(fv_rows))
             return
 
         bar_ts_list = [r["bar_ts"] for r in fv_rows]
@@ -357,7 +357,7 @@ class EnsembleBuilder(BaseBatch):
         # Zero-weight guard (Finding 2 blocker)
         if float(weights.sum()) < 1e-10:
             log.warning(
-                "ensemble_builder.stratum_zero_weight_vector",
+                "ensemble_trainer.stratum_zero_weight_vector",
                 reason="zero_weight_vector",
                 symbol=symbol,
                 tf=tf,
@@ -424,7 +424,7 @@ class EnsembleBuilder(BaseBatch):
             )
 
         log.info(
-            "ensemble_builder.weights_written",
+            "ensemble_trainer.weights_written",
             n_features=len(weight_rows),
             effective_n=round(eff_n, 3),
             shrinkage=round(shrinkage, 4),
@@ -474,7 +474,7 @@ class EnsembleBuilder(BaseBatch):
         )
 
         log.info(
-            "ensemble_builder.alpha_written",
+            "ensemble_trainer.alpha_written",
             n_bars=len(alpha_rows),
             margin=round(margin, 4),
         )
@@ -486,10 +486,10 @@ class EnsembleBuilder(BaseBatch):
 
 if __name__ == "__main__":
     try:
-        init_otel_providers("indicagent-ensemble-builder")
+        init_otel_providers("indicagent-ensemble-trainer")
     except OTelInitError as error:
-        _logger.warning("ensemble_builder.otel_init_failed", error=str(error))
+        _logger.warning("ensemble_trainer.otel_init_failed", error=str(error))
 
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    asyncio.run(EnsembleBuilder(db_dsn=db_dsn).run())
+    asyncio.run(EnsembleTrainer(db_dsn=db_dsn).run())

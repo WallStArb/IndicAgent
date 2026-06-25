@@ -1144,7 +1144,7 @@ IC_WIN_RATE_GAUGE = _meter.create_gauge(
 # Phase 139 Ensemble + Alpha Emission metrics
 # ---------------------------------------------------------------------------
 
-# Ensemble weight gauges — emitted by EnsembleBuilder after each weight solve
+# Ensemble weight gauges — emitted by EnsembleTrainer after each weight solve
 ENSEMBLE_FEATURE_WEIGHT_GAUGE = _meter.create_gauge(
     "ensemble_feature_weight",
     description=(
@@ -1175,23 +1175,23 @@ ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE = _meter.create_gauge(
     ),
 )
 
-# Alpha emitter counters — emitted by AlphaEmitter after each batch run
-ALPHA_EMITTER_EMISSIONS_TOTAL = _meter.create_up_down_counter(
-    "alpha_emitter_emissions_total",
+# Alpha publisher counters — emitted by AlphaPublisher after each batch run
+ALPHA_PUBLISHER_EMISSIONS_TOTAL = _meter.create_up_down_counter(
+    "alpha_publisher_emissions_total",
     description=(
         "Total alpha events emitted (cumulative per batch run). "
         "Labels: symbol, tf, direction, regime"
     ),
 )
-ALPHA_EMITTER_BARS_SCORED_TOTAL = _meter.create_up_down_counter(
-    "alpha_emitter_bars_scored_total",
+ALPHA_PUBLISHER_BARS_SCORED_TOTAL = _meter.create_up_down_counter(
+    "alpha_publisher_bars_scored_total",
     description=(
         "Total bars scored by the ensemble alpha computation (cumulative per batch run). "
         "Labels: symbol, tf"
     ),
 )
-ALPHA_EMITTER_REJECTIONS_TOTAL = _meter.create_up_down_counter(
-    "alpha_emitter_rejections_total",
+ALPHA_PUBLISHER_REJECTIONS_TOTAL = _meter.create_up_down_counter(
+    "alpha_publisher_rejections_total",
     description=(
         "Total bars rejected before emission (below threshold or failed effective_N gate). "
         "Labels: symbol, tf, rejection_reason"

@@ -286,6 +286,29 @@ enough that a refactor during P3 execution would corrupt the training corpus mid
 
 ---
 
+---
+
+## Issue 6 — `FeatureFactory.compute()` elimination (deferred — separate phase, pre-Phase-140)
+
+**Files:** `src/intelligence/feature_factory.py`, `services/feature_vector_pipeline.py`
+
+**The violation:** `FeatureFactory.compute()` and `FeatureFactory.compute_batch()` are two complete, independent implementations of identical financial math — every series helper (`_rsi_series_full`, `_atr_series_full`, `_momentum_z_series_full`, etc.) is called from both. A numerical fix in one path silently misses the other. IC scores computed from batch backfill can diverge from live-path scores on the same bar. This is a first-order data integrity violation.
+
+**Why deferred:** The live pipeline (`feature_vector_pipeline.py`) calls `compute()` with a persistent `FeatureCache` that is advanced incrementally between bars (`cache.advance_bar` inside the loop). Making `compute()` a wrapper over `compute_batch()` requires solving cache advancement semantics: `compute_batch()` advances the cache for every bar in its input, so calling it with the full bar history on every live bar would advance the cache `len(bars)` times per bar, corrupting weekly VWAP accumulation and HMM duration counts. This cannot be fixed in the same session as a corpus backfill without risking live pipeline regressions.
+
+**The correct fix (when scoped):**
+
+1. Redesign cache advancement to be idempotent or position-aware — the cache tracks its own `last_advanced_bar_ts` and `advance_bar` skips already-processed bars.
+2. `compute()` becomes: `FeatureFactory.compute_batch(bars, ..., warm_up_bars=len(bars)-1)[-1]`
+3. Alternatively: extract the series-computation kernel into a shared `_compute_series(bars, config)` that both `compute()` and `compute_batch()` call — so the math is unified without changing cache advancement semantics.
+4. Delete `compute()` once the live pipeline is verified to produce identical results via `compute_batch()`.
+
+**Gate before starting:** Issue 4 from this todo must be complete (compute_batch owns state injection). Then benchmark `compute_batch()` on the live path's bounded bar history (typically 500 bars) to confirm O(n) vectorized ops are fast enough for sub-10ms per-bar latency.
+
+**Verification:** `test_feature_factory_batch_parity.py` — extend to cover all series helpers; confirm `compute()` and `compute_batch()[-1]` produce values within 1e-10 for the same inputs before `compute()` is deleted.
+
+---
+
 ## Related Refinements (same session)
 
 - **`_build_ctf_series` vectorized RSI** (from Issue 2): eliminating the Python RSI loop
