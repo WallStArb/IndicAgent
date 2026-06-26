@@ -22,6 +22,8 @@ _project_root = Path(__file__).parent.parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+from unittest.mock import MagicMock
+
 from services.regime_writer import (
     _LABEL_RANGING,
     _LABEL_TRENDING_DOWN,
@@ -29,6 +31,7 @@ from services.regime_writer import (
     _build_label_map,
     _build_obs_matrix,
     _causal_decode,
+    _compute_symbol_tf,
 )
 
 _HMM_RANDOM_STATE = 42  # conventional seed; lives in APR as alpha.hmm.random_state
@@ -479,3 +482,156 @@ def test_canonical_label_constants():
     assert _LABEL_TRENDING_UP == "trending_up"
     assert _LABEL_TRENDING_DOWN == "trending_down"
     assert _LABEL_RANGING == "ranging"
+
+
+# ---------------------------------------------------------------------------
+# Tests: _compute_symbol_tf
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_conn(closes, volumes, timestamps):
+    """Build a psycopg2 connection mock that returns synthetic OHLCV rows."""
+    rows = list(zip(timestamps, closes, volumes))
+    # cursor used as context manager for named server-side cursor
+    cursor_mock = MagicMock()
+    cursor_mock.__enter__ = lambda s: s
+    cursor_mock.__exit__ = MagicMock(return_value=False)
+    # fetchmany returns all rows on first call, then [] to signal EOF
+    cursor_mock.fetchmany.side_effect = [rows, []]
+    conn_mock = MagicMock()
+    conn_mock.cursor.return_value = cursor_mock
+    return conn_mock
+
+
+def test_compute_symbol_tf_returns_tuple_structure():
+    """_compute_symbol_tf must return (update_rows, converged) with correct row shape."""
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    result = _compute_symbol_tf(
+        conn=conn,
+        symbol="SPY",
+        tf="1d",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        momentum_window=20,
+        vol_of_vol_window=20,
+    )
+
+    assert result is not None
+    update_rows, converged = result
+    assert isinstance(update_rows, list)
+    assert len(update_rows) > 0
+    # Each tuple: (regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration, symbol, tf, ts)
+    assert len(update_rows[0]) == 10
+    assert isinstance(converged, bool)
+
+
+def test_compute_symbol_tf_regime_values():
+    """All regime labels in update_rows must be canonical strings."""
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    result = _compute_symbol_tf(
+        conn=conn,
+        symbol="TLT",
+        tf="1d",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        momentum_window=20,
+        vol_of_vol_window=20,
+    )
+
+    assert result is not None
+    update_rows, _ = result
+    valid_labels = {"trending_up", "trending_down", "ranging"}
+    for row in update_rows:
+        assert row[0] in valid_labels, f"Invalid regime label: {row[0]}"
+
+
+def test_compute_symbol_tf_probabilities_sum_to_one():
+    """p_up + p_ranging + p_down must sum to ~1.0 for each row."""
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    result = _compute_symbol_tf(
+        conn=conn,
+        symbol="GLD",
+        tf="1d",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        momentum_window=20,
+        vol_of_vol_window=20,
+    )
+
+    assert result is not None
+    update_rows, _ = result
+    for row in update_rows:
+        _regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration, sym, tf, ts = row
+        total = p_up + p_ranging + p_down
+        assert abs(total - 1.0) < 1e-6, f"Probabilities sum to {total}, expected ~1.0"
+
+
+def test_compute_symbol_tf_returns_none_on_insufficient_data():
+    """Returns None when fewer obs than n_components * _MIN_OBS_FACTOR."""
+    n = 10
+    closes = [100.0] * n
+    volumes = [1e6] * n
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    result = _compute_symbol_tf(
+        conn=conn,
+        symbol="SPY",
+        tf="1d",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        momentum_window=20,
+        vol_of_vol_window=20,
+    )
+
+    assert result is None
+
+
+def test_compute_symbol_tf_no_db_write():
+    """Worker must not call conn.execute or conn.executemany for writes."""
+    n = 500
+    closes = _make_ranging_closes(n)
+    volumes = _make_volumes(n)
+    timestamps = _make_timestamps(n)
+    conn = _make_mock_conn(closes, volumes, timestamps)
+
+    _compute_symbol_tf(
+        conn=conn,
+        symbol="SPY",
+        tf="1d",
+        n_components=3,
+        vol_window=20,
+        n_iter=50,
+        hmm_random_state=42,
+        momentum_window=20,
+        vol_of_vol_window=20,
+    )
+
+    # The cursor mock is only called for the SELECT (fetchmany) — never for UPDATE
+    cursor = conn.cursor.return_value
+    for c in cursor.execute.call_args_list:
+        sql = c[0][0].upper() if c[0] else ""
+        assert "UPDATE" not in sql, f"Worker issued an UPDATE: {sql}"

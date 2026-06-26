@@ -276,7 +276,7 @@ def _build_label_map(means: np.ndarray) -> dict[int, str]:
 # ---------------------------------------------------------------------------
 
 
-def _label_symbol_tf(
+def _compute_symbol_tf(
     conn: Any,
     symbol: str,
     tf: str,
@@ -286,167 +286,155 @@ def _label_symbol_tf(
     hmm_random_state: int,
     momentum_window: int,
     vol_of_vol_window: int,
+) -> tuple[list[tuple], bool] | None:
+    """Fit HMM for one (symbol, tf) cell. Returns (update_rows, converged) or None.
+
+    Pure compute — no DB writes. Each tuple in update_rows matches the UPDATE SQL
+    parameter order: (regime, p_up, p_ranging, p_down, prob_val, entropy_val,
+    duration, symbol, tf, ts).
+    """
+    timestamps = []
+    closes = []
+    volumes = []
+    # Server-side cursor requires no active transaction — commit any open transaction first.
+    conn.commit()
+    with conn.cursor("ohlcv_stream") as cur:
+        cur.execute(
+            "SELECT timestamp, close, volume "
+            "FROM market_data_ohlcv "
+            "WHERE symbol = %s AND timeframe = %s "
+            "ORDER BY timestamp ASC",
+            (symbol, tf),
+        )
+        while True:
+            batch = cur.fetchmany(10000)
+            if not batch:
+                break
+            for r in batch:
+                timestamps.append(r[0])
+                closes.append(float(r[1]))
+                volumes.append(float(r[2]))
+
+    if not timestamps:
+        _logger.warning("regime_writer.no_ohlcv", symbol=symbol, tf=tf)
+        return None
+
+    obs_matrix, valid_ts = _build_obs_matrix(
+        timestamps,
+        closes,
+        volumes,
+        vol_window=vol_window,
+        momentum_window=momentum_window,
+        vol_of_vol_window=vol_of_vol_window,
+    )
+
+    min_rows = n_components * _MIN_OBS_FACTOR
+    if len(valid_ts) < min_rows:
+        _logger.warning(
+            "regime_writer.insufficient_obs",
+            symbol=symbol,
+            tf=tf,
+            n_obs=len(valid_ts),
+            min_required=min_rows,
+        )
+        return None
+
+    # Standardize per-series: fit on this series, transform in-place.
+    # Both fit() and _causal_decode() receive the scaled matrix so
+    # means/covars are in scaled space — internally consistent.
+    scaler = StandardScaler()
+    obs_matrix = scaler.fit_transform(obs_matrix)
+
+    model = GaussianHMM(
+        n_components=n_components,
+        covariance_type="diag",
+        n_iter=n_iter,
+        random_state=hmm_random_state,
+    )
+    model.fit(obs_matrix)
+
+    # model.covars_ shape for 'diag': (K, d, d) with zeros off-diagonal.
+    # Extract diagonal only for _causal_decode: (K, d)
+    d = model.means_.shape[1]
+    covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
+    raw_states, alpha_history = _causal_decode(
+        obs_matrix,
+        model.means_,
+        covars_diag,
+        model.transmat_,
+        n_components,
+    )
+
+    label_map = _build_label_map(model.means_)
+    up_state = next(k for k, v in label_map.items() if v == _LABEL_TRENDING_UP)
+    down_state = next(k for k, v in label_map.items() if v == _LABEL_TRENDING_DOWN)
+    rang_state = next(k for k, v in label_map.items() if v == _LABEL_RANGING)
+
+    # Explicit loop — required for index-based alpha_history access and stateful
+    # duration counter simultaneously.
+    update_rows: list[tuple] = []
+    prev_state: int | None = None
+    duration = 0
+    for i, (ts, state_idx) in enumerate(zip(valid_ts, raw_states)):
+        state_idx = int(state_idx)
+        if state_idx == prev_state:
+            duration += 1
+        else:
+            duration = 1
+            prev_state = state_idx
+        alpha = alpha_history[i]
+        p_up = float(alpha[up_state])
+        p_ranging = float(alpha[rang_state])
+        p_down = float(alpha[down_state])
+        prob_val = float(np.max(alpha))
+        entropy_val = float(-np.sum(alpha * np.log(np.maximum(alpha, 1e-300))))
+        update_rows.append(
+            (
+                label_map[state_idx],
+                p_up,
+                p_ranging,
+                p_down,
+                prob_val,
+                entropy_val,
+                float(duration),
+                symbol,
+                tf,
+                ts,
+            )
+        )
+
+    return update_rows, model.monitor_.converged
+
+
+def _write_regime_results(
+    conn: Any,
+    symbol: str,
+    tf: str,
+    update_rows: list[tuple],
+    converged: bool,
     tracer: Any,
 ) -> int:
-    """Fit HMM and UPDATE feature_vectors.regime for one (symbol, tf) cell.
+    """Write HMM regime labels for one (symbol, tf) cell to feature_vectors.
 
-    Returns the number of rows updated.
+    Runs in the main process — single serial write connection, no concurrency.
+    Returns n_updated.
     """
+    update_sql = (
+        "UPDATE feature_vectors "
+        "SET regime                = %s, "
+        "    hmm_prob_trending_up  = %s, "
+        "    hmm_prob_ranging      = %s, "
+        "    hmm_prob_trending_down = %s, "
+        "    hmm_regime_prob       = %s, "
+        "    hmm_entropy           = %s, "
+        "    hmm_duration          = %s "
+        "WHERE symbol = %s AND tf = %s AND bar_ts = %s"
+    )
     with tracer.start_as_current_span(
-        "regime_writer.label_symbol_tf",
+        "regime_writer.write_symbol_tf",
         attributes={"symbol": symbol, "tf": tf},
     ) as span:
         try:
-            # ------------------------------------------------------------------
-            # Fetch OHLCV from market_data_ohlcv (NOT feature_vectors)
-            # Use a server-side named cursor to stream large datasets without
-            # loading all rows into client memory (avoids large memory spikes).
-            # autocommit=True on the connection avoids implicit transaction
-            # wrapping which can conflict with concurrent write activity.
-            # ------------------------------------------------------------------
-            timestamps = []
-            closes = []
-            volumes = []
-            # Server-side cursor requires no active transaction — commit any
-            # open transaction first.
-            conn.commit()
-            with conn.cursor("ohlcv_stream") as cur:
-                cur.execute(
-                    "SELECT timestamp, close, volume "
-                    "FROM market_data_ohlcv "
-                    "WHERE symbol = %s AND timeframe = %s "
-                    "ORDER BY timestamp ASC",
-                    (symbol, tf),
-                )
-                while True:
-                    batch = cur.fetchmany(10000)
-                    if not batch:
-                        break
-                    for r in batch:
-                        timestamps.append(r[0])
-                        closes.append(float(r[1]))
-                        volumes.append(float(r[2]))
-
-            if not timestamps:
-                _logger.warning(
-                    "regime_writer.no_ohlcv",
-                    symbol=symbol,
-                    tf=tf,
-                )
-                return 0
-
-            # ------------------------------------------------------------------
-            # Build observation matrix
-            # ------------------------------------------------------------------
-            obs_matrix, valid_ts = _build_obs_matrix(
-                timestamps,
-                closes,
-                volumes,
-                vol_window=vol_window,
-                momentum_window=momentum_window,
-                vol_of_vol_window=vol_of_vol_window,
-            )
-
-            min_rows = n_components * _MIN_OBS_FACTOR
-            if len(valid_ts) < min_rows:
-                _logger.warning(
-                    "regime_writer.insufficient_obs",
-                    symbol=symbol,
-                    tf=tf,
-                    n_obs=len(valid_ts),
-                    min_required=min_rows,
-                )
-                return 0
-
-            # Standardize per-series: fit on this series, transform in-place.
-            # Both fit() and _causal_decode() receive the scaled matrix so
-            # means/covars are in scaled space — internally consistent.
-            scaler = StandardScaler()
-            obs_matrix = scaler.fit_transform(obs_matrix)
-
-            # ------------------------------------------------------------------
-            # Fit HMM (parameter estimation only, NOT decoding)
-            # ------------------------------------------------------------------
-            model = GaussianHMM(
-                n_components=n_components,
-                covariance_type="diag",
-                n_iter=n_iter,
-                random_state=hmm_random_state,
-            )
-            model.fit(obs_matrix)
-
-            # ------------------------------------------------------------------
-            # Causal forward-filter decoding (NOT model.predict())
-            # model.covars_ shape for 'diag': (K, d, d) with zeros off-diagonal.
-            # Extract diagonal only for _causal_decode: (K, d)
-            # ------------------------------------------------------------------
-            d = model.means_.shape[1]
-            covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
-            raw_states, alpha_history = _causal_decode(
-                obs_matrix,
-                model.means_,
-                covars_diag,
-                model.transmat_,
-                n_components,
-            )
-
-            label_map = _build_label_map(model.means_)
-
-            # State index lookups for alpha vector column mapping
-            up_state = next(k for k, v in label_map.items() if v == _LABEL_TRENDING_UP)
-            down_state = next(k for k, v in label_map.items() if v == _LABEL_TRENDING_DOWN)
-            rang_state = next(k for k, v in label_map.items() if v == _LABEL_RANGING)
-
-            # ------------------------------------------------------------------
-            # Build update rows with full HMM probability vector.
-            # Explicit loop (not generator) — required for index-based alpha_history
-            # access and stateful duration counter simultaneously.
-            # ------------------------------------------------------------------
-            update_rows = []
-            prev_state: int | None = None
-            duration = 0
-            for i, (ts, state_idx) in enumerate(zip(valid_ts, raw_states)):
-                state_idx = int(state_idx)
-                if state_idx == prev_state:
-                    duration += 1
-                else:
-                    duration = 1
-                    prev_state = state_idx
-                alpha = alpha_history[i]
-                p_up = float(alpha[up_state])  # hmm_prob_trending_up
-                p_ranging = float(alpha[rang_state])
-                p_down = float(alpha[down_state])
-                prob_val = float(np.max(alpha))
-                entropy_val = float(-np.sum(alpha * np.log(np.maximum(alpha, 1e-300))))
-                update_rows.append(
-                    (
-                        label_map[state_idx],  # regime
-                        p_up,
-                        p_ranging,
-                        p_down,
-                        prob_val,  # hmm_regime_prob
-                        entropy_val,  # hmm_entropy
-                        float(duration),  # hmm_duration
-                        symbol,
-                        tf,
-                        ts,
-                    )
-                )
-
-            # ------------------------------------------------------------------
-            # Batch UPDATE feature_vectors with regime + full probability vector
-            # ------------------------------------------------------------------
-            update_sql = (
-                "UPDATE feature_vectors "
-                "SET regime               = %s, "
-                "    hmm_prob_trending_up  = %s, "
-                "    hmm_prob_ranging      = %s, "
-                "    hmm_prob_trending_down = %s, "
-                "    hmm_regime_prob       = %s, "
-                "    hmm_entropy           = %s, "
-                "    hmm_duration          = %s "
-                "WHERE symbol = %s AND tf = %s AND bar_ts = %s"
-            )
             with conn.cursor() as cur:
                 psycopg2.extras.execute_batch(
                     cur,
@@ -468,25 +456,18 @@ def _label_symbol_tf(
                 n_updated, remaining = cur.fetchone()
                 n_updated = int(n_updated)
                 remaining = int(remaining)
-            REGIME_WRITER_ROWS_UPDATED_TOTAL.add(n_updated, {"symbol": symbol, "tf": tf})
-
-            # ------------------------------------------------------------------
-            # Record null-remaining gauge
-            # ------------------------------------------------------------------
 
             REGIME_WRITER_NULL_REGIME_REMAINING.set(remaining, {"symbol": symbol, "tf": tf})
-
+            span.set_attribute("n_updated", n_updated)
+            span.set_attribute("null_remaining", remaining)
             _logger.info(
                 "regime_writer.symbol_tf_done",
                 symbol=symbol,
                 tf=tf,
                 n_updated=n_updated,
                 null_remaining=remaining,
-                converged=model.monitor_.converged,
+                converged=converged,
             )
-
-            span.set_attribute("n_updated", n_updated)
-            span.set_attribute("null_remaining", remaining)
             return n_updated
 
         except Exception as error:
@@ -517,17 +498,18 @@ def _discover_symbols(conn: Any) -> list[str]:
 def _run_symbol_worker(args: tuple) -> dict:
     """Worker function for ProcessPoolExecutor — runs in subprocess.
 
-    Opens its own psycopg2 connection (connections are not picklable and
-    must not be shared across processes). No OTel tracer — workers log only;
-    main process aggregates results and emits metrics.
+    Opens its own psycopg2 connection for OHLCV reads only. Runs HMM compute
+    and returns update_rows to the main process; never writes to the DB.
 
     Args:
         args: (symbol, tfs, dsn, n_components, vol_window, momentum_window,
                vol_of_vol_window, n_iter, hmm_random_state)
-               Packed as a tuple for ProcessPoolExecutor.map compatibility.
 
     Returns:
-        dict with keys: symbol, results (list of {tf, n_updated}), error (str|None)
+        dict with keys:
+          symbol: str
+          results: list of {tf, update_rows, converged} or {tf, error}
+          error: str | None  (set if connection itself failed)
     """
     (
         symbol,
@@ -541,7 +523,6 @@ def _run_symbol_worker(args: tuple) -> dict:
         hmm_random_state,
     ) = args
 
-    # Initialize logging in subprocess (each process needs its own handler)
     setup_service_logging("logs/regime_writer.log")
     worker_log = structlog.get_logger(__name__)
 
@@ -550,16 +531,11 @@ def _run_symbol_worker(args: tuple) -> dict:
     error_msg = None
 
     try:
-        conn = psycopg2.connect(
-            dsn,
-            options="-c idle_in_transaction_session_timeout=0",
-        )
-
-        noop_tracer = _NoopTracer()
+        conn = psycopg2.connect(dsn, options="-c idle_in_transaction_session_timeout=0")
 
         for tf in tfs:
             try:
-                n = _label_symbol_tf(
+                result = _compute_symbol_tf(
                     conn=conn,
                     symbol=symbol,
                     tf=tf,
@@ -569,9 +545,12 @@ def _run_symbol_worker(args: tuple) -> dict:
                     vol_of_vol_window=vol_of_vol_window,
                     n_iter=n_iter,
                     hmm_random_state=hmm_random_state,
-                    tracer=noop_tracer,
                 )
-                results.append({"tf": tf, "n_updated": n})
+                if result is None:
+                    results.append({"tf": tf, "update_rows": None, "converged": False})
+                else:
+                    update_rows, converged = result
+                    results.append({"tf": tf, "update_rows": update_rows, "converged": converged})
             except Exception as error:
                 worker_log.error(
                     "regime_writer.worker_cell_failed",
@@ -579,35 +558,11 @@ def _run_symbol_worker(args: tuple) -> dict:
                     tf=tf,
                     error=str(error),
                 )
-                results.append({"tf": tf, "n_updated": 0, "error": str(error)})
+                results.append({"tf": tf, "update_rows": None, "error": str(error)})
                 try:
                     conn.rollback()
                 except Exception:
-                    # Connection is dead (e.g. server OOM). Attempt to reopen so
-                    # remaining TFs for this symbol can proceed rather than failing
-                    # with InFailedSqlTransaction.
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-                    try:
-                        conn = psycopg2.connect(
-                            dsn,
-                            options="-c idle_in_transaction_session_timeout=0",
-                        )
-                        worker_log.warning(
-                            "regime_writer.worker_reconnected",
-                            symbol=symbol,
-                            tf=tf,
-                        )
-                    except Exception as reconnect_error:
-                        worker_log.error(
-                            "regime_writer.worker_reconnect_failed",
-                            symbol=symbol,
-                            error=str(reconnect_error),
-                        )
-                        # Cannot recover; remaining TFs for this symbol will fail.
-                        break
+                    pass
 
     except Exception as error:
         error_msg = str(error)
@@ -726,23 +681,55 @@ def main() -> None:
             total_updated = 0
             failures: list[str] = []
 
-            with ProcessPoolExecutor(max_workers=n_workers) as pool:
-                for result in pool.map(_run_symbol_worker, worker_args, chunksize=1):
-                    symbol = result["symbol"]
-                    if result["error"]:
-                        failures.append(symbol)
-                        _logger.error(
-                            "regime_writer.symbol_failed",
-                            symbol=symbol,
-                            error=result["error"],
-                        )
-                    for cell in result["results"]:
-                        n = cell.get("n_updated", 0)
-                        total_updated += n
-                        tf = cell["tf"]
-                        REGIME_WRITER_ROWS_UPDATED_TOTAL.add(n, {"symbol": symbol, "tf": tf})
-                        if "error" in cell:
-                            failures.append(f"{symbol}/{tf}")
+            write_conn = psycopg2.connect(
+                dsn,
+                options="-c idle_in_transaction_session_timeout=0",
+            )
+            try:
+                with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                    for result in pool.map(_run_symbol_worker, worker_args, chunksize=1):
+                        symbol = result["symbol"]
+                        if result["error"]:
+                            failures.append(symbol)
+                            _logger.error(
+                                "regime_writer.symbol_failed",
+                                symbol=symbol,
+                                error=result["error"],
+                            )
+                        for cell in result["results"]:
+                            tf = cell["tf"]
+                            if "error" in cell:
+                                failures.append(f"{symbol}/{tf}")
+                                continue
+                            if cell["update_rows"] is None:
+                                continue
+                            try:
+                                n = _write_regime_results(
+                                    conn=write_conn,
+                                    symbol=symbol,
+                                    tf=tf,
+                                    update_rows=cell["update_rows"],
+                                    converged=cell.get("converged", False),
+                                    tracer=tracer,
+                                )
+                                total_updated += n
+                                REGIME_WRITER_ROWS_UPDATED_TOTAL.add(
+                                    n, {"symbol": symbol, "tf": tf}
+                                )
+                            except Exception as error:
+                                _logger.error(
+                                    "regime_writer.write_failed",
+                                    symbol=symbol,
+                                    tf=tf,
+                                    error=str(error),
+                                )
+                                failures.append(f"{symbol}/{tf}")
+                                try:
+                                    write_conn.rollback()
+                                except Exception:
+                                    pass
+            finally:
+                write_conn.close()
 
             elapsed_s = time.monotonic() - t0
             REGIME_WRITER_RUN_LATENCY_SECONDS.record(elapsed_s)
