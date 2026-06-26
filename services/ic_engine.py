@@ -143,7 +143,7 @@ _INSERT_BODY = """
         training_window_end, is_pooled, n_independent, reliable,
         ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate,
         bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, passes_walkforward,
-        ic_sharpe, ic_sharpe_n_windows, ic_sortino, ic_win_rate,
+        ic_sharpe, ic_sharpe_hac, ic_sharpe_n_windows, ic_sortino, ic_win_rate,
         regime_label_source, computed_at, cluster_id, feature_status_at_eval
     )
     VALUES (
@@ -152,7 +152,7 @@ _INSERT_BODY = """
         %(n_independent)s, %(reliable)s, %(ic_value)s, %(ic_sign)s, %(p_value)s,
         %(ic_ci_lower)s, %(ic_ci_upper)s, %(passes_ci_gate)s, %(bh_adjusted_p)s,
         %(passes_fdr)s, %(wf_fold_count)s, %(wf_pass_count)s, %(passes_walkforward)s,
-        %(ic_sharpe)s, %(ic_sharpe_n_windows)s, %(ic_sortino)s, %(ic_win_rate)s,
+        %(ic_sharpe)s, %(ic_sharpe_hac)s, %(ic_sharpe_n_windows)s, %(ic_sortino)s, %(ic_win_rate)s,
         %(regime_label_source)s, %(computed_at)s, %(cluster_id)s,
         %(feature_status_at_eval)s
     )
@@ -270,6 +270,9 @@ def _load_apr(conn: Any, tf: str) -> dict[str, Any]:
         # Daily-cadence features use min_obs_daily_features gate (APR: alpha.ic.min_obs_daily_features);
         # standard 20K intraday gate does not apply — calibrated for different observation frequency.
         "min_obs_daily": int(cfg.get_sync("alpha.ic.min_obs_daily_features", 1000)),
+        # Newey-West HAC max lag for IC Sharpe autocorrelation correction (migration 177).
+        # K=0 disables HAC (ic_sharpe_hac == ic_sharpe).
+        "hac_max_lag": int(cfg.get_sync("alpha.ic.hac_max_lag", 3)),
     }
 
 
@@ -457,6 +460,38 @@ def _cluster_features(X_nd: np.ndarray, cluster_max_corr: float) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
+def _hac_sharpe_nd(window_ics: np.ndarray, max_lag: int) -> np.ndarray:
+    """Newey-West Bartlett-kernel HAC-corrected IC Sharpe.
+
+    Args:
+        window_ics: [n_windows, n_features] IC values per rolling window.
+        max_lag: Bartlett-kernel max lag K. K=0 returns naive Sharpe.
+
+    Returns:
+        sharpe_hac: [n_features]. Equal to naive Sharpe when max_lag=0 or
+        when the IC series has zero autocorrelation. Always <= naive Sharpe
+        for positively autocorrelated IC series (inflation floored at 1).
+    """
+    n, p = window_ics.shape
+    mean_ic = window_ics.mean(axis=0)
+    var0 = ((window_ics - mean_ic) ** 2).mean(axis=0)
+
+    if max_lag == 0 or n < max_lag + 2:
+        hac_std = np.sqrt(var0)
+        return np.where(hac_std > 1e-10, mean_ic / hac_std, 0.0)
+
+    demeaned = window_ics - mean_ic
+    inflation = np.ones(p)
+    for k in range(1, max_lag + 1):
+        gamma_k = (demeaned[k:] * demeaned[:-k]).mean(axis=0)
+        rho_k = np.where(var0 > 1e-12, gamma_k / var0, 0.0)
+        inflation += 2.0 * (1.0 - k / (max_lag + 1)) * rho_k
+
+    inflation = np.maximum(inflation, 1.0)  # can't be more precise than i.i.d.
+    hac_std = np.sqrt(var0 * inflation)
+    return np.where(hac_std > 1e-10, mean_ic / hac_std, 0.0)
+
+
 def _compute_ic_rolling_metrics(
     X_sub: np.ndarray,
     returns_sub: np.ndarray,
@@ -466,22 +501,23 @@ def _compute_ic_rolling_metrics(
     non_degenerate_mask: np.ndarray,
     n_total_features: int,
     stride: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
-    """Compute IC Sharpe, Sortino, and win rate via rolling non-overlapping windows.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
+    """Compute IC Sharpe, HAC Sharpe, Sortino, and win rate via rolling non-overlapping windows.
 
     Gate: n_windows_possible >= sharpe_min_windows.
     Returns NaN arrays when gate not met.
 
-    IC Sharpe   = mean(window_ICs) / std(window_ICs)          [symmetric]
-    IC Sortino  = mean(window_ICs) / semi_dev(neg windows)     [downside only]
-                  NaN when no windows have IC < 0 (ratio undefined)
-    IC win rate = fraction of windows where IC > 0             [stability]
+    IC Sharpe     = mean(window_ICs) / std(window_ICs)                       [symmetric]
+    IC Sharpe HAC = mean(window_ICs) / (std(window_ICs) * sqrt(NW_inflation)) [autocorr-adjusted]
+    IC Sortino    = mean(window_ICs) / semi_dev(neg windows)                  [downside only]
+                    NaN when no windows have IC < 0 (ratio undefined)
+    IC win rate   = fraction of windows where IC > 0                          [stability]
 
     Args:
         stride: Subsampling stride used to create X_sub/returns_sub. sharpe_window_size
                 from APR is in RAW bars, so we divide by stride to get subsampled bars.
 
-    Returns: (sharpe_arr, sortino_arr, win_rate_arr, n_windows)
+    Returns: (sharpe_arr, sharpe_hac_arr, sortino_arr, win_rate_arr, n_windows)
     """
     # sharpe_window_size is in RAW bars; convert to SUBSAMPLED bars via floor division.
     # Precision loss: e.g., 1999 raw bars with stride=10 → 199 subsampled bars (10% loss from 200).
@@ -494,7 +530,7 @@ def _compute_ic_rolling_metrics(
     n_windows = 0
 
     if complete_mask.sum() < 2:
-        return nan_result, nan_result.copy(), nan_result.copy(), n_windows
+        return nan_result, nan_result.copy(), nan_result.copy(), nan_result.copy(), n_windows
 
     X_aligned = X_sub[complete_mask]
     Y_aligned = returns_sub[complete_mask, scale_idx]
@@ -502,7 +538,7 @@ def _compute_ic_rolling_metrics(
     n = len(X_aligned)
     n_windows_possible = n // sharpe_window_size
     if n_windows_possible < sharpe_min_windows:
-        return nan_result, nan_result.copy(), nan_result.copy(), n_windows
+        return nan_result, nan_result.copy(), nan_result.copy(), nan_result.copy(), n_windows
 
     window_ics_list = []
     for w in range(n_windows_possible):
@@ -518,13 +554,14 @@ def _compute_ic_rolling_metrics(
 
     n_windows = len(window_ics_list)
     if n_windows < sharpe_min_windows:
-        return nan_result, nan_result.copy(), nan_result.copy(), n_windows
+        return nan_result, nan_result.copy(), nan_result.copy(), nan_result.copy(), n_windows
 
     window_ics = np.array(window_ics_list)  # [n_windows, n_non_degenerate]
     mean_ic = window_ics.mean(axis=0)
     std_ic = window_ics.std(axis=0)
 
     sharpe_nd = np.where(std_ic > 1e-10, mean_ic / std_ic, 0.0)
+    sharpe_hac_nd = _hac_sharpe_nd(window_ics, apr["hac_max_lag"])
 
     # Sortino: penalise only negative-IC windows (target = 0)
     # NaN per feature when that feature has no negative windows (ratio undefined)
@@ -542,6 +579,7 @@ def _compute_ic_rolling_metrics(
     n = n_total_features
     return (
         _expand(sharpe_nd, non_degenerate_mask, n),
+        _expand(sharpe_hac_nd, non_degenerate_mask, n),
         _expand(sortino_nd, non_degenerate_mask, n),
         _expand(win_rate_nd, non_degenerate_mask, n),
         n_windows,
@@ -856,17 +894,21 @@ def _compute_symbol_tf(
                 # -------------------------------------------------------
                 # IC Sharpe / Sortino / win rate (rolling windows)
                 # -------------------------------------------------------
-                ic_sharpe_arr, ic_sortino_arr, ic_win_rate_arr, n_sharpe_windows = (
-                    _compute_ic_rolling_metrics(
-                        X_sub_scale,  # full feature matrix; _compute_ic_rolling_metrics applies non_degenerate_mask internally
-                        returns_sub,
-                        scale_idx,
-                        complete_sub[:, scale_idx],
-                        apr,
-                        non_degenerate_mask,
-                        n_features,
-                        scale_stride,  # per-scale stride for raw→subsampled window conversion
-                    )
+                (
+                    ic_sharpe_arr,
+                    ic_sharpe_hac_arr,
+                    ic_sortino_arr,
+                    ic_win_rate_arr,
+                    n_sharpe_windows,
+                ) = _compute_ic_rolling_metrics(
+                    X_sub_scale,  # full feature matrix; _compute_ic_rolling_metrics applies non_degenerate_mask internally
+                    returns_sub,
+                    scale_idx,
+                    complete_sub[:, scale_idx],
+                    apr,
+                    non_degenerate_mask,
+                    n_features,
+                    scale_stride,  # per-scale stride for raw→subsampled window conversion
                 )
 
                 # -------------------------------------------------------
@@ -909,6 +951,7 @@ def _compute_symbol_tf(
                             "wf_pass_count": int(wf_pass_full[feat_idx]),
                             "passes_walkforward": bool(passes_wf_full[feat_idx]),
                             "ic_sharpe": _nan_to_none(ic_sharpe_arr[feat_idx]),
+                            "ic_sharpe_hac": _nan_to_none(ic_sharpe_hac_arr[feat_idx]),
                             "ic_sharpe_n_windows": int(n_sharpe_windows),
                             "ic_sortino": _nan_to_none(ic_sortino_arr[feat_idx]),
                             "ic_win_rate": _nan_to_none(ic_win_rate_arr[feat_idx]),
@@ -1069,6 +1112,7 @@ def _compute_symbol_tf(
                 # and _compute_ic_rolling_metrics returns NaN. This is documented expected behavior:
                 # daily-cadence features do not have enough history to fill the intraday Sharpe window.
                 ic_sharpe_val = None
+                ic_sharpe_hac_val = None
                 ic_sortino_val = None
                 ic_win_rate_val = None
                 ic_sharpe_n_windows = 0
@@ -1097,6 +1141,7 @@ def _compute_symbol_tf(
                         "wf_pass_count": wf_pass_count,
                         "passes_walkforward": passes_wf,
                         "ic_sharpe": ic_sharpe_val,
+                        "ic_sharpe_hac": ic_sharpe_hac_val,
                         "ic_sharpe_n_windows": ic_sharpe_n_windows,
                         "ic_sortino": ic_sortino_val,
                         "ic_win_rate": ic_win_rate_val,
@@ -1377,7 +1422,7 @@ def _compute_cross_sectional_tf(
         wf_pass_full[non_degenerate_mask] = wf_pass_count_nd
         passes_wf_full[non_degenerate_mask] = passes_wf_nd
 
-        ic_sharpe_arr, ic_sortino_arr, ic_win_rate_arr, n_sharpe_windows = (
+        ic_sharpe_arr, ic_sharpe_hac_arr, ic_sortino_arr, ic_win_rate_arr, n_sharpe_windows = (
             _compute_ic_rolling_metrics(
                 X_sub,
                 returns_sub,
@@ -1422,6 +1467,7 @@ def _compute_cross_sectional_tf(
                     "wf_pass_count": int(wf_pass_full[feat_idx]),
                     "passes_walkforward": bool(passes_wf_full[feat_idx]),
                     "ic_sharpe": _nan_to_none(ic_sharpe_arr[feat_idx]),
+                    "ic_sharpe_hac": _nan_to_none(ic_sharpe_hac_arr[feat_idx]),
                     "ic_sharpe_n_windows": int(n_sharpe_windows),
                     "ic_sortino": _nan_to_none(ic_sortino_arr[feat_idx]),
                     "ic_win_rate": _nan_to_none(ic_win_rate_arr[feat_idx]),
