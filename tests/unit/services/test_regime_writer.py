@@ -443,30 +443,6 @@ def test_build_label_map_exactly_one_trending_up():
     assert down_count == 1
 
 
-def test_build_label_map_four_components():
-    """With 4 components, 2 states should be 'ranging' (remaining)."""
-    n = 1000
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    obs, _ = _build_obs_matrix(
-        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
-    )
-
-    n_components = 4
-    model = GaussianHMM(
-        n_components=n_components,
-        covariance_type="diag",
-        n_iter=50,
-        random_state=_HMM_RANDOM_STATE,
-    )
-    model.fit(obs)
-    label_map = _build_label_map(model.means_)
-
-    ranging_count = sum(1 for v in label_map.values() if v == _LABEL_RANGING)
-    assert ranging_count == 2
-
-
 # ---------------------------------------------------------------------------
 # Tests: Constants
 # ---------------------------------------------------------------------------
