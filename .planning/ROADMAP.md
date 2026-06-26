@@ -25,9 +25,10 @@
 - ✅ **v2.10 Data Architecture Evolution** — Phases 123-136 (SHIPPED 2026-06-20; ECL + APR + signal hardening + clean replay + 3-table migration + type safety + post-reboot repair)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
-- 📋 **v3.1 AlphaEngine Validation + Portfolio Construction** — Phases 141-144 (planned; hard-gated on Phase 141 corpus validation passing)
-- 📋 **v3.2 AnalogEngine + Feature Expansion** — Phases 145-147 (planned; hard-gated on v3.1 live IC > 0 at 95% CI)
+- 📋 **v3.1 AlphaEngine Validation + Alpha Scoring** — Phases 140.5-144 (planned; hard-gated on Phase 141 corpus validation passing)
+- 📋 **v3.2 AnalogEngine + Feature Expansion** — Phases 145-147 (planned; hard-gated on v3.1 OOS-validated IC > 0 at 95% CI)
 - 📋 **v3.3 Foundational Hardening** — Phases 148-149 (planned)
+- 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.3 complete + alpha_events schema frozen; consumes alpha_events, never modifies signal weights)
 
 ## Phases
 
@@ -872,17 +873,19 @@ Plans:
 - Phase 115: Framing Audit Trail ✅
 - Phase 116: SR Consensus — Multi-Method Support/Resistance ✅
 
-**Blocked Phases (Part 2 — requires v2.9 first)**:
+**Phases (Part 2 — re-evaluated 2026-06-25 post-v3.0 ship)**:
 
-- Phase 096: Agent Registry — BLOCKED until signal quality fixed (trains on noisy signals)
-- Phase 097: Zep Episodic Memory — SHIPPED but needs v2.9 for quality data
-- Phase 098: DSPy Offline Prompt Optimizer — BLOCKED until signal quality fixed
-- Phase 099: Guardrails AI Validation — BLOCKED until parse failure rate measured
-- Phase 101: Composite Fitness Function — BLOCKED until signal quality fixed (fitness on noisy data)
-- Phase 102: Genetic Infrastructure — BLOCKED until v2.9 completes
-- Phase 103: Reproductive Operators — BLOCKED until v2.9 completes
+v3.0 (AlphaEngine) shipped and IC measurement now replaces binary signal scoring. These phases were designed for the v2.x signal-quality problem. Dispositions updated:
 
-**Rationale for Blocking**: Phases 096-103 depend on high-quality signal data. Current state: 21 setups fire 4.46M noise signals (99.8% noise rate). Training ML models, evolving agents, or measuring fitness on corrupted data produces garbage results. v2.9 Signal Quality Renaissance fixes this root cause.
+- Phase 096: Agent Registry — **REFRAME**: still relevant for narrative/swarm agents that persist in v3.0; scope to non-I7 agents only
+- Phase 097: Zep Episodic Memory — **REFRAME**: lower priority; potentially useful as regime memory in AnalogEngine (Phase 145+); evaluate after AnalogEngine ships
+- Phase 098: DSPy Offline Prompt Optimizer — **PARTIAL RETIRE**: I7 prompt optimization is irrelevant (I7 archived); narrative agent prompts still exist; scope DSPy to narrative/swarm agents only if parse failure rate justifies it
+- Phase 099: Guardrails AI Validation — **RETIRE**: Instructor structured output shipped in Phase 094; adds no marginal value; parse failure rate on Instructor output is the gate that would have triggered this phase; remove from active planning
+- Phase 101: Composite Fitness Function — **RETIRE**: designed for signal genetic operators under v2.x binary paradigm; IC measurement via ICEngine supersedes composite fitness scoring; remove from active planning
+- Phase 102: Genetic Infrastructure — **RETIRE**: superseded by AlphaEngine IC measurement as the arbiter of signal quality; genetic evolution of I7 plugins no longer applies; remove from active planning
+- Phase 103: Reproductive Operators — **RETIRE**: same as 102; remove from active planning
+
+Phases 099, 101, 102, 103 are formally retired. Phases 096, 097, 098 remain in backlog with reduced/reframed scope.
 
 **Design principles (Renaissance standard):**
 
@@ -1240,11 +1243,144 @@ Plans:
 
 ---
 
-## v3.1 AlphaEngine Validation + Portfolio Construction (Phases 141-144)
+### Phase 140.5: Corpus Foundations + Feature Governance 📋 PLANNED
 
-**Milestone Goal:** Validate that AlphaEngine produces real, stable, net-of-cost IC on the full 58-symbol corpus. Build portfolio construction machinery with Kelly sizing, VaR constraints, and cost-aware emission thresholds. Establish live shadow execution with counterfactual P&L measurement. Retire v2.x after gate-validated superiority.
+**Goal:** Five prerequisites that must exist before Phase 141 touches a single IC score: (1) fix silent constant features in the batch path so the corpus is clean, (2) validate HMM state count K before regime labels are trusted, (3) build the Feature Registry so the ensemble has lifecycle governance from day one, (4) replace per-symbol HMM with a cross-sectional equity regime model so IC stratification pools observations across symbols, (5) separate daily-cadence macro features into a `context_features` table so they do not inflate IC through artificial autocorrelation. None of these can be deferred to Phase 141 — they are Phase 141's foundation.
 
-**Hard prerequisite:** Phase 141 corpus validation must pass ALL gate criteria before Phase 142 begins. No portfolio work on unvalidated IC — this is the Simons rule.
+**Depends on:** Phase 140 complete (Phase 140.5 begins while the existing 58-symbol corpus pipeline runs in the background).
+
+**Parallelism contract:** All plans run in parallel waves. Compute is CPU-bound and runs in `ProcessPoolExecutor` worker pools — never on the asyncio event loop. Persistence is fully async (`asyncpg`); DB writes are fire-and-forget where ordering permits. No plan blocks another except at hard data dependencies noted below.
+
+---
+
+**P1 — Batch Primitives Fix + Corpus Re-Run (todo 001)**
+
+Three silent-constant groups remain in the batch path after Phase 139/140:
+
+- **Group 2 (CTF):** `FeatureCache` has no `update_ctf_from_bars()`; batch path never loads HTF bars — `ctf_momentum/vwap_align/regime_align` stay at 0.000.
+- **Group 3 (VP/SR):** Causal batch computation of `poc_dist_atr/va_position/sr_support_dist/sr_resist_dist` requires 1m intraday bars per session — architectural complexity not justified. Correct answer: `NULL`, not 0.000. Make columns nullable via migration; set `None` in `compute_batch()`.
+- **Group 4 (HMM):** `compute_batch()` passes a hard 50-bar window to `refresh_regime()` — GaussianHMM on 50 bars either fails warmup (returns 0.000) or fits degenerate single-state (returns 1.000/0.000). Fix: pass full available history `bars[:i+1]`.
+
+**Async/parallelism requirements:**
+- `_compute_symbol_tf()` runs in `ProcessPoolExecutor` — pure CPU, no DB calls inside the worker. All DB reads (OHLCV history, HTF bars) fetched async before the worker call; all DB writes (feature_vectors upserts) buffered and flushed async after.
+- HTF bar loading for CTF: async batch fetch per (symbol, htf) before compute loop, passed as an immutable dict into the worker. No DB calls inside `compute_batch()`.
+- VP/SR `None` values: asyncpg accepts `None` natively for nullable float columns — no sentinel magic.
+- Corpus re-run: `backfill_feature_factory --compute-only` with `--workers 12`; symbol-level parallelism via `ProcessPoolExecutor`. Re-seed `backfill_status` to `pending` before re-run (backfill_status gotcha — see memory).
+
+**Output gate:** `std(ctf_momentum) > 0`, `std(hmm_regime_prob) > 0` across all (symbol, tf). `poc_dist_atr IS NULL` everywhere. No feature with `std = 0` except cross-sectional rank features and the 4 VP/SR columns.
+
+---
+
+**P2 — HMM State Count K via BIC (todo 002)**
+
+The current corpus uses K=3 (hard-coded). K was never validated — it was a reasonable initial estimate. If K=4 better fits the data, all regime labels in `feature_vectors` are systematically wrong, and Phase 141's IC results stratify by the wrong regimes.
+
+**Study design:**
+- For each (symbol, tf), fit `GaussianHMM` for K ∈ {2, 3, 4, 5} on full available history (causal: no future data).
+- Compute BIC: `BIC = -2 × log_likelihood + n_params × ln(n_obs)`. `n_params` for full covariance: `K × d + K × d(d+1)/2 + (K-1)` where d=5 (observation dimensions).
+- Minimum BIC wins. Aggregate winner histogram across all (symbol, tf) pairs. If K=3 wins in ≥ 70% of cases, keep K=3. If another K wins decisively, update `alpha.hmm.n_components` APR key and re-run regime labels.
+
+**Async/parallelism requirements:**
+- BIC fitting is CPU-bound. One `ProcessPoolExecutor` task per (symbol, tf). No DB calls inside worker — OHLCV history fetched async before dispatch.
+- Results written to a `bic_study_results` temp table (or CSV) via async batch INSERT after all workers complete. No per-row DB round-trips during fitting.
+- If K changes: `regime_writer --refit` parallelized per symbol via `ProcessPoolExecutor`; async batch upsert of new regime labels into `feature_vectors`. P1 corpus re-run must complete before this step (hard dependency: needs fixed feature values for BIC fitting on clean data).
+
+**Output gate:** BIC histogram documented. K decision recorded in APR with provenance `[bic_study_2026]`. If K unchanged, no re-run needed. If K changes, regime labels re-run completes before Phase 141 starts.
+
+---
+
+**P3 — Feature Registry + FeatureRegistryService (todo 008)**
+
+The feature catalog is currently implicit — 61 fields on `FeatureVector`, no metadata, no lifecycle, no on/off switch. `feature_ic_scores` has no join surface for feature status. The ensemble trainer has no promotion gate. This is the governance layer that makes IC-driven feature lifecycle non-optional.
+
+**Schema:** `feature_registry` (PK: `feature_name`; columns: `group_name`, `tier` {0_atomic/1_interaction/2_theory}, `formula_short`, `normalization`, `linear_ready`, `requires_htf`, `window_apr_keys[]`, `parent_features[]`, `status` {candidate/active/shadow_only/deprecated}, `min_ic_sharpe`, `min_ic_n`, `fdr_required`, `fdr_alpha`, `last_ic_*` snapshot, `added_phase`). `feature_transition_log` (append-only audit trail). DB trigger `trg_cascade_parent_deprecation` auto-demotes tier-1 children when a tier-0 parent is deprecated.
+
+**FeatureRegistryService:** Async singleton (`asyncpg` pool). Loaded at daemon startup before the alignment gate runs. All reads go through the service — no direct `feature_registry` queries in application code. `get_active_features()`, `get_ic_sharpe_gate()` (per-feature override else APR floor), `record_transition()` (async, non-blocking).
+
+**Startup alignment gate:** Crash-loud `RuntimeError` if `feature_registry` rows ≠ `FeatureVector` dataclass fields. Adding a feature = FeatureVector field + migration + registry INSERT — all three in the same migration. The gate enforces this at every startup.
+
+**Async/parallelism requirements:**
+- `FeatureRegistryService.load()` is a single async fetch at startup — one query, result cached in memory for the daemon lifetime.
+- `record_transition()` is fire-and-forget async: caller does not `await` the DB write. Transition logging never blocks the compute path.
+- IC engine integration: records `feature_status_at_eval` on every `feature_ic_scores` row. This is a single-column addition to the existing async batch INSERT — no separate round-trip.
+- `EnsembleBuilder` filter: `WHERE status = 'active' AND feature_status_at_eval = 'active'` — added to existing async query, no new service calls.
+
+**Seed:** Migration inserts all 61 current `FeatureVector` fields as `status = 'active'`. Theory-embedded features (`poc_dist_atr`, `va_position`, `sr_*`, `hmm_*`, `ctf_*`, `flight_quality`) seeded as `tier = '2_theory'`; all others as `tier = '0_atomic'`.
+
+**APR keys (insert in same migration):** `alpha.feature_registry.min_ic_sharpe_default` (0.5 initial), `alpha.feature_registry.fdr_alpha` (0.05), `alpha.feature_registry.demotion_periods` (3).
+
+**Ensemble weight aging (ship with P3):** Between weekly IC engine runs, ensemble weights are frozen. In fast-moving markets, IC can decay within days — frozen stale weights silently degrade the ensemble. Add one APR key (`alpha.ensemble.weight_half_life_days`, initial 30) and one line in `EnsembleBuilder`: `effective_weight(t) = ic_weight × exp(-days_since_ic_run / weight_half_life_days)`. At 30-day half-life, weights decay ~2.3% per day toward equal-weight. Reverts to equal-weight when IC data is 90+ days stale. No new service, no schema migration — one APR key and one formula.
+
+**Output gate:** Registry row count matches IC-measurable `FeatureVector` fields. Alignment gate passes on IC engine and ensemble trainer startup. `FeatureRegistryService.get_active_features()` returns all 61 features. `feature_transition_log` is empty (no transitions yet). `record_transition()` verified non-blocking under concurrent IC engine load. Weight aging formula verified: `effective_weight` decreases monotonically with days elapsed.
+
+---
+
+**P4 — Cross-Sectional Equity Regime Model (todo 011)**
+
+Per-symbol HMM produces incomparable regime labels across symbols — "trending_up" on SPY and "trending_up" on TLT are independent states with no shared meaning. IC stratification cannot pool observations across symbols within a regime cell. At 58 equity ETFs, per-symbol stratification means every IC regime cell has ~1× the observations it should; cross-sectional labels provide ~58× pooling. This is a correctness fix for IC statistical power, not an enhancement.
+
+**Design:** One regime model for the equity universe, fitted on cross-sectional signals: VIX level (bucketed low/mid/high via APR percentile thresholds), SPY 50/200 MA breadth (% names above each), market-level realized vol z-score. Output: `market_regimes` table — `(asset_class TEXT, tf TEXT, ts TIMESTAMPTZ, regime_label TEXT, regime_prob_vector JSONB)`. PK: `(asset_class, tf, ts)`. IC engine joins on `(asset_class='equity', tf, DATE_TRUNC('minute', bar_ts))` instead of reading `feature_vectors.regime`. Per-symbol HMM features (`hmm_regime_prob_*`) remain in `feature_vectors` as predictive signals capturing idiosyncratic momentum — but are no longer the IC stratification key.
+
+**Async/parallelism:** Single `ProcessPoolExecutor` task per tf — fits on equity breadth time series. Async batch upsert to `market_regimes` after worker completes. No DB calls inside worker.
+
+**APR keys:** `alpha.regime.vix_low_pct` (0.33), `alpha.regime.vix_high_pct` (0.67), `alpha.regime.breadth_bear` (0.40), `alpha.regime.breadth_bull` (0.60) [all `initial_estimate`]. `alpha.regime.equity_model_enabled` (true) — allows revert to per-symbol HMM if cross-sectional model fails Phase 141 validation.
+
+**Hard dependency:** Must complete before Phase 141 IC engine re-run. CORPUS-04 IC discovery report must use cross-sectional regime labels.
+
+**Output gate:** `market_regimes` populated for all (tf, bar_ts) in `feature_vectors` date range. IC engine reads regime from `market_regimes` join. Phase 141 CORPUS-04 produces regime-stratified IC scores that pool across symbols.
+
+---
+
+**P5 — Context Features Table (todo 013)**
+
+`feature_vectors` is one row per (symbol, tf, bar_ts). Features without a natural bar cadence (VIX level, yield curve, macro indicators, cross-asset correlations) currently inject daily values into every 5m bar row for the same calendar day. A VIX reading at 9:30 and 9:35 are not two independent observations — they are the same observation duplicated 78 times per day. This inflates Spearman IC for any feature correlated with VIX via artificial autocorrelation. The IC engine's existing NaN/independence stride correction does not fix this — it corrects temporal dependence within a series, not cross-row duplication.
+
+**Schema:**
+```sql
+context_features (
+  feature_date  DATE,
+  feature_name  TEXT,
+  symbol        TEXT NULL,   -- NULL for market-wide (VIX, yield curve)
+  value         DOUBLE PRECISION,
+  source        TEXT,        -- 'ibkr', 'fred', 'derived'
+  computed_at   TIMESTAMPTZ,
+  PRIMARY KEY (feature_date, feature_name, COALESCE(symbol, ''))
+)
+```
+
+IC engine joins `feature_vectors` with `context_features` via `DATE(bar_ts) = feature_date`. TF-native features pull from `feature_vectors` at bar cadence; daily-cadence features pull from `context_features` with one observation per calendar day — the IC engine treats them at their true observation frequency. Affected features (move out of `feature_vectors`): any macro series updated daily or less frequently. Cross-asset correlation features computed at daily horizon.
+
+**IC gate for daily-cadence features:** The 20K independent observation gate was calibrated for intraday bar data. Daily-cadence features (VIX, yield curve, macro indicators) have ~252 obs/year; at 5 years of history that is ~1,260 observations — structurally below the 20K gate. Add APR key `alpha.ic.min_obs_daily_features = 1000` [initial_estimate, ~4 years daily data] applied exclusively to features read from `context_features`. Document the tradeoff: lower statistical power, wider bootstrap CI, higher type-II error risk. Do not apply the 20K gate to daily-cadence features — it was not calibrated for that observation frequency and will permanently block these features from IC measurement.
+
+**Hard dependency:** Build schema before Phase 141 CORPUS-01 audit. CORPUS-01 will flag near-constant variance in duplicated daily features — the fix is migration to `context_features`, not ignoring the flag.
+
+**Output gate:** IC engine accepts `context_features` as join input with separate gate applied. CORPUS-01 shows no duplicated daily-cadence features with artificial autocorrelation in `feature_vectors`. Per-feature IC measurement uses the correct observation frequency and the correct gate for its cadence.
+
+---
+
+**Wave structure:**
+- Wave 1 (parallel): P1 code fixes + P3 migration/service build + P5 context_features schema. No dependencies between them.
+- Wave 2: P1 corpus re-run (requires P1 fixes). P4 cross-sectional regime model fitting + `market_regimes` population (requires clean corpus). P2 BIC study (requires clean corpus — hard dependency).
+- Wave 3: P2 regime label re-run if K changes (requires BIC decision). P3 IC engine + ensemble trainer integration + weight aging (requires P3 registry from Wave 1). P4 IC engine regime-join wiring (requires P4 model from Wave 2). P5 IC engine context-features join (requires P5 schema from Wave 1).
+
+**Plans:** 5 plans
+
+Plans:
+- [ ] 140.5-P1-PLAN.md — Batch Primitives Validation + Corpus Re-Run
+- [ ] 140.5-P2-PLAN.md — HMM K via BIC Study + Conditional Regime Re-Run
+- [ ] 140.5-P3-PLAN.md — Feature Registry Schema + FeatureRegistryService + IC/Ensemble Integration
+- [ ] 140.5-P4-PLAN.md — Cross-Sectional Equity Regime Model + market_regimes + IC Engine Wiring
+- [ ] 140.5-P5-PLAN.md — Context Features Table + context_features_writer + IC Engine Join
+
+---
+
+## v3.1 AlphaEngine Validation + Alpha Scoring (Phases 140.5-144)
+
+**Milestone Goal:** Validate that AlphaEngine produces real, measurable edge on the full 58-symbol corpus. Close the intelligence feedback loop: alpha_events → hypothetical trade lifecycles → counterfactual P&L → scoring system that proves (or disproves) the engine produces alpha. Retire v2.x after gate-validated superiority. Portfolio construction (Kelly sizing, VaR, IBKR execution) is explicitly out of scope — that is v4.0.
+
+**Input/output contract:** This milestone's output is a scored intelligence engine. `alpha_events` is the output contract. Anything that consumes `alpha_events` for live execution belongs in v4.0.
+
+**Hard prerequisite:** Phase 141 corpus validation must pass ALL gate criteria before Phase 142 begins. No scoring work on unvalidated IC — this is the Simons rule.
 
 ---
 
@@ -1252,7 +1388,7 @@ Plans:
 
 **Goal:** Before trusting any IC number, prove the corpus is clean and the IC is real. Feature distribution audit. OOS split establishment. Null model baseline. Decision tree for what Phase 142 does given each validation outcome.
 
-**Depends on:** Todo 001 (batch primitives fix) complete + full 58-symbol corpus run finished.
+**Depends on:** Phase 140.5 complete — clean corpus (P1), validated K (P2), Feature Registry live (P3).
 
 **Requirements (all must pass before Phase 142 starts):**
 
@@ -1262,8 +1398,8 @@ Every feature in `feature_vectors` passes: (a) variance > epsilon (no silent con
 **CORPUS-02 — OOS holdout split:**
 The most recent 6 months of data in `feature_vectors` is designated as the OOS test set. No IC is measured on this window during Phase 141 or Phase 142. Walk-forward validation uses data prior to the OOS boundary only. OOS boundary stored in APR as `alpha.validation.oos_start` (timestamptz). IC measured in-sample; OOS used for final validation at Phase 142 exit gate only.
 
-**CORPUS-03 — Null model baseline:**
-Compute equal-weight ensemble alpha (all features weighted 1/N, no IC gate) on the in-sample window. Compute IC-weighted ensemble alpha. Gate: IC-weighted ensemble IC Sharpe must exceed equal-weight ensemble IC Sharpe by > 0.1 before Phase 142 starts. This proves the IC weighting adds value over naive aggregation.
+**CORPUS-03 — Null model baseline (OOS window only):**
+Compute equal-weight ensemble alpha (all features weighted 1/N, no IC gate) on the OOS holdout established in CORPUS-02. Compute IC-weighted ensemble alpha on the same OOS window — weights derived in-sample, applied to OOS bars with no leakage. Gate: IC-weighted ensemble IC Sharpe must exceed equal-weight IC Sharpe on OOS data by > 0.1. Running this comparison in-sample is trivially favorable by construction — IC weights were fit on that data. The only meaningful test is OOS generalization. If IC weighting does not beat equal-weight on OOS, the weights are overfit — diagnose before proceeding.
 
 **CORPUS-04 — IC discovery report (58-symbol):**
 Re-run IC engine on full 58-symbol corpus. Report: features surviving BH-FDR by regime × TF × lookahead. Document the explicit decision tree:
@@ -1274,48 +1410,77 @@ Re-run IC engine on full 58-symbol corpus. Report: features surviving BH-FDR by 
 **CORPUS-05 — IC Sharpe stability:**
 For features surviving BH-FDR, IC Sharpe across walk-forward folds must not oscillate (min/max fold IC Sharpe ratio < 3×). High variance IC = regime-specific, not structural. Features failing stability are downweighted, not promoted.
 
-**Plans:** 2 plans (Wave 1: audit script + OOS split; Wave 2: null model baseline + IC discovery report + decision tree documentation)
+**CORPUS-06 — Per-regime observation floor:**
+Every (symbol, tf, regime) cell that produces an IC score must meet `n_independent_obs >= alpha.ic.min_obs_per_regime` (APR, initial: 3000 `[initial_estimate]`). IC scores from minority-regime cells below this floor are excluded from the meta-FDR gate and ensemble weighting regardless of p-value — Spearman IC Sharpe on fewer than ~3K independent observations is too noisy to survive BH-FDR meaningfully. APR key inserted in Phase 141 migration. Cross-sectional regime labels from Phase 140.5 P4 make this floor easier to satisfy by pooling observations across symbols.
+
+**CORPUS-07 — I7→feature dimension mapping:**
+For each active I7 plugin, identify which dimensions in `feature_vectors` encode the same information (e.g., `trad_BreakoutSetup` → `{momentum_z_fast, volume_rank_z, vol_regime}`). Document as `docs/analysis/i7-feature-mapping.json`. This mapping is the input to Phase 143.5 retirement decisions: plugins whose constituent features show no IC are retired rather than converted to alpha scorers. Mappings that are ambiguous (>5 features or cross-cutting logic) flag the plugin as a candidate for direct IC measurement.
+
+**Plans:** 3 plans (Wave 1: audit script + OOS split + per-regime obs floor APR key; Wave 2: null model baseline on OOS + IC discovery report + decision tree; Wave 3: I7→feature mapping documentation)
 
 ---
 
-### Phase 142: Portfolio Construction + Trade Framing 📋 PLANNED
+### Phase 142A: Ensemble IC Measurement 📋 PLANNED
 
-**Goal:** Convert IC-weighted alpha scores into sized shadow positions with explicit cost modeling, Kelly sizing, VaR constraints, and correlation-aware allocation. Measure counterfactual_pnl_r. No live execution — shadow only.
+**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_ensemble_ic` table + `alpha.ensemble_ic.*` APR keys. Migration must land before this phase begins.
 
-**Depends on:** Phase 141 (CORPUS-01 through CORPUS-05 all pass, appropriate decision-tree branch selected).
+**Goal:** Prove the ensemble OUTPUT has IC before testing any execution rules. Measure `IC(alpha_score, forward_return_*)` per (symbol, tf, regime, lookahead) using the same BH-FDR + bootstrap CI + walk-forward machinery as feature IC. No stops, no targets, no frame assumptions — pure signal measurement. The IC decay curve across lookaheads calibrates `hold_max_bars` APR keys empirically. This is the primary OOS gate for Phase 144.
+
+**Depends on:** Phase 141 complete. `alpha_events` accumulating (Phase 139 running). `forward_returns` populated (Phase 138).
+
+**Why before frame simulation:** If `alpha_score` does not predict forward returns, no frame definition will save it. You'd be measuring the frame, not the signal — a silent wrong answer. Signal proof must precede execution proof.
 
 **Requirements:**
 
-**PORT-01 — Transaction cost model (prerequisite, not detail):**
-Static cost estimate from IBKR historical bid-ask data: `cost_per_trade = 0.5 × spread_pct + static_slippage_pct`. `spread_pct` measured from IBKR tick data per (symbol, TF, time_of_day). `static_slippage_pct = 0.05%` for liquid ETFs as initial estimate. APR keys: `alpha.cost.spread_half_pct.<symbol>`, `alpha.cost.slippage_pct` [initial_estimate, ML learning target]. Cost model must exist before emission threshold is set — they are circular dependencies if not resolved in this order.
+**EIC-01 — EnsembleICEngine (weekly oneshot, `BaseBatch`):**
+Reads `alpha_events` joined to `forward_returns` on (symbol, tf, bar_ts). Computes Spearman IC(alpha_score, forward_return_fast/mid/slow/extended) per (symbol, tf, regime). Applies same BH-FDR correction, circular-block-bootstrap 95% CI, and 3-fold walk-forward as `ICEngine`. Writes to `alpha_ensemble_ic`. Parallelized: one `ProcessPoolExecutor` task per (symbol, tf) — CPU-bound IC computation fully decoupled from async DB reads/writes.
 
-**PORT-02 — Emission threshold derivation:**
-`alpha.threshold.<symbol>.<tf>.<regime>` = minimum alpha_score where `E[return] > cost_per_trade`. Derived empirically from in-sample `feature_ic_scores`: for each (symbol, tf, regime), find alpha_score quantile where expected net return crosses zero. Stored in APR. Not a hand-chosen number.
+**EIC-02 — IC decay curve analysis:**
+For each (symbol, tf, regime), find the first lookahead where IC Sharpe drops below `alpha.ensemble_ic.decay_threshold`. Update `alpha.frame.hold_max_bars.<regime>.<tf>` APR keys to match. This replaces initial estimates with data-derived values before Phase 142B runs any frames.
 
-**PORT-03 — Kelly sizing with GARCH vol:**
-`position_size = kelly_fraction × (E[return]_net / garch_vol_estimate)`. Vol estimate = GARCH conditional vol derived from `garch_ratio × realized_vol_20` (already computed in FeatureVector — use it, don't add a new vol series). APR key: `alpha.kelly.fraction = 0.25` [initial_estimate, ML learning target]. Half-Kelly is the safe starting point — full Kelly is theoretically optimal but practically dangerous with estimation error.
+**EIC-03 — Walk-forward stability gate:**
+IC Sharpe max/min fold ratio < 3× across walk-forward folds. Features with high IC variance are regime-specific, not structural. Gate written to `alpha_ensemble_ic.walk_forward_stable` — Phase 144 OOS validation reads this column.
 
-**PORT-04 — Minimum position size filter:**
-Positions below `alpha.portfolio.min_position_notional = 500` (USD) are discarded before IBKR routing. Prevents fractional-share rounding from producing economically meaningless fills. Log discarded positions with reason `below_minimum_notional`.
+**EIC-04 — Phase gate (hard):**
+`ic_ci_lower > 0` at 95% CI on in-sample data in at least 60% of (symbol, tf, regime) cells before Phase 142B begins. If gate fails: diagnose ensemble (feature decay? regime label quality? insufficient data?) — do not proceed to frame simulation.
 
-**PORT-05 — Correlation constraints:**
-At most `alpha.portfolio.max_open_correlated = 3` positions in correlated symbols (pairwise correlation > `alpha.portfolio.max_position_correlation = 0.70`) may be open simultaneously. Later-arriving alpha events in a correlated cluster are queued, not discarded — execute when existing position closes.
+**Plans:** 2 plans (Wave 1: schema migration + EnsembleICEngine service; Wave 2: decay curve analysis + hold_max APR calibration + gate evaluation)
 
-**PORT-06 — VaR ceiling:**
-Portfolio daily VaR (95% historical simulation, 252-bar rolling window) must not exceed `alpha.portfolio.var_limit_pct = 0.02` of account equity. New positions that breach VaR ceiling are blocked. `portfolio_var_headroom` OTel gauge; alert at > 0.80 utilization.
+---
 
-**PORT-07 — V1 Quant frame opinion:**
-Entry: open of T+1 (IC-consistent; same price used in IC measurement). Stop: `min(nearest sr_support_dist level, entry - 1.5×ATR)` — tighter wins. Target: nearest `sr_resist_dist` OR hold until alpha_score sign reversal. Hold max: `alpha.quant.frame.hold_max.<regime>.<tf>` [initial_estimate, ML learning target]. Early exit: alpha_score sign reversal before target → close at next open.
+### Phase 142B: Frame Simulation + Counterfactual Tracking 📋 PLANNED
 
-**PORT-08 — Shadow emission and counterfactual measurement:**
-All alpha_events routed through portfolio constructor write to `trade_frames` with `is_shadow=true`. `counterfactual_pnl_r` computed from actual price path after emission. This is the primary training label for Phase 143 weight learning and Phase 144 promotion criteria.
+**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_frames` table + `alpha.frame.*` + `alpha.cost.*` APR keys.
 
-**PORT-09 — Shadow monitoring dashboard:**
-Grafana panel: shadow emission rate per symbol/TF, rolling win rate, counterfactual_pnl_r distribution, VaR headroom, correlation cluster utilization. Without active monitoring, shadow mode is a log sink. This panel is the review mechanism for the Phase 144 promotion gate.
+**Goal:** Test whether specific execution rules (stop/target/hold) can capture the signal IC proven in Phase 142A as P&L. Multiple frame variants run simultaneously; the winning stop multiplier is selected empirically via `corr(alpha_score_decile, mean_pnl_r)` on in-sample data, then validated on OOS. This is the secondary OOS gate for Phase 144.
 
-**Services to build:** `PortfolioConstructor` (daemon), transaction cost model (batch, seeded from IBKR historical data), emission threshold derivation (oneshot).
+**Depends on:** Phase 142A complete — EIC-04 gate passed, `hold_max_bars` APR keys calibrated from decay curve.
 
-**Plans:** 4 plans (Wave 1: cost model + thresholds; Wave 2: Kelly sizing + portfolio constraints; Wave 3: V1 frame opinion + shadow emission; Wave 4: counterfactual measurement + monitoring dashboard)
+**Requirements:**
+
+**FRAME-01 — Static cost model snapshot:**
+At frame creation, snapshot `cost_r` per asset class from APR `alpha.cost.*` keys. `net_expected_r = gross_expected_r - cost_r` for short-horizon TFs only (`alpha.cost.net_cost_tfs`). Flagged in scoring; not used to block emission — that is v4.0.
+
+**FRAME-02 — AlphaFrameWriter (nightly oneshot, `BaseBatch`):**
+For each `alpha_events` row, writes N `alpha_frames` rows — one per calibration grid variant (`alpha.frame.grid_stop_atr_mults`, default `[0.8, 1.0, 1.5, 2.0]`) during calibration run; one `frame_variant='primary'` row only during production run. Fully async: single batch INSERT per symbol/tf chunk. No per-row DB round-trips.
+
+**FRAME-03 — CounterfactualTracker (nightly oneshot, `BaseBatch`):**
+Reads open `alpha_frames`. For each: fetch T+1 open → populate geometry (`entry_price`, `stop_price`, `target_price`, `r_multiple`). Scan subsequent bars via single range query per (symbol, tf, bar_ts_range) — no per-bar queries. Write outcome in single async batch upsert. Parallelized per symbol via `ProcessPoolExecutor`; DB writes fire-and-forget async after all workers complete.
+
+Exit triggers in priority order: (1) stop hit (`low <= stop_price`); (2) target hit (`high >= target_price`); (3) `hold_max_bars` exceeded — closes at bar where `bars_elapsed >= alpha.frame.hold_max_bars.<regime>.<tf>`, values data-derived from EIC-02 IC decay curve; (4) IC-decay trigger — `alpha_ensemble_ic.ic_ci_lower < 0` for this (symbol, tf, regime) in the most recent weekly IC engine run. Bar-level alpha score sign reversal is NOT an exit trigger — at intraday resolution it is noise, and using it produces excessive turnover that destroys net returns. The IC-decay trigger (4) operates at weekly IC engine cadence, providing a signal-based early exit without bar-level churn.
+
+**FRAME-04 — Frame lifecycle state machine:**
+`open → closed_stop | closed_target | closed_max_hold | closed_ic_decay`. Single UPDATE per transition. Immutable once closed. `closed_reversal` (bar-level alpha sign flip) deliberately excluded — this is a noise-driven exit at intraday resolution. `closed_ic_decay` is the correct signal-based early exit, triggered by the weekly IC engine detecting `ic_ci_lower < 0` for the frame's (symbol, tf, regime) cell.
+
+**FRAME-05 — Calibration → variant selection:**
+After calibration run closes sufficient frames (N ≥ `alpha.scoring.min_strategy_n` per cell): compute `corr(alpha_score_decile, mean_pnl_r)` per (tf, regime) for each grid variant. Select winning `stop_atr_mult`. Validate on OOS data — if OOS correlation degrades > 0.2 vs in-sample, use conservative fallback (1.5). Write winner to APR `alpha.frame.stop_atr_mult`. Switch to `frame_variant='primary'` for production.
+
+**FRAME-06 — Observability:**
+Grafana panel: frames open/closed per day by (symbol, tf), win rate by regime, `corr(alpha_score_decile, mean_pnl_r)` time series (is the frame still tracking the signal?), cost-flagged fraction. If `ic_alpha_score_corr` declines, it signals frame drift — frame parameters need recalibration, not signal diagnosis.
+
+**Services to build:** `AlphaFrameWriter` (`BaseBatch`), `CounterfactualTracker` (`BaseBatch`), calibration analysis script.
+
+**Plans:** 3 plans (Wave 1: AlphaFrameWriter + calibration run; Wave 2: CounterfactualTracker + lifecycle state machine; Wave 3: variant selection + production switch + observability dashboard)
 
 ---
 
@@ -1323,7 +1488,7 @@ Grafana panel: shadow emission rate per symbol/TF, rolling win rate, counterfact
 
 **Goal:** Features that lose IC must be demoted automatically. Demotion mechanics close the open-ended ensemble: features enter through IC gate, exit through decay gate. Alpha Decay Monitor runs daily, detects cell-level IC collapse, triggers EnsembleBuilder re-solve. Regime-shift guard prevents mass zeroing during market dislocations.
 
-**Depends on:** Phase 142 (shadow execution running, counterfactual_pnl_r accumulating).
+**Depends on:** Phase 142B (CounterfactualTracker running, `alpha_frames.counterfactual_pnl_r` accumulating).
 
 **Requirements:**
 
@@ -1348,6 +1513,8 @@ If ≥ `alpha.decay.regime_shift_fraction = 0.60` of active feature-regime cells
 **LIFECYCLE-05 — IC/ensemble coherence contract:**
 IC engine runs weekly. Decay monitor runs daily. Contract: decay monitor reads rolling IC computed from the most recent IC engine run (0-7 days stale). This is acceptable given IC Sharpe has a daily resolution anyway; the 7-day lag is documented as the decay detection SLA. Decay monitor SLA = "detects decay within 7 days of IC engine run after collapse."
 
+**IC staleness alerting (ships with Phase 143):** Add APR key `alpha.ic.staleness_alert_days = 5` [initial_estimate]. Decay monitor emits OTel gauge `ic_engine_last_run_age_days` on every daily run. Alert rule: if `ic_engine_last_run_age_days > staleness_alert_days`, fire `IC_ENGINE_STALE` alert to Alertmanager. Without this, a missed IC engine run silently degrades decay detection for up to 14 days before anyone notices.
+
 **LIFECYCLE-06 — Observability:**
 `feature_decay_observatory` Superset dashboard (todo 019): which features are decaying, in which regimes, over time. Pure read layer over `feature_ic_scores`. Answers "what is dying and what is crowding" without new computation.
 
@@ -1355,37 +1522,82 @@ IC engine runs weekly. Decay monitor runs daily. Contract: decay monitor reads r
 
 ---
 
-### Phase 144: Live Shadow Execution + v2.x Retirement Gate 📋 PLANNED
+### Phase 143.5: I7 Alpha Scorer Transition 📋 PLANNED (Conditional on CORPUS-07)
 
-**Goal:** Promote v3.0 to live IBKR execution after shadow validation meets the retirement gate. Retire v2.x IntelligencePipeline + I7 signal generation after v3.0 demonstrates measured superiority. Document the execution layer: fill model, no-fill handler, slippage feedback.
+**Conditional gate:** Phase 143.5 does not begin until Phase 141 CORPUS-07 is complete and evaluated. CORPUS-07 maps each I7 plugin to its constituent `feature_vectors` dimensions and determines whether the plugin introduces information not captured in the 54 atomic features. If CORPUS-07 shows ≥ 80% of plugins are fully captured (no marginal IC beyond existing features), Phase 143.5 scope collapses to retirement-only — no conversion infrastructure is built. Only build the alpha-scorer conversion layer if CORPUS-07 reveals material uncaptured information that justifies the added complexity.
 
-**Depends on:** Phase 143 complete + shadow shadow period ≥ N = 60 trading days with mean counterfactual_pnl_r > 0 at 95% CI (bootstrap, one-tailed).
+**Default path is retirement, not conversion.** The 54 features were designed to capture I7 signals. Conversion is the exception; retirement is the rule.
+
+**Goal:** For plugins with confirmed marginal IC beyond feature_vectors, convert from binary emitters to continuous alpha scorers (`alpha_score = raw_confidence × direction` every bar, no fire/no-fire decision). This is the structural prerequisite for Phase 144's retirement gate: a binary v2.x signal vs. a continuous v3.0 alpha score cannot be compared on outcome quality — the comparison surface requires both systems to produce continuous scores.
+
+**Depends on:** Phase 143 complete. Phase 141 CORPUS-07 evaluated (hard gate — do not plan this phase before CORPUS-07 results are in hand). Todo 007 comparison protocol informs final plugin disposition.
+
+**Design doc:** `docs/plans/2026-06-20-i7-alpha-scorer-transition.md` (canonical — read before planning)
 
 **Requirements:**
 
-**LIVE-01 — Promotion gate (hard, non-negotiable):**
-Shadow period must satisfy ALL:
-- ≥ 60 trading days of shadow emissions
-- Mean counterfactual_pnl_r > 0 at 95% CI (bootstrap, one-tailed)
-- Sharpe of counterfactual_pnl_r > 0.5 annualized
-- Max drawdown of cumulative counterfactual_pnl_r < 25%
-- IC Sharpe across shadow period stable (no cliff)
-Gate is binary — all or nothing. Partial promotion (some symbols live, some shadow) is not allowed in Phase 144; that complexity comes in Phase 144+.
+**I7-01 — Plugin emission layer removal + IC-informed retirement decisions:**
+Read the I7→feature mapping from `docs/analysis/i7-feature-mapping.json` (Phase 141 CORPUS-07) and IC discovery results from Phase 141 CORPUS-04. For each plugin apply one of three outcomes:
+- **Retire (default):** Plugin's constituent dimensions are fully captured in `feature_vectors` OR no constituent feature has confirmed IC. Mark `status='deprecated'` in `shadow_registry`, add retirement reason to `config_history`. This should be the outcome for the majority of plugins.
+- **Convert to alpha scorer (exception):** Plugin has confirmed IC on dimensions NOT present in `feature_vectors` — plugin introduces genuinely new information. Replace `if confidence > threshold: emit` with `alpha_score = confidence × direction` computed every bar. No emission decision in the plugin — emission is solely the ensemble's responsibility.
+- **Direct IC measurement (ambiguous):** Mapping is ambiguous (>5 constituent features or cross-cutting logic). Treat the plugin's continuous output as a candidate feature and measure its IC directly via the IC engine before deciding. Default to alpha scorer mode during evaluation.
+Only plugins in the second or third category justify conversion infrastructure. If all fall in the first, Phase 143.5 is retirement-only — no adapter, no mixing weights, no I7 emission layer changes beyond flagging deprecated.
 
-**LIVE-02 — Execution layer:**
-Entry: market order at open of T+1 (matching IC measurement convention). Fill model: expected fill = open × (1 + actual_slippage); actual_slippage measured from fills and fed back to `alpha.cost.slippage_pct` via APR update (weekly batch). No-fill handler: if fill not confirmed within 5 minutes of open, cancel and record `exit_reason = fill_timeout` in `trade_executions`.
+**I7-02 — signal_events enrichment:**
+Add `alpha_score float` column to `signal_events`. Populated prospectively as plugins convert. Legacy rows have `NULL`. This column is the comparison surface for todo 007 dual-pipeline shadow comparison.
 
-**LIVE-03 — Slippage feedback loop:**
-`ActualSlippageWriter` (oneshot, daily) reads `trade_executions.actual_fill_price` vs `alpha_events.entry_price`, computes realized slippage distribution per (symbol, TF, time_of_day), updates `alpha.cost.slippage_pct` in APR. This closes the cost model calibration loop from Phase 142.
+**I7-03 — Ensemble score ingestion:**
+`AlphaEmitter` ingests I7 continuous scores as supplementary evidence alongside IC-weighted feature scores. Mixing weights are APR-backed (`alpha.i7.mixing_weight_<plugin_name>`). Default = 0.0 until IC evidence for the continuous score is established.
 
-**LIVE-04 — v2.x retirement gate:**
-v2.x (IntelligencePipeline + I7 signal generation) retires when:
-- v3.0 has been live for ≥ 30 trading days
-- v3.0 mean actual_pnl_r > v2.x mean counterfactual_pnl_r at 80% CI (not 95% — this is a comparison, not a zero-test)
-- All dashboard/SSE feeds consuming v2.x `intelligence_features` are migrated or deprecated
-Retirement requires explicit operator action in a migration, not a flag flip. Write the retirement plan doc before executing.
+**I7-04 — Observability during migration:**
+- `i7_plugin_mode` gauge per plugin: 1=alpha scorer, 0=legacy emitter
+- `i7_plugin_alpha_score_null_total` counter: detects incomplete conversions at runtime
+- `i7_conversion_complete` gauge: 1 when all plugins converted
 
-**Plans:** 3 plans (Wave 1: promotion gate evaluation script; Wave 2: execution layer + fill model; Wave 3: slippage feedback + v2.x retirement)
+**I7-05 — Retirement eligibility gate:**
+Phase 144 LIVE-04 (v2.x retirement) requires all active I7 plugins to be in alpha-scorer mode. `i7_conversion_complete = 1` is a hard prerequisite for the retirement script — enforced at Phase 144 startup, not as a soft check.
+
+**Plans:** 3 plans (Wave 1: plugin adapter contract + first 10 plugins; Wave 2: remaining ~25 plugins; Wave 3: ensemble ingestion + mixing weights + observability)
+
+---
+
+### Phase 144: Alpha Scoring System + v2.x Retirement Gate 📋 PLANNED
+
+**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_strategy_scores` table + `alpha.scoring.*` APR keys. Full two-gate retirement logic in "Phase Sequencing" section.
+
+**Goal:** Build the scoring system and run the two independent OOS gates that prove the intelligence engine works. Retire v2.x only after both pass. No live execution — that is v4.0.
+
+**Depends on:** Phase 143.5 complete (`i7_conversion_complete = 1`) + Phase 142A OOS ensemble IC data available + Phase 142B production `alpha_frames` accumulating ≥ 60 trading days of closed rows.
+
+**Two-gate retirement model (non-negotiable):**
+Gate 1 and Gate 2 are independent. Failure modes are different. Never conflate.
+
+- **Gate 1 — Signal proof (from Phase 142A):** `alpha_ensemble_ic.ic_ci_lower > 0` at 95% CI on OOS holdout. IC Sharpe stable (walk_forward_stable = true). If Gate 1 fails: signal problem — diagnose ensemble, feature decay, regime labels. Do not look at P&L.
+- **Gate 2 — Execution proof (from Phase 142B):** `mean(counterfactual_pnl_r) > 0` at 95% CI on OOS `alpha_frames` (primary variant). `corr(alpha_score_decile, mean_pnl_r) > alpha.scoring.min_ic_alpha_score_corr`. If Gate 2 fails but Gate 1 passes: frame problem — recalibrate stop/target/hold, not the ensemble.
+
+Both gates must pass before SCORE-04 (v2.x retirement) executes. Gate 1 passing without Gate 2 = real signal, bad execution rules. Gate 2 passing without Gate 1 = overfitted frame on noise. Neither alone is sufficient.
+
+**Requirements:**
+
+**SCORE-01 — AlphaScorer (weekly oneshot, `BaseBatch`):**
+Aggregates closed primary `alpha_frames` into `alpha_strategy_scores` by (symbol, tf, regime, alpha_score_decile). Computes: mean `counterfactual_pnl_r`, win rate, Sharpe, max drawdown, bootstrap CI, `ic_alpha_score_corr`. Filters cells with N < `alpha.scoring.min_strategy_n`. Parallelized per (tf, regime) cohort; async batch INSERT.
+
+**SCORE-02 — OOS Gate 1 evaluation (signal proof):**
+Queries `alpha_ensemble_ic` for OOS window (bar_ts >= `alpha.validation.oos_start`). Reports: ic_ci_lower, walk_forward_stable, regime coverage. Binary pass/fail written to a `gate_evaluations` audit log with timestamp, gate_id, result, and evidence JSON.
+
+**SCORE-03 — OOS Gate 2 evaluation (execution proof):**
+Queries `alpha_strategy_scores` for OOS `alpha_frames`. Reports: mean_pnl_r CI, ic_alpha_score_corr, Sharpe, max drawdown. Binary pass/fail written to `gate_evaluations`. Gate 2 evaluation runs regardless of Gate 1 result — the data is informative even if retirement is blocked.
+
+**SCORE-04 — v2.x comparison:**
+v3.0 mean `counterfactual_pnl_r` > v2.x mean `trade_frames.counterfactual_pnl_r` at 80% CI on same symbols/period (todo 007 dual-pipeline data). This is a supplementary check, not a third gate — but must be documented in the retirement decision record.
+
+**SCORE-05 — v2.x retirement:**
+Executes only when Gate 1 + Gate 2 both pass AND `i7_conversion_complete = 1`. Retirement = disable `intelligence_pipeline` systemd unit, archive I7 plugin dispatch, migrate all SSE/dashboard feeds to `alpha_events`. Requires explicit operator migration script with pre-flight check of all three conditions — not a flag flip.
+
+**SCORE-06 — Scoring dashboard:**
+Superset: `alpha_strategy_scores` heatmap (regime × TF), alpha_score decile win-rate curve (monotonic = frame tracking signal), `ic_alpha_score_corr` time series, Gate 1/Gate 2 status panel, v2.x vs v3.0 comparison. Permanent research surface — "what is working, what is decaying, what is crowding."
+
+**Plans:** 3 plans (Wave 1: AlphaScorer + gate evaluation scripts; Wave 2: OOS gate runs + v2.x comparison; Wave 3: retirement script + scoring dashboard)
 
 ---
 
@@ -1401,15 +1613,17 @@ Retirement requires explicit operator action in a migration, not a flag flip. Wr
 
 **Goal:** Build the non-parametric retrieval substrate. Embed bar states into pgvector HNSW index. Validate retrieval quality before committing to a dimension and building the full corpus. "Have we seen a bar like this before, and what happened next?"
 
-**Depends on:** Phase 144 (live execution running, forward returns accumulating). Gated on AlphaEngine showing `ic_ci_lower > 0` at p < 0.05 on OOS holdout.
+**Depends on:** Phase 144 (v2.x retired, v3.0 OOS-validated, `alpha_events` is the sole signal output). Gated on AlphaEngine showing `ic_ci_lower > 0` at p < 0.05 on OOS holdout.
 
 **Requirements:**
 
 **ANALOG-01 — Embedding dimension calibration (one-way door):**
-Before committing to an embedding dimension, run a calibration study: embed 6 months of `feature_vectors` bars at three candidate dimensions (64, 128, 256). Measure retrieval quality on known-outcome analogs: recall@10, mean reciprocal rank, analog distance distribution. Pick the winning dimension. Lock `embedding_version = 1`. This step happens BEFORE any full historical embedding run. Changing the dimension after full corpus embedding is prohibitively expensive.
+Before committing to an embedding dimension, run a calibration study: embed 6 months of `feature_vectors` bars at three candidate dimensions (64, 128, 256) using variance-normalized features (z-score per feature, L2-normalize). Measure retrieval quality: recall@10, mean reciprocal rank, analog distance distribution on known-outcome bars. Pick the winning dimension. Lock `embedding_version = 1`. This step happens BEFORE any full historical embedding run — changing the dimension after is prohibitively expensive.
 
-**ANALOG-02 — Embedding serialization contract:**
-Per-feature rolling z-score before concatenation (point-in-time only, trailing window). Regime and session applied as hard retrieval filters (not encoded in vector). Stable feature ordering in `embedding_feature_registry` table. L2-normalize the final vector. `embedding_version` bump on any change invalidates all stored vectors — treat as a database migration.
+**Why not IC-weighted at index time:** IC weights update weekly from the IC engine. Baking them into the HNSW index would require a full re-embedding of the historical corpus (O(N×D)) on every IC recalibration cycle. ANALOG-08 already handles IC-weighted re-ranking at query time — encoding IC into the embedding double-counts the signal while coupling index freshness to IC engine cadence. Keep the embedding stable; put IC discrimination in ANALOG-08 where it belongs.
+
+**ANALOG-02 — Embedding serialization contract (variance-normalized):**
+For each bar: (1) per-feature rolling z-score, point-in-time trailing window, no lookahead; (2) L2-normalize the result. No IC-weight multiplication at index time. Regime and session applied as hard retrieval filters (not encoded in vector). Stable feature ordering in `embedding_feature_registry` table. `embedding_version` bump on any change — feature set or z-score window — invalidates all stored vectors; treat as a database migration. IC-weighted re-ranking is handled entirely by ANALOG-08 at query time.
 
 **ANALOG-03 — bar-embedder (oneshot, nightly):**
 Reads `feature_vectors`. Writes to `embeddings` table (entity_type='bar'). Processes in chronological order; skips bars already embedded at current `embedding_version`. HNSW index built/updated after batch.
@@ -1420,7 +1634,10 @@ Reads `feature_vectors`. Writes to `embeddings` table (entity_type='bar'). Proce
 **ANALOG-05 — Null result contract:**
 Empty retrieval (`[]`) when no analogs within `max_distance`. This is a named, surfaced event — not a fallback to nearest-available. AnalogEngine must never silently return the nearest bar when it is out-of-distribution. OOD is information.
 
-**Plans:** 4 plans (Wave 1: dimension calibration study; Wave 2: embedding contract + registry; Wave 3: bar-embedder + HNSW; Wave 4: OOD monitor + retrieval primitive)
+**ANALOG-RESEARCH-01 — Hypothesis backtester script (todo 018):**
+Thin research utility built on top of the retrieval primitive. Accepts an arbitrary query feature vector, runs K-NN against `feature_embeddings`, reads empirical outcome distributions from `forward_returns`. Answers "Is this edge real?" with zero new infrastructure. Ships as `production/scripts/analog_backtest.py` alongside the retrieval primitive in Wave 4.
+
+**Plans:** 4 plans (Wave 1: dimension calibration study; Wave 2: embedding contract + registry; Wave 3: bar-embedder + HNSW; Wave 4: OOD monitor + retrieval primitive + hypothesis backtester script)
 
 ---
 
@@ -1450,19 +1667,27 @@ Joins `score_cache` to `alpha_events` on (symbol, tf, bar_ts). Writes `alpha_eve
 
 ---
 
-### Phase 147: Feature Primitives Expansion + Interaction Factory 📋 PLANNED
+### Phase 147: Feature Primitives Expansion + Theory-Motivated Interaction Layer 📋 PLANNED
 
-**Goal:** Expand the atomic feature set (~60 new candidates from todo 003), screen through IC machinery, promote survivors. Then build the Interaction Factory for combinatorial compound features. Gated on Feature Registry (todo 008) complete.
+**Goal:** Expand the atomic feature set (~60 new candidates from todo 003), screen through IC machinery, promote survivors. Build a Theory-Motivated Interaction Layer of ≤50 curated compound features — not a combinatorial factory. Gated on Feature Registry (todo 008) complete.
 
-**Depends on:** Phase 146 complete. Todo 008 (Feature Registry) shipped — ratio operation validity requires feature metadata (sign_type, scale) before the factory runs.
+**Depends on:** Phase 146 complete. Todo 008 (Feature Registry) shipped — ratio operation validity requires feature metadata (sign_type, scale) before any compound feature runs.
 
-**Hard constraint — BH-FDR budget separation:**
-Adding ~60 new atomics + ~30K compound candidates to the IC engine expands the test count from ~2,600 to ~1.44M cells. BH-FDR is applied per budget pool, not globally: (a) atomic features get their own BH-FDR pool (preserves existing gates), (b) compound features get a separate pool. Compound features are also pre-screened by simple correlation to forward returns before entering full IC machinery — prevents 30K tests from exploding compute with noise.
+**Why not a combinatorial Interaction Factory:**
+~30K compound candidates in a separate BH-FDR pool at FDR=0.05 produces ~1,500 expected false discoveries regardless of pre-screening. BH-FDR was designed for focused hypothesis testing, not combinatorial enumeration — at 30K tests, the correction loses meaningful power-versus-discovery-rate guarantees. Every surviving compound feature would have no stated reason to survive, making it impossible to distinguish genuine signal from leakage. Renaissance does not enumerate pairwise products. They test theory-motivated combinations where the researcher states WHY the compound should predict returns, so the surviving features can be reasoned about and decay patterns explained.
+
+**Theory-Motivated Interaction Layer — design rules:**
+- Cap: ≤50 compound interactions defined before any IC measurement begins.
+- Every interaction must have a one-sentence finance-theory hypothesis (example: "momentum_z_fast × low_vol_regime — momentum carries more strongly in calm regimes; Frazzini & Pedersen 2014").
+- Candidate sources: momentum × volatility regime, volume × trend direction, cross-asset divergence × regime transition, breakout × volume confirmation, mean-reversion × regime label, carry × term structure.
+- Each compound is a single operation: product, ratio, or conditional. No multi-step compositions — that is a model, not a feature.
+- Separate BH-FDR pool from atomics (50 tests at FDR=0.05 has well-understood power vs 30K tests).
+- Feature Registry entry required at registration: `tier='1_interaction'`, `parent_features=[]`, hypothesis text in `formula_short`. Auto-deprecation if IC gate not passed within `alpha.feature_registry.demotion_periods` IC runs.
 
 **Regime-conditioned cluster membership (extension of Phase 140 P2):**
-Phase 140's collinearity clustering is global (one cluster membership for all time). At Phase 147, extend to regime-conditioned clusters: one cluster membership table per HMM state. Two features uncorrelated in trending may be 0.8 correlated in ranging — global clustering misses this. APR key: `alpha.ensemble.cluster_regime_conditioned = true` [planned].
+Phase 140's collinearity clustering is global. Extend to regime-conditioned clusters: one cluster membership table per HMM state. Features uncorrelated in trending may be 0.8 correlated in ranging — global clustering misses this. APR key: `alpha.ensemble.cluster_regime_conditioned = true` [planned].
 
-**Plans:** 4 plans (Wave 1: primitives expansion IC sweep; Wave 2: Feature Registry prerequisites; Wave 3: Interaction Factory compound generation + pre-screening; Wave 4: compound IC sweep + regime-conditioned clusters)
+**Plans:** 4 plans (Wave 1: primitives expansion IC sweep; Wave 2: Theory-Motivated Interaction Layer — 50 interaction proposals with stated hypotheses; Wave 3: interaction IC sweep + Feature Registry integration; Wave 4: regime-conditioned clusters)
 
 ---
 
@@ -1514,3 +1739,23 @@ Prediction market event probabilities. Not return prediction — stratifies exis
 EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join. History is typically shorter than price (5K rows vs 20K minimum). Separate IC gate with longer accumulation period before ensemble weight is assigned.
 
 **Plans:** TBD per vector — plan each vector as its own sub-phase when infra prerequisites are clear.
+
+---
+
+## v4.0 Execution Layer (Phases TBD)
+
+**Milestone Goal:** Consume `alpha_events` from the intelligence engine and execute live trades through IBKR. Position sizing, risk management, fill model, slippage feedback, and P&L accounting. Strict architectural boundary: the execution layer is a consumer of `alpha_events` — it does not modify, re-score, or re-weight signals. Signal quality improvements belong in the intelligence engine (v3.x).
+
+**Hard prerequisite:** v3.3 complete. Intelligence engine OOS-validated (`ic_ci_lower > 0` at 95% CI, stable across regimes). `alpha_events` schema frozen — no breaking changes after v4.0 begins.
+
+**Input contract:** `alpha_events` (direction, alpha_score, ci_lower, ci_upper, regime, tf, bar_ts). The execution layer treats this as an opaque signal — it sizes, routes, and tracks fills. It does not touch feature weights or IC scores.
+
+**Planned scope (not yet phased):**
+
+- **Portfolio construction:** Portfolio Kelly using Ledoit-Wolf covariance on realized daily returns (NOT the EnsembleBuilder covariance). This distinction is load-bearing: EnsembleBuilder's LW covariance is estimated in feature-IC space to decorrelate ensemble feature weights. Portfolio Kelly requires covariance in return space — estimated from realized daily returns per symbol. These are different matrices applied to different vectors; conflating them produces wrong position sizes with no error signal. A separate `ReturnCovarianceEstimator` service applies LW shrinkage to the realized daily return matrix (reusing the same LW machinery as EnsembleBuilder, but on a different input). `weights ∝ Sigma_return^-1 × mu` where `mu` is the vector of `net_expected_r` per open position. Single-instrument Kelly (`kelly_fraction × E[R]_net / garch_vol`) applied independently to correlated positions overstates diversification — 58 equity ETFs all load on common SPY/sector factors, and independent sizing treats them as uncorrelated when they are not. Portfolio Kelly accounts for this by allocating less to positions that move together. Minimum position notional filter. Max portfolio VaR ceiling (95% historical simulation).
+- **Risk management:** Portfolio VaR ceiling (95% historical simulation), per-symbol drawdown limits, regime-conditioned position caps.
+- **Execution layer:** IBKR market order routing at T+1 open. Fill model: `expected_fill = open × (1 + slippage)`. No-fill handler (timeout → cancel + log). `trade_executions` table for actual fills.
+- **Cost calibration feedback loop:** `ActualSlippageWriter` (daily oneshot) regresses realized slippage vs expected per (symbol, TF, time_of_day). Updates `alpha.cost.slippage_r` APR key. Closes the cost model loop established in Phase 142.
+- **Execution scoring:** Compare `actual_pnl_r` vs `counterfactual_pnl_r`. Execution quality measured independently of signal quality — keeps the two layers honest.
+
+**Note:** Emission thresholds (`alpha_score` floor where `E[R]_net > cost`) are set here, not in the intelligence engine. The intelligence engine emits all signals above a statistical significance gate; the execution layer decides what to act on based on net expected value after costs.
