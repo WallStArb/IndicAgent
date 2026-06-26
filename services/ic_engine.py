@@ -368,22 +368,17 @@ def _circular_block_bootstrap_ic(
     n, p = ranks_X.shape
     n_blocks = math.ceil(n / block_size)
     boot_ics = np.zeros((n_boot, p))
-
-    # Pre-compute all block start indices in one RNG call, then broadcast offsets
-    # to build the full index matrix [n_boot, n_blocks*block_size] without a Python loop.
-    all_starts = rng.integers(0, n, size=(n_boot, n_blocks))
     offsets = np.arange(block_size)
-    idx_mat = (all_starts[:, :, None] + offsets).reshape(n_boot, -1) % n
-    idx_mat = idx_mat[:, :n]
 
+    # Build indices one bootstrap sample at a time.
+    # The prior vectorized form allocated (n_boot, n_blocks, block_size) in one broadcast
+    # before slicing -- at production scale (n=469K, block_size=10) that is a 7.5 GB
+    # intermediate per worker, which OOM-kills the process under parallel execution.
+    # Per-iteration allocation: (n_blocks, block_size) = ~3.75 MB. Same RNG sequence.
     for b in range(n_boot):
-        bX = ranks_X[idx_mat[b]]
-        bY = ranks_Y[idx_mat[b]]
-        # Vectorized Pearson on ranks == Spearman IC for this bootstrap sample
-        bX_c = bX - bX.mean(axis=0)
-        bY_c = bY - bY.mean()
-        denom = np.sqrt((bX_c**2).sum(axis=0) * (bY_c**2).sum())
-        boot_ics[b] = np.where(denom > 1e-10, (bX_c * bY_c[:, None]).sum(axis=0) / denom, 0.0)
+        starts = rng.integers(0, n, size=n_blocks)
+        idx = (starts[:, None] + offsets).ravel()[:n] % n
+        boot_ics[b] = _vectorized_ic(ranks_X[idx], ranks_Y[idx])
     ci_lower = np.percentile(boot_ics, 2.5, axis=0)
     ci_upper = np.percentile(boot_ics, 97.5, axis=0)
     return ci_lower, ci_upper
@@ -410,7 +405,8 @@ def _vectorized_ic(ranks_X: np.ndarray, ranks_Y: np.ndarray) -> np.ndarray:
     X_c = ranks_X - ranks_X.mean(axis=0)
     Y_c = ranks_Y - ranks_Y.mean()
     denom = np.sqrt((X_c**2).sum(axis=0) * (Y_c**2).sum())
-    return np.where(denom > 1e-10, (X_c * Y_c[:, None]).sum(axis=0) / denom, 0.0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(denom > 1e-10, (X_c * Y_c[:, None]).sum(axis=0) / denom, 0.0)
 
 
 def compute_ic_vectorized(X: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -626,20 +622,32 @@ def _compute_symbol_tf(
             WHERE symbol = %s AND tf = %s AND bar_ts <= %s
             ORDER BY bar_ts
         """
+        # Stream rows from cursor to avoid materialising all 469K psycopg2 tuples at once.
+        # fetchall() on a 469K × 63-column result = ~1.1 GB Python heap per worker; with
+        # 12 parallel workers that peaks at ~24 GB and OOM-kills the pool.
+        # psycopg2 cursor iteration batches via fetchmany(itersize) under the hood, keeping
+        # only ~2000 live tuples at a time while we build native Python lists per column.
+        bar_ts_list: list = []
+        regime_list: list = []
+        X_list: list = []
         with conn.cursor() as cur:
             cur.execute(fv_sql, (symbol, tf, training_window_end))
-            fv_rows = cur.fetchall()
+            for r in cur:
+                bar_ts_list.append(r[0])
+                regime_list.append(r[1])
+                X_list.append(r[2:])
 
-        if not fv_rows:
+        if not bar_ts_list:
             _logger.info("ic_engine.no_feature_vectors", symbol=symbol, tf=tf)
             return {"n_committed": 0, "n_skipped": 0}
 
-        n_raw_bars = len(fv_rows)
-        bar_ts_arr = np.array([r[0] for r in fv_rows])
-        regime_arr = np.array([r[1] for r in fv_rows])  # may contain None
-
-        # Build feature matrix X [n_bars, n_features]
-        X_raw = np.array([[r[i + 2] for i in range(n_features)] for r in fv_rows], dtype=float)
+        n_raw_bars = len(bar_ts_list)
+        bar_ts_arr = np.array(bar_ts_list)
+        del bar_ts_list
+        regime_arr = np.array(regime_list)
+        del regime_list
+        X_raw = np.array(X_list, dtype=float)
+        del X_list
 
         # ------------------------------------------------------------------
         # Load forward returns aligned by bar_ts
@@ -661,6 +669,7 @@ def _compute_symbol_tf(
             return {"n_committed": 0, "n_skipped": 0}
 
         fr_ts = {r[0]: r for r in fr_rows}
+        del fr_rows  # dict lookup is sufficient; raw tuples no longer needed
 
         # Align feature matrix to forward_returns rows (exact bar_ts match)
         aligned_idx = [i for i, ts in enumerate(bar_ts_arr) if ts in fr_ts]
@@ -670,8 +679,11 @@ def _compute_symbol_tf(
 
         aligned_idx_arr = np.array(aligned_idx)
         X_aligned = X_raw[aligned_idx_arr]
+        del X_raw  # fancy index produces a copy; original no longer needed
         regime_aligned = regime_arr[aligned_idx_arr]
+        del regime_arr
         bar_ts_aligned = bar_ts_arr[aligned_idx_arr]
+        del bar_ts_arr
 
         n_scales = len(_SCALES)
         # returns_mat: [n_aligned, n_scales]; complete_mat: [n_aligned, n_scales]
@@ -682,6 +694,7 @@ def _compute_symbol_tf(
             for j in range(n_scales):
                 returns_mat[i, j] = row[1 + j] if row[1 + j] is not None else np.nan
                 complete_mat[i, j] = bool(row[1 + n_scales + j])
+        del fr_ts  # returns_mat/complete_mat are sufficient; dict no longer needed
 
         # Regime source: market_regimes (cross-sectional) or feature_vectors.regime (per-symbol).
         # When mr_dict is provided, map each aligned bar_ts to its cross-sectional regime.
