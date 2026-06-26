@@ -1,6 +1,6 @@
 # 002 — HMM State Count (K) Selection via BIC
 
-**Priority: Run after clean corpus is confirmed — do not run before P0 fixes in 001 land.**
+**Priority: Run after clean corpus is confirmed (Phase 140 + 001 complete).**
 
 ## Problem
 
@@ -49,5 +49,6 @@ distribution is incomparable. Fixed K is a hard requirement.
 
 ## Gate
 
-- 001 (IC P0 fixes) complete and clean corpus confirmed
+- Phase 140 complete ✅ and 001 (feature cache batch primitives) complete
+- Clean corpus confirmed (58-symbol run clean)
 - BIC script runs on clean regime labels from 5D obs vector

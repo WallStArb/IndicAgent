@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
 milestone: v3.0
-milestone_name: Intelligence Vectors — AlphaEngine
+milestone_name: AlphaEngine Validation + Alpha Scoring
 status: milestone_archived
-last_updated: "2026-06-25T18:34:06.966Z"
+last_updated: "2026-06-26T11:36:12.302Z"
 progress:
-  total_phases: 7
-  completed_phases: 4
-  total_plans: 36
-  completed_plans: 22
-  percent: 57
+  total_phases: 8
+  completed_phases: 5
+  total_plans: 41
+  completed_plans: 26
+  percent: 63
 ---
 
 # Project State
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Milestone complete
+**Current focus:** Phase 140.5 — corpus-foundations-feature-governance
 
 ## v3.0 Phase Summary
 

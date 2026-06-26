@@ -25,7 +25,7 @@
 - ✅ **v2.10 Data Architecture Evolution** — Phases 123-136 (SHIPPED 2026-06-20; ECL + APR + signal hardening + clean replay + 3-table migration + type safety + post-reboot repair)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
-- 📋 **v3.1 AlphaEngine Validation + Alpha Scoring** — Phases 140.5-144 (planned; hard-gated on Phase 141 corpus validation passing)
+- 📋 **v3.1 AlphaEngine Validation + Alpha Scoring** — Phases 140.5-144 (planned; hard-gated on Phase 141 corpus validation passing; 8 structural prerequisites must be resolved before roadmap is written — see `docs/plans/2026-06-25-alphaengine-phase-d-prerequisites.md`)
 - 📋 **v3.2 AnalogEngine + Feature Expansion** — Phases 145-147 (planned; hard-gated on v3.1 OOS-validated IC > 0 at 95% CI)
 - 📋 **v3.3 Foundational Hardening** — Phases 148-149 (planned)
 - 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.3 complete + alpha_events schema frozen; consumes alpha_events, never modifies signal weights)

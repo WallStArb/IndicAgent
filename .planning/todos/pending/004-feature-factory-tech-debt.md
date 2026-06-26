@@ -1,7 +1,6 @@
-# 003 — Feature Factory Technical Debt
+# 003 — Feature Factory Technical Debt (Remainder)
 
-**Priority: High — do as a batch before Phase 139 P3 corpus scoring run.**
-**Ship as one commit. Issues 1-5 must land before P3. Issue 0 is a quick standalone win.**
+**Priority: Low — Issues 1-5 shipped in Phase 139. Issue 0 is a quick standalone win. Issue 6 is a separate phase (gates 004 Part B).**
 
 ---
 
