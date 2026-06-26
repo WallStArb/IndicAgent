@@ -115,6 +115,18 @@ _POOLED_REGIME_SENTINEL = "_pooled"
 # Default TFs if not passed via --tf
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 
+# TF string to PostgreSQL interval string, used in DATE_TRUNC and JOIN on market_regimes.
+TF_TO_INTERVAL: dict[str, str] = {
+    "5m": "5 minutes",
+    "15m": "15 minutes",
+    "1h": "1 hour",
+    "1d": "1 day",
+}
+
+# Cross-sectional symbol sentinel: used when symbol='POOLED' (all 58 equity ETFs pooled).
+# feature_ic_scores.symbol is NOT NULL, so we use a string sentinel.
+_CROSS_SECTIONAL_SYMBOL = "POOLED"
+
 # ---------------------------------------------------------------------------
 # Module-level INSERT SQL (shared body; conflict clause differs by row type)
 # ---------------------------------------------------------------------------
@@ -149,6 +161,15 @@ _REGIME_INSERT_SQL = (
     _INSERT_BODY
     + "    ON CONFLICT (feature_name, symbol, tf, regime, lookahead_bars, training_window_end)\n"
     + "        WHERE is_pooled = false AND regime IS NOT NULL\n"
+    + "    DO NOTHING\n"
+)
+# Cross-sectional INSERT uses the partial index from migration 174:
+# (feature_name, symbol, tf, regime, lookahead_bars, training_window_end) WHERE is_pooled = true AND symbol = 'POOLED'
+# The cross-sectional rows use regime = actual_regime_label (not '_pooled' sentinel).
+_CROSS_SECTIONAL_INSERT_SQL = (
+    _INSERT_BODY
+    + "    ON CONFLICT (feature_name, symbol, tf, regime, lookahead_bars, training_window_end)\n"
+    + "        WHERE is_pooled = true AND symbol = 'POOLED'\n"
     + "    DO NOTHING\n"
 )
 
@@ -238,6 +259,11 @@ def _load_apr(conn: Any, tf: str) -> dict[str, Any]:
             scale: int(cfg.get_sync(f"alpha.ic.lookahead.{scale}", fb))
             for scale, fb in [("fast", 1), ("mid", 5), ("slow", 20), ("extended", 60)]
         },
+        # Cross-sectional equity regime model flag (migration 174)
+        "equity_model_enabled": str(
+            cfg.get_sync("alpha.regime.equity_model_enabled", "true")
+        ).lower()
+        == "true",
     }
 
 
@@ -246,11 +272,15 @@ def _load_apr(conn: Any, tf: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _assert_prerequisites(conn: Any) -> None:
-    """Crash-loud startup gates. Three explicit RuntimeError raises.
+def _assert_prerequisites(
+    conn: Any, tfs: list[str] | None = None, equity_model_enabled: bool = True
+) -> None:
+    """Crash-loud startup gates. Three (or four) explicit RuntimeError raises.
 
     A run that 'succeeds' with empty feature_ic_scores is a data-integrity
     failure. These gates prevent it by failing loud before any compute.
+
+    When equity_model_enabled=True, also verifies market_regimes has rows for each TF.
     """
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM feature_vectors")
@@ -278,6 +308,21 @@ def _assert_prerequisites(conn: Any) -> None:
             "IC Engine startup gate FAILED: forward_returns is empty. "
             "Run services/forward_return_writer.py first."
         )
+
+    # market_regimes prerequisite: required when equity_model_enabled=True
+    if equity_model_enabled and tfs:
+        for tf in tfs:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT count(*) FROM market_regimes WHERE asset_class='equity' AND tf=%s",
+                    (tf,),
+                )
+                n_mr = cur.fetchone()[0]
+            if n_mr == 0:
+                raise RuntimeError(
+                    f"IC Engine startup gate FAILED: market_regimes empty for tf={tf}. "
+                    "Run services/equity_regime_model.py first."
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -534,12 +579,18 @@ def _compute_symbol_tf(
     rng: np.random.Generator,
     run_ts: datetime,
     feature_status_map: dict[str, str] | None = None,
+    mr_dict: dict | None = None,
 ) -> dict[str, Any]:
     """Compute IC for all (regime, lookahead) cells for one (symbol, tf).
 
     feature_status_map: dict mapping feature_name → status from feature_registry.
     If provided, each IC score row receives feature_status_at_eval from this map.
     Defaults to 'unknown' for any feature not found in the map.
+
+    mr_dict: optional dict {ts -> regime_label} from market_regimes for this TF.
+    When provided (equity_model_enabled=True), regime labels come from market_regimes
+    instead of feature_vectors.regime, enabling cross-symbol IC stratification.
+    When None (equity_model_enabled=False), falls back to feature_vectors.regime.
 
     Returns summary statistics for logging.
     """
@@ -621,8 +672,18 @@ def _compute_symbol_tf(
                 returns_mat[i, j] = row[1 + j] if row[1 + j] is not None else np.nan
                 complete_mat[i, j] = bool(row[1 + n_scales + j])
 
-        # Distinct non-NULL regimes
-        distinct_regimes = [r for r in set(regime_aligned) if r is not None]
+        # Regime source: market_regimes (cross-sectional) or feature_vectors.regime (per-symbol).
+        # When mr_dict is provided, map each aligned bar_ts to its cross-sectional regime.
+        # Bars without a market_regimes entry get None (excluded from regime-stratified IC).
+        if mr_dict is not None:
+            # equity_model_enabled=True: use cross-sectional labels from market_regimes
+            regime_aligned_market = np.array([mr_dict.get(ts) for ts in bar_ts_aligned])
+            distinct_regimes = [r for r in set(regime_aligned_market) if r is not None]
+        else:
+            # equity_model_enabled=False: fallback to feature_vectors.regime (per-symbol)
+            regime_aligned_market = regime_aligned
+            distinct_regimes = [r for r in set(regime_aligned) if r is not None]
+
         # Process: each distinct regime + one pooled pass
         regime_passes = list(distinct_regimes) + [_POOLED_REGIME_SENTINEL]
 
@@ -636,11 +697,13 @@ def _compute_symbol_tf(
 
         for regime_label in regime_passes:
             is_pooled = regime_label == _POOLED_REGIME_SENTINEL
-            # Mask rows for this regime
+            # Mask rows for this regime.
+            # When equity_model_enabled=True (mr_dict provided): regime_aligned_market is the
+            # cross-sectional label array. When False: regime_aligned_market == regime_aligned.
             if is_pooled:
                 mask = np.ones(len(aligned_idx), dtype=bool)
             else:
-                mask = regime_aligned == regime_label
+                mask = regime_aligned_market == regime_label
 
             X_regime = X_aligned[mask]
             returns_regime = returns_mat[mask]
@@ -963,6 +1026,285 @@ def _compute_symbol_tf(
 
 
 # ---------------------------------------------------------------------------
+# Cross-sectional IC computation (equity_model_enabled=True)
+# ---------------------------------------------------------------------------
+
+
+def _compute_cross_sectional_tf(
+    conn: Any,
+    tf: str,
+    regime_label: str,
+    training_window_end: Any,
+    existing_keys: frozenset[tuple],
+    apr: dict[str, Any],
+    tracer: Any,
+    rng: np.random.Generator,
+    run_ts: datetime,
+    feature_status_map: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Compute cross-sectional IC for one (tf, regime_label) cell.
+
+    Fetches feature_vectors JOIN market_regimes JOIN forward_returns for ALL 58 equity
+    ETFs pooled into a single observation set. Computes Spearman IC across all symbols
+    simultaneously — each (bar_ts, symbol) pair is an independent observation.
+
+    The result is stored with symbol=_CROSS_SECTIONAL_SYMBOL ('POOLED'), is_pooled=True,
+    regime=regime_label (actual label, not '_pooled' sentinel).
+
+    Returns dict with n_committed, n_skipped, all_results.
+    """
+    lookaheads = apr["lookaheads"]
+    subsample_min_stride = apr["subsample_min_stride"]
+    min_reliable_n = apr["min_reliable_n"]
+    bootstrap_block_size = apr["bootstrap_block_size"]
+    bootstrap_resamples = apr["bootstrap_resamples"]
+    fdr_alpha = apr["fdr_alpha"]
+    walk_forward_folds = apr["walk_forward_folds"]
+    cluster_max_corr = apr["cluster_max_corr"]
+    n_features = len(_FEATURE_NAMES)
+
+    tf_interval = TF_TO_INTERVAL.get(tf, "5 minutes")
+
+    feature_cols = ", ".join(f'"fv"."{f}"' for f in _FEATURE_NAMES)
+    return_cols = ", ".join(f'"fr".return_{s}' for s in _SCALES)
+    complete_cols = ", ".join(f'"fr".complete_{s}' for s in _SCALES)
+
+    cs_sql = f"""
+        SELECT fv.bar_ts, {feature_cols}, {return_cols}, {complete_cols}
+        FROM feature_vectors fv
+        INNER JOIN market_regimes mr
+            ON mr.asset_class = 'equity'
+            AND mr.tf = %(tf)s
+            AND mr.ts = DATE_TRUNC(%(tf_interval)s, fv.bar_ts)
+            AND mr.regime_label = %(regime_label)s
+        INNER JOIN forward_returns fr
+            ON fr.symbol = fv.symbol
+            AND fr.tf = fv.tf
+            AND fr.bar_ts = fv.bar_ts
+        WHERE fv.tf = %(tf)s
+          AND fv.bar_ts <= %(training_window_end)s
+        ORDER BY fv.bar_ts
+    """
+
+    with conn.cursor() as cur:
+        cur.execute(
+            cs_sql,
+            {
+                "tf": tf,
+                "tf_interval": tf_interval,
+                "regime_label": regime_label,
+                "training_window_end": training_window_end,
+            },
+        )
+        cs_rows = cur.fetchall()
+
+    if not cs_rows:
+        _logger.info(
+            "ic_engine.cross_sectional_no_data",
+            tf=tf,
+            regime=regime_label,
+        )
+        return {"n_committed": 0, "n_skipped": 0, "all_results": []}
+
+    n_raw = len(cs_rows)
+    n_scales = len(_SCALES)
+
+    # Build feature matrix [n_raw, n_features] and returns/complete [n_raw, n_scales]
+    X_raw = np.array([[r[i + 1] for i in range(n_features)] for r in cs_rows], dtype=float)
+    returns_mat = np.full((n_raw, n_scales), np.nan)
+    complete_mat = np.zeros((n_raw, n_scales), dtype=bool)
+    for i, row in enumerate(cs_rows):
+        for j in range(n_scales):
+            returns_mat[i, j] = (
+                row[1 + n_features + j] if row[1 + n_features + j] is not None else np.nan
+            )
+            complete_mat[i, j] = bool(row[1 + n_features + n_scales + j])
+
+    # Degenerate feature detection
+    feature_stds = np.std(X_raw, axis=0)
+    degenerate_mask = feature_stds < 1e-8
+    non_degenerate_mask = ~degenerate_mask
+    X_nd = X_raw[:, non_degenerate_mask]
+
+    n_skipped = int(degenerate_mask.sum())
+    if X_nd.shape[1] == 0:
+        return {"n_committed": 0, "n_skipped": n_skipped, "all_results": []}
+
+    embargo_bars = max(lookaheads.values())
+    cluster_ids_nd = _cluster_features(X_nd, cluster_max_corr)
+    cluster_id_full: list[int | None] = [None] * n_features
+    nd_positions = np.where(non_degenerate_mask)[0]
+    for _i, _pos in enumerate(nd_positions):
+        cluster_id_full[_pos] = int(cluster_ids_nd[_i])
+
+    all_results: list[dict] = []
+    pvals_flat: list[float] = []
+    pval_result_idxs: list[int] = []
+    n_committed = 0
+
+    for scale_idx, scale in enumerate(_SCALES):
+        lookahead_bars = lookaheads[scale]
+        scale_stride = max(subsample_min_stride, lookahead_bars)
+        sub_idx = np.arange(0, n_raw, scale_stride)
+        X_sub = X_raw[sub_idx]
+        X_sub_nd = X_nd[sub_idx]
+        returns_sub = returns_mat[sub_idx]
+        complete_sub = complete_mat[sub_idx]
+        n_independent = len(sub_idx)
+
+        if n_independent < min_reliable_n:
+            n_skipped += len(_FEATURE_NAMES)
+            continue
+
+        scale_complete = complete_sub[:, scale_idx]
+        returns_scale = returns_sub[:, scale_idx]
+        valid_mask = scale_complete & np.isfinite(returns_scale)
+        n_valid = valid_mask.sum()
+
+        if n_valid < min_reliable_n:
+            n_skipped += len(_FEATURE_NAMES)
+            continue
+
+        ranks_X_scale = rankdata(X_sub_nd, axis=0)[valid_mask]
+        Y_scale = returns_scale[valid_mask]
+        ranks_Y = rankdata(Y_scale)
+
+        ic_vector_nd = _vectorized_ic(ranks_X_scale, ranks_Y)
+        p_vector_nd = _p_values_from_ic(ic_vector_nd, n_valid)
+
+        ic_full = _expand(ic_vector_nd, non_degenerate_mask, n_features)
+        p_full = _expand(p_vector_nd, non_degenerate_mask, n_features)
+
+        ci_lower_nd, ci_upper_nd = _circular_block_bootstrap_ic(
+            ranks_X_scale, ranks_Y, bootstrap_block_size, bootstrap_resamples, rng
+        )
+        ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
+        ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)
+        passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
+
+        fold_ics_list: list[np.ndarray] = []
+        for k in range(walk_forward_folds):
+            train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
+            test_start = train_end + embargo_bars
+            test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
+            if test_start >= test_end or (test_end - test_start) < min_reliable_n:
+                continue
+            X_test = ranks_X_scale[test_start:test_end]
+            Y_test = ranks_Y[test_start:test_end]
+            if len(X_test) < 2:
+                continue
+            fold_ics_list.append(_vectorized_ic(rankdata(X_test, axis=0), rankdata(Y_test)))
+
+        wf_fold_count = len(fold_ics_list)
+        if wf_fold_count > 0:
+            fold_ic_arr = np.array(fold_ics_list)
+            wf_pass_count_nd = (fold_ic_arr > 0).sum(axis=0)
+            passes_wf_nd = wf_pass_count_nd == walk_forward_folds
+        else:
+            wf_pass_count_nd = np.zeros(len(ic_vector_nd), dtype=int)
+            passes_wf_nd = np.zeros(len(ic_vector_nd), dtype=bool)
+
+        wf_pass_full = np.zeros(n_features, dtype=int)
+        passes_wf_full = np.zeros(n_features, dtype=bool)
+        wf_pass_full[non_degenerate_mask] = wf_pass_count_nd
+        passes_wf_full[non_degenerate_mask] = passes_wf_nd
+
+        ic_sharpe_arr, ic_sortino_arr, ic_win_rate_arr, n_sharpe_windows = (
+            _compute_ic_rolling_metrics(
+                X_sub,
+                returns_sub,
+                scale_idx,
+                complete_sub[:, scale_idx],
+                apr,
+                non_degenerate_mask,
+                n_features,
+                scale_stride,
+            )
+        )
+
+        for feat_idx, feat_name in enumerate(_FEATURE_NAMES):
+            cell_key = (feat_name, _CROSS_SECTIONAL_SYMBOL, tf, regime_label, lookahead_bars, True)
+            if cell_key in existing_keys:
+                n_skipped += 1
+                continue
+
+            ic_val = ic_full[feat_idx]
+            p_val = p_full[feat_idx]
+            all_results.append(
+                {
+                    "feature_name": feat_name,
+                    "vector_domain": _VECTOR_DOMAIN,
+                    "symbol": _CROSS_SECTIONAL_SYMBOL,
+                    "tf": tf,
+                    "regime": regime_label,
+                    "lookahead_bars": lookahead_bars,
+                    "training_window_end": training_window_end,
+                    "is_pooled": True,
+                    "n_independent": int(n_valid),
+                    "reliable": bool(n_valid >= min_reliable_n),
+                    "ic_value": _nan_to_none(ic_val),
+                    "ic_sign": (None if np.isnan(ic_val) else (1 if ic_val > 0 else -1)),
+                    "p_value": _nan_to_none(p_val),
+                    "ic_ci_lower": _nan_to_none(ci_lower_full[feat_idx]),
+                    "ic_ci_upper": _nan_to_none(ci_upper_full[feat_idx]),
+                    "passes_ci_gate": bool(passes_ci_full[feat_idx]),
+                    "bh_adjusted_p": None,
+                    "passes_fdr": None,
+                    "wf_fold_count": wf_fold_count,
+                    "wf_pass_count": int(wf_pass_full[feat_idx]),
+                    "passes_walkforward": bool(passes_wf_full[feat_idx]),
+                    "ic_sharpe": _nan_to_none(ic_sharpe_arr[feat_idx]),
+                    "ic_sharpe_n_windows": int(n_sharpe_windows),
+                    "ic_sortino": _nan_to_none(ic_sortino_arr[feat_idx]),
+                    "ic_win_rate": _nan_to_none(ic_win_rate_arr[feat_idx]),
+                    "regime_label_source": "market_regimes",
+                    "computed_at": run_ts,
+                    "cluster_id": cluster_id_full[feat_idx],
+                    "feature_status_at_eval": (
+                        feature_status_map.get(feat_name, "unknown")
+                        if feature_status_map is not None
+                        else "unknown"
+                    ),
+                }
+            )
+
+    # BH-FDR pass (same logic as _compute_symbol_tf)
+    cluster_groups: dict[tuple, list[tuple[float, int]]] = {}
+    for result_idx, r in enumerate(all_results):
+        cid = r["cluster_id"]
+        if cid is None:
+            r["bh_adjusted_p"] = None
+            r["passes_fdr"] = False
+            continue
+        group_key = (r["regime"], r["lookahead_bars"], cid)
+        ic_val = r["ic_value"]
+        abs_ic = abs(ic_val) if ic_val is not None else 0.0
+        cluster_groups.setdefault(group_key, []).append((abs_ic, result_idx))
+
+    for group_key, candidates in cluster_groups.items():
+        rep_result_idx = max(candidates, key=lambda x: x[0])[1]
+        pvals_flat.append(float(all_results[rep_result_idx]["p_value"]))
+        pval_result_idxs.append(rep_result_idx)
+        for _, non_rep_idx in candidates[1:]:
+            all_results[non_rep_idx]["bh_adjusted_p"] = None
+            all_results[non_rep_idx]["passes_fdr"] = False
+
+    if pvals_flat:
+        reject, p_corrected, _, _ = multipletests(pvals_flat, alpha=fdr_alpha, method="fdr_bh")
+        for flat_idx, result_idx in enumerate(pval_result_idxs):
+            all_results[result_idx]["bh_adjusted_p"] = float(p_corrected[flat_idx])
+            all_results[result_idx]["passes_fdr"] = bool(reject[flat_idx])
+
+    if all_results:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, _CROSS_SECTIONAL_INSERT_SQL, all_results)
+        conn.commit()
+
+    n_committed = len(all_results)
+    return {"n_committed": n_committed, "n_skipped": n_skipped, "all_results": all_results}
+
+
+# ---------------------------------------------------------------------------
 # IC health gauge emission
 # ---------------------------------------------------------------------------
 
@@ -1046,6 +1388,7 @@ def _run_ic_worker(args: tuple) -> dict:
         run_ts,
         bootstrap_seed,
         feature_status_map,
+        mr_dict_by_tf,
     ) = args
 
     from src.core.service_utils import setup_service_logging
@@ -1084,6 +1427,7 @@ def _run_ic_worker(args: tuple) -> dict:
                     rng=rng,
                     run_ts=run_ts,
                     feature_status_map=feature_status_map,
+                    mr_dict=mr_dict_by_tf.get(tf) if mr_dict_by_tf else None,
                 )
                 total_committed += stats.get("n_committed", 0)
                 total_skipped += stats.get("n_skipped", 0)
@@ -1174,9 +1518,19 @@ def main() -> None:
     try:
         with _observed_span("ic_engine.run", tracer):
             # ----------------------------------------------------------
-            # Startup crash-loud gates
+            # Load equity_model_enabled flag from APR (needed before prerequisites)
             # ----------------------------------------------------------
-            _assert_prerequisites(conn)
+            _pre_cfg = _load_config_service(conn)
+            equity_model_enabled: bool = (
+                str(_pre_cfg.get_sync("alpha.regime.equity_model_enabled", "true")).lower()
+                == "true"
+            )
+            _logger.info("ic_engine.equity_model_enabled", value=equity_model_enabled)
+
+            # ----------------------------------------------------------
+            # Startup crash-loud gates (market_regimes gate included when enabled)
+            # ----------------------------------------------------------
+            _assert_prerequisites(conn, tfs=args.tf, equity_model_enabled=equity_model_enabled)
 
             # ----------------------------------------------------------
             # Feature registry alignment gate
@@ -1280,6 +1634,25 @@ def main() -> None:
             bootstrap_seed = apr_cache[tfs[0]]["bootstrap_seed"]
 
             # ----------------------------------------------------------
+            # Load market_regimes {ts -> regime_label} per TF (for equity model)
+            # Pre-materialized here so workers receive a plain dict (picklable).
+            # ----------------------------------------------------------
+            mr_dict_by_tf: dict[str, dict] = {}
+            if equity_model_enabled:
+                for tf in tfs:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT ts, regime_label FROM market_regimes WHERE asset_class='equity' AND tf=%s",
+                            (tf,),
+                        )
+                        mr_dict_by_tf[tf] = {r[0]: r[1] for r in cur.fetchall()}
+                    _logger.info(
+                        "ic_engine.mr_loaded",
+                        tf=tf,
+                        n_rows=len(mr_dict_by_tf[tf]),
+                    )
+
+            # ----------------------------------------------------------
             # Build worker args then close main conn -- workers open their own
             # ----------------------------------------------------------
             existing_keys_frozen = frozenset(existing_keys)
@@ -1294,6 +1667,7 @@ def main() -> None:
                     run_ts,
                     bootstrap_seed,
                     feature_status_map,
+                    mr_dict_by_tf if equity_model_enabled else None,
                 )
                 for symbol in symbols
             ]
@@ -1336,6 +1710,50 @@ def main() -> None:
                         n_committed=result["n_committed"],
                         n_skipped=result["n_skipped"],
                     )
+
+            # ----------------------------------------------------------
+            # Cross-sectional IC pass (equity_model_enabled=True only)
+            # Runs in main process after per-symbol workers complete.
+            # Each cell: all 58 equity ETFs pooled per (tf, regime_label).
+            # Max 4 TFs * 9 regime labels = 36 compute cells (in practice fewer).
+            # ----------------------------------------------------------
+            if equity_model_enabled:
+                _logger.info("ic_engine.starting_cross_sectional_pass")
+                cs_conn = _connect_db(settings)
+                try:
+                    with cs_conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT DISTINCT regime_label FROM market_regimes "
+                            "WHERE asset_class='equity' AND tf=%s ORDER BY regime_label",
+                            (tfs[0],),
+                        )
+                        cs_regimes = [r[0] for r in cur.fetchall()]
+
+                    for tf in tfs:
+                        apr = apr_cache[tf]
+                        for regime_label in cs_regimes:
+                            cs_result = _compute_cross_sectional_tf(
+                                conn=cs_conn,
+                                tf=tf,
+                                regime_label=regime_label,
+                                training_window_end=training_window_end,
+                                existing_keys=existing_keys_frozen,
+                                apr=apr,
+                                tracer=tracer,
+                                rng=np.random.default_rng(seed=apr_cache[tfs[0]]["bootstrap_seed"]),
+                                run_ts=run_ts,
+                                feature_status_map=feature_status_map,
+                            )
+                            total_committed += cs_result.get("n_committed", 0)
+                            total_skipped += cs_result.get("n_skipped", 0)
+                            _logger.info(
+                                "ic_engine.cross_sectional_done",
+                                tf=tf,
+                                regime=regime_label,
+                                n_committed=cs_result.get("n_committed", 0),
+                            )
+                finally:
+                    cs_conn.close()
 
             elapsed = time.monotonic() - t0
             IC_ENGINE_RUN_LATENCY_SECONDS.record(elapsed)
