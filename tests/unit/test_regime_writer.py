@@ -27,14 +27,25 @@ if str(_project_root) not in sys.path:
 
 from services.regime_writer import (
     _LABEL_RANGING,
+    _LABEL_TRANSITION_DOWN,
+    _LABEL_TRANSITION_UP,
     _LABEL_TRENDING_DOWN,
     _LABEL_TRENDING_UP,
     _build_label_map,
     _causal_decode,
 )
 
-# Canonical set -- the only allowed values
+# Core 3-state canonical label set (K=3: trending_up / ranging / trending_down)
 _CANONICAL_LABELS = {_LABEL_TRENDING_UP, _LABEL_TRENDING_DOWN, _LABEL_RANGING}
+
+# Full 5-state canonical label set (K=5 — BIC-validated)
+_CANONICAL_LABELS_K5 = {
+    _LABEL_TRENDING_UP,
+    _LABEL_TRANSITION_UP,
+    _LABEL_RANGING,
+    _LABEL_TRANSITION_DOWN,
+    _LABEL_TRENDING_DOWN,
+}
 
 
 def _make_means_3state(ret_0: float, ret_1: float, ret_2: float) -> np.ndarray:
@@ -167,8 +178,16 @@ def test_label_map_accepts_numpy_array_not_hmm_model():
     assert len(label_map) == 3
 
 
-def test_label_map_four_components_has_two_ranging():
-    """With 4 components, exactly 2 states should get 'ranging'."""
+def test_label_map_four_components_has_transition_states():
+    """With 4 components, inner states get transition_down/up; no ranging label.
+
+    K=4 label assignment by return-mean rank:
+      order[0] (most negative) -> trending_down
+      order[1] (2nd negative)  -> transition_down
+      order[2] (2nd positive)  -> transition_up
+      order[3] (most positive) -> trending_up
+    No ranging state for K=4 — extremes fill the spectrum fully.
+    """
     # State 0: -0.4, State 1: -0.1, State 2: +0.1, State 3: +0.4
     means_4 = np.array(
         [
@@ -180,12 +199,48 @@ def test_label_map_four_components_has_two_ranging():
     )
     label_map = _build_label_map(means_4)
 
-    ranging_count = sum(1 for v in label_map.values() if v == _LABEL_RANGING)
-    assert (
-        ranging_count == 2
-    ), f"Expected 2 ranging states for 4-component HMM, got {ranging_count}: {label_map}"
     assert sum(1 for v in label_map.values() if v == _LABEL_TRENDING_UP) == 1
     assert sum(1 for v in label_map.values() if v == _LABEL_TRENDING_DOWN) == 1
+    assert sum(1 for v in label_map.values() if v == _LABEL_TRANSITION_UP) == 1
+    assert sum(1 for v in label_map.values() if v == _LABEL_TRANSITION_DOWN) == 1
+    assert sum(1 for v in label_map.values() if v == _LABEL_RANGING) == 0
+    assert len(label_map) == 4
+
+
+def test_label_map_five_components_all_five_labels_present():
+    """With K=5 (BIC-validated), all five canonical labels must appear exactly once.
+
+    K=5 label assignment by return-mean rank (ascending):
+      order[0] (most negative) -> trending_down
+      order[1]                 -> transition_down
+      order[2] (middle)        -> ranging
+      order[3]                 -> transition_up
+      order[4] (most positive) -> trending_up
+    """
+    means_5 = np.array(
+        [
+            [-0.5, 0.01],
+            [-0.2, 0.01],
+            [0.0, 0.01],
+            [+0.2, 0.01],
+            [+0.5, 0.01],
+        ]
+    )
+    label_map = _build_label_map(means_5)
+
+    assert (
+        set(label_map.values()) == _CANONICAL_LABELS_K5
+    ), f"Expected {_CANONICAL_LABELS_K5}, got {set(label_map.values())}"
+    assert len(label_map) == 5
+    # State 0 (most negative) -> trending_down
+    assert label_map[0] == _LABEL_TRENDING_DOWN
+    # State 4 (most positive) -> trending_up
+    assert label_map[4] == _LABEL_TRENDING_UP
+    # State 2 (middle) -> ranging
+    assert label_map[2] == _LABEL_RANGING
+    # State 1 -> transition_down, State 3 -> transition_up
+    assert label_map[1] == _LABEL_TRANSITION_DOWN
+    assert label_map[3] == _LABEL_TRANSITION_UP
 
 
 def test_worker_args_tuple_structure():

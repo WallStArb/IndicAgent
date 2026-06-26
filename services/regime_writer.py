@@ -10,8 +10,12 @@ CORRECTNESS INVARIANTS:
 - Decoding uses forward-filter (alpha-pass only), mirroring hmm_regime.py:_forward_step().
   model.predict() is NOT used — it runs full-sequence Viterbi and leaks future information.
 - Each (symbol, tf) gets its own independent HMM fit. No shared model across TFs.
-- Regime labels are deterministically mapped: highest mean log-return -> trending_up,
-  lowest -> trending_down, remaining -> ranging.
+- Regime labels are deterministically mapped by emission mean[:, 0] (log-return dimension):
+    K=2: trending_up (high), trending_down (low)
+    K=3: trending_up, ranging, trending_down
+    K=5: trending_up, transition_up, ranging, transition_down, trending_down
+         (BIC-validated K as of Phase 140.5-P2 BIC study 2026-06-26)
+  For K>3, hmm_prob_trending_up/down aggregate all bullish/bearish probability mass.
 
 DAG invariant note: this oneshot is exempt from the "only writer subclasses touch DB"
 rule exactly as backfill_feature_factory.py is — it is a batch labeling tool, not a
@@ -22,6 +26,7 @@ Usage:
     python services/regime_writer.py --symbols SPY TLT
     python services/regime_writer.py --tf 5m 15m
     python services/regime_writer.py --symbols SPY --tf 5m
+    python services/regime_writer.py --workers 12 --refit
 """
 
 from __future__ import annotations
@@ -82,6 +87,13 @@ _MIN_OBS_FACTOR = 50
 _LABEL_TRENDING_UP = "trending_up"
 _LABEL_TRENDING_DOWN = "trending_down"
 _LABEL_RANGING = "ranging"
+_LABEL_TRANSITION_UP = "transition_up"
+_LABEL_TRANSITION_DOWN = "transition_down"
+
+# Labels that count as "bullish" for hmm_prob_trending_up aggregation.
+_BULLISH_LABELS = frozenset([_LABEL_TRENDING_UP, _LABEL_TRANSITION_UP])
+# Labels that count as "bearish" for hmm_prob_trending_down aggregation.
+_BEARISH_LABELS = frozenset([_LABEL_TRENDING_DOWN, _LABEL_TRANSITION_DOWN])
 
 # Batch size for psycopg2 execute_batch UPDATE calls.
 _UPDATE_BATCH_SIZE = 500
@@ -244,10 +256,17 @@ def _causal_decode(
 def _build_label_map(means: np.ndarray) -> dict[int, str]:
     """Map integer HMM states to canonical regime text labels.
 
-    Sorted deterministically by fitted emission mean[:, 0] (log-return dimension):
-      - State with highest mean log-return -> "trending_up"
-      - State with lowest mean log-return  -> "trending_down"
-      - Remaining state(s)                 -> "ranging"
+    Sorted deterministically by fitted emission mean[:, 0] (log-return dimension).
+    Assignment by rank:
+
+      K=2: order[0]->trending_down, order[1]->trending_up
+      K=3: order[0]->trending_down, order[2]->trending_up, order[1]->ranging
+      K=4: order[0]->trending_down, order[3]->trending_up,
+           order[1]->ranging, order[2]->transition
+      K=5: order[0]->trending_down, order[4]->trending_up,
+           order[1]->transition_down, order[3]->transition_up, order[2]->ranging
+      K>5: extremes get trending_down/up, next-inward get transition_down/up,
+           all remaining middle states get ranging.
 
     This produces semantically stable labels regardless of which integer
     hmmlearn assigns to which state.
@@ -263,11 +282,21 @@ def _build_label_map(means: np.ndarray) -> dict[int, str]:
     means_ret = means[:, 0]  # log-return dimension
     order = np.argsort(means_ret)  # ascending: [most_neg, ..., most_pos]
     label_map: dict[int, str] = {}
-    label_map[int(order[-1])] = _LABEL_TRENDING_UP  # highest mean return
-    label_map[int(order[0])] = _LABEL_TRENDING_DOWN  # lowest mean return
+
+    # Extremes are always trending_down / trending_up
+    label_map[int(order[0])] = _LABEL_TRENDING_DOWN
+    label_map[int(order[-1])] = _LABEL_TRENDING_UP
+
+    if n_components >= 4:
+        # Second from each extreme are transition states
+        label_map[int(order[1])] = _LABEL_TRANSITION_DOWN
+        label_map[int(order[-2])] = _LABEL_TRANSITION_UP
+
+    # All remaining middle states are ranging
     for i in range(n_components):
         if i not in label_map:
             label_map[i] = _LABEL_RANGING
+
     return label_map
 
 
@@ -366,9 +395,13 @@ def _compute_symbol_tf(
     )
 
     label_map = _build_label_map(model.means_)
-    up_state = next(k for k, v in label_map.items() if v == _LABEL_TRENDING_UP)
-    down_state = next(k for k, v in label_map.items() if v == _LABEL_TRENDING_DOWN)
-    rang_state = next(k for k, v in label_map.items() if v == _LABEL_RANGING)
+    # For K>=4, hmm_prob_trending_up/down aggregate all bullish/bearish probability mass.
+    # bullish_states: all states labeled trending_up or transition_up
+    # bearish_states: all states labeled trending_down or transition_down
+    # ranging_states: all states labeled ranging (typically one middle state)
+    bullish_states = [k for k, v in label_map.items() if v in _BULLISH_LABELS]
+    bearish_states = [k for k, v in label_map.items() if v in _BEARISH_LABELS]
+    ranging_states = [k for k, v in label_map.items() if v == _LABEL_RANGING]
 
     # Explicit loop — required for index-based alpha_history access and stateful
     # duration counter simultaneously.
@@ -383,9 +416,9 @@ def _compute_symbol_tf(
             duration = 1
             prev_state = state_idx
         alpha = alpha_history[i]
-        p_up = float(alpha[up_state])
-        p_ranging = float(alpha[rang_state])
-        p_down = float(alpha[down_state])
+        p_up = float(sum(alpha[s] for s in bullish_states))
+        p_ranging = float(sum(alpha[s] for s in ranging_states))
+        p_down = float(sum(alpha[s] for s in bearish_states))
         prob_val = float(np.max(alpha))
         entropy_val = float(-np.sum(alpha * np.log(np.maximum(alpha, 1e-300))))
         update_rows.append(
@@ -604,6 +637,16 @@ def main() -> None:
         default=None,
         help="Number of parallel workers (default: APR infra.regime_writer.workers, fallback 1)",
     )
+    parser.add_argument(
+        "--refit",
+        action="store_true",
+        default=False,
+        help=(
+            "Force regime re-labeling only (feature_vectors compute already done). "
+            "Semantic documentation flag — regime_writer always fits GaussianHMM from scratch; "
+            "--refit signals intent to callers that this run re-labels an existing corpus."
+        ),
+    )
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
@@ -616,6 +659,12 @@ def main() -> None:
             "regime_writer.otel_init_failed",
             error=str(error),
             note="Continuing without OTel — metrics will not reach collector",
+        )
+
+    if args.refit:
+        _logger.info(
+            "regime_writer.refit_mode",
+            note="Running in refit mode: re-labeling regimes only, feature_vectors compute already complete.",
         )
 
     tracer = trace.get_tracer("indicagent")
