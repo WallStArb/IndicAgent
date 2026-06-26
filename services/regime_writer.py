@@ -289,7 +289,7 @@ def _compute_symbol_tf(
 ) -> tuple[list[tuple], bool] | None:
     """Fit HMM for one (symbol, tf) cell. Returns (update_rows, converged) or None.
 
-    Pure compute — no DB writes. Each tuple in update_rows matches the UPDATE SQL
+    No DB writes — clears any open transaction before the server-side cursor, then runs pure HMM compute. Each tuple in update_rows matches the UPDATE SQL
     parameter order: (regime, p_up, p_ranging, p_down, prob_val, entropy_val,
     duration, symbol, tf, ts).
     """
@@ -562,7 +562,8 @@ def _run_symbol_worker(args: tuple) -> dict:
                 try:
                     conn.rollback()
                 except Exception:
-                    pass
+                    # Connection is dead; remaining TFs for this symbol would also fail.
+                    break
 
     except Exception as error:
         error_msg = str(error)
