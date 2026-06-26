@@ -67,6 +67,7 @@ sys.path.insert(0, str(project_root))
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
+from src.intelligence.feature_registry_service import FeatureRegistryService
 from src.intelligence.schemas import FeatureVector
 from src.observability.metrics import (
     EFFECTIVE_N_GAUGE,
@@ -125,7 +126,7 @@ _INSERT_BODY = """
         ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate,
         bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, passes_walkforward,
         ic_sharpe, ic_sharpe_n_windows, ic_sortino, ic_win_rate,
-        regime_label_source, computed_at, cluster_id
+        regime_label_source, computed_at, cluster_id, feature_status_at_eval
     )
     VALUES (
         %(feature_name)s, %(vector_domain)s, %(symbol)s, %(tf)s, %(regime)s,
@@ -134,7 +135,8 @@ _INSERT_BODY = """
         %(ic_ci_lower)s, %(ic_ci_upper)s, %(passes_ci_gate)s, %(bh_adjusted_p)s,
         %(passes_fdr)s, %(wf_fold_count)s, %(wf_pass_count)s, %(passes_walkforward)s,
         %(ic_sharpe)s, %(ic_sharpe_n_windows)s, %(ic_sortino)s, %(ic_win_rate)s,
-        %(regime_label_source)s, %(computed_at)s, %(cluster_id)s
+        %(regime_label_source)s, %(computed_at)s, %(cluster_id)s,
+        %(feature_status_at_eval)s
     )
 """
 _POOLED_INSERT_SQL = (
@@ -531,8 +533,13 @@ def _compute_symbol_tf(
     tracer: Any,
     rng: np.random.Generator,
     run_ts: datetime,
+    feature_status_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Compute IC for all (regime, lookahead) cells for one (symbol, tf).
+
+    feature_status_map: dict mapping feature_name → status from feature_registry.
+    If provided, each IC score row receives feature_status_at_eval from this map.
+    Defaults to 'unknown' for any feature not found in the map.
 
     Returns summary statistics for logging.
     """
@@ -860,6 +867,11 @@ def _compute_symbol_tf(
                             "regime_label_source": "forward_filter",
                             "computed_at": run_ts,
                             "cluster_id": cluster_id_full[feat_idx],
+                            "feature_status_at_eval": (
+                                feature_status_map.get(feat_name, "unknown")
+                                if feature_status_map is not None
+                                else "unknown"
+                            ),
                         }
                     )
 
@@ -1033,6 +1045,7 @@ def _run_ic_worker(args: tuple) -> dict:
         apr_cache,
         run_ts,
         bootstrap_seed,
+        feature_status_map,
     ) = args
 
     from src.core.service_utils import setup_service_logging
@@ -1070,6 +1083,7 @@ def _run_ic_worker(args: tuple) -> dict:
                     tracer=noop_tracer,
                     rng=rng,
                     run_ts=run_ts,
+                    feature_status_map=feature_status_map,
                 )
                 total_committed += stats.get("n_committed", 0)
                 total_skipped += stats.get("n_skipped", 0)
@@ -1165,6 +1179,28 @@ def main() -> None:
             _assert_prerequisites(conn)
 
             # ----------------------------------------------------------
+            # Feature registry alignment gate
+            # Crash-loud: registry must match FeatureVector dataclass fields exactly.
+            # Use get_all_features() — NOT get_active_features() — so the gate
+            # passes even when features have been deprecated. The alignment gate
+            # checks schema completeness, not lifecycle state.
+            # ----------------------------------------------------------
+            registry_svc = FeatureRegistryService()
+            registry_svc.load_sync(conn)
+            all_registry_names = {r["feature_name"] for r in registry_svc.get_all_features()}
+            dataclass_names = {f.name for f in dataclasses.fields(FeatureVector)}
+            if all_registry_names != dataclass_names:
+                raise RuntimeError(
+                    f"feature_registry drift: {all_registry_names ^ dataclass_names}. "
+                    "Run migration to sync registry with FeatureVector."
+                )
+            # Build status map for workers: plain dict is picklable; FeatureRegistryService is not.
+            feature_status_map: dict[str, str] = {
+                r["feature_name"]: (r["status"] or "unknown")
+                for r in registry_svc.get_all_features()
+            }
+
+            # ----------------------------------------------------------
             # Run constants (locked at start)
             # ----------------------------------------------------------
             run_ts = datetime.now(UTC)
@@ -1257,6 +1293,7 @@ def main() -> None:
                     apr_cache,
                     run_ts,
                     bootstrap_seed,
+                    feature_status_map,
                 )
                 for symbol in symbols
             ]

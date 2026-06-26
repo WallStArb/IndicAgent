@@ -38,6 +38,9 @@ import structlog
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+import dataclasses
+import math
+
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.intelligence.ensemble import (
@@ -47,6 +50,8 @@ from src.intelligence.ensemble import (
     effective_n,
     select_features_per_stratum,
 )
+from src.intelligence.feature_registry_service import FeatureRegistryService
+from src.intelligence.schemas import FeatureVector
 from src.observability.metrics import (
     ENSEMBLE_EFFECTIVE_N_GAUGE,
     ENSEMBLE_FEATURE_WEIGHT_GAUGE,
@@ -205,6 +210,26 @@ class EnsembleTrainer(BaseBatch):
             # --- Startup gates ---
             await _assert_prerequisites(conn)
 
+            # --- Feature registry alignment gate ---
+            # Use get_all_features() — NOT get_active_features() — for alignment gate.
+            # Lifecycle state (active/deprecated) is enforced separately via WHERE clause.
+            # The alignment gate checks schema completeness regardless of status.
+            registry_svc = FeatureRegistryService()
+            await registry_svc.load(pool)
+            all_registry_names = {r["feature_name"] for r in registry_svc.get_all_features()}
+            dataclass_names = {f.name for f in dataclasses.fields(FeatureVector)}
+            if all_registry_names != dataclass_names:
+                raise RuntimeError(
+                    f"feature_registry drift: {all_registry_names ^ dataclass_names}"
+                )
+
+            weight_half_life_days = _cfg_float(cfg, "alpha.ensemble.weight_half_life_days", 30.0)
+            self.logger.info(
+                "ensemble_trainer.registry_loaded",
+                n_features=len(all_registry_names),
+                weight_half_life_days=weight_half_life_days,
+            )
+
             # --- Meta-FDR gate: feature must pass BH-FDR in >=meta_fdr_min_fraction of cells ---
             # Denominator mirrors _process_stratum WHERE clause exactly — cells that fail
             # passes_walkforward or have NULL ic_sharpe are never consumed by the ensemble,
@@ -274,6 +299,7 @@ class EnsembleTrainer(BaseBatch):
                     max_cluster_corr=max_cluster_corr,
                     max_cluster_weight=max_cluster_weight,
                     meta_eligible_features=meta_eligible_features,
+                    weight_half_life_days=weight_half_life_days,
                 )
 
         self.logger.info(
@@ -294,18 +320,24 @@ class EnsembleTrainer(BaseBatch):
         max_cluster_corr: float,
         max_cluster_weight: float,
         meta_eligible_features: set[str],
+        weight_half_life_days: float = 30.0,
     ) -> None:
         """Process one (symbol, tf, regime) stratum end-to-end."""
         log = self.logger.bind(symbol=symbol, tf=tf, regime=regime)
 
         # Step 1: Load IC scores for this stratum
+        # feature_status_at_eval = 'active' ensures we only train on IC scores from
+        # periods when the feature was actively governed — excludes candidate and
+        # shadow_only periods where IC data was gathered but feature not yet promoted.
         ic_rows = await conn.fetch(
             """
-            SELECT feature_name, ic_sharpe, ic_ci_lower, ic_ci_upper, ic_sign, lookahead_bars
+            SELECT feature_name, ic_sharpe, ic_ci_lower, ic_ci_upper, ic_sign,
+                   lookahead_bars, training_window_end
             FROM feature_ic_scores
             WHERE symbol = $1 AND tf = $2 AND regime = $3
               AND is_pooled = false AND passes_walkforward = true
               AND reliable = true AND ic_sharpe IS NOT NULL
+              AND feature_status_at_eval = 'active'
             """,
             symbol,
             tf,
@@ -392,7 +424,25 @@ class EnsembleTrainer(BaseBatch):
         X = X_raw[:, ordered_col_indices]  # [n_bars, n_selected_features]
 
         # Step 4: Compute LW covariance + cluster deflate weights
-        raw_weights = derive_weights(ic_sharpes, max_feature_weight)
+        # Weight aging: decay IC-derived weights exponentially with staleness.
+        # Uses the latest training_window_end across all selected features as the
+        # reference point. Reverts to equal-weight at 90 days stale.
+        max_twe = max(
+            (r["training_window_end"] for r in ic_rows if r["training_window_end"] is not None),
+            default=None,
+        )
+        if max_twe is not None:
+            days_since = max(0, (datetime.now(UTC) - max_twe).days)
+        else:
+            days_since = 0
+        if days_since > 90:
+            # Equal-weight fallback: IC scores are too stale to trust the weight ordering.
+            n_features_aged = len(ic_sharpes)
+            aged_ic_sharpes = np.full(n_features_aged, 1.0 / max(1, n_features_aged))
+        else:
+            aged_ic_sharpes = ic_sharpes * math.exp(-days_since / weight_half_life_days)
+
+        raw_weights = derive_weights(aged_ic_sharpes, max_feature_weight)
 
         cov_matrix, shrinkage = compute_shrinkage_covariance(X)
 
