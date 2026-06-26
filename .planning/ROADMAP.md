@@ -1363,14 +1363,14 @@ IC engine joins `feature_vectors` with `context_features` via `DATE(bar_ts) = fe
 - Wave 2: P1 corpus re-run (requires P1 fixes). P4 cross-sectional regime model fitting + `market_regimes` population (requires clean corpus). P2 BIC study (requires clean corpus — hard dependency).
 - Wave 3: P2 regime label re-run if K changes (requires BIC decision). P3 IC engine + ensemble trainer integration + weight aging (requires P3 registry from Wave 1). P4 IC engine regime-join wiring (requires P4 model from Wave 2). P5 IC engine context-features join (requires P5 schema from Wave 1).
 
-**Plans:** 5 plans
+**Plans:** 5/5 plans complete
 
 Plans:
-- [ ] 140.5-P1-PLAN.md — Batch Primitives Validation + Corpus Re-Run
-- [ ] 140.5-P2-PLAN.md — HMM K via BIC Study + Conditional Regime Re-Run
-- [ ] 140.5-P3-PLAN.md — Feature Registry Schema + FeatureRegistryService + IC/Ensemble Integration
-- [ ] 140.5-P4-PLAN.md — Cross-Sectional Equity Regime Model + market_regimes + IC Engine Wiring
-- [ ] 140.5-P5-PLAN.md — Context Features Table + context_features_writer + IC Engine Join
+- [x] 140.5-P1-PLAN.md — Batch Primitives Validation + Corpus Re-Run
+- [x] 140.5-P2-PLAN.md — HMM K via BIC Study + Conditional Regime Re-Run
+- [x] 140.5-P3-PLAN.md — Feature Registry Schema + FeatureRegistryService + IC/Ensemble Integration
+- [x] 140.5-P4-PLAN.md — Cross-Sectional Equity Regime Model + market_regimes + IC Engine Wiring
+- [x] 140.5-P5-PLAN.md — Context Features Table + context_features_writer + IC Engine Join
 
 ---
 
