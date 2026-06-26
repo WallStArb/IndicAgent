@@ -123,11 +123,13 @@ _TLT = "TLT"
 _SHY = "SHY"
 
 # CTF higher-timeframe mapping: source TF → HTF used for CTF features
-_CTF_HIGHER_TF: dict[str, str | None] = {
+# 1d uses itself as HTF: CTF at bar T computed from daily bars up to T (causal; bisect_right
+# selects the current bar's CTF which is valid since the bar has closed at computation time).
+_CTF_HIGHER_TF: dict[str, str] = {
     "5m": "1h",
     "15m": "1h",
     "1h": "1d",
-    "1d": None,
+    "1d": "1d",
 }
 
 # ---------------------------------------------------------------------------
