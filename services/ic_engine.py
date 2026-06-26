@@ -2,14 +2,14 @@
 """IC Engine -- Spearman IC measurement substrate for v3.0 AlphaEngine.
 
 Computes Information Coefficient (IC) per feature x symbol x TF x regime x lookahead,
-with circular-block-bootstrap confidence intervals, BH-FDR multiple-testing correction,
+with Fisher z-transform confidence intervals, BH-FDR multiple-testing correction,
 60-bar-embargo walk-forward validation, IC Sharpe, and idempotent upsert into
 feature_ic_scores.
 
 CORRECTNESS INVARIANTS:
-- Bootstrap is CIRCULAR BLOCK bootstrap (not i.i.d.). Mirrors batch_agent_memory.py
-  _circular_block_bootstrap_ci(). Block size from APR: alpha.ic.bootstrap_block_size.{tf}.
-  Circular wrapping eliminates boundary effects (D-15 temporal autocorrelation).
+- CI uses Fisher z-transform (exact asymptotic, O(p)). Replaces circular block bootstrap
+  which had a pre-ranking bug (resampling global ranks instead of re-ranking within sample)
+  and was redundant at our sample sizes (n > 500 everywhere; CLT fully converged).
 - Walk-forward has a 60-bar purge/embargo between training-fold end and test-fold start.
   60 bars = max(lookaheads) for the [1,5,20,60] set. Prevents overlapping forward-return
   labels from leaking across the fold boundary (lookahead bias).
@@ -39,8 +39,6 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import hashlib
-import math
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -252,15 +250,12 @@ def _load_apr(conn: Any, tf: str) -> dict[str, Any]:
     cfg = _load_config_service(conn)
     return {
         "min_observations": int(cfg.get_sync("alpha.ic.min_observations", 500)),
-        "bootstrap_resamples": int(cfg.get_sync("alpha.ic.bootstrap_resamples", 2000)),
-        "bootstrap_block_size": int(cfg.get_sync(f"alpha.ic.bootstrap_block_size.{tf}", 10)),
         "fdr_alpha": float(cfg.get_sync("alpha.ic.fdr_alpha", 0.05)),
         "walk_forward_folds": int(cfg.get_sync("alpha.ic.walk_forward_folds", 3)),
         "sharpe_window_size": int(cfg.get_sync("alpha.ic.sharpe_window_size", 2000)),
         "sharpe_min_windows": int(cfg.get_sync("alpha.ic.sharpe_min_windows", 10)),
         "subsample_min_stride": int(cfg.get_sync("alpha.ic.subsample_min_stride", 5)),
         "min_reliable_n": int(cfg.get_sync("alpha.ic.min_reliable_n", 100)),
-        "bootstrap_seed": int(cfg.get_sync("alpha.ic.bootstrap_seed", 42)),
         "cluster_max_corr": float(cfg.get_sync("alpha.ic.cluster_max_corr", 0.70)),
         # Lookaheads per scale -- loaded from APR; column names are gradient-scale identifiers
         "lookaheads": {
@@ -337,51 +332,34 @@ def _assert_prerequisites(
 
 
 # ---------------------------------------------------------------------------
-# Circular block bootstrap for IC vectors
+# Fisher z-transform CI for IC vectors
 # ---------------------------------------------------------------------------
 
+_Z95 = 1.959963985  # norm.ppf(0.975) — 95% two-tailed critical value
 
-def _circular_block_bootstrap_ic(
-    ranks_X: np.ndarray,
-    ranks_Y: np.ndarray,
-    block_size: int,
-    n_boot: int,
-    rng: np.random.Generator,
+
+def _fisher_z_ci(
+    ic_vector: np.ndarray,
+    n: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Circular block bootstrap for IC confidence intervals.
+    """95% CI for Spearman IC via Fisher z-transform.
 
-    Mirrors production/scripts/batch_agent_memory.py:_circular_block_bootstrap_ci()
-    but produces CI vectors over all features simultaneously.
-    Block size from APR: alpha.ic.bootstrap_block_size.{tf} (default 10).
-    Circular wrapping eliminates boundary effects at series edges (D-15).
+    Exact asymptotic CI equivalent to the bootstrap limit as n → ∞.
+    O(p) vs O(n_boot × n × p) for block bootstrap. No RNG, no memory pressure.
 
-    Args:
-        ranks_X: Shape [n_obs, n_features] -- pre-ranked feature matrix.
-        ranks_Y: Shape [n_obs] -- pre-ranked return vector.
-        block_size: Number of consecutive observations per bootstrap block.
-        n_boot: Number of bootstrap replicates.
-        rng: numpy random Generator for reproducibility.
+    The circular block bootstrap it replaces had a pre-ranking bug: it resampled
+    globally pre-ranked values instead of resampling raw observations and re-ranking
+    within each sample, producing CIs that were systematically too narrow.
 
-    Returns:
-        (ci_lower, ci_upper): Each shape [n_features]; 95% CI via percentile method.
+    Returns NaN arrays when n < 4 (arctanh undefined); upstream min_reliable_n gate
+    already excludes these, but defensive here.
     """
-    n, p = ranks_X.shape
-    n_blocks = math.ceil(n / block_size)
-    boot_ics = np.zeros((n_boot, p))
-    offsets = np.arange(block_size)
-
-    # Build indices one bootstrap sample at a time.
-    # The prior vectorized form allocated (n_boot, n_blocks, block_size) in one broadcast
-    # before slicing -- at production scale (n=469K, block_size=10) that is a 7.5 GB
-    # intermediate per worker, which OOM-kills the process under parallel execution.
-    # Per-iteration allocation: (n_blocks, block_size) = ~3.75 MB. Same RNG sequence.
-    for b in range(n_boot):
-        starts = rng.integers(0, n, size=n_blocks)
-        idx = (starts[:, None] + offsets).ravel()[:n] % n
-        boot_ics[b] = _vectorized_ic(ranks_X[idx], ranks_Y[idx])
-    ci_lower = np.percentile(boot_ics, 2.5, axis=0)
-    ci_upper = np.percentile(boot_ics, 97.5, axis=0)
-    return ci_lower, ci_upper
+    if n < 4:
+        nan = np.full_like(ic_vector, np.nan, dtype=float)
+        return nan, nan.copy()
+    z = np.arctanh(np.clip(ic_vector, -1 + 1e-10, 1 - 1e-10))
+    se = 1.0 / np.sqrt(n - 3)
+    return np.tanh(z - _Z95 * se), np.tanh(z + _Z95 * se)
 
 
 # ---------------------------------------------------------------------------
@@ -583,7 +561,6 @@ def _compute_symbol_tf(
     existing_keys: set[tuple] | frozenset[tuple],
     apr: dict[str, Any],
     tracer: Any,
-    rng: np.random.Generator,
     run_ts: datetime,
     feature_status_map: dict[str, str] | None = None,
     mr_dict: dict | None = None,
@@ -604,8 +581,6 @@ def _compute_symbol_tf(
     lookaheads = apr["lookaheads"]
     subsample_min_stride = apr["subsample_min_stride"]
     min_reliable_n = apr["min_reliable_n"]
-    bootstrap_block_size = apr["bootstrap_block_size"]
-    bootstrap_resamples = apr["bootstrap_resamples"]
     fdr_alpha = apr["fdr_alpha"]
     walk_forward_folds = apr["walk_forward_folds"]
     cluster_max_corr = apr["cluster_max_corr"]
@@ -834,23 +809,9 @@ def _compute_symbol_tf(
                 p_full = _expand(p_vector_nd, non_degenerate_mask, n_features)
 
                 # -------------------------------------------------------
-                # Circular block bootstrap CI
+                # Fisher z-transform CI
                 # -------------------------------------------------------
-                with _observed_span(
-                    "ic_engine.bootstrap_ci",
-                    tracer,
-                    symbol=symbol,
-                    tf=tf,
-                    regime=regime_label,
-                    scale=scale,
-                ):
-                    ci_lower_nd, ci_upper_nd = _circular_block_bootstrap_ic(
-                        ranks_X_scale,
-                        ranks_Y,
-                        bootstrap_block_size,
-                        bootstrap_resamples,
-                        rng,
-                    )
+                ci_lower_nd, ci_upper_nd = _fisher_z_ci(ic_vector_nd, n_valid)
 
                 ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
                 ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)
@@ -1071,13 +1032,7 @@ def _compute_symbol_tf(
                 ic_val = _nan_to_none(float(ic_vec[0]))
                 p_val = float(_p_values_from_ic(ic_vec, n_valid)[0])
 
-                ci_lower_arr, ci_upper_arr = _circular_block_bootstrap_ic(
-                    ranks_x_daily,
-                    ranks_y_daily,
-                    bootstrap_block_size,
-                    bootstrap_resamples,
-                    rng,
-                )
+                ci_lower_arr, ci_upper_arr = _fisher_z_ci(ic_vec, n_valid)
                 ci_lower = float(ci_lower_arr[0])
                 ci_upper = float(ci_upper_arr[0])
                 passes_ci = ci_lower > 0.0
@@ -1256,7 +1211,6 @@ def _compute_cross_sectional_tf(
     existing_keys: frozenset[tuple],
     apr: dict[str, Any],
     tracer: Any,
-    rng: np.random.Generator,
     run_ts: datetime,
     feature_status_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -1274,8 +1228,6 @@ def _compute_cross_sectional_tf(
     lookaheads = apr["lookaheads"]
     subsample_min_stride = apr["subsample_min_stride"]
     min_reliable_n = apr["min_reliable_n"]
-    bootstrap_block_size = apr["bootstrap_block_size"]
-    bootstrap_resamples = apr["bootstrap_resamples"]
     fdr_alpha = apr["fdr_alpha"]
     walk_forward_folds = apr["walk_forward_folds"]
     cluster_max_corr = apr["cluster_max_corr"]
@@ -1393,9 +1345,7 @@ def _compute_cross_sectional_tf(
         ic_full = _expand(ic_vector_nd, non_degenerate_mask, n_features)
         p_full = _expand(p_vector_nd, non_degenerate_mask, n_features)
 
-        ci_lower_nd, ci_upper_nd = _circular_block_bootstrap_ic(
-            ranks_X_scale, ranks_Y, bootstrap_block_size, bootstrap_resamples, rng
-        )
+        ci_lower_nd, ci_upper_nd = _fisher_z_ci(ic_vector_nd, n_valid)
         ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
         ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)
         passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
@@ -1569,28 +1519,15 @@ def _emit_health_gauges(symbol: str, tf: str, results: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _derive_worker_rng_seed(symbol: str, bootstrap_seed: int) -> int:
-    """Deterministic per-symbol RNG seed for ProcessPoolExecutor workers.
-
-    Uses hashlib (not Python's built-in hash()) to avoid PYTHONHASHSEED
-    randomization, which is per-process and would make seeds non-reproducible
-    across ic_engine invocations even with a fixed bootstrap_seed APR key.
-
-    Derived as bootstrap_seed + MD5(symbol)[:4] % 2**31.
-    """
-    symbol_hash = int(hashlib.md5(symbol.encode()).hexdigest()[:8], 16)
-    return bootstrap_seed + symbol_hash % (2**31)
-
-
 def _run_ic_worker(args: tuple) -> dict:
     """Worker function for ProcessPoolExecutor -- runs in subprocess.
 
-    Each worker processes one symbol x all TFs with its own DB connection
-    and deterministic per-symbol RNG. No OTel tracer -- workers log only.
+    Each worker processes one symbol x all TFs with its own DB connection.
+    No OTel tracer -- workers log only.
 
     Args:
         args: (symbol, tfs, dsn, training_window_end, existing_keys_frozen,
-               apr_cache, run_ts, bootstrap_seed)
+               apr_cache, run_ts, feature_status_map, mr_dict_by_tf)
 
     Returns:
         dict with keys: symbol, all_results (list), n_committed (int),
@@ -1604,7 +1541,6 @@ def _run_ic_worker(args: tuple) -> dict:
         existing_keys_frozen,
         apr_cache,
         run_ts,
-        bootstrap_seed,
         feature_status_map,
         mr_dict_by_tf,
     ) = args
@@ -1616,8 +1552,6 @@ def _run_ic_worker(args: tuple) -> dict:
 
     noop_tracer = _NoopTracer()
 
-    rng_seed = _derive_worker_rng_seed(symbol, bootstrap_seed)
-    rng = np.random.default_rng(seed=rng_seed)
     # frozenset supports O(1) `in` lookups identically to set; no conversion needed.
     existing_keys = existing_keys_frozen
 
@@ -1642,7 +1576,6 @@ def _run_ic_worker(args: tuple) -> dict:
                     existing_keys=existing_keys,
                     apr=apr,
                     tracer=noop_tracer,
-                    rng=rng,
                     run_ts=run_ts,
                     feature_status_map=feature_status_map,
                     mr_dict=mr_dict_by_tf.get(tf) if mr_dict_by_tf else None,
@@ -1840,7 +1773,7 @@ def main() -> None:
                 }
             _logger.info("ic_engine.existing_keys", count=len(existing_keys))
 
-            # APR is TF-specific (bootstrap_block_size varies by TF); load once per TF
+            # APR is TF-specific (lookahead.* varies by TF); load once per TF
             # rather than once per (symbol, tf) to avoid 58x redundant DB round-trips.
             apr_cache = {tf: _load_apr(conn, tf) for tf in tfs}
 
@@ -1849,7 +1782,6 @@ def main() -> None:
             n_workers = args.workers
             if n_workers is None:
                 n_workers = int(_full_cfg.get_sync("infra.ic_engine.workers", 1))
-            bootstrap_seed = apr_cache[tfs[0]]["bootstrap_seed"]
 
             # ----------------------------------------------------------
             # Load market_regimes {ts -> regime_label} per TF (for equity model)
@@ -1883,7 +1815,6 @@ def main() -> None:
                     existing_keys_frozen,
                     apr_cache,
                     run_ts,
-                    bootstrap_seed,
                     feature_status_map,
                     mr_dict_by_tf if equity_model_enabled else None,
                 )
@@ -1958,7 +1889,6 @@ def main() -> None:
                                 existing_keys=existing_keys_frozen,
                                 apr=apr,
                                 tracer=tracer,
-                                rng=np.random.default_rng(seed=apr_cache[tfs[0]]["bootstrap_seed"]),
                                 run_ts=run_ts,
                                 feature_status_map=feature_status_map,
                             )
