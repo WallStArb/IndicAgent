@@ -2,7 +2,7 @@
 
 **Status:** current
 **Last Updated:** 2026-06-22
-**Design spec:** `docs/plans/2026-05-30-renaissance-naming-system-design.md`
+**Extended discussion:** `docs/reference/renaissance-naming-philosophy.md` (detailed examples and reasoning for governing tests)
 
 ---
 

@@ -18,10 +18,28 @@ For the full spec — governing tests, taxonomy governance, ring architecture, a
 | Object type | Pattern | Example |
 |------------|---------|---------|
 | Ring 2 daemon | `PascalCase(concept)` + category suffix | `SignalTracker`, `BarAggregator` |
-| Ring 2 daemon (plain role noun) | `PascalCase(concept)` — no suffix | `IntelligencePipeline`, `AlphaSwarm` |
-| Ring 1 mathematical object | `PascalCase(concept)` + category suffix | `SkepticEvaluator`, `CorrelationAnalyzer` |
+| Ring 2 daemon (plain role noun) | `PascalCase(concept)` — no suffix | `IntelligencePipeline`, `AlphaSwarm`, `NarrativeSwarm`, `AlphaEngine`, `ICEngine` |
+| Ring 1 mathematical object | `PascalCase(concept)` + category suffix | `SkepticEvaluator`, `CorrelationAnalyzer`, `FeatureFactory`, `FeatureCache` |
+| Ring 0 infrastructure base | `Base` + `PascalCase(role)` | `BaseDaemon`, `BaseWriter`, `BaseBatch` |
 | Ring 0/1 abstract type | Category suffix alone | `Evaluator`, `Synthesizer` |
-| Ring 0 infrastructure base | `Base` + `PascalCase(role)` | `BaseDaemon`, `BaseWriter` |
+| Ring 0 infrastructure base | `Base` + `PascalCase(role)` | `BaseDaemon`, `BaseWriter`, `BaseBatch` |
+
+---
+
+## v3.0 AlphaEngine Components
+
+**Quick reference for v3.0 naming patterns:**
+
+| Component | Ring | Pattern | Location | Naming Rationale |
+|----------|------|---------|----------|-------------------|
+| `FeatureFactory` | 1 | `PascalCase(concept)` — no suffix | `src/intelligence/feature_factory.py` | Pure function library, no daemon loop |
+| `FeatureCache` | 1 | `PascalCase(concept)` | `src/intelligence/feature_cache.py` | State container, not autonomous |
+| `ICEngine` | 2 | `PascalCase(concept)` + `Engine` | `services/ic_engine.py` | Batch compute service, autonomous |
+| `AlphaEngine` | System | `PascalCase(concept)` + `Engine` | Architecture concept (not class) | The overall IC + ensemble system |
+| `BaseBatch` | 0 | `Base` + `PascalCase(role)` | `src/core/agent/base_batch.py` | Infrastructure base for batch services |
+| `AlphaEventEmitter` | 2 | `PascalCase(concept)` + `Emitter` | `services/alpha_event_emitter.py` | Future Phase C daemon |
+
+**v3.0 naming philosophy:** No "plugins" (v2.x term), no "signals" (v2.x term). Features are mathematical functions, services are autonomous daemons.
 | Behavioral mixin | `PascalCase(capability)` + `Mixin` | `IncrementalMixin`, `ConfigConsumerMixin` |
 | Enumeration | `PascalCase` singular noun — no suffix | `MarketRegime`, `SignalStatus` |
 | Component config | `PascalCase(concept)` + `Config` | `EvaluatorConfig`, `PipelineConfig` |

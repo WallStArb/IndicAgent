@@ -460,12 +460,20 @@ def _cluster_features(X_nd: np.ndarray, cluster_max_corr: float) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def _hac_sharpe_nd(window_ics: np.ndarray, max_lag: int) -> np.ndarray:
+def _hac_sharpe_nd(
+    window_ics: np.ndarray,
+    max_lag: int,
+    mean_ic: np.ndarray | None = None,
+    var0: np.ndarray | None = None,
+) -> np.ndarray:
     """Newey-West Bartlett-kernel HAC-corrected IC Sharpe.
 
     Args:
         window_ics: [n_windows, n_features] IC values per rolling window.
         max_lag: Bartlett-kernel max lag K. K=0 returns naive Sharpe.
+        mean_ic: Pre-computed column means (optional; computed internally if absent).
+        var0: Pre-computed population variance per feature (optional; avoids recomputation
+              when the caller already holds mean_ic and std_ic).
 
     Returns:
         sharpe_hac: [n_features]. Equal to naive Sharpe when max_lag=0 or
@@ -473,8 +481,10 @@ def _hac_sharpe_nd(window_ics: np.ndarray, max_lag: int) -> np.ndarray:
         for positively autocorrelated IC series (inflation floored at 1).
     """
     n, p = window_ics.shape
-    mean_ic = window_ics.mean(axis=0)
-    var0 = ((window_ics - mean_ic) ** 2).mean(axis=0)
+    if mean_ic is None:
+        mean_ic = window_ics.mean(axis=0)
+    if var0 is None:
+        var0 = ((window_ics - mean_ic) ** 2).mean(axis=0)
 
     if max_lag == 0 or n < max_lag + 2:
         hac_std = np.sqrt(var0)
