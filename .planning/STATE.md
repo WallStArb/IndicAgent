@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v3.0
-milestone_name: milestone
-status: milestone_archived
-last_updated: "2026-06-27T00:21:11.851Z"
+milestone: v3.1
+milestone_name: AlphaEngine Validation + Alpha Scoring
+status: in_progress
+last_updated: "2026-06-27T11:00:00.000Z"
 progress:
-  total_phases: 13
-  completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
-  percent: 15
+  total_phases: 5
+  completed_phases: 1
+  total_plans: 5
+  completed_plans: 5
+  percent: 20
 ---
 
 # Project State
@@ -19,15 +19,23 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 140.5 — corpus-foundations-feature-governance
+**Current focus:** Phase 141 — Corpus Quality Gate + IC Validation (blocked on corpus pipeline)
 
-## v3.0 Phase Summary
+## v3.0 Phase Summary (SHIPPED 2026-06-25)
 
 | Phase | Name | Status |
 |-------|------|--------|
 | 137 | Feature Factory | COMPLETE (7/7 plans, 2026-06-21) |
-| 138 | IC Engine + Forward Returns | COMPLETE — code (9/9 plans); data run pending full corpus |
-| 139 | Ensemble + Alpha Emission | PLANNED (3 plans, not started) |
+| 138 | IC Engine + Forward Returns | COMPLETE (9/9 plans, 2026-06-23) |
+| 139 | Ensemble + Alpha Emission | COMPLETE (3/3 plans, 2026-06-24; 14/14 verification truths) |
+| 140 | IC Engine Correctness | COMPLETE (4/4 plans, 2026-06-25; no verification file) |
+
+## v3.1 Phase Summary (IN PROGRESS)
+
+| Phase | Name | Status |
+|-------|------|--------|
+| 140.5 | Corpus Foundations + Feature Governance | COMPLETE (5/5 plans, 2026-06-26; 27/29 verification truths — 2 gaps resolved by corpus pipeline) |
+| 141 | Corpus Quality Gate + IC Validation | PLANNED — blocked on corpus pipeline completion |
 
 ## Phase 138 Plan Detail
 
@@ -44,31 +52,32 @@ See: .planning/PROJECT.md
 | P7 | IC Math Helpers + Tests | Complete | 2026-06-23 | Pure functions, unit tests |
 | P8 | IC Pipeline Data Run | Complete (4-symbol) | 2026-06-23 | 12,444 IC scores on SPY/TLT/XLF/QQQ; full corpus run pending |
 
-## Current Data State (4-symbol corpus — will be replaced)
+## Current Data State (58-symbol full corpus)
 
-- feature_vectors: 3,787,423 rows (SPY/TLT/XLF/QQQ x 4 TFs)
-- forward_returns: 3,787,423 rows (1:1 match)
-- feature_ic_scores: 12,444 rows (683 non-pooled passers)
-- IC discovery report: `docs/analysis/ic-discovery-report.{md,json}`
+- feature_vectors: 54,260,576 rows (58 symbols × 4 TFs — COMPLETE)
+- forward_returns: 54,260,576 rows (1:1 match — COMPLETE)
+- feature_ic_scores: 382,271 rows (330,890 non-pooled; 58 distinct symbols, 58 distinct features)
+- market_regimes: 819,020 rows (K=5 labels confirmed in feature_vectors)
+- alpha_events: 0 rows (ensemble_trainer + alpha_publisher not yet run)
+- context_features: 8,985 rows (2995 trading days × 3 macro features)
 
-**Top feature (4-symbol):** `quarter_position` (TLT, 15m, trending_up, IC Sharpe 0.870)
+**regime labels confirmed:** trending_up, transition_up, ranging, transition_down, trending_down (K=5 ✓)
 
-## Full Corpus Run — RUNNING (started 2026-06-24)
+## Corpus Pipeline — IN PROGRESS (started 2026-06-24)
 
-All 6 pipeline steps running end-to-end via `corpus_pipeline_run.sh`.
+Steps 1-4 complete. Steps 5-6 pending.
 
-```bash
-nohup bash production/scripts/corpus_pipeline_run.sh > logs/corpus_pipeline/nohup.log 2>&1 &
-tail -f logs/corpus_pipeline/nohup.log
-```
+**Pipeline steps:**
+- [x] feature_factory — 54M rows
+- [x] regime_writer --refit (K=5) — labels confirmed in feature_vectors
+- [x] forward_return_writer — 54M rows
+- [x] ic_engine — 382K IC scores
+- [ ] ensemble_trainer — not yet run (alpha_ensemble table does not exist)
+- [ ] alpha_publisher — not yet run (alpha_events = 0)
 
-**Pipeline steps:** feature_factory → regime_writer → forward_return_writer → ic_engine → ensemble_trainer → alpha_publisher
+**regime_writer also running** (new workers PID 1003466+ started 2026-06-27 06:04 — separate from --refit run)
 
-**Pre-run state:** All derived tables truncated (including alpha_events). backfill_status seeded from market_data_ohlcv (232 rows = 58 symbols × 4 TFs) because truncation cleared fetch_complete flags — `--compute-only` requires these.
-
-**Expected duration:** ~20-30h (step 1 dominates).
-
-**After run completes:** Review IC discovery report, commit all work, then begin next milestone.
+**After pipeline completes:** Run Phase 141 (Corpus Quality Gate + IC Validation).
 
 ## Key Decisions (load-bearing — don't re-derive)
 
@@ -85,9 +94,11 @@ tail -f logs/corpus_pipeline/nohup.log
 
 ## Session Continuity
 
-### Current session (2026-06-24) — Corpus pipeline running
+### Current session (2026-06-27) — GSD state sync
 
-Full corpus pipeline launched. All naming violations fixed (EnsembleBuilder→EnsembleTrainer, AlphaEmitter→AlphaPublisher, run_corpus_pipeline.sh→corpus_pipeline_run.sh). All unit tests green (5,245 pass).
+Phases 139, 140, 140.5 completed since STATE.md was last updated. STATE.md and ROADMAP.md reconciled. Corpus pipeline steps 1-4 complete; steps 5-6 (ensemble_trainer, alpha_publisher) pending. regime_writer still has active workers (PID 1003466+, started 06:04).
+
+**Next:** Wait for corpus pipeline completion (ensemble_trainer + alpha_publisher) → commit all work → begin Phase 141 (Corpus Quality Gate + IC Validation).
 
 **Gotcha:** `--compute-only` silently skips all symbols if backfill_status is empty (requires fetch_complete=true per row). After any truncation, seed backfill_status first:
 
@@ -98,16 +109,8 @@ FROM market_data_ohlcv WHERE timeframe IN ('5m', '15m', '1h', '1d')
 ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 ```
 
-**Next:** Wait for corpus_pipeline_run.sh to complete → review IC discovery report → commit → next milestone
+### Previous sessions (2026-06-24 to 2026-06-26) — Phases 140, 140.5
 
-### Previous session (2026-06-23) — Phase 138 P8
-
-IC engine corpus run on SPY/TLT/XLF/QQQ × 4 TFs. 12,444 IC score rows in 150s. 1,022 walk-forward passers; 683 non-pooled passers. Discovery report at `docs/analysis/ic-discovery-report.{md,json}`. Unit tests: 5165 passed, 1 pre-existing failure (test_pipeline_backpressure — stale reference, unrelated to Phase 138).
-
-### Earlier sessions (2026-06-20 to 2026-06-22)
-
-- v2.10 closed; v3.0 started — Feature Factory (Phase 137) complete; IC engine (Phase 138) P0-P7 complete
-- I5/I6/I7 fully archived; Feature Factory replaces I1-I4 implementation; `feature_vectors` is v3.0 training corpus
-- `BaseBatch` Ring 0 base class: `src/core/agent/base_batch.py`
-- AlphaEngine methodology: `docs/intelligence/intelligence-alphaengine.md`
-- IC methodology: `docs/plans/2026-06-20-alphaengine-v1-methodology.md`
+- Phase 140 (IC Engine Correctness): per-scale stride fix, overnight gap contamination, BH-FDR meta-level gate, feature collinearity clustering, sharpe_min_windows raised to 30
+- Phase 140.5 (Corpus Foundations): batch primitives fix (CTF/VP/HMM), K=5 BIC validation, Feature Registry, cross-sectional equity regime model, context_features table
+- Full 58-symbol corpus pipeline launched; K=5 regime refit run; ic_engine produced 382K scores

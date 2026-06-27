@@ -26,7 +26,7 @@
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
 - 📋 **v3.0a Signal Integrity — IntegrityMonitor** — Phases 149A, 149B, 150 (planned; one service replacing DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; regime-conditioned KS + chi-squared + signed Wasserstein on 54 features; IC shadow governance with evidence-based promotion; 3-gate ensemble health [E1: IC, E2: conviction stability, E3: coverage]; all parameters APR-backed; see `docs/plans/2026-06-27-health-guardian-design.md`)
-- 📋 **v3.1 AlphaEngine Validation + Alpha Scoring** — Phases 140.5-144 (planned; hard-gated on Phase 141 corpus validation passing; 8 structural prerequisites must be resolved before roadmap is written — see `docs/plans/2026-06-25-alphaengine-phase-d-prerequisites.md`)
+- 🔄 **v3.1 AlphaEngine Validation + Alpha Scoring** — Phases 140.5-144 (in progress; Phase 140.5 COMPLETE 2026-06-26; corpus pipeline running; Phase 141 hard-gated on corpus pipeline completion — see `docs/plans/2026-06-25-alphaengine-phase-d-prerequisites.md`)
 - 📋 **v3.2 AnalogEngine + Feature Expansion** — Phases 145-147 (planned; hard-gated on v3.1 OOS-validated IC > 0 at 95% CI)
 - 📋 **v3.3 Foundational Hardening** — Phases 148-149 (planned)
 - 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.3 complete + alpha_events schema frozen; consumes alpha_events, never modifies signal weights)
@@ -1200,7 +1200,7 @@ Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from 
 </details>
 
 <details>
-<summary>✅ v3.0 Intelligence Vectors — AlphaEngine (Phases 137-139) — SHIPPED 2026-06-24</summary>
+<summary>✅ v3.0 Intelligence Vectors — AlphaEngine (Phases 137-140) — SHIPPED 2026-06-25</summary>
 
 - [x] **Phase 137: Feature Factory** — 54-feature typed `feature_vectors` hypertable; `FeatureFactory.compute()`; `BaseBatch` Ring 0 base class; I5/I6/I7 archived (7/7 plans, 2026-06-21)
 - [x] **Phase 138: IC Engine + Forward Returns** — Vectorized Spearman IC, circular-block-bootstrap CI, BH-FDR, 3-fold walk-forward, causal HMM regime labeling, forward returns via LEAD() (9/9 plans, 2026-06-23)
@@ -1257,7 +1257,7 @@ Plans:
 
 ---
 
-### Phase 140.5: Corpus Foundations + Feature Governance 📋 PLANNED
+### Phase 140.5: Corpus Foundations + Feature Governance ✅ COMPLETE 2026-06-26
 
 **Goal:** Five prerequisites that must exist before Phase 141 touches a single IC score: (1) fix silent constant features in the batch path so the corpus is clean, (2) validate HMM state count K before regime labels are trusted, (3) build the Feature Registry so the ensemble has lifecycle governance from day one, (4) replace per-symbol HMM with a cross-sectional equity regime model so IC stratification pools observations across symbols, (5) separate daily-cadence macro features into a `context_features` table so they do not inflate IC through artificial autocorrelation. None of these can be deferred to Phase 141 — they are Phase 141's foundation.
 

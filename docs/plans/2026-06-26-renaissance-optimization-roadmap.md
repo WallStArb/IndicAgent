@@ -1,9 +1,29 @@
 # Renaissance-Grade Optimization Roadmap
 
 **Date:** 2026-06-26  
-**Status:** Draft for Review  
+**Status:** SUPERSEDED 2026-06-27  
 **Scope:** IC Engine, Feature Factory, AlphaEngine Architecture  
 **Philosophy:** Jim Simons would demand ruthlessly eliminating hidden bias, complexity, and edge-case failures while maximizing alpha per unit of compute
+
+## Disposition (2026-06-27)
+
+| Item | Status | Resolution |
+|------|--------|------------|
+| IC-001: Overnight gap look-ahead bias | DONE | Phase 140-P0 — `complete_{scale}` flags filter contaminated returns |
+| IC-002: Context feature autocorrelation bias | DONE | Phase 140.5-P5 — `context_features` table + `DISTINCT ON` daily observation |
+| IC-003: Regime transition contamination | OPEN | Todo 025 — `alpha.ic.regime_purge_bars` purge window |
+| PERF-001: IC engine vectorization | OPEN | Todo candidate — post-Phase 141 optimization |
+| PERF-002: Incremental FeatureFactory | DEFERRED | Irrelevant until streaming path re-enabled |
+| PERF-003: DB round-trip consolidation | DEFERRED | Low impact (~7s); revisit if corpus runtime becomes a blocker |
+| ALPHA-001: Feature redundancy audit | PARTIAL | Foundation done (clustering + Feature Registry); audit runs after Phase 141 |
+| ALPHA-002: Regime-adaptive lookahead | OPEN | In ROADMAP Phase 143 |
+| ALPHA-003: Cross-sectional rank features | OPEN | Todo 026 — columns exist, need batch compute script |
+| ALPHA-004: Ensemble weighting beyond IC Sharpe | OPEN | In ROADMAP Phase 144 |
+| ARCH-001: APR compile-time binding | OPEN | Todo 028 — load config once at startup, not per-call in hot paths |
+| ARCH-002: FeatureFactory.compute/compute_batch unification | OPEN | Todo 029 — eliminate divergence that already caused Phase 140.5-P1 silent-constant bugs |
+| ARCH-003: Numba JIT HMM forward-filter (20-50x speedup) | OPEN | Todo 027 — after corpus pipeline stabilizes |
+| OBS-001: Rolling IC drift detection | PLANNED | ROADMAP Phase 149B — ICLifecycleMonitor (v3.0a IntegrityMonitor) |
+| OBS-002: Feature distribution drift | PLANNED | ROADMAP Phase 149A — DistributionDriftMonitor (v3.0a IntegrityMonitor) |
 
 ---
 
