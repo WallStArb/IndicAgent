@@ -1707,6 +1707,13 @@ def main() -> None:
         "Default: MAX(bar_ts) FROM feature_vectors with a warning. "
         "Set explicitly to keep PKs stable across multi-run corpus builds.",
     )
+    parser.add_argument(
+        "--cross-sectional-only",
+        action="store_true",
+        default=False,
+        help="Skip per-symbol pass and run only the cross-sectional (POOLED) IC pass. "
+        "Requires equity_model_enabled=true. Use when per-symbol rows already exist.",
+    )
     args = parser.parse_args()
 
     try:
@@ -1863,59 +1870,64 @@ def main() -> None:
             # Build worker args then close main conn -- workers open their own
             # ----------------------------------------------------------
             existing_keys_frozen = frozenset(existing_keys)
-            worker_args = [
-                (
-                    symbol,
-                    tfs,
-                    settings.database_url,
-                    training_window_end,
-                    existing_keys_frozen,
-                    apr_cache,
-                    run_ts,
-                    feature_status_map,
-                    mr_dict_by_tf if equity_model_enabled else None,
-                )
-                for symbol in symbols
-            ]
-
-            _logger.info(
-                "ic_engine.starting_parallel",
-                n_symbols=len(symbols),
-                n_workers=n_workers,
-            )
-            conn.close()
-            conn = None  # prevent double-close in finally
-
-            # ----------------------------------------------------------
-            # Main compute loop (ProcessPoolExecutor)
-            # ----------------------------------------------------------
             total_committed = 0
             total_skipped = 0
 
-            with ProcessPoolExecutor(max_workers=n_workers) as pool:
-                for result in pool.map(_run_ic_worker, worker_args, chunksize=1):
-                    symbol = result["symbol"]
-                    if result["error"]:
-                        _logger.error(
-                            "ic_engine.symbol_failed",
-                            symbol=symbol,
-                            error=result["error"],
-                        )
-                        status = "failure"
-                        exit_code = 1
-                    total_committed += result["n_committed"]
-                    total_skipped += result["n_skipped"]
-                    if result["all_results"]:
-                        for tf in tfs:
-                            tf_results = [r for r in result["all_results"] if r.get("tf") == tf]
-                            if tf_results:
-                                _emit_health_gauges(symbol, tf, tf_results)
-                    _logger.info(
-                        "ic_engine.symbol_done",
-                        symbol=symbol,
-                        n_committed=result["n_committed"],
-                        n_skipped=result["n_skipped"],
+            if args.cross_sectional_only:
+                _logger.info("ic_engine.skipping_per_symbol_pass", reason="--cross-sectional-only")
+                conn.close()
+                conn = None
+            else:
+                worker_args = [
+                    (
+                        symbol,
+                        tfs,
+                        settings.database_url,
+                        training_window_end,
+                        existing_keys_frozen,
+                        apr_cache,
+                        run_ts,
+                        feature_status_map,
+                        mr_dict_by_tf if equity_model_enabled else None,
                     )
+                    for symbol in symbols
+                ]
+
+                _logger.info(
+                    "ic_engine.starting_parallel",
+                    n_symbols=len(symbols),
+                    n_workers=n_workers,
+                )
+                conn.close()
+                conn = None  # prevent double-close in finally
+
+                # ----------------------------------------------------------
+                # Main compute loop (ProcessPoolExecutor)
+                # ----------------------------------------------------------
+                with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                    for result in pool.map(_run_ic_worker, worker_args, chunksize=1):
+                        symbol = result["symbol"]
+                        if result["error"]:
+                            _logger.error(
+                                "ic_engine.symbol_failed",
+                                symbol=symbol,
+                                error=result["error"],
+                            )
+                            status = "failure"
+                            exit_code = 1
+                        total_committed += result["n_committed"]
+                        total_skipped += result["n_skipped"]
+                        if result["all_results"]:
+                            for tf in tfs:
+                                tf_results = [r for r in result["all_results"] if r.get("tf") == tf]
+                                if tf_results:
+                                    _emit_health_gauges(symbol, tf, tf_results)
+                        _logger.info(
+                            "ic_engine.symbol_done",
+                            symbol=symbol,
+                            n_committed=result["n_committed"],
+                            n_skipped=result["n_skipped"],
+                        )
 
             # ----------------------------------------------------------
             # Cross-sectional IC pass (equity_model_enabled=True only)
