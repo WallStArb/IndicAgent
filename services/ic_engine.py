@@ -540,7 +540,7 @@ def _compute_ic_rolling_metrics(
     n_windows = 0
 
     if complete_mask.sum() < 2:
-        return nan_result, nan_result.copy(), nan_result.copy(), nan_result.copy(), n_windows
+        return nan_result, nan_result, nan_result, nan_result, n_windows
 
     X_aligned = X_sub[complete_mask]
     Y_aligned = returns_sub[complete_mask, scale_idx]
@@ -548,7 +548,7 @@ def _compute_ic_rolling_metrics(
     n = len(X_aligned)
     n_windows_possible = n // sharpe_window_size
     if n_windows_possible < sharpe_min_windows:
-        return nan_result, nan_result.copy(), nan_result.copy(), nan_result.copy(), n_windows
+        return nan_result, nan_result, nan_result, nan_result, n_windows
 
     window_ics_list = []
     for w in range(n_windows_possible):
@@ -564,14 +564,15 @@ def _compute_ic_rolling_metrics(
 
     n_windows = len(window_ics_list)
     if n_windows < sharpe_min_windows:
-        return nan_result, nan_result.copy(), nan_result.copy(), nan_result.copy(), n_windows
+        return nan_result, nan_result, nan_result, nan_result, n_windows
 
     window_ics = np.array(window_ics_list)  # [n_windows, n_non_degenerate]
     mean_ic = window_ics.mean(axis=0)
-    std_ic = window_ics.std(axis=0)
+    var0 = ((window_ics - mean_ic) ** 2).mean(axis=0)
+    std_ic = np.sqrt(var0)
 
     sharpe_nd = np.where(std_ic > 1e-10, mean_ic / std_ic, 0.0)
-    sharpe_hac_nd = _hac_sharpe_nd(window_ics, apr["hac_max_lag"])
+    sharpe_hac_nd = _hac_sharpe_nd(window_ics, apr["hac_max_lag"], mean_ic=mean_ic, var0=var0)
 
     # Sortino: penalise only negative-IC windows (target = 0)
     # NaN per feature when that feature has no negative windows (ratio undefined)
