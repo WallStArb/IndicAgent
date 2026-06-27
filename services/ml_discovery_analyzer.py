@@ -16,7 +16,6 @@ Exception: writes directly to DB (timer batch job -- ComputeAgent DB-ignorant ru
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -201,8 +200,8 @@ class MLDiscoveryAnalyzer(BaseDaemon):
                 symbol,
                 tf,
                 regime,
-                json.dumps(result["top_features"]),
-                json.dumps(result["ic_scores"]),
+                result["top_features"],
+                result["ic_scores"],
                 result.get("feature_count", 0),
                 result.get("status", "complete"),
             )
