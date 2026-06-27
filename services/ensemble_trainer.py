@@ -360,8 +360,11 @@ class EnsembleTrainer(BaseBatch):
             log.debug("ensemble_trainer.stratum_no_ic_rows")
             return
 
-        # Step 2: Select best lookahead per feature
-        selected = select_features_per_stratum([dict(r) for r in ic_rows])
+        # Step 2: Select best lookahead per feature.
+        # select_features_per_stratum expects key "ic_sharpe"; our column is "ic_sharpe_hac".
+        selected = select_features_per_stratum(
+            [{**dict(r), "ic_sharpe": r["ic_sharpe_hac"]} for r in ic_rows]
+        )
         if len(selected) < min_passing_features:
             log.debug(
                 "ensemble_trainer.stratum_skipped_min_features",
@@ -398,15 +401,19 @@ class EnsembleTrainer(BaseBatch):
         ic_ci_upper = ic_ci_upper[ordered_idx]
         lookahead_bars = [lookahead_bars[i] for i in ordered_idx]
 
-        # Fetch feature matrix for all symbols in this regime — also select symbol for alpha insert
+        # Fetch feature matrix for all symbols in this cross-sectional regime.
+        # feature_vectors.regime holds per-symbol HMM labels; cross-sectional regime labels
+        # live in market_regimes. JOIN on (asset_class, tf, ts=bar_ts) to filter by regime.
         # Safe: col_subset names come from information_schema, not user data
-        col_list = ", ".join(f'"{c}"' for c in col_subset)
+        col_list = ", ".join(f'fv."{c}"' for c in col_subset)
         fv_rows = await conn.fetch(
             f"""
-            SELECT symbol, {col_list}, bar_ts
-            FROM feature_vectors
-            WHERE tf = $1 AND regime = $2
-            ORDER BY bar_ts, symbol
+            SELECT fv.symbol, {col_list}, fv.bar_ts
+            FROM feature_vectors fv
+            JOIN market_regimes mr
+              ON mr.asset_class = 'equity' AND mr.tf = fv.tf AND mr.ts = fv.bar_ts
+            WHERE fv.tf = $1 AND mr.regime_label = $2
+            ORDER BY fv.bar_ts, fv.symbol
             """,
             tf,
             regime,
