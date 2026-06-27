@@ -324,3 +324,124 @@ oscillator 6 · regime 10 · macro 3 · calendar 11 · cross_tf 3 = **61**
 Implement before expanding beyond current 61 features. The primitives expansion
 (renaissance-primitives-ohlcv.md) should add features as `candidate` rows and
 promote via IC evidence — not directly to `active`.
+
+---
+
+## Flow Activity Primitives (First-Order Expansion)
+
+**Context**: Renaissance-grade approach to detecting flow synchronization/crowding. See `docs/ideas/renaissance-primitives-ohlcv.md` for full catalog. **Key insight**: Don't pre-judge what "crowding" means — provide raw primitives, let IC engine + ensemble discover patterns.
+
+### Design Philosophy (vs. Theory-Heavy Approach)
+
+| Dimension | Theory-Heavy (Rejected) | Renaissance-Grade (Adopted) |
+|-----------|------------------------|-------------------------|
+| **What to measure** | Composite "crowding index" with weighted formula | Raw 1st/2nd-order primitives (volume_change, trade_count_change) |
+| **How to aggregate** | Cross-sectional correlation matrices across 58 ETFs | Per-symbol only — ensemble discovers cross-symbol patterns |
+| **Where to detect** | Pre-built regime filter at feature level | IC stratification + ensemble weight discovery |
+| **Human theory** | "When synchronized, momentum crashes" | None — let data speak |
+
+**Renaissance principle**: Throw thousands of simple primitives at the ensemble. If volume synchronization predicts momentum decay, the model will learn:
+```
+WHEN volume_z_5 > 1.0 for >70% of ETFs → momentum_z_fast IC drops by 40%
+```
+
+No human theory required.
+
+### New Primitives to Add (10 Flow Activity Features)
+
+All are **tier='0_atomic'** (first/second-order transforms, no cross-section theory):
+
+| feature_name | group_name | formula_short | normalization | linear_ready | window_apr_keys | notes |
+|---|---|---|---|---|---|---|
+| `volume_change` | volume | `volume_t - volume_{t-1}` | unbounded_ratio | FALSE | [] | 1st-order raw change |
+| `volume_pct_change` | volume | `(volume_t - volume_{t-1}) / volume_{t-1}` | unbounded_ratio | FALSE | [] | Rate of change (scale-free) |
+| `volume_acceleration` | volume | `volume_change_t - volume_change_{t-1}` | unbounded_ratio | FALSE | [] | 2nd-order change-of-change |
+| `volume_z_5` | volume | `z-score(volume, window=5)` | z_scored | TRUE | ['feature.volume.z_5_window'] | Short-window volume z-score |
+| `trade_count_change` | volume | `trade_count_t - trade_count_{t-1}` | unbounded_ratio | FALSE | [] | Activity raw change |
+| `trade_count_acceleration` | volume | `trade_count_change_t - trade_count_change_{t-1}` | unbounded_ratio | FALSE | [] | Activity acceleration |
+| `range_pct_change` | volatility | `((H_t-L_t) - (H_{t-1}-L_{t-1})) / (H_{t-1}-L_{t-1})` | unbounded_ratio | FALSE | [] | Vol expansion rate |
+| `body_ratio_change` | structure | `body_ratio_t - body_ratio_{t-1}` | bounded_signed | TRUE | [] | Conviction acceleration |
+| `ret_lag_1` | momentum | `log(close_t / close_{t-1})` | unbounded_ratio | FALSE | [] | Foundation 1-bar return (duplicate: exists) |
+| `trade_count_z_5` | volume | `z-score(trade_count, window=5)` | z_scored | TRUE | ['feature.trade_count.z_5_window'] | Short-window activity z-score |
+
+**Total**: 10 new primitives. All tier='0_atomic', status='candidate' on seed.
+
+### Seed Migration Update
+
+When adding these 10 features:
+
+```sql
+-- Insert new flow activity primitives
+INSERT INTO feature_registry (feature_name, group_name, tier, formula_short, normalization, linear_ready, source_dims, requires_htf, window_apr_keys, parent_features, status, min_ic_n, fdr_required, fdr_alpha, notes) VALUES
+    ('volume_change', 'volume', '0_atomic', 'volume_t - volume_{t-1}', 'unbounded_ratio', FALSE, ARRAY['volume'], FALSE, NULL, NULL, 'candidate', 100, TRUE, 0.05, '1st-order raw change'),
+    ('volume_pct_change', 'volume', '0_atomic', '(volume_t - volume_{t-1}) / volume_{t-1}', 'unbounded_ratio', FALSE, ARRAY['volume'], FALSE, NULL, NULL, 'candidate', 100, TRUE, 0.05, 'Rate of change (scale-free)'),
+    -- ... (8 more rows)
+ON CONFLICT (feature_name) DO NOTHING;
+```
+
+### Validation Strategy
+
+1. **Seed as `status='candidate'`** — not active, no ensemble weight
+2. **Run IC engine** — compute IC for all candidates
+3. **Promote to `status='active'`** ONLY if:
+   - `ic_sharpe >= min_ic_sharpe` (per-feature or APR floor)
+   - `n >= min_ic_n` (default 100)
+   - Passes FDR at `fdr_alpha` (default 0.05)
+4. **No human theory about "crowding"** — if flow synchronization matters, IC will show it
+
+### Registry Integration Points
+
+**FeatureRegistryService additions** (if needed beyond base implementation):
+
+```python
+def get_candidates_by_group(self, group: str) -> list[dict]:
+    """Get all candidate features in a group (for batch IC testing)"""
+    ...
+
+def promote_features(self, feature_names: list[str], ic_results: dict) -> None:
+    """Bulk promote candidates to active based on IC evidence"""
+    ...
+```
+
+**IC engine integration**:
+- IC engine already runs on all `status != 'deprecated'` features
+- Candidates are included in IC runs (status='candidate' != 'deprecated')
+- Write `feature_status_at_eval='candidate'` on IC score rows
+- Ensemble trainer excludes `candidate` rows automatically
+
+### Expected Discovery Patterns
+
+If flow synchronization/crowding is real, the ensemble will discover patterns like:
+
+- **Volume synchronization**: `WHEN volume_z_5 > 1.0 for >70% of ETFs, momentum_z_fast IC drops 40%`
+- **Activity bursts**: `WHEN trade_count_change > 0 for SPY+QQQ+IWM, next-bar returns negative`
+- **Volatility expansion**: `WHEN range_pct_change > 0.5 across market, regime shifting`
+
+**No pre-judgment** — the registry is the neutral repository. IC engine + ensemble determine signal.
+
+### Relationship to Theory-Heavy Approach
+
+**Alternative considered** (see `docs/ideas/comomentum-crowding-metric.md`):
+- Cross-sectional correlation metrics (volume_sync_z, return_abnormal_resid)
+- Composite crowding_index with weighted formula
+- Pre-built regime filter ("crowded" vs "uncrowded")
+
+**Why rejected**:
+- Encodes human theory about what "crowding" means
+- Requires cross-sectional data (all 58 ETFs) to compute per-symbol value
+- P6-P8 priority (problem-specific), not foundational
+- Renaissance doesn't pre-judge composites — throws primitives at ensemble
+
+**Current approach** (this doc):
+- True primitives (1st/2nd-order, per-symbol only)
+- P2-P3 priority (foundational, like bar anatomy)
+- Let IC engine discover cross-symbol patterns
+- Ensemble trainer learns the composites automatically
+
+### See Also
+
+- `docs/ideas/renaissance-primitives-ohlcv.md` — full catalog (200+ candidates organized by computation order)
+- `docs/ideas/comomentum-crowding-metric.md` — theory-heavy approach we chose NOT to use
+- `docs/ideas/feature-vector-lifecycle.md` — promotion/demotion (candidate → active → decaying → deprecated)
+
+**Key distinction**: Feature registry = metadata repository (what exists, what tier). Feature lifecycle = IC-driven promotion (what works). Flow activity primitives = raw inputs (how we detect crowding without theory).
