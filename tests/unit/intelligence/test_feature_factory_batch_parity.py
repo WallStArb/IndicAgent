@@ -16,6 +16,7 @@ from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
+    _build_feature_vector,
 )
 
 # ---------------------------------------------------------------------------
@@ -454,3 +455,141 @@ def test_precompute_series_returns_all_fields(ohlcv, cfg):
     assert len(series.ret_acf1_z) == n
     # atr_raw needed by compute() for informed_flow
     assert len(series.atr_raw) == n - 1  # atr_series has len n-1
+
+
+# ---------------------------------------------------------------------------
+# _build_feature_vector tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_feature_vector_guards_nan():
+    """_build_feature_vector replaces non-finite values with fallbacks."""
+    fv = _build_feature_vector(
+        momentum_z_fast=float("nan"),
+        momentum_z_mid=0.0,
+        range_position=float("inf"),
+        bar_close_pos=0.5,
+        gap_z=0.0,
+        momentum_z_slow=0.0,
+        momentum_reversal_z=0.0,
+        informed_flow=0.0,
+        volume_z=0.0,
+        ofi_z=0.0,
+        ofi_div=0.0,
+        cvd_slope_z=0.0,
+        cmf=0.0,
+        rel_volume=1.0,
+        vwap_dev_sigma=0.0,
+        atr_z=0.0,
+        vol_ratio=1.0,
+        poc_dist_atr=0.0,
+        va_position=0.5,
+        sr_support_dist=0.0,
+        sr_resist_dist=0.0,
+        hmm_regime_prob=0.0,
+        hmm_entropy=0.0,
+        hmm_duration=0.0,
+        hurst=0.5,
+        shannon=1.0,
+        garch_ratio=1.0,
+        hma_slope_z=0.0,
+        adx=0.0,
+        aroon_fast=0.0,
+        aroon_slow=0.0,
+        rsi_fast=50.0,
+        rsi_mid=50.0,
+        rsi_slow=50.0,
+        cci_fast=0.0,
+        cci_mid=0.0,
+        cci_slow=0.0,
+        vix_z=0.0,
+        flight_quality=0.0,
+        yield_slope_z=0.0,
+        in_ny_session=0.0,
+        in_london_kz=0.0,
+        in_overlap=0.0,
+        power_hour=0.0,
+        opening_range=0.0,
+        above_wk_vwap=0.0,
+        dow_sin=0.0,
+        dow_cos=1.0,
+        month_position=1.0,
+        quarter_position=0.0,
+        days_to_month_end=0.0,
+        ctf_momentum=0.0,
+        ctf_vwap_align=0.0,
+        ctf_regime_align=0.0,
+        amihud_illiq_z=0.0,
+        high_52w_dist=0.0,
+        ret_skew_z=0.0,
+        ret_acf1_z=0.0,
+    )
+    assert fv.momentum_z_fast == 0.0  # nan -> fallback 0.0
+    assert fv.range_position == 0.5  # inf -> fallback 0.5
+    assert fv.momentum_z_mid == 0.0  # finite, unchanged
+
+
+def test_build_feature_vector_none_passthrough():
+    """_build_feature_vector passes None through for nullable VP/SR fields (batch path)."""
+    fv = _build_feature_vector(
+        momentum_z_fast=0.0,
+        momentum_z_mid=0.0,
+        range_position=0.5,
+        bar_close_pos=0.5,
+        gap_z=0.0,
+        momentum_z_slow=0.0,
+        momentum_reversal_z=0.0,
+        informed_flow=0.0,
+        volume_z=0.0,
+        ofi_z=0.0,
+        ofi_div=0.0,
+        cvd_slope_z=0.0,
+        cmf=0.0,
+        rel_volume=1.0,
+        vwap_dev_sigma=0.0,
+        atr_z=0.0,
+        vol_ratio=1.0,
+        poc_dist_atr=None,
+        va_position=None,
+        sr_support_dist=None,
+        sr_resist_dist=None,
+        hmm_regime_prob=0.0,
+        hmm_entropy=0.0,
+        hmm_duration=0.0,
+        hurst=0.5,
+        shannon=1.0,
+        garch_ratio=1.0,
+        hma_slope_z=0.0,
+        adx=0.0,
+        aroon_fast=0.0,
+        aroon_slow=0.0,
+        rsi_fast=50.0,
+        rsi_mid=50.0,
+        rsi_slow=50.0,
+        cci_fast=0.0,
+        cci_mid=0.0,
+        cci_slow=0.0,
+        vix_z=0.0,
+        flight_quality=0.0,
+        yield_slope_z=0.0,
+        in_ny_session=0.0,
+        in_london_kz=0.0,
+        in_overlap=0.0,
+        power_hour=0.0,
+        opening_range=0.0,
+        above_wk_vwap=0.0,
+        dow_sin=0.0,
+        dow_cos=1.0,
+        month_position=1.0,
+        quarter_position=0.0,
+        days_to_month_end=0.0,
+        ctf_momentum=0.0,
+        ctf_vwap_align=0.0,
+        ctf_regime_align=0.0,
+        amihud_illiq_z=0.0,
+        high_52w_dist=0.0,
+        ret_skew_z=0.0,
+        ret_acf1_z=0.0,
+    )
+    assert fv.poc_dist_atr is None
+    assert fv.va_position is None
