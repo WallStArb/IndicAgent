@@ -344,28 +344,338 @@ p < 0.05 across sufficient N. Do not assume any of these will be predictive.
 
 ---
 
-## Priority Order
+## Feature Catalog By Computation Order
 
-Based on likely IC and computation cost:
+**Renaissance approach**: Build all primitives, let IC engine decide what matters. No human prioritization.
 
-1. **Bar anatomy ratios** - zero cost, clearly missing, analogous to known Simons inputs; `range_efficiency` included
-2. **Alternative vol estimators** - strictly more efficient use of existing OHLCV; Parkinson/GK/YZ cluster with `atr_z` but carry incremental information from dimensions ATR ignores; high likelihood of IC given vol is the strongest factor in our current feature set
-3. **Breakout distance** - raw version of what S/R features approximate with theory; if S/R features have IC their theory-free analogs likely do too
-4. **Lagged return series** - foundational; autocorrelation alpha is well-documented
-5. **Open/intraday split** - low cost, captures overnight vs session structure; also fixes overnight gap contamination identified in IC methodology review
-6. **Variance ratio** - direct empirical test of random walk deviation; complement to Hurst without the estimation noise at short windows
-7. **Volume structure (expanded)** - `vol_trend_ratio`, `up_vol_ratio_*`, `vol_percentile`, `vol_persistence`, `mfi_fast/slow`, `obv_z` extend well beyond existing z-score coverage; reference formulas exist in archived `i1_indicators/mfi.py` and `obv.py` — all need Feature Factory implementation
-8. **Stochastic %K + Bollinger %B + HV** - reference formulas in archived `i1_indicators/stochastic.py`, `bollinger.py`, `historical_volatility.py`; all need Feature Factory implementation with gradient windows; `stoch_k` is the rolling-window version of `bar_close_pos`; `bb_pct_b` is the only variance-normalized price position feature; `hv_z_*` is the classic close-to-close estimator missing from the current set
-9. **Price percentile rank + Efficiency Ratio** - no reference implementation exists; efficiency ratio is the most novel addition: single formula, bounded [0,1], directly measures trend purity; `price_percentile` fills the gap that `vol_percentile` fills for volume
-10. **Session time position** (`session_time_pos`) - zero compute cost, pure timestamp; the only missing continuous intraday time feature
-9. **Conditional vol asymmetry** (`vol_asymmetry_z`) - leverage effect without GARCH; low compute cost
-9. **Streak** (`streak_z`) - complementary to `updown_ratio`; captures unbroken directional runs rather than rolling win-rate
-10. **Interaction primitives (price × volume)** - `price_vol_corr_*`, `ret_vol_product_*` — requires parent atomics to be computed first; high likely IC
-11. **Cross-TF divergence / interaction** - requires HTF cache, already available
-12. **Return distribution** - kurtosis/autocorr require longer windows, higher variance estimation noise
+**Grouping below is for catalog organization only** — computation order, not strategic priority. IC engine determines which features have signal.
+
+### 1st Order Primitives (Raw OHLCV Transforms)
+
+Features computed directly from OHLCV with no intermediate features:
+
+**From Bar Anatomy Ratios section:**
+- `body_ratio`, `upper_wick_ratio`, `lower_wick_ratio`
+- `range_vs_atr`, `close_vs_open_direction`
+- `overnight_gap`, `overnight_gap_z`
+- `range_efficiency`
+
+**From Lagged Return Series section:**
+- `ret_lag_1`, `ret_lag_2`, `ret_lag_3`
+- `ret_lag_fast`, `ret_lag_mid`, `ret_lag_slow`
+
+**From Volume Structure Primitives section:**
+- `vol_acceleration`, `vol_percentile`
+
+**From Open-to-Close Split section:**
+- `open_ret`, `intraday_ret`, `open_vs_intraday`
+- `session_time_pos` (no OHLCV, pure timestamp)
+
+**From Flow Activity Primitives section:**
+- `volume_change`, `volume_pct_change`
+- `trade_count_change`
+- `range_pct_change`
+- `ret_lag_1` (duplicate, listed here for context)
+
+**From Breakout Distance Primitives section:**
+- `dist_from_high_fast`, `dist_from_high_slow`
+- `dist_from_low_fast`, `dist_from_low_slow`
+- `range_pct_fast`, `range_pct_slow` (duplicate concept)
+- `new_high_flag`, `new_low_flag`
+
+### 2nd Order Primitives (Transforms of 1st Order Features)
+
+Features computed from 1st-order primitives or require rolling windows:
+
+**From Volume Structure Primitives section:**
+- `dollar_vol_z`, `vol_range_ratio`, `vol_trend_ratio`
+- `up_vol_ratio_fast`, `up_vol_ratio_slow`
+- `vol_persistence`, `vol_std_z`
+- `mfi_fast`, `mfi_slow`, `obv_z`
+
+**From Realized Variance and Volatility Primitives section:**
+- `realized_var_ratio_fast`, `realized_var_ratio_slow`
+- `range_to_close`, `true_range_pct`
+- `vol_of_vol`, `high_low_corr`
+- `variance_ratio_fast`, `variance_ratio_slow`
+- `vol_asymmetry_z`
+- `bb_pct_b_fast`, `bb_pct_b_slow`
+- `hv_z_fast`, `hv_z_slow`, `hv_ratio`
+
+**From Alternative Volatility Estimators section:**
+- `parkinson_vol_z`, `garman_klass_vol_z`, `yang_zhang_vol_z`
+
+**From Breakout Distance Primitives section:**
+- `stoch_k_fast`, `stoch_k_slow`
+- `price_percentile_fast`, `price_percentile_slow`
+- `efficiency_ratio_fast`, `efficiency_ratio_slow`
+
+**From Return Distribution Primitives section:**
+- `ret_kurtosis_z_fast`, `ret_kurtosis_z_slow`
+- `ret_autocorr_1`, `ret_autocorr_5`
+- `updown_ratio_fast`, `updown_ratio_slow`
+- `streak_z`
+
+**From Flow Activity Primitives section:**
+- `volume_acceleration` (2nd derivative: change of change)
+- `volume_z_5` (z-score = 2nd order: mean/std of 1st order)
+- `trade_count_acceleration` (2nd derivative)
+- `body_ratio_change` (change of 1st-order `body_ratio`)
+- `trade_count_z_5` (z-score = 2nd order)
+
+**From Interaction Primitives (Price × Volume) section:**
+- `vol_body_product` (product of 2nd-order × 2nd-order)
+- `ret_vol_product_fast` (product of 1st-order × 2nd-order)
+- `price_vol_corr_fast`, `price_vol_corr_slow` (correlation of 1st-order × 1st-order)
+- `range_vol_product` (product of 1st-order × 2nd-order)
+- `up_vol_body_diff` (difference of 2nd-order × 1st-order)
+- `ret_vol_ratio_fast` (ratio of 1st-order / 2nd-order)
+- `vol_skew_product` (product of 2nd-order × 2nd-order)
+
+**From Cross-Timeframe Divergences section:**
+- `ret_div_1m_5m`, `ret_div_5m_1h`, `ret_div_1h_1d` (difference of 1st-order features across TFs)
+
+### 3rd Order Primitives (Composites / Aggregates)
+
+Features that combine or aggregate multiple lower-order features:
+
+**From Flow Activity Primitives section (removed):**
+- (Previously: `crowding_index` = weighted composite of 4 market-level aggregations)
+- (Replaced with 1st/2nd-order primitives above — let ensemble discover patterns)
+
+**Note**: No 3rd-order primitives in current catalog. Renaissance avoids pre-judging composites — prefers throwing 1st/2nd-order primitives at ensemble and letting models discover interactions.
 
 ---
 
+## Flow Activity Primitives (First-Order)
+
+**Renaissance approach**: Don't pre-judge what "crowding" means. Provide raw primitives that measure flow activity. Let the IC engine + ensemble discover patterns like "when volume_z is high across many symbols, momentum features have lower IC."
+
+**No cross-sectional theory**: These are per-symbol primitives — no market averages, no correlation matrices, no assumptions about what counts as "synchronized."
+
+### Feature 1: Volume Change
+
+**Feature name**: `volume_change`
+
+**First-order primitive** — raw change in volume from prior bar.
+
+**Formula**:
+```python
+volume_change = volume_t - volume_{t-1}
+```
+
+**What it captures**: Is volume increasing or decreasing vs prior bar? (no window, no normalization)
+
+**Natural score range**: Unbounded, centered at 0. Ready as-is for linear models.
+
+**APR parameters**: None (no window)
+
+**Renaissance rationale**: Pure first-order change. Ensemble discovers if "volume_change is positive for many ETFs" predicts IC decay.
+
+### Feature 2: Volume Percentage Change
+
+**Feature name**: `volume_pct_change`
+
+**First-order primitive** — rate of change in volume.
+
+**Formula**:
+```python
+volume_pct_change = (volume_t - volume_{t-1}) / volume_{t-1}
+```
+
+**What it captures**: Percentage change in volume (scale-independent).
+
+**Natural score range**: Unbounded, centered at 0. For large moves: bounded approximately [-1, ∞). Ready as-is for tree models; winsorize or log-transform for linear.
+
+**APR parameters**: None (no window)
+
+**Renaissance rationale**: Scale-free rate of change. Ensemble discovers patterns in volume expansion rates.
+
+### Feature 3: Volume Acceleration
+
+**Feature name**: `volume_acceleration`
+
+**Second-order primitive** — change in volume change.
+
+**Formula**:
+```python
+volume_acceleration = volume_change_t - volume_change_{t-1}
+```
+
+**What it captures**: Is volume change speeding up or slowing down? (second derivative)
+
+**Natural score range**: Unbounded, centered at 0. Ready as-is for tree models; z-score for linear.
+
+**APR parameters**: None (no window beyond parent `volume_change`)
+
+**Renaissance rationale**: Pure acceleration. Ensemble discovers if "volume_acceleration is positive for many ETFs" signals regime shift.
+
+### Feature 4: Short-Window Volume Z
+
+**Feature name**: `volume_z_5`
+
+**First-order primitive** — volume z-score over short window.
+
+**Formula**:
+```python
+volume_z_5 = (volume_t - mean(volume_{t-5...t})) / std(volume_{t-5...t})
+```
+
+**What it captures**: Is current volume unusual vs recent 5-bar history? (different timescale than existing `volume_z` which uses 20-bar window)
+
+**Natural score range**: Unbounded, centered at 0. Ready as-is for linear models.
+
+**APR parameters**:
+- `feature.volume.z_5_window = 5`
+
+**Renaissance rationale**: Short-term normalization. Different timescale may capture different dynamics. Ensemble discovers which window matters.
+
+### Feature 5: Trade Count Change
+
+**Feature name**: `trade_count_change`
+
+**First-order primitive** — raw change in trade count.
+
+**Formula**:
+```python
+trade_count_change = trade_count_t - trade_count_{t-1}
+```
+
+**What it captures**: Is trading activity increasing or decreasing? (no window, raw count)
+
+**Natural score range**: Unbounded, centered at 0. Ready as-is for tree models; z-score for linear.
+
+**APR parameters**: None (no window)
+
+**Renaissance rationale**: Pure activity change. Ensemble discovers if "trade_count_change is positive for many ETFs" predicts momentum decay.
+
+### Feature 6: Trade Count Acceleration
+
+**Feature name**: `trade_count_acceleration`
+
+**Second-order primitive** — change in trade count change.
+
+**Formula**:
+```python
+trade_count_acceleration = trade_count_change_t - trade_count_change_{t-1}
+```
+
+**What it captures**: Is activity change speeding up or slowing down?
+
+**Natural score range**: Unbounded, centered at 0. Ready as-is for tree models; z-score for linear.
+
+**APR parameters**: None (no window beyond parent)
+
+**Renaissance rationale**: Second derivative of activity. Ensemble discovers acceleration patterns.
+
+### Feature 7: Range Percentage Change
+
+**Feature name**: `range_pct_change`
+
+**First-order primitive** — rate of change in bar range.
+
+**Formula**:
+```python
+range_pct_change = ((high_t - low_t) - (high_{t-1} - low_{t-1})) / (high_{t-1} - low_{t-1})
+```
+
+**What it captures**: Is volatility expanding or contracting? (percentage change in range)
+
+**Natural score range**: Unbounded, centered at 0. For large moves: bounded approximately [-1, ∞). Ready as-is for tree models; winsorize for linear.
+
+**APR parameters**: None (no window)
+
+**Renaissance rationale**: Volatility expansion rate. Ensemble discovers if "range_pct_change is positive across market" signals regime shift.
+
+### Feature 8: Body Ratio Change
+
+**Feature name**: `body_ratio_change`
+
+**Second-order primitive** — change in directional conviction.
+
+**Formula**:
+```python
+body_ratio_change = body_ratio_t - body_ratio_{t-1}
+# where body_ratio = (close - open) / (high - low)
+```
+
+**What it captures**: Is directional conviction strengthening or weakening?
+
+**Natural score range**: Bounded [-2, 2] (body_ratio is [-1, 1], change is difference). Ready as-is for linear models.
+
+**APR parameters**: None (no window beyond parent `body_ratio`)
+
+**Renaissance rationale**: Conviction acceleration. Ensemble discovers if "body_ratio_change is negative for many ETFs" (conviction weakening) predicts momentum reversal.
+
+### Feature 9: Return Lag-1 (Fast)
+
+**Feature name**: `ret_lag_1`
+
+**First-order primitive** — 1-bar log return (already in Lagged Return Series section, duplicated here for flow activity context).
+
+**Formula**:
+```python
+ret_lag_1 = log(close_t / close_{t-1})
+```
+
+**What it captures**: Raw 1-bar return (foundation for all return-based features).
+
+**Natural score range**: Unbounded, centered near 0. Ready as-is for linear models.
+
+**APR parameters**: None (definitional)
+
+**Renaissance rationale**: Foundational primitive. Ensemble discovers serial autocorrelation patterns.
+
+### Feature 10: Trade Count Z-Score (Short Window)
+
+**Feature name**: `trade_count_z_5`
+
+**First-order primitive** — trade count z-score over short window.
+
+**Formula**:
+```python
+trade_count_z_5 = (trade_count_t - mean(trade_count_{t-5...t})) / std(trade_count_{t-5...t})
+```
+
+**What it captures**: Is current activity unusual vs recent 5-bar history? (short-term burst detection)
+
+**Natural score range**: Unbounded, centered at 0. Ready as-is for linear models.
+
+**APR parameters**:
+- `feature.trade_count.z_5_window = 5`
+
+**Renaissance rationale**: Short-term activity normalization. Different timescale than standard windows. Ensemble discovers if bursts predict anything.
+
+### Expected Renaissance Discovery
+
+If flow synchronization/crowding is a real phenomenon, the ensemble will discover patterns like:
+
+- "When `volume_z_5` > 1.0 for >70% of ETFs, `momentum_z_fast` IC drops by 40%"
+- "When `trade_count_change` is positive for SPY, QQQ, IWM simultaneously, next-bar returns are negative"
+- "When `range_pct_change` > 0.5 across market, volatility regime is shifting"
+
+**No human theory required** — just raw primitives + IC engine + ensemble discovery.
+
+### Priority Assessment
+
+**Where these fit in the overall priority order**:
+
+These are **P2-P3** (high priority) because:
+
+1. **True primitives**: First or second-order transforms, no cross-sectional theory
+2. **Zero or low cost**: Most require no window beyond the parent feature
+3. **Fill gaps**: We have `volume_z` (window=20) but no short-window versions; we have no acceleration features
+4. **Renaissance-grade**: Exactly the type of simple transform Medallion uses by the thousands
+
+**Recommended trigger**: Alongside foundational primitives (bar anatomy, lagged returns). These are raw inputs that the ensemble needs to discover ANY flow-related patterns.
+
+**Implementation order**:
+1. Add to `feature_factory.py` (straightforward, same pattern as existing primitives)
+2. Backfill via `corpus_pipeline_run.sh`
+3. IC engine evaluates independently
+4. If any have IC, ensemble trainer discovers cross-symbol patterns automatically
+
+**See also**: `comomentum-crowding-metric.md` for the theory-heavy approach we chose NOT to use. Renaissance's approach is: provide raw primitives, let the data speak.
 ## What This Is Not
 
 This is not a plan. No phase assigned. These are candidates for IC testing when we
