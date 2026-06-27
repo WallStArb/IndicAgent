@@ -113,7 +113,7 @@ _POOLED_REGIME_SENTINEL = "_pooled"
 # Default TFs if not passed via --tf
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 
-# TF string to PostgreSQL interval string, used in DATE_TRUNC and JOIN on market_regimes.
+# TF string to PostgreSQL interval string, used with time_bucket() in cross-sectional JOIN on market_regimes.
 TF_TO_INTERVAL: dict[str, str] = {
     "5m": "5 minutes",
     "15m": "15 minutes",
@@ -1301,7 +1301,7 @@ def _compute_cross_sectional_tf(
         INNER JOIN market_regimes mr
             ON mr.asset_class = 'equity'
             AND mr.tf = %(tf)s
-            AND mr.ts = DATE_TRUNC(%(tf_interval)s, fv.bar_ts)
+            AND mr.ts = time_bucket(%(tf_interval)s::interval, fv.bar_ts)
             AND mr.regime_label = %(regime_label)s
         INNER JOIN forward_returns fr
             ON fr.symbol = fv.symbol
