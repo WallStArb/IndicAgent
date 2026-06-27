@@ -1,4 +1,4 @@
-# 024 — BaseBatch JSONB codec root cause: use database_manager.create_pool
+# 002 — BaseBatch JSONB codec root cause: use database_manager.create_pool
 
 ## Problem
 

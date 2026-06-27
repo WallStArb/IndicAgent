@@ -1,4 +1,4 @@
-# 010 — Feature Vector Lifecycle (Demotion + Observability)
+# 015 — Feature Vector Lifecycle (Demotion + Observability)
 
 **Status:** Pending
 **Priority:** Medium — can run in parallel with primitives expansion; should land before ensemble has 100+ features where undetected decay becomes a real risk

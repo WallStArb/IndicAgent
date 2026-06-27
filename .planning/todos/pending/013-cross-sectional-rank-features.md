@@ -1,4 +1,4 @@
-# 004 — Cross-Sectional Rank Features (momentum_rank_z, volume_rank_z, volatility_rank_z)
+# 013 — Cross-Sectional Rank Features (momentum_rank_z, volume_rank_z, volatility_rank_z)
 
 **Priority: Medium — free alpha, schema already exists, columns are NULL**
 **Gate: Phase 141 corpus validation complete + feature_vectors schema stable**

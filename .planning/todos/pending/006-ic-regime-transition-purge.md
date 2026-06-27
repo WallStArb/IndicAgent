@@ -1,4 +1,4 @@
-# 003 — IC Engine: Regime Transition Purge Window
+# 006 — IC Engine: Regime Transition Purge Window
 
 **Priority: Medium — correctness improvement, not a blocker**
 **Gate: Phase 141 corpus validation complete (need stable IC baseline to measure the effect)**

@@ -1,4 +1,4 @@
-# 007 — Structural Compliance (APR sweep, BaseBatch promotion, naming vocabulary)
+# 012 — Structural Compliance (APR sweep, BaseBatch promotion, naming vocabulary)
 
 **Priority: Medium — ship as one batch after full 58-symbol IC discovery validated. All three are clean-up,
 not correctness. Gate: 58-symbol corpus + IC discovery report confirmed.**

@@ -1,4 +1,4 @@
-# 022 — Feature Decay Observatory (Superset Dashboard)
+# 024 — Feature Decay Observatory (Superset Dashboard)
 
 **Priority:** Low — pure read layer; research quality-of-life.
 **Prerequisite:** 009 (Feature Vector Lifecycle) demotion logic must be wired first so

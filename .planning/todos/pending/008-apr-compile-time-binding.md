@@ -1,4 +1,4 @@
-# 011 — APR Compile-Time Binding (eliminate per-call hash lookups)
+# 008 — APR Compile-Time Binding (eliminate per-call hash lookups)
 
 **Priority: Medium — architectural correctness; eliminates 100+ hash lookups per compute call**
 **Gate: Before streaming path re-enabled (IntelligencePipeline or FeatureVectorWriter live)**

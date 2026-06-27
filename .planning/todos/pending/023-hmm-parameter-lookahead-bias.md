@@ -1,4 +1,4 @@
-# 015 — HMM Parameter Look-Ahead Bias
+# 023 — HMM Parameter Look-Ahead Bias
 
 **Priority: P2 — Future milestone. Expensive architectural change; run AFTER rolling corpus is stable.**
 

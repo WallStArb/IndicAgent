@@ -1,4 +1,4 @@
-# 002 — Shadow Alpha Events Monitoring Protocol
+# 011 — Shadow Alpha Events Monitoring Protocol
 
 **Priority: High — must exist before Phase 142 ships; shadow mode without monitoring is a log sink.**
 **Gate: Must be built as part of Phase 142, not deferred to Phase 143.**

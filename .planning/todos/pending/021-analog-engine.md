@@ -1,4 +1,4 @@
-# 016 — AnalogEngine (System 2 — Non-Parametric K-NN)
+# 021 — AnalogEngine (System 2 — Non-Parametric K-NN)
 
 **Priority: Phase D+ — gated on AlphaEngine Phase C showing IC > 0 with p < 0.05.**
 **Plan doc:** `docs/plans/2026-06-20-analogengine-design.md` (AnalogEngine sections are canonical)
