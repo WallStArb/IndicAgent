@@ -1,4 +1,4 @@
-# 005 — Cost-Aware Net Scoring
+# 004 — Cost-Aware Net Scoring
 
 **Priority:** Medium — correctness issue at short horizons; should land before any live
 trading evaluation of short-TF alpha.
