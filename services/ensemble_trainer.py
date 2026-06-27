@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Ensemble Trainer — oneshot that derives IC-weighted ensemble weights and scores ensemble alpha.
 
-Reads feature_ic_scores (is_pooled=false, passes_walkforward=true), applies Ledoit-Wolf
-cluster deflation, and writes:
-  - ensemble_weights: one row per (symbol, tf, regime, weight_version, feature_name)
+Reads cross-sectional IC scores (symbol='POOLED', is_pooled=true, regime != '_pooled',
+passes_walkforward=true), applies Ledoit-Wolf cluster deflation, and writes:
+  - ensemble_weights: one row per (tf, regime, weight_version, feature_name), symbol='UNIVERSE'
   - ensemble_alpha:   one row per (symbol, tf, bar_ts, weight_version) via vectorized matmul
 
+Cross-sectional model rationale: per-symbol per-regime cells have ~1,500 bars at 5m,
+structurally below the 60,000-bar gate (sharpe_min_windows=30 × window_size=2000).
+Cross-sectional cells pool 58 symbols × regime, yielding ~126K bars → ~220 windows,
+well above the gate. One universe-level model is also statistically superior to 58 noisy
+per-symbol models.
+
 CORRECTNESS INVARIANTS:
-- Only non-pooled, walk-forward-passing rows feed the ensemble (no cross-regime leakage).
-- feature_vectors query includes WHERE regime_label = stratum_regime — no cross-regime scoring.
+- Only cross-sectional, walk-forward-passing rows feed the ensemble (no cross-regime leakage).
+- feature_vectors query includes WHERE regime = stratum_regime — no cross-regime scoring.
 - Scoring uses X @ signed_weights (matmul, no per-bar Python loop).
 - LW cluster deflation (cluster_deflate_weights) runs after derive_weights.
 - Zero-weight strata (all weights deflated to zero) are skipped — no silent empty writes.
@@ -97,8 +103,9 @@ def _cfg_str(cfg: dict[str, Any], key: str, default: str) -> str:
 def _meta_eligible(fdr_pass_rows: list[dict], min_fraction: float) -> set[str]:
     """Return feature names whose BH-FDR pass-rate across eligible cells meets the threshold.
 
-    Denominator is restricted to cells that pass all ensemble eligibility filters
-    (is_pooled=false, reliable=true, ic_sharpe_hac IS NOT NULL, passes_walkforward=true)
+    Denominator is restricted to cross-sectional cells that pass all ensemble eligibility filters
+    (symbol='POOLED', is_pooled=true, regime != '_pooled', reliable=true,
+     ic_sharpe_hac IS NOT NULL, passes_walkforward=true)
     — the same population consumed by _process_stratum.
     """
     return {r["feature_name"] for r in fdr_pass_rows if r["fdr_pass_rate"] >= min_fraction}
@@ -148,12 +155,15 @@ async def _get_feature_columns(conn: asyncpg.Connection) -> list[str]:
 async def _assert_prerequisites(conn: asyncpg.Connection) -> None:
     """Two startup gates. Raise RuntimeError to prevent a silent empty run."""
     n_ic = await conn.fetchval(
-        "SELECT count(*) FROM feature_ic_scores WHERE is_pooled = false AND passes_walkforward = true"
+        "SELECT count(*) FROM feature_ic_scores"
+        " WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'"
+        " AND passes_walkforward = true"
     )
     if not n_ic:
         raise RuntimeError(
-            "EnsembleTrainer startup gate FAILED: no feature_ic_scores rows with "
-            "is_pooled=false AND passes_walkforward=true. Run ic_engine.py first."
+            "EnsembleTrainer startup gate FAILED: no cross-sectional feature_ic_scores rows "
+            "(symbol='POOLED', is_pooled=true, regime != '_pooled', passes_walkforward=true). "
+            "Run ic_engine.py first."
         )
 
     n_fv = await conn.fetchval("SELECT count(*) FROM feature_vectors")
@@ -172,9 +182,10 @@ async def _assert_prerequisites(conn: asyncpg.Connection) -> None:
 class EnsembleTrainer(BaseBatch):
     """Batch compute service: feature_ic_scores → ensemble_weights + ensemble_alpha.
 
-    Reads IC scores per (symbol, tf, regime), applies LW shrinkage covariance and
-    cluster deflation, writes ensemble weights, then scores all feature_vectors bars
-    via vectorized matmul.
+    Reads cross-sectional IC scores per (tf, regime) from symbol='POOLED' rows,
+    applies LW shrinkage covariance and cluster deflation, writes universe-level
+    ensemble weights (symbol='UNIVERSE'), then scores all feature_vectors bars
+    for every symbol via vectorized matmul.
     """
 
     job_name = "ensemble-trainer"
@@ -239,7 +250,9 @@ class EnsembleTrainer(BaseBatch):
                        SUM(CASE WHEN passes_fdr THEN 1 ELSE 0 END)::float / COUNT(*) AS fdr_pass_rate,
                        COUNT(*) AS n_cells
                 FROM feature_ic_scores
-                WHERE is_pooled = false
+                WHERE symbol = 'POOLED'
+                  AND is_pooled = true
+                  AND regime != '_pooled'
                   AND reliable = true
                   AND ic_sharpe_hac IS NOT NULL
                   AND passes_walkforward = true
@@ -274,22 +287,21 @@ class EnsembleTrainer(BaseBatch):
 
             # --- Enumerate strata ---
             strata_rows = await conn.fetch("""
-                SELECT DISTINCT symbol, tf, regime
+                SELECT DISTINCT tf, regime
                 FROM feature_ic_scores
-                WHERE is_pooled = false AND passes_walkforward = true AND reliable = true
+                WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'
+                  AND passes_walkforward = true AND reliable = true
                   AND ic_sharpe_hac IS NOT NULL AND regime IS NOT NULL
-                ORDER BY symbol, tf, regime
+                ORDER BY tf, regime
                 """)
             self.logger.info("ensemble_trainer.strata_found", stratum_count=len(strata_rows))
 
             for stratum in strata_rows:
-                symbol = stratum["symbol"]
                 tf = stratum["tf"]
                 regime = stratum["regime"]
 
                 await self._process_stratum(
                     conn=conn,
-                    symbol=symbol,
                     tf=tf,
                     regime=regime,
                     feature_cols=feature_cols,
@@ -310,7 +322,6 @@ class EnsembleTrainer(BaseBatch):
     async def _process_stratum(
         self,
         conn: asyncpg.Connection,
-        symbol: str,
         tf: str,
         regime: str,
         feature_cols: list[str],
@@ -322,10 +333,10 @@ class EnsembleTrainer(BaseBatch):
         meta_eligible_features: set[str],
         weight_half_life_days: float = 30.0,
     ) -> None:
-        """Process one (symbol, tf, regime) stratum end-to-end."""
-        log = self.logger.bind(symbol=symbol, tf=tf, regime=regime)
+        """Process one (tf, regime) stratum end-to-end using cross-sectional IC."""
+        log = self.logger.bind(tf=tf, regime=regime)
 
-        # Step 1: Load IC scores for this stratum
+        # Step 1: Load cross-sectional IC scores for this stratum (symbol='POOLED')
         # feature_status_at_eval = 'active' ensures we only train on IC scores from
         # periods when the feature was actively governed — excludes candidate and
         # shadow_only periods where IC data was gathered but feature not yet promoted.
@@ -334,12 +345,12 @@ class EnsembleTrainer(BaseBatch):
             SELECT feature_name, ic_sharpe_hac, ic_ci_lower, ic_ci_upper, ic_sign,
                    lookahead_bars, training_window_end
             FROM feature_ic_scores
-            WHERE symbol = $1 AND tf = $2 AND regime = $3
-              AND is_pooled = false AND passes_walkforward = true
-              AND reliable = true AND ic_sharpe_hac IS NOT NULL
+            WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'
+              AND tf = $1 AND regime = $2
+              AND passes_walkforward = true AND reliable = true
+              AND ic_sharpe_hac IS NOT NULL
               AND feature_status_at_eval = 'active'
             """,
-            symbol,
             tf,
             regime,
         )
@@ -366,8 +377,7 @@ class EnsembleTrainer(BaseBatch):
         ic_ci_upper = np.array([float(r["ic_ci_upper"]) for r in selected])
         lookahead_bars = [int(r["lookahead_bars"]) for r in selected]
 
-        # Step 3: Load feature matrix X from feature_vectors (regime filter — no cross-regime bias)
-        # Build column list safely (names come from information_schema, not user input)
+        # Step 3: Load feature matrix X from feature_vectors for all symbols in this (tf, regime)
         col_subset = [c for c in feature_cols if c in feature_names]
         if len(col_subset) < min_passing_features:
             log.debug(
@@ -377,17 +387,10 @@ class EnsembleTrainer(BaseBatch):
             )
             return
 
-        # Map feature names to column indices
-        col_idx = {name: i for i, name in enumerate(col_subset)}
-        feature_name_to_col = {name: col_idx[name] for name in feature_names if name in col_idx}
-        if len(feature_name_to_col) < min_passing_features:
-            log.debug(
-                "ensemble_trainer.stratum_skipped_col_mismatch", n_mapped=len(feature_name_to_col)
-            )
-            return
-
-        # Reorder selected features to match column order
-        ordered_names = [n for n in feature_names if n in feature_name_to_col]
+        # Restrict to features that have a column, preserving IC-selection order.
+        # col_subset already passed the min_passing_features gate, and ordered_names has the
+        # same membership (both are feature_names ∩ feature_cols), so no second count check.
+        ordered_names = [n for n in feature_names if n in col_subset]
         ordered_idx = [feature_names.index(n) for n in ordered_names]
         ic_sharpes = ic_sharpes[ordered_idx]
         ic_signs = ic_signs[ordered_idx]
@@ -395,17 +398,16 @@ class EnsembleTrainer(BaseBatch):
         ic_ci_upper = ic_ci_upper[ordered_idx]
         lookahead_bars = [lookahead_bars[i] for i in ordered_idx]
 
-        # Fetch feature matrix (regime-filtered) — col_subset sorted by ordinal
+        # Fetch feature matrix for all symbols in this regime — also select symbol for alpha insert
         # Safe: col_subset names come from information_schema, not user data
         col_list = ", ".join(f'"{c}"' for c in col_subset)
         fv_rows = await conn.fetch(
             f"""
-            SELECT {col_list}, bar_ts
+            SELECT symbol, {col_list}, bar_ts
             FROM feature_vectors
-            WHERE symbol = $1 AND tf = $2 AND regime = $3
-            ORDER BY bar_ts
+            WHERE tf = $1 AND regime = $2
+            ORDER BY bar_ts, symbol
             """,
-            symbol,
             tf,
             regime,
         )
@@ -413,6 +415,7 @@ class EnsembleTrainer(BaseBatch):
             log.debug("ensemble_trainer.stratum_insufficient_bars", n_bars=len(fv_rows))
             return
 
+        symbol_list = [r["symbol"] for r in fv_rows]
         bar_ts_list = [r["bar_ts"] for r in fv_rows]
         X_raw = np.array(
             [[float(r[c]) if r[c] is not None else 0.0 for c in col_subset] for r in fv_rows],
@@ -427,12 +430,12 @@ class EnsembleTrainer(BaseBatch):
         # Weight aging: decay IC-derived weights exponentially with staleness.
         # Uses the latest training_window_end across all selected features as the
         # reference point. Reverts to equal-weight at 90 days stale.
-        max_twe = max(
-            (r["training_window_end"] for r in ic_rows if r["training_window_end"] is not None),
+        max_training_window_end = max(
+            (r["training_window_end"] for r in selected if r["training_window_end"] is not None),
             default=None,
         )
-        if max_twe is not None:
-            days_since = max(0, (datetime.now(UTC) - max_twe).days)
+        if max_training_window_end is not None:
+            days_since = max(0, (datetime.now(UTC) - max_training_window_end).days)
         else:
             days_since = 0
         if days_since > 90:
@@ -457,50 +460,29 @@ class EnsembleTrainer(BaseBatch):
             raw_weights, corr_matrix, max_cluster_corr, max_cluster_weight
         )
 
-        # Zero-weight guard (Finding 2 blocker)
+        gauge_attrs = {"symbol": "UNIVERSE", "tf": tf, "weight_version": weight_version}
+
+        # Zero-weight guard
         if float(weights.sum()) < 1e-10:
-            log.warning(
-                "ensemble_trainer.stratum_zero_weight_vector",
-                reason="zero_weight_vector",
-                symbol=symbol,
-                tf=tf,
-                regime=regime,
-            )
-            ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE.set(
-                len(ordered_names),
-                {"symbol": symbol, "tf": tf, "weight_version": weight_version},
-            )
+            log.warning("ensemble_trainer.stratum_zero_weight_vector", reason="zero_weight_vector")
+            ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE.set(len(ordered_names), gauge_attrs)
             return
 
         eff_n = effective_n(weights)
 
-        # Emit OTel gauges
-        ENSEMBLE_SHRINKAGE_INTENSITY_GAUGE.set(
-            shrinkage, {"symbol": symbol, "tf": tf, "weight_version": weight_version}
-        )
-        ENSEMBLE_EFFECTIVE_N_GAUGE.set(
-            eff_n, {"symbol": symbol, "tf": tf, "weight_version": weight_version}
-        )
+        ENSEMBLE_SHRINKAGE_INTENSITY_GAUGE.set(shrinkage, gauge_attrs)
+        ENSEMBLE_EFFECTIVE_N_GAUGE.set(eff_n, gauge_attrs)
         zero_weight_count = int(np.sum(weights < 1e-10))
-        ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE.set(
-            zero_weight_count, {"symbol": symbol, "tf": tf, "weight_version": weight_version}
-        )
+        ENSEMBLE_FEATURES_ZERO_WEIGHT_GAUGE.set(zero_weight_count, gauge_attrs)
         for fname, w in zip(ordered_names, weights.tolist()):
-            ENSEMBLE_FEATURE_WEIGHT_GAUGE.set(
-                w,
-                {
-                    "feature": fname,
-                    "symbol": symbol,
-                    "tf": tf,
-                    "weight_version": weight_version,
-                },
-            )
+            ENSEMBLE_FEATURE_WEIGHT_GAUGE.set(w, {"feature": fname, **gauge_attrs})
 
         # Step 5: Write ensemble_weights atomically (all rows for this weight_version or none)
+        # symbol='UNIVERSE' — universe-level weights, not per-symbol
         now = datetime.now(UTC)
         weight_rows = [
             (
-                symbol,
+                "UNIVERSE",
                 tf,
                 regime,
                 weight_version,
@@ -534,6 +516,7 @@ class EnsembleTrainer(BaseBatch):
         )
 
         # Step 6: Score ensemble_alpha via vectorized matmul (no per-bar Python loop)
+        # Universe weights applied to every symbol's bars in this (tf, regime).
         signed_weights = weights * ic_signs  # [n_features]
         alpha_scores = X @ signed_weights  # [n_bars] — single matmul
 
@@ -546,10 +529,10 @@ class EnsembleTrainer(BaseBatch):
 
         n_features_active = int(np.sum(weights > 1e-10))
 
-        # Bulk insert all n_bars rows into ensemble_alpha
+        # Bulk insert all n_bars rows into ensemble_alpha (per-symbol, using universe weights)
         alpha_rows = [
             (
-                symbol,
+                symbol_list[i],
                 tf,
                 bar_ts_list[i],
                 weight_version,

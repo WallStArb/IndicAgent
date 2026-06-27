@@ -146,10 +146,12 @@ class AlphaPublisher(BaseBatch):
                 "SELECT symbol, tf, regime, feature_name, weight FROM ensemble_weights WHERE weight_version = $1",
                 weight_version,
             )
-            # Build cache: {(symbol, tf, regime): [sorted_rows]} sorted by abs(weight) desc
-            weights_cache: dict[tuple[str, str, str], list[dict]] = {}
+            # Build cache: {(tf, regime): [sorted_rows]} sorted by abs(weight) desc.
+            # ensemble_weights uses symbol='UNIVERSE' (universe-level weights); symbol is not
+            # a meaningful cache dimension since there are no per-symbol weight rows.
+            weights_cache: dict[tuple[str, str], list[dict]] = {}
             for r in weight_rows:
-                key = (r["symbol"], r["tf"], r["regime"])
+                key = (r["tf"], r["regime"])
                 weights_cache.setdefault(key, []).append(
                     {"feature_name": r["feature_name"], "weight": float(r["weight"])}
                 )
@@ -243,7 +245,7 @@ class AlphaPublisher(BaseBatch):
                 continue
 
             # Build top_features from preloaded cache — no per-emission query
-            cached_weights = weights_cache.get((symbol, tf, regime), [])
+            cached_weights = weights_cache.get((tf, regime), [])
             top_features: dict[str, float] = {
                 r["feature_name"]: r["weight"] for r in cached_weights[:top_features_count]
             }
