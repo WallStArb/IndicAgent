@@ -98,7 +98,7 @@ def _meta_eligible(fdr_pass_rows: list[dict], min_fraction: float) -> set[str]:
     """Return feature names whose BH-FDR pass-rate across eligible cells meets the threshold.
 
     Denominator is restricted to cells that pass all ensemble eligibility filters
-    (is_pooled=false, reliable=true, ic_sharpe IS NOT NULL, passes_walkforward=true)
+    (is_pooled=false, reliable=true, ic_sharpe_hac IS NOT NULL, passes_walkforward=true)
     — the same population consumed by _process_stratum.
     """
     return {r["feature_name"] for r in fdr_pass_rows if r["fdr_pass_rate"] >= min_fraction}
@@ -232,7 +232,7 @@ class EnsembleTrainer(BaseBatch):
 
             # --- Meta-FDR gate: feature must pass BH-FDR in >=meta_fdr_min_fraction of cells ---
             # Denominator mirrors _process_stratum WHERE clause exactly — cells that fail
-            # passes_walkforward or have NULL ic_sharpe are never consumed by the ensemble,
+            # passes_walkforward or have NULL ic_sharpe_hac are never consumed by the ensemble,
             # so including them would artificially deflate every feature's pass-rate.
             fdr_pass_rows = await conn.fetch("""
                 SELECT feature_name,
@@ -241,7 +241,7 @@ class EnsembleTrainer(BaseBatch):
                 FROM feature_ic_scores
                 WHERE is_pooled = false
                   AND reliable = true
-                  AND ic_sharpe IS NOT NULL
+                  AND ic_sharpe_hac IS NOT NULL
                   AND passes_walkforward = true
                 GROUP BY feature_name
                 """)
@@ -277,7 +277,7 @@ class EnsembleTrainer(BaseBatch):
                 SELECT DISTINCT symbol, tf, regime
                 FROM feature_ic_scores
                 WHERE is_pooled = false AND passes_walkforward = true AND reliable = true
-                  AND ic_sharpe IS NOT NULL AND regime IS NOT NULL
+                  AND ic_sharpe_hac IS NOT NULL AND regime IS NOT NULL
                 ORDER BY symbol, tf, regime
                 """)
             self.logger.info("ensemble_trainer.strata_found", stratum_count=len(strata_rows))
@@ -331,12 +331,12 @@ class EnsembleTrainer(BaseBatch):
         # shadow_only periods where IC data was gathered but feature not yet promoted.
         ic_rows = await conn.fetch(
             """
-            SELECT feature_name, ic_sharpe, ic_ci_lower, ic_ci_upper, ic_sign,
+            SELECT feature_name, ic_sharpe_hac, ic_ci_lower, ic_ci_upper, ic_sign,
                    lookahead_bars, training_window_end
             FROM feature_ic_scores
             WHERE symbol = $1 AND tf = $2 AND regime = $3
               AND is_pooled = false AND passes_walkforward = true
-              AND reliable = true AND ic_sharpe IS NOT NULL
+              AND reliable = true AND ic_sharpe_hac IS NOT NULL
               AND feature_status_at_eval = 'active'
             """,
             symbol,
@@ -360,7 +360,7 @@ class EnsembleTrainer(BaseBatch):
             return
 
         feature_names = [r["feature_name"] for r in selected]
-        ic_sharpes = np.array([float(r["ic_sharpe"]) for r in selected])
+        ic_sharpes = np.array([float(r["ic_sharpe_hac"]) for r in selected])
         ic_signs = np.array([float(r["ic_sign"]) for r in selected])
         ic_ci_lower = np.array([float(r["ic_ci_lower"]) for r in selected])
         ic_ci_upper = np.array([float(r["ic_ci_upper"]) for r in selected])
