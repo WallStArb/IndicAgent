@@ -82,8 +82,6 @@ check_regime_consistency() {
     echo " $(date)"
     echo "======================================"
 
-    local psql="PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent"
-
     local distinct_sets
     distinct_sets=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
         -tAc "SELECT COUNT(DISTINCT regime_set) FROM (SELECT symbol, ARRAY_AGG(DISTINCT regime ORDER BY regime)::text AS regime_set FROM feature_vectors WHERE regime IS NOT NULL GROUP BY symbol) sub")
