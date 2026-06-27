@@ -3,7 +3,7 @@
 
 Computes one cross-sectional equity regime label per (asset_class='equity', tf, ts) from:
   - VIX proxy: SPY realized-vol z-score percentile rank over full corpus history
-  - Breadth signal: fraction of 58 equity ETFs with close > 200MA
+  - Breadth signal: fraction of equity ETFs (instrument_tags eq_* or intl_*) with close > 200MA
 
 Regime label = {vix_bucket}_{breadth_signal} (e.g. low_bull, high_bear, mid_neutral).
 9 possible labels from 3 vix buckets x 3 breadth buckets.
@@ -185,16 +185,23 @@ def _compute_breadth_fraction(dsn: str, tf: str, spy_ts: list) -> pd.Series:
     Fetches each ETF's bars (all symbols, full history), computes 200MA per symbol,
     aggregates by timestamp. Returns a pd.Series indexed by spy_ts.
 
-    The SQL query fetches all equity ETF bars for the given TF in one query.
-    For 5m TF this is 58 * ~470K ≈ 27M rows — acknowledged as slow (~90s).
+    Breadth universe = symbols with instrument_tags tag LIKE 'eq_%' OR 'intl_%'.
+    This excludes fixed income (fi_*), crypto, commodity_metals, real_estate, and
+    preferred — which trade as equities but represent orthogonal economic exposures
+    that would contaminate the breadth signal (e.g. TLT falling below 200MA during
+    a risk-on rate-rise would incorrectly reduce breadth).
     """
     sql = """
         SELECT m.symbol, m.timestamp, m.close
         FROM market_data_ohlcv m
         JOIN instruments i ON i.symbol = m.symbol
         WHERE m.timeframe = %s
-          AND i.contract_details->>'asset_class' = 'equity'
           AND i.is_active = true
+          AND EXISTS (
+              SELECT 1 FROM instrument_tags t
+              WHERE t.symbol = m.symbol
+                AND (t.tag LIKE 'eq_%%' OR t.tag LIKE 'intl_%%')
+          )
         ORDER BY m.symbol, m.timestamp ASC
     """
     fresh_conn = psycopg2.connect(dsn)
