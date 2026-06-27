@@ -1,4 +1,4 @@
-# 027 — Numba JIT HMM Forward-Filter (regime_writer speedup)
+# 006 — Numba JIT HMM Forward-Filter (regime_writer speedup)
 
 **Priority: Medium — regime_writer currently takes 20+ hours; this reduces to ~30 min**
 **Gate: After v3.1 corpus pipeline stabilizes and K=5 regime labels are validated**

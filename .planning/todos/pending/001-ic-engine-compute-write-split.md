@@ -1,4 +1,4 @@
-# Todo 024 — ic_engine compute/write split + batch worker pattern rule
+# 001 — ic_engine compute/write split + batch worker pattern rule
 
 ## Problem
 

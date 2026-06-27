@@ -1,4 +1,4 @@
-# 029 — FeatureFactory compute() / compute_batch() Unification
+# 005 — FeatureFactory compute() / compute_batch() Unification
 
 **Priority: Medium — bug factory; every fix and feature add requires two edits**
 **Gate: No dependency; can be done any time after Phase 141**

@@ -1,4 +1,4 @@
-# 021 — I7 Alpha Scorer Transition
+# 023 — I7 Alpha Scorer Transition
 
 **Priority: Medium — structural migration; defines the long-term relationship between v2.x I7 and v3.0 ensemble.**
 **Gate: Phase 144 (v2.x retirement gate) must have a defined plan; this is the path to retirement.**

@@ -1,4 +1,4 @@
-# 003 — Feature Factory Technical Debt (Remainder)
+# 013 — Feature Factory Technical Debt (Remainder)
 
 **Priority: Low — Issues 1-5 shipped in Phase 139. Issue 0 is a quick standalone win. Issue 6 is a separate phase (gates 004 Part B).**
 

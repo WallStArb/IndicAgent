@@ -1,4 +1,4 @@
-# 003 — Feature Primitives Expansion (~60 candidates)
+# 008 — Feature Primitives Expansion (~60 candidates)
 
 **Priority: Medium-High — next feature set chapter after clean corpus + IC validation on existing 54.**
 **Gate: 001 (batch primitives fix) complete + clean 58-symbol corpus + IC discovery on 54 features confirms stable results.**

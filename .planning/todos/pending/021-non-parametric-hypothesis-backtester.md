@@ -1,4 +1,4 @@
-# 018 — Non-Parametric Hypothesis Backtester
+# 021 — Non-Parametric Hypothesis Backtester
 
 **Priority:** Medium — high research leverage; zero new infrastructure.
 **Prerequisite:** AnalogEngine (012) retrieval primitive must be built first.
