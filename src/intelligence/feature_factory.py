@@ -1251,50 +1251,7 @@ class FeatureFactory:
         closes = np.array([b["close"] for b in bars], dtype=float)
         volumes = np.array([b["volume"] for b in bars], dtype=float)
 
-        # Precompute all series — call each _*_series_full once
-        atr_series = _atr_series_full(highs, lows, closes, config.adx_period)
-        atr_padded = np.concatenate([[0.0], atr_series])  # length = n
-        atr_z_series = _rolling_zscore_series(atr_padded, config.momentum_zscore_window)
-
-        gap_z_series = _gap_z_series_full(
-            opens, highs, lows, closes, config.adx_period, config.momentum_zscore_window
-        )
-        rel_volume_series = _rel_volume_series_full(volumes, config.volume_zscore_window)
-        ofi_z_series = _ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window)
-        cvd_slope_z_series = _cvd_slope_z_series_full(
-            closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
-        )
-        volume_z_series = _volume_z_series_full(volumes, config.volume_zscore_window)
-
-        momentum_z_fast_series = _momentum_z_series_full(
-            closes, config.momentum_window_fast, config.momentum_zscore_window
-        )
-        momentum_z_mid_series = _momentum_z_series_full(
-            closes, config.momentum_window_mid, config.momentum_zscore_window
-        )
-        momentum_z_slow_series = _momentum_z_series_full(
-            closes, config.momentum_window_slow, config.momentum_zscore_window
-        )
-        momentum_reversal_z_series = _momentum_reversal_z_series_full(
-            closes, config.momentum_zscore_window
-        )
-
-        vwap_dev_sigma_series = _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes)
-
-        rsi_fast_series = _rsi_series_full(closes, config.rsi_fast_period)
-        rsi_mid_series = _rsi_series_full(closes, config.rsi_mid_period)
-        rsi_slow_series = _rsi_series_full(closes, config.rsi_slow_period)
-
-        amihud_illiq_z_series = _amihud_illiq_z_series_full(
-            closes, volumes, config.amihud_zscore_window
-        )
-        high_52w_dist_series = _high_52w_dist_series_full(closes, config.high_52w_window)
-        ret_skew_z_series = _ret_skew_z_series_full(
-            closes, config.ret_skew_window, config.ret_skew_zscore_window
-        )
-        ret_acf1_z_series = _ret_acf1_z_series_full(
-            closes, config.ret_acf_window, config.ret_acf_zscore_window
-        )
+        s = _precompute_series(opens, highs, lows, closes, volumes, config)
 
         # MIN_WINDOW for non-series features (cci_slow=40, aroon_slow=26, vol_ratio=21, cmf=20, range_position=20)
         MIN_WINDOW = max(
@@ -1304,11 +1261,6 @@ class FeatureFactory:
             config.cmf_period,
         )
         results: list[tuple[datetime, FeatureVector]] = []
-
-        def _guard(v: float | None, fallback: float = 0.0) -> float | None:
-            if v is None:
-                return None
-            return v if math.isfinite(v) else fallback
 
         for i in range(1, len(bars)):
             # Periodically refresh regime — use hurst_window (APR: feature.hurst.window,
@@ -1354,44 +1306,27 @@ class FeatureFactory:
                 bar_ts = bar_ts.replace(tzinfo=UTC)
 
             # Series-backed features (index into precomputed series)
-            atr_val = float(atr_series[i - 1]) if i - 1 < len(atr_series) else 0.0
-            atr_z_val = float(atr_z_series[i]) if i < len(atr_z_series) else 0.0
-
-            gap_z_val = float(gap_z_series[i]) if i < len(gap_z_series) else 0.0
-            rel_volume_val = float(rel_volume_series[i]) if i < len(rel_volume_series) else 1.0
-            ofi_z_val = float(ofi_z_series[i]) if i < len(ofi_z_series) else 0.0
-            cvd_slope_z_val = float(cvd_slope_z_series[i]) if i < len(cvd_slope_z_series) else 0.0
-            volume_z_val = float(volume_z_series[i]) if i < len(volume_z_series) else 0.0
-
-            momentum_z_fast_val = (
-                float(momentum_z_fast_series[i]) if i < len(momentum_z_fast_series) else 0.0
-            )
-            momentum_z_mid_val = (
-                float(momentum_z_mid_series[i]) if i < len(momentum_z_mid_series) else 0.0
-            )
-            momentum_z_slow_val = (
-                float(momentum_z_slow_series[i]) if i < len(momentum_z_slow_series) else 0.0
-            )
+            atr_val = float(s.atr_raw[i - 1]) if i - 1 < len(s.atr_raw) else 0.0
+            atr_z_val = float(s.atr_z[i]) if i < len(s.atr_z) else 0.0
+            gap_z_val = float(s.gap_z[i]) if i < len(s.gap_z) else 0.0
+            rel_volume_val = float(s.rel_volume[i]) if i < len(s.rel_volume) else 1.0
+            ofi_z_val = float(s.ofi_z[i]) if i < len(s.ofi_z) else 0.0
+            cvd_slope_z_val = float(s.cvd_slope_z[i]) if i < len(s.cvd_slope_z) else 0.0
+            volume_z_val = float(s.volume_z[i]) if i < len(s.volume_z) else 0.0
+            momentum_z_fast_val = float(s.momentum_z_fast[i]) if i < len(s.momentum_z_fast) else 0.0
+            momentum_z_mid_val = float(s.momentum_z_mid[i]) if i < len(s.momentum_z_mid) else 0.0
+            momentum_z_slow_val = float(s.momentum_z_slow[i]) if i < len(s.momentum_z_slow) else 0.0
             momentum_reversal_z_val = (
-                float(momentum_reversal_z_series[i]) if i < len(momentum_reversal_z_series) else 0.0
+                float(s.momentum_reversal_z[i]) if i < len(s.momentum_reversal_z) else 0.0
             )
-
-            vwap_dev_sigma_val = (
-                float(vwap_dev_sigma_series[i]) if i < len(vwap_dev_sigma_series) else 0.0
-            )
-
-            rsi_fast_val = float(rsi_fast_series[i]) if i < len(rsi_fast_series) else 50.0
-            rsi_mid_val = float(rsi_mid_series[i]) if i < len(rsi_mid_series) else 50.0
-            rsi_slow_val = float(rsi_slow_series[i]) if i < len(rsi_slow_series) else 50.0
-
-            amihud_illiq_z_val = (
-                float(amihud_illiq_z_series[i]) if i < len(amihud_illiq_z_series) else 0.0
-            )
-            high_52w_dist_val = (
-                float(high_52w_dist_series[i]) if i < len(high_52w_dist_series) else 0.0
-            )
-            ret_skew_z_val = float(ret_skew_z_series[i]) if i < len(ret_skew_z_series) else 0.0
-            ret_acf1_z_val = float(ret_acf1_z_series[i]) if i < len(ret_acf1_z_series) else 0.0
+            vwap_dev_sigma_val = float(s.vwap_dev_sigma[i]) if i < len(s.vwap_dev_sigma) else 0.0
+            rsi_fast_val = float(s.rsi_fast[i]) if i < len(s.rsi_fast) else 50.0
+            rsi_mid_val = float(s.rsi_mid[i]) if i < len(s.rsi_mid) else 50.0
+            rsi_slow_val = float(s.rsi_slow[i]) if i < len(s.rsi_slow) else 50.0
+            amihud_illiq_z_val = float(s.amihud_illiq_z[i]) if i < len(s.amihud_illiq_z) else 0.0
+            high_52w_dist_val = float(s.high_52w_dist[i]) if i < len(s.high_52w_dist) else 0.0
+            ret_skew_z_val = float(s.ret_skew_z[i]) if i < len(s.ret_skew_z) else 0.0
+            ret_acf1_z_val = float(s.ret_acf1_z[i]) if i < len(s.ret_acf1_z) else 0.0
 
             # Non-series features (compute on bounded window)
             bar_close_pos_val = _bar_close_pos(high_, low_, close_)
@@ -1485,55 +1420,47 @@ class FeatureFactory:
                 ctf_regime_align_val = cache.ctf_regime_align
 
             # Build FeatureVector
-            fv = FeatureVector(
-                # Momentum (7)
-                momentum_z_fast=_guard(momentum_z_fast_val),
-                momentum_z_mid=_guard(momentum_z_mid_val),
-                range_position=_guard(range_position_val, 0.5),
-                bar_close_pos=_guard(bar_close_pos_val, 0.5),
-                gap_z=_guard(gap_z_val),
-                momentum_z_slow=_guard(momentum_z_slow_val),
-                momentum_reversal_z=_guard(momentum_reversal_z_val),
-                # Volume and order flow (8)
-                informed_flow=_guard(informed_flow_val),
-                volume_z=_guard(volume_z_val),
-                ofi_z=_guard(ofi_z_val),
-                ofi_div=_guard(ofi_div_val),
-                cvd_slope_z=_guard(cvd_slope_z_val),
-                cmf=_guard(cmf_val),
-                rel_volume=_guard(rel_volume_val, 1.0),
-                vwap_dev_sigma=_guard(vwap_dev_sigma_val),
-                # Volatility (2)
-                atr_z=_guard(atr_z_val),
-                vol_ratio=_guard(vol_ratio_val, 1.0),
-                # Session-level (4)
-                poc_dist_atr=_guard(poc_dist_atr_val),
-                va_position=_guard(va_position_val, 0.5),
-                sr_support_dist=_guard(sr_support_dist_val),
-                sr_resist_dist=_guard(sr_resist_dist_val),
-                # Regime-level (11)
-                hmm_regime_prob=_guard(hmm_regime_prob_val),
-                hmm_entropy=_guard(hmm_entropy_val),
-                hmm_duration=_guard(hmm_duration_val),
-                hurst=_guard(hurst_val, 0.5),
-                shannon=_guard(shannon_val, 1.0),
-                garch_ratio=_guard(garch_ratio_val, 1.0),
-                hma_slope_z=_guard(hma_slope_z_val),
-                adx=_guard(adx_val),
-                aroon_fast=_guard(aroon_fast_val),
-                aroon_slow=_guard(aroon_slow_val),
-                # Oscillators (6)
-                rsi_fast=_guard(rsi_fast_val, 50.0),
-                rsi_mid=_guard(rsi_mid_val, 50.0),
-                rsi_slow=_guard(rsi_slow_val, 50.0),
-                cci_fast=_guard(cci_fast_val),
-                cci_mid=_guard(cci_mid_val),
-                cci_slow=_guard(cci_slow_val),
-                # Cross-asset (3)
-                vix_z=_guard(vix_z_val),
-                flight_quality=_guard(flight_quality_val),
-                yield_slope_z=_guard(yield_slope_z_val),
-                # Calendar (11)
+            fv = _build_feature_vector(
+                momentum_z_fast=momentum_z_fast_val,
+                momentum_z_mid=momentum_z_mid_val,
+                range_position=range_position_val,
+                bar_close_pos=bar_close_pos_val,
+                gap_z=gap_z_val,
+                momentum_z_slow=momentum_z_slow_val,
+                momentum_reversal_z=momentum_reversal_z_val,
+                informed_flow=informed_flow_val,
+                volume_z=volume_z_val,
+                ofi_z=ofi_z_val,
+                ofi_div=ofi_div_val,
+                cvd_slope_z=cvd_slope_z_val,
+                cmf=cmf_val,
+                rel_volume=rel_volume_val,
+                vwap_dev_sigma=vwap_dev_sigma_val,
+                atr_z=atr_z_val,
+                vol_ratio=vol_ratio_val,
+                poc_dist_atr=poc_dist_atr_val,
+                va_position=va_position_val,
+                sr_support_dist=sr_support_dist_val,
+                sr_resist_dist=sr_resist_dist_val,
+                hmm_regime_prob=hmm_regime_prob_val,
+                hmm_entropy=hmm_entropy_val,
+                hmm_duration=hmm_duration_val,
+                hurst=hurst_val,
+                shannon=shannon_val,
+                garch_ratio=garch_ratio_val,
+                hma_slope_z=hma_slope_z_val,
+                adx=adx_val,
+                aroon_fast=aroon_fast_val,
+                aroon_slow=aroon_slow_val,
+                rsi_fast=rsi_fast_val,
+                rsi_mid=rsi_mid_val,
+                rsi_slow=rsi_slow_val,
+                cci_fast=cci_fast_val,
+                cci_mid=cci_mid_val,
+                cci_slow=cci_slow_val,
+                vix_z=vix_z_val,
+                flight_quality=flight_quality_val,
+                yield_slope_z=yield_slope_z_val,
                 in_ny_session=in_ny_session_val,
                 in_london_kz=in_london_kz_val,
                 in_overlap=in_overlap_val,
@@ -1543,21 +1470,15 @@ class FeatureFactory:
                 dow_sin=dow_sin_val,
                 dow_cos=dow_cos_val,
                 month_position=month_position_val,
-                quarter_position=_guard(quarter_position_val, 0.0),
-                days_to_month_end=_guard(days_to_month_end_val, 0.0),
-                # Cross-timeframe (3)
-                ctf_momentum=_guard(ctf_momentum_val),
-                ctf_vwap_align=_guard(ctf_vwap_align_val),
-                ctf_regime_align=_guard(ctf_regime_align_val),
-                # Statistical / liquidity (4)
-                amihud_illiq_z=_guard(amihud_illiq_z_val),
-                high_52w_dist=_guard(high_52w_dist_val),
-                ret_skew_z=_guard(ret_skew_z_val),
-                ret_acf1_z=_guard(ret_acf1_z_val),
-                # Cross-sectional (3, nullable — populated by Phase 139)
-                momentum_rank_z=None,
-                volume_rank_z=None,
-                volatility_rank_z=None,
+                quarter_position=quarter_position_val,
+                days_to_month_end=days_to_month_end_val,
+                ctf_momentum=ctf_momentum_val,
+                ctf_vwap_align=ctf_vwap_align_val,
+                ctf_regime_align=ctf_regime_align_val,
+                amihud_illiq_z=amihud_illiq_z_val,
+                high_52w_dist=high_52w_dist_val,
+                ret_skew_z=ret_skew_z_val,
+                ret_acf1_z=ret_acf1_z_val,
             )
 
             results.append((bar_ts, fv))
