@@ -25,6 +25,9 @@
 - ✅ **v2.10 Data Architecture Evolution** — Phases 123-136 (SHIPPED 2026-06-20; ECL + APR + signal hardening + clean replay + 3-table migration + type safety + post-reboot repair)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
+- 📋 **v3.0a Data Integrity — DataIntegrityMonitor** — Phases 149A-150 (planned; KS test on 54 features + chi-squared on 7 categorical + IC decay detection + ensemble IC CUSUM; all parameters APR-backed, recovery state machines; see `docs/ideas/data-integrity-monitor-design.md`)
+- 📋 **v3.0b System Health — SystemHealthMonitor** — Phases 151A-151C (planned; 3-gate ensemble health check [E1: IC gate, E2: conviction reliability, E3: feature coverage] + automated retraining + AlphaEmitter integration; all parameters APR-backed; see `docs/ideas/system-health-monitor-design.md`)
+- 📋 **v3.0c Predictive Decay — PredictiveDecayDetector** — Phases TBD (planned; IC lifecycle monitoring for features, ensemble IC, ML models; all parameters APR-backed; recovery state machines; see `docs/ideas/predictive-decay-detector-design.md`)
 - 📋 **v3.1 AlphaEngine Validation + Alpha Scoring** — Phases 140.5-144 (planned; hard-gated on Phase 141 corpus validation passing; 8 structural prerequisites must be resolved before roadmap is written — see `docs/plans/2026-06-25-alphaengine-phase-d-prerequisites.md`)
 - 📋 **v3.2 AnalogEngine + Feature Expansion** — Phases 145-147 (planned; hard-gated on v3.1 OOS-validated IC > 0 at 95% CI)
 - 📋 **v3.3 Foundational Hardening** — Phases 148-149 (planned)
@@ -1207,6 +1210,32 @@ Plans archived at: `.planning/milestones/v2.10-phases/` (directory removed from 
 - [x] **Phase 140: IC Engine Correctness** — Fix stride-per-scale bug, overnight gap contamination in forward returns, BH-FDR meta-level gate, feature collinearity clustering, IC Sharpe min_windows, OOM cleanup, training-window-end CLI arg (4/4 plans, 2026-06-25; 4 items deferred to todo 015)
 
 Full details: `.planning/milestones/v3.0-ROADMAP.md`
+
+</details>
+
+<details>
+<summary>📋 v3.0a Data Integrity — Drift Detection (Phases 149A-150) — PLANNED</summary>
+
+- [ ] **Phase 149A: Distribution Drift (KS + Chi-Squared)** — KS test on 54 features (47 continuous + 7 categorical); adaptive penalties; recovery state machine; all parameters APR-backed — see `docs/plans/2026-06-26-feature-distribution-drift-detection.md`
+- [ ] **Phase 149B: Feature IC Decay** — Lifecycle states (candidate → active → decaying → deprecated); recovery confirmation (2 consecutive passing IC runs); all parameters APR-backed — see `docs/plans/2026-06-26-feature-ic-decay-implementation.md`
+- [ ] **Phase 150: Ensemble IC CUSUM** — Repurpose CUSUM for ensemble IC monitoring; adaptive thresholds; per-(symbol, tf, regime, lookahead) tracking — see `docs/plans/2026-06-26-drift-detection-architecture.md`
+
+**Dependencies:** Phase 142A (`alpha_ensemble_ic` table exists)
+
+**Service design:** `docs/ideas/drift-detection-service-design.md` — reusable drift detection platform
+
+</details>
+
+<details>
+<summary>📋 v3.0b System Health — Decay Detection (Phases 151A-151C) — PLANNED</summary>
+
+- [ ] **Phase 151A: E1 Gate (Ensemble IC)** — Ensemble IC gate (ic_sharpe ≥ 1.0); halt on critical (< 0.5); size reduction on warning; recovery state machine — see `docs/plans/2026-06-27-ensemble-lifecycle-implementation.md`
+- [ ] **Phase 151B: E2+E3 Gates (Conviction + Coverage)** — Conviction stability + calibration + distribution gates; feature coverage gate; all thresholds APR-backed — see `docs/ideas/alpha-ensemble-lifecycle.md`
+- [ ] **Phase 151C: Retraining + Integration** — Scheduled retrain (30 days); emergency retrain (IC < 0.3); AlphaEmitter integration; 3-gate AND logic — see `docs/ideas/decay-detection-service-design.md`
+
+**Dependencies:** Phase 149B (feature_ic_scores.is_decaying exists), Phase 142A (alpha_events table exists)
+
+**Service design:** `docs/ideas/decay-detection-service-design.md` — reusable decay detection platform
 
 </details>
 
