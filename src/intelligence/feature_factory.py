@@ -847,6 +847,28 @@ def _rel_volume_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# Calendar helpers (shared by compute() and compute_batch())
+# ---------------------------------------------------------------------------
+
+
+def _quarter_position(bar_ts: datetime) -> float:
+    """Position within the quarter: 0.0 at quarter start, approaching 1.0 at end.
+
+    Formula: (month_in_quarter * 30 + day) / QUARTER_LENGTH_DAYS
+    """
+    month_in_q = (bar_ts.month - 1) % 3
+    day_in_q = month_in_q * 30 + bar_ts.day
+    return min(1.0, day_in_q / _QUARTER_LENGTH_DAYS)
+
+
+def _days_to_month_end_fraction(bar_ts: datetime) -> float:
+    """Fraction of month remaining: 0.0 at month end, approaching 1.0 at start."""
+    days_in_month = calendar.monthrange(bar_ts.year, bar_ts.month)[1]
+    days_remaining = days_in_month - bar_ts.day
+    return days_remaining / days_in_month
+
+
+# ---------------------------------------------------------------------------
 # _PrecomputedSeries — bundled series arrays for a bar window
 # ---------------------------------------------------------------------------
 
@@ -936,6 +958,11 @@ def _guard(v: float | None, fallback: float = 0.0) -> float | None:
     if v is None:
         return None
     return v if math.isfinite(v) else fallback
+
+
+def _series_last(arr: np.ndarray, fallback: float) -> float:
+    """Safely extract the last element of a series array with fallback."""
+    return float(arr[-1]) if len(arr) > 0 else fallback
 
 
 def _build_feature_vector(
@@ -1142,34 +1169,25 @@ class FeatureFactory:
             sr_support_dist_val = cache.sr_support_dist
             sr_resist_dist_val = cache.sr_resist_dist
 
-        _month_in_q = (bar_ts.month - 1) % 3
-        _day_in_q = _month_in_q * 30 + bar_ts.day
-        quarter_position_val = min(1.0, _day_in_q / _QUARTER_LENGTH_DAYS)
-        _days_in_month = calendar.monthrange(bar_ts.year, bar_ts.month)[1]
-        days_to_month_end_val = (_days_in_month - bar_ts.day) / _days_in_month
-
-        def _s(arr: np.ndarray, fallback: float) -> float:
-            return float(arr[-1]) if len(arr) > 0 else fallback
-
         _dow = _dow_encoding(bar_ts)
 
         return _build_feature_vector(
-            momentum_z_fast=_s(s.momentum_z_fast, 0.0),
-            momentum_z_mid=_s(s.momentum_z_mid, 0.0),
+            momentum_z_fast=_series_last(s.momentum_z_fast, 0.0),
+            momentum_z_mid=_series_last(s.momentum_z_mid, 0.0),
             range_position=range_position_val,
             bar_close_pos=_bar_close_pos(high_, low_, close_),
-            gap_z=_s(s.gap_z, 0.0),
-            momentum_z_slow=_s(s.momentum_z_slow, 0.0),
-            momentum_reversal_z=_s(s.momentum_reversal_z, 0.0),
+            gap_z=_series_last(s.gap_z, 0.0),
+            momentum_z_slow=_series_last(s.momentum_z_slow, 0.0),
+            momentum_reversal_z=_series_last(s.momentum_reversal_z, 0.0),
             informed_flow=_informed_flow(open_, close_, atr_val),
-            volume_z=_s(s.volume_z, 0.0),
-            ofi_z=_s(s.ofi_z, 0.0),
-            ofi_div=_s(s.ofi_z, 0.0) - _s(s.momentum_z_fast, 0.0),
-            cvd_slope_z=_s(s.cvd_slope_z, 0.0),
+            volume_z=_series_last(s.volume_z, 0.0),
+            ofi_z=_series_last(s.ofi_z, 0.0),
+            ofi_div=_series_last(s.ofi_z, 0.0) - _series_last(s.momentum_z_fast, 0.0),
+            cvd_slope_z=_series_last(s.cvd_slope_z, 0.0),
             cmf=_cmf(highs, lows, closes, volumes, config.cmf_period),
-            rel_volume=_s(s.rel_volume, 1.0),
-            vwap_dev_sigma=_s(s.vwap_dev_sigma, 0.0),
-            atr_z=_s(s.atr_z, 0.0),
+            rel_volume=_series_last(s.rel_volume, 1.0),
+            vwap_dev_sigma=_series_last(s.vwap_dev_sigma, 0.0),
+            atr_z=_series_last(s.atr_z, 0.0),
             vol_ratio=_vol_ratio(closes, config.vol_short_bars, config.vol_long_bars),
             poc_dist_atr=poc_dist_atr_val,
             va_position=va_position_val,
@@ -1185,9 +1203,9 @@ class FeatureFactory:
             adx=cache.adx,
             aroon_fast=_aroon_osc(highs, lows, config.aroon_fast_period),
             aroon_slow=_aroon_osc(highs, lows, config.aroon_slow_period),
-            rsi_fast=_s(s.rsi_fast, 50.0),
-            rsi_mid=_s(s.rsi_mid, 50.0),
-            rsi_slow=_s(s.rsi_slow, 50.0),
+            rsi_fast=_series_last(s.rsi_fast, 50.0),
+            rsi_mid=_series_last(s.rsi_mid, 50.0),
+            rsi_slow=_series_last(s.rsi_slow, 50.0),
             cci_fast=_cci(highs, lows, closes, config.cci_fast_period),
             cci_mid=_cci(highs, lows, closes, config.cci_mid_period),
             cci_slow=_cci(highs, lows, closes, config.cci_slow_period),
@@ -1203,15 +1221,15 @@ class FeatureFactory:
             dow_sin=_dow[0],
             dow_cos=_dow[1],
             month_position=_month_position(bar_ts),
-            quarter_position=quarter_position_val,
-            days_to_month_end=days_to_month_end_val,
+            quarter_position=_quarter_position(bar_ts),
+            days_to_month_end=_days_to_month_end_fraction(bar_ts),
             ctf_momentum=cache.ctf_momentum,
             ctf_vwap_align=cache.ctf_vwap_align,
             ctf_regime_align=cache.ctf_regime_align,
-            amihud_illiq_z=_s(s.amihud_illiq_z, 0.0),
-            high_52w_dist=_s(s.high_52w_dist, 0.0),
-            ret_skew_z=_s(s.ret_skew_z, 0.0),
-            ret_acf1_z=_s(s.ret_acf1_z, 0.0),
+            amihud_illiq_z=_series_last(s.amihud_illiq_z, 0.0),
+            high_52w_dist=_series_last(s.high_52w_dist, 0.0),
+            ret_skew_z=_series_last(s.ret_skew_z, 0.0),
+            ret_acf1_z=_series_last(s.ret_acf1_z, 0.0),
         )
 
     @staticmethod
@@ -1396,14 +1414,8 @@ class FeatureFactory:
             above_wk_vwap_val = cache.above_wk_vwap
             dow_sin_val, dow_cos_val = _dow_encoding(bar_ts)
             month_position_val = _month_position(bar_ts)
-
-            _month_in_q = (bar_ts.month - 1) % 3
-            _day_in_q = _month_in_q * 30 + bar_ts.day
-            quarter_position_val = min(1.0, _day_in_q / _QUARTER_LENGTH_DAYS)
-
-            _days_in_month = calendar.monthrange(bar_ts.year, bar_ts.month)[1]
-            _days_remaining = _days_in_month - bar_ts.day
-            days_to_month_end_val = _days_remaining / _days_in_month
+            quarter_position_val = _quarter_position(bar_ts)
+            days_to_month_end_val = _days_to_month_end_fraction(bar_ts)
 
             # CTF: from pre-built causal dict (batch) or cache (live)
             if ctf_by_ts is not None and ctf_ts_list is not None:
@@ -1470,8 +1482,8 @@ class FeatureFactory:
                 dow_sin=dow_sin_val,
                 dow_cos=dow_cos_val,
                 month_position=month_position_val,
-                quarter_position=quarter_position_val,
-                days_to_month_end=days_to_month_end_val,
+                quarter_position=_quarter_position(bar_ts),
+                days_to_month_end=_days_to_month_end_fraction(bar_ts),
                 ctf_momentum=ctf_momentum_val,
                 ctf_vwap_align=ctf_vwap_align_val,
                 ctf_regime_align=ctf_regime_align_val,
