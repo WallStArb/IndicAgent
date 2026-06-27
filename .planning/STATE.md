@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: in_progress
-last_updated: "2026-06-27T11:00:00.000Z"
+last_updated: "2026-06-27T11:29:08.392Z"
 progress:
-  total_phases: 5
-  completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
-  percent: 20
+  total_phases: 8
+  completed_phases: 2
+  total_plans: 9
+  completed_plans: 9
+  percent: 25
 ---
 
 # Project State
@@ -57,17 +57,21 @@ See: .planning/PROJECT.md
 - feature_vectors: 54,260,576 rows (58 symbols × 4 TFs — COMPLETE)
 - forward_returns: 54,260,576 rows (1:1 match — COMPLETE)
 - feature_ic_scores: 382,271 rows (330,890 non-pooled; 58 distinct symbols, 58 distinct features)
-- market_regimes: 819,020 rows (K=5 labels confirmed in feature_vectors)
+- market_regimes: 819,020 rows (9 cross-sectional labels: {low/mid/high}_{bull/neutral/bear})
 - alpha_events: 0 rows (ensemble_trainer + alpha_publisher not yet run)
 - context_features: 8,985 rows (2995 trading days × 3 macro features)
 
-**regime labels confirmed:** trending_up, transition_up, ranging, transition_down, trending_down (K=5 ✓)
+**Dual regime system (both live):**
+
+- `feature_vectors.regime` — 5 per-symbol HMM labels (trending_down/transition_down/ranging/transition_up/trending_up), written by `regime_writer.py` (K=5, causal forward-filter)
+- `market_regimes` — 9 cross-sectional labels ({low/mid/high}_{bull/neutral/bear}), written by `equity_regime_model.py` (VIX proxy percentile × ETF breadth above 200MA); ic_engine stratifies on these; `feature_ic_scores` already has all 9 buckets populated
 
 ## Corpus Pipeline — IN PROGRESS (started 2026-06-24)
 
 Steps 1-4 complete. Steps 5-6 pending.
 
 **Pipeline steps:**
+
 - [x] feature_factory — 54M rows
 - [x] regime_writer --refit (K=5) — labels confirmed in feature_vectors
 - [x] forward_return_writer — 54M rows

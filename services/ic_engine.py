@@ -48,6 +48,9 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+# Corpus manifest system
+sys.path.insert(0, "src")
 import psycopg2
 import psycopg2.extras
 import structlog
@@ -58,6 +61,8 @@ from scipy.spatial.distance import squareform
 from scipy.stats import rankdata
 from scipy.stats import t as t_dist
 from statsmodels.stats.multitest import multipletests
+
+from observability.corpus_manifest import CorpusManifest
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -1730,6 +1735,10 @@ def main() -> None:
     conn = None
     conn = _connect_db(settings)
 
+    # Initialize corpus manifest
+    manifest_dir = Path(".planning/corpus_manifests")
+    manifest = CorpusManifest("ic_engine", manifest_dir)
+
     try:
         with _observed_span("ic_engine.run", tracer):
             # ----------------------------------------------------------
@@ -1817,6 +1826,14 @@ def main() -> None:
                 n_symbols=len(symbols),
                 tfs=tfs,
                 training_window_end=str(training_window_end),
+            )
+
+            # Record inputs to manifest
+            manifest.set_inputs(
+                training_window_end=str(training_window_end),
+                tfs=tfs,
+                symbols=symbols,
+                cross_sectional_only=args.cross_sectional_only,
             )
 
             # ----------------------------------------------------------
@@ -1975,6 +1992,83 @@ def main() -> None:
             elapsed = time.monotonic() - t0
             IC_ENGINE_RUN_LATENCY_SECONDS.record(elapsed)
 
+            # Record outputs to manifest
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT tf, COUNT(*) as count
+                    FROM feature_ic_scores
+                    WHERE training_window_end = %s
+                    GROUP BY tf
+                    ORDER BY tf
+                    """,
+                    (training_window_end,),
+                )
+                rows_by_tf = {r[0]: r[1] for r in cur.fetchall()}
+
+                cur.execute(
+                    """
+                    SELECT regime, COUNT(*) as count
+                    FROM feature_ic_scores
+                    WHERE training_window_end = %s
+                    GROUP BY regime
+                    ORDER BY regime
+                    """,
+                    (training_window_end,),
+                )
+                rows_by_regime = {r[0]: r[1] for r in cur.fetchall()}
+
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM feature_ic_scores
+                    WHERE training_window_end = %s
+                    """,
+                    (training_window_end,),
+                )
+                rows_total = cur.fetchone()[0]
+
+            manifest.add_output(
+                table_name="feature_ic_scores",
+                rows_total=rows_total,
+                rows_by_tf=rows_by_tf,
+                rows_by_regime=rows_by_regime,
+                columns_written=[
+                    "feature_name",
+                    "vector_domain",
+                    "symbol",
+                    "tf",
+                    "regime",
+                    "lookahead_bars",
+                    "training_window_end",
+                    "is_pooled",
+                    "n_independent",
+                    "reliable",
+                    "ic_value",
+                    "ic_sign",
+                    "p_value",
+                    "ic_ci_lower",
+                    "ic_ci_upper",
+                    "passes_ci_gate",
+                    "bh_adjusted_p",
+                    "passes_fdr",
+                    "wf_fold_count",
+                    "wf_pass_count",
+                    "wf_ic_sharpe",
+                    "passes_walkforward",
+                    "ic_sharpe",
+                    "ic_sharpe_n_windows",
+                    "regime_label_source",
+                    "is_decaying",
+                    "decay_detected_at",
+                ],
+            )
+
+            # Mark success and write manifest
+            manifest.mark_success()
+            manifest_path = manifest.write()
+            _logger.info("ic_engine.manifest_written", path=str(manifest_path))
+
             _logger.info(
                 "ic_engine.run_complete",
                 total_committed=total_committed,
@@ -1987,6 +2081,13 @@ def main() -> None:
         _logger.error("ic_engine.run_failed", error=str(error))
         status = "failure"
         exit_code = 1
+
+        # Record error in manifest
+        manifest.add_error(str(error))
+        try:
+            manifest.write()
+        except Exception:
+            pass  # Don't let manifest write failure hide the original error
     finally:
         if conn is not None:
             conn.close()
