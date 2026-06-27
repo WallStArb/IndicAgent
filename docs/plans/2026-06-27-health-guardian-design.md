@@ -1,4 +1,4 @@
-# HealthGuardian — Unified Monitoring Platform Design
+# IntegrityMonitor — Unified Monitoring Platform Design
 
 **Date:** 2026-06-27
 **Status:** PROPOSED — awaiting prioritization
@@ -15,29 +15,29 @@ Three planned services (DataIntegrityMonitor, SystemHealthMonitor, PredictiveDec
 
 ## Solution: One Service, Three Monitor Modules
 
-`indicagent-health-guardian` (port `:9118`) loads three pluggable monitor modules at startup:
+`indicagent-integrity-monitor` (port `:9118`) loads three pluggable monitor modules at startup:
 
 ```
-HealthGuardian
+IntegrityMonitor
 ├── DistributionDriftMonitor    # KS + chi-squared + signed Wasserstein on feature_vectors
 ├── ICLifecycleMonitor          # shadow governance for feature_ic_scores (event-driven)
 └── EnsembleHealthMonitor       # 3-gate health check on alpha_ensemble_ic / alpha_events
 ```
 
-One `health_monitor` hypertable records all check results (discriminated by `monitor_type`). One recovery state machine. One action registry. One OTel metrics block.
+One `integrity_monitor` hypertable records all check results (discriminated by `monitor_type`). One recovery state machine. One action registry. One OTel metrics block.
 
 ---
 
 ## Architecture
 
 ```
-                 feature_vectors ──► DistributionDriftMonitor ──► health_monitor
+                 feature_vectors ──► DistributionDriftMonitor ──► integrity_monitor
                                            (4h timer)                    │
                                                                          │
-              feature_ic_scores ──► ICLifecycleMonitor ──────────► health_monitor
+              feature_ic_scores ──► ICLifecycleMonitor ──────────► integrity_monitor
               (corpus run event)        (event-driven)                   │
                                                                          │
-      alpha_ensemble_ic + alpha_events ──► EnsembleHealthMonitor ──► health_monitor
+      alpha_ensemble_ic + alpha_events ──► EnsembleHealthMonitor ──► integrity_monitor
                                                 (1h timer)               │
                                                                          ▼
                                                                ensemble_trainer
@@ -113,7 +113,7 @@ No new joins, no new tables — regime signal is already in `feature_vectors`.
 
 KS statistic tells you distributions differ; it doesn't tell you how. For directional features, shift direction matters: `rsi_fast` distribution shifting up during a trend strengthening is still informative. Shift toward noise/uniform is signal degradation.
 
-`scipy.stats.wasserstein_distance` is O(n log n) like KS, and gives signed magnitude (positive = current shifted right of reference, negative = left). Initial penalty logic is symmetric — we don't yet have history to learn direction-specific penalties per feature. The signed value is recorded in `health_monitor.wasserstein_signed` so that after 3-6 months of data, direction-specific penalty learning is possible.
+`scipy.stats.wasserstein_distance` is O(n log n) like KS, and gives signed magnitude (positive = current shifted right of reference, negative = left). Initial penalty logic is symmetric — we don't yet have history to learn direction-specific penalties per feature. The signed value is recorded in `integrity_monitor.wasserstein_signed` so that after 3-6 months of data, direction-specific penalty learning is possible.
 
 **Single query for all 54 features per window:**
 
@@ -293,10 +293,10 @@ Recovery: 2 consecutive clean checks (shared `RecoveryStateMachine`) before clea
 
 ## Schema
 
-### New table: `health_monitor` (hypertable)
+### New table: `integrity_monitor` (hypertable)
 
 ```sql
-CREATE TABLE IF NOT EXISTS health_monitor (
+CREATE TABLE IF NOT EXISTS integrity_monitor (
     id                  BIGSERIAL       PRIMARY KEY,
     monitor_type        TEXT            NOT NULL,   -- distribution_drift / ic_lifecycle / ensemble_health
     check_type          TEXT            NOT NULL,   -- ks_distribution / chi_squared / shadow_transition / ic_gate / etc.
@@ -343,12 +343,12 @@ CREATE TABLE IF NOT EXISTS health_monitor (
     query_result        JSONB           -- full row for diagnostics
 );
 
-SELECT create_hypertable('health_monitor', 'checked_at',
+SELECT create_hypertable('integrity_monitor', 'checked_at',
     chunk_time_interval => INTERVAL '30 days', if_not_exists => TRUE);
 
-CREATE INDEX ix_health_monitor_type   ON health_monitor (monitor_type, checked_at DESC);
-CREATE INDEX ix_health_monitor_symbol ON health_monitor (symbol, timeframe, feature_name, checked_at DESC);
-CREATE INDEX ix_health_monitor_halt   ON health_monitor (monitor_type, halt_triggered) WHERE halt_triggered = TRUE;
+CREATE INDEX ix_integrity_monitor_type   ON integrity_monitor (monitor_type, checked_at DESC);
+CREATE INDEX ix_integrity_monitor_symbol ON integrity_monitor (symbol, timeframe, feature_name, checked_at DESC);
+CREATE INDEX ix_integrity_monitor_halt   ON integrity_monitor (monitor_type, halt_triggered) WHERE halt_triggered = TRUE;
 ```
 
 ### Additions to `feature_ic_scores`
@@ -408,6 +408,8 @@ CREATE TABLE IF NOT EXISTS feature_deprecations (
 | `alpha.drift.weight_penalty_warning_min` | 0.80 | Floor for warning penalty |
 | `alpha.drift.weight_penalty_critical_min` | 0.60 | Floor for critical penalty |
 | `alpha.drift.weight_penalty_adaptive` | true | Scale penalty by Wasserstein magnitude |
+| `alpha.drift.weight_penalty_warning_scale` | 0.3 | Wasserstein multiplier for warning: `1.0 - magnitude * scale` |
+| `alpha.drift.weight_penalty_critical_scale` | 0.5 | Wasserstein multiplier for critical: `1.0 - magnitude * scale` |
 | **IC lifecycle (shadow)** | | |
 | `alpha.ic.shadow_decay_sharpe_threshold` | 0.0 | IC Sharpe floor for demotion |
 | `alpha.ic.shadow_consecutive_passes` | 2 | Consecutive passing corpus runs for promotion |
@@ -431,40 +433,40 @@ CREATE TABLE IF NOT EXISTS feature_deprecations (
 **Prometheus metrics (port `:9118`):**
 
 ```
-health_distribution_drift_pvalue{symbol, timeframe, feature, test_type}
-health_distribution_drift_wasserstein{symbol, timeframe, feature}   -- signed
-health_distribution_penalty{symbol, timeframe}                       -- active weight multiplier
-health_ic_shadow_count{tf, regime}                                   -- features currently shadowed
-health_ic_active_count{tf, regime}                                   -- features currently active
-health_ic_deprecation_candidate_count                                -- awaiting operator action
-health_ensemble_gate_status{symbol, tf, regime, gate}                -- 0=fail, 1=warn, 2=pass
-health_ensemble_halt_active{symbol, tf, regime}                      -- 1 if halted
-health_check_duration_seconds{monitor_type}                          -- histogram
+integrity_distribution_drift_pvalue{symbol, timeframe, feature, test_type}
+integrity_distribution_drift_wasserstein{symbol, timeframe, feature}   -- signed
+integrity_distribution_penalty{symbol, timeframe}                       -- active weight multiplier
+integrity_ic_shadow_count{tf, regime}                                   -- features currently shadowed
+integrity_ic_active_count{tf, regime}                                   -- features currently active
+integrity_ic_deprecation_candidate_count                                -- awaiting operator action
+integrity_ensemble_gate_status{symbol, tf, regime, gate}                -- 0=fail, 1=warn, 2=pass
+integrity_ensemble_halt_active{symbol, tf, regime}                      -- 1 if halted
+integrity_check_duration_seconds{monitor_type}                          -- histogram
 ```
 
 **REST API:**
 
 ```
-GET /api/health/drift          # distribution drift alerts + active penalties
-GET /api/health/shadow         # features in shadow + promotion candidates
-GET /api/health/ensemble       # ensemble gate status + halt state
-GET /api/health               # combined summary
+GET /api/integrity/drift          # distribution drift alerts + active penalties
+GET /api/integrity/shadow         # features in shadow + promotion candidates
+GET /api/integrity/ensemble       # ensemble gate status + halt state
+GET /api/integrity               # combined summary
 ```
 
 **Topic events on state transitions:**
-- `topic_health_distribution_alert()` — KS or chi-squared fires
+- `topic_integrity_distribution_alert()` — KS or chi-squared fires
 - `topic_health_shadow_entered()` — feature demoted to shadow
 - `topic_health_shadow_exited()` — feature promoted back to active
 - `topic_health_deprecation_candidate()` — feature hit shadow_max_corpus_runs
-- `topic_health_ensemble_gate_changed()` — any E1/E2/E3 status change
+- `topic_integrity_ensemble_gate_changed()` — any E1/E2/E3 status change
 
 ---
 
 ## Service Deployment
 
-**Unit:** `indicagent-health-guardian.service`
+**Unit:** `indicagent-integrity-monitor.service`
 **Port:** `:9118`
-**Binary:** `services/health_guardian_service.py`
+**Binary:** `services/integrity_monitor_service.py`
 
 ```python
 async def main():
@@ -485,11 +487,11 @@ async def main():
 
 ## Migration Plan
 
-**Phase 149A — HealthGuardian foundation + distribution drift:**
-1. Migration: `health_monitor` hypertable + all distribution drift APR keys
+**Phase 149A — IntegrityMonitor foundation + distribution drift:**
+1. Migration: `integrity_monitor` hypertable + all distribution drift APR keys
 2. `DistributionDriftMonitor`: regime-conditioned KS + chi-squared + signed Wasserstein, merged queries
-3. `indicagent-health-guardian` service skeleton with `DistributionDriftMonitor` loaded
-4. Wire `ensemble_trainer` to read `health_monitor` for drift penalty
+3. `indicagent-integrity-monitor` service skeleton with `DistributionDriftMonitor` loaded
+4. Wire `ensemble_trainer` to read `integrity_monitor` for drift penalty
 
 **Phase 149B — IC shadow lifecycle:**
 1. Migration: rename `is_decaying → is_shadowed`, add shadow tracking columns, `feature_deprecations` table, shadow APR keys
