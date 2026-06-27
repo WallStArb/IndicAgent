@@ -1,73 +1,65 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-23T23:39:17Z",
-  "phase": "139",
-  "phase_name": "ensemble-alpha-emission",
-  "phase_dir": ".planning/phases/139-ensemble-alpha-emission",
+  "timestamp": "2026-06-27T14:55:13.418Z",
+  "phase": null,
+  "phase_name": null,
+  "phase_dir": null,
   "plan": null,
   "task": null,
-  "total_tasks": null,
+  "total_tasks": 2,
   "status": "paused",
   "completed_tasks": [
     {
-      "id": "138-P8",
-      "name": "4-symbol IC pipeline run (SPY, TLT, XLF, QQQ)",
+      "id": 1,
+      "name": "ensemble_trainer cross-sectional IC redesign",
       "status": "done",
-      "notes": "feature_vectors, forward_returns, feature_ic_scores all populated. IC discovery report generated at docs/analysis/ic-discovery-report.md + .json. 683 regime-stratified features pass walk-forward, 50 pooled pass both gates."
+      "commit": "cfe2f260"
     },
     {
-      "id": "168",
-      "name": "Migration 168 — IC index cleanup",
+      "id": 2,
+      "name": "ensemble_trainer bug fixes (market_regimes JOIN, ic_sharpe_hac key remap)",
       "status": "done",
-      "notes": "Dropped redundant forward_returns_symbol_tf_ts_idx, added feature_ic_scores_symbol_tf_ts_idx for temporal ordering queries. Applied, committed, pushed."
+      "commit": "cfe2f260"
     }
   ],
   "remaining_tasks": [
     {
-      "id": "fix-broken-features",
-      "name": "Fix 12 broken/constant feature primitives before re-running backfill",
-      "status": "not_started",
-      "priority": "HIGH — blocks full 58-symbol backfill quality"
+      "id": 3,
+      "name": "Fix alpha_publisher JSONB serialization in executemany",
+      "status": "blocked"
     },
     {
-      "id": "full-58-backfill",
-      "name": "Run backfill_feature_factory --compute-only for remaining 157 pending (symbol,tf) pairs",
-      "status": "not_started",
-      "notes": "All 58 symbols have OHLCV data (fetch_complete=true). 16 pairs already complete (SPY/QQQ/TLT/XLF × 4 TFs). 157 remain. No IBKR connection needed."
-    },
-    {
-      "id": "139",
-      "name": "Phase 139 — Ensemble alpha emission",
-      "status": "planned",
-      "notes": "Plans exist: 139-P1-PLAN.md, 139-P2-PLAN.md, 139-P3-PLAN.md, 139-RESEARCH.md"
+      "id": 4,
+      "name": "Run alpha_publisher to complete corpus pipeline",
+      "status": "not_started"
     }
   ],
   "blockers": [
     {
-      "description": "12 feature primitives return constant values in feature_vectors — cross-asset (vix_z, yield_slope_z, flight_quality), CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align), volume profile (va_position, poc_dist_atr), HMM prob (hmm_regime_prob, hmm_entropy), plus sr_support_dist, sr_resist_dist",
+      "description": "asyncpg executemany cannot infer JSONB type from dict - requires json.dumps(e['top_features']) + $15::jsonb cast",
       "type": "technical",
-      "workaround": "These features have 0% null rate in feature_vectors but std=0.000 — they are computing placeholder/default values. IC engine returns null IC for all of them. Must fix FeatureFactory before re-running backfill."
+      "workaround": "One-line fix in alpha_publisher.py:322"
     }
   ],
   "human_actions_pending": [],
   "decisions": [
     {
-      "decision": "Proceed to Phase 139 with 4-symbol IC corpus before full 58-symbol run",
-      "rationale": "683 regime-stratified passing features is statistically sufficient to build the ensemble. Ensemble can be re-weighted when full corpus lands. Don't block on data gathering.",
-      "phase": "138"
+      "decision": "Cross-sectional IC (symbol='POOLED') is correct model for ensemble - per-symbol cells structurally impossible below IC Sharpe gate",
+      "rationale": "Per-symbol per-regime has ~1,500 bars at 5m, need 60,000 for gate. Cross-sectional pools 58 symbols × regime = ~126K bars → 220 windows, well above gate.",
+      "phase": null
     },
     {
-      "decision": "Fix broken feature primitives before full 58-symbol backfill compute",
-      "rationale": "cross-asset, CTF, volume profile, and HMM probability features all return constant values. Running 157 more pairs with broken features wastes compute and produces misleading IC scores.",
-      "phase": "138"
+      "decision": "ensemble_weights use symbol='UNIVERSE' sentinel (universe-level weights, not per-symbol)",
+      "rationale": "One rigorous cross-sectional model vs 58 noisy per-symbol models. Symbol column not nullable in current schema; sentinel parallels 'POOLED' pattern in feature_ic_scores.",
+      "phase": null
+    },
+    {
+      "decision": "alpha_publisher cache key changed from (symbol, tf, regime) to (tf, regime)",
+      "rationale": "ensemble_weights.symbol is always 'UNIVERSE' after redesign; including symbol in cache key causes every lookup to miss when actual ticker symbol is used for lookup.",
+      "phase": null
     }
   ],
-  "uncommitted_files": [
-    ".planning/phases/137b-feature-factory-single-path/137b-P1-PLAN.md",
-    ".planning/phases/137b-feature-factory-single-path/137b-P2-PLAN.md",
-    ".planning/phases/137b-feature-factory-single-path/137b-REVIEW.md",
-    "production/scripts/backfill_missing_timeframes.sh"
-  ],
-  "next_action": "Fix the 12 broken feature primitives in FeatureFactory. Start by reading services/backfill_feature_factory.py and src/intelligence/feature_factory.py to understand how cross-asset, CTF, and volume profile features are fed data during the batch compute path. The live path has FeatureCache.update_cross_asset() called with real-time bars — the batch path may not be calling this correctly or may lack the higher-TF and cross-asset bar data.",
-  "context_notes": "This was a review/analysis session, not a coding session. P8 ran earlier today successfully. The main discovery was that 12 feature primitives are broken (constant values) — this needs to be fixed before the full backfill. Phase 139 plans already exist and are ready to execute once the corpus is clean."
+  "uncommitted_files": [],
+  "next_action": "Fix alpha_publisher.py line 322: change e['top_features'] to json.dumps(e['top_features']) and restore the $15::jsonb cast that was removed. Then run alpha_publisher to complete corpus pipeline.",
+  "context_notes": "Corpus pipeline steps 1-4 complete (54M feature_vectors, 382K IC scores). Steps 5-6 in progress. ensemble_trainer wrote 5 weights + 106,994 alpha rows successfully. alpha_publisher blocked on asyncpg JSONB serialization - dict passed to executemany needs explicit json.dumps() cast. No human gates - purely technical blocker. regime_writer background process still running (PID 1016824+, started 06:14) - no conflict with remaining work."
 }
