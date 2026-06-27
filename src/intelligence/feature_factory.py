@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import bisect
 import calendar
+import dataclasses
 import math
 from collections import deque
 from dataclasses import dataclass
@@ -843,6 +844,91 @@ def _rel_volume_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
         mean_v = total / eff_w
         result[b] = float(volumes[b]) / mean_v if mean_v > 1e-10 else 1.0
     return result
+
+
+# ---------------------------------------------------------------------------
+# _PrecomputedSeries — bundled series arrays for a bar window
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class _PrecomputedSeries:
+    """All series arrays precomputed from a bar window. Each has length == len(bars)
+    except atr_raw which has length len(bars)-1 (ATR needs prev close)."""
+
+    atr_raw: np.ndarray  # raw ATR series, length n-1
+    atr_z: np.ndarray  # ATR z-score padded to length n
+    gap_z: np.ndarray
+    rel_volume: np.ndarray
+    ofi_z: np.ndarray
+    cvd_slope_z: np.ndarray
+    volume_z: np.ndarray
+    momentum_z_fast: np.ndarray
+    momentum_z_mid: np.ndarray
+    momentum_z_slow: np.ndarray
+    momentum_reversal_z: np.ndarray
+    vwap_dev_sigma: np.ndarray
+    rsi_fast: np.ndarray
+    rsi_mid: np.ndarray
+    rsi_slow: np.ndarray
+    amihud_illiq_z: np.ndarray
+    high_52w_dist: np.ndarray
+    ret_skew_z: np.ndarray
+    ret_acf1_z: np.ndarray
+
+
+def _precompute_series(
+    opens: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    volumes: np.ndarray,
+    config: FeatureFactoryConfig,
+) -> _PrecomputedSeries:
+    """Call every _*_series_full helper once and bundle results.
+
+    Both compute() and compute_batch() delegate here so the series calls
+    are never duplicated.
+    """
+    atr_raw = _atr_series_full(highs, lows, closes, config.adx_period)
+    atr_padded = np.concatenate([[0.0], atr_raw])
+    atr_z = _rolling_zscore_series(atr_padded, config.momentum_zscore_window)
+
+    return _PrecomputedSeries(
+        atr_raw=atr_raw,
+        atr_z=atr_z,
+        gap_z=_gap_z_series_full(
+            opens, highs, lows, closes, config.adx_period, config.momentum_zscore_window
+        ),
+        rel_volume=_rel_volume_series_full(volumes, config.volume_zscore_window),
+        ofi_z=_ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window),
+        cvd_slope_z=_cvd_slope_z_series_full(
+            closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
+        ),
+        volume_z=_volume_z_series_full(volumes, config.volume_zscore_window),
+        momentum_z_fast=_momentum_z_series_full(
+            closes, config.momentum_window_fast, config.momentum_zscore_window
+        ),
+        momentum_z_mid=_momentum_z_series_full(
+            closes, config.momentum_window_mid, config.momentum_zscore_window
+        ),
+        momentum_z_slow=_momentum_z_series_full(
+            closes, config.momentum_window_slow, config.momentum_zscore_window
+        ),
+        momentum_reversal_z=_momentum_reversal_z_series_full(closes, config.momentum_zscore_window),
+        vwap_dev_sigma=_vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes),
+        rsi_fast=_rsi_series_full(closes, config.rsi_fast_period),
+        rsi_mid=_rsi_series_full(closes, config.rsi_mid_period),
+        rsi_slow=_rsi_series_full(closes, config.rsi_slow_period),
+        amihud_illiq_z=_amihud_illiq_z_series_full(closes, volumes, config.amihud_zscore_window),
+        high_52w_dist=_high_52w_dist_series_full(closes, config.high_52w_window),
+        ret_skew_z=_ret_skew_z_series_full(
+            closes, config.ret_skew_window, config.ret_skew_zscore_window
+        ),
+        ret_acf1_z=_ret_acf1_z_series_full(
+            closes, config.ret_acf_window, config.ret_acf_zscore_window
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

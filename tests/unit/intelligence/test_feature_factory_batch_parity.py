@@ -7,7 +7,6 @@ tests stay fast (momentum_zscore_window=30, etc.).
 
 from __future__ import annotations
 
-import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -413,3 +412,45 @@ def test_rel_volume_parity(ohlcv, cfg, streaming):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Task 1 (new): _PrecomputedSeries + _precompute_series
+# ---------------------------------------------------------------------------
+
+
+def test_precompute_series_returns_all_fields(ohlcv, cfg):
+    """_precompute_series bundles all series arrays with correct lengths."""
+    import numpy as np
+
+    from src.intelligence.feature_factory import _precompute_series, _PrecomputedSeries
+
+    opens = np.array([b["open"] for b in ohlcv["bars"]], dtype=float)
+    highs = np.array([b["high"] for b in ohlcv["bars"]], dtype=float)
+    lows = np.array([b["low"] for b in ohlcv["bars"]], dtype=float)
+    closes = np.array([b["close"] for b in ohlcv["bars"]], dtype=float)
+    volumes = np.array([b["volume"] for b in ohlcv["bars"]], dtype=float)
+
+    series = _precompute_series(opens, highs, lows, closes, volumes, cfg)
+
+    assert isinstance(series, _PrecomputedSeries)
+    n = len(ohlcv["bars"])
+    # Each array must have length == len(ohlcv)
+    assert len(series.atr_z) == n
+    assert len(series.momentum_z_fast) == n
+    assert len(series.momentum_z_mid) == n
+    assert len(series.momentum_z_slow) == n
+    assert len(series.momentum_reversal_z) == n
+    assert len(series.volume_z) == n
+    assert len(series.ofi_z) == n
+    assert len(series.cvd_slope_z) == n
+    assert len(series.gap_z) == n
+    assert len(series.rel_volume) == n
+    assert len(series.vwap_dev_sigma) == n
+    assert len(series.rsi_fast) == n
+    assert len(series.rsi_mid) == n
+    assert len(series.rsi_slow) == n
+    assert len(series.amihud_illiq_z) == n
+    assert len(series.high_52w_dist) == n
+    assert len(series.ret_skew_z) == n
+    assert len(series.ret_acf1_z) == n
+    # atr_raw needed by compute() for informed_flow
+    assert len(series.atr_raw) == n - 1  # atr_series has len n-1
