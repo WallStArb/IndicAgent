@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -319,7 +320,7 @@ class AlphaPublisher(BaseBatch):
                                 e["n_features_active"],
                                 e["threshold"],
                                 e["direction"],
-                                e["top_features"],
+                                json.dumps(e["top_features"]),
                                 now,
                             )
                             for e in pending_events
