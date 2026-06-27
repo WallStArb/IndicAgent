@@ -70,6 +70,61 @@ elapsed_since() {
     echo $(( end - start ))s
 }
 
+check_regime_consistency() {
+    if (( FROM_STEP > 4 )); then
+        return 0
+    fi
+
+    echo
+    echo "======================================"
+    echo " Corpus Consistency Gate"
+    echo " Checking regime label uniformity across symbols"
+    echo " $(date)"
+    echo "======================================"
+
+    local psql="PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent"
+
+    local distinct_sets
+    distinct_sets=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
+        -tAc "SELECT COUNT(DISTINCT regime_set) FROM (SELECT symbol, ARRAY_AGG(DISTINCT regime ORDER BY regime)::text AS regime_set FROM feature_vectors WHERE regime IS NOT NULL GROUP BY symbol) sub")
+
+    if [[ -z "$distinct_sets" || "$distinct_sets" == "0" ]]; then
+        echo
+        echo "  ERROR: No regime labels found in feature_vectors."
+        echo "  Run regime_writer (step 2) before proceeding."
+        echo
+        exit 1
+    fi
+
+    if (( distinct_sets > 1 )); then
+        echo
+        echo "  ERROR: Inconsistent regime label sets detected across symbols."
+        echo "  distinct_sets = $distinct_sets"
+        echo
+        echo "  Breakdown by regime label set:"
+        PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c \
+            "SELECT regime_set, COUNT(*) AS num_symbols, ARRAY_AGG(symbol ORDER BY symbol)::text AS symbols FROM (SELECT symbol, ARRAY_AGG(DISTINCT regime ORDER BY regime)::text AS regime_set FROM feature_vectors WHERE regime IS NOT NULL GROUP BY symbol) sub GROUP BY regime_set ORDER BY num_symbols DESC" \
+            | sed 's/^/  /'
+        echo
+        echo "  This typically means K (feature.hmm.n_components) changed mid-run."
+        echo "  Truncate feature_vectors regime columns and re-run from step 2:"
+        echo "    bash production/scripts/corpus_pipeline_run.sh --from-step 2${SYMBOLS_ARG:+ --symbols $SYMBOLS_ARG}"
+        echo
+        exit 1
+    fi
+
+    # distinct_sets == 1: all symbols share the same label set
+    local label_set symbol_count
+    label_set=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
+        -tAc "SELECT ARRAY_AGG(DISTINCT regime ORDER BY regime)::text FROM feature_vectors WHERE regime IS NOT NULL")
+    symbol_count=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
+        -tAc "SELECT COUNT(DISTINCT symbol) FROM feature_vectors WHERE regime IS NOT NULL")
+
+    echo "  OK: All $symbol_count symbols share the same regime label set."
+    echo "  Labels: $label_set"
+    echo
+}
+
 run_step() {
     local step=$1
     local name=$2
@@ -150,6 +205,9 @@ TRAINING_WINDOW_END=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indic
 run_step 2 "regime_writer" \
     "$PYTHON" services/regime_writer.py \
     "${SPACE_SYMBOLS[@]}"
+
+# Corpus consistency gate — abort if symbols have divergent regime label sets
+check_regime_consistency
 
 # Step 3 — Forward Return Writer (feature_vectors → forward_returns)
 # forward_returns must be truncated and re-run after the ET session-boundary fix
