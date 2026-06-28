@@ -2,57 +2,75 @@
 created: 2026-06-28
 priority: low
 phase_target: Phase C+ (v3.0, after alpha_events pipeline stabilizes)
-tags: [architecture, registry, governance, research, alpha, hmm, ensemble]
+tags: [architecture, registry, governance, knowledge, research, alpha, hmm, ensemble]
 ---
 
-# Concept Registry — Generalized Lifecycle Governance for Research Concepts
+# Concept Registry — Governance + Knowledge System for Research Concepts
 
 ## What
 
-Build a four-table generalized lifecycle registry for all evidence-gated concept domains that are not features. Formalizes the research pipeline: every hypothesis enters as `candidate`, runs in shadow, earns promotion through statistical gates or gets formally retired with evidence attached.
+Build a seven-table system across two layers that governs every evidence-gated research domain and preserves the institutional knowledge behind each concept. Absorbs Feature Registry at build time.
 
-Full design: `docs/ideas/metadata-governance-registries.md` — Generalized Concept Registry section.
+Full design: `docs/ideas/metadata-governance-registries.md`
 
-## Tables
+## Two layers, seven tables
 
 ```
-concept_registry        — identity + status + lineage (parent_concept_id) + redundancy_group
-concept_gate            — per-concept promotion/demotion parameters + OOS eval method + regime_scope
-concept_eval_state      — latest evaluation snapshot (working memory, overwritten each cycle)
-concept_transition_log  — immutable audit trail with trigger_reason distinguishing decay vs perf vs redundancy
+GOVERNANCE LAYER
+  concept_registry       — identity, status, lineage (parent_concept_id), redundancy_group
+  concept_gate           — what it needs to prove: OOS eval method, regime scope,
+                           sustained promotion threshold, decay floor
+  concept_eval_state     — evaluation engine working memory (overwritten each cycle)
+  concept_transition_log — immutable state-change audit trail with trigger_reason
+
+KNOWLEDGE LAYER
+  concept_annotation     — versioned knowledge: thesis, assumptions, failure modes,
+                           observations, open questions, implementation notes, references
+  concept_dependency     — directed graph: uses_feature, extends, competes_with, requires_method
+  concept_regime_ic      — full regime-stratified IC matrix (evaluation engine writes every cycle)
 ```
 
-Key design decisions beyond the basic four-table split:
+## Key design decisions
 
-- `gate_eval_method` is required — in-sample IC never valid; must be `oos_holdout`, `walk_forward`, or `bootstrap_ci`
+**Governance:**
+- `gate_eval_method` required on every gate — `oos_holdout`, `walk_forward`, `bootstrap_ci`; in-sample never valid
 - `min_promotion_consecutive` — N consecutive evals above threshold before promotion fires (default 3)
-- `regime_scope` — gate can be regime-conditional; an edge that only works in trending regime is still a real edge
-- `baseline_metric` + `decay_ratio` in eval_state — decay demotion fires when current/baseline drops below `decay_floor`
-- `parent_concept_id` — lineage tree; iterations of a concept reference their parent
-- `redundancy_group` — concepts in the same group compete; only one holds `active` at a time
-- `ConceptRegistryService` lazy-loads candidates; active/shadow_only load eagerly at startup
+- `regime_scope` — gate can be conditional on a specific regime label; regime-conditional edges are real edges
+- `baseline_metric` + `decay_ratio` + `decay_floor` — decay demotion fires immediately when current/baseline drops below floor, without waiting for consecutive periods
+- `parent_concept_id` — lineage tree; concept iterations reference their predecessor
+- `redundancy_group` — concepts in same group compete; only one holds `active` at a time
 
-## Domains (seed at build time)
+**Knowledge:**
+- `concept_annotation` is append-only and typed: `thesis` (why it works), `assumption` (what must hold), `failure_mode` (when it breaks), `observation` (post-deployment learning), `open_question` (unresolved), `implementation` (code path), `reference` (papers/docs)
+- `source` on each annotation: `human`, `ai`, or `empirical` (evaluation engine auto-generates empirical annotations — e.g. IC correlation findings)
+- `concept_dependency` enables impact analysis: "what breaks if feature X is deprecated?" and blocks promotion of a concept whose `uses_feature` dependency is still `candidate`
+- `concept_regime_ic` is richer than `regime_scope`: a concept with unconditional gate still has a regime profile the ensemble uses for weighting (regime-conditional weighting and regime-conditional governance are separate concerns)
 
-| Domain | Gate metric | What it governs |
+## Domains
+
+| Domain | Gate metric | Eval method |
 |---|---|---|
-| `alpha_pattern` | IC Sharpe | Alpha signal ideas competing for ensemble inclusion |
-| `hmm_variant` | Held-out log-likelihood | HMM architecture variants (covariance structure, obs vector, K) |
-| `ic_method` | Walk-forward stability | IC calculation variants (Spearman vs rank-IC vs HAC-adjusted) |
-| `ensemble_strategy` | Realized Sharpe | Ensemble weighting strategies |
-| `regime_model` | Cross-validated accuracy | Regime classification model variants |
-| `feature_interaction` | IC Sharpe + FDR | Interaction feature candidates before FeatureVector promotion |
-
-## Why
-
-Without this, model variants live in ad-hoc notebooks, failed experiments disappear into deleted branches, and the same dead ends get rediscovered. The transition log is the research ledger: a `deprecated` row with `ic_sharpe = 0.11, n = 1200` tells future research what was tried and ruled out — permanently, queryable from SQL.
-
-The `enabled` flag makes parallel A/B comparison first-class: two `hmm_variant` rows both `enabled = true` in shadow, scored every eval cycle, promote on evidence.
+| `feature` | IC Sharpe + FDR | Walk-forward |
+| `feature_interaction` | IC Sharpe + FDR | Walk-forward |
+| `alpha_pattern` | IC Sharpe | OOS holdout |
+| `hmm_variant` | Held-out log-likelihood | OOS holdout |
+| `ic_method` | Walk-forward IC stability | Walk-forward |
+| `ensemble_strategy` | Realized Sharpe | OOS holdout |
+| `regime_model` | Cross-validated accuracy | Walk-forward |
 
 ## Replaces Feature Registry
 
-`feature_registry` migrates into concept_registry as `domain = 'feature'` at build time. It is not architecturally distinct — its domain-specific logic (dataclass alignment gate, parent-cascade) moves to ConceptRegistryService for the `feature` domain. Its metadata columns (`formula_short`, `normalization`, `linear_ready`, etc.) move to `metadata JSONB` — ic_engine and ensemble_trainer load everything at startup into Python anyway, so there are no actual SQL consumers of those columns. `FeatureRegistryService` is replaced by `ConceptRegistryService` loading `domain = 'feature'`.
+`feature_registry` migrates into `domain = 'feature'` at build time. `FeatureRegistryService` becomes `ConceptRegistryService`. Domain-specific logic (dataclass alignment gate, parent-cascade) moves to the service layer. Metadata columns move to `metadata JSONB`.
+
+## Build sequence
+
+1. Governance layer + feature_registry migration
+2. Seed `thesis` and `failure_mode` annotations for all 61 migrated features
+3. `concept_regime_ic` — evaluation engine writes from day one
+4. `concept_annotation` full human/AI/empirical flow
+5. `concept_dependency` with gate-time dependency checks
+6. Dashboard: single concept view — governance status, annotation timeline, regime IC heatmap, dependency graph
 
 ## Dependency
 
-Defer until `alpha_events` pipeline is stable and the first domain (`alpha_pattern`) has concrete concepts ready to govern. The four-table schema is designed; implementation starts when there is a consumer.
+Defer until `alpha_events` pipeline is stable and the first new domain (`alpha_pattern`) has concepts ready to govern. The design is complete.
