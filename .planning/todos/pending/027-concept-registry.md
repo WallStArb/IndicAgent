@@ -16,13 +16,21 @@ Full design: `docs/ideas/metadata-governance-registries.md` — Generalized Conc
 ## Tables
 
 ```
-concept_registry        — identity + status + enabled flag (what a concept IS)
-concept_gate            — per-concept promotion/demotion parameters (what it needs to prove)
-concept_eval_state      — latest evaluation snapshot, overwritten each cycle (working memory)
-concept_transition_log  — immutable audit trail with evidence per state change
+concept_registry        — identity + status + lineage (parent_concept_id) + redundancy_group
+concept_gate            — per-concept promotion/demotion parameters + OOS eval method + regime_scope
+concept_eval_state      — latest evaluation snapshot (working memory, overwritten each cycle)
+concept_transition_log  — immutable audit trail with trigger_reason distinguishing decay vs perf vs redundancy
 ```
 
-`ConceptRegistryService` follows `FeatureRegistryService`: load at startup per domain, JOIN all four tables, cache reads, async transition logging. Hard crash if any concept lacks a gate row.
+Key design decisions beyond the basic four-table split:
+
+- `gate_eval_method` is required — in-sample IC never valid; must be `oos_holdout`, `walk_forward`, or `bootstrap_ci`
+- `min_promotion_consecutive` — N consecutive evals above threshold before promotion fires (default 3)
+- `regime_scope` — gate can be regime-conditional; an edge that only works in trending regime is still a real edge
+- `baseline_metric` + `decay_ratio` in eval_state — decay demotion fires when current/baseline drops below `decay_floor`
+- `parent_concept_id` — lineage tree; iterations of a concept reference their parent
+- `redundancy_group` — concepts in the same group compete; only one holds `active` at a time
+- `ConceptRegistryService` lazy-loads candidates; active/shadow_only load eagerly at startup
 
 ## Domains (seed at build time)
 
