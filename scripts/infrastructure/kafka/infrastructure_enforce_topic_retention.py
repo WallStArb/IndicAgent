@@ -8,7 +8,7 @@ Idempotent — safe to run against a live cluster at any time. Does not delete
 or recreate topics. Only alters retention.ms where it diverges from spec.
 
 Usage:
-    python -m production.scripts.enforce_topic_retention [--dry-run] [--broker localhost:9092]
+    python -m scripts.infrastructure.kafka.infrastructure_enforce_topic_retention [--dry-run] [--broker localhost:9092]
 
 Steps:
   1. Sets broker-level log_retention_ms to _BROKER_DEFAULT_MS (new topics safe by default).
@@ -21,7 +21,7 @@ import subprocess
 import sys
 from typing import NamedTuple
 
-from production.scripts.init_kafka_topics import (
+from scripts.infrastructure.setup.infrastructure_init_kafka_topics import (
     _BUFFER_MS,
     _COMPACTED_TOPICS,
     get_topic_specs,
