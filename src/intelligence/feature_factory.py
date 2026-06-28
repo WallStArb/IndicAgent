@@ -35,7 +35,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import numpy as np
-from scipy.stats import skew as _scipy_skew
 
 from src.intelligence.feature_cache import (
     FeatureCache,
@@ -552,10 +551,13 @@ def _aroon_osc(highs: np.ndarray, lows: np.ndarray, period: int) -> float:
 
 
 def _skewness(arr: np.ndarray) -> float:
-    """Fisher's skewness via scipy. Returns 0.0 on < 3 elements or zero std."""
     if len(arr) < 3:
         return 0.0
-    result = float(_scipy_skew(arr))
+    mean = arr.mean()
+    std = arr.std()
+    if std < 1e-10:
+        return 0.0
+    result = float(np.mean(((arr - mean) / std) ** 3))
     return result if math.isfinite(result) else 0.0
 
 
