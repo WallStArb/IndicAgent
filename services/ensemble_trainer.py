@@ -58,6 +58,7 @@ from src.intelligence.ensemble import (
 )
 from src.intelligence.feature_registry_service import FeatureRegistryService
 from src.intelligence.schemas import FeatureVector
+from src.observability.corpus_manifest import CorpusManifest
 from src.observability.metrics import (
     ENSEMBLE_EFFECTIVE_N_GAUGE,
     ENSEMBLE_FEATURE_WEIGHT_GAUGE,
@@ -193,6 +194,18 @@ class EnsembleTrainer(BaseBatch):
 
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Run the full ensemble weight derivation and alpha scoring pipeline."""
+        manifest = CorpusManifest("ensemble_trainer", Path(".planning/corpus_manifests"))
+        try:
+            await self._execute_inner(pool, manifest)
+        except Exception as error:
+            manifest.add_error(str(error))
+            try:
+                manifest.write()
+            except Exception:
+                pass
+            raise
+
+    async def _execute_inner(self, pool: asyncpg.Pool, manifest: CorpusManifest) -> None:
         async with pool.acquire() as conn:
             # --- Load APR config ---
             cfg = await _load_apr(conn)
@@ -217,6 +230,7 @@ class EnsembleTrainer(BaseBatch):
                 max_cluster_weight=max_cluster_weight,
                 meta_fdr_min_fraction=meta_fdr_min_fraction,
             )
+            manifest.set_inputs(weight_version=weight_version)
 
             # --- Startup gates ---
             await _assert_prerequisites(conn)
@@ -318,6 +332,22 @@ class EnsembleTrainer(BaseBatch):
             "ensemble_trainer.complete",
             strata_processed=len(strata_rows),
         )
+
+        # Record output counts and mark manifest success
+        async with pool.acquire() as conn:
+            weight_rows = await conn.fetch(
+                "SELECT tf, COUNT(*) as n FROM ensemble_weights WHERE weight_version = $1 GROUP BY tf",
+                weight_version,
+            )
+            rows_by_tf = {r["tf"]: r["n"] for r in weight_rows}
+            manifest.add_output(
+                table_name="ensemble_weights",
+                rows_total=sum(rows_by_tf.values()),
+                rows_by_tf=rows_by_tf,
+            )
+        manifest.mark_success()
+        manifest_path = manifest.write()
+        self.logger.info("ensemble_trainer.manifest_written", path=str(manifest_path))
 
     async def _process_stratum(
         self,

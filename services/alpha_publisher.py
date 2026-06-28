@@ -43,6 +43,7 @@ from src.core.agent.base_batch import BaseBatch
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import topic_alpha_events
+from src.observability.corpus_manifest import CorpusManifest
 from src.observability.metrics import (
     ALPHA_PUBLISHER_BARS_SCORED_TOTAL,
     ALPHA_PUBLISHER_EMISSIONS_TOTAL,
@@ -112,6 +113,18 @@ class AlphaPublisher(BaseBatch):
 
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Read ensemble_alpha, enforce gates, write alpha_events, publish to Kafka."""
+        manifest = CorpusManifest("alpha_publisher", Path(".planning/corpus_manifests"))
+        try:
+            await self._execute_inner(pool, manifest)
+        except Exception as error:
+            manifest.add_error(str(error))
+            try:
+                manifest.write()
+            except Exception:
+                pass
+            raise
+
+    async def _execute_inner(self, pool: asyncpg.Pool, manifest: CorpusManifest) -> None:
         settings = Settings()
         topic = topic_alpha_events(settings.env_name)
 
@@ -128,6 +141,10 @@ class AlphaPublisher(BaseBatch):
                 weight_version=weight_version,
                 top_features_count=top_features_count,
                 topic=topic,
+            )
+            manifest.set_inputs(
+                ensemble_version=self.ensemble_version,
+                weight_version=weight_version,
             )
 
             # --- Startup crash-loud gate ---
@@ -367,6 +384,19 @@ class AlphaPublisher(BaseBatch):
             rejected=reject_count,
             total_bars=len(alpha_rows),
         )
+
+        # Record alpha_events output and mark manifest success
+        rows_by_tf: dict[str, int] = {}
+        for e in pending_events:
+            rows_by_tf[e["tf"]] = rows_by_tf.get(e["tf"], 0) + 1
+        manifest.add_output(
+            table_name="alpha_events",
+            rows_total=emit_count,
+            rows_by_tf=rows_by_tf,
+        )
+        manifest.mark_success()
+        manifest_path = manifest.write()
+        self.logger.info("alpha_publisher.manifest_written", path=str(manifest_path))
 
 
 # ---------------------------------------------------------------------------
