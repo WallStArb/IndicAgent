@@ -119,6 +119,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 ## Key Rules
 
 **Core Patterns**
+- **Executable returns only (Invariant 1)**: IC measurement MUST use `forward_returns.return_type = 'executable_open_to_open'`. The correct formula is `ln(open[T+N+1] / open[T+1])` — market-on-open entry, market-on-open exit. Theoretical `ln(close[T+N] / close[T])` captures overnight gaps that cannot be traded and overstates IC. All `forward_returns` queries in `ic_engine.py` must filter `WHERE return_type = 'executable_open_to_open'`.
 - **Parallel dicts → dataclass**: 3+ `dict[str, X]` attributes keyed by same ID → consolidate into `dict[str, MyState]` with `_state(key)` factory. Pattern: `SignalTracker._signal_states`.
 - **`KafkaProducerClient.publish()` kwarg is `msg=`** — not `value=`. Wrong kwarg silently fails at flush.
 - **`BaseGroupCoordinator` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.

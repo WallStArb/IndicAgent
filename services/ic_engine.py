@@ -687,6 +687,7 @@ def _compute_symbol_tf(
             SELECT bar_ts, {return_cols}, {complete_cols}
             FROM forward_returns
             WHERE symbol = %s AND tf = %s AND bar_ts <= %s
+              AND return_type = 'executable_open_to_open'
             ORDER BY bar_ts
         """
         with conn.cursor() as cur:
@@ -1012,6 +1013,7 @@ def _compute_symbol_tf(
                 AND cf.symbol = ''
             INNER JOIN forward_returns fr
                 ON fv.symbol = fr.symbol AND fv.tf = fr.tf AND fv.bar_ts = fr.bar_ts
+                AND fr.return_type = 'executable_open_to_open'
             WHERE fv.symbol = %(symbol)s
               AND fv.tf = %(tf)s
               AND fv.bar_ts <= %(training_window_end)s
@@ -1312,6 +1314,7 @@ def _compute_cross_sectional_tf(
             ON fr.symbol = fv.symbol
             AND fr.tf = fv.tf
             AND fr.bar_ts = fv.bar_ts
+            AND fr.return_type = 'executable_open_to_open'
         WHERE fv.tf = %(tf)s
           AND fv.bar_ts <= %(training_window_end)s
         ORDER BY fv.bar_ts

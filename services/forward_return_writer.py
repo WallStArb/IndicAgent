@@ -272,12 +272,12 @@ def _build_insert_sql(scales: tuple[str, ...]) -> str:
     complete_vals = ", ".join(f"%(complete_{s})s" for s in scales)
     return f"""
 INSERT INTO forward_returns (
-    forward_return_id, symbol, tf, bar_ts, pipeline_version,
+    forward_return_id, symbol, tf, bar_ts, pipeline_version, return_type,
     {return_cols},
     {complete_cols}
 )
 VALUES (
-    %(forward_return_id)s, %(symbol)s, %(tf)s, %(bar_ts)s, %(pipeline_version)s,
+    %(forward_return_id)s, %(symbol)s, %(tf)s, %(bar_ts)s, %(pipeline_version)s, %(return_type)s,
     {return_vals},
     {complete_vals}
 )
@@ -364,6 +364,7 @@ def _label_symbol_tf(
             row["forward_return_id"] = _make_forward_return_id(
                 row["symbol"], row["tf"], row["bar_ts"], row["pipeline_version"]
             )
+            row["return_type"] = "executable_open_to_open"
 
         with conn.cursor() as cur:
             psycopg2.extras.execute_batch(
