@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# ensure_topics.sh — Idempotent DLQ topic provisioning with 7-day retention.
 #
-# Creates all 15 active DLQ topics if they do not exist and sets
-# retention.ms=604800000 (7 days) on each. Safe to run repeatedly.
+# infrastructure_ensure_topics.sh — DLQ topic provisioning
 #
-# Usage: bash scripts/infrastructure/kafka/infrastructure_ensure_topics.sh
+# Creates all DLQ topics with 7-day retention if they do not exist.
+# Run after Redpanda installation or when adding new DLQ topics.
+# Requires Redpanda container running and reachable.
+#
 set -euo pipefail
 
 DLQ_TOPICS=(

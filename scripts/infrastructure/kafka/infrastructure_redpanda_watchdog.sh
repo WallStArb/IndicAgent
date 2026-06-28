@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# redpanda_watchdog.sh — lightweight Redpanda health check + auto-restart
 #
-# Called by indicagent-redpanda-watchdog.timer every 2 minutes.
-# If Redpanda doesn't respond to a basic Kafka API request within 5s,
-# the container is restarted. All events are logged to syslog.
+# infrastructure_redpanda_watchdog.sh — Redpanda health check and auto-restart
 #
-# Exit codes:
-#   0 — Redpanda healthy or successfully restarted
-#   1 — Redpanda unhealthy and restart failed
+# Monitors Redpanda health via Kafka API and restarts container if unresponsive.
+# Run via systemd timer (indicagent-redpanda-watchdog.timer) every 2 minutes.
+# Requires Docker and Redpanda container installed.
+#
 
 set -euo pipefail
 

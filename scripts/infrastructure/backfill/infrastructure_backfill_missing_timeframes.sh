@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Backfill missing timeframes for ETFs with gaps in market_data_ohlcv.
-# Usage: bash scripts/infrastructure/backfill/infrastructure_backfill_missing_timeframes.sh
+#
+# infrastructure_backfill_missing_timeframes.sh — backfill timeframe gaps
+#
+# Fetches missing timeframes (5m, 15m, 1h) for ETFs with gaps in market_data_ohlcv.
+# Run when timeframe coverage is incomplete or after adding new timeframes to monitoring.
+# Requires IBKR Gateway connection and active TWS session.
+#
 
 set -euo pipefail
 

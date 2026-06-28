@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# IndicAgent DB Verification Script
-# Version: 1.0.0
-# Last Updated: 2025-08-08
-# Status: Current ✅
+#
+# debug_db_verify.sh — database schema verification
+#
+# Verifies TimescaleDB schema integrity including tables, indexes, hypertables, and continuous aggregates.
+# Run after database setup or migrations to confirm all objects are properly configured.
+# Requires psql client and database connection.
+#
 
 set -euo pipefail
 

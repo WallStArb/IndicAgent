@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Truncate all v3.0 derived data tables before a full corpus re-backfill.
-# Usage: bash scripts/infrastructure/backfill/infrastructure_truncate_derived_tables.sh
+#
+# infrastructure_truncate_derived_tables.sh — truncate all derived tables
+#
+# Truncates all v3.0 derived data tables before a full corpus re-backfill.
+# Run when starting fresh or when derived data needs complete regeneration.
+# Requires database connection and user confirmation.
+#
 
 set -euo pipefail
 

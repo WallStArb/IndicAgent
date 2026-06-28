@@ -1,17 +1,11 @@
 #!/usr/bin/env bash
-# IndicAgent DB Setup Script
-# Version: 1.2.0
-# Last Updated: 2026-05-30
-# Status: Current ✅
 #
-# Applies all numbered migrations in order. Migrations are idempotent (IF NOT EXISTS).
-# Two migration homes:
-#   production/migrations/ — legacy (001–103), frozen
-#   db/migrations/         — canonical (Phase 104+)
+# infrastructure_db_setup.sh — database schema initialization
 #
-# Usage:
-#   bash scripts/infrastructure/setup/infrastructure_db_setup.sh
-#   DATABASE_URL=postgresql://... bash scripts/infrastructure/setup/infrastructure_db_setup.sh
+# Applies all numbered migrations in order to initialize TimescaleDB schema.
+# Run once on fresh database installation or after major schema migrations.
+# Requires psql client and TimescaleDB extension installed.
+#
 
 set -euo pipefail
 

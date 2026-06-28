@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# Full v3.0 corpus pipeline — 6 steps from market_data_ohlcv to alpha_events.
 #
-# Usage:
-#   bash scripts/ops/corpus/ops_corpus_pipeline_run.sh              # all 6 steps
-#   bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --from-step 3  # resume at step N
-#   bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --symbols SPY,TLT  # subset
+# ops_corpus_pipeline_run.sh — v3.0 corpus pipeline orchestrator
 #
-# Prerequisites: market_data_ohlcv populated (run backfill_missing_timeframes.sh first).
-# Each step logs to logs/corpus_pipeline/step<N>_<name>_<timestamp>.log
+# Runs feature_factory → regime_writer → ic_engine → ensemble_trainer → alpha_publisher sequence
+# for corpus generation. Use for initial population or incremental updates.
+# Requires market_data_ohlcv populated and Redpanda + TimescaleDB running.
+#
 
 set -euo pipefail
 

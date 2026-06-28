@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Backfill missing 1d and 1h bars for ETFs not yet in market_data_ohlcv.
-# Runs one symbol/TF at a time sequentially. Safe to re-run (ON CONFLICT DO NOTHING).
-# Usage: bash scripts/infrastructure/backfill/infrastructure_backfill_missing_etfs.sh
+#
+# infrastructure_backfill_missing_etfs.sh — backfill missing ETF historical data
+#
+# Fetches missing 1d and 1h bars for ETFs not yet in market_data_ohlcv.
+# Run when adding new ETFs to the active contract list or after schema changes.
+# Requires IBKR Gateway connection and active TWS session.
+#
 
 set -euo pipefail
 
