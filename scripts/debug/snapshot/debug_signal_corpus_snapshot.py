@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
 """
-Signal Corpus Snapshot — before/after comparison for corpus rebuilds.
+debug_signal_corpus_snapshot.py — corpus state snapshot for before/after rebuild comparison
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-17
-
-Queries signal_events, trade_frames, and trade_executions and writes a
-JSON summary with row counts, cold-start metrics, and per-setup breakdown.
-Use before and after a corpus rebuild to verify acceptance gates.
-
-Usage:
-    python scripts/debug/snapshot/debug_signal_corpus_snapshot.py [--output PATH]
-
-    --output  Path for the JSON snapshot (default: docs/plans/signal-corpus-snapshot.json)
+Queries signal_events/trade_frames/trade_executions and writes JSON summary with row counts,
+cold-start metrics, and per-setup breakdown for corpus rebuild verification.
+Run before and after corpus rebuilds to validate acceptance gates and detect data loss.
+Requires TimescaleDB with signal corpus tables populated.
 """
 
 from __future__ import annotations

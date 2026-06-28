@@ -1947,8 +1947,8 @@ def main() -> None:
             if args.cross_sectional_only:
                 _logger.info("ic_engine.skipping_per_symbol_pass", reason="--cross-sectional-only")
                 conn.close()
-                write_conn.close()
                 conn = None
+                # write_conn stays open — needed for cross-sectional writes and manifest queries
             else:
                 worker_args = [
                     (
@@ -2024,6 +2024,12 @@ def main() -> None:
                             (tfs[0],),
                         )
                         cs_regimes = [r[0] for r in cur.fetchall()]
+                    # Commit to exit idle-in-transaction state before the expensive queries
+                    cs_conn.commit()
+                    # Increase work_mem for this session to reduce disk spill on large joins
+                    with cs_conn.cursor() as cur:
+                        cur.execute("SET work_mem = '1GB'")
+                    cs_conn.commit()
 
                     for tf in tfs:
                         apr = apr_cache[tf]
@@ -2055,8 +2061,8 @@ def main() -> None:
             elapsed = time.monotonic() - t0
             IC_ENGINE_RUN_LATENCY_SECONDS.record(elapsed)
 
-            # Record outputs to manifest
-            with conn.cursor() as cur:
+            # Record outputs to manifest (conn is closed by this point; use write_conn)
+            with write_conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT tf, COUNT(*) as count

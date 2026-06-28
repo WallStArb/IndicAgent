@@ -1,21 +1,11 @@
 #!/usr/bin/env python3
 """
-Corpus Progress Monitor - live progress display for v3.0 corpus pipeline.
+ops_corpus_progress.py — live progress display for v3.0 corpus pipeline
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-28
-
-Monitors all 6 steps of the v3.0 corpus pipeline:
-1. feature_factory (bars → feature_vectors)
-2. regime_writer (HMM per-symbol regimes)
-3. forward_return_writer (executable returns)
-4. ic_engine (Information Coefficient computation)
-5. ensemble_trainer (weighted ensemble construction)
-6. alpha_publisher (alpha_events emission)
-
-Usage:
-    python scripts/ops/corpus/ops_corpus_progress.py
+Monitors all 6 steps of the corpus pipeline from feature_factory through alpha_publisher,
+showing completion status, row counts, and estimated time remaining.
+Run during corpus pipeline execution to monitor progress without querying the database directly.
+Requires TimescaleDB with backfill_status tracking enabled.
 """
 
 import subprocess

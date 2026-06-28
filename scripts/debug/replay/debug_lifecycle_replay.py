@@ -1,52 +1,11 @@
 #!/usr/bin/env python3
 """
-Lifecycle Replay Script — batch replay of historical signal outcomes.
+debug_lifecycle_replay.py — historical signal outcome replay via dual-track evaluation
 
-Version: 1.5
-Status: current
-Last Updated: 2026-06-19
-
-Phase 130 changes (3-table schema migration):
-    - Reads from signal_events + trade_frames instead of signal_ledger + signal_outcomes
-    - Writes activation metadata to trade_frames.frame_details JSONB (UPDATE || merge)
-    - Writes zone/market exits to trade_executions (INSERT instead of UPDATE signal_outcomes)
-    - Updates signal_events.status instead of signal_outcomes.status
-    - _seed_orphan_outcomes is a no-op (status in signal_events, populated by run_historical_pipeline)
-    - _verify_replay queries signal_events + trade_frames + trade_executions
-
-Evaluates dual-track outcomes (zone track + market track) for all signals
-that lack outcomes, by replaying market_data_ohlcv bars chronologically
-per (symbol, timeframe).
-
-Safety controls:
-    - Advisory lock prevents concurrent replays
-    - Preflight checks signal_events status integrity
-    - --confirm required for destructive --reset
-    - Post-replay verification catches data integrity issues (shadow + orphan checks)
-
-Usage:
-    # Full reset + replay of corrupt data (requires service stop first):
-    sudo systemctl stop indicagent-intelligence-pipeline
-    python -u scripts/debug/replay/debug_lifecycle_replay.py --reset --confirm --workers 8 \\
-        --commit-every 1000 > /tmp/lifecycle_replay.log 2>&1 &
-
-    # Replay only (no reset — for signals that never got resolved):
-    python -u scripts/debug/replay/debug_lifecycle_replay.py --workers 8
-
-    # Dry run to verify schema compatibility:
-    python -u scripts/debug/replay/debug_lifecycle_replay.py --symbols ESM6 --timeframes 5m --dry-run
-
-    # Replay specific symbols only:
-    python -u scripts/debug/replay/debug_lifecycle_replay.py --reset --confirm --symbols ESM6,NQM6
-
-    # Include 4h timeframe (excluded by default):
-    python -u scripts/debug/replay/debug_lifecycle_replay.py --timeframes 1m,5m,15m,1h,4h
-
-Derived table rebuild:
-    After replay, swarm_agent_weights and setup_performance are empty.
-    They repopulate on next scheduled runs:
-      - setup_performance: nightly ml-training (11pm)
-      - swarm_agent_weights: weekly ml-orchestrator (Monday)
+Evaluates dual-track outcomes (zone + market tracks) for pending signals by replaying
+market_data_ohlcv bars chronologically per (symbol, timeframe) and writing to trade_executions.
+Run to rebuild signal outcomes after schema migration, data corruption, or backfill completion.
+Requires TimescaleDB with market_data_ohlcv; intelligence_pipeline must be stopped.
 """
 
 from __future__ import annotations

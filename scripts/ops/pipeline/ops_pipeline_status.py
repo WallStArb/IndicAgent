@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
 """
-Pipeline Progress Monitor — backfill, signal events, and signal lifecycle status.
+ops_pipeline_status.py — backfill and signal lifecycle corpus status monitor
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-19
-
-Queries market_data_ohlcv, intelligence_features, signal_events, trade_frames,
-and trade_executions to show current corpus build progress. Run during or after
-a corpus rebuild to monitor row counts and ingestion rates.
-
-Usage:
-    python scripts/ops/pipeline/ops_pipeline_status.py
+Queries market_data_ohlcv, intelligence_features, signal_events, trade_frames, and
+trade_executions to show current corpus build progress and ingestion rates.
+Run during or after corpus rebuild to monitor row counts and detect anomalies.
+Requires TimescaleDB with corpus tables populated.
 """
 
 import asyncio

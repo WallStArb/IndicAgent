@@ -1,35 +1,11 @@
 #!/usr/bin/env python3
-"""memory_recall_benchmark -- reproducible p95 latency measurement for MemoryClient.recall().
+"""
+debug_memory_recall_benchmark.py — MemoryClient.recall() latency measurement and MEM-04 gate
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-06
-
-Measures end-to-end recall latency (embed + HNSW + rerank) over >=1000 calls
-against a seeded cohort in memory_episodes_labeled. Produces the MEM-04 evidence
-gate: p95 recall latency documented against the 50ms budget.
-
-Architecture note
------------------
-The embed step uses litellm.aembedding() (via EmbeddingService, Phase 097-09).
-For this benchmark the embed path is tested two ways:
-
-  1. Fake embed (--fake-embed, default): EmbeddingService is replaced with a zero-latency
-     stub returning deterministic 768-dim vectors. Measures HNSW+rerank latency in isolation.
-     This is the DB-bound, deterministic component used as the MEM-04 gate evidence.
-
-  2. Live embed (--live-embed): calls EmbeddingService with the configured EMBEDDING_MODEL
-     (default ollama/nomic-embed-text). Measures the full end-to-end path including
-     the Ollama HTTP call. Requires Ollama running at settings.ollama_base_url.
-
-Usage
------
-  python scripts/debug/analysis/debug_memory_recall_benchmark.py            # fake embed, 1000 calls
-  python scripts/debug/analysis/debug_memory_recall_benchmark.py --n 5000   # 5000 calls
-  python scripts/debug/analysis/debug_memory_recall_benchmark.py --live-embed  # include Ollama latency
-  python scripts/debug/analysis/debug_memory_recall_benchmark.py --seed-only  # seed rows and exit
-
-Phase: 097 (agent-memory)
+Measures end-to-end recall latency (embed + HNSW + rerank) over >=1000 calls against
+a seeded cohort in memory_episodes_labeled; produces p95 latency evidence for 50ms budget.
+Run when validating memory subsystem performance or after pgvector tuning.
+Requires seeded memory_episodes_labeled data; optionally Ollama for live embed tests.
 """
 
 from __future__ import annotations

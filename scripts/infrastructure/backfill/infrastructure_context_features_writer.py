@@ -1,24 +1,11 @@
 #!/usr/bin/env python3
 """
-Context Features Writer — Populate context_features table with daily-cadence macro features.
+infrastructure_context_features_writer.py — daily-cadence macro features for IC engine
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-28
-
-Computes vix_z, flight_quality, and yield_slope_z from market_data_ohlcv (1d bars for
-SPY, TLT, SHY) and writes one row per (feature_date, feature_name) to context_features.
-
-These features have the same value for all intraday bars of a calendar day.
-Storing them in context_features prevents IC engine inflation via ~78x bar duplication
-(same daily VIX reading counted as 78 independent 5m-bar observations is not independent).
-
-Computation logic mirrors _build_cross_asset_series() in services/backfill_feature_factory.py
-but writes to context_features instead of embedding values in feature_vectors.
-
-Usage:
-    INDICAGENT_ENV=production .venv/bin/python scripts/infrastructure/backfill/infrastructure_context_features_writer.py
-    INDICAGENT_ENV=production .venv/bin/python scripts/infrastructure/backfill/infrastructure_context_features_writer.py --dry-run
+Computes vix_z, flight_quality, and yield_slope_z from SPY/TLT/SHY 1d bars and writes
+one row per (feature_date, feature_name) to context_features, preventing IC inflation via bar duplication.
+Run daily or after OHLCV backfill to populate cross-asset features for the IC engine.
+Requires market_data_ohlcv with daily bars for SPY/TLT/SHY.
 """
 
 from __future__ import annotations

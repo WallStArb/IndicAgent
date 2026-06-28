@@ -1,20 +1,11 @@
 #!/usr/bin/env python3
-"""Offline validation of calendar + z-score roll detection against historical data.
+"""
+ops_validate_roll_detection.py — offline calendar and z-score roll detection validation
 
-Version: 1.0
-Status: current
-Last Updated: 2026-04-29
-
-Per D-21: accuracy gate >= 90% detection rate, < 10% false positive rate.
-Uses market_data_5m view for cleaner volume signal (per D-21 spec).
-
-Usage:
-    .venv/bin/python scripts/ops/roll/ops_validate_roll_detection.py
-
-Exit codes:
-    0 — PASS (all symbols meet accuracy gates)
-    1 — FAIL (one or more symbols below gate)
-    2 — SKIP (insufficient historical data for validation)
+Validates roll detection accuracy against historical data with D-21 gates: >= 90% detection
+rate, < 10% false positive rate; uses market_data_5m view for volume signal.
+Run after implementing roll detection logic changes to verify accuracy gates are met.
+Requires TimescaleDB with market_data_ohlcv historical data.
 """
 
 from __future__ import annotations

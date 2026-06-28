@@ -1,38 +1,11 @@
 #!/usr/bin/env python3
 """
-I7-Only Replay from intelligence_features.
-
-Version: 1.1
-Status: current
-Last Updated: 2026-06-19
+debug_feature_replay.py — I7-only replay from intelligence_features to signal_events
 
 Reads stored JSONB tier columns, reconstructs IntelligenceEvent, runs specified I7 plugins,
-inserts into signal_events + trade_frames (3-table schema). Bypasses all I1-I6 compute.
-Depends on migration 125 column names (i1/i2/i3/i4/i5/smc/cross_timeframe_context) and
-plan 06 deterministic IDs.
-
-Phase 130: migrated write path to signal_events + trade_frames (3-table schema).
-Phase 133: one connection per (symbol, tf) with executemany batch writes; synchronous_commit=off.
-G0 grouping: one signal_events row + one trade_frames row (at_close) per signal.
-Direction converted from int (1/-1) to text ('long'/'short').
-frame_id = uuid5(NAMESPACE_DNS, f"{signal_id}:at_close") — deterministic across re-runs.
-
-Usage examples:
-
-    # Replay all I7 plugins for ESM6 since 2026-06-01
-    python scripts/debug/replay/debug_feature_replay.py --symbols ESM6 --since 2026-06-01
-
-    # Dry-run: reconstruct + evaluate but do not write to signal_events
-    python scripts/debug/replay/debug_feature_replay.py --dry-run --symbols ESM6 --since 2026-06-10 --workers 1
-
-    # Replay only shadow validation setups (fast path for Phase 121 re-runs)
-    python scripts/debug/replay/debug_feature_replay.py --shadow-setups --symbols ESM6 --since 2026-06-01 --workers 4
-
-    # Replay specific plugins
-    python scripts/debug/replay/debug_feature_replay.py --plugins trad_OFIContinuation,trad_DivergenceStack
-
-Idempotency: ON CONFLICT (signal_id, ts) DO NOTHING on signal_events; ON CONFLICT (frame_id) DO NOTHING
-on trade_frames. Running twice produces identical signal_ids and frame_ids (deterministic).
+and inserts into signal_events + trade_frames (3-table schema) bypassing I1-I6 compute.
+Run for fast signal replay when feature computation is expensive; supports dry-run validation.
+Requires intelligence_features table populated with JSONB tier data.
 """
 
 from __future__ import annotations

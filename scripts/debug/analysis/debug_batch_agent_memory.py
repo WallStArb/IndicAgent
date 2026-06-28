@@ -1,22 +1,11 @@
 #!/usr/bin/env python3
-"""memory_batch -- nightly agent memory backfill and calibration promotion.
+"""
+debug_batch_agent_memory.py — nightly agent memory backfill and calibration promotion
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-12
-
-Runs four steps in strict order; a failing step aborts subsequent steps.
-
-1. EpochJob         -- detect KS alarms; auto-increment epoch on 3+ consecutive alarms
-2. RegimeTransitionJob -- close/open regime transition rows from HMM flips in signal_ledger
-3. BackfillJob      -- copy resolved raw episodes (embedding present) into memory_episodes_labeled
-4. PromotionJob     -- compute calibration stats (N>=30 gate, BH-FDR, circular block bootstrap)
-
-Runs via systemd timer at 21:00 (9pm). Idempotent. Safe to rerun.
-
-Usage:
-    python scripts/debug/analysis/debug_batch_agent_memory.py           # normal run
-    python scripts/debug/analysis/debug_batch_agent_memory.py --dry-run  # log only, no writes
+Runs four steps: epoch detection from KS alarms, regime transitions, episode backfill
+from resolved signals, and cohort promotion with BH-FDR and bootstrap calibration.
+Run nightly via systemd timer at 21:00; safe to rerun idempotently.
+Requires TimescaleDB and resolved signal_ledger data.
 """
 
 from __future__ import annotations

@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
-"""BIC K-Selection Study for HMM State Count.
+"""
+debug_bic_k_selection.py — HMM state count selection via Bayesian Information Criterion
 
-Fits GaussianHMM(K) for K in [2, 3, 4, 5, 6] on 5m OHLCV data for
-SPY, TLT, GLD, EWT and computes BIC to select the optimal state count.
-
-BIC formula (diag GaussianHMM, d=5 observation dimensions):
-    n_params = K*(K-1) + (K-1) + 2*K*d  # = (K-1)*(K+1) + 2*K*d
-    BIC = -2 * model.score(obs_scaled) + n_params * math.log(n_obs)
-
-model.score() returns TOTAL log-likelihood (sum over sequence).
-Do NOT multiply by n_obs -- that would double-count.
-
-Usage:
-    INDICAGENT_ENV=production .venv/bin/python scripts/debug/analysis/debug_bic_k_selection.py
+Fits GaussianHMM(K) for K in [2,3,4,5,6] on 5m OHLCV data for SPY/TLT/GLD/EWT
+and computes BIC to select optimal regime count; outputs CSV report and recommendation.
+Run once to determine optimal HMM K for regime_writer; updates APR key feature.hmm.n_components.
+Requires TimescaleDB with OHLCV data and hmmlearn library.
 """
 
 from __future__ import annotations

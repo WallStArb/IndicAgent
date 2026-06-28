@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
-"""Renaissance Pipeline Audit — Computational Correctness + Latency Tracking
+"""
+ops_pipeline_audit.py — computational correctness and latency tracking for intelligence pipeline
 
-Version: 1.0
-Status: current
-Last Updated: 2026-04-29
-
-Validates that every calculation in the pipeline is mathematically correct,
-tracks per-hop latency, and measures cross-tier consistency.
-
-Usage:
-    python pipeline_audit.py --symbol ES --tf 5m --hours 24
-
-Exit codes:
-    0 = Audit passed
-    1 = Audit failed
+Validates that every pipeline calculation is mathematically correct, tracks per-hop latency,
+and measures cross-tier consistency via validation engine.
+Run to audit pipeline integrity after logic changes or as part of regular quality assurance.
+Requires intelligence_features and signal corpus tables populated.
 """
 
 import argparse

@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
 """
-Corpus Final Verification - crash-loud gate before Phase 141.
+ops_corpus_final_verification.py — crash-loud gate before Phase 141
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-28
-
-Verifies corpus pipeline completeness and data quality:
-1. All steps (ic_engine, ensemble_trainer, alpha_publisher) emitted manifests
-2. All TFs (5m, 15m, 1h, 1d) present in outputs
-3. Data quality checks (CORPUS-01 from Phase 141)
-4. Prints recovery instructions on failure
-
-Usage:
-    python scripts/ops/corpus/ops_corpus_final_verification.py
+Verifies corpus pipeline completeness and data quality: all steps emitted manifests,
+all TFs present in outputs, and CORPUS-01 data quality checks passed.
+Run after corpus_pipeline_run.py completes to validate before consuming alpha_events.
+Requires TimescaleDB with corpus_manifests and output tables populated.
 """
 
 from __future__ import annotations

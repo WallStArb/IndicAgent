@@ -1,33 +1,11 @@
 #!/usr/bin/env python3
-"""Alpha Validation Gate — validate_alpha.py
+"""
+debug_validate_alpha.py — statistical validation gate for new alpha sources
 
-Version: 1.1
-Status: current
-Last Updated: 2026-06-12
-
-Statistical validation gate that all new alpha sources must clear before live promotion.
-"Earn the right through proof" — no indicator enters the live pipeline without passing
-Pearson r > 0, p < 0.05, and N >= 30 against forward close-to-close returns.
-
-Hard gates (all three must pass):
-  - N >= 30 signal bars with complete forward return data
-  - Pearson r > 0 (positive directional correlation)
-  - Pearson p-value < 0.05 (statistically significant)
-
-Informational only (not gates):
-  - ADF stationarity test (momentum indicators expected non-stationary)
-  - False-positive rate (no threshold until baselines exist)
-
-Usage:
-    python scripts/debug/validate/debug_validate_alpha.py --plugin ind_ACOscillator --days 90
-    python scripts/debug/validate/debug_validate_alpha.py --plugin cmp_DerivativeOscillator --days 90
-    python scripts/debug/validate/debug_validate_alpha.py --plugin cmp_DerivativeOscillator --promote
-    python scripts/debug/validate/debug_validate_alpha.py --plugin patt_CandlestickPatterns \\
-        --field three_white_soldiers --promote
-    python scripts/debug/validate/debug_validate_alpha.py --plugin cmp_DerivativeOscillator \\
-        --symbol-filter ESH6,NQH6
-    python scripts/debug/validate/debug_validate_alpha.py --check-eligibility
-    python scripts/debug/validate/debug_validate_alpha.py --check-eligibility --plugin cmp_DerivativeOscillator
+Validates that all new alpha sources pass Pearson r > 0, p < 0.05, and N >= 30 against
+forward close-to-close returns before live promotion ("earn the right through proof").
+Run when adding new indicators/patterns to the pipeline; --promote patches register_plugins.py on pass.
+Requires intelligence_features table with plugin field data >= 30 bars.
 """
 
 from __future__ import annotations

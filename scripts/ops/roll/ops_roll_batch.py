@@ -1,24 +1,11 @@
 #!/usr/bin/env python3
-"""roll_batch — nightly calendar-driven futures roll promotion.
+"""
+ops_roll_batch.py — nightly calendar-driven futures contract roll promotion
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-06
-
-Replaces RollComputeAgent (24/7 streaming) and ContractMetadataWriterAgent
-(Kafka consumer) with a single oneshot script that:
-
-1. Seeds missing contracts into contract_metadata
-2. Detects rolls via calendar (get_roll_window + derive_roll_chain)
-3. Promotes front-month atomically in contract_metadata
-4. Broadcasts ContractUpdateEvent for downstream cache invalidation
-5. Logs volume validation data for historical analysis
-
-Runs via systemd timer at 23:00 UTC (6pm ET). Idempotent — safe to rerun.
-
-Usage:
-    python scripts/ops/roll/ops_roll_batch.py           # normal run
-    python scripts/ops/roll/ops_roll_batch.py --dry-run  # log only, no writes
+Detects rolls via calendar window, promotes front-month atomically in contract_metadata,
+broadcasts ContractUpdateEvent via Kafka, and logs volume validation data.
+Run nightly via systemd timer at 23:00 UTC (6pm ET); idempotent and safe to rerun.
+Requires TimescaleDB with contract_metadata and Kafka cluster available.
 """
 
 from __future__ import annotations

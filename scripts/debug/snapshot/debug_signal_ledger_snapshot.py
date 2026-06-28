@@ -1,24 +1,11 @@
 #!/usr/bin/env python3
-"""signal_ledger_snapshot — capture per-setup signal metrics before any deletes.
+"""
+debug_signal_ledger_snapshot.py — per-setup signal metrics capture before rebuild
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-11
-
-Writes docs/plans/signal-ledger-snapshot.json as the authoritative "before"
-baseline for comparison after rebuild. Run ONCE before executing the clean+replay.
-
-Idempotent guard: will not overwrite an existing snapshot file.
-If the file already exists, the script aborts with a non-zero exit code.
-
-Atomicity: the snapshot query is run inside a pg_try_advisory_lock session
-(same lock ID as lifecycle_replay.py) to ensure the snapshot is consistent
-with the state before any deletes execute.
-
-NOTE: intelligence_features is intentionally excluded from all delete operations.
-intelligence_features has no setup_plugin column — its per-bar rows are shared
-across ALL 30 setups. The plugin-scoped clean operates exclusively on
-signal_ledger (3-table schema). This is by design.
+Writes docs/plans/signal-ledger-snapshot.json as the authoritative "before" baseline
+for comparison after corpus rebuild; uses advisory lock for atomicity with delete operations.
+Run ONCE before executing clean+replay; aborts if snapshot file already exists.
+Requires TimescaleDB with signal_ledger view populated.
 """
 
 from __future__ import annotations

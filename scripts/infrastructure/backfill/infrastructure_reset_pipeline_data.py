@@ -1,33 +1,11 @@
 #!/usr/bin/env python3
 """
-Full Data Reset — wipes all signal-derived tables and re-runs backfill + lifecycle replay.
+infrastructure_reset_pipeline_data.py — full signal-derived data reset and backfill
 
-Version: 2.0
-Status: current
-Last Updated: 2026-06-18
-
-Run this whenever framing logic (stop/target geometry) or lifecycle logic changes
-substantially enough that historical P&L is no longer trustworthy.
-
-Safety controls:
-  - Dry-run by default: prints row counts and what would be deleted, exits.
-  - --confirm required to execute any destructive operation.
-  - Advisory lock prevents concurrent resets.
-  - Service quiescence check before touching data.
-
-Usage:
-    # Dry run — see what will be wiped:
-    python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py
-
-    # Execute full reset:
-    sudo systemctl stop indicagent-intelligence-pipeline
-    python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --confirm
-
-    # Skip the backfill + lifecycle replay (just wipe):
-    python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --confirm --wipe-only
-
-    # Wipe then replay with more workers:
-    python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --confirm --workers 8
+Wipes all signal-derived tables and re-runs backfill + lifecycle replay when framing or
+lifecycle logic changes enough that historical P&L is untrustworthy.
+Run after substantial logic changes; --confirm required for destructive operations.
+Requires intelligence_pipeline stopped; uses advisory lock and dry-run by default.
 """
 
 from __future__ import annotations
@@ -235,7 +213,10 @@ def _run_backfill(workers: int) -> None:
     cmd = [
         sys.executable,
         "-u",
-        str(project_root / "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py"),
+        str(
+            project_root
+            / "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py"
+        ),
         "--replay-only",
         "--clean",
         "--workers",

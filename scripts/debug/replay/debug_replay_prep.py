@@ -1,22 +1,11 @@
 #!/usr/bin/env python3
 """
-Pre-Rebuild DB Preparation — drop secondary indexes and tune WAL before bulk load.
+debug_replay_prep.py — pre-rebuild database preparation: drop indexes and tune WAL
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-19
-
-Drops all secondary (non-PK) indexes on signal_events, trade_frames, trade_executions,
-and intelligence_features to eliminate write amplification during the Phase 133 corpus
-rebuild. Also increases max_wal_size from 1GB to 4GB to reduce checkpoint stall frequency.
-
-PKs are NOT dropped — ON CONFLICT clauses in all replay scripts depend on them.
-
-Run once as step 0 of the D-03 rebuild sequence, before reset_pipeline_data.py.
-Run replay_post.py after _verify_replay passes to rebuild indexes and restore settings.
-
-Usage:
-    python scripts/debug/replay/debug_replay_prep.py
+Drops secondary indexes on signal_events/trade_frames/trade_executions to eliminate
+write amplification during corpus rebuild; increases max_wal_size to reduce checkpoint stalls.
+Run as step 0 of the D-03 rebuild sequence before bulk data operations; replay_post.py restores indexes.
+Requires PostgreSQL superuser access for index operations and config changes.
 """
 
 from __future__ import annotations

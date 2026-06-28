@@ -1,23 +1,11 @@
 #!/usr/bin/env python3
 """
-Feature IC Analysis — Information Coefficient statistics from corpus pipeline.
+debug_analyze_feature_ic.py — v3.0 corpus pipeline IC analysis and reporting
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-28
-
-Reads feature_ic_scores table and produces:
-- Overall IC distribution (mean, median, quantiles)
-- IC by feature (which features are predictive)
-- IC by timeframe (5m, 15m, 1h, 1d)
-- IC by regime (trending, ranging, transition)
-- Features that pass FDR correction
-- Features that pass walk-forward validation
-- IC Sharpe distribution
-- Heatmap data for visualization
-
-Usage:
-    python scripts/debug/analysis/debug_analyze_feature_ic.py
+Reads feature_ic_scores table and produces IC distribution analysis by feature,
+timeframe, and regime, including FDR and walk-forward validation results.
+Run after corpus pipeline completion to review feature predictive quality.
+Requires feature_ic_scores table populated with IC data.
 """
 
 from __future__ import annotations

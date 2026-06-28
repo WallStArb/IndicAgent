@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
-"""One-shot HTF bar backfill: replay 1m bars from market_data_ohlcv through
-BarAccumulator and publish completed HTF bars to topic_market_bars_htf.
+"""
+infrastructure_fetch_htf_bars.py — higher-timeframe bar backfill via 1m aggregation
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-12
-
-
-Usage:
-    .venv/bin/python scripts/infrastructure/backfill/infrastructure_fetch_htf_bars.py --hours 24
-    .venv/bin/python scripts/infrastructure/backfill/infrastructure_fetch_htf_bars.py --since 2026-04-02 --until 2026-04-09
-
-The intelligence pipeline must be running — it will consume and persist the replayed bars.
-Run while the bar_aggregator service is stopped to avoid duplicate messages.
+Replays 1m bars from market_data_ohlcv through BarAccumulator and publishes completed
+HTF bars to topic_market_bars_htf for intelligence_pipeline consumption.
+Run when HTF bars are missing or after gap-filling; intelligence_pipeline must be running.
+Requires market_data_ohlcv populated with 1m bars; stop bar_aggregator during run.
 """
 
 from __future__ import annotations

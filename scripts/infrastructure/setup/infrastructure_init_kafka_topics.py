@@ -1,23 +1,12 @@
-"""Kafka topic specifications for IndicAgent pipeline.
+#!/usr/bin/env python3
+"""
+infrastructure_init_kafka_topics.py — canonical Kafka topic specifications for IndicAgent pipeline
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-12
-
-Each entry: (suffix, num_partitions, retention_ms, cleanup_policy)
-
-Retention tiers:
-  hot      — 2h (7,200,000ms)     Real-time transport, consumed within seconds
-  buffer   — 1d (86,400,000ms)    Standard buffer — all data persisted to TimescaleDB
-  htf      — 3d (259,200,000ms)   HTF bars need accumulation window for 4h/1d catch-up
-  compact  — compacted topic, no time-based retention
-
-Rationale: Redpanda is a transport layer, not storage. Once consumed and
-persisted to TimescaleDB, Kafka data is redundant. Retention is sized for
-restart catch-up only — ground truth lives in the DB. At 55 symbols, even
-1 day of 1m bars is ~76K messages; 7 days of intelligence output was 89 GB.
-
-Used by pipeline_reset.py to delete + recreate all topics on a full reset.
+Defines topic suffixes, partition counts, retention policies, and cleanup rules;
+provides get_topic_specs() helper for topic creation and retention enforcement.
+Retention tiers: hot (2h), buffer (1d), htf (3d), compact (infinite).
+Imported by infrastructure_enforce_topic_retention.py and pipeline reset scripts.
+No standalone execution — module-only specification library.
 """
 
 # ---------------------------------------------------------------------------

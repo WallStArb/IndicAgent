@@ -1,19 +1,11 @@
-"""Enforce Redpanda topic retention from the canonical spec.
+#!/usr/bin/env python3
+"""
+infrastructure_enforce_topic_retention.py — enforce Redpanda topic retention from canonical spec
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-12
-
-Idempotent — safe to run against a live cluster at any time. Does not delete
-or recreate topics. Only alters retention.ms where it diverges from spec.
-
-Usage:
-    python -m scripts.infrastructure.kafka.infrastructure_enforce_topic_retention [--dry-run] [--broker localhost:9092]
-
-Steps:
-  1. Sets broker-level log_retention_ms to _BROKER_DEFAULT_MS (new topics safe by default).
-  2. Applies per-topic retention.ms overrides for every topic in the canonical spec.
-  3. Prints a summary of changes made vs. already-correct topics.
+Idempotently sets broker-level and per-topic retention.ms to match canonical spec without
+deleting or recreating topics; safe to run against live cluster at any time.
+Run to correct topic retention drift or after infrastructure_init_kafka_topics.py changes.
+Requires Redpanda container accessible via docker exec; rpk CLI installed in container.
 """
 
 import argparse

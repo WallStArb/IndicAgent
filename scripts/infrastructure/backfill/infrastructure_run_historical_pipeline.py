@@ -1,55 +1,12 @@
 #!/usr/bin/env python3
 """
-Historical Backfill Pipeline
+infrastructure_run_historical_pipeline.py — multi-stage OHLCV backfill and signal pipeline replay
 
-Version: 1.4
-Status: current
-Last Updated: 2026-06-06
-
-Stage 1 (--fetch-only): Fetches multi-timeframe OHLCV bars from IBKR and stores
-them in market_data_ohlcv. Short timeframes use named contracts; longer timeframes
-use back-adjusted continuous contracts (ContFuture + ADJUSTED_LAST) to span rolls.
-
-    Timeframe  Default depth  Notes
-    1d         7300 days      ~5.2k bars/symbol; 20yr, negligible storage (~252 bars/yr)
-    1h         5475 days      ~27k bars/symbol; 15yr clears 20k IC floor (2011 EU crisis→GFC recovery→AI mania)
-    15m        3650 days      ~17k bars/symbol; 10yr matches 1h regime depth
-    5m         1631 days      ~196k bars/symbol; 4.5yr covers bull/bear/recovery cycle
-    1m         90 days        ~75k bars/symbol; intraday patterns repeat on monthly cycles
-
-    Use --days N to cap ALL timeframes at N days (e.g. --days 2 for a gap-fill).
-
-Stage 2 (--replay-only): Reads each timeframe's native stored bars and replays
-them through the full I1→I2→I3→I4→I5→SMC→I6→I7 pipeline to populate
-signal_events + trade_frames and intelligence_features.
-
-Replaces: scripts/infrastructure/backfill/simple_seeder.py (retired)
-
-Usage:
-    python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py
-    python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --fetch-only
-    python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --replay-only
-    python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --symbols ESH6,NQH6
-
-    # Per-contract mode (Renaissance-style raw data storage):
-    python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --fetch-only --per-contract --symbols ESH6
-
-    # Gap-fill: fetch last 2 days across ALL TFs (not just 1m), then replay only those 2 days:
-    python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --fetch-only --symbols EURUSD,BTCUSD --days 2
-    python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --replay-only --symbols EURUSD,BTCUSD --days 2
-
-    python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --replay-only --clean  # delete old signals
-
---days behaviour:
-    When provided, caps ALL timeframe fetch depths at that value (not just 1m).
-    Also limits the replay stage to bars within that window.
-    Omit --days for full-history replay or default per-TF fetch depths.
-
---per-contract mode:
-    Fetches each individual futures contract in the roll chain instead of back-adjusted
-    continuous series. Data is stored under the correct contract symbol (e.g., ESH6, ESZ5).
-    This is the Renaissance-standard approach: raw per-contract data is canonical truth,
-    continuous series are derived layers.
+Stage 1 (--fetch-only): Fetches multi-timeframe OHLCV from IBKR to market_data_ohlcv.
+Stage 2 (--replay-only): Replays bars through full I1→I7 pipeline to populate signal_events,
+trade_frames, and intelligence_features.
+Run for initial system bootstrap, gap-filling, or after logic changes.
+Requires IBKR Gateway available; --fetch-only uses named contracts (HTF uses continuous).
 """
 
 from __future__ import annotations

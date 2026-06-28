@@ -1,34 +1,11 @@
 #!/usr/bin/env python3
-"""signal_quality_audit — Two-layer per-plugin signal quality audit.
+"""
+debug_signal_quality_audit.py — two-layer per-plugin signal quality audit
 
-Version: 1.0
-Status: current
-Last Updated: 2026-06-15
-
-Layer 1 — Statistical IC table (D-13):
-    For each plugin with >= 30 non-null pnl_r outcomes in signal_ledger:
-    - hit_rate (pnl_r > 0 rate)
-    - IC = Pearson corr(raw_confidence, pnl_r)
-    - bootstrap 95% CI on hit_rate (10,000 resamples)
-    - t-stat for IC vs 0
-    - Equity/forex segment breakdown
-    - Verdict: VALIDATED / NOISE CANDIDATE / ANTI-SIGNAL per D-13 thresholds
-
-Layer 2 — Detection condition verifiability:
-    For VALIDATED and NOISE CANDIDATE plugins from Layer 1:
-    - Sample 50 signals from signal_ledger, join to intelligence_features
-    - Check whether primary detection-condition fields are populated
-    - Verdict: VERIFIABLE / PARTIAL / UNVERIFIABLE
-
-Usage:
-    .venv/bin/python scripts/debug/validate/debug_signal_quality_audit.py
-    .venv/bin/python scripts/debug/validate/debug_signal_quality_audit.py --layer 1
-    .venv/bin/python scripts/debug/validate/debug_signal_quality_audit.py --layer 2
-    .venv/bin/python scripts/debug/validate/debug_signal_quality_audit.py --layer all
-
-Exit codes:
-    0 = audit complete
-    1 = error
+Layer 1: Statistical IC table (hit rate, Pearson IC, bootstrap CI, verdict per D-13 thresholds).
+Layer 2: Detection condition verifiability via intelligence_features field presence sampling.
+Run to audit plugin predictive quality and detect noise/anti-signal candidates.
+Requires signal_ledger view with >=30 outcomes per plugin and intelligence_features table.
 """
 
 from __future__ import annotations
