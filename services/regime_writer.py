@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import math
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -187,70 +188,111 @@ def _build_obs_matrix(
     return obs, valid_ts
 
 
-def _causal_decode(
-    obs_matrix: np.ndarray,
-    means: np.ndarray,
-    variances: np.ndarray,
-    A: np.ndarray,
-    K: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Causal forward-filter (alpha-pass only) HMM decoding - vectorized.
+def _stationary_distribution(A: np.ndarray) -> np.ndarray:
+    """Stationary distribution of transition matrix A (left eigenvector for eigenvalue 1).
 
-    Precomputes log emission probabilities for all timesteps as a batch
-    (n, K) matrix before the sequential alpha-pass loop, eliminating the
-    K-sized Python loop that ran per timestep in the original implementation.
-
-    The sequential t-loop is retained - causality requires alpha[t] to depend
-    only on alpha[t-1]. Each loop iteration is pure numpy K-vector ops.
-
-    Args:
-        obs_matrix: (n, d) observation matrix (StandardScaler-transformed)
-        means: (K, d) emission means per state (in scaled space)
-        variances: (K, d) emission variances per state (in scaled space, diagonal)
-        A: (K, K) transition matrix
-        K: number of hidden states
-
-    Returns:
-        (states, alpha_history): states[t] = argmax(alpha[t]),
-        alpha_history[t] = normalized probability vector over K states.
+    Solves π A = π with sum(π) = 1. Falls back to uniform if singular.
     """
-    n, d = obs_matrix.shape
-    var_clipped = np.maximum(variances[:, :d], 1e-300)  # (K, d)
+    K = A.shape[0]
+    M = A.T - np.eye(K)
+    M[-1] = 1.0
+    rhs = np.zeros(K)
+    rhs[-1] = 1.0
+    try:
+        pi = np.linalg.solve(M, rhs)
+        pi = np.maximum(pi, 0.0)
+        total = pi.sum()
+        return pi / total if total > 0 else np.full(K, 1.0 / K)
+    except np.linalg.LinAlgError:
+        return np.full(K, 1.0 / K)
 
-    # Precompute log emission for all timesteps: shape (n, K)
-    # diff[t, k, j] = obs[t, j] - means[k, j]
-    diff = obs_matrix[:, np.newaxis, :] - means[np.newaxis, :, :d]  # (n, K, d)
-    log_emit = (
+
+def _log_emit_diag(obs: np.ndarray, means: np.ndarray, variances: np.ndarray) -> np.ndarray:
+    """Log emission (n, K) for diagonal Gaussian. variances shape (K, d)."""
+    var_clipped = np.maximum(variances, 1e-300)
+    diff = obs[:, np.newaxis, :] - means[np.newaxis, :, :]  # (n, K, d)
+    return (
         -0.5 * np.sum(diff**2 / var_clipped[np.newaxis, :, :], axis=2)
         - 0.5 * np.sum(np.log(2 * np.pi * var_clipped), axis=1)[np.newaxis, :]
-    )  # (n, K)
+    )
 
-    log_A = np.log(np.maximum(A, 1e-300))  # (K, K): log_A[i, j] = log P(i -> j)
 
+def _log_emit_full(obs: np.ndarray, means: np.ndarray, covars: np.ndarray) -> np.ndarray:
+    """Log emission (n, K) for full-covariance Gaussian. covars shape (K, d, d).
+
+    Uses Cholesky decomposition for numerical stability. Regularizes with 1e-6 * I
+    to guard near-singular covariance matrices (rare but possible on flat TFs).
+    Falls back to diagonal on Cholesky failure per state.
+    """
+    n, d = obs.shape
+    K = means.shape[0]
+    log_emit = np.zeros((n, K))
+    log_2pi_d = d * math.log(2 * math.pi)
+    for k in range(K):
+        diff = obs - means[k]  # (n, d)
+        cov = covars[k] + np.eye(d) * 1e-6
+        try:
+            L = np.linalg.cholesky(cov)
+            log_det = 2.0 * np.sum(np.log(np.maximum(np.diag(L), 1e-300)))
+            y = np.linalg.solve(L, diff.T)  # (d, n)
+            log_emit[:, k] = -0.5 * (np.sum(y**2, axis=0) + log_det + log_2pi_d)
+        except np.linalg.LinAlgError:
+            diag_var = np.maximum(np.diag(covars[k]), 1e-300)
+            log_emit[:, k] = -0.5 * (
+                np.sum(diff**2 / diag_var, axis=1) + np.sum(np.log(2 * math.pi * diag_var))
+            )
+    return log_emit
+
+
+def _alpha_pass(
+    log_emit: np.ndarray,
+    A: np.ndarray,
+    pi0: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Causal forward-filter. log_emit shape (n, K). Returns (states, alpha_history).
+
+    Sequential t-loop is required — alpha[t] depends on alpha[t-1] for causality.
+    Log emission matrix is precomputed outside for the full series at once.
+    """
+    n, K = log_emit.shape
+    log_A = np.log(np.maximum(A, 1e-300))
     states = np.zeros(n, dtype=int)
     alpha_history = np.zeros((n, K))
-    alpha = np.full(K, 1.0 / K)  # uniform prior
+    alpha = pi0.copy()
 
     for t in range(n):
-        # log_alpha_prev + log_A: broadcast (K,) over (K, K)
-        # log_trans[i, j] = log_alpha[i] + log_A[i, j]
         log_alpha = np.log(np.maximum(alpha, 1e-300))
         log_trans = log_alpha[:, np.newaxis] + log_A  # (K, K)
-        # logsumexp over source states for each target state j
-        max_lt = log_trans.max(axis=0)  # (K,)
+        max_lt = log_trans.max(axis=0)
         log_alpha_new = max_lt + np.log(np.sum(np.exp(log_trans - max_lt), axis=0))
-        log_alpha_new += log_emit[t]  # add emission
-
-        # Normalize in log space then exponentiate
+        log_alpha_new += log_emit[t]
         max_la = log_alpha_new.max()
         alpha = np.exp(log_alpha_new - max_la)
         total = alpha.sum()
         alpha /= total if total > 0 else 1.0
-
         states[t] = int(alpha.argmax())
         alpha_history[t] = alpha
 
     return states, alpha_history
+
+
+def _smooth_states(raw_states: np.ndarray, min_hold: int) -> np.ndarray:
+    """Minimum holding-period smoother. Requires min_hold consecutive bars of the same
+    new state before confirming a transition. Causal — no look-ahead."""
+    if min_hold <= 1:
+        return raw_states.copy()
+    n = len(raw_states)
+    smoothed = raw_states.copy()
+    current = int(raw_states[0])
+    for t in range(1, n):
+        if t < min_hold:
+            smoothed[t] = current
+            continue
+        window = raw_states[t - min_hold + 1 : t + 1]
+        if np.all(window == raw_states[t]):
+            current = int(raw_states[t])
+        smoothed[t] = current
+    return smoothed
 
 
 def _build_label_map(means: np.ndarray) -> dict[int, str]:
@@ -315,12 +357,16 @@ def _compute_symbol_tf(
     hmm_random_state: int,
     momentum_window: int,
     vol_of_vol_window: int,
-) -> tuple[list[tuple], bool] | None:
-    """Fit HMM for one (symbol, tf) cell. Returns (update_rows, converged) or None.
+    covariance_type: str = "full",
+    min_hold_bars: int = 3,
+    heldout_fraction: float = 0.2,
+    full_cov_min_obs: int = 500,
+) -> tuple[list[tuple], bool, float] | None:
+    """Fit HMM for one (symbol, tf) cell. Returns (update_rows, converged, heldout_ll) or None.
 
-    No DB writes — clears any open transaction before the server-side cursor, then runs pure HMM compute. Each tuple in update_rows matches the UPDATE SQL
-    parameter order: (regime, p_up, p_ranging, p_down, prob_val, entropy_val,
-    duration, symbol, tf, ts).
+    No DB writes — clears any open transaction before the server-side cursor, then runs pure
+    HMM compute. Each tuple in update_rows matches the UPDATE SQL parameter order:
+    (regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration, symbol, tf, ts).
     """
     timestamps = []
     closes = []
@@ -369,30 +415,79 @@ def _compute_symbol_tf(
         return None
 
     # Standardize per-series: fit on this series, transform in-place.
-    # Both fit() and _causal_decode() receive the scaled matrix so
-    # means/covars are in scaled space — internally consistent.
+    # Both fit() and alpha-pass receive the scaled matrix so means/covars
+    # are in scaled space — internally consistent.
     scaler = StandardScaler()
     obs_matrix = scaler.fit_transform(obs_matrix)
 
+    # Fall back to diag if too few observations for full covariance to be reliable.
+    eff_cov_type = covariance_type if len(obs_matrix) >= full_cov_min_obs else "diag"
+
     model = GaussianHMM(
         n_components=n_components,
-        covariance_type="diag",
+        covariance_type=eff_cov_type,
         n_iter=n_iter,
         random_state=hmm_random_state,
     )
     model.fit(obs_matrix)
 
-    # model.covars_ shape for 'diag': (K, d, d) with zeros off-diagonal.
-    # Extract diagonal only for _causal_decode: (K, d)
-    d = model.means_.shape[1]
-    covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
-    raw_states, alpha_history = _causal_decode(
-        obs_matrix,
-        model.means_,
-        covars_diag,
-        model.transmat_,
-        n_components,
-    )
+    # Convergence check — non-convergence means EM stopped early; labels are valid
+    # but may be suboptimal. Retry once with doubled iterations before proceeding.
+    converged = bool(model.monitor_.converged)
+    if not converged:
+        _logger.warning(
+            "regime_writer.hmm_not_converged_retry",
+            symbol=symbol,
+            tf=tf,
+            n_iter=n_iter,
+        )
+        retry_model = GaussianHMM(
+            n_components=n_components,
+            covariance_type=eff_cov_type,
+            n_iter=n_iter * 2,
+            random_state=hmm_random_state,
+        )
+        retry_model.fit(obs_matrix)
+        if retry_model.monitor_.converged:
+            model = retry_model
+            converged = True
+        else:
+            _logger.warning(
+                "regime_writer.hmm_not_converged_final",
+                symbol=symbol,
+                tf=tf,
+                n_iter=n_iter * 2,
+            )
+
+    # Held-out log-likelihood: score last heldout_fraction of bars.
+    # Model is fit on full series; this is diagnostic only — does not gate write.
+    heldout_ll = float("nan")
+    n_obs = len(obs_matrix)
+    n_holdout = max(1, int(n_obs * heldout_fraction))
+    if n_holdout >= n_components:
+        try:
+            heldout_ll = float(model.score(obs_matrix[-n_holdout:]) / n_holdout)
+        except Exception:
+            pass
+
+    # Stationary prior — replaces uniform 1/K with long-run state probabilities.
+    pi0 = _stationary_distribution(model.transmat_)
+
+    # Precompute log emissions then run causal alpha-pass.
+    if eff_cov_type == "full":
+        log_emit = _log_emit_full(obs_matrix, model.means_, model.covars_)
+    else:
+        d = model.means_.shape[1]
+        if model.covars_.ndim == 3:
+            covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
+        else:
+            covars_diag = model.covars_
+        log_emit = _log_emit_diag(obs_matrix, model.means_, covars_diag)
+
+    raw_states, alpha_history = _alpha_pass(log_emit, model.transmat_, pi0)
+
+    # Minimum holding-period smoothing — prevents single-bar flips when alpha is diffuse.
+    smoothed_states = _smooth_states(raw_states, min_hold_bars)
 
     label_map = _build_label_map(model.means_)
     # For K>=4, hmm_prob_trending_up/down aggregate all bullish/bearish probability mass.
@@ -404,11 +499,12 @@ def _compute_symbol_tf(
     ranging_states = [k for k, v in label_map.items() if v == _LABEL_RANGING]
 
     # Explicit loop — required for index-based alpha_history access and stateful
-    # duration counter simultaneously.
+    # duration counter simultaneously. Uses smoothed states for regime label and
+    # duration; alpha_history reflects the raw forward-filter probability.
     update_rows: list[tuple] = []
     prev_state: int | None = None
     duration = 0
-    for i, (ts, state_idx) in enumerate(zip(valid_ts, raw_states)):
+    for i, (ts, state_idx) in enumerate(zip(valid_ts, smoothed_states)):
         state_idx = int(state_idx)
         if state_idx == prev_state:
             duration += 1
@@ -436,7 +532,7 @@ def _compute_symbol_tf(
             )
         )
 
-    return update_rows, model.monitor_.converged
+    return update_rows, converged, heldout_ll
 
 
 def _write_regime_results(
@@ -445,6 +541,7 @@ def _write_regime_results(
     tf: str,
     update_rows: list[tuple],
     converged: bool,
+    heldout_ll: float,
     tracer: Any,
 ) -> int:
     """Write HMM regime labels for one (symbol, tf) cell to feature_vectors.
@@ -500,6 +597,7 @@ def _write_regime_results(
                 n_updated=n_updated,
                 null_remaining=remaining,
                 converged=converged,
+                heldout_ll_per_obs=round(heldout_ll, 4) if math.isfinite(heldout_ll) else None,
             )
             return n_updated
 
@@ -536,12 +634,13 @@ def _run_symbol_worker(args: tuple) -> dict:
 
     Args:
         args: (symbol, tfs, dsn, n_components, vol_window, momentum_window,
-               vol_of_vol_window, n_iter, hmm_random_state)
+               vol_of_vol_window, n_iter, hmm_random_state, covariance_type,
+               min_hold_bars, heldout_fraction, full_cov_min_obs)
 
     Returns:
         dict with keys:
           symbol: str
-          results: list of {tf, update_rows, converged} or {tf, error}
+          results: list of {tf, update_rows, converged, heldout_ll} or {tf, error}
           error: str | None  (set if connection itself failed)
     """
     (
@@ -554,6 +653,10 @@ def _run_symbol_worker(args: tuple) -> dict:
         vol_of_vol_window,
         n_iter,
         hmm_random_state,
+        covariance_type,
+        min_hold_bars,
+        heldout_fraction,
+        full_cov_min_obs,
     ) = args
 
     setup_service_logging("logs/regime_writer.log")
@@ -578,12 +681,30 @@ def _run_symbol_worker(args: tuple) -> dict:
                     vol_of_vol_window=vol_of_vol_window,
                     n_iter=n_iter,
                     hmm_random_state=hmm_random_state,
+                    covariance_type=covariance_type,
+                    min_hold_bars=min_hold_bars,
+                    heldout_fraction=heldout_fraction,
+                    full_cov_min_obs=full_cov_min_obs,
                 )
                 if result is None:
-                    results.append({"tf": tf, "update_rows": None, "converged": False})
+                    results.append(
+                        {
+                            "tf": tf,
+                            "update_rows": None,
+                            "converged": False,
+                            "heldout_ll": float("nan"),
+                        }
+                    )
                 else:
-                    update_rows, converged = result
-                    results.append({"tf": tf, "update_rows": update_rows, "converged": converged})
+                    update_rows, converged, heldout_ll = result
+                    results.append(
+                        {
+                            "tf": tf,
+                            "update_rows": update_rows,
+                            "converged": converged,
+                            "heldout_ll": heldout_ll,
+                        }
+                    )
             except Exception as error:
                 worker_log.error(
                     "regime_writer.worker_cell_failed",
@@ -690,6 +811,10 @@ def main() -> None:
                 hmm_random_state = int(cfg.get_sync("alpha.hmm.random_state", 42))
                 momentum_window = int(cfg.get_sync("feature.hmm.obs_momentum_window", 20))
                 vol_of_vol_window = int(cfg.get_sync("feature.hmm.obs_vol_of_vol_window", 20))
+                covariance_type = cfg.get_sync("feature.hmm.covariance_type", "full")
+                min_hold_bars = int(cfg.get_sync("feature.hmm.min_hold_bars", 3))
+                heldout_fraction = float(cfg.get_sync("feature.hmm.heldout_fraction", 0.2))
+                full_cov_min_obs = int(cfg.get_sync("feature.hmm.full_cov_min_obs", 500))
 
                 symbols = args.symbols if args.symbols else _discover_symbols(_conn)
                 tfs: list[str] = args.tf
@@ -711,6 +836,9 @@ def main() -> None:
                 vol_of_vol_window=vol_of_vol_window,
                 n_iter=n_iter,
                 n_workers=n_workers,
+                covariance_type=covariance_type,
+                min_hold_bars=min_hold_bars,
+                heldout_fraction=heldout_fraction,
             )
 
             worker_args = [
@@ -724,6 +852,10 @@ def main() -> None:
                     vol_of_vol_window,
                     n_iter,
                     hmm_random_state,
+                    covariance_type,
+                    min_hold_bars,
+                    heldout_fraction,
+                    full_cov_min_obs,
                 )
                 for symbol in symbols
             ]
@@ -760,6 +892,7 @@ def main() -> None:
                                     tf=tf,
                                     update_rows=cell["update_rows"],
                                     converged=cell.get("converged", False),
+                                    heldout_ll=cell.get("heldout_ll", float("nan")),
                                     tracer=tracer,
                                 )
                                 total_updated += n
