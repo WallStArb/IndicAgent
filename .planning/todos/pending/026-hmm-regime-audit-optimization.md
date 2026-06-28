@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** optimization
+**Priority:** P3
+**Effort:** 3-5 days
+**Benefit:** Reduces corpus pipeline runtime; optimizes HMM per-symbol compute
+**Risk:** low (performance only)
+**Gate:** None
+---
+
 # 026 — HMM Regime Audit & Optimization
 
 **Priority: P0 (performance) through P4 (future) — see full plan**

@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** new_feature
+**Priority:** P2
+**Effort:** 20-30 hours (across multiple batches)
+**Benefit:** Expands feature set from 54 to ~100+ primitives; IC engine decides what's predictive
+**Risk:** medium (large schema change, requires re-run)
+**Gate:** 001 complete + clean 58-symbol corpus + IC discovery confirms stable results
+---
+
 # 014 — Feature Primitives Expansion (~60 candidates)
 
 **Priority: Medium-High — next feature set chapter after clean corpus + IC validation on existing 54.**

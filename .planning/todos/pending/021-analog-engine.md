@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** new_feature
+**Priority:** P3
+**Effort:** 7-10 days
+**Benefit:** System 2 non-parametric K-NN pattern matching; complements HMM regime system
+**Risk:** medium (new algorithm)
+**Gate:** IC engine stable
+---
+
 # 021 — AnalogEngine (System 2 — Non-Parametric K-NN)
 
 **Priority: Phase D+ — gated on AlphaEngine Phase C showing IC > 0 with p < 0.05.**

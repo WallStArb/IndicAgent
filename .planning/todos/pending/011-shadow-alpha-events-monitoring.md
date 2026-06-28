@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** operations
+**Type:** new_feature
+**Priority:** P1
+**Effort:** 1-2 days
+**Benefit:** Enables scientific shadow testing; prevents delayed detection of feature decay or threshold bugs
+**Risk:** low (observability only)
+**Gate:** After alpha_events table ships
+---
+
 # 011 — Shadow Alpha Events Monitoring Protocol
 
 **Priority: High — must exist before Phase 142 ships; shadow mode without monitoring is a log sink.**

@@ -1,4 +1,15 @@
 ---
+**Created:** 2026-06-28
+**Area:** operations
+**Type:** tech_debt
+**Priority:** P3
+**Effort:** 1-2 days
+**Benefit:** Clear separation of infrastructure vs operational scripts; Renaissance-grade structure
+**Risk:** low (reorganization only)
+**Gate:** None
+---
+
+---
 created: 2026-06-28
 priority: low
 phase_target: Phase D+ (infrastructure cleanup after v3.0 corpus stable)

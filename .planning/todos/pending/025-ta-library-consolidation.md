@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** tech_debt
+**Priority:** P4
+**Effort:** 2-3 days
+**Benefit:** Replaces hand-rolled indicators with maintained library (TA-Lib or pandas-ta)
+**Risk:** medium (API differences, validation required)
+**Gate:** None
+---
+
 # 025 — Consolidate Hand-Rolled TA Indicators to Maintained Library
 
 **Priority: Low — correctness risk, not a bug; existing implementations are tested**

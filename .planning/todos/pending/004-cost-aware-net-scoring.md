@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** bug_fix
+**Priority:** P1
+**Effort:** 1-2 days
+**Benefit:** Eliminates silent wrong answers at short horizons; ensemble sees net returns not gross
+**Risk:** low (local to scoring engine)
+**Gate:** None
+---
+
 # 004 — Cost-Aware Net Scoring
 
 **Priority:** Medium — correctness issue at short horizons; should land before any live

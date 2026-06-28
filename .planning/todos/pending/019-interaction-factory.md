@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** new_feature
+**Priority:** P3
+**Effort:** 7-10 days
+**Benefit:** Automatic generation of compound primitives (e.g., momentum_rank_z × volatility_rank_z)
+**Risk:** medium (combinatorial explosion needs capping)
+**Gate:** Primitives expansion complete
+---
+
 # 019 — Interaction Factory
 
 **Status:** Pending

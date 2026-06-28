@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** infra
+**Type:** bug_fix
+**Priority:** P0
+**Effort:** 2-3 hours
+**Benefit:** Eliminates concurrent-write deadlock risk in corpus pipeline; establishes reusable pattern for all batch services
+**Risk:** medium (requires careful test coverage)
+**Gate:** None
+---
+
 # 001 — ic_engine compute/write split + batch worker pattern rule
 
 ## Problem

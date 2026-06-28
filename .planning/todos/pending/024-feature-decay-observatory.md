@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** operations
+**Type:** new_feature
+**Priority:** P3
+**Effort:** 2-3 days
+**Benefit:** Visual detection of feature decay and crowding; proactive ensemble management
+**Risk:** low (dashboard only)
+**Gate:** After Superset deployed
+---
+
 # 024 — Feature Decay Observatory (Superset Dashboard)
 
 **Priority:** Low — pure read layer; research quality-of-life.

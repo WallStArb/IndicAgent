@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** refactor
+**Priority:** P2
+**Effort:** 3-5 days
+**Benefit:** Replaces binary emission with continuous alpha scores; ensemble IS the new I7
+**Risk:** high (core signal path change)
+**Gate:** IC engine stable + shadow mode validated
+---
+
 # 016 — I7 Alpha Scorer Transition
 
 **Priority: Medium — structural migration; defines the long-term relationship between v2.x I7 and v3.0 ensemble.**

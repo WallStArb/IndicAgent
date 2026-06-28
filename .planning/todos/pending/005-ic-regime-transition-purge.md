@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** improvement
+**Priority:** P2
+**Effort:** 1-2 days
+**Benefit:** Improves IC measurement accuracy by removing regime transition label noise
+**Risk:** low (optional flag, can measure effect)
+**Gate:** Phase 141 corpus validation complete
+---
+
 # 005 — IC Engine: Regime Transition Purge Window
 
 **Priority: Medium — correctness improvement, not a blocker**

@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** new_feature
+**Priority:** P2
+**Effort:** 1-2 days
+**Benefit:** Adds cross-sectional rank features (momentum/volume/volatility) for ensemble input
+**Risk:** low (new columns only)
+**Gate:** Phase 141 corpus validation complete
+---
+
 # 013 — Cross-Sectional Rank Features (momentum_rank_z, volume_rank_z, volatility_rank_z)
 
 **Priority: Medium — free alpha, schema already exists, columns are NULL**

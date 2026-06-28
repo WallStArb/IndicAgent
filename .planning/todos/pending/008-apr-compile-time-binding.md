@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** infra
+**Type:** optimization
+**Priority:** P2
+**Effort:** 3-5 hours
+**Benefit:** Eliminates 100+ hash lookups per compute call; reduces hot-path overhead
+**Risk:** low (local to ConfigService)
+**Gate:** Before streaming path re-enabled
+---
+
 # 008 — APR Compile-Time Binding (eliminate per-call hash lookups)
 
 **Priority: Medium — architectural correctness; eliminates 100+ hash lookups per compute call**

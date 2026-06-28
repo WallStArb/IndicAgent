@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** new_feature
+**Priority:** P3
+**Effort:** 5-7 days
+**Benefit:** LLM-scored context features (earnings sentiment, macro summaries) join feature_vectors
+**Risk:** medium (I8 AI system integration)
+**Gate:** I8 LLM evaluation stable
+---
+
 # 020 — Context Features Cluster (Phase B milestone)
 
 **Priority: Phase B+ — gated on 007 (tf-agnostic table design) and IC engine live.**

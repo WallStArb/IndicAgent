@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** infra
+**Type:** tech_debt
+**Priority:** P2
+**Effort:** 2-3 days
+**Benefit:** Completes APR compliance across services; promotes batch scripts to proper BaseBatch classes
+**Risk:** medium (many small changes)
+**Gate:** None
+---
+
 # 012 — Structural Compliance (APR sweep, BaseBatch promotion, naming vocabulary)
 
 **Priority: Medium — ship as one batch after full 58-symbol IC discovery validated. All three are clean-up,

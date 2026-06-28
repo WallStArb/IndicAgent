@@ -618,8 +618,12 @@ def _compute_symbol_tf(
     run_ts: datetime,
     feature_status_map: dict[str, str] | None = None,
     mr_dict: dict | None = None,
-) -> dict[str, Any]:
+) -> tuple[list[dict], list[dict], dict[str, Any]]:
     """Compute IC for all (regime, lookahead) cells for one (symbol, tf).
+
+    No DB writes — returns (pooled_rows, regime_rows, stats_dict). Writes happen
+    serially in main process via _write_ic_results to prevent concurrent-writer
+    deadlocks on the feature_ic_scores hypertable.
 
     feature_status_map: dict mapping feature_name → status from feature_registry.
     If provided, each IC score row receives feature_status_at_eval from this map.
@@ -1217,18 +1221,10 @@ def _compute_symbol_tf(
                 all_results[result_idx]["passes_fdr"] = bool(reject[flat_idx])
 
         # ------------------------------------------------------------------
-        # Batch INSERT into feature_ic_scores (SQL defined at module level)
+        # Prepare rows for batch INSERT (written by main process)
         # ------------------------------------------------------------------
         pooled_rows = [r for r in all_results if r["is_pooled"]]
         regime_rows = [r for r in all_results if not r["is_pooled"]]
-
-        if pooled_rows:
-            with conn.cursor() as cur:
-                psycopg2.extras.execute_batch(cur, _POOLED_INSERT_SQL, pooled_rows)
-        if regime_rows:
-            with conn.cursor() as cur:
-                psycopg2.extras.execute_batch(cur, _REGIME_INSERT_SQL, regime_rows)
-        conn.commit()
 
         n_committed = len(all_results)
 
@@ -1252,13 +1248,17 @@ def _compute_symbol_tf(
         FEATURE_IC_PASSING_FDR_TOTAL.set(n_passing_fdr, {"symbol": symbol, "tf": tf})
         FEATURE_IC_PASSING_WALKFORWARD_TOTAL.set(n_passing_wf, {"symbol": symbol, "tf": tf})
 
-        return {
-            "n_committed": n_committed,
-            "n_skipped": n_skipped,
-            "n_passing_fdr": n_passing_fdr,
-            "n_passing_wf": n_passing_wf,
-            "all_results": all_results,
-        }
+        return (
+            pooled_rows,
+            regime_rows,
+            {
+                "n_committed": n_committed,
+                "n_skipped": n_skipped,
+                "n_passing_fdr": n_passing_fdr,
+                "n_passing_wf": n_passing_wf,
+                "all_results": all_results,
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1276,12 +1276,15 @@ def _compute_cross_sectional_tf(
     tracer: Any,
     run_ts: datetime,
     feature_status_map: dict[str, str] | None = None,
-) -> dict[str, Any]:
+) -> tuple[list[dict], dict[str, Any]]:
     """Compute cross-sectional IC for one (tf, regime_label) cell.
 
     Fetches feature_vectors JOIN market_regimes JOIN forward_returns for ALL 58 equity
     ETFs pooled into a single observation set. Computes Spearman IC across all symbols
     simultaneously — each (bar_ts, symbol) pair is an independent observation.
+
+    No DB writes — returns (all_results, stats_dict). Writes happen serially in main
+    process via _write_cross_sectional_results.
 
     The result is stored with symbol=_CROSS_SECTIONAL_SYMBOL ('POOLED'), is_pooled=True,
     regime=regime_label (actual label, not '_pooled' sentinel).
@@ -1528,13 +1531,8 @@ def _compute_cross_sectional_tf(
             all_results[result_idx]["bh_adjusted_p"] = float(p_corrected[flat_idx])
             all_results[result_idx]["passes_fdr"] = bool(reject[flat_idx])
 
-    if all_results:
-        with conn.cursor() as cur:
-            psycopg2.extras.execute_batch(cur, _CROSS_SECTIONAL_INSERT_SQL, all_results)
-        conn.commit()
-
     n_committed = len(all_results)
-    return {"n_committed": n_committed, "n_skipped": n_skipped, "all_results": all_results}
+    return all_results, {"n_committed": n_committed, "n_skipped": n_skipped}
 
 
 # ---------------------------------------------------------------------------
@@ -1580,6 +1578,50 @@ def _emit_health_gauges(symbol: str, tf: str, results: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Serial write function (called in main process only)
+# ---------------------------------------------------------------------------
+
+
+def _write_ic_results(
+    conn: Any,
+    pooled_rows: list[dict],
+    regime_rows: list[dict],
+) -> int:
+    """Write IC results to feature_ic_scores in main process.
+
+    Runs serially in main process — single write connection, no concurrent writers.
+    Returns n_committed.
+    """
+    n_committed = 0
+    if pooled_rows:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, _POOLED_INSERT_SQL, pooled_rows)
+        n_committed += len(pooled_rows)
+    if regime_rows:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, _REGIME_INSERT_SQL, regime_rows)
+        n_committed += len(regime_rows)
+    conn.commit()
+    return n_committed
+
+
+def _write_cross_sectional_results(
+    conn: Any,
+    all_results: list[dict],
+) -> int:
+    """Write cross-sectional IC results to feature_ic_scores in main process.
+
+    Runs serially in main process — single write connection, no concurrent writers.
+    Returns n_committed.
+    """
+    if all_results:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, _CROSS_SECTIONAL_INSERT_SQL, all_results)
+        conn.commit()
+    return len(all_results)
+
+
+# ---------------------------------------------------------------------------
 # ProcessPoolExecutor worker support
 # ---------------------------------------------------------------------------
 
@@ -1622,6 +1664,8 @@ def _run_ic_worker(args: tuple) -> dict:
 
     conn = None
     all_results = []
+    pooled_rows: list[dict] = []
+    regime_rows: list[dict] = []
     total_committed = 0
     total_skipped = 0
     error_msg = None
@@ -1633,7 +1677,7 @@ def _run_ic_worker(args: tuple) -> dict:
         for tf in tfs:
             apr = apr_cache[tf]
             try:
-                stats = _compute_symbol_tf(
+                tf_pooled, tf_regime, stats = _compute_symbol_tf(
                     conn=conn,
                     symbol=symbol,
                     tf=tf,
@@ -1645,6 +1689,8 @@ def _run_ic_worker(args: tuple) -> dict:
                     feature_status_map=feature_status_map,
                     mr_dict=mr_dict_by_tf.get(tf) if mr_dict_by_tf else None,
                 )
+                pooled_rows.extend(tf_pooled)
+                regime_rows.extend(tf_regime)
                 total_committed += stats.get("n_committed", 0)
                 total_skipped += stats.get("n_skipped", 0)
                 all_results.extend(stats.get("all_results", []))
@@ -1674,6 +1720,8 @@ def _run_ic_worker(args: tuple) -> dict:
 
     return {
         "symbol": symbol,
+        "pooled_rows": pooled_rows,
+        "regime_rows": regime_rows,
         "all_results": all_results,
         "n_committed": total_committed,
         "n_skipped": total_skipped,
@@ -1887,15 +1935,19 @@ def main() -> None:
                     )
 
             # ----------------------------------------------------------
-            # Build worker args then close main conn -- workers open their own
+            # Build worker args then open write_conn -- workers open their own
             # ----------------------------------------------------------
             existing_keys_frozen = frozenset(existing_keys)
             total_committed = 0
             total_skipped = 0
 
+            # Open write_conn for serial writes in main process
+            write_conn = _connect_db(settings)
+
             if args.cross_sectional_only:
                 _logger.info("ic_engine.skipping_per_symbol_pass", reason="--cross-sectional-only")
                 conn.close()
+                write_conn.close()
                 conn = None
             else:
                 worker_args = [
@@ -1935,7 +1987,13 @@ def main() -> None:
                             )
                             status = "failure"
                             exit_code = 1
-                        total_committed += result["n_committed"]
+                        # Serial write in main process
+                        n_written = _write_ic_results(
+                            write_conn,
+                            result["pooled_rows"],
+                            result["regime_rows"],
+                        )
+                        total_committed += n_written
                         total_skipped += result["n_skipped"]
                         if result["all_results"]:
                             for tf in tfs:
@@ -1945,7 +2003,7 @@ def main() -> None:
                         _logger.info(
                             "ic_engine.symbol_done",
                             symbol=symbol,
-                            n_committed=result["n_committed"],
+                            n_committed=n_written,
                             n_skipped=result["n_skipped"],
                         )
 
@@ -1970,7 +2028,7 @@ def main() -> None:
                     for tf in tfs:
                         apr = apr_cache[tf]
                         for regime_label in cs_regimes:
-                            cs_result = _compute_cross_sectional_tf(
+                            cs_rows, cs_stats = _compute_cross_sectional_tf(
                                 conn=cs_conn,
                                 tf=tf,
                                 regime_label=regime_label,
@@ -1981,13 +2039,15 @@ def main() -> None:
                                 run_ts=run_ts,
                                 feature_status_map=feature_status_map,
                             )
-                            total_committed += cs_result.get("n_committed", 0)
-                            total_skipped += cs_result.get("n_skipped", 0)
+                            # Serial write in main process (reusing write_conn)
+                            n_written = _write_cross_sectional_results(write_conn, cs_rows)
+                            total_committed += n_written
+                            total_skipped += cs_stats.get("n_skipped", 0)
                             _logger.info(
                                 "ic_engine.cross_sectional_done",
                                 tf=tf,
                                 regime=regime_label,
-                                n_committed=cs_result.get("n_committed", 0),
+                                n_committed=n_written,
                             )
                 finally:
                     cs_conn.close()
@@ -2094,6 +2154,12 @@ def main() -> None:
     finally:
         if conn is not None:
             conn.close()
+        # Close write_conn if it was opened
+        try:
+            if "write_conn" in locals() and write_conn is not None:
+                write_conn.close()
+        except (NameError, Exception):
+            pass
         JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": status})
         flush_and_shutdown_metrics()
 

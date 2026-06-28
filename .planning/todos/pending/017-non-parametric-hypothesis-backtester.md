@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** ml
+**Type:** new_feature
+**Priority:** P3
+**Effort:** 5-7 days
+**Benefit:** Enables non-parametric hypothesis testing; bootstrap-based confidence intervals
+**Risk:** low (new service, isolated)
+**Gate:** None
+---
+
 # 017 — Non-Parametric Hypothesis Backtester
 
 **Priority:** Medium — high research leverage; zero new infrastructure.

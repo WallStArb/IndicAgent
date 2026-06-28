@@ -1,4 +1,15 @@
 ---
+**Created:** 2026-06-28
+**Area:** operations
+**Type:** new_feature
+**Priority:** P3
+**Effort:** 1-2 days
+**Benefit:** Self-service BI analytics; ad-hoc queries without SQL
+**Risk:** low (new service)
+**Gate:** None
+---
+
+---
 created: 2026-04-23T15:53:50.381Z
 title: BI Analytics Layer — Apache Superset
 area: tooling

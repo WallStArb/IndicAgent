@@ -106,22 +106,37 @@ docs/ideas/<topic>.md (research) → docs/plans/2026-MM-DD-<topic>-plan.md (spec
 Scoped, actionable items. A todo means: we know the problem, we know the solution,
 and this will eventually become a phase. It is a commitment to act — just not yet.
 
-**Format:**
+**Format (Renaissance-grade frontmatter):**
 ```markdown
 ---
-created: <ISO timestamp>
-title: <Short descriptive title>
-area: <intelligence | infra | ml | ui | tooling | qualitative>
-files:
-  - docs/ideas/<topic>.md   # optional reference
+**Created:** YYYY-MM-DD
+**Area:** intelligence | infra | ml | data | operations | ui | tooling
+**Type:** bug_fix | improvement | optimization | new_feature | refactor | tech_debt
+**Priority:** P0 | P1 | P2 | P3 | P4
+**Effort:** ~4 hours | 1-2 days
+**Benefit:** What value this delivers (one-line)
+**Risk:** low | medium | high (with brief context)
+**Gate:** After XXX complete | None
 ---
+
+# NNN — <title>
 
 ## Problem
 <What's broken or missing — specific and observable>
 
-## Solution
-<What we'll build — specific enough to become a plan>
+## Solution / Fix / What / Why
+<Implementation details — specific enough to become a plan>
 ```
+
+**Frontmatter fields explained:**
+- **Created** — Age tracking. A 6-month-old P2 deserves scrutiny.
+- **Area** — Domain filtering. "Show me all intelligence todos."
+- **Type** — What kind of work. Determines code review focus.
+- **Priority** — P0 bugs before P3 features. P0/P1 = blockers; P2 = next milestone; P3/P4 = backlog.
+- **Effort** — Expected cost. Know before you start.
+- **Benefit** — Payoff. Why do this at all.
+- **Risk** — Danger level. Affects review rigor and rollback planning.
+- **Gate** — Dependencies. What must complete first.
 
 **Numbering:** Sequential (`018-topic.md`). Don't renumber when todos complete — move to `done/`.
 

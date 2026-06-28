@@ -1,4 +1,15 @@
 ---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** new_feature
+**Priority:** P3
+**Effort:** 5-7 days
+**Benefit:** Metadata governance for concepts; OOS gates; regime-conditional promotion tracking
+**Risk:** medium (new registry system)
+**Gate:** Controlled vocabulary complete
+---
+
+---
 created: 2026-06-28
 priority: low
 phase_target: Phase C+ (v3.0, after alpha_events pipeline stabilizes)

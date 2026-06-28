@@ -1,4 +1,15 @@
 ---
+**Created:** 2026-06-28
+**Area:** infra
+**Type:** new_feature
+**Priority:** P2
+**Effort:** 2-3 days
+**Benefit:** PostgreSQL ENUM prevents typos; schema-level validation of status/entry_type values
+**Risk:** medium (migration required)
+**Gate:** Phase 134 completion
+---
+
+---
 created: 2026-06-18
 priority: low
 phase_target: Phase C+ (v3.0 alpha_events era)

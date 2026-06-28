@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** intelligence
+**Type:** new_feature
+**Priority:** P2
+**Effort:** 2-3 days
+**Benefit:** Prevents silent ensemble dilution from decayed features; enables automatic feature exclusion
+**Risk:** medium (affects ensemble composition)
+**Gate:** Can run in parallel with primitives expansion
+---
+
 # 015 — Feature Vector Lifecycle (Demotion + Observability)
 
 **Status:** Pending

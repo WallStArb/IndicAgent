@@ -1,4 +1,15 @@
 ---
+**Created:** 2026-06-28
+**Area:** infra
+**Type:** refactor
+**Priority:** P3
+**Effort:** 2-3 hours
+**Benefit:** Reduces code duplication; establishes shared utility location
+**Risk:** low (pure refactor, no behavior change)
+**Gate:** None
+---
+
+---
 id: "006"
 title: "service_utils + ic_engine shared-utility cleanup (Phase 140 deferred)"
 priority: low

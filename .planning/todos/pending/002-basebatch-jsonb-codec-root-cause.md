@@ -1,3 +1,14 @@
+---
+**Created:** 2026-06-28
+**Area:** infra
+**Type:** bug_fix
+**Priority:** P1
+**Effort:** 2-4 hours
+**Benefit:** Fixes JSONB codec for all BaseBatch-derived services; eliminates manual json.dumps() workarounds
+**Risk:** medium (must audit all call sites for double-encode trap)
+**Gate:** None
+---
+
 # 002 — BaseBatch JSONB codec root cause: use database_manager.create_pool
 
 ## Problem
