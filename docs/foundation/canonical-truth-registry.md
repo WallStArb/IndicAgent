@@ -16,7 +16,7 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 | Raw provider bars | `{env}.market.bars.raw.{provider}` | None | Provider-specific `Provider` | Provider payloads are immutable protocol translations. |
 | Canonical 1m bars | `{env}.market.bars` | `market_data_ohlcv` | `BarWriter` | `ProviderMerger` selects the authoritative stream event; writer persists. |
 | Higher-timeframe bars | `{env}.market.bars.htf` | `market_data_ohlcv` | `BarWriter` | HTF bars are computed from canonical 1m bars. |
-| Roll events | `{env}.market.events.roll` | `contract_metadata` | `roll-batch` nightly timer (`production/scripts/roll_batch.py`) | Calendar-based roll detection; promotes front-month contract; broadcasts Kafka update events. |
+| Roll events | `{env}.market.events.roll` | `contract_metadata` | `roll-batch` nightly timer (`scripts/ops/roll/ops_roll_batch.py`) | Calendar-based roll detection; promotes front-month contract; broadcasts Kafka update events. |
 | Full I1-I7 feature record | `{env}.intelligence.journal` | `intelligence_features` | `FeatureWriter` | Canonical per-bar feature persistence unit. |
 | Signal detection (SLA) | `{env}.intelligence.i7.signals` | `signal_events` | `SignalWriter` | Detection layer: one row per I7 plugin fire. Fields: `raw_confidence`, `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. |
 | Trade hypotheses (SLA) | `{env}.intelligence.i7.signals` | `trade_frames` | `SignalWriter` | Hypothesis layer: one row per `entry_type` per signal. Fields: `entry_type`, `entry_price`, `stop_price`, `target_price`, `counterfactual_pnl_r`, `was_selected`. ML trains on this. |

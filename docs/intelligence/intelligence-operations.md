@@ -280,7 +280,7 @@ journalctl -u indicagent-intelligence-pipeline --since "5 minutes ago"
 **Common causes:**
 - Database connection refused (check TimescaleDB is running)
 - Kafka connection refused (check Redpanda is running)
-- Contract metadata missing (run `production/scripts/ensure_contracts.py`)
+- Contract metadata missing (check contract_metadata table and verify get_active_contracts() returns data)
 
 ### Issue: High Consumer Lag
 

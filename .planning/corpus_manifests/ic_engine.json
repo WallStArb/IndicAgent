@@ -1,15 +1,12 @@
 {
   "step_name": "ic_engine",
   "step_version": "1.0",
-  "timestamp": "2026-06-28T19:12:25.673278+00:00",
+  "timestamp": "2026-06-28T22:39:03.072962+00:00",
   "status": "failed",
   "inputs": {
     "training_window_end": "2026-06-24 05:15:00+00:00",
     "tfs": [
-      "5m",
-      "15m",
-      "1h",
-      "1d"
+      "1h"
     ],
     "symbols": [
       "AGG",
@@ -71,11 +68,11 @@
       "XOP",
       "XRT"
     ],
-    "cross_sectional_only": false
+    "cross_sectional_only": true
   },
   "outputs": {},
   "errors": [
-    "'NoneType' object has no attribute 'cursor'"
+    "connection already closed"
   ],
   "warnings": [
     "No outputs recorded"

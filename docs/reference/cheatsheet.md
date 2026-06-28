@@ -84,10 +84,10 @@ cd production && docker compose up -d prometheus grafana
 # Script pauses at stop/start boundaries and prints the sudo commands for you to run.
 ```bash
 # Step 1 — preview (no changes made)
-.venv/bin/python production/scripts/pipeline_reset.py --dry-run
+.venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --dry-run
 
 # Step 2 — full reset (requires TWS connected at 192.168.1.157:7497; expect 30–60 min)
-.venv/bin/python production/scripts/pipeline_reset.py
+.venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py
 # → when prompted to STOP, run:
 sudo systemctl stop indicagent-intelligence-pipeline indicagent-signal-writer indicagent-signal-tracker-compute \
   indicagent-feature-writer indicagent-ai-narrative
@@ -98,13 +98,13 @@ sudo systemctl start indicagent-intelligence-pipeline indicagent-feature-writer 
 
 # Fast reset — skip IBKR fetch, re-replay from existing market_data_ohlcv
 # (use after plugin/signal logic changes, no IBKR connection needed)
-.venv/bin/python production/scripts/pipeline_reset.py --keep-ohlcv
+.venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --keep-ohlcv
 
 # Limit to specific symbols
-.venv/bin/python production/scripts/pipeline_reset.py --keep-ohlcv --symbols ESH6,NQH6
+.venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --keep-ohlcv --symbols ESH6,NQH6
 
 # Also wipe LLM audit log (llm_calls, llm_model_scores)
-.venv/bin/python production/scripts/pipeline_reset.py --clear-llm
+.venv/bin/python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --clear-llm
 ```
 
 ## Development & Testing

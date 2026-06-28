@@ -1,6 +1,6 @@
 -- Migration 097: add expires_at column to signal_ledger + expose it on signal_ledger_full
 -- expires_at = timestamp + ttl_bars * tf_seconds (wall-clock TTL unification, Fix 3)
--- DDL only -- backfill is in production/scripts/backfill_expires_at.py (separate DML).
+-- DDL only -- backfill script not found (possibly deprecated/integrated elsewhere).
 -- Run before deploying signal_writer_agent expires_at write (Plan 107.5-05).
 
 BEGIN;

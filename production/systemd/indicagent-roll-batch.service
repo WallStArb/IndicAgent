@@ -9,7 +9,7 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python production/scripts/roll_batch.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python scripts/ops/roll/ops_roll_batch.py
 TimeoutStartSec=300
 
 [Install]

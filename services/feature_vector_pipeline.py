@@ -116,7 +116,7 @@ class FeatureVectorPipeline(BaseDaemon):
             raise RuntimeError(
                 "feature_vector_pipeline_agent: no active instruments at startup. "
                 "DB unreachable or instruments table empty. Check DB connectivity "
-                "and ensure production/scripts/migrate_instruments.py has been run."
+                "and ensure TODO: migrate_instruments.py (not found - may be deprecated) has been run."
             )
         self._symbols = [c.symbol for c in self._contracts]
         self._timeframes = list(_STANDARD_TFS)

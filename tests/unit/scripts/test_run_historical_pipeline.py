@@ -16,7 +16,9 @@ from src.intelligence.register_plugins import register_all_plugins
 
 def test_aggregate_bars_from_1m_5m_groups_correctly():
     """Five 1m bars in the same 5m window produce one aggregated bar."""
-    from production.scripts.run_historical_pipeline import aggregate_bars_from_1m
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        aggregate_bars_from_1m,
+    )
 
     base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
     bars = [
@@ -44,7 +46,9 @@ def test_aggregate_bars_from_1m_5m_groups_correctly():
 
 def test_aggregate_bars_from_1m_splits_across_windows():
     """Bars spanning two 5m windows produce two aggregated bars."""
-    from production.scripts.run_historical_pipeline import aggregate_bars_from_1m
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        aggregate_bars_from_1m,
+    )
 
     base = datetime(2026, 3, 7, 9, 33, 0, tzinfo=UTC)
     bars = [
@@ -81,7 +85,9 @@ def test_aggregate_bars_from_1m_splits_across_windows():
 
 def test_aggregate_bars_from_1m_daily_floors_to_midnight():
     """1d aggregation floors timestamps to midnight."""
-    from production.scripts.run_historical_pipeline import aggregate_bars_from_1m
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        aggregate_bars_from_1m,
+    )
 
     bars = [
         {
@@ -109,7 +115,9 @@ def test_aggregate_bars_from_1m_daily_floors_to_midnight():
 
 def test_aggregate_bars_from_1m_none_volume_treated_as_zero():
     """None volume values (FX has no volume) are treated as 0."""
-    from production.scripts.run_historical_pipeline import aggregate_bars_from_1m
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        aggregate_bars_from_1m,
+    )
 
     base = datetime(2026, 3, 7, 9, 30, tzinfo=UTC)
     bars = [
@@ -140,7 +148,9 @@ def test_aggregate_bars_from_1m_4h_floors_to_4h_boundaries():
     Bug: the old minute-only floor left ts.hour unchanged, making each hour
     its own bucket and producing 1h bars stored as 4h.
     """
-    from production.scripts.run_historical_pipeline import aggregate_bars_from_1m
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        aggregate_bars_from_1m,
+    )
 
     def _bar(h: int, m: int, close: float) -> dict:
         return {
@@ -176,7 +186,9 @@ def test_aggregate_bars_from_1m_4h_floors_to_4h_boundaries():
 
 def test_aggregate_bars_from_1m_1h_floors_correctly():
     """1h aggregation: bars at 09:00-09:59 and 10:00-10:59 form two buckets."""
-    from production.scripts.run_historical_pipeline import aggregate_bars_from_1m
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        aggregate_bars_from_1m,
+    )
 
     bars = [
         {
@@ -235,7 +247,9 @@ def _make_bar_history(n: int = 120) -> deque:
 
 def test_build_ledger_entries_sets_market_entry_price_to_bar_close():
     """market_entry_price must equal the close of the last bar in bar_history (signal bar close)."""
-    from production.scripts.run_historical_pipeline import _build_ledger_entries
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _build_ledger_entries,
+    )
     from src.intelligence.trading.aggregator import AggregatedResult
 
     bar_history = _make_bar_history(n=120)
@@ -276,7 +290,9 @@ def test_build_ledger_entries_sets_market_entry_price_to_bar_close():
 
 def test_build_ledger_entries_ecl_fields_non_null_when_annotated():
     """LedgerEntry ECL fields are populated when the signal dict has been annotated."""
-    from production.scripts.run_historical_pipeline import _build_ledger_entries
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _build_ledger_entries,
+    )
     from src.intelligence.trading.aggregator import AggregatedResult
 
     bar_history = _make_bar_history(n=120)
@@ -330,7 +346,7 @@ def test_build_ledger_entries_ecl_fields_non_null_when_annotated():
 
 def test_run_i7_and_persist_populates_cis_fields():
     """CIS fields from AggregatedResult flow through _build_ledger_entries into LedgerEntry."""
-    from production.scripts.run_historical_pipeline import (
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
         run_i7_and_persist,
     )
     from src.intelligence.trading.aggregator import AggregatedResult
@@ -405,7 +421,9 @@ def test_run_i7_and_persist_populates_cis_fields():
 
 def test_run_i7_and_persist_passes_features_kwarg_to_aggregate():
     """run_i7_and_persist must call aggregate(..., features=features_dict)."""
-    from production.scripts.run_historical_pipeline import run_i7_and_persist
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        run_i7_and_persist,
+    )
     from src.intelligence.trading.aggregator import AggregatedResult
 
     fired_signal = {
@@ -454,7 +472,9 @@ def test_run_i7_and_persist_passes_features_kwarg_to_aggregate():
 
 def test_insert_signals_sync_writes_cis_fields():
     """_insert_signals_sync (3-table schema) inserts cis_score/weights_version into signal_events."""
-    from production.scripts.run_historical_pipeline import _insert_signals_sync
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _insert_signals_sync,
+    )
     from src.persistence.repository.signal_events_repository import LedgerEntry
 
     ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
@@ -517,7 +537,9 @@ def test_insert_signals_sync_writes_cis_fields():
 
 def test_run_i7_and_persist_cis_null_when_no_raw_signals():
     """When no I7 plugins fire, run_i7_and_persist returns 0 (unchanged behaviour)."""
-    from production.scripts.run_historical_pipeline import run_i7_and_persist
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        run_i7_and_persist,
+    )
 
     features = {"trend_regime": 0.0}
     ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
@@ -545,7 +567,9 @@ def test_run_i7_and_persist_cis_null_when_no_raw_signals():
 
 def test_run_i1_plugins_isolates_state_between_symbols():
     """Plugin state accumulated for sym1 must not bleed into sym2's plugin_states dict."""
-    from production.scripts.run_historical_pipeline import run_i1_plugins
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        run_i1_plugins,
+    )
 
     # A mock plugin that accumulates a counter in _state
     plugin = MagicMock()
@@ -588,7 +612,9 @@ def test_run_i1_plugins_state_written_back_after_compute():
     reads state ONLY from result["_state"] -- never from plugin._state. The replay's
     write-back must use the same mechanism so the next bar takes the incremental branch.
     """
-    from production.scripts.run_historical_pipeline import run_i1_plugins
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        run_i1_plugins,
+    )
 
     plugin = MagicMock()
     plugin.supports_incremental = True
@@ -620,7 +646,10 @@ def test_run_analysis_pipeline_includes_i2_tier():
     """run_analysis_pipeline must call get_pattern() for I2 plugin names."""
     import pandas as pd
 
-    from production.scripts.run_historical_pipeline import I2_PLUGINS, run_analysis_pipeline
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        I2_PLUGINS,
+        run_analysis_pipeline,
+    )
 
     called_names: list[str] = []
 
@@ -652,7 +681,7 @@ def test_run_analysis_pipeline_includes_i2_tier():
 
 def test_i2_plugins_list_matches_tier_i2():
     """I2_PLUGINS in backfill must contain exactly the same names as TIER_I2 in register_plugins."""
-    from production.scripts.run_historical_pipeline import I2_PLUGINS
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import I2_PLUGINS
     from src.intelligence.register_plugins import TIER_I2
 
     assert set(I2_PLUGINS) == set(TIER_I2), (
@@ -670,7 +699,9 @@ def test_i2_plugins_list_matches_tier_i2():
 def test_replay_worker_calls_replay_symbol_and_returns_tuple():
     """_replay_worker opens its own connection, loads calibration, calls replay_symbol,
     and returns (symbol, total_signals, counts_by_tf)."""
-    from production.scripts.run_historical_pipeline import _replay_worker
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _replay_worker,
+    )
 
     fake_counts = {"1m": 3, "5m": 1}
     mock_conn = MagicMock()
@@ -722,7 +753,9 @@ def test_replay_worker_calls_replay_symbol_and_returns_tuple():
 
 def test_replay_worker_closes_connection_on_failure():
     """Connection must be closed even when replay_symbol raises."""
-    from production.scripts.run_historical_pipeline import _replay_worker
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _replay_worker,
+    )
 
     mock_conn = MagicMock()
 
@@ -783,7 +816,9 @@ def _ts_bf(hour, minute):
 
 class TestRunI1Plugins:
     def test_returns_empty_when_insufficient_bars(self):
-        from production.scripts.run_historical_pipeline import run_i1_plugins
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            run_i1_plugins,
+        )
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -792,7 +827,9 @@ class TestRunI1Plugins:
         assert run_i1_plugins(history, "ESH6", "5m", {}) == {}
 
     def test_returns_features_dict_when_enough_bars(self):
-        from production.scripts.run_historical_pipeline import run_i1_plugins
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            run_i1_plugins,
+        )
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -808,7 +845,9 @@ class TestRunI1Plugins:
         assert isinstance(run_i1_plugins(history, "ESH6", "5m", {}), dict)
 
     def test_plugin_exception_does_not_propagate(self):
-        from production.scripts.run_historical_pipeline import run_i1_plugins
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            run_i1_plugins,
+        )
         from src.core.service_utils import min_bars_for_tf
 
         MIN_BARS = min_bars_for_tf("5m")
@@ -820,7 +859,9 @@ class TestRunI1Plugins:
 
 class TestRunAnalysisPipeline:
     def test_returns_2_tuple(self):
-        from production.scripts.run_historical_pipeline import run_analysis_pipeline
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            run_analysis_pipeline,
+        )
 
         register_all_plugins()
         df = pd.DataFrame([_backfill_bar(_ts_bf(9, i)) for i in range(60)])
@@ -834,7 +875,9 @@ class TestRunAnalysisPipeline:
         assert "i2" in tiered
 
     def test_populates_intelligence_cache(self):
-        from production.scripts.run_historical_pipeline import run_analysis_pipeline
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            run_analysis_pipeline,
+        )
 
         register_all_plugins()
         df = pd.DataFrame([_backfill_bar(_ts_bf(9, i)) for i in range(60)])
@@ -845,7 +888,9 @@ class TestRunAnalysisPipeline:
         assert "ESH6" in cache and "5m" in cache["ESH6"]
 
     def test_plugin_exception_does_not_propagate(self):
-        from production.scripts.run_historical_pipeline import run_analysis_pipeline
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            run_analysis_pipeline,
+        )
 
         result = run_analysis_pipeline(
             {"main": pd.DataFrame(), "features": {}}, {}, "ESH6", "5m", {}
@@ -855,7 +900,9 @@ class TestRunAnalysisPipeline:
 
     def test_i2_tier_does_not_contain_macd_fields(self):
         """I2 tier output must not contain MACD fields (they are in I3 tier)."""
-        from production.scripts.run_historical_pipeline import run_analysis_pipeline
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            run_analysis_pipeline,
+        )
 
         register_all_plugins()
         df = pd.DataFrame([_backfill_bar(_ts_bf(9, i)) for i in range(60)])
@@ -915,7 +962,9 @@ class TestBuildLedgerEntries:
         return deque([bar], maxlen=500)
 
     def test_returns_one_entry_per_ranked_signal(self):
-        from production.scripts.run_historical_pipeline import _build_ledger_entries
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _build_ledger_entries,
+        )
 
         assert (
             len(
@@ -932,7 +981,9 @@ class TestBuildLedgerEntries:
         )
 
     def test_selected_signal_has_was_selected_true(self):
-        from production.scripts.run_historical_pipeline import _build_ledger_entries
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _build_ledger_entries,
+        )
 
         entries = _build_ledger_entries(
             self._make_result(), "ESH6", "5m", _ts_bf(9, 30), {}, bar_history=self._make_bar()
@@ -940,7 +991,9 @@ class TestBuildLedgerEntries:
         assert len([e for e in entries if e.was_selected]) == 1
 
     def test_empty_result_returns_empty_list(self):
-        from production.scripts.run_historical_pipeline import _build_ledger_entries
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _build_ledger_entries,
+        )
         from src.intelligence.trading.aggregator import AggregatedResult
 
         result = AggregatedResult(
@@ -956,7 +1009,9 @@ class TestBuildLedgerEntries:
 
 class TestFetchAndStoreBars:
     def test_fetch_1m_bars_queries_correct_table(self):
-        from production.scripts.run_historical_pipeline import fetch_bars
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            fetch_bars,
+        )
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -976,7 +1031,9 @@ class TestFetchAndStoreBars:
         assert len(rows) == 1 and rows[0]["symbol"] == "ESH6" and "timestamp" in rows[0]
 
     def test_store_bars_calls_execute_batch(self):
-        from production.scripts.run_historical_pipeline import store_bars
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            store_bars,
+        )
 
         mock_conn = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = MagicMock()
@@ -997,12 +1054,16 @@ class TestFetchAndStoreBars:
 
 class TestBuildIntelligenceEvent:
     def test_returns_none_on_exception(self):
-        from production.scripts.run_historical_pipeline import _build_intelligence_event
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _build_intelligence_event,
+        )
 
         assert _build_intelligence_event({}, {}, {}, "ESH6", "1m", _ts_bf(9, 30)) is None
 
     def test_returns_intelligence_event_with_source_backfill(self):
-        from production.scripts.run_historical_pipeline import _build_intelligence_event
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _build_intelligence_event,
+        )
         from src.intelligence.schemas import IntelligenceEvent
 
         register_all_plugins()
@@ -1025,7 +1086,9 @@ class TestBuildIntelligenceEvent:
         assert result.i2 is not None
 
     def test_i3_keys_filtered_before_construction(self):
-        from production.scripts.run_historical_pipeline import _build_intelligence_event
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _build_intelligence_event,
+        )
 
         tiered = {
             "i3": {"trend_direction": 1.0, "swing_high": 5110.0},
@@ -1045,7 +1108,9 @@ class TestBuildIntelligenceEvent:
         assert result is not None or result is None  # no exception is the assertion
 
     def test_returns_none_on_pydantic_validation_error(self):
-        from production.scripts.run_historical_pipeline import _build_intelligence_event
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _build_intelligence_event,
+        )
 
         assert (
             _build_intelligence_event(
@@ -1097,17 +1162,23 @@ class TestEventToSyncParams:
 
     def test_returns_14_tuple(self):
 
-        from production.scripts.run_historical_pipeline import _event_to_sync_params
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _event_to_sync_params,
+        )
 
         assert len(_event_to_sync_params(self._make_event())) == 14
 
     def test_first_element_is_datetime(self):
-        from production.scripts.run_historical_pipeline import _event_to_sync_params
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _event_to_sync_params,
+        )
 
         assert isinstance(_event_to_sync_params(self._make_event())[0], datetime)
 
     def test_jsonb_columns_are_strings(self):
-        from production.scripts.run_historical_pipeline import _event_to_sync_params
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _event_to_sync_params,
+        )
 
         params = _event_to_sync_params(self._make_event())
         for i, col in enumerate(params[6:], start=6):
@@ -1119,7 +1190,7 @@ class TestInsertFeaturesSync:
         return _make_mock_conn()
 
     def test_calls_execute_values_with_do_nothing_sql_by_default(self):
-        from production.scripts.run_historical_pipeline import (
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
             _feature_insert_sql,
             _insert_features_sync,
         )
@@ -1132,7 +1203,7 @@ class TestInsertFeaturesSync:
         assert "DO NOTHING" in mock_ev.call_args[0][1]
 
     def test_calls_execute_values_with_do_update_sql_when_overwrite(self):
-        from production.scripts.run_historical_pipeline import (
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
             _feature_insert_sql,
             _insert_features_sync,
         )
@@ -1145,7 +1216,9 @@ class TestInsertFeaturesSync:
         assert "DO UPDATE SET" in mock_ev.call_args[0][1]
 
     def test_commits_connection(self):
-        from production.scripts.run_historical_pipeline import _insert_features_sync
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _insert_features_sync,
+        )
 
         mock_conn, _ = self._mock_conn()
         with patch("psycopg2.extras.execute_values"):
@@ -1153,7 +1226,9 @@ class TestInsertFeaturesSync:
         mock_conn.commit.assert_called_once()
 
     def test_no_op_on_empty_rows(self):
-        from production.scripts.run_historical_pipeline import _insert_features_sync
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _insert_features_sync,
+        )
 
         mock_conn, _ = self._mock_conn()
         _insert_features_sync(mock_conn, [])
@@ -1200,7 +1275,9 @@ class TestBuildLedgerEntriesFeatureTs:
         return deque([bar], maxlen=500)
 
     def test_feature_ts_passes_through(self):
-        from production.scripts.run_historical_pipeline import _build_ledger_entries
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _build_ledger_entries,
+        )
 
         feature_ts = datetime(2026, 2, 1, 9, 30, 0, tzinfo=UTC)
         entries = _build_ledger_entries(
@@ -1220,7 +1297,9 @@ class TestBuildLedgerEntriesFeatureTs:
         )
 
     def test_feature_ts_defaults_to_none(self):
-        from production.scripts.run_historical_pipeline import _build_ledger_entries
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _build_ledger_entries,
+        )
 
         entries = _build_ledger_entries(
             self._make_result(), "ESH6", "1m", _ts_bf(9, 30), {}, bar_history=self._make_bar()
@@ -1231,7 +1310,9 @@ class TestBuildLedgerEntriesFeatureTs:
 class TestCISColumnsInSQL:
     def test_insert_sync_sql_has_cis_columns(self):
         """Phase 130: signal_events SQL contains cis_score + weights_version."""
-        from production.scripts.run_historical_pipeline import _INSERT_SIGNAL_EVENTS_SYNC_SQL
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _INSERT_SIGNAL_EVENTS_SYNC_SQL,
+        )
 
         assert all(
             col in _INSERT_SIGNAL_EVENTS_SYNC_SQL for col in ("cis_score", "weights_version")
@@ -1245,7 +1326,7 @@ class TestCISColumnsInSQL:
         """Phase 130: signal_events + trade_frames SQL column/placeholder counts are balanced."""
         import re
 
-        from production.scripts.run_historical_pipeline import (
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
             _INSERT_SIGNAL_EVENTS_SYNC_SQL,
             _INSERT_SIGNAL_EVENTS_SYNC_TEMPLATE,
             _INSERT_TRADE_FRAMES_SYNC_SQL,
@@ -1279,7 +1360,9 @@ class TestCISColumnsInSQL:
 
     def test_insert_signals_sync_params_include_cis_nulls(self):
         """Phase 130: _insert_signals_sync produces signal_events + trade_frames rows."""
-        from production.scripts.run_historical_pipeline import _insert_signals_sync
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _insert_signals_sync,
+        )
         from src.persistence.repository.signal_events_repository import LedgerEntry
 
         entry = LedgerEntry(
@@ -1326,7 +1409,9 @@ class TestDetectGaps:
         return mock_conn
 
     def test_cme_futures_over_weekend_no_gaps(self):
-        from production.scripts.run_historical_pipeline import detect_gaps
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            detect_gaps,
+        )
 
         gaps = detect_gaps(
             self._mock_conn(),
@@ -1340,7 +1425,9 @@ class TestDetectGaps:
         assert gaps == []
 
     def test_nyse_over_weekend_no_gaps(self):
-        from production.scripts.run_historical_pipeline import detect_gaps
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            detect_gaps,
+        )
 
         with patch(
             "production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]
@@ -1357,7 +1444,9 @@ class TestDetectGaps:
         assert gaps == []
 
     def test_nyse_on_holiday_no_gaps(self):
-        from production.scripts.run_historical_pipeline import detect_gaps
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            detect_gaps,
+        )
 
         with patch(
             "production.scripts.run_historical_pipeline.generate_session_slots", return_value=[]
@@ -1374,7 +1463,9 @@ class TestDetectGaps:
         assert gaps == []
 
     def test_genuine_intraday_gap_detected(self):
-        from production.scripts.run_historical_pipeline import detect_gaps
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            detect_gaps,
+        )
 
         slots = [datetime(2026, 1, 2, h, 0, tzinfo=UTC) for h in range(15, 19)]
         mock_conn = self._mock_conn(
@@ -1406,7 +1497,9 @@ class TestDetectGaps:
 
 def test_load_calibration_curves_empty_table():
     """Returns empty dict when calibration_curves table has no rows."""
-    from production.scripts.run_historical_pipeline import _load_calibration_curves
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _load_calibration_curves,
+    )
 
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value.fetchall.return_value = []
@@ -1419,7 +1512,9 @@ def test_load_calibration_curves_builds_two_tuple_key():
 
     Symbol-specific row beats global '*' row for the same (plugin, tf).
     """
-    from production.scripts.run_historical_pipeline import _load_calibration_curves
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _load_calibration_curves,
+    )
 
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value.fetchall.return_value = [
@@ -1446,7 +1541,9 @@ def test_load_calibration_curves_builds_two_tuple_key():
 
 def test_load_calibration_curves_skips_rows_missing_data():
     """Rows with missing breakpoints or values are silently skipped."""
-    from production.scripts.run_historical_pipeline import _load_calibration_curves
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _load_calibration_curves,
+    )
 
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value.fetchall.return_value = [
@@ -1459,7 +1556,9 @@ def test_load_calibration_curves_skips_rows_missing_data():
 
 def test_load_perf_weights_empty_table():
     """Returns empty dict when setup_performance has no eligible rows."""
-    from production.scripts.run_historical_pipeline import _load_perf_weights
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _load_perf_weights,
+    )
 
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value.fetchall.return_value = []
@@ -1473,7 +1572,9 @@ def test_load_perf_weights_returns_multipliers():
     _compute_perf_multipliers sorts by sharpe_ratio ascending. Best Sharpe
     gets lowest multiplier (sorts first under ascending adjusted_rank).
     """
-    from production.scripts.run_historical_pipeline import _load_perf_weights
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _load_perf_weights,
+    )
 
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value.fetchall.return_value = [
@@ -1505,7 +1606,9 @@ def test_run_i7_and_persist_passes_calibration_to_aggregate():
     from datetime import UTC, datetime
     from unittest.mock import MagicMock, patch
 
-    from production.scripts.run_historical_pipeline import run_i7_and_persist
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        run_i7_and_persist,
+    )
 
     base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
     bars = [
@@ -1577,7 +1680,7 @@ def test_replay_symbol_threads_calibration_to_run_i7():
     """calibration_curves and perf_weights are forwarded to run_i7_and_persist."""
     from unittest.mock import MagicMock, patch
 
-    from production.scripts.run_historical_pipeline import replay_symbol
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import replay_symbol
 
     captured = {}
 
@@ -1611,7 +1714,9 @@ def test_assert_backfill_integrity_uses_any_not_loop() -> None:
     """_assert_backfill_integrity must use ANY($1) not a per-symbol loop."""
     import inspect
 
-    from production.scripts.run_historical_pipeline import _assert_backfill_integrity
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _assert_backfill_integrity,
+    )
 
     src = inspect.getsource(_assert_backfill_integrity)
     assert (
@@ -1624,7 +1729,9 @@ def test_assert_backfill_integrity_passes_clean_data():
     """No violations → prints PASS and returns normally."""
     from unittest.mock import MagicMock
 
-    from production.scripts.run_historical_pipeline import _assert_backfill_integrity
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _assert_backfill_integrity,
+    )
 
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
@@ -1641,7 +1748,9 @@ def test_assert_backfill_integrity_fails_on_multiple_winners(capsys):
 
     import pytest
 
-    from production.scripts.run_historical_pipeline import _assert_backfill_integrity
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _assert_backfill_integrity,
+    )
 
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
@@ -1663,7 +1772,9 @@ def test_assert_backfill_integrity_fails_on_duplicate_signal_ids(capsys):
 
     import pytest
 
-    from production.scripts.run_historical_pipeline import _assert_backfill_integrity
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _assert_backfill_integrity,
+    )
 
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
@@ -1788,7 +1899,9 @@ def test_asset_class_injected_via_base_features() -> None:
     # At minimum, verify the module-level logic is structurally correct by inspecting
     # that _base_features is built once from _symbol_asset_class.
 
-    source = Path("production/scripts/run_historical_pipeline.py").read_text()
+    source = Path(
+        "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py"
+    ).read_text()
     # Structural assertion: "_base_features" must appear exactly once as an assignment
     # before the bar loop, and "all_features.update(_base_features)" in both branches.
     assert "_base_features" in source, "_base_features dict must exist after the fix"

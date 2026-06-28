@@ -8,6 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
+from scripts.debug.replay import debug_lifecycle_replay as lifecycle_replay
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -65,7 +66,6 @@ BASE_TS = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
 
 
 def _get_replay():
-    from production.scripts import lifecycle_replay
 
     return lifecycle_replay
 
@@ -209,13 +209,13 @@ class TestBarsInTradeConstraint:
 class TestTrackComparisonInvariants:
     def test_zone_target_full_market_never_activated_is_impossible(self):
         """Zone target_full + market never_activated cannot coexist. Market always fills."""
-        from production.scripts.lifecycle_replay import validate_track_pair
+        from scripts.debug.replay.debug_lifecycle_replay import validate_track_pair
 
         with pytest.raises(ValueError):
             validate_track_pair(zone_outcome="target_full", market_outcome="never_activated")
 
     def test_zone_never_activated_market_target_full_is_valid(self):
-        from production.scripts.lifecycle_replay import validate_track_pair
+        from scripts.debug.replay.debug_lifecycle_replay import validate_track_pair
 
         # Should not raise
         validate_track_pair(zone_outcome="never_activated", market_outcome="target_full")
@@ -239,8 +239,6 @@ class TestTTLConstants:
     def test_replay_imports_from_service_utils(self):
         """Replay must not define its own TF_TTL_BARS — must import from service_utils."""
         import inspect
-
-        from production.scripts import lifecycle_replay
 
         source = inspect.getsource(lifecycle_replay)
         assert "TF_TTL_BARS: dict" not in source  # no local definition

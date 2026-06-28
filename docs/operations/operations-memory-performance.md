@@ -14,13 +14,13 @@ agent memory subsystem. Required before the memory subsystem exits shadow mode.
 
 ```bash
 # Fake embed (HNSW+rerank latency only — the DB-bound, deterministic component)
-INDICAGENT_ENV=development python production/scripts/memory_recall_benchmark.py --n 1000
+INDICAGENT_ENV=development python scripts/debug/analysis/debug_memory_recall_benchmark.py --n 1000
 
 # Live embed (full end-to-end including Ollama HTTP call — requires Ollama running)
-INDICAGENT_ENV=development python production/scripts/memory_recall_benchmark.py --n 1000 --live-embed
+INDICAGENT_ENV=development python scripts/debug/analysis/debug_memory_recall_benchmark.py --n 1000 --live-embed
 
 # 5000 calls for tighter percentile estimates
-INDICAGENT_ENV=development python production/scripts/memory_recall_benchmark.py --n 5000
+INDICAGENT_ENV=development python scripts/debug/analysis/debug_memory_recall_benchmark.py --n 5000
 ```
 
 The benchmark seeds 100 synthetic rows into `memory_episodes_labeled` for a dedicated
@@ -120,7 +120,7 @@ grows significantly beyond the seeded 100 rows — benchmark with production-sca
 
 ## Related
 
-- `production/scripts/memory_recall_benchmark.py` - benchmark script
+- `scripts/debug/analysis/debug_memory_recall_benchmark.py` - benchmark script
 - `src/core/memory/client.py` - MemoryClient.recall() implementation
 - `src/core/memory/backends/episodic.py` - PgvectorEpisodicBackend (HNSW + rerank)
 - `config/memory.yaml` - all tunable parameters

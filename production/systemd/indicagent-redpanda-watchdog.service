@@ -5,5 +5,5 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/home/bg/dev/indicagent/production/scripts/redpanda_watchdog.sh
+ExecStart=/home/bg/dev/indicagent/scripts/infrastructure/kafka/infrastructure_redpanda_watchdog.sh
 TimeoutStartSec=120

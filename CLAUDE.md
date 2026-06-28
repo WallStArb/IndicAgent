@@ -41,7 +41,7 @@ Version: 5.48.0
 
 - **DB queries:** `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "..."`. Plain `psql -U postgres` fails.
 - **Instrument asset class filter:** `instruments.contract_details->>'asset_class'` — values: `'equity'` (ETFs), `'futures'`, `'fx'`. No top-level column. Use `is_active = true AND contract_details->>'asset_class' = 'equity'` to target ETFs only.
-- **Historical backfill:** `run_historical_pipeline.py --client-id 40` (provider uses 35; default 56 exceeds `_MAX_CLIENT_ID=50`).
+- **Historical backfill:** `scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --client-id 40` (provider uses 35; default 56 exceeds `_MAX_CLIENT_ID=50`).
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`

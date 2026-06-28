@@ -11,7 +11,7 @@ architectural invariants that must never regress:
 
 import pathlib
 
-_SCRIPT = pathlib.Path("production/scripts/feature_replay.py")
+_SCRIPT = pathlib.Path("scripts/debug/replay/debug_feature_replay.py")
 _SRC = _SCRIPT.read_text() if _SCRIPT.exists() else ""
 
 
@@ -60,7 +60,7 @@ def test_on_conflict_identity_columns_not_in_set() -> None:
 
 def test_functional_column_names_in_select() -> None:
     """_SELECT_FEATURES_SQL must use functional DB column names (migrations 126+127)."""
-    from production.scripts.feature_replay import _SELECT_FEATURES_SQL
+    from scripts.debug.replay.debug_feature_replay import _SELECT_FEATURES_SQL
 
     required_columns = (
         "technical_indicators",
@@ -77,7 +77,7 @@ def test_functional_column_names_in_select() -> None:
 
 def test_tier_code_db_columns_not_in_select() -> None:
     """Tier-code DB column names must not appear as DB column refs (migrations 126+127)."""
-    from production.scripts.feature_replay import _SELECT_FEATURES_SQL
+    from scripts.debug.replay.debug_feature_replay import _SELECT_FEATURES_SQL
 
     # These are tier codes, not functional DB column names — must not appear in the SQL
     for tier_col in ("i1", "i2", "i3", "i4", "i5"):

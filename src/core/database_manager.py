@@ -150,7 +150,7 @@ class DatabaseManager:
         """Idempotently install the pg_notify trigger on the instruments table.
 
         Uses CREATE OR REPLACE - safe to call on every startup. Eliminates the
-        need to manually apply production/scripts/add_instruments_trigger.sql
+        need to manually apply scripts/infrastructure/setup/infrastructure_add_instruments_trigger.sql
         on fresh deployments or after DB restores.
         """
         sql = """

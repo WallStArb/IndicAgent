@@ -69,7 +69,7 @@ Migrations live in `db/migrations/` and are numbered sequentially.
 ### Apply all migrations (first-time setup)
 
 ```bash
-bash production/scripts/db_setup.sh
+bash scripts/infrastructure/setup/infrastructure_db_setup.sh
 ```
 
 ### Apply a single migration
@@ -101,17 +101,17 @@ Wipes all intelligence-derived tables and re-runs full fetch + replay. Use when 
 
 ```bash
 # Dry run — prints row counts, exits without touching data
-python production/scripts/reset_pipeline_data.py
+python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py
 
 # Full reset: wipe + fetch + replay (stop pipeline first)
 sudo systemctl stop indicagent-intelligence-pipeline
-python production/scripts/reset_pipeline_data.py --confirm
+python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --confirm
 
 # Wipe only — skip re-fetch and replay
-python production/scripts/reset_pipeline_data.py --confirm --wipe-only
+python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --confirm --wipe-only
 
 # More workers for faster replay
-python production/scripts/reset_pipeline_data.py --confirm --workers 8
+python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --confirm --workers 8
 ```
 
 **Tables wiped** (bar data preserved): `intelligence_features`, `signal_ledger`, `signal_outcomes`, `signal_lineage`, `signal_transform_log`, `signal_metrics*`, `signal_ai_enrichment`, `macro_features`, `llm_calls`, `llm_model_scores`, `setup_performance`, `swarm_agent_weights`, `cis_weights`, `tod_multipliers`, `confidence_calibration`, `calibration_curves`, `drift_monitor`, `drift_state`, `pattern_reliability`, `transform_graduation`, `ml_discovery_runs`, `memory_*`. Shadow registry enrollment kept; eval stats reset.
@@ -122,17 +122,17 @@ Evaluates signal outcomes for all signals that lack them, by replaying `market_d
 
 ```bash
 # Normal run — fills in missing outcomes only
-python -u production/scripts/lifecycle_replay.py --workers 8
+python -u scripts/debug/replay/debug_lifecycle_replay.py --workers 8
 
 # Reset + replay (for corrupt outcomes — stop pipeline first)
 sudo systemctl stop indicagent-intelligence-pipeline
-python -u production/scripts/lifecycle_replay.py --reset --confirm --workers 8
+python -u scripts/debug/replay/debug_lifecycle_replay.py --reset --confirm --workers 8
 
 # Dry run to verify schema compatibility
-python -u production/scripts/lifecycle_replay.py --symbols ESM6 --timeframes 5m --dry-run
+python -u scripts/debug/replay/debug_lifecycle_replay.py --symbols ESM6 --timeframes 5m --dry-run
 
 # Specific symbols only
-python -u production/scripts/lifecycle_replay.py --reset --confirm --symbols ESM6,NQM6
+python -u scripts/debug/replay/debug_lifecycle_replay.py --reset --confirm --symbols ESM6,NQM6
 ```
 
 **After replay:** `setup_performance` and `swarm_agent_weights` are empty — they repopulate on next scheduled runs (nightly ml-training at 11pm; weekly ml-orchestrator on Monday).
@@ -143,11 +143,11 @@ Fetches only the missing recent bars and replays only that window. Safe — `ON 
 
 ```bash
 # Step 1: Fetch missing OHLCV bars
-.venv/bin/python production/scripts/run_historical_pipeline.py \
+.venv/bin/python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py \
   --fetch-only --symbols EURUSD,BTCUSD --days 2
 
 # Step 2: Replay only those 2 days through I1→I7
-.venv/bin/python production/scripts/run_historical_pipeline.py \
+.venv/bin/python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py \
   --replay-only --symbols EURUSD,BTCUSD --days 2
 ```
 
@@ -167,10 +167,10 @@ Re-runs I1→I7 from existing DB bars.
 
 ```bash
 # Idempotent — only fills gaps
-.venv/bin/python production/scripts/run_historical_pipeline.py --replay-only --symbols SYM,SYM
+.venv/bin/python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --replay-only --symbols SYM,SYM
 
 # Clean re-generate — deletes existing signals then replays
-.venv/bin/python production/scripts/run_historical_pipeline.py --replay-only --clean --symbols SYM,SYM
+.venv/bin/python scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --replay-only --clean --symbols SYM,SYM
 ```
 
 ---

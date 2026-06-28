@@ -23,7 +23,7 @@ All services extend `BaseAgent` (`src/core/agent/base.py`). For role taxonomy an
 | Bar Writer | `indicagent-bar-writer` | `bar_writer_agent.py` | Writer | `market_data_ohlcv` (DB) |
 | Bar Auditor | `indicagent-bar-auditor` | `bar_auditor_agent.py` | Auditor | `market.events.gap_requests` |
 
-> **Roll detection:** `indicagent-roll-compute` and `indicagent-contract-metadata-writer` daemons have been replaced by the nightly `indicagent-roll-batch` systemd timer (runs at 8pm via `production/scripts/roll_batch.py`). `inactive (dead)` between runs is correct — do not treat as failure. Monitor: `systemctl list-timers --all | grep roll-batch`.
+> **Roll detection:** `indicagent-roll-compute` and `indicagent-contract-metadata-writer` daemons have been replaced by the nightly `indicagent-roll-batch` systemd timer (runs at 8pm via `scripts/ops/roll/ops_roll_batch.py`). `inactive (dead)` between runs is correct — do not treat as failure. Monitor: `systemctl list-timers --all | grep roll-batch`.
 
 ## Intelligence Compute Tier
 

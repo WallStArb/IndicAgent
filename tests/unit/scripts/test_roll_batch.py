@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from production.scripts.roll_batch import detect_rolls
+from scripts.ops.roll.ops_roll_batch import detect_rolls
 
 
 class TestDetectRolls:
