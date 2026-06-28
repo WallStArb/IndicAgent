@@ -1,0 +1,14 @@
+{
+  "step_name": "ic_engine",
+  "step_version": "1.0",
+  "timestamp": "2026-06-28T10:48:54.077985+00:00",
+  "status": "failed",
+  "inputs": {},
+  "outputs": {},
+  "errors": [
+    "IC Engine startup gate FAILED: forward_returns is empty. Run services/forward_return_writer.py first."
+  ],
+  "warnings": [
+    "No outputs recorded"
+  ]
+}

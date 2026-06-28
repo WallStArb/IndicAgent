@@ -9,11 +9,153 @@
 
 ## North Star
 
-> **The researcher produces features. The data discovers confluence. The IC engine arbitrates. No human defines what combinations constitute edge.**
+> **The researcher proposes feature dimensions. The data validates or rejects each. No human defines which combinations matter — ensemble IC discovers confluence. Stability matters as much as magnitude. If IC decays, weight decays with it. Walk-forward validation is the only gate. In-sample IC is noise.**
 
 This is the design principle that governs every architectural decision in this refactor. When a design choice requires a human to define what feature combinations are predictive — which patterns "confirm" a setup, which conditions make a signal "higher conviction," what confluence looks like — it violates this principle and must be rejected or reconceived.
 
 Every tier, every component, every schema decision should be evaluated against this statement. If the answer to "who decides what matters here?" is "the researcher," that is a red flag. The answer must always be "the IC engine, on the data."
+
+### What Changed and Why
+
+The refined North Star adds three Renaissance-grade dimensions that the original statement lacked:
+
+| Addition | Renaissance Principle | Why It Matters |
+|----------|----------------------|----------------|
+| *"Proposes feature dimensions"* | Features are hypotheses, not facts | IC decides validity, not the researcher |
+| *"Stability matters as much as magnitude"* | IC Sharpe > raw IC | Volatile IC is intermittent luck, not edge |
+| *"If IC decays, weight decays with it"* | Automated governance, no human gates | Manual response is too slow; hysteresis prevents oscillation |
+| *"Walk-forward validation is the only gate"* | Primary guard, not FDR | In-sample IC is not evidence — it's data mining |
+
+---
+
+## Renaissance Invariants
+
+These are the non-negotiable methodological constraints. Violating any of them produces IC measurements that are either wrong, biased, or meaningless. No exceptions.
+
+### Invariant 1: Executable Returns, Not Theoretical
+
+**Rule:** Forward returns MUST use executable entry/exit prices.
+
+```
+R(T, N) = ln(open[T+N+1] / open[T+1])  -- CORRECT
+R(T, N) = ln(close[T+N] / close[T])    -- WRONG
+```
+
+**Why:** Close[T] is the observation price, not the executable entry. Theoretical returns capture overnight gaps and opening moves that cannot be traded. IC measured this way is overstated, especially for short-horizon predictors.
+
+**Enforcement:** `forward_returns` schema constrains `return_type = 'executable_open_to_open'`. Any row with a different return type is excluded from IC computation.
+
+**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §V.1
+**Implementation:** ⚠️ NOT YET IMPLEMENTED — currently using theoretical returns
+
+---
+
+### Invariant 2: Walk-Forward Before Live
+
+**Rule:** No feature enters the live ensemble without passing walk-forward validation on held-out data.
+
+**Why:** In-sample IC is meaningless. A feature with IC=0.08 in-sample can have IC=-0.02 out-of-sample. Walk-forward is the primary statistical guard. FDR correction is necessary but not sufficient.
+
+**Protocol:**
+- Training window: 70% of available data
+- Validation folds: 3 folds of 10% each
+- Pass criteria: IC > 0 in >= 2 of 3 folds, IC Sharpe >= 0.4, consistent sign
+- Holdout is burned exactly once — re-using it after disappointing results is p-hacking
+
+**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §IX.3
+**Implementation:** ✅ Implemented in `services/ic_engine.py`
+
+---
+
+### Invariant 3: IC Sharpe, Not Raw IC
+
+**Rule:** Ensemble weights use IC Sharpe (mean/std of IC over time), not raw IC.
+
+**Why:** A feature with IC=0.06 and std=0.10 is volatile luck — high one month, flat the next, negative after. A feature with IC=0.03 and std=0.01 is stable edge. Raw IC cannot distinguish them. IC Sharpe penalizes volatility.
+
+**Computation:**
+```
+IC Sharpe = mean(IC_t) / std(IC_t)
+Where IC_t is computed on non-overlapping windows of 2,000 independent observations
+Minimum: 10 IC observations (20,000 independent obs required)
+```
+
+**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §X
+**Implementation:** ✅ Implemented in `services/ic_engine.py`
+
+---
+
+### Invariant 4: Regime-Stratified, Not Pooled
+
+**Rule:** IC measurement is stratified by HMM regime state. Pooled IC is a diagnostic statistic, not a production weight.
+
+**Why:** A feature can have IC=0.06 in trending regimes and IC=-0.02 in ranging regimes. Averaging them produces pooled IC ≈ 0.02, which discards the regime-dependent signal. The ensemble would incorrectly downweight or discard a feature that is highly predictive in specific regimes.
+
+**Enforcement:** `feature_ic_scores` regime column is NOT NULL. Pooled rows use `is_pooled=true` + `regime='_pooled'` sentinel. The ensemble reads only regime-stratified rows.
+
+**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §III.3
+**Implementation:** ✅ Implemented
+
+---
+
+### Invariant 5: Automated Decay, No Human Gates
+
+**Rule:** When rolling IC drops below threshold, weight is reduced to zero automatically. No human approval required.
+
+**Why:** If decay requires human action, response is slow. If it responds instantly to every fluctuation, it oscillates. Hysteresis is the correct answer: decay triggers reduction; recovery requires sustained IC improvement over a non-overlapping window.
+
+**Protocol:**
+- Decay trigger: `rolling_ic_ci_lower <= 0.0` AND `weight × |ci_lower| > materiality_threshold`
+- Weight update: automatic re-solve excluding decayed cell
+- Recovery gate: requires 2,000 NEW independent observations (non-overlapping with decay window)
+- No partial restoration — full Ledoit-Wolf re-solve assigns correct weight
+
+**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §XIII
+**Implementation:** ⚠️ Partially implemented — hysteresis verification needed
+
+---
+
+### Invariant 6: Causal Regime Labels Only
+
+**Rule:** HMM regime labels in `feature_vectors` MUST be causal (forward-filtered), not smoothed (backward-filtered).
+
+**Why:** Backward smoothing uses future observations to refine past regime assignments. IC measured on smoothed labels overstates live performance because live trading only has access to forward-filtered labels.
+
+**Enforcement:** `feature_vectors.regime_label_source` is schema-constrained to `{'filtered', 'unknown'}`. Any row with `regime_label_source = 'viterbi_batch'` or `'smoothed'` is rejected. IC engine filters `WHERE regime_label_source = 'filtered'`.
+
+**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §IV.1
+**Implementation:** ✅ Enforced at schema level
+
+---
+
+### Invariant 7: Non-Overlapping IC Windows
+
+**Rule:** IC time series for IC Sharpe computation uses non-overlapping observation windows.
+
+**Why:** Consecutive bars are not independent. The 5-bar return at T and T+1 share 4 bars. Using every bar as an observation inflates effective N and understates standard errors. IC Sharpe on overlapping windows is meaningless.
+
+**Sub-sampling:**
+```
+For lookahead N, sample every Nth bar:
+observations = rows where (row_index % N) == 0
+```
+
+**Status:** ✅ Specified in `docs/plans/2026-06-20-alphaengine-ic-spec.md` §VIII.2
+**Implementation:** ✅ Implemented in `services/ic_engine.py`
+
+---
+
+### Invariant Summary
+
+| Invariant | Spec | Implementation | Blocker |
+|-----------|------|-----------------|---------|
+| 1. Executable returns | ✅ | ⚠️ | `forward_returns` computation |
+| 2. Walk-forward gate | ✅ | ✅ | None |
+| 3. IC Sharpe weights | ✅ | ✅ | None |
+| 4. Regime-stratified | ✅ | ✅ | None |
+| 5. Automated decay | ✅ | ⚠️ | Hysteresis verification |
+| 6. Causal regimes | ✅ | ✅ | None |
+| 7. Non-overlapping windows | ✅ | ✅ | None |
 
 ---
 

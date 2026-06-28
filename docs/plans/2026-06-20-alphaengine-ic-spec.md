@@ -27,6 +27,33 @@ see, it passes.
 
 ---
 
+### North Star
+
+> **The researcher proposes feature dimensions. The data validates or rejects each. No human defines which combinations matter — ensemble IC discovers confluence. Stability matters as much as magnitude. If IC decays, weight decays with it. Walk-forward validation is the only gate. In-sample IC is noise.**
+
+This principle governs every methodological decision below. When a choice requires human judgment about what feature combinations are predictive, it violates this principle.
+
+### Renaissance Invariants
+
+These are the non-negotiable constraints. Violating any produces IC measurements that are wrong, biased, or meaningless.
+
+| Invariant | Section | Status |
+|-----------|---------|--------|
+| **1. Executable returns** — `ln(open[T+N+1] / open[T+1])`, not theoretical | §V.1 | ✅ Specified, ⚠️ NOT IMPLEMENTED |
+| **2. Walk-forward gate** — no live feature without held-out validation | §IX.3 | ✅ Specified, ✅ Implemented |
+| **3. IC Sharpe weights** — stability over time, not raw IC | §X | ✅ Specified, ✅ Implemented |
+| **4. Regime-stratified** — pooled IC is diagnostic only | §III.3 | ✅ Specified, ✅ Implemented |
+| **5. Automated decay** — hysteresis, no human gates | §XIII | ✅ Specified, ⚠️ Partial |
+| **6. Causal regimes** — forward-filtered only, no smoothed labels | §IV.1 | ✅ Specified, ✅ Enforced |
+| **7. Non-overlapping windows** — sub-sampling for IC Sharpe | §VIII.2 | ✅ Specified, ✅ Implemented |
+
+**Invariant 1 (Executable Returns) is the only unimplemented correctness requirement.** All other invariants are specified and implemented. Fixing Invariant 1 requires:
+1. Update `forward_returns` computation to use open-to-open returns
+2. Re-run IC engine on corrected data
+3. Archive old results as `*_v0_theoretical_returns`
+
+---
+
 ## II. Data Inventory
 
 **v3.0 data source: `feature_vectors`** — populated by FeatureFactory from `market_data_ohlcv`.

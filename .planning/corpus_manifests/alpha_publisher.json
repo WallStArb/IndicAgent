@@ -1,0 +1,21 @@
+{
+  "step_name": "alpha_publisher",
+  "step_version": "1.0",
+  "timestamp": "2026-06-28T10:51:16.349240+00:00",
+  "status": "success",
+  "inputs": {
+    "ensemble_version": "v1.0.0",
+    "weight_version": "v1"
+  },
+  "outputs": {
+    "alpha_events": {
+      "table": "alpha_events",
+      "rows_total": 1,
+      "rows_by_tf": {
+        "5m": 1
+      }
+    }
+  },
+  "errors": [],
+  "warnings": []
+}
