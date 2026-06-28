@@ -1,15 +1,18 @@
 # Documentation System
 
-**Status:** Canonical reference
-**Design spec:** `docs/plans/2026-05-29-documentation-taxonomy-redesign.md`
+**Version:** 3.0
+**Status:** current
+**Last Updated:** 2026-06-28
 
 ---
 
 ## Purpose
 
-This document is the complete design specification for how IndicAgent documentation is structured, written, and maintained. It is a portable foundation: the taxonomy and recipe-card format travel to any new project with `docs/foundation/` unchanged.
+This document is the complete design specification for how documentation is structured, written, and maintained. It is a portable foundation: the taxonomy and recipe-card format travel to any new project with `docs/foundation/` unchanged.
 
 The documentation system is not a style guide. It is a specification of what kinds of documents exist, where each kind lives, what a document must prove before it is trusted, and what happens when it decays.
+
+**See also:** `docs/foundation/renaissance-grade-standards.md` — Documentation Is Living principle
 
 ---
 
@@ -19,7 +22,7 @@ The documentation system is not a style guide. It is a specification of what kin
 
 **A wrong document is worse than no document.**
 
-At Renaissance, dirty data does not lower model quality — it actively destroys it. A corrupted price series introduces false signal that dominates real signal. The same applies to documentation: a doc marked `current` with one wrong claim misleads every engineer who reads it. They act on the false signal. The cost is not zero — it is negative.
+At Renaissance, dirty data does not lower model quality — it actively destroys it. A corrupted data series introduces false signal that dominates real signal. The same applies to documentation: a doc marked `current` with one wrong claim misleads every engineer who reads it. They act on the false signal. The cost is not zero — it is negative.
 
 The documentation system exists to maximize the ratio of verified claims to total claims in the `current` corpus. Every structural decision follows from this.
 
@@ -35,25 +38,24 @@ Documentation decays at rates determined by what it describes. Different documen
 
 | Document type | Decay rate | Re-verification trigger |
 |--------------|-----------|------------------------|
-| `foundation/` — design principles, naming rules | Slow — changes only on deliberate redesign | Version bump or architectural phase |
-| Domain WHAT docs — schemas, contracts, topic payloads | Medium — changes on schema migrations | Any migration or schema change |
-| Domain HOW docs — procedures, extend guides | Fast — changes when the code they describe changes | Any PR touching the described subsystem |
+| `foundation/` — principles, naming, standards | Slow — changes only on deliberate redesign | Version bump or architectural phase |
+| Domain WHAT — schemas, contracts, payloads | Medium — changes on schema migrations | Any migration or schema change |
+| Domain HOW — procedures, extend guides | Fast — changes when described code changes | Any PR touching described subsystem |
 | `operations/` — deployment, monitoring runbooks | Fast — changes on infrastructure changes | Infrastructure or systemd changes |
-| `reference/` — cheatsheets, gotchas | Medium — commands and patterns drift | Periodic, or when a gotcha is resolved |
-| `concepts/` — design principles | Slow — changes only on deliberate design revision | Any architectural phase that changes a described principle |
-| `architecture/` — legacy catch-all | Slow decay tracked | Any PR touching described systems |
+| `reference/` — cheatsheets, gotchas | Medium — commands and patterns drift | Periodic, or when gotcha resolved |
+| `concepts/` — architectural theory | Slow — changes only on design revision | Architectural phase changing described principle |
 
 When a doc's described system changes, the doc's status drops to `draft` automatically until re-verified. This is a process rule, not optional.
 
 ### Bad Data Is Quarantined, Not Tolerated
 
-At Renaissance, bad data is removed from the training set. In this system, a doc that fails verification is immediately downgraded to `draft` and flagged. It is not left as `current` with an inline caveat. Inline accuracy warnings are noise annotations on noise — they do not fix the problem.
+At Renaissance, bad data is removed from the training set. A doc that fails verification is immediately downgraded to `draft` and flagged. It is not left as `current` with an inline caveat. Inline accuracy warnings are noise annotations on noise — they do not fix the problem.
 
-The global caveat in `docs/README.md` ("docs may contain forward-looking content — verify against code") applies to workspace folders only (`ideas/`, `plans/`, `specs/`). Inner-ring domain docs carry no such escape hatch.
+The global caveat in `docs/README.md` applies to workspace folders only (`ideas/`, `plans/`, `specs/`). Inner-ring domain docs carry no such escape hatch.
 
 ### Shadow Mode for Documentation
 
-A doc earns trust the same way a signal earns production status: it starts in shadow mode (`draft`), accumulates evidence (verification against code), and graduates to `current` only when the verification criterion is met. Reverting from `current` to `draft` on staleness detection is not a failure — it is the system working correctly.
+A doc earns trust the same way any system component earns production status: it starts in shadow mode (`draft`), accumulates evidence (verification against code), and graduates to `current` only when the verification criterion is met. Reverting from `current` to `draft` on staleness detection is not a failure — it is the system working correctly.
 
 ---
 
@@ -64,12 +66,12 @@ Every document belongs to exactly one domain folder. The folder is determined by
 ```
 docs/
   foundation/     Immutable — principles, naming, documentation design
-  data/           Data ingestion, streaming, storage, roll architecture
-  intelligence/   I1-I8 pipeline — indicators, patterns, signals, AI evaluation
+  data/           Data ingestion, streaming, storage, persistence architecture
+  intelligence/   Compute pipeline — features, analysis, signals, AI evaluation
   signals/        Signal lifecycle — creation, activation, outcomes, graduation
-  agents/         Agent framework — daemon contracts, writers, OTel, health
+  agents/         Agent framework — daemon contracts, writers, telemetry
   platform/       Infrastructure, observability, API layer
-  concepts/       Architectural theory — design principles, design decisions, stable pattern library
+  concepts/       Architectural theory — design principles, decisions, patterns
   architecture/   Cross-cutting design — legacy, deprecating as catch-all
   operations/     Sysadmin runbooks — deployment, monitoring, disaster recovery
   development/    Developer HOW — setup, testing, profiling
@@ -89,9 +91,9 @@ These folders are the clean training set. Every `current` doc here has been veri
 
 `concepts/`
 
-Each document in this folder explains one architectural principle: the problem it solves, the rejected alternatives, and how IndicAgent applies it. This folder is permanent — new concept docs are added when a design principle recurs across multiple domain folders and deserves a canonical explanation. A principle local to one domain belongs in that domain's WHY doc, not here.
+Each document explains one architectural principle: the problem it solves, the rejected alternatives, and how the system applies it. This folder is permanent — new concept docs are added when a design principle recurs across multiple domain folders and deserves a canonical explanation. A principle local to one domain belongs in that domain's WHY doc, not here.
 
-Concepts docs decay slowly. They change when a design principle is revised, not when implementation details change. Unlike inner-ring domain docs, concepts docs do not cite file paths and line numbers — their verification criterion is coherence with the system's actual design, not correspondence to a specific migration number. They are authoritative about design intent; inner-ring docs are authoritative about implementation state.
+Concepts docs decay slowly. They change when a design principle is revised, not when implementation details change. Unlike inner-ring domain docs, concepts docs do not cite file paths and line numbers — their verification criterion is coherence with the system's actual design, not correspondence to a specific implementation. They are authoritative about design intent; inner-ring docs are authoritative about implementation state.
 
 ### Outer Ring — Stable, Pre-taxonomy
 
@@ -107,7 +109,7 @@ These folders are thinking space. Forward-looking content is expected and permit
 
 ### The Portability Test for `foundation/`
 
-`docs/foundation/` must pass the portability test: strip the IndicAgent-specific vocabulary and the files should describe a system applicable to any quantitative trading platform. `principles.md` passes. `naming-system.md` passes. `documentation-system.md` passes. A doc about the intelligence pipeline fails — it belongs in `docs/intelligence/`.
+`docs/foundation/` must pass the portability test: strip the project-specific vocabulary and the files should describe a system applicable to any quantitative platform. `principles.md` passes. `naming-system.md` passes. `documentation-system.md` passes. A doc about a specific pipeline implementation fails — it belongs in the appropriate domain folder.
 
 ---
 
@@ -115,15 +117,15 @@ These folders are thinking space. Forward-looking content is expected and permit
 
 Every document answers exactly one primary question. The question determines which domain folder it lives in and which recipe-card sections it needs.
 
-**WHY** — Design rationale. Why this design? What was rejected? An engineer reads this when they want to understand reasoning, not just state. Decays slowly.
+**WHY** — Design rationale. Why this design? What was rejected? An engineer reads this to understand reasoning, not state. Decays slowly.
 
-**WHAT** — Contracts and data shapes. Schemas, topic payloads, API types, table columns. An engineer reads this before crossing a system boundary. Decays at the rate of schema changes.
+**WHAT** — Contracts and data shapes. Schemas, topic payloads, API types, table columns. An engineer reads this before crossing a system boundary. Decays at schema-change rate.
 
-**HOW** — Procedures. How to add a plugin, run a backfill, debug a stalled writer. An engineer reads this when they have a task. Decays at the rate of the described code.
+**HOW** — Procedures. How to add a component, run a backfill, debug a stalled writer. An engineer reads this when they have a task. Decays at code-change rate.
 
 **WHERE** — Quick lookup. Commands, cheat sheets, common gotchas. An engineer scans, not reads. Decays at medium rate.
 
-One document can blend WHY + WHAT, or HOW + WHERE — but every section is classifiable. Sections that answer none of the four questions do not belong in the document.
+One document can blend WHY + WHAT, or HOW + WHERE — but every section is classifiable. Sections that answer none of the four questions do not belong.
 
 ---
 
@@ -154,7 +156,7 @@ ASCII diagrams. Data flows. System boundaries.
 The sketch an engineer draws on a whiteboard when explaining this domain.
 
 ## 4. Data Contracts
-Kafka payloads. DB schemas. API types. Type signatures.
+Message payloads. DB schemas. API types. Type signatures.
 Every claim cites its canonical source: file path, table name, migration number.
 
 ## 5. How To Extend
@@ -191,18 +193,24 @@ The writer batch flushes at 500ms or 1,000 records, whichever comes first.
 <!-- src: services/feature_writer.py:142 -->
 ```
 
-For schema claims: `<!-- src: migrations/095_signal_ledger_split.sql -->`  
+For schema claims: `<!-- src: migrations/095_signal_ledger_split.sql -->`
 For service state claims: verified by `systemctl list-units` at `Last Updated` date.
 
 Citations are in HTML comments — they do not appear in rendered output but are visible when editing. A doc with no citations is `draft` regardless of what the status header says.
 
 ---
 
-## 5. The `intelligence/` Folder Is the Gold Standard
+## 5. Complete Coverage Pattern
 
-Four files, four governing questions, each covering one angle of the same domain without overlap. New domain folders replicate this pattern — not as a hard constraint on file count, but as a model of how one domain achieves complete coverage with zero redundancy.
+A domain achieves complete coverage when one file answers each of the Four Questions without overlap. The test: if the same claim appears in two domain docs, one of them is wrong. Claims live in exactly one canonical location; the other doc links to it.
 
-The test: if the same claim appears in two domain docs, one of them is wrong. Claims live in exactly one canonical location; the other doc links to it.
+Example pattern (not a hard constraint on file count):
+- `<domain>-foundation.md` — WHY + WHAT
+- `<domain>-operations.md` — HOW (sysadmin)
+- `<domain>-plugins.md` — HOW (developer)
+- `<domain>-lifecycle.md` — WHAT + HOW
+
+This is a model of how one domain achieves complete coverage with zero redundancy. New domain folders replicate this pattern.
 
 ---
 
@@ -216,8 +224,8 @@ draft  →  design  →  current  →  archived
 |--------|---------|-------------------|
 | `draft` | Work in progress or staleness-quarantined | No verification required or failed |
 | `design` | Design complete, implementation may not match | Describes intent; caveated at top |
-| `current` | Verified against production codebase at Last Updated | All claims cited, all sources read |
-| `archived` | Superseded or the described system no longer exists | Not read; referenced for history only |
+| `current` | Verified against codebase at Last Updated | All claims cited, all sources read |
+| `archived` | Superseded or described system no longer exists | Not read; referenced for history only |
 
 **`current` is a precision claim.** An uncited claim in a `current` doc is a measurement without error bars — it looks precise but is not. Downgrade to `draft` until the claim is verified and cited.
 
@@ -248,7 +256,7 @@ grep -rL "Last Updated" docs/foundation/ docs/data/ docs/intelligence/ docs/sign
 
 Every PR that modifies a file in a path covered by an inner-ring doc must either:
 1. Update the doc, re-verify affected claims, and set `Last Updated`, or
-2. Explicitly downgrade the doc to `draft` in the same PR.
+2. Explicitly downgrade the doc to `draft` in the same PR
 
 Leaving a `current` doc unmodified when its described code changes is a review rejection — same category as leaving a broken test.
 
@@ -258,13 +266,22 @@ Leaving a `current` doc unmodified when its described code changes is a review r
 
 These do not change as part of any restructure:
 
-- **`docs/README.md`** is the navigational entry point — folder index and taxonomy overview
-- **`docs/foundation/`** docs are trusted without code cross-checking
-- **Domain folder file names** follow `<domain>-<role>.md`
-- **Plan docs** follow `YYYY-MM-DD-<description>.md`
-- **Idea docs** carry `**Status:** draft | under-review | adopted | rejected`
-- **All `current` docs** carry `**Last Updated:** YYYY-MM-DD` and source citations
-- **`concepts/`** is a permanent tier — new files permitted for recurrent cross-domain principles; **`architecture/`** is read-only structurally
+- **`docs/README.md`** — navigational entry point, folder index, taxonomy overview
+- **`docs/foundation/`** — trusted without code cross-checking
+- **Domain folder file names** — follow `<domain>-<role>.md`
+- **Plan docs** — follow `YYYY-MM-DD-<description>.md`
+- **Idea docs** — carry `**Status:** draft | under-review | adopted | rejected`
+- **All `current` docs** — carry `**Last Updated:** YYYY-MM-DD` and source citations
+- **`concepts/`** — permanent tier; **`architecture/`** — read-only structurally
+
+---
+
+## See Also
+
+- **Renaissance Standards:** `docs/foundation/renaissance-grade-standards.md` — Cleanliness, anti-patterns
+- **Design Principles:** `docs/foundation/design-principles.md` — Architectural + coding principles
+- **Naming System:** `docs/foundation/naming-system.md` — Vocabulary conventions
+- **Glossary:** `docs/foundation/glossary.md` — Canonical terminology
 
 ---
 
