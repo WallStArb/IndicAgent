@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: in_progress
-last_updated: "2026-06-27T11:29:08.392Z"
+last_updated: "2026-06-28T23:55:09.306Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -52,13 +52,14 @@ See: .planning/PROJECT.md
 | P7 | IC Math Helpers + Tests | Complete | 2026-06-23 | Pure functions, unit tests |
 | P8 | IC Pipeline Data Run | Complete (4-symbol) | 2026-06-23 | 12,444 IC scores on SPY/TLT/XLF/QQQ; full corpus run pending |
 
-## Current Data State (58-symbol full corpus)
+## Current Data State (58-symbol full corpus) — COMPLETE 2026-06-28
 
 - feature_vectors: 54,260,576 rows (58 symbols × 4 TFs — COMPLETE)
-- forward_returns: 54,260,576 rows (1:1 match — COMPLETE)
-- feature_ic_scores: 382,271 rows (330,890 non-pooled; 58 distinct symbols, 58 distinct features)
+- forward_returns: 54,260,576 rows (1:1 match, executable_open_to_open — COMPLETE)
+- feature_ic_scores: 402,651 rows (348,615 per-symbol non-pooled + 54,036 cross-sectional is_pooled=true)
 - market_regimes: 819,020 rows (9 cross-sectional labels: {low/mid/high}_{bull/neutral/bear})
-- alpha_events: 0 rows (ensemble_trainer + alpha_publisher not yet run)
+- ensemble_weights: 328 rows (12 strata × 12-18 features each — COMPLETE)
+- alpha_events: 12,472,068 rows (5m: 7.96M, 1h: 3.10M, 15m: 1.41M, 1d: 2.5K — COMPLETE)
 - context_features: 8,985 rows (2995 trading days × 3 macro features)
 
 **Dual regime system (both live):**
@@ -66,17 +67,18 @@ See: .planning/PROJECT.md
 - `feature_vectors.regime` — 5 per-symbol HMM labels (trending_down/transition_down/ranging/transition_up/trending_up), written by `regime_writer.py` (K=5, causal forward-filter)
 - `market_regimes` — 9 cross-sectional labels ({low/mid/high}_{bull/neutral/bear}), written by `equity_regime_model.py` (VIX proxy percentile × ETF breadth above 200MA); ic_engine stratifies on these; `feature_ic_scores` already has all 9 buckets populated
 
-## Corpus Pipeline — IN PROGRESS (started 2026-06-24)
+## Corpus Pipeline — COMPLETE 2026-06-28
 
-Steps 1-4 complete. Steps 5-6 pending.
+All 6 steps complete. Phase 141 (Corpus Quality Gate + IC Validation) is unblocked.
 
 **Pipeline steps:**
 
 - [x] feature_factory — 54M rows
 - [x] regime_writer --refit (K=5) — labels confirmed in feature_vectors
-- [x] forward_return_writer — 54M rows
-- [x] ic_engine — 382K IC scores
-- [ ] ensemble_trainer — not yet run (alpha_ensemble table does not exist)
+- [x] forward_return_writer — 54M rows (executable_open_to_open)
+- [x] ic_engine — 402K IC scores (per-symbol + cross-sectional)
+- [x] ensemble_trainer — 328 weights, 43M ensemble_alpha rows
+- [x] alpha_publisher --skip-kafka — 12.47M alpha_events
 - [ ] alpha_publisher — not yet run (alpha_events = 0)
 
 **regime_writer also running** (new workers PID 1003466+ started 2026-06-27 06:04 — separate from --refit run)
