@@ -567,7 +567,7 @@ A tool belongs in `tools/` only if it will be run again. If it answers a one-tim
 
 `tools/` has no subdirectories. A `tools/backtest/` or `tools/archive/` is a signal that the directory is being used as a graveyard.
 
-### Operational Scripts — `production/scripts/`
+### Operational Scripts — `scripts/`
 
 Long-running or periodic operational scripts that are part of the deployed system — backfills, replays, batch jobs. These are not tools; they are part of the production workflow.
 
@@ -578,7 +578,7 @@ Long-running or periodic operational scripts that are part of the deployed syste
 
 One-off scripts used during a phase (data migrations, schema repairs, investigation queries) are deleted when the phase closes. They are not committed unless they are part of a repeatable production operation. If already committed and the job is done, delete on next cleanup pass.
 
-`production/scripts/archive/` is prohibited. Delete, don't archive.
+`scripts/infrastructure/archive/` is prohibited. Delete, don't archive.
 
 ### Schema Reference Files — `production/schemas/`
 

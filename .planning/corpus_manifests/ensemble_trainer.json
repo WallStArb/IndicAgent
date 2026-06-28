@@ -1,0 +1,16 @@
+{
+  "step_name": "ensemble_trainer",
+  "step_version": "1.0",
+  "timestamp": "2026-06-28T20:59:34.018719+00:00",
+  "status": "failed",
+  "inputs": {
+    "weight_version": "v1"
+  },
+  "outputs": {},
+  "errors": [
+    "A process in the process pool was terminated abruptly while the future was running or pending."
+  ],
+  "warnings": [
+    "No outputs recorded"
+  ]
+}

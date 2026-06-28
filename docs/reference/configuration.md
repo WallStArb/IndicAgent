@@ -82,7 +82,7 @@ Settings, environment variables, and contract definitions for IndicAgent.
 | `ROLL_CONFIRMATION_BARS` | `3` | Bars required to confirm roll |
 | `ROLL_TIME_OF_DAY_GATED` | `true` | Gate roll detection by time of day |
 
-> **Roll-batch:** Roll detection runs as a nightly systemd timer (`indicagent-roll-batch`) at 8pm via `production/scripts/roll_batch.py`. It replaces the former 24/7 `roll-compute` + `contract-metadata-writer` daemons. `inactive (dead)` between runs is correct — do not treat as failure.
+> **Roll-batch:** Roll detection runs as a nightly systemd timer (`indicagent-roll-batch`) at 8pm via `scripts/ops/roll/ops_roll_batch.py`. It replaces the former 24/7 `roll-compute` + `contract-metadata-writer` daemons. `inactive (dead)` between runs is correct — do not treat as failure.
 
 ### Swarm / AI
 

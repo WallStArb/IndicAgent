@@ -46,7 +46,7 @@ See `docs/operations/operations-database.md` for query/schema gotchas. `instrume
 
 ## Historical Backfill
 
-ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364` or `production/scripts/fetch_1d_bars.py` which chunks automatically.
+ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364` or `scripts/infrastructure/backfill/infrastructure_fetch_htf_bars.py` which chunks automatically.
 
 ## Lifecycle Replay
 

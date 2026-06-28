@@ -16,13 +16,13 @@ Database, migrations, and infrastructure for IndicAgent. For the full list of ru
 1. Apply all migrations
 ```bash
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/indicagent \
-bash production/scripts/db_setup.sh
+bash scripts/infrastructure/setup/infrastructure_db_setup.sh
 ```
 
 2. Verify schema
 ```bash
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/indicagent \
-bash production/scripts/db_verify.sh
+bash scripts/debug/validate/debug_db_verify.sh
 ```
 
 3. Start databases with Docker Compose

@@ -97,7 +97,7 @@ Environment="PATH=/home/bg/dev/indicagent/.venv/bin:/usr/bin"
 EnvironmentFile=/home/bg/dev/indicagent/.env
 
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python \
-          /home/bg/dev/indicagent/production/scripts/<script>.py
+          /home/bg/dev/indicagent/scripts/<script>.py
 
 StandardOutput=journal
 StandardError=journal
@@ -385,8 +385,8 @@ git pull origin main
 
 2. **Apply migrations** (if any)
    ```bash
-   bash production/scripts/db_migrate.sh
-   bash production/scripts/db_verify.sh
+   bash scripts/infrastructure/setup/infrastructure_db_setup.sh
+   bash scripts/debug/validate/debug_db_verify.sh
    ```
 
 3. **Update dependencies**

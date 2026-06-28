@@ -34,7 +34,7 @@
 | `services/cross_sectional_regime_model.py` | Create | Generic dispatcher: loads group config from APR, fetches bars, calls signal modules, assigns labels, writes `market_regimes` |
 | `services/equity_regime_model.py` | Modify | Add deprecation header; no functional changes (kept for emergency rollback) |
 | `services/ic_engine.py` | Modify | Rename all `asset_class='equity'` → `regime_group=%(regime_group)s`; add `_build_symbol_regime_class(tags_by_symbol, group_configs)`; update `_assert_prerequisites`, `mr_dict` loading, `_compute_cross_sectional_tf`, cross-sectional pass loop |
-| `production/scripts/corpus_pipeline_run.sh` | Modify | Replace `equity_regime_model` step with `cross_sectional_regime_model`; update 6→7 step count |
+| `scripts/ops/corpus/ops_corpus_pipeline_run.sh` | Modify | Replace `equity_regime_model` step with `cross_sectional_regime_model`; update 6→7 step count |
 | `src/intelligence/regime_signals/commodity_momentum_ts.py` | Create | Commodity signal: cross-sectional momentum z-score × term structure proxy (contango/backwardation). Used by commodity_energy, commodity_metals, commodity_agri groups. |
 | `src/intelligence/regime_signals/fx_dollar_carry.py` | Create | FX signal: dollar trend z-score (UUP momentum) × carry environment (risk-on/off proxy via HYG momentum). |
 | `tests/unit/test_regime_signals_breadth_vol.py` | Create | Unit tests for breadth_vol signal module (no DB) |
@@ -1970,7 +1970,7 @@ git commit -m "feat(ic-engine): add regime group routing; rename asset_class to 
 ## Task 6: Pipeline Update + Deprecate equity_regime_model.py
 
 **Files:**
-- Modify: `production/scripts/corpus_pipeline_run.sh`
+- Modify: `scripts/ops/corpus/ops_corpus_pipeline_run.sh`
 - Modify: `services/equity_regime_model.py`
 
 - [ ] **Step 1: Add deprecation header to equity_regime_model.py**
@@ -2044,7 +2044,7 @@ Also update the header comment and banner references from `6 steps` to `7 steps`
 - [ ] **Step 3: Validate script syntax**
 
 ```bash
-bash -n production/scripts/corpus_pipeline_run.sh && echo "syntax OK"
+bash -n scripts/ops/corpus/ops_corpus_pipeline_run.sh && echo "syntax OK"
 ```
 
 Expected: `syntax OK`
@@ -2052,7 +2052,7 @@ Expected: `syntax OK`
 - [ ] **Step 4: Test --from-step still works**
 
 ```bash
-bash production/scripts/corpus_pipeline_run.sh --from-step 8 2>&1 | head -10
+bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --from-step 8 2>&1 | head -10
 ```
 
 Expected: all steps print `[skipped — --from-step 8]` and reaches summary banner.
@@ -2068,7 +2068,7 @@ Expected: all tests pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add production/scripts/corpus_pipeline_run.sh services/equity_regime_model.py
+git add scripts/ops/corpus/ops_corpus_pipeline_run.sh services/equity_regime_model.py
 git commit -m "feat(pipeline): replace equity_regime_model with cross_sectional_regime_model (step 4, 7-step pipeline)"
 ```
 

@@ -69,7 +69,7 @@ Consolidated I1-I7 into a single in-process agent:
 | Bar Aggregator | `bar_aggregator_agent.py` | `indicagent-bar-aggregator-compute` | :9120 | 1m → HTF (5m-1d) aggregation |
 | Bar Writer | `bar_writer_agent.py` | `indicagent-bar-writer` | :9121 | Writes `market_data_ohlcv` (batch) |
 | Bar Auditor | `bar_auditor_agent.py` | `indicagent-bar-auditor` | :9123 | Gap detection → `market.events.gap_requests` |
-| Roll Batch | `production/scripts/roll_batch.py` | `indicagent-roll-batch` (timer, 8pm) | — | Calendar-based futures roll detection + front-month promotion |
+| Roll Batch | `scripts/ops/roll/ops_roll_batch.py` | `indicagent-roll-batch` (timer, 8pm) | — | Calendar-based futures roll detection + front-month promotion |
 | Intelligence Pipeline | `intelligence_pipeline_agent.py` | `indicagent-intelligence-pipeline` | :9125 | I1-I7 unified, in-process |
 | Signal Writer | `signal_writer_agent.py` | `indicagent-signal-writer` | :9119 | Writes `signal_ledger` (batch) |
 | Signal Tracker | `signal_tracker_compute_agent.py` | `indicagent-signal-tracker-compute` | :9115 | Signal lifecycle compute (DB-ignorant); publishes transitions to LifecycleWriter |

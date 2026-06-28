@@ -172,7 +172,7 @@ Every `BaseDaemon` subclass auto-inherits 5 mandatory OTel signals (D-26, non-ne
 - **IBKR Gateway:** Docker (`ib-gateway` container), bound to `127.0.0.1:7497`. All ib_insync in `src/providers/ibkr.py` only. VIX=`"VX"`, client IDs 35+.
 - **Redpanda**: Kafka-compatible. Topics: dots, via `stream_keys.py`. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Restart daemons on futures expiry.
-- **Roll flow:** `roll-batch` nightly 8pm (`production/scripts/roll_batch.py`) — promotes front-month in `contract_metadata`, broadcasts via Kafka.
+- **Roll flow:** `roll-batch` nightly 8pm (`scripts/ops/roll/ops_roll_batch.py`) — promotes front-month in `contract_metadata`, broadcasts via Kafka.
 - **Docker**: `cd production && docker compose up -d` after `docker-compose.yml` changes. All services have `logging: max-size/max-file` caps — do not remove them (TimescaleDB grew a 29GB log without them).
 - **Ollama:** Docker (`ollama/ollama:rocm`). `docker exec ollama ollama <cmd>`. Kill `alpha_swarm` + `narrative_compute` before swapping models.
 

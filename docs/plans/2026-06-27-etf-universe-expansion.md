@@ -68,8 +68,8 @@ New fine-grained sub-tags added alongside existing coarse tags (backward compat 
 | File | Action | Purpose |
 |---|---|---|
 | `production/migrations/180_etf_expansion.sql` | Create | Tag vocabulary extension + re-tag existing + register 16 new instruments |
-| `production/scripts/backfill_new_etfs.sh` | Create | Historical OHLCV backfill for all 16 new symbols |
-| `production/scripts/corpus_new_etfs.sh` | Create | Corpus pipeline steps 1-6 scoped to new symbols |
+| `scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh` | Create | Historical OHLCV backfill for all 16 new symbols |
+| `scripts/ops/corpus/ops_corpus_new_etfs.sh` | Create | Corpus pipeline steps 1-6 scoped to new symbols |
 
 ---
 
@@ -328,7 +328,7 @@ git commit -m "feat(migrations): ETF universe expansion 58→74 — new tags, re
 **Prerequisite:** Task 0 complete (instruments registered). TWS must be running.
 
 **Files:**
-- Create: `production/scripts/backfill_new_etfs.sh`
+- Create: `scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh`
 
 All 16 new instruments need full OHLCV history across 4 timeframes. IBKR practical limits:
 - `1d`: up to 20yr (7300 days) for most ETFs
@@ -340,14 +340,14 @@ All 16 new instruments need full OHLCV history across 4 timeframes. IBKR practic
 
 ```bash
 #!/usr/bin/env bash
-# production/scripts/backfill_new_etfs.sh
+# scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 # Backfill OHLCV for the 16 new ETFs added in migration 180.
 # Re-run safe: ON CONFLICT DO NOTHING in bar writer.
-# Usage: bash production/scripts/backfill_new_etfs.sh
+# Usage: bash scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 
 set -euo pipefail
 
-SCRIPT="production/scripts/run_historical_pipeline.py"
+SCRIPT="scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py"
 PYTHON=".venv/bin/python"
 CLIENT_ID=41
 LOG_DIR="logs/backfill_new_etfs"
@@ -432,15 +432,15 @@ echo "======================================================="
 - [ ] **Step 2: Commit the script**
 
 ```bash
-git add production/scripts/backfill_new_etfs.sh
-chmod +x production/scripts/backfill_new_etfs.sh
+git add scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
+chmod +x scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 git commit -m "feat(scripts): add backfill_new_etfs.sh for 16 new ETF universe expansion symbols"
 ```
 
 - [ ] **Step 3: Run backfill (TWS must be running)**
 
 ```bash
-bash production/scripts/backfill_new_etfs.sh
+bash scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 ```
 
 **Expected duration:** ~45-90 minutes (16 symbols × 4 TFs, sequential, rate-limited by IBKR pacing).
@@ -469,7 +469,7 @@ Expected: each symbol has bars in all 4 timeframes. `5m` earliest should be ~202
 **Prerequisite:** Task 1 complete (OHLCV bars present for all 16 symbols).
 
 **Files:**
-- Create: `production/scripts/corpus_new_etfs.sh`
+- Create: `scripts/ops/corpus/ops_corpus_new_etfs.sh`
 
 Run all 6 corpus pipeline steps scoped to the 16 new symbols only. Uses `--symbols` flag and `--compute-only` where applicable to avoid re-fetching existing data.
 
@@ -491,10 +491,10 @@ ON CONFLICT (symbol, timeframe) DO NOTHING;
 
 ```bash
 #!/usr/bin/env bash
-# production/scripts/corpus_new_etfs.sh
+# scripts/ops/corpus/ops_corpus_new_etfs.sh
 # Run corpus pipeline steps 1-6 for the 16 new ETF symbols.
 # Assumes OHLCV bars are already present (Task 1 complete).
-# Usage: bash production/scripts/corpus_new_etfs.sh [--from-step N]
+# Usage: bash scripts/ops/corpus/ops_corpus_new_etfs.sh [--from-step N]
 
 set -euo pipefail
 
@@ -508,7 +508,7 @@ echo " From step: $FROM_STEP"
 echo " $(date)"
 echo "======================================================="
 
-bash production/scripts/corpus_pipeline_run.sh \
+bash scripts/ops/corpus/ops_corpus_pipeline_run.sh \
     --symbols $SYMBOLS \
     --from-step "$FROM_STEP" \
     --compute-only
@@ -521,15 +521,15 @@ echo "======================================================="
 - [ ] **Step 3: Commit the script**
 
 ```bash
-git add production/scripts/corpus_new_etfs.sh
-chmod +x production/scripts/corpus_new_etfs.sh
+git add scripts/ops/corpus/ops_corpus_new_etfs.sh
+chmod +x scripts/ops/corpus/ops_corpus_new_etfs.sh
 git commit -m "feat(scripts): add corpus_new_etfs.sh for 16-symbol corpus pipeline run"
 ```
 
 - [ ] **Step 4: Run corpus pipeline**
 
 ```bash
-bash production/scripts/corpus_new_etfs.sh
+bash scripts/ops/corpus/ops_corpus_new_etfs.sh
 ```
 
 **Expected duration:** 2-4 hours (16 symbols through feature_factory, regime_writer, forward_return_writer, ic_engine, ensemble_trainer, alpha_publisher).

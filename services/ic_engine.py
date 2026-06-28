@@ -165,7 +165,7 @@ _INSERT_BODY = """
 _POOLED_INSERT_SQL = (
     _INSERT_BODY
     + "    ON CONFLICT (feature_name, symbol, tf, lookahead_bars, training_window_end)\n"
-    + "        WHERE is_pooled = true\n"
+    + "        WHERE is_pooled = true AND symbol <> 'POOLED'\n"
     + "    DO NOTHING\n"
 )
 _REGIME_INSERT_SQL = (

@@ -75,7 +75,7 @@ docker exec timescaledb psql -U postgres -c "CREATE DATABASE langfuse;"
 65+ migrations in `production/migrations/` applied in order by the setup script:
 
 ```bash
-bash production/scripts/db_setup.sh
+bash scripts/infrastructure/setup/infrastructure_db_setup.sh
 ```
 
 This applies all numbered migrations in order — `production/migrations/` (legacy, 001–103) then `db/migrations/` (canonical, Phase 104+). All migrations are idempotent.
@@ -83,7 +83,7 @@ This applies all numbered migrations in order — `production/migrations/` (lega
 Verify:
 
 ```bash
-bash production/scripts/db_verify.sh
+bash scripts/debug/validate/debug_db_verify.sh
 ```
 
 ---

@@ -294,7 +294,7 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 | `services/bar_aggregator_agent.py` | `BarAggregator` | `indicagent-bar-aggregator-compute` | :9120 |
 | `services/bar_writer_agent.py` | `BarWriter` | `indicagent-bar-writer` | :9121 |
 | `services/bar_auditor_agent.py` | `BarAuditor` | `indicagent-bar-auditor` | :9123 |
-| `production/scripts/roll_batch.py` | roll-batch timer | `indicagent-roll-batch` (timer, 8pm) | — |
+| `scripts/ops/roll/ops_roll_batch.py` | roll-batch timer | `indicagent-roll-batch` (timer, 8pm) | — |
 
 **Intelligence layer:**
 
