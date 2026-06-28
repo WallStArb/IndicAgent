@@ -1,12 +1,15 @@
 {
   "step_name": "ic_engine",
   "step_version": "1.0",
-  "timestamp": "2026-06-28T22:39:03.072962+00:00",
-  "status": "failed",
+  "timestamp": "2026-06-28T22:56:26.129572+00:00",
+  "status": "success",
   "inputs": {
     "training_window_end": "2026-06-24 05:15:00+00:00",
     "tfs": [
-      "1h"
+      "5m",
+      "15m",
+      "1h",
+      "1d"
     ],
     "symbols": [
       "AGG",
@@ -70,11 +73,59 @@
     ],
     "cross_sectional_only": true
   },
-  "outputs": {},
-  "errors": [
-    "connection already closed"
-  ],
-  "warnings": [
-    "No outputs recorded"
-  ]
+  "outputs": {
+    "feature_ic_scores": {
+      "table": "feature_ic_scores",
+      "rows_total": 408568,
+      "rows_by_tf": {
+        "15m": 132431,
+        "1d": 43971,
+        "1h": 88572,
+        "5m": 143594
+      },
+      "rows_by_regime": {
+        "_pooled": 51901,
+        "high_bear": 42029,
+        "high_bull": 42090,
+        "high_neutral": 32696,
+        "low_bear": 36173,
+        "low_bull": 48739,
+        "low_neutral": 36173,
+        "mid_bear": 36234,
+        "mid_bull": 46604,
+        "mid_neutral": 35929
+      },
+      "columns_written": [
+        "feature_name",
+        "vector_domain",
+        "symbol",
+        "tf",
+        "regime",
+        "lookahead_bars",
+        "training_window_end",
+        "is_pooled",
+        "n_independent",
+        "reliable",
+        "ic_value",
+        "ic_sign",
+        "p_value",
+        "ic_ci_lower",
+        "ic_ci_upper",
+        "passes_ci_gate",
+        "bh_adjusted_p",
+        "passes_fdr",
+        "wf_fold_count",
+        "wf_pass_count",
+        "wf_ic_sharpe",
+        "passes_walkforward",
+        "ic_sharpe",
+        "ic_sharpe_n_windows",
+        "regime_label_source",
+        "is_decaying",
+        "decay_detected_at"
+      ]
+    }
+  },
+  "errors": [],
+  "warnings": []
 }

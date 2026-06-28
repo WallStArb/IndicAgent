@@ -2026,9 +2026,12 @@ def main() -> None:
                         cs_regimes = [r[0] for r in cur.fetchall()]
                     # Commit to exit idle-in-transaction state before the expensive queries
                     cs_conn.commit()
-                    # Increase work_mem for this session to reduce disk spill on large joins
+                    # Tune session for the large cross-sectional join:
+                    # disable parallel workers (they contend for shared memory segments)
+                    # and raise work_mem to reduce disk spill on the 54M-row hash join
                     with cs_conn.cursor() as cur:
-                        cur.execute("SET work_mem = '1GB'")
+                        cur.execute("SET max_parallel_workers_per_gather = 0")
+                        cur.execute("SET work_mem = '256MB'")
                     cs_conn.commit()
 
                     for tf in tfs:
