@@ -39,7 +39,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
+import math
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -215,7 +217,35 @@ def _compute_vix_pct_rank(
     rv_mean = realized_vol.rolling(window=z_window, min_periods=z_window).mean()
     rv_std = realized_vol.rolling(window=z_window, min_periods=z_window).std()
     vix_z = (realized_vol - rv_mean) / rv_std.where(rv_std > 1e-10)
-    return vix_z.rank(pct=True, na_option="keep")
+
+    # Causal bisect-based expanding rank (no look-ahead bias).
+    # Each position's rank is computed against all PRIOR valid values only.
+    # NaN guard: skip NaN values (do not insert into window — preserves bisect sort invariant).
+    # Tie handling: average rank = (bisect_left + bisect_right) / 2 / n.
+    #   Two equal values produce rank 0.5 (matches pandas 'average' tie behavior).
+    sorted_window: list[float] = []  # sorted; never contains NaN
+    causal_ranks: list[float] = []
+
+    for val in vix_z:
+        if math.isnan(val):
+            # NaN input -> NaN output; do NOT insert into window
+            causal_ranks.append(float("nan"))
+            continue
+
+        if not sorted_window:
+            # First valid value: rank 1.0 (it's both min and max of a 1-element set)
+            bisect.insort(sorted_window, val)
+            causal_ranks.append(1.0)
+            continue
+
+        # Rank against PRIOR window (causal: insert AFTER computing)
+        left = bisect.bisect_left(sorted_window, val)
+        right = bisect.bisect_right(sorted_window, val)
+        rank = (left + right) / 2 / len(sorted_window)
+        bisect.insort(sorted_window, val)
+        causal_ranks.append(rank)
+
+    return pd.Series(causal_ranks, index=spy_ts, dtype=float)
 
 
 def _compute_breadth_fraction(
