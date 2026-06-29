@@ -837,64 +837,73 @@ A monotonically increasing integer that identifies a specific set of ensemble we
 
 ## AlphaEngine Functional Layer Vocabulary
 
-Generic names for the functional slots within Layer 1 (Prediction). Each slot has a
-current implementation; the generic name survives if the implementation changes. Use
-these terms in design docs, todos, and discussion -- not the specific formula name --
-so that "we use HMM and a Hamilton switcher for regime classification" is a statement
-about one slot, not two different things.
+Generic names for the functional slots within Layer 1 (Prediction), ordered by pipeline
+position. Each slot has a current implementation; the generic name survives if the
+implementation changes. Use these terms in design docs, todos, and discussion rather than
+naming specific formulas -- "the regime classifier now has two implementations" is a
+statement about one slot, not two different things.
+
+```
+feature measurement  →  feature synthesis  →  regime classifier  →  predictive measurement
+       →  ensemble optimizer  →  alpha scorer  →  alpha emitter
+```
+
+---
+
+### `feature measurement`
+
+The functional slot that transforms raw OHLCV bars into a typed vector of observable
+quantities for a single (symbol, tf, bar). These are measurements -- factual descriptions
+of what price, volume, and structure did -- not inferences or predictions. Runs on the
+hot path on every bar.
+
+**Current implementation:** `FeatureFactory` (54 features, I1-I4 cadence tiers)
+**Output:** `FeatureVector` → `feature_vectors` table
+**Not:** a storage or transport concern. Feature measurement is pure transformation --
+input is a bar, output is a vector. No DB reads, no Kafka. Not `feature computation`
+(retired) -- "computation" names mechanism; "measurement" names the mathematical role.
 
 ---
 
 ### `feature synthesis`
 
-The functional slot that combines atomic primitives into higher-order composite features,
-producing new FeatureVector columns that capture relationships between primitives that no
-single primitive can express alone. Feature synthesis outputs are treated as first-class
-features -- they flow through the same IC measurement, FDR correction, and ensemble
-weighting as atomic features. The IC engine decides what survives; feature synthesis only
-proposes candidates.
+The functional slot that combines atomic measurements into higher-order composite
+features, producing new FeatureVector columns that capture relationships between
+primitives that no single measurement can express alone. Feature synthesis outputs are
+treated as first-class features -- they flow through the same predictive measurement,
+FDR correction, and ensemble weighting as atomic features. The predictive measurement
+layer decides what survives; feature synthesis only proposes candidates.
 
-Distinct from feature computation (which produces atomic measurements from raw OHLCV)
-and from the ensemble optimizer (which combines IC-validated features into a score).
-Feature synthesis sits between them: it creates new features from existing ones, and
-those new features are then independently evaluated by predictive measurement.
+Sits between feature measurement (atomic inputs) and predictive measurement (IC
+validation). Creates new features from existing ones; those new features are then
+independently evaluated.
 
 **Current implementations:**
 - Hand-authored composites in `FeatureFactory` (e.g., `informed_flow` combining OFI and
   volume signals; `garch_ratio` combining realized vs implied vol)
-- Planned: `Interaction Factory` (todo 019) -- systematic pairwise generation of all
+- Planned: Interaction Factory (todo 019) -- systematic pairwise generation of all
   primitive combinations (products, ratios, rolling correlations), screened by IC engine
 
 **In v2.x:** I5-I7 plugin stack performed a form of feature synthesis, combining I1-I4
-measurements into pattern-level scores (ICC). The distinction: v2.x synthesis was
-human-defined and the scores were traded directly. v3.0 synthesis is empirically screened
--- the IC engine validates every composite before it earns ensemble weight.
+measurements into pattern-level scores (ICC). Distinction: v2.x synthesis was
+human-defined and scores were traded directly. v3.0 synthesis is empirically screened --
+predictive measurement validates every composite before it earns ensemble weight.
 
 **Not:** the ensemble optimizer (which weights already-validated features). Feature
 synthesis produces *candidates*; the ensemble optimizer weights *survivors*.
 
 ---
 
-### `feature computation`
-
-The functional slot that transforms raw OHLCV bars into a typed vector of observable
-quantities for a single (symbol, tf, bar). Runs on the hot path on every bar.
-
-**Current implementation:** `FeatureFactory` (54 features, I1-I4 cadence tiers)
-**Output:** `FeatureVector` → `feature_vectors` table
-**Not:** a storage or transport concern. Feature computation is pure transformation --
-input is a bar, output is a vector. No DB reads, no Kafka.
-
----
-
 ### `regime classifier`
 
-The functional slot that assigns each bar a discrete market context label used to
-condition all downstream predictive measurement. A regime classifier consumes
-`feature_vectors` (or raw OHLCV) and writes a label per (symbol, tf, bar_ts).
+The functional slot that assigns each bar a discrete label describing the current market
+context, used to condition all downstream predictive measurement. A regime classifier
+consumes `feature_vectors` (or raw OHLCV) and writes a label per (symbol, tf, bar_ts).
 
-Multiple regime classifiers can coexist, each producing an independent stratification
-dimension. The IC engine can be run stratified by any combination.
+Aligns with the taxonomy `Classifier` type: assigns inputs to mutually exclusive
+categories. Multiple regime classifiers can coexist, each producing an independent
+stratification dimension. The predictive measurement layer is run stratified by any
+combination.
 
 **Current implementations:**
 - Per-symbol HMM (`regime_writer.py`) → `feature_vectors.regime` (5 labels)
@@ -933,7 +942,7 @@ nightly) whenever new IC scores are available.
 
 **Current implementation:** Ledoit-Wolf shrinkage on IC Sharpe time series
 (`ensemble_builder` batch service) → `ensemble_weights`
-**Not:** the scorer (which applies weights). The ensemble optimizer derives weights;
+**Not:** the alpha scorer (which applies weights). The ensemble optimizer derives weights;
 the alpha scorer applies them.
 
 ---
@@ -946,8 +955,8 @@ full `feature_vectors` history and in near-real-time on the hot path for live ba
 
 **Current implementation:** IC-weighted rank-normalized linear combination, z-scored
 to standard deviation units → `ensemble_alpha.alpha_score`
-**Not:** the emitter (which filters scores above a threshold). The alpha scorer scores
-every bar; the alpha emitter selects which bars to act on.
+**Not:** the alpha emitter (which filters scores above a threshold). The alpha scorer
+scores every bar; the alpha emitter selects which bars to act on.
 
 ---
 
