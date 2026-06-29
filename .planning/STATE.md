@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: in_progress
-last_updated: "2026-06-28T23:55:09.306Z"
+last_updated: "2026-06-29T00:00:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -19,7 +19,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 141 — Corpus Quality Gate + IC Validation (blocked on corpus pipeline)
+**Current focus:** Phase 141 — Corpus Quality Gate + IC Validation + HMM JIT
+
+**Phase 141 status:** PLANNED — prerequisites in progress. Corpus pipeline complete 2026-06-28 but two validity fixes must land before Phase 141 analysis runs:
+- V3 (BaseBatch JSONB codec) — fix immediately, no gate
+- V1 (equity_regime_model expanding rank look-ahead bias) — fix then rerun corpus steps 4b-6
+- After rerun: IC validation analysis, IC calibration constants for V2, HMM Numba JIT
+
+**Plan:** `docs/plans/2026-06-28-validity-fixes-and-phase-141.md` (Tasks 1-10)
 
 ## v3.0 Phase Summary (SHIPPED 2026-06-25)
 
