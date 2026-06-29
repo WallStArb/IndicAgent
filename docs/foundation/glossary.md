@@ -835,6 +835,106 @@ A monotonically increasing integer that identifies a specific set of ensemble we
 
 ---
 
+## AlphaEngine Functional Layer Vocabulary
+
+Generic names for the functional slots within Layer 1 (Prediction). Each slot has a
+current implementation; the generic name survives if the implementation changes. Use
+these terms in design docs, todos, and discussion -- not the specific formula name --
+so that "we use HMM and a Hamilton switcher for regime classification" is a statement
+about one slot, not two different things.
+
+---
+
+### `feature computation`
+
+The functional slot that transforms raw OHLCV bars into a typed vector of observable
+quantities for a single (symbol, tf, bar). Runs on the hot path on every bar.
+
+**Current implementation:** `FeatureFactory` (54 features, I1-I4 cadence tiers)
+**Output:** `FeatureVector` → `feature_vectors` table
+**Not:** a storage or transport concern. Feature computation is pure transformation --
+input is a bar, output is a vector. No DB reads, no Kafka.
+
+---
+
+### `regime classifier`
+
+The functional slot that assigns each bar a discrete market context label used to
+condition all downstream predictive measurement. A regime classifier consumes
+`feature_vectors` (or raw OHLCV) and writes a label per (symbol, tf, bar_ts).
+
+Multiple regime classifiers can coexist, each producing an independent stratification
+dimension. The IC engine can be run stratified by any combination.
+
+**Current implementations:**
+- Per-symbol HMM (`regime_writer.py`) → `feature_vectors.regime` (5 labels)
+- Cross-sectional equity model (`equity_regime_model.py`) → `market_regimes` (9 labels)
+
+**Not:** a synonym for `regime` (the label output). The regime classifier is the
+process; `regime` is the result.
+
+---
+
+### `predictive measurement`
+
+The functional slot that measures whether each feature in the FeatureVector predicts
+forward returns, across regimes, timeframes, and lookahead windows. Produces a scored
+record per (feature, symbol, tf, regime, lookahead) that quantifies predictive strength
+and statistical confidence.
+
+Multiple predictive measurement methods can coexist, each capturing a different aspect
+of the feature-return relationship.
+
+**Current implementation:** Spearman IC (`ic_engine.py`) → `feature_ic_scores`
+**Planned additions:** Mutual Information (`feature_mi_scores`), R²_OOS (column on
+`feature_ic_scores`), IC decay curve (`feature_decay_profiles`) -- see todo 029
+**Not:** a synonym for IC. IC is one predictive measurement method; the slot can hold
+others. Say "the predictive measurement layer" when the statement applies regardless
+of which method is used.
+
+---
+
+### `ensemble optimizer`
+
+The functional slot that derives a weight vector from the history of predictive
+measurement scores, producing a covariance-adjusted weight per feature that maximizes
+expected portfolio IR subject to constraints. Runs on a batch schedule (weekly or
+nightly) whenever new IC scores are available.
+
+**Current implementation:** Ledoit-Wolf shrinkage on IC Sharpe time series
+(`ensemble_builder` batch service) → `ensemble_weights`
+**Not:** the scorer (which applies weights). The ensemble optimizer derives weights;
+the alpha scorer applies them.
+
+---
+
+### `alpha scorer`
+
+The functional slot that applies the current ensemble weight vector to each bar's
+FeatureVector, producing a scalar score per (symbol, tf, bar_ts). Runs nightly on the
+full `feature_vectors` history and in near-real-time on the hot path for live bars.
+
+**Current implementation:** IC-weighted rank-normalized linear combination, z-scored
+to standard deviation units → `ensemble_alpha.alpha_score`
+**Not:** the emitter (which filters scores above a threshold). The alpha scorer scores
+every bar; the alpha emitter selects which bars to act on.
+
+---
+
+### `alpha emitter`
+
+The functional slot that filters alpha scorer output and emits actionable events when
+the score crosses a threshold with sufficient statistical confidence. The boundary
+between Layer 1 (Prediction) and Layer 2 (Portfolio). Every emitted event is a
+hypothesis that a position should be opened.
+
+**Current implementation:** `alpha_score > threshold[symbol][tf][regime] AND
+ci_lower > 0` → `alpha_events` table
+**Not:** a trading decision. The alpha emitter says "a score crossed threshold"; the
+Portfolio layer (Layer 2) decides whether and how much to trade.
+
+---
+
 ## See Also
 
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names
