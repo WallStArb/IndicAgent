@@ -1442,7 +1442,7 @@ Every (symbol, tf, regime) cell that produces an IC score must meet `n_independe
 **CORPUS-07 — I7→feature dimension mapping:**
 For each active I7 plugin, identify which dimensions in `feature_vectors` encode the same information (e.g., `trad_BreakoutSetup` → `{momentum_z_fast, volume_rank_z, vol_regime}`). Document as `docs/analysis/i7-feature-mapping.json`. This mapping is the input to Phase 143.5 retirement decisions: plugins whose constituent features show no IC are retired rather than converted to alpha scorers. Mappings that are ambiguous (>5 features or cross-cutting logic) flag the plugin as a candidate for direct IC measurement.
 
-**Plans:** 3 plans (Wave 1: audit script + OOS split + per-regime obs floor APR key; Wave 2: null model baseline on OOS + IC discovery report + decision tree; Wave 3: I7→feature mapping documentation)
+**Plans:** 1/4 plans executed
 
 ---
 
