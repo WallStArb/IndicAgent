@@ -648,6 +648,8 @@ def _compute_symbol_tf(
             SELECT bar_ts, regime, {feature_cols}
             FROM feature_vectors
             WHERE symbol = %s AND tf = %s AND bar_ts <= %s
+              AND EXTRACT(ISODOW FROM bar_ts AT TIME ZONE 'America/New_York') IN (1,2,3,4,5)
+              AND EXTRACT(HOUR FROM bar_ts AT TIME ZONE 'America/New_York') BETWEEN 10 AND 15
             ORDER BY bar_ts
         """
         # Stream rows from cursor to avoid materialising all 469K psycopg2 tuples at once.
@@ -1011,11 +1013,13 @@ def _compute_symbol_tf(
                 AND cf.feature_name = %(feature_name)s
                 AND cf.symbol = ''
             INNER JOIN forward_returns fr
-                ON fv.symbol = fr.symbol AND fv.tf = fr.tf AND fv.bar_ts = fr.bar_ts
+                ON fv.symbol = fr.symbol AND fv.tf = fr.tf AND fv.bar_ts = fv.bar_ts
                 AND fr.return_type = 'executable_open_to_open'
             WHERE fv.symbol = %(symbol)s
               AND fv.tf = %(tf)s
               AND fv.bar_ts <= %(training_window_end)s
+              AND EXTRACT(ISODOW FROM fv.bar_ts AT TIME ZONE 'America/New_York') IN (1,2,3,4,5)
+              AND EXTRACT(HOUR FROM fv.bar_ts AT TIME ZONE 'America/New_York') BETWEEN 10 AND 15
             ORDER BY DATE(fv.bar_ts), fv.bar_ts ASC
         """
 
@@ -1369,6 +1373,8 @@ def _compute_cross_sectional_tf(
             AND fr.return_type = 'executable_open_to_open'
         WHERE fv.tf = %(tf)s
           AND fv.bar_ts = ANY(%(ts_chunk)s)
+          AND EXTRACT(ISODOW FROM fv.bar_ts AT TIME ZONE 'America/New_York') IN (1,2,3,4,5)
+          AND EXTRACT(HOUR FROM fv.bar_ts AT TIME ZONE 'America/New_York') BETWEEN 10 AND 15
         ORDER BY fv.bar_ts
     """
 
