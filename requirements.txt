@@ -58,6 +58,7 @@ mypy>=1.19.0
 # pandas-ta is test-only (indicator correctness reference oracle). Install separately:
 #   uv pip install pandas-ta --no-deps
 # It pins numba==0.61.2 which conflicts with numpy>=2.4; --no-deps bypasses this.
+numba>=0.65.0
 pytest>=8.4.0
 pytest-asyncio>=1.1.0
 ruff>=0.15.0
