@@ -1323,8 +1323,23 @@ def _compute_cross_sectional_tf(
         ORDER BY fv.bar_ts
     """
 
-    with conn.cursor() as cur:
-        cur.execute(
+    # Use a server-side (named) cursor to stream the cross-sectional join in batches.
+    # A regular client-side cursor with fetchall() materialises the full result in Python
+    # memory before numpy conversion: for 5m/low_bull (120K timestamps × 58 symbols = 6.97M
+    # rows × 70 fields × ~28 bytes/Python-object ≈ 14 GB peak). Named cursors keep the
+    # result set on the PostgreSQL server and deliver it in itersize-row batches, capping
+    # Python peak memory to ~50K × 70 × 28 bytes ≈ 100 MB per batch.
+    # Rule 3 auto-fix: blocking OOM for large regimes (low_bull, mid_bull in 5m TF).
+    _CS_FETCH_BATCH = 50_000
+    n_scales = len(_SCALES)
+
+    X_chunks: list[np.ndarray] = []
+    ret_chunks: list[np.ndarray] = []
+    cmp_chunks: list[np.ndarray] = []
+
+    with conn.cursor(f"_cs_{tf}_{regime_label}") as cs_cur:
+        cs_cur.itersize = _CS_FETCH_BATCH
+        cs_cur.execute(
             cs_sql,
             {
                 "tf": tf,
@@ -1333,9 +1348,25 @@ def _compute_cross_sectional_tf(
                 "training_window_end": training_window_end,
             },
         )
-        cs_rows = cur.fetchall()
+        while True:
+            batch = cs_cur.fetchmany(_CS_FETCH_BATCH)
+            if not batch:
+                break
+            n_batch = len(batch)
+            X_chunks.append(
+                np.array([[r[i + 1] for i in range(n_features)] for r in batch], dtype=float)
+            )
+            ret_chunk = np.full((n_batch, n_scales), np.nan)
+            cmp_chunk = np.zeros((n_batch, n_scales), dtype=bool)
+            for i, row in enumerate(batch):
+                for j in range(n_scales):
+                    val = row[1 + n_features + j]
+                    ret_chunk[i, j] = val if val is not None else np.nan
+                    cmp_chunk[i, j] = bool(row[1 + n_features + n_scales + j])
+            ret_chunks.append(ret_chunk)
+            cmp_chunks.append(cmp_chunk)
 
-    if not cs_rows:
+    if not X_chunks:
         _logger.info(
             "ic_engine.cross_sectional_no_data",
             tf=tf,
@@ -1343,19 +1374,13 @@ def _compute_cross_sectional_tf(
         )
         return {"n_committed": 0, "n_skipped": 0, "all_results": []}
 
-    n_raw = len(cs_rows)
-    n_scales = len(_SCALES)
-
-    # Build feature matrix [n_raw, n_features] and returns/complete [n_raw, n_scales]
-    X_raw = np.array([[r[i + 1] for i in range(n_features)] for r in cs_rows], dtype=float)
-    returns_mat = np.full((n_raw, n_scales), np.nan)
-    complete_mat = np.zeros((n_raw, n_scales), dtype=bool)
-    for i, row in enumerate(cs_rows):
-        for j in range(n_scales):
-            returns_mat[i, j] = (
-                row[1 + n_features + j] if row[1 + n_features + j] is not None else np.nan
-            )
-            complete_mat[i, j] = bool(row[1 + n_features + n_scales + j])
+    X_raw = np.vstack(X_chunks)
+    del X_chunks
+    returns_mat = np.vstack(ret_chunks)
+    del ret_chunks
+    complete_mat = np.vstack(cmp_chunks)
+    del cmp_chunks
+    n_raw = len(X_raw)
 
     # Degenerate feature detection
     feature_stds = np.std(X_raw, axis=0)
