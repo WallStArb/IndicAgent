@@ -68,11 +68,6 @@ async def compute_null_model_baseline():
         print("This implementation uses in-sample IC statistics as a proxy.")
         print("For production, implement forward_returns join on OOS subset.")
 
-        print("\n--- Placeholder Results ---")
-        print("null_ic_sharpe: 0.35 (equal-weight proxy)")
-        print("weighted_ic_sharpe: 0.42 (IC-weighted proxy)")
-        print("advantage: 0.07")
-        print("PASS: advantage > 0.1? NO (0.07 < 0.1)")
         print("\n--- OOS Boundary ---")
         print(f"OOS_START: {OOS_START}")
         print(f"OOS bar count: {oos_bars}")

@@ -75,25 +75,14 @@ def alpha_pass_jit(
         log_alpha_new = log_alpha_new + log_emit[t]
 
         # Normalise in log space then exponentiate
-        max_la = log_alpha_new[0]
-        for j in range(1, K):
-            if log_alpha_new[j] > max_la:
-                max_la = log_alpha_new[j]
-
+        max_la = np.max(log_alpha_new)
         alpha = np.exp(log_alpha_new - max_la)
-        total = 0.0
-        for j in range(K):
-            total += alpha[j]
+        total = np.sum(alpha)
         if total > 0.0:
-            for j in range(K):
-                alpha[j] /= total
+            alpha /= total
 
         # Argmax
-        best = 0
-        for j in range(1, K):
-            if alpha[j] > alpha[best]:
-                best = j
-        states[t] = best
+        states[t] = np.argmax(alpha)
         alpha_history[t] = alpha
 
     return states, alpha_history
