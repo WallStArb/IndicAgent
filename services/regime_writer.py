@@ -276,6 +276,10 @@ def _alpha_pass(
     return states, alpha_history
 
 
+# Backward-compat alias — function was renamed from _causal_decode to _alpha_pass
+_causal_decode = _alpha_pass
+
+
 def _smooth_states(raw_states: np.ndarray, min_hold: int) -> np.ndarray:
     """Minimum holding-period smoother. Requires min_hold consecutive bars of the same
     new state before confirming a transition. Causal — no look-ahead."""
