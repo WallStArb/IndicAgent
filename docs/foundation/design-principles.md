@@ -240,6 +240,20 @@ Docs are verified against the codebase. Stale docs are worse than no docs. If th
 
 ## Decision Heuristics
 
+### 5-Step Pre-Flight (Musk Sequencing Mandate)
+
+Run in order before committing to any design. Each step exposes waste the next would compound. Do not skip ahead.
+
+1. **Are requirements less dumb?** Every requirement is wrong until it earns its place. Assign a person, not a department. Apply ABC: Assume Nothing, Be Curious, Confirm the Important. Revisit as the product evolves.
+2. **What can be deleted?** If you removed nothing, you didn't look hard enough. If you're not adding things back 10% of the time, you're not deleting enough.
+3. **Is what remains simplified?** *"The most common error of a smart engineer is to optimize a thing that should not exist."* Only optimize what survived deletion — and do it holistically.
+4. **Are you moving in the right direction?** *"If you're digging your grave, don't dig faster."* Speed only helps after steps 1-3.
+5. **Is automation earned?** Automate last. Automating an unvalidated process enshrines its waste permanently.
+
+Full doc: `docs/foundation/musk-5-step-process.md`
+
+### Architectural Checks
+
 When making architectural decisions, ask these questions. If the answer is "no" to any, reconsider.
 
 1. **Survivability:** Would this survive 10x data volume without redesign?
