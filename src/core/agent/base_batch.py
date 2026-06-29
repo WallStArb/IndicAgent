@@ -22,6 +22,7 @@ import time
 import asyncpg
 import structlog
 
+from src.core.database_manager import create_pool
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 
@@ -120,9 +121,16 @@ class BaseBatch(abc.ABC):
     # -----------------------------------------------------------------------
 
     async def _setup_pool(self) -> None:
-        """Open asyncpg connection pool (min=2, max=10)."""
-        self._pool = await asyncpg.create_pool(
+        """Open asyncpg connection pool with JSONB codecs and pool metrics.
+
+        Delegates to database_manager.create_pool which registers the JSONB codec
+        (encoder=json.dumps, decoder=json.loads) and emits DB_POOL_SIZE / DB_POOL_IDLE
+        gauge increments atomically. Never call bare asyncpg.create_pool here — it
+        skips codec registration and causes silent JSONB encode/decode failures.
+        """
+        self._pool = await create_pool(
             self._db_dsn,
+            pool_name=self.job_name,
             min_size=1,
             max_size=10,
         )

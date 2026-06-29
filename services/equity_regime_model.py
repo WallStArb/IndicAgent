@@ -39,7 +39,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
+import math
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -74,6 +76,27 @@ _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 _REALIZED_VOL_WINDOW = 20  # rolling std of log-returns for VIX proxy
 _VIX_Z_WINDOW = 252  # rolling mean/std for VIX z-score normalization
 _MA_WINDOW = 200  # 200MA window for breadth signal
+
+# Trading-session bars per daily bar — used to scale daily window parameters.
+# 1d is already in daily bars; 1h: 6.5h/day (NYSE); 15m: 26 bars/day; 5m: 78 bars/day.
+_BARS_PER_DAY: dict[str, int] = {
+    "1d": 1,
+    "1h": 7,  # rounded: 6.5 → 7 for conservative warmup
+    "15m": 26,
+    "5m": 78,
+}
+
+
+def _tf_window(daily_window: int, tf: str) -> int:
+    """Convert a daily-bar window count to the equivalent bar count for a given TF.
+
+    Examples:
+        _tf_window(200, '5m')  → 200 * 78 = 15600
+        _tf_window(252, '1h')  → 252 * 7  = 1764
+        _tf_window(20, '1d')   → 20
+    """
+    bars_per_day = _BARS_PER_DAY.get(tf, 1)
+    return daily_window * bars_per_day
 
 
 # ---------------------------------------------------------------------------
@@ -158,24 +181,76 @@ def _compute_tf_regimes(params: dict) -> list[tuple]:
 # ---------------------------------------------------------------------------
 
 
-def _compute_vix_pct_rank(spy_ts: list, spy_close: list[float]) -> pd.Series:
+def _compute_vix_pct_rank(
+    spy_ts: list,
+    spy_close: list[float],
+    tf: str = "1d",
+    rv_window_days: int = _REALIZED_VOL_WINDOW,
+    z_window_days: int = _VIX_Z_WINDOW,
+) -> pd.Series:
     """Compute SPY realized-vol z-score percentile rank over full corpus history.
 
     Returns a pd.Series indexed by spy_ts with NaN for warmup bars.
     Uses .rank(pct=True) over the full vix_z series — O(n log n), fast.
+
+    Parameters
+    ----------
+    spy_ts:
+        Timestamps aligned to SPY bars for the given TF.
+    spy_close:
+        SPY close prices aligned to spy_ts.
+    tf:
+        Timeframe string (e.g. '5m', '1h', '1d'). Used to scale daily window
+        parameters into TF-equivalent bar counts via _tf_window().
+    rv_window_days:
+        Rolling window in daily bars for realized vol (log-return std).
+        Scaled to TF bars internally.
+    z_window_days:
+        Rolling window in daily bars for VIX z-score normalization.
+        Scaled to TF bars internally.
     """
+    rv_window = _tf_window(rv_window_days, tf)
+    z_window = _tf_window(z_window_days, tf)
     spy_s = pd.Series(spy_close, index=spy_ts, dtype=float)
     spy_log_ret = np.log(spy_s / spy_s.shift(1))
-    realized_vol = spy_log_ret.rolling(
-        window=_REALIZED_VOL_WINDOW, min_periods=_REALIZED_VOL_WINDOW
-    ).std()
-    rv_mean = realized_vol.rolling(window=_VIX_Z_WINDOW, min_periods=_VIX_Z_WINDOW).mean()
-    rv_std = realized_vol.rolling(window=_VIX_Z_WINDOW, min_periods=_VIX_Z_WINDOW).std()
+    realized_vol = spy_log_ret.rolling(window=rv_window, min_periods=rv_window).std()
+    rv_mean = realized_vol.rolling(window=z_window, min_periods=z_window).mean()
+    rv_std = realized_vol.rolling(window=z_window, min_periods=z_window).std()
     vix_z = (realized_vol - rv_mean) / rv_std.where(rv_std > 1e-10)
-    return vix_z.rank(pct=True, na_option="keep")
+
+    # Causal bisect-based expanding rank (no look-ahead bias).
+    # Each position's rank is computed against all PRIOR valid values only.
+    # NaN guard: skip NaN values (do not insert into window — preserves bisect sort invariant).
+    # Tie handling: average rank = (bisect_left + bisect_right) / 2 / n.
+    #   Two equal values produce rank 0.5 (matches pandas 'average' tie behavior).
+    sorted_window: list[float] = []  # sorted; never contains NaN
+    causal_ranks: list[float] = []
+
+    for val in vix_z:
+        if math.isnan(val):
+            # NaN input -> NaN output; do NOT insert into window
+            causal_ranks.append(float("nan"))
+            continue
+
+        if not sorted_window:
+            # First valid value: rank 1.0 (it's both min and max of a 1-element set)
+            bisect.insort(sorted_window, val)
+            causal_ranks.append(1.0)
+            continue
+
+        # Rank against PRIOR window (causal: insert AFTER computing)
+        left = bisect.bisect_left(sorted_window, val)
+        right = bisect.bisect_right(sorted_window, val)
+        rank = (left + right) / 2 / len(sorted_window)
+        bisect.insort(sorted_window, val)
+        causal_ranks.append(rank)
+
+    return pd.Series(causal_ranks, index=spy_ts, dtype=float)
 
 
-def _compute_breadth_fraction(dsn: str, tf: str, spy_ts: list) -> pd.Series:
+def _compute_breadth_fraction(
+    dsn: str, tf: str, spy_ts: list, ma_window_days: int = _MA_WINDOW
+) -> pd.Series:
     """Compute cross-sectional breadth: fraction of equity ETFs above 200MA.
 
     Opens a FRESH connection per call to avoid idle-connection termination between
@@ -222,12 +297,14 @@ def _compute_breadth_fraction(dsn: str, tf: str, spy_ts: list) -> pd.Series:
     sym_ts: list = []
     sym_close: list = []
 
+    ma_window = _tf_window(ma_window_days, tf)
+
     def _process_sym(sym: str, ts_list: list, close_list: list) -> None:
-        if len(ts_list) < _MA_WINDOW:
+        if len(ts_list) < ma_window:
             return
         s = pd.Series(close_list, index=ts_list, dtype=float)
-        ma200 = s.rolling(window=_MA_WINDOW, min_periods=_MA_WINDOW).mean()
-        above_ma = (s > ma200).where(ma200.notna()).astype(float)
+        ma_series = s.rolling(window=ma_window, min_periods=ma_window).mean()
+        above_ma = (s > ma_series).where(ma_series.notna()).astype(float)
         above_ma_by_sym[sym] = above_ma.rename(sym)
 
     for sym, ts, close in rows:
@@ -328,6 +405,9 @@ def main() -> None:
         vix_high_pct = float(cfg.get_sync("alpha.regime.vix_high_pct", 0.67))
         breadth_bear = float(cfg.get_sync("alpha.regime.breadth_bear", 0.40))
         breadth_bull = float(cfg.get_sync("alpha.regime.breadth_bull", 0.60))
+        realized_vol_window = int(cfg.get_sync("alpha.regime.realized_vol_window", 20))
+        vix_z_window = int(cfg.get_sync("alpha.regime.vix_z_window", 252))
+        ma_window_days = int(cfg.get_sync("alpha.regime.ma_window", 200))
 
         _logger.info(
             "equity_regime_model.apr_loaded",
@@ -335,6 +415,9 @@ def main() -> None:
             vix_high_pct=vix_high_pct,
             breadth_bear=breadth_bear,
             breadth_bull=breadth_bull,
+            realized_vol_window=realized_vol_window,
+            vix_z_window=vix_z_window,
+            ma_window_days=ma_window_days,
         )
 
         tfs = args.tf
@@ -354,13 +437,21 @@ def main() -> None:
                 continue
 
             # Compute VIX proxy percentile rank (fast, SPY only)
-            vix_pct_rank = _compute_vix_pct_rank(spy_ts, spy_close)
+            vix_pct_rank = _compute_vix_pct_rank(
+                spy_ts,
+                spy_close,
+                tf=tf,
+                rv_window_days=realized_vol_window,
+                z_window_days=vix_z_window,
+            )
 
             _logger.info("equity_regime_model.vix_computed", tf=tf, spy_bars=len(spy_ts))
 
             # Compute breadth fraction (slow: fetches all ETF bars for this TF)
             # Uses a fresh connection per TF to avoid server-side idle termination
-            breadth_fraction = _compute_breadth_fraction(dsn, tf, spy_ts)
+            breadth_fraction = _compute_breadth_fraction(
+                dsn, tf, spy_ts, ma_window_days=ma_window_days
+            )
 
             _logger.info("equity_regime_model.breadth_computed", tf=tf)
 
