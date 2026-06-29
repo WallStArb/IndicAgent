@@ -1439,8 +1439,6 @@ For features surviving BH-FDR, IC Sharpe across walk-forward folds must not osci
 **CORPUS-06 — Per-regime observation floor:**
 Every (symbol, tf, regime) cell that produces an IC score must meet `n_independent_obs >= alpha.ic.min_obs_per_regime` (APR, initial: 3000 `[initial_estimate]`). IC scores from minority-regime cells below this floor are excluded from the meta-FDR gate and ensemble weighting regardless of p-value — Spearman IC Sharpe on fewer than ~3K independent observations is too noisy to survive BH-FDR meaningfully. APR key inserted in Phase 141 migration. Cross-sectional regime labels from Phase 140.5 P4 make this floor easier to satisfy by pooling observations across symbols.
 
-**CORPUS-07 — I7→feature dimension mapping:**
-For each active I7 plugin, identify which dimensions in `feature_vectors` encode the same information (e.g., `trad_BreakoutSetup` → `{momentum_z_fast, volume_rank_z, vol_regime}`). Document as `docs/analysis/i7-feature-mapping.json`. This mapping is the input to Phase 143.5 retirement decisions: plugins whose constituent features show no IC are retired rather than converted to alpha scorers. Mappings that are ambiguous (>5 features or cross-cutting logic) flag the plugin as a candidate for direct IC measurement.
 
 **Plans:** 1/4 plans executed
 
@@ -1556,17 +1554,17 @@ IC engine runs weekly. Decay monitor runs daily. Contract: decay monitor reads r
 
 **Goal:** For plugins with confirmed marginal IC beyond feature_vectors, convert from binary emitters to continuous alpha scorers (`alpha_score = raw_confidence × direction` every bar, no fire/no-fire decision). This is the structural prerequisite for Phase 144's retirement gate: a binary v2.x signal vs. a continuous v3.0 alpha score cannot be compared on outcome quality — the comparison surface requires both systems to produce continuous scores.
 
-**Depends on:** Phase 143 complete. Phase 141 CORPUS-07 evaluated (hard gate — do not plan this phase before CORPUS-07 results are in hand). Todo 007 comparison protocol informs final plugin disposition.
+**Depends on:** Phase 143 complete. Todo 007 comparison protocol informs final plugin disposition.
 
 **Design doc:** `docs/plans/2026-06-20-i7-alpha-scorer-transition.md` (canonical — read before planning)
 
 **Requirements:**
 
 **I7-01 — Plugin emission layer removal + IC-informed retirement decisions:**
-Read the I7→feature mapping from `docs/analysis/i7-feature-mapping.json` (Phase 141 CORPUS-07) and IC discovery results from Phase 141 CORPUS-04. For each plugin apply one of three outcomes:
+For each active I7 plugin, analyze which dimensions in `feature_vectors` encode the same information (by inspecting plugin code directly during this phase) and combine with IC discovery results from Phase 141 CORPUS-04. For each plugin apply one of three outcomes:
 - **Retire (default):** Plugin's constituent dimensions are fully captured in `feature_vectors` OR no constituent feature has confirmed IC. Mark `status='deprecated'` in `shadow_registry`, add retirement reason to `config_history`. This should be the outcome for the majority of plugins.
 - **Convert to alpha scorer (exception):** Plugin has confirmed IC on dimensions NOT present in `feature_vectors` — plugin introduces genuinely new information. Replace `if confidence > threshold: emit` with `alpha_score = confidence × direction` computed every bar. No emission decision in the plugin — emission is solely the ensemble's responsibility.
-- **Direct IC measurement (ambiguous):** Mapping is ambiguous (>5 constituent features or cross-cutting logic). Treat the plugin's continuous output as a candidate feature and measure its IC directly via the IC engine before deciding. Default to alpha scorer mode during evaluation.
+- **Direct IC measurement (ambiguous):** Plugin logic is ambiguous (>5 constituent features or cross-cutting logic). Treat the plugin's continuous output as a candidate feature and measure its IC directly via the IC engine before deciding. Default to alpha scorer mode during evaluation.
 Only plugins in the second or third category justify conversion infrastructure. If all fall in the first, Phase 143.5 is retirement-only — no adapter, no mixing weights, no I7 emission layer changes beyond flagging deprecated.
 
 **I7-02 — signal_events enrichment:**

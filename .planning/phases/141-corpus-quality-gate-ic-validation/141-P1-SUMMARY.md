@@ -34,7 +34,6 @@ key-files:
   created:
     - docs/analysis/corpus-01-feature-audit.md
     - docs/analysis/ic-validation-report-58sym.md
-    - docs/analysis/i7-feature-mapping.json
     - scripts/analysis/run_corpus_01_audit_fixed.sh
     - scripts/analysis/null_model_baseline.py (placeholder)
   modified:
@@ -93,7 +92,6 @@ completed: 2026-06-29
 
 - `docs/analysis/corpus-01-feature-audit.md` - Per-feature variance/NaN/cliff audit table
 - `docs/analysis/ic-validation-report-58sym.md` - Full IC validation report with gate assessment
-- `docs/analysis/i7-feature-mapping.json` - I7 plugin to feature_vectors dimension mapping
 - `scripts/analysis/run_corpus_01_audit_fixed.sh` - SQL-based feature audit script
 - `scripts/analysis/null_model_baseline.py` - Placeholder for CORPUS-03 implementation
 - `config_state.alpha.validation.oos_start` - OOS holdout boundary (2025-12-24T05:15:00Z)

@@ -1,7 +1,8 @@
 # HMM Regime Audit & Optimization Plan
 
 Date: 2026-06-28
-Status: OPEN
+Updated: 2026-06-29
+Status: OPEN — P0-P3 ready to implement; P4a/P4b GATED (see P4 section)
 
 Covers both the per-symbol HMM (`services/regime_writer.py`) and the cross-sectional regime model (`services/equity_regime_model.py`). Findings are ranked by impact; correctness bugs first, then model quality, then calibration.
 
@@ -76,23 +77,35 @@ Covers both the per-symbol HMM (`services/regime_writer.py`) and the cross-secti
 
 ---
 
-### P4 - Future / Phase 2
+### P4 - Future / Gated on Empirical Proof
 
-**9. Rolling HMM refit to eliminate parameter look-ahead bias (todo 023)**
+**Status (2026-06-29):** DEFERRED. A rolling refit pilot was built and killed before writing to production. When we went to measure whether improvement was needed, `feature_ic_scores` was empty. No baseline = no proof of a problem. Do not implement P4a or P4b until all four gates below are satisfied.
+
+**Gates (ALL required):**
+1. `feature_ic_scores` is populated
+2. Current regime labels show poor IC separation (trending_up IC ≈ trending_down IC, gap < 0.01)
+3. Root cause analysis confirms parameter bias is the driver (not regime irrelevance)
+4. Rolling refit pilot shows ≥10% IC improvement (shadow mode, p < 0.05)
+
+**If any gate fails → drop P4a and P4b entirely.**
+
+**9. Rolling HMM refit to eliminate parameter look-ahead bias**
 - File: `services/regime_writer.py` -- `_compute_symbol_tf()`
 - Issue: HMM is fit on full available history then causally decoded. The forward-filter is correct, but emission parameters and transition matrix were estimated using future data relative to any training bar. This is parameter look-ahead bias distinct from the causal decoding issue.
 - Option A: Growing window refit -- fit on all data up to bar T, decode only bar T. True walk-forward. ~N fits per (symbol, tf). Prohibitively slow at scale.
 - Option B: Fixed 3-year rolling window, annual step. ~15 fits per cell, ~3,480 total fits. Estimated 3-6 hours even with workers. **Recommended.**
-- Gate: Requires Numba JIT (P0) first to be feasible. Full corpus re-run required after. APR keys: `alpha.hmm.rolling_window_bars`, `alpha.hmm.rolling_step_bars`.
+- Infrastructure already done: migration 184 adds `feature_vectors.regime_rolling` column. Pilot code was deleted 2026-06-29 -- rebuild from scratch if gates pass.
+- APR keys: `alpha.hmm.rolling_window_bars`, `alpha.hmm.rolling_step_bars`.
 
 **10. Scaler look-ahead in per-symbol HMM**
 - File: `services/regime_writer.py:375`
-- Issue: `scaler.fit_transform(obs_matrix)` uses full-history statistics to normalize early bars. This is a subtle look-ahead bias. For a batch historical corpus the impact is small (scaler is approximately stationary over long horizons) but it is not strictly causal.
-- Fix: Expanding StandardScaler -- fit on obs[0:t] for each t, transform obs[t]. Expensive but correct. Defer until the simpler fixes are validated.
+- Issue: `scaler.fit_transform(obs_matrix)` uses full-history statistics to normalize early bars. Subtle look-ahead bias; impact is likely small (scaler is approximately stationary over long horizons) but not strictly causal.
+- Fix: Expanding StandardScaler -- fit on obs[0:t] for each t, transform obs[t]. Expensive but correct.
+- Gate: ONLY after P4a validates. If P4a shows no IC improvement, P4b is not worth pursuing.
 
 **11. Per-symbol HMMs ignore cross-asset correlation**
-- Issue: SPY and QQQ regimes are ~90% correlated but are fit completely independently. A panel HMM or shared latent factor would use cross-asset information to improve state estimation.
-- Fix: Probabilistic: low value for single-name regime labeling (correlations are already captured by the cross-sectional model). Defer indefinitely unless IC validation shows strong residual signal.
+- Issue: SPY and QQQ regimes are ~90% correlated but are fit completely independently.
+- Fix: Low value -- correlations are already captured by the cross-sectional model. Defer indefinitely unless IC validation shows strong residual signal.
 
 ---
 
