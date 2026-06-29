@@ -37,7 +37,7 @@ SELECT 'alpha_events',      count(*) FROM alpha_events
 ORDER BY table_name;"
 
 echo
-read -r -p "Truncate all six tables? This cannot be undone. [y/N] " confirm
+read -r -p "Truncate all seven tables and re-seed backfill_status? This cannot be undone. [y/N] " confirm
 if [[ "${confirm,,}" != "y" ]]; then
     echo "Aborted."
     exit 0
@@ -53,6 +53,19 @@ psql -c "TRUNCATE feature_ic_scores;" && echo "  - feature_ic_scores: done"
 psql -c "TRUNCATE forward_returns;"   && echo "  - forward_returns: done"
 psql -c "TRUNCATE feature_vectors;"   && echo "  - feature_vectors: done"
 psql -c "TRUNCATE backfill_status;"   && echo "  - backfill_status: done"
+
+# Re-seed backfill_status from market_data_ohlcv so --compute-only can run immediately.
+# fetch_complete=true tells the factory the OHLCV data is already present (it is — we kept it).
+# status='pending' (not 'complete') allows compute to proceed; 'complete' would be skipped.
+echo
+echo "Re-seeding backfill_status from market_data_ohlcv..."
+SEED_ROWS=$(psql -tAc "
+INSERT INTO backfill_status (symbol, tf, status, fetch_complete)
+SELECT DISTINCT symbol, timeframe, 'pending', true
+FROM market_data_ohlcv
+ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true, status = 'pending';
+SELECT COUNT(*) FROM backfill_status;")
+echo "  - backfill_status seeded: $SEED_ROWS rows"
 
 echo
 echo "Verifying..."

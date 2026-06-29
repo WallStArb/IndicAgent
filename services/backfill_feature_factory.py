@@ -1001,12 +1001,16 @@ def _compute_symbol_tf(
 
     # Market calendar for trading day filtering (Renaissance: filter at source)
     calendar = get_market_calendar()
-    # ETFs trade on NYSE/NASDAQ/ARCA with identical hours — use NYSE as canonical
-    exchange = "NYSE"
+    exchange = "NYSE"  # ETFs trade on NYSE/NASDAQ/ARCA with identical hours
 
     for bar_ts, fv in batch_results:
-        # Renaissance principle: Delete noise at source, don't filter at query time
-        if not calendar.is_trading_minute(exchange, bar_ts, phase="regular"):
+        # Daily bars are timestamped at midnight UTC; their UTC date == the trading date.
+        # Intraday bars use the UTC timestamp directly against session open/close bounds.
+        if tf == "1d":
+            is_valid = calendar.is_trading_day(exchange, bar_ts.date())
+        else:
+            is_valid = calendar.is_trading_minute(exchange, bar_ts)
+        if not is_valid:
             skipped_non_trading += 1
             continue
 
