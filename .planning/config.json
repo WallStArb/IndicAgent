@@ -15,7 +15,6 @@
   "granularity": "standard",
   "review": {
     "default_reviewers": [
-      "gemini",
       "codex"
     ],
     "ollama_host": "http://127.0.0.1:11499"
