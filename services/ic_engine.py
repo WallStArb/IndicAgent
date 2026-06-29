@@ -118,14 +118,6 @@ _POOLED_REGIME_SENTINEL = "_pooled"
 # Default TFs if not passed via --tf
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 
-# TF string to PostgreSQL interval string, used with time_bucket() in cross-sectional JOIN on market_regimes.
-TF_TO_INTERVAL: dict[str, str] = {
-    "5m": "5 minutes",
-    "15m": "15 minutes",
-    "1h": "1 hour",
-    "1d": "1 day",
-}
-
 # Cross-sectional symbol sentinel: used when symbol='POOLED' (all 58 equity ETFs pooled).
 # feature_ic_scores.symbol is NOT NULL, so we use a string sentinel.
 _CROSS_SECTIONAL_SYMBOL = "POOLED"
@@ -278,6 +270,9 @@ def _load_apr(conn: Any, tf: str) -> dict[str, Any]:
         # Newey-West HAC max lag for IC Sharpe autocorrelation correction (migration 177).
         # K=0 disables HAC (ic_sharpe_hac == ic_sharpe).
         "hac_max_lag": int(cfg.get_sync("alpha.ic.hac_max_lag", 3)),
+        # Cross-sectional timestamp chunk size (migration 183): regime timestamps per query.
+        # 5000 × 58 symbols ≈ 290K rows/query — avoids PG backend OOM on 3-way JOIN.
+        "cs_chunk_ts": int(cfg.get_sync("infra.ic_engine.cs_chunk_ts", 5000)),
     }
 
 
@@ -1299,72 +1294,103 @@ def _compute_cross_sectional_tf(
     cluster_max_corr = apr["cluster_max_corr"]
     n_features = len(_FEATURE_NAMES)
 
-    tf_interval = TF_TO_INTERVAL.get(tf, "5 minutes")
+    cs_chunk_ts: int = apr["cs_chunk_ts"]
 
     feature_cols = ", ".join(f'"fv"."{f}"' for f in _FEATURE_NAMES)
     return_cols = ", ".join(f'"fr".return_{s}' for s in _SCALES)
     complete_cols = ", ".join(f'"fr".complete_{s}' for s in _SCALES)
 
-    cs_sql = f"""
+    # Step 1: Pre-fetch regime timestamps.
+    # market_regimes has one row per (tf, ts, regime_label) -- e.g. 120K rows for
+    # 5m/low_bull over the full training window.  This result set is small (120K
+    # datetime objects) and fast to fetch.
+    with conn.cursor() as ts_cur:
+        ts_cur.execute(
+            """
+            SELECT ts FROM market_regimes
+            WHERE asset_class = 'equity'
+              AND tf = %(tf)s
+              AND regime_label = %(regime_label)s
+              AND ts <= %(training_window_end)s
+            ORDER BY ts
+            """,
+            {
+                "tf": tf,
+                "regime_label": regime_label,
+                "training_window_end": training_window_end,
+            },
+        )
+        regime_timestamps = [r[0] for r in ts_cur.fetchall()]
+    conn.commit()
+
+    if not regime_timestamps:
+        _logger.info(
+            "ic_engine.cross_sectional_no_data",
+            tf=tf,
+            regime=regime_label,
+        )
+        return {"n_committed": 0, "n_skipped": 0, "all_results": []}
+
+    # Step 2: Query feature_vectors+forward_returns in timestamp chunks.
+    # Replaces a 3-way JOIN (feature_vectors × market_regimes × forward_returns) that
+    # caused the PostgreSQL backend to OOM for large regimes:
+    #   5m/low_bull: 120K regime timestamps × 58 symbols = 7M rows in one query.
+    # Chunked approach: cs_chunk_ts timestamps × 58 symbols ≈ 290K rows/query at
+    # default cs_chunk_ts=5000.  Fits comfortably in PostgreSQL working memory.
+    # feature_vectors.bar_ts is TF-bucket-aligned, so bar_ts = ANY(ts_chunk) is
+    # equivalent to time_bucket(interval, bar_ts) = ANY(ts_chunk) and uses the index.
+    # Rule 3 auto-fix: blocking PostgreSQL backend OOM on 3-way JOIN.
+    chunk_sql = f"""
         SELECT fv.bar_ts, {feature_cols}, {return_cols}, {complete_cols}
         FROM feature_vectors fv
-        INNER JOIN market_regimes mr
-            ON mr.asset_class = 'equity'
-            AND mr.tf = %(tf)s
-            AND mr.ts = time_bucket(%(tf_interval)s::interval, fv.bar_ts)
-            AND mr.regime_label = %(regime_label)s
         INNER JOIN forward_returns fr
             ON fr.symbol = fv.symbol
             AND fr.tf = fv.tf
             AND fr.bar_ts = fv.bar_ts
             AND fr.return_type = 'executable_open_to_open'
         WHERE fv.tf = %(tf)s
-          AND fv.bar_ts <= %(training_window_end)s
+          AND fv.bar_ts = ANY(%(ts_chunk)s)
         ORDER BY fv.bar_ts
     """
 
-    # Use a server-side (named) cursor to stream the cross-sectional join in batches.
-    # A regular client-side cursor with fetchall() materialises the full result in Python
-    # memory before numpy conversion: for 5m/low_bull (120K timestamps × 58 symbols = 6.97M
-    # rows × 70 fields × ~28 bytes/Python-object ≈ 14 GB peak). Named cursors keep the
-    # result set on the PostgreSQL server and deliver it in itersize-row batches, capping
-    # Python peak memory to ~50K × 70 × 28 bytes ≈ 100 MB per batch.
-    # Rule 3 auto-fix: blocking OOM for large regimes (low_bull, mid_bull in 5m TF).
-    _CS_FETCH_BATCH = 50_000
     n_scales = len(_SCALES)
-
     X_chunks: list[np.ndarray] = []
     ret_chunks: list[np.ndarray] = []
     cmp_chunks: list[np.ndarray] = []
 
-    with conn.cursor(f"_cs_{tf}_{regime_label}") as cs_cur:
-        cs_cur.itersize = _CS_FETCH_BATCH
-        cs_cur.execute(
-            cs_sql,
-            {
-                "tf": tf,
-                "tf_interval": tf_interval,
-                "regime_label": regime_label,
-                "training_window_end": training_window_end,
-            },
-        )
-        while True:
-            batch = cs_cur.fetchmany(_CS_FETCH_BATCH)
-            if not batch:
-                break
-            n_batch = len(batch)
-            X_chunks.append(
-                np.array([[r[i + 1] for i in range(n_features)] for r in batch], dtype=float)
+    _logger.info(
+        "ic_engine.cross_sectional_chunk_pass",
+        tf=tf,
+        regime=regime_label,
+        n_regime_ts=len(regime_timestamps),
+        cs_chunk_ts=cs_chunk_ts,
+        n_chunks=(len(regime_timestamps) + cs_chunk_ts - 1) // cs_chunk_ts,
+    )
+
+    for chunk_start in range(0, len(regime_timestamps), cs_chunk_ts):
+        ts_chunk = regime_timestamps[chunk_start : chunk_start + cs_chunk_ts]
+        with conn.cursor() as chunk_cur:
+            chunk_cur.execute(
+                chunk_sql,
+                {"tf": tf, "ts_chunk": ts_chunk},
             )
-            ret_chunk = np.full((n_batch, n_scales), np.nan)
-            cmp_chunk = np.zeros((n_batch, n_scales), dtype=bool)
-            for i, row in enumerate(batch):
-                for j in range(n_scales):
-                    val = row[1 + n_features + j]
-                    ret_chunk[i, j] = val if val is not None else np.nan
-                    cmp_chunk[i, j] = bool(row[1 + n_features + n_scales + j])
-            ret_chunks.append(ret_chunk)
-            cmp_chunks.append(cmp_chunk)
+            batch = chunk_cur.fetchall()
+        conn.commit()
+        if not batch:
+            continue
+        n_batch = len(batch)
+        X_chunks.append(
+            np.array([[r[i + 1] for i in range(n_features)] for r in batch], dtype=float)
+        )
+        ret_chunk = np.full((n_batch, n_scales), np.nan)
+        cmp_chunk = np.zeros((n_batch, n_scales), dtype=bool)
+        for i, row in enumerate(batch):
+            for j in range(n_scales):
+                val = row[1 + n_features + j]
+                ret_chunk[i, j] = val if val is not None else np.nan
+                cmp_chunk[i, j] = bool(row[1 + n_features + n_scales + j])
+        ret_chunks.append(ret_chunk)
+        cmp_chunks.append(cmp_chunk)
 
     if not X_chunks:
         _logger.info(
