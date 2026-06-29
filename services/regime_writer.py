@@ -55,6 +55,7 @@ sys.path.insert(0, str(project_root))
 from services._batch_utils import load_config_service_sync as _load_config_service_shared
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
+from src.intelligence.hmm_jit import alpha_pass_jit as _alpha_pass_jit
 from src.observability.metrics import (
     JOB_COMPLETED_TOTAL,
     REGIME_WRITER_NULL_REGIME_REMAINING,
@@ -488,7 +489,8 @@ def _compute_symbol_tf(
             covars_diag = model.covars_
         log_emit = _log_emit_diag(obs_matrix, model.means_, covars_diag)
 
-    raw_states, alpha_history = _alpha_pass(log_emit, model.transmat_, pi0)
+    log_A = np.log(np.maximum(model.transmat_, 1e-300))
+    raw_states, alpha_history = _alpha_pass_jit(log_emit, log_A, pi0)
 
     # Minimum holding-period smoothing — prevents single-bar flips when alpha is diffuse.
     smoothed_states = _smooth_states(raw_states, min_hold_bars)
@@ -863,6 +865,16 @@ def main() -> None:
                 )
                 for symbol in symbols
             ]
+
+            # Pre-compile the JIT in the main process before spawning workers.
+            # With cache=True the compile writes __pycache__ once; workers then load
+            # the artifact read-only — no concurrent compile, no file-lock race.
+            # No initializer= argument needed; start-method agnostic (fork and spawn).
+            _jit_emit = np.zeros((10, n_components), dtype=np.float64)
+            _jit_log_A = np.log(np.full((n_components, n_components), 1.0 / n_components))
+            _jit_pi0 = np.full(n_components, 1.0 / n_components)
+            _alpha_pass_jit(_jit_emit, _jit_log_A, _jit_pi0)
+            _logger.info("regime_writer.jit_ready", n_components=n_components)
 
             total_updated = 0
             failures: list[str] = []
