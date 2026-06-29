@@ -26,7 +26,7 @@
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
 - 📋 **v3.0a Signal Integrity — IntegrityMonitor** — Phases 149A, 149B, 150 (planned; one service replacing DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; regime-conditioned KS + chi-squared + signed Wasserstein on 54 features; IC shadow governance with evidence-based promotion; 3-gate ensemble health [E1: IC, E2: conviction stability, E3: coverage]; all parameters APR-backed; see `docs/plans/2026-06-27-health-guardian-design.md`)
-- 🔄 **v3.1 AlphaEngine Validation + Alpha Scoring** — Phases 140.5-144 (in progress; Phase 140.5 COMPLETE 2026-06-26; corpus pipeline running; Phase 141 hard-gated on corpus pipeline completion — see `docs/plans/2026-06-25-alphaengine-phase-d-prerequisites.md`)
+- 🔄 **v3.1 AlphaEngine Validation + Alpha Scoring** — Phases 140.5-144 (in progress; Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 — 12.47M alpha_events; Phase 141 IN PROGRESS — see `docs/plans/2026-06-28-validity-fixes-and-phase-141.md`)
 - 📋 **v3.2 AnalogEngine + Feature Expansion** — Phases 145-147 (planned; hard-gated on v3.1 OOS-validated IC > 0 at 95% CI)
 - 📋 **v3.3 Foundational Hardening** — Phases 148-149 (planned)
 - 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.3 complete + alpha_events schema frozen; consumes alpha_events, never modifies signal weights)
@@ -1398,9 +1398,21 @@ Plans:
 
 ---
 
-### Phase 141: Corpus Quality Gate + IC Validation 📋 PLANNED
+### Phase 141: Corpus Quality Gate + IC Validation + HMM JIT 🔄 IN PROGRESS
 
-**Goal:** Before trusting any IC number, prove the corpus is clean and the IC is real. Feature distribution audit. OOS split establishment. Null model baseline. Decision tree for what Phase 142 does given each validation outcome.
+**Plan:** `docs/plans/2026-06-28-validity-fixes-and-phase-141.md` (Tasks 1-10)
+**Obstacle map:** `docs/plans/2026-06-28-renaissance-obstacle-map.md`
+
+**Goal:** Fix two validity threats in the corpus, rerun affected pipeline steps, validate IC on the clean corpus, and ship HMM Numba JIT (40x speedup needed before primitives expansion).
+
+**Prerequisite validity fixes (before any CORPUS task runs):**
+- **V3 — BaseBatch JSONB codec** (Task 1-2): `BaseBatch._setup_pool` calls bare `asyncpg.create_pool` without codec registration; `alpha_publisher` works around it with `json.dumps()` — CLAUDE.md violation and latent corruption vector. Fix: `database_manager.create_pool`. Atomic two-file commit.
+- **V1 — equity_regime_model look-ahead bias** (Tasks 3-5): `_compute_vix_pct_rank` uses `.rank(pct=True)` over full corpus — global rank knowing all future values. Fix: causal expanding rank via `bisect`. Also fix TF-normalized windows (V1b). Then rerun market_regimes → ic_engine --cross-sectional-only → ensemble_trainer → alpha_publisher (Task 6).
+- **Note on V2 (cost-aware net scoring):** Deferred — `alpha_score` is in weighted z-score product units, not return units. Cost subtraction requires `IC × return_scale` calibration from Task 7.5. V2 gets its own plan after Phase 141.
+
+**Scope additions vs original plan:**
+- Task 7.5 produces V2 IC calibration constants (ic_x_return_scale per tf/regime)
+- Tasks 8-10: HMM Numba JIT — `src/intelligence/hmm_jit.py` + wire into `regime_writer.py` (runs in parallel with CORPUS analysis tasks; needed before primitives expansion)
 
 **Depends on:** Phase 140.5 complete — clean corpus (P1), validated K (P2), Feature Registry live (P3).
 
