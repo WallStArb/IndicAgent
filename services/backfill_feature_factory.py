@@ -50,6 +50,7 @@ sys.path.insert(0, str(project_root))
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
+from src.core.market_calendar import get_market_calendar
 from src.core.service_utils import setup_service_logging
 from src.intelligence.feature_cache import (
     _HMM_K,
@@ -996,8 +997,19 @@ def _compute_symbol_tf(
 
     insert_batch: list[tuple] = []
     total_inserted = 0
+    skipped_non_trading = 0
+
+    # Market calendar for trading day filtering (Renaissance: filter at source)
+    calendar = get_market_calendar()
+    # ETFs trade on NYSE/NASDAQ/ARCA with identical hours — use NYSE as canonical
+    exchange = "NYSE"
 
     for bar_ts, fv in batch_results:
+        # Renaissance principle: Delete noise at source, don't filter at query time
+        if not calendar.is_trading_minute(exchange, bar_ts, phase="regular"):
+            skipped_non_trading += 1
+            continue
+
         row = _vector_to_params(
             symbol=symbol,
             tf=tf,
@@ -1023,6 +1035,16 @@ def _compute_symbol_tf(
     if insert_batch:
         _batch_insert(conn, insert_batch)
         total_inserted += len(insert_batch)
+
+    _logger.info(
+        "compute_complete",
+        symbol=symbol,
+        tf=tf,
+        total_bars=total_bars,
+        inserted=total_inserted,
+        skipped_non_trading=skipped_non_trading,
+        skip_pct=round(skipped_non_trading / total_bars * 100, 2) if total_bars > 0 else 0,
+    )
 
     return total_inserted
 

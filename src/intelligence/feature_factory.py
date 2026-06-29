@@ -36,6 +36,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 
+from src.core.market_calendar import MarketCalendar, get_market_calendar
 from src.intelligence.feature_cache import (
     FeatureCache,
 )
@@ -450,6 +451,32 @@ def _dow_encoding(bar_ts: datetime) -> tuple[float, float]:
     weekday = min(bar_ts.weekday(), 4)
     angle = 2.0 * math.pi * weekday / 5.0
     return math.sin(angle), math.cos(angle)
+
+
+def _is_trading_bar(
+    bar_ts: datetime,
+    exchange: str = "NYSE",
+    calendar: MarketCalendar | None = None,
+) -> bool:
+    """
+    Return True if bar_ts represents a valid trading bar.
+
+    Renaissance principle: Filter at source, not at query time.
+    This function determines whether a bar should be written to feature_vectors.
+
+    Args:
+        bar_ts: Bar timestamp (UTC, timezone-aware preferred)
+        exchange: Exchange code (NYSE, NASDAQ, ARCA for ETFs; CME/CBOT/COMEX/NYMEX for futures)
+        calendar: MarketCalendar instance (uses singleton if None)
+
+    Returns:
+        True if bar is within regular trading hours on a weekday (non-holiday)
+
+    Complexity: O(1) - simple lookup
+    """
+    if calendar is None:
+        calendar = get_market_calendar()
+    return calendar.is_trading_minute(exchange, bar_ts, phase="regular")
 
 
 def _month_position(bar_ts: datetime) -> float:
