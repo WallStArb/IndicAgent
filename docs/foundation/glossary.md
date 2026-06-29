@@ -845,6 +845,36 @@ about one slot, not two different things.
 
 ---
 
+### `feature synthesis`
+
+The functional slot that combines atomic primitives into higher-order composite features,
+producing new FeatureVector columns that capture relationships between primitives that no
+single primitive can express alone. Feature synthesis outputs are treated as first-class
+features -- they flow through the same IC measurement, FDR correction, and ensemble
+weighting as atomic features. The IC engine decides what survives; feature synthesis only
+proposes candidates.
+
+Distinct from feature computation (which produces atomic measurements from raw OHLCV)
+and from the ensemble optimizer (which combines IC-validated features into a score).
+Feature synthesis sits between them: it creates new features from existing ones, and
+those new features are then independently evaluated by predictive measurement.
+
+**Current implementations:**
+- Hand-authored composites in `FeatureFactory` (e.g., `informed_flow` combining OFI and
+  volume signals; `garch_ratio` combining realized vs implied vol)
+- Planned: `Interaction Factory` (todo 019) -- systematic pairwise generation of all
+  primitive combinations (products, ratios, rolling correlations), screened by IC engine
+
+**In v2.x:** I5-I7 plugin stack performed a form of feature synthesis, combining I1-I4
+measurements into pattern-level scores (ICC). The distinction: v2.x synthesis was
+human-defined and the scores were traded directly. v3.0 synthesis is empirically screened
+-- the IC engine validates every composite before it earns ensemble weight.
+
+**Not:** the ensemble optimizer (which weights already-validated features). Feature
+synthesis produces *candidates*; the ensemble optimizer weights *survivors*.
+
+---
+
 ### `feature computation`
 
 The functional slot that transforms raw OHLCV bars into a typed vector of observable
