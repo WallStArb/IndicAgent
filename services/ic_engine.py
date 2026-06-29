@@ -1313,7 +1313,7 @@ def _compute_cross_sectional_tf(
             regime=regime_label,
             n_cells=len(all_cells_for_regime),
         )
-        return {"n_committed": 0, "n_skipped": len(all_cells_for_regime), "all_results": []}
+        return [], {"n_committed": 0, "n_skipped": len(all_cells_for_regime)}
 
     feature_cols = ", ".join(f'"fv"."{f}"' for f in _FEATURE_NAMES)
     return_cols = ", ".join(f'"fr".return_{s}' for s in _SCALES)
@@ -1348,7 +1348,7 @@ def _compute_cross_sectional_tf(
             tf=tf,
             regime=regime_label,
         )
-        return {"n_committed": 0, "n_skipped": 0, "all_results": []}
+        return [], {"n_committed": 0, "n_skipped": 0}
 
     # Step 2: Query feature_vectors+forward_returns in timestamp chunks.
     # Replaces a 3-way JOIN (feature_vectors × market_regimes × forward_returns) that
@@ -1417,7 +1417,7 @@ def _compute_cross_sectional_tf(
             tf=tf,
             regime=regime_label,
         )
-        return {"n_committed": 0, "n_skipped": 0, "all_results": []}
+        return [], {"n_committed": 0, "n_skipped": 0}
 
     X_raw = np.vstack(X_chunks)
     del X_chunks
@@ -1435,7 +1435,7 @@ def _compute_cross_sectional_tf(
 
     n_skipped = int(degenerate_mask.sum())
     if X_nd.shape[1] == 0:
-        return {"n_committed": 0, "n_skipped": n_skipped, "all_results": []}
+        return [], {"n_committed": 0, "n_skipped": n_skipped}
 
     embargo_bars = max(lookaheads.values())
     cluster_ids_nd = _cluster_features(X_nd, cluster_max_corr)
