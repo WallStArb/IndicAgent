@@ -21,7 +21,10 @@ See: .planning/PROJECT.md
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
 **Current focus:** Phase 141 — Corpus Quality Gate + IC Validation + HMM JIT
 
-**Phase 141 status:** PLANNED — prerequisites in progress. Corpus pipeline complete 2026-06-28 but two validity fixes must land before Phase 141 analysis runs:
+**Phase 141 status:** ✅ COMPLETE 2026-06-29 — P0: validity fixes + corpus rerun; P1: IC validation (gate FAIL: 5m=0 features); P2: HMM JIT 40x speedup shipped. Next: Phase 142 (OOS validation) or 5m feature investigation.
+**Plan:** `docs/plans/2026-06-28-validity-fixes-and-phase-141.md` (Tasks 1-10)
+
+**Current focus:** Phase 142 planning or 5m feature investigation
 
 - V3 (BaseBatch JSONB codec) — fix immediately, no gate
 - V1 (equity_regime_model expanding rank look-ahead bias) — fix then rerun corpus steps 4b-6

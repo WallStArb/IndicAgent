@@ -26,7 +26,7 @@
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
 - 📋 **v3.0a Signal Integrity — IntegrityMonitor** — Phases 149A, 149B, 150 (planned; one service replacing DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; regime-conditioned KS + chi-squared + signed Wasserstein on 54 features; IC shadow governance with evidence-based promotion; 3-gate ensemble health [E1: IC, E2: conviction stability, E3: coverage]; all parameters APR-backed; see `docs/plans/2026-06-27-health-guardian-design.md`)
-- 🔄 **v3.1 AlphaEngine Validation + Alpha Scoring** — Phases 140.5-144 (in progress; Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 — 12.47M alpha_events; Phase 141 IN PROGRESS — see `docs/plans/2026-06-28-validity-fixes-and-phase-141.md`)
+- 🔄 **v3.1 AlphaEngine Validation + Alpha Scoring — Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 (12.47M alpha_events); Phase 141 COMPLETE 2026-06-29 (P0: validity fixes, P1: IC validation gate FAIL, P2: HMM JIT 40x) — see `docs/plans/2026-06-28-validity-fixes-and-phase-141.md`)
 - 📋 **v3.2 AnalogEngine + Feature Expansion** — Phases 145-147 (planned; hard-gated on v3.1 OOS-validated IC > 0 at 95% CI)
 - 📋 **v3.3 Foundational Hardening** — Phases 148-149 (planned)
 - 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.3 complete + alpha_events schema frozen; consumes alpha_events, never modifies signal weights)
@@ -1398,7 +1398,7 @@ Plans:
 
 ---
 
-### Phase 141: Corpus Quality Gate + IC Validation + HMM JIT 🔄 IN PROGRESS
+### Phase 141: Corpus Quality Gate + IC Validation + HMM JIT ✅ COMPLETE 2026-06-29
 
 **Plan:** `docs/plans/2026-06-28-validity-fixes-and-phase-141.md` (Tasks 1-10)
 **Obstacle map:** `docs/plans/2026-06-28-renaissance-obstacle-map.md`
