@@ -1004,13 +1004,7 @@ def _compute_symbol_tf(
     exchange = "NYSE"  # ETFs trade on NYSE/NASDAQ/ARCA with identical hours
 
     for bar_ts, fv in batch_results:
-        # Daily bars are timestamped at midnight UTC; their UTC date == the trading date.
-        # Intraday bars use the UTC timestamp directly against session open/close bounds.
-        if tf == "1d":
-            is_valid = calendar.is_trading_day(exchange, bar_ts.date())
-        else:
-            is_valid = calendar.is_trading_minute(exchange, bar_ts)
-        if not is_valid:
+        if not calendar.is_trading_bar(exchange, bar_ts, tf):
             skipped_non_trading += 1
             continue
 

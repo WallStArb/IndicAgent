@@ -48,10 +48,12 @@ def _build_daily_sessions(pmc_name: str) -> dict[str, tuple[pd.Timestamp, pd.Tim
     """
     cal = mcal.get_calendar(pmc_name)
     schedule = cal.schedule(_PMC_RANGE_START, _PMC_RANGE_END)
-    return {
-        idx.strftime("%Y-%m-%d"): (row["market_open"], row["market_close"])
-        for idx, row in schedule.iterrows()
-    }
+    return dict(
+        zip(
+            schedule.index.strftime("%Y-%m-%d"),
+            zip(schedule["market_open"], schedule["market_close"]),
+        )
+    )
 
 
 class MarketCalendar:
@@ -66,11 +68,12 @@ class MarketCalendar:
     __slots__ = ("_daily_sessions",)
 
     def __init__(self) -> None:
-        nyse_sessions = _build_daily_sessions("NYSE")
-        cme_sessions = _build_daily_sessions("CME_Equity")
+        _sessions_by_pmc = {
+            "NYSE": _build_daily_sessions("NYSE"),
+            "CME_Equity": _build_daily_sessions("CME_Equity"),
+        }
         self._daily_sessions: dict[str, dict[str, tuple[pd.Timestamp, pd.Timestamp]]] = {
-            exch: (cme_sessions if pmc == "CME_Equity" else nyse_sessions)
-            for exch, pmc in _EXCHANGE_TO_PMC.items()
+            exch: _sessions_by_pmc[pmc] for exch, pmc in _EXCHANGE_TO_PMC.items()
         }
 
     def is_trading_minute(self, exchange: str, timestamp: pd.Timestamp) -> bool:
@@ -105,6 +108,18 @@ class MarketCalendar:
         if sessions is None:
             return False
         return date_obj.isoformat() in sessions
+
+    def is_trading_bar(self, exchange: str, bar_ts: pd.Timestamp, tf: str) -> bool:
+        """
+        Unified validity check for any timeframe bar.
+
+        Encapsulates tf-specific timestamp semantics so callers need not know
+        that 1d bars require is_trading_day(bar_ts.date()) while intraday bars
+        require is_trading_minute(bar_ts).
+        """
+        if tf == "1d":
+            return self.is_trading_day(exchange, bar_ts.date())
+        return self.is_trading_minute(exchange, bar_ts)
 
 
 # Singleton — immutable, safe to share across workers

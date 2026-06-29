@@ -59,12 +59,12 @@ psql -c "TRUNCATE backfill_status;"   && echo "  - backfill_status: done"
 # status='pending' (not 'complete') allows compute to proceed; 'complete' would be skipped.
 echo
 echo "Re-seeding backfill_status from market_data_ohlcv..."
-SEED_ROWS=$(psql -tAc "
+psql -c "
 INSERT INTO backfill_status (symbol, tf, status, fetch_complete)
 SELECT DISTINCT symbol, timeframe, 'pending', true
 FROM market_data_ohlcv
-ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true, status = 'pending';
-SELECT COUNT(*) FROM backfill_status;")
+ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true, status = 'pending';"
+SEED_ROWS=$(psql -tAc "SELECT COUNT(*) FROM backfill_status;")
 echo "  - backfill_status seeded: $SEED_ROWS rows"
 
 echo
