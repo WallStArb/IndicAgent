@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -139,7 +138,7 @@ class AlphaPublisher(BaseBatch):
             top_features, emitted_at
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15::jsonb, $16
+            $11, $12, $13, $14, $15, $16
         )
         ON CONFLICT (event_id, bar_ts) DO NOTHING
     """
@@ -305,7 +304,7 @@ class AlphaPublisher(BaseBatch):
                                 n_features_active,
                                 threshold,
                                 direction,
-                                json.dumps(top_features),
+                                top_features,
                                 now,
                             )
                         )
@@ -373,7 +372,7 @@ class AlphaPublisher(BaseBatch):
                                     e["n_features_active"],
                                     e["threshold"],
                                     e["direction"],
-                                    json.dumps(e["top_features"]),
+                                    e["top_features"],
                                     now,
                                 )
                                 for e in pending_events
