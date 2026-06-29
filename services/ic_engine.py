@@ -1296,6 +1296,25 @@ def _compute_cross_sectional_tf(
 
     cs_chunk_ts: int = apr["cs_chunk_ts"]
 
+    # Idempotency short-circuit: if every (feature, lookahead) cell for this (tf, regime)
+    # already exists in existing_keys, skip the entire data fetch and computation.
+    # Without this check, already-complete regimes are fetched + computed in full
+    # (potentially 5+ GB RAM / 4+ minutes each) before the per-feature existing_keys
+    # check at write-time discovers they're all done.
+    all_cells_for_regime = frozenset(
+        (feat_name, _CROSS_SECTIONAL_SYMBOL, tf, regime_label, lh, True)
+        for feat_name in _FEATURE_NAMES
+        for lh in lookaheads.values()
+    )
+    if all_cells_for_regime.issubset(existing_keys):
+        _logger.info(
+            "ic_engine.cross_sectional_already_complete",
+            tf=tf,
+            regime=regime_label,
+            n_cells=len(all_cells_for_regime),
+        )
+        return {"n_committed": 0, "n_skipped": len(all_cells_for_regime), "all_results": []}
+
     feature_cols = ", ".join(f'"fv"."{f}"' for f in _FEATURE_NAMES)
     return_cols = ", ".join(f'"fr".return_{s}' for s in _SCALES)
     complete_cols = ", ".join(f'"fr".complete_{s}' for s in _SCALES)
