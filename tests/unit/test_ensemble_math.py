@@ -232,7 +232,7 @@ class TestSelectFeaturesPerStratum:
                 "ic_sign": -1,
             },
         ]
-        result = select_features_per_stratum(rows)
+        result = select_features_per_stratum(rows, sharpe_floor=0.05)
         assert len(result) == 2
         momentum_row = next(r for r in result if r["feature_name"] == "momentum_z_fast")
         assert momentum_row["ic_sharpe"] == 0.8
@@ -258,13 +258,13 @@ class TestSelectFeaturesPerStratum:
                 "ic_sign": 1,
             },
         ]
-        result = select_features_per_stratum(rows)
+        result = select_features_per_stratum(rows, sharpe_floor=0.05)
         assert len(result) == 1
         assert result[0]["lookahead_bars"] == 5, "Shorter lookahead should win on ic_sharpe tie"
 
     def test_empty_input_returns_empty(self) -> None:
         """Empty input → empty output."""
-        assert select_features_per_stratum([]) == []
+        assert select_features_per_stratum([], sharpe_floor=0.05) == []
 
     def test_single_row_per_feature_passes_through(self) -> None:
         """When each feature has exactly one row, all are returned."""
@@ -286,7 +286,7 @@ class TestSelectFeaturesPerStratum:
                 "ic_sign": -1,
             },
         ]
-        result = select_features_per_stratum(rows)
+        result = select_features_per_stratum(rows, sharpe_floor=0.05)
         assert len(result) == 2
 
 

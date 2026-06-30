@@ -272,7 +272,6 @@ class EnsembleTrainer(BaseBatch):
                   AND is_pooled = true
                   AND regime != '_pooled'
                   AND ic_ci_lower > 0
-                  AND passes_fdr = true
                   AND reliable = true
                   AND ic_sharpe_hac IS NOT NULL
                 GROUP BY feature_name
@@ -368,8 +367,8 @@ class EnsembleTrainer(BaseBatch):
         max_cluster_corr: float,
         max_cluster_weight: float,
         meta_eligible_features: set[str],
+        sharpe_floor: float,
         weight_half_life_days: float = 30.0,
-        sharpe_floor: float = 0.05,
     ) -> None:
         """Process one (tf, regime) stratum end-to-end using cross-sectional IC."""
         log = self.logger.bind(tf=tf, regime=regime)

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 def select_features_per_stratum(
     rows: list[dict],
-    sharpe_floor: float = 0.05,
+    sharpe_floor: float,
 ) -> list[dict]:
     """Select one row per feature_name from ic_scores rows for one (symbol, tf, regime).
 

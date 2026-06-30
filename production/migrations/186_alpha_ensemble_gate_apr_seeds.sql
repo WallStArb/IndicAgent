@@ -22,7 +22,7 @@ VALUES
     'alpha.ensemble.wf_consistency_factor',
     'float',
     '0.5',
-    'Weight multiplier applied when wf_pass_count < walk_forward_folds (reserved for future use — not applied in current ensemble). [initial_estimate]'
+    'Weight multiplier applied when wf_pass_count < walk_forward_folds (reserved for future use - not applied in current ensemble). [initial_estimate]'
   )
 ON CONFLICT (config_key) DO NOTHING;
 
@@ -35,4 +35,4 @@ ON CONFLICT (config_key) DO NOTHING;
 INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
 VALUES
   (NOW(), 'alpha.ensemble.sharpe_floor',          1, '0.05', 'migration_186', 'Initial estimate: floor for quality_weight formula in ensemble gate redesign [initial_estimate]'),
-  (NOW(), 'alpha.ensemble.wf_consistency_factor', 1, '0.5',  'migration_186', 'Reserved: future walk-forward consistency weighting — not applied yet [initial_estimate]');
+  (NOW(), 'alpha.ensemble.wf_consistency_factor', 1, '0.5',  'migration_186', 'Reserved: future walk-forward consistency weighting - not applied yet [initial_estimate]');
