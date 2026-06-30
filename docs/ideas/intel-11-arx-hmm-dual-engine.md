@@ -1,406 +1,300 @@
-# ARX-HMM Dual-Engine Architecture
+# Multi-Engine HMM Regime Architecture
 
 **Status:** Idea / Research
 **Extends:** `intel-10-hmm-observation-vector.md`
 
 ---
 
-## Core Concept
+## Thesis
 
-Instead of a single flat HMM observation vector, structure regime detection as two coupled engines:
+The current single HMM answers one question: *how is price moving?* (momentum, volatility, volume anomaly -- all microstructure). The highest-IC alpha cells live where **price action is detached from structural positioning** -- where the "how" and the "who" diverge. A momentum-only HMM cannot see this. It assigns the same regime label to a quiet institutional accumulation and a retail-FOMO melt-up, even though those two bars have opposite IC profiles for continuation features.
 
-```
-[Low-Frequency Structural Anchors]  (Form PF, 13F, ADV filings)
-               │
-               ▼  modulates Transition Probability Matrix
-┌────────────────────────────────────────────────┐
-│           HMM (ARX variant)                    │
-│  Latent states: Accumulation / Distribution /  │
-│  Expansion / Fragile / Liquidation             │
-└────────────────────────────────────────────────┘
-               ▲
-               │  continuous emission updates
-[High-Frequency Microstructure]  (1m–1d OHLCV, volume, volatility)
-```
+The fix: decompose regime into orthogonal, independently-trained engines. Each engine trains on features from a single information domain. Joint regime state is the product at inference time -- no cross-engine coupling during training. The IC engine already implements this: adding a new HMM engine column to `feature_vectors` and stratifying by it is the entire integration path.
 
-The standard HMM transition probability is:
-
-```
-P(S_t = j | S_{t-1} = i)
-```
-
-The ARX-HMM modifies this with an exogenous regulatory flow vector `u_t`:
-
-```
-P(S_t = j | S_{t-1} = i, u_t)
-```
-
-`u_t` = Regulatory Flow Vector: AUM trends, leverage metrics, net positioning from structural filings. When `u_t` signals hedge funds are net-short or de-leveraging, it lowers transition probability into bullish states regardless of what the microstructure bars show. When `u_t` is bullish, microstructure acts as the tactical trigger.
+**Falsification criterion:** for each new engine, run Partial IC = `Corr(X_bar, Y | S_engine)`. If IC does not increase significantly when conditioned on the new engine's state, the engine adds no information and should be dropped.
 
 ---
 
-## Two Timescales, Two Roles
+## Engine Registry
 
-| Layer | Data | Update Frequency | Role |
-|---|---|---|---|
-| Macro (slow) | Form PF, 13F, ADV | Quarterly / 45-60d lag | Constrains TPM — sets which states are reachable |
-| Micro (fast) | 1m–1d OHLCV | Per bar | Updates emission probabilities — triggers state transitions |
+| # | Engine | Observation Domain | Data Required | Status | K |
+|---|---|---|---|---|---|
+| 0 | **Price/Vol HMM** (current) | Momentum, realized vol, vol-of-vol, rel_volume | OHLCV (live) | Live | 5 |
+| 1 | **Volatility Structure HMM** | Vol magnitude + velocity + geometry (Parkinson, YZ, noise ratio) | OHLCV (live) | Buildable now | 5 |
+| 2 | **Volume Character HMM** | Detrended volume, VSR, VPC | OHLCV (live) | Buildable now | 5 |
+| 3 | **Flow/Positioning HMM** | Institutional filings (13F, Form PF, ADV) | SEC filings -- not yet acquired | Blocked | 5 |
+| 4 | **Corporate Event Vector** | Form 4 insider buys/sells, buyback windows, NLP legal friction | SEC EDGAR (Form 4 public) | Partially available | N/A -- stamped scalar, not HMM |
+| 5 | **Sentiment / GEX Vector** | Options GEX, call/put ratio, retail NLP sentiment | CBOE data, scraping | Research | N/A |
+| 6 | **Supply Chain Vector** | Commodity spreads, freight indices, satellite inventory | IBKR futures (spreads available); satellite = vendor | Partially available | N/A |
 
-Key insight: the macro layer doesn't need to be timely. A 45-day-lagged 13F is fine as a slow-moving prior on the TPM. It rules out regimes, not picks them. The microstructure confirms.
+Build engines 1 and 2 first. All required features derive from existing `market_data_ohlcv`. Same code as the current HMM -- only the observation matrix changes.
 
 ---
 
-## High-Frequency Microstructure Features
+## Engine 0: Price/Vol HMM (Current, Live)
 
-These extend the current 5D observation vector (`intel-10-hmm-observation-vector.md`) with institutional footprinting signals:
+**Question answered:** How and how fast is price moving?
 
-### Volume-Price Coupling (VPC)
-Rolling correlation between volume changes and directional price movement across 5m and 15m bars. High VPC in a confirmed high-institutional-concentration regime = active continuation signal.
+**Observation vector (5D):**
 
-```
-vpc[t] = rolling_corr(Δvolume, sign(log_return) * |log_return|, window=W)
-```
+| Dim | Feature | Formula |
+|---|---|---|
+| 0 | `log_return` | `ln(close[t] / close[t-1])` |
+| 1 | `realized_vol` | rolling std of log_returns |
+| 2 | `momentum` | `sum(log_returns[-W:]) / realized_vol` |
+| 3 | `vol_of_vol` | rolling std of `realized_vol` |
+| 4 | `rel_volume` | `log(volume[t]) - rolling_mean(log(volume))` |
 
-Distinct from `rel_volume` (dim 4 of current vector): that measures absolute volume anomaly. VPC measures whether volume is *directionally coupled* to price -- which separates informed institutional flow from random volume spikes.
+**Output labels (K=5, sorted by emission mean of log_return):**
+trending_down / transition_down / ranging / transition_up / trending_up
 
-### Intraday Volatility Cascade
-Rolling variance of 1m and 5m true ranges. A variance spike on 1d timeframe while macro lever signals high systemic leverage = high probability shift into Fragile/Liquidation regime.
+**Limitation:** labels are momentum-centric. A crowded-long distribution bar and a genuine institutional accumulation bar can produce identical labels with opposite forward IC profiles.
 
-```
-true_range[t] = max(high, prev_close) - min(low, prev_close)
-vol_cascade[t] = rolling_var(true_range_1m, window=W_slow)
-```
+---
 
-Distinct from `vol_of_vol` (dim 3): that's std of close-to-close realized vol. This is variance of intraday range -- captures gap risk and thin-market fragility that close-to-close vol misses.
+## Engine 1: Volatility Structure HMM
 
-### Garman-Klass Volatility
-Range-based variance estimator that uses OHLC -- significantly more efficient than close-to-close realized vol (the current dim 1) because it incorporates intraday range information:
+**Question answered:** What is the structural character of volatility -- and is it compressing or expanding?
 
+Raw realized vol fed directly to this HMM produces poor separation because vol is ARCH-clustered and fat-tailed. Discriminate on two axes: **magnitude** and **velocity/geometry**.
+
+### Observation features
+
+**Garman-Klass Volatility** -- OHLC range-based; ~5x more efficient than close-to-close per bar:
 ```
 σ²_GK[t] = 0.5 * ln(H/L)² - (2*ln2 - 1) * ln(C/O)²
 ```
 
-Rolled over 1h and 1d windows. More efficient than `realized_vol` for the same window length -- GK extracts ~5x more information per bar because it sees the full range, not just the close-to-close delta. At 5m timeframe where bars are noisy, this matters.
-
-**Relationship to current dim 1 (`realized_vol`):** Not redundant. `realized_vol` is close-to-close std; GK is OHLC range-based. GK responds immediately to intraday liquidity shocks that close-to-close vol misses until the next bar's close.
-
-### Intraday Variance Ratio
-Ratio of short-timeframe realized variance to the full daily variance:
-
+**Parkinson Volatility** -- High/Low only; optimal for intraday bars where overnight gaps are irrelevant:
 ```
-ivr[t] = realized_var(1m or 5m bars, last N bars) / realized_var(1d, rolling window)
+σ²_Parkinson[t] = (1 / (4*ln2)) * ln(H/L)²
 ```
 
-A high ratio = massive intraday bursts relative to the daily baseline. This pattern is characteristic of institutional algorithmic block execution -- VWAP/TWAP algos create concentrated micro-bursts that look smooth on the daily but are detectable at 1m/5m. The variance ratio spikes *before* the 1d bar reflects it, giving the HMM early warning of regime transition.
-
-**APR candidate:** `feature.hmm.ivr_fast_window` (1m bars over N bars), `feature.hmm.ivr_slow_window` (1d rolling baseline).
-
-### Bar-Level Asymmetry / Close Skew
-Position of close within the high-low range per bar, rolled over 1h and 1d:
-
-```
-bar_skew[t] = (close[t] - low[t]) / max(high[t] - low[t], ε)
-close_skew_roll[t] = rolling_mean(bar_skew, window=W)
-```
-
-Range: [0, 1]. Consistently near 1.0 (closing at highs) = Accumulation emission signature. Near 0.0 = Distribution. This is NOT in the current 5D vector and is orthogonal to both realized_vol and momentum.
-
----
-
-## The 5 Latent Flow Regimes
-
-The macro regulatory data (13F, Form PF, Form D, ADV) should drive the HMM toward 5 structurally meaningful states. These are participation-centric, distinct from the current momentum-centric K=5 labels:
-
-| # | State | Primary Driver | Macro Signal | Micro Signature |
-|---|---|---|---|---|
-| 1 | **Short Squeeze / De-leveraging** | NFA / Form PF | High short futures exposure + sudden leverage drop | Negative VPC, vol_cascade spike, close_skew near 0 then whipsaw |
-| 2 | **Quiet Accumulation** | 13F / Form D | High institutional concentration building, AUM scaling, public offerings (Form D) rising | High close_skew, moderate VPC on up-bars, low vol_cascade |
-| 3 | **Balanced / Neutral Roll** | All filings at baseline | No aggressive positioning shifts; flows match historical norms | VPC near zero, low vol_cascade, close_skew ~0.5 |
-| 4 | **Institutional Distribution** | 13F / ADV | AUM flat or slightly falling despite positive price; smart money exiting into retail buying | Low/falling close_skew, high VPC on down-bars despite up-price |
-| 5 | **Systemic Liquidation** | Form PF | Macro funds rushing to cash, cross-asset futures liquidation (NFA) | Massive vol_cascade, strongly negative VPC, close_skew near 0, earnings misses trigger structural gaps |
-
-**Key distinction from current labels:** trending_down/up/ranging describe *price momentum*. These 5 states describe *institutional participation intent* -- a crowded-long distribution market and a quiet accumulation market can both show "trending_up" in the current HMM but have opposite IC profiles for trend-following features.
-
-**K=5 consistency:** BIC already selected K=5 on the momentum-only observation vector. The flow-regime framing gives interpretive anchors for what those 5 states *mean* when extended with institutional footprinting features.
-
----
-
-## IC Validation Path
-
-Directly compatible with the existing IC engine:
-
-1. **Micro-IC**: measure IC of 1h/1d OHLCV anomalies (close_skew, VPC) predicting post-period returns
-2. **Conditional IC**: same features conditioned on macro regime (high/low 13F institutional concentration)
-3. **Expected finding**: VPC and close_skew IC should be substantially higher and more stable when macro vector confirms high institutional concentration. When institutional participation is low, these signals deteriorate toward noise.
-
-This is the same stratification approach as `feature_ic_scores` -- just with macro-regime as an additional stratification axis alongside HMM state.
-
----
-
-## Data Dependencies and Availability
-
-### Currently unavailable
-- **Form PF**: hedge fund systemic risk filings to SEC. Filed quarterly, 60-day lag. Not public -- requires a data vendor (Preqin, Burgiss, SEC EDGAR for the limited public subset).
-- **13F**: institutional holdings. Filed 45 days post-quarter-end. Public via SEC EDGAR. Parseable but 45-day stale.
-- **ADV (Form ADV)**: RIA registration/AUM filings. Annual + amendments. Structural, very slow-moving.
-
-### Immediately available
-- All microstructure features (VPC, vol_cascade, close_skew) derive from existing OHLCV bars already in `market_data_ohlcv`. No new data required.
-- `rel_volume` (already in FeatureVector) feeds into the micro layer.
-
-### Practical near-term path
-Build and validate the microstructure features first -- VPC, vol_cascade, close_skew added to the HMM observation vector or as explicit `feature_vectors` columns. Validate IC independently. When/if 13F data becomes available, layer in the ARX TPM modification. The micro engine stands alone.
-
----
-
-## Relationship to Current Architecture
-
-| Component | Current | ARX-HMM extension |
-|---|---|---|
-| HMM obs vector | 5D (log_return, realized_vol, momentum, vol_of_vol, rel_volume) | +3: VPC, vol_cascade, close_skew |
-| Regime labels | Unsupervised K=5 trend states | Partially anchored to institutional participation states |
-| TPM | Stationary (fixed transition probs) | Exogenous-modulated by `u_t` |
-| Stratification | hmm_state × volatility_regime × volume_regime | + macro_regime (13F concentration bucket) |
-| Data required | OHLCV only | +SEC filings for macro layer |
-
----
-
-## Joint Optimization: The 5×5 Product Matrix
-
-Running two independent HMMs (Price/Vol Engine and Flow Engine) produces a cross-conditional execution space with 25 cells:
-
-```
-                      [FLOW REGIME (k=5)]
-                  Accum  Neutral  Distrib  DeLev  Liquid
-                 ┌──────┬────────┬────────┬──────┬────────┐
-      Bull Trend │ Aggr │        │ Fade   │      │ Bear   │
-                 │ Long │  ...   │ Long   │ ...  │ Trap   │
-                 ├──────┼────────┼────────┼──────┼────────┤
-PRICE/VOL  ...   │ ...  │  ...   │  ...   │ ...  │  ...   │
-                 ├──────┼────────┼────────┼──────┼────────┤
-      Bear Vol   │Short │        │ Struct │      │Struct  │
-      Spike      │Sqz?  │  ...   │ Short  │ ...  │ Crash  │
-                 └──────┴────────┴────────┴──────┴────────┘
-```
-
-### Why this maximizes IC
-
-A Bear Vol Spike price state alone says "short or hedge." Intersecting with the flow dimension splits this into two opposite signals:
-
-- **Bear Vol Spike + Systemic Liquidation (Flow 5):** Confirm short. Structural conviction. Highest IC for short-side features.
-- **Bear Vol Spike + De-leveraging/Short Squeeze (Flow 1):** Invert. Shorts are already trapped and covering. The technical sell signal becomes a mean-reversion buy trigger. Features predicting continuation have *negative* IC here; reversal features have positive IC.
-
-This is exactly what IC stratification reveals -- the same feature has opposite predictive power depending on the joint cell. A flat aggregated IC masks the signal entirely.
-
-### Joint transition probability design
-
-**Recommendation: keep engines independent, join at the stratification layer.**
-
-The alternative -- feeding flow HMM output states into the price HMM as exogenous variables each bar -- creates a sequencing dependency (flow HMM must update first) and couples two models that update at very different timescales (price HMM: per bar; flow HMM: quarterly data). The dependency buys little because the flow state barely changes between bars.
-
-The product matrix approach is cleaner: two fully independent HMMs, each fit on its own observation vector, joint state `(price_state, flow_state)` computed at query time. In `feature_ic_scores` terms, this is just another compound stratification key -- the IC engine already handles arbitrary stratification axes. The 25-cell grid is a natural extension of the existing `hmm_state × volatility_regime × volume_regime` stratification.
-
-**Sparsity constraint:** 25 cells × (symbols × timeframes) requires sufficient observations per cell. With 58 ETFs × 4 TFs × 25 cells, many cells will be sparse, especially the extreme corners (Bull Trend + Liquidation). Apply the existing IC Sharpe gate (20,000 raw bars minimum) per cell -- sparse cells simply don't emit IC scores rather than emitting noisy ones.
-
----
-
-## Volume HMM: Third Independent Engine
-
-The existing `_build_obs_matrix()` / GaussianHMM / Viterbi code is reusable unchanged -- the math doesn't care whether emissions are price, vol, or volume features. Only the input feature engineering changes.
-
-### Feature engineering requirements
-
-Raw share volume fed directly to the HMM will produce garbage: volume is non-stationary, has a strong intraday U-shape (surge at open and close), and varies by orders of magnitude across symbols. Required transformations before passing to the HMM:
-
-**1. Detrend intraday U-shape**
-Divide each bar's volume by historical average volume for that specific time-of-day slot:
-```
-vol_detrended[t] = volume[t] / mean(volume[same_tod_slot], lookback=30d)
-```
-This removes the structural open/close surge so the HMM sees pure anomaly signal.
-
-**2. Rolling Z-score / percentile rank**
-```
-vol_z[t] = (vol_detrended[t] - rolling_mean(vol_detrended, 20d)) / rolling_std(vol_detrended, 20d)
-```
-Forces volume into a stationary, standardized distribution compatible with Gaussian emissions.
-
-**3. Volume-to-Spread Ratio (VSR)**
-```
-vsr[t] = vol_detrended[t] / max(high[t] - low[t], ε)
-```
-Isolates the two opposite high-volume regimes: high volume + tight range = absorption (smart money soaking supply without moving price); high volume + wide range = breakout/initiative. This single feature separates the most important volume states that look identical on raw volume alone.
-
-### Expected K=5 volume regime labels
-
-| State | Character | Vol Z | VSR | Notes |
-|---|---|---|---|---|
-| 1 | **Drying Up / Illiquidity** | Very low | N/A | Late-stage consolidation or exhausted bear |
-| 2 | **Normal Liquid Flow** | Near zero | Mid | Baseline institutional execution |
-| 3 | **Institutional Absorption** | High | High VSR (high vol, tight range) | Smart money absorbing supply; no price extension |
-| 4 | **Aggressive Breakout** | High | Low VSR (high vol, wide range) | Initiative volume; strong directional conviction |
-| 5 | **Climactic Exhaustion** | Extreme spike | Variable | Structural turning points, capitulation, or panic |
-
-### Three-engine product space
-
-With Price/Vol HMM × Flow HMM × Volume HMM, each K=5, the joint state space is 5×5×5 = **125 cells**. Each bar gets a three-part fingerprint `(price_state, flow_state, volume_state)`.
-
-Example high-conviction cells:
-- `(Bull Trend, Quiet Accumulation, Absorption)` = highest-conviction long -- price trending, institutions quietly accumulating, supply being absorbed without extension
-- `(Bear Vol Spike, Short Squeeze, Exhaustion)` = mean-reversion buy -- vol spike + trapped shorts covering + climactic volume = reversal, not continuation
-- `(Bull Trend, Institutional Distribution, Breakout)` = fade -- price rising on high volume but smart money is exiting into retail breakout buying
-
-Sparsity at 125 cells is significant. The IC gate (20k bars minimum per cell) will naturally suppress sparse cells. In practice many cells are structurally impossible (Systemic Liquidation + Quiet Accumulation never co-occur), so the effective cell count is smaller.
-
----
-
-## Volatility HMM: Fourth Independent Engine
-
-Same reuse argument as Volume HMM -- identical Baum-Welch/Viterbi code, different observation features. Raw volatility has the same problems as raw volume: non-stationary, ARCH-clustered, fat-tailed. Do not feed close-to-close realized vol directly.
-
-The key insight for the volatility HMM: discriminate on two axes simultaneously -- **magnitude** (high vs. low) and **direction/velocity** (compressing vs. expanding). Most vol estimators capture only magnitude.
-
-### The 5 Latent Volatility Regimes
-
-| # | State | Character | Bar Behavior | Trading Implication |
-|---|---|---|---|---|
-| 1 | **Institutional Compression** | Ultra-low vol, compressing | 1d/1h ranges shrinking well below 20d MA; frequent inside bars | Spring coiling. Disable mean-reversion strategies; prepare for explosive breakout |
-| 2 | **Quiet Bull Drift** | Low vol, stable | Low intraday variance; closes consistently near highs; gaps minimal and filled | High-capacity, low-fragility. Lower-TF signals (1m/5m) have highest reliability here |
-| 3 | **Mean-Reverting Chop** | Medium vol, mean-reverting | Large 5m/15m wicks both sides; high GK vol intraday but low 1d close-to-close variance | Market makers dominating. Fade bar extremes. Breakout strategies get chopped |
-| 4 | **Directional Expansion** | High vol, linearly expanding | Realized vol rising rapidly; wide-range bars, open near one extreme close near other; low wick-to-body ratio | Orderly vol expansion. Lock into trend-following on 15m/1h |
-| 5 | **Systemic Liquidation** | Ultra-high vol, parabolic/unstable | Massive 1m/5m true ranges; large opening gaps; asymmetric downside bars; extreme intraday variance | Total structural fragility. Standard S/R irrelevant. Risk engine must downsize immediately |
-
-**State 3 vs. State 4 distinction** is the critical one: State 3 has high intraday GK vol but low 1d close-to-close variance (oscillation without progress). State 4 has both high intraday vol AND directional 1d progression. Vol velocity (first derivative of rolling vol) separates them cleanly -- State 3 has near-zero velocity, State 4 has positive and rising velocity.
-
-### Advanced Volatility Primitives
-
-Do not feed close-to-close returns. Feed the HMM bar geometry features:
-
-**Parkinson Volatility** -- sensitive to intraday extremes that close-to-close misses:
-```
-σ²_Parkinson[t] = (1 / (4 * ln2)) * ln(H/L)²
-```
-Uses only High/Low. More efficient than close-to-close for intraday data; less efficient than GK (which also uses O/C). Parkinson is the right choice when overnight gaps are not relevant (intraday bars); GK when they are.
-
-**Yang-Zhang Volatility** -- gold standard for OHLC bar data; combines three components:
+**Yang-Zhang Volatility** -- gold standard for OHLC data; explicitly separates overnight gaps from intraday vol:
 ```
 σ²_YZ = σ²_overnight + k * σ²_open + (1-k) * σ²_RS
 ```
-Where `σ²_overnight` = open-to-prior-close variance, `σ²_open` = close-to-open variance, `σ²_RS` = Rogers-Satchell (uses all four OHLC prices). Prevents the HMM from being blinded by large morning gaps -- gap risk is explicitly in the observation vector rather than contaminating the intraday vol estimate.
+Where `σ²_RS` = Rogers-Satchell. Prevents gap events from contaminating the intraday vol estimate.
 
-**Volatility Velocity** -- first derivative of rolling vol estimate:
+**Volatility Velocity** -- log-differenced rolling vol; stationary at any vol level:
 ```
-vol_velocity[t] = ln(σ_GK[t]) - ln(σ_GK[t-1])
+vol_velocity[t] = ln(σ_GK[t]) - ln(σ_GK[t-lag])
 ```
-Log-differenced so it's stationary regardless of the vol level. Forces the HMM to distinguish steady high-vol (State 4) from accelerating panic (State 5). This is the single most important feature for separating State 4 from State 5.
+The single most important feature for separating State 4 (orderly expansion) from State 5 (accelerating panic). Without it the HMM conflates two states with opposite trading implications.
 
-**Intraday Noise Ratio** -- ratio of path length to net displacement:
+**Intraday Noise Ratio** -- path length vs. net displacement:
 ```
-noise_ratio[t] = sum(|log_return_5m|, last N 5m bars) / |log_return_1d[t]|
+noise_ratio[t] = sum(|log_return_5m|, last N 5m bars) / max(|log_return_1d[t]|, ε)
 ```
-High ratio = violent oscillation without net progress (State 3). Low ratio = clean directional move (State 4). Undefined (div/zero) when 1d return is near zero -- clip or use a small epsilon floor.
+High = violent oscillation without progress (chop). Low = clean directional move. Cross-timeframe: requires 5m bars fed alongside 1d baseline.
 
-### Relationship to existing current 5D price/vol vector
+### K=5 Volatility Regimes
 
-The current HMM already has `realized_vol` (dim 1) and `vol_of_vol` (dim 3). The volatility HMM is NOT a replacement -- it's a separate engine trained purely on vol geometry features (Parkinson, YZ, vol_velocity, noise_ratio). The price/vol HMM sees vol as one of five inputs alongside momentum and volume; the volatility HMM sees vol structure as the entire signal.
+| # | State | Magnitude | Velocity | Trading Implication |
+|---|---|---|---|---|
+| 1 | **Institutional Compression** | Ultra-low | Compressing | Spring coiling. Disable mean-reversion; stage for breakout |
+| 2 | **Quiet Bull Drift** | Low | Stable | High signal reliability. Lower-TF features have best IC here |
+| 3 | **Mean-Reverting Chop** | Medium intraday, low 1d | Near-zero | Market makers dominating. Fade extremes; breakout strategies fail |
+| 4 | **Directional Expansion** | High | Rising linearly | Orderly trend. Trend-following on 15m/1h |
+| 5 | **Systemic Liquidation** | Ultra-high | Parabolic/accelerating | Standard S/R irrelevant. Risk engine must downsize |
 
-Adding Garman-Klass (proposed earlier in this doc) to the price/vol observation vector is still valid -- it improves that engine's vol dimension. The standalone vol HMM is a separate model answering a different question.
+State 3 vs. State 4 is the critical distinction -- same intraday vol magnitude but opposite velocity. `noise_ratio` and `vol_velocity` together separate them.
 
 ---
 
-## Four-Engine Product Space
+## Engine 2: Volume Character HMM
 
-With all four engines at K=5 each: **5×5×5×5 = 625 joint cells** per (symbol, timeframe). Many cells are structurally impossible (Quiet Bull Drift vol + Systemic Liquidation flow never co-occur), so the effective space is smaller. The IC gate (20k bars minimum) handles sparsity automatically.
+**Question answered:** What kind of participation is driving this bar?
 
-Full bar fingerprint per primitive: `(price_state, flow_state, volume_state, vol_state)`.
+Raw volume is non-stationary, has a strong intraday U-shape (surge at open/close), and varies by orders of magnitude across symbols. Three required transformations before the HMM sees volume data:
 
-The immediate build priority given data availability:
-1. **Vol HMM** -- all primitives (Parkinson, YZ, vol_velocity, noise_ratio) derive from existing OHLCV. Buildable now.
-2. **Volume HMM** -- all primitives from existing OHLCV. Buildable now.
-3. **Flow HMM** -- requires regulatory filing data (13F, Form PF). Blocked on data acquisition.
+**1. Detrend intraday U-shape:**
+```
+vol_detrended[t] = volume[t] / mean(volume[same_time_of_day_slot], lookback=30d)
+```
 
----
+**2. Rolling Z-score:**
+```
+vol_z[t] = (vol_detrended[t] - rolling_mean) / rolling_std  [20d window]
+```
 
-## Alternative Intelligence Vectors (Beyond Price/Vol/Flow)
+**3. Volume-to-Spread Ratio (VSR):**
+```
+vsr[t] = vol_detrended[t] / max(high[t] - low[t], ε)
+```
+This single feature separates the two opposite high-volume states (absorption vs. breakout) that are indistinguishable on raw volume alone.
 
-Three additional vector classes that are orthogonal to price, volatility, and institutional filing data:
+**Volume-Price Coupling (VPC):**
+```
+vpc[t] = rolling_corr(Δvolume, sign(log_return) * |log_return|, window=W)
+```
+Distinct from `rel_volume` in Engine 0 -- that measures absolute volume anomaly. VPC measures whether volume is directionally coupled to price, separating informed institutional flow from noise.
 
-### A. Corporate Intelligence Vector (Event & Friction)
+### K=5 Volume Regimes
 
-Tracks structural behavior of the corporation itself -- a different information layer than market microstructure or fund flows.
-
-- **Insider Cluster Buying/Selling (Form 4):** Binary/intensity indicator stamped on bars when senior executives are buying or selling their own stock. Insider buying + Flow State 2 (Quiet Accumulation) = one of the highest-conviction long signals available -- both the institution and management are on the same side.
-- **Share Repurchase Authorization Streams:** Active corporate buyback windows create a structural price floor that dampens downside volatility regimes. Interacts directly with the Vol HMM -- absorption state is more likely when a buyback program is active.
-- **Regulatory/Legal Friction (NLP):** Sentiment vectors from litigation filings, patent approvals, FDA pipelines. Slow-moving but highly predictive for specific sectors (biotech, pharma). Feeds into the Flow HMM's macro layer rather than the price/vol engine.
-
-### B. Sentiment & Crowd Flow Vector (Retail / Fast Money)
-
-Captures the counterparty to institutional flow -- what retail and fast money are doing:
-
-- **Options Flow Microstructure:** Real-time call/put ratios, delta-adjusted gamma exposure (GEX), retail option sweeps. GEX stamped on bars tells the system whether market makers will be *forced* to buy or sell into the current vol regime (dealer hedging flow). A negative GEX environment amplifies volatility; positive GEX suppresses it.
-- **Alternative NLP Sentiment:** Aggregated sentiment from retail/macro forums. Key signal: price grinding up + sentiment extreme + institutional flow in Distribution state = high-probability reversal setup. The divergence between fast-money optimism and smart-money exit is the signal.
-
-### C. Supply Chain & Macro Inventory Vector
-
-Structural physical-economy signals:
-
-- **Cross-Asset Commodity Spreads:** Copper/gold ratio (economic activity vs. fear), freight indices (Baltic Dry), energy cost spreads. Leading indicators for earnings regime transitions, particularly in industrial/materials sectors.
-- **Satellite / Geo-Spatial Footprinting:** Retail parking lot density, oil storage tank floating lid positions, cargo ship congestion. Converts physical-world inventory state into a categorical momentum factor. Extremely slow-moving (weekly/monthly) but orthogonal to all other vectors.
-
-**Data availability:** Options flow (CBOE data, some free endpoints); NLP sentiment (scraping or vendor); commodity spreads (already available via IBKR futures feeds); satellite data (vendor, expensive). Form 4 is public via SEC EDGAR.
+| # | State | Vol Z | VSR | VPC | Character |
+|---|---|---|---|---|---|
+| 1 | **Drying Up / Illiquidity** | Very low | -- | Near zero | Late-stage consolidation; exhausted bear |
+| 2 | **Normal Liquid Flow** | ~0 | Mid | Moderate | Baseline institutional execution |
+| 3 | **Institutional Absorption** | High | High (tight range) | Low | Smart money soaking supply without price extension |
+| 4 | **Aggressive Breakout** | High | Low (wide range) | High | Initiative volume; directional conviction |
+| 5 | **Climactic Exhaustion** | Extreme | Variable | Decoupling | Structural turning point; capitulation or panic |
 
 ---
 
-## Orthogonality: Why Separate Engines Are Correct
+## Engine 3: Flow/Positioning HMM (Blocked -- Requires Data)
 
-If flow/positioning regimes were just a lagging reflection of price and vol regimes, adding them to a single observation vector would introduce multicollinearity and dilute the Gaussian emissions. The engines are separate because the phenomena are genuinely orthogonal:
+**Question answered:** Who is behind the price movement and why?
 
-| Engine | Captures | The question it answers |
+This engine modifies the Transition Probability Matrix with an exogenous regulatory flow vector `u_t`:
+```
+P(S_t = j | S_{t-1} = i, u_t)
+```
+
+When `u_t` signals de-leveraging, transition probability into bullish states drops regardless of microstructure. When `u_t` is constructive, microstructure acts as the tactical trigger. The macro layer rules out states; the micro layer picks them.
+
+### Data dependencies (all with significant lag)
+
+| Source | Content | Lag | Availability |
+|---|---|---|---|
+| Form PF | Hedge fund systemic risk, leverage, net positioning | 60 days | Not public; requires vendor (Preqin, Burgiss) |
+| 13F | Institutional equity holdings by fund | 45 days | Public via SEC EDGAR; parseable |
+| Form ADV | RIA AUM and registration | Annual + amendments | Public via SEC EDGAR |
+| Form D | Private offering / fund capital raise | ~15 days | Public via SEC EDGAR |
+| NFA data | Futures positioning by category | Weekly | CFTC COT report (public) |
+
+The lag is not a disqualifier -- a 45-day-lagged 13F is a valid slow-moving prior on the TPM. It rules out regimes across quarters, not within bars. 4 TPM updates per year is sufficient resolution for structural positioning context.
+
+### K=5 Flow/Positioning Regimes
+
+| # | State | Primary Signal | Macro Signature | Micro Footprint |
+|---|---|---|---|---|
+| 1 | **Short Squeeze / De-leveraging** | NFA + Form PF | High short futures exposure + sudden leverage drop | Negative VPC, vol cascade spike, whipsaw close_skew |
+| 2 | **Quiet Accumulation** | 13F + Form D | Concentration building; AUM scaling; Form D offerings rising | High close_skew on up-bars; moderate VPC; low vol cascade |
+| 3 | **Balanced / Neutral Roll** | All baseline | No aggressive positioning shifts | VPC ~0; low vol cascade; close_skew ~0.5 |
+| 4 | **Institutional Distribution** | 13F + ADV | AUM flat or falling despite rising price; smart money exiting into retail | Falling close_skew; high VPC on down-bars into rising price |
+| 5 | **Systemic Liquidation** | Form PF | Macro funds rushing to cash; cross-asset futures liquidation | Massive vol cascade; strongly negative VPC; structural gap risk |
+
+---
+
+## Orthogonality: Why Separate Engines
+
+If these domains were correlated, joint training on a merged observation vector would be the right approach. They are not:
+
+| Engine | Captures | The question |
 |---|---|---|
-| Price/Vol HMM | Current market microstructure | *How* and *how fast* is price moving? |
-| Flow/Positioning HMM | Latent structural capacity + institutional intent | *Who* is moving it and *why*? |
-| Volume HMM | Participation character | *What kind* of volume is driving it? |
+| Price/Vol (E0) | Current microstructure | *How* and *how fast* is price moving? |
+| Volatility Structure (E1) | Vol geometry and acceleration | *Is volatility stable or about to transition?* |
+| Volume Character (E2) | Participation intent | *What kind* of volume is behind the move? |
+| Flow/Positioning (E3) | Institutional structural intent | *Who* is moving it and *why?* |
 
-The highest-IC alpha lives in the cells where price action is **detached** from structural positioning -- where the "how" and the "who" diverge:
+Joint training on a merged vector produces multicollinearity between engines and dilutes the Gaussian emission estimates. Each engine trained independently captures its domain cleanly. The product state at inference time is purely an IC stratification key -- no cross-engine coupling.
 
-| Price/Vol State | Flow State | Market Reality |
+### High-conviction divergence cells
+
+The highest-IC cells are where engines disagree -- where the "how" and "who" diverge:
+
+| E0 State | E3 State | Reality | IC Implication |
+|---|---|---|---|
+| Bear Vol Spike | Quiet Accumulation | Institutional liquidity hunt -- smart money filling blocks into retail panic | Mean-reversion features have highest IC; continuation features inverted |
+| Bull Trend / Low Vol | Institutional Distribution | Retail FOMO melt-up; smart money exiting | Continuation IC low/negative; reversal features activated |
+| Mean-Reverting Range | Systemic Liquidation | Calm before storm -- leverage unstable but not yet triggered | Vol breakout features have highest IC; all directional features suppressed |
+
+A momentum-only HMM assigns the same label to the first two rows. Only the joint cell reveals the signal.
+
+---
+
+## Partial IC Validation Protocol
+
+For each new engine added, validate it earns its place before corpus re-run:
+
+```
+IC_partial = Corr(X_bar, Y_forward | S_engine)
+```
+
+1. Train new engine on 3-5 symbols (not full corpus)
+2. Stamp `S_engine` onto existing `feature_vectors`
+3. Query `feature_ic_scores` stratified by `(existing_hmm_state, new_engine_state)`
+4. Compare IC Sharpe with and without the new stratification axis
+5. **Pass criterion:** IC Sharpe increases by >10% in at least one joint cell with N > 20k bars
+6. If pass: full corpus re-run with new engine column baked in
+
+The IC engine already implements this -- adding `S_engine` as a stratification column requires no infrastructure changes. The `WHERE regime_label = ? AND new_engine_state = ?` query is already the pattern.
+
+---
+
+## Joint State Space and Sparsity
+
+| Engines active | Joint cells | Practical cells (impossible combos removed) |
 |---|---|---|
-| Bear Vol Spike (panic selling) | Quiet Accumulation | **Institutional Liquidity Hunt** -- large players using retail panic to fill blocks. High-probability mean-reversion buy. |
-| Bull Trend / Low Vol (grinding up) | Institutional Distribution | **Exhaustion / Exhaust Wave** -- price rising on retail FOMO, smart money exiting. Structurally fragile. Asymmetric short setup. |
-| Mean-Reverting Range (choppy) | Systemic Liquidation | **Calm Before the Storm** -- bar looks quiet but underlying leverage is unstable. Any micro-trigger produces explosive downside vol breakout. |
+| E0 only (current) | 5 | 5 |
+| E0 + E1 | 25 | ~18 |
+| E0 + E1 + E2 | 125 | ~60 |
+| E0 + E1 + E2 + E3 | 625 | ~150 |
 
-These are exactly the situations where a momentum-only HMM would assign the same regime label to two structurally opposite market conditions.
+Sparsity is handled by the existing 20k bar IC gate -- sparse cells emit no score rather than a noisy one. At 58 ETFs × 4 TFs, even 150 effective cells is tractable (~16 ETF-TF combinations needed per cell at 20k bars each).
 
-### Partial IC: Statistical Proof of Orthogonality
+The full bar fingerprint with all four engines: `(price_state, vol_state, volume_state, flow_state)`.
 
-To validate that the flow engine adds independent information, run a Partial IC test:
+---
 
-```
-IC_partial = Corr(X_bar, Y | S_flow)
-```
+## Additional Intelligence Vectors (Non-HMM, Stamped Scalars)
 
-Where `X_bar` = bar-level microstructure features (close_skew, VPC, intraday variance ratio), `Y` = forward return at lookahead N, `S_flow` = flow regime state.
+These do not produce latent state labels. They are scalar or categorical features stamped directly onto bars and fed into the IC stratification as additional axes.
 
-If the regimes are NOT orthogonal, conditioning on `S_flow` tells you nothing new -- IC stays flat. If they ARE orthogonal, IC of the same bar features jumps significantly when filtered through the correct structural positioning state.
+### Corporate Event Vector (Form 4, Buybacks)
+- **Insider cluster signal:** binary/intensity indicator when senior executives net-buy their own stock (Form 4, SEC EDGAR, public). Insider buy + E3 Quiet Accumulation = highest-conviction long -- management and institutions aligned.
+- **Active buyback window:** binary flag when a repurchase authorization is active. Creates structural price floor; dampens E1 vol spike states.
+- **Regulatory/legal friction:** NLP sentiment from ongoing litigation, patent approvals, FDA pipelines. Slow-moving; sector-specific (biotech, pharma).
 
-This maps directly onto the existing IC engine: `IC_partial` is just `feature_ic_scores` stratified by `flow_hmm_state`. No new infrastructure needed. The existing `WHERE regime_label = ?` stratification already implements the conditional. Adding `flow_hmm_state` as a second stratification axis computes Partial IC automatically.
+### Sentiment / GEX Vector
+- **Gamma Exposure (GEX):** delta-adjusted market maker gamma from options open interest. Negative GEX = market makers must sell into down moves (amplifies vol). Positive GEX = market makers buy dips (suppresses vol). Directly modulates E1 vol regime interpretation.
+- **Call/put ratio, retail sweep intensity:** real-time options flow from CBOE. When retail options buying extreme + E3 Institutional Distribution = high-probability reversal.
+- **Retail NLP sentiment:** price grinding up + extreme optimism + E3 Distribution = divergence; reversal imminent.
 
-**Practical implication:** the same bar setup -- same close_skew, same VPC reading -- should be traded completely differently depending on the flow state. A high-skew bar in Quiet Accumulation is a continuation entry. The same high-skew bar in Institutional Distribution is a fade setup.
+### Supply Chain / Macro Vector
+- **Cross-asset commodity spreads:** copper/gold ratio (growth vs. fear), Baltic Dry Index, energy spreads. Available via IBKR futures feeds already in the system.
+- **Satellite / geospatial inventory:** parking lot density, oil tank floating lid positions, cargo congestion. Vendor data; expensive. Weekly/monthly update frequency.
+
+---
+
+## Build Sequence
+
+**Phase 1 (OHLCV-only, no new data):**
+1. Implement Engine 1 (Volatility Structure HMM) -- Parkinson, YZ, vol_velocity, noise_ratio
+2. Validate via Partial IC on 3-5 symbols
+3. Implement Engine 2 (Volume Character HMM) -- detrended vol_z, VSR, VPC
+4. Validate via Partial IC on 3-5 symbols
+5. If both pass: full corpus re-run with E1 and E2 columns in `feature_vectors`
+
+**Phase 2 (requires data acquisition):**
+1. Acquire 13F data via SEC EDGAR (public, parseable) -- Form 4 as well
+2. Implement COT report ingestion (CFTC, public, weekly)
+3. Build Engine 3 (Flow/Positioning HMM) with soft prior approach (features in obs vector, not hard TPM modification)
+4. Validate via Partial IC
+5. Full corpus re-run
+
+**Phase 3 (vendor data):**
+1. Options flow / GEX (CBOE data access)
+2. Sentiment NLP pipeline
+3. Satellite data (if warranted by Phase 1-2 results)
+
+Any observation vector or engine change invalidates `feature_ic_scores`. Validate on 3-5 symbols before committing to a full run.
 
 ---
 
 ## Open Questions
 
-1. **Hard vs. soft macro prior**: modifying the TPM directly (hard constraint) vs. adding macro features to the observation vector (soft influence) -- the latter is implementable today without changing the HMM architecture.
-2. **State count**: K=5 was BIC-optimal for the current 5D vector. A richer observation vector will likely push BIC toward higher K. Re-run BIC before corpus re-run.
-3. **Corpus invalidation**: any observation vector change requires full corpus re-run (as with all HMM changes). Incremental validation on 2-3 symbols first.
-4. **13F staleness**: 45-day lag means 13F regimes update ~4x/year. TPM modification from 13F effectively creates 4 seasonal TPM variants. Is that enough resolution, or does it just add noise?
+1. **BIC re-selection per engine:** K=5 was BIC-optimal for the current 5D price/vol vector. Each new engine should run BIC independently on its own observation space. K may not be 5 for vol structure or volume character.
+2. **Cross-timeframe features:** `noise_ratio` and `ivr` require 5m bars in a 1d context. `_build_obs_matrix()` currently takes a single timeframe. Needs a refactor to pass multi-TF data to the vol HMM.
+3. **Hard vs. soft macro prior for Engine 3:** modifying the TPM directly (hard ARX constraint) vs. adding macro features to the observation vector (soft influence). Soft approach is implementable without changing the HMM class; hard approach is more principled but complex.
+4. **13F seasonality:** 45-day lag means 4 TPM updates per year. This effectively creates 4 seasonal variants. Whether that resolution is sufficient or just adds noise to be determined empirically.
 
 ---
 
 ## Related Docs
 
-- `docs/ideas/intel-10-hmm-observation-vector.md` -- current 5D vector, evaluation protocol
+- `docs/ideas/intel-10-hmm-observation-vector.md` -- current 5D price/vol vector and evaluation protocol
 - `docs/ideas/intel-08-macro-cross-asset.md` -- macro/cross-asset signals
 - `docs/intelligence/intelligence-alphaengine.md` -- IC engine design
-- `docs/plans/2026-06-29-regime-stratification-alternatives.md` -- volatility_regime + volume_regime stratification
+- `docs/plans/2026-06-29-regime-stratification-alternatives.md` -- volatility_regime + volume_regime stratification (simpler percentile-rank approach, no HMM)
