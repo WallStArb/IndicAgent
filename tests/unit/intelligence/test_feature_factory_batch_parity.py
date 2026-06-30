@@ -482,6 +482,10 @@ def test_build_feature_vector_guards_nan():
         vwap_dev_sigma=0.0,
         atr_z=0.0,
         vol_ratio=1.0,
+        poc_dist_atr=0.0,
+        va_position=0.5,
+        sr_support_dist=0.0,
+        sr_resist_dist=0.0,
         hmm_regime_prob=0.0,
         hmm_entropy=0.0,
         hmm_duration=0.0,
@@ -526,7 +530,7 @@ def test_build_feature_vector_guards_nan():
 
 
 def test_build_feature_vector_none_passthrough():
-    """_build_feature_vector builds a valid FeatureVector from all-finite inputs."""
+    """_build_feature_vector passes None through for nullable VP/SR fields (batch path)."""
     fv = _build_feature_vector(
         momentum_z_fast=0.0,
         momentum_z_mid=0.0,
@@ -545,6 +549,10 @@ def test_build_feature_vector_none_passthrough():
         vwap_dev_sigma=0.0,
         atr_z=0.0,
         vol_ratio=1.0,
+        poc_dist_atr=None,
+        va_position=None,
+        sr_support_dist=None,
+        sr_resist_dist=None,
         hmm_regime_prob=0.0,
         hmm_entropy=0.0,
         hmm_duration=0.0,
@@ -583,5 +591,5 @@ def test_build_feature_vector_none_passthrough():
         ret_skew_z=0.0,
         ret_acf1_z=0.0,
     )
-    assert fv.momentum_z_fast == 0.0
-    assert fv.range_position == 0.5
+    assert fv.poc_dist_atr is None
+    assert fv.va_position is None

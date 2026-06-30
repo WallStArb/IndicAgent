@@ -397,6 +397,47 @@ class TestRegimePrimitives:
 
 
 class TestSessionPrimitives:
+    def test_session_poc_dist_from_cache(self) -> None:
+        """Session poc_dist_atr comes from FeatureCache."""
+        bars = _make_bars(60)
+        config = _make_config()
+        cache = _make_cache()
+        cache.poc_dist_atr = 0.42
+        fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+        assert math.isclose(fv.poc_dist_atr, 0.42, abs_tol=1e-9)
+
+    def test_session_va_position_from_cache(self) -> None:
+        bars = _make_bars(60)
+        config = _make_config()
+        cache = _make_cache()
+        cache.va_position = 0.73
+        fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+        assert math.isclose(fv.va_position, 0.73, abs_tol=1e-9)
+
+    def test_session_sr_support_from_cache(self) -> None:
+        bars = _make_bars(60)
+        config = _make_config()
+        cache = _make_cache()
+        cache.sr_support_dist = 1.2
+        fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+        assert math.isclose(fv.sr_support_dist, 1.2, abs_tol=1e-9)
+
+    def test_1d_tf_session_features_are_defaults(self) -> None:
+        """For tf='1d', session-level features must be zero/0.5 (intraday concepts)."""
+        bars = _make_bars(60)
+        config = _make_config()
+        cache = _make_cache()
+        # Set cache values to non-default to confirm 1d override
+        cache.poc_dist_atr = 2.0
+        cache.va_position = 0.8
+        cache.sr_support_dist = 3.0
+        cache.sr_resist_dist = 4.0
+        fv = FeatureFactory.compute(bars, "SPY", "1d", cache, config)
+        assert fv.poc_dist_atr == 0.0
+        assert fv.va_position == 0.5
+        assert fv.sr_support_dist == 0.0
+        assert fv.sr_resist_dist == 0.0
+
     def test_vwap_dev_sigma_finite(self) -> None:
         bars = _make_bars(60)
         config = _make_config()
@@ -447,7 +488,7 @@ class TestComputePurity:
         assert isinstance(result, FeatureVector)
 
     def test_all_fields_are_finite_floats(self) -> None:
-        """All 54 FeatureVector fields must be finite floats (no NaN, no inf)."""
+        """All 36 FeatureVector fields must be finite floats (no NaN, no inf)."""
         import dataclasses
 
         bars = _make_bars(100)
@@ -455,7 +496,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 54, f"Expected 54 fields, got {len(fields)}"
+        assert len(fields) == 61, f"Expected 61 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,
