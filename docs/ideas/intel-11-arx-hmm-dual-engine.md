@@ -5,6 +5,33 @@
 
 ---
 
+## Architecture Diagram
+
+```
+[Low-Frequency Structural Anchors]  (Form PF, 13F, ADV, COT)
+               │
+               ▼  modulates Transition Probability Matrix
+┌────────────────────────────────────────────────────────┐
+│              FLOW / POSITIONING HMM (E3)               │
+│  Latent states: Accumulation / Neutral / Distribution  │
+│                 De-leveraging / Systemic Liquidation   │
+└────────────────────────────────────────────────────────┘
+               ▲
+               │  bar-level emissions
+[High-Frequency Microstructure]  (1m–1d OHLCV)
+       │               │               │
+       ▼               ▼               ▼
+  PRICE/VOL        VOLATILITY       VOLUME
+  HMM (E0)        STRUCTURE        CHARACTER
+  momentum,        HMM (E1)        HMM (E2)
+  vol, volume      geometry,       detrended,
+  anomaly          velocity        VSR, VPC
+```
+
+Each microstructure engine trains independently. Joint state `(E0, E1, E2, E3)` is computed at inference time as an IC stratification key -- no cross-engine coupling during training.
+
+---
+
 ## Thesis
 
 The current single HMM answers one question: *how is price moving?* (momentum, volatility, volume anomaly -- all microstructure). The highest-IC alpha cells live where **price action is detached from structural positioning** -- where the "how" and the "who" diverge. A momentum-only HMM cannot see this. It assigns the same regime label to a quiet institutional accumulation and a retail-FOMO melt-up, even though those two bars have opposite IC profiles for continuation features.
@@ -220,6 +247,39 @@ IC_partial = Corr(X_bar, Y_forward | S_engine)
 6. If pass: full corpus re-run with new engine column baked in
 
 The IC engine already implements this -- adding `S_engine` as a stratification column requires no infrastructure changes. The `WHERE regime_label = ? AND new_engine_state = ?` query is already the pattern.
+
+---
+
+## 5×5 Product Matrix (E0 × E3)
+
+Running E0 and E3 independently produces a 25-cell cross-conditional space. Named corner cells:
+
+```
+                        [FLOW REGIME E3 (k=5)]
+                   Accum   Neutral  Distrib  DeLev   Liquid
+                  ┌───────┬────────┬────────┬───────┬────────┐
+       Bull Trend │ Aggr  │        │  Fade  │       │  Bear  │
+                  │ Long  │  ...   │  Long  │  ...  │  Trap  │
+                  ├───────┼────────┼────────┼───────┼────────┤
+PRICE/ ...        │  ...  │  ...   │  ...   │  ...  │  ...   │
+VOL E0            ├───────┼────────┼────────┼───────┼────────┤
+       Bear Vol   │ Short │        │ Struct │       │ Struct │
+       Spike      │ Sqz?  │  ...   │ Short  │  ...  │ Crash  │
+                  └───────┴────────┴────────┴───────┴────────┘
+```
+
+- `(Bull Trend, Liquidation)` = **Bear Trap** -- price still rising but structural forced selling imminent
+- `(Bear Vol Spike, Accumulation)` = **Short Squeeze candidate** -- panic selling into institutional accumulation
+- `(Bear Vol Spike, Liquidation)` = **Structural Crash** -- confirmed short, maximum conviction
+- `(Bear Vol Spike, Distribution)` = **Structural Short** -- smart money already exiting, vol confirming
+
+Same feature, opposite signal depending on the joint cell. A flat aggregated IC masks this entirely.
+
+### Three named high-conviction volume cells (E0 × E2 × E3)
+
+- `(Bull Trend, Quiet Accumulation, Absorption)` = highest-conviction long -- price trending, institutions quietly accumulating, supply being absorbed without extension
+- `(Bear Vol Spike, Short Squeeze, Climactic Exhaustion)` = mean-reversion buy -- vol spike + trapped shorts covering + exhaustion volume = reversal, not continuation
+- `(Bull Trend, Institutional Distribution, Aggressive Breakout)` = fade -- price rising on high breakout volume but smart money is exiting into retail enthusiasm
 
 ---
 
