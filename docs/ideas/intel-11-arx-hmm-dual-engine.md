@@ -204,6 +204,86 @@ The product matrix approach is cleaner: two fully independent HMMs, each fit on 
 
 ---
 
+## Volume HMM: Third Independent Engine
+
+The existing `_build_obs_matrix()` / GaussianHMM / Viterbi code is reusable unchanged -- the math doesn't care whether emissions are price, vol, or volume features. Only the input feature engineering changes.
+
+### Feature engineering requirements
+
+Raw share volume fed directly to the HMM will produce garbage: volume is non-stationary, has a strong intraday U-shape (surge at open and close), and varies by orders of magnitude across symbols. Required transformations before passing to the HMM:
+
+**1. Detrend intraday U-shape**
+Divide each bar's volume by historical average volume for that specific time-of-day slot:
+```
+vol_detrended[t] = volume[t] / mean(volume[same_tod_slot], lookback=30d)
+```
+This removes the structural open/close surge so the HMM sees pure anomaly signal.
+
+**2. Rolling Z-score / percentile rank**
+```
+vol_z[t] = (vol_detrended[t] - rolling_mean(vol_detrended, 20d)) / rolling_std(vol_detrended, 20d)
+```
+Forces volume into a stationary, standardized distribution compatible with Gaussian emissions.
+
+**3. Volume-to-Spread Ratio (VSR)**
+```
+vsr[t] = vol_detrended[t] / max(high[t] - low[t], ε)
+```
+Isolates the two opposite high-volume regimes: high volume + tight range = absorption (smart money soaking supply without moving price); high volume + wide range = breakout/initiative. This single feature separates the most important volume states that look identical on raw volume alone.
+
+### Expected K=5 volume regime labels
+
+| State | Character | Vol Z | VSR | Notes |
+|---|---|---|---|---|
+| 1 | **Drying Up / Illiquidity** | Very low | N/A | Late-stage consolidation or exhausted bear |
+| 2 | **Normal Liquid Flow** | Near zero | Mid | Baseline institutional execution |
+| 3 | **Institutional Absorption** | High | High VSR (high vol, tight range) | Smart money absorbing supply; no price extension |
+| 4 | **Aggressive Breakout** | High | Low VSR (high vol, wide range) | Initiative volume; strong directional conviction |
+| 5 | **Climactic Exhaustion** | Extreme spike | Variable | Structural turning points, capitulation, or panic |
+
+### Three-engine product space
+
+With Price/Vol HMM × Flow HMM × Volume HMM, each K=5, the joint state space is 5×5×5 = **125 cells**. Each bar gets a three-part fingerprint `(price_state, flow_state, volume_state)`.
+
+Example high-conviction cells:
+- `(Bull Trend, Quiet Accumulation, Absorption)` = highest-conviction long -- price trending, institutions quietly accumulating, supply being absorbed without extension
+- `(Bear Vol Spike, Short Squeeze, Exhaustion)` = mean-reversion buy -- vol spike + trapped shorts covering + climactic volume = reversal, not continuation
+- `(Bull Trend, Institutional Distribution, Breakout)` = fade -- price rising on high volume but smart money is exiting into retail breakout buying
+
+Sparsity at 125 cells is significant. The IC gate (20k bars minimum per cell) will naturally suppress sparse cells. In practice many cells are structurally impossible (Systemic Liquidation + Quiet Accumulation never co-occur), so the effective cell count is smaller.
+
+---
+
+## Alternative Intelligence Vectors (Beyond Price/Vol/Flow)
+
+Three additional vector classes that are orthogonal to price, volatility, and institutional filing data:
+
+### A. Corporate Intelligence Vector (Event & Friction)
+
+Tracks structural behavior of the corporation itself -- a different information layer than market microstructure or fund flows.
+
+- **Insider Cluster Buying/Selling (Form 4):** Binary/intensity indicator stamped on bars when senior executives are buying or selling their own stock. Insider buying + Flow State 2 (Quiet Accumulation) = one of the highest-conviction long signals available -- both the institution and management are on the same side.
+- **Share Repurchase Authorization Streams:** Active corporate buyback windows create a structural price floor that dampens downside volatility regimes. Interacts directly with the Vol HMM -- absorption state is more likely when a buyback program is active.
+- **Regulatory/Legal Friction (NLP):** Sentiment vectors from litigation filings, patent approvals, FDA pipelines. Slow-moving but highly predictive for specific sectors (biotech, pharma). Feeds into the Flow HMM's macro layer rather than the price/vol engine.
+
+### B. Sentiment & Crowd Flow Vector (Retail / Fast Money)
+
+Captures the counterparty to institutional flow -- what retail and fast money are doing:
+
+- **Options Flow Microstructure:** Real-time call/put ratios, delta-adjusted gamma exposure (GEX), retail option sweeps. GEX stamped on bars tells the system whether market makers will be *forced* to buy or sell into the current vol regime (dealer hedging flow). A negative GEX environment amplifies volatility; positive GEX suppresses it.
+- **Alternative NLP Sentiment:** Aggregated sentiment from retail/macro forums. Key signal: price grinding up + sentiment extreme + institutional flow in Distribution state = high-probability reversal setup. The divergence between fast-money optimism and smart-money exit is the signal.
+
+### C. Supply Chain & Macro Inventory Vector
+
+Structural physical-economy signals:
+
+- **Cross-Asset Commodity Spreads:** Copper/gold ratio (economic activity vs. fear), freight indices (Baltic Dry), energy cost spreads. Leading indicators for earnings regime transitions, particularly in industrial/materials sectors.
+- **Satellite / Geo-Spatial Footprinting:** Retail parking lot density, oil storage tank floating lid positions, cargo ship congestion. Converts physical-world inventory state into a categorical momentum factor. Extremely slow-moving (weekly/monthly) but orthogonal to all other vectors.
+
+**Data availability:** Options flow (CBOE data, some free endpoints); NLP sentiment (scraping or vendor); commodity spreads (already available via IBKR futures feeds); satellite data (vendor, expensive). Form 4 is public via SEC EDGAR.
+
+---
+
 ## Open Questions
 
 1. **Hard vs. soft macro prior**: modifying the TPM directly (hard constraint) vs. adding macro features to the observation vector (soft influence) -- the latter is implementable today without changing the HMM architecture.
