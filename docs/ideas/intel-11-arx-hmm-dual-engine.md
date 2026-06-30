@@ -73,6 +73,28 @@ vol_cascade[t] = rolling_var(true_range_1m, window=W_slow)
 
 Distinct from `vol_of_vol` (dim 3): that's std of close-to-close realized vol. This is variance of intraday range -- captures gap risk and thin-market fragility that close-to-close vol misses.
 
+### Garman-Klass Volatility
+Range-based variance estimator that uses OHLC -- significantly more efficient than close-to-close realized vol (the current dim 1) because it incorporates intraday range information:
+
+```
+σ²_GK[t] = 0.5 * ln(H/L)² - (2*ln2 - 1) * ln(C/O)²
+```
+
+Rolled over 1h and 1d windows. More efficient than `realized_vol` for the same window length -- GK extracts ~5x more information per bar because it sees the full range, not just the close-to-close delta. At 5m timeframe where bars are noisy, this matters.
+
+**Relationship to current dim 1 (`realized_vol`):** Not redundant. `realized_vol` is close-to-close std; GK is OHLC range-based. GK responds immediately to intraday liquidity shocks that close-to-close vol misses until the next bar's close.
+
+### Intraday Variance Ratio
+Ratio of short-timeframe realized variance to the full daily variance:
+
+```
+ivr[t] = realized_var(1m or 5m bars, last N bars) / realized_var(1d, rolling window)
+```
+
+A high ratio = massive intraday bursts relative to the daily baseline. This pattern is characteristic of institutional algorithmic block execution -- VWAP/TWAP algos create concentrated micro-bursts that look smooth on the daily but are detectable at 1m/5m. The variance ratio spikes *before* the 1d bar reflects it, giving the HMM early warning of regime transition.
+
+**APR candidate:** `feature.hmm.ivr_fast_window` (1m bars over N bars), `feature.hmm.ivr_slow_window` (1d rolling baseline).
+
 ### Bar-Level Asymmetry / Close Skew
 Position of close within the high-low range per bar, rolled over 1h and 1d:
 
@@ -85,19 +107,21 @@ Range: [0, 1]. Consistently near 1.0 (closing at highs) = Accumulation emission 
 
 ---
 
-## Regime State Candidates
+## The 5 Latent Flow Regimes
 
-Unlike the current unsupervised approach (K=5, labels assigned post-hoc), the ARX-HMM can be partially supervised or have interpretable state anchors:
+The macro regulatory data (13F, Form PF, Form D, ADV) should drive the HMM toward 5 structurally meaningful states. These are participation-centric, distinct from the current momentum-centric K=5 labels:
 
-| State | Macro signal | Micro signal | Character |
-|---|---|---|---|
-| Accumulation | 13F: high concentration, AUM growing | High close_skew, moderate VPC | Institutional buying quietly |
-| Distribution | 13F: concentration falling | Low close_skew, high VPC on down-bars | Smart money exiting |
-| Expansion | Form PF: leverage rising | High VPC aligned with trend, low vol_cascade | Momentum with conviction |
-| Fragile | Form PF: leverage near peak | Vol cascade spiking, VPC decoupling | Crowded + unstable |
-| Liquidation | Form PF: rapid de-leveraging | Massive vol_cascade, negative VPC | Forced selling |
+| # | State | Primary Driver | Macro Signal | Micro Signature |
+|---|---|---|---|---|
+| 1 | **Short Squeeze / De-leveraging** | NFA / Form PF | High short futures exposure + sudden leverage drop | Negative VPC, vol_cascade spike, close_skew near 0 then whipsaw |
+| 2 | **Quiet Accumulation** | 13F / Form D | High institutional concentration building, AUM scaling, public offerings (Form D) rising | High close_skew, moderate VPC on up-bars, low vol_cascade |
+| 3 | **Balanced / Neutral Roll** | All filings at baseline | No aggressive positioning shifts; flows match historical norms | VPC near zero, low vol_cascade, close_skew ~0.5 |
+| 4 | **Institutional Distribution** | 13F / ADV | AUM flat or slightly falling despite positive price; smart money exiting into retail buying | Low/falling close_skew, high VPC on down-bars despite up-price |
+| 5 | **Systemic Liquidation** | Form PF | Macro funds rushing to cash, cross-asset futures liquidation (NFA) | Massive vol_cascade, strongly negative VPC, close_skew near 0, earnings misses trigger structural gaps |
 
-Current K=5 labels (trending_down / transition_down / ranging / transition_up / trending_up) are momentum-centric. These ARX states are participation-centric -- a different semantic layer.
+**Key distinction from current labels:** trending_down/up/ranging describe *price momentum*. These 5 states describe *institutional participation intent* -- a crowded-long distribution market and a quiet accumulation market can both show "trending_up" in the current HMM but have opposite IC profiles for trend-following features.
+
+**K=5 consistency:** BIC already selected K=5 on the momentum-only observation vector. The flow-regime framing gives interpretive anchors for what those 5 states *mean* when extended with institutional footprinting features.
 
 ---
 
