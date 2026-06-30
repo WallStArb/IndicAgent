@@ -40,6 +40,10 @@ _DEFAULT_CFG: dict = {
     "alpha.quant.threshold.15m": "1.2",
     "alpha.quant.threshold.1h": "1.0",
     "alpha.quant.threshold.1d": "0.8",
+    "alpha.quant.cost_hurdle.5m": "0.0",
+    "alpha.quant.cost_hurdle.15m": "0.0",
+    "alpha.quant.cost_hurdle.1h": "0.0",
+    "alpha.quant.cost_hurdle.1d": "0.0",
 }
 
 
@@ -188,8 +192,12 @@ async def _run_emitter_with_single_row(
     weight_version: str = "v1",
     top_features_count: str = "10",
     threshold_5m: str = "1.5",
+    cursor_yields_row: bool = True,
 ) -> tuple[AsyncMock, AsyncMock]:
-    """Helper: run AlphaPublisher.execute() with one alpha row and return (mock_producer, mock_conn)."""
+    """Helper: run AlphaPublisher.execute() with one alpha row and return (mock_producer, mock_conn).
+
+    cursor_yields_row=False simulates SQL filtering the row out (all gates are SQL-level).
+    """
     emitter = _make_emitter()
 
     cfg_rows = [MagicMock() for _ in _DEFAULT_CFG.items()]
@@ -211,17 +219,29 @@ async def _run_emitter_with_single_row(
     if weight_rows is None:
         weight_rows = _build_weights_cache_rows()
 
+    # conn.cursor() is an async generator; SQL gates are mocked by controlling what it yields.
+    captured_alpha_row = alpha_row
+    _emit = cursor_yields_row
+
+    async def _mock_cursor(*args, **kwargs):
+        if _emit:
+            yield captured_alpha_row
+
+    mock_transaction = MagicMock()
+    mock_transaction.__aenter__ = AsyncMock(return_value=None)
+    mock_transaction.__aexit__ = AsyncMock(return_value=False)
+
     mock_conn = AsyncMock()
-    # APR load
     mock_conn.fetch = AsyncMock(
         side_effect=[
             final_cfg_rows,  # APR fetch
             weight_rows,  # ensemble_weights preload
-            [alpha_row],  # ensemble_alpha rows
         ]
     )
     mock_conn.fetchval = AsyncMock(return_value=n_alpha_total)  # startup gate count
-    mock_conn.execute = AsyncMock()  # alpha_events INSERT
+    mock_conn.transaction = MagicMock(return_value=mock_transaction)
+    mock_conn.cursor = MagicMock(return_value=_mock_cursor())
+    mock_conn.executemany = AsyncMock()
 
     mock_pool = AsyncMock()
     mock_pool.acquire = MagicMock(
@@ -251,48 +271,55 @@ async def _run_emitter_with_single_row(
 class TestEmissionGate:
     @pytest.mark.asyncio
     async def test_zero_weight_stratum_rejected(self) -> None:
-        """Rows with effective_n == 0 are rejected with reason zero_weight_stratum."""
+        """effective_n == 0 is filtered by SQL gate; cursor yields nothing."""
         row = _make_alpha_row(
             alpha_score=2.0, alpha_ci_lower=0.5, alpha_ci_upper=3.5, effective_n=0.0
         )
-        mock_producer, _ = await _run_emitter_with_single_row(row)
+        mock_producer, _ = await _run_emitter_with_single_row(row, cursor_yields_row=False)
         mock_producer.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_effective_n_low_rejected(self) -> None:
-        """Rows where effective_n < effective_n_gate are rejected with reason effective_n_low."""
+        """effective_n < effective_n_gate is filtered by SQL gate; cursor yields nothing."""
         row = _make_alpha_row(
             alpha_score=2.0, alpha_ci_lower=0.5, alpha_ci_upper=3.5, effective_n=1.0
         )
-        mock_producer, _ = await _run_emitter_with_single_row(row, effective_n_gate="3.0")
+        mock_producer, _ = await _run_emitter_with_single_row(
+            row, effective_n_gate="3.0", cursor_yields_row=False
+        )
         mock_producer.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_threshold_miss_rejected(self) -> None:
-        """Rows where abs(alpha_score) <= threshold are rejected with reason threshold_miss."""
-        # threshold for 5m defaults to 1.5; alpha_score=0.5 < 1.5
+        """abs(alpha_score) <= threshold is filtered by SQL gate; cursor yields nothing."""
         row = _make_alpha_row(
             alpha_score=0.5, alpha_ci_lower=0.1, alpha_ci_upper=0.9, effective_n=5.0
         )
-        mock_producer, _ = await _run_emitter_with_single_row(row, threshold_5m="1.5")
+        mock_producer, _ = await _run_emitter_with_single_row(
+            row, threshold_5m="1.5", cursor_yields_row=False
+        )
         mock_producer.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_long_ci_not_directional_rejected(self) -> None:
-        """Long row with alpha_ci_lower <= 0 is rejected with reason ci_not_directional."""
+        """Long row with alpha_ci_lower <= cost_hurdle is filtered by SQL gate; cursor yields nothing."""
         row = _make_alpha_row(
             alpha_score=2.0, alpha_ci_lower=-0.1, alpha_ci_upper=3.5, effective_n=5.0
         )
-        mock_producer, _ = await _run_emitter_with_single_row(row, threshold_5m="1.0")
+        mock_producer, _ = await _run_emitter_with_single_row(
+            row, threshold_5m="1.0", cursor_yields_row=False
+        )
         mock_producer.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_short_ci_not_directional_rejected(self) -> None:
-        """Short row with alpha_ci_upper >= 0 is rejected with reason ci_not_directional."""
+        """Short row with alpha_ci_upper >= -cost_hurdle is filtered by SQL gate; cursor yields nothing."""
         row = _make_alpha_row(
             alpha_score=-2.0, alpha_ci_lower=-3.5, alpha_ci_upper=0.1, effective_n=5.0
         )
-        mock_producer, _ = await _run_emitter_with_single_row(row, threshold_5m="1.0")
+        mock_producer, _ = await _run_emitter_with_single_row(
+            row, threshold_5m="1.0", cursor_yields_row=False
+        )
         mock_producer.publish.assert_not_awaited()
 
     @pytest.mark.asyncio

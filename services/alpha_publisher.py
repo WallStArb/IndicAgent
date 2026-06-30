@@ -115,6 +115,15 @@ class AlphaPublisher(BaseBatch):
         }
         return _cfg_float(cfg, f"alpha.quant.threshold.{tf}", defaults.get(tf, 1.0))
 
+    def _cost_hurdle_for_tf(self, tf: str, cfg: dict[str, Any]) -> float:
+        """Return the APR-loaded cost hurdle for the CI directional gate.
+
+        The gate requires ci_lower > cost_hurdle (long) or ci_upper < -cost_hurdle
+        (short). A value of 0.0 reproduces the legacy ci > 0 behavior. Raise via
+        APR once corpus data establishes the break-even alpha_score at each TF.
+        """
+        return _cfg_float(cfg, f"alpha.quant.cost_hurdle.{tf}", 0.0)
+
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Read ensemble_alpha, enforce gates, write alpha_events, publish to Kafka."""
         manifest = CorpusManifest("alpha_publisher", Path(".planning/corpus_manifests"))
@@ -135,10 +144,10 @@ class AlphaPublisher(BaseBatch):
             regime, alpha_score, alpha_ci_lower, alpha_ci_upper,
             effective_n, n_features_active,
             emission_threshold, direction,
-            top_features, emitted_at
+            top_features, emitted_at, cost_hurdle
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15, $16
+            $11, $12, $13, $14, $15, $16, $17
         )
         ON CONFLICT (event_id, bar_ts) DO NOTHING
     """
@@ -198,13 +207,15 @@ class AlphaPublisher(BaseBatch):
                 n_weight_rows=len(weight_rows),
             )
 
-            # Pre-compute per-TF thresholds for SQL pre-filter (exact values from APR)
+            # Pre-compute per-TF thresholds and cost hurdles from APR
             _known_tfs = ["5m", "15m", "1h", "1d"]
             tf_thresholds = {tf: self._threshold_for_tf(tf, cfg) for tf in _known_tfs}
+            tf_cost_hurdles = {tf: self._cost_hurdle_for_tf(tf, cfg) for tf in _known_tfs}
             fallback_threshold = min(tf_thresholds.values())
+            fallback_hurdle = 0.0
 
             # --- Stream ensemble_alpha through SQL gates; flush to DB in chunks ---
-            # SQL pre-filters: effective_n, per-TF alpha threshold, CI directional.
+            # SQL pre-filters: effective_n, per-TF alpha threshold, CI directional + cost.
             # The only remaining in-Python gate is the top_features weights-cache check.
             total_bars = 0
             reject_count = 0
@@ -234,8 +245,20 @@ class AlphaPublisher(BaseBatch):
                             ELSE $7::double precision
                           END
                       AND (
-                            (alpha_score > 0 AND alpha_ci_lower > 0)
-                         OR (alpha_score < 0 AND alpha_ci_upper < 0)
+                            (alpha_score > 0 AND alpha_ci_lower > CASE tf
+                                WHEN '5m'  THEN $8::double precision
+                                WHEN '15m' THEN $9::double precision
+                                WHEN '1h'  THEN $10::double precision
+                                WHEN '1d'  THEN $11::double precision
+                                ELSE $12::double precision
+                              END)
+                         OR (alpha_score < 0 AND alpha_ci_upper < -1 * CASE tf
+                                WHEN '5m'  THEN $8::double precision
+                                WHEN '15m' THEN $9::double precision
+                                WHEN '1h'  THEN $10::double precision
+                                WHEN '1d'  THEN $11::double precision
+                                ELSE $12::double precision
+                              END)
                           )
                     ORDER BY symbol, tf, bar_ts
                     """,
@@ -246,6 +269,11 @@ class AlphaPublisher(BaseBatch):
                     tf_thresholds.get("1h", 1.0),
                     tf_thresholds.get("1d", 0.8),
                     fallback_threshold,
+                    tf_cost_hurdles.get("5m", 0.0),
+                    tf_cost_hurdles.get("15m", 0.0),
+                    tf_cost_hurdles.get("1h", 0.0),
+                    tf_cost_hurdles.get("1d", 0.0),
+                    fallback_hurdle,
                     prefetch=10000,
                 ):
                     total_bars += 1
@@ -259,6 +287,7 @@ class AlphaPublisher(BaseBatch):
                     n_features_active = int(row["n_features_active"])
                     regime = row["regime"] or "_pooled"
                     threshold = self._threshold_for_tf(tf, cfg)
+                    cost_hurdle = self._cost_hurdle_for_tf(tf, cfg)
 
                     ALPHA_PUBLISHER_BARS_SCORED_TOTAL.add(1, {"symbol": symbol, "tf": tf})
 
@@ -306,6 +335,7 @@ class AlphaPublisher(BaseBatch):
                                 direction,
                                 top_features,
                                 now,
+                                cost_hurdle,
                             )
                         )
                         if len(_chunk) >= self._CHUNK_SIZE:
@@ -333,6 +363,7 @@ class AlphaPublisher(BaseBatch):
                                 "threshold": threshold,
                                 "direction": direction,
                                 "top_features": top_features,
+                                "cost_hurdle": cost_hurdle,
                             }
                         )
 
@@ -374,6 +405,7 @@ class AlphaPublisher(BaseBatch):
                                     e["direction"],
                                     e["top_features"],
                                     now,
+                                    e["cost_hurdle"],
                                 )
                                 for e in pending_events
                             ],
