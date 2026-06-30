@@ -194,11 +194,11 @@ Joint training on a merged vector produces multicollinearity between engines and
 
 The highest-IC cells are where engines disagree -- where the "how" and "who" diverge:
 
-| E0 State | E3 State | Reality | IC Implication |
+| E0 State | E3 State | Market Reality | IC Implication |
 |---|---|---|---|
-| Bear Vol Spike | Quiet Accumulation | Institutional liquidity hunt -- smart money filling blocks into retail panic | Mean-reversion features have highest IC; continuation features inverted |
-| Bull Trend / Low Vol | Institutional Distribution | Retail FOMO melt-up; smart money exiting | Continuation IC low/negative; reversal features activated |
-| Mean-Reverting Range | Systemic Liquidation | Calm before storm -- leverage unstable but not yet triggered | Vol breakout features have highest IC; all directional features suppressed |
+| Bear Vol Spike (panic selling) | Quiet Accumulation | **Institutional Liquidity Hunt** -- large players using retail panic to fill blocks. High-probability mean-reversion buy. | Mean-reversion features have highest IC; continuation features inverted |
+| Bull Trend / Low Vol (grinding up) | Institutional Distribution | **Exhaustion / Exhaust Wave** -- price rising on retail FOMO, smart money exiting. Structurally fragile. Asymmetric short setup. | Continuation IC low/negative; reversal features activated |
+| Mean-Reverting Range (choppy) | Systemic Liquidation | **Calm Before the Storm** -- bar looks quiet but underlying leverage is unstable. Any micro-trigger produces explosive downside vol breakout. | Vol breakout features have highest IC; all directional features suppressed |
 
 A momentum-only HMM assigns the same label to the first two rows. Only the joint cell reveals the signal.
 
