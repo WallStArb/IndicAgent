@@ -25,6 +25,16 @@ Lookahead disambiguation (Pitfall 1 from RESEARCH.md):
 from __future__ import annotations
 
 
+def compute_quality_weight(ic_ci_lower: float, ic_sharpe: float, sharpe_floor: float) -> float:
+    """Renaissance IC gate weight: ic_ci_lower * max(sharpe_floor, ic_sharpe).
+
+    Ensures features with positive CI but near-zero Sharpe still receive a small
+    positive weight (aggregate many weak signals, not just strong ones).
+    APR key: alpha.ensemble.sharpe_floor (default 0.05).
+    """
+    return float(ic_ci_lower) * max(sharpe_floor, float(ic_sharpe))
+
+
 def select_features_per_stratum(
     rows: list[dict],
     sharpe_floor: float,
@@ -67,11 +77,10 @@ def select_features_per_stratum(
         if ic_sharpe is None or ic_ci_lower is None:
             continue
 
-        quality_weight = float(ic_ci_lower) * max(sharpe_floor, float(ic_sharpe))
-        row_with_qw = {**row, "quality_weight": quality_weight}
+        qw = compute_quality_weight(float(ic_ci_lower), float(ic_sharpe), sharpe_floor)
 
         if feature_name not in best:
-            best[feature_name] = row_with_qw
+            best[feature_name] = {**row, "quality_weight": qw}
             continue
 
         existing = best[feature_name]
@@ -79,9 +88,7 @@ def select_features_per_stratum(
         existing_lookahead = existing.get("lookahead_bars", 0)
 
         # Prefer higher quality_weight; break ties by shorter lookahead_bars
-        if quality_weight > existing_qw or (
-            quality_weight == existing_qw and lookahead_bars < existing_lookahead
-        ):
-            best[feature_name] = row_with_qw
+        if qw > existing_qw or (qw == existing_qw and lookahead_bars < existing_lookahead):
+            best[feature_name] = {**row, "quality_weight": qw}
 
     return list(best.values())

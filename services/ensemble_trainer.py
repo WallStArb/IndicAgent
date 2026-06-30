@@ -507,8 +507,7 @@ class EnsembleTrainer(BaseBatch):
             days_since = 0
         if days_since > 90:
             # Equal-weight fallback: IC scores are too stale to trust the weight ordering.
-            n_features_aged = len(quality_weights)
-            aged_quality_weights = np.full(n_features_aged, 1.0 / max(1, n_features_aged))
+            aged_quality_weights = np.full(len(quality_weights), 1.0 / max(1, len(quality_weights)))
         else:
             aged_quality_weights = quality_weights * math.exp(
                 -days_since / config.weight_half_life_days

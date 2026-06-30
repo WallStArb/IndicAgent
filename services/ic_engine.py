@@ -266,7 +266,7 @@ class ICEngineConfig:
 
     @property
     def lookaheads(self) -> dict[str, int]:
-        """Gradient-scale lookahead mapping for per-scale IC computation."""
+        """Gradient-scale lookahead mapping — built once; frozen after construction."""
         return {
             "fast": self.lookahead_fast,
             "mid": self.lookahead_mid,
@@ -633,6 +633,12 @@ def _compute_ic_rolling_metrics(
 # Main compute loop for a single (symbol, tf)
 # ---------------------------------------------------------------------------
 
+_EMPTY_SYMBOL_RESULT: tuple = (
+    [],
+    [],
+    {"n_committed": 0, "n_skipped": 0, "pvals_flat": [], "pval_result_idxs": []},
+)
+
 
 def _compute_symbol_tf(
     conn: Any,
@@ -701,11 +707,7 @@ def _compute_symbol_tf(
 
         if not bar_ts_list:
             _logger.info("ic_engine.no_feature_vectors", symbol=symbol, tf=tf)
-            return (
-                [],
-                [],
-                {"n_committed": 0, "n_skipped": 0, "pvals_flat": [], "pval_result_idxs": []},
-            )
+            return _EMPTY_SYMBOL_RESULT
 
         n_raw_bars = len(bar_ts_list)
         bar_ts_arr = np.array(bar_ts_list)
@@ -733,11 +735,7 @@ def _compute_symbol_tf(
 
         if not fr_rows:
             _logger.info("ic_engine.no_forward_returns", symbol=symbol, tf=tf)
-            return (
-                [],
-                [],
-                {"n_committed": 0, "n_skipped": 0, "pvals_flat": [], "pval_result_idxs": []},
-            )
+            return _EMPTY_SYMBOL_RESULT
 
         fr_ts = {r[0]: r for r in fr_rows}
         del fr_rows  # dict lookup is sufficient; raw tuples no longer needed
@@ -746,11 +744,7 @@ def _compute_symbol_tf(
         aligned_idx = [i for i, ts in enumerate(bar_ts_arr) if ts in fr_ts]
         if not aligned_idx:
             _logger.info("ic_engine.no_alignment", symbol=symbol, tf=tf)
-            return (
-                [],
-                [],
-                {"n_committed": 0, "n_skipped": 0, "pvals_flat": [], "pval_result_idxs": []},
-            )
+            return _EMPTY_SYMBOL_RESULT
 
         aligned_idx_arr = np.array(aligned_idx)
         X_aligned = X_raw[aligned_idx_arr]
@@ -2222,12 +2216,11 @@ def main() -> None:
             # from ALL per-symbol cells AND all cross-sectional cells.
             # Effective FDR = fdr_alpha (5%) corpus-wide, not 232× inflated.
             # ----------------------------------------------------------
-            _fdr_alpha = config.fdr_alpha
             all_corpus_pvals = corpus_pvals_flat + corpus_cs_pvals_flat
 
             if all_corpus_pvals:
                 reject_all, p_corr_all, _, _ = multipletests(
-                    all_corpus_pvals, alpha=_fdr_alpha, method="fdr_bh"
+                    all_corpus_pvals, alpha=config.fdr_alpha, method="fdr_bh"
                 )
                 n_per = len(corpus_pvals_flat)
                 # Fill per-symbol results
@@ -2255,10 +2248,13 @@ def main() -> None:
                 # Emit OTel health gauges per (symbol, tf)
                 for sym, sym_results in per_symbol_results:
                     if sym_results:
-                        for tf in tfs:
-                            tf_results = [r for r in sym_results if r.get("tf") == tf]
-                            if tf_results:
-                                _emit_health_gauges(sym, tf, tf_results)
+                        by_tf: dict[str, list] = {}
+                        for r in sym_results:
+                            tf_key = r.get("tf")
+                            if tf_key:
+                                by_tf.setdefault(tf_key, []).append(r)
+                        for tf_key, tf_results in by_tf.items():
+                            _emit_health_gauges(sym, tf_key, tf_results)
                         _logger.info(
                             "ic_engine.symbol_done",
                             symbol=sym,
