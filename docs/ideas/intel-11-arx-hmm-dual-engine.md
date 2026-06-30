@@ -90,13 +90,13 @@ High = violent oscillation without progress (chop). Low = clean directional move
 
 ### K=5 Volatility Regimes
 
-| # | State | Magnitude | Velocity | Trading Implication |
-|---|---|---|---|---|
-| 1 | **Institutional Compression** | Ultra-low | Compressing | Spring coiling. Disable mean-reversion; stage for breakout |
-| 2 | **Quiet Bull Drift** | Low | Stable | High signal reliability. Lower-TF features have best IC here |
-| 3 | **Mean-Reverting Chop** | Medium intraday, low 1d | Near-zero | Market makers dominating. Fade extremes; breakout strategies fail |
-| 4 | **Directional Expansion** | High | Rising linearly | Orderly trend. Trend-following on 15m/1h |
-| 5 | **Systemic Liquidation** | Ultra-high | Parabolic/accelerating | Standard S/R irrelevant. Risk engine must downsize |
+| # | State | Magnitude | Velocity | Bar Behavior | Trading Implication |
+|---|---|---|---|---|---|
+| 1 | **Institutional Compression** | Ultra-low | Compressing | 1d/1h ranges shrinking well below 20d MA; frequent inside bars | Spring coiling. Disable mean-reversion; stage for breakout |
+| 2 | **Quiet Bull Drift** | Low | Stable | Low intraday variance; closes consistently near highs; gaps minimal and filled | High signal reliability. Lower-TF features have best IC here |
+| 3 | **Mean-Reverting Chop** | Medium intraday, low 1d | Near-zero | Large 5m/15m wicks both sides; high GK vol intraday but low 1d close-to-close variance | Market makers dominating. Fade extremes; breakout strategies fail |
+| 4 | **Directional Expansion** | High | Rising linearly | Wide-range bars; open near one extreme, close near other; low wick-to-body ratio | Orderly trend. Trend-following on 15m/1h |
+| 5 | **Systemic Liquidation** | Ultra-high | Parabolic/accelerating | Massive 1m/5m true ranges; large opening gaps; asymmetric downside bars; extreme intraday variance | Standard S/R irrelevant. Risk engine must downsize |
 
 State 3 vs. State 4 is the critical distinction -- same intraday vol magnitude but opposite velocity. `noise_ratio` and `vol_velocity` together separate them.
 
