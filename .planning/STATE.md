@@ -1,7 +1,7 @@
 ---
 gsd_state_version: 1.0
 milestone: v3.1
-milestone_name: AlphaEngine Validation + Alpha Scoring
+milestone_name: IC Empirical Proof + Counterfactual Scoring
 status: in_progress
 last_updated: "2026-06-30T00:00:00.000Z"
 progress:
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
-**Current focus:** Phase A — 5m root cause investigation + IC engine methodology fixes
+**Current focus:** Phase B — corpus re-run on corrected ic_engine
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.1 Current Status
@@ -29,13 +29,19 @@ See: .planning/PROJECT.md
 - P1: IC validation — gate FAIL: 5m=0 qualifying features, 1h=23 qualifying features
 - P2: HMM JIT 40x speedup shipped
 
-**Phase 142 — BLOCKED** — gate FAIL on 5m prevents shadow mode deployment
+**Phase A — IC Engine Methodology Fixes + Gate Redesign:** ✅ COMPLETE 2026-06-30
+- A1: 5m IC failure root cause — gate design bug, not signal absence (721 cells with ic_ci_lower > 0)
+- A2: IC engine methodology fixes (WF fold construction, corpus-level BH-FDR, scale-specific embargo, direct-linkage clustering)
+- A3: APR compile-time binding for ic_engine + ensemble_trainer
+- A4: CANCELLED — Renaissance principle: never delete signal candidates; shadow/demote/promote handles this
+- A5: Renaissance IC gate redesign — ic_ci_lower > 0 AND passes_fdr = true replaces binary passes_walkforward gate
 
-**Next work: Phase A of execution plan**
-- A1: 5m IC failure root cause (return_type enforcement, lookahead alignment, subsampling)
-- A2: IC engine methodology fixes (028 P0/P2/P3/P4)
-- A3: APR compile-time binding (008)
-- A4: 7 zero-IC feature demotion (momentum_rank_z, poc_dist_atr, sr_resist_dist, sr_support_dist, va_position, volatility_rank_z, volume_rank_z)
+**Phase 142 — BLOCKED** — pending Phase B corpus re-run on corrected ic_engine
+
+**Next work: Phase B — corpus re-run**
+- B1: `production/scripts/corpus_pipeline_run.sh` — regime_writer → forward_return_writer → ic_engine → ensemble_trainer → alpha_publisher
+- B2: Empirical calibration (cost hurdle, threshold validation, gap contamination check)
+- B3: IC validation analysis — how many features qualify per TF after gate redesign?
 
 ## v3.0 Phase Summary (SHIPPED 2026-06-25)
 
