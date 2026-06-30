@@ -212,7 +212,6 @@ class AlphaPublisher(BaseBatch):
             tf_thresholds = {tf: self._threshold_for_tf(tf, cfg) for tf in _known_tfs}
             tf_cost_hurdles = {tf: self._cost_hurdle_for_tf(tf, cfg) for tf in _known_tfs}
             fallback_threshold = min(tf_thresholds.values())
-            fallback_hurdle = 0.0
 
             # --- Stream ensemble_alpha through SQL gates; flush to DB in chunks ---
             # SQL pre-filters: effective_n, per-TF alpha threshold, CI directional + cost.
@@ -231,49 +230,51 @@ class AlphaPublisher(BaseBatch):
             async with conn.transaction():
                 async for row in conn.cursor(
                     """
+                    WITH g AS (
+                        SELECT symbol, tf, bar_ts, weight_version,
+                               alpha_score, alpha_ci_lower, alpha_ci_upper,
+                               effective_n, n_features_active, regime,
+                               CASE tf
+                                   WHEN '5m'  THEN $3::double precision
+                                   WHEN '15m' THEN $4::double precision
+                                   WHEN '1h'  THEN $5::double precision
+                                   WHEN '1d'  THEN $6::double precision
+                                   ELSE $7::double precision
+                               END AS threshold_val,
+                               CASE tf
+                                   WHEN '5m'  THEN $8::double precision
+                                   WHEN '15m' THEN $9::double precision
+                                   WHEN '1h'  THEN $10::double precision
+                                   WHEN '1d'  THEN $11::double precision
+                                   ELSE $12::double precision
+                               END AS hurdle_val
+                        FROM ensemble_alpha
+                        WHERE weight_version = $1
+                    )
                     SELECT symbol, tf, bar_ts, weight_version,
                            alpha_score, alpha_ci_lower, alpha_ci_upper,
                            effective_n, n_features_active, regime
-                    FROM ensemble_alpha
-                    WHERE weight_version = $1
-                      AND effective_n >= $2::double precision
-                      AND ABS(alpha_score) > CASE tf
-                            WHEN '5m'  THEN $3::double precision
-                            WHEN '15m' THEN $4::double precision
-                            WHEN '1h'  THEN $5::double precision
-                            WHEN '1d'  THEN $6::double precision
-                            ELSE $7::double precision
-                          END
+                    FROM g
+                    WHERE effective_n >= $2::double precision
+                      AND ABS(alpha_score) > threshold_val
                       AND (
-                            (alpha_score > 0 AND alpha_ci_lower > CASE tf
-                                WHEN '5m'  THEN $8::double precision
-                                WHEN '15m' THEN $9::double precision
-                                WHEN '1h'  THEN $10::double precision
-                                WHEN '1d'  THEN $11::double precision
-                                ELSE $12::double precision
-                              END)
-                         OR (alpha_score < 0 AND alpha_ci_upper < -1 * CASE tf
-                                WHEN '5m'  THEN $8::double precision
-                                WHEN '15m' THEN $9::double precision
-                                WHEN '1h'  THEN $10::double precision
-                                WHEN '1d'  THEN $11::double precision
-                                ELSE $12::double precision
-                              END)
+                            (alpha_score > 0 AND alpha_ci_lower > hurdle_val)
+                         OR (alpha_score < 0 AND alpha_ci_upper < -hurdle_val)
                           )
                     ORDER BY symbol, tf, bar_ts
                     """,
                     weight_version,
                     effective_n_gate,
-                    tf_thresholds.get("5m", 1.5),
-                    tf_thresholds.get("15m", 1.2),
-                    tf_thresholds.get("1h", 1.0),
-                    tf_thresholds.get("1d", 0.8),
+                    tf_thresholds["5m"],
+                    tf_thresholds["15m"],
+                    tf_thresholds["1h"],
+                    tf_thresholds["1d"],
                     fallback_threshold,
-                    tf_cost_hurdles.get("5m", 0.0),
-                    tf_cost_hurdles.get("15m", 0.0),
-                    tf_cost_hurdles.get("1h", 0.0),
-                    tf_cost_hurdles.get("1d", 0.0),
-                    fallback_hurdle,
+                    tf_cost_hurdles["5m"],
+                    tf_cost_hurdles["15m"],
+                    tf_cost_hurdles["1h"],
+                    tf_cost_hurdles["1d"],
+                    0.0,
                     prefetch=10000,
                 ):
                     total_bars += 1
@@ -286,8 +287,8 @@ class AlphaPublisher(BaseBatch):
                     eff_n = float(row["effective_n"])
                     n_features_active = int(row["n_features_active"])
                     regime = row["regime"] or "_pooled"
-                    threshold = self._threshold_for_tf(tf, cfg)
-                    cost_hurdle = self._cost_hurdle_for_tf(tf, cfg)
+                    threshold = tf_thresholds.get(tf, fallback_threshold)
+                    cost_hurdle = tf_cost_hurdles.get(tf, 0.0)
 
                     ALPHA_PUBLISHER_BARS_SCORED_TOTAL.add(1, {"symbol": symbol, "tf": tf})
 
