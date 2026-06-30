@@ -6,13 +6,13 @@
 **Effort:** 1-2 days
 **Benefit:** Improves IC measurement accuracy by removing regime transition label noise
 **Risk:** low (optional flag, can measure effect)
-**Gate:** Phase 141 corpus validation complete
+**Gate:** Phase 141 complete (OPEN) — do after Phase B corpus re-run to measure effect against corrected baseline
 ---
 
 # 005 — IC Engine: Regime Transition Purge Window
 
 **Priority: Medium — correctness improvement, not a blocker**
-**Gate: Phase 141 corpus validation complete (need stable IC baseline to measure the effect)**
+**Gate: Phase 141 complete (OPEN) — do after Phase B corpus re-run**
 **Source:** `docs/plans/2026-06-26-renaissance-optimization-roadmap.md` (IC-003)
 
 ---

@@ -6,7 +6,7 @@
 **Effort:** 1-2 days
 **Benefit:** Enables scientific shadow testing; prevents delayed detection of feature decay or threshold bugs
 **Risk:** low (observability only)
-**Gate:** After alpha_events table ships
+**Gate:** alpha_events shipped (OPEN) — must be built as part of Phase 142
 ---
 
 # 011 — Shadow Alpha Events Monitoring Protocol
