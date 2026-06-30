@@ -621,9 +621,14 @@ def _write_regime_results(
 
 
 def _discover_symbols(conn: Any) -> list[str]:
-    """Return all distinct symbols present in feature_vectors."""
+    """Return symbols that have at least one un-labeled row in feature_vectors.
+
+    Skips symbols where every row already has a regime, so restarts are safe.
+    """
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT symbol FROM feature_vectors ORDER BY symbol")
+        cur.execute(
+            "SELECT DISTINCT symbol FROM feature_vectors" " WHERE regime IS NULL ORDER BY symbol"
+        )
         return [r[0] for r in cur.fetchall()]
 
 
