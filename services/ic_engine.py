@@ -74,7 +74,6 @@ from src.intelligence.feature_registry_service import FeatureRegistryService
 from src.intelligence.schemas import FeatureVector
 from src.observability.metrics import (
     EFFECTIVE_N_GAUGE,
-    FEATURE_IC_PASSING_FDR_TOTAL,
     FEATURE_IC_PASSING_WALKFORWARD_TOTAL,
     FEATURES_SURVIVING_FDR_GAUGE,
     IC_ENGINE_CELLS_COMPLETED_TOTAL,
@@ -439,9 +438,9 @@ def _cluster_features(X_nd: np.ndarray, cluster_max_corr: float) -> np.ndarray:
     """Distance-threshold dendrogram clustering of non-degenerate feature columns.
 
     Returns a 1-based int cluster label per column (len == X_nd.shape[1]).
-    NOTE: this is a dendrogram distance cutoff, NOT a guarantee that all pairs
-    within a cluster exceed cluster_max_corr (transitive linkage can merge features
-    whose direct correlation is below the threshold).
+    Uses single linkage: two clusters merge only when the CLOSEST pair across
+    clusters meets the distance threshold. Conservative for redundancy elimination
+    -- no transitive merging of uncorrelated features.
     """
     n_nd = X_nd.shape[1]
     if n_nd < 2:
@@ -450,7 +449,7 @@ def _cluster_features(X_nd: np.ndarray, cluster_max_corr: float) -> np.ndarray:
     corr = np.nan_to_num(corr, nan=0.0)
     dist = np.sqrt(0.5 * (1.0 - np.clip(corr, -1.0, 1.0)))
     np.fill_diagonal(dist, 0.0)
-    Z = linkage(squareform(dist, checks=False), method="average")
+    Z = linkage(squareform(dist, checks=False), method="single")
     dist_threshold = np.sqrt(0.5 * (1.0 - cluster_max_corr))
     return fcluster(Z, t=dist_threshold, criterion="distance")  # 1-based ints
 
@@ -617,8 +616,9 @@ def _compute_symbol_tf(
     """Compute IC for all (regime, lookahead) cells for one (symbol, tf).
 
     No DB writes — returns (pooled_rows, regime_rows, stats_dict). Writes happen
-    serially in main process via _write_ic_results to prevent concurrent-writer
-    deadlocks on the feature_ic_scores hypertable.
+    serially in main process via _write_ic_results AFTER corpus-level BH-FDR
+    is applied (P2 fix). rows have bh_adjusted_p=None/passes_fdr=None for
+    non-representatives; pvals_flat + pval_result_idxs returned for FDR pass.
 
     feature_status_map: dict mapping feature_name → status from feature_registry.
     If provided, each IC score row receives feature_status_at_eval from this map.
@@ -629,7 +629,8 @@ def _compute_symbol_tf(
     instead of feature_vectors.regime, enabling cross-symbol IC stratification.
     When None (equity_model_enabled=False), falls back to feature_vectors.regime.
 
-    Returns summary statistics for logging.
+    Returns (pooled_rows, regime_rows, stats_dict) where stats_dict contains
+    all_results, pvals_flat, pval_result_idxs, n_committed, n_skipped, n_passing_wf.
     """
     lookaheads = apr["lookaheads"]
     subsample_min_stride = apr["subsample_min_stride"]
@@ -667,7 +668,11 @@ def _compute_symbol_tf(
 
         if not bar_ts_list:
             _logger.info("ic_engine.no_feature_vectors", symbol=symbol, tf=tf)
-            return {"n_committed": 0, "n_skipped": 0}
+            return (
+                [],
+                [],
+                {"n_committed": 0, "n_skipped": 0, "pvals_flat": [], "pval_result_idxs": []},
+            )
 
         n_raw_bars = len(bar_ts_list)
         bar_ts_arr = np.array(bar_ts_list)
@@ -695,7 +700,11 @@ def _compute_symbol_tf(
 
         if not fr_rows:
             _logger.info("ic_engine.no_forward_returns", symbol=symbol, tf=tf)
-            return {"n_committed": 0, "n_skipped": 0}
+            return (
+                [],
+                [],
+                {"n_committed": 0, "n_skipped": 0, "pvals_flat": [], "pval_result_idxs": []},
+            )
 
         fr_ts = {r[0]: r for r in fr_rows}
         del fr_rows  # dict lookup is sufficient; raw tuples no longer needed
@@ -704,7 +713,11 @@ def _compute_symbol_tf(
         aligned_idx = [i for i, ts in enumerate(bar_ts_arr) if ts in fr_ts]
         if not aligned_idx:
             _logger.info("ic_engine.no_alignment", symbol=symbol, tf=tf)
-            return {"n_committed": 0, "n_skipped": 0}
+            return (
+                [],
+                [],
+                {"n_committed": 0, "n_skipped": 0, "pvals_flat": [], "pval_result_idxs": []},
+            )
 
         aligned_idx_arr = np.array(aligned_idx)
         X_aligned = X_raw[aligned_idx_arr]
@@ -785,10 +798,6 @@ def _compute_symbol_tf(
             X_regime_nd = X_regime[:, non_degenerate_mask]
             if X_regime_nd.shape[1] == 0:
                 continue
-
-            # embargo_bars for walk-forward: max lookahead across all scales.
-            # Set once per regime so all scales share the same embargo boundary.
-            embargo_bars = max(lookaheads.values())
 
             # ------------------------------------------------------------------
             # Distance-threshold dendrogram clustering per (symbol, tf, regime)
@@ -872,17 +881,27 @@ def _compute_symbol_tf(
                 passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
 
                 # -------------------------------------------------------
-                # Walk-forward with 60-bar embargo
+                # Walk-forward with scale-specific embargo
                 # -------------------------------------------------------
-                # embargo_bars = max(lookaheads) = 60 bars (set once per regime above).
-                # This equals the maximum forward-return window in the [1,5,20,60]
-                # set. Derived from APR-backed lookaheads, not a magic number.
+                # embargo_bars = lookahead_bars for this scale (P3 fix: was max(lookaheads)=60).
+                # Fast scale (lookahead=1) uses embargo=1; extended scale (lookahead=60) uses 60.
+                # This prevents overlapping forward-return labels from leaking across fold
+                # boundaries without discarding 59 valid observations per fold for fast scale.
+                embargo_bars = lookahead_bars
 
+                # Fixed-origin expanding window with embargo:
+                # fold k: train=[0..train_end], embargo=[train_end..test_start], test=[test_start..test_end]
+                # train_end grows monotonically with k (expanding window) and test windows are
+                # strictly non-overlapping and in temporal order (fold 0 earliest, fold k latest).
                 fold_ics_list: list[np.ndarray] = []
                 for k in range(walk_forward_folds):
                     train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
                     test_start = train_end + embargo_bars
                     test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
+                    assert test_start > train_end and test_end <= n_valid, (
+                        f"Walk-forward invariant violated: train_end={train_end}, "
+                        f"test_start={test_start}, test_end={test_end}, n_valid={n_valid}"
+                    )
                     if test_start >= test_end or (test_end - test_start) < min_reliable_n:
                         continue
                     X_test = ranks_X_scale[test_start:test_end]
@@ -994,7 +1013,6 @@ def _compute_symbol_tf(
         # standard 20K intraday gate does not apply — calibrated for different observation frequency.
         # ------------------------------------------------------------------
         min_obs_daily = apr["min_obs_daily"]
-        cf_embargo_bars = max(lookaheads.values())
         n_scales = len(_SCALES)
 
         return_cols_cf = ", ".join(f"fr.return_{s}" for s in _SCALES)
@@ -1097,7 +1115,9 @@ def _compute_symbol_tf(
                 ci_upper = float(ci_upper_arr[0])
                 passes_ci = ci_lower > 0.0
 
-                # Walk-forward with cf_embargo_bars embargo
+                # Walk-forward with scale-specific embargo (P3 fix: was cf_embargo_bars=max lookahead).
+                # Fixed-origin expanding window: train_end grows monotonically, test windows in order.
+                cf_embargo_bars = lookahead_bars
                 wf_fold_count = 0
                 wf_pass_count = 0
                 passes_wf = False
@@ -1108,6 +1128,10 @@ def _compute_symbol_tf(
                         train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
                         test_start = train_end + cf_embargo_bars
                         test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
+                        assert test_start > train_end and test_end <= n_valid, (
+                            f"CF walk-forward invariant violated: train_end={train_end}, "
+                            f"test_start={test_start}, test_end={test_end}, n_valid={n_valid}"
+                        )
                         if test_start >= test_end or (test_end - test_start) < min_reliable_n:
                             continue
                         fold_len = test_end - test_start
@@ -1182,15 +1206,20 @@ def _compute_symbol_tf(
         # features (cluster_id is None) are also excluded from BH-FDR.
         # ------------------------------------------------------------------
 
-        # Group results by (regime, lookahead, cluster_id) in a single pass.
-        # Degenerate features (cluster_id is None, which implies p_value is None) are
-        # excluded from BH-FDR and marked immediately.
-        # Key: (regime_label, lookahead_bars, cluster_id) -> list of (abs_ic, result_idx)
+        # ------------------------------------------------------------------
+        # Cluster representative selection for corpus-level BH-FDR (P2 fix).
+        #
+        # Within each (regime_label, lookahead_bars, cluster_id) group only the
+        # feature with max(abs(ic_value)) is a representative. Non-representatives
+        # receive passes_fdr=False and bh_adjusted_p=None immediately.
+        # Representatives' p-values are returned to the main process for a single
+        # corpus-level BH-FDR pass across all 58 symbols × 4 TFs = 232 cells.
+        # Degenerate features (cluster_id is None) are excluded from BH-FDR.
+        # ------------------------------------------------------------------
         cluster_groups: dict[tuple, list[tuple[float, int]]] = {}
         for result_idx, r in enumerate(all_results):
             cid = r["cluster_id"]
             if cid is None:
-                # Degenerate: no variance in regime data -> no p-value.
                 r["bh_adjusted_p"] = None
                 r["passes_fdr"] = False
                 continue
@@ -1199,24 +1228,19 @@ def _compute_symbol_tf(
             abs_ic = abs(ic_val) if ic_val is not None else 0.0
             cluster_groups.setdefault(group_key, []).append((abs_ic, result_idx))
 
-        # Within each group pick the representative (max abs IC); the rest are non-reps.
         for group_key, candidates in cluster_groups.items():
             rep_result_idx = max(candidates, key=lambda x: x[0])[1]
             pvals_flat.append(float(all_results[rep_result_idx]["p_value"]))
             pval_result_idxs.append(rep_result_idx)
-            # Non-representatives: FDR excluded.
             for _, non_rep_idx in candidates[1:]:
                 all_results[non_rep_idx]["bh_adjusted_p"] = None
                 all_results[non_rep_idx]["passes_fdr"] = False
 
-        if pvals_flat:
-            reject, p_corrected, _, _ = multipletests(pvals_flat, alpha=fdr_alpha, method="fdr_bh")
-            for flat_idx, result_idx in enumerate(pval_result_idxs):
-                all_results[result_idx]["bh_adjusted_p"] = float(p_corrected[flat_idx])
-                all_results[result_idx]["passes_fdr"] = bool(reject[flat_idx])
+        # BH-FDR is NOT applied here (P2 fix). pvals_flat and pval_result_idxs are
+        # returned to the caller (_run_ic_worker -> main process) for corpus-level FDR.
 
         # ------------------------------------------------------------------
-        # Prepare rows for batch INSERT (written by main process)
+        # Prepare rows for batch INSERT (written by main process after corpus BH-FDR)
         # ------------------------------------------------------------------
         pooled_rows = [r for r in all_results if r["is_pooled"]]
         regime_rows = [r for r in all_results if not r["is_pooled"]]
@@ -1238,9 +1262,7 @@ def _compute_symbol_tf(
             attrs = {"symbol": symbol, "tf": tf, "regime": regime_label}
             IC_ENGINE_CELLS_COMPLETED_TOTAL.add(len(regime_results), attrs)
 
-        n_passing_fdr = sum(1 for r in all_results if r.get("passes_fdr"))
         n_passing_wf = sum(1 for r in all_results if r.get("passes_walkforward"))
-        FEATURE_IC_PASSING_FDR_TOTAL.set(n_passing_fdr, {"symbol": symbol, "tf": tf})
         FEATURE_IC_PASSING_WALKFORWARD_TOTAL.set(n_passing_wf, {"symbol": symbol, "tf": tf})
 
         return (
@@ -1249,9 +1271,10 @@ def _compute_symbol_tf(
             {
                 "n_committed": n_committed,
                 "n_skipped": n_skipped,
-                "n_passing_fdr": n_passing_fdr,
                 "n_passing_wf": n_passing_wf,
                 "all_results": all_results,
+                "pvals_flat": pvals_flat,
+                "pval_result_idxs": pval_result_idxs,
             },
         )
 
@@ -1437,7 +1460,6 @@ def _compute_cross_sectional_tf(
     if X_nd.shape[1] == 0:
         return [], {"n_committed": 0, "n_skipped": n_skipped}
 
-    embargo_bars = max(lookaheads.values())
     cluster_ids_nd = _cluster_features(X_nd, cluster_max_corr)
     cluster_id_full: list[int | None] = [None] * n_features
     nd_positions = np.where(non_degenerate_mask)[0]
@@ -1451,6 +1473,8 @@ def _compute_cross_sectional_tf(
 
     for scale_idx, scale in enumerate(_SCALES):
         lookahead_bars = lookaheads[scale]
+        # Scale-specific embargo: each scale purges only its own lookahead window (P3 fix).
+        embargo_bars = lookahead_bars
         scale_stride = max(subsample_min_stride, lookahead_bars)
         sub_idx = np.arange(0, n_raw, scale_stride)
         X_sub = X_raw[sub_idx]
@@ -1487,11 +1511,18 @@ def _compute_cross_sectional_tf(
         ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)
         passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
 
+        # Fixed-origin expanding window with scale-specific embargo (P0 + P3 fix).
+        # fold k: train=[0..train_end], embargo gap, test=[test_start..test_end].
+        # train_end grows monotonically; test windows are non-overlapping and in order.
         fold_ics_list: list[np.ndarray] = []
         for k in range(walk_forward_folds):
             train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
             test_start = train_end + embargo_bars
             test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
+            assert test_start > train_end and test_end <= n_valid, (
+                f"CS walk-forward invariant violated: train_end={train_end}, "
+                f"test_start={test_start}, test_end={test_end}, n_valid={n_valid}"
+            )
             if test_start >= test_end or (test_end - test_start) < min_reliable_n:
                 continue
             X_test = ranks_X_scale[test_start:test_end]
@@ -1574,7 +1605,9 @@ def _compute_cross_sectional_tf(
                 }
             )
 
-    # BH-FDR pass (same logic as _compute_symbol_tf)
+    # Cluster representative selection for corpus-level BH-FDR (P2 fix).
+    # Non-representatives are marked immediately; representatives' p-values
+    # are returned to the main process for the single corpus-level FDR pass.
     cluster_groups: dict[tuple, list[tuple[float, int]]] = {}
     for result_idx, r in enumerate(all_results):
         cid = r["cluster_id"]
@@ -1595,14 +1628,18 @@ def _compute_cross_sectional_tf(
             all_results[non_rep_idx]["bh_adjusted_p"] = None
             all_results[non_rep_idx]["passes_fdr"] = False
 
-    if pvals_flat:
-        reject, p_corrected, _, _ = multipletests(pvals_flat, alpha=fdr_alpha, method="fdr_bh")
-        for flat_idx, result_idx in enumerate(pval_result_idxs):
-            all_results[result_idx]["bh_adjusted_p"] = float(p_corrected[flat_idx])
-            all_results[result_idx]["passes_fdr"] = bool(reject[flat_idx])
-
+    # BH-FDR is NOT applied here (P2 fix). pvals_flat and pval_result_idxs are
+    # returned to main process for corpus-level FDR.
     n_committed = len(all_results)
-    return all_results, {"n_committed": n_committed, "n_skipped": n_skipped}
+    return (
+        all_results,
+        {
+            "n_committed": n_committed,
+            "n_skipped": n_skipped,
+            "pvals_flat": pvals_flat,
+            "pval_result_idxs": pval_result_idxs,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1700,14 +1737,16 @@ def _run_ic_worker(args: tuple) -> dict:
     """Worker function for ProcessPoolExecutor -- runs in subprocess.
 
     Each worker processes one symbol x all TFs with its own DB connection.
-    No OTel tracer -- workers log only.
+    No OTel tracer -- workers log only. No DB writes -- returns rows for
+    serial write in main process after corpus-level BH-FDR (P2 fix).
 
     Args:
         args: (symbol, tfs, dsn, training_window_end, existing_keys_frozen,
                apr_cache, run_ts, feature_status_map, mr_dict_by_tf)
 
     Returns:
-        dict with keys: symbol, all_results (list), n_committed (int),
+        dict with keys: symbol, pooled_rows (list), regime_rows (list),
+        all_results (list), pvals_flat (list), pval_result_idxs (list),
         n_skipped (int), error (str|None)
     """
     (
@@ -1733,10 +1772,13 @@ def _run_ic_worker(args: tuple) -> dict:
     existing_keys = existing_keys_frozen
 
     conn = None
-    all_results = []
+    all_results: list[dict] = []
     pooled_rows: list[dict] = []
     regime_rows: list[dict] = []
-    total_committed = 0
+    # Corpus-level BH-FDR accumulators (P2 fix).
+    # pval_result_idxs are offsets into all_results (adjusted per TF call).
+    pvals_flat: list[float] = []
+    pval_result_idxs: list[int] = []
     total_skipped = 0
     error_msg = None
 
@@ -1759,9 +1801,13 @@ def _run_ic_worker(args: tuple) -> dict:
                     feature_status_map=feature_status_map,
                     mr_dict=mr_dict_by_tf.get(tf) if mr_dict_by_tf else None,
                 )
+                # Adjust pval_result_idxs to point into this worker's global all_results list.
+                offset = len(all_results)
+                for idx in stats.get("pval_result_idxs", []):
+                    pval_result_idxs.append(offset + idx)
+                pvals_flat.extend(stats.get("pvals_flat", []))
                 pooled_rows.extend(tf_pooled)
                 regime_rows.extend(tf_regime)
-                total_committed += stats.get("n_committed", 0)
                 total_skipped += stats.get("n_skipped", 0)
                 all_results.extend(stats.get("all_results", []))
             except Exception as error:
@@ -1793,7 +1839,8 @@ def _run_ic_worker(args: tuple) -> dict:
         "pooled_rows": pooled_rows,
         "regime_rows": regime_rows,
         "all_results": all_results,
-        "n_committed": total_committed,
+        "pvals_flat": pvals_flat,
+        "pval_result_idxs": pval_result_idxs,
         "n_skipped": total_skipped,
         "error": error_msg,
     }
@@ -2011,6 +2058,15 @@ def main() -> None:
             total_committed = 0
             total_skipped = 0
 
+            # Corpus-level BH-FDR accumulators (initialized before if/else to avoid NameError
+            # when cross_sectional_only=True skips the per-symbol block).
+            corpus_all_results: list[dict] = []
+            corpus_pooled_rows: list[dict] = []
+            corpus_regime_rows: list[dict] = []
+            corpus_pvals_flat: list[float] = []
+            corpus_pval_result_idxs: list[int] = []
+            per_symbol_results: list[tuple[str, list[dict]]] = []
+
             # Open write_conn for serial writes in main process
             write_conn = _connect_db(settings)
 
@@ -2045,6 +2101,8 @@ def main() -> None:
 
                 # ----------------------------------------------------------
                 # Main compute loop (ProcessPoolExecutor)
+                # Buffer all worker results; BH-FDR applied once after all
+                # workers complete (corpus-level FDR, P2 fix).
                 # ----------------------------------------------------------
                 with ProcessPoolExecutor(max_workers=n_workers) as pool:
                     for result in pool.map(_run_ic_worker, worker_args, chunksize=1):
@@ -2057,23 +2115,20 @@ def main() -> None:
                             )
                             status = "failure"
                             exit_code = 1
-                        # Serial write in main process
-                        n_written = _write_ic_results(
-                            write_conn,
-                            result["pooled_rows"],
-                            result["regime_rows"],
-                        )
-                        total_committed += n_written
                         total_skipped += result["n_skipped"]
-                        if result["all_results"]:
-                            for tf in tfs:
-                                tf_results = [r for r in result["all_results"] if r.get("tf") == tf]
-                                if tf_results:
-                                    _emit_health_gauges(symbol, tf, tf_results)
+                        # Accumulate with offset into corpus_all_results.
+                        offset = len(corpus_all_results)
+                        for idx in result.get("pval_result_idxs", []):
+                            corpus_pval_result_idxs.append(offset + idx)
+                        corpus_pvals_flat.extend(result.get("pvals_flat", []))
+                        corpus_pooled_rows.extend(result["pooled_rows"])
+                        corpus_regime_rows.extend(result["regime_rows"])
+                        corpus_all_results.extend(result["all_results"])
+                        per_symbol_results.append((symbol, result["all_results"]))
                         _logger.info(
-                            "ic_engine.symbol_done",
+                            "ic_engine.symbol_computed",
                             symbol=symbol,
-                            n_committed=n_written,
+                            n_rows=len(result["all_results"]),
                             n_skipped=result["n_skipped"],
                         )
 
@@ -2083,6 +2138,10 @@ def main() -> None:
             # Each cell: all 58 equity ETFs pooled per (tf, regime_label).
             # Max 4 TFs * 9 regime labels = 36 compute cells (in practice fewer).
             # ----------------------------------------------------------
+            corpus_cs_rows: list[dict] = []
+            corpus_cs_pvals_flat: list[float] = []
+            corpus_cs_pval_result_idxs: list[int] = []
+
             if equity_model_enabled:
                 _logger.info("ic_engine.starting_cross_sectional_pass")
                 cs_conn = _connect_db(settings)
@@ -2118,18 +2177,75 @@ def main() -> None:
                                 run_ts=run_ts,
                                 feature_status_map=feature_status_map,
                             )
-                            # Serial write in main process (reusing write_conn)
-                            n_written = _write_cross_sectional_results(write_conn, cs_rows)
-                            total_committed += n_written
+                            # Accumulate with offset into corpus_cs_rows.
+                            offset = len(corpus_cs_rows)
+                            for idx in cs_stats.get("pval_result_idxs", []):
+                                corpus_cs_pval_result_idxs.append(offset + idx)
+                            corpus_cs_pvals_flat.extend(cs_stats.get("pvals_flat", []))
+                            corpus_cs_rows.extend(cs_rows)
                             total_skipped += cs_stats.get("n_skipped", 0)
                             _logger.info(
-                                "ic_engine.cross_sectional_done",
+                                "ic_engine.cross_sectional_computed",
                                 tf=tf,
                                 regime=regime_label,
-                                n_committed=n_written,
+                                n_rows=len(cs_rows),
                             )
                 finally:
                     cs_conn.close()
+
+            # ----------------------------------------------------------
+            # Corpus-level BH-FDR (P2 fix).
+            # Apply ONE multipletests call across ALL representative p-values
+            # from ALL per-symbol cells AND all cross-sectional cells.
+            # Effective FDR = fdr_alpha (5%) corpus-wide, not 232× inflated.
+            # ----------------------------------------------------------
+            _fdr_alpha = apr_cache[tfs[0]]["fdr_alpha"]
+            all_corpus_pvals = corpus_pvals_flat + corpus_cs_pvals_flat
+
+            if all_corpus_pvals:
+                reject_all, p_corr_all, _, _ = multipletests(
+                    all_corpus_pvals, alpha=_fdr_alpha, method="fdr_bh"
+                )
+                n_per = len(corpus_pvals_flat)
+                # Fill per-symbol results
+                for flat_idx, result_idx in enumerate(corpus_pval_result_idxs):
+                    corpus_all_results[result_idx]["bh_adjusted_p"] = float(p_corr_all[flat_idx])
+                    corpus_all_results[result_idx]["passes_fdr"] = bool(reject_all[flat_idx])
+                # Fill cross-sectional results
+                for flat_idx, result_idx in enumerate(corpus_cs_pval_result_idxs):
+                    global_flat_idx = n_per + flat_idx
+                    corpus_cs_rows[result_idx]["bh_adjusted_p"] = float(p_corr_all[global_flat_idx])
+                    corpus_cs_rows[result_idx]["passes_fdr"] = bool(reject_all[global_flat_idx])
+            _logger.info(
+                "ic_engine.corpus_fdr_applied",
+                n_total_representatives=len(all_corpus_pvals),
+                n_per_symbol=len(corpus_pvals_flat),
+                n_cross_sectional=len(corpus_cs_pvals_flat),
+            )
+
+            # ----------------------------------------------------------
+            # Write all per-symbol results (after corpus BH-FDR)
+            # ----------------------------------------------------------
+            if not args.cross_sectional_only:
+                n_written = _write_ic_results(write_conn, corpus_pooled_rows, corpus_regime_rows)
+                total_committed += n_written
+                # Emit OTel health gauges per (symbol, tf)
+                for sym, sym_results in per_symbol_results:
+                    if sym_results:
+                        for tf in tfs:
+                            tf_results = [r for r in sym_results if r.get("tf") == tf]
+                            if tf_results:
+                                _emit_health_gauges(sym, tf, tf_results)
+                        _logger.info(
+                            "ic_engine.symbol_done",
+                            symbol=sym,
+                            n_rows=len(sym_results),
+                        )
+
+            # Write all cross-sectional results (after corpus BH-FDR)
+            if equity_model_enabled and corpus_cs_rows:
+                n_written = _write_cross_sectional_results(write_conn, corpus_cs_rows)
+                total_committed += n_written
 
             elapsed = time.monotonic() - t0
             IC_ENGINE_RUN_LATENCY_SECONDS.record(elapsed)

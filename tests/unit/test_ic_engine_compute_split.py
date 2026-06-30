@@ -81,17 +81,13 @@ def test_write_ic_results_exists():
         "_write_ic_results function must exist " "(serial write function for main process)"
     )
 
-    # Check signature
+    # Check signature -- focused write helper: conn + split row lists only.
     sig = inspect.signature(ic_module._write_ic_results)
     params = list(sig.parameters.keys())
     expected_params = [
         "conn",
-        "symbol",
-        "tf",
         "pooled_rows",
         "regime_rows",
-        "all_results",
-        "tracer",
     ]
     assert params == expected_params, f"Expected params {expected_params}, got {params}"
 
@@ -116,7 +112,7 @@ def test_write_ic_results_has_db_write_code():
 
 
 def test_run_ic_worker_return_keys():
-    """_run_ic_worker must return rows instead of n_committed after split."""
+    """_run_ic_worker must return rows for corpus-level BH-FDR and serial write."""
     import services.ic_engine as ic_module
 
     sig = inspect.signature(ic_module._run_ic_worker)
@@ -124,11 +120,9 @@ def test_run_ic_worker_return_keys():
     params = list(sig.parameters.keys())
     assert params == ["args"], f"Expected single 'args' param, got {params}"
 
-    # Check docstring mentions returning rows
+    # Check docstring mentions returning rows and corpus-level BH-FDR fields
     docstring = ic_module._run_ic_worker.__doc__
     assert docstring is not None, "_run_ic_worker must have docstring"
     assert "pooled_rows" in docstring, "Docstring must mention pooled_rows in return"
     assert "regime_rows" in docstring, "Docstring must mention regime_rows in return"
-    assert (
-        "n_committed" not in docstring
-    ), "After compute/write split, worker should not return n_committed"
+    assert "pvals_flat" in docstring, "Docstring must mention pvals_flat for corpus BH-FDR"
