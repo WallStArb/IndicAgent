@@ -165,6 +165,45 @@ Build and validate the microstructure features first -- VPC, vol_cascade, close_
 
 ---
 
+## Joint Optimization: The 5×5 Product Matrix
+
+Running two independent HMMs (Price/Vol Engine and Flow Engine) produces a cross-conditional execution space with 25 cells:
+
+```
+                      [FLOW REGIME (k=5)]
+                  Accum  Neutral  Distrib  DeLev  Liquid
+                 ┌──────┬────────┬────────┬──────┬────────┐
+      Bull Trend │ Aggr │        │ Fade   │      │ Bear   │
+                 │ Long │  ...   │ Long   │ ...  │ Trap   │
+                 ├──────┼────────┼────────┼──────┼────────┤
+PRICE/VOL  ...   │ ...  │  ...   │  ...   │ ...  │  ...   │
+                 ├──────┼────────┼────────┼──────┼────────┤
+      Bear Vol   │Short │        │ Struct │      │Struct  │
+      Spike      │Sqz?  │  ...   │ Short  │ ...  │ Crash  │
+                 └──────┴────────┴────────┴──────┴────────┘
+```
+
+### Why this maximizes IC
+
+A Bear Vol Spike price state alone says "short or hedge." Intersecting with the flow dimension splits this into two opposite signals:
+
+- **Bear Vol Spike + Systemic Liquidation (Flow 5):** Confirm short. Structural conviction. Highest IC for short-side features.
+- **Bear Vol Spike + De-leveraging/Short Squeeze (Flow 1):** Invert. Shorts are already trapped and covering. The technical sell signal becomes a mean-reversion buy trigger. Features predicting continuation have *negative* IC here; reversal features have positive IC.
+
+This is exactly what IC stratification reveals -- the same feature has opposite predictive power depending on the joint cell. A flat aggregated IC masks the signal entirely.
+
+### Joint transition probability design
+
+**Recommendation: keep engines independent, join at the stratification layer.**
+
+The alternative -- feeding flow HMM output states into the price HMM as exogenous variables each bar -- creates a sequencing dependency (flow HMM must update first) and couples two models that update at very different timescales (price HMM: per bar; flow HMM: quarterly data). The dependency buys little because the flow state barely changes between bars.
+
+The product matrix approach is cleaner: two fully independent HMMs, each fit on its own observation vector, joint state `(price_state, flow_state)` computed at query time. In `feature_ic_scores` terms, this is just another compound stratification key -- the IC engine already handles arbitrary stratification axes. The 25-cell grid is a natural extension of the existing `hmm_state × volatility_regime × volume_regime` stratification.
+
+**Sparsity constraint:** 25 cells × (symbols × timeframes) requires sufficient observations per cell. With 58 ETFs × 4 TFs × 25 cells, many cells will be sparse, especially the extreme corners (Bull Trend + Liquidation). Apply the existing IC Sharpe gate (20,000 raw bars minimum) per cell -- sparse cells simply don't emit IC scores rather than emitting noisy ones.
+
+---
+
 ## Open Questions
 
 1. **Hard vs. soft macro prior**: modifying the TPM directly (hard constraint) vs. adding macro features to the observation vector (soft influence) -- the latter is implementable today without changing the HMM architecture.
