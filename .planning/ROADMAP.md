@@ -25,7 +25,7 @@
 - ✅ **v2.10 Data Architecture Evolution** — Phases 123-136 (SHIPPED 2026-06-20; ECL + APR + signal hardening + clean replay + 3-table migration + type safety + post-reboot repair)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
-- 🔄 **v3.1 IC Empirical Proof + Counterfactual Scoring** — Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 (12.47M alpha_events); Phase 141 COMPLETE 2026-06-29; Phase A COMPLETE 2026-06-30 (ic_engine methodology fixes + Renaissance IC gate redesign); Phase B next (corpus re-run on corrected engine); Phase 142 (shadow emission + counterfactual P&L) BLOCKED pending Phase B — see `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
+- 🔄 **v3.1 IC Empirical Proof + Counterfactual Scoring** — Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 (12.47M alpha_events); Phase 141 COMPLETE 2026-06-29; Phase A COMPLETE 2026-06-30 (ic_engine methodology fixes + Renaissance IC gate redesign); Phase B next (corpus re-run on corrected engine); Phase 142 BLOCKED pending Phase B (142A: ensemble IC proof; 142B: single primary frame counterfactual validation + SHADOW-REVIEW.md pre-commitment; no cost model, no UX) — see `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 - 📋 **v3.2 Signal Diversification — AnalogEngine + Feature Expansion** — Phases 145-147 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI; Renaissance: more diverse weak signals, not stronger strong ones)
 - 📋 **v3.3 Foundational Hardening** — Phases 148-149 (planned; scope TBD — review before v3.2 completes)
 - 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.3 complete + alpha_events schema frozen; consumes alpha_events, never modifies signal weights)
@@ -1466,45 +1466,56 @@ For each (symbol, tf, regime), find the first lookahead where IC Sharpe drops be
 IC Sharpe max/min fold ratio < 3× across walk-forward folds. Features with high IC variance are regime-specific, not structural. Gate written to `alpha_ensemble_ic.walk_forward_stable` — Phase 144 OOS validation reads this column.
 
 **EIC-04 — Phase gate (hard):**
-`ic_ci_lower > 0` at 95% CI on in-sample data in at least 60% of (symbol, tf, regime) cells before Phase 142B begins. If gate fails: diagnose ensemble (feature decay? regime label quality? insufficient data?) — do not proceed to frame simulation.
+`ic_ci_lower > 0` at 95% CI on in-sample data in at least `alpha.ensemble_ic.min_qualifying_fraction` of (symbol, tf, regime) cells before Phase 142B begins. APR key seeded at 0.60 `[initial_estimate]` — no empirical basis yet, recalibrate after first run reveals how many cells have sufficient N. If gate fails, run EIC-05 diagnosis before any changes.
 
-**Plans:** 2 plans (Wave 1: schema migration + EnsembleICEngine service; Wave 2: decay curve analysis + hold_max APR calibration + gate evaluation)
+**EIC-05 — Gate failure diagnosis script:**
+When EIC-04 fails, run structured diagnosis (output as a markdown report) before any remediation:
+1. N per cell — low N (`< alpha.ic.min_obs_per_regime`) = data starvation, not signal absence; expect more cells to pass as alpha_events accumulates
+2. Pooled vs per-symbol IC gap — if pooled `ic_ci_lower > 0` but per-symbol fails = regime label granularity issue (cross-sectional label too coarse for per-symbol variation)
+3. TF breakdown — if 1h passes but 5m fails = TF-specific problem (5m has fewer independent obs per regime), not a global ensemble problem
+4. Regime coverage — if ≥ 3 regimes have zero qualifying cells = regime label quality issue (check `market_regimes` coverage and `equity_regime_model` correctness)
+This script ships with Wave 2. "Diagnose ensemble" without this structure wastes a week chasing the wrong layer.
+
+**Plans:** 2 plans (Wave 1: schema migration + EnsembleICEngine service; Wave 2: decay curve analysis + hold_max APR calibration + gate evaluation + EIC-05 diagnosis script)
 
 ---
 
 ### Phase 142B: Frame Simulation + Counterfactual Tracking 📋 PLANNED
 
-**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_frames` table + `alpha.frame.*` + `alpha.cost.*` APR keys.
+**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_frames` table + `alpha.frame.*` APR keys. No cost model (`alpha.cost.*`) — real cost data (slippage, commission) does not exist until v4.0 execution; cost model belongs there.
 
-**Goal:** Test whether specific execution rules (stop/target/hold) can capture the signal IC proven in Phase 142A as P&L. Multiple frame variants run simultaneously; the winning stop multiplier is selected empirically via `corr(alpha_score_decile, mean_pnl_r)` on in-sample data, then validated on OOS. This is the secondary OOS gate for Phase 144.
+**Goal:** Prove that a reasonable execution rule (stop/target/hold) can capture the signal IC proven in Phase 142A as positive counterfactual P&L. This is a binary question: does any sensible frame work? Calibration of which frame variant is optimal is a refinement question that belongs after this validation passes, not during it. This is the secondary OOS gate for Phase 144.
 
-**Depends on:** Phase 142A complete — EIC-04 gate passed, `hold_max_bars` APR keys calibrated from decay curve.
+**Depends on:** Phase 142A complete — EIC-04 gate passed, `hold_max_bars` APR keys calibrated from EIC-02 decay curve.
+
+**Renaissance pre-commitment (ships at Phase 142B launch, before shadow emissions start):**
+Write `docs/plans/SHADOW-REVIEW.md` — a one-page document committed to the repo before any counterfactual data is collected, specifying the exact numeric criteria required for Phase 144 live promotion. Criteria are defined before you can see the data; they are not negotiated post-hoc. Proposed criteria (final values committed in the document):
+- ≥ 60 trading days of closed alpha_frames (primary variant)
+- `mean(counterfactual_pnl_r) > 0` at 95% CI (bootstrap, one-tailed) on OOS data
+- Sharpe of counterfactual_pnl_r > 0.5 annualized
+- Max drawdown of cumulative counterfactual_pnl_r < 25%
+- EnsembleICEngine IC Sharpe stable across the shadow period (no cliff in last 20 days)
+Post-hoc gate negotiation ("the numbers were close, lower the threshold") is not permitted. If the gate fails, diagnose — don't renegotiate.
 
 **Requirements:**
 
-**FRAME-01 — Static cost model snapshot:**
-At frame creation, snapshot `cost_r` per asset class from APR `alpha.cost.*` keys. `net_expected_r = gross_expected_r - cost_r` for short-horizon TFs only (`alpha.cost.net_cost_tfs`). Flagged in scoring; not used to block emission — that is v4.0.
+**FRAME-01 — AlphaFrameWriter (nightly oneshot, `BaseBatch`):**
+For each `alpha_events` row, writes one `alpha_frames` row with `frame_variant='primary'`. Stop at `alpha.frame.stop_atr_mult` (APR, default 1.5 `[initial_estimate]`); target at `alpha.frame.target_r_multiple × stop_distance` (APR, default 2.0 `[initial_estimate]`); hold horizon from `alpha.frame.hold_max_bars.<regime>.<tf>` calibrated by EIC-02. Fully async: single batch INSERT per symbol/tf chunk. No per-row DB round-trips.
 
-**FRAME-02 — AlphaFrameWriter (nightly oneshot, `BaseBatch`):**
-For each `alpha_events` row, writes N `alpha_frames` rows — one per calibration grid variant (`alpha.frame.grid_stop_atr_mults`, default `[0.8, 1.0, 1.5, 2.0]`) during calibration run; one `frame_variant='primary'` row only during production run. Fully async: single batch INSERT per symbol/tf chunk. No per-row DB round-trips.
-
-**FRAME-03 — CounterfactualTracker (nightly oneshot, `BaseBatch`):**
+**FRAME-02 — CounterfactualTracker (nightly oneshot, `BaseBatch`):**
 Reads open `alpha_frames`. For each: fetch T+1 open → populate geometry (`entry_price`, `stop_price`, `target_price`, `r_multiple`). Scan subsequent bars via single range query per (symbol, tf, bar_ts_range) — no per-bar queries. Write outcome in single async batch upsert. Parallelized per symbol via `ProcessPoolExecutor`; DB writes fire-and-forget async after all workers complete.
 
 Exit triggers in priority order: (1) stop hit (`low <= stop_price`); (2) target hit (`high >= target_price`); (3) `hold_max_bars` exceeded — closes at bar where `bars_elapsed >= alpha.frame.hold_max_bars.<regime>.<tf>`, values data-derived from EIC-02 IC decay curve; (4) IC-decay trigger — `alpha_ensemble_ic.ic_ci_lower < 0` for this (symbol, tf, regime) in the most recent weekly IC engine run. Bar-level alpha score sign reversal is NOT an exit trigger — at intraday resolution it is noise, and using it produces excessive turnover that destroys net returns. The IC-decay trigger (4) operates at weekly IC engine cadence, providing a signal-based early exit without bar-level churn.
 
-**FRAME-04 — Frame lifecycle state machine:**
+**FRAME-03 — Frame lifecycle state machine:**
 `open → closed_stop | closed_target | closed_max_hold | closed_ic_decay`. Single UPDATE per transition. Immutable once closed. `closed_reversal` (bar-level alpha sign flip) deliberately excluded — this is a noise-driven exit at intraday resolution. `closed_ic_decay` is the correct signal-based early exit, triggered by the weekly IC engine detecting `ic_ci_lower < 0` for the frame's (symbol, tf, regime) cell.
 
-**FRAME-05 — Calibration → variant selection:**
-After calibration run closes sufficient frames (N ≥ `alpha.scoring.min_strategy_n` per cell): compute `corr(alpha_score_decile, mean_pnl_r)` per (tf, regime) for each grid variant. Select winning `stop_atr_mult`. Validate on OOS data — if OOS correlation degrades > 0.2 vs in-sample, use conservative fallback (1.5). Write winner to APR `alpha.frame.stop_atr_mult`. Switch to `frame_variant='primary'` for production.
+**FRAME-04 — Phase 142B exit gate:**
+`mean(counterfactual_pnl_r) > 0` at 95% CI (bootstrap, one-tailed) on in-sample closed frames with N ≥ `alpha.scoring.min_strategy_n` per (tf, regime) cell. If gate passes: proceed to Phase 143 and begin accumulating OOS data toward SHADOW-REVIEW.md criteria. If gate fails: frame geometry problem — diagnose stop/target/hold calibration against IC decay curve from EIC-02 before touching the ensemble. Do not look at signal quality; that was proven in Phase 142A.
 
-**FRAME-06 — Observability:**
-Grafana panel: frames open/closed per day by (symbol, tf), win rate by regime, `corr(alpha_score_decile, mean_pnl_r)` time series (is the frame still tracking the signal?), cost-flagged fraction. If `ic_alpha_score_corr` declines, it signals frame drift — frame parameters need recalibration, not signal diagnosis.
+**Services to build:** `AlphaFrameWriter` (`BaseBatch`), `CounterfactualTracker` (`BaseBatch`).
 
-**Services to build:** `AlphaFrameWriter` (`BaseBatch`), `CounterfactualTracker` (`BaseBatch`), calibration analysis script.
-
-**Plans:** 3 plans (Wave 1: AlphaFrameWriter + calibration run; Wave 2: CounterfactualTracker + lifecycle state machine; Wave 3: variant selection + production switch + observability dashboard)
+**Plans:** 2 plans (Wave 1: AlphaFrameWriter + SHADOW-REVIEW.md pre-commitment; Wave 2: CounterfactualTracker + state machine + gate evaluation)
 
 ---
 
@@ -1539,10 +1550,10 @@ IC engine runs weekly. Decay monitor runs daily. Contract: decay monitor reads r
 
 **IC staleness alerting (ships with Phase 143):** Add APR key `alpha.ic.staleness_alert_days = 5` [initial_estimate]. Decay monitor emits OTel gauge `ic_engine_last_run_age_days` on every daily run. Alert rule: if `ic_engine_last_run_age_days > staleness_alert_days`, fire `IC_ENGINE_STALE` alert to Alertmanager. Without this, a missed IC engine run silently degrades decay detection for up to 14 days before anyone notices.
 
-**LIFECYCLE-06 — Observability:**
-`feature_decay_observatory` Superset dashboard (todo 019): which features are decaying, in which regimes, over time. Pure read layer over `feature_ic_scores`. Answers "what is dying and what is crowding" without new computation.
+**LIFECYCLE-06 — Decay diagnostics:**
+Query `feature_ic_scores` directly via SQL for decay analysis. No dashboard infrastructure until the decay system has been validated in production. SQL queries for the key questions (which features are decaying, in which regimes) are documented in `docs/analysis/feature-decay-queries.sql` and run ad-hoc. Superset dashboard deferred until Phase 143 state machine has operated for ≥ 30 days and the query patterns are stable.
 
-**Plans:** 3 plans (Wave 1: state machine + EnsembleBuilder filter; Wave 2: AlphaDecayMonitor daemon; Wave 3: regime-shift guard + observability)
+**Plans:** 3 plans (Wave 1: state machine + EnsembleBuilder filter; Wave 2: AlphaDecayMonitor daemon; Wave 3: regime-shift guard + gate evaluation)
 
 ---
 
@@ -1597,7 +1608,7 @@ Phase 144 LIVE-04 (v2.x retirement) requires all active I7 plugins to be in alph
 Gate 1 and Gate 2 are independent. Failure modes are different. Never conflate.
 
 - **Gate 1 — Signal proof (from Phase 142A):** `alpha_ensemble_ic.ic_ci_lower > 0` at 95% CI on OOS holdout. IC Sharpe stable (walk_forward_stable = true). If Gate 1 fails: signal problem — diagnose ensemble, feature decay, regime labels. Do not look at P&L.
-- **Gate 2 — Execution proof (from Phase 142B):** `mean(counterfactual_pnl_r) > 0` at 95% CI on OOS `alpha_frames` (primary variant). `corr(alpha_score_decile, mean_pnl_r) > alpha.scoring.min_ic_alpha_score_corr`. If Gate 2 fails but Gate 1 passes: frame problem — recalibrate stop/target/hold, not the ensemble.
+- **Gate 2 — Execution proof (from Phase 142B):** `mean(counterfactual_pnl_r) > 0` at 95% CI on OOS `alpha_frames` (primary variant), per SHADOW-REVIEW.md criteria pre-committed at Phase 142B launch. `corr(alpha_score_decile, mean_pnl_r)` is computed as a diagnostic column in SCORE-01 but is not a gate — it informs whether score decile monotonically tracks P&L. If Gate 2 fails but Gate 1 passes: frame problem — recalibrate stop/target/hold against IC decay curve, not the ensemble.
 
 Both gates must pass before SCORE-04 (v2.x retirement) executes. Gate 1 passing without Gate 2 = real signal, bad execution rules. Gate 2 passing without Gate 1 = overfitted frame on noise. Neither alone is sufficient.
 
@@ -1618,10 +1629,7 @@ v3.0 mean `counterfactual_pnl_r` > v2.x mean `trade_frames.counterfactual_pnl_r`
 **SCORE-05 — v2.x retirement:**
 Executes only when Gate 1 + Gate 2 both pass AND `i7_conversion_complete = 1`. Retirement = disable `intelligence_pipeline` systemd unit, archive I7 plugin dispatch, migrate all SSE/dashboard feeds to `alpha_events`. Requires explicit operator migration script with pre-flight check of all three conditions — not a flag flip.
 
-**SCORE-06 — Scoring dashboard:**
-Superset: `alpha_strategy_scores` heatmap (regime × TF), alpha_score decile win-rate curve (monotonic = frame tracking signal), `ic_alpha_score_corr` time series, Gate 1/Gate 2 status panel, v2.x vs v3.0 comparison. Permanent research surface — "what is working, what is decaying, what is crowding."
-
-**Plans:** 3 plans (Wave 1: AlphaScorer + gate evaluation scripts; Wave 2: OOS gate runs + v2.x comparison; Wave 3: retirement script + scoring dashboard)
+**Plans:** 2 plans (Wave 1: AlphaScorer + gate evaluation scripts; Wave 2: OOS gate runs + v2.x comparison + retirement script)
 
 ---
 
