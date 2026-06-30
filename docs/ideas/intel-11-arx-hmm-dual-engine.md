@@ -254,6 +254,73 @@ Sparsity at 125 cells is significant. The IC gate (20k bars minimum per cell) wi
 
 ---
 
+## Volatility HMM: Fourth Independent Engine
+
+Same reuse argument as Volume HMM -- identical Baum-Welch/Viterbi code, different observation features. Raw volatility has the same problems as raw volume: non-stationary, ARCH-clustered, fat-tailed. Do not feed close-to-close realized vol directly.
+
+The key insight for the volatility HMM: discriminate on two axes simultaneously -- **magnitude** (high vs. low) and **direction/velocity** (compressing vs. expanding). Most vol estimators capture only magnitude.
+
+### The 5 Latent Volatility Regimes
+
+| # | State | Character | Bar Behavior | Trading Implication |
+|---|---|---|---|---|
+| 1 | **Institutional Compression** | Ultra-low vol, compressing | 1d/1h ranges shrinking well below 20d MA; frequent inside bars | Spring coiling. Disable mean-reversion strategies; prepare for explosive breakout |
+| 2 | **Quiet Bull Drift** | Low vol, stable | Low intraday variance; closes consistently near highs; gaps minimal and filled | High-capacity, low-fragility. Lower-TF signals (1m/5m) have highest reliability here |
+| 3 | **Mean-Reverting Chop** | Medium vol, mean-reverting | Large 5m/15m wicks both sides; high GK vol intraday but low 1d close-to-close variance | Market makers dominating. Fade bar extremes. Breakout strategies get chopped |
+| 4 | **Directional Expansion** | High vol, linearly expanding | Realized vol rising rapidly; wide-range bars, open near one extreme close near other; low wick-to-body ratio | Orderly vol expansion. Lock into trend-following on 15m/1h |
+| 5 | **Systemic Liquidation** | Ultra-high vol, parabolic/unstable | Massive 1m/5m true ranges; large opening gaps; asymmetric downside bars; extreme intraday variance | Total structural fragility. Standard S/R irrelevant. Risk engine must downsize immediately |
+
+**State 3 vs. State 4 distinction** is the critical one: State 3 has high intraday GK vol but low 1d close-to-close variance (oscillation without progress). State 4 has both high intraday vol AND directional 1d progression. Vol velocity (first derivative of rolling vol) separates them cleanly -- State 3 has near-zero velocity, State 4 has positive and rising velocity.
+
+### Advanced Volatility Primitives
+
+Do not feed close-to-close returns. Feed the HMM bar geometry features:
+
+**Parkinson Volatility** -- sensitive to intraday extremes that close-to-close misses:
+```
+σ²_Parkinson[t] = (1 / (4 * ln2)) * ln(H/L)²
+```
+Uses only High/Low. More efficient than close-to-close for intraday data; less efficient than GK (which also uses O/C). Parkinson is the right choice when overnight gaps are not relevant (intraday bars); GK when they are.
+
+**Yang-Zhang Volatility** -- gold standard for OHLC bar data; combines three components:
+```
+σ²_YZ = σ²_overnight + k * σ²_open + (1-k) * σ²_RS
+```
+Where `σ²_overnight` = open-to-prior-close variance, `σ²_open` = close-to-open variance, `σ²_RS` = Rogers-Satchell (uses all four OHLC prices). Prevents the HMM from being blinded by large morning gaps -- gap risk is explicitly in the observation vector rather than contaminating the intraday vol estimate.
+
+**Volatility Velocity** -- first derivative of rolling vol estimate:
+```
+vol_velocity[t] = ln(σ_GK[t]) - ln(σ_GK[t-1])
+```
+Log-differenced so it's stationary regardless of the vol level. Forces the HMM to distinguish steady high-vol (State 4) from accelerating panic (State 5). This is the single most important feature for separating State 4 from State 5.
+
+**Intraday Noise Ratio** -- ratio of path length to net displacement:
+```
+noise_ratio[t] = sum(|log_return_5m|, last N 5m bars) / |log_return_1d[t]|
+```
+High ratio = violent oscillation without net progress (State 3). Low ratio = clean directional move (State 4). Undefined (div/zero) when 1d return is near zero -- clip or use a small epsilon floor.
+
+### Relationship to existing current 5D price/vol vector
+
+The current HMM already has `realized_vol` (dim 1) and `vol_of_vol` (dim 3). The volatility HMM is NOT a replacement -- it's a separate engine trained purely on vol geometry features (Parkinson, YZ, vol_velocity, noise_ratio). The price/vol HMM sees vol as one of five inputs alongside momentum and volume; the volatility HMM sees vol structure as the entire signal.
+
+Adding Garman-Klass (proposed earlier in this doc) to the price/vol observation vector is still valid -- it improves that engine's vol dimension. The standalone vol HMM is a separate model answering a different question.
+
+---
+
+## Four-Engine Product Space
+
+With all four engines at K=5 each: **5×5×5×5 = 625 joint cells** per (symbol, timeframe). Many cells are structurally impossible (Quiet Bull Drift vol + Systemic Liquidation flow never co-occur), so the effective space is smaller. The IC gate (20k bars minimum) handles sparsity automatically.
+
+Full bar fingerprint per primitive: `(price_state, flow_state, volume_state, vol_state)`.
+
+The immediate build priority given data availability:
+1. **Vol HMM** -- all primitives (Parkinson, YZ, vol_velocity, noise_ratio) derive from existing OHLCV. Buildable now.
+2. **Volume HMM** -- all primitives from existing OHLCV. Buildable now.
+3. **Flow HMM** -- requires regulatory filing data (13F, Form PF). Blocked on data acquisition.
+
+---
+
 ## Alternative Intelligence Vectors (Beyond Price/Vol/Flow)
 
 Three additional vector classes that are orthogonal to price, volatility, and institutional filing data:
