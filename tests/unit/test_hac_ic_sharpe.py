@@ -23,7 +23,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.ic_engine import _compute_ic_rolling_metrics, _hac_sharpe_nd
+from services.ic_engine import ICEngineConfig, _compute_ic_rolling_metrics, _hac_sharpe_nd
 
 # ---------------------------------------------------------------------------
 # _hac_sharpe_nd tests
@@ -136,14 +136,35 @@ def test_rolling_metrics_returns_five_tuple():
     X_sub = rng.standard_normal((n_obs, n_features))
     returns_sub = rng.standard_normal((n_obs, 4))  # 4 scales
     non_degenerate_mask = np.ones(n_features, dtype=bool)
-    apr = {
-        "sharpe_window_size": 50,
-        "sharpe_min_windows": 3,
-        "hac_max_lag": 3,
-    }
+    config = ICEngineConfig(
+        min_observations=500,
+        fdr_alpha=0.05,
+        walk_forward_folds=3,
+        sharpe_window_size=50,
+        sharpe_min_windows=3,
+        subsample_min_stride=5,
+        min_reliable_n=100,
+        cluster_max_corr=0.70,
+        lookahead_fast=1,
+        lookahead_mid=5,
+        lookahead_slow=20,
+        lookahead_extended=60,
+        equity_model_enabled=True,
+        min_obs_daily=1000,
+        hac_max_lag=3,
+        cs_chunk_ts=5000,
+        n_workers=1,
+    )
 
     result = _compute_ic_rolling_metrics(
-        X_sub, returns_sub, 0, np.ones(n_obs, dtype=bool), apr, non_degenerate_mask, n_features, 1
+        X_sub,
+        returns_sub,
+        0,
+        np.ones(n_obs, dtype=bool),
+        config,
+        non_degenerate_mask,
+        n_features,
+        1,
     )
     assert len(result) == 5, f"Expected 5-tuple, got {len(result)}-tuple"
     sharpe_arr, sharpe_hac_arr, sortino_arr, win_rate_arr, n_windows = result

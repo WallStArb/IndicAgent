@@ -233,46 +233,79 @@ def _connect_db_from_url(db_url: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# APR loading
+# APR compile-time binding
 # ---------------------------------------------------------------------------
 
 
-def _load_apr(conn: Any, tf: str) -> dict[str, Any]:
-    """Load all IC engine APR parameters via ConfigService.
+@dataclasses.dataclass(frozen=True)
+class ICEngineConfig:
+    """Frozen config snapshot bound once at startup from APR.
 
-    Returns a dict with all tunable parameters. No inline numeric fallbacks
-    in compute logic -- all fall through to here.
+    All values are immutable for the entire corpus run — no mid-run drift if
+    config_state is updated externally. Pickle-safe so workers can receive it
+    directly via ProcessPoolExecutor without re-loading from DB.
     """
-    cfg = _load_config_service(conn)
-    return {
-        "min_observations": int(cfg.get_sync("alpha.ic.min_observations", 500)),
-        "fdr_alpha": float(cfg.get_sync("alpha.ic.fdr_alpha", 0.05)),
-        "walk_forward_folds": int(cfg.get_sync("alpha.ic.walk_forward_folds", 3)),
-        "sharpe_window_size": int(cfg.get_sync("alpha.ic.sharpe_window_size", 2000)),
-        "sharpe_min_windows": int(cfg.get_sync("alpha.ic.sharpe_min_windows", 10)),
-        "subsample_min_stride": int(cfg.get_sync("alpha.ic.subsample_min_stride", 5)),
-        "min_reliable_n": int(cfg.get_sync("alpha.ic.min_reliable_n", 100)),
-        "cluster_max_corr": float(cfg.get_sync("alpha.ic.cluster_max_corr", 0.70)),
-        # Lookaheads per scale -- loaded from APR; column names are gradient-scale identifiers
-        "lookaheads": {
-            scale: int(cfg.get_sync(f"alpha.ic.lookahead.{scale}", fb))
-            for scale, fb in [("fast", 1), ("mid", 5), ("slow", 20), ("extended", 60)]
-        },
-        # Cross-sectional equity regime model flag (migration 174)
-        "equity_model_enabled": str(
-            cfg.get_sync("alpha.regime.equity_model_enabled", "true")
-        ).lower()
-        == "true",
-        # Daily-cadence features use min_obs_daily_features gate (APR: alpha.ic.min_obs_daily_features);
-        # standard 20K intraday gate does not apply — calibrated for different observation frequency.
-        "min_obs_daily": int(cfg.get_sync("alpha.ic.min_obs_daily_features", 1000)),
-        # Newey-West HAC max lag for IC Sharpe autocorrelation correction (migration 177).
-        # K=0 disables HAC (ic_sharpe_hac == ic_sharpe).
-        "hac_max_lag": int(cfg.get_sync("alpha.ic.hac_max_lag", 3)),
-        # Cross-sectional timestamp chunk size (migration 183): regime timestamps per query.
-        # 5000 × 58 symbols ≈ 290K rows/query — avoids PG backend OOM on 3-way JOIN.
-        "cs_chunk_ts": int(cfg.get_sync("infra.ic_engine.cs_chunk_ts", 5000)),
-    }
+
+    min_observations: int
+    fdr_alpha: float
+    walk_forward_folds: int
+    sharpe_window_size: int
+    sharpe_min_windows: int
+    subsample_min_stride: int
+    min_reliable_n: int
+    cluster_max_corr: float
+    lookahead_fast: int
+    lookahead_mid: int
+    lookahead_slow: int
+    lookahead_extended: int
+    equity_model_enabled: bool
+    min_obs_daily: int
+    hac_max_lag: int
+    cs_chunk_ts: int
+    n_workers: int
+
+    @property
+    def lookaheads(self) -> dict[str, int]:
+        """Gradient-scale lookahead mapping for per-scale IC computation."""
+        return {
+            "fast": self.lookahead_fast,
+            "mid": self.lookahead_mid,
+            "slow": self.lookahead_slow,
+            "extended": self.lookahead_extended,
+        }
+
+    @classmethod
+    def from_apr(cls, cfg: Any) -> ICEngineConfig:
+        """Load all IC engine APR parameters from ConfigService in one pass."""
+        return cls(
+            min_observations=int(cfg.get_sync("alpha.ic.min_observations", 500)),
+            fdr_alpha=float(cfg.get_sync("alpha.ic.fdr_alpha", 0.05)),
+            walk_forward_folds=int(cfg.get_sync("alpha.ic.walk_forward_folds", 3)),
+            sharpe_window_size=int(cfg.get_sync("alpha.ic.sharpe_window_size", 2000)),
+            sharpe_min_windows=int(cfg.get_sync("alpha.ic.sharpe_min_windows", 10)),
+            subsample_min_stride=int(cfg.get_sync("alpha.ic.subsample_min_stride", 5)),
+            min_reliable_n=int(cfg.get_sync("alpha.ic.min_reliable_n", 100)),
+            cluster_max_corr=float(cfg.get_sync("alpha.ic.cluster_max_corr", 0.70)),
+            # Lookaheads per scale -- column names are gradient-scale identifiers
+            lookahead_fast=int(cfg.get_sync("alpha.ic.lookahead.fast", 1)),
+            lookahead_mid=int(cfg.get_sync("alpha.ic.lookahead.mid", 5)),
+            lookahead_slow=int(cfg.get_sync("alpha.ic.lookahead.slow", 20)),
+            lookahead_extended=int(cfg.get_sync("alpha.ic.lookahead.extended", 60)),
+            # Cross-sectional equity regime model flag (migration 174)
+            equity_model_enabled=str(
+                cfg.get_sync("alpha.regime.equity_model_enabled", "true")
+            ).lower()
+            == "true",
+            # Daily-cadence features use a separate min_obs gate calibrated for daily frequency.
+            min_obs_daily=int(cfg.get_sync("alpha.ic.min_obs_daily_features", 1000)),
+            # Newey-West HAC max lag for IC Sharpe autocorrelation correction (migration 177).
+            # K=0 disables HAC (ic_sharpe_hac == ic_sharpe).
+            hac_max_lag=int(cfg.get_sync("alpha.ic.hac_max_lag", 3)),
+            # Cross-sectional timestamp chunk size (migration 183).
+            cs_chunk_ts=int(cfg.get_sync("infra.ic_engine.cs_chunk_ts", 5000)),
+            # Worker pool size (override via --workers CLI flag).
+            n_workers=int(cfg.get_sync("infra.ic_engine.workers", 1)),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -506,7 +539,7 @@ def _compute_ic_rolling_metrics(
     returns_sub: np.ndarray,
     scale_idx: int,
     complete_mask: np.ndarray,
-    apr: dict[str, Any],
+    config: ICEngineConfig,
     non_degenerate_mask: np.ndarray,
     n_total_features: int,
     stride: int,
@@ -531,9 +564,9 @@ def _compute_ic_rolling_metrics(
     # sharpe_window_size is in RAW bars; convert to SUBSAMPLED bars via floor division.
     # Precision loss: e.g., 1999 raw bars with stride=10 → 199 subsampled bars (10% loss from 200).
     # Floor division ensures we never exceed available subsampled data.
-    sharpe_window_size_raw = apr["sharpe_window_size"]
+    sharpe_window_size_raw = config.sharpe_window_size
     sharpe_window_size = max(1, sharpe_window_size_raw // stride)
-    sharpe_min_windows = apr["sharpe_min_windows"]
+    sharpe_min_windows = config.sharpe_min_windows
 
     nan_result = np.full(n_total_features, np.nan)
     n_windows = 0
@@ -571,7 +604,7 @@ def _compute_ic_rolling_metrics(
     std_ic = np.sqrt(var0)
 
     sharpe_nd = np.where(std_ic > 1e-10, mean_ic / std_ic, 0.0)
-    sharpe_hac_nd = _hac_sharpe_nd(window_ics, apr["hac_max_lag"], mean_ic=mean_ic, var0=var0)
+    sharpe_hac_nd = _hac_sharpe_nd(window_ics, config.hac_max_lag, mean_ic=mean_ic, var0=var0)
 
     # Sortino: penalise only negative-IC windows (target = 0)
     # NaN per feature when that feature has no negative windows (ratio undefined)
@@ -607,7 +640,7 @@ def _compute_symbol_tf(
     tf: str,
     training_window_end: Any,
     existing_keys: set[tuple] | frozenset[tuple],
-    apr: dict[str, Any],
+    config: ICEngineConfig,
     tracer: Any,
     run_ts: datetime,
     feature_status_map: dict[str, str] | None = None,
@@ -632,12 +665,12 @@ def _compute_symbol_tf(
     Returns (pooled_rows, regime_rows, stats_dict) where stats_dict contains
     all_results, pvals_flat, pval_result_idxs, n_committed, n_skipped, n_passing_wf.
     """
-    lookaheads = apr["lookaheads"]
-    subsample_min_stride = apr["subsample_min_stride"]
-    min_reliable_n = apr["min_reliable_n"]
-    fdr_alpha = apr["fdr_alpha"]
-    walk_forward_folds = apr["walk_forward_folds"]
-    cluster_max_corr = apr["cluster_max_corr"]
+    lookaheads = config.lookaheads
+    subsample_min_stride = config.subsample_min_stride
+    min_reliable_n = config.min_reliable_n
+    fdr_alpha = config.fdr_alpha
+    walk_forward_folds = config.walk_forward_folds
+    cluster_max_corr = config.cluster_max_corr
     n_features = len(_FEATURE_NAMES)
 
     with _observed_span("ic_engine.compute_symbol_tf", tracer, symbol=symbol, tf=tf):
@@ -940,7 +973,7 @@ def _compute_symbol_tf(
                     returns_sub,
                     scale_idx,
                     complete_sub[:, scale_idx],
-                    apr,
+                    config,
                     non_degenerate_mask,
                     n_features,
                     scale_stride,  # per-scale stride for raw→subsampled window conversion
@@ -1012,7 +1045,7 @@ def _compute_symbol_tf(
         # Daily-cadence features use min_obs_daily_features gate (APR: alpha.ic.min_obs_daily_features);
         # standard 20K intraday gate does not apply — calibrated for different observation frequency.
         # ------------------------------------------------------------------
-        min_obs_daily = apr["min_obs_daily"]
+        min_obs_daily = config.min_obs_daily
         n_scales = len(_SCALES)
 
         return_cols_cf = ", ".join(f"fr.return_{s}" for s in _SCALES)
@@ -1290,7 +1323,7 @@ def _compute_cross_sectional_tf(
     regime_label: str,
     training_window_end: Any,
     existing_keys: frozenset[tuple],
-    apr: dict[str, Any],
+    config: ICEngineConfig,
     tracer: Any,
     run_ts: datetime,
     feature_status_map: dict[str, str] | None = None,
@@ -1309,15 +1342,15 @@ def _compute_cross_sectional_tf(
 
     Returns dict with n_committed, n_skipped, all_results.
     """
-    lookaheads = apr["lookaheads"]
-    subsample_min_stride = apr["subsample_min_stride"]
-    min_reliable_n = apr["min_reliable_n"]
-    fdr_alpha = apr["fdr_alpha"]
-    walk_forward_folds = apr["walk_forward_folds"]
-    cluster_max_corr = apr["cluster_max_corr"]
+    lookaheads = config.lookaheads
+    subsample_min_stride = config.subsample_min_stride
+    min_reliable_n = config.min_reliable_n
+    fdr_alpha = config.fdr_alpha
+    walk_forward_folds = config.walk_forward_folds
+    cluster_max_corr = config.cluster_max_corr
     n_features = len(_FEATURE_NAMES)
 
-    cs_chunk_ts: int = apr["cs_chunk_ts"]
+    cs_chunk_ts: int = config.cs_chunk_ts
 
     # Idempotency short-circuit: if every (feature, lookahead) cell for this (tf, regime)
     # already exists in existing_keys, skip the entire data fetch and computation.
@@ -1551,7 +1584,7 @@ def _compute_cross_sectional_tf(
                 returns_sub,
                 scale_idx,
                 complete_sub[:, scale_idx],
-                apr,
+                config,
                 non_degenerate_mask,
                 n_features,
                 scale_stride,
@@ -1742,7 +1775,7 @@ def _run_ic_worker(args: tuple) -> dict:
 
     Args:
         args: (symbol, tfs, dsn, training_window_end, existing_keys_frozen,
-               apr_cache, run_ts, feature_status_map, mr_dict_by_tf)
+               config, run_ts, feature_status_map, mr_dict_by_tf)
 
     Returns:
         dict with keys: symbol, pooled_rows (list), regime_rows (list),
@@ -1755,7 +1788,7 @@ def _run_ic_worker(args: tuple) -> dict:
         dsn,
         training_window_end,
         existing_keys_frozen,
-        apr_cache,
+        config,
         run_ts,
         feature_status_map,
         mr_dict_by_tf,
@@ -1787,7 +1820,6 @@ def _run_ic_worker(args: tuple) -> dict:
         # which re-reads env vars and would diverge if the subprocess environment differs.
         conn = _connect_db_from_url(dsn)
         for tf in tfs:
-            apr = apr_cache[tf]
             try:
                 tf_pooled, tf_regime, stats = _compute_symbol_tf(
                     conn=conn,
@@ -1795,7 +1827,7 @@ def _run_ic_worker(args: tuple) -> dict:
                     tf=tf,
                     training_window_end=training_window_end,
                     existing_keys=existing_keys,
-                    apr=apr,
+                    config=config,
                     tracer=noop_tracer,
                     run_ts=run_ts,
                     feature_status_map=feature_status_map,
@@ -1910,13 +1942,12 @@ def main() -> None:
     try:
         with _observed_span("ic_engine.run", tracer):
             # ----------------------------------------------------------
-            # Load equity_model_enabled flag from APR (needed before prerequisites)
+            # Bind all APR parameters once at startup (compile-time binding).
+            # ICEngineConfig is frozen for the entire run -- no mid-run drift.
             # ----------------------------------------------------------
-            _pre_cfg = _load_config_service(conn)
-            equity_model_enabled: bool = (
-                str(_pre_cfg.get_sync("alpha.regime.equity_model_enabled", "true")).lower()
-                == "true"
-            )
+            _cfg_svc = _load_config_service(conn)
+            config = ICEngineConfig.from_apr(_cfg_svc)
+            equity_model_enabled: bool = config.equity_model_enabled
             _logger.info("ic_engine.equity_model_enabled", value=equity_model_enabled)
 
             # ----------------------------------------------------------
@@ -2022,15 +2053,8 @@ def main() -> None:
                 }
             _logger.info("ic_engine.existing_keys", count=len(existing_keys))
 
-            # APR is TF-specific (lookahead.* varies by TF); load once per TF
-            # rather than once per (symbol, tf) to avoid 58x redundant DB round-trips.
-            apr_cache = {tf: _load_apr(conn, tf) for tf in tfs}
-
-            # Load n_workers from APR (infra namespace) before closing conn
-            _full_cfg = _load_config_service(conn)
-            n_workers = args.workers
-            if n_workers is None:
-                n_workers = int(_full_cfg.get_sync("infra.ic_engine.workers", 1))
+            # APR already bound in config above; derive n_workers from config or CLI override.
+            n_workers = args.workers if args.workers is not None else config.n_workers
 
             # ----------------------------------------------------------
             # Load market_regimes {ts -> regime_label} per TF (for equity model)
@@ -2083,7 +2107,7 @@ def main() -> None:
                         settings.database_url,
                         training_window_end,
                         existing_keys_frozen,
-                        apr_cache,
+                        config,
                         run_ts,
                         feature_status_map,
                         mr_dict_by_tf if equity_model_enabled else None,
@@ -2164,7 +2188,6 @@ def main() -> None:
                     cs_conn.commit()
 
                     for tf in tfs:
-                        apr = apr_cache[tf]
                         for regime_label in cs_regimes:
                             cs_rows, cs_stats = _compute_cross_sectional_tf(
                                 conn=cs_conn,
@@ -2172,7 +2195,7 @@ def main() -> None:
                                 regime_label=regime_label,
                                 training_window_end=training_window_end,
                                 existing_keys=existing_keys_frozen,
-                                apr=apr,
+                                config=config,
                                 tracer=tracer,
                                 run_ts=run_ts,
                                 feature_status_map=feature_status_map,
@@ -2199,7 +2222,7 @@ def main() -> None:
             # from ALL per-symbol cells AND all cross-sectional cells.
             # Effective FDR = fdr_alpha (5%) corpus-wide, not 232× inflated.
             # ----------------------------------------------------------
-            _fdr_alpha = apr_cache[tfs[0]]["fdr_alpha"]
+            _fdr_alpha = config.fdr_alpha
             all_corpus_pvals = corpus_pvals_flat + corpus_cs_pvals_flat
 
             if all_corpus_pvals:

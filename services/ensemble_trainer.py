@@ -101,6 +101,45 @@ def _cfg_str(cfg: dict[str, Any], key: str, default: str) -> str:
     return str(val) if val is not None else default
 
 
+# ---------------------------------------------------------------------------
+# APR compile-time binding
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class EnsembleConfig:
+    """Frozen config snapshot bound once at startup from APR.
+
+    All values are immutable for the entire ensemble run — no mid-run drift if
+    config_state is updated externally.
+    """
+
+    max_feature_weight: float
+    effective_n_gate: float
+    weight_version: str
+    min_passing_features: int
+    max_cluster_corr: float
+    max_cluster_weight: float
+    meta_fdr_min_fraction: float
+    sharpe_floor: float
+    weight_half_life_days: float
+
+    @classmethod
+    def from_apr(cls, cfg: dict[str, Any]) -> EnsembleConfig:
+        """Load all ensemble APR parameters from the raw config dict in one pass."""
+        return cls(
+            max_feature_weight=_cfg_float(cfg, "alpha.ensemble.max_feature_weight", 0.20),
+            effective_n_gate=_cfg_float(cfg, "alpha.ensemble.effective_n_gate", 3.0),
+            weight_version=_cfg_str(cfg, "alpha.ensemble.weight_version", "v1"),
+            min_passing_features=_cfg_int(cfg, "alpha.ensemble.min_passing_features", 5),
+            max_cluster_corr=_cfg_float(cfg, "alpha.ensemble.max_cluster_correlation", 0.80),
+            max_cluster_weight=_cfg_float(cfg, "alpha.ensemble.max_cluster_weight", 0.40),
+            meta_fdr_min_fraction=_cfg_float(cfg, "alpha.ensemble.meta_fdr_min_fraction", 0.50),
+            sharpe_floor=_cfg_float(cfg, "alpha.ensemble.sharpe_floor", 0.05),
+            weight_half_life_days=_cfg_float(cfg, "alpha.ensemble.weight_half_life_days", 30.0),
+        )
+
+
 def _meta_eligible(fdr_pass_rows: list[dict], min_fraction: float) -> set[str]:
     """Return feature names whose BH-FDR pass-rate across eligible cells meets the threshold.
 
@@ -209,32 +248,22 @@ class EnsembleTrainer(BaseBatch):
 
     async def _execute_inner(self, pool: asyncpg.Pool, manifest: CorpusManifest) -> None:
         async with pool.acquire() as conn:
-            # --- Load APR config ---
+            # --- Bind all APR parameters once at startup (compile-time binding) ---
             cfg = await _load_apr(conn)
-            max_feature_weight = _cfg_float(cfg, "alpha.ensemble.max_feature_weight", 0.20)
-            effective_n_gate = _cfg_float(cfg, "alpha.ensemble.effective_n_gate", 3.0)
-            weight_version = _cfg_str(cfg, "alpha.ensemble.weight_version", "v1")
-            min_passing_features = _cfg_int(cfg, "alpha.ensemble.min_passing_features", 5)
-            max_cluster_corr = _cfg_float(cfg, "alpha.ensemble.max_cluster_correlation", 0.80)
-            max_cluster_weight = _cfg_float(cfg, "alpha.ensemble.max_cluster_weight", 0.40)
-            # 0.50 is conservative — favors broad, stable factors; may suppress niche features
-            # that are strong in only a subset of symbols/TFs. Revisit APR value after measuring
-            # empirical pass-rate distribution from first clean corpus run.
-            meta_fdr_min_fraction = _cfg_float(cfg, "alpha.ensemble.meta_fdr_min_fraction", 0.50)
-            sharpe_floor = _cfg_float(cfg, "alpha.ensemble.sharpe_floor", 0.05)
+            config = EnsembleConfig.from_apr(cfg)
 
             self.logger.info(
                 "ensemble_trainer.config_loaded",
-                max_feature_weight=max_feature_weight,
-                effective_n_gate=effective_n_gate,
-                weight_version=weight_version,
-                min_passing_features=min_passing_features,
-                max_cluster_corr=max_cluster_corr,
-                max_cluster_weight=max_cluster_weight,
-                meta_fdr_min_fraction=meta_fdr_min_fraction,
-                sharpe_floor=sharpe_floor,
+                max_feature_weight=config.max_feature_weight,
+                effective_n_gate=config.effective_n_gate,
+                weight_version=config.weight_version,
+                min_passing_features=config.min_passing_features,
+                max_cluster_corr=config.max_cluster_corr,
+                max_cluster_weight=config.max_cluster_weight,
+                meta_fdr_min_fraction=config.meta_fdr_min_fraction,
+                sharpe_floor=config.sharpe_floor,
             )
-            manifest.set_inputs(weight_version=weight_version)
+            manifest.set_inputs(weight_version=config.weight_version)
 
             # --- Startup gates ---
             await _assert_prerequisites(conn)
@@ -252,11 +281,10 @@ class EnsembleTrainer(BaseBatch):
                     f"feature_registry drift: {all_registry_names ^ dataclass_names}"
                 )
 
-            weight_half_life_days = _cfg_float(cfg, "alpha.ensemble.weight_half_life_days", 30.0)
             self.logger.info(
                 "ensemble_trainer.registry_loaded",
                 n_features=len(all_registry_names),
-                weight_half_life_days=weight_half_life_days,
+                weight_half_life_days=config.weight_half_life_days,
             )
 
             # --- Meta-FDR gate: feature must pass BH-FDR in >=meta_fdr_min_fraction of cells ---
@@ -276,13 +304,13 @@ class EnsembleTrainer(BaseBatch):
                   AND ic_sharpe_hac IS NOT NULL
                 GROUP BY feature_name
                 """)
-            meta_eligible_features = _meta_eligible(fdr_pass_rows, meta_fdr_min_fraction)
+            meta_eligible_features = _meta_eligible(fdr_pass_rows, config.meta_fdr_min_fraction)
             n_total_cells = sum(r["n_cells"] for r in fdr_pass_rows)
             self.logger.info(
                 "ensemble_trainer.meta_fdr_gate",
                 n_eligible=len(meta_eligible_features),
                 n_total_features=len(fdr_pass_rows),
-                min_fraction=meta_fdr_min_fraction,
+                min_fraction=config.meta_fdr_min_fraction,
                 n_total_cells_evaluated=n_total_cells,
             )
             if fdr_pass_rows:
@@ -324,14 +352,8 @@ class EnsembleTrainer(BaseBatch):
                     tf=tf,
                     regime=regime,
                     feature_cols=feature_cols,
-                    weight_version=weight_version,
-                    max_feature_weight=max_feature_weight,
-                    min_passing_features=min_passing_features,
-                    max_cluster_corr=max_cluster_corr,
-                    max_cluster_weight=max_cluster_weight,
+                    config=config,
                     meta_eligible_features=meta_eligible_features,
-                    weight_half_life_days=weight_half_life_days,
-                    sharpe_floor=sharpe_floor,
                 )
 
         self.logger.info(
@@ -343,7 +365,7 @@ class EnsembleTrainer(BaseBatch):
         async with pool.acquire() as conn:
             weight_rows = await conn.fetch(
                 "SELECT tf, COUNT(*) as n FROM ensemble_weights WHERE weight_version = $1 GROUP BY tf",
-                weight_version,
+                config.weight_version,
             )
             rows_by_tf = {r["tf"]: r["n"] for r in weight_rows}
             manifest.add_output(
@@ -361,14 +383,8 @@ class EnsembleTrainer(BaseBatch):
         tf: str,
         regime: str,
         feature_cols: list[str],
-        weight_version: str,
-        max_feature_weight: float,
-        min_passing_features: int,
-        max_cluster_corr: float,
-        max_cluster_weight: float,
+        config: EnsembleConfig,
         meta_eligible_features: set[str],
-        sharpe_floor: float,
-        weight_half_life_days: float = 30.0,
     ) -> None:
         """Process one (tf, regime) stratum end-to-end using cross-sectional IC."""
         log = self.logger.bind(tf=tf, regime=regime)
@@ -403,13 +419,13 @@ class EnsembleTrainer(BaseBatch):
         # select_features_per_stratum and returned on each selected row.
         selected = select_features_per_stratum(
             [{**dict(r), "ic_sharpe": r["ic_sharpe_hac"]} for r in ic_rows],
-            sharpe_floor=sharpe_floor,
+            sharpe_floor=config.sharpe_floor,
         )
-        if len(selected) < min_passing_features:
+        if len(selected) < config.min_passing_features:
             log.debug(
                 "ensemble_trainer.stratum_skipped_min_features",
                 n_features=len(selected),
-                min_required=min_passing_features,
+                min_required=config.min_passing_features,
             )
             return
 
@@ -425,11 +441,11 @@ class EnsembleTrainer(BaseBatch):
 
         # Step 3: Load feature matrix X from feature_vectors for all symbols in this (tf, regime)
         col_subset = [c for c in feature_cols if c in feature_names]
-        if len(col_subset) < min_passing_features:
+        if len(col_subset) < config.min_passing_features:
             log.debug(
                 "ensemble_trainer.stratum_skipped_missing_cols",
                 n_cols=len(col_subset),
-                min_required=min_passing_features,
+                min_required=config.min_passing_features,
             )
             return
 
@@ -494,9 +510,11 @@ class EnsembleTrainer(BaseBatch):
             n_features_aged = len(quality_weights)
             aged_quality_weights = np.full(n_features_aged, 1.0 / max(1, n_features_aged))
         else:
-            aged_quality_weights = quality_weights * math.exp(-days_since / weight_half_life_days)
+            aged_quality_weights = quality_weights * math.exp(
+                -days_since / config.weight_half_life_days
+            )
 
-        raw_weights = derive_weights(aged_quality_weights, max_feature_weight)
+        raw_weights = derive_weights(aged_quality_weights, config.max_feature_weight)
 
         cov_matrix, shrinkage = compute_shrinkage_covariance(X)
 
@@ -508,10 +526,10 @@ class EnsembleTrainer(BaseBatch):
             np.fill_diagonal(corr_matrix, 1.0)
 
         weights = cluster_deflate_weights(
-            raw_weights, corr_matrix, max_cluster_corr, max_cluster_weight
+            raw_weights, corr_matrix, config.max_cluster_corr, config.max_cluster_weight
         )
 
-        gauge_attrs = {"symbol": "UNIVERSE", "tf": tf, "weight_version": weight_version}
+        gauge_attrs = {"symbol": "UNIVERSE", "tf": tf, "weight_version": config.weight_version}
 
         # Zero-weight guard
         if float(weights.sum()) < 1e-10:
@@ -536,7 +554,7 @@ class EnsembleTrainer(BaseBatch):
                 "UNIVERSE",
                 tf,
                 regime,
-                weight_version,
+                config.weight_version,
                 ordered_names[i],
                 float(raw_weights[i]),
                 float(weights[i]),
@@ -586,7 +604,7 @@ class EnsembleTrainer(BaseBatch):
                 symbol_list[i],
                 tf,
                 bar_ts_list[i],
-                weight_version,
+                config.weight_version,
                 regime,
                 float(alpha_scores[i]),
                 float(ci_lower_arr[i]),

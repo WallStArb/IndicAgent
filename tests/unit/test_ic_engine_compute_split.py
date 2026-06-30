@@ -34,7 +34,7 @@ def test_compute_symbol_tf_return_keys():
         "tf",
         "training_window_end",
         "existing_keys",
-        "apr",
+        "config",
         "tracer",
         "run_ts",
         "feature_status_map",
