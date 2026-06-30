@@ -76,11 +76,7 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     # Volatility
     "atr_z": "quant",
     "vol_ratio": "quant",
-    # Session-level / market structure
-    "poc_dist_atr": "structural",
-    "va_position": "structural",
-    "sr_support_dist": "structural",
-    "sr_resist_dist": "structural",
+    # Session-level / market structure (removed in phase-a-ic-fixes)
     # Regime-level
     "hmm_regime_prob": "regime",
     "hmm_entropy": "regime",
@@ -124,10 +120,7 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "high_52w_dist": "quant",
     "ret_skew_z": "quant",
     "ret_acf1_z": "quant",
-    # Cross-sectional (nullable — populated by Phase 139)
-    "momentum_rank_z": "quant",
-    "volume_rank_z": "quant",
-    "volatility_rank_z": "quant",
+    # Cross-sectional (removed in phase-a-ic-fixes)
 }
 
 # ---------------------------------------------------------------------------
@@ -986,10 +979,6 @@ def _build_feature_vector(
     vwap_dev_sigma: float,
     atr_z: float,
     vol_ratio: float,
-    poc_dist_atr: float | None,
-    va_position: float | None,
-    sr_support_dist: float | None,
-    sr_resist_dist: float | None,
     hmm_regime_prob: float,
     hmm_entropy: float,
     hmm_duration: float,
@@ -1046,10 +1035,6 @@ def _build_feature_vector(
         vwap_dev_sigma=_guard(vwap_dev_sigma),
         atr_z=_guard(atr_z),
         vol_ratio=_guard(vol_ratio, 1.0),
-        poc_dist_atr=_guard(poc_dist_atr),
-        va_position=_guard(va_position, 0.5),
-        sr_support_dist=_guard(sr_support_dist),
-        sr_resist_dist=_guard(sr_resist_dist),
         hmm_regime_prob=_guard(hmm_regime_prob),
         hmm_entropy=_guard(hmm_entropy),
         hmm_duration=_guard(hmm_duration),
@@ -1087,9 +1072,6 @@ def _build_feature_vector(
         high_52w_dist=_guard(high_52w_dist),
         ret_skew_z=_guard(ret_skew_z),
         ret_acf1_z=_guard(ret_acf1_z),
-        momentum_rank_z=None,
-        volume_rank_z=None,
-        volatility_rank_z=None,
     )
 
 
@@ -1160,17 +1142,6 @@ class FeatureFactory:
         range_bars = min(config.momentum_window_mid, len(bars))
         range_position_val = _range_position(close_, highs[-range_bars:], lows[-range_bars:])
 
-        if tf == "1d":
-            poc_dist_atr_val: float | None = 0.0
-            va_position_val: float | None = 0.5
-            sr_support_dist_val: float | None = 0.0
-            sr_resist_dist_val: float | None = 0.0
-        else:
-            poc_dist_atr_val = cache.poc_dist_atr
-            va_position_val = cache.va_position
-            sr_support_dist_val = cache.sr_support_dist
-            sr_resist_dist_val = cache.sr_resist_dist
-
         _dow = _dow_encoding(bar_ts)
 
         return _build_feature_vector(
@@ -1191,10 +1162,6 @@ class FeatureFactory:
             vwap_dev_sigma=_series_last(s.vwap_dev_sigma, 0.0),
             atr_z=_series_last(s.atr_z, 0.0),
             vol_ratio=_vol_ratio(closes, config.vol_short_bars, config.vol_long_bars),
-            poc_dist_atr=poc_dist_atr_val,
-            va_position=va_position_val,
-            sr_support_dist=sr_support_dist_val,
-            sr_resist_dist=sr_resist_dist_val,
             hmm_regime_prob=cache.hmm_regime_prob,
             hmm_entropy=cache.hmm_entropy,
             hmm_duration=cache.hmm_duration,
@@ -1505,17 +1472,6 @@ class FeatureFactory:
 
 def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
     """Return a valid FeatureVector with cold-start defaults (0.0 / neutral values)."""
-    if tf == "1d":
-        poc_dist_atr = 0.0
-        va_position = 0.5
-        sr_support_dist = 0.0
-        sr_resist_dist = 0.0
-    else:
-        poc_dist_atr = cache.poc_dist_atr
-        va_position = cache.va_position
-        sr_support_dist = cache.sr_support_dist
-        sr_resist_dist = cache.sr_resist_dist
-
     return FeatureVector(
         momentum_z_fast=0.0,
         momentum_z_mid=0.0,
@@ -1534,10 +1490,6 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         vwap_dev_sigma=0.0,
         atr_z=0.0,
         vol_ratio=1.0,
-        poc_dist_atr=poc_dist_atr,
-        va_position=va_position,
-        sr_support_dist=sr_support_dist,
-        sr_resist_dist=sr_resist_dist,
         hmm_regime_prob=cache.hmm_regime_prob,
         hmm_entropy=cache.hmm_entropy,
         hmm_duration=cache.hmm_duration,
@@ -1575,7 +1527,4 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         high_52w_dist=0.0,
         ret_skew_z=0.0,
         ret_acf1_z=0.0,
-        momentum_rank_z=None,
-        volume_rank_z=None,
-        volatility_rank_z=None,
     )

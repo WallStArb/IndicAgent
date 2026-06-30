@@ -1244,11 +1244,6 @@ class FeatureVector:
     # Volatility (2) - part of bar-level computation
     atr_z: float
     vol_ratio: float
-    # Session-level (4, nullable in batch — requires I3 intraday injection unavailable in batch path)
-    poc_dist_atr: float | None
-    va_position: float | None
-    sr_support_dist: float | None
-    sr_resist_dist: float | None
     # Regime-level (11)
     hmm_regime_prob: float
     hmm_entropy: float
@@ -1292,10 +1287,6 @@ class FeatureVector:
     high_52w_dist: float
     ret_skew_z: float
     ret_acf1_z: float
-    # Cross-sectional (3, nullable — populated by Phase 139 enrichment pass)
-    momentum_rank_z: float | None = None  # cross-sectional momentum rank z-score
-    volume_rank_z: float | None = None  # cross-sectional volume rank z-score
-    volatility_rank_z: float | None = None  # cross-sectional volatility rank z-score
 
 
 @dataclasses.dataclass(frozen=True)
