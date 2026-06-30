@@ -241,11 +241,11 @@ def feature_vector_to_insert_params(
         # Volatility (2)
         vector.atr_z,  # $22
         vector.vol_ratio,  # $23
-        # Session-level (4) — demoted zero-IC features; NULL written to preserve DB schema
-        None,  # $24 poc_dist_atr
-        None,  # $25 va_position
-        None,  # $26 sr_support_dist
-        None,  # $27 sr_resist_dist
+        # Session-level (4)
+        vector.poc_dist_atr,  # $24
+        vector.va_position,  # $25
+        vector.sr_support_dist,  # $26
+        vector.sr_resist_dist,  # $27
         # Regime-level (10)
         vector.hmm_regime_prob,  # $28
         vector.hmm_entropy,  # $29
@@ -293,7 +293,7 @@ def feature_vector_to_insert_params(
         vector.momentum_reversal_z,  # $65
         vector.quarter_position,  # $66
         vector.days_to_month_end,  # $67
-        None,  # $68 momentum_rank_z — demoted zero-IC feature
-        None,  # $69 volume_rank_z — demoted zero-IC feature
-        None,  # $70 volatility_rank_z — demoted zero-IC feature
+        vector.momentum_rank_z,  # $68  None until Phase 139 enrichment
+        vector.volume_rank_z,  # $69  None until Phase 139 enrichment
+        vector.volatility_rank_z,  # $70  None until Phase 139 enrichment
     )
