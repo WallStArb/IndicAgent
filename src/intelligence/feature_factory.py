@@ -1223,8 +1223,6 @@ class FeatureFactory:
         When cross_asset_by_date is provided (batch path):
           - cross-asset (vix_z, flight_quality, yield_slope_z) read from dict keyed by date
           - CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align) read from ctf_by_ts via bisect
-          - VP/SR (poc_dist_atr, va_position, sr_support_dist, sr_resist_dist) set to None
-            (not computable from OHLCV batch; requires I3 intraday injection)
         When cross_asset_by_date is None (live path):
           - all three groups read from cache (unchanged behavior)
         """
@@ -1327,23 +1325,6 @@ class FeatureFactory:
             vol_ratio_val = _vol_ratio(w_closes, config.vol_short_bars, config.vol_long_bars)
             cmf_val = _cmf(w_highs, w_lows, w_closes, w_volumes, config.cmf_period)
 
-            # Session-level (VP/SR): None in batch path; 1d defaults to neutral; else from cache
-            if cross_asset_by_date is not None:
-                poc_dist_atr_val = None
-                va_position_val = None
-                sr_support_dist_val = None
-                sr_resist_dist_val = None
-            elif tf == "1d":
-                poc_dist_atr_val = 0.0
-                va_position_val = 0.5
-                sr_support_dist_val = 0.0
-                sr_resist_dist_val = 0.0
-            else:
-                poc_dist_atr_val = cache.poc_dist_atr
-                va_position_val = cache.va_position
-                sr_support_dist_val = cache.sr_support_dist
-                sr_resist_dist_val = cache.sr_resist_dist
-
             # Regime-level primitives (all from cache)
             hmm_regime_prob_val = cache.hmm_regime_prob
             hmm_entropy_val = cache.hmm_entropy
@@ -1419,10 +1400,6 @@ class FeatureFactory:
                 vwap_dev_sigma=vwap_dev_sigma_val,
                 atr_z=atr_z_val,
                 vol_ratio=vol_ratio_val,
-                poc_dist_atr=poc_dist_atr_val,
-                va_position=va_position_val,
-                sr_support_dist=sr_support_dist_val,
-                sr_resist_dist=sr_resist_dist_val,
                 hmm_regime_prob=hmm_regime_prob_val,
                 hmm_entropy=hmm_entropy_val,
                 hmm_duration=hmm_duration_val,
