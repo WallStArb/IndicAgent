@@ -2,7 +2,7 @@
 """Ensemble Trainer — oneshot that derives IC-weighted ensemble weights and scores ensemble alpha.
 
 Reads cross-sectional IC scores (symbol='POOLED', is_pooled=true, regime != '_pooled',
-passes_walkforward=true), applies Ledoit-Wolf cluster deflation, and writes:
+ic_ci_lower > 0, passes_fdr=true, reliable=true), applies Ledoit-Wolf cluster deflation, and writes:
   - ensemble_weights: one row per (tf, regime, weight_version, feature_name), symbol='UNIVERSE'
   - ensemble_alpha:   one row per (symbol, tf, bar_ts, weight_version) via vectorized matmul
 
@@ -13,7 +13,7 @@ well above the gate. One universe-level model is also statistically superior to 
 per-symbol models.
 
 CORRECTNESS INVARIANTS:
-- Only cross-sectional, walk-forward-passing rows feed the ensemble (no cross-regime leakage).
+- Only cross-sectional, statistically significant rows feed the ensemble (no cross-regime leakage).
 - feature_vectors query includes WHERE regime = stratum_regime — no cross-regime scoring.
 - Scoring uses X @ signed_weights (matmul, no per-bar Python loop).
 - LW cluster deflation (cluster_deflate_weights) runs after derive_weights.
@@ -105,8 +105,8 @@ def _meta_eligible(fdr_pass_rows: list[dict], min_fraction: float) -> set[str]:
     """Return feature names whose BH-FDR pass-rate across eligible cells meets the threshold.
 
     Denominator is restricted to cross-sectional cells that pass all ensemble eligibility filters
-    (symbol='POOLED', is_pooled=true, regime != '_pooled', reliable=true,
-     ic_sharpe_hac IS NOT NULL, passes_walkforward=true)
+    (symbol='POOLED', is_pooled=true, regime != '_pooled', ic_ci_lower > 0, passes_fdr=true,
+     reliable=true, ic_sharpe_hac IS NOT NULL)
     — the same population consumed by _process_stratum.
     """
     return {r["feature_name"] for r in fdr_pass_rows if r["fdr_pass_rate"] >= min_fraction}
@@ -158,12 +158,14 @@ async def _assert_prerequisites(conn: asyncpg.Connection) -> None:
     n_ic = await conn.fetchval(
         "SELECT count(*) FROM feature_ic_scores"
         " WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'"
-        " AND passes_walkforward = true"
+        " AND ic_ci_lower > 0 AND passes_fdr = true"
+        " AND reliable = true AND ic_sharpe_hac IS NOT NULL"
     )
     if not n_ic:
         raise RuntimeError(
             "EnsembleTrainer startup gate FAILED: no cross-sectional feature_ic_scores rows "
-            "(symbol='POOLED', is_pooled=true, regime != '_pooled', passes_walkforward=true). "
+            "(symbol='POOLED', is_pooled=true, regime != '_pooled', ic_ci_lower > 0, "
+            "passes_fdr=true, reliable=true). "
             "Run ic_engine.py first."
         )
 
@@ -219,6 +221,7 @@ class EnsembleTrainer(BaseBatch):
             # that are strong in only a subset of symbols/TFs. Revisit APR value after measuring
             # empirical pass-rate distribution from first clean corpus run.
             meta_fdr_min_fraction = _cfg_float(cfg, "alpha.ensemble.meta_fdr_min_fraction", 0.50)
+            sharpe_floor = _cfg_float(cfg, "alpha.ensemble.sharpe_floor", 0.05)
 
             self.logger.info(
                 "ensemble_trainer.config_loaded",
@@ -229,6 +232,7 @@ class EnsembleTrainer(BaseBatch):
                 max_cluster_corr=max_cluster_corr,
                 max_cluster_weight=max_cluster_weight,
                 meta_fdr_min_fraction=meta_fdr_min_fraction,
+                sharpe_floor=sharpe_floor,
             )
             manifest.set_inputs(weight_version=weight_version)
 
@@ -257,7 +261,7 @@ class EnsembleTrainer(BaseBatch):
 
             # --- Meta-FDR gate: feature must pass BH-FDR in >=meta_fdr_min_fraction of cells ---
             # Denominator mirrors _process_stratum WHERE clause exactly — cells that fail
-            # passes_walkforward or have NULL ic_sharpe_hac are never consumed by the ensemble,
+            # the significance gate or have NULL ic_sharpe_hac are never consumed by the ensemble,
             # so including them would artificially deflate every feature's pass-rate.
             fdr_pass_rows = await conn.fetch("""
                 SELECT feature_name,
@@ -267,9 +271,10 @@ class EnsembleTrainer(BaseBatch):
                 WHERE symbol = 'POOLED'
                   AND is_pooled = true
                   AND regime != '_pooled'
+                  AND ic_ci_lower > 0
+                  AND passes_fdr = true
                   AND reliable = true
                   AND ic_sharpe_hac IS NOT NULL
-                  AND passes_walkforward = true
                 GROUP BY feature_name
                 """)
             meta_eligible_features = _meta_eligible(fdr_pass_rows, meta_fdr_min_fraction)
@@ -304,8 +309,9 @@ class EnsembleTrainer(BaseBatch):
                 SELECT DISTINCT tf, regime
                 FROM feature_ic_scores
                 WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'
-                  AND passes_walkforward = true AND reliable = true
-                  AND ic_sharpe_hac IS NOT NULL AND regime IS NOT NULL
+                  AND ic_ci_lower > 0 AND passes_fdr = true
+                  AND reliable = true AND ic_sharpe_hac IS NOT NULL
+                  AND regime IS NOT NULL
                 ORDER BY tf, regime
                 """)
             self.logger.info("ensemble_trainer.strata_found", stratum_count=len(strata_rows))
@@ -326,6 +332,7 @@ class EnsembleTrainer(BaseBatch):
                     max_cluster_weight=max_cluster_weight,
                     meta_eligible_features=meta_eligible_features,
                     weight_half_life_days=weight_half_life_days,
+                    sharpe_floor=sharpe_floor,
                 )
 
         self.logger.info(
@@ -362,6 +369,7 @@ class EnsembleTrainer(BaseBatch):
         max_cluster_weight: float,
         meta_eligible_features: set[str],
         weight_half_life_days: float = 30.0,
+        sharpe_floor: float = 0.05,
     ) -> None:
         """Process one (tf, regime) stratum end-to-end using cross-sectional IC."""
         log = self.logger.bind(tf=tf, regime=regime)
@@ -377,8 +385,8 @@ class EnsembleTrainer(BaseBatch):
             FROM feature_ic_scores
             WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'
               AND tf = $1 AND regime = $2
-              AND passes_walkforward = true AND reliable = true
-              AND ic_sharpe_hac IS NOT NULL
+              AND ic_ci_lower > 0 AND passes_fdr = true
+              AND reliable = true AND ic_sharpe_hac IS NOT NULL
               AND feature_status_at_eval = 'active'
             """,
             tf,
@@ -390,10 +398,13 @@ class EnsembleTrainer(BaseBatch):
             log.debug("ensemble_trainer.stratum_no_ic_rows")
             return
 
-        # Step 2: Select best lookahead per feature.
+        # Step 2: Select best lookahead per feature using quality_weight.
         # select_features_per_stratum expects key "ic_sharpe"; our column is "ic_sharpe_hac".
+        # quality_weight = ic_ci_lower * max(sharpe_floor, ic_sharpe_hac) is computed inside
+        # select_features_per_stratum and returned on each selected row.
         selected = select_features_per_stratum(
-            [{**dict(r), "ic_sharpe": r["ic_sharpe_hac"]} for r in ic_rows]
+            [{**dict(r), "ic_sharpe": r["ic_sharpe_hac"]} for r in ic_rows],
+            sharpe_floor=sharpe_floor,
         )
         if len(selected) < min_passing_features:
             log.debug(
@@ -404,6 +415,9 @@ class EnsembleTrainer(BaseBatch):
             return
 
         feature_names = [r["feature_name"] for r in selected]
+        # quality_weights are the raw weight inputs to derive_weights (A5c).
+        # Ledoit-Wolf deflation and weight caps operate on whatever raw weight is passed in.
+        quality_weights = np.array([float(r["quality_weight"]) for r in selected])
         ic_sharpes = np.array([float(r["ic_sharpe_hac"]) for r in selected])
         ic_signs = np.array([float(r["ic_sign"]) for r in selected])
         ic_ci_lower = np.array([float(r["ic_ci_lower"]) for r in selected])
@@ -425,6 +439,7 @@ class EnsembleTrainer(BaseBatch):
         # same membership (both are feature_names ∩ feature_cols), so no second count check.
         ordered_names = [n for n in feature_names if n in col_subset]
         ordered_idx = [feature_names.index(n) for n in ordered_names]
+        quality_weights = quality_weights[ordered_idx]
         ic_sharpes = ic_sharpes[ordered_idx]
         ic_signs = ic_signs[ordered_idx]
         ic_ci_lower = ic_ci_lower[ordered_idx]
@@ -477,12 +492,12 @@ class EnsembleTrainer(BaseBatch):
             days_since = 0
         if days_since > 90:
             # Equal-weight fallback: IC scores are too stale to trust the weight ordering.
-            n_features_aged = len(ic_sharpes)
-            aged_ic_sharpes = np.full(n_features_aged, 1.0 / max(1, n_features_aged))
+            n_features_aged = len(quality_weights)
+            aged_quality_weights = np.full(n_features_aged, 1.0 / max(1, n_features_aged))
         else:
-            aged_ic_sharpes = ic_sharpes * math.exp(-days_since / weight_half_life_days)
+            aged_quality_weights = quality_weights * math.exp(-days_since / weight_half_life_days)
 
-        raw_weights = derive_weights(aged_ic_sharpes, max_feature_weight)
+        raw_weights = derive_weights(aged_quality_weights, max_feature_weight)
 
         cov_matrix, shrinkage = compute_shrinkage_covariance(X)
 
