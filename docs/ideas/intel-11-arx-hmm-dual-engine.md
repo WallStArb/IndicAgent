@@ -1,7 +1,7 @@
 # Multi-Engine HMM Regime Architecture
 
 **Status:** Idea / Research
-**Extends:** `intel-10-hmm-observation-vector.md`
+**Extends:** `docs/intelligence/intelligence-hmm-observation-vector.md`
 
 ---
 
@@ -354,7 +354,7 @@ Any observation vector or engine change invalidates `feature_ic_scores`. Validat
 
 ## Related Docs
 
-- `docs/ideas/intel-10-hmm-observation-vector.md` -- current 5D price/vol vector and evaluation protocol
+- `docs/intelligence/intelligence-hmm-observation-vector.md` -- current 5D price/vol vector and evaluation protocol
 - `docs/ideas/intel-08-macro-cross-asset.md` -- macro/cross-asset signals
 - `docs/intelligence/intelligence-alphaengine.md` -- IC engine design
 - `docs/plans/2026-06-29-regime-stratification-alternatives.md` -- volatility_regime + volume_regime stratification (simpler percentile-rank approach, no HMM)
