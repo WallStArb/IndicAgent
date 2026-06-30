@@ -77,7 +77,7 @@ the cross-sectional VIX axis.
 
 **Why it matters:** Volatility is the most economically meaningful regime variable because
 it directly controls position sizing (Kelly), spread costs, and mean reversion speed.
-Factor relationships are well-documented to flip across vol regimes. This is a per-symbol
+Factor relationships are well-documented to flip across volatility regimes. This is a per-symbol
 version of the cross-sectional VIX proxy already in `market_regimes`.
 
 **Advantages over HMM:** Causal by construction (expanding rank = no look-ahead bias),
@@ -85,12 +85,12 @@ no distributional assumptions, directly observable, stable across re-runs (no
 non-convex EM), interpretable.
 
 **Implementation:**
-- New column `feature_vectors.vol_regime` (low/mid/high)
+- New column `feature_vectors.volatility_regime` (low/mid/high)
 - Expanding percentile rank of `realized_vol` per (symbol, tf) in `regime_writer.py`
-- IC engine reads `vol_regime` as a secondary stratification axis
-- APR keys: `alpha.vol_regime.low_pct` (default 0.33), `alpha.vol_regime.high_pct` (0.67)
+- IC engine reads `volatility_regime` as a secondary stratification axis
+- APR keys: `alpha.volatility_regime.low_pct` (default 0.33), `alpha.volatility_regime.high_pct` (0.67)
 
-**Schema:** `feature_vectors.vol_regime VARCHAR` -- same pattern as `feature_vectors.regime`
+**Schema:** `feature_vectors.volatility_regime VARCHAR` -- same pattern as `feature_vectors.regime`
 
 ---
 
@@ -177,7 +177,7 @@ The right architecture: each stratification method produces independent labels p
 The IC engine runs stratified by any combination. A feature's IC profile becomes:
 
 ```
-IC(feature, symbol, tf, hmm_state, vol_regime, dispersion_regime, lookahead)
+IC(feature, symbol, tf, hmm_state, volatility_regime, dispersion_regime, lookahead)
 ```
 
 **Storage:** The `feature_ic_scores` table gains additional stratification columns.

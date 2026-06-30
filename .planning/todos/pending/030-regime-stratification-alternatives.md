@@ -20,7 +20,7 @@ each adding a conditioning axis that sharpens IC estimates in ways HMM alone can
 
 | Priority | Dimension | What HMM Misses | Table | Effort |
 |---|---|---|---|---|
-| P1 | Realized vol percentile | Causal, directly tradeable state variable | `feature_vectors.vol_regime` | 1 session |
+| P1 | Realized vol percentile | Causal, directly tradeable state variable | `feature_vectors.volatility_regime` | 1 session |
 | P2 | Cross-sectional dispersion | Macro vs stock-picker market | `market_regimes` | 1 session |
 | P3 | Factor regime (momentum/value/quality) | Which factor is driving returns | `market_regimes` | 2 sessions |
 | P4 | HMM variants (IOHMM, Hamilton, factor-augmented) | Better state transition modeling | replaces `regime_writer` | Gated on todo 026 P4 |
@@ -32,7 +32,7 @@ Each stratification dimension produces independent labels per bar. IC engine run
 stratified by any combination:
 
 ```
-IC(feature, symbol, tf, hmm_state, vol_regime, dispersion_regime, lookahead)
+IC(feature, symbol, tf, hmm_state, volatility_regime, dispersion_regime, lookahead)
 ```
 
 The combination that minimizes CI width per feature is itself learned, not assumed.
