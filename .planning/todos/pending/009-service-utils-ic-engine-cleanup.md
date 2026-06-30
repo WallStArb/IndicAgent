@@ -6,7 +6,7 @@
 **Effort:** 2-3 hours
 **Benefit:** Reduces code duplication; establishes shared utility location
 **Risk:** low (pure refactor, no behavior change)
-**Gate:** None
+**Gate:** After Phase A corpus re-run — do in Phase B cleanup sprint alongside 012 and 032
 ---
 
 ---

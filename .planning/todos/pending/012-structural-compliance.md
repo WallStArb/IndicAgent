@@ -6,7 +6,7 @@
 **Effort:** 2-3 days
 **Benefit:** Completes APR compliance across services; promotes batch scripts to proper BaseBatch classes
 **Risk:** medium (many small changes)
-**Gate:** None
+**Gate:** After Phase A corpus re-run confirms corrected IC methodology — do in Phase B cleanup sprint alongside 009 and 032. The 58-symbol IC discovery report exists; the corpus re-run is the remaining prerequisite.
 ---
 
 # 012 — Structural Compliance (APR sweep, BaseBatch promotion, naming vocabulary)

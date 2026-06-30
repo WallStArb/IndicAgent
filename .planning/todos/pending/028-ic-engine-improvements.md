@@ -41,3 +41,21 @@ feature still working *now*?" See plan doc for full design.
 POOLED rows.
 
 See plan doc for full implementation notes, fix sketches, and APR keys.
+
+---
+
+## Status (2026-06-30)
+
+**P0/P2/P3/P4 — IN PROGRESS** — being implemented in Phase A Task 1, branch
+`phase-a-ic-fixes`. Reference: `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md §A2`.
+Move this todo to completed/ once that branch merges and corpus re-run confirms correct output.
+
+**P1 (trailing IC series)** — deferred to its own phase after static corpus is stable
+and validated. Do not start until Phase B gate is confirmed (>=5 features with
+ic_ci_lower > 0 per TF in >= 3 regimes).
+
+**P5 (IC vintage model)** — deferred. The ON CONFLICT DO UPDATE approach (newer
+training_window_end wins) can be added in the same session as P5 schema change.
+
+**P6 (cross-sectional effective N)** — deferred. Lower priority; only inflates CI for
+POOLED rows. Evaluate after Phase B validates per-symbol IC coverage.
