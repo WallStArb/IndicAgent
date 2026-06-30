@@ -12,7 +12,7 @@
                │
                ▼  modulates Transition Probability Matrix
 ┌────────────────────────────────────────────────────────┐
-│              FLOW / POSITIONING HMM (E3)               │
+│              FLOW / POSITIONING HMM (E4)               │
 │  Latent states: Accumulation / Neutral / Distribution  │
 │                 De-leveraging / Systemic Liquidation   │
 └────────────────────────────────────────────────────────┘
@@ -49,8 +49,9 @@ The fix: decompose regime into orthogonal, independently-trained engines. Each e
 | 0 | **Price/Vol HMM** (current) | Momentum, realized vol, vol-of-vol, rel_volume | OHLCV (live) | Live | 5 |
 | 1 | **Volatility Structure HMM** | Vol magnitude + velocity + geometry (Parkinson, YZ, noise ratio) | OHLCV (live) | Buildable now | 5 |
 | 2 | **Volume Character HMM** | Detrended volume, VSR, VPC | OHLCV (live) | Buildable now | 5 |
-| 3 | **Flow/Positioning HMM** | Institutional filings (13F, Form PF, ADV) | SEC filings -- not yet acquired | Blocked | 5 |
-| 4 | **Corporate Event Vector** | Form 4 insider buys/sells, buyback windows, NLP legal friction | SEC EDGAR (Form 4 public) | Partially available | N/A -- stamped scalar, not HMM |
+| 3 | **Factor Style Regime** | Rolling return spreads: MTUM, QUAL, VTV, USMV | OHLCV (live -- all 4 ETFs active) | Buildable now | 3-5 buckets |
+| 4 | **Flow/Positioning HMM** | Institutional filings (13F, Form PF, ADV) | SEC filings -- not yet acquired | Blocked | 5 |
+| 5 | **Corporate Event Vector** | Form 4 insider buys/sells, buyback windows, NLP legal friction | SEC EDGAR (Form 4 public) | Partially available | N/A -- stamped scalar, not HMM |
 | 5 | **Sentiment / GEX Vector** | Options GEX, call/put ratio, retail NLP sentiment | CBOE data, scraping | Research | N/A |
 | 6 | **Supply Chain Vector** | Commodity spreads, freight indices, satellite inventory | IBKR futures (spreads available); satellite = vendor | Partially available | N/A |
 
@@ -169,7 +170,45 @@ Distinct from `rel_volume` in Engine 0 -- that measures absolute volume anomaly.
 
 ---
 
-## Engine 3: Flow/Positioning HMM (Blocked -- Requires Data)
+## Engine 3: Factor Style Regime (Buildable Now)
+
+**Question answered:** Which return driver is the market rewarding right now -- momentum, value, quality, or low-vol?
+
+Factor style cycles are real and persistent over weeks to months. A momentum feature on a bar has very different IC depending on whether the market is currently in a momentum-rewarding or mean-reversion regime. The same signal, opposite IC.
+
+### Implementation
+
+All four factor proxy ETFs are active in the instrument set: **MTUM** (momentum), **QUAL** (quality), **VTV** (value), **USMV** (low volatility). No new data pipeline needed.
+
+**Factor spread construction:**
+```
+momentum_spread[t] = rolling_return(MTUM, W) - rolling_return(VTV, W)   # momentum vs. value
+quality_spread[t]  = rolling_return(QUAL, W) - rolling_return(USMV, W)  # quality vs. low-vol
+```
+
+Rolling window W = 20d (1 month) captures the current factor cycle without overfitting to noise. Longer windows (60d) can be used as a slow confirmation signal.
+
+**State assignment:** percentile-rank each spread over a 252d lookback, bucket into quintiles or tertiles. Unlike the HMM engines, this does not require unsupervised training -- the factor spread is directly interpretable and the bucketing is explicit.
+
+**APR keys:** `alpha.factor_regime.momentum_window`, `alpha.factor_regime.lookback_bars`, `alpha.factor_regime.n_buckets`
+
+### K=5 Factor Style States (candidate labels)
+
+| # | State | Momentum Spread | Quality Spread | Character |
+|---|---|---|---|---|
+| 1 | **Deep Value / Mean Reversion** | Low (value winning) | Low | Cheap beats expensive; trend-following features have negative IC |
+| 2 | **Quality Defensive** | Neutral | High (quality winning) | Risk-off rotation; low-vol and profitability factor in favor |
+| 3 | **Balanced / Transitional** | Neutral | Neutral | No strong factor dominance; regime-agnostic features have best IC |
+| 4 | **Momentum / Growth** | High (momentum winning) | Neutral | Winners keep winning; trend and momentum features have highest IC |
+| 5 | **Risk-On Momentum** | High | Low (low-vol losing) | Maximum risk appetite; high-beta, high-momentum; reversal risk elevated |
+
+### Why this is orthogonal to E0-E2
+
+E0/E1/E2 are all per-symbol microstructure. Factor style regime is cross-sectional and macro -- it describes the macro regime, not the individual bar. Two symbols in identical E0 states (both trending_up) have the same factor regime stamped on them. The IC question becomes: does the momentum feature predict returns better in State 4 (momentum rewarding) vs State 1 (value rewarding)? Answer: yes, substantially.
+
+---
+
+## Engine 4: Flow/Positioning HMM (Blocked -- Requires Data)
 
 **Question answered:** Who is behind the price movement and why?
 
@@ -213,7 +252,8 @@ If these domains were correlated, joint training on a merged observation vector 
 | Price/Vol (E0) | Current microstructure | *How* and *how fast* is price moving? |
 | Volatility Structure (E1) | Vol geometry and acceleration | *Is volatility stable or about to transition?* |
 | Volume Character (E2) | Participation intent | *What kind* of volume is behind the move? |
-| Flow/Positioning (E3) | Institutional structural intent | *Who* is moving it and *why?* |
+| Factor Style (E3) | Which return driver the market rewards | *What factor environment are we in?* |
+| Flow/Positioning (E4) | Institutional structural intent | *Who* is moving it and *why?* |
 
 Joint training on a merged vector produces multicollinearity between engines and dilutes the Gaussian emission estimates. Each engine trained independently captures its domain cleanly. The product state at inference time is purely an IC stratification key -- no cross-engine coupling.
 
@@ -250,12 +290,12 @@ The IC engine already implements this -- adding `S_engine` as a stratification c
 
 ---
 
-## 5×5 Product Matrix (E0 × E3)
+## 5×5 Product Matrix (E0 × E4)
 
-Running E0 and E3 independently produces a 25-cell cross-conditional space. Named corner cells:
+Running E0 and E4 independently produces a 25-cell cross-conditional space. Named corner cells:
 
 ```
-                        [FLOW REGIME E3 (k=5)]
+                        [FLOW REGIME E4 (k=5)]
                    Accum   Neutral  Distrib  DeLev   Liquid
                   ┌───────┬────────┬────────┬───────┬────────┐
        Bull Trend │ Aggr  │        │  Fade  │       │  Bear  │
@@ -290,11 +330,12 @@ Same feature, opposite signal depending on the joint cell. A flat aggregated IC 
 | E0 only (current) | 5 | 5 |
 | E0 + E1 | 25 | ~18 |
 | E0 + E1 + E2 | 125 | ~60 |
-| E0 + E1 + E2 + E3 | 625 | ~150 |
+| E0 + E1 + E2 + E3 (factor) | ~625 | ~150 |
+| E0 + E1 + E2 + E3 + E4 (flow) | ~3125 | ~300 |
 
-Sparsity is handled by the existing 20k bar IC gate -- sparse cells emit no score rather than a noisy one. At 58 ETFs × 4 TFs, even 150 effective cells is tractable (~16 ETF-TF combinations needed per cell at 20k bars each).
+Sparsity is handled by the existing 20k bar IC gate -- sparse cells emit no score rather than a noisy one. At 58 ETFs × 4 TFs, even 300 effective cells is tractable.
 
-The full bar fingerprint with all four engines: `(price_state, vol_state, volume_state, flow_state)`.
+The full bar fingerprint with all five engines: `(price_state, vol_state, volume_state, factor_state, flow_state)`.
 
 ---
 
@@ -303,14 +344,14 @@ The full bar fingerprint with all four engines: `(price_state, vol_state, volume
 These do not produce latent state labels. They are scalar or categorical features stamped directly onto bars and fed into the IC stratification as additional axes.
 
 ### Corporate Event Vector (Form 4, Buybacks)
-- **Insider cluster signal:** binary/intensity indicator when senior executives net-buy their own stock (Form 4, SEC EDGAR, public). Insider buy + E3 Quiet Accumulation = highest-conviction long -- management and institutions aligned.
+- **Insider cluster signal:** binary/intensity indicator when senior executives net-buy their own stock (Form 4, SEC EDGAR, public). Insider buy + E4 Quiet Accumulation = highest-conviction long -- management and institutions aligned.
 - **Active buyback window:** binary flag when a repurchase authorization is active. Creates structural price floor; dampens E1 vol spike states.
 - **Regulatory/legal friction:** NLP sentiment from ongoing litigation, patent approvals, FDA pipelines. Slow-moving; sector-specific (biotech, pharma).
 
 ### Sentiment / GEX Vector
 - **Gamma Exposure (GEX):** delta-adjusted market maker gamma from options open interest. Negative GEX = market makers must sell into down moves (amplifies vol). Positive GEX = market makers buy dips (suppresses vol). Directly modulates E1 vol regime interpretation.
-- **Call/put ratio, retail sweep intensity:** real-time options flow from CBOE. When retail options buying extreme + E3 Institutional Distribution = high-probability reversal.
-- **Retail NLP sentiment:** price grinding up + extreme optimism + E3 Distribution = divergence; reversal imminent.
+- **Call/put ratio, retail sweep intensity:** real-time options flow from CBOE. When retail options buying extreme + E4 Institutional Distribution = high-probability reversal.
+- **Retail NLP sentiment:** price grinding up + extreme optimism + E4 Distribution = divergence; reversal imminent.
 
 ### Supply Chain / Macro Vector
 - **Cross-asset commodity spreads:** copper/gold ratio (growth vs. fear), Baltic Dry Index, energy spreads. Available via IBKR futures feeds already in the system.
@@ -327,10 +368,15 @@ These do not produce latent state labels. They are scalar or categorical feature
 4. Validate via Partial IC on 3-5 symbols
 5. If both pass: full corpus re-run with E1 and E2 columns in `feature_vectors`
 
+**Phase 1b (OHLCV-only, no new data -- parallel with Phase 1):**
+1. Implement Engine 3 (Factor Style Regime) -- MTUM/QUAL/VTV/USMV rolling return spreads, percentile bucketing
+2. Validate via Partial IC on 3-5 symbols (expect clear IC lift for momentum/reversal features across factor states)
+3. If pass: add `factor_regime` column to `feature_vectors`, include in corpus re-run
+
 **Phase 2 (requires data acquisition):**
 1. Acquire 13F data via SEC EDGAR (public, parseable) -- Form 4 as well
 2. Implement COT report ingestion (CFTC, public, weekly)
-3. Build Engine 3 (Flow/Positioning HMM) with soft prior approach (features in obs vector, not hard TPM modification)
+3. Build Engine 4 (Flow/Positioning HMM) with soft prior approach (features in obs vector, not hard TPM modification)
 4. Validate via Partial IC
 5. Full corpus re-run
 
