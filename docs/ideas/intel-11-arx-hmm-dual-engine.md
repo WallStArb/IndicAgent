@@ -284,6 +284,44 @@ Structural physical-economy signals:
 
 ---
 
+## Orthogonality: Why Separate Engines Are Correct
+
+If flow/positioning regimes were just a lagging reflection of price and vol regimes, adding them to a single observation vector would introduce multicollinearity and dilute the Gaussian emissions. The engines are separate because the phenomena are genuinely orthogonal:
+
+| Engine | Captures | The question it answers |
+|---|---|---|
+| Price/Vol HMM | Current market microstructure | *How* and *how fast* is price moving? |
+| Flow/Positioning HMM | Latent structural capacity + institutional intent | *Who* is moving it and *why*? |
+| Volume HMM | Participation character | *What kind* of volume is driving it? |
+
+The highest-IC alpha lives in the cells where price action is **detached** from structural positioning -- where the "how" and the "who" diverge:
+
+| Price/Vol State | Flow State | Market Reality |
+|---|---|---|
+| Bear Vol Spike (panic selling) | Quiet Accumulation | **Institutional Liquidity Hunt** -- large players using retail panic to fill blocks. High-probability mean-reversion buy. |
+| Bull Trend / Low Vol (grinding up) | Institutional Distribution | **Exhaustion / Exhaust Wave** -- price rising on retail FOMO, smart money exiting. Structurally fragile. Asymmetric short setup. |
+| Mean-Reverting Range (choppy) | Systemic Liquidation | **Calm Before the Storm** -- bar looks quiet but underlying leverage is unstable. Any micro-trigger produces explosive downside vol breakout. |
+
+These are exactly the situations where a momentum-only HMM would assign the same regime label to two structurally opposite market conditions.
+
+### Partial IC: Statistical Proof of Orthogonality
+
+To validate that the flow engine adds independent information, run a Partial IC test:
+
+```
+IC_partial = Corr(X_bar, Y | S_flow)
+```
+
+Where `X_bar` = bar-level microstructure features (close_skew, VPC, intraday variance ratio), `Y` = forward return at lookahead N, `S_flow` = flow regime state.
+
+If the regimes are NOT orthogonal, conditioning on `S_flow` tells you nothing new -- IC stays flat. If they ARE orthogonal, IC of the same bar features jumps significantly when filtered through the correct structural positioning state.
+
+This maps directly onto the existing IC engine: `IC_partial` is just `feature_ic_scores` stratified by `flow_hmm_state`. No new infrastructure needed. The existing `WHERE regime_label = ?` stratification already implements the conditional. Adding `flow_hmm_state` as a second stratification axis computes Partial IC automatically.
+
+**Practical implication:** the same bar setup -- same close_skew, same VPC reading -- should be traded completely differently depending on the flow state. A high-skew bar in Quiet Accumulation is a continuation entry. The same high-skew bar in Institutional Distribution is a fade setup.
+
+---
+
 ## Open Questions
 
 1. **Hard vs. soft macro prior**: modifying the TPM directly (hard constraint) vs. adding macro features to the observation vector (soft influence) -- the latter is implementable today without changing the HMM architecture.
