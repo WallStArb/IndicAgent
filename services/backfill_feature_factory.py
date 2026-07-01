@@ -147,14 +147,14 @@ ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 _FETCH_BARS_SQL = """
 SELECT timestamp, open, high, low, close, volume
 FROM market_data_ohlcv
-WHERE symbol = %s AND timeframe = %s
+WHERE symbol = %s AND timeframe = %s AND volume > 0
 ORDER BY timestamp ASC
 """
 
 _FETCH_BARS_SINCE_SQL = """
 SELECT timestamp, open, high, low, close, volume
 FROM market_data_ohlcv
-WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
+WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND volume > 0
 ORDER BY timestamp ASC
 """
 
@@ -162,7 +162,7 @@ _FETCH_BARS_WINDOW_SQL = """
 SELECT timestamp, open, high, low, close, volume
 FROM market_data_ohlcv
 WHERE symbol = %s AND timeframe = %s
-  AND timestamp >= %s AND timestamp < %s
+  AND timestamp >= %s AND timestamp < %s AND volume > 0
 ORDER BY timestamp ASC
 """
 

@@ -245,6 +245,7 @@ WITH windowed AS (
     WHERE m.symbol    = %(symbol)s
       AND m.timeframe = %(tf)s
       AND m.timestamp <= %(training_window_end)s
+      AND m.volume > 0
     WINDOW w AS (
         PARTITION BY m.symbol, m.timeframe
         ORDER BY m.timestamp
