@@ -119,8 +119,17 @@ pulled last.
 
 ## What This Doc Demands From the Roadmap
 
-1. **Todo 030's external cost floor runs first** — T1-T4 all die or survive at different
-   rates once gross IC becomes net E[R] per tf. Cheapest falsification in the backlog.
+1. **Todo 030's external cost floor runs first — DONE 2026-07-01, verdict recorded.**
+   5m fast/mid and 15m fast are net-negative-to-marginal against realistic spread (0.26,
+   0.84, 0.55 bps gross vs 1-10bp cost floors, on unshrunk IC — the real numbers are worse).
+   1h/1d and the longer-lookahead 5m/15m cells clear comfortably. Full table:
+   `.planning/todos/pending/030-cost-hurdle-apr-calibration.md`. **This kills or badly
+   wounds T1 (immediacy provision) as a short-horizon thesis** — if the crumbs institutions
+   leave below their minimum ticket can't clear spread either, T1 only survives at longer
+   holds, which changes what "small-scale immediacy" means. T2/T3/T4 are horizon-agnostic
+   and unaffected in direction, though T3 (cross-sectional) may specifically rescue some of
+   the dead directional cells — a spread portfolio's cost dynamics differ from a directional
+   trade's (see `docs/ideas/trade-construction-layer.md`).
 2. **Every future analysis report tags which thesis its result supports or damages.** A
    qualifying feature is not evidence of edge; it is evidence *for a specific thesis* or it
    is unexplained (and unexplained results get the skeptical prior).

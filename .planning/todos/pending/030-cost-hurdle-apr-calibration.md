@@ -48,6 +48,36 @@ cost:
 
 No APR write from Step 0 — it is a verdict, not a calibration. Steps 1-3 remain as below.
 
+**VERDICT (run 2026-07-01):** Confirmed net-negative-to-marginal at short horizons on the two
+highest-compute timeframes.
+
+| tf / scale | Median-IC gross E[R] | vs cost floor |
+|---|---|---|
+| 5m fast (lookahead=1) | 0.26 bps | Dead — 4-40x below cheapest cost floor |
+| 5m mid | 0.84 bps | Dead for most of universe |
+| 5m slow | 4.33 bps | Survives liquid core only |
+| 5m extended | 13.6 bps | Clears broadly |
+| 15m fast | 0.55 bps | Dead |
+| 15m mid | 1.72 bps | Marginal, cheapest names only |
+| 15m slow | 8.9 bps | Clears broadly |
+| 1h fast | 4.0 bps | Marginal-to-clears |
+| 1d fast | 7.5 bps | Clears broadly |
+| 1d mid/slow/extended | 27-161 bps | Clears comfortably |
+
+Method: `median(ic_value) × stddev(forward_return)` per (tf, lookahead) over `POOLED`
+qualifying cells (`passes_ci_gate AND passes_fdr`), vs. blended round-trip cost floor
+(~1bp liquid core, ~2-4bp sector ETFs, ~6-10bp illiquid international). Uses raw (not
+shrunk) IC — shrinkage isn't built yet (feature-scoring-beyond-ic §0b) — so every number
+above is an upper bound; the real picture is worse, not better.
+
+**Implication:** 5m fast/mid and 15m fast are not tradeable as directional signals at
+current IC levels. This is the highest-compute, highest-row-count portion of the corpus
+(5m alone is ~86K rows/symbol/tf). Recommendation: deprioritize further 5m-heavy
+investment (backfill deepening, per-symbol regime IC runs) until shrinkage lands and this
+verdict is re-run on shrunk IC; concentrate near-term validation effort (142A) on
+1h/1d and the longer-lookahead 5m/15m cells, which clear comfortably even on
+unshrunk, conservative numbers.
+
 ---
 
 ## Step 1 — Cost Hurdle Calibration
