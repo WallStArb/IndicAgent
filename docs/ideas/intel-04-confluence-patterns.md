@@ -1,7 +1,7 @@
 # I6 Confluence Pattern Exploration
 
 **Version:** 1.0
-**Status:** draft
+**Status:** SUPERSEDED by `docs/ideas/intel-10-confluence-detection-persistence-layer.md` (v3.0 successor: confluence as an IC-validated statistical object, not a plugin score). This doc describes the v2.x I6 plugin approach — I5-I7 archived in v3.0.
 **Priority:** medium
 **Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-02

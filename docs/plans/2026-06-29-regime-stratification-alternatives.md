@@ -2,6 +2,16 @@
 
 Date: 2026-06-29
 Status: OPEN — speculative backlog; HMM foundation must be solid first (todo 026)
+Updated: 2026-07-01 — three decisions from other docs now bind this one:
+- P7 (session regime) downgraded: cheap+safe is not the same as valuable — no case made for
+  session effects at this system's swing (not HFT) cadence. It is no longer "evaluate ahead of
+  P6" (see `docs/ideas/2026-07-01-intelligence-lifecycle-backlog-matrix.md`).
+- Percentile-rank-first sequencing verdict: any dimension here that has an HMM-engine equivalent
+  in `docs/ideas/multi-engine-regime-architecture.md` (E1/E2 vs P1/P6) is built as deterministic
+  percentile-rank first; an HMM engine only if that proves insufficient.
+- Storage split settled: per-symbol dimensions (P1, P6, P7, P8) become columns on
+  `feature_vectors` alongside `regime`; cross-sectional dimensions (P2, P3) become rows in
+  `market_regimes` under their own group value (`regime_group` after Phase 151 / migration 189).
 
 Renaissance Council analysis of alternatives and complements to HMM regime detection.
 The HMM is a means to an end: conditioning IC measurement on regime. The question
@@ -171,6 +181,109 @@ Deferred until V2 Microstructure feature vector is built.
 
 ---
 
+### P6 — Volume Regime (candidate; gated on orthogonality check, see below)
+
+**What it is:** Same construction as P1 -- expanding percentile rank of `rel_volume`
+per (symbol, tf), bucketed low/mid/high (or heavy/normal/light). `rel_volume` is
+already computed (it's one of the HMM's 5D observation inputs), so this needs no new
+data, same as P1.
+
+**Why it might matter:** Volume regime plausibly captures participation/liquidity-driven
+price impact, distinct from volatility regime's dispersion-of-outcomes. A symbol can be
+low-vol-high-volume (steady accumulation) or high-vol-low-volume (illiquid gap risk) --
+different microstructure states in principle.
+
+**Why it is not simply approved alongside P1:** volume spikes and volatility spikes are
+well documented to co-move (informed flow shows up as both). If historical correlation
+between `rel_volume` percentile and `realized_vol` percentile is high (say r > 0.5-0.6),
+stratifying by both dimensions spends sample-size budget encoding the same information
+twice under two names -- shrinking cell counts for no informational gain, which is a more
+expensive version of the exact false-discovery risk already flagged in todo 039 for
+tag-stratified IC. This is a measurement question, not a design question -- see
+Orthogonality Gate below.
+
+---
+
+### P7 — Session / Time-of-Day Regime (intraday TFs only)
+
+**What it is:** Classify each bar by session position -- e.g. open / midday / close (or
+finer, exchange-session-aware buckets). Purely deterministic: derived from wall-clock
+time relative to session boundaries (`normalize_session_type()` already exists in
+`service_utils.py`), not from price or volume data at all.
+
+**Why it matters:** Unlike every other candidate here, this dimension has zero look-ahead
+risk by construction (you always know what time it is) and is near-certainly orthogonal
+to every price/volume-derived dimension (HMM state, vol regime, volume regime) since
+intraday liquidity/spread patterns are a structurally different axis from price dynamics.
+Zero incremental compute cost, zero new data. This is the cheapest, lowest-risk addition
+on this list and arguably should be evaluated ahead of P6.
+
+**Gate:** none technical -- only intraday TFs (5m/15m) benefit; daily/1h bars have no
+useful session position.
+
+---
+
+### P8 — Skew / Tail Regime (candidate; gated on orthogonality check)
+
+**What it is:** Rolling return skewness percentile per (symbol, tf). Already identified
+as a measurable primitive in `docs/ideas/instrument-tag-calibrator.md` (`skewness`).
+
+**Why it might matter:** Distinct information from vol level in principle -- a symbol can
+be high-vol-positive-skew (lottery-like, e.g. XBI) or high-vol-negative-skew (crash risk,
+e.g. HYG), which are different prediction problems at the same vol percentile.
+
+**Why it is not simply approved:** vol clusters around crashes, which are themselves
+negative-skew events -- skew and vol level are plausibly correlated in the tails, exactly
+where this dimension would matter most. Needs the same correlation study as P6 before
+it earns a stratification slot.
+
+---
+
+### Explicitly rejected without further review: trend / mean-reversion (Hurst) and
+### autocorrelation-sign as separate stratification dimensions
+
+Both are substantially represented *inside* the existing 5D HMM observation vector
+already (`momentum`, `vol_of_vol` are direct proxies). Adding either as a *separate*
+stratification dimension on top of a `regime` label that is already conditioned on them
+risks double-counting the same underlying dynamic under a different name -- collinear
+with the stratifying variable itself, which is a more insidious version of the P6/P8
+problem because the redundancy is with the primary HMM axis, not a peer dimension. Not
+worth an orthogonality study; the redundancy is structural, not empirical.
+
+---
+
+## Orthogonality Gate (required before P6, P8, or any future candidate ships)
+
+**The rule:** no new stratification dimension is added on the strength of sounding like
+a good idea. Combinatorial cost is multiplicative, not additive -- two dimensions
+(HMM x5 x vol x3) already costs ~750K cells across the current feature/symbol/TF/lookahead
+grid (see "Can They Coexist?" above) and requires Numba JIT just to be computable. Every
+additional dimension shrinks the sample size per cell further, which directly collides
+with this codebase's own promotion bar (`n >= 100`, p<0.05 -- the same bar `shadow_registry`
+and IC Sharpe gating already enforce elsewhere). A dimension that isn't measurably
+orthogonal to what already exists is not new information, it's wasted cells.
+
+**Required study, run once against the existing corpus before P6/P8 (or any future
+candidate) is built:**
+1. Compute the candidate dimension's raw values historically (e.g. `rel_volume` percentile,
+   rolling skewness) alongside existing dimensions (`realized_vol` percentile, HMM state).
+2. Measure correlation (Pearson on the continuous percentile/z-score, or normalized mutual
+   information across the discretized labels) between the candidate and every existing
+   dimension.
+3. Keep only dimensions below an APR-configured correlation threshold
+   (`alpha.regime_stratification.max_correlation`, no default asserted here --
+   requires empirical judgment once the study is run, not a guessed constant).
+4. Dimensions that fail the threshold are either dropped or merged into a single composite
+   (e.g. a combined liquidity-shock label instead of separate vol + volume dimensions) --
+   this is the same resolution path P5 microstructure already implies for volume + spread
+   + OFI.
+
+P1 (volatility_regime) and P2 (dispersion_regime) are exempt from this gate -- they are
+already measurably distinct in kind (per-symbol vol level vs. cross-sectional dispersion
+across the universe), not just presumed distinct.
+
+---
+
 ## Can They Coexist? Yes -- Multi-Dimensional IC Stratification
 
 The right architecture: each stratification method produces independent labels per bar.
@@ -204,6 +317,12 @@ Gate: todo 026 P0 (Numba JIT) must ship first -- multi-dimensional IC is too slo
 
 P1: Realized vol percentile regime     -- 1 session; highest value, lowest risk
 P2: Cross-sectional return dispersion  -- 1 session; requires 58-symbol return matrix
+P7: Session / time-of-day regime       -- <1 session; zero new data, zero look-ahead risk,
+                                           near-certainly orthogonal -- cheapest candidate,
+                                           consider evaluating alongside/before P6
+--- Orthogonality Gate study (required before P6, P8) ---
+P6: Volume regime                      -- 1 session build IF orthogonality study clears it
+P8: Skew / tail regime                 -- 1 session build IF orthogonality study clears it
 P3: Factor regime                      -- 2 sessions; requires factor data pipeline
 P4: HMM variants                       -- gated on empirical proof of HMM deficiency
 P5: Microstructure regime              -- gated on V2 order flow infrastructure

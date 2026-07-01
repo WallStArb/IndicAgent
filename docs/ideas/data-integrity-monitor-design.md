@@ -1,7 +1,7 @@
 # Drift Detection Service — Reusable Platform Design
 
 **Date:** 2026-06-26
-**Status:** CONCEPT — Not planned, awaiting prioritization
+**Status:** SUPERSEDED 2026-06-27 — consolidated into `docs/plans/2026-06-27-health-guardian-design.md` (Phase 149A DistributionDriftMonitor). Kept for design rationale only; do not build from this doc.
 **Type:** Service architecture concept
 
 ---

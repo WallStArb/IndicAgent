@@ -1,7 +1,7 @@
 # Predictive Decay Detector — Reusable Predictive Edge Monitoring Platform
 
 **Date:** 2026-06-27
-**Status:** CONCEPT — Not planned, awaiting prioritization
+**Status:** SUPERSEDED 2026-06-27 — consolidated into `docs/plans/2026-06-27-health-guardian-design.md` (Phase 149B ICLifecycleMonitor). Kept for design rationale only; do not build from this doc.
 **Type:** Service architecture concept
 **Related:** `docs/ideas/feature-vector-lifecycle.md` (IC decay logic to extract)
 **Service pattern:** `docs/ideas/data-integrity-monitor-design.md`, `docs/ideas/system-health-monitor-design.md`
