@@ -42,7 +42,6 @@ from typing import Any
 
 import numpy as np
 import psycopg2
-import psycopg2.extras
 import structlog
 from hmmlearn.hmm import GaussianHMM
 from opentelemetry import trace
@@ -52,6 +51,7 @@ from sklearn.preprocessing import StandardScaler
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from services._batch_utils import bulk_update_by_key as _bulk_update_by_key
 from services._batch_utils import load_config_service_sync as _load_config_service_shared
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
@@ -96,9 +96,6 @@ _LABEL_TRANSITION_DOWN = "transition_down"
 _BULLISH_LABELS = frozenset([_LABEL_TRENDING_UP, _LABEL_TRANSITION_UP])
 # Labels that count as "bearish" for hmm_prob_trending_down aggregation.
 _BEARISH_LABELS = frozenset([_LABEL_TRENDING_DOWN, _LABEL_TRANSITION_DOWN])
-
-# Batch size for psycopg2 execute_batch UPDATE calls.
-_UPDATE_BATCH_SIZE = 500
 
 
 @contextlib.contextmanager
@@ -555,31 +552,40 @@ def _write_regime_results(
     Runs in the main process — single serial write connection, no concurrency.
     Returns n_updated.
     """
-    update_sql = (
-        "UPDATE feature_vectors "
-        "SET regime                = %s, "
-        "    hmm_prob_trending_up  = %s, "
-        "    hmm_prob_ranging      = %s, "
-        "    hmm_prob_trending_down = %s, "
-        "    hmm_regime_prob       = %s, "
-        "    hmm_entropy           = %s, "
-        "    hmm_duration          = %s "
-        "WHERE symbol = %s AND tf = %s AND bar_ts = %s"
-    )
     with tracer.start_as_current_span(
         "regime_writer.write_symbol_tf",
         attributes={"symbol": symbol, "tf": tf},
     ) as span:
         try:
-            with conn.cursor() as cur:
-                psycopg2.extras.execute_batch(
-                    cur,
-                    update_sql,
-                    update_rows,
-                    page_size=_UPDATE_BATCH_SIZE,
-                )
+            _bulk_update_by_key(
+                conn,
+                table="feature_vectors",
+                temp_table="_regime_writer_staging",
+                key_cols=["symbol", "tf", "bar_ts"],
+                set_cols=[
+                    "regime",
+                    "hmm_prob_trending_up",
+                    "hmm_prob_ranging",
+                    "hmm_prob_trending_down",
+                    "hmm_regime_prob",
+                    "hmm_entropy",
+                    "hmm_duration",
+                ],
+                col_types={
+                    "regime": "text",
+                    "hmm_prob_trending_up": "double precision",
+                    "hmm_prob_ranging": "double precision",
+                    "hmm_prob_trending_down": "double precision",
+                    "hmm_regime_prob": "double precision",
+                    "hmm_entropy": "double precision",
+                    "hmm_duration": "double precision",
+                    "symbol": "text",
+                    "tf": "text",
+                    "bar_ts": "timestamptz",
+                },
+                rows=update_rows,
+            )
             conn.commit()
-            # psycopg2.extras.execute_batch rowcount is unreliable (reflects last batch only).
             # Single query returns both counts in one round trip.
             with conn.cursor() as cur:
                 cur.execute(
