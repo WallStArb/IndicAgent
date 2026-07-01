@@ -1,14 +1,21 @@
 ---
 **Created:** 2026-07-01
+**Superseded:** 2026-07-01 (merged into todo 026, same day, after cross-check found duplication)
 **Area:** intelligence
 **Type:** bug
-**Priority:** P0 — URGENT
-**Effort:** 3-5 days
-**Benefit:** Removes look-ahead bias baked into every regime-stratified IC score
-**Risk:** high if left unfixed (silently overstates alpha); medium effort to fix (requires re-deriving HMM fit windows + full corpus re-run)
-**Gate:** none — this is foundational and BLOCKS trusting any regime-stratified result until fixed; must land before Phase 142B
+**Priority:** N/A — superseded
+**Gate:** N/A — superseded
+---
 
-**BLOCKING:** Every `feature_ic_scores` and `alpha_ensemble_ic` row that is regime-stratified is potentially contaminated by this bias right now, in production data. Do not treat any regime-conditional IC/alpha number as ground truth until this is resolved. Phase 142B must not begin (or must be re-run) until this lands.
+## SUPERSEDED — MERGED INTO TODO 026 (2026-07-01)
+
+This todo described the same root cause as todo 026's "P4a" section (HMM fit on full history →
+non-causal parameters feeding an otherwise-causal decode), discovered independently via an audit
+the same day, with a contradictory urgency framing (this todo said P0/blocking/no-gate; 026 said
+deferred pending empirical proof, with a validation protocol already designed). All unique content
+from this todo — the seed-stability secondary finding, and the corrected recommendation to let the
+in-flight corpus rebuild finish before validating — has been folded into todo 026's P4a section.
+Filed here for history; do not plan or implement from this file. See todo 026.
 
 ---
 

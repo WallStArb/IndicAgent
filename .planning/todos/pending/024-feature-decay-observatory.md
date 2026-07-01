@@ -12,8 +12,13 @@
 # 024 — Feature Decay Observatory (Superset Dashboard)
 
 **Priority:** Low — pure read layer; research quality-of-life.
-**Prerequisite:** 009 (Feature Vector Lifecycle) demotion logic must be wired first so
-`is_decaying` and `feature_ic_stats` have meaningful time-series data.
+**Prerequisite:** ROADMAP Phase 143 (Feature Vector Lifecycle) demotion logic must be wired first so
+`is_decaying` and `feature_ic_stats` have meaningful time-series data. **(Corrected 2026-07-01 — this
+todo previously cited a stale "todo 009," which is now a different, unrelated topic
+(service_utils/ic_engine cleanup). The feature-lifecycle work lives in ROADMAP Phase 143, not a
+standalone todo.)** This matches Phase 143's own LIFECYCLE-06, which independently defers the
+same Superset dashboard until the state machine has run ≥ 30 days — this todo is that dashboard's
+detailed chart/filter spec.
 
 ## What
 

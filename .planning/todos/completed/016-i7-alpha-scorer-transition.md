@@ -1,12 +1,24 @@
 ---
 **Created:** 2026-06-28
+**Superseded:** 2026-07-01
 **Area:** intelligence
 **Type:** refactor
-**Priority:** P2
-**Effort:** 3-5 days
-**Benefit:** Replaces binary emission with continuous alpha scores; ensemble IS the new I7
-**Risk:** high (core signal path change)
-**Gate:** IC engine stable + shadow mode validated
+**Priority:** N/A — superseded
+**Gate:** N/A — superseded
+---
+
+## SUPERSEDED (2026-07-01)
+
+Fully absorbed into `.planning/ROADMAP.md` Phase 143.5 ("I7 Alpha Scorer Transition"), which
+supersedes this todo's design in a load-bearing way, not just a restatement: Phase 143.5
+defaults to **retirement**, converting to an alpha scorer only for the exception case where
+CORPUS-07 (Phase 141) proves a plugin carries marginal IC beyond the 54 atomic features. This
+todo assumed conversion was the default path — that assumption is now known to be backwards
+(the 54 features were designed to capture I7 signals; retirement is the rule). This todo also
+references "todo 007" (dual-pipeline shadow comparison protocol) which no longer exists anywhere
+in the todo tree. See Phase 143.5 in ROADMAP.md for the current, authoritative design (I7-01
+through I7-05). Filed here for history; do not plan or implement from this file.
+
 ---
 
 # 016 — I7 Alpha Scorer Transition

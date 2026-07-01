@@ -6,7 +6,7 @@
 **Effort:** 1-2 days
 **Benefit:** Improves IC measurement accuracy by removing regime transition label noise
 **Risk:** low (optional flag, can measure effect)
-**Gate:** Phase 141 complete (OPEN) — do after Phase B corpus re-run to measure effect against corrected baseline
+**Gate:** Phase 141 complete (OPEN) — do after Phase B corpus re-run to measure effect against corrected baseline. **Note (2026-07-01): also gated on todo 034 landing** — the current Phase B corpus re-run's regime labels are still contaminated by the non-causal HMM fit todo 034 describes; "corrected baseline" isn't corrected for regime-stratified purposes until 034 ships.
 ---
 
 # 005 — IC Engine: Regime Transition Purge Window

@@ -40,6 +40,8 @@ See plan doc for full implementation notes and APR keys.
 
 ## P4a/P4b — Rolling Refit & Expanding Scaler (GATED)
 
+**Merged with todo 034 (2026-07-01):** an independent audit found the same root cause (full-history HMM fit → non-causal parameters feeding an otherwise-causal decode) and initially proposed treating it as an unconditional P0 blocker. Corrected to route through this todo's decision gate instead — see todo 034 for the corrected framing. One genuinely new item from that audit, folded in here: **no seed-stability check exists** on HMM fits (`regime_writer.py:822`, fixed seed via APR `alpha.hmm.random_state`) — the retry-on-non-convergence path reuses the same seed rather than testing whether regime labels/log-likelihood are stable across different random inits. Add a cheap seed-stability check (fit with 3-5 seeds, compare log-likelihood spread and label agreement) as part of whatever P4a work eventually happens, same file, same validation harness.
+
 **Status:** DEFERRED — no empirical evidence that current labels are broken.
 
 **Background:** HMM is fit on full history (2014-2024), causally decoded via forward-filter. Forward-filter is causal (no future information in the decode step), but emission parameters and transition matrix are learned from the full window including future data. The question is whether this materially harms IC predictive power.

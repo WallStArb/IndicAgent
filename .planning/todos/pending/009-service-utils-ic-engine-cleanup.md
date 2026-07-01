@@ -9,14 +9,13 @@
 **Gate:** After Phase A corpus re-run — do in Phase B cleanup sprint alongside 012 and 032
 ---
 
----
-id: "006"
-title: "service_utils + ic_engine shared-utility cleanup (Phase 140 deferred)"
-priority: low
-source: "Phase 140 /simplify review — 4 architectural items deferred as out-of-diff scope"
----
+# 009 — service_utils + ic_engine shared-utility cleanup
 
-# 015 — service_utils + ic_engine shared-utility cleanup
+**Numbering note (2026-07-01):** this file previously carried three different numbers — filename
+009, an inner YAML frontmatter `id: "006"`, and a heading "# 015" — from being renumbered across
+sessions without the inline copies being updated. Normalized to 009 (the filename / pending-folder
+key) throughout. Source: Phase 140 `/simplify` review — 4 architectural items deferred as
+out-of-diff scope.
 
 Four architectural simplifications deferred from Phase 140. None are correctness issues — all are DRY / altitude improvements. Group into one small refactor phase when convenient.
 

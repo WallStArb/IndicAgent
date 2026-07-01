@@ -58,3 +58,5 @@ streaming is re-enabled.
 - No schema migration needed — columns already exist as nullable float
 
 Apply Option A first; revisit Option B when streaming path re-enables.
+
+**Note (2026-07-01):** todo 033 previously miscategorized these 3 features as "measured zero-IC" — they are actually `NULL` for every row today (verified live in DB), i.e. this todo hasn't shipped yet. Todo 033 now correctly defers its peer-group-ranking and rolling-percentile improvement ideas until after this todo ships and produces a real baseline measurement — check there once this lands.

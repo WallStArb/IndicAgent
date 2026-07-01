@@ -6,7 +6,7 @@
 **Effort:** 1h (three queries + APR writes, no code change)
 **Benefit:** Replaces four seeded-at-zero cost hurdles and four researcher-set emission thresholds with empirically grounded values; also validates whether gap contamination and IC decay hypotheses are real
 **Risk:** none (APR writes, fully reversible)
-**Gate:** Corpus pipeline complete (regime_writer refit → ic_engine → ensemble_trainer → alpha_publisher)
+**Gate:** Corpus pipeline complete (regime_writer refit → ic_engine → ensemble_trainer → alpha_publisher). **Note (2026-07-01): also gated on todo 034 landing** — any regime-stratified calibration derived from this corpus run inherits the non-causal HMM fit bias todo 034 describes; re-run this calibration once 034 ships if it lands after this corpus pass.
 ---
 
 # 030 — Post-Corpus Empirical Calibration
