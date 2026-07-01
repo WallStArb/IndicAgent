@@ -1569,6 +1569,18 @@ Exit triggers in priority order: (1) stop hit (`low <= stop_price`); (2) target 
 
 **Requirements:**
 
+**LIFECYCLE-00 — HMM Regime Label Validation (todo 026 P1-P3):** LIFECYCLE-04's regime-shift
+guard is only as trustworthy as the regime labels it reads, so this ships first, same phase.
+Plan: `docs/plans/2026-06-28-hmm-regime-audit-optimization.md`. P1a/P1b: fix look-ahead bug in
+cross-sectional VIX proxy (expanding rank) and TF-normalize the VIX z-score/200MA windows
+(`equity_regime_model.py`). P2a/P2b/P2c: multiple HMM restarts picking max log-likelihood,
+degenerate-model detection (occupation-fraction gate), regime-churn feature (`hmm_churn`
+column) in `regime_writer.py`. P3: empirical threshold calibration for the vix/breadth cuts via
+APR. Also run todo 034's Step 1 baseline-separation query (regime-IC gap by label) against this
+corpus run before trusting LIFECYCLE-04 in production — gap < 0.01 escalates to root-cause
+analysis per todo 026's P4a decision gate; gap > 0.05 means labels are fine, no further action.
+Effort 3-5 days, no gate, P0 (Numba) already shipping separately in Phase B.
+
 **LIFECYCLE-01 — Feature state machine:**
 States: `candidate` → `active` → `decaying` → `deprecated`. Transitions:
 
@@ -1586,7 +1598,7 @@ EnsembleBuilder filters: `WHERE is_decaying = false AND feature_name NOT IN (SEL
 Daily scan of `feature_ic_scores` rolling window per (feature, symbol, tf, regime). Flags cells where rolling IC Sharpe drops below threshold. Writes `is_decaying = true` to `feature_ic_scores`. Triggers `EnsembleBuilder` re-solve if any materiality threshold crossed: `weight × |ic_ci_lower| > alpha.decay.materiality_threshold = 0.005` (prevents re-solve on negligible-weight features). OTel metrics: `alpha_decay_cells_flagged`, `alpha_decay_ensemble_rebuild_total`. **Refinement candidate (todo 029, 2026-07-01 review):** the flat IC-Sharpe threshold here is a blunt instrument compared to todo 029's IC decay curve (per-feature predictive half-life) — consider reading the decay curve's estimated half-life as an additional signal alongside the threshold rather than a bare cutoff, once todo 029's near-term items ship. Not a blocker for this phase; the threshold approach ships first, decay-curve refinement is additive. **Initial candidate list:** todo 033's 7 zero-IC features (momentum_rank_z, volume_rank_z, volatility_rank_z, poc_dist_atr, va_position, sr_support_dist, sr_resist_dist) are the natural first cells to run through this state machine once it's wired — but per todo 033's 2026-07-01 update, don't treat their current zero-IC readings as final until the todo 034/026 regime-label validation (below) has run, since 3 of the 7 are regime-stratified cross-sectional-rank features.
 
 **LIFECYCLE-04 — Regime-shift guard:**
-If ≥ `alpha.decay.regime_shift_fraction = 0.60` of active feature-regime cells decay simultaneously, classify as market regime shift — hold all weights rather than mass-zero. Emit `alpha_decay_regime_shift_total` counter. Human review before any weight changes during a regime-shift event. **Dependency note (2026-07-01 review):** this guard's classification is only as trustworthy as the regime labels it reads. Todo 034 (merged with todo 026 P4a) found the per-symbol HMM's emission/transition parameters are fit on full history, not causally — see that todo's validation protocol. Run 026's Step 1 baseline-separation check against this phase's first production data before trusting LIFECYCLE-04's regime-shift classification at face value.
+If ≥ `alpha.decay.regime_shift_fraction = 0.60` of active feature-regime cells decay simultaneously, classify as market regime shift — hold all weights rather than mass-zero. Emit `alpha_decay_regime_shift_total` counter. Human review before any weight changes during a regime-shift event. Depends on LIFECYCLE-00 (above) having run first.
 
 **LIFECYCLE-05 — IC/ensemble coherence contract:**
 IC engine runs weekly. Decay monitor runs daily. Contract: decay monitor reads rolling IC computed from the most recent IC engine run (0-7 days stale). This is acceptable given IC Sharpe has a daily resolution anyway; the 7-day lag is documented as the decay detection SLA. Decay monitor SLA = "detects decay within 7 days of IC engine run after collapse."
@@ -1596,7 +1608,7 @@ IC engine runs weekly. Decay monitor runs daily. Contract: decay monitor reads r
 **LIFECYCLE-06 — Decay diagnostics:**
 Query `feature_ic_scores` directly via SQL for decay analysis. No dashboard infrastructure until the decay system has been validated in production. SQL queries for the key questions (which features are decaying, in which regimes) are documented in `docs/analysis/feature-decay-queries.sql` and run ad-hoc. Superset dashboard deferred until Phase 143 state machine has operated for ≥ 30 days and the query patterns are stable.
 
-**Plans:** 3 plans (Wave 1: state machine + EnsembleBuilder filter; Wave 2: AlphaDecayMonitor daemon; Wave 3: regime-shift guard + gate evaluation)
+**Plans:** 4 plans (Wave 0: HMM regime label validation [LIFECYCLE-00]; Wave 1: state machine + EnsembleBuilder filter; Wave 2: AlphaDecayMonitor daemon; Wave 3: regime-shift guard + gate evaluation)
 
 ---
 
@@ -1743,11 +1755,23 @@ Joins `score_cache` to `alpha_events` on (symbol, tf, bar_ts). Writes `alpha_eve
 
 **Plans:** 3 plans (Wave 1: analog-ic-factory + correlation-svc; Wave 2: scoring-engine; Wave 3: analog-enricher + integration)
 
+**Note (2026-07-01):** ANALOG-08's Score Object (`E[R]` distribution, direction, OOD flag, analog
+count) is a partial precursor to the calibrated confluence-detection layer proposed in
+`docs/ideas/intel-10-confluence-detection-persistence-layer.md`. Once this phase produces validated
+analog-based confluences, revisit that idea doc to scope it as a phase — it consumes this phase's
+output, don't build it standalone before this exists.
+
 ---
 
 ### Phase 147: Feature Primitives Expansion + Theory-Motivated Interaction Layer 📋 PLANNED
 
 **Goal:** Expand the atomic feature set (~60 new candidates, full priority-tiered list in todo 014 — corrected 2026-07-01, ROADMAP previously cited a phantom "todo 003" that doesn't exist in the tree), screen through IC machinery, promote survivors. Build a Theory-Motivated Interaction Layer of ≤50 curated compound features — not a combinatorial factory. Gated on Feature Registry (todo 008, COMPLETE).
+
+**Note (2026-07-01):** the interaction terms this phase validates are one of two inputs to the
+confluence-detection-and-persistence layer proposed in
+`docs/ideas/intel-10-confluence-detection-persistence-layer.md` (the other being Phase 146's analog
+matches). Once ≥1 interaction term clears this phase's IC/OOS gates, revisit that idea doc to scope
+it as a phase.
 
 **Depends on:** Feature Registry shipped (todo 008 — COMPLETE) — ratio operation validity requires feature metadata (sign_type, scale). No dependency on Phase 145/146.
 
@@ -1796,6 +1820,14 @@ Tags that are fully computable from the factor vector (all 8 OLS betas) must not
 **Plans:** 3 plans (Wave 1: TagAuditor batch service + OLS pipeline; Wave 2: DB migration + expiry mechanics; Wave 3: regime conditioning Phase 2 design)
 
 ---
+
+### Phase 151: Cross-Sectional Regime Model (`regime_group`) 📋 PLANNED
+
+**Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules). Migration 189. Full design: `docs/plans/2026-06-27-cross-sectional-regime-model.md`.
+
+### Phase 152: ETF Universe Expansion (58→79) 📋 PLANNED
+
+**Goal:** Add 21 new ETFs (commodity, international, FX, factor) with fine-grained tag_vocabulary entries for the Phase 151 regime groups. Migration 188. Full design: `docs/plans/2026-06-27-etf-universe-expansion.md`.
 
 ### Phase 149: Alternative Data Vectors 📋 PLANNED
 
