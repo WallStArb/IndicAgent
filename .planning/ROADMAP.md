@@ -1476,7 +1476,11 @@ When EIC-04 fails, run structured diagnosis (output as a markdown report) before
 4. Regime coverage — if ≥ 3 regimes have zero qualifying cells = regime label quality issue (check `market_regimes` coverage and `equity_regime_model` correctness)
 This script ships with Wave 2. "Diagnose ensemble" without this structure wastes a week chasing the wrong layer.
 
-**Plans:** 2 plans (Wave 1: schema migration + EnsembleICEngine service; Wave 2: decay curve analysis + hold_max APR calibration + gate evaluation + EIC-05 diagnosis script)
+**Plans:** 2 plans in 2 waves
+
+Plans:
+- [ ] 142A-01-PLAN.md — Wave 1: migration 187 (alpha_ensemble_ic hypertable + APR seeds + 36 hold_max_bars keys) + EnsembleICEngine service (BaseBatch, compose ic_engine Fisher-z math, ProcessPoolExecutor compute-only, corpus BH-FDR, 9-regime stratification) + service_auditor registration + 5 unit test files (EIC-01, EIC-03)
+- [ ] 142A-02-PLAN.md — Wave 2 (depends on 142A-01): EIC-02 decay-curve to hold_max_bars APR calibration + EIC-04 gate script (threshold from APR, not baked in) + EIC-05 diagnosis script (4-section markdown report) + 2 unit test files
 
 ---
 
