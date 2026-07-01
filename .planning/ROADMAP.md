@@ -1175,7 +1175,7 @@ Plans:
 
 **Sequencing note:** Independent of Phase 133 (corpus rebuild). Can run in parallel or after 133 — no shared schema dependencies. Should run before any dashboard or API work that needs filter dropdowns.
 
-**Design doc:** `docs/plans/2026-06-18-controlled-vocabulary-system.md`
+**Design doc:** `docs/ideas/controlled-vocabulary.md`
 
 **Plans:** TBD (plan-phase to produce)
 

@@ -13,7 +13,7 @@
 
 **Status:** Pending
 **Priority:** Post-primitives-expansion
-**Depends on:** 009-feature-registry (metadata required), primitives expansion landed (~100+ tier-0 atomics), IC engine stable on full 58-symbol corpus
+**Depends on:** 008-feature-registry (metadata required, implemented), primitives expansion landed (~100+ tier-0 atomics), IC engine stable on full 58-symbol corpus
 **Concept doc:** `docs/ideas/interaction-factory.md`
 
 ## What
@@ -26,7 +26,7 @@ Renaissance doesn't hand-curate feature interactions. They generate all candidat
 
 ## Trigger
 
-IC engine producing stable results on current 54-feature corpus, primitives expansion (renaissance-primitives-ohlcv.md) landed and backfilled, Feature Registry (010) delivering feature metadata.
+IC engine producing stable results on current 54-feature corpus, primitives expansion (renaissance-primitives-ohlcv.md) landed and backfilled, Feature Registry (008, implemented) delivering feature metadata.
 
 ## Scope (when planned)
 

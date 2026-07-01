@@ -1,7 +1,8 @@
-# Feature Registry System — DB-Backed Feature Governance
+# Feature Registry — DB-Backed Feature Governance
 
-**Status**: Idea / Design  
-**Created**: 2026-06-27  
+**Status**: Implemented — `feature_registry` table (61 rows, all `active`), `src/intelligence/feature_registry_service.py`, consumed by `ic_engine.py` and `ensemble_trainer.py`. Design preserved below for reference. Slated to migrate into Concept Registry (`domain='feature'`) per [metadata-governance-registries.md](metadata-governance-registries.md) once that ships.
+**Created**: 2026-06-27
+**Refreshed**: 2026-07-01
 **Type**: Renaissance-grade SOC microservice  
 **Analogous to**: `shadow_registry` (plugins), `config_state` (parameters)
 

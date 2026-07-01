@@ -80,7 +80,7 @@ The factory cannot run without knowing each tier-0 feature's properties:
 | `scale` | `z_scored`, `natural_bounded`, `raw_ratio`, `raw_unbounded` | Whether to pre-normalize before product |
 | `has_window` | bool | Whether feature has a time-window parameter |
 
-This is exactly what `docs/ideas/feature-registry.md` (todo-010) is for. The Interaction Factory depends on the Feature Registry. Without it, the factory has to hardcode scale knowledge for each feature — a maintenance burden as the feature set grows.
+This is exactly what `docs/ideas/feature-registry.md` (todo 008, implemented) is for. The Interaction Factory depends on the Feature Registry. Without it, the factory has to hardcode scale knowledge for each feature — a maintenance burden as the feature set grows.
 
 **Implementation order:** Feature Registry first, Interaction Factory second.
 
@@ -129,22 +129,24 @@ value = CompoundPrimitiveEvaluator.evaluate(
 
 ### Registry
 
-The `compound_primitive_registry` table is the schema. Adding a compound primitive is an INSERT, not a migration:
+**No standalone registry table.** Promoted survivors become `domain='feature_interaction'` rows in the unified `concept_registry` (`docs/ideas/metadata-governance-registries.md`) rather than a separate `compound_primitive_registry` — same shared schema as `feature`, `alpha_pattern`, etc., just a different `domain` value. `feature_a`/`feature_b`/`operation`/`xf_name` live in `concept_registry.metadata JSONB`; `ic_sharpe`/`promoted_at` are what `concept_gate_template` + `concept_transition_log` already track for every domain; `is_active` is `concept_registry.enabled`.
+
+Raw pre-promotion screening (the ~30,000 candidate sweep) stays **outside** the unified registry entirely, in a lightweight `compound_ic_scores` table:
 
 ```sql
-compound_primitive_registry (
-    id          UUID PRIMARY KEY,
+compound_ic_scores (
     feature_a   TEXT NOT NULL,      -- atomic column name in feature_vectors
     feature_b   TEXT NOT NULL,
     operation   TEXT NOT NULL,      -- 'product', 'ratio', 'corr_fast', 'corr_slow'
     xf_name     TEXT NOT NULL UNIQUE,
     ic_sharpe   NUMERIC,
-    promoted_at TIMESTAMPTZ,
-    is_active   BOOLEAN NOT NULL DEFAULT false
+    ic_n        INTEGER,
+    eval_run_id UUID,                -- ties to concept_eval_run for FDR/provenance once promoted
+    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 )
 ```
 
-Promotion = `UPDATE SET is_active = true, promoted_at = now(), ic_sharpe = <value>`. The evaluator reads `WHERE is_active = true` at startup and computes the interaction from the atomic columns already in memory.
+Only rows that clear the `feature_interaction` domain's IC-Sharpe-plus-FDR gate get promoted: a `concept_registry` row is INSERTed with `domain='feature_interaction'`, `status='candidate'`, pointing back at its `compound_ic_scores` row via `metadata->>'xf_name'`. From there it goes through the same gate/promotion/decay machinery as every other domain — no bespoke lifecycle logic for interactions.
 
 ### IC Sweep
 
