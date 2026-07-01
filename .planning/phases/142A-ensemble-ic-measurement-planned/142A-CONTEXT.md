@@ -7,7 +7,7 @@
 <domain>
 ## Phase Boundary
 
-Phase 142A proves the ensemble OUTPUT has IC before any execution rules are tested. It measures `IC(alpha_score, forward_return_*)` per (symbol, tf, regime, lookahead) using the same BH-FDR + circular-block-bootstrap 95% CI + 3-fold walk-forward machinery as the feature IC engine. No stops, no targets, no frame assumptions — pure signal measurement.
+Phase 142A proves the ensemble OUTPUT has IC before any execution rules are tested. It measures `IC(alpha_score, forward_return_*)` per (symbol, tf, regime, lookahead) using the same BH-FDR + Fisher z-transform 95% CI + 3-fold walk-forward machinery as the feature IC engine. No stops, no targets, no frame assumptions — pure signal measurement.
 
 **Why before 142B:** If `alpha_score` does not predict forward returns, no frame definition will save it. You'd be measuring the frame, not the signal — a silent wrong answer. Signal proof must precede execution proof (Simons: earn promotion through proof).
 
@@ -16,13 +16,15 @@ Phase 142A proves the ensemble OUTPUT has IC before any execution rules are test
 - 4-variant calibration grid — deferred to 142C *if* Phase 142 exits positive
 - Frame simulation / CounterfactualTracker — that is Phase 142B, gated on EIC-04 passing
 
+**⚠️ P0 URGENT open risk (2026-07-01):** `regime_writer.py` fits the HMM on the full corpus history before its causal decode — regime labels leak future statistical structure into every regime-stratified score. This contaminates the `regime` stratification that EIC-01 reads from `market_regimes`/`feature_vectors.regime`. See `.planning/todos/pending/034-hmm-walk-forward-refit.md`. 142A can proceed (it composes existing IC math, does not touch regime labeling), but any regime-stratified `alpha_ensemble_ic` result inherits this bias until 034 lands — do not treat EIC-04 gate pass/fail on regime-stratified cells as final until the HMM refit fix ships.
+
 </domain>
 
 <decisions>
 ## Implementation Decisions
 
 ### EIC-01 — EnsembleICEngine (KEEP)
-Weekly oneshot, `BaseBatch` subclass. Reads `alpha_events` joined to `forward_returns` on (symbol, tf, bar_ts). Computes Spearman `IC(alpha_score, forward_return_fast/mid/slow/extended)` per (symbol, tf, regime). Applies same BH-FDR correction, circular-block-bootstrap 95% CI, and 3-fold walk-forward as `ICEngine`. Writes to `alpha_ensemble_ic`. Parallelized: one `ProcessPoolExecutor` task per (symbol, tf). CPU-bound IC computation decoupled from async DB reads/writes.
+Weekly oneshot, `BaseBatch` subclass. Reads `alpha_events` joined to `forward_returns` on (symbol, tf, bar_ts). Computes Spearman `IC(alpha_score, forward_return_fast/mid/slow/extended)` per (symbol, tf, regime). Applies same BH-FDR correction, Fisher z-transform 95% CI, and 3-fold walk-forward as `ICEngine`. Writes to `alpha_ensemble_ic`. Parallelized: one `ProcessPoolExecutor` task per (symbol, tf). CPU-bound IC computation decoupled from async DB reads/writes.
 
 ### EIC-02 — IC decay curve → hold_max_bars (KEEP)
 For each (symbol, tf, regime), find the first lookahead where IC Sharpe drops below `alpha.ensemble_ic.decay_threshold` (default 0.1 `[initial_estimate]`). Update `alpha.frame.hold_max_bars.<regime>.<tf>` APR keys to match. Replaces initial estimates with data-derived values before 142B runs any frames.
@@ -65,7 +67,7 @@ Ships in Wave 2. "Diagnose ensemble" without this structure wastes a week chasin
 - `docs/intelligence/intelligence-alphaengine.md` — AlphaEngine concept doc
 - `docs/analysis/ic-discovery-report.md` — 4-symbol IC discovery (methodology reference)
 - `src/core/agent/base_batch.py` — `BaseBatch` Ring 0 base class (pool lifecycle, D-06, content_key); EnsembleICEngine MUST extend this
-- `ic_engine` implementation (feature IC) — the IC math, BH-FDR, circular-block-bootstrap, walk-forward machinery to replicate for the ensemble. Researcher locates exact paths.
+- `ic_engine` implementation (feature IC) — the IC math, BH-FDR, Fisher z-transform CI, walk-forward machinery to replicate for the ensemble. Researcher locates exact paths.
 - `src/intelligence/register_plugins.py`, `services/service_auditor.py` — service registration (`_DAG_ORDER`, `_LAG_THRESHOLDS`, `_AGENT_ID_TO_UNIT`)
 
 ### CLAUDE.md rules that bind this phase

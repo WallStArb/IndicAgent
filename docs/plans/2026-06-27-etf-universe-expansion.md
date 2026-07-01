@@ -1,8 +1,13 @@
 # ETF Universe Expansion Plan
 
+> **⚠️ DECISION (2026-06-30): `USO` and `UNG` dropped from this expansion.**
+> Both are contango vehicles with structural negative roll yield — their returns are dominated by *decay*, not by any feature we want IC on. Non-stationary returns teach the ensemble spurious "signals" that are just the roll-decay schedule. This is the same reason `VIXY`/`UVXY` are already excluded.
+>
+> **Principle:** exclude all structural-negative-carry / contango vehicles from the IC corpus. Commodity exposure remains via `DBC` (broad basket, lighter roll drag), `DBA`, `DBB`, `PPLT`. Vol regime is NOT lost — it is captured as an *input* via the SPY realized-vol z-score VIX proxy in the cross-sectional regime model, not as a decaying tradeable instrument.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Expand the ETF universe from 58 → 74 instruments by adding commodity (energy, metals, agriculture, broad), international, and FX ETFs. Tag all new instruments with fine-grained sub-tags required by the commodity and FX regime groups defined in the cross-sectional regime model plan. Re-tag existing instruments with the new sub-tags where applicable.
+**Goal:** Expand the ETF universe from 58 → 72 instruments by adding commodity (energy, metals, agriculture, broad), international, and FX ETFs. Tag all new instruments with fine-grained sub-tags required by the commodity and FX regime groups defined in the cross-sectional regime model plan. Re-tag existing instruments with the new sub-tags where applicable.
 
 **Dependency:** `docs/plans/2026-06-27-cross-sectional-regime-model.md` — regime group tag filters (`commodity_energy_crude`, `commodity_metals_precious`, `fx_*`, etc.) must exist in `tag_vocabulary` before regime groups can be enabled.
 
@@ -26,8 +31,6 @@
 
 | Symbol | Name | Group | IPO | 1d days | Notes |
 |---|---|---|---|---|---|
-| USO | United States Oil Fund | commodity_energy | 2006-04-10 | 7300 | WTI crude futures proxy |
-| UNG | United States Natural Gas Fund | commodity_energy | 2007-04-18 | 7000 | Henry Hub nat gas proxy |
 | DBC | Invesco DB Commodity Index | commodity_broad | 2006-02-03 | 7300 | GSCI-weighted: ~55% energy, ~15% metals, ~30% agri |
 | DBA | Invesco DB Agriculture Fund | commodity_agri | 2007-01-05 | 7000 | Corn, wheat, soybeans, sugar |
 | DBB | Invesco DB Base Metals Fund | commodity_metals | 2007-01-05 | 7000 | Aluminum, copper, zinc |
@@ -43,7 +46,7 @@
 | FXY | Invesco CurrencyShares Japanese Yen | fx | 2007-02-20 | 7000 | JPY/USD |
 | EDV | Vanguard Extended Duration Treasury ETF | rates | 2007-12-06 | 6800 | 25yr+ zero-coupon; extends rate sensitivity range |
 
-**Total: 58 → 74 instruments**
+**Total: 58 → 72 instruments**
 
 ---
 
@@ -67,26 +70,26 @@ New fine-grained sub-tags added alongside existing coarse tags (backward compat 
 
 | File | Action | Purpose |
 |---|---|---|
-| `production/migrations/180_etf_expansion.sql` | Create | Tag vocabulary extension + re-tag existing + register 16 new instruments |
-| `scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh` | Create | Historical OHLCV backfill for all 16 new symbols |
+| `production/migrations/188_etf_expansion.sql` | Create | Tag vocabulary extension + re-tag existing + register 14 new instruments |
+| `scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh` | Create | Historical OHLCV backfill for all 14 new symbols |
 | `scripts/ops/corpus/ops_corpus_new_etfs.sh` | Create | Corpus pipeline steps 1-6 scoped to new symbols |
 
 ---
 
-## Task 0: Migration 180 — Tag Vocabulary + Instrument Registration
+## Task 0: Migration 188 — Tag Vocabulary + Instrument Registration
 
 **Files:**
-- Create: `production/migrations/180_etf_expansion.sql`
+- Create: `production/migrations/188_etf_expansion.sql`
 
 - [ ] **Step 1: Write the migration**
 
 ```sql
--- production/migrations/180_etf_expansion.sql
--- Migration 180: ETF universe expansion — 58 → 74 instruments.
+-- production/migrations/188_etf_expansion.sql
+-- Migration 188: ETF universe expansion — 58 → 72 instruments.
 --
 -- 1. Extend tag_vocabulary with fine-grained commodity and FX sub-tags
 -- 2. Re-tag existing instruments with fine-grained sub-tags
--- 3. Register 16 new instruments in instruments table
+-- 3. Register 14 new instruments in instruments table
 
 BEGIN;
 
@@ -96,7 +99,6 @@ BEGIN;
 
 INSERT INTO tag_vocabulary (tag, category, description) VALUES
     ('commodity_energy_crude',    'exposure', 'Crude oil futures or equity proxy — WTI/Brent price beta'),
-    ('commodity_energy_natgas',   'exposure', 'Natural gas futures or equity proxy — Henry Hub price beta'),
     ('commodity_energy_pipeline', 'exposure', 'Midstream energy infrastructure — income, not crude spot beta'),
     ('commodity_metals_precious', 'exposure', 'Precious metals — gold, silver, platinum; monetary/inflation store of value'),
     ('commodity_metals_industrial','exposure','Industrial base metals — copper, aluminum, zinc; global demand proxy'),
@@ -125,7 +127,7 @@ INSERT INTO instrument_tags (symbol, tag, weight, source, evidence) VALUES
 ON CONFLICT (symbol, tag) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
--- 3. Register 16 new instruments
+-- 3. Register 14 new instruments
 --    contract_details mirrors SPY pattern: symbol, base, name, asset_class,
 --    exchange, sector, tick_size, session_id, point_value, provider_meta.
 --    asset_class = 'equity' for ETFs (including FX and commodity ETFs —
@@ -133,8 +135,6 @@ ON CONFLICT (symbol, tag) DO NOTHING;
 -- ---------------------------------------------------------------------------
 
 INSERT INTO instruments (symbol, base, contract_details, is_active) VALUES
-    ('USO',  'USO',  '{"symbol":"USO","base":"USO","name":"United States Oil Fund","asset_class":"equity","exchange":"SMART","sector":"commodity","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
-    ('UNG',  'UNG',  '{"symbol":"UNG","base":"UNG","name":"United States Natural Gas Fund","asset_class":"equity","exchange":"SMART","sector":"commodity","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
     ('DBC',  'DBC',  '{"symbol":"DBC","base":"DBC","name":"Invesco DB Commodity Index Tracking Fund","asset_class":"equity","exchange":"SMART","sector":"commodity","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
     ('DBA',  'DBA',  '{"symbol":"DBA","base":"DBA","name":"Invesco DB Agriculture Fund","asset_class":"equity","exchange":"SMART","sector":"commodity","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
     ('DBB',  'DBB',  '{"symbol":"DBB","base":"DBB","name":"Invesco DB Base Metals Fund","asset_class":"equity","exchange":"SMART","sector":"commodity","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
@@ -158,10 +158,10 @@ COMMIT;
 
 ```bash
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
-    -f production/migrations/180_etf_expansion.sql
+    -f production/migrations/188_etf_expansion.sql
 ```
 
-Expected: no errors. `INSERT 10` (tag_vocabulary), `INSERT 7` (instrument_tags re-tags), `INSERT 16` (instruments).
+Expected: no errors. `INSERT 9` (tag_vocabulary), `INSERT 7` (instrument_tags re-tags), `INSERT 14` (instruments).
 
 - [ ] **Step 3: Verify**
 
@@ -173,23 +173,13 @@ SELECT symbol, tag FROM instrument_tags WHERE tag LIKE 'commodity_%_crude' OR ta
 "
 ```
 
-Expected: 74 total instruments, 10+ new tags, 7 re-tagged existing instruments.
+Expected: 72 total instruments, 9+ new tags, 7 re-tagged existing instruments.
 
 - [ ] **Step 4: Tag new instruments**
 
 ```bash
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
 INSERT INTO instrument_tags (symbol, tag, weight, source, evidence) VALUES
-    -- USO
-    ('USO', 'commodity_energy_crude', 1.0, 'human', '{\"reason\": \"WTI crude oil futures-based ETF\"}'),
-    ('USO', 'benchmark',              1.0, 'human', '{\"reason\": \"benchmark crude oil ETF\"}'),
-    ('USO', 'oil_price',              1.0, 'human', '{\"reason\": \"direct WTI price proxy\"}'),
-    ('USO', 'late_cycle',             0.7, 'human', '{\"reason\": \"energy outperforms late cycle\"}'),
-    ('USO', 'inflation',              0.8, 'human', '{\"reason\": \"crude is primary CPI energy component\"}'),
-    -- UNG
-    ('UNG', 'commodity_energy_natgas',1.0, 'human', '{\"reason\": \"Henry Hub natural gas futures proxy\"}'),
-    ('UNG', 'benchmark',              1.0, 'human', '{\"reason\": \"benchmark nat gas ETF\"}'),
-    ('UNG', 'inflation',              0.6, 'human', '{\"reason\": \"nat gas is utility cost input\"}'),
     -- DBC
     ('DBC', 'commodity_broad',        1.0, 'human', '{\"reason\": \"GSCI-weighted broad commodity index\"}'),
     ('DBC', 'benchmark',              1.0, 'human', '{\"reason\": \"benchmark broad commodity ETF\"}'),
@@ -284,13 +274,13 @@ SELECT i.symbol,
        array_agg(it.tag ORDER BY it.tag) as tags
 FROM instruments i
 LEFT JOIN instrument_tags it ON i.symbol = it.symbol
-WHERE i.symbol IN ('USO','UNG','DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV')
+WHERE i.symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV')
 GROUP BY i.symbol
 ORDER BY i.symbol;
 "
 ```
 
-Expected: all 16 symbols present, each with 3-7 tags, no nulls.
+Expected: all 14 symbols present, each with 3-7 tags, no nulls.
 
 - [ ] **Step 6: Verify regime group routing**
 
@@ -298,9 +288,9 @@ Expected: all 16 symbols present, each with 3-7 tags, no nulls.
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
 -- Verify commodity_energy group will resolve correctly
 SELECT symbol FROM instrument_tags
-WHERE tag IN ('commodity_energy_crude','commodity_energy_natgas','commodity_energy_pipeline')
+WHERE tag IN ('commodity_energy_crude','commodity_energy_pipeline')
 ORDER BY symbol;
--- Expected: AMLP, OIH, USO, UNG, XLE, XOP + new symbols
+-- Expected: AMLP, OIH, XLE, XOP + new symbols
 
 -- Verify commodity_metals group
 SELECT symbol FROM instrument_tags
@@ -317,8 +307,8 @@ SELECT symbol FROM instrument_tags WHERE tag LIKE 'fx_%' ORDER BY symbol;
 - [ ] **Step 7: Commit**
 
 ```bash
-git add production/migrations/180_etf_expansion.sql
-git commit -m "feat(migrations): ETF universe expansion 58→74 — new tags, re-tag existing, register 16 instruments (migration 180)"
+git add production/migrations/188_etf_expansion.sql
+git commit -m "feat(migrations): ETF universe expansion 58→72 — new tags, re-tag existing, register 14 instruments (migration 188)"
 ```
 
 ---
@@ -330,7 +320,7 @@ git commit -m "feat(migrations): ETF universe expansion 58→74 — new tags, re
 **Files:**
 - Create: `scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh`
 
-All 16 new instruments need full OHLCV history across 4 timeframes. IBKR practical limits:
+All 14 new instruments need full OHLCV history across 4 timeframes. IBKR practical limits:
 - `1d`: up to 20yr (7300 days) for most ETFs
 - `1h`: up to ~15yr (5500 days)
 - `5m`: up to ~5yr (1825 days)
@@ -341,7 +331,7 @@ All 16 new instruments need full OHLCV history across 4 timeframes. IBKR practic
 ```bash
 #!/usr/bin/env bash
 # scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
-# Backfill OHLCV for the 16 new ETFs added in migration 180.
+# Backfill OHLCV for the 14 new ETFs added in migration 188.
 # Re-run safe: ON CONFLICT DO NOTHING in bar writer.
 # Usage: bash scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 
@@ -355,7 +345,7 @@ mkdir -p "$LOG_DIR"
 
 # 1d: days back to cover full inception history
 declare -A DAYS_1D=(
-    [USO]=7300   [UNG]=7000   [DBC]=7300   [DBA]=7000
+    [DBC]=7300   [DBA]=7000
     [DBB]=7000   [PPLT]=5500
     [EZU]=7300   [EWG]=7300   [EWZ]=7300   [VWO]=7700
     [FXI]=8000   [MCHI]=5500
@@ -372,7 +362,7 @@ DAYS_15M=2555
 # 5m: ~5yr (IBKR hard limit)
 DAYS_5M=1825
 
-NEW_SYMBOLS=(USO UNG DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV)
+NEW_SYMBOLS=(DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV)
 
 total_stored=0
 errors=()
@@ -405,7 +395,7 @@ run_backfill() {
 }
 
 echo "======================================================="
-echo " New ETF Backfill — 16 symbols × 4 timeframes"
+echo " New ETF Backfill — 14 symbols × 4 timeframes"
 echo " $(date)"
 echo "======================================================="
 
@@ -434,7 +424,7 @@ echo "======================================================="
 ```bash
 git add scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 chmod +x scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
-git commit -m "feat(scripts): add backfill_new_etfs.sh for 16 new ETF universe expansion symbols"
+git commit -m "feat(scripts): add backfill_new_etfs.sh for 14 new ETF universe expansion symbols"
 ```
 
 - [ ] **Step 3: Run backfill (TWS must be running)**
@@ -443,7 +433,7 @@ git commit -m "feat(scripts): add backfill_new_etfs.sh for 16 new ETF universe e
 bash scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 ```
 
-**Expected duration:** ~45-90 minutes (16 symbols × 4 TFs, sequential, rate-limited by IBKR pacing).
+**Expected duration:** ~45-90 minutes (14 symbols × 4 TFs, sequential, rate-limited by IBKR pacing).
 
 - [ ] **Step 4: Verify bar coverage**
 
@@ -454,7 +444,7 @@ SELECT symbol, timeframe,
        MIN(timestamp)::date as earliest,
        MAX(timestamp)::date as latest
 FROM market_data_ohlcv
-WHERE symbol IN ('USO','UNG','DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV')
+WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV')
 GROUP BY symbol, timeframe
 ORDER BY symbol, timeframe;
 "
@@ -466,12 +456,12 @@ Expected: each symbol has bars in all 4 timeframes. `5m` earliest should be ~202
 
 ## Task 2: Corpus Pipeline — New Symbols
 
-**Prerequisite:** Task 1 complete (OHLCV bars present for all 16 symbols).
+**Prerequisite:** Task 1 complete (OHLCV bars present for all 14 symbols).
 
 **Files:**
 - Create: `scripts/ops/corpus/ops_corpus_new_etfs.sh`
 
-Run all 6 corpus pipeline steps scoped to the 16 new symbols only. Uses `--symbols` flag and `--compute-only` where applicable to avoid re-fetching existing data.
+Run all 6 corpus pipeline steps scoped to the 14 new symbols only. Uses `--symbols` flag and `--compute-only` where applicable to avoid re-fetching existing data.
 
 - [ ] **Step 1: Seed backfill_status for new symbols**
 
@@ -482,7 +472,7 @@ PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
 INSERT INTO backfill_status (symbol, timeframe, status, fetch_complete)
 SELECT DISTINCT symbol, timeframe, 'pending', true
 FROM market_data_ohlcv
-WHERE symbol IN ('USO','UNG','DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV')
+WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV')
 ON CONFLICT (symbol, timeframe) DO NOTHING;
 "
 ```
@@ -492,18 +482,18 @@ ON CONFLICT (symbol, timeframe) DO NOTHING;
 ```bash
 #!/usr/bin/env bash
 # scripts/ops/corpus/ops_corpus_new_etfs.sh
-# Run corpus pipeline steps 1-6 for the 16 new ETF symbols.
+# Run corpus pipeline steps 1-6 for the 14 new ETF symbols.
 # Assumes OHLCV bars are already present (Task 1 complete).
 # Usage: bash scripts/ops/corpus/ops_corpus_new_etfs.sh [--from-step N]
 
 set -euo pipefail
 
 PYTHON=".venv/bin/python"
-SYMBOLS="USO UNG DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV"
+SYMBOLS="DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV"
 FROM_STEP=${2:-1}
 
 echo "======================================================="
-echo " Corpus Pipeline — 16 new ETF symbols"
+echo " Corpus Pipeline — 14 new ETF symbols"
 echo " From step: $FROM_STEP"
 echo " $(date)"
 echo "======================================================="
@@ -523,7 +513,7 @@ echo "======================================================="
 ```bash
 git add scripts/ops/corpus/ops_corpus_new_etfs.sh
 chmod +x scripts/ops/corpus/ops_corpus_new_etfs.sh
-git commit -m "feat(scripts): add corpus_new_etfs.sh for 16-symbol corpus pipeline run"
+git commit -m "feat(scripts): add corpus_new_etfs.sh for 14-symbol corpus pipeline run"
 ```
 
 - [ ] **Step 4: Run corpus pipeline**
@@ -540,18 +530,18 @@ bash scripts/ops/corpus/ops_corpus_new_etfs.sh
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
 SELECT
     (SELECT COUNT(DISTINCT symbol) FROM feature_vectors
-     WHERE symbol IN ('USO','UNG','DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV'))
+     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV'))
      AS fv_symbols,
     (SELECT COUNT(*) FROM feature_ic_scores
-     WHERE symbol IN ('USO','UNG','DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV'))
+     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV'))
      AS ic_score_rows,
     (SELECT COUNT(*) FROM alpha_events
-     WHERE symbol IN ('USO','UNG','DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV'))
+     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV'))
      AS alpha_events;
 "
 ```
 
-Expected: 16 fv_symbols, >0 ic_score_rows, >0 alpha_events.
+Expected: 14 fv_symbols, >0 ic_score_rows, >0 alpha_events.
 
 ---
 
@@ -657,7 +647,7 @@ FROM market_regimes GROUP BY 1, 2 ORDER BY 1, 2;
 ```
 
 Pass criteria:
-- 74 total active equity instruments
+- 72 total active equity instruments
 - Commodity group: 10+ symbols (existing energy/metals + new ETFs)
 - FX group: 3 symbols (UUP, FXE, FXY)
 - Rates group: 11+ symbols (existing + EDV)

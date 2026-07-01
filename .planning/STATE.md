@@ -6,10 +6,10 @@ status: in_progress
 last_updated: "2026-07-01T03:47:27.303Z"
 progress:
   total_phases: 6
-  completed_phases: 0
-  total_plans: 2
-  completed_plans: 0
-  percent: 0
+  completed_phases: 3
+  total_plans: 11
+  completed_plans: 11
+  percent: 50
 ---
 
 # Project State
@@ -39,6 +39,8 @@ See: .planning/PROJECT.md
 - A5: Renaissance IC gate redesign — ic_ci_lower > 0 AND passes_fdr = true replaces binary passes_walkforward gate
 
 **Phase 142 — BLOCKED** — pending Phase B corpus re-run on corrected ic_engine
+
+**⚠️ P0 URGENT (2026-07-01):** HMM regime model (`regime_writer.py`) fits on the full corpus before its causal decode — regime labels leak future statistical structure into every regime-stratified IC score. Contaminates `feature_ic_scores` and `alpha_ensemble_ic` right now. See `.planning/todos/pending/034-hmm-walk-forward-refit.md`. Do not trust regime-conditional IC/alpha as ground truth until fixed; must land before Phase 142B.
 
 **Next work: Phase B — corpus re-run**
 

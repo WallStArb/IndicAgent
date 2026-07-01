@@ -6,7 +6,7 @@
 **Effort:** 1-2 days
 **Benefit:** Adds cross-sectional rank features (momentum/volume/volatility) for ensemble input
 **Risk:** low (new columns only)
-**Gate:** Phase 141 corpus validation complete
+**Gate:** Phase 141 complete + feature_vectors stable (OPEN) — do after Phase B corpus re-run confirms cross-sectional columns are useful
 ---
 
 # 013 — Cross-Sectional Rank Features (momentum_rank_z, volume_rank_z, volatility_rank_z)
