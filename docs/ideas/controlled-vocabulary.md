@@ -91,11 +91,10 @@ For TEXT-backed namespaces (`regime_hmm`, `regime_cross_sectional`, `timeframe`,
 | `timeframe` | TEXT, `feature_vectors.tf` and 40+ other tables | (for display labels) |
 | `asset_class` | TEXT, `contract_metadata.asset_class` | `equity`, `futures`, `fx` |
 | `session_type` | TEXT, `intelligence_features.session_type` | (for display labels) |
-| `concept_domain` | TEXT, `concept_registry.domain` (Concept Registry, unbuilt) | `feature`, `feature_interaction`, `alpha_pattern`, `hmm_variant`, `ic_method`, `ensemble_strategy`, `regime_model` |
 
 **Out** — internal infrastructure codes users never see: `CircuitState`, `DataSource`, `TransitionType`.
 
-`concept_domain` is a forward-looking namespace — it has nothing to validate against until Concept Registry ships, but it's seeded here rather than there because Controlled Vocabulary is the single place valid-code lists live; Concept Registry only ever reads this namespace, it doesn't own or duplicate it (see `docs/ideas/metadata-governance-registries.md`).
+Concept Registry's `domain` column is deliberately **not** a namespace here — it's a fixed 7-value set enforced with a plain `CHECK` constraint on `concept_registry.domain` itself, same pattern as its `status` column. An earlier draft specced a `concept_domain` namespace + runtime `VocabularyService` dependency for this; retracted after review found it coupled two independently-deferred systems to solve a problem a `CHECK` constraint already solves (see `docs/ideas/metadata-governance-registries.md`). Concept Registry and Controlled Vocabulary are unrelated sibling designs with no shared build gate.
 
 ---
 

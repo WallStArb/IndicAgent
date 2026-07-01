@@ -48,9 +48,10 @@ Three types, distinguished by what drives state changes:
 
 ## What Exists
 
+Type 2/3 registries only — APR (Type 1) is the origin analogy for this whole family (see Registry Taxonomy above) but isn't comparable feature-by-feature here: it's value-mutable parameter tuning, not lifecycle governance or static vocabulary, so it was never designed to have gates, promotion states, or annotations. Full detail: `docs/foundation/adaptive-parameter-registry.md`.
+
 | Registry | Tables | Entries | Gate | Gap |
 |---|---|---|---|---|
-| APR | `config_state`, `config_history`, `config_schema` | 348 keys | Validation range | — |
 | Feature Registry | `feature_registry`, `feature_transition_log` | 61 features | IC Sharpe + FDR | Governance only — no knowledge layer; gate params conflated in registry row; migrates to Concept Registry |
 | Shadow Registry | `shadow_registry`, `shadow_transition_log` | 36 components | EV[R] bootstrap CI | Legacy — v2.x I1-I7 plugin/swarm governance, no live systemd consumer, never evaluated (`last_eval_at` NULL). Not migrating; no live domain to absorb it into |
 | Tag Vocabulary | `tag_vocabulary`, `instrument_tags`, `instrument_annotations` | 301 tags | Human curation | — |
@@ -180,9 +181,9 @@ Identity and current state. Changes almost never. Owned by operator/migration.
 ```sql
 CREATE TABLE concept_registry (
     concept_id        UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-    domain            TEXT    NOT NULL,
-        -- 'feature', 'alpha_pattern', 'hmm_variant', 'ic_method',
-        -- 'ensemble_strategy', 'regime_model', 'feature_interaction'
+    domain            TEXT    NOT NULL
+        CHECK (domain IN ('feature', 'alpha_pattern', 'hmm_variant', 'ic_method',
+                           'ensemble_strategy', 'regime_model', 'feature_interaction')),
     name              TEXT    NOT NULL,
     description       TEXT    NOT NULL,
     status            TEXT    NOT NULL DEFAULT 'candidate'
@@ -198,7 +199,7 @@ CREATE TABLE concept_registry (
 );
 ```
 
-**`domain`** is not free text at the application layer — it's validated against Controlled Vocabulary's `concept_domain` namespace (`docs/ideas/controlled-vocabulary.md`). `ConceptRegistryService` calls `VocabularyService.codes("concept_domain")` at startup and hard-crashes on any `concept_registry.domain` value not in that list, same divergence-check pattern CV already uses for `signal_outcome`/`entry_type`/`signal_status`. This is the concrete link between the two systems: Concept Registry is the unified table family that features, feature interactions, alpha patterns, HMM variants, etc. all share rows in; Controlled Vocabulary is the separate reference layer that defines and labels the valid `domain` codes (and other categorical values elsewhere in the platform) — it does not itself hold concept rows, and Concept Registry does not hold vocabulary rows. Each domain's seed row in the "Domains" table below becomes both a `concept_gate_template` row (governance default) and a `concept_domain` vocabulary entry (valid code + label + description) at build time.
+**`domain`** is enforced with a plain `CHECK` constraint, same pattern as `status` above — no dependency on Controlled Vocabulary. An earlier version of this design specced `domain` validation as a runtime dependency on `VocabularyService.codes("concept_domain")`, requiring Controlled Vocabulary (a separate, also-unbuilt, also-deferred Type 3 system) to exist before Concept Registry could. That coupling wasn't earning its cost — 7 fixed values already listed inline is exactly the same shape as `status`'s 4 values, which needs nothing beyond a `CHECK`. Correction: Concept Registry has no dependency on Controlled Vocabulary. They remain unrelated sibling designs — Concept Registry governs lifecycle, Controlled Vocabulary governs symbolic-code labels/groupings elsewhere in the platform (`signal_outcome`, `regime` labels, `timeframe`, etc.) — with no shared build gate and no reason to couple their schedules.
 
 **`enabled`** is independent of `status`. An `active` concept can be disabled without demotion. A `candidate` can run in shadow before formal promotion. The evaluation engine skips `enabled = false` entirely.
 
@@ -574,26 +575,28 @@ Not worth it for: mathematical constants, schema identifiers, internal codes no 
 
 ## Full Comparison
 
-| | APR | Shadow Registry (legacy, not migrating) | Controlled Vocabulary | Concept Registry |
-|---|---|---|---|---|
-| Identity table | `config_state` | `shadow_registry` | `controlled_vocabulary` | `concept_registry` |
-| Gate params | `config_schema` | in registry row | — | `concept_gate_template` (domain default) + `concept_gate` (per-concept override) |
-| Eval provenance / batch FDR | — | — | — | `concept_eval_run` — ties results to corpus build, tracks batch size for FDR |
-| Eval state | — | in registry row | — | `concept_eval_state` (latest-cycle cache only, not history) |
-| State audit log | `config_history` | `shadow_transition_log` | — | `concept_transition_log` (includes `candidate_timeout`) |
-| Knowledge — thesis/failure modes | — | — | — | `concept_annotation` |
-| Knowledge — dependency graph | — | — | — | `concept_dependency` |
-| Knowledge — regime IC history | — | — | — | `concept_regime_ic` — new row per `eval_run_id`, full trend preserved |
-| Knowledge — redundancy evidence | — | — | — | `concept_correlation` — within-domain pairwise correlation, not asserted |
-| OOS enforcement | — | No | — | Yes — `gate_eval_method` required |
-| Regime-conditional gate | — | No | — | Yes — `regime_scope` |
-| Sustained promotion | — | No | — | Yes — `min_promotion_consecutive` |
-| Decay tracking | — | No | — | Yes — `decay_ratio` vs `baseline_metric`, full history via `concept_regime_ic` |
-| Candidate staleness | — | No | — | Yes — `max_candidate_age_days` auto-demotes unevaluated candidates |
-| Lineage | — | No | — | Yes — `parent_concept_id` |
-| Redundancy | — | No | — | Yes — `redundancy_group`, scoped within-domain, displacement gated on `concept_correlation` evidence |
-| Scales to 10K+ candidates | N/A | No (36 hand-registered, legacy) | N/A | Yes — `concept_gate_template` means most candidates need zero manual gate config |
-| Enable/disable | (key deletion) | `is_shadow` bool | — | `enabled` independent of `status` |
-| Service | `ConfigService` | Shadow auditor | `VocabularyService` | `ConceptRegistryService` |
-| Loading | Eager | Eager | Eager | Active/shadow eager; candidates lazy |
-| Dashboard | `/config/parameters` | — | `/api/vocabulary/{ns}` | `/api/concepts/{domain}` |
+Type 2/3 registries only, for the same reason as "What Exists" above — APR isn't a peer on this axis. For APR's own gate/audit/service model, see `docs/foundation/adaptive-parameter-registry.md`.
+
+| | Shadow Registry (legacy, not migrating) | Controlled Vocabulary | Concept Registry |
+|---|---|---|---|
+| Identity table | `shadow_registry` | `controlled_vocabulary` | `concept_registry` |
+| Gate params | in registry row | — | `concept_gate_template` (domain default) + `concept_gate` (per-concept override) |
+| Eval provenance / batch FDR | — | — | `concept_eval_run` — ties results to corpus build, tracks batch size for FDR |
+| Eval state | in registry row | — | `concept_eval_state` (latest-cycle cache only, not history) |
+| State audit log | `shadow_transition_log` | — | `concept_transition_log` (includes `candidate_timeout`) |
+| Knowledge — thesis/failure modes | — | — | `concept_annotation` |
+| Knowledge — dependency graph | — | — | `concept_dependency` |
+| Knowledge — regime IC history | — | — | `concept_regime_ic` — new row per `eval_run_id`, full trend preserved |
+| Knowledge — redundancy evidence | — | — | `concept_correlation` — within-domain pairwise correlation, not asserted |
+| OOS enforcement | No | — | Yes — `gate_eval_method` required |
+| Regime-conditional gate | No | — | Yes — `regime_scope` |
+| Sustained promotion | No | — | Yes — `min_promotion_consecutive` |
+| Decay tracking | No | — | Yes — `decay_ratio` vs `baseline_metric`, full history via `concept_regime_ic` |
+| Candidate staleness | No | — | Yes — `max_candidate_age_days` auto-demotes unevaluated candidates |
+| Lineage | No | — | Yes — `parent_concept_id` |
+| Redundancy | No | — | Yes — `redundancy_group`, scoped within-domain, displacement gated on `concept_correlation` evidence |
+| Scales to 10K+ candidates | No (36 hand-registered, legacy) | N/A | Yes — `concept_gate_template` means most candidates need zero manual gate config |
+| Enable/disable | `is_shadow` bool | — | `enabled` independent of `status` |
+| Service | Shadow auditor | `VocabularyService` | `ConceptRegistryService` |
+| Loading | Eager | Eager | Active/shadow eager; candidates lazy |
+| Dashboard | — | `/api/vocabulary/{ns}` | `/api/concepts/{domain}` |
