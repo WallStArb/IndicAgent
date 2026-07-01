@@ -51,7 +51,7 @@ created: 2026-06-30
 
 - [ ] `tests/unit/test_ensemble_ic_engine.py` — stubs for EIC-01 (IC math parity, regime stratification, BH-FDR)
 - [ ] `tests/unit/test_ensemble_ic_gate.py` — stubs for EIC-04 gate fraction evaluation
-- [ ] `tests/unit/test_ensemble_ic_diagnosis.py` — stubs for EIC-05 diagnosis report structure
+- [ ] EIC-05 diagnosis script (`ops_ensemble_ic_diagnosis.py`) — verified by grep (4 root-cause labels present) + `test -x`, NOT unit-tested (script is a render-only report; no unit-test stub needed)
 
 *Existing pytest infrastructure covers framework/config. Wave 0 adds phase-specific test files.*
 

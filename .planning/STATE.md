@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
 milestone: v3.1
-milestone_name: IC Empirical Proof + Counterfactual Scoring
+milestone_name: AlphaEngine Validation + Alpha Scoring
 status: in_progress
-last_updated: "2026-06-30T00:00:00.000Z"
+last_updated: "2026-07-01T03:47:27.303Z"
 progress:
-  total_phases: 8
-  completed_phases: 3
-  total_plans: 13
-  completed_plans: 12
-  percent: 38
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,11 +25,13 @@ See: .planning/PROJECT.md
 ## v3.1 Current Status
 
 **Phase 141 — Corpus Quality Gate + IC Validation:** ✅ COMPLETE 2026-06-29
+
 - P0: validity fixes (V1 look-ahead bias, V3 JSONB codec) + corpus rerun
 - P1: IC validation — gate FAIL: 5m=0 qualifying features, 1h=23 qualifying features
 - P2: HMM JIT 40x speedup shipped
 
 **Phase A — IC Engine Methodology Fixes + Gate Redesign:** ✅ COMPLETE 2026-06-30
+
 - A1: 5m IC failure root cause — gate design bug, not signal absence (721 cells with ic_ci_lower > 0)
 - A2: IC engine methodology fixes (WF fold construction, corpus-level BH-FDR, scale-specific embargo, direct-linkage clustering)
 - A3: APR compile-time binding for ic_engine + ensemble_trainer
@@ -39,6 +41,7 @@ See: .planning/PROJECT.md
 **Phase 142 — BLOCKED** — pending Phase B corpus re-run on corrected ic_engine
 
 **Next work: Phase B — corpus re-run**
+
 - B1: `production/scripts/corpus_pipeline_run.sh` — regime_writer → forward_return_writer → ic_engine → ensemble_trainer → alpha_publisher
 - B2: Empirical calibration (cost hurdle, threshold validation, gap contamination check)
 - B3: IC validation analysis — how many features qualify per TF after gate redesign?
@@ -71,6 +74,7 @@ See: .planning/PROJECT.md
 - context_features: 8,985 rows (2995 trading days × 3 macro features)
 
 **IC gate results (Phase 141):**
+
 - 5m: 0 qualifying features (FAIL — blocks Phase 142)
 - 15m: 0 qualifying features
 - 1h: 23 qualifying features (PASS)
@@ -79,6 +83,7 @@ See: .planning/PROJECT.md
 - OOS boundary: `alpha.validation.oos_start = 2025-12-24T05:15:00Z`
 
 **Dual regime system (both live):**
+
 - `feature_vectors.regime` — 5 per-symbol HMM labels (trending_down/transition_down/ranging/transition_up/trending_up), written by `regime_writer.py` (K=5, causal forward-filter)
 - `market_regimes` — 9 cross-sectional labels ({low/mid/high}_{bull/neutral/bear}), written by `equity_regime_model.py`; ic_engine stratifies on these
 

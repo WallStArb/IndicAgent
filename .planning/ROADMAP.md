@@ -224,9 +224,11 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [x] **Phase 50: Roll Monitor + DualDivergence Graduation** ✅ Infrastructure Complete 2026-04-08 — market_data_5m view, FeatureWriterAgent→topic_roll_events, trad_DualDivergence shadow verified; graduation deferred to Phase 63
 - [x] **Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation** ✅ Complete 2026-03-28 — `BaseProviderAgent` + adapter pattern; `IBKRAdapter` wraps `IBKRProvider`; `ProviderMergerAgent` is canonical author of `market.bars` with auto-failover; ports :9129/:9130
 - [x] **Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline** ✅ Complete 2026-03-29 — `IntelligencePipelineComputeAgent` merges I1-I7 into single in-process pipeline; Kafka/DB are output sinks only; state checkpointing to compacted topic; `pre_quality_confidence`/`pre_calibration_confidence` on `signal_ledger`; port :9125
+
 Design doc: `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
 
 - [x] **Phase 57.1: SignalWriterAgent — signal_generator_agent Retirement** — New `intelligence.i7.signals` topic; thin `SignalWriterAgent` (WriterAgent) consumes all ranked I7 signals → `signal_ledger`; fix winner publish to `topic_signals_aggregated`; retire `signal_generator_agent`
+
 Design doc: `docs/plans/archive/2026-03-30-signal-writer-agent.md` (historical — file since removed)
 
 </details>
@@ -237,10 +239,12 @@ Design doc: `docs/plans/archive/2026-03-30-signal-writer-agent.md` (historical �
 **Milestone Goal:** Intelligence pipeline expansion (cross-TF confluence, gradient scoring), and the first swarm agent (SkepticAgent) on Phase 56 infrastructure.
 
 - [x] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 11 plans, shadow-only — COMPLETE 2026-04-11
+
 Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
 
 - [x] **Phase 65: Gradient Audit** — 25+ binary fields converted, 8-function gradient_utils.py, CI scanner gate, 5/5 plans — COMPLETE 2026-04-24. Note: swing_amplitude_expanding companion (swing_amplitude_intensity) not implemented — minor gap, non-blocking.
 - [x] **Phase 64: I6 Confluence Expansion** — COMPLETE 2026-05-14. 5 new I6 cross-TF plugins (momentum divergence, S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) + MacroComputeAgent (yield curve + FTQ) + full pipeline integration. 03C USD strength deferred (low priority; YC+FTQ providing macro context).
+
 Design doc: `docs/ideas/i6-confluence-expansion.md`
 
 - [x] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService with Skeptic, Correlation, and Volume agents. 16/16 truths verified, 43/43 tests passing — COMPLETE 2026-04-24. Operational gates pending: live service deploy + 30-day statistical validation (~May 25).
@@ -262,10 +266,12 @@ Plans:
 **Execution order:** 63-06 → 68 → 67 (correctness before instrumentation — Renaissance principle)
 
 - [x] **Phase 68: Pipeline Hardening & Institutional Foundation** — Complete 2026-04-23
+
 Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings wiring, numeric label, long bias, confidence boost pre-calibration), BaseWriterAgent + 5 writer migrations + write-path reliability (offset commit, DLQ, bounded buffer), end-to-end bar_id trace, full confidence attribution vector, TRUNCATE signal_ledger clean slate, symbol-keyed aggregate tables (6 tables).
 Design doc: `docs/plans/2026-04-11-pipeline-hardening-design.md`
 
 - [x] **Phase 67: Observability, Alerting & Automation** ← COMPLETE 2026-04-23 (2/2 plans)
+
 ✅ AlertingAgent (Plan 01) — centralized Kafka-to-Telegram/Discord dispatcher
 ✅ Webhook removal (Plan 02) — service_auditor migrated to _send_alert(), SRP restored
 Grafana alert rules (Telegram/Discord), `market_data_gaps` table + `bar_auditor_agent` write path, roll automation in `service_auditor_agent`, 4 code fixes (bootstrap retry, cache seeding, webhook dispatcher, crash counter), 3 dashboard rebuilds.
@@ -279,21 +285,25 @@ Design doc: `docs/plans/2026-04-12-observability-automation-design.md`
 **Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path, harden AI/LLM layer, complete swarm intelligence, harden signal lifecycle, and add ML scoring + qualitative foundation. All 14 phases shipped.
 
 - [x] **Phase 69: Writer Agent Renaissance Refactor** — COMPLETE 2026-04-23
+
 Shared consume loop in BaseWriterAgent, _create_consumer() helper, 5 Prometheus metrics, critical overflow alerts + backpressure, FeatureSnapshotWriterAgent migrated from BaseAgent to BaseWriterAgent. 3 writers removed duplicated _run(). 146 tests pass.
 **Design doc:** `docs/plans/2026-04-13-basewriter-renaissance-refactor-design.md`
 **Planning:** `.planning/phases/069-writer-renaissance-refactor/`
 
 - [x] **Phase 71: BaseAgent Infrastructure Alignment** — COMPLETE 2026-04-14
+
 Settings singleton in BaseAgent, auto init_tracing(), vestigial logging removal, default _report_consumer_lag(), LLMWriterService migrated to BaseWriterAgent.
 **Design doc:** `docs/plans/2026-04-14-base-agent-infrastructure-alignment-design.md`
 **Planning:** `.planning/phases/071-base-agent-infrastructure-alignment/`
 
 - [x] **Phase 72: Signal Transform Log** — COMPLETE 2026-04-25
+
 Phase 1 dual-write infrastructure: signal_transform_log hypertable, transform_graduation table, TransformRecorder batch writer, graduation.py validation module, GraduationComputeAgent + GraduationWriterAgent services, Kafka topics, and recorder calls wired into all 9 transforms (6 math + 3 swarm). Existing confidence-mutation behavior unchanged; log is write-only and graduation runs in shadow.
 **Design spec:** `docs/plans/2026-04-24-signal-transform-log-design.md`
 **Planning:** `.planning/phases/072-signal-transform-log-unified-alpha-modifier-architecture-add/`
 
 - [x] **Phase 73: AI LLM Layer B+ Architecture Refactor** — COMPLETE 2026-04-29 (7/7 plans shipped)
+
 Fixes 10 structural defects in AI/LLM layer, creates universal AI agent infrastructure (`src/core/ai/`), reorganizes agents into mandate-based groups (`src/intelligence/ai/`), applies 6 LLM chain fixes, adds narrative TF gate, deletes dead `swarm_orchestrator_agent`, renames `swarm_dispatch_service` -> `alpha_swarm_agent`, merges shadow+transform into unified signal_lineage, and enforces import boundary discipline.
 **Planning:** `.planning/phases/73-ai-llm-layer-b-architecture-refactor/`
 
@@ -307,23 +317,29 @@ Plans:
 - [x] 73-06-PLAN.md — Unified signal_lineage: hypertable, LineageRecorder, LineageWriterAgent (D-01-07 lineage, D-46-48) — COMPLETE 2026-04-29
 - [x] 73-07-PLAN.md — Test migration, import boundary enforcement, cleanup, CLAUDE.md update (D-36-41, D-48, D-51) — COMPLETE 2026-04-29
 - [x] **Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator** — COMPLETE 2026-04-26
+
 Add state checkpointing to BarAggregatorComputeAgent following IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
 **Planning:** `.planning/phases/74-barnormalizeragent-canonical-grid-completeness-service-for-t/`
 
 - [x] **Phase 76: Signal Lifecycle Labeling Fix & Activation Gate** — COMPLETE 2026-04-28
+
 Fix 2,744 mislabeled signals (activated_at + never_activated), add temporal guard, bootstrap TTL sweep, activation probability gate, backfill SQL. 3 plans.
 **Planning:** `.planning/phases/076-signal-lifecycle-labeling-activation-gate/`
 
 - [x] **Phase 70: ML Scoring Model + AI-SEP-01 Table Decoupling** — COMPLETE 2026-05-13
+
 LightGBM scoring layer (MLScorerMultiplierAgent, shadow_only=True), nightly MLTrainingComputeAgent (L8), AI-SEP-01 table decoupling (signal_ai_enrichment + intelligence_ai_enrichment tables), feature_builder.py with walk-forward CV, SHAP via MLflow, SIGUSR1 hot-reload. 4/4 plans shipped.
 **Planning:** `.planning/phases/070-ml-scoring-model/`
+
 - [x] **Phase 75: Shadow Governance System** — COMPLETE (absorbed into Phase 77; shadow_registry migration 077, ShadowAuditorAgent service, features_snapshot rename, auto-enrollment)
 - [x] **Phase 77: OTel Observability Unification** — COMPLETE 2026-04-29 (4/4 plans)
+
 Replace 24 per-process HTTP metrics servers + manual service registries with OTel Collector stack. One OTLP push pipeline, dynamic systemd service discovery, Alertmanager declarative rules, hot-path distributed tracing activation. Zero manual config maintenance.
 Design doc: `docs/plans/2026-04-28-otel-observability-unification-design.md`
 **Planning:** `.planning/phases/077-otel-observability-unified/`
 
 - [x] **Phase 79: Signal Quality Fix — Zone Width + Entry Price** — COMPLETE 2026-05-03
+
 Fix zero-width signal zones (entry==stop==target) caused by plugins building signal dicts manually instead of using `make_signal_from_frame()`. Add `signal_schema_version` (tracks `SIGNAL_SCHEMA_VERSION` constant, currently 'v2') and `entry_type` columns to signal_ledger. Add co-fire tracking (`co_fire_count`/`co_fire_partners`). Migrate all 36 I7 plugins to `make_signal_from_frame()`. Add signal quality metrics. Pre-v1 signals ('v0') are contaminated — ML training queries MUST filter `WHERE signal_schema_version >= 'v1'`.
 Design spec: `docs/plans/2026-05-03-phase-79-signal-quality-fix-design.md`
 **Planning:** `.planning/phases/079-signal-quality-fix/`
@@ -1233,15 +1249,18 @@ Full details: `.planning/milestones/v3.0-ROADMAP.md`
 **Issues addressed (ordered by impact):**
 
 P0 — Correctness blockers:
+
 1. Stride = max_lookahead applied to all scales — subsample per scale with `stride = lookahead_bars`
 2. Overnight gap contamination in intraday forward returns — flag cross-session transitions, set `complete_{scale} = false`
 
 P1 — Statistical methodology:
+
 3. BH-FDR meta-level gate — require feature to pass FDR in >50% of (symbol, tf) cells for ensemble weight
 4. Feature collinearity corrupts BH-FDR — hierarchical clustering on correlation matrix, one representative per cluster
 5. IC Sharpe min_windows = 10 too low — raised `alpha.ic.sharpe_min_windows` to 30
 
 P2 — Quick cleanups:
+
 7. Remove `all_results_global` accumulation — list never read after loop
 8. `--training-window-end` CLI arg — defaults to MAX with warning
 
@@ -1250,6 +1269,7 @@ P2 — Quick cleanups:
 **Plans:** 4 plans in 2 waves
 
 Plans:
+
 - [x] 140-P0-PLAN.md — P0 correctness (per-scale stride fix + ET session-boundary forward returns) + P2 cleanups
 - [x] 140-P1-PLAN.md — Migration 171 (cluster_id column + alpha.ensemble.meta_fdr_min_fraction + alpha.ic.cluster_max_corr + sharpe_min_windows 10→30)
 - [x] 140-P2-PLAN.md — Feature collinearity hierarchical clustering + representative-only BH-FDR + cluster_id persistence
@@ -1276,6 +1296,7 @@ Three silent-constant groups remain in the batch path after Phase 139/140:
 - **Group 4 (HMM):** `compute_batch()` passes a hard 50-bar window to `refresh_regime()` — GaussianHMM on 50 bars either fails warmup (returns 0.000) or fits degenerate single-state (returns 1.000/0.000). Fix: pass full available history `bars[:i+1]`.
 
 **Async/parallelism requirements:**
+
 - `_compute_symbol_tf()` runs in `ProcessPoolExecutor` — pure CPU, no DB calls inside the worker. All DB reads (OHLCV history, HTF bars) fetched async before the worker call; all DB writes (feature_vectors upserts) buffered and flushed async after.
 - HTF bar loading for CTF: async batch fetch per (symbol, htf) before compute loop, passed as an immutable dict into the worker. No DB calls inside `compute_batch()`.
 - VP/SR `None` values: asyncpg accepts `None` natively for nullable float columns — no sentinel magic.
@@ -1290,11 +1311,13 @@ Three silent-constant groups remain in the batch path after Phase 139/140:
 The current corpus uses K=3 (hard-coded). K was never validated — it was a reasonable initial estimate. If K=4 better fits the data, all regime labels in `feature_vectors` are systematically wrong, and Phase 141's IC results stratify by the wrong regimes.
 
 **Study design:**
+
 - For each (symbol, tf), fit `GaussianHMM` for K ∈ {2, 3, 4, 5} on full available history (causal: no future data).
 - Compute BIC: `BIC = -2 × log_likelihood + n_params × ln(n_obs)`. `n_params` for full covariance: `K × d + K × d(d+1)/2 + (K-1)` where d=5 (observation dimensions).
 - Minimum BIC wins. Aggregate winner histogram across all (symbol, tf) pairs. If K=3 wins in ≥ 70% of cases, keep K=3. If another K wins decisively, update `alpha.hmm.n_components` APR key and re-run regime labels.
 
 **Async/parallelism requirements:**
+
 - BIC fitting is CPU-bound. One `ProcessPoolExecutor` task per (symbol, tf). No DB calls inside worker — OHLCV history fetched async before dispatch.
 - Results written to a `bic_study_results` temp table (or CSV) via async batch INSERT after all workers complete. No per-row DB round-trips during fitting.
 - If K changes: `regime_writer --refit` parallelized per symbol via `ProcessPoolExecutor`; async batch upsert of new regime labels into `feature_vectors`. P1 corpus re-run must complete before this step (hard dependency: needs fixed feature values for BIC fitting on clean data).
@@ -1314,6 +1337,7 @@ The feature catalog is currently implicit — 61 fields on `FeatureVector`, no m
 **Startup alignment gate:** Crash-loud `RuntimeError` if `feature_registry` rows ≠ `FeatureVector` dataclass fields. Adding a feature = FeatureVector field + migration + registry INSERT — all three in the same migration. The gate enforces this at every startup.
 
 **Async/parallelism requirements:**
+
 - `FeatureRegistryService.load()` is a single async fetch at startup — one query, result cached in memory for the daemon lifetime.
 - `record_transition()` is fire-and-forget async: caller does not `await` the DB write. Transition logging never blocks the compute path.
 - IC engine integration: records `feature_status_at_eval` on every `feature_ic_scores` row. This is a single-column addition to the existing async batch INSERT — no separate round-trip.
@@ -1350,6 +1374,7 @@ Per-symbol HMM produces incomparable regime labels across symbols — "trending_
 `feature_vectors` is one row per (symbol, tf, bar_ts). Features without a natural bar cadence (VIX level, yield curve, macro indicators, cross-asset correlations) currently inject daily values into every 5m bar row for the same calendar day. A VIX reading at 9:30 and 9:35 are not two independent observations — they are the same observation duplicated 78 times per day. This inflates Spearman IC for any feature correlated with VIX via artificial autocorrelation. The IC engine's existing NaN/independence stride correction does not fix this — it corrects temporal dependence within a series, not cross-row duplication.
 
 **Schema:**
+
 ```sql
 context_features (
   feature_date  DATE,
@@ -1373,6 +1398,7 @@ IC engine joins `feature_vectors` with `context_features` via `DATE(bar_ts) = fe
 ---
 
 **Wave structure:**
+
 - Wave 1 (parallel): P1 code fixes + P3 migration/service build + P5 context_features schema. No dependencies between them.
 - Wave 2: P1 corpus re-run (requires P1 fixes). P4 cross-sectional regime model fitting + `market_regimes` population (requires clean corpus). P2 BIC study (requires clean corpus — hard dependency).
 - Wave 3: P2 regime label re-run if K changes (requires BIC decision). P3 IC engine + ensemble trainer integration + weight aging (requires P3 registry from Wave 1). P4 IC engine regime-join wiring (requires P4 model from Wave 2). P5 IC engine context-features join (requires P5 schema from Wave 1).
@@ -1380,6 +1406,7 @@ IC engine joins `feature_vectors` with `context_features` via `DATE(bar_ts) = fe
 **Plans:** 5/5 plans complete
 
 Plans:
+
 - [x] 140.5-P1-PLAN.md — Batch Primitives Validation + Corpus Re-Run
 - [x] 140.5-P2-PLAN.md — HMM K via BIC Study + Conditional Regime Re-Run
 - [x] 140.5-P3-PLAN.md — Feature Registry Schema + FeatureRegistryService + IC/Ensemble Integration
@@ -1406,11 +1433,13 @@ Plans:
 **Goal:** Fix two validity threats in the corpus, rerun affected pipeline steps, validate IC on the clean corpus, and ship HMM Numba JIT (40x speedup needed before primitives expansion).
 
 **Prerequisite validity fixes (before any CORPUS task runs):**
+
 - **V3 — BaseBatch JSONB codec** (Task 1-2): `BaseBatch._setup_pool` calls bare `asyncpg.create_pool` without codec registration; `alpha_publisher` works around it with `json.dumps()` — CLAUDE.md violation and latent corruption vector. Fix: `database_manager.create_pool`. Atomic two-file commit.
 - **V1 — equity_regime_model look-ahead bias** (Tasks 3-5): `_compute_vix_pct_rank` uses `.rank(pct=True)` over full corpus — global rank knowing all future values. Fix: causal expanding rank via `bisect`. Also fix TF-normalized windows (V1b). Then rerun market_regimes → ic_engine --cross-sectional-only → ensemble_trainer → alpha_publisher (Task 6).
 - **Note on V2 (cost-aware net scoring):** Deferred — `alpha_score` is in weighted z-score product units, not return units. Cost subtraction requires `IC × return_scale` calibration from Task 7.5. V2 gets its own plan after Phase 141.
 
 **Scope additions vs original plan:**
+
 - Task 7.5 produces V2 IC calibration constants (ic_x_return_scale per tf/regime)
 - Tasks 8-10: HMM Numba JIT — `src/intelligence/hmm_jit.py` + wire into `regime_writer.py` (runs in parallel with CORPUS analysis tasks; needed before primitives expansion)
 
@@ -1429,6 +1458,7 @@ Compute equal-weight ensemble alpha (all features weighted 1/N, no IC gate) on t
 
 **CORPUS-04 — IC discovery report (58-symbol):**
 Re-run IC engine on full 58-symbol corpus. Report: features surviving BH-FDR by regime × TF × lookahead. Document the explicit decision tree:
+
 - ≥ 15 features survive → proceed to Phase 142 as designed
 - 5-14 features survive → proceed but note ensemble effective_N will be low; adjust min_effective_n APR key
 - < 5 features survive → STOP, diagnose before Phase 142 (root cause: overfitting? corpus quality? wrong features?)
@@ -1438,7 +1468,6 @@ For features surviving BH-FDR, IC Sharpe across walk-forward folds must not osci
 
 **CORPUS-06 — Per-regime observation floor:**
 Every (symbol, tf, regime) cell that produces an IC score must meet `n_independent_obs >= alpha.ic.min_obs_per_regime` (APR, initial: 3000 `[initial_estimate]`). IC scores from minority-regime cells below this floor are excluded from the meta-FDR gate and ensemble weighting regardless of p-value — Spearman IC Sharpe on fewer than ~3K independent observations is too noisy to survive BH-FDR meaningfully. APR key inserted in Phase 141 migration. Cross-sectional regime labels from Phase 140.5 P4 make this floor easier to satisfy by pooling observations across symbols.
-
 
 **Plans:** 1/4 plans executed
 
@@ -1470,16 +1499,23 @@ IC Sharpe max/min fold ratio < 3× across walk-forward folds. Features with high
 
 **EIC-05 — Gate failure diagnosis script:**
 When EIC-04 fails, run structured diagnosis (output as a markdown report) before any remediation:
+
 1. N per cell — low N (`< alpha.ic.min_obs_per_regime`) = data starvation, not signal absence; expect more cells to pass as alpha_events accumulates
 2. Pooled vs per-symbol IC gap — if pooled `ic_ci_lower > 0` but per-symbol fails = regime label granularity issue (cross-sectional label too coarse for per-symbol variation)
 3. TF breakdown — if 1h passes but 5m fails = TF-specific problem (5m has fewer independent obs per regime), not a global ensemble problem
 4. Regime coverage — if ≥ 3 regimes have zero qualifying cells = regime label quality issue (check `market_regimes` coverage and `equity_regime_model` correctness)
+
 This script ships with Wave 2. "Diagnose ensemble" without this structure wastes a week chasing the wrong layer.
 
 **Plans:** 2 plans in 2 waves
 
 Plans:
+**Wave 1**
+
 - [ ] 142A-01-PLAN.md — Wave 1: migration 187 (alpha_ensemble_ic hypertable + APR seeds + 36 hold_max_bars keys) + EnsembleICEngine service (BaseBatch, compose ic_engine Fisher-z math, ProcessPoolExecutor compute-only, corpus BH-FDR, 9-regime stratification) + service_auditor registration + 5 unit test files (EIC-01, EIC-03)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 142A-02-PLAN.md — Wave 2 (depends on 142A-01): EIC-02 decay-curve to hold_max_bars APR calibration + EIC-04 gate script (threshold from APR, not baked in) + EIC-05 diagnosis script (4-section markdown report) + 2 unit test files
 
 ---
@@ -1494,11 +1530,13 @@ Plans:
 
 **Renaissance pre-commitment (ships at Phase 142B launch, before shadow emissions start):**
 Write `docs/plans/SHADOW-REVIEW.md` — a one-page document committed to the repo before any counterfactual data is collected, specifying the exact numeric criteria required for Phase 144 live promotion. Criteria are defined before you can see the data; they are not negotiated post-hoc. Proposed criteria (final values committed in the document):
+
 - ≥ 60 trading days of closed alpha_frames (primary variant)
 - `mean(counterfactual_pnl_r) > 0` at 95% CI (bootstrap, one-tailed) on OOS data
 - Sharpe of counterfactual_pnl_r > 0.5 annualized
 - Max drawdown of cumulative counterfactual_pnl_r < 25%
 - EnsembleICEngine IC Sharpe stable across the shadow period (no cliff in last 20 days)
+
 Post-hoc gate negotiation ("the numbers were close, lower the threshold") is not permitted. If the gate fails, diagnose — don't renegotiate.
 
 **Requirements:**
@@ -1533,6 +1571,7 @@ Exit triggers in priority order: (1) stop hit (`low <= stop_price`); (2) target 
 
 **LIFECYCLE-01 — Feature state machine:**
 States: `candidate` → `active` → `decaying` → `deprecated`. Transitions:
+
 - `candidate → active`: IC Sharpe gate passes (existing Phase 139 logic, already wired)
 - `active → decaying`: IC Sharpe drops below `alpha.ic.decay_ic_sharpe_threshold = 0.0` OR `ic_ci_lower < 0` in rolling window; `decay_detected_at` populated
 - `decaying → active` (recovery): `recovery_eligible_at` must have passed (cooldown) AND IC re-passes gate with `>= alpha.ic.decay_recovery_min_observations = 2000` new independent observations; recovery re-solve uses current data only, no partial restore
@@ -1577,9 +1616,11 @@ Query `feature_ic_scores` directly via SQL for decay analysis. No dashboard infr
 
 **I7-01 — Plugin emission layer removal + IC-informed retirement decisions:**
 For each active I7 plugin, analyze which dimensions in `feature_vectors` encode the same information (by inspecting plugin code directly during this phase) and combine with IC discovery results from Phase 141 CORPUS-04. For each plugin apply one of three outcomes:
+
 - **Retire (default):** Plugin's constituent dimensions are fully captured in `feature_vectors` OR no constituent feature has confirmed IC. Mark `status='deprecated'` in `shadow_registry`, add retirement reason to `config_history`. This should be the outcome for the majority of plugins.
 - **Convert to alpha scorer (exception):** Plugin has confirmed IC on dimensions NOT present in `feature_vectors` — plugin introduces genuinely new information. Replace `if confidence > threshold: emit` with `alpha_score = confidence × direction` computed every bar. No emission decision in the plugin — emission is solely the ensemble's responsibility.
 - **Direct IC measurement (ambiguous):** Plugin logic is ambiguous (>5 constituent features or cross-cutting logic). Treat the plugin's continuous output as a candidate feature and measure its IC directly via the IC engine before deciding. Default to alpha scorer mode during evaluation.
+
 Only plugins in the second or third category justify conversion infrastructure. If all fall in the first, Phase 143.5 is retirement-only — no adapter, no mixing weights, no I7 emission layer changes beyond flagging deprecated.
 
 **I7-02 — signal_events enrichment:**
@@ -1589,6 +1630,7 @@ Add `alpha_score float` column to `signal_events`. Populated prospectively as pl
 `AlphaEmitter` ingests I7 continuous scores as supplementary evidence alongside IC-weighted feature scores. Mixing weights are APR-backed (`alpha.i7.mixing_weight_<plugin_name>`). Default = 0.0 until IC evidence for the continuous score is established.
 
 **I7-04 — Observability during migration:**
+
 - `i7_plugin_mode` gauge per plugin: 1=alpha scorer, 0=legacy emitter
 - `i7_plugin_alpha_score_null_total` counter: detects incomplete conversions at runtime
 - `i7_conversion_complete` gauge: 1 when all plugins converted
@@ -1713,6 +1755,7 @@ Joins `score_cache` to `alpha_events` on (symbol, tf, bar_ts). Writes `alpha_eve
 ~30K compound candidates in a separate BH-FDR pool at FDR=0.05 produces ~1,500 expected false discoveries regardless of pre-screening. BH-FDR was designed for focused hypothesis testing, not combinatorial enumeration — at 30K tests, the correction loses meaningful power-versus-discovery-rate guarantees. Every surviving compound feature would have no stated reason to survive, making it impossible to distinguish genuine signal from leakage. Renaissance does not enumerate pairwise products. They test theory-motivated combinations where the researcher states WHY the compound should predict returns, so the surviving features can be reasoned about and decay patterns explained.
 
 **Theory-Motivated Interaction Layer — design rules:**
+
 - Cap: ≤50 compound interactions defined before any IC measurement begins.
 - Every interaction must have a one-sentence finance-theory hypothesis (example: "momentum_z_fast × low_vol_regime — momentum carries more strongly in calm regimes; Frazzini & Pedersen 2014").
 - Candidate sources: momentum × volatility regime, volume × trend direction, cross-asset divergence × regime transition, breakout × volume confirmation, mean-reversion × regime label, carry × term structure.
