@@ -1,94 +1,121 @@
 # Interaction Factory
 
-**Status:** Idea - not planned
-**Depends on:** Primitives expansion (renaissance-primitives-ohlcv.md), IC engine stable (Phase 138+)
-**Governance:** `docs/ideas/feature-vector-lifecycle.md` — lifecycle states and demotion apply to promoted compound primitives
-**Trigger:** IC engine producing stable results on current 54 features, primitives expansion landed (~100+ tier-0 atomics), corpus complete.
+**Status:** Idea — not planned, no build trigger met
+**Refreshed:** 2026-07-01 — clarified what this actually is, added the missing evidence-based trigger, fixed statistical/architecture gaps, reframed from "a service" to "a candidate-generation strategy"
+**Demotion mechanism:** see "Demotion" section below; implementation tracked at `.planning/todos/deferred/015-feature-vector-lifecycle.md`
 
 ---
 
-## What This Is
+## What This Is, In One Paragraph
 
-The Interaction Factory is a combinatorial expansion layer that generates all N*(N-1)/2 pairwise combinations of atomic primitives — products, ratios, and rolling correlations — and screens them through the IC engine. Survivors become promoted columns in `feature_vectors` alongside the atomic primitives that produced them.
-
-This is distinct from the hand-picked "Interaction Primitives" in `renaissance-primitives-ohlcv.md`. Those are curated based on domain intuition (vol_body_product, price_vol_corr). The Interaction Factory generates everything and lets IC decide what survives. No intuition in, no bias introduced.
-
-With ~100 atomic primitives (current 54 + primitives expansion):
-- Pairs: 100 * 99 / 2 = 4,950
-- Operations: 3 types (product, ratio, correlation)
-- Windows: 2-3 per rolling correlation
-- **Total candidates: ~20,000-30,000**
-
-IC engine screens all of them. Survivors are promoted as compound primitives.
+Interaction Factory is **not a service and not a registry** — it's a *candidate-generation strategy*: a function that mechanically enumerates every valid pairwise combination of atomic features (product, ratio, rolling correlation — roughly 20,000-30,000 candidates at full scale) instead of a human hand-picking which combinations to try, then hands that candidate list to the *existing* IC engine and Concept Registry promotion pipeline for screening. It reuses infrastructure that already exists for every other domain (`feature`, eventually `alpha_pattern`, etc.) rather than standing up parallel machinery. If it's ever built, it should be small: one generator function plus one raw-screening table, not a new subsystem.
 
 ---
 
-## Primitive Taxonomy
+## Why It Might Exist (and Why That's Not Yet Established)
 
-Interactions are **compound primitives** — they are still tier-0 in the feature vector lifecycle. The distinction between atomic and compound is purely about how they are computed, not where they live or how IC treats them. Both kinds land in `feature_vectors` after promotion.
+The stated motivation is bias avoidance: Renaissance's documented practice is to generate candidates systematically and let statistics decide, rather than hand-curating interactions based on domain intuition (which concentrates false confidence on the pairs a human happened to think would work). That's a real principle, but it's not by itself a sufficient reason to spend the compute.
 
-| Kind | Examples | Who computes | Lifecycle |
-|---|---|---|---|
-| Atomic primitive | `body_ratio`, `atr_z`, `volume_z`, `momentum_z_fast` | Feature Factory | Directly computed from OHLCV |
-| Compound primitive | `xf_prod__body_ratio__volume_z`, `xf_corr__ret_lag_fast__atr_z__fast` | Interaction Factory | Deterministic combination of two atomics |
-| Theory-embedded | `poc_dist_atr`, `ctf_*`, `hmm_state` | I5/I7 (archived) | Encodes structural judgment; separate IC track |
-
-The compound/atomic distinction matters for IC clustering analysis: a compound primitive that has IC after controlling for its parent atomics carries genuine incremental information. One that doesn't is collinear with its parents and gets dropped. This is an analysis-time concept, not a schema boundary.
+**The actual justification this doc is missing:** evidence that the atomic feature set (61 features today, ~100 planned after primitives expansion) is IC-saturated — that first-order signal is exhausted and second-order combinations are where the next real IC lives. Nothing currently establishes this. Spending a large compute budget on pairwise combinations of features before confirming the atomics themselves have plateaued is solving the second problem before confirming the first one is solved. This reframes the trigger condition below.
 
 ---
 
-## Three Interaction Operations
+## Build Trigger (evidence-based, not just readiness-based)
+
+Two conditions, both required:
+
+1. **Readiness:** primitives expansion landed (~100+ tier-0 atomics), IC engine stable on the full 58-symbol corpus, Feature Registry (or its Concept Registry successor) providing per-feature sign/scale metadata.
+2. **Evidence of need — concrete pilot, not a vague finding.** `.planning/todos/pending/037-interaction-primitives-pilot-ic-test.md` is the actual test: add the ~20-30 hand-picked interaction primitives already specified in `renaissance-primitives-ohlcv.md` as ordinary Feature Factory columns (trivial cost, zero new infrastructure), and measure their **incremental IC after controlling for parent atomics** (partial correlation, not naive IC — a compound shares variance with its parents by construction, so naive IC overstates its value) through the IC Engine that's already live. If that cheap, favorably-selected cohort shows real incremental IC surviving FDR, that's the evidence to plan the full systematic build. If it shows near-zero incremental IC, shelve Interaction Factory outright — a null result on a hand-picked, domain-intuition-backed cohort is stronger evidence against the premise than a null result on randomly-generated pairs would be.
+
+Do not build the full generator on readiness alone, and do not defer indefinitely without running the cheap test — "someday" is not a decision.
+
+---
+
+## Architecture: A Generator, Not a Service
+
+### First Principle: Atomics Are the Irreducible Information
+
+A compound primitive `xf_prod__body_ratio__volume_z` is entirely determined by `body_ratio` and `volume_z` at the same bar — it contains zero additional information beyond its parent atomic columns. "Never drop data that could contain signal" applies to atomics; compounds are derived, not fundamental. **Atomic primitives are stored; compound primitives are computed on-demand from their parents.** No schema migration per compound, no redundant state that can drift from its definition.
+
+### The Consistency Constraint
+
+If the compound formula is implemented differently in IC screening vs. IC monitoring vs. ensemble inference, training features ≠ inference features — a silent wrong answer, the worst outcome. Solution: **one canonical `CompoundPrimitiveEvaluator`**, called identically in every context.
+
+```python
+# called identically everywhere — no context-specific reimplementation
+value = CompoundPrimitiveEvaluator.evaluate(
+    series_a, series_b, operation="product", window=None
+)
+```
+
+Because atomic columns are stable stored values, recomputing `f_i * f_j` from stored `f_i`/`f_j` gives the exact same result every time — not an approximation, exact. The only exception is if a parent atomic column is redefined, which forces a Feature Factory migration and a full re-screen anyway regardless of how compounds are stored.
+
+### Candidate Generation → Existing Pipeline, Not a New One
+
+The generator's only job is producing a stream of `(feature_a, feature_b, operation, window)` tuples. Everything downstream reuses what already exists:
+
+- **Raw screening** — a lightweight table, outside Concept Registry's scope (same pattern as `feature_ic_scores`):
+
+```sql
+compound_ic_scores (
+    feature_a   TEXT NOT NULL,      -- alphabetically canonical ordering for commutative ops (see below)
+    feature_b   TEXT NOT NULL,
+    operation   TEXT NOT NULL,      -- 'product', 'ratio', 'corr_fast', 'corr_slow'
+    xf_name     TEXT NOT NULL UNIQUE,
+    ic_sharpe   NUMERIC,
+    ic_n        INTEGER,
+    p_value     NUMERIC NOT NULL,   -- raw, pre-correction
+    eval_run_id UUID NOT NULL,      -- ties every row to one batch — see FDR section below
+    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+```
+
+- **Promotion, once Concept Registry ships** — survivors become `domain='feature_interaction'` rows in the unified `concept_registry` (`docs/ideas/concept-governance-registries.md`), through the *same* gate/promotion/decay machinery every other domain uses. `feature_a`/`feature_b`/`operation`/`xf_name` live in `concept_registry.metadata JSONB`; a `concept_registry` row is INSERTed with `status='candidate'` pointing back at its `compound_ic_scores` row. No bespoke lifecycle logic, no separate `compound_primitive_registry` table.
+- **Promotion, interim state (Concept Registry not built, likely true when the pilot or an early full build runs)** — survivors land in the live `feature_registry` instead, as ordinary rows alongside atomic features, governed by whatever demotion mechanism `.planning/todos/deferred/015-feature-vector-lifecycle.md` ships. No separate table needed here either — the interim path reuses live infrastructure exactly like the eventual path reuses Concept Registry.
+
+This is the concrete reason the earlier "is it a service" framing was wrong: the only genuinely new code is the generator and the raw-screening table. Screening, gating, promotion, decay, and knowledge annotation are all inherited for free.
+
+---
+
+## Statistical Correctness (the gaps that actually mattered)
+
+**1. Multiple-testing correction must be explicit and batch-scoped, not implied.** The naive rule "IC Sharpe > gate and p < 0.05," applied uncorrected across ~30,000 candidates, produces roughly 1,000-1,500 false "discoveries" from pure chance even if zero real interaction effects exist. `compound_ic_scores.eval_run_id` above exists specifically so a corpus-level Benjamini-Hochberg FDR correction can be applied across the full batch before any promotion — same principle the IC engine already applies at the corpus level (Phase 142A), extended to cover this specific candidate pool. The corrected significance threshold, not the raw `p < 0.05`, is what gates promotion into `concept_registry`.
+
+**2. Rolling correlation must be explicitly causal.** `corr(f_i, f_j, N)` is only a valid feature if computed strictly trailing — window `[t-N, t]`, never touching `t+1` or later. This project has already had one real look-ahead incident (HMM regime model fitting on the full corpus before its causal decode); an unstated assumption in a second rolling-window computation is worth closing explicitly rather than risking a repeat.
+
+**3. Compute cost needs a real estimate or a two-stage funnel, not a TODO.** "Profile before running at full corpus scale" is not a plan. With ~4,950 pairs × up to 3 operations × 2-3 correlation windows across 58 symbols × 5 timeframes × years of bars, the honest move is a cheap prefilter stage (short-sample or approximate correlation check) to cut the candidate set before committing full walk-forward IC computation to all ~30,000 candidates — not screening everything at full cost by default.
+
+**4. Worker/writer separation follows the project's existing pattern.** The IC sweep is embarrassingly parallel by pair, but per this project's established rule (bitten once already by `regime_writer`), `ProcessPoolExecutor` workers must be compute-only — return `(candidate, ic_sharpe, ic_n, p_value)` tuples to the main process; a single serial connection performs all writes to `compound_ic_scores`. No worker opens a write connection.
+
+**5. Canonical pair ordering avoids doubling compute for free.** Product and correlation are commutative (`f_i * f_j = f_j * f_i`; `corr(f_i,f_j) = corr(f_j,f_i)`); ratio is not (`f_i/f_j ≠ f_j/f_i`, and only one direction is typically valid per the denominator-positivity rule below). The `C(100,2) = 4,950` pair count already assumes unordered pairs — the generator must enforce that explicitly (e.g. `feature_a < feature_b` alphabetically for commutative operations) or risk silently generating and screening both `xf_prod_a__b` and `xf_prod_b__a` as distinct candidates, doubling compute on 2 of 3 operation types for zero additional information.
+
+---
+
+## The Three Interaction Operations
 
 ### 1. Product: f_i × f_j
 
-Captures joint behavior. Most meaningful when both features carry sign — a large positive product means both features agree directionally.
-
-**Valid when:** both features are reasonably bounded or have been z-scored. Unbounded × unbounded produces a heavy-tailed distribution that inflates IC variance. Pre-normalize unbounded inputs before computing products.
-
-**Example:** `body_ratio * volume_z` — directional conviction × volume confirmation. Strong bar with high volume. Neither alone is sufficient.
+Captures joint behavior. Most meaningful when both features carry sign — a large positive product means both features agree directionally. **Valid when** both features are reasonably bounded or z-scored; unbounded × unbounded produces a heavy-tailed distribution that inflates IC variance — pre-normalize unbounded inputs first. Example: `body_ratio * volume_z` — directional conviction × volume confirmation.
 
 ### 2. Ratio: f_i / f_j
 
-Relative magnitude. Encodes "feature i relative to feature j."
+Relative magnitude — "feature i relative to feature j." **Valid when** the denominator is always positive and bounded away from zero. **Valid denominators:** `atr_z + offset`, `volume_z + offset`, any `[0, ∞)` feature with a floor. **Invalid denominators:** `body_ratio`, `ret_lag_fast` (both cross zero). Requires per-feature sign/scale metadata — the Feature Registry / Concept Registry dependency below.
 
-**Valid when:** denominator is always positive and bounded away from zero. Ratios with a denominator that can be near-zero produce extreme values that blow up IC estimates.
+### 3. Rolling Correlation: corr(f_i, f_j, N), strictly trailing
 
-**Valid denominators:** `atr_z + offset`, `volume_z + offset`, any [0, ∞) feature with a floor.
-**Invalid denominators:** `body_ratio` (crosses zero), `ret_lag_fast` (crosses zero), anything centered at 0.
-
-Enforcing this requires feature metadata. The factory must know each feature's sign and range type.
-
-### 3. Rolling Correlation: corr(f_i, f_j, N)
-
-Time-varying joint behavior over a window N. Captures whether two features agree or disagree in a rolling period. When correlation goes from +1 to -1, a regime has shifted even if neither feature alone has changed.
-
-**Valid when:** both features have meaningful variance in the window. Constant features produce undefined correlations.
-
-**Window choices:** fast (APR-backed) and slow (APR-backed) — same gradient naming convention as other features.
-
-**Compute cost:** O(N) per bar per pair. With 4,950 pairs and N=20, this is expensive. Profile before running at full corpus scale.
+Time-varying joint behavior over a causal window ending at the current bar. Captures whether two features agree or disagree in a rolling period — a shift from +1 to -1 signals a regime change even if neither feature alone has moved. **Valid when** both features have meaningful variance in the window; constant features produce undefined correlations. Window choices: `fast`/`slow` (APR-backed: `feature.xf_corr.fast`, `feature.xf_corr.slow`), same gradient convention as other features.
 
 ---
 
-## Feature Metadata Requirements
+## Feature Metadata Dependency
 
-The factory cannot run without knowing each tier-0 feature's properties:
-
-| Property | Values | Used for |
-|---|---|---|
-| `sign_type` | `signed`, `positive`, `bounded_01`, `binary` | Ratio validity, product normalization |
-| `scale` | `z_scored`, `natural_bounded`, `raw_ratio`, `raw_unbounded` | Whether to pre-normalize before product |
-| `has_window` | bool | Whether feature has a time-window parameter |
-
-This is exactly what `docs/ideas/feature-registry.md` (todo 008, implemented) is for. The Interaction Factory depends on the Feature Registry. Without it, the factory has to hardcode scale knowledge for each feature — a maintenance burden as the feature set grows.
-
-**Implementation order:** Feature Registry first, Interaction Factory second.
+The factory cannot run without knowing each atomic feature's `sign_type` (`signed`/`positive`/`bounded_01`/`binary`) and `scale` (`z_scored`/`natural_bounded`/`raw_ratio`/`raw_unbounded`) — this is what determines ratio validity and whether to pre-normalize before a product. This is exactly what Feature Registry (`docs/ideas/feature-registry.md`, live today, 61 rows) already provides, or its eventual Concept Registry successor. Without it, the factory has to hardcode scale knowledge per feature — a maintenance burden that grows with the feature set. **Implementation order, if built: Feature Registry (already satisfied) first, Interaction Factory second.**
 
 ---
 
 ## Naming Convention
 
-Interaction features use the `xf_` prefix (cross-feature):
+`xf_` prefix (cross-feature), double underscore between feature names to avoid collision with feature names that already contain underscores:
 
 ```
 xf_{operation}_{feature_a}__{feature_b}
@@ -98,111 +125,37 @@ xf_{operation}_{feature_a}__{feature_b}_{window}
 - `xf_prod_body_ratio__volume_z` — product, no additional window
 - `xf_ratio_ret_lag_fast__atr_z` — ratio, windows inherited from parents
 - `xf_corr_ret_lag_fast__volume_z__fast` — rolling correlation, fast window
-- `xf_corr_ret_lag_fast__volume_z__slow` — rolling correlation, slow window
-
-Double underscore between feature names avoids collision when feature names themselves contain underscores. The `xf_` prefix ensures no naming collision with tier-0 atomics.
-
-APR keys for correlation windows: `feature.xf_corr.fast`, `feature.xf_corr.slow`.
 
 ---
 
-## Compute and Storage Architecture
+## Why Not Hand-Pick, and Why That's Not the Whole Argument
 
-### First Principle: Atomics Are the Irreducible Information
+Renaissance's documented practice is to generate all candidates systematically and screen with statistics, rather than relying on human intuition — hand-picking introduces survivorship bias before IC even runs, concentrating false confidence in the pairs someone guessed would work. The hand-picked "Interaction Primitives" in `renaissance-primitives-ohlcv.md` (`vol_body_product`, `price_vol_corr`, etc.) are a reasonable starting point and sanity check, but not necessarily the complete tier-1 feature set.
 
-A compound primitive `xf_prod__body_ratio__volume_z` is entirely determined by `body_ratio` and `volume_z` at the same bar. It contains zero additional information beyond its parent atomic columns. The principle "never drop data that could contain signal" applies to atomics — compounds are derived, not fundamental.
-
-Therefore: **atomic primitives are stored; compound primitives are computed on-demand from their parents.** No schema migration per compound, no redundant state that can drift from its definition.
-
-### The Consistency Constraint
-
-On-demand computation has one real risk: if the formula is implemented differently in IC screening vs. IC monitoring vs. ensemble inference, training features ≠ inference features. Silent wrong answer — the worst outcome.
-
-Solution: **one canonical `CompoundPrimitiveEvaluator`** called identically in every context. IC screening, IC monitoring, ensemble training, ensemble inference all import and call the same function. The formula is a tested unit, not an implementation detail scattered across modules.
-
-```python
-# called identically everywhere — no context-specific reimplementation
-value = CompoundPrimitiveEvaluator.evaluate(
-    series_a, series_b, operation="product", window=None
-)
-```
-
-### Registry
-
-**No standalone registry table.** Promoted survivors become `domain='feature_interaction'` rows in the unified `concept_registry` (`docs/ideas/metadata-governance-registries.md`) rather than a separate `compound_primitive_registry` — same shared schema as `feature`, `alpha_pattern`, etc., just a different `domain` value. `feature_a`/`feature_b`/`operation`/`xf_name` live in `concept_registry.metadata JSONB`; `ic_sharpe`/`promoted_at` are what `concept_gate_template` + `concept_transition_log` already track for every domain; `is_active` is `concept_registry.enabled`.
-
-Raw pre-promotion screening (the ~30,000 candidate sweep) stays **outside** the unified registry entirely, in a lightweight `compound_ic_scores` table:
-
-```sql
-compound_ic_scores (
-    feature_a   TEXT NOT NULL,      -- atomic column name in feature_vectors
-    feature_b   TEXT NOT NULL,
-    operation   TEXT NOT NULL,      -- 'product', 'ratio', 'corr_fast', 'corr_slow'
-    xf_name     TEXT NOT NULL UNIQUE,
-    ic_sharpe   NUMERIC,
-    ic_n        INTEGER,
-    eval_run_id UUID,                -- ties to concept_eval_run for FDR/provenance once promoted
-    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-)
-```
-
-Only rows that clear the `feature_interaction` domain's IC-Sharpe-plus-FDR gate get promoted: a `concept_registry` row is INSERTed with `domain='feature_interaction'`, `status='candidate'`, pointing back at its `compound_ic_scores` row via `metadata->>'xf_name'`. From there it goes through the same gate/promotion/decay machinery as every other domain — no bespoke lifecycle logic for interactions.
-
-### IC Sweep
-
-```
-for each symbol:
-    load feature_vectors into memory (N bars × 100 atomic columns)
-    for each valid pair (i, j) × each operation:
-        compute compound series via CompoundPrimitiveEvaluator
-        compute IC against return targets
-    aggregate IC across symbols (pooled, same methodology as Phase 138)
-
-persist: pair-level IC scores in compound_ic_scores (small — 30k rows × a few metrics)
-promote: INSERT to registry, set is_active = true, where IC Sharpe > gate and p < 0.05
-```
-
-The pair loop is embarrassingly parallel by pair, mirroring the existing IC engine. Rolling correlation windows require N-bar history — the in-memory load already provides it.
-
-### Why Recompute Is Correct
-
-Because atomic columns are stable stored values, computing `f_i * f_j` from stored `f_i` and `f_j` gives the exact same result every time. Recompute is not an approximation — it is exact. The only exception would be if a parent atomic column is redefined (which requires a Feature Factory migration and forces a full re-screen anyway). The canonical evaluator is the single point of truth; there is nothing else to drift from.
+That principle argues for *why systematic generation is better than hand-picking, if interaction effects are being pursued at all*. It does not establish *that* they should be pursued right now — see "Build Trigger" above. The two questions are separate; this doc previously conflated them.
 
 ---
 
-## Integration with IC Engine
+## Does This Generalize Beyond Features?
 
-The Interaction Factory is a pre-screening step, not a replacement for the IC engine. It runs once (or periodically when the tier-0 feature set changes), identifies which interactions pass IC gate, and promotes survivors. The IC engine then monitors promoted interactions the same way it monitors tier-0 features.
-
-The pooled IC methodology (Phase 138) applies identically: minimum 20,000 bars, stride ≥ lookahead, `is_pooled = false` results drive promotion decisions.
+Yes, as a *methodology* — "generate candidates combinatorially, screen through the existing gate/promotion pipeline" applies just as well to combining `alpha_pattern`s into meta-patterns or `hmm_variant` configurations as it does to feature pairs. It does **not** generalize as a *service* right now — building a generalized combinatorial-generation subsystem today, for domains (`alpha_pattern`, `hmm_variant`) that have zero real candidates, would repeat the exact premature-abstraction mistake already caught and reversed in Concept Registry's design (see `docs/ideas/concept-governance-registries.md`, "Status check, applied honestly"). If a future domain needs this pattern, it gets its own thin generator function feeding the same shared pipeline — not a shared "Combinatorial Factory" framework built ahead of need.
 
 ---
 
-## Why Not Hand-Pick
+## Concentration Risk (open question, correctly unresolved)
 
-Renaissance's documented behavior: generate all candidates systematically, screen with statistics, never rely on human intuition to decide what to try. Hand-picking introduces survivorship bias before IC even runs — we test the pairs we think will work, which concentrates false confidence in the survivors.
-
-The factory approach generates pairs we would never think to try. Some of them will have IC. Those are exactly the pairs we'd miss with hand-curation.
-
-The current "Interaction Primitives" section in `renaissance-primitives-ohlcv.md` is a reasonable starting point and a useful sanity check, but it should not be the complete tier-1 feature set. Once the factory runs, IC results will show which of the hand-picked pairs were actually predictive vs. which were just intuitively appealing.
+100 atomics + however many promoted compound primitives survive = a larger feature set entering the ensemble. The Correlation Engine's `effective_N` calculation becomes load-bearing — without it, a compound primitive that's highly correlated with its own parents (or with other compounds) inflates apparent diversity without adding real orthogonal information. `concept_correlation` (Concept Registry's reference architecture, not yet built) is the eventual mechanism for this; until then, this remains a genuinely open question rather than a false one, since no compounds exist yet to measure.
 
 ---
 
-## Implementation Scope
+## Demotion — Why Compound Primitives Make This Urgent, Not Just Relevant
 
-When this gets planned as a phase, the scope is:
+Promotion alone is not a complete lifecycle. Right now, in the live system, a feature that clears the IC gate once stays in the ensemble forever — the demotion side is unwired (full mechanism and design decisions: `docs/ideas/feature-vector-lifecycle.md`, implementation tracked at `.planning/todos/deferred/015-feature-vector-lifecycle.md`). With 61-100 hand-reasoned atomic features, an analyst could plausibly notice a stale feature by inspection. That stops being true the moment compound primitives enter the picture: even a modest, FDR-corrected survivor count (see "Build Trigger" — realistically single digits to low tens after proper correction, not hundreds) means the ensemble now contains features nobody chose by hand and nobody is positioned to notice decaying by inspection. A compound primitive's edge can disappear silently — its parent atomics still update every bar, the compound still computes a number, but the *relationship* that gave it IC in the first place can erode without any visible symptom short of an actual re-measurement.
 
-1. **Feature metadata**: add scale/sign metadata to all tier-0 features (may be delivered by Feature Registry phase first)
-2. **Pair generator**: enumerate all valid pairs by operation type, applying ratio/product validity rules from metadata
-3. **Streaming IC sweep**: integrate with Phase 138 IC engine infrastructure; compute pair IC without persisting intermediate vectors
-4. **IC score table**: persist pair-level results (`xf_ic_scores` or extend `feature_ic_scores`)
-5. **Promotion mechanism**: flag surviving pairs, trigger Feature Factory schema expansion, run backfill
-
-Not in scope for initial phase: multi-way interactions (3+ features), interaction features with theory-embedded inputs, runtime computation in production alpha pipeline.
+This mechanism doesn't need Interaction Factory to justify building it — it's needed for the 61 atomic features already in production today, independent of whether compound primitives ever exist, and P2-tracked at todo 015 regardless of this doc's own status. Interaction Factory is only the reason demotion stops being optional-nice-to-have and becomes a real risk if skipped: more features, none hand-reasoned, none easy to eyeball. That's the whole contribution this section makes — a reason to prioritize 015, not a restatement of what 015 already covers.
 
 ---
 
-## Open Questions
+## Not In Scope
 
-- **Does the Feature Factory compute compound primitives inline, or is there a separate `InteractionFactory` batch service?** Probably a separate service — the computation graph for ~30k candidates is different enough from 54 atomics to warrant its own service unit.
-- **How do we handle the feature explosion in the ensemble?** 100 atomics + 500 promoted compound primitives = 600 features going into the ensemble. The Correlation Engine's effective_N calculation becomes critical. May need additional constraints on how many compound primitives per parent atomic can enter the ensemble (concentration risk).
+Multi-way interactions (3+ features), interaction features with theory-embedded inputs (HMM state, S/R zones — those have their own governance track), runtime computation in the production alpha pipeline (compounds are screening-time and training-time only, recomputed from stored atomics, never persisted as a separate hot-path computation).
