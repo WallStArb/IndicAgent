@@ -16,6 +16,38 @@ empirical questions at once. All are query + APR write — no code changes.
 
 See hypothesis context: `docs/plans/2026-06-30-alphaengine-methodology-hypotheses.md`
 
+**Reframed 2026-07-01 — this todo is the cheapest falsification test in the backlog; run
+Step 0 first.** Steps 1-3 calibrate against the *internal* score distribution; none compare
+IC-implied returns against *external* costs (spread), which is the test that could kill an
+entire timeframe. Gross IC of 0.02-0.08 at 5m on ETFs is plausibly eaten whole by
+half-spread. If Step 0 shows 5m (and possibly 15m) net-negative across the board, concentrate
+feature/compute budget on 1h/1d — a conclusion worth reaching BEFORE more 5m-heavy work
+(backfill deepening, per-symbol regime IC runs) is invested. See
+`docs/ideas/edge-source-thesis.md` — every edge thesis dies or survives at a different rate
+once gross IC becomes net E[R] per tf.
+
+---
+
+## Step 0 — External Cost Floor vs IC-Implied Returns (run first)
+
+Per tf, compare what qualifying features imply in return units against realistic round-trip
+cost:
+
+1. **IC-implied gross E[R] per trade:** for qualifying cells (`passes_ci_gate AND
+   passes_fdr`), `E[R] ≈ ic_value × stddev(forward_return)` for that (tf, lookahead) — the
+   standard IC-to-return conversion. Query `forward_returns` for return stddev per
+   tf/lookahead; multiply by IC (haircut mentally for selection bias until shrinkage ships).
+2. **Cost floor per round trip:** half-spread × 2 + slippage estimate. Liquid half of the
+   universe ~1 tick spreads (SPY ~0.3bp, sector ETFs ~1-2bp, less-liquid internationals
+   ~3-5bp half-spread); pull actual quotes from IBKR where uncertain.
+3. **Verdict per tf:** median IC-implied E[R] of qualifying cells vs cost floor. Net-negative
+   at the median → that tf's features are not tradeable as *directional* signals at current
+   IC levels; record the verdict here and in `docs/ideas/edge-source-thesis.md`.
+   (Cross-sectional spread portfolios have different cost dynamics — a 5m directional fail
+   does not kill 5m for the PortfolioTrack; record as tf-directional-fail specifically.)
+
+No APR write from Step 0 — it is a verdict, not a calibration. Steps 1-3 remain as below.
+
 ---
 
 ## Step 1 — Cost Hurdle Calibration

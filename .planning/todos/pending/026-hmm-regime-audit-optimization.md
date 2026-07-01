@@ -61,6 +61,19 @@ See plan doc for full implementation notes and APR keys.
 
 ### How to validate (when IC data exists)
 
+**Blocking fact (found 2026-07-01):** the Step 1 query below cannot run against the current
+corpus as written — `feature_ic_scores.regime` contains only the 9 cross-sectional labels plus
+`_pooled`; zero rows carry the 5 per-symbol HMM labels, because `equity_model_enabled=true`
+makes ic_engine stratify exclusively on `market_regimes`. The HMM labels feed nothing IC
+measures, so the circle "labels feed IC, IC validates labels" is currently broken in the
+degenerate direction: no validation data exists at all. Two ways to produce it:
+(a) scoped ic_engine run with `alpha.regime.equity_model_enabled=false` (falls back to
+`feature_vectors.regime`; HMM label strings are disjoint from cross-sectional ones, so rows
+add alongside existing data without collision — flip the flag back after); or
+(b) a direct diagnostic query joining `feature_vectors.regime` to `forward_returns`,
+bypassing feature_ic_scores. Option (a) preferred — it exercises the real machinery. Expect
+thin cells at 5m/15m per symbol; consider running after any 5m history backfill deepening.
+
 **Step 1 — Measure baseline separation (5 min):**
 ```sql
 SELECT regime, AVG(ic_value) as mean_ic, STDDEV(ic_value) as ic_std, COUNT(*) as n

@@ -56,6 +56,24 @@ An institutional-alignment review of intel-10 (2026-07-01) concluded:
   bar, consumed by a portfolio constructor — not events, positions. The forecast layer and the
   portfolio layer ship together; the review's sharpest point was that a firm would never call
   the forecast "terminal."
+- **Why this track may not be optional (added 2026-07-01):** per-symbol directional trading
+  is the *hardest* way to monetize small IC — it requires each symbol's signal to overcome
+  that symbol's full volatility plus market beta. Cross-sectional long-short on a 58-ETF
+  universe is far more forgiving: relative-value ranking cancels idiosyncratic noise and
+  hedges beta, so an IC too weak to trade directionally can still pay as a spread. Edge
+  thesis T3 (`docs/ideas/edge-source-thesis.md`) — relative mispricing across correlated
+  instruments — is only testable through this track at all. If T3 is where the edge actually
+  lives, DiscreteTrack alone would conclude "no edge" while a spread portfolio on the same
+  features makes money. That asymmetry, not institutional convention, is the strongest
+  argument for scoping PortfolioTrack.
+- **The combiner is the shared weak point (added 2026-07-01):** both tracks currently
+  inherit `alpha_score` = IC-weighted linear sum of z-scores — no units, no interaction
+  capture, weights from raw selected ICs. The upgrade path is shared and sequenced:
+  (1) shrunk weights (`ic_shrunk`, feature-scoring-beyond-ic 0b), (2) calibrated output in
+  return units (0c — required before either track can size or cost-gate), (3) only then a
+  learned non-linear combiner, evaluated by incremental out-of-fold R² over the calibrated
+  linear baseline, never adopted on in-sample fit. A fancier combiner before calibration is
+  polishing an instrument with no units.
 - **What it adds that DiscreteTrack structurally cannot:**
   - Cross-sectional netting: long the top of the forecast ranking, short the bottom, so
     idiosyncratic noise cancels and the market factor is hedged — the core stat-arb mechanic.
