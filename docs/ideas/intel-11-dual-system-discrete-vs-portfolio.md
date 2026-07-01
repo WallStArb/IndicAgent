@@ -105,6 +105,23 @@ An institutional-alignment review of intel-10 (2026-07-01) concluded:
   scale). PortfolioTrack gets scoped only after Phase 142A proves ensemble OOS IC — at which
   point the first concrete deliverable is a design doc for the portfolio constructor, not code.
 
+## One Model, One Book (invariant, added 2026-07-01 Simons-lens review)
+
+The two tracks here — plus AlphaEngine/AnalogEngine, two regime systems, and v2.x remnants —
+create a proliferation risk: parallel systems each with its own validation path and implicit
+P&L. Medallion's under-appreciated property was the opposite: a *single* integrated model and
+one book; every signal competed inside one framework. The invariant to hold from now on:
+
+- **One forecast per (symbol, tf, bar) is the end state.** AnalogEngine scores, confluence
+  events, ensemble scores — all are *inputs* to one combined forecast, never parallel forecasts
+  with separate consumers.
+- **One P&L.** Research tracks may shadow-measure independently (that's their job), but nothing
+  goes live as a second book. DiscreteTrack occurrences and PortfolioTrack positions ultimately
+  settle into the same accounting.
+- **Merging late is the expensive order.** Any new system proposal must state at creation how
+  it feeds the single forecast/book — "we'll integrate it later" is the failure mode this
+  invariant exists to block.
+
 ## Decision This Doc Records
 
 Do not force intel-10 to grow portfolio semantics, and do not dismiss the portfolio track as

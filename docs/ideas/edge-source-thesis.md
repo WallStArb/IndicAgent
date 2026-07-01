@@ -100,6 +100,23 @@ IC-weighted combiner; the institutions we'd be beating run more). Any future the
 structure (T2) or the AnalogEngine's non-parametric retrieval — not assert generic model
 superiority.
 
+## Breadth Is the Binding Constraint (added 2026-07-01, Simons-lens review)
+
+Whatever thesis survives, the arithmetic above it is fixed: IR ≈ IC × √(effective breadth).
+This universe has effective breadth ~8-15 (58 correlated ETFs; Phase 152's 79 barely moves it —
+more sector funds are more of the same bets). At IC ≈ 0.03 and breadth 10, there is almost
+nothing to harvest; at breadth 300, the *same IC* is a business. Medallion's expansion to
+higher frequency and thousands of instruments was this arithmetic, not bigger edges. The
+concrete long-term move this pipeline is well-positioned for: liquid single-name equities
+(e.g., S&P 500 constituents) for cross-sectional work — the pipeline is symbol-agnostic and
+the trade-construction layer is exactly what monetizes wide universes.
+
+**Sequencing decision (operator, 2026-07-01):** universe expansion waits until the end-to-end
+system is proven — pipeline through P&L, validated through the canonical simulator
+(`docs/ideas/canonical-simulator.md`). Multiplying the universe before the path is trusted
+multiplies unvalidated machinery, not returns. Breadth is the biggest lever; it is deliberately
+pulled last.
+
 ## What This Doc Demands From the Roadmap
 
 1. **Todo 030's external cost floor runs first** — T1-T4 all die or survive at different

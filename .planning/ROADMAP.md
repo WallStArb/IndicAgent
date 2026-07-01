@@ -1829,6 +1829,13 @@ Tags that are fully computable from the factor vector (all 8 OLS betas) must not
 
 **Goal:** Add 21 new ETFs (commodity, international, FX, factor) with fine-grained tag_vocabulary entries for the Phase 151 regime groups. Migration 188. Full design: `docs/plans/2026-06-27-etf-universe-expansion.md`.
 
+**Sequencing decision (operator, 2026-07-01):** universe expansion (this phase, and any future
+single-name expansion beyond it) waits until the end-to-end system is proven — pipeline through
+P&L, validated via the canonical simulator concept (`docs/ideas/canonical-simulator.md`).
+Breadth is the biggest lever on IR (see `docs/ideas/edge-source-thesis.md`, breadth section)
+and is deliberately pulled last: multiplying the universe before the path is trusted multiplies
+unvalidated machinery, not returns.
+
 ### Phase 149: Alternative Data Vectors 📋 PLANNED
 
 **Goal:** Add new IC-measurable signal sources to the vector-agnostic architecture. Each vector enters at weight=0, earns weight through IC measurement independently, and never blends with price IC until independently validated. Recommended order: Flows first (highest signal/infra delta ratio), then Kalshi as regime conditioning, then Fundamentals.

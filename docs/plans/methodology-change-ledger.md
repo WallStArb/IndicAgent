@@ -29,6 +29,14 @@ never touched by any iteration), but the OOS window can only be spent once per m
 This ledger tells us how much selection pressure the in-sample machinery has accumulated,
 i.e., how skeptical to be when we finally spend it.
 
+**The operational fix that makes this ledger shrink (2026-07-01, Simons-lens review): freeze
+the method, automate the cadence.** Most result-driven methodology tweaks happen because a
+rebuild/refresh is a manually-triggered event — every run is an occasion to fiddle. Once the
+methodology stabilizes (post-Phase-B), ic_engine/ensemble refresh becomes a boring scheduled
+job with the method frozen; changes then require a deliberate act that lands here, instead of
+a temptation that accompanies every manual run. Staleness is also an error: a model running on
+last month's weights is a silent methodology choice too.
+
 ---
 
 ## Retrospective Entries (reconstructed 2026-07-01)
