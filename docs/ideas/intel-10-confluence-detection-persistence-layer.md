@@ -60,6 +60,16 @@ enforced by machinery, not review meetings.
 
 ## The Statistical Object
 
+**Governance note (2026-07-01):** this object's lifecycle is a Concept Registry domain — see
+`docs/ideas/concept-governance-registries.md`, which generalizes exactly this pattern
+(evidence-gated lifecycle + knowledge annotations) across research domains, and whose own build
+trigger names "domain #2 with real candidates" as the go signal. If this doc reaches build stage
+first, implement the lifecycle in the registry's four-table MVP shape
+(concept_registry/concept_gate/concept_transition_log/concept_annotation), not as bespoke
+confluence tables. The `decaying` state below maps onto the registry's status enum as a
+transition pattern (active → shadow_only re-entry), not a new status — see the mapping note in
+that doc's MVP section.
+
 A **confluence** `C_i` is a tuple:
 
 ```

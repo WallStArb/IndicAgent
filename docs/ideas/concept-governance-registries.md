@@ -132,6 +132,22 @@ No `concept_gate_template` (per-concept gates are fine at low volume), no separa
 
 **Build trigger:** domain #2 gets real candidates — most likely `alpha_pattern`, once `alpha_events` stabilizes and a self-improving agent (see below) starts proposing patterns. Build the minimal version informed by what that domain actually needs, not by what we imagined `feature_interaction` might need at 30,000-candidate scale.
 
+**Domain #2 has a concrete candidate spec now (2026-07-01, later same day):**
+`docs/ideas/intel-10-confluence-detection-persistence-layer.md` defines validated confluences as
+governed statistical objects with their own lifecycle (`candidate → shadow → active → decaying →
+retired`), gates, provenance, and decay governance — that is a Concept Registry domain
+(`confluence`, or `alpha_pattern` if merged), specced independently the same day this doc was
+refreshed. **Rule to prevent divergence:** if intel-10 reaches build stage before Concept Registry
+exists, its lifecycle tables ARE the Concept Registry MVP instantiated for one domain — build them
+in the four-table generalized shape (concept_registry/concept_gate/concept_transition_log/
+concept_annotation), not as bespoke confluence tables that need migrating later. One mapping
+question to settle at build time: intel-10 uses a `decaying` *status* (weight-consumers stop
+reading, but the concept still fires and records occurrences); this registry deliberately has no
+such status — decay lives in `decay_ratio` + demotion. intel-10's `decaying` is closest to
+`shadow_only` re-entered from `active` (live-observed, not acted on), which suggests the enum
+survives unchanged and `decaying` is a transition pattern, not a new state — but decide against
+that domain's real needs, not by assertion here.
+
 ### Promotion/Demotion Design for Autonomous Self-Improvement
 
 This is the part of the design that's actually worth thinking hard about now, because it's the part that changes shape once the proposer is an AI agent instead of a human researching by hand — everything above this section is infrastructure that can wait; this section is a set of invariants that need to be right from the first line of code, because retrofitting them after an autonomous agent has been proposing and promoting concepts for a while means auditing a history you can no longer fully trust.
@@ -205,7 +221,7 @@ CREATE TABLE concept_registry (
 
 **`enabled`** is independent of `status`. An `active` concept can be disabled without demotion. A `candidate` can run in shadow before formal promotion. The evaluation engine skips `enabled = false` entirely.
 
-**`parent_concept_id`** creates a research lineage tree. When an HMM variant is iterated, the revision references the prior version. History is navigable. **Cardinality caveat:** this is a single-parent FK, but `feature_registry.parent_features` is `text[]` — a compound primitive like `xf_prod__body_ratio__volume_z` has two parents by definition. Zero live features exercise this today (checked: `array_length(parent_features, 1) > 1` returns no rows), so it's not an active migration blocker, but `concept_dependency`'s `uses_feature` edge type (in the reference architecture, not the MVP) is the correct home for multi-parent relationships once Interaction Factory produces compound features — `parent_concept_id` should stay reserved for true single-lineage iteration (HMM variant v2 replacing v1), not composition.
+**`parent_concept_id`** creates a research lineage tree. When an HMM variant is iterated, the revision references the prior version. History is navigable. **Cardinality caveat:** this is a single-parent FK, but `feature_registry.parent_features` is `text[]` — a compound primitive like `xf_prod_body_ratio__volume_z` (naming per `interaction-factory.md`: single underscore after the operation, double underscore between parent names) has two parents by definition. Zero live features exercise this today (checked: `array_length(parent_features, 1) > 1` returns no rows), so it's not an active migration blocker, but `concept_dependency`'s `uses_feature` edge type (in the reference architecture, not the MVP) is the correct home for multi-parent relationships once Interaction Factory produces compound features — `parent_concept_id` should stay reserved for true single-lineage iteration (HMM variant v2 replacing v1), not composition.
 
 **`redundancy_group`** prevents silent over-fitting. Concepts in the same group compete — only one holds `active`. **Scoped to a single domain** — a `redundancy_group` spanning `alpha_pattern` and `hmm_variant` has no coherent meaning; different gate metrics, different eval methods, nothing to compare. Enforced with `CHECK` at the service layer: all members of a `redundancy_group` must share `domain`. When a new concept earns promotion, it displaces the incumbent unless `concept_correlation` (below) shows their correlation is under threshold — this is evidence looked up, not an assumption made.
 
@@ -262,7 +278,7 @@ CREATE TABLE concept_gate (
 
 **`min_promotion_consecutive`** — N consecutive evaluations above threshold before promotion fires. Default 3. One good evaluation proves nothing.
 
-**`regime_scope`** — an edge that works only in trending regime is a real edge. Governing it conditionally is more honest than forcing it through an unconditional gate it cannot pass. Template-level, since it's concept-specific by nature, has no domain default.
+**`regime_scope`** — an edge that works only in trending regime is a real edge. Governing it conditionally is more honest than forcing it through an unconditional gate it cannot pass. Template-level, since it's concept-specific by nature, has no domain default. **(2026-07-01, second pass) a bare label is ambiguous under the multi-dimension stratification roadmap:** today the per-symbol HMM labels (`trending_up`...) and cross-sectional labels (`high_bear`...) happen to be disjoint strings, but `docs/plans/2026-06-29-regime-stratification-alternatives.md` adds more dimensions (volatility_regime, dispersion_regime) whose bucket names can collide. Qualify with the stratification dimension — `market_regimes:high_bear`, `hmm:trending_up`, `volatility_regime:high` — or split into `(regime_dimension, regime_label)` columns at build time.
 
 **`decay_floor`** — when `current_metric / baseline_metric_at_promotion < decay_floor`, decay demotion fires immediately without waiting for `demotion_consecutive`. Zombie edges die fast.
 
@@ -280,6 +296,12 @@ CREATE TABLE concept_eval_run (
     eval_run_id        UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     domain              TEXT         NOT NULL,
     corpus_build_ref    TEXT         NOT NULL,   -- ties to the ic_engine/corpus rebuild that produced the inputs
+                                                 -- (2026-07-01) this already has a live implementation: the
+                                                 -- CorpusManifest system (.planning/corpus_manifests/*.json,
+                                                 -- src/observability/corpus_manifest.py) written by ic_engine/
+                                                 -- ensemble_trainer/alpha_publisher today — use the manifest
+                                                 -- identity/timestamp, don't invent a parallel identifier.
+                                                 -- Invariant 2's "corpus must have advanced" check compares this.
     n_candidates_in_run INTEGER      NOT NULL,
     fdr_alpha           FLOAT        NOT NULL DEFAULT 0.05,
     started_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -310,6 +332,16 @@ CREATE TABLE concept_eval_state (
 ```
 
 **`baseline_metric`** is written once at promotion and never updated. `decay_ratio` is derived from it every cycle. When `decay_ratio < decay_floor`, the engine fires a decay demotion immediately.
+
+**Winner's-curse correction on the baseline (added 2026-07-01, second pass):** a concept promotes
+exactly when its measured metric is high — which is partly luck (the promotion gate selects on the
+metric, so the promotion-time value is biased upward by construction). If `baseline_metric` stores
+the raw promotion-time value, `decay_ratio`'s denominator is systematically inflated and decay
+demotions will fire on pure regression-to-the-mean, killing healthy concepts. `baseline_metric`
+must store the *shrunk* estimate (empirical-Bayes toward the domain/regime prior, weighted by
+effective N — same mechanism as `docs/plans/2026-06-29-feature-scoring-beyond-ic.md` §0b) or,
+minimally, the mean of the `min_promotion_consecutive` evaluations rather than the final one.
+This applies equally to the MVP's `concept_gate` last-eval cache columns.
 
 **Original design flaw, fixed by `concept_eval_run`:** this table was previously described as "overwritten each cycle — not audit data," which meant a concept sitting `active` for months with slowly eroding IC that never crosses the demotion threshold had its entire decay trajectory silently lost — visible only if a transition eventually fired. That directly contradicted the "never drop data that could contain signal" principle. Every eval cycle now writes a durable row keyed by `eval_run_id` (in `concept_regime_ic` for the regime-stratified numbers, or a lightweight `concept_eval_run` join for the scalar gate metric) — `concept_eval_state` is free to be "just the latest" because the full curve is reconstructable elsewhere.
 
@@ -559,6 +591,39 @@ Shadow Registry (`shadow_registry`) is **not** migrated — see Registry Taxonom
 12. **Interaction Factory's own design was unclear about what it actually was and whether it was justified**, which fed two circular-reasoning references in this doc (`concept_gate_template` and `concept_correlation`'s rationale, both citing IF's 30K-candidate scale to justify reference-architecture tables while IF itself was unbuilt and its need unproven). Rewrote `interaction-factory.md`: reframed from "a service" to "a candidate-generation strategy" that reuses the existing IC engine + Concept Registry pipeline rather than duplicating it; added an evidence-based build trigger (documented atomic-feature IC saturation, not just readiness); fixed a real statistical gap (no explicit batch-level FDR correction in the stated promotion rule — naive `p<0.05` across 30K candidates produces ~1,000-1,500 false discoveries by chance alone) and an unstated look-ahead risk (rolling correlation window must be explicitly causal). This doc's two circular references now note explicitly that they describe conditional, not-currently-justified reference material.
 
 What was already right and left unchanged: `trigger_reason` in `concept_transition_log` (not `status`) is the correct place to distinguish "demoted after decay" from "never promoted" — resisted the urge to add complexity to the status enum.
+
+### Second review pass (2026-07-01, later same day — findings from cross-checking against work done since the morning refresh)
+
+13. **intel-10 is domain #2 arriving.** The confluence detection/persistence layer
+    (`docs/ideas/intel-10-confluence-detection-persistence-layer.md`, written the same day)
+    independently specced a full lifecycle-governed object — exactly what this registry
+    generalizes. Anti-divergence rule and status-enum mapping added at the MVP build trigger
+    above. Without this cross-reference, the two designs would have produced the bespoke
+    per-domain duplication this registry exists to prevent.
+14. **`baseline_metric` had a winner's-curse flaw.** Raw promotion-time metric as the decay
+    denominator fires false demotions on regression-to-the-mean. Fixed inline at
+    `concept_eval_state`: store the shrunk estimate (feature-scoring-beyond-ic §0b machinery).
+15. **The evaluation engine is load-bearing and unspecified.** All six self-improvement
+    invariants delegate to "the deterministic evaluation engine" — no doc names the service,
+    its cadence, its Ring placement, or oneshot-vs-daemon shape. The ten tables are storage;
+    the engine is the system. This is an acknowledged open gap, to be specced when the MVP
+    build trigger fires — likely a `BaseBatch` oneshot per this project's conventions, but
+    that's a guess, not a decision.
+16. **`corpus_build_ref` doesn't need inventing** — the live CorpusManifest system is the
+    identifier. Noted inline at `concept_eval_run`.
+17. **`regime_scope` needs a dimension qualifier** before additional stratification dimensions
+    land (P1 volatility_regime etc.) — bare labels are only unambiguous today by accident.
+    Noted inline at `concept_gate`.
+18. **Pipeline-level methodology changes are invisible to this schema by design — and that's
+    fine, but only because a sibling doc now covers them.** `concept_transition_log` audits
+    per-concept state changes; a change to a `concept_gate_template` (or to the eval
+    methodology itself) affects every concept in a domain and shows up in no per-concept log.
+    That grain is covered by `docs/plans/methodology-change-ledger.md` (created the same day):
+    gate-template changes and eval-methodology changes get ledger entries there. The two are
+    complementary grains of the same audit discipline, not alternatives.
+19. **Naming inconsistency with interaction-factory.md fixed** — this doc wrote
+    `xf_prod__body_ratio__volume_z` (double underscore after operation); the convention is
+    `xf_prod_body_ratio__volume_z` (single after operation, double between parents).
 
 ### Dependency
 
