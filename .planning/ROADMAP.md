@@ -1232,7 +1232,7 @@ Full details: `.planning/milestones/v3.0-ROADMAP.md`
 
 - [ ] **Phase 149A: DistributionDriftMonitor** — Regime-conditioned KS + chi-squared + signed Wasserstein on all 54 features; adaptive penalties (APR-scaled by Wasserstein magnitude); piggybacked recovery; `indicagent-integrity-monitor` service skeleton — see `docs/plans/2026-06-27-health-guardian-design.md`
 - [ ] **Phase 149B: ICLifecycleMonitor** — Shadow governance: `active → shadow → active` (evidence-based, no cooldown); `pre_shadow_weight` restored on promotion; `shadow_corpus_runs` deprecation gate; rename `is_decaying → is_shadowed` — see `docs/plans/2026-06-27-health-guardian-design.md`
-- [ ] **Phase 150: EnsembleHealthMonitor** — 3-gate AND logic (E1: IC Sharpe, E2: regime-conditioned conviction stability, E3: non-shadow coverage); halt/reduce via APR keys; requires Phase 142A (`alpha_ensemble_ic`) — see `docs/plans/2026-06-27-health-guardian-design.md`
+- [x] **Phase 150: EnsembleHealthMonitor** — 3-gate AND logic (E1: IC Sharpe, E2: regime-conditioned conviction stability, E3: non-shadow coverage); halt/reduce via APR keys; requires Phase 142A (`alpha_ensemble_ic`) — see `docs/plans/2026-06-27-health-guardian-design.md` (completed 2026-07-02)
 
 **Dependencies:** Phase 142A (`alpha_ensemble_ic` table exists) for Phase 150 only; 149A and 149B independent
 
@@ -1530,7 +1530,7 @@ When EIC-04 fails, run structured diagnosis (output as a markdown report) before
 
 This script ships with Wave 2. "Diagnose ensemble" without this structure wastes a week chasing the wrong layer.
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -1539,7 +1539,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 142A-02-PLAN.md — Wave 2 (depends on 142A-01): EIC-02 decay-curve to hold_max_bars APR calibration + EIC-04 gate script (threshold from APR, not baked in) + EIC-05 diagnosis script (4-section markdown report) + 2 unit test files
+- [x] 142A-02-PLAN.md — Wave 2 (depends on 142A-01): EIC-02 decay-curve to hold_max_bars APR calibration + EIC-04 gate script (threshold from APR, not baked in) + EIC-05 diagnosis script (4-section markdown report) + 2 unit test files
 
 ---
 
