@@ -262,6 +262,12 @@ async def _run_emitter_with_single_row(
     with (
         patch("services.alpha_publisher.Settings", return_value=settings_mock),
         patch("services.alpha_publisher.KafkaProducerClient", return_value=mock_producer),
+        # Without this, CorpusManifest("alpha_publisher", Path(".planning/corpus_manifests"))
+        # writes a REAL file at that hardcoded, repo-relative path on every test run,
+        # silently overwriting the real corpus pipeline's manifest with fake test-fixture
+        # row counts (found 2026-07-02: a "1 row" manifest with no matching real run in any
+        # log turned out to be exactly this test suite executing, not a data-loss bug).
+        patch("services.alpha_publisher.CorpusManifest", return_value=MagicMock()),
     ):
         await emitter.execute(mock_pool)
 
