@@ -129,6 +129,21 @@ _CROSS_SECTIONAL_SYMBOL = "POOLED"
 # Phase 141 CORPUS-01 audit must scope its intraday-autocorrelation check to exclude these features.
 CONTEXT_FEATURES: frozenset[str] = frozenset(["flight_quality", "vix_z", "yield_slope_z"])
 
+
+def _resolve_regime_scope(is_pooled: bool, cross_sectional: bool) -> str:
+    """Resolve the label vocabulary a feature_ic_scores row's regime column draws from.
+
+    Scope reflects the label SOURCE (regime_label_source / mr_dict presence at compute
+    time), never the label string itself -- see migration 192 rationale. Fixed schema
+    enum values, not APR-backed (statistical concept definitions, not tunable params).
+    """
+    if is_pooled:
+        return "pooled"
+    if cross_sectional:
+        return "cross_sectional"
+    return "symbol_hmm"
+
+
 # ---------------------------------------------------------------------------
 # Module-level INSERT SQL (shared body; conflict clause differs by row type)
 # ---------------------------------------------------------------------------
@@ -140,7 +155,7 @@ _INSERT_BODY = """
         ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate,
         bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, passes_walkforward,
         ic_sharpe, ic_sharpe_hac, ic_sharpe_n_windows, ic_sortino, ic_win_rate,
-        regime_label_source, computed_at, cluster_id, feature_status_at_eval
+        regime_label_source, computed_at, cluster_id, feature_status_at_eval, regime_scope
     )
     VALUES (
         %(feature_name)s, %(vector_domain)s, %(symbol)s, %(tf)s, %(regime)s,
@@ -150,7 +165,7 @@ _INSERT_BODY = """
         %(passes_fdr)s, %(wf_fold_count)s, %(wf_pass_count)s, %(passes_walkforward)s,
         %(ic_sharpe)s, %(ic_sharpe_hac)s, %(ic_sharpe_n_windows)s, %(ic_sortino)s, %(ic_win_rate)s,
         %(regime_label_source)s, %(computed_at)s, %(cluster_id)s,
-        %(feature_status_at_eval)s
+        %(feature_status_at_eval)s, %(regime_scope)s
     )
 """
 _POOLED_INSERT_SQL = (
@@ -768,7 +783,10 @@ def _compute_symbol_tf(
         # Regime source: market_regimes (cross-sectional) or feature_vectors.regime (per-symbol).
         # When mr_dict is provided, map each aligned bar_ts to its cross-sectional regime.
         # Bars without a market_regimes entry get None (excluded from regime-stratified IC).
-        if mr_dict is not None:
+        # cross_sectional feeds _resolve_regime_scope for every non-pooled row this
+        # (symbol, tf) computes -- it reflects the label SOURCE, not the label string.
+        cross_sectional = mr_dict is not None
+        if cross_sectional:
             # equity_model_enabled=True: use cross-sectional labels from market_regimes
             regime_aligned_market = np.array([mr_dict.get(ts) for ts in bar_ts_aligned])
             distinct_regimes = [r for r in set(regime_aligned_market) if r is not None]
@@ -1025,6 +1043,7 @@ def _compute_symbol_tf(
                                 if feature_status_map is not None
                                 else "unknown"
                             ),
+                            "regime_scope": _resolve_regime_scope(is_pooled, cross_sectional),
                         }
                     )
 
@@ -1221,6 +1240,7 @@ def _compute_symbol_tf(
                             if feature_status_map is not None
                             else "unknown"
                         ),
+                        "regime_scope": "pooled",
                     }
                 )
 
@@ -1629,6 +1649,7 @@ def _compute_cross_sectional_tf(
                         if feature_status_map is not None
                         else "unknown"
                     ),
+                    "regime_scope": "cross_sectional",
                 }
             )
 
