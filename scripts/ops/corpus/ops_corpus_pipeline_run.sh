@@ -239,6 +239,29 @@ fi
 echo "======================================"
 echo
 
+# WEIGHT_EPOCH — per-run weight epoch derived from the (clamped) freeze point.
+# Boundary identity, not a globally unique per-run ID: two runs sharing the same
+# TRAINING_WINDOW_END share one epoch by design — ensemble_trainer's DO UPDATE upsert
+# makes a same-epoch re-run idempotent (overwrite, not collide). Threaded to BOTH
+# ensemble_trainer (step 5, producer) and alpha_publisher (step 6, consumer) so they
+# always agree on the same weight_version — closing the silent-staleness trap at both
+# the training write and the emission event_id.
+#
+# Pure digit extraction of the freeze timestamp — deterministic, filesystem/PK-safe,
+# no arithmetic (no off-by-one surface).
+WEIGHT_EPOCH="run_$(echo "$TRAINING_WINDOW_END" | tr -cd '0-9')"
+
+if [ -z "$TRAINING_WINDOW_END" ] || [ "$WEIGHT_EPOCH" = "run_" ]; then
+    echo "FATAL: WEIGHT_EPOCH is empty/malformed (TRAINING_WINDOW_END='$TRAINING_WINDOW_END') — refusing to run trainer/publisher with a degenerate epoch" >&2
+    exit 1
+fi
+
+echo "======================================"
+echo " Weight epoch"
+echo " WEIGHT_EPOCH: $WEIGHT_EPOCH"
+echo "======================================"
+echo
+
 # Step 2 — Regime Writer (feature_vectors → regime_label column)
 run_step 2 "regime_writer" \
     "$PYTHON" services/regime_writer.py \
@@ -263,11 +286,13 @@ run_step 4 "ic_engine" \
 
 # Step 5 — Ensemble Trainer (feature_ic_scores + feature_vectors → ensemble_weights + ensemble_alpha)
 run_step 5 "ensemble_trainer" \
-    "$PYTHON" services/ensemble_trainer.py
+    "$PYTHON" services/ensemble_trainer.py \
+    --weight-version "$WEIGHT_EPOCH"
 
 # Step 6 — Alpha Publisher (ensemble_alpha → alpha_events + Kafka)
 run_step 6 "alpha_publisher" \
-    "$PYTHON" services/alpha_publisher.py
+    "$PYTHON" services/alpha_publisher.py \
+    --weight-version "$WEIGHT_EPOCH"
 
 # ---------------------------------------------------------------------------
 # Summary
