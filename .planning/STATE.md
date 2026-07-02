@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: in_progress
-last_updated: "2026-07-01T03:47:27.303Z"
+last_updated: "2026-07-02T03:57:48.955Z"
 progress:
-  total_phases: 6
-  completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
-  percent: 50
+  total_phases: 7
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -40,7 +40,7 @@ See: .planning/PROJECT.md
 
 **Phase 142 — BLOCKED** — pending Phase B corpus re-run on corrected ic_engine
 
-**⚠️ P0 URGENT (2026-07-01):** HMM regime model (`regime_writer.py`) fits on the full corpus before its causal decode — regime labels leak future statistical structure into every regime-stratified IC score. Contaminates `feature_ic_scores` and `alpha_ensemble_ic` right now. See `.planning/todos/pending/034-hmm-walk-forward-refit.md`. Do not trust regime-conditional IC/alpha as ground truth until fixed; must land before Phase 142B.
+**Regime-label validation pending (corrected 2026-07-01):** HMM regime model (`regime_writer.py`) fits on the full corpus before its causal decode — possible look-ahead bias in regime-stratified IC. Merged into `.planning/todos/pending/026-hmm-regime-audit-optimization.md` (P4a section) — do NOT treat as an unconditional blocker; 026's own decision gate requires empirical proof of harm (baseline-separation query on `feature_ic_scores`) before any fix is warranted. Corpus rebuild currently running (regime_writer, step 2, started 06:29) should finish as-is — there's nothing to validate against until it does. Run 026's Step 1 query once `feature_ic_scores` is populated, before deciding whether this needs a fix + a third corpus rebuild.
 
 **Next work: Phase B — corpus re-run**
 
@@ -62,27 +62,18 @@ See: .planning/PROJECT.md
 | Phase | Name | Status |
 |-------|------|--------|
 | 140.5 | Corpus Foundations + Feature Governance | COMPLETE (5/5 plans, 2026-06-26; 27/29 verification truths) |
-| 141 | Corpus Quality Gate + IC Validation | COMPLETE (3/3 plans, 2026-06-29) — gate FAIL: 5m=0 features |
-| 142 | OOS Validation + Shadow Mode | BLOCKED — pending gate PASS on 5m |
+| 141 | Corpus Quality Gate + IC Validation | COMPLETE (3/3 plans, 2026-06-29) — gate FAIL: 5m=0 features (pre-Phase-A baseline, see below) |
+| 142A | Ensemble IC Measurement | PLANNED (2 plans/2 waves), reviewed 2026-07-01 — execution blocked on Phase B corpus re-run |
+| 142B | Frame Simulation + Counterfactual Tracking | deliberately unplanned until 142A's EIC-04 gate passes |
 
-## Current Data State (58-symbol full corpus) — 2026-06-29
+**STALE — pre-Phase-A baseline, do not cite as current:** the row counts and IC gate results below are
+from the 2026-06-29 corpus run, before Phase A's ic_engine methodology fixes and before the current
+(2026-07-01) 3rd rebuild. Query the DB directly for current counts; this section is kept only as a
+before/after comparison point once the current rebuild finishes.
 
-- feature_vectors: 54,260,576 rows (58 symbols × 4 TFs)
-- forward_returns: 54,260,576 rows (1:1 match, executable_open_to_open)
-- feature_ic_scores: 402,651 rows (348,615 per-symbol non-pooled + 54,036 cross-sectional is_pooled=true)
-- market_regimes: 819,020 rows (9 cross-sectional labels: {low/mid/high}_{bull/neutral/bear})
-- ensemble_weights: 328 rows (12 strata × 12-18 features each)
-- alpha_events: 12,472,068 rows (5m: 7.96M, 1h: 3.10M, 15m: 1.41M, 1d: 2.5K)
-- context_features: 8,985 rows (2995 trading days × 3 macro features)
-
-**IC gate results (Phase 141):**
-
-- 5m: 0 qualifying features (FAIL — blocks Phase 142)
-- 15m: 0 qualifying features
-- 1h: 23 qualifying features (PASS)
-- 1d: insufficient coverage (only 20% IC Sharpe coverage, excluded from decisions)
-- 7 zero-IC features identified for demotion (see Phase A4 above)
-- OOS boundary: `alpha.validation.oos_start = 2025-12-24T05:15:00Z`
+- feature_vectors: 54,260,576 rows (58 symbols × 4 TFs) — forward_returns: 1:1 match
+- feature_ic_scores: 402,651 rows; 5m/15m: 0 qualifying features (FAIL — root cause was a gate design bug, not signal absence, per Phase A finding); 1h: 23 qualifying; 1d: insufficient coverage
+- alpha_events: 12,472,068 rows; OOS boundary: `alpha.validation.oos_start = 2025-12-24T05:15:00Z`
 
 **Dual regime system (both live):**
 
@@ -110,3 +101,9 @@ SELECT DISTINCT symbol, timeframe, true, 'pending'
 FROM market_data_ohlcv WHERE timeframe IN ('5m', '15m', '1h', '1d')
 ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 ```
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 142B.1 inserted after Phase 142B: Ensemble Weighting Methodology — from 2026-07-01 v3 architecture review (.planning/research/2026-07-01-v3-architecture-review.md). Not urgent: depends on Phase 142A complete, does not change current-focus sequencing (Phase B corpus re-run).

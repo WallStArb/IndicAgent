@@ -61,32 +61,58 @@ See plan doc for full implementation notes and APR keys.
 
 ### How to validate (when IC data exists)
 
-**Blocking fact (found 2026-07-01):** the Step 1 query below cannot run against the current
-corpus as written — `feature_ic_scores.regime` contains only the 9 cross-sectional labels plus
-`_pooled`; zero rows carry the 5 per-symbol HMM labels, because `equity_model_enabled=true`
-makes ic_engine stratify exclusively on `market_regimes`. The HMM labels feed nothing IC
-measures, so the circle "labels feed IC, IC validates labels" is currently broken in the
-degenerate direction: no validation data exists at all. Two ways to produce it:
-(a) scoped ic_engine run with `alpha.regime.equity_model_enabled=false` (falls back to
-`feature_vectors.regime`; HMM label strings are disjoint from cross-sectional ones, so rows
-add alongside existing data without collision — flip the flag back after); or
-(b) a direct diagnostic query joining `feature_vectors.regime` to `forward_returns`,
-bypassing feature_ic_scores. Option (a) preferred — it exercises the real machinery. Expect
-thin cells at 5m/15m per symbol; consider running after any 5m history backfill deepening.
+**Blocking fact (found 2026-07-01, RESOLVED 2026-07-02):** the note below claimed the Step 1
+query couldn't run because zero rows carried per-symbol HMM labels. That's now stale — the
+current corpus (ic_engine run completed 2026-07-01 23:41:44) does carry all 5 per-symbol HMM
+labels alongside the 9 cross-sectional ones in the same `feature_ic_scores.regime` column,
+same run, same timestamp. Whatever caused the original gap (likely an `equity_model_enabled`
+toggle state at an earlier run) is no longer blocking. Step 1 is runnable and was run — see
+below. Original two workarounds ((a) scoped run with `equity_model_enabled=false`, (b) direct
+diagnostic join) are no longer needed.
 
-**Step 1 — Measure baseline separation (5 min):**
-```sql
-SELECT regime, AVG(ic_value) as mean_ic, STDDEV(ic_value) as ic_std, COUNT(*) as n
-FROM feature_ic_scores
-WHERE is_pooled = false AND symbol IN ('SPY', 'TLT') AND tf IN ('5m', '1h')
-GROUP BY regime
-ORDER BY regime;
-```
-Expected if labels work: `trending_up` mean_ic > 0, `trending_down` mean_ic < 0, gap > 0.05.
-If gap < 0.01 → proceed to Step 2. If gap > 0.05 → labels are fine, stop.
+**Step 1 — RUN 2026-07-02. Result: pooled query is misleading — methodology flaw found, fix
+before reusing this query.**
 
-**Step 2 — Root cause analysis (1 hour):**
-Compare IC separation across: (a) current labels (full-history fit), (b) time-truncated labels (fit 2019-2022 only, decode 2023), (c) cross-sectional regimes (`market_regimes` table). If (b) or (c) shows materially better separation → parameter bias is the issue.
+Pooled SPY+TLT result: `trending_up` mean_ic=0.0147, `trending_down` mean_ic=0.0063, gap=0.0084
+(< 0.01 → naively triggers Step 2). **But this pooled number is an artifact.** Broken out per
+symbol:
+
+| Symbol | trending_up IC | trending_down IC | Gap | Reading |
+|---|---|---|---|---|
+| SPY | 0.0256 | 0.0020 | **+0.024** | Ambiguous zone (between 0.01 and 0.05) — not clearly deficient |
+| TLT | 0.0064 | 0.0097 | **−0.003** | Deficient, and *inverted sign* — HMM trend labels carry no separation for TLT at all |
+
+**The query as originally written pools dissimilar symbols (SPY=equity, TLT=bonds) and averages
+away a real, asset-class-dependent effect.** SPY's per-symbol HMM labels work reasonably; TLT's
+don't separate IC at all. This is a materially different finding than "labels are borderline
+deficient in general" — it's "label quality is asset-class-dependent." **Fix the query before
+reusing it: run per-symbol, never pre-pooled across symbols with potentially different regime
+dynamics, and widen past SPY+TLT to at least one member of every `regime_group` (once Phase 151
+ships) before generalizing.**
+
+**Root-cause implication:** TLT's failure mode doesn't obviously look like parameter
+look-ahead bias (rolling refit's target). A single generic 5-state trend HMM may simply not fit
+bond regime dynamics — rates markets grind and mean-revert around curve shape more than they
+trend the way equities do. That points at the factor-augmented HMM / `regime_group`-conditional
+direction (`docs/plans/2026-07-01-regime-stratification-alternatives.md`, HMM Variants section)
+as a competing explanation to rolling refit, not a confirming one. Don't assume rolling refit is
+the universal fix before Step 2 distinguishes these two hypotheses per-symbol.
+
+**Step 2 — Root cause analysis (1 hour). Partially run 2026-07-02, on SPY only (TLT excluded
+from this specific comparison — its cross-sectional label is itself contaminated, see
+`docs/plans/2026-07-01-cross-sectional-regime-model.md` and the 2026-07-01 architecture review
+§4 — comparing TLT's per-symbol HMM against a cross-sectional label that was never computed
+with TLT's own regime in mind is not a fair test):**
+Compare IC separation across: (a) current labels (full-history fit) — done, see Step 1 table;
+(b) time-truncated labels (fit 2019-2022 only, decode 2023) — **not done, requires an actual
+truncated-window HMM fit, real work, still open**; (c) cross-sectional regimes (`market_regimes`
+table) — done for SPY only: cross-sectional range (0.0457) vs per-symbol HMM range (0.0327) on
+the same SPY/5m/1h slice, a 1.4x wider separation for cross-sectional, not the 2.2x an earlier
+same-day pooled-and-TLT-contaminated comparison suggested. Directionally consistent with (but
+not proof of) parameter bias mattering for SPY specifically; TLT needs its own clean
+same-symbol-only comparison once Phase 151 gives it a valid cross-sectional group (`rates`) to
+compare against — comparing TLT's HMM to the *equity* cross-sectional label would repeat the
+same contamination error found above.
 
 **Step 3 — Rolling refit pilot (shadow mode):**
 - Scope: SPY + TLT, 5m + 1h only

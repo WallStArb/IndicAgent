@@ -4,7 +4,7 @@
 
 **Supersedes:** `docs/plans/2026-06-27-rates-regime-model.md` (rates-specific — discarded in favor of this generic framework).
 
-**Created:** 2026-06-27. **Last significantly revised:** 2026-07-01 — filename renamed to
+**Created:** 2026-06-27. **Informed by:** `.planning/research/2026-07-01-v3-architecture-review.md` (Fable 5) — routing's silent-default-to-equity behavior corrected 2026-07-02 per that review's cross-asset regime gap findings. **Last significantly revised:** 2026-07-01 — filename renamed to
 reflect this (routing invariant / `AmbiguousRegimeGroupError` added, migration renumbered
 189→ twice for collision avoidance, Job 1/Job 2 scope note added, glossary draft rewritten,
 tier vocabulary aligned to `naming-system.md` §7 domain-specific scales).
@@ -79,7 +79,7 @@ In `docs/foundation/glossary.md`, under the appropriate section (regime / market
 
 ```
 **regime_group** — A classification LABEL ON A SECURITY (which peer group it belongs to),
-not a market state. Analogous to asset_class but finer-grained and regime-signal-specific:
+not a regime itself. Analogous to asset_class but finer-grained and regime-signal-specific:
 TLT's asset_class is "equity" (its data-model type) but its regime_group is "rates" (the
 peer set relevant to its regime signal). Static per symbol — resolved once from
 instrument_tags via tag_filter, not recomputed per bar. Each group declares a tag_filter
@@ -1615,17 +1615,25 @@ class TestBuildSymbolRegimeClass:
         assert result["SPY"] == "equity"
         assert result["EWT"] == "equity"
 
-    def test_unmatched_symbol_defaults_to_equity(self):
+    def test_unmatched_symbol_is_excluded_not_defaulted(self):
+        """No matching enabled group -> omitted from the result, not silently
+        labeled 'equity'. Caller's mr_dicts_by_group.get(None) -> None, so
+        the symbol is dropped from regime-stratified IC (pooled IC still
+        covers it). See docstring: silent mislabeling was the pre-2026-07-01
+        behavior and is the specific defect this test guards against."""
         tags = {"GLD": {"commodity_metals"}, "BTC": {"crypto"}}
         result = _build_symbol_regime_class(tags, _GROUPS)
-        assert result["GLD"] == "equity"
-        assert result["BTC"] == "equity"
+        assert "GLD" not in result
+        assert "BTC" not in result
 
-    def test_disabled_rates_group_routes_fi_to_equity(self):
+    def test_disabled_rates_group_excludes_fi_symbol(self):
+        """When the only group a symbol's tags would match is disabled, the
+        symbol is excluded — it must NOT fall through to 'equity' just
+        because equity is the remaining enabled group."""
         disabled_rates = {**_RATES_GROUP, "enabled": False}
         tags = {"TLT": {"fi_treasury"}}
         result = _build_symbol_regime_class(tags, [_EQUITY_GROUP, disabled_rates])
-        assert result["TLT"] == "equity"
+        assert "TLT" not in result
 
     def test_single_matching_group_used_regardless_of_list_order(self):
         """Group order in the config list must never be load-bearing."""
@@ -1643,10 +1651,10 @@ class TestBuildSymbolRegimeClass:
         with pytest.raises(AmbiguousRegimeGroupError):
             _build_symbol_regime_class(tags, [_RATES_GROUP, overlapping_group])
 
-    def test_empty_tags_defaults_to_equity(self):
+    def test_empty_tags_is_excluded(self):
         tags = {"XYZ": set()}
         result = _build_symbol_regime_class(tags, _GROUPS)
-        assert result["XYZ"] == "equity"
+        assert "XYZ" not in result
 
     def test_preferred_fi_routes_to_rates(self):
         tags = {"PFF": {"fi_preferred"}}
@@ -1695,7 +1703,15 @@ def _build_symbol_regime_class(
     symbol matches more than one group, this raises AmbiguousRegimeGroupError
     rather than silently picking the first match, since group order in the
     APR JSON is not a meaningful ranking and must never be load-bearing.
-    Symbols with no matching enabled group default to 'equity'.
+
+    Symbols with no matching enabled group are OMITTED from the returned
+    dict — they get no regime_group and are excluded from regime-stratified
+    IC (the pooled IC pass still covers them; no data is dropped, only the
+    regime-conditional cut). This was previously a silent default to
+    'equity', which mislabeled non-equity instruments (bonds, gold, bitcoin
+    ETFs) under the SPY-vol x equity-breadth regime whenever their true
+    group was absent or disabled. Silent mislabeling is worse than an
+    explicit gap — see the caller's loud startup log of unrouted symbols.
     """
     prefixes_by_group: list[tuple[str, list[str]]] = [
         (g["name"], [p.rstrip("*") for p in g.get("tag_filter", [])])
@@ -1715,7 +1731,8 @@ def _build_symbol_regime_class(
                 f"{matches} — tag_filter patterns must be mutually exclusive. "
                 f"Tags: {sorted(tags)}"
             )
-        result[symbol] = matches[0] if matches else "equity"
+        if matches:
+            result[symbol] = matches[0]
     return result
 ```
 
@@ -1827,6 +1844,7 @@ After the `equity_model_enabled` load (around line 1739), replace with:
             symbol_regime_class: dict[str, str] = _build_symbol_regime_class(
                 tags_by_symbol, enabled_groups
             )
+            unrouted_symbols = sorted(set(tags_by_symbol) - set(symbol_regime_class))
             _logger.info(
                 "ic_engine.routing_built",
                 n_symbols=len(symbol_regime_class),
@@ -1835,6 +1853,14 @@ After the `equity_model_enabled` load (around line 1739), replace with:
                     for g in {v for v in symbol_regime_class.values()}
                 },
             )
+            if unrouted_symbols:
+                _logger.warning(
+                    "ic_engine.unrouted_symbols",
+                    n_unrouted=len(unrouted_symbols),
+                    symbols=unrouted_symbols,
+                    note="excluded from regime-stratified IC this run (no matching "
+                    "enabled regime_group); pooled IC pass still covers them",
+                )
 
             equity_model_enabled = any(g["name"] == "equity" for g in enabled_groups)
 ```
@@ -1887,7 +1913,7 @@ Replace the `mr_dict_by_tf if equity_model_enabled else None` worker arg (line ~
                         apr_cache,
                         run_ts,
                         feature_status_map,
-                        mr_dicts_by_group.get(symbol_regime_class.get(symbol, "equity"))
+                        mr_dicts_by_group.get(symbol_regime_class.get(symbol))
                         if enabled_groups
                         else None,
                     )

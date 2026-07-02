@@ -1473,13 +1473,29 @@ Every (symbol, tf, regime) cell that produces an IC score must meet `n_independe
 
 ---
 
+### Phase 141.1: Measurement and Decision Integrity Foundation 📋 PLANNED (INSERTED)
+
+**Goal:** Make everything that feeds ensemble IC measurement — and any future decision/action layer built on top of it — causal, provenance-tracked, and honestly calibrated, before Phase 142A measures OOS ensemble IC on top of it. Full rationale and verification: `.planning/research/2026-07-02-v3-bottomup-audit.md` (Fable 5) §5.3-5.6, cross-checked against the live codebase 2026-07-02.
+
+1. **OOS holdout enforcement.** `alpha.validation.oos_start` has zero readers anywhere in `src/`/`services/`/`scripts/` today — the corpus orchestrator derives `TRAINING_WINDOW_END` as bare `SELECT MAX(bar_ts) FROM feature_vectors`, no holdout at all. Implement: `TRAINING_WINDOW_END = min(MAX(bar_ts), alpha.validation.oos_start)`, plus a separate, rare, pre-committed OOS evaluation step. This is the single most important rigor gap found — proving "ensemble IC > 0" without it would be a hollow gate.
+2. **Weight-epoch / silent-retrain fix.** `ensemble_weights` and `ensemble_alpha` both use `ON CONFLICT ... DO NOTHING` keyed partly on a static APR `weight_version='v1'`. Re-running the trainer after IC scores change silently keeps the stale weights — no error, no warning. Fix via real per-run epoch identity (minimal version: derive/increment `weight_version` per run rather than a static APR string; full `corpus_runs`/`run_id` lineage threading is a separable follow-on hardening item, not required here).
+3. **`regime_scope` schema fix.** `feature_ic_scores.regime` mixes 9 cross-sectional labels and 5 per-symbol HMM labels in one column with no scope qualifier. Add a `regime_scope` column disambiguating `symbol_hmm` vs `cross_sectional`. Note: the bottom-up audit's original claim that both label sources were look-ahead was partially wrong and corrected 2026-07-02 — `equity_regime_model.py`'s VIX-proxy and breadth computations are already causal (fixed under todo 026 P1a; the module docstring was just stale and has been corrected). Only the schema-ambiguity concern stands here. The per-symbol HMM's full-history-fit concern remains separately tracked under todo 026 — not duplicated in this phase.
+4. **Cost hurdle calibration.** `alpha.quant.cost_hurdle.*` APR keys are all `0.0` today — a real no-op gate. 98.3% of current `alpha_events` sit in the 5m/15m band todo 030 already found net-negative-to-marginal after external costs. Run todo 030's Step 0 calibration here so `alpha_events` reflects a real tradeable population before Phase 142B's frame simulation runs on it.
+
+**Requirements**: TBD — break down at plan time
+**Depends on:** Phase 141 complete (done). Can be developed in parallel with the in-progress Phase B corpus re-run — these fixes apply to the corpus pipeline scripts themselves and take effect on the next re-run after Phase B's current run completes.
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 141.1 to break down)
+
 ### Phase 142A: Ensemble IC Measurement 📋 PLANNED
 
 **Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_ensemble_ic` table + `alpha.ensemble_ic.*` APR keys. Migration must land before this phase begins.
 
 **Goal:** Prove the ensemble OUTPUT has IC before testing any execution rules. Measure `IC(alpha_score, forward_return_*)` per (symbol, tf, regime, lookahead) using the same BH-FDR + bootstrap CI + walk-forward machinery as feature IC. No stops, no targets, no frame assumptions — pure signal measurement. The IC decay curve across lookaheads calibrates `hold_max_bars` APR keys empirically. This is the primary OOS gate for Phase 144.
 
-**Depends on:** Phase 141 complete. `alpha_events` accumulating (Phase 139 running). `forward_returns` populated (Phase 138).
+**Depends on:** Phase 141.1 complete (Measurement and Decision Integrity Foundation — OOS enforcement, weight-epoch fix, regime_scope schema fix, cost hurdle calibration; inserted 2026-07-02 so this phase's IC measurement isn't done in-sample or against ambiguous regime labels). `alpha_events` accumulating (Phase 139 running). `forward_returns` populated (Phase 138).
 
 **Why before frame simulation:** If `alpha_score` does not predict forward returns, no frame definition will save it. You'd be measuring the frame, not the signal — a silent wrong answer. Signal proof must precede execution proof.
 
@@ -1560,6 +1576,24 @@ Exit triggers in priority order: (1) stop hit (`low <= stop_price`); (2) target 
 **Plans:** 2 plans (Wave 1: AlphaFrameWriter + SHADOW-REVIEW.md pre-commitment; Wave 2: CounterfactualTracker + state machine + gate evaluation)
 
 ---
+
+### Phase 142B.1: Ensemble Weighting Methodology 📋 PLANNED (INSERTED)
+
+**Goal:** Replace `ensemble_trainer.py`'s IC-proportional weighting with better-validated alternatives, judged by Phase 142A's `EnsembleICEngine` on OOS data. Full rationale: `.planning/research/2026-07-01-v3-architecture-review.md` §2, §6.
+
+- **E1 — shrunk-IC inputs.** Rides on todo 029's `ic_shrunk` column; consume it instead of raw `ic_sharpe_hac`. Do first — corrects decisions being made today and gives every later variant a de-noised baseline.
+- **E2 — mean-variance combination.** `w ∝ Σ⁻¹·IC` using the Ledoit-Wolf covariance `ensemble_trainer.py` already computes but currently only uses for a binary correlation-cluster cap. Textbook Grinold-Kahn combination; gate on covariance condition number.
+- **E3 — hierarchical partial pooling** for sparse regime strata. Deferred pending E1/E2 proving insufficient — do not amend the "pooled IC is diagnostic only" load-bearing decision (STATE.md) until then.
+- **E4 — per-feature decay half-lives**, replacing the single global `weight_half_life_days`. Sequence after todo 029's decay-curve item ships.
+
+Every variant is a new `weight_version` in the existing `ensemble_weights` PK — zero schema change needed for A/B testing. First commit folds in todo 043 (APR-backed ensemble stale-weight cliff — `ensemble_trainer.py:509` hardcodes `if days_since > 90` while its sibling `weight_half_life_days` is already APR-backed).
+
+**Requirements**: TBD — break down at plan time
+**Depends on:** Phase 142A complete (not 142B — 142A's ensemble IC measurement is the judge; kept separate from 142B's frame simulation work, which this phase does not need)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 142B.1 to break down)
 
 ### Phase 143: Feature Vector Lifecycle + Alpha Decay Infrastructure 📋 PLANNED
 
@@ -1824,6 +1858,13 @@ Tags that are fully computable from the factor vector (all 8 OLS betas) must not
 ### Phase 151: Cross-Sectional Regime Model (`regime_group`) 📋 PLANNED
 
 **Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules). Migration 189. Full design: `docs/plans/2026-07-01-cross-sectional-regime-model.md`.
+
+**Status per 2026-07-01 architecture review** (`.planning/research/2026-07-01-v3-architecture-review.md` §4): confirmed live today, not a future risk — 15/58 corpus symbols (all `fi_*` bonds + GLD/SLV/VNQ/IBIT) are excluded from equity breadth by `equity_regime_model.py`'s own filter yet get equity regime labels in IC stratification and ensemble scoring. This phase fixes 11/15 via the rates group. Two decisions made (first-principles, not re-opened for user input):
+- **Unrouted symbols (GLD/SLV/VNQ/IBIT):** exclude from regime-stratified IC with loud startup logging of unrouted symbols, NOT the plan's current silent default-to-equity (plan `:1618-1622` asserts `GLD → "equity"` — that assertion must change before execution). Pooled IC still covers them; no data lost. "Silent wrong answers are worse than loud crashes."
+- **Commodity/fx group enablement is blocked** on todo 041 (tag exposure-vs-sensitivity taxonomy audit) — OIH/XLE/XOP carry both `eq_*` and `commodity_energy_*` tags and will raise `AmbiguousRegimeGroupError` the moment `commodity_energy` is enabled. Add this as an explicit dependency edge, not just a scope-note aside.
+- Job-1 peer-set purity (OIH/XLE staying in equity breadth despite commodity sensitivity tags) is NOT a blocker — defensible by convention (equity sector funds), revisit only if Phase 148 tag calibration shows material contamination.
+
+**Sequencing:** land Phase 142A's ensemble-IC baseline first (pre-151 equity-only strata), then batch this phase with todo 026 P1-P3 into one ic_engine re-run — empirical pre/post comparison over blind trust that the new strata help.
 
 ### Phase 152: ETF Universe Expansion (58→79) 📋 PLANNED
 

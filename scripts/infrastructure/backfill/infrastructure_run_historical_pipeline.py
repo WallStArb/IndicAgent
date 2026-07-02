@@ -422,12 +422,15 @@ _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
     #     negligible storage. IBKR has clean data to 2005 (SPY probe 2026-06-19, minor gap
     #     at 20yr edge). Spans dot-com bust recovery, GFC, QE era, 2022 rate shock, AI mania.
     "1d": (7300, True),
-    # 1h: HMM/GARCH anchor TF. 5475d (15yr) reaches back to 2011 — capturing European debt
-    #     crisis, QE1/QE2/QE3, taper tantrum (2013), 2018 rate tantrum, COVID crash + recovery,
-    #     zero-rate era, 2022 rate shock, and AI mania. ~27k bars/symbol, clearing the 20k IC
-    #     observation floor. use_continuous=False: IBKR ContFuture + ADJUSTED_LAST requires
-    #     endDateTime="" (no chunking possible), timing out on COMEX instruments. Chunked
-    #     named-contract path (_MAX_CHUNK_DAYS=364) is reliable across all exchanges.
+    # 1h: HMM/GARCH anchor TF. 7300d (20yr) matches 1d depth — reaches back to 2006, capturing
+    #     the GFC in addition to European debt crisis, QE1/QE2/QE3, taper tantrum (2013),
+    #     2018 rate tantrum, COVID crash + recovery, zero-rate era, 2022 rate shock, and AI
+    #     mania. Confirmed available via SPY probe 2026-07-02 (175,191 bars, 2006-07-07 to
+    #     present); prior 5475d (15yr) was a deliberate cap, not a proven IBKR ceiling.
+    #     ~35k bars/symbol, well clear of the 20k IC observation floor. use_continuous=False:
+    #     IBKR ContFuture + ADJUSTED_LAST requires endDateTime="" (no chunking possible),
+    #     timing out on COMEX instruments. Chunked named-contract path (_MAX_CHUNK_DAYS=364)
+    #     is reliable across all exchanges.
     "1h": (7300, False),
     # 15m: bridges intraday and swing. 5475d (15yr) matches 1h depth — reaches back to 2011,
     #     same era coverage as 1h (European debt crisis through AI mania). Confirmed available
@@ -438,7 +441,7 @@ _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
     #     artificially capped at 1631d (4.5yr); IBKR confirmed 10yr retention for liquid
     #     ETFs (SPY probe 2026-06-19), so the shorter window was a storage choice, not a
     #     retention ceiling. Bumped 2026-07-01 for HMM/IC training corpus depth. ~440k bars/symbol.
-    "5m": (3650, True),
+    "5m": (5475, True),
     # 1m: intraday micro-patterns (time-of-day, session open/close, day-of-week). These
     #     repeat on weekly/monthly cycles so 90d captures all patterns with good repetition.
     #     ~75k bars/symbol. IBKR confirmed 10yr retention (SPY probe 2026-06-19) — 90d is

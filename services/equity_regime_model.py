@@ -11,8 +11,10 @@ Regime label = {vix_bucket}_{breadth_signal} (e.g. low_bull, high_bear, mid_neut
 CORRECTNESS INVARIANTS:
 - Warmup bars (NaN in vix_pct_rank or breadth_fraction) are excluded automatically.
 - 200MA computation is causal: pandas rolling(200).mean() = rolling window over past 200 bars.
-- VIX z-score percentile rank: vix_z.rank(pct=True) over full corpus. Acceptable for batch
-  regime model since the full vol distribution is known at compute time.
+- VIX z-score percentile rank is causal: bisect-based expanding rank against only prior
+  values (see `_compute_vix_pct_rank`, fixed 2026-06-29 per todo 026 P1a). This docstring
+  previously described the pre-fix `.rank(pct=True)`-over-full-corpus behavior — corrected
+  2026-07-02 after that stale claim was mistaken for current behavior during an audit.
 - No DB calls inside _compute_tf_regimes() worker function.
 - Workers receive compact numpy arrays (vix_pct_arr, breadth_arr, ts_arr) — NOT raw ETF data.
   Main process computes breadth/VIX from raw data, passes compact pre-computed arrays to workers.
@@ -188,10 +190,11 @@ def _compute_vix_pct_rank(
     rv_window_days: int = _REALIZED_VOL_WINDOW,
     z_window_days: int = _VIX_Z_WINDOW,
 ) -> pd.Series:
-    """Compute SPY realized-vol z-score percentile rank over full corpus history.
+    """Compute SPY realized-vol z-score causal expanding percentile rank.
 
     Returns a pd.Series indexed by spy_ts with NaN for warmup bars.
-    Uses .rank(pct=True) over the full vix_z series — O(n log n), fast.
+    Uses a bisect-based expanding rank (see body below) — each position ranked
+    only against prior values, no look-ahead.
 
     Parameters
     ----------

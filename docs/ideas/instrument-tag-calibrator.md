@@ -310,6 +310,35 @@ gets worked around inconsistently once a consumer actually needs it.
 
 ---
 
+## Open question: instrument-structural-state conditioning, distinct from market-regime conditioning (2026-07-02)
+
+Phase 2 ("Regime conditioning" above) conditions beta on *market-wide* regime state — HMM
+trend state or cross-sectional VIX/breadth. That's a real improvement over unconditional
+betas, but it's not the same axis as an instrument whose factor loading is driven by its own
+**structural state**, independent of what the market is doing. The clean example: a
+convertible bond's delta to the underlying equity is a function of moneyness (how far the
+stock price sits from the conversion price) — deep ITM, it trades like equity; deep OTM, it
+trades like a straight bond. This is not slow drift (Phase 1's half-life decay doesn't capture
+it — a convert can swing from equity-like to bond-like over weeks, not the 180-day default
+half-life's timescale) and it is not conditioned on market regime (Phase 2 as scoped doesn't
+capture it either — a convert's moneyness has nothing to do with whether the broader market is
+in a high-vol or low-vol state; it's specific to that instrument's own conversion price vs.
+current stock price).
+
+**Not building this now.** No convertible-bond ETF (`CWB`, `ICVT`, or similar) exists in the
+current 79-symbol universe (checked 2026-07-02) — the only hybrid-sensitivity example
+currently live is `PFF` (preferred stock), whose equity/rates blend is comparatively stable
+and reasonably served by Phase 1's rolling recalibration. Flagging this here specifically so
+that if a convert-type or other option-embedded instrument (contingent convertibles, SPAC
+warrant ETFs, etc.) ever enters the universe, Phase 2 doesn't get assumed to already handle
+it. If it becomes real: the natural extension is a third conditioning axis alongside
+`(symbol, tag)` and `(symbol, tag, regime)` — something like `(symbol, tag, instrument_state)`
+where `instrument_state` is a per-instrument structural variable (for converts: moneyness
+bucket) rather than a shared market regime. Needs its own measurement procedure per
+instrument class; not a generalization of the existing regime-conditioning mechanism.
+
+---
+
 ## Prior art within this system
 
 - **`shadow_registry`** — same gatekeeping logic: n >= threshold, CI clears zero → promote; EV drops → demote. TagAuditor applies this discipline to tags.

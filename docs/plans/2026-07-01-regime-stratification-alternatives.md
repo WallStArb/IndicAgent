@@ -1,17 +1,30 @@
 # Regime Stratification Alternatives
 
 Date: 2026-06-29
+Informed by: `.planning/research/2026-07-01-v3-architecture-review.md` (Fable 5) — HMM Variants section's structural dependency on Phase 151 added 2026-07-02 per that review.
 Status: OPEN — speculative backlog; HMM foundation must be solid first (todo 026)
 Updated: 2026-07-01 — three decisions from other docs now bind this one:
-- P7 (session regime) downgraded: cheap+safe is not the same as valuable — no case made for
+- Session Regime downgraded: cheap+safe is not the same as valuable — no case made for
   session effects at this system's swing (not HFT) cadence. It is no longer "evaluate ahead of
-  P6" (see `docs/ideas/2026-07-01-intelligence-lifecycle-backlog-matrix.md`).
+  Volume Regime" (see `docs/ideas/2026-07-01-intelligence-lifecycle-backlog-matrix.md`).
 - Percentile-rank-first sequencing verdict: any dimension here that has an HMM-engine equivalent
-  in `docs/ideas/multi-engine-regime-architecture.md` (E1/E2 vs P1/P6) is built as deterministic
+  in `docs/ideas/multi-engine-regime-architecture.md` is built as deterministic
   percentile-rank first; an HMM engine only if that proves insufficient.
-- Storage split settled: per-symbol dimensions (P1, P6, P7, P8) become columns on
-  `feature_vectors` alongside `regime`; cross-sectional dimensions (P2, P3) become rows in
-  `market_regimes` under their own group value (`regime_group` after Phase 151 / migration 189).
+- Storage split settled: per-symbol dimensions (Volatility Regime, Volume Regime, Session
+  Regime, Skew/Tail Regime) become columns on `feature_vectors` alongside `regime`;
+  cross-sectional dimensions (Dispersion Regime, Factor Regime) become rows in `market_regimes`
+  under their own group value (`regime_group` after Phase 151 / migration 189).
+
+Updated: 2026-07-02 — dropped this doc's own `P1`-`P8` numbering. It looked like a priority
+scheme (todo 026 legitimately uses `P0`-`P4` for priority tiers) but wasn't one here — this
+doc's own recommended build order (Volatility Regime → Dispersion Regime → Session Regime →
+orthogonality gate → Volume Regime → Skew/Tail Regime → Factor Regime → HMM Variants → Microstructure
+Regime) is completely scrambled relative to the old P-numbers, proving they never meant
+priority. Worse, the old `P4a`/`P4b`/`P4c` sub-codes collided character-for-character with
+`todo 026`'s own (unrelated) `P4a`/`P4b` — same string, two different concepts, in sibling
+docs. Every dimension below is now referenced by its descriptive name; short slugs
+(`volatility_regime`, `iohmm_variant`, etc.) are used only where a compact cross-reference is
+needed, and match the actual planned schema/APR identifiers where one exists.
 
 Renaissance Council analysis of alternatives and complements to HMM regime detection.
 The HMM is a means to an end: conditioning IC measurement on regime. The question
@@ -79,7 +92,7 @@ Current code/glossary misalignment:
 
 ## Alternative / Parallel Stratification Dimensions
 
-### P1 — Realized Volatility Percentile Regime (near-term, highest value)
+### Volatility Regime (near-term, highest value)
 
 **What it is:** Classify each bar by its trailing realized volatility expanding percentile
 rank. Low vol = one regime; high vol = another. Three buckets (low/mid/high) aligned with
@@ -104,7 +117,7 @@ non-convex EM), interpretable.
 
 ---
 
-### P2 — Cross-Sectional Return Dispersion
+### Dispersion Regime — Cross-Sectional Return Dispersion
 
 **What it is:** Measure how spread out returns are across the 58-symbol universe on a
 given bar. High dispersion = stock-picker's market (idiosyncratic factors dominate). Low
@@ -122,7 +135,7 @@ fundamentally different from its IC in a high-dispersion stock-picker's market.
 
 ---
 
-### P3 — Factor Regime (explicit factor labels)
+### Factor Regime (explicit factor labels)
 
 **What it is:** Classify each bar by which factor is driving cross-sectional returns:
 momentum, value, quality, low-vol, growth. Derived from cross-sectional factor portfolio
@@ -141,32 +154,67 @@ data is richer.
 
 ---
 
-### P4 — HMM Variants (improving the HMM itself)
+### HMM Variants (improving the HMM itself)
 
 Three variants that preserve the HMM structure but improve it:
 
-**P4a — Input-Output HMM (IOHMM)**
+**IOHMM Variant — Input-Output HMM (IOHMM)**
 Conditions state transitions on exogenous inputs (VIX, breadth, yield spread). The
 transition matrix `A[t]` becomes a function of observed macro inputs rather than a fixed
 matrix. More expressive, harder to overfit. State transitions become economically
 interpretable -- not just "regime changed" but "regime changed because VIX spiked."
 
-**P4b — Hamilton (1989) regime-switching model**
+*Relationship to `regime_group` (Phase 151), clarified 2026-07-02:* this variant's exogenous
+inputs used to mean "go compute VIX-proxy, breadth, and a curve spread from scratch." They
+don't anymore. Phase 151's signal modules produce exactly these series as a side effect of
+computing the cross-sectional regime label: `breadth_vol.compute()` returns
+`(vix_pct_rank, breadth_fraction)`; `curve_credit.compute()` returns `(curve_z, credit_z)`.
+Both are already causal (no look-ahead), already APR-governed, already tested in isolation.
+The IOHMM variant's exogenous-input vector is a direct read of these two functions' outputs
+(plus whichever other `regime_group` signal modules are enabled) rather than a new engineering
+task -- Phase 151 is a prerequisite that makes this variant cheaper to build, not a separate
+concern. This doesn't change the gate (still requires todo 026's empirical-deficiency proof
+before building anything), but it does mean this variant's cost estimate should assume Phase
+151 has already shipped: building it before Phase 151 means re-deriving inputs Phase 151 will
+later obsolete.
+
+**Hamilton Variant — Hamilton (1989) regime-switching model**
 HMM without the full emission model -- just the switching mechanism. Simpler, more
 interpretable than GaussianHMM, backed by 35 years of econometric literature. The
 Hamilton model is the standard reference in empirical macro finance; it would be
 defensible to any external reviewer in a way that GaussianHMM is not.
 
-**P4c — Factor-augmented HMM**
+**Factor-Augmented HMM Variant**
 Observes both per-symbol return and cross-sectional factor returns simultaneously.
 States represent joint market conditions rather than per-symbol dynamics.
 
-**Gate:** All P4 variants require empirical evidence that current HMM labels are deficient
-(see todo 026 P4a gate). Do not implement until the IC data shows a problem.
+*Relationship to `regime_group`, clarified 2026-07-02:* "cross-sectional factor returns" was
+underspecified -- which symbols constitute a factor, concretely? Phase 151's
+`_resolve_group_symbols()` (tag-filter based peer resolution from `instrument_tags`) already
+answers this for `equity`/`rates`/commodity/`fx` groupings. This variant's joint observation
+universe is a natural reuse of that same peer-resolution mechanism rather than a bespoke factor
+definition -- the two ideas solve adjacent problems (regime_group: what's the peer group's
+shared *state*; this variant: what's one symbol's regime *conditional on* its peer group's
+returns) with the same underlying peer-set primitive. Still gated identically to the other two
+HMM variants.
+
+**General note, replacing the informal "two different axes, not substitutes" framing used
+verbally in the 2026-07-01 architecture review:** `regime_group` and per-symbol HMM are not
+substitutes, but the IOHMM and factor-augmented variants are specifically the two designed
+bridges between them -- IOHMM consumes `regime_group` signals top-down (cross-sectional state
+informs one symbol's transition probabilities), factor-augmented reuses `regime_group`'s
+peer-resolution bottom-up (which symbols' returns get observed jointly). The Hamilton variant
+has no such bridge -- it's a pure per-symbol simplification, independent of `regime_group`
+entirely. Worth remembering if either bridge variant is ever built: the dependency on Phase
+151 is structural, not incidental.
+
+**Gate:** All HMM variants require empirical evidence that current HMM labels are deficient
+(see todo 026's Decision Gate, in the Rolling HMM Refit / Expanding Scaler section). Do not
+implement until the IC data shows a problem.
 
 ---
 
-### P5 — Microstructure Regime (intraday TFs only)
+### Microstructure Regime (intraday TFs only)
 
 **What it is:** For 5m/15m TFs, classify bars by microstructure state: liquid vs
 illiquid, informed flow vs noise flow. Derived from bid-ask spread, OFI imbalance,
@@ -181,30 +229,30 @@ Deferred until V2 Microstructure feature vector is built.
 
 ---
 
-### P6 — Volume Regime (candidate; gated on orthogonality check, see below)
+### Volume Regime (candidate; gated on orthogonality check, see below)
 
-**What it is:** Same construction as P1 -- expanding percentile rank of `rel_volume`
-per (symbol, tf), bucketed low/mid/high (or heavy/normal/light). `rel_volume` is
-already computed (it's one of the HMM's 5D observation inputs), so this needs no new
-data, same as P1.
+**What it is:** Same construction as Volatility Regime -- expanding percentile rank of
+`rel_volume` per (symbol, tf), bucketed low/mid/high (or heavy/normal/light). `rel_volume`
+is already computed (it's one of the HMM's 5D observation inputs), so this needs no new
+data, same as Volatility Regime.
 
 **Why it might matter:** Volume regime plausibly captures participation/liquidity-driven
 price impact, distinct from volatility regime's dispersion-of-outcomes. A symbol can be
 low-vol-high-volume (steady accumulation) or high-vol-low-volume (illiquid gap risk) --
 different microstructure states in principle.
 
-**Why it is not simply approved alongside P1:** volume spikes and volatility spikes are
-well documented to co-move (informed flow shows up as both). If historical correlation
-between `rel_volume` percentile and `realized_vol` percentile is high (say r > 0.5-0.6),
-stratifying by both dimensions spends sample-size budget encoding the same information
-twice under two names -- shrinking cell counts for no informational gain, which is a more
-expensive version of the exact false-discovery risk already flagged in todo 039 for
+**Why it is not simply approved alongside Volatility Regime:** volume spikes and volatility
+spikes are well documented to co-move (informed flow shows up as both). If historical
+correlation between `rel_volume` percentile and `realized_vol` percentile is high (say r >
+0.5-0.6), stratifying by both dimensions spends sample-size budget encoding the same
+information twice under two names -- shrinking cell counts for no informational gain, which
+is a more expensive version of the exact false-discovery risk already flagged in todo 039 for
 tag-stratified IC. This is a measurement question, not a design question -- see
 Orthogonality Gate below.
 
 ---
 
-### P7 — Session / Time-of-Day Regime (intraday TFs only)
+### Session Regime — Session / Time-of-Day Regime (intraday TFs only)
 
 **What it is:** Classify each bar by session position -- e.g. open / midday / close (or
 finer, exchange-session-aware buckets). Purely deterministic: derived from wall-clock
@@ -216,14 +264,18 @@ risk by construction (you always know what time it is) and is near-certainly ort
 to every price/volume-derived dimension (HMM state, vol regime, volume regime) since
 intraday liquidity/spread patterns are a structurally different axis from price dynamics.
 Zero incremental compute cost, zero new data. This is the cheapest, lowest-risk addition
-on this list and arguably should be evaluated ahead of P6.
+on this list and arguably should be evaluated ahead of Volume Regime.
+
+**Downgraded 2026-07-01:** cheap+safe is not the same as valuable -- no case made for why
+session effects matter at this system's (swing, not HFT) cadence. See
+`docs/ideas/2026-07-01-intelligence-lifecycle-backlog-matrix.md`.
 
 **Gate:** none technical -- only intraday TFs (5m/15m) benefit; daily/1h bars have no
 useful session position.
 
 ---
 
-### P8 — Skew / Tail Regime (candidate; gated on orthogonality check)
+### Skew/Tail Regime (candidate; gated on orthogonality check)
 
 **What it is:** Rolling return skewness percentile per (symbol, tf). Already identified
 as a measurable primitive in `docs/ideas/instrument-tag-calibrator.md` (`skewness`).
@@ -234,8 +286,8 @@ e.g. HYG), which are different prediction problems at the same vol percentile.
 
 **Why it is not simply approved:** vol clusters around crashes, which are themselves
 negative-skew events -- skew and vol level are plausibly correlated in the tails, exactly
-where this dimension would matter most. Needs the same correlation study as P6 before
-it earns a stratification slot.
+where this dimension would matter most. Needs the same correlation study as Volume Regime
+before it earns a stratification slot.
 
 ---
 
@@ -246,13 +298,14 @@ Both are substantially represented *inside* the existing 5D HMM observation vect
 already (`momentum`, `vol_of_vol` are direct proxies). Adding either as a *separate*
 stratification dimension on top of a `regime` label that is already conditioned on them
 risks double-counting the same underlying dynamic under a different name -- collinear
-with the stratifying variable itself, which is a more insidious version of the P6/P8
-problem because the redundancy is with the primary HMM axis, not a peer dimension. Not
-worth an orthogonality study; the redundancy is structural, not empirical.
+with the stratifying variable itself, which is a more insidious version of the Volume
+Regime / Skew-Tail Regime problem because the redundancy is with the primary HMM axis, not
+a peer dimension. Not worth an orthogonality study; the redundancy is structural, not
+empirical.
 
 ---
 
-## Orthogonality Gate (required before P6, P8, or any future candidate ships)
+## Orthogonality Gate (required before Volume Regime, Skew/Tail Regime, or any future candidate ships)
 
 **The rule:** no new stratification dimension is added on the strength of sounding like
 a good idea. Combinatorial cost is multiplicative, not additive -- two dimensions
@@ -263,8 +316,8 @@ with this codebase's own promotion bar (`n >= 100`, p<0.05 -- the same bar `shad
 and IC Sharpe gating already enforce elsewhere). A dimension that isn't measurably
 orthogonal to what already exists is not new information, it's wasted cells.
 
-**Required study, run once against the existing corpus before P6/P8 (or any future
-candidate) is built:**
+**Required study, run once against the existing corpus before Volume Regime / Skew-Tail
+Regime (or any future candidate) is built:**
 1. Compute the candidate dimension's raw values historically (e.g. `rel_volume` percentile,
    rolling skewness) alongside existing dimensions (`realized_vol` percentile, HMM state).
 2. Measure correlation (Pearson on the continuous percentile/z-score, or normalized mutual
@@ -275,10 +328,10 @@ candidate) is built:**
    requires empirical judgment once the study is run, not a guessed constant).
 4. Dimensions that fail the threshold are either dropped or merged into a single composite
    (e.g. a combined liquidity-shock label instead of separate vol + volume dimensions) --
-   this is the same resolution path P5 microstructure already implies for volume + spread
+   this is the same resolution path Microstructure Regime already implies for volume + spread
    + OFI.
 
-P1 (volatility_regime) and P2 (dispersion_regime) are exempt from this gate -- they are
+Volatility Regime and Dispersion Regime are exempt from this gate -- they are
 already measurably distinct in kind (per-symbol vol level vs. cross-sectional dispersion
 across the universe), not just presumed distinct.
 
@@ -304,7 +357,7 @@ itself a learned parameter, not a human choice.
 **Compute cost:** Each new stratification dimension multiplies the IC engine runtime by
 the number of regime labels. Vol regime (3 labels) = 3x. Combined HMM(5) × vol(3) =
 15 cells per (feature, symbol, tf, lookahead). With 54 features × 58 symbols × 4 TFs ×
-4 lookaheads: 54 × 58 × 4 × 4 × 15 = ~750K cells. Numba JIT (todo 026 P0) is a
+4 lookaheads: 54 × 58 × 4 × 4 × 15 = ~750K cells. Numba JIT (todo 026's JIT item) is a
 prerequisite for this to be computationally feasible.
 
 ---
@@ -312,20 +365,26 @@ prerequisite for this to be computationally feasible.
 ## Implementation Order
 
 ```
-Gate: todo 026 P0 (Numba JIT) must ship first -- multi-dimensional IC is too slow
-      without it.
+Gate: todo 026's Numba JIT item -- SATISFIED (shipped Phase 141 P2, 2026-06-29;
+      src/intelligence/hmm_jit.py, wired at regime_writer.py:490). Volatility Regime is
+      unblocked on this gate; still needs an ic_engine multi-axis stratification plan first
+      (schema + APR change, not yet written -- see 2026-07-01 architecture review
+      .planning/research/2026-07-01-v3-architecture-review.md #3 for the recommended
+      substitution-test gate: run ic_engine stratified by volatility_regime INSTEAD
+      OF the cross-sectional label first, zero schema change, measures whether the
+      axis earns its cells before committing to a feature_ic_scores schema change).
 
-P1: Realized vol percentile regime     -- 1 session; highest value, lowest risk
-P2: Cross-sectional return dispersion  -- 1 session; requires 58-symbol return matrix
-P7: Session / time-of-day regime       -- <1 session; zero new data, zero look-ahead risk,
+Volatility Regime  -- 1 session; highest value, lowest risk
+Dispersion Regime   -- 1 session; requires 58-symbol return matrix
+Session Regime       -- <1 session; zero new data, zero look-ahead risk,
                                            near-certainly orthogonal -- cheapest candidate,
-                                           consider evaluating alongside/before P6
---- Orthogonality Gate study (required before P6, P8) ---
-P6: Volume regime                      -- 1 session build IF orthogonality study clears it
-P8: Skew / tail regime                 -- 1 session build IF orthogonality study clears it
-P3: Factor regime                      -- 2 sessions; requires factor data pipeline
-P4: HMM variants                       -- gated on empirical proof of HMM deficiency
-P5: Microstructure regime              -- gated on V2 order flow infrastructure
+                                           consider evaluating alongside/before Volume Regime
+--- Orthogonality Gate study (required before Volume Regime, Skew/Tail Regime) ---
+Volume Regime                      -- 1 session build IF orthogonality study clears it
+Skew/Tail Regime                -- 1 session build IF orthogonality study clears it
+Factor Regime                      -- 2 sessions; requires factor data pipeline
+HMM Variants                       -- gated on empirical proof of HMM deficiency
+Microstructure Regime              -- gated on V2 order flow infrastructure
 ```
 
 ---
@@ -338,4 +397,4 @@ P5: Microstructure regime              -- gated on V2 order flow infrastructure
 - `docs/plans/2026-06-29-ic-engine-improvements.md` -- IC engine fixes (todo 028)
 - `docs/plans/2026-06-29-feature-scoring-beyond-ic.md` -- feature scoring beyond IC (todo 029)
 - Hamilton, J.D. (1989) "A New Approach to the Economic Analysis of Nonstationary Time Series"
-- Todo: `030-regime-stratification-alternatives.md`
+- Gate: `.planning/todos/pending/026-hmm-regime-audit-optimization.md` (the Rolling HMM Refit item's baseline-separation query — this doc's own implementation order is gated on it, not on a separate todo; no dedicated todo file exists for this doc, it is itself the backlog)
