@@ -100,9 +100,15 @@ _FUT_TICK_LIST = "233"
 #   1d: 20+ years available for liquid equities/ETFs.
 _MAX_CHUNK_DAYS: dict[str, int] = {
     "1m": 6,  # per-request limit: 7 days; retention: 10+ years (see above)
-    "5m": 29,  # per-request limit: 30 days
+    "5m": 89,  # per-request limit: verified 90D succeeds (180D times out), 89D leaves margin.
+    #      Was 29d — the original 29-30d cap (2026-06-22) predates the sliding-window rate
+    #      limiter and may have conflated pacing (Error 162) with a duration ceiling.
+    #      Re-verified 2026-07-02 via direct probes on DBC/PPLT/SDOG.
     "15m": 59,  # per-request limit: 60 days
-    "1h": 29,  # 30-day chunks — >30d fails for ETFs without extended history subscription
+    "1h": 364,  # 1-year chunks — verified 364D succeeds cleanly (matches 1d). Was 29d,
+    #       reduced from an original 364d after "some ETFs" failed on 2026-06-22 (commit
+    #       8472a074); re-verified 2026-07-02 via direct probes on DBC/SPHB/IPO/PPLT/SDOG,
+    #       all succeeded — likely the same pacing/duration conflation as 5m above.
     "4h": 29,
     "1d": 364,  # 1-year chunks — daily bars support full-year requests; ~20 chunks for 20yr
 }
