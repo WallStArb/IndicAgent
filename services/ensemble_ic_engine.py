@@ -594,10 +594,22 @@ class EnsembleICEngine(BaseBatch):
 
             await _assert_prerequisites(conn, tfs=tf_list)
 
-            oos_start = await conn.fetchval(
-                "SELECT config_value::timestamptz FROM config_state "
-                "WHERE config_key = 'alpha.validation.oos_start'"
+            oos_start_gate_error = RuntimeError(
+                "EnsembleICEngine startup gate FAILED: alpha.validation.oos_start is not set "
+                "in config_state (or is not a valid timestamp). A missing/invalid OOS boundary "
+                "would silently exclude all rows from measurement (bar_ts < NULL never matches) "
+                "or crash on an opaque cast error -- see Phase 141.1 CR-01. Set the key via "
+                "ConfigService before running this engine."
             )
+            try:
+                oos_start = await conn.fetchval(
+                    "SELECT config_value::timestamptz FROM config_state "
+                    "WHERE config_key = 'alpha.validation.oos_start'"
+                )
+            except (asyncpg.DataError, asyncpg.InvalidTextRepresentationError) as error:
+                raise oos_start_gate_error from error
+            if oos_start is None:
+                raise oos_start_gate_error
 
             symbols_rows = await conn.fetch(
                 "SELECT DISTINCT symbol, tf FROM alpha_events WHERE bar_ts < $1", oos_start

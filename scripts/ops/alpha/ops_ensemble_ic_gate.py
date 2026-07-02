@@ -45,7 +45,8 @@ _GATE_SQL = """
     ),
     total AS (
         SELECT COUNT(DISTINCT (symbol, tf, regime)) AS n_total FROM alpha_ensemble_ic
-        WHERE scored_at = (SELECT ts FROM latest)
+        WHERE lookahead = $1
+          AND scored_at = (SELECT ts FROM latest)
     )
     SELECT (SELECT ts FROM latest) AS latest_scored_at,
            (SELECT COUNT(*) FROM qualifying) AS n_qualifying,

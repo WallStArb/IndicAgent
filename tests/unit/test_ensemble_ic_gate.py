@@ -17,7 +17,7 @@ _scripts_alpha_dir = Path(__file__).parent.parent.parent / "scripts" / "ops" / "
 if str(_scripts_alpha_dir) not in sys.path:
     sys.path.insert(0, str(_scripts_alpha_dir))
 
-from ops_ensemble_ic_gate import _evaluate_gate
+from ops_ensemble_ic_gate import _GATE_SQL, _evaluate_gate
 
 
 def test_gate_passes_when_fraction_meets_threshold():
@@ -46,3 +46,22 @@ def test_gate_handles_zero_total_without_zero_division_error():
     passed, fraction = _evaluate_gate(n_qualifying=0, n_total=0, min_qualifying_fraction=0.60)
     assert passed is False
     assert fraction == 0.0
+
+
+def test_gate_sql_total_cte_scoped_to_same_lookahead_as_qualifying():
+    """Regression (CR-02): `total` must filter on `lookahead = $1`, same as `qualifying`.
+
+    Without this filter, `total` counts cells across ALL lookahead scales while
+    `qualifying` counts only `gate_lookahead` cells, inflating the denominator and
+    silently flipping a true PASS into a reported FAIL whenever a (symbol, tf, regime)
+    triple qualifies at another scale but not at the gate scale. This test parses the
+    SQL text directly since the fraction math tests above never exercise the query.
+    """
+    total_cte_start = _GATE_SQL.index("total AS (")
+    qualifying_cte_start = _GATE_SQL.index("qualifying AS (")
+    assert qualifying_cte_start < total_cte_start, "expected `qualifying` CTE before `total` CTE"
+    total_cte_body = _GATE_SQL[total_cte_start:]
+    assert "lookahead = $1" in total_cte_body, (
+        "`total` CTE must filter on lookahead = $1, matching `qualifying` -- "
+        "otherwise n_total is inflated across all lookahead scales (CR-02)"
+    )

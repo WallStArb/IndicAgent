@@ -26,7 +26,9 @@ import asyncpg
 
 from src.config.settings import Settings
 
-_DEFAULT_MIN_OBS_PER_REGIME = 200
+_DEFAULT_MIN_OBS_PER_REGIME = (
+    3000  # matches migration 195 seed (alpha.ensemble_ic.min_obs_per_regime)
+)
 
 
 def print_section(title: str) -> None:
@@ -187,7 +189,7 @@ async def main() -> int:
         tf_qual = {r["tf"]: r["n_qualifying"] for r in section3_rows}
         for r in section3_rows:
             flag = ""
-            if tf_qual.get("1h", 0) and not tf_qual.get("5m", 0):
+            if r["tf"] == "5m" and tf_qual.get("1h", 0) and not tf_qual.get("5m", 0):
                 flag = "TF-specific problem (5m fewer independent obs per regime)"
             print(f"| {r['tf']} | {r['n_cells']} | {r['n_qualifying']} | {flag} |")
 
