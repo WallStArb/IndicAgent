@@ -1,6 +1,7 @@
 # Multi-Engine HMM Regime Architecture
 
 **Status:** Idea / Research
+**Last Updated:** 2026-07-01 (sequencing verdict vs. percentile-rank stratification added)
 **Extends:** `docs/intelligence/intelligence-hmm-observation-vector.md`
 
 ---
@@ -403,4 +404,35 @@ Any observation vector or engine change invalidates `feature_ic_scores`. Validat
 - `docs/intelligence/intelligence-hmm-observation-vector.md` -- current 5D price/vol vector and evaluation protocol
 - `docs/ideas/intel-08-macro-cross-asset.md` -- macro/cross-asset signals
 - `docs/intelligence/intelligence-alphaengine.md` -- IC engine design
-- `docs/plans/2026-06-29-regime-stratification-alternatives.md` -- volatility_regime + volume_regime stratification (simpler percentile-rank approach, no HMM)
+- `docs/plans/2026-07-01-regime-stratification-alternatives.md` -- volatility_regime + volume_regime stratification (simpler percentile-rank approach, no HMM)
+
+## Sequencing verdict vs. percentile-rank stratification (2026-07-01 design review)
+
+E1 (Volatility Structure) and E2 (Volume Character) here cover the same two domains as P1
+(volatility_regime) and P6 (volume_regime) in the regime-stratification-alternatives doc — same
+territory, different mechanism (fitted HMM vs. deterministic percentile-rank lookup).
+
+**Verdict: prove the percentile-rank version first, build an HMM engine only if it proves
+insufficient.** Reasoning:
+1. This codebase's own stated principle (`docs/plans/2026-06-20-alphaengine-architecture.md`):
+   "simple features with positive IC beat complex ones... because they are more robust."
+2. The one HMM already in production (E0) is *currently under active audit* for exactly the
+   failure modes HMMs are prone to — non-causal full-history fit (todo 034), missing
+   seed-stability checks, degenerate-state risk (todo 026). Building E1-E3 before that audit
+   resolves multiplies an unresolved risk instead of fixing it once.
+3. Percentile-rank is causal by construction, has no convergence risk, and doesn't add to the
+   combinatorial IC-stratification cost the way each new HMM state-count does (joint state
+   across even 2 engines at 5 states each is 25 cells before considering interaction terms —
+   Numba JIT is already a hard gate for *one* extra percentile-rank dimension).
+4. Every domain in the engine registry above (E1-E4) reduces to one or a handful of computable
+   scalars, meaning percentile-rank generalizes across the whole registry, not just E1/E2 — see
+   `docs/ideas/cross-group-lead-lag-ic.md`'s parent conversation for the full domain-by-domain
+   feasibility check. The one thing percentile-rank can't do alone is regime persistence/
+   stickiness (an HMM's transition matrix encodes "once in state X, tend to stay there") — but
+   `regime_writer.py` already applies `min_hold_bars` smoothing as a *post-processing* step
+   separate from the HMM fit itself, and nothing prevents applying that same smoothing rule to
+   a percentile-rank series. So even the one real capability gap is patchable without an HMM.
+
+This doc's actual reusable contribution is the **domain taxonomy** (E0-E4 as independent
+information sources worth stratifying by), not the HMM mechanism — that taxonomy transfers
+directly to percentile-rank equivalents regardless of which mechanism populates each column.

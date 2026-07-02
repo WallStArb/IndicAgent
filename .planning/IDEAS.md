@@ -41,6 +41,7 @@ Full planning system: `.planning/PLANNING-SYSTEM.md`.
 - **Renaissance Framing** — foundational philosophy from Simons/Medallion approach. See `docs/ideas/renaissance-framing.md`.
 
 - **Architectural Weakness Assessment** — top 7 weak links: pipeline god class (1820 lines), settings god object, 64-field ledger tuple, dead AI foundations (LineageRecorder/graduation), silent queue drops, bare excepts, unprotected global state. See `docs/ideas/architectural-weakness-assessment.md`.
+- **Cross-Group Lead-Lag IC** — does one `regime_group`'s state predict another's forward returns (e.g. rates→precious metals, industrial metals→bonds)? Reuses `ic_engine`, new join pattern not new infra. Gated on Phase 151 (`regime_group`). See `docs/ideas/cross-group-lead-lag-ic.md`.
 
 ## Vision Docs (Reference)
 - **AegisAgent — Independent Risk Management** — real-time risk overlay, position sizing, portfolio-level constraints. See `docs/ideas/aegisagent-vision.md`.

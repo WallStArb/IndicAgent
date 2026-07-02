@@ -1,7 +1,7 @@
 # Naming System
 
 **Status:** current
-**Last Updated:** 2026-06-22
+**Last Updated:** 2026-07-01 (§7 split into Generic vs Domain-Specific gradient scales; added Curve shape, Term structure shape, Credit spread state)
 **Extended discussion:** `docs/reference/renaissance-naming-philosophy.md` (detailed examples and reasoning for governing tests)
 
 ---
@@ -408,7 +408,9 @@ Would a practitioner write this on a whiteboard in a mathematics, finance, or CS
 
 When a column name, APR key, or variable name contains a scale qualifier — a word describing where on a spectrum the value falls — only terms from this table are permitted. Adding a new gradient term requires updating this section first.
 
-### Canonical Terms
+### Canonical Terms — Generic Scales
+
+Domain-agnostic scales. Reusable across any future magnitude/speed/rank tiering regardless of what quantity is being tiered — the terms carry no field-specific meaning of their own.
 
 | Scale | Approved terms | Typical use |
 |-------|---------------|-------------|
@@ -418,11 +420,25 @@ When a column name, APR key, or variable name contains a scale qualifier — a w
 | Magnitude / intensity | `low`, `mid`, `high` | Threshold tiers, confidence bands |
 | Rank / quality | `primary`, `secondary` | Signal tiers, confirmation layers |
 
+### Canonical Terms — Domain-Specific Scales
+
+A quantity being tiered may use its own field-standard vocabulary instead of a generic scale when the terms meet the **same bar as Section 6's Abbreviation Policy**: universally recognized, whiteboard-testable finance terminology — not frequency of reuse within this codebase. Repo reuse count is not the test; a term used exactly once still qualifies if it is standard field vocabulary a domain practitioner would recognize unprompted. Each domain-specific scale requires its own row here, added deliberately — never invented ad hoc inside a single plan or module docstring.
+
+| Scale | Approved terms | Typical use | Why domain-specific, not generic |
+|-------|---------------|-------------|-----------------------------------|
+| Curve shape | `steep`, `flat`, `inverted` | Yield-curve spread tiers (e.g. TLT-SHY z-score) | Standard fixed-income terminology; "high/mid/low curve" is not recognizable without translation |
+| Term structure shape | `contango`, `neutral`, `backwardation` | Futures/commodity term-structure tiers | Standard commodities terminology; distinct field convention from curve shape even though both tier the sign of a spread |
+| Credit spread state | `tight`, `wide` | Credit spread tiers (e.g. HYG-LQD z-score) | Standard credit terminology ("spreads tightening/widening") |
+| Currency strength | `strong`, `weak` | Dollar/currency direction tiers (e.g. UUP z-score) | Standard FX/macro terminology ("strong dollar", "weak dollar") |
+| Risk sentiment | `risk_on`, `risk_off` | Cross-asset carry/sentiment tiers | Universal trading-desk terminology; broader than any single asset class |
+
+A quantity that is structurally a magnitude tier (a continuous score threshold-bucketed) but has **no established field-specific naming convention** must use the generic Magnitude/Intensity scale (`low`/`mid`/`high`), not an invented term. Domain-specific status is earned by the term already being standard usage in the field — it is not granted because a name "sounds more precise" for the case at hand. When evaluating a candidate domain-specific term, check composition first: if the value already decomposes into an existing generic scale (e.g. direction × `primary`/`secondary` rank), use the composition — do not invent a new word to say what existing approved terms already say together.
+
 ### Rule
 
-Only terms from the table above may appear as scale qualifiers in column names, APR keys, and variable names. Numbers in names are valid **only** when the number defines the statistical concept — `momentum_z_5` means "5-bar z-score"; changing it to 7 bars produces a different statistic, not a recalibrated version of the same one. When the number is a tunable calibration parameter, use a gradient term instead: `return_fast` column + `alpha.ic.lookahead.fast = 1` APR key. See CLAUDE.md §APR for the full pattern.
+Only terms from the tables above may appear as scale qualifiers in column names, APR keys, and variable names. Numbers in names are valid **only** when the number defines the statistical concept — `momentum_z_5` means "5-bar z-score"; changing it to 7 bars produces a different statistic, not a recalibrated version of the same one. When the number is a tunable calibration parameter, use a gradient term instead: `return_fast` column + `alpha.ic.lookahead.fast = 1` APR key. See CLAUDE.md §APR for the full pattern.
 
-**Prohibited:** inventing terms outside this table (`near`, `ultra`, `short`, `long`, `tight`, `wide`). If a new gradient term is genuinely needed, update this table first — this section is the single source of truth.
+**Prohibited:** inventing terms outside these tables (`near`, `ultra`, `short`, `long`). `tight`/`wide` are permitted *only* within the Credit spread state domain-specific scale above — never as a generic magnitude qualifier elsewhere (use `low`/`high` for any non-credit magnitude tiering). If a new gradient term is genuinely needed — generic or domain-specific — update this table first; this section is the single source of truth.
 
 ---
 

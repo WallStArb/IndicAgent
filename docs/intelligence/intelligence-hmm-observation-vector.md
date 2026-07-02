@@ -112,7 +112,7 @@ APR key `feature.hmm.obs_vector_version` (not yet seeded) should increment on an
 ## Related Docs
 
 - `docs/intelligence/intelligence-alphaengine.md` -- IC engine design
-- `docs/plans/2026-06-29-regime-stratification-alternatives.md` -- volatility_regime + volume_regime as IC stratification dimensions
+- `docs/plans/2026-07-01-regime-stratification-alternatives.md` -- volatility_regime + volume_regime as IC stratification dimensions
 - `.planning/todos/pending/026-hmm-improvement-plan.md` -- P3/P4 gated HMM work
 - `.planning/todos/pending/030-regime-stratification-alternatives.md` -- volume_regime implementation
 - `services/regime_writer.py:137` -- `_build_obs_matrix()` implementation

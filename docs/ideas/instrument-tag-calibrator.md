@@ -1,10 +1,10 @@
 # Instrument Tag Auditor
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** draft
 **Priority:** high
 **Milestone:** post-v2.8
-**Last Updated:** 2026-06-06
+**Last Updated:** 2026-07-01
 **Tags:** instruments, tags, empirical, calibration, renaissance, factor-model
 
 ---
@@ -291,6 +291,22 @@ ORDER BY it.weight DESC;
 That is a live, statistically grounded answer — not a human guess from months ago.
 
 The regime classifier can use tag vectors as features: "give me all instruments with empirically validated `risk_off` + `rate_sensitive` tags" defines the flight-to-quality basket dynamically rather than by hand.
+
+---
+
+## Open question: signed magnitude access pattern (2026-07-01 design review)
+
+`weight` (`instrument_tags.weight`) is unsigned, `[0.0, 1.0]`, magnitude-only per the live
+CHECK constraint. Sign isn't actually lost by this design — `evidence` already captures it
+(`{beta: -8.3, ...}`, signed) — but sign is only reachable by parsing unstructured JSONB
+(`evidence->>'beta'`), not as a first-class queryable column. Fine for the current
+`ORDER BY weight DESC` use case above, which only needs magnitude. Becomes a real question for
+any consumer that needs direction — e.g. a cross-group directional relationship (does group A
+move *with* or *against* group B — see `docs/ideas/cross-group-lead-lag-ic.md`) would need
+signed values as a first-class access pattern, not an ad hoc JSONB extraction scattered across
+call sites. Not resolved here — flagging so it's a deliberate decision (add a signed column
+alongside `weight`, or standardize the JSONB extraction pattern) rather than something that
+gets worked around inconsistently once a consumer actually needs it.
 
 ---
 

@@ -4,11 +4,33 @@
 
 **Supersedes:** `docs/plans/2026-06-27-rates-regime-model.md` (rates-specific — discarded in favor of this generic framework).
 
+**Created:** 2026-06-27. **Last significantly revised:** 2026-07-01 — filename renamed to
+reflect this (routing invariant / `AmbiguousRegimeGroupError` added, migration renumbered
+189→ twice for collision avoidance, Job 1/Job 2 scope note added, glossary draft rewritten,
+tier vocabulary aligned to `naming-system.md` §7 domain-specific scales).
+
 **Goal:** Replace `equity_regime_model.py` with a single generic `cross_sectional_regime_model.py` that dispatches to pluggable signal modules, where each module defines a peer group (by instrument tag filter) and a regime signal (by computation type), so adding a new group (rates, commodities, FX) requires one signal module and one APR config update — no service code changes.
 
 **Architecture:** Groups are defined as JSON in APR (`alpha.regime.groups`): each entry declares a `tag_filter` (resolves peer members from `instrument_tags` at startup), a `signal_type` (maps to a signal module in `src/intelligence/regime_signals/`), and a `params_prefix` (APR namespace for that signal's thresholds). Signal modules are pure functions: they receive pre-fetched peer bars and return two aligned signal series. A generic `_assign_labels` function in the service applies threshold-based bucketing to produce `{tier1}_{tier2}` labels. Results are written to `market_regimes` (column renamed from `asset_class` to `regime_group`). `ic_engine` routing is updated to map symbols to their group name using the same groups JSON.
 
 **Tech Stack:** Python, psycopg2, pandas, numpy, structlog, APR (config_state/config_schema), TimescaleDB
+
+**Scope note (2026-07-01 design review):** `regime_group` is deliberately scoped to one job
+only — defining the peer-set denominator for computing a group's own cross-sectional regime
+signal (e.g. "who counts as the rates market" so a curve/credit composite can be computed at
+all). Single-membership and `AmbiguousRegimeGroupError` (Task 5) are correct *for this job*.
+
+A second, distinct job was identified and deliberately deferred: **joining a group's
+`regime_label` onto a symbol's own feature vector for IC-stratification purposes should not be
+restricted to the symbol's single hard-routed `regime_group`.** Hybrid-sensitivity instruments
+(convertible bond ETFs, preferred stock ETFs like `PFF`, MLPs, REIT-adjacent yield plays —
+a wide class in this universe, not a narrow edge case) are genuinely, simultaneously sensitive
+to more than one group's regime (e.g. both `equity` and `rates`). Forcing single-group
+inheritance for this second job would silently discard real information for those instruments.
+The correct mechanism for that job is a *separate* multi-label join driven by
+`instrument_tags.sensitivity`-category weights (once calibrated — see todo 040/Phase 148 and
+todo 041's taxonomy audit), not `regime_group` routing. Not in scope for this plan — noted here
+so a future reader doesn't mistake the single-membership invariant as covering both jobs.
 
 ## Global Constraints
 
@@ -27,7 +49,7 @@
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `production/migrations/179_regime_group.sql` | Create | Rename `market_regimes.asset_class` → `regime_group`; add `alpha.regime.groups` APR key; add `alpha.rates_regime.*` APR keys |
+| `production/migrations/189_regime_group.sql` | Create | Rename `market_regimes.asset_class` → `regime_group`; add `alpha.regime.groups` APR key; add `alpha.rates_regime.*` APR keys |
 | `src/intelligence/regime_signals/__init__.py` | Create | Signal module registry: `REGISTRY: dict[str, module]` |
 | `src/intelligence/regime_signals/breadth_vol.py` | Create | Equity signal: SPY realized-vol pct-rank × cross-sectional 200MA breadth. Logic extracted from `equity_regime_model.py`. |
 | `src/intelligence/regime_signals/curve_credit.py` | Create | Rates signal: TLT-SHY curve spread z-score × HYG-LQD credit spread z-score |
@@ -56,12 +78,24 @@
 In `docs/foundation/glossary.md`, under the appropriate section (regime / market structure), add:
 
 ```
-**regime_group** — A named peer group whose regime signal is computed cross-sectionally.
-Each group declares a tag_filter (resolves peer symbols), a signal_type (breadth_vol,
-curve_credit, etc.), and a params_prefix (APR namespace). Results are written to
-market_regimes.regime_group. Defined in APR key alpha.regime.groups.
-Examples: "equity" (SPY-like ETFs), "rates" (duration ETFs + credit).
-Contrast: feature_vectors.regime stores per-symbol HMM labels; regime_group is market-wide.
+**regime_group** — A classification LABEL ON A SECURITY (which peer group it belongs to),
+not a market state. Analogous to asset_class but finer-grained and regime-signal-specific:
+TLT's asset_class is "equity" (its data-model type) but its regime_group is "rates" (the
+peer set relevant to its regime signal). Static per symbol — resolved once from
+instrument_tags via tag_filter, not recomputed per bar. Each group declares a tag_filter
+(resolves peer symbols at startup), a signal_type (breadth_vol, curve_credit, etc.), and a
+params_prefix (APR namespace). Defined in APR key alpha.regime.groups.
+
+Contrast with regime_label — the actual STATE (e.g. "steep_tight"), one row per
+(regime_group, tf, ts), computed once for the whole peer group and joined onto every
+member's feature vector at query time (never materialized into feature_vectors).
+
+Contrast with feature_vectors.regime — the per-symbol HMM trend label, self-computed from
+that symbol's own price history, independent of regime_group entirely.
+
+Single-membership by design (see AmbiguousRegimeGroupError, Task 5) — scoped to defining
+the peer-set denominator for computing one group's aggregate signal. Does not attempt to
+capture instruments with genuine multi-group sensitivity (see Scope note above).
 ```
 
 - [ ] **Step 2: Commit**
@@ -73,10 +107,10 @@ git commit -m "docs(glossary): add regime_group definition"
 
 ---
 
-## Task 1: Migration 179 — Schema Rename + APR Keys
+## Task 1: Migration 189 — Schema Rename + APR Keys
 
 **Files:**
-- Create: `production/migrations/179_regime_group.sql`
+- Create: `production/migrations/189_regime_group.sql`
 
 **Interfaces:**
 - Produces: `market_regimes.regime_group` column (renamed from `asset_class`); APR keys `alpha.regime.groups`, `alpha.rates_regime.*`
@@ -87,8 +121,8 @@ git commit -m "docs(glossary): add regime_group definition"
 - [ ] **Step 1: Write the migration**
 
 ```sql
--- production/migrations/179_regime_group.sql
--- Migration 179: Rename market_regimes.asset_class → regime_group.
+-- production/migrations/189_regime_group.sql
+-- Migration 189: Rename market_regimes.asset_class → regime_group.
 --
 -- Rationale: 'asset_class' was an implementation assumption encoding a specific taxonomy.
 -- 'regime_group' is the correct abstraction: any named peer group with a shared regime signal.
@@ -228,7 +262,7 @@ COMMIT;
 
 ```bash
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
-    -f production/migrations/179_regime_group.sql
+    -f production/migrations/189_regime_group.sql
 ```
 
 Expected: no errors. `ALTER TABLE`, `ALTER INDEX`, `INSERT 0 1`, etc.
@@ -263,8 +297,8 @@ Expected: `equity | <n>` rows unchanged. Column rename is transparent to data.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add production/migrations/179_regime_group.sql
-git commit -m "feat(migrations): rename market_regimes.asset_class to regime_group; add rates_regime + equity_regime APR keys (migration 179)"
+git add production/migrations/189_regime_group.sql
+git commit -m "feat(migrations): rename market_regimes.asset_class to regime_group; add rates_regime + equity_regime APR keys (migration 189)"
 ```
 
 ---
@@ -722,6 +756,13 @@ Signal 1 (curve_z): TLT log-return minus SHY log-return, rolling z-score.
 Signal 2 (credit_z): HYG log-return minus LQD log-return, rolling z-score.
   Positive → HY outperforms IG (spreads tightening, risk-on) → "tight".
   Negative → IG outperforms HY (spreads widening, risk-off) → "wide".
+
+Tier vocabulary follows docs/foundation/naming-system.md §7 (Gradient Scale Vocabulary,
+Domain-Specific Scales) — "steep/flat/inverted" is the Curve shape scale, "tight/wide" is
+the Credit spread state scale. Both are sanctioned domain-specific terms (standard
+fixed-income/credit vocabulary a practitioner recognizes unprompted), not generic
+low/mid/high, per that section's Section-6-consistent standard (external field convention,
+not in-repo reuse count).
 
 Label format: {curve_tier}_{credit_tier}  e.g. "steep_tight", "inverted_wide".
 6 possible labels (3 × 2).
@@ -1553,7 +1594,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
-from services.ic_engine import _build_symbol_regime_class
+from services.ic_engine import AmbiguousRegimeGroupError, _build_symbol_regime_class
 
 _EQUITY_GROUP = {"name": "equity", "tag_filter": ["eq_*", "intl_*"], "enabled": True}
 _RATES_GROUP = {"name": "rates", "tag_filter": ["fi_*"], "enabled": True}
@@ -1586,12 +1627,21 @@ class TestBuildSymbolRegimeClass:
         result = _build_symbol_regime_class(tags, [_EQUITY_GROUP, disabled_rates])
         assert result["TLT"] == "equity"
 
-    def test_first_matching_group_wins(self):
-        """Equity group listed first; fi_* matches rates but equity is checked first."""
-        # Only rates group — TLT routes to rates
+    def test_single_matching_group_used_regardless_of_list_order(self):
+        """Group order in the config list must never be load-bearing."""
         tags = {"TLT": {"fi_treasury"}}
         result = _build_symbol_regime_class(tags, [_RATES_GROUP])
         assert result["TLT"] == "rates"
+        result_reordered = _build_symbol_regime_class(tags, [_EQUITY_GROUP, _RATES_GROUP])
+        assert result_reordered["TLT"] == "rates"
+
+    def test_overlapping_tag_filters_raise_ambiguous_error(self):
+        """A symbol matching two enabled groups is a config authoring error, not
+        something resolved silently by array order."""
+        overlapping_group = {"name": "credit", "tag_filter": ["fi_credit"], "enabled": True}
+        tags = {"HYG": {"fi_credit_hy"}}
+        with pytest.raises(AmbiguousRegimeGroupError):
+            _build_symbol_regime_class(tags, [_RATES_GROUP, overlapping_group])
 
     def test_empty_tags_defaults_to_equity(self):
         tags = {"XYZ": set()}
@@ -1622,15 +1672,29 @@ Find the block after the constants (after `_CROSS_SECTIONAL_SYMBOL` and the `TF_
 # ---------------------------------------------------------------------------
 
 
+class AmbiguousRegimeGroupError(ValueError):
+    """Raised when a symbol's tags match more than one enabled regime group.
+
+    Regime groups must partition the universe: a symbol occupies exactly one
+    discrete regime state at a time, so tag_filter overlap across groups is a
+    config authoring error, not something to resolve silently by JSON array
+    order. Fix by tightening tag_filter prefixes or the instrument_tags data
+    so the overlap is removed, then restart.
+    """
+
+
 def _build_symbol_regime_class(
     tags_by_symbol: dict[str, set[str]],
     group_configs: list[dict],
 ) -> dict[str, str]:
     """Map each symbol to its regime group name from the groups APR config.
 
-    Groups are checked in order; first matching group wins.
     A symbol matches a group if any of its instrument_tags starts with any
-    prefix in the group's tag_filter (trailing * stripped).
+    prefix in the group's tag_filter (trailing * stripped). Enabled groups'
+    tag_filters must be mutually exclusive over the resolved universe — if a
+    symbol matches more than one group, this raises AmbiguousRegimeGroupError
+    rather than silently picking the first match, since group order in the
+    APR JSON is not a meaningful ranking and must never be load-bearing.
     Symbols with no matching enabled group default to 'equity'.
     """
     prefixes_by_group: list[tuple[str, list[str]]] = [
@@ -1640,12 +1704,18 @@ def _build_symbol_regime_class(
     ]
     result: dict[str, str] = {}
     for symbol, tags in tags_by_symbol.items():
-        assigned = "equity"
-        for group_name, prefixes in prefixes_by_group:
-            if any(any(t.startswith(pfx) for t in tags) for pfx in prefixes):
-                assigned = group_name
-                break
-        result[symbol] = assigned
+        matches = [
+            group_name
+            for group_name, prefixes in prefixes_by_group
+            if any(any(t.startswith(pfx) for t in tags) for pfx in prefixes)
+        ]
+        if len(matches) > 1:
+            raise AmbiguousRegimeGroupError(
+                f"Symbol {symbol!r} matches multiple enabled regime groups "
+                f"{matches} — tag_filter patterns must be mutually exclusive. "
+                f"Tags: {sorted(tags)}"
+            )
+        result[symbol] = matches[0] if matches else "equity"
     return result
 ```
 
@@ -2124,7 +2194,10 @@ git push origin main
 - **Momentum z-score** — cross-sectional median of peer group's rolling log-return z-scores (window via APR). Captures whether the group is trending up or down.
 - **Term structure proxy** — cross-sectional median of (front_close / back_close - 1) z-score, approximated from price momentum slope acceleration (second derivative of price). True contango/backwardation requires futures data; this ETF proxy captures the same directional signal at lower fidelity.
 
-**Labels (4):** `strong_up`, `up`, `down`, `strong_down` — derived from momentum z-score alone when term structure proxy is unavailable; `{momentum}_{ts}` labels when both signals active.
+**Labels (4):** `up_primary`, `up_secondary`, `down_secondary`, `down_primary` — composed
+from existing approved Section 7 terms (direction × `primary`/`secondary` rank) rather than
+an invented `strong_up`/`strong_down` scale; derived from momentum z-score alone when term
+structure proxy is unavailable; `{momentum}_{ts}` labels when both signals active.
 
 **Label rationale:** 4 labels (not 9) because peer groups have 4-8 instruments — 9 labels would produce sparse buckets. Simpler is more stable.
 
@@ -2132,33 +2205,33 @@ git push origin main
 - Create: `src/intelligence/regime_signals/commodity_momentum_ts.py`
 - Create: `tests/unit/test_regime_signals_commodity_momentum_ts.py`
 
-**APR keys** (add to migration 179 or a follow-on migration):
+**APR keys** (add to migration 189 or a follow-on migration):
 
 ```sql
 INSERT INTO config_schema (config_key, value_type, min_value, max_value, description)
 VALUES
     ('alpha.commodity_energy_regime.momentum_window', 'int', 5, 500,
      '[conventional] Rolling window (bars) for per-symbol log-return z-score in energy group.'),
-    ('alpha.commodity_energy_regime.strong_threshold', 'float', 0.0, 5.0,
-     '[initial_estimate] Median z-score above which momentum is "strong_up". Candidate ML target.'),
+    ('alpha.commodity_energy_regime.primary_threshold', 'float', 0.0, 5.0,
+     '[initial_estimate] Median z-score above which momentum tier is "up_primary". Candidate ML target.'),
     ('alpha.commodity_metals_regime.momentum_window', 'int', 5, 500,
      '[conventional] Rolling window (bars) for metals group momentum z-score.'),
-    ('alpha.commodity_metals_regime.strong_threshold', 'float', 0.0, 5.0,
-     '[initial_estimate] Metals group strong_up threshold.'),
+    ('alpha.commodity_metals_regime.primary_threshold', 'float', 0.0, 5.0,
+     '[initial_estimate] Metals group up_primary/down_primary threshold.'),
     ('alpha.commodity_agri_regime.momentum_window', 'int', 5, 500,
      '[conventional] Rolling window (bars) for agri group momentum z-score.'),
-    ('alpha.commodity_agri_regime.strong_threshold', 'float', 0.0, 5.0,
-     '[initial_estimate] Agri group strong_up threshold.')
+    ('alpha.commodity_agri_regime.primary_threshold', 'float', 0.0, 5.0,
+     '[initial_estimate] Agri group up_primary/down_primary threshold.')
 ON CONFLICT (config_key) DO NOTHING;
 
 INSERT INTO config_state (config_key, config_value, version)
 VALUES
     ('alpha.commodity_energy_regime.momentum_window', '60', 1),
-    ('alpha.commodity_energy_regime.strong_threshold', '0.75', 1),
+    ('alpha.commodity_energy_regime.primary_threshold', '0.75', 1),
     ('alpha.commodity_metals_regime.momentum_window', '60', 1),
-    ('alpha.commodity_metals_regime.strong_threshold', '0.75', 1),
+    ('alpha.commodity_metals_regime.primary_threshold', '0.75', 1),
     ('alpha.commodity_agri_regime.momentum_window', '60', 1),
-    ('alpha.commodity_agri_regime.strong_threshold', '0.75', 1)
+    ('alpha.commodity_agri_regime.primary_threshold', '0.75', 1)
 ON CONFLICT (config_key) DO NOTHING;
 ```
 
@@ -2192,7 +2265,7 @@ class TestComputeShape:
         n, window = 200, 60
         bars = {"USO": _make_bars([100 + i * 0.1 for i in range(n)]),
                 "UNG": _make_bars([50 + i * 0.05 for i in range(n)])}
-        params = {"momentum_window": window, "strong_threshold": 0.75}
+        params = {"momentum_window": window, "primary_threshold": 0.75}
         s1, s2 = compute(bars, params)
         assert len(s1) == n
         assert len(s2) == n
@@ -2200,7 +2273,7 @@ class TestComputeShape:
     def test_warmup_bars_are_nan(self):
         n, window = 200, 60
         bars = {"USO": _make_bars([100.0] * n)}
-        params = {"momentum_window": window, "strong_threshold": 0.75}
+        params = {"momentum_window": window, "primary_threshold": 0.75}
         s1, _ = compute(bars, params)
         assert s1.iloc[:window].isna().all()
 
@@ -2208,13 +2281,13 @@ class TestComputeShape:
         n, window = 200, 60
         bars = {sym: _make_bars([100 + i * 0.5 for i in range(n)])
                 for sym in ["USO", "UNG", "XOP"]}
-        params = {"momentum_window": window, "strong_threshold": 0.75}
+        params = {"momentum_window": window, "primary_threshold": 0.75}
         s1, _ = compute(bars, params)
         assert s1.iloc[window:].median() > 0
 
 class TestBuildTiers:
     def test_returns_two_tier_lists(self):
-        tiers1, tiers2 = build_tiers({"strong_threshold": 0.75})
+        tiers1, tiers2 = build_tiers({"primary_threshold": 0.75})
         assert len(tiers1) >= 2
         assert len(tiers2) >= 2
 
@@ -2254,12 +2327,13 @@ Computes two aligned series from a peer group of commodity ETFs:
   2. ts_proxy_median    — cross-sectional median of momentum slope acceleration (d²price/dt²
                           z-score), an ETF-based proxy for contango/backwardation direction
 
-Labels: strong_up / up / down / strong_down (4 states).
+Labels: up_primary / up_secondary / down_secondary / down_primary (4 states, composed
+from Section 7's direction × primary/secondary rank scale — not an invented term).
 4 labels (not 9) because commodity peer groups have 4-8 instruments — 9 would produce
 sparse buckets with unreliable IC stratification.
 
 Shared across commodity_energy, commodity_metals, commodity_agri groups.
-params_prefix differs per group; APR key momentum_window and strong_threshold are read
+params_prefix differs per group; APR key momentum_window and primary_threshold are read
 from the group-specific namespace.
 """
 from __future__ import annotations
@@ -2322,11 +2396,11 @@ def build_tiers(
 ) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
     """Return threshold lists for _assign_labels.
 
-    Tier 1 (momentum): strong_up | up | down | strong_down
-    Tier 2 (ts_proxy): contango_signal | neutral | backwardation_signal
+    Tier 1 (momentum): up_primary | up_secondary | down_secondary | down_primary
+    Tier 2 (ts_proxy): contango | neutral | backwardation
     """
-    strong = float(params["strong_threshold"])
-    tiers1 = [("strong_up", strong), ("up", 0.0), ("down", -strong)]
+    primary = float(params["primary_threshold"])
+    tiers1 = [("up_primary", primary), ("up_secondary", 0.0), ("down_secondary", -primary)]
     tiers2 = [("contango", 0.25), ("neutral", -0.25)]
     return tiers1, tiers2
 ```

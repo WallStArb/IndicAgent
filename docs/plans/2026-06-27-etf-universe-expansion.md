@@ -9,7 +9,7 @@
 
 **Goal:** Expand the ETF universe from 58 → 72 instruments by adding commodity (energy, metals, agriculture, broad), international, and FX ETFs. Tag all new instruments with fine-grained sub-tags required by the commodity and FX regime groups defined in the cross-sectional regime model plan. Re-tag existing instruments with the new sub-tags where applicable.
 
-**Dependency:** `docs/plans/2026-06-27-cross-sectional-regime-model.md` — regime group tag filters (`commodity_energy_crude`, `commodity_metals_precious`, `fx_*`, etc.) must exist in `tag_vocabulary` before regime groups can be enabled.
+**Dependency:** `docs/plans/2026-07-01-cross-sectional-regime-model.md` — regime group tag filters (`commodity_energy_crude`, `commodity_metals_precious`, `fx_*`, etc.) must exist in `tag_vocabulary` before regime groups can be enabled.
 
 **Pipeline:** New instruments flow through the same 6-step corpus pipeline as existing ones. Steps 5-6 (ensemble_trainer, alpha_publisher) use per-symbol pooled IC weights — they naturally incorporate new symbols once IC scores exist.
 

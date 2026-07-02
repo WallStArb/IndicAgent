@@ -1823,7 +1823,7 @@ Tags that are fully computable from the factor vector (all 8 OLS betas) must not
 
 ### Phase 151: Cross-Sectional Regime Model (`regime_group`) 📋 PLANNED
 
-**Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules). Migration 189. Full design: `docs/plans/2026-06-27-cross-sectional-regime-model.md`.
+**Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules). Migration 189. Full design: `docs/plans/2026-07-01-cross-sectional-regime-model.md`.
 
 ### Phase 152: ETF Universe Expansion (58→79) 📋 PLANNED
 
