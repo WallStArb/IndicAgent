@@ -68,4 +68,4 @@ class TestAlphaPublisherWeightVersionOverride:
         source = inspect.getsource(
             __import__("services.alpha_publisher", fromlist=["AlphaPublisher"])
         )
-        assert "self._weight_version_override or _cfg_str(" in source
+        assert "self._weight_version_override or _cfg(" in source

@@ -1,4 +1,5 @@
-"""Shared utilities for batch oneshot services (psycopg2-based)."""
+"""Shared utilities for batch oneshot services (psycopg2-based, plus a small asyncpg
+APR-loading helper for the async batch services)."""
 
 from __future__ import annotations
 
@@ -79,3 +80,39 @@ def bulk_update_by_key(
         cur.execute(
             f"UPDATE {table} AS t SET {set_clause} FROM {temp_table} AS v WHERE {key_clause}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Async APR loading (asyncpg-based batch services)
+# ---------------------------------------------------------------------------
+#
+# Consolidates a pattern previously copy-pasted verbatim across ensemble_trainer.py,
+# alpha_publisher.py, and ensemble_ic_engine.py: load alpha.* (+ each service's own
+# infra.<name>.* keys) into a raw dict, then cast with a small type-inferring helper
+# (todo 048, 2026-07-02).
+
+
+async def load_apr_dict_async(conn: Any, extra_like_patterns: list[str] | None = None) -> Any:
+    """Load alpha.* (+ optional extra LIKE patterns, e.g. a service's own infra.<name>.*)
+    APR keys via asyncpg into a raw {config_key: config_value} dict.
+
+    conn: open asyncpg connection or pool-acquired connection.
+    extra_like_patterns: additional SQL LIKE patterns (e.g. "infra.ensemble_ic_engine.%"),
+        OR'd in alongside the default "alpha.%". Bound as query parameters, not
+        string-interpolated, even though callers only ever pass hardcoded literals.
+
+    Returns a plain dict, not a ConfigService -- callers cast values with cfg().
+    """
+    patterns = ["alpha.%", *(extra_like_patterns or [])]
+    where_clause = " OR ".join(f"config_key LIKE ${i + 1}" for i in range(len(patterns)))
+    rows = await conn.fetch(
+        f"SELECT config_key, config_value FROM config_state WHERE {where_clause}",
+        *patterns,
+    )
+    return {r["config_key"]: r["config_value"] for r in rows}
+
+
+def cfg(cfg_dict: dict[str, Any], key: str, default: Any) -> Any:
+    """Cast a raw config_value to default's type, or return default if unset."""
+    val = cfg_dict.get(key)
+    return type(default)(val) if val is not None else default

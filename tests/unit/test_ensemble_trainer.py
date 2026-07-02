@@ -71,36 +71,7 @@ class TestEnsembleTrainerImports:
         assert callable(effective_n)
 
 
-class TestCfgHelpers:
-    """Verify the APR config dict helpers."""
-
-    def test_cfg_float_returns_float(self) -> None:
-        from services.ensemble_trainer import _cfg_float
-
-        cfg = {"alpha.ensemble.max_feature_weight": "0.20"}
-        result = _cfg_float(cfg, "alpha.ensemble.max_feature_weight", 0.5)
-        assert result == 0.20
-        assert isinstance(result, float)
-
-    def test_cfg_float_returns_default_when_missing(self) -> None:
-        from services.ensemble_trainer import _cfg_float
-
-        cfg: dict = {}
-        result = _cfg_float(cfg, "alpha.ensemble.max_feature_weight", 0.25)
-        assert result == 0.25
-
-    def test_cfg_int_returns_int(self) -> None:
-        from services.ensemble_trainer import _cfg_int
-
-        cfg = {"alpha.ensemble.min_passing_features": "5"}
-        result = _cfg_int(cfg, "alpha.ensemble.min_passing_features", 3)
-        assert result == 5
-        assert isinstance(result, int)
-
-    def test_cfg_str_returns_str(self) -> None:
-        from services.ensemble_trainer import _cfg_str
-
-        cfg = {"alpha.ensemble.weight_version": "v2"}
-        result = _cfg_str(cfg, "alpha.ensemble.weight_version", "v1")
-        assert result == "v2"
-        assert isinstance(result, str)
+# Config-dict casting (cfg()) and APR loading (load_apr_dict_async()) moved to
+# services._batch_utils (todo 048, 2026-07-02) -- see tests/unit/test_batch_utils.py.
+# ensemble_trainer.py, alpha_publisher.py, and ensemble_ic_engine.py all import
+# the same shared helpers now instead of each defining their own copy.

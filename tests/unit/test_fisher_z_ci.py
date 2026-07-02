@@ -1,6 +1,6 @@
 """Unit tests: Fisher z-transform CI statistical correctness.
 
-Tests verify that _fisher_z_ci() from services.ic_engine:
+Tests verify that _fisher_z_ci() from src.intelligence.statistics.ic_math:
   1. CI width shrinks as N increases (statistical consistency)
   2. Strong positive IC at large N produces ci_lower > 0 (passes_ci_gate)
   3. IC = 0 produces CI symmetric around 0 (ci_lower < 0 < ci_upper)
@@ -22,7 +22,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.ic_engine import _fisher_z_ci
+from src.intelligence.statistics.ic_math import _fisher_z_ci
 
 
 def test_ci_width_shrinks_with_n():

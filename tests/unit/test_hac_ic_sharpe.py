@@ -1,6 +1,6 @@
 """Unit tests: Newey-West HAC IC Sharpe correctness.
 
-Tests verify that _hac_sharpe_nd() from services.ic_engine:
+Tests verify that _hac_sharpe_nd() from src.intelligence.statistics.ic_math:
   1. Returns naive Sharpe when max_lag=0 (HAC disabled)
   2. Returns naive Sharpe when IC series has zero autocorrelation (inflation=1)
   3. Returns Sharpe <= naive Sharpe for positively autocorrelated IC series
@@ -23,7 +23,8 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.ic_engine import ICEngineConfig, _compute_ic_rolling_metrics, _hac_sharpe_nd
+from services.ic_engine import ICEngineConfig
+from src.intelligence.statistics.ic_math import _compute_ic_rolling_metrics, _hac_sharpe_nd
 
 # ---------------------------------------------------------------------------
 # _hac_sharpe_nd tests

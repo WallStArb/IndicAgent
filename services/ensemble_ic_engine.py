@@ -11,10 +11,13 @@ forward_returns and market_regimes.
 CORRECTNESS INVARIANTS:
 - Executable returns only (Invariant 1): every forward_returns query filters
   WHERE return_type = 'executable_open_to_open'.
-- ProcessPoolExecutor workers are compute-only: all data fetching happens in the main
-  process via asyncpg BEFORE worker dispatch; workers receive numpy arrays (not a DSN,
-  not a connection) and return list[dict] rows for a single serial write after corpus-level
-  BH-FDR. No worker ever opens a DB connection or calls commit() (CLAUDE.md invariant).
+- ProcessPoolExecutor workers each open their own READ-ONLY psycopg2 connection to fetch
+  their (symbol, tf) slice (mirrors ic_engine._run_ic_worker's precedent, todo 047); this
+  overlaps I/O with compute across workers instead of serially fetching ~232 pairs in the
+  main process before dispatch. Workers return list[dict] rows for a single serial write
+  in the main process after corpus-level BH-FDR. CLAUDE.md's "workers are compute-only"
+  invariant is about WRITE connections/commits from subprocesses (the deadlock risk is
+  concurrent writers on the same hypertable) -- no worker here ever writes or commits.
 - alpha_score is ONE predictor -- collinearity clustering is skipped (feature-level
   concern only); every cell IS representative for the single corpus-level BH-FDR call.
 - scored_at is pinned to a single run_ts (UTC "now" at start) computed ONCE per
@@ -47,6 +50,8 @@ from typing import Any
 
 import asyncpg
 import numpy as np
+import psycopg2
+import psycopg2.extras
 import structlog
 from scipy.stats import rankdata
 from statsmodels.stats.multitest import multipletests
@@ -54,20 +59,22 @@ from statsmodels.stats.multitest import multipletests
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# Composition, not subclassing/forking -- import the private pure IC math functions.
-# See CLAUDE.md + 142A-CONTEXT.md: methodology parity is structural, not re-derived.
-# EnsembleICConfig below mirrors ICEngineConfig's shared-key shape by convention, not
-# by import (no direct type dependency).
-from services.ic_engine import (
+# Composition, not subclassing/forking -- both this engine and ic_engine.py import the
+# same shared IC math module (todo 048) rather than one reaching into the other's
+# internals. EnsembleICConfig below mirrors ICEngineConfig's shared-key shape by
+# convention, not by import (no direct type dependency).
+from services._batch_utils import cfg as _cfg
+from services._batch_utils import load_apr_dict_async as _load_apr_dict
+from src.config.config_service import ConfigService  # EIC-02: alpha.frame.hold_max_bars writes
+from src.config.settings import Settings
+from src.core.agent.base_batch import BaseBatch
+from src.intelligence.statistics.ic_math import (
     _compute_ic_rolling_metrics,
     _fisher_z_ci,
     _nan_to_none,
     _p_values_from_ic,
     _vectorized_ic,
 )
-from src.config.config_service import ConfigService  # EIC-02: alpha.frame.hold_max_bars writes
-from src.config.settings import Settings
-from src.core.agent.base_batch import BaseBatch
 from src.observability.corpus_manifest import CorpusManifest
 from src.observability.otel import OTelInitError, init_otel_providers
 
@@ -96,22 +103,7 @@ _POOLED_SYMBOL = "POOLED"
 # APR compile-time binding
 # ---------------------------------------------------------------------------
 
-_APR_QUERY = (
-    "SELECT config_key, config_value FROM config_state "
-    "WHERE config_key LIKE 'alpha.%' OR config_key LIKE 'infra.ensemble_ic_engine.%'"
-)
-
-
-async def _load_apr(conn: asyncpg.Connection) -> dict[str, Any]:
-    """Load all alpha.* and infra.ensemble_ic_engine.* APR keys via asyncpg."""
-    rows = await conn.fetch(_APR_QUERY)
-    return {r["config_key"]: r["config_value"] for r in rows}
-
-
-def _cfg(cfg: dict[str, Any], key: str, default: Any) -> Any:
-    """Cast a raw config_value to default's type, or return default if unset."""
-    val = cfg.get(key)
-    return type(default)(val) if val is not None else default
+_INFRA_LIKE_PATTERNS = ["infra.ensemble_ic_engine.%"]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -416,31 +408,88 @@ async def _assert_prerequisites(conn: asyncpg.Connection, tfs: list[str] | None 
 # ---------------------------------------------------------------------------
 
 
-def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
-    """ProcessPoolExecutor worker -- runs in subprocess. PURE COMPUTE, ZERO DB connections.
+# Per-(symbol, tf) fetch, run inside each worker (read-only) rather than serially in the
+# main process before dispatch -- mirrors ic_engine._run_ic_worker's per-worker connection
+# precedent. CLAUDE.md's "workers are compute-only" rule concerns WRITE connections/commits
+# from subprocesses (the deadlock risk is concurrent writers on the same hypertable); it does
+# not forbid read-only fetches, which is exactly how ic_engine already parallelizes I/O with
+# compute across workers (todo 047, 2026-07-02).
+_WORKER_FETCH_SQL = """
+    SELECT ae.alpha_score, fr.return_fast, fr.return_mid,
+           fr.return_slow, fr.return_extended, mr.regime_label
+    FROM alpha_events ae
+    JOIN forward_returns fr
+      ON fr.symbol = ae.symbol AND fr.tf = ae.tf AND fr.bar_ts = ae.bar_ts
+      AND fr.return_type = 'executable_open_to_open'
+    JOIN market_regimes mr
+      ON mr.asset_class = 'equity' AND mr.tf = ae.tf AND mr.ts = ae.bar_ts
+    WHERE ae.symbol = %s AND ae.tf = %s AND ae.bar_ts < %s
+    ORDER BY ae.bar_ts
+"""
 
-    All data fetching happens in the main process BEFORE dispatch (CLAUDE.md:
-    ProcessPoolExecutor workers are compute-only). Args are numpy arrays plus the pinned
-    run_ts -- never a DSN, never a connection.
+
+def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
+    """ProcessPoolExecutor worker -- runs in subprocess. Fetches its own (symbol, tf)
+    slice via a read-only connection, then computes IC over it.
 
     Args:
-        args: (symbol, tf, alpha_scores, returns_by_scale, regime_labels, config, run_ts)
-            alpha_scores: np.ndarray [n_obs] -- the composite alpha_score for this (symbol, tf)
-            returns_by_scale: dict[str, np.ndarray] -- forward_return_<scale> aligned to alpha_scores
-            regime_labels: np.ndarray [n_obs] -- cross-sectional market_regimes.regime_label
+        args: (symbol, tf, dsn, oos_start, config, run_ts)
+            dsn: str -- DSN passed from the main process rather than re-instantiating
+                Settings(), which re-reads env vars and would diverge if the subprocess
+                environment differs (mirrors ic_engine._run_ic_worker).
+            oos_start: datetime -- OOS boundary; only bar_ts < oos_start is measured.
             config: EnsembleICConfig (frozen, picklable)
             run_ts: datetime -- pinned once per invocation (D-142A-R2)
 
     Returns:
-        dict with keys: rows (list[dict]), pvals (list[float]), pval_idxs (list[int])
+        dict with keys: rows (list[dict]), pvals (list[float]), pval_idxs (list[int]),
+        is_pooled (bool), error (str | None)
     """
-    symbol, tf, alpha_scores, returns_by_scale, regime_labels, config, run_ts = args
+    symbol, tf, dsn, oos_start, config, run_ts = args
 
     rows: list[dict[str, Any]] = []
     pvals: list[float] = []
     pval_idxs: list[int] = []
-
     is_pooled = symbol == _POOLED_SYMBOL
+
+    conn = None
+    try:
+        conn = psycopg2.connect(dsn)
+        conn.autocommit = False
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(_WORKER_FETCH_SQL, (symbol, tf, oos_start))
+            fetched = cur.fetchall()
+    except Exception as error:
+        return {
+            "rows": rows,
+            "pvals": pvals,
+            "pval_idxs": pval_idxs,
+            "is_pooled": is_pooled,
+            "error": f"{symbol}/{tf}: {error}",
+        }
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    if not fetched:
+        return {
+            "rows": rows,
+            "pvals": pvals,
+            "pval_idxs": pval_idxs,
+            "is_pooled": is_pooled,
+            "error": None,
+        }
+
+    alpha_scores = np.array([float(r["alpha_score"]) for r in fetched])
+    returns_by_scale = {
+        scale: np.array([float(r[col]) if r[col] is not None else np.nan for r in fetched])
+        for scale, col in _SCALE_RETURN_COLUMNS.items()
+    }
+    regime_labels = np.array([r["regime_label"] for r in fetched], dtype=object)
+
     distinct_regimes = sorted({r for r in regime_labels.tolist() if r is not None})
 
     for regime in distinct_regimes:
@@ -540,7 +589,13 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
             pvals.append(p_value)
             rows.append(row)
 
-    return {"rows": rows, "pvals": pvals, "pval_idxs": pval_idxs, "is_pooled": is_pooled}
+    return {
+        "rows": rows,
+        "pvals": pvals,
+        "pval_idxs": pval_idxs,
+        "is_pooled": is_pooled,
+        "error": None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -577,7 +632,7 @@ class EnsembleICEngine(BaseBatch):
         self.logger.info("ensemble_ic.run_ts_locked", run_ts=str(run_ts))
 
         async with pool.acquire() as conn:
-            apr_cfg = await _load_apr(conn)
+            apr_cfg = await _load_apr_dict(conn, extra_like_patterns=_INFRA_LIKE_PATTERNS)
             config = EnsembleICConfig.from_apr(apr_cfg)
 
             tfs = await conn.fetch("SELECT DISTINCT tf FROM alpha_events")
@@ -606,53 +661,36 @@ class EnsembleICEngine(BaseBatch):
                 "SELECT DISTINCT symbol, tf FROM alpha_events WHERE bar_ts < $1", oos_start
             )
             symbol_tf_pairs = [(r["symbol"], r["tf"]) for r in symbols_rows]
+        # conn released here -- each worker below fetches its own (symbol, tf) slice over
+        # its own read-only connection (todo 047), so the main process no longer holds the
+        # pool connection through ~232 serial round trips before dispatch.
 
-            worker_args = []
-            for symbol, tf in symbol_tf_pairs:
-                rows = await conn.fetch(
-                    """
-                    SELECT ae.alpha_score, fr.return_fast, fr.return_mid,
-                           fr.return_slow, fr.return_extended, mr.regime_label
-                    FROM alpha_events ae
-                    JOIN forward_returns fr
-                      ON fr.symbol = ae.symbol AND fr.tf = ae.tf AND fr.bar_ts = ae.bar_ts
-                      AND fr.return_type = 'executable_open_to_open'
-                    JOIN market_regimes mr
-                      ON mr.asset_class = 'equity' AND mr.tf = ae.tf AND mr.ts = ae.bar_ts
-                    WHERE ae.symbol = $1 AND ae.tf = $2 AND ae.bar_ts < $3
-                    ORDER BY ae.bar_ts
-                    """,
-                    symbol,
-                    tf,
-                    oos_start,
-                )
-                if not rows:
-                    continue
-
-                alpha_scores = np.array([float(r["alpha_score"]) for r in rows])
-                returns_by_scale = {
-                    scale: np.array([float(r[col]) if r[col] is not None else np.nan for r in rows])
-                    for scale, col in _SCALE_RETURN_COLUMNS.items()
-                }
-                regime_labels = np.array([r["regime_label"] for r in rows], dtype=object)
-
-                worker_args.append(
-                    (symbol, tf, alpha_scores, returns_by_scale, regime_labels, config, run_ts)
-                )
-        # conn released here -- the ProcessPoolExecutor compute pass and BH-FDR
-        # correction below are CPU-bound and touch no DB connection; holding the pool
-        # connection idle through them would starve other pool consumers for no reason.
+        worker_args = [
+            (symbol, tf, self._db_dsn, oos_start, config, run_ts) for symbol, tf in symbol_tf_pairs
+        ]
 
         corpus_all_results: list[dict[str, Any]] = []
         corpus_pvals_flat: list[float] = []
         corpus_pval_result_idxs: list[int] = []
+        worker_errors: list[str] = []
 
         with ProcessPoolExecutor(max_workers=config.n_workers) as exe:
             for result in exe.map(_run_ensemble_ic_worker, worker_args, chunksize=1):
+                if result.get("error"):
+                    worker_errors.append(result["error"])
+                    continue
                 offset = len(corpus_all_results)
                 corpus_all_results.extend(result["rows"])
                 corpus_pvals_flat.extend(result["pvals"])
                 corpus_pval_result_idxs.extend(offset + i for i in result["pval_idxs"])
+
+        if worker_errors:
+            self.logger.error(
+                "ensemble_ic.worker_fetch_failed",
+                n_failed=len(worker_errors),
+                n_total=len(worker_args),
+                errors=worker_errors[:10],
+            )
 
         # Corpus-level BH-FDR: ONE multipletests call across all cells (Phase A P2
         # fix). Note (review finding, accepted as-is for v1): this mixes pooled and

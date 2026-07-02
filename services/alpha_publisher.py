@@ -38,6 +38,8 @@ import structlog
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from services._batch_utils import cfg as _cfg
+from services._batch_utils import load_apr_dict_async as _load_apr
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.core.kafka_utils import KafkaProducerClient
@@ -51,34 +53,6 @@ from src.observability.metrics import (
 from src.observability.otel import OTelInitError, init_otel_providers
 
 _logger = structlog.get_logger(__name__)
-
-# ---------------------------------------------------------------------------
-# APR config query — asyncpg
-# ---------------------------------------------------------------------------
-
-_APR_QUERY = "SELECT config_key, config_value FROM config_state WHERE config_key LIKE 'alpha.%'"
-
-
-async def _load_apr(conn: asyncpg.Connection) -> dict[str, Any]:
-    """Load all alpha.* APR keys from config_state via asyncpg."""
-    rows = await conn.fetch(_APR_QUERY)
-    return {r["config_key"]: r["config_value"] for r in rows}
-
-
-def _cfg_float(cfg: dict[str, Any], key: str, default: float) -> float:
-    val = cfg.get(key)
-    return float(val) if val is not None else default
-
-
-def _cfg_int(cfg: dict[str, Any], key: str, default: int) -> int:
-    val = cfg.get(key)
-    return int(val) if val is not None else default
-
-
-def _cfg_str(cfg: dict[str, Any], key: str, default: str) -> str:
-    val = cfg.get(key)
-    return str(val) if val is not None else default
-
 
 # ---------------------------------------------------------------------------
 # AlphaPublisher
@@ -119,7 +93,7 @@ class AlphaPublisher(BaseBatch):
             "1h": 1.0,
             "1d": 0.8,
         }
-        return _cfg_float(cfg, f"alpha.quant.threshold.{tf}", defaults.get(tf, 1.0))
+        return _cfg(cfg, f"alpha.quant.threshold.{tf}", defaults.get(tf, 1.0))
 
     def _cost_hurdle_for_tf(self, tf: str, cfg: dict[str, Any]) -> float:
         """Return the APR-loaded cost hurdle for the CI directional gate.
@@ -128,7 +102,7 @@ class AlphaPublisher(BaseBatch):
         (short). A value of 0.0 reproduces the legacy ci > 0 behavior. Raise via
         APR once corpus data establishes the break-even alpha_score at each TF.
         """
-        return _cfg_float(cfg, f"alpha.quant.cost_hurdle.{tf}", 0.0)
+        return _cfg(cfg, f"alpha.quant.cost_hurdle.{tf}", 0.0)
 
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Read ensemble_alpha, enforce gates, write alpha_events, publish to Kafka."""
@@ -165,13 +139,13 @@ class AlphaPublisher(BaseBatch):
         async with pool.acquire() as conn:
             # --- Load APR config ---
             cfg = await _load_apr(conn)
-            effective_n_gate = _cfg_float(cfg, "alpha.ensemble.effective_n_gate", 3.0)
+            effective_n_gate = _cfg(cfg, "alpha.ensemble.effective_n_gate", 3.0)
             # Per-run weight epoch: CLI --weight-version overrides the static APR default so
             # the publisher reads and emits from the same epoch ensemble_trainer wrote.
-            weight_version = self._weight_version_override or _cfg_str(
+            weight_version = self._weight_version_override or _cfg(
                 cfg, "alpha.ensemble.weight_version", "v1"
             )
-            top_features_count = _cfg_int(cfg, "alpha.ensemble.top_features_count", 10)
+            top_features_count = _cfg(cfg, "alpha.ensemble.top_features_count", 10)
 
             self.logger.info(
                 "alpha_publisher.config_loaded",

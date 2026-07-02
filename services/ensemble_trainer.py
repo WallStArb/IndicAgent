@@ -47,6 +47,8 @@ sys.path.insert(0, str(project_root))
 import dataclasses
 import math
 
+from services._batch_utils import cfg as _cfg
+from services._batch_utils import load_apr_dict_async as _load_apr
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.intelligence.ensemble import (
@@ -68,38 +70,6 @@ from src.observability.metrics import (
 from src.observability.otel import OTelInitError, init_otel_providers
 
 _logger = structlog.get_logger(__name__)
-
-# ---------------------------------------------------------------------------
-# APR config query — asyncpg (RESEARCH.md Pitfall 6: use asyncpg, not psycopg2)
-# ---------------------------------------------------------------------------
-
-_APR_QUERY = "SELECT config_key, config_value FROM config_state WHERE config_key LIKE 'alpha.%'"
-
-
-async def _load_apr(conn: asyncpg.Connection) -> dict[str, Any]:
-    """Load all alpha.* APR keys from config_state via asyncpg.
-
-    Returns a plain dict {config_key: config_value} (values are text — cast to float/int
-    at call site). No inline numeric fallbacks beyond the documented APR defaults.
-    """
-    rows = await conn.fetch(_APR_QUERY)
-    return {r["config_key"]: r["config_value"] for r in rows}
-
-
-def _cfg_float(cfg: dict[str, Any], key: str, default: float) -> float:
-    val = cfg.get(key)
-    return float(val) if val is not None else default
-
-
-def _cfg_int(cfg: dict[str, Any], key: str, default: int) -> int:
-    val = cfg.get(key)
-    return int(val) if val is not None else default
-
-
-def _cfg_str(cfg: dict[str, Any], key: str, default: str) -> str:
-    val = cfg.get(key)
-    return str(val) if val is not None else default
-
 
 # ---------------------------------------------------------------------------
 # APR compile-time binding
@@ -129,16 +99,16 @@ class EnsembleConfig:
     def from_apr(cls, cfg: dict[str, Any]) -> EnsembleConfig:
         """Load all ensemble APR parameters from the raw config dict in one pass."""
         return cls(
-            max_feature_weight=_cfg_float(cfg, "alpha.ensemble.max_feature_weight", 0.20),
-            effective_n_gate=_cfg_float(cfg, "alpha.ensemble.effective_n_gate", 3.0),
-            weight_version=_cfg_str(cfg, "alpha.ensemble.weight_version", "v1"),
-            min_passing_features=_cfg_int(cfg, "alpha.ensemble.min_passing_features", 5),
-            max_cluster_corr=_cfg_float(cfg, "alpha.ensemble.max_cluster_correlation", 0.80),
-            max_cluster_weight=_cfg_float(cfg, "alpha.ensemble.max_cluster_weight", 0.40),
-            meta_fdr_min_fraction=_cfg_float(cfg, "alpha.ensemble.meta_fdr_min_fraction", 0.50),
-            sharpe_floor=_cfg_float(cfg, "alpha.ensemble.sharpe_floor", 0.05),
-            weight_half_life_days=_cfg_float(cfg, "alpha.ensemble.weight_half_life_days", 30.0),
-            weight_stale_max_days=_cfg_int(cfg, "alpha.ensemble.weight_stale_max_days", 90),
+            max_feature_weight=_cfg(cfg, "alpha.ensemble.max_feature_weight", 0.20),
+            effective_n_gate=_cfg(cfg, "alpha.ensemble.effective_n_gate", 3.0),
+            weight_version=_cfg(cfg, "alpha.ensemble.weight_version", "v1"),
+            min_passing_features=_cfg(cfg, "alpha.ensemble.min_passing_features", 5),
+            max_cluster_corr=_cfg(cfg, "alpha.ensemble.max_cluster_correlation", 0.80),
+            max_cluster_weight=_cfg(cfg, "alpha.ensemble.max_cluster_weight", 0.40),
+            meta_fdr_min_fraction=_cfg(cfg, "alpha.ensemble.meta_fdr_min_fraction", 0.50),
+            sharpe_floor=_cfg(cfg, "alpha.ensemble.sharpe_floor", 0.05),
+            weight_half_life_days=_cfg(cfg, "alpha.ensemble.weight_half_life_days", 30.0),
+            weight_stale_max_days=_cfg(cfg, "alpha.ensemble.weight_stale_max_days", 90),
         )
 
 

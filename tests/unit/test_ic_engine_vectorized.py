@@ -20,7 +20,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.ic_engine import compute_ic_vectorized
+from src.intelligence.statistics.ic_math import compute_ic_vectorized
 
 
 def _make_feature_matrix(n: int = 100, p: int = 5, seed: int = 42) -> np.ndarray:

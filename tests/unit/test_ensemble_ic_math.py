@@ -2,9 +2,9 @@
 
 alpha_score is a single composite predictor (shape [n_obs, 1]). These tests prove
 the composed call path (rankdata -> _vectorized_ic -> _p_values_from_ic -> _fisher_z_ci,
-all imported from services.ic_engine) reproduces the same values as a direct
-scipy.stats.spearmanr computation, and that the Fisher-z CI behaves correctly under
-signal and null fixtures.
+all imported from src.intelligence.statistics.ic_math) reproduces the same values as a
+direct scipy.stats.spearmanr computation, and that the Fisher-z CI behaves correctly
+under signal and null fixtures.
 
 No DB, no Kafka. Pure numpy / scipy.
 """
@@ -21,7 +21,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.ic_engine import _fisher_z_ci, _p_values_from_ic, _vectorized_ic
+from src.intelligence.statistics.ic_math import _fisher_z_ci, _p_values_from_ic, _vectorized_ic
 
 
 def _composed_ic(alpha_score: np.ndarray, returns: np.ndarray) -> tuple[float, float, float]:

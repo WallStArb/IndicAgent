@@ -12,8 +12,9 @@ promotion gate — the authoritative OOS scorer is EnsembleICEngine (Phase 142A/
 Composes existing machinery rather than reimplementing it:
   - forward_log_return() from services.forward_return_writer -- the canonical executable
     return formula (CLAUDE.md Invariant 1: ln(open[T+N+1] / open[T+1])).
-  - _vectorized_ic / _fisher_z_ci / _p_values_from_ic / _nan_to_none from services.ic_engine
-    -- the same IC math used for in-sample feature_ic_scores.
+  - _vectorized_ic / _fisher_z_ci / _p_values_from_ic / _nan_to_none from
+    src.intelligence.statistics.ic_math -- the same IC math used for in-sample
+    feature_ic_scores (also used by services.ic_engine and services.ensemble_ic_engine).
 
 Usage:
     python scripts/ops/corpus/ops_oos_holdout_eval.py
@@ -42,15 +43,15 @@ sys.path.insert(0, str(project_root))
 
 from services._batch_utils import load_config_service_sync as _load_config_service
 from services.forward_return_writer import forward_log_return
-from services.ic_engine import (
-    _FEATURE_NAMES,
+from services.ic_engine import _FEATURE_NAMES
+from src.config.settings import Settings, get_active_contracts
+from src.core.service_utils import setup_service_logging
+from src.intelligence.statistics.ic_math import (
     _fisher_z_ci,
     _nan_to_none,
     _p_values_from_ic,
     _vectorized_ic,
 )
-from src.config.settings import Settings, get_active_contracts
-from src.core.service_utils import setup_service_logging
 from src.observability.otel import OTelInitError, init_otel_providers
 
 setup_service_logging("logs/oos_holdout_eval.log")
@@ -177,7 +178,7 @@ def _score_symbol_tf(
 
     Uses forward_log_return() for the executable-return computation (composition,
     no reimplementation) and _vectorized_ic / _fisher_z_ci / _p_values_from_ic from
-    ic_engine for the IC math.
+    src.intelligence.statistics.ic_math for the IC math.
     """
     n_obs = len(bar_ts_arr)
     results: list[dict[str, Any]] = []
