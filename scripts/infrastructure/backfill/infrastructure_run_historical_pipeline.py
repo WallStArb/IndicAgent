@@ -428,15 +428,17 @@ _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
     #     observation floor. use_continuous=False: IBKR ContFuture + ADJUSTED_LAST requires
     #     endDateTime="" (no chunking possible), timing out on COMEX instruments. Chunked
     #     named-contract path (_MAX_CHUNK_DAYS=364) is reliable across all exchanges.
-    "1h": (5475, False),
-    # 15m: bridges intraday and swing. 3650d (10yr) matches 1h regime depth — captures
-    #     COVID crash → zero-rate era → 2022 rate shock arc at session-bar granularity.
-    #     ~17k bars/symbol. IBKR confirmed 10yr+ retention for liquid ETFs (SPY probe 2026-06-19).
-    "15m": (3650, True),
-    # 5m: intraday + swing structure. 1631d (4.5yr) extended to include 2022 bear market
-    #     for IC engine regime coverage (bull/bear/recovery cycle). ~196k bars/symbol.
-    #     IBKR confirmed 10yr retention (SPY probe 2026-06-19).
-    "5m": (1631, True),
+    "1h": (7300, False),
+    # 15m: bridges intraday and swing. 5475d (15yr) matches 1h depth — reaches back to 2011,
+    #     same era coverage as 1h (European debt crisis through AI mania). Confirmed available
+    #     via SPY probe 2026-07-02 (525,563 bars, 2011-07-06 to present); prior 3650d (10yr)
+    #     was a deliberate match to old 1h depth, not a proven IBKR ceiling. ~26k bars/symbol.
+    "15m": (5475, True),
+    # 5m: intraday + swing structure. 3650d (10yr) matches 15m/1h regime depth — was
+    #     artificially capped at 1631d (4.5yr); IBKR confirmed 10yr retention for liquid
+    #     ETFs (SPY probe 2026-06-19), so the shorter window was a storage choice, not a
+    #     retention ceiling. Bumped 2026-07-01 for HMM/IC training corpus depth. ~440k bars/symbol.
+    "5m": (3650, True),
     # 1m: intraday micro-patterns (time-of-day, session open/close, day-of-week). These
     #     repeat on weekly/monthly cycles so 90d captures all patterns with good repetition.
     #     ~75k bars/symbol. IBKR confirmed 10yr retention (SPY probe 2026-06-19) — 90d is

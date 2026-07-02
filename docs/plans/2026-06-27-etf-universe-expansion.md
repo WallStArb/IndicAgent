@@ -7,7 +7,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Expand the ETF universe from 58 → 79 instruments by adding commodity (energy, metals, agriculture, broad), international, FX, transportation, high-dividend-yield, market-neutral factor, and high-beta ETFs. Tag all new instruments with fine-grained sub-tags required by the commodity and FX regime groups defined in the cross-sectional regime model plan. Re-tag existing instruments with the new sub-tags where applicable.
+**Goal:** Expand the ETF universe from 58 → 80 instruments by adding commodity (energy, metals, agriculture, broad), international, FX, transportation, high-dividend-yield, market-neutral factor, high-beta, and convertible-bond ETFs. Tag all new instruments with fine-grained sub-tags required by the commodity and FX regime groups defined in the cross-sectional regime model plan. Re-tag existing instruments with the new sub-tags where applicable.
 
 **Dependency:** `docs/plans/2026-07-01-cross-sectional-regime-model.md` — regime group tag filters (`commodity_energy_crude`, `commodity_metals_precious`, `fx_*`, etc.) must exist in `tag_vocabulary` before regime groups can be enabled.
 
@@ -52,8 +52,9 @@
 | BTAL | AGF US Market Neutral Anti-Beta Fund | factor_market_neutral | 2011-08-16 | 5100 | Long low-beta / short high-beta, dollar-neutral; near-zero equity beta — "Betting Against Beta" factor, no redundancy elsewhere in universe |
 | IPO | Renaissance IPO ETF | high_beta | 2013-10-11 | 4500 | Recent-listing high-beta factor; long-only, liquid, no structural decay |
 | SPHB | Invesco S&P 500 High Beta ETF | high_beta | 2011-05-05 | 5100 | Top-100 highest-beta S&P 500 names; liquid, non-leveraged high-vol factor, orthogonal to ARKK thematic tilt |
+| CWB | SPDR Bloomberg Convertible Securities ETF | convertible | 2009-04-16 | 6300 | Convertible bonds — hybrid equity-optionality/credit/duration exposure; no prior coverage. Preferred over ICVT (~90%+ holdings overlap, smaller/newer) to avoid satellite-fund redundancy |
 
-**Total: 58 → 79 instruments**
+**Total: 58 → 80 instruments**
 
 ---
 
@@ -77,13 +78,15 @@ New fine-grained sub-tags added alongside existing coarse tags (backward compat 
 
 | File | Action | Purpose |
 |---|---|---|
-| `production/migrations/188_etf_expansion.sql` | Create | Tag vocabulary extension + re-tag existing + register 21 new instruments |
-| `scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh` | Create | Historical OHLCV backfill for all 21 new symbols |
+| `production/migrations/188_etf_expansion.sql` | Create | Tag vocabulary extension + re-tag existing + register 22 new instruments |
+| `scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh` | Create | Historical OHLCV backfill for all 22 new symbols |
 | `scripts/ops/corpus/ops_corpus_new_etfs.sh` | Create | Corpus pipeline steps 1-6 scoped to new symbols |
 
 ---
 
 ## Task 0: Migration 188 — Tag Vocabulary + Instrument Registration
+
+**STATUS: APPLIED 2026-07-01** (commit `8160c8b0`). Registered 21 instruments (58 → 79). CWB was a later addition — see Task 0b (migration 190) below.
 
 **Files:**
 - Create: `production/migrations/188_etf_expansion.sql`
@@ -330,13 +333,13 @@ SELECT i.symbol,
        array_agg(it.tag ORDER BY it.tag) as tags
 FROM instruments i
 LEFT JOIN instrument_tags it ON i.symbol = it.symbol
-WHERE i.symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB')
+WHERE i.symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB','CWB')
 GROUP BY i.symbol
 ORDER BY i.symbol;
 "
 ```
 
-Expected: all 21 symbols present, each with 3-7 tags, no nulls.
+Expected: all 22 symbols present, each with 3-7 tags, no nulls.
 
 - [ ] **Step 6: Verify regime group routing**
 
@@ -376,11 +379,75 @@ SELECT symbol FROM instrument_tags WHERE tag = 'transports' ORDER BY symbol;
 "
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit** — done as `8160c8b0`
 
 ```bash
 git add production/migrations/188_etf_expansion.sql
 git commit -m "feat(migrations): ETF universe expansion 58→79 — new tags, re-tag existing, register 21 instruments (migration 188)"
+```
+
+---
+
+## Task 0b: Migration 190 — CWB (Convertible Bond) Addition
+
+**STATUS: PENDING.** CWB was added after migration 188 already ran; 189 is reserved by `docs/plans/2026-07-01-cross-sectional-regime-model.md` (`189_regime_group.sql`), so this is a standalone follow-up migration.
+
+**Files:**
+- Create: `production/migrations/190_etf_expansion_cwb.sql`
+
+- [ ] **Step 1: Write the migration**
+
+```sql
+-- production/migrations/190_etf_expansion_cwb.sql
+-- Migration 190: add CWB (convertible bond ETF) — 79 → 80 instruments.
+-- Follow-up to migration 188; CWB was identified after that migration ran.
+
+BEGIN;
+
+INSERT INTO tag_vocabulary (tag, category, description) VALUES
+    ('convertible', 'exposure', 'Convertible bonds — hybrid equity-optionality/credit/duration exposure')
+ON CONFLICT (tag) DO NOTHING;
+
+INSERT INTO instruments (symbol, base, contract_details, is_active) VALUES
+    ('CWB', 'CWB', '{"symbol":"CWB","base":"CWB","name":"SPDR Bloomberg Convertible Securities ETF","asset_class":"equity","exchange":"SMART","sector":"convertible","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true)
+ON CONFLICT (symbol) DO NOTHING;
+
+INSERT INTO instrument_tags (symbol, tag, weight, source, evidence) VALUES
+    ('CWB', 'convertible',        1.0, 'human', '{"reason": "diversified US convertible bond basket — equity optionality + credit + duration in one security"}'),
+    ('CWB', 'benchmark',          1.0, 'human', '{"reason": "benchmark convertible bond ETF"}'),
+    ('CWB', 'risk_on',            0.7, 'human', '{"reason": "convertibles participate in equity upside — risk-on tilt vs straight credit"}'),
+    ('CWB', 'credit_risk',        0.6, 'human', '{"reason": "issuer credit quality affects convertible pricing alongside equity optionality"}'),
+    ('CWB', 'spread_leg',         0.7, 'human', '{"reason": "CWB/LQD convertible vs straight-credit spread"}')
+ON CONFLICT (symbol, tag) DO NOTHING;
+
+COMMIT;
+```
+
+- [ ] **Step 2: Apply the migration**
+
+```bash
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
+    -f production/migrations/190_etf_expansion_cwb.sql
+```
+
+Expected: no errors. `INSERT 1` (tag_vocabulary), `INSERT 1` (instruments), `INSERT 5` (instrument_tags).
+
+- [ ] **Step 3: Verify**
+
+```bash
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
+SELECT COUNT(*) as total_instruments FROM instruments WHERE is_active = true AND contract_details->>'asset_class' = 'equity';
+SELECT symbol FROM instrument_tags WHERE tag = 'convertible' ORDER BY symbol;
+"
+```
+
+Expected: 80 total instruments, CWB the only `convertible`-tagged symbol.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add production/migrations/190_etf_expansion_cwb.sql
+git commit -m "feat(migrations): add CWB convertible-bond ETF — 79→80 instruments (migration 190)"
 ```
 
 ---
@@ -392,7 +459,7 @@ git commit -m "feat(migrations): ETF universe expansion 58→79 — new tags, re
 **Files:**
 - Create: `scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh`
 
-All 21 new instruments need full OHLCV history across 4 timeframes. IBKR practical limits:
+All 22 new instruments need full OHLCV history across 4 timeframes. IBKR practical limits:
 - `1d`: up to 20yr (7300 days) for most ETFs
 - `1h`: up to ~15yr (5500 days)
 - `5m`: up to ~5yr (1825 days)
@@ -403,7 +470,7 @@ All 21 new instruments need full OHLCV history across 4 timeframes. IBKR practic
 ```bash
 #!/usr/bin/env bash
 # scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
-# Backfill OHLCV for the 21 new ETFs added in migration 188.
+# Backfill OHLCV for the 22 new ETFs added in migration 188.
 # Re-run safe: ON CONFLICT DO NOTHING in bar writer.
 # Usage: bash scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 
@@ -438,7 +505,7 @@ DAYS_15M=2555
 # 5m: ~5yr (IBKR hard limit)
 DAYS_5M=1825
 
-NEW_SYMBOLS=(DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV IYT FXA VYM SDOG BTAL IPO SPHB)
+NEW_SYMBOLS=(DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV IYT FXA VYM SDOG BTAL IPO SPHB CWB)
 
 total_stored=0
 errors=()
@@ -471,7 +538,7 @@ run_backfill() {
 }
 
 echo "======================================================="
-echo " New ETF Backfill — 21 symbols × 4 timeframes"
+echo " New ETF Backfill — 22 symbols × 4 timeframes"
 echo " $(date)"
 echo "======================================================="
 
@@ -500,7 +567,7 @@ echo "======================================================="
 ```bash
 git add scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 chmod +x scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
-git commit -m "feat(scripts): add backfill_new_etfs.sh for 21 new ETF universe expansion symbols"
+git commit -m "feat(scripts): add backfill_new_etfs.sh for 22 new ETF universe expansion symbols"
 ```
 
 - [ ] **Step 3: Run backfill (TWS must be running)**
@@ -509,7 +576,7 @@ git commit -m "feat(scripts): add backfill_new_etfs.sh for 21 new ETF universe e
 bash scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 ```
 
-**Expected duration:** ~65-125 minutes (21 symbols × 4 TFs, sequential, rate-limited by IBKR pacing).
+**Expected duration:** ~70-130 minutes (22 symbols × 4 TFs, sequential, rate-limited by IBKR pacing).
 
 - [ ] **Step 4: Verify bar coverage**
 
@@ -520,7 +587,7 @@ SELECT symbol, timeframe,
        MIN(timestamp)::date as earliest,
        MAX(timestamp)::date as latest
 FROM market_data_ohlcv
-WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB')
+WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB','CWB')
 GROUP BY symbol, timeframe
 ORDER BY symbol, timeframe;
 "
@@ -532,12 +599,12 @@ Expected: each symbol has bars in all 4 timeframes. `5m` earliest should be ~202
 
 ## Task 2: Corpus Pipeline — New Symbols
 
-**Prerequisite:** Task 1 complete (OHLCV bars present for all 21 symbols).
+**Prerequisite:** Task 1 complete (OHLCV bars present for all 22 symbols).
 
 **Files:**
 - Create: `scripts/ops/corpus/ops_corpus_new_etfs.sh`
 
-Run all 6 corpus pipeline steps scoped to the 21 new symbols only. Uses `--symbols` flag and `--compute-only` where applicable to avoid re-fetching existing data.
+Run all 6 corpus pipeline steps scoped to the 22 new symbols only. Uses `--symbols` flag and `--compute-only` where applicable to avoid re-fetching existing data.
 
 - [ ] **Step 1: Seed backfill_status for new symbols**
 
@@ -548,7 +615,7 @@ PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
 INSERT INTO backfill_status (symbol, timeframe, status, fetch_complete)
 SELECT DISTINCT symbol, timeframe, 'pending', true
 FROM market_data_ohlcv
-WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB')
+WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB','CWB')
 ON CONFLICT (symbol, timeframe) DO NOTHING;
 "
 ```
@@ -558,18 +625,18 @@ ON CONFLICT (symbol, timeframe) DO NOTHING;
 ```bash
 #!/usr/bin/env bash
 # scripts/ops/corpus/ops_corpus_new_etfs.sh
-# Run corpus pipeline steps 1-6 for the 21 new ETF symbols.
+# Run corpus pipeline steps 1-6 for the 22 new ETF symbols.
 # Assumes OHLCV bars are already present (Task 1 complete).
 # Usage: bash scripts/ops/corpus/ops_corpus_new_etfs.sh [--from-step N]
 
 set -euo pipefail
 
 PYTHON=".venv/bin/python"
-SYMBOLS="DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV IYT FXA VYM SDOG BTAL IPO SPHB"
+SYMBOLS="DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV IYT FXA VYM SDOG BTAL IPO SPHB CWB"
 FROM_STEP=${2:-1}
 
 echo "======================================================="
-echo " Corpus Pipeline — 21 new ETF symbols"
+echo " Corpus Pipeline — 22 new ETF symbols"
 echo " From step: $FROM_STEP"
 echo " $(date)"
 echo "======================================================="
@@ -606,18 +673,18 @@ bash scripts/ops/corpus/ops_corpus_new_etfs.sh
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
 SELECT
     (SELECT COUNT(DISTINCT symbol) FROM feature_vectors
-     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB'))
+     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB','CWB'))
      AS fv_symbols,
     (SELECT COUNT(*) FROM feature_ic_scores
-     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB'))
+     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB','CWB'))
      AS ic_score_rows,
     (SELECT COUNT(*) FROM alpha_events
-     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB'))
+     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB','CWB'))
      AS alpha_events;
 "
 ```
 
-Expected: 21 fv_symbols, >0 ic_score_rows, >0 alpha_events.
+Expected: 22 fv_symbols, >0 ic_score_rows, >0 alpha_events.
 
 ---
 
@@ -723,7 +790,7 @@ FROM market_regimes GROUP BY 1, 2 ORDER BY 1, 2;
 ```
 
 Pass criteria:
-- 79 total active equity instruments
+- 80 total active equity instruments
 - Commodity group: 10+ symbols (existing energy/metals + new ETFs)
 - Transports group: 1 symbol (IYT)
 - Defensive-yield group: 3 symbols (SCHD existing + VYM, SDOG)
