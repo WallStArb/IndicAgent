@@ -682,6 +682,7 @@ class IBKRProvider:
                 # Snapshot _no_data_req_ids BEFORE the request so callbacks that fire
                 # during reqHistoricalDataAsync are captured in the diff.
                 ib_bars: list = []
+                hit_definitive_no_data = False
                 for attempt in range(3):
                     no_data_before = _no_data_req_ids.copy()
                     result = await self._ib.reqHistoricalDataAsync(
@@ -709,6 +710,7 @@ class IBKRProvider:
                                 "chunk_end": chunk_end.isoformat(),
                             },
                         )
+                        hit_definitive_no_data = True
                         break  # Definitive "no data" — don't retry
 
                     if attempt < 2:
@@ -773,6 +775,15 @@ class IBKRProvider:
                             source=source_tag,
                         )
                     )
+
+                if hit_definitive_no_data:
+                    # A fully-empty chunk while walking backward means we've now passed
+                    # the instrument's launch date — every older chunk will also be empty.
+                    # Stop here instead of burning rate-limit budget on years of known-empty
+                    # requests (this was previously walking the full requested depth
+                    # regardless of actual listing date; see todo 042-adjacent finding
+                    # 2026-07-02).
+                    break
 
                 chunk_end = chunk_start - timedelta(days=1)
 
