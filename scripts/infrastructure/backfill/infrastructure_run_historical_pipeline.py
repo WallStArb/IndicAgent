@@ -432,22 +432,50 @@ _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
     #     timing out on COMEX instruments. Chunked named-contract path (_MAX_CHUNK_DAYS=364)
     #     is reliable across all exchanges.
     "1h": (7300, False),
-    # 15m: bridges intraday and swing. 5475d (15yr) matches 1h depth — reaches back to 2011,
-    #     same era coverage as 1h (European debt crisis through AI mania). Confirmed available
-    #     via SPY probe 2026-07-02 (525,563 bars, 2011-07-06 to present); prior 3650d (10yr)
-    #     was a deliberate match to old 1h depth, not a proven IBKR ceiling. ~26k bars/symbol.
-    "15m": (5475, True),
-    # 5m: intraday + swing structure. 3650d (10yr) matches 15m/1h regime depth — was
-    #     artificially capped at 1631d (4.5yr); IBKR confirmed 10yr retention for liquid
-    #     ETFs (SPY probe 2026-06-19), so the shorter window was a storage choice, not a
-    #     retention ceiling. Bumped 2026-07-01 for HMM/IC training corpus depth. ~440k bars/symbol.
-    "5m": (5475, True),
+    # 15m: bridges intraday and swing. 7300d (20yr) matches 1d/1h depth — reaches back to
+    #     2006, same era coverage as 1h (GFC through AI mania). Confirmed available via SPY
+    #     probe 2026-07-02 (700,770 bars, 2006-07-07 to present); prior 3650d/5475d caps were
+    #     storage-tradeoff choices, not a proven IBKR ceiling. ~35k bars/symbol.
+    "15m": (7300, True),
+    # 5m: intraday + swing structure. 7300d (20yr) matches 1d/1h/15m depth — reaches back to
+    #     2006. Was artificially capped at 1631d (4.5yr), then 3650d, then 5475d; each was a
+    #     storage-tradeoff choice, not a proven IBKR ceiling. Confirmed available via SPY
+    #     probe 2026-07-02 (2,102,364 bars, 2006-07-07 to present). ~105k bars/symbol/year.
+    "5m": (7300, True),
     # 1m: intraday micro-patterns (time-of-day, session open/close, day-of-week). These
     #     repeat on weekly/monthly cycles so 90d captures all patterns with good repetition.
     #     ~75k bars/symbol. IBKR confirmed 10yr retention (SPY probe 2026-06-19) — 90d is
     #     a deliberate storage/compute tradeoff, not a retention constraint.
     "1m": (90, True),
 }
+
+
+def _load_tf_fetch_config(settings: Settings) -> dict[str, tuple[int, bool]]:
+    """Overlay APR-configured backfill depths (infra.backfill.depth_days.*) onto
+    _TF_FETCH_CONFIG defaults. Falls back to the hardcoded defaults above if the
+    APR keys aren't present (e.g. migration 191 not yet applied) or the DB is
+    unreachable — this is a one-shot CLI script, not a daemon, so no cache pre-warm.
+    """
+    config = dict(_TF_FETCH_CONFIG)
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT config_key, config_value FROM config_state "
+                    "WHERE config_key LIKE 'infra.backfill.depth_days.%'"
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+        for key, value in rows:
+            tf = key.rsplit(".", 1)[-1]
+            if tf in config:
+                config[tf] = (int(value), config[tf][1])
+    except Exception as error:
+        print(f"  (APR backfill-depth lookup failed, using hardcoded defaults: {error})")
+    return config
+
 
 # FX and crypto: IBKR *can* return higher-TF bars for major pairs (EURUSD, GBPUSD, etc.).
 # The named fetch above attempts all TFs directly. This deep 1m window + derivation is
@@ -2257,13 +2285,15 @@ def main() -> None:
 
     contracts.sort(key=lambda c: (1 if c.asset_class == AssetClass.FX else 0, c.symbol))
 
+    tf_fetch_config = _load_tf_fetch_config(settings)
+
     print("Historical Backfill Pipeline")
     print(f"  Contracts : {[c.symbol for c in contracts]}")
     print(f"  Timeframes: {timeframes}")
     tf_depths = {
-        tf: (min(_TF_FETCH_CONFIG[tf][0], args.days) if args.days else _TF_FETCH_CONFIG[tf][0])
+        tf: (min(tf_fetch_config[tf][0], args.days) if args.days else tf_fetch_config[tf][0])
         for tf in timeframes
-        if tf in _TF_FETCH_CONFIG
+        if tf in tf_fetch_config
     }
     print(f"  TF depths : {tf_depths}")
     if args.fetch_only:
@@ -2299,7 +2329,7 @@ def main() -> None:
 
             end_dt = datetime.now(tz=UTC)
             total_bars = 0
-            fetch_tfs = [tf for tf in timeframes if tf in _TF_FETCH_CONFIG]
+            fetch_tfs = [tf for tf in timeframes if tf in tf_fetch_config]
             print(f"  Fetching TFs: {fetch_tfs}")
             print()
             try:
@@ -2323,7 +2353,7 @@ def main() -> None:
                         if args.per_contract and instrument.asset_class == AssetClass.FUTURES:
                             print(f"  {instrument.symbol}: per-contract mode (Renaissance-style)")
                             for tf in fetch_tfs:
-                                fetch_days, _ = _TF_FETCH_CONFIG[tf]
+                                fetch_days, _ = tf_fetch_config[tf]
                                 if args.days:
                                     fetch_days = min(fetch_days, args.days)
                                 print(f"  {instrument.symbol}/{tf} (per-contract, {fetch_days}d):")
@@ -2341,7 +2371,7 @@ def main() -> None:
                         # Standard mode: use continuous contract for longer timeframes
                         fetched_tfs: set[str] = set()  # TFs that got bars from IBKR directly
                         for tf in fetch_tfs:
-                            fetch_days, use_continuous = _TF_FETCH_CONFIG[tf]
+                            fetch_days, use_continuous = tf_fetch_config[tf]
                             if args.days:
                                 fetch_days = min(fetch_days, args.days)
 
