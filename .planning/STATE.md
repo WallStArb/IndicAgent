@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: in_progress
-last_updated: "2026-07-02T10:50:08.688Z"
+last_updated: "2026-07-02T12:01:07.794Z"
 progress:
   total_phases: 8
   completed_phases: 0
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
-**Current focus:** Phase B — corpus re-run on corrected ic_engine
+**Current focus:** Phase 141.1 — measurement-and-decision-integrity-foundation-make-everythin
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.1 Current Status
