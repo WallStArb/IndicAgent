@@ -1484,7 +1484,7 @@ Every (symbol, tf, regime) cell that produces an IC score must meet `n_independe
 
 **Requirements**: TBD — no REQUIREMENTS.md for this project
 **Depends on:** Phase 141 complete (done). Can be developed in parallel with the in-progress Phase B corpus re-run — these fixes apply to the corpus pipeline scripts themselves and take effect on the next re-run after Phase B's current run completes.
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 **Wave 1** (parallel — no shared files):
 - [x] 141.1-01 — OOS holdout enforcement: `TRAINING_WINDOW_END = LEAST(MAX(bar_ts), oos_start)` in the corpus orchestrator, plus a pre-committed, strictly read-only OOS evaluation script
@@ -1492,7 +1492,7 @@ Every (symbol, tf, regime) cell that produces an IC score must meet `n_independe
 - [x] 141.1-03 — Cost hurdle calibration: implements todo 030 Steps 0-3, writes empirical `alpha.quant.cost_hurdle.*`/`threshold.*` via `ConfigService.set` (audited)
 
 **Wave 2** *(depends on Wave 1 — plan 04 shares `ops_corpus_pipeline_run.sh` with plan 01)*:
-- [ ] 141.1-04 — Weight-epoch fix (migration 193): `DO NOTHING → DO UPDATE SET` on both `ensemble_weights`/`ensemble_alpha` writes, per-run `WEIGHT_EPOCH` threaded to `ensemble_trainer` + `alpha_publisher`, folds in todo 043 (90-day cliff → APR)
+- [x] 141.1-04 — Weight-epoch fix (migration 193): `DO NOTHING → DO UPDATE SET` on both `ensemble_weights`/`ensemble_alpha` writes, per-run `WEIGHT_EPOCH` threaded to `ensemble_trainer` + `alpha_publisher`, folds in todo 043 (90-day cliff → APR)
 
 Cross-cutting constraints: none (each plan touches a disjoint file set except the declared 01→04 dependency).
 
