@@ -123,6 +123,7 @@ class EnsembleConfig:
     meta_fdr_min_fraction: float
     sharpe_floor: float
     weight_half_life_days: float
+    weight_stale_max_days: int
 
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> EnsembleConfig:
@@ -137,7 +138,18 @@ class EnsembleConfig:
             meta_fdr_min_fraction=_cfg_float(cfg, "alpha.ensemble.meta_fdr_min_fraction", 0.50),
             sharpe_floor=_cfg_float(cfg, "alpha.ensemble.sharpe_floor", 0.05),
             weight_half_life_days=_cfg_float(cfg, "alpha.ensemble.weight_half_life_days", 30.0),
+            weight_stale_max_days=_cfg_int(cfg, "alpha.ensemble.weight_stale_max_days", 90),
         )
+
+
+def _effective_weight_version(cli_weight_version: str | None, apr_default: str) -> str:
+    """Resolve the per-run weight epoch: CLI override takes precedence over the APR default.
+
+    A per-run epoch (e.g. 'run_20260624') lets a re-run after IC scores change write fresh
+    weight/alpha rows instead of colliding with (and silently keeping) the prior run's static
+    'v1' key. When no CLI override is given, falls back to the APR default (backward compatible).
+    """
+    return cli_weight_version if cli_weight_version else apr_default
 
 
 def _meta_eligible(fdr_pass_rows: list[dict], min_fraction: float) -> set[str]:
@@ -233,6 +245,10 @@ class EnsembleTrainer(BaseBatch):
     job_name = "ensemble-trainer"
     compute_version = "1.0.0"
 
+    def __init__(self, db_dsn: str, weight_version_override: str | None = None) -> None:
+        super().__init__(db_dsn=db_dsn)
+        self._weight_version_override = weight_version_override
+
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Run the full ensemble weight derivation and alpha scoring pipeline."""
         manifest = CorpusManifest("ensemble_trainer", Path(".planning/corpus_manifests"))
@@ -251,6 +267,15 @@ class EnsembleTrainer(BaseBatch):
             # --- Bind all APR parameters once at startup (compile-time binding) ---
             cfg = await _load_apr(conn)
             config = EnsembleConfig.from_apr(cfg)
+            # Per-run weight epoch: CLI --weight-version overrides the static APR default so a
+            # re-run after IC scores change writes fresh keys instead of colliding with (and
+            # silently keeping) the prior run's weights.
+            config = dataclasses.replace(
+                config,
+                weight_version=_effective_weight_version(
+                    self._weight_version_override, config.weight_version
+                ),
+            )
 
             self.logger.info(
                 "ensemble_trainer.config_loaded",
@@ -496,7 +521,8 @@ class EnsembleTrainer(BaseBatch):
         # Step 4: Compute LW covariance + cluster deflate weights
         # Weight aging: decay IC-derived weights exponentially with staleness.
         # Uses the latest training_window_end across all selected features as the
-        # reference point. Reverts to equal-weight at 90 days stale.
+        # reference point. Reverts to equal-weight beyond config.weight_stale_max_days
+        # (alpha.ensemble.weight_stale_max_days APR key, todo 043).
         max_training_window_end = max(
             (r["training_window_end"] for r in selected if r["training_window_end"] is not None),
             default=None,
@@ -505,7 +531,7 @@ class EnsembleTrainer(BaseBatch):
             days_since = max(0, (datetime.now(UTC) - max_training_window_end).days)
         else:
             days_since = 0
-        if days_since > 90:
+        if days_since > config.weight_stale_max_days:
             # Equal-weight fallback: IC scores are too stale to trust the weight ordering.
             aged_quality_weights = np.full(len(quality_weights), 1.0 / max(1, len(quality_weights)))
         else:
@@ -564,6 +590,10 @@ class EnsembleTrainer(BaseBatch):
             for i in range(len(ordered_names))
         ]
 
+        # DO UPDATE, never silently no-op: a re-run after IC scores change overwrites with
+        # recomputed values instead of silently keeping stale weights (bottom-up audit §5.6).
+        # Combined with the per-run weight epoch, a fresh run writes fresh keys; a
+        # same-epoch resume is idempotent.
         async with conn.transaction():
             await conn.executemany(
                 """
@@ -571,7 +601,13 @@ class EnsembleTrainer(BaseBatch):
                     (symbol, tf, regime, weight_version, feature_name,
                      raw_weight, weight, ic_sharpe, lookahead_bars, effective_n, computed_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                ON CONFLICT (symbol, tf, regime, weight_version, feature_name) DO NOTHING
+                ON CONFLICT (symbol, tf, regime, weight_version, feature_name) DO UPDATE SET
+                    raw_weight = EXCLUDED.raw_weight,
+                    weight = EXCLUDED.weight,
+                    ic_sharpe = EXCLUDED.ic_sharpe,
+                    lookahead_bars = EXCLUDED.lookahead_bars,
+                    effective_n = EXCLUDED.effective_n,
+                    computed_at = EXCLUDED.computed_at
                 """,
                 [(*row, now) for row in weight_rows],
             )
@@ -615,6 +651,10 @@ class EnsembleTrainer(BaseBatch):
             for i in range(len(bar_ts_list))
         ]
 
+        # DO UPDATE, never silently no-op: a re-run after IC scores change overwrites with
+        # recomputed values instead of silently keeping stale weights (bottom-up audit §5.6).
+        # Combined with the per-run weight epoch, a fresh run writes fresh keys; a
+        # same-epoch resume is idempotent.
         await conn.executemany(
             """
             INSERT INTO ensemble_alpha
@@ -622,7 +662,14 @@ class EnsembleTrainer(BaseBatch):
                  alpha_score, alpha_ci_lower, alpha_ci_upper,
                  effective_n, n_features_active, computed_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT (symbol, tf, bar_ts, weight_version) DO NOTHING
+            ON CONFLICT (symbol, tf, bar_ts, weight_version) DO UPDATE SET
+                regime = EXCLUDED.regime,
+                alpha_score = EXCLUDED.alpha_score,
+                alpha_ci_lower = EXCLUDED.alpha_ci_lower,
+                alpha_ci_upper = EXCLUDED.alpha_ci_upper,
+                effective_n = EXCLUDED.effective_n,
+                n_features_active = EXCLUDED.n_features_active,
+                computed_at = EXCLUDED.computed_at
             """,
             alpha_rows,
         )
@@ -639,6 +686,19 @@ class EnsembleTrainer(BaseBatch):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="EnsembleTrainer oneshot")
+    parser.add_argument(
+        "--weight-version",
+        default=None,
+        help=(
+            "Per-run weight epoch; overrides alpha.ensemble.weight_version so a re-run "
+            "after IC changes produces fresh weights instead of silently keeping stale ones"
+        ),
+    )
+    args = parser.parse_args()
+
     try:
         init_otel_providers("indicagent-ensemble-trainer")
     except OTelInitError as error:
@@ -646,4 +706,4 @@ if __name__ == "__main__":
 
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    asyncio.run(EnsembleTrainer(db_dsn=db_dsn).run())
+    asyncio.run(EnsembleTrainer(db_dsn=db_dsn, weight_version_override=args.weight_version).run())
