@@ -14,7 +14,7 @@ CORRECTNESS INVARIANTS:
 - alpha_events insert uses ON CONFLICT (event_id, bar_ts) DO NOTHING (composite PK).
 - top_features MUST be non-empty before insert (architecture traceability invariant).
 - All numeric parameters loaded from APR via asyncpg-fetched config dict.
-- event_id = BaseBatch.content_key(symbol, tf, bar_ts_ns, ensemble_version).
+- event_id = BaseBatch.content_key(symbol, tf, bar_ts_ns, ensemble_version, weight_version).
 
 DAG invariant: compute (EnsembleTrainer) ≠ transport (AlphaPublisher). This service reads
 DB and publishes to Kafka — it does not compute weights or score bars.
@@ -97,9 +97,15 @@ class AlphaPublisher(BaseBatch):
     ensemble_version = "v1.0.0"
     _CHUNK_SIZE = 50_000
 
-    def __init__(self, db_dsn: str, skip_kafka: bool = False) -> None:
+    def __init__(
+        self,
+        db_dsn: str,
+        skip_kafka: bool = False,
+        weight_version_override: str | None = None,
+    ) -> None:
         super().__init__(db_dsn)
         self.skip_kafka = skip_kafka
+        self._weight_version_override = weight_version_override
 
     def _threshold_for_tf(self, tf: str, cfg: dict[str, Any]) -> float:
         """Return the APR-loaded emission threshold for the given timeframe.
@@ -160,7 +166,11 @@ class AlphaPublisher(BaseBatch):
             # --- Load APR config ---
             cfg = await _load_apr(conn)
             effective_n_gate = _cfg_float(cfg, "alpha.ensemble.effective_n_gate", 3.0)
-            weight_version = _cfg_str(cfg, "alpha.ensemble.weight_version", "v1")
+            # Per-run weight epoch: CLI --weight-version overrides the static APR default so
+            # the publisher reads and emits from the same epoch ensemble_trainer wrote.
+            weight_version = self._weight_version_override or _cfg_str(
+                cfg, "alpha.ensemble.weight_version", "v1"
+            )
             top_features_count = _cfg_int(cfg, "alpha.ensemble.top_features_count", 10)
 
             self.logger.info(
@@ -309,7 +319,12 @@ class AlphaPublisher(BaseBatch):
 
                     direction = "long" if alpha_score > 0 else "short"
                     bar_ts_ns = str(int(bar_ts.timestamp() * 1e9))
-                    event_id = BaseBatch.content_key(symbol, tf, bar_ts_ns, self.ensemble_version)
+                    # weight_version in the event_id: a new weight epoch must produce a
+                    # distinct event_id, else ON CONFLICT (event_id, bar_ts) DO NOTHING
+                    # silently swallows every new-epoch row (bottom-up audit / cross-AI
+                    # review — the emission-path twin of the DO NOTHING trap Plan 04
+                    # fixes in the trainer).
+                    event_id = BaseBatch.content_key(symbol, tf, bar_ts_ns, self.ensemble_version, weight_version)  # fmt: skip
 
                     rows_by_tf[tf] = rows_by_tf.get(tf, 0) + 1
                     ALPHA_PUBLISHER_EMISSIONS_TOTAL.add(
@@ -464,6 +479,14 @@ if __name__ == "__main__":
         action="store_true",
         help="Skip Kafka publishing (corpus batch mode — DB only, O(chunk) memory)",
     )
+    parser.add_argument(
+        "--weight-version",
+        default=None,
+        help=(
+            "Per-run weight epoch to publish; must match the epoch ensemble_trainer wrote. "
+            "Overrides alpha.ensemble.weight_version."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -473,4 +496,10 @@ if __name__ == "__main__":
 
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    asyncio.run(AlphaPublisher(db_dsn=db_dsn, skip_kafka=args.skip_kafka).run())
+    asyncio.run(
+        AlphaPublisher(
+            db_dsn=db_dsn,
+            skip_kafka=args.skip_kafka,
+            weight_version_override=args.weight_version,
+        ).run()
+    )
