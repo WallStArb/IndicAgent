@@ -2,7 +2,7 @@
 
 **Version:** 2.9
 **Status:** current
-**Last Updated:** 2026-06-16
+**Last Updated:** 2026-07-02
 
 Real issues that burned once — reference when touching the relevant area. Add here when you get burned.
 
@@ -19,6 +19,7 @@ Real issues that burned once — reference when touching the relevant area. Add 
 
 - **TimescaleDB migration**: Never use pg_dump/restore for hypertables — chunks do not restore cleanly. Use raw volume copy: `docker run --rm -v old-vol:/src:ro -v new-vol:/dst alpine sh -c "cd /src && cp -a . /dst/"`. Also: `pg_dump` with `2>&1` corrupts `--Fc` binary output — always redirect stderr separately.
 - **Disable compression order**: Must `SELECT decompress_chunk(...)` on all compressed chunks BEFORE `ALTER TABLE SET (timescaledb.compress = false)` — the ALTER fails if any chunk is still compressed.
+- **Migration numbering**: always `ls production/migrations/ | sort -V | tail -3` to confirm the actual current max before assigning a new number — a doc's claimed "next migration" can be stale if a migration landed without every cross-reference being updated.
 
 See `docs/operations/operations-database.md` for query/schema gotchas. `instruments.symbol` = base symbol, contract code lives in `contract_details`.
 
@@ -72,7 +73,10 @@ ContFuture (`continuous=True`) hangs on multi-year requests — use named contra
 ## Tooling
 
 - **GSD phase directory padding**: `gsd-sdk` returns `phase_dir` without zero-padding (e.g., `67-observability-alerting-automation`) but actual directories use padded names (`067-*`). If init returns `plan_count: 0` but plan files exist, check both directory variants.
+- **`gsd-sdk query roadmap.annotate-dependencies` can report success without writing anything**: for phases created via `phase.insert` (decimal/INSERTED phases), it may return `"updated": false` with a correct wave count while ROADMAP.md's `Plans:` section still shows the `- [ ] TBD` placeholder. Verify the ROADMAP.md section directly after running it; manually write the wave/plan breakdown if the placeholder is still there.
+- **Pre-commit runs 8 automated checks, including glossary enforcement**: a commit can fail with "glossary violation" because a changed file uses a term banned in `docs/foundation/glossary.md` in place of its canonical replacement — not a broken hook. Fix the term, don't bypass with `--no-verify`.
 
 ## Resolved (Historical Reference)
 
 - **CIS weights column mismatch (fixed Phase 091):** `_load_cis_weights` was querying the `weights` JSONB column (always `{}`); actual learned weights live in `trend_w`/`momentum_w`/etc. columns. Fixed to read individual columns scoped to `asset_cluster='global' AND timeframe='global'`.
+- **v2.x Signal Ledger schema (archived, no live consumer as of 2026-07-02):** `signal_schema_version` constant lives in `src/intelligence/trading/signal_schema.py`. `entry_type` values: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`. Status strings (raw, no enum): `"pending"`, `"active"`, `"regime_suppressed"`, `"expired"`. `signal_computed_at` is nullable — always `COALESCE(signal_computed_at, timestamp)`.

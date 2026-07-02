@@ -1,5 +1,12 @@
 # Data Providers — Developer Reference
 
+> **Status note (2026-07-02): the real-time IBKR provider is not currently running.**
+> `indicagent-ibkr-provider` and `provider-merger` are confirmed `inactive (dead)` (v2.x
+> real-time pipeline is dormant — see root `CLAUDE.md`). The mechanics below (asset-class
+> contract rules, VIX/FX symbol quirks, latency characteristics) remain accurate and directly
+> reusable whenever the provider is reactivated or reused in a batch context — only the
+> Troubleshooting section's restart instructions assume a currently-running service.
+
 ## IBKR Provider (`ibkr.py`)
 
 All ib_insync logic is isolated here. **No ib_insync imports anywhere else.**

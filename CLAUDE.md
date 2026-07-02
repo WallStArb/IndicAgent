@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.48.0
+Version: 5.49.0
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
 
@@ -31,9 +31,9 @@ Version: 5.48.0
 ## Architecture
 
 **Layers (v3.0):** Feature Factory (replaces I1-I4) · I5-I7 archived · I8 AI (Ollama, default `nemotron-3-nano:4b` via `OLLAMA_MODEL`)
-**Pipeline (v2.x live):** `IBKR TWS → intelligence_pipeline (I1-I7 in-process) → signal_ledger + intelligence_features → feature_writer → TimescaleDB → SSE → Dashboard`
+**Pipeline (v2.x — ARCHIVED, no live consumer as of 2026-07-02):** `indicagent-intelligence-pipeline.service` is `failed`; `ExecStart` points at a deleted file. Do not restart this unit expecting it to work. Full architecture: `src/intelligence/CLAUDE.md`.
 **Pipeline (v3.0):** `IBKR TWS → FeatureVectorWriter → feature_vectors → IC engine → alpha_events`
-**Typed Bus:** `IntelligenceEvent` (`src/intelligence/schemas.py`) — tiered JSONB (i1/i2/i3/i4/i5/smc/i6), persisted to `intelligence_features` by `feature_writer`.
+**Typed Bus (v2.x — ARCHIVED, no live consumer as of 2026-07-02):** `IntelligenceEvent` (`src/intelligence/schemas.py`) — tiered JSONB (i1/i2/i3/i4/i5/smc/i6), persisted to `intelligence_features` by `feature_writer`. `indicagent-feature-writer.service` is `inactive (dead)`.
 
 **Service DAG:** canonical registry is `_DAG_ORDER` in `services/service_auditor.py`. Live state: `systemctl list-units --all | grep indicagent`. Monitoring: Grafana `:3001`.
 **ML batch services** (`ml-training`, `ml-orchestrator`, `ml-data-quality`, `ml-discovery`, `roll-batch`): `inactive (dead)` between runs is correct.
@@ -64,8 +64,8 @@ Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
 ### TimescaleDB Tables
 
 - `market_data_ohlcv` — raw OHLCV. Primary time column: `timestamp` (not `ts`). Timeframe column: `timeframe` (not `tf` — differs from `intelligence_features`).
-- `intelligence_features` — full feature vectors per bar. Column name: `ts` (not `feature_ts`)
-- **Signal Ledger Architecture (SLA, Phase 128+):**
+- `intelligence_features` (v2.x — ARCHIVED, no live consumer as of 2026-07-02) — full feature vectors per bar. Column name: `ts` (not `feature_ts`)
+- **Signal Ledger Architecture (SLA, Phase 128+) (v2.x — ARCHIVED, no live consumer as of 2026-07-02):**
   - `signal_events` — detection layer: one row per I7 plugin fire. Fields: `raw_confidence` (ICC), `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. Primary time: `ts`.
   - `trade_frames` — hypothesis layer: one row per entry_type per signal. Fields: `counterfactual_pnl_r` (CFL, always populated). ML trains on this.
   - `trade_executions` — execution layer: one row per live trade. Fields: `actual_pnl_r`, `actual_fill_price`, `exit_reason`.
@@ -101,9 +101,9 @@ All tunable numeric values live in `config_state` under `<domain>.<concept>.<par
 **`ui.*` requires one-line change first:** add `"ui."` to `OPS_PREFIXES` in `src/config/config_service.py`.
 **Dashboard:** `/config/parameters` — view/edit all parameters, full change history per key.
 
-## Plugin System (v2.x — I5-I7 archived in v3.0)
+## Plugin System (v2.x, archived 2026-07-02)
 
-Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py`. Shadow governance: `shadow_registry` table; promotion `n >= 100 AND bootstrap_ci_lower(pnl_r) > 0.0`. Adding an AI agent: `src/intelligence/ai/AUTHORING.md`.
+Entire I1-I7 tier has no live consumer. Full architecture, tier lists, shadow governance, AI agent authoring: `src/intelligence/CLAUDE.md`.
 
 ## DAG Invariants
 
@@ -148,14 +148,6 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **Ollama JSON enforcement (nemotron-3-nano:4b):** system message MUST start with `"OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE."` Add `"Begin your response with { and end with }."` at end of user prompt.
 - **Swarm raw signal confidence**: `calibrated_confidence` is null in Kafka payloads. Gate on `raw_signal.get("confidence")` or `raw_signal.get("pre_quality_confidence")`.
 
-**Signal Logic (v2.x)**
-- **Aggregator `active` must come from `all_ranked`**: `active = [s for s in all_ranked if s.get("regime_eligible", True)]` — never from raw `signals`.
-- **SLA columns:** `signal_events` / `trade_frames` / `trade_executions`; query via `signal_ledger` JOIN view. Full column ref: `docs/operations/operations-database.md`.
-- **signal_schema_version**: single constant `SIGNAL_SCHEMA_VERSION` in `src/intelligence/trading/signal_schema.py`.
-- **entry_type values**: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`.
-- **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"`, `"expired"` — raw strings, no enum.
-- **`signal_computed_at` is nullable**: always `COALESCE(signal_computed_at, timestamp)` in SQL.
-
 **Services**
 - **Logging**: `structlog` → `logs/<snake_case_class_name>.log` via `setup_service_logging("logs/<name>.log")`. NOT journald.
 - **`PERSISTENCE_BATCH_LATENCY` label key is `agent_id`** — not `agent=`.
@@ -173,7 +165,7 @@ Every `BaseDaemon` subclass auto-inherits 5 mandatory OTel signals (D-26, non-ne
 - **IBKR Gateway:** Docker (`ib-gateway` container), bound to `127.0.0.1:7497`. All ib_insync in `src/providers/ibkr.py` only. VIX=`"VX"`, client IDs 35+.
 - **Redpanda**: Kafka-compatible. Topics: dots, via `stream_keys.py`. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Restart daemons on futures expiry.
-- **Roll flow:** `roll-batch` nightly 8pm (`scripts/ops/roll/ops_roll_batch.py`) — promotes front-month in `contract_metadata`, broadcasts via Kafka.
+- **Roll flow:** `roll-batch` (`scripts/ops/roll/ops_roll_batch.py`) — promotes front-month in `contract_metadata`, broadcasts via Kafka. Documented as nightly 8pm, but **all systemd timers are confirmed disabled as of 2026-07-02** — verify with `systemctl list-timers | grep indicagent` before assuming this runs on schedule.
 - **Docker**: `cd production && docker compose up -d` after `docker-compose.yml` changes. All services have `logging: max-size/max-file` caps — do not remove them (TimescaleDB grew a 29GB log without them).
 - **Ollama:** Docker (`ollama/ollama:rocm`). `docker exec ollama ollama <cmd>`. Kill `alpha_swarm` + `narrative_compute` before swapping models.
 
