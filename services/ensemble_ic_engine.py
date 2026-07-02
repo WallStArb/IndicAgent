@@ -56,8 +56,9 @@ sys.path.insert(0, str(project_root))
 
 # Composition, not subclassing/forking -- import the private pure IC math functions.
 # See CLAUDE.md + 142A-CONTEXT.md: methodology parity is structural, not re-derived.
+# EnsembleICConfig below mirrors ICEngineConfig's shared-key shape by convention, not
+# by import (no direct type dependency).
 from services.ic_engine import (
-    ICEngineConfig,  # noqa: F401 -- documents the shared-key contract this config mirrors
     _compute_ic_rolling_metrics,
     _fisher_z_ci,
     _nan_to_none,
@@ -76,6 +77,14 @@ _JOB = "ensemble-ic-engine"
 
 # Gradient scale names for forward return horizons (matches forward_returns columns).
 _SCALES: tuple[str, ...] = ("fast", "mid", "slow", "extended")
+
+# scale name -> forward_returns column, for the returns_by_scale worker-arg fetch.
+_SCALE_RETURN_COLUMNS: dict[str, str] = {
+    "fast": "return_fast",
+    "mid": "return_mid",
+    "slow": "return_slow",
+    "extended": "return_extended",
+}
 
 # Cross-sectional pooled-row sentinel (research OQ-2: 'POOLED', not '_pooled' -- alpha_events
 # and alpha_ensemble_ic both use the literal string 'POOLED' for symbol, per migration 195's
@@ -99,19 +108,10 @@ async def _load_apr(conn: asyncpg.Connection) -> dict[str, Any]:
     return {r["config_key"]: r["config_value"] for r in rows}
 
 
-def _cfg_float(cfg: dict[str, Any], key: str, default: float) -> float:
+def _cfg(cfg: dict[str, Any], key: str, default: Any) -> Any:
+    """Cast a raw config_value to default's type, or return default if unset."""
     val = cfg.get(key)
-    return float(val) if val is not None else default
-
-
-def _cfg_int(cfg: dict[str, Any], key: str, default: int) -> int:
-    val = cfg.get(key)
-    return int(val) if val is not None else default
-
-
-def _cfg_str(cfg: dict[str, Any], key: str, default: str) -> str:
-    val = cfg.get(key)
-    return str(val) if val is not None else default
+    return type(default)(val) if val is not None else default
 
 
 @dataclasses.dataclass(frozen=True)
@@ -160,26 +160,24 @@ class EnsembleICConfig:
     def from_apr(cls, cfg: dict[str, Any]) -> EnsembleICConfig:
         """Load all EnsembleIC APR parameters from the raw config dict in one pass."""
         return cls(
-            fdr_alpha=_cfg_float(cfg, "alpha.ic.fdr_alpha", 0.05),
-            walk_forward_folds=_cfg_int(cfg, "alpha.ic.walk_forward_folds", 3),
-            sharpe_window_size=_cfg_int(cfg, "alpha.ic.sharpe_window_size", 2000),
-            sharpe_min_windows=_cfg_int(cfg, "alpha.ic.sharpe_min_windows", 30),
-            subsample_min_stride=_cfg_int(cfg, "alpha.ic.subsample_min_stride", 5),
-            min_reliable_n=_cfg_int(cfg, "alpha.ic.min_reliable_n", 100),
-            hac_max_lag=_cfg_int(cfg, "alpha.ic.hac_max_lag", 3),
-            lookahead_fast=_cfg_int(cfg, "alpha.ic.lookahead.fast", 1),
-            lookahead_mid=_cfg_int(cfg, "alpha.ic.lookahead.mid", 5),
-            lookahead_slow=_cfg_int(cfg, "alpha.ic.lookahead.slow", 20),
-            lookahead_extended=_cfg_int(cfg, "alpha.ic.lookahead.extended", 60),
-            n_workers=_cfg_int(cfg, "infra.ensemble_ic_engine.workers", 12),
-            decay_threshold=_cfg_float(cfg, "alpha.ensemble_ic.decay_threshold", 0.1),
-            min_qualifying_fraction=_cfg_float(
-                cfg, "alpha.ensemble_ic.min_qualifying_fraction", 0.60
-            ),
-            wf_stability_ratio=_cfg_float(cfg, "alpha.ensemble_ic.wf_stability_ratio", 3.0),
-            gate_lookahead=_cfg_str(cfg, "alpha.ensemble_ic.gate_lookahead", "fast"),
-            wf_stability_metric=_cfg_str(cfg, "alpha.ensemble_ic.wf_stability_metric", "ic_ratio"),
-            min_obs_per_regime=_cfg_int(cfg, "alpha.ensemble_ic.min_obs_per_regime", 3000),
+            fdr_alpha=_cfg(cfg, "alpha.ic.fdr_alpha", 0.05),
+            walk_forward_folds=_cfg(cfg, "alpha.ic.walk_forward_folds", 3),
+            sharpe_window_size=_cfg(cfg, "alpha.ic.sharpe_window_size", 2000),
+            sharpe_min_windows=_cfg(cfg, "alpha.ic.sharpe_min_windows", 30),
+            subsample_min_stride=_cfg(cfg, "alpha.ic.subsample_min_stride", 5),
+            min_reliable_n=_cfg(cfg, "alpha.ic.min_reliable_n", 100),
+            hac_max_lag=_cfg(cfg, "alpha.ic.hac_max_lag", 3),
+            lookahead_fast=_cfg(cfg, "alpha.ic.lookahead.fast", 1),
+            lookahead_mid=_cfg(cfg, "alpha.ic.lookahead.mid", 5),
+            lookahead_slow=_cfg(cfg, "alpha.ic.lookahead.slow", 20),
+            lookahead_extended=_cfg(cfg, "alpha.ic.lookahead.extended", 60),
+            n_workers=_cfg(cfg, "infra.ensemble_ic_engine.workers", 12),
+            decay_threshold=_cfg(cfg, "alpha.ensemble_ic.decay_threshold", 0.1),
+            min_qualifying_fraction=_cfg(cfg, "alpha.ensemble_ic.min_qualifying_fraction", 0.60),
+            wf_stability_ratio=_cfg(cfg, "alpha.ensemble_ic.wf_stability_ratio", 3.0),
+            gate_lookahead=_cfg(cfg, "alpha.ensemble_ic.gate_lookahead", "fast"),
+            wf_stability_metric=_cfg(cfg, "alpha.ensemble_ic.wf_stability_metric", "ic_ratio"),
+            min_obs_per_regime=_cfg(cfg, "alpha.ensemble_ic.min_obs_per_regime", 3000),
         )
 
 
@@ -355,26 +353,19 @@ _ENSEMBLE_IC_INSERT_SQL = """
 # pinned to one run_ts for the whole run. Separate invocations use a fresh run_ts and
 # therefore INSERT new vintage rows, exactly like ic_engine.computed_at.
 
-_ROW_COLUMN_ORDER: tuple[str, ...] = (
-    "event_row_id",
-    "symbol",
-    "tf",
-    "regime",
-    "lookahead",
-    "lookahead_bars",
-    "is_pooled",
-    "n_independent",
-    "reliable",
-    "ic_value",
-    "ic_ci_lower",
-    "ic_ci_upper",
-    "ic_sharpe",
-    "ic_sharpe_hac",
-    "bh_adjusted_p",
-    "passes_fdr",
-    "walk_forward_stable",
-    "scored_at",
-)
+
+def _parse_insert_columns(insert_sql: str) -> tuple[str, ...]:
+    """Extract the column list from an `INSERT INTO tbl (col1, col2, ...)` statement.
+
+    Derives the row-tuple column order from the SQL itself so it can't drift out of
+    sync with _ENSEMBLE_IC_INSERT_SQL -- previously a hand-maintained duplicate list.
+    """
+    start = insert_sql.index("(") + 1
+    end = insert_sql.index(")", start)
+    return tuple(col.strip() for col in insert_sql[start:end].split(","))
+
+
+_ROW_COLUMN_ORDER: tuple[str, ...] = _parse_insert_columns(_ENSEMBLE_IC_INSERT_SQL)
 
 
 def _row_to_tuple(row: dict[str, Any]) -> tuple[Any, ...]:
@@ -640,65 +631,42 @@ class EnsembleICEngine(BaseBatch):
 
                 alpha_scores = np.array([float(r["alpha_score"]) for r in rows])
                 returns_by_scale = {
-                    "fast": np.array(
-                        [
-                            float(r["return_fast"]) if r["return_fast"] is not None else np.nan
-                            for r in rows
-                        ]
-                    ),
-                    "mid": np.array(
-                        [
-                            float(r["return_mid"]) if r["return_mid"] is not None else np.nan
-                            for r in rows
-                        ]
-                    ),
-                    "slow": np.array(
-                        [
-                            float(r["return_slow"]) if r["return_slow"] is not None else np.nan
-                            for r in rows
-                        ]
-                    ),
-                    "extended": np.array(
-                        [
-                            (
-                                float(r["return_extended"])
-                                if r["return_extended"] is not None
-                                else np.nan
-                            )
-                            for r in rows
-                        ]
-                    ),
+                    scale: np.array([float(r[col]) if r[col] is not None else np.nan for r in rows])
+                    for scale, col in _SCALE_RETURN_COLUMNS.items()
                 }
                 regime_labels = np.array([r["regime_label"] for r in rows], dtype=object)
 
                 worker_args.append(
                     (symbol, tf, alpha_scores, returns_by_scale, regime_labels, config, run_ts)
                 )
+        # conn released here -- the ProcessPoolExecutor compute pass and BH-FDR
+        # correction below are CPU-bound and touch no DB connection; holding the pool
+        # connection idle through them would starve other pool consumers for no reason.
 
-            corpus_all_results: list[dict[str, Any]] = []
-            corpus_pvals_flat: list[float] = []
-            corpus_pval_result_idxs: list[int] = []
+        corpus_all_results: list[dict[str, Any]] = []
+        corpus_pvals_flat: list[float] = []
+        corpus_pval_result_idxs: list[int] = []
 
-            with ProcessPoolExecutor(max_workers=config.n_workers) as exe:
-                for result in exe.map(_run_ensemble_ic_worker, worker_args, chunksize=1):
-                    offset = len(corpus_all_results)
-                    corpus_all_results.extend(result["rows"])
-                    corpus_pvals_flat.extend(result["pvals"])
-                    corpus_pval_result_idxs.extend(offset + i for i in result["pval_idxs"])
+        with ProcessPoolExecutor(max_workers=config.n_workers) as exe:
+            for result in exe.map(_run_ensemble_ic_worker, worker_args, chunksize=1):
+                offset = len(corpus_all_results)
+                corpus_all_results.extend(result["rows"])
+                corpus_pvals_flat.extend(result["pvals"])
+                corpus_pval_result_idxs.extend(offset + i for i in result["pval_idxs"])
 
-            # Corpus-level BH-FDR: ONE multipletests call across all cells (Phase A P2
-            # fix). Note (review finding, accepted as-is for v1): this mixes pooled and
-            # per-symbol cell p-values into one correction -- inherited from ic_engine's
-            # precedent; acceptable simplification for the first run.
-            if corpus_pvals_flat:
-                reject_all, p_corr_all, _, _ = multipletests(
-                    corpus_pvals_flat, alpha=config.fdr_alpha, method="fdr_bh"
-                )
-                for flat_idx, result_idx in enumerate(corpus_pval_result_idxs):
-                    corpus_all_results[result_idx]["bh_adjusted_p"] = float(p_corr_all[flat_idx])
-                    corpus_all_results[result_idx]["passes_fdr"] = bool(reject_all[flat_idx])
+        # Corpus-level BH-FDR: ONE multipletests call across all cells (Phase A P2
+        # fix). Note (review finding, accepted as-is for v1): this mixes pooled and
+        # per-symbol cell p-values into one correction -- inherited from ic_engine's
+        # precedent; acceptable simplification for the first run.
+        if corpus_pvals_flat:
+            reject_all, p_corr_all, _, _ = multipletests(
+                corpus_pvals_flat, alpha=config.fdr_alpha, method="fdr_bh"
+            )
+            for flat_idx, result_idx in enumerate(corpus_pval_result_idxs):
+                corpus_all_results[result_idx]["bh_adjusted_p"] = float(p_corr_all[flat_idx])
+                corpus_all_results[result_idx]["passes_fdr"] = bool(reject_all[flat_idx])
 
-            rows_to_write = [_row_to_tuple(row) for row in corpus_all_results]
+        rows_to_write = [_row_to_tuple(row) for row in corpus_all_results]
 
         async with pool.acquire() as wconn:
             async with wconn.transaction():
@@ -747,17 +715,12 @@ class EnsembleICEngine(BaseBatch):
             key = (row["symbol"], row["tf"], row["regime"])
             groups.setdefault(key, []).append(row)
 
-        scale_to_bars = {
-            "fast": config.lookahead_fast,
-            "mid": config.lookahead_mid,
-            "slow": config.lookahead_slow,
-            "extended": config.lookahead_extended,
-        }
-
         # per_regime_tf[(regime, tf)] = list of qualifying per-symbol hold_bars values.
         per_regime_tf: dict[tuple[str, str], list[int]] = {}
         for (_symbol, tf, regime), cells in groups.items():
-            hold_bars = _select_hold_bars_from_decay(cells, config.decay_threshold, scale_to_bars)
+            hold_bars = _select_hold_bars_from_decay(
+                cells, config.decay_threshold, config.lookaheads
+            )
             if hold_bars is None:
                 continue
             per_regime_tf.setdefault((regime, tf), []).append(hold_bars)
