@@ -194,8 +194,50 @@ run_step 1 "feature_factory" \
 # Capture freeze point after step 1 — always executed so --from-step N resumes still lock it.
 # This value is passed explicitly to forward_return_writer and ic_engine to stabilize PKs
 # across multi-run builds (avoids training_window_end drift if new bars arrive mid-pipeline).
-TRAINING_WINDOW_END=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
+#
+# OOS holdout enforcement (alpha.validation.oos_start): TRAINING_WINDOW_END must never cross
+# the pre-committed OOS boundary, or training/IC/ensemble would see held-out data — the exact
+# leakage this clamp exists to prevent. Reversing this clamp back to a bare MAX(bar_ts) query
+# is a protocol violation (see docs/plans/OOS-EVAL-PROTOCOL.md).
+RAW_MAX_BAR_TS=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
     -tAc "SELECT MAX(bar_ts) FROM feature_vectors")
+
+if [[ -z "$RAW_MAX_BAR_TS" ]]; then
+    echo
+    echo "  FATAL: feature_vectors is empty — MAX(bar_ts) returned NULL."
+    echo "  Run step 1 (feature_factory) to populate feature_vectors before deriving"
+    echo "  TRAINING_WINDOW_END. Refusing to proceed with a NULL freeze point."
+    echo
+    exit 1
+fi
+
+OOS_START=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
+    -tAc "SELECT NULLIF(config_value,'') FROM config_state WHERE config_key='alpha.validation.oos_start'")
+
+# LEAST() is Postgres-NULL-aware: it ignores a NULL argument and returns the smallest
+# non-null value, so an empty/unset oos_start degrades gracefully to RAW_MAX_BAR_TS (no
+# holdout). A malformed NON-empty oos_start raises "invalid input syntax for type
+# timestamp" at the ::timestamptz cast — under `set -euo pipefail` that non-zero psql
+# exit aborts the run loudly rather than silently mis-clamping.
+TRAINING_WINDOW_END=$(PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent \
+    -tAc "SELECT LEAST(
+            (SELECT MAX(bar_ts) FROM feature_vectors),
+            (SELECT NULLIF(config_value,'')::timestamptz FROM config_state WHERE config_key='alpha.validation.oos_start')
+          )")
+
+echo
+echo "======================================"
+echo " OOS holdout enforcement"
+echo " Raw MAX(bar_ts):        $RAW_MAX_BAR_TS"
+echo " alpha.validation.oos_start: ${OOS_START:-<unset>}"
+echo " Effective TRAINING_WINDOW_END: $TRAINING_WINDOW_END"
+if [[ -z "$OOS_START" ]]; then
+    echo " WARNING: alpha.validation.oos_start is unset — NO holdout is in effect."
+    echo " Training/IC/ensemble will see the full corpus, including any data that"
+    echo " should have been reserved for out-of-sample evaluation."
+fi
+echo "======================================"
+echo
 
 # Step 2 — Regime Writer (feature_vectors → regime_label column)
 run_step 2 "regime_writer" \

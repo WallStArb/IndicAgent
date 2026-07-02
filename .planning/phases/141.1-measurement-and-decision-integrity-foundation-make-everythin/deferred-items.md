@@ -1,10 +1,24 @@
-# Deferred Items — Plan 03 (141.1-03)
+# Deferred Items — Phase 141.1
 
-## Pre-existing unit test failures (out of scope for this plan)
+Out-of-scope discoveries found during execution across Wave 1 (plans 01, 03). Not fixed
+here per the executor's scope boundary rule (only auto-fix issues directly caused by the
+current task's changes).
 
-Observed during full-suite verification (`.venv/bin/pytest tests/unit/ -q`), 33 failures
-across files this plan does not touch:
+## Pre-existing HMM causal-decode signature mismatch
 
+**Found during:** Plan 01 Task 3 and Plan 03 full-suite verification (`.venv/bin/pytest tests/unit/ -q`)
+
+**Issue:** `_causal_decode()` in `services/regime_writer.py` calls `_alpha_pass()` with 5
+positional arguments, but `_alpha_pass()`'s current signature only accepts 3. This is a
+`TypeError` at call time, unrelated to any file touched by plans 01 or 03.
+
+**Evidence (reproduced in isolation, not a DB-contention flake):**
+```
+tests/unit/test_causal_hmm_decoding.py::TestCausalVsViterbi::test_causal_and_viterbi_differ
+TypeError: _alpha_pass() takes 3 positional arguments but 5 were given
+```
+
+**Affected test files (33 failures total, all pre-existing, zero diff against either plan's commits):**
 - `tests/unit/scripts/test_fetch_htf_bars.py` (3 failures)
 - `tests/unit/scripts/test_roll_batch.py` (1 failure)
 - `tests/unit/scripts/test_run_historical_pipeline.py` (16 failures)
@@ -12,13 +26,13 @@ across files this plan does not touch:
 - `tests/unit/test_causal_hmm_decoding.py` (5 failures)
 - `tests/unit/test_regime_writer.py` (1 failure)
 
-Root cause sample (test_causal_hmm_decoding.py): `TypeError: _alpha_pass() takes 3
-positional arguments but 5 were given` — a signature mismatch in HMM causal-decode code
-(`regime_writer.py` / `_alpha_pass`), unrelated to config_service, alpha_events,
-forward_returns, or cost-hurdle calibration. Not touched by this plan's files
-(`scripts/ops/corpus/ops_cost_hurdle_calibration.py`, `tests/unit/test_cost_hurdle_calibration.py`).
+**Verification neither plan's changes are the cause:** `git diff --stat HEAD~2 HEAD -- <each file above>`
+shows zero diff — none of these files were touched by plan 01's commits
+(`ops_corpus_pipeline_run.sh`, `OOS-EVAL-PROTOCOL.md`, `ops_oos_holdout_eval.py`,
+`test_oos_holdout_eval.py`) or plan 03's commits (`ops_cost_hurdle_calibration.py`,
+`test_cost_hurdle_calibration.py`).
 
-This plan's own new test file (`tests/unit/test_cost_hurdle_calibration.py`, 12 tests) passes
-cleanly, both in isolation and as part of the full suite run. Per SCOPE BOUNDARY rules, these
-pre-existing failures are logged here, not fixed — likely from concurrent Wave 1 work
-(Plan 02 touches `ic_engine.py`) or a pre-existing main-branch state. Follow up separately.
+**Suggested owner:** whichever phase/plan last touched `services/regime_writer.py`'s
+`_alpha_pass`/`_causal_decode` signature (HMM improvement plan, per MEMORY.md
+"vectorized: batch (n,K) log_emit precomputed before alpha-pass loop"). Likely a
+refactor left `_alpha_pass()`'s signature out of sync with its caller.
