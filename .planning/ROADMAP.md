@@ -1473,7 +1473,7 @@ Every (symbol, tf, regime) cell that produces an IC score must meet `n_independe
 
 ---
 
-### Phase 141.1: Measurement and Decision Integrity Foundation 📋 PLANNED (INSERTED)
+### Phase 141.1: Measurement and Decision Integrity Foundation ✅ COMPLETE 2026-07-02
 
 **Goal:** Make everything that feeds ensemble IC measurement — and any future decision/action layer built on top of it — causal, provenance-tracked, and honestly calibrated, before Phase 142A measures OOS ensemble IC on top of it. Full rationale and verification: `.planning/research/2026-07-02-v3-bottomup-audit.md` (Fable 5) §5.3-5.6, cross-checked against the live codebase 2026-07-02.
 
