@@ -25,7 +25,7 @@
 - ✅ **v2.10 Data Architecture Evolution** — Phases 123-136 (SHIPPED 2026-06-20; ECL + APR + signal hardening + clean replay + 3-table migration + type safety + post-reboot repair)
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
-- 🔄 **v3.1 IC Empirical Proof + Counterfactual Scoring** — Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 (12.47M alpha_events); Phase 141 COMPLETE 2026-06-29; Phase A COMPLETE 2026-06-30 (ic_engine methodology fixes + Renaissance IC gate redesign); Phase B (corpus re-run on corrected engine) COMPLETE 2026-07-01 (3rd rebuild: feature_vectors 10.08M, feature_ic_scores 254,126, qualifying features 5m=37/15m=28/1h=15/1d=28); Phase 141.1 COMPLETE 2026-07-02 (measurement/decision integrity foundation — OOS enforcement, weight-epoch fix, regime_scope schema fix, cost-hurdle calibration); Phase 142A planned and unblocked, ready to execute (142A: ensemble IC proof; 142B: single primary frame counterfactual validation + SHADOW-REVIEW.md pre-commitment; no cost model, no UX) — see `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
+- 🔄 **v3.1 IC Empirical Proof + Counterfactual Scoring** — Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 (12.47M alpha_events); Phase 141 COMPLETE 2026-06-29; Phase A COMPLETE 2026-06-30 (ic_engine methodology fixes + Renaissance IC gate redesign); Phase B (corpus re-run on corrected engine) COMPLETE 2026-07-01 (3rd rebuild: feature_vectors 10.08M, feature_ic_scores 254,126, qualifying features 5m=37/15m=28/1h=15/1d=28); Phase 141.1 COMPLETE 2026-07-02 (measurement/decision integrity foundation — OOS enforcement, weight-epoch fix, regime_scope schema fix, cost-hurdle calibration); Phase 142A COMPLETE 2026-07-02 (ensemble IC proof: `alpha_ensemble_ic` schema + EnsembleICEngine + hold_max_bars calibration + EIC-04 gate + EIC-05 diagnosis; 142B: single primary frame counterfactual validation + SHADOW-REVIEW.md pre-commitment; no cost model, no UX) — see `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 - 📋 **v3.2 Signal Diversification — AnalogEngine + Feature Expansion** — Phases 145-147 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI; Renaissance: more diverse weak signals, not stronger strong ones)
 - 📋 **v3.3 Foundational Hardening** — Phases 148-149 (planned; scope TBD — review before v3.2 completes)
 - 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.3 complete + alpha_events schema frozen; consumes alpha_events, never modifies signal weights)
@@ -1496,7 +1496,7 @@ Every (symbol, tf, regime) cell that produces an IC score must meet `n_independe
 
 Cross-cutting constraints: none (each plan touches a disjoint file set except the declared 01→04 dependency).
 
-### Phase 142A: Ensemble IC Measurement 📋 PLANNED
+### Phase 142A: Ensemble IC Measurement ✅ COMPLETE 2026-07-02
 
 **Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_ensemble_ic` table + `alpha.ensemble_ic.*` APR keys. Migration must land before this phase begins.
 

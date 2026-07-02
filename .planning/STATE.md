@@ -49,7 +49,7 @@ See: .planning/PROJECT.md
 
 **Regime-label validation (corrected 2026-07-01):** HMM regime model (`regime_writer.py`) fits on the full corpus before its causal decode — possible look-ahead bias in regime-stratified IC. Tracked in `.planning/todos/pending/026-hmm-regime-audit-optimization.md` (P4a section) — not an unconditional blocker; 026's own decision gate requires empirical proof of harm (baseline-separation query on `feature_ic_scores`) before any fix is warranted.
 
-**Next work: Phase 142A — execute.** Planning is done (CONTEXT, RESEARCH, PATTERNS, VALIDATION, 2 PLAN.md all present, no SUMMARY.md yet). Nothing is blocking execution.
+**Phase 142A — Ensemble IC Measurement:** ✅ COMPLETE 2026-07-02 (2/2 plans) — `alpha_ensemble_ic` schema + `EnsembleICEngine` + `hold_max_bars` decay-curve calibration + EIC-04 gate + EIC-05 diagnosis script. Code review found 2 BLOCKER + 3 WARNING findings, all fixed except WR-02 (pooled cross-sectional measurement gap, captured as todo 046 — not a blocker, EIC-04/EIC-05 both function per-symbol). Verified: 10/10 must-haves. **Next work: Phase 142B.1 — discuss/plan.**
 
 ## v3.0 Phase Summary (SHIPPED 2026-06-25)
 
@@ -67,7 +67,7 @@ See: .planning/PROJECT.md
 | 140.5 | Corpus Foundations + Feature Governance | COMPLETE (5/5 plans, 2026-06-26; 27/29 verification truths) |
 | 141 | Corpus Quality Gate + IC Validation | COMPLETE (3/3 plans, 2026-06-29) — gate FAIL: 5m=0 features (pre-Phase-A baseline, see below) |
 | 141.1 | Measurement and Decision Integrity Foundation | COMPLETE (4/4 plans, 2026-07-02) |
-| 142A | Ensemble IC Measurement | PLANNED (2 plans/2 waves), reviewed 2026-07-01 — ready to execute, not blocked |
+| 142A | Ensemble IC Measurement | COMPLETE (2/2 plans, 2026-07-02) — EIC-04 gate infra shipped, code review blockers fixed |
 | 142B | Frame Simulation + Counterfactual Tracking | deliberately unplanned until 142A's EIC-04 gate passes |
 
 **SUPERSEDED — pre-Phase-A/pre-3rd-rebuild baseline, do not cite as current:** the row counts and IC gate
