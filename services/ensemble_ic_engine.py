@@ -64,7 +64,7 @@ from services.ic_engine import (
     _p_values_from_ic,
     _vectorized_ic,
 )
-from src.config.config_service import ConfigService  # noqa: F401 -- EIC-02 writes (Plan 02)
+from src.config.config_service import ConfigService  # EIC-02: alpha.frame.hold_max_bars writes
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.observability.corpus_manifest import CorpusManifest
@@ -223,6 +223,59 @@ def compute_walk_forward_stable(
         )
     else:
         raise ValueError(f"Unknown wf_stability_metric: {wf_stability_metric!r}")
+
+
+# ---------------------------------------------------------------------------
+# EIC-02: IC decay curve -> hold_max_bars calibration (review finding #6)
+# ---------------------------------------------------------------------------
+
+
+def _select_hold_bars_from_decay(
+    cells: list[dict[str, Any]],
+    decay_threshold: float,
+    scale_to_bars: dict[str, int],
+) -> int | None:
+    """Pure function: select hold_bars from one (symbol, tf, regime) group's IC decay curve.
+
+    Significance + sufficiency gate (review finding #6, MANDATORY): a cell must have
+    BOTH passes_fdr=true AND reliable=true to participate in the decay walk. A cell that
+    failed BH-FDR is statistically indistinguishable from noise; a cell that is not
+    reliable passed FDR on insufficient N (n_valid < min_reliable_n) and its ic_sharpe is
+    unstable. Either condition alone is insufficient to gate on -- both must hold.
+
+    After filtering, walks the qualifying cells in canonical scale order
+    [fast, mid, slow, extended]. At the first scale where ic_sharpe is not None and
+    ic_sharpe < decay_threshold, returns the lookahead_bars of the PRECEDING qualifying
+    scale (the last scale where the edge was still alive) -- or 1 if the very first
+    qualifying scale is already below threshold. If no scale crosses the threshold,
+    returns scale_to_bars['extended'] (edge persists to the longest horizon measured).
+    A cell with ic_sharpe=None is treated as "no data" and skipped in the walk, not as
+    a below-threshold crossing.
+
+    Returns None if there are zero qualifying cells for this group -- the caller must
+    interpret this as "no qualifying signal; skip calibration, leave the prior APR
+    value in place" rather than defaulting to any hold_bars value.
+    """
+    qualifying = [c for c in cells if c.get("passes_fdr") is True and c.get("reliable") is True]
+    if not qualifying:
+        return None
+
+    by_scale = {c["lookahead"]: c for c in qualifying}
+    ordered_scales = [s for s in _SCALES if s in by_scale]
+    if not ordered_scales:
+        return None
+
+    preceding_bars: int | None = None
+    for scale in ordered_scales:
+        ic_sharpe = by_scale[scale]["ic_sharpe"]
+        if ic_sharpe is None:
+            continue  # no data at this scale -- skip, do not treat as a decay crossing
+        if ic_sharpe < decay_threshold:
+            return preceding_bars if preceding_bars is not None else 1
+        preceding_bars = scale_to_bars[scale]
+
+    # No scale crossed the threshold -- edge persists to the longest horizon measured.
+    return scale_to_bars["extended"]
 
 
 # ---------------------------------------------------------------------------
@@ -640,12 +693,87 @@ class EnsembleICEngine(BaseBatch):
                 if rows_to_write:
                     await wconn.executemany(_ENSEMBLE_IC_INSERT_SQL, rows_to_write)
 
+        # EIC-02: calibrate alpha.frame.hold_max_bars.<regime>.<tf> from the IC decay
+        # curve AFTER the serial write completes successfully (this task only adds this
+        # post-write calibration phase; the IC computation/write above is Plan 01's).
+        n_keys_written = await self._calibrate_hold_max_bars(pool, corpus_all_results, config)
+
         manifest.write()
         self.logger.info(
             "ensemble_ic.run_complete",
             n_rows=len(rows_to_write),
             n_symbol_tf_pairs=len(symbol_tf_pairs),
+            n_hold_max_bars_keys_written=n_keys_written,
         )
+
+    async def _calibrate_hold_max_bars(
+        self,
+        pool: asyncpg.Pool,
+        results: list[dict[str, Any]],
+        config: EnsembleICConfig,
+    ) -> int:
+        """EIC-02: derive alpha.frame.hold_max_bars.<regime>.<tf> from the just-written
+        IC decay curve and write via ConfigService.set.
+
+        Per-symbol calibration: group results by (symbol, tf, regime), call
+        _select_hold_bars_from_decay for each group. Per-(regime, tf) aggregation: take
+        the MEDIAN hold_bars across the symbols that returned a non-None result (more
+        robust to a single outlier symbol than min/max). A (regime, tf) pair with zero
+        qualifying symbols is SKIPPED entirely -- no config_service.set call, no
+        fallback default -- the prior APR value (existing calibration or the migration's
+        [initial_estimate] seed) remains authoritative until a future run qualifies.
+
+        Excludes is_pooled=true rows: hold_max_bars is a per-symbol execution parameter,
+        and the POOLED row is a diagnostic aggregate, not a tradable (symbol, tf, regime)
+        cell -- including it in the per-symbol median would let a single non-tradable
+        row skew a value that governs real position holds.
+        """
+        groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+        for row in results:
+            if row.get("is_pooled"):
+                continue
+            key = (row["symbol"], row["tf"], row["regime"])
+            groups.setdefault(key, []).append(row)
+
+        scale_to_bars = {
+            "fast": config.lookahead_fast,
+            "mid": config.lookahead_mid,
+            "slow": config.lookahead_slow,
+            "extended": config.lookahead_extended,
+        }
+
+        # per_regime_tf[(regime, tf)] = list of qualifying per-symbol hold_bars values.
+        per_regime_tf: dict[tuple[str, str], list[int]] = {}
+        for (_symbol, tf, regime), cells in groups.items():
+            hold_bars = _select_hold_bars_from_decay(cells, config.decay_threshold, scale_to_bars)
+            if hold_bars is None:
+                continue
+            per_regime_tf.setdefault((regime, tf), []).append(hold_bars)
+
+        if not per_regime_tf:
+            return 0
+
+        config_service = ConfigService(database_url=self._db_dsn, pool=pool)
+        await config_service.initialize()
+
+        n_written = 0
+        for (regime, tf), qualifying_hold_bars in per_regime_tf.items():
+            n_qualifying = len(qualifying_hold_bars)
+            median_hold_bars = int(np.median(qualifying_hold_bars))
+            key = f"alpha.frame.hold_max_bars.{regime}.{tf}"
+            await config_service.set(
+                key,
+                str(median_hold_bars),
+                changed_by="ensemble-ic-engine",
+                reason=(
+                    "calibrated from IC decay curve (EIC-02); median across "
+                    f"{n_qualifying} qualifying (passes_fdr=true AND reliable=true) "
+                    f"symbols; decay_threshold={config.decay_threshold}"
+                ),
+            )
+            n_written += 1
+
+        return n_written
 
 
 # ---------------------------------------------------------------------------
