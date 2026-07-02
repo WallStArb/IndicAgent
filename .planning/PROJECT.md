@@ -241,6 +241,20 @@ disambiguating cross-sectional/symbol_hmm/pooled labels, ensemble weight-epoch f
 and a cost-hurdle calibration script (todo 030 Steps 0-3). Gates Phase 142A (ensemble IC
 measurement) so it doesn't run in-sample or against ambiguous regime labels.
 
+**Phase 142A complete (2026-07-02) — Ensemble IC Measurement:**
+`alpha_ensemble_ic` hypertable (migration 195) + `EnsembleICEngine` (BaseBatch, composes
+`ic_engine.py`'s Fisher-z CI + corpus-level BH-FDR + walk-forward stability machinery,
+`ProcessPoolExecutor` per (symbol, tf)) proves the ensemble OUTPUT has IC before any
+execution rule is tested — no stops, no targets, pure signal measurement. IC decay curve
+calibrates 36 `hold_max_bars` APR keys (EIC-02); EIC-04 gate (`ops_ensemble_ic_gate.py`)
+reads its `min_qualifying_fraction` threshold from APR; EIC-05 diagnosis
+(`ops_ensemble_ic_diagnosis.py`) emits a 4-section root-cause report on gate failure.
+Code review found 2 blockers (unguarded OOS boundary silently zeroing measurement scope;
+gate denominator not scoped to `lookahead`, able to flip a true PASS into a reported
+FAIL) — both fixed. Pooled cross-sectional measurement (`is_pooled` rows) is a
+documented, deliberately-deferred gap (todo 046), not a blocker — EIC-04/EIC-05 both
+function on a per-symbol basis. This is the primary OOS gate for Phase 144.
+
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
