@@ -3,14 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_plan
-last_updated: 2026-07-02T19:25:26.918Z
+last_updated: "2026-07-02T23:39:27.426Z"
 progress:
   total_phases: 8
-  completed_phases: 1
-  total_plans: 6
+  completed_phases: 2
+  total_plans: 11
   completed_plans: 6
-  percent: 13
-stopped_at: Phase 142A complete (2/2) — ready to discuss Phase 142B.1
+  percent: 25
 ---
 
 # Project State
@@ -68,7 +67,7 @@ See: .planning/PROJECT.md
 | 141 | Corpus Quality Gate + IC Validation | COMPLETE (3/3 plans, 2026-06-29) — gate FAIL: 5m=0 features (pre-Phase-A baseline, see below) |
 | 141.1 | Measurement and Decision Integrity Foundation | COMPLETE (4/4 plans, 2026-07-02) |
 | 142A | Ensemble IC Measurement | COMPLETE (2/2 plans, 2026-07-02) — EIC-04 gate infra shipped, code review blockers fixed |
-| 142B | Frame Simulation + Counterfactual Tracking | deliberately unplanned until 142A's EIC-04 gate passes |
+| 142B | Frame Simulation + Counterfactual Tracking | IN PROGRESS — targeted for completion night of 2026-07-02 |
 
 **SUPERSEDED — pre-Phase-A/pre-3rd-rebuild baseline, do not cite as current:** the row counts and IC gate
 results below are from the 2026-06-29 corpus run, before Phase A's ic_engine methodology fixes and before
@@ -111,3 +110,5 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 - Phase 142B.1 inserted after Phase 142B: Ensemble Weighting Methodology — from 2026-07-01 v3 architecture review (.planning/research/2026-07-01-v3-architecture-review.md). Not urgent: depends on Phase 142A complete, does not change current-focus sequencing.
 - Phase 141.1 inserted between Phase 141 and Phase 142A (2026-07-02) — measurement/decision integrity fixes needed before 142A's OOS ensemble IC measurement would be trustworthy. See `.planning/research/2026-07-02-v3-bottomup-audit.md`.
+- 2026-07-02 evening: user confirmed Phase 142A complete and Phase 142B (frame simulation) targeted for completion tonight. Immediately next: Phase 142B.1 (ensemble weighting methodology) — CONTEXT.md already gathered and marked "Ready for planning" (`.planning/phases/142B.1-ensemble-weighting-methodology-replace-ensemble-trainer-py-s/142B.1-CONTEXT.md`), no PLAN.md yet. Resume there with `/gsd:plan-phase 142B.1` once 142B lands.
+- 2026-07-02: `.planning/research/2026-07-02-v3-topdown-architecture.md` proposes a `StratificationDimension` contract to unify the two live regime systems (per-symbol HMM `regime_writer.py`, cross-sectional `equity_regime_model.py`) as part of a new milestone "v3.15 Conditioning & Identity Foundation," sequenced between v3.1 and v3.2 (AnalogEngine). Explicitly does NOT block or change Phase 142B.1's E1→E2→E3→E4 order — E1/E2 only consume existing regime labels as an opaque stratification key. No code changes intended before that milestone is actually planned.
