@@ -23,6 +23,10 @@ findings:
   info: 2
   total: 7
 status: issues_found
+resolution: CR-01, CR-02, WR-01, WR-03 fixed in commit 5baf4cf1 (2026-07-02).
+  WR-02 (pooled cross-sectional measurement gap) is a real capability gap, not a
+  quick fix -- captured as todo 046. IN-01/IN-02 left as-is per review (no action
+  required / minor readability, not correctness).
 ---
 
 # Phase 142A: Code Review Report
