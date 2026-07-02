@@ -120,6 +120,14 @@ _MAX_CHUNK_DAYS: dict[str, int] = {
 _IBKR_HIST_RATE_LIMIT = 55  # conservative: hard limit is 60; 5-slot buffer absorbs jitter
 _IBKR_HIST_WINDOW_S = 600.0  # 10-minute sliding window (IBKR's documented period)
 
+# Error 162 "no data" fires for ANY empty query window -- a genuine pre-listing date,
+# but also extended halts, thin back-month futures windows, or permission hiccups. A
+# single empty chunk while walking a backfill backward is not proof we've passed the
+# instrument's launch date. Require this many CONSECUTIVE empty chunks before treating
+# it as terminal, so one transient 162 can't silently truncate a multi-year backfill
+# (todo 049, 2026-07-02).
+_NO_DATA_CONFIRMATION_CHUNKS = 2
+
 
 class _SlidingWindowRateLimiter:
     """Pre-emptive rate limiter for IBKR historical data chunk requests."""
@@ -657,6 +665,7 @@ class IBKRProvider:
         else:
             chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
             chunk_end = end
+            consecutive_no_data_chunks = 0
 
             # Chunk backward from end→start so recent (high-value) bars are stored
             # first. A mid-run disconnect still leaves useful data. The no-data early
@@ -752,7 +761,7 @@ class IBKRProvider:
                             "ibkr.hist_no_data_abort",
                             extra={"symbol": symbol, "timeframe": timeframe},
                         )
-                        break  # No data for this symbol/TF — skip remaining chunks
+                        hit_definitive_no_data = True  # confirmed below, not an instant break
 
                 for bar in ib_bars or []:
                     bar_ts = (
@@ -777,13 +786,18 @@ class IBKRProvider:
                     )
 
                 if hit_definitive_no_data:
-                    # A fully-empty chunk while walking backward means we've now passed
-                    # the instrument's launch date — every older chunk will also be empty.
-                    # Stop here instead of burning rate-limit budget on years of known-empty
-                    # requests (this was previously walking the full requested depth
-                    # regardless of actual listing date; see todo 042-adjacent finding
-                    # 2026-07-02).
-                    break
+                    consecutive_no_data_chunks += 1
+                    if consecutive_no_data_chunks >= _NO_DATA_CONFIRMATION_CHUNKS:
+                        # N consecutive fully-empty chunks while walking backward is strong
+                        # evidence we've passed the instrument's launch date — a single
+                        # empty chunk is not (see _NO_DATA_CONFIRMATION_CHUNKS, todo 049).
+                        # Stop here instead of burning rate-limit budget on years of
+                        # known-empty requests (this was previously walking the full
+                        # requested depth regardless of actual listing date; see todo
+                        # 042-adjacent finding 2026-07-02).
+                        break
+                else:
+                    consecutive_no_data_chunks = 0
 
                 chunk_end = chunk_start - timedelta(days=1)
 

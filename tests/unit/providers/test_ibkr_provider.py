@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.core.bar_normalizer import SOURCE_IBKR_NAMED
+from src.providers import ibkr as ibkr_module
 from src.providers.base import DataProvider
 from src.providers.ibkr import IBKRProvider
 
@@ -111,6 +112,72 @@ class TestFetchHistoricalBars:
             datetime(2026, 2, 2, tzinfo=UTC),
         )
         assert bars == []
+
+    @pytest.mark.asyncio
+    async def test_single_no_data_chunk_does_not_abort_backfill(self, provider, mock_ib):
+        """A single confirmed Error 162 chunk must not truncate the walk (todo 049):
+        it can be a transient pacing/permission hiccup, not proof of a pre-listing date.
+        """
+        ibkr_module._no_data_req_ids.clear()
+        real_bar = MagicMock()
+        real_bar.date = datetime(2026, 1, 10, 9, 30, tzinfo=UTC)
+        real_bar.open, real_bar.high, real_bar.low, real_bar.close, real_bar.volume = (
+            100.0,
+            101.0,
+            99.0,
+            100.5,
+            1000,
+        )
+        calls = {"n": 0}
+
+        async def fake_req(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                ibkr_module._no_data_req_ids.add(90000 + calls["n"])
+                return []
+            return [real_bar]
+
+        mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=fake_req)
+        provider._ib = mock_ib
+        provider._qualified_contracts["ESH6"] = MagicMock()
+
+        bars = await provider.fetch_historical_bars(
+            "ESH6",
+            "1m",
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 25, tzinfo=UTC),  # 24 days -> multiple 6-day chunks
+        )
+
+        assert calls["n"] >= 2, "walk must continue past a single no-data chunk"
+        assert len(bars) >= 1
+        ibkr_module._no_data_req_ids.clear()
+
+    @pytest.mark.asyncio
+    async def test_two_consecutive_no_data_chunks_aborts_backfill(self, provider, mock_ib):
+        """Two CONSECUTIVE confirmed Error 162 chunks are strong enough evidence to
+        stop the backward walk (todo 049 confirmation threshold)."""
+        ibkr_module._no_data_req_ids.clear()
+        calls = {"n": 0}
+
+        async def fake_req(*args, **kwargs):
+            calls["n"] += 1
+            ibkr_module._no_data_req_ids.add(90100 + calls["n"])
+            return []
+
+        mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=fake_req)
+        provider._ib = mock_ib
+        provider._qualified_contracts["ESH6"] = MagicMock()
+
+        bars = await provider.fetch_historical_bars(
+            "ESH6",
+            "1m",
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 25, tzinfo=UTC),
+        )
+
+        assert bars == []
+        assert calls["n"] == 2, "must stop after exactly 2 consecutive no-data chunks"
+        ibkr_module._no_data_req_ids.clear()
 
 
 class TestStreamTicks:
