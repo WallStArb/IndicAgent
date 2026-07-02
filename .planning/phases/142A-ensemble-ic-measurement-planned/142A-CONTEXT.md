@@ -30,7 +30,7 @@ Weekly oneshot, `BaseBatch` subclass. Reads `alpha_events` joined to `forward_re
 For each (symbol, tf, regime), find the first lookahead where IC Sharpe drops below `alpha.ensemble_ic.decay_threshold` (default 0.1 `[initial_estimate]`). Update `alpha.frame.hold_max_bars.<regime>.<tf>` APR keys to match. Replaces initial estimates with data-derived values before 142B runs any frames.
 
 ### EIC-03 — Walk-forward stability gate (KEEP)
-IC Sharpe max/min fold ratio < 3× across walk-forward folds. Written to `alpha_ensemble_ic.walk_forward_stable` (boolean). Phase 144 OOS validation reads this column.
+IC Sharpe max/min fold ratio < 3× across walk-forward folds. Written to `alpha_ensemble_ic.walk_forward_stable` (boolean). Phase 144 OOS validation reads this column. **See D-142A-R1 below for the locked v1 implementation of this metric (fold IC-magnitude ratio, not fold IC-Sharpe ratio) and its justification.**
 
 ### EIC-04 — Phase gate (KEEP, threshold is APR-seeded NOT baked in)
 `ic_ci_lower > 0` at 95% CI on in-sample data in at least `alpha.ensemble_ic.min_qualifying_fraction` of (symbol, tf, regime) cells before Phase 142B begins. **Renaissance correction:** the 60% is arbitrary and unseeded — `alpha.ensemble_ic.min_qualifying_fraction = 0.60` seeded as `[initial_estimate]`, recalibrate after first run reveals how many cells have sufficient N. Do NOT bake a magic number into the gate logic. If gate fails, run EIC-05 diagnosis before any changes.
@@ -48,6 +48,22 @@ Ships in Wave 2. "Diagnose ensemble" without this structure wastes a week chasin
 - Exact ProcessPoolExecutor chunking strategy / worker count — follow `ICEngine` precedent (`infra.ic_engine.workers=12`) and the `BaseBatch` base class
 - Whether EnsembleICEngine subclasses `ICEngine` or composes its IC math — researcher decides based on code reuse vs. SoC
 - Service unit name / systemd wiring — follow naming system (`indicagent-ensemble-ic-engine`), register in `service_auditor.py` `_DAG_ORDER`
+
+### Decisions added during cross-AI plan review (2026-07-02) — LOCKED
+
+These resolve HIGH review findings against the drafted 142A plans. Recorded here because Phase 142B's frame simulation reads from `alpha_ensemble_ic` and must inherit consistent semantics.
+
+**D-142A-R1 — EIC-03 `walk_forward_stable` uses fold IC-magnitude ratio, not fold IC-Sharpe ratio (deliberate v1 relaxation of the ROADMAP EIC-03 wording).**
+ROADMAP.md EIC-03 states "IC Sharpe max/min fold ratio < 3×". The implementation instead computes `max/min` over the per-fold IC *magnitude* (Spearman IC scalar per fold), not per-fold IC Sharpe. This is a conscious, reasoned scope decision, not a silent substitution:
+- A reliable per-fold IC *Sharpe* requires `sharpe_min_windows` (30) × `sharpe_window_size` (2000 raw bars) = **60,000 bars inside a single fold's test slice** (live APR values verified 2026-07-02). A 3-fold walk-forward divides `n_valid` into ~`1/(folds+1)` slices, and `ic_engine.py:959` already gates each fold test slice at `min_reliable_n` (100) just to produce a single fold IC scalar. Per (symbol, tf, regime) cell after regime stratification, per-fold N is one-to-three orders of magnitude below the 60k floor, so a per-fold Sharpe would be `None` for the overwhelming majority of cells — making a Sharpe-ratio gate unusable and non-comparable across cells.
+- `ic_engine.py`'s own established walk-forward stability check (`fold_ic_arr > 0`, lines 969-973) already operates on fold IC scalars, not fold Sharpe. The proxy therefore matches existing codebase methodology rather than diverging from it.
+- The metric is swappable: `alpha.ensemble_ic.wf_stability_metric = 'ic_ratio'` (APR seed). If a future run has cells with N ≥ 240k where a per-fold Sharpe is estimable, the value can be flipped to `'ic_sharpe_ratio'` and the computation switched without a migration.
+- **Renaissance guard:** this relaxation is documented in the `walk_forward_stable` code comment and in this decision so no downstream reader mistakes it for the ROADMAP's literal Sharpe gate. Phase 144 OOS validation reading this column inherits the same magnitude-ratio semantics.
+
+**D-142A-R2 — `alpha_ensemble_ic.scored_at` is a per-run vintage timestamp pinned once per invocation; cross-run accumulation is intentional (mirrors `ic_engine.computed_at`).**
+- `scored_at` is the hypertable partition column and is part of the composite PK `(event_row_id, scored_at)` (TimescaleDB requires the partition column in the PK). `event_row_id = content_key(symbol, tf, regime, lookahead)` is the stable, data-derived cell key that excludes any run timestamp — analogous to `ic_engine`'s conflict key which uses `training_window_end` (stable) and keeps `computed_at`/`run_ts` OUT of the conflict target.
+- **Locked behavior:** a single `run_ts = datetime.now(UTC)` is computed ONCE at the top of `_execute_inner` and reused as `scored_at` for every row written in that invocation (mirrors `ic_engine.py:2009`). A run that fails partway and is retried within the same invocation upserts in place via `ON CONFLICT (event_row_id, scored_at) DO UPDATE`. Separate scheduled/manual invocations get a new `scored_at` and therefore accumulate a real time-series of IC vintages in the hypertable — this is a feature (weekly-oneshot vintage history), not a bug.
+- **Consequence for Wave 2 (locked):** the EIC-04 gate and EIC-05 diagnosis MUST select a single completed run via `scored_at = (SELECT max(scored_at) FROM alpha_ensemble_ic)` rather than a rolling `NOW() - INTERVAL '7 days'` window, so gate/diagnosis output is deterministic across manual reruns and never mixes vintages. Phase 142B frame simulation reading `alpha_ensemble_ic` should likewise pin to the latest `scored_at` (or an explicitly chosen vintage).
 
 </decisions>
 
@@ -117,3 +133,4 @@ EIC-04 evaluates a fraction across (symbol, tf, regime) cells. Decide: is this a
 
 *Phase: 142A-ensemble-ic-measurement-planned*
 *Context gathered: 2026-06-30 (transcribed from Musk redesign audit; no separate discuss-phase — design was locked by the audit)*
+*Amended 2026-07-02: added D-142A-R1 (EIC-03 fold IC-magnitude proxy) and D-142A-R2 (scored_at vintage/idempotency semantics) from cross-AI plan review.*

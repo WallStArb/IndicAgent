@@ -2,15 +2,14 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: ready_to_plan
-last_updated: 2026-07-02T13:48:46.973Z
+status: ready_to_execute
+last_updated: "2026-07-02T16:47:04.855Z"
 progress:
   total_phases: 8
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 6
   completed_plans: 4
-  percent: 0
-stopped_at: Phase 141.1 complete (4/4) — ready to discuss Phase 142A
+  percent: 13
 ---
 
 # Project State
@@ -20,7 +19,7 @@ stopped_at: Phase 141.1 complete (4/4) — ready to discuss Phase 142A
 See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
-**Current focus:** Phase 142A — ensemble ic measurement planned
+**Current focus:** Phase 142A — ensemble IC measurement, planned and ready to execute
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.1 Current Status
@@ -39,15 +38,17 @@ See: .planning/PROJECT.md
 - A4: CANCELLED — Renaissance principle: never delete signal candidates; shadow/demote/promote handles this
 - A5: Renaissance IC gate redesign — ic_ci_lower > 0 AND passes_fdr = true replaces binary passes_walkforward gate
 
-**Phase 142 — BLOCKED** — pending Phase B corpus re-run on corrected ic_engine
+**Phase B — corpus re-run on corrected ic_engine:** ✅ COMPLETE 2026-07-01 (3rd rebuild, 15:52 UTC). feature_vectors 10,080,038 (100% regime-populated), forward_returns 10,080,038 (all executable_open_to_open), feature_ic_scores 254,126, market_regimes 928,791. Qualifying features (POOLED, ci_gate AND fdr): 5m=37, 15m=28, 1h=15, 1d=28 — up from 0/0 pre-Phase-A. Caveat: counts carry gate-redesign selection pressure (see `docs/plans/methodology-change-ledger.md` E2); not cited as edge evidence until 142A OOS.
 
-**Regime-label validation pending (corrected 2026-07-01):** HMM regime model (`regime_writer.py`) fits on the full corpus before its causal decode — possible look-ahead bias in regime-stratified IC. Merged into `.planning/todos/pending/026-hmm-regime-audit-optimization.md` (P4a section) — do NOT treat as an unconditional blocker; 026's own decision gate requires empirical proof of harm (baseline-separation query on `feature_ic_scores`) before any fix is warranted. Corpus rebuild currently running (regime_writer, step 2, started 06:29) should finish as-is — there's nothing to validate against until it does. Run 026's Step 1 query once `feature_ic_scores` is populated, before deciding whether this needs a fix + a third corpus rebuild.
+- B1: `scripts/ops/corpus/ops_corpus_pipeline_run.sh` — regime_writer → forward_return_writer → ic_engine → ensemble_trainer → alpha_publisher — done
+- B2: Empirical calibration (cost hurdle, threshold validation, gap contamination check) — done, todo 030 closed 2026-07-02
+- B3: IC validation analysis — done, counts above
 
-**Next work: Phase B — corpus re-run**
+**Phase 141.1 — Measurement and Decision Integrity Foundation:** ✅ COMPLETE 2026-07-02 (4/4 plans) — OOS holdout enforcement, weight-epoch/silent-retrain fix, `regime_scope` schema disambiguation (256,566 rows backfilled), cost-hurdle APR calibration (todo 030 Steps 0-3).
 
-- B1: `production/scripts/corpus_pipeline_run.sh` — regime_writer → forward_return_writer → ic_engine → ensemble_trainer → alpha_publisher
-- B2: Empirical calibration (cost hurdle, threshold validation, gap contamination check)
-- B3: IC validation analysis — how many features qualify per TF after gate redesign?
+**Regime-label validation (corrected 2026-07-01):** HMM regime model (`regime_writer.py`) fits on the full corpus before its causal decode — possible look-ahead bias in regime-stratified IC. Tracked in `.planning/todos/pending/026-hmm-regime-audit-optimization.md` (P4a section) — not an unconditional blocker; 026's own decision gate requires empirical proof of harm (baseline-separation query on `feature_ic_scores`) before any fix is warranted.
+
+**Next work: Phase 142A — execute.** Planning is done (CONTEXT, RESEARCH, PATTERNS, VALIDATION, 2 PLAN.md all present, no SUMMARY.md yet). Nothing is blocking execution.
 
 ## v3.0 Phase Summary (SHIPPED 2026-06-25)
 
@@ -64,13 +65,13 @@ See: .planning/PROJECT.md
 |-------|------|--------|
 | 140.5 | Corpus Foundations + Feature Governance | COMPLETE (5/5 plans, 2026-06-26; 27/29 verification truths) |
 | 141 | Corpus Quality Gate + IC Validation | COMPLETE (3/3 plans, 2026-06-29) — gate FAIL: 5m=0 features (pre-Phase-A baseline, see below) |
-| 142A | Ensemble IC Measurement | PLANNED (2 plans/2 waves), reviewed 2026-07-01 — execution blocked on Phase B corpus re-run |
+| 141.1 | Measurement and Decision Integrity Foundation | COMPLETE (4/4 plans, 2026-07-02) |
+| 142A | Ensemble IC Measurement | PLANNED (2 plans/2 waves), reviewed 2026-07-01 — ready to execute, not blocked |
 | 142B | Frame Simulation + Counterfactual Tracking | deliberately unplanned until 142A's EIC-04 gate passes |
 
-**STALE — pre-Phase-A baseline, do not cite as current:** the row counts and IC gate results below are
-from the 2026-06-29 corpus run, before Phase A's ic_engine methodology fixes and before the current
-(2026-07-01) 3rd rebuild. Query the DB directly for current counts; this section is kept only as a
-before/after comparison point once the current rebuild finishes.
+**SUPERSEDED — pre-Phase-A/pre-3rd-rebuild baseline, do not cite as current:** the row counts and IC gate
+results below are from the 2026-06-29 corpus run, before Phase A's ic_engine methodology fixes and before
+the 2026-07-01 3rd rebuild. Current counts are in the Phase B entry above.
 
 - feature_vectors: 54,260,576 rows (58 symbols × 4 TFs) — forward_returns: 1:1 match
 - feature_ic_scores: 402,651 rows; 5m/15m: 0 qualifying features (FAIL — root cause was a gate design bug, not signal absence, per Phase A finding); 1h: 23 qualifying; 1d: insufficient coverage
@@ -107,4 +108,5 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 ### Roadmap Evolution
 
-- Phase 142B.1 inserted after Phase 142B: Ensemble Weighting Methodology — from 2026-07-01 v3 architecture review (.planning/research/2026-07-01-v3-architecture-review.md). Not urgent: depends on Phase 142A complete, does not change current-focus sequencing (Phase B corpus re-run).
+- Phase 142B.1 inserted after Phase 142B: Ensemble Weighting Methodology — from 2026-07-01 v3 architecture review (.planning/research/2026-07-01-v3-architecture-review.md). Not urgent: depends on Phase 142A complete, does not change current-focus sequencing.
+- Phase 141.1 inserted between Phase 141 and Phase 142A (2026-07-02) — measurement/decision integrity fixes needed before 142A's OOS ensemble IC measurement would be trustworthy. See `.planning/research/2026-07-02-v3-bottomup-audit.md`.
