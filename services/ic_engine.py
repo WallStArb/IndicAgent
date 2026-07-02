@@ -75,6 +75,7 @@ from observability.corpus_manifest import CorpusManifest
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from services._batch_utils import connect_db_from_url
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
@@ -253,14 +254,7 @@ def _observed_span(name: str, tracer: Any, **attrs: Any):
 
 def _connect_db(settings: Settings) -> Any:
     """Open a psycopg2 connection to the TimescaleDB instance."""
-    return _connect_db_from_url(settings.database_url)
-
-
-def _connect_db_from_url(db_url: str) -> Any:
-    """Open a psycopg2 connection from a raw DB URL."""
-    conn = psycopg2.connect(db_url)
-    conn.autocommit = False
-    return conn
+    return connect_db_from_url(settings.database_url)
 
 
 # ---------------------------------------------------------------------------
@@ -1611,7 +1605,7 @@ def _run_ic_worker(args: tuple) -> dict:
     try:
         # Use the DSN passed from the main process rather than re-instantiating Settings(),
         # which re-reads env vars and would diverge if the subprocess environment differs.
-        conn = _connect_db_from_url(dsn)
+        conn = connect_db_from_url(dsn)
         for tf in tfs:
             try:
                 tf_pooled, tf_regime, stats = _compute_symbol_tf(

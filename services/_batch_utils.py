@@ -7,6 +7,7 @@ import csv
 import io
 from typing import Any
 
+import psycopg2
 import structlog
 
 from src.config.config_service import ConfigService
@@ -20,6 +21,18 @@ _CONFIG_QUERY = (
     "FROM config_state cs "
     "JOIN config_schema csc USING (config_key)"
 )
+
+
+def connect_db_from_url(db_url: str) -> Any:
+    """Open a psycopg2 connection from a raw DB URL, autocommit off.
+
+    Shared by ic_engine.py and ensemble_ic_engine.py's ProcessPoolExecutor workers
+    (each opens its own read-only connection per dispatch) and by ic_engine's
+    higher-level _connect_db(settings) wrapper (todo 047 follow-up, 2026-07-02).
+    """
+    conn = psycopg2.connect(db_url)
+    conn.autocommit = False
+    return conn
 
 
 def load_config_service_sync(conn: Any) -> ConfigService:
@@ -98,16 +111,17 @@ async def load_apr_dict_async(conn: Any, extra_like_patterns: list[str] | None =
 
     conn: open asyncpg connection or pool-acquired connection.
     extra_like_patterns: additional SQL LIKE patterns (e.g. "infra.ensemble_ic_engine.%"),
-        OR'd in alongside the default "alpha.%". Bound as query parameters, not
-        string-interpolated, even though callers only ever pass hardcoded literals.
+        OR'd in alongside the default "alpha.%". Bound as a single array parameter via
+        LIKE ANY($1::text[]) -- the codebase's established idiom for a dynamic-length
+        pattern list (see ic_engine.py, bar_auditor.py, signal_probe_auditor.py), not a
+        hand-rolled OR-chain of positional placeholders.
 
     Returns a plain dict, not a ConfigService -- callers cast values with cfg().
     """
     patterns = ["alpha.%", *(extra_like_patterns or [])]
-    where_clause = " OR ".join(f"config_key LIKE ${i + 1}" for i in range(len(patterns)))
     rows = await conn.fetch(
-        f"SELECT config_key, config_value FROM config_state WHERE {where_clause}",
-        *patterns,
+        "SELECT config_key, config_value FROM config_state WHERE config_key LIKE ANY($1::text[])",
+        patterns,
     )
     return {r["config_key"]: r["config_value"] for r in rows}
 

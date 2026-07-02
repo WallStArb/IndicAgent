@@ -11,13 +11,16 @@ forward_returns and market_regimes.
 CORRECTNESS INVARIANTS:
 - Executable returns only (Invariant 1): every forward_returns query filters
   WHERE return_type = 'executable_open_to_open'.
-- ProcessPoolExecutor workers each open their own READ-ONLY psycopg2 connection to fetch
-  their (symbol, tf) slice (mirrors ic_engine._run_ic_worker's precedent, todo 047); this
-  overlaps I/O with compute across workers instead of serially fetching ~232 pairs in the
-  main process before dispatch. Workers return list[dict] rows for a single serial write
-  in the main process after corpus-level BH-FDR. CLAUDE.md's "workers are compute-only"
-  invariant is about WRITE connections/commits from subprocesses (the deadlock risk is
-  concurrent writers on the same hypertable) -- no worker here ever writes or commits.
+- ProcessPoolExecutor workers are dispatched one per symbol, each opening its own
+  READ-ONLY connection and looping over that symbol's TFs on it (mirrors
+  ic_engine._run_ic_worker's precedent exactly, todo 047 + follow-up) -- amortizes
+  connection setup across TFs instead of one connection per (symbol, tf) pair, while
+  still overlapping I/O with compute across workers instead of serially fetching ~232
+  pairs in the main process before dispatch. Workers return list[dict] rows for a single
+  serial write in the main process after corpus-level BH-FDR. CLAUDE.md's
+  "workers are compute-only" invariant is about WRITE connections/commits from
+  subprocesses (the deadlock risk is concurrent writers on the same hypertable) -- no
+  worker here ever writes or commits.
 - alpha_score is ONE predictor -- collinearity clustering is skipped (feature-level
   concern only); every cell IS representative for the single corpus-level BH-FDR call.
 - scored_at is pinned to a single run_ts (UTC "now" at start) computed ONCE per
@@ -64,6 +67,7 @@ sys.path.insert(0, str(project_root))
 # internals. EnsembleICConfig below mirrors ICEngineConfig's shared-key shape by
 # convention, not by import (no direct type dependency).
 from services._batch_utils import cfg as _cfg
+from services._batch_utils import connect_db_from_url
 from services._batch_utils import load_apr_dict_async as _load_apr_dict
 from src.config.config_service import ConfigService  # EIC-02: alpha.frame.hold_max_bars writes
 from src.config.settings import Settings
@@ -429,11 +433,19 @@ _WORKER_FETCH_SQL = """
 
 
 def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
-    """ProcessPoolExecutor worker -- runs in subprocess. Fetches its own (symbol, tf)
-    slice via a read-only connection, then computes IC over it.
+    """ProcessPoolExecutor worker -- runs in subprocess. Opens ONE read-only connection
+    for this symbol and loops over all its TFs, fetching + computing IC for each.
+
+    One connection per worker dispatch (not per (symbol, tf) pair) amortizes connection
+    setup across the symbol's TFs -- mirrors ic_engine._run_ic_worker exactly, which is
+    dispatched per-symbol and loops TFs over a single connection (services/ic_engine.py
+    _run_ic_worker). An earlier version of this worker was dispatched per (symbol, tf)
+    pair, opening ~232 connections instead of ~58; grouping by symbol was the missing
+    half of mirroring that precedent (todo 047 follow-up, 2026-07-02).
 
     Args:
-        args: (symbol, tf, dsn, oos_start, config, run_ts)
+        args: (symbol, tfs, dsn, oos_start, config, run_ts)
+            tfs: list[str] -- all timeframes to score for this symbol.
             dsn: str -- DSN passed from the main process rather than re-instantiating
                 Settings(), which re-reads env vars and would diverge if the subprocess
                 environment differs (mirrors ic_engine._run_ic_worker).
@@ -443,158 +455,167 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
 
     Returns:
         dict with keys: rows (list[dict]), pvals (list[float]), pval_idxs (list[int]),
-        is_pooled (bool), error (str | None)
+        is_pooled (bool), errors (list[str]) -- one entry per TF that failed to
+        fetch/compute; a partial per-TF failure does not discard the symbol's other TFs.
     """
-    symbol, tf, dsn, oos_start, config, run_ts = args
+    symbol, tfs, dsn, oos_start, config, run_ts = args
 
     rows: list[dict[str, Any]] = []
     pvals: list[float] = []
     pval_idxs: list[int] = []
+    errors: list[str] = []
     is_pooled = symbol == _POOLED_SYMBOL
 
-    conn = None
     try:
-        conn = psycopg2.connect(dsn)
-        conn.autocommit = False
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(_WORKER_FETCH_SQL, (symbol, tf, oos_start))
-            fetched = cur.fetchall()
+        conn = connect_db_from_url(dsn)
     except Exception as error:
         return {
             "rows": rows,
             "pvals": pvals,
             "pval_idxs": pval_idxs,
             "is_pooled": is_pooled,
-            "error": f"{symbol}/{tf}: {error}",
+            "errors": [f"{symbol}: connection failed: {error}"],
         }
-    finally:
-        if conn is not None:
+
+    try:
+        for tf in tfs:
             try:
-                conn.close()
-            except Exception:
-                pass
-
-    if not fetched:
-        return {
-            "rows": rows,
-            "pvals": pvals,
-            "pval_idxs": pval_idxs,
-            "is_pooled": is_pooled,
-            "error": None,
-        }
-
-    alpha_scores = np.array([float(r["alpha_score"]) for r in fetched])
-    returns_by_scale = {
-        scale: np.array([float(r[col]) if r[col] is not None else np.nan for r in fetched])
-        for scale, col in _SCALE_RETURN_COLUMNS.items()
-    }
-    regime_labels = np.array([r["regime_label"] for r in fetched], dtype=object)
-
-    distinct_regimes = sorted({r for r in regime_labels.tolist() if r is not None})
-
-    for regime in distinct_regimes:
-        mask = regime_labels == regime
-        if mask.sum() == 0:
-            continue
-        alpha_regime = alpha_scores[mask]
-
-        for scale in _SCALES:
-            lookahead_bars = config.lookaheads[scale]
-            returns_scale = returns_by_scale.get(scale)
-            if returns_scale is None:
-                continue
-            returns_regime = returns_scale[mask]
-
-            stride = max(config.subsample_min_stride, lookahead_bars)
-            sub_idx = np.arange(0, len(alpha_regime), stride)
-            alpha_sub = alpha_regime[sub_idx]
-            returns_sub = returns_regime[sub_idx]
-
-            valid_mask = np.isfinite(alpha_sub) & np.isfinite(returns_sub)
-            n_valid = int(valid_mask.sum())
-            if n_valid < config.min_reliable_n:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(_WORKER_FETCH_SQL, (symbol, tf, oos_start))
+                    fetched = cur.fetchall()
+            except Exception as error:
+                errors.append(f"{symbol}/{tf}: {error}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
                 continue
 
-            alpha_valid = alpha_sub[valid_mask]
-            returns_valid = returns_sub[valid_mask]
+            if not fetched:
+                continue
 
-            ranks_x = rankdata(alpha_valid.reshape(-1, 1), axis=0)
-            ranks_y = rankdata(returns_valid)
-            ic_vector = _vectorized_ic(ranks_x, ranks_y)
-            ic_value = float(ic_vector[0])
-            p_value = float(_p_values_from_ic(ic_vector, n_valid)[0])
-            ci_lower_nd, ci_upper_nd = _fisher_z_ci(ic_vector, n_valid)
-            ic_ci_lower = _nan_to_none(float(ci_lower_nd[0]))
-            ic_ci_upper = _nan_to_none(float(ci_upper_nd[0]))
+            alpha_scores = np.array([float(r["alpha_score"]) for r in fetched])
+            returns_by_scale = {
+                scale: np.array([float(r[col]) if r[col] is not None else np.nan for r in fetched])
+                for scale, col in _SCALE_RETURN_COLUMNS.items()
+            }
+            regime_labels = np.array([r["regime_label"] for r in fetched], dtype=object)
 
-            # Expanding-window walk-forward with scale-specific embargo (P3 fix pattern).
-            embargo_bars = lookahead_bars
-            walk_forward_folds = config.walk_forward_folds
-            fold_ics: list[float] = []
-            for k in range(walk_forward_folds):
-                train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
-                test_start = train_end + embargo_bars
-                test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
-                if test_start >= test_end or (test_end - test_start) < config.min_reliable_n:
+            distinct_regimes = sorted({r for r in regime_labels.tolist() if r is not None})
+
+            for regime in distinct_regimes:
+                mask = regime_labels == regime
+                if mask.sum() == 0:
                     continue
-                x_test = alpha_valid[test_start:test_end]
-                y_test = returns_valid[test_start:test_end]
-                if len(x_test) < 2:
-                    continue
-                rx_test = rankdata(x_test.reshape(-1, 1), axis=0)
-                ry_test = rankdata(y_test)
-                fold_ics.append(float(_vectorized_ic(rx_test, ry_test)[0]))
+                alpha_regime = alpha_scores[mask]
 
-            wf_stable = compute_walk_forward_stable(
-                fold_ics, config.wf_stability_ratio, config.wf_stability_metric
-            )
+                for scale in _SCALES:
+                    lookahead_bars = config.lookaheads[scale]
+                    returns_scale = returns_by_scale.get(scale)
+                    if returns_scale is None:
+                        continue
+                    returns_regime = returns_scale[mask]
 
-            # Cell-level IC Sharpe / HAC Sharpe over the FULL cell series (distinct from
-            # the per-fold quantities above; not used for EIC-03 stability).
-            complete_mask = np.ones(n_valid, dtype=bool)
-            returns_2d = returns_valid.reshape(-1, 1)
-            sharpe_arr, sharpe_hac_arr, _sortino, _win_rate, _n_windows = (
-                _compute_ic_rolling_metrics(
-                    X_sub=alpha_valid.reshape(-1, 1),
-                    returns_sub=returns_2d,
-                    scale_idx=0,
-                    complete_mask=complete_mask,
-                    config=config,
-                    non_degenerate_mask=np.array([True]),
-                    n_total_features=1,
-                    stride=stride,
-                )
-            )
-            ic_sharpe = _nan_to_none(float(sharpe_arr[0]))
-            ic_sharpe_hac = _nan_to_none(float(sharpe_hac_arr[0]))
+                    stride = max(config.subsample_min_stride, lookahead_bars)
+                    sub_idx = np.arange(0, len(alpha_regime), stride)
+                    alpha_sub = alpha_regime[sub_idx]
+                    returns_sub = returns_regime[sub_idx]
 
-            row = build_ensemble_ic_row(
-                symbol=symbol,
-                tf=tf,
-                regime=str(regime),
-                lookahead=scale,
-                lookahead_bars=lookahead_bars,
-                run_ts=run_ts,
-                ic_value=ic_value,
-                ic_ci_lower=ic_ci_lower,
-                ic_ci_upper=ic_ci_upper,
-                ic_sharpe=ic_sharpe,
-                ic_sharpe_hac=ic_sharpe_hac,
-                walk_forward_stable=wf_stable,
-                n_independent=n_valid,
-                reliable=n_valid >= config.min_reliable_n,
-            )
+                    valid_mask = np.isfinite(alpha_sub) & np.isfinite(returns_sub)
+                    n_valid = int(valid_mask.sum())
+                    if n_valid < config.min_reliable_n:
+                        continue
 
-            pval_idxs.append(len(rows))
-            pvals.append(p_value)
-            rows.append(row)
+                    alpha_valid = alpha_sub[valid_mask]
+                    returns_valid = returns_sub[valid_mask]
+
+                    ranks_x = rankdata(alpha_valid.reshape(-1, 1), axis=0)
+                    ranks_y = rankdata(returns_valid)
+                    ic_vector = _vectorized_ic(ranks_x, ranks_y)
+                    ic_value = float(ic_vector[0])
+                    p_value = float(_p_values_from_ic(ic_vector, n_valid)[0])
+                    ci_lower_nd, ci_upper_nd = _fisher_z_ci(ic_vector, n_valid)
+                    ic_ci_lower = _nan_to_none(float(ci_lower_nd[0]))
+                    ic_ci_upper = _nan_to_none(float(ci_upper_nd[0]))
+
+                    # Expanding-window walk-forward with scale-specific embargo (P3 fix
+                    # pattern).
+                    embargo_bars = lookahead_bars
+                    walk_forward_folds = config.walk_forward_folds
+                    fold_ics: list[float] = []
+                    for k in range(walk_forward_folds):
+                        train_end = int(n_valid * (k + 1) / (walk_forward_folds + 1))
+                        test_start = train_end + embargo_bars
+                        test_end = int(n_valid * (k + 2) / (walk_forward_folds + 1))
+                        if (
+                            test_start >= test_end
+                            or (test_end - test_start) < config.min_reliable_n
+                        ):
+                            continue
+                        x_test = alpha_valid[test_start:test_end]
+                        y_test = returns_valid[test_start:test_end]
+                        if len(x_test) < 2:
+                            continue
+                        rx_test = rankdata(x_test.reshape(-1, 1), axis=0)
+                        ry_test = rankdata(y_test)
+                        fold_ics.append(float(_vectorized_ic(rx_test, ry_test)[0]))
+
+                    wf_stable = compute_walk_forward_stable(
+                        fold_ics, config.wf_stability_ratio, config.wf_stability_metric
+                    )
+
+                    # Cell-level IC Sharpe / HAC Sharpe over the FULL cell series
+                    # (distinct from the per-fold quantities above; not used for
+                    # EIC-03 stability).
+                    complete_mask = np.ones(n_valid, dtype=bool)
+                    returns_2d = returns_valid.reshape(-1, 1)
+                    sharpe_arr, sharpe_hac_arr, _sortino, _win_rate, _n_windows = (
+                        _compute_ic_rolling_metrics(
+                            X_sub=alpha_valid.reshape(-1, 1),
+                            returns_sub=returns_2d,
+                            scale_idx=0,
+                            complete_mask=complete_mask,
+                            config=config,
+                            non_degenerate_mask=np.array([True]),
+                            n_total_features=1,
+                            stride=stride,
+                        )
+                    )
+                    ic_sharpe = _nan_to_none(float(sharpe_arr[0]))
+                    ic_sharpe_hac = _nan_to_none(float(sharpe_hac_arr[0]))
+
+                    row = build_ensemble_ic_row(
+                        symbol=symbol,
+                        tf=tf,
+                        regime=str(regime),
+                        lookahead=scale,
+                        lookahead_bars=lookahead_bars,
+                        run_ts=run_ts,
+                        ic_value=ic_value,
+                        ic_ci_lower=ic_ci_lower,
+                        ic_ci_upper=ic_ci_upper,
+                        ic_sharpe=ic_sharpe,
+                        ic_sharpe_hac=ic_sharpe_hac,
+                        walk_forward_stable=wf_stable,
+                        n_independent=n_valid,
+                        reliable=n_valid >= config.min_reliable_n,
+                    )
+
+                    pval_idxs.append(len(rows))
+                    pvals.append(p_value)
+                    rows.append(row)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
     return {
         "rows": rows,
         "pvals": pvals,
         "pval_idxs": pval_idxs,
         "is_pooled": is_pooled,
-        "error": None,
+        "errors": errors,
     }
 
 
@@ -661,12 +682,19 @@ class EnsembleICEngine(BaseBatch):
                 "SELECT DISTINCT symbol, tf FROM alpha_events WHERE bar_ts < $1", oos_start
             )
             symbol_tf_pairs = [(r["symbol"], r["tf"]) for r in symbols_rows]
-        # conn released here -- each worker below fetches its own (symbol, tf) slice over
-        # its own read-only connection (todo 047), so the main process no longer holds the
-        # pool connection through ~232 serial round trips before dispatch.
+        # conn released here -- each worker below fetches its own slice over its own
+        # read-only connection (todo 047), so the main process no longer holds the pool
+        # connection through ~232 serial round trips before dispatch.
 
+        # One worker per symbol, looping its TFs over a single connection -- amortizes
+        # connection setup across TFs instead of opening one per (symbol, tf) pair
+        # (mirrors ic_engine._run_ic_worker's per-symbol dispatch granularity).
+        symbol_to_tfs: dict[str, list[str]] = {}
+        for symbol, tf in symbol_tf_pairs:
+            symbol_to_tfs.setdefault(symbol, []).append(tf)
         worker_args = [
-            (symbol, tf, self._db_dsn, oos_start, config, run_ts) for symbol, tf in symbol_tf_pairs
+            (symbol, tfs, self._db_dsn, oos_start, config, run_ts)
+            for symbol, tfs in symbol_to_tfs.items()
         ]
 
         corpus_all_results: list[dict[str, Any]] = []
@@ -676,9 +704,7 @@ class EnsembleICEngine(BaseBatch):
 
         with ProcessPoolExecutor(max_workers=config.n_workers) as exe:
             for result in exe.map(_run_ensemble_ic_worker, worker_args, chunksize=1):
-                if result.get("error"):
-                    worker_errors.append(result["error"])
-                    continue
+                worker_errors.extend(result["errors"])
                 offset = len(corpus_all_results)
                 corpus_all_results.extend(result["rows"])
                 corpus_pvals_flat.extend(result["pvals"])
@@ -688,7 +714,7 @@ class EnsembleICEngine(BaseBatch):
             self.logger.error(
                 "ensemble_ic.worker_fetch_failed",
                 n_failed=len(worker_errors),
-                n_total=len(worker_args),
+                n_symbols=len(worker_args),
                 errors=worker_errors[:10],
             )
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -18,7 +18,7 @@ _project_root = Path(__file__).parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services._batch_utils import cfg, load_apr_dict_async
+from services._batch_utils import cfg, connect_db_from_url, load_apr_dict_async
 
 
 class TestCfg:
@@ -63,11 +63,11 @@ class TestLoadAprDictAsync:
 
         args, _ = conn.fetch.call_args
         sql, params = args[0], args[1:]
-        assert "config_key LIKE $1" in sql
-        assert params == ("alpha.%",)
+        assert "config_key LIKE ANY($1::text[])" in sql
+        assert params == (["alpha.%"],)
 
     @pytest.mark.asyncio
-    async def test_extra_patterns_are_ord_in_and_bound_as_params(self) -> None:
+    async def test_extra_patterns_are_bound_as_one_array_param(self) -> None:
         conn = MagicMock()
         conn.fetch = AsyncMock(return_value=[])
 
@@ -75,8 +75,8 @@ class TestLoadAprDictAsync:
 
         args, _ = conn.fetch.call_args
         sql, params = args[0], args[1:]
-        assert "config_key LIKE $1 OR config_key LIKE $2" in sql
-        assert params == ("alpha.%", "infra.ensemble_ic_engine.%")
+        assert "config_key LIKE ANY($1::text[])" in sql
+        assert params == (["alpha.%", "infra.ensemble_ic_engine.%"],)
 
     @pytest.mark.asyncio
     async def test_returns_key_value_dict_from_fetched_rows(self) -> None:
@@ -94,3 +94,16 @@ class TestLoadAprDictAsync:
             "alpha.ic.fdr_alpha": "0.05",
             "alpha.ensemble.weight_version": "v1",
         }
+
+
+class TestConnectDbFromUrl:
+    def test_disables_autocommit(self) -> None:
+        with patch("services._batch_utils.psycopg2.connect") as mock_connect:
+            mock_conn = MagicMock()
+            mock_connect.return_value = mock_conn
+
+            result = connect_db_from_url("postgresql://fake")
+
+            mock_connect.assert_called_once_with("postgresql://fake")
+            assert result is mock_conn
+            assert mock_conn.autocommit is False
