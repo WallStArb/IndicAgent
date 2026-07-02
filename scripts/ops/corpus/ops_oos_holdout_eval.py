@@ -261,12 +261,24 @@ def _read_in_sample_qualifying_count(conn: Any, tf: str) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _drop_verdict(oos_qualifying: int, in_sample: int, significant_drop_fraction: float) -> str:
+    """Classify OOS-vs-in-sample qualifying-cell drop for one TF (diagnostic only)."""
+    if in_sample == 0:
+        return "no in-sample baseline"
+    if oos_qualifying == 0:
+        return "SEVERE DROP — possible overfitting"
+    if oos_qualifying < in_sample * significant_drop_fraction:
+        return "significant drop — investigate"
+    return "consistent"
+
+
 def _write_report(
     report_path: Path,
     oos_start: datetime,
     per_tf_results: dict[str, list[dict[str, Any]]],
     in_sample_counts: dict[str, int],
     fdr_alpha: float,
+    significant_drop_fraction: float,
 ) -> None:
     lines = [
         "# OOS Holdout Evaluation Report",
@@ -290,14 +302,7 @@ def _write_report(
             np.array([r.get("passes_fdr", False) for r in results]),
         )
         in_sample = in_sample_counts.get(tf, 0)
-        if in_sample == 0:
-            verdict = "no in-sample baseline"
-        elif oos_qualifying == 0 and in_sample > 0:
-            verdict = "SEVERE DROP — possible overfitting"
-        elif oos_qualifying < in_sample * 0.5:
-            verdict = "significant drop — investigate"
-        else:
-            verdict = "consistent"
+        verdict = _drop_verdict(oos_qualifying, in_sample, significant_drop_fraction)
         lines.append(f"| {tf} | {in_sample} | {oos_qualifying} | {verdict} |")
 
     lines.append("")
@@ -336,6 +341,9 @@ def main() -> None:
     try:
         cfg = _load_config_service(conn)
         fdr_alpha = float(cfg.get_sync("alpha.ic.fdr_alpha", 0.05))
+        significant_drop_fraction = float(
+            cfg.get_sync("alpha.validation.oos_significant_drop_fraction", 0.5)
+        )
         lookaheads = {
             scale: int(cfg.get_sync(f"alpha.ic.lookahead.{scale}", fb))
             for scale, fb in _SCALE_FALLBACKS.items()
@@ -372,7 +380,14 @@ def main() -> None:
             _apply_corpus_fdr(per_tf_results[tf], fdr_alpha)
 
         report_path = Path(args.report_path)
-        _write_report(report_path, oos_start, per_tf_results, in_sample_counts, fdr_alpha)
+        _write_report(
+            report_path,
+            oos_start,
+            per_tf_results,
+            in_sample_counts,
+            fdr_alpha,
+            significant_drop_fraction,
+        )
 
         _logger.info(
             "oos_holdout_eval.complete",

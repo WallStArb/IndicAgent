@@ -37,16 +37,25 @@ Any process that reads OOS bars for one of the purposes above converts the
 holdout into a training set and invalidates every downstream gate that
 depended on it being unseen.
 
-## Enforcement point
+## Enforcement points
 
 The corpus orchestrator (`scripts/ops/corpus/ops_corpus_pipeline_run.sh`)
 clamps `TRAINING_WINDOW_END` to `min(MAX(bar_ts), oos_start)` before passing
 it to `forward_return_writer` (step 3) and `ic_engine` (step 4). This is the
-single enforcement point in the pipeline.
+sole *computation* point for the clamp.
 
-**Any script that reverts to a bare `MAX(bar_ts)` query without the clamp is
-a protocol violation.** The clamp SQL and its empty-corpus / malformed-input
-fail-loud behavior are documented inline in the orchestrator script.
+`forward_return_writer.py` and `ic_engine.py` are the second enforcement
+layer: both files' `--training-window-end` CLI argument is `required=True`
+(argparse). Neither file has a bare-`MAX(bar_ts)` default fallback — an
+invocation missing the flag crash-loudly refuses to run instead of silently
+consuming the OOS holdout window. This closes the gap where either file is
+directly invokable outside the orchestrator (both files' own docstrings
+document ad-hoc single-symbol/TF usage).
+
+**Any script that reverts to a bare `MAX(bar_ts)` query, or makes
+`--training-window-end` optional with a `MAX(bar_ts)` default, is a protocol
+violation.** The clamp SQL and its empty-corpus / malformed-input fail-loud
+behavior are documented inline in the orchestrator script.
 
 Degradation rules:
 

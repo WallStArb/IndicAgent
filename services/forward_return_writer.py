@@ -19,9 +19,13 @@ DAG invariant note: this oneshot is exempt from the "only writer subclasses touc
 rule exactly as backfill_feature_factory.py is — batch labeling tool, not a daemon.
 
 Usage:
-    python services/forward_return_writer.py
-    python services/forward_return_writer.py --symbols SPY TLT
-    python services/forward_return_writer.py --symbols SPY --tf 5m
+    python services/forward_return_writer.py --training-window-end 2025-12-24T05:15:00+00:00
+    python services/forward_return_writer.py --symbols SPY TLT --training-window-end 2025-12-24T05:15:00+00:00
+    python services/forward_return_writer.py --symbols SPY --tf 5m --training-window-end 2025-12-24T05:15:00+00:00
+
+--training-window-end is REQUIRED (not optional) -- see services/ic_engine.py and
+docs/plans/OOS-EVAL-PROTOCOL.md (Phase 141.1 CR-01/IN-02). A bare MAX(bar_ts) fallback
+would silently consume the OOS holdout window on any ad-hoc invocation.
 """
 
 from __future__ import annotations
@@ -440,9 +444,11 @@ def main() -> None:
     parser.add_argument(
         "--training-window-end",
         default=None,
-        help="Explicit training window end (ISO 8601, timezone-aware/UTC). "
-        "Default: MAX(bar_ts) FROM feature_vectors with a warning. "
-        "Set explicitly to keep PKs stable across multi-run corpus builds.",
+        required=True,
+        help="REQUIRED. Explicit training window end (ISO 8601, timezone-aware/UTC) -- "
+        "the OOS holdout clamp (LEAST(MAX(bar_ts), alpha.validation.oos_start)). "
+        "No default: a bare MAX(bar_ts) fallback would silently consume the OOS "
+        "holdout window (Phase 141.1 CR-01/IN-02). See docs/plans/OOS-EVAL-PROTOCOL.md.",
     )
     args = parser.parse_args()
 
@@ -477,36 +483,19 @@ def main() -> None:
                 _logger.info("forward_return_writer.lookaheads", lookaheads=lookaheads)
 
                 # TRAINING_WINDOW_END gate — must be computed and logged before any SQL.
-                # Pass --training-window-end explicitly to stabilize PKs across runs.
-                if args.training_window_end:
-                    training_window_end = datetime.fromisoformat(args.training_window_end)
-                    if training_window_end.tzinfo is None:
-                        raise ValueError(
-                            "--training-window-end must be timezone-aware ISO 8601 (UTC). "
-                            "Naive datetimes are rejected to preserve the UTC-only invariant."
-                        )
-                    training_window_end = training_window_end.astimezone(UTC)
-                    _logger.info(
-                        "forward_return_writer.training_window_end_explicit",
-                        value=str(training_window_end),
+                # Required flag (OOS holdout enforcement point one layer up, not a bare
+                # MAX(bar_ts) fallback) — see docs/plans/OOS-EVAL-PROTOCOL.md.
+                training_window_end = datetime.fromisoformat(args.training_window_end)
+                if training_window_end.tzinfo is None:
+                    raise ValueError(
+                        "--training-window-end must be timezone-aware ISO 8601 (UTC). "
+                        "Naive datetimes are rejected to preserve the UTC-only invariant."
                     )
-                else:
-                    with conn.cursor() as cur:
-                        cur.execute("SELECT MAX(bar_ts) FROM feature_vectors")
-                        training_window_end = cur.fetchone()[0]
-                    _logger.warning(
-                        "forward_return_writer.training_window_end_from_max",
-                        value=str(training_window_end),
-                        note="Pass --training-window-end to stabilize PKs across runs",
-                    )
-
-                if training_window_end is None:
-                    _logger.error(
-                        "forward_return_writer.no_feature_vectors",
-                        note="feature_vectors is empty — run backfill_feature_factory first",
-                    )
-                    status = "failure"
-                    sys.exit(1)
+                training_window_end = training_window_end.astimezone(UTC)
+                _logger.info(
+                    "forward_return_writer.training_window_end_explicit",
+                    value=str(training_window_end),
+                )
 
                 _logger.info(
                     "forward_return_writer.training_window_end",

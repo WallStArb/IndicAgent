@@ -322,7 +322,10 @@ class CorpusManifestVerifier:
             print(f"\nMissing TFs: {missing_items}")
             print("\nTo fix:")
             print("  1. Re-run cross-sectional IC:")
-            print("     python services/ic_engine.py --cross-sectional-only --tf 5m 15m 1h")
+            print(
+                "     python services/ic_engine.py --cross-sectional-only --tf 5m 15m 1h "
+                "--training-window-end <ISO8601 UTC>"
+            )
             print("  2. Re-run ensemble trainer:")
             print("     python services/ensemble_trainer.py")
             print("  3. Re-run alpha publisher:")

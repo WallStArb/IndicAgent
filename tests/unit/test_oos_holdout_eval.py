@@ -123,3 +123,47 @@ def test_count_qualifying_empty_arrays():
     count = _count_qualifying(np.array([]), np.array([]))
 
     assert count == 0
+
+
+def test_drop_verdict_no_in_sample_baseline():
+    from scripts.ops.corpus.ops_oos_holdout_eval import _drop_verdict
+
+    assert _drop_verdict(oos_qualifying=0, in_sample=0, significant_drop_fraction=0.5) == (
+        "no in-sample baseline"
+    )
+
+
+def test_drop_verdict_severe_drop_when_oos_zero_and_in_sample_positive():
+    from scripts.ops.corpus.ops_oos_holdout_eval import _drop_verdict
+
+    verdict = _drop_verdict(oos_qualifying=0, in_sample=10, significant_drop_fraction=0.5)
+
+    assert verdict == "SEVERE DROP — possible overfitting"
+
+
+def test_drop_verdict_significant_drop_below_fraction():
+    from scripts.ops.corpus.ops_oos_holdout_eval import _drop_verdict
+
+    # 4 < 10 * 0.5 -> significant drop
+    verdict = _drop_verdict(oos_qualifying=4, in_sample=10, significant_drop_fraction=0.5)
+
+    assert verdict == "significant drop — investigate"
+
+
+def test_drop_verdict_consistent_at_or_above_fraction():
+    from scripts.ops.corpus.ops_oos_holdout_eval import _drop_verdict
+
+    # 5 >= 10 * 0.5 -> consistent
+    verdict = _drop_verdict(oos_qualifying=5, in_sample=10, significant_drop_fraction=0.5)
+
+    assert verdict == "consistent"
+
+
+def test_drop_verdict_respects_custom_fraction():
+    from scripts.ops.corpus.ops_oos_holdout_eval import _drop_verdict
+
+    # 7 < 10 * 0.8 -> significant drop under a stricter threshold,
+    # but would be "consistent" under the default 0.5 fraction.
+    verdict = _drop_verdict(oos_qualifying=7, in_sample=10, significant_drop_fraction=0.8)
+
+    assert verdict == "significant drop — investigate"

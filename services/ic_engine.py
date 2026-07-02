@@ -30,9 +30,18 @@ vector_domain for all 54 features in Phase 138 is 'quant' (all features are quan
 factor estimates).
 
 Usage:
-    python services/ic_engine.py
-    python services/ic_engine.py --symbols VUG --tf 1h
-    python services/ic_engine.py --symbols SPY TLT --tf 5m 15m
+    python services/ic_engine.py --training-window-end 2025-12-24T05:15:00+00:00
+    python services/ic_engine.py --symbols VUG --tf 1h --training-window-end 2025-12-24T05:15:00+00:00
+    python services/ic_engine.py --symbols SPY TLT --tf 5m 15m --training-window-end 2025-12-24T05:15:00+00:00
+
+--training-window-end is REQUIRED (not optional). It is the sole OOS holdout enforcement
+point for this file -- ops_corpus_pipeline_run.sh computes it as
+LEAST(MAX(bar_ts), alpha.validation.oos_start) and passes it through. A bare MAX(bar_ts)
+fallback would silently consume the OOS holdout window on any ad-hoc invocation; see
+docs/plans/OOS-EVAL-PROTOCOL.md and Phase 141.1 (CR-01). For an ad-hoc single-symbol/TF
+run, compute the same clamped value manually:
+    SELECT LEAST(MAX(bar_ts), (SELECT config_value::timestamptz FROM config_state
+        WHERE config_key = 'alpha.validation.oos_start')) FROM feature_vectors;
 """
 
 from __future__ import annotations
@@ -1923,9 +1932,11 @@ def main() -> None:
     parser.add_argument(
         "--training-window-end",
         default=None,
-        help="Explicit training window end (ISO 8601, timezone-aware/UTC). "
-        "Default: MAX(bar_ts) FROM feature_vectors with a warning. "
-        "Set explicitly to keep PKs stable across multi-run corpus builds.",
+        required=True,
+        help="REQUIRED. Explicit training window end (ISO 8601, timezone-aware/UTC) -- "
+        "the OOS holdout clamp (LEAST(MAX(bar_ts), alpha.validation.oos_start)). "
+        "No default: a bare MAX(bar_ts) fallback would silently consume the OOS "
+        "holdout window (Phase 141.1 CR-01). See docs/plans/OOS-EVAL-PROTOCOL.md.",
     )
     parser.add_argument(
         "--cross-sectional-only",
@@ -1997,26 +2008,14 @@ def main() -> None:
             # ----------------------------------------------------------
             run_ts = datetime.now(UTC)
 
-            if args.training_window_end:
-                training_window_end = datetime.fromisoformat(args.training_window_end)
-                if training_window_end.tzinfo is None:
-                    raise ValueError(
-                        "--training-window-end must be timezone-aware ISO 8601 (UTC). "
-                        "Naive datetimes are rejected to preserve the UTC-only invariant."
-                    )
-                training_window_end = training_window_end.astimezone(UTC)
-                _logger.info(
-                    "ic_engine.training_window_end_explicit", value=str(training_window_end)
+            training_window_end = datetime.fromisoformat(args.training_window_end)
+            if training_window_end.tzinfo is None:
+                raise ValueError(
+                    "--training-window-end must be timezone-aware ISO 8601 (UTC). "
+                    "Naive datetimes are rejected to preserve the UTC-only invariant."
                 )
-            else:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT MAX(bar_ts) FROM feature_vectors")
-                    training_window_end = cur.fetchone()[0]
-                _logger.warning(
-                    "ic_engine.training_window_end_from_max",
-                    value=str(training_window_end),
-                    note="Pass --training-window-end to stabilize PKs across runs",
-                )
+            training_window_end = training_window_end.astimezone(UTC)
+            _logger.info("ic_engine.training_window_end_explicit", value=str(training_window_end))
 
             _logger.info(
                 "ic_engine.run_constants",
