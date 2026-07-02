@@ -1530,12 +1530,12 @@ When EIC-04 fails, run structured diagnosis (output as a markdown report) before
 
 This script ships with Wave 2. "Diagnose ensemble" without this structure wastes a week chasing the wrong layer.
 
-**Plans:** 2 plans in 2 waves
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 142A-01-PLAN.md — Wave 1: migration 187 (alpha_ensemble_ic hypertable + APR seeds + 36 hold_max_bars keys) + EnsembleICEngine service (BaseBatch, compose ic_engine Fisher-z math, ProcessPoolExecutor compute-only, corpus BH-FDR, 9-regime stratification) + service_auditor registration + 5 unit test files (EIC-01, EIC-03)
+- [x] 142A-01-PLAN.md — Wave 1: migration 187 (alpha_ensemble_ic hypertable + APR seeds + 36 hold_max_bars keys) + EnsembleICEngine service (BaseBatch, compose ic_engine Fisher-z math, ProcessPoolExecutor compute-only, corpus BH-FDR, 9-regime stratification) + service_auditor registration + 5 unit test files (EIC-01, EIC-03)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
