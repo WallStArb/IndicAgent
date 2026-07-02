@@ -7,7 +7,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Expand the ETF universe from 58 → 72 instruments by adding commodity (energy, metals, agriculture, broad), international, and FX ETFs. Tag all new instruments with fine-grained sub-tags required by the commodity and FX regime groups defined in the cross-sectional regime model plan. Re-tag existing instruments with the new sub-tags where applicable.
+**Goal:** Expand the ETF universe from 58 → 79 instruments by adding commodity (energy, metals, agriculture, broad), international, FX, transportation, high-dividend-yield, market-neutral factor, and high-beta ETFs. Tag all new instruments with fine-grained sub-tags required by the commodity and FX regime groups defined in the cross-sectional regime model plan. Re-tag existing instruments with the new sub-tags where applicable.
 
 **Dependency:** `docs/plans/2026-07-01-cross-sectional-regime-model.md` — regime group tag filters (`commodity_energy_crude`, `commodity_metals_precious`, `fx_*`, etc.) must exist in `tag_vocabulary` before regime groups can be enabled.
 
@@ -45,8 +45,15 @@
 | FXE | Invesco CurrencyShares Euro Trust | fx | 2005-12-12 | 7700 | EUR/USD |
 | FXY | Invesco CurrencyShares Japanese Yen | fx | 2007-02-20 | 7000 | JPY/USD |
 | EDV | Vanguard Extended Duration Treasury ETF | rates | 2007-12-06 | 6800 | 25yr+ zero-coupon; extends rate sensitivity range |
+| IYT | iShares Transportation Average ETF | transports | 2003-11-12 | 7300 | Rails/trucking/air/marine; classic leading-indicator sector, no prior coverage |
+| FXA | Invesco CurrencyShares Australian Dollar Trust | fx | 2006-06-26 | 7300 | AUD/USD; commodity-currency proxy (China/metals/agri beta), diversifies FX group beyond reserve currencies |
+| VYM | Vanguard High Dividend Yield ETF | defensive_yield | 2006-11-10 | 7300 | Broad market, screens on trailing yield alone — raw high-yield factor, complements SCHD's quality-dividend screen |
+| SDOG | ALPS Sector Dividend Dogs ETF | defensive_yield | 2012-02-07 | 5200 | Literal "Dogs of the Dow" methodology — 5 highest yielders per GICS sector, equal-weighted, sector-diversified |
+| BTAL | AGF US Market Neutral Anti-Beta Fund | factor_market_neutral | 2011-08-16 | 5100 | Long low-beta / short high-beta, dollar-neutral; near-zero equity beta — "Betting Against Beta" factor, no redundancy elsewhere in universe |
+| IPO | Renaissance IPO ETF | high_beta | 2013-10-11 | 4500 | Recent-listing high-beta factor; long-only, liquid, no structural decay |
+| SPHB | Invesco S&P 500 High Beta ETF | high_beta | 2011-05-05 | 5100 | Top-100 highest-beta S&P 500 names; liquid, non-leveraged high-vol factor, orthogonal to ARKK thematic tilt |
 
-**Total: 58 → 72 instruments**
+**Total: 58 → 79 instruments**
 
 ---
 
@@ -70,8 +77,8 @@ New fine-grained sub-tags added alongside existing coarse tags (backward compat 
 
 | File | Action | Purpose |
 |---|---|---|
-| `production/migrations/188_etf_expansion.sql` | Create | Tag vocabulary extension + re-tag existing + register 14 new instruments |
-| `scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh` | Create | Historical OHLCV backfill for all 14 new symbols |
+| `production/migrations/188_etf_expansion.sql` | Create | Tag vocabulary extension + re-tag existing + register 21 new instruments |
+| `scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh` | Create | Historical OHLCV backfill for all 21 new symbols |
 | `scripts/ops/corpus/ops_corpus_new_etfs.sh` | Create | Corpus pipeline steps 1-6 scoped to new symbols |
 
 ---
@@ -85,11 +92,11 @@ New fine-grained sub-tags added alongside existing coarse tags (backward compat 
 
 ```sql
 -- production/migrations/188_etf_expansion.sql
--- Migration 188: ETF universe expansion — 58 → 72 instruments.
+-- Migration 188: ETF universe expansion — 58 → 79 instruments.
 --
 -- 1. Extend tag_vocabulary with fine-grained commodity and FX sub-tags
 -- 2. Re-tag existing instruments with fine-grained sub-tags
--- 3. Register 14 new instruments in instruments table
+-- 3. Register 21 new instruments in instruments table
 
 BEGIN;
 
@@ -106,7 +113,12 @@ INSERT INTO tag_vocabulary (tag, category, description) VALUES
     ('commodity_broad',           'exposure', 'Broad commodity index — diversified across energy, metals, agriculture'),
     ('fx_usd',                    'exposure', 'US dollar index — long USD vs basket of major currencies'),
     ('fx_major',                  'exposure', 'Major developed-market currency vs USD — EUR, JPY, GBP, CHF'),
-    ('fx_em',                     'exposure', 'Emerging market currency basket vs USD')
+    ('fx_em',                     'exposure', 'Emerging market currency basket vs USD'),
+    ('fx_commodity',              'exposure', 'Commodity-linked currency vs USD — AUD, CAD, NZD; proxy for China/metals/agri demand'),
+    ('transports',                'exposure', 'Transportation sector — rails, trucking, air freight, marine; leading-indicator cyclical'),
+    ('defensive_yield',           'exposure', 'High-dividend-yield equity — contrarian/mean-reversion factor distinct from dividend-quality (SCHD)'),
+    ('factor_market_neutral',     'exposure', 'Long-short, dollar-neutral factor exposure — near-zero equity beta by construction (e.g. anti-beta)'),
+    ('high_beta',                 'exposure', 'Liquid, non-leveraged high-volatility equity factor — elevated beta without structural rebalancing decay')
 ON CONFLICT (tag) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
@@ -127,7 +139,7 @@ INSERT INTO instrument_tags (symbol, tag, weight, source, evidence) VALUES
 ON CONFLICT (symbol, tag) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
--- 3. Register 14 new instruments
+-- 3. Register 16 new instruments
 --    contract_details mirrors SPY pattern: symbol, base, name, asset_class,
 --    exchange, sector, tick_size, session_id, point_value, provider_meta.
 --    asset_class = 'equity' for ETFs (including FX and commodity ETFs —
@@ -148,7 +160,14 @@ INSERT INTO instruments (symbol, base, contract_details, is_active) VALUES
     ('UUP',  'UUP',  '{"symbol":"UUP","base":"UUP","name":"Invesco DB US Dollar Index Bullish Fund","asset_class":"equity","exchange":"SMART","sector":"fx","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
     ('FXE',  'FXE',  '{"symbol":"FXE","base":"FXE","name":"Invesco CurrencyShares Euro Currency Trust","asset_class":"equity","exchange":"SMART","sector":"fx","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
     ('FXY',  'FXY',  '{"symbol":"FXY","base":"FXY","name":"Invesco CurrencyShares Japanese Yen Trust","asset_class":"equity","exchange":"SMART","sector":"fx","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
-    ('EDV',  'EDV',  '{"symbol":"EDV","base":"EDV","name":"Vanguard Extended Duration Treasury ETF","asset_class":"equity","exchange":"SMART","sector":"fixed_income","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true)
+    ('EDV',  'EDV',  '{"symbol":"EDV","base":"EDV","name":"Vanguard Extended Duration Treasury ETF","asset_class":"equity","exchange":"SMART","sector":"fixed_income","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
+    ('IYT',  'IYT',  '{"symbol":"IYT","base":"IYT","name":"iShares Transportation Average ETF","asset_class":"equity","exchange":"SMART","sector":"transports","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
+    ('FXA',  'FXA',  '{"symbol":"FXA","base":"FXA","name":"Invesco CurrencyShares Australian Dollar Trust","asset_class":"equity","exchange":"SMART","sector":"fx","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
+    ('VYM',  'VYM',  '{"symbol":"VYM","base":"VYM","name":"Vanguard High Dividend Yield ETF","asset_class":"equity","exchange":"SMART","sector":"defensive_yield","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
+    ('SDOG', 'SDOG', '{"symbol":"SDOG","base":"SDOG","name":"ALPS Sector Dividend Dogs ETF","asset_class":"equity","exchange":"SMART","sector":"defensive_yield","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
+    ('BTAL', 'BTAL', '{"symbol":"BTAL","base":"BTAL","name":"AGF US Market Neutral Anti-Beta Fund","asset_class":"equity","exchange":"SMART","sector":"factor_market_neutral","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
+    ('IPO',  'IPO',  '{"symbol":"IPO","base":"IPO","name":"Renaissance IPO ETF","asset_class":"equity","exchange":"SMART","sector":"high_beta","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true),
+    ('SPHB', 'SPHB', '{"symbol":"SPHB","base":"SPHB","name":"Invesco S&P 500 High Beta ETF","asset_class":"equity","exchange":"SMART","sector":"high_beta","tick_size":0.01,"session_id":"nyse","point_value":1.0,"provider_meta":{}}', true)
 ON CONFLICT (symbol) DO NOTHING;
 
 COMMIT;
@@ -173,7 +192,7 @@ SELECT symbol, tag FROM instrument_tags WHERE tag LIKE 'commodity_%_crude' OR ta
 "
 ```
 
-Expected: 72 total instruments, 9+ new tags, 7 re-tagged existing instruments.
+Expected: 74 total instruments, 11+ new tags, 7 re-tagged existing instruments.
 
 - [ ] **Step 4: Tag new instruments**
 
@@ -260,7 +279,44 @@ INSERT INTO instrument_tags (symbol, tag, weight, source, evidence) VALUES
     ('EDV', 'fed_policy',             0.9, 'human', '{\"reason\": \"ultra-long end driven by long-run Fed expectations\"}'),
     ('EDV', 'recession',              0.9, 'human', '{\"reason\": \"flight to ultra-long quality in recession\"}'),
     ('EDV', 'spread_leg',             1.0, 'human', '{\"reason\": \"TLT/EDV duration spread\"}'),
-    ('EDV', 'yield_curve',            0.9, 'human', '{\"reason\": \"captures long-end yield curve moves\"}')
+    ('EDV', 'yield_curve',            0.9, 'human', '{\"reason\": \"captures long-end yield curve moves\"}'),
+    -- IYT
+    ('IYT', 'transports',             1.0, 'human', '{\"reason\": \"rails, trucking, air freight, marine — Dow Transports composition\"}'),
+    ('IYT', 'benchmark',              1.0, 'human', '{\"reason\": \"benchmark transportation sector ETF\"}'),
+    ('IYT', 'leading_indicator',      0.9, 'human', '{\"reason\": \"freight volumes lead broad economic cycle turns\"}'),
+    ('IYT', 'early_cycle',            0.7, 'human', '{\"reason\": \"transports recover early in expansion\"}'),
+    ('IYT', 'recession',              0.7, 'human', '{\"reason\": \"freight demand rolls over ahead of recession\"}'),
+    -- FXA
+    ('FXA', 'fx_commodity',           1.0, 'human', '{\"reason\": \"AUD/USD — commodity-currency proxy\"}'),
+    ('FXA', 'benchmark',              1.0, 'human', '{\"reason\": \"benchmark AUD ETF\"}'),
+    ('FXA', 'china_demand',           0.9, 'human', '{\"reason\": \"AUD tightly correlated to China industrial demand\"}'),
+    ('FXA', 'commodity_broad',        0.8, 'human', '{\"reason\": \"AUD tracks metals/agri terms-of-trade\"}'),
+    ('FXA', 'spread_leg',             0.8, 'human', '{\"reason\": \"FXA/FXY risk-on vs risk-off currency cross\"}'),
+    -- VYM
+    ('VYM', 'defensive_yield',        1.0, 'human', '{\"reason\": \"broad market screened purely on trailing dividend yield\"}'),
+    ('VYM', 'benchmark',              1.0, 'human', '{\"reason\": \"benchmark high-dividend-yield ETF\"}'),
+    ('VYM', 'risk_off',               0.7, 'human', '{\"reason\": \"high-yield equities rotate into favor in risk-off/late-cycle\"}'),
+    ('VYM', 'spread_leg',             0.8, 'human', '{\"reason\": \"VYM/SCHD raw-yield vs quality-dividend spread\"}'),
+    -- SDOG
+    ('SDOG', 'defensive_yield',       1.0, 'human', '{\"reason\": \"literal Dogs-of-the-Dow methodology — top 5 yielders per GICS sector\"}'),
+    ('SDOG', 'benchmark',             1.0, 'human', '{\"reason\": \"benchmark sector-diversified high-yield ETF\"}'),
+    ('SDOG', 'risk_off',              0.7, 'human', '{\"reason\": \"contrarian/mean-reversion yield rotation, defensive tilt\"}'),
+    ('SDOG', 'spread_leg',            0.7, 'human', '{\"reason\": \"VYM/SDOG broad vs sector-equal-weight yield spread\"}'),
+    -- BTAL
+    ('BTAL', 'factor_market_neutral', 1.0, 'human', '{\"reason\": \"long low-beta / short high-beta, dollar-neutral construction\"}'),
+    ('BTAL', 'benchmark',             1.0, 'human', '{\"reason\": \"benchmark anti-beta long-short ETF\"}'),
+    ('BTAL', 'risk_off',              0.8, 'human', '{\"reason\": \"low-beta outperforms high-beta in risk-off — BTAL rises\"}'),
+    ('BTAL', 'regime_classifier',     0.8, 'human', '{\"reason\": \"near-zero net beta isolates factor rotation independent of market direction\"}'),
+    -- IPO
+    ('IPO', 'high_beta',              1.0, 'human', '{\"reason\": \"recent-listing factor — structurally higher volatility, no leverage/decay\"}'),
+    ('IPO', 'benchmark',              1.0, 'human', '{\"reason\": \"benchmark recent-IPO ETF\"}'),
+    ('IPO', 'risk_off',               0.8, 'human', '{\"reason\": \"speculative/high-beta names sell off hardest in risk-off\"}'),
+    ('IPO', 'spread_leg',             0.7, 'human', '{\"reason\": \"IPO/SPY high-beta vs broad market spread\"}'),
+    -- SPHB
+    ('SPHB', 'high_beta',             1.0, 'human', '{\"reason\": \"top-100 highest-beta S&P 500 constituents\"}'),
+    ('SPHB', 'benchmark',             1.0, 'human', '{\"reason\": \"benchmark high-beta S&P 500 ETF\"}'),
+    ('SPHB', 'risk_off',              0.8, 'human', '{\"reason\": \"high-beta names amplify drawdowns in risk-off\"}'),
+    ('SPHB', 'spread_leg',            0.8, 'human', '{\"reason\": \"SPHB/USMV high-beta vs low-vol factor spread\"}')
 ON CONFLICT (symbol, tag) DO NOTHING;
 "
 ```
@@ -274,13 +330,13 @@ SELECT i.symbol,
        array_agg(it.tag ORDER BY it.tag) as tags
 FROM instruments i
 LEFT JOIN instrument_tags it ON i.symbol = it.symbol
-WHERE i.symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV')
+WHERE i.symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB')
 GROUP BY i.symbol
 ORDER BY i.symbol;
 "
 ```
 
-Expected: all 14 symbols present, each with 3-7 tags, no nulls.
+Expected: all 21 symbols present, each with 3-7 tags, no nulls.
 
 - [ ] **Step 6: Verify regime group routing**
 
@@ -300,7 +356,23 @@ ORDER BY symbol;
 
 -- Verify fx group
 SELECT symbol FROM instrument_tags WHERE tag LIKE 'fx_%' ORDER BY symbol;
--- Expected: FXE, FXY, UUP
+-- Expected: FXA, FXE, FXY, UUP
+
+-- Verify defensive_yield group
+SELECT symbol FROM instrument_tags WHERE tag = 'defensive_yield' ORDER BY symbol;
+-- Expected: SDOG, VYM
+
+-- Verify factor_market_neutral group
+SELECT symbol FROM instrument_tags WHERE tag = 'factor_market_neutral' ORDER BY symbol;
+-- Expected: BTAL
+
+-- Verify high_beta group
+SELECT symbol FROM instrument_tags WHERE tag = 'high_beta' ORDER BY symbol;
+-- Expected: IPO, SPHB
+
+-- Verify transports tag
+SELECT symbol FROM instrument_tags WHERE tag = 'transports' ORDER BY symbol;
+-- Expected: IYT
 "
 ```
 
@@ -308,7 +380,7 @@ SELECT symbol FROM instrument_tags WHERE tag LIKE 'fx_%' ORDER BY symbol;
 
 ```bash
 git add production/migrations/188_etf_expansion.sql
-git commit -m "feat(migrations): ETF universe expansion 58→72 — new tags, re-tag existing, register 14 instruments (migration 188)"
+git commit -m "feat(migrations): ETF universe expansion 58→79 — new tags, re-tag existing, register 21 instruments (migration 188)"
 ```
 
 ---
@@ -320,7 +392,7 @@ git commit -m "feat(migrations): ETF universe expansion 58→72 — new tags, re
 **Files:**
 - Create: `scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh`
 
-All 14 new instruments need full OHLCV history across 4 timeframes. IBKR practical limits:
+All 21 new instruments need full OHLCV history across 4 timeframes. IBKR practical limits:
 - `1d`: up to 20yr (7300 days) for most ETFs
 - `1h`: up to ~15yr (5500 days)
 - `5m`: up to ~5yr (1825 days)
@@ -331,7 +403,7 @@ All 14 new instruments need full OHLCV history across 4 timeframes. IBKR practic
 ```bash
 #!/usr/bin/env bash
 # scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
-# Backfill OHLCV for the 14 new ETFs added in migration 188.
+# Backfill OHLCV for the 21 new ETFs added in migration 188.
 # Re-run safe: ON CONFLICT DO NOTHING in bar writer.
 # Usage: bash scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 
@@ -351,6 +423,10 @@ declare -A DAYS_1D=(
     [FXI]=8000   [MCHI]=5500
     [UUP]=7000   [FXE]=7700   [FXY]=7000
     [EDV]=6800
+    [IYT]=7300   [FXA]=7300
+    [VYM]=7300   [SDOG]=5200
+    [BTAL]=5100
+    [IPO]=4500   [SPHB]=5100
 )
 
 # 1h: IBKR practical limit ~15yr for these ETFs
@@ -362,7 +438,7 @@ DAYS_15M=2555
 # 5m: ~5yr (IBKR hard limit)
 DAYS_5M=1825
 
-NEW_SYMBOLS=(DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV)
+NEW_SYMBOLS=(DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV IYT FXA VYM SDOG BTAL IPO SPHB)
 
 total_stored=0
 errors=()
@@ -395,7 +471,7 @@ run_backfill() {
 }
 
 echo "======================================================="
-echo " New ETF Backfill — 14 symbols × 4 timeframes"
+echo " New ETF Backfill — 21 symbols × 4 timeframes"
 echo " $(date)"
 echo "======================================================="
 
@@ -424,7 +500,7 @@ echo "======================================================="
 ```bash
 git add scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 chmod +x scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
-git commit -m "feat(scripts): add backfill_new_etfs.sh for 14 new ETF universe expansion symbols"
+git commit -m "feat(scripts): add backfill_new_etfs.sh for 21 new ETF universe expansion symbols"
 ```
 
 - [ ] **Step 3: Run backfill (TWS must be running)**
@@ -433,7 +509,7 @@ git commit -m "feat(scripts): add backfill_new_etfs.sh for 14 new ETF universe e
 bash scripts/infrastructure/backfill/infrastructure_backfill_new_etfs.sh
 ```
 
-**Expected duration:** ~45-90 minutes (14 symbols × 4 TFs, sequential, rate-limited by IBKR pacing).
+**Expected duration:** ~65-125 minutes (21 symbols × 4 TFs, sequential, rate-limited by IBKR pacing).
 
 - [ ] **Step 4: Verify bar coverage**
 
@@ -444,7 +520,7 @@ SELECT symbol, timeframe,
        MIN(timestamp)::date as earliest,
        MAX(timestamp)::date as latest
 FROM market_data_ohlcv
-WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV')
+WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB')
 GROUP BY symbol, timeframe
 ORDER BY symbol, timeframe;
 "
@@ -456,12 +532,12 @@ Expected: each symbol has bars in all 4 timeframes. `5m` earliest should be ~202
 
 ## Task 2: Corpus Pipeline — New Symbols
 
-**Prerequisite:** Task 1 complete (OHLCV bars present for all 14 symbols).
+**Prerequisite:** Task 1 complete (OHLCV bars present for all 21 symbols).
 
 **Files:**
 - Create: `scripts/ops/corpus/ops_corpus_new_etfs.sh`
 
-Run all 6 corpus pipeline steps scoped to the 14 new symbols only. Uses `--symbols` flag and `--compute-only` where applicable to avoid re-fetching existing data.
+Run all 6 corpus pipeline steps scoped to the 21 new symbols only. Uses `--symbols` flag and `--compute-only` where applicable to avoid re-fetching existing data.
 
 - [ ] **Step 1: Seed backfill_status for new symbols**
 
@@ -472,7 +548,7 @@ PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
 INSERT INTO backfill_status (symbol, timeframe, status, fetch_complete)
 SELECT DISTINCT symbol, timeframe, 'pending', true
 FROM market_data_ohlcv
-WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV')
+WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB')
 ON CONFLICT (symbol, timeframe) DO NOTHING;
 "
 ```
@@ -482,18 +558,18 @@ ON CONFLICT (symbol, timeframe) DO NOTHING;
 ```bash
 #!/usr/bin/env bash
 # scripts/ops/corpus/ops_corpus_new_etfs.sh
-# Run corpus pipeline steps 1-6 for the 14 new ETF symbols.
+# Run corpus pipeline steps 1-6 for the 21 new ETF symbols.
 # Assumes OHLCV bars are already present (Task 1 complete).
 # Usage: bash scripts/ops/corpus/ops_corpus_new_etfs.sh [--from-step N]
 
 set -euo pipefail
 
 PYTHON=".venv/bin/python"
-SYMBOLS="DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV"
+SYMBOLS="DBC DBA DBB PPLT EZU EWG EWZ VWO FXI MCHI UUP FXE FXY EDV IYT FXA VYM SDOG BTAL IPO SPHB"
 FROM_STEP=${2:-1}
 
 echo "======================================================="
-echo " Corpus Pipeline — 14 new ETF symbols"
+echo " Corpus Pipeline — 21 new ETF symbols"
 echo " From step: $FROM_STEP"
 echo " $(date)"
 echo "======================================================="
@@ -530,18 +606,18 @@ bash scripts/ops/corpus/ops_corpus_new_etfs.sh
 PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
 SELECT
     (SELECT COUNT(DISTINCT symbol) FROM feature_vectors
-     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV'))
+     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB'))
      AS fv_symbols,
     (SELECT COUNT(*) FROM feature_ic_scores
-     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV'))
+     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB'))
      AS ic_score_rows,
     (SELECT COUNT(*) FROM alpha_events
-     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV'))
+     WHERE symbol IN ('DBC','DBA','DBB','PPLT','EZU','EWG','EWZ','VWO','FXI','MCHI','UUP','FXE','FXY','EDV','IYT','FXA','VYM','SDOG','BTAL','IPO','SPHB'))
      AS alpha_events;
 "
 ```
 
-Expected: 14 fv_symbols, >0 ic_score_rows, >0 alpha_events.
+Expected: 21 fv_symbols, >0 ic_score_rows, >0 alpha_events.
 
 ---
 
@@ -647,8 +723,12 @@ FROM market_regimes GROUP BY 1, 2 ORDER BY 1, 2;
 ```
 
 Pass criteria:
-- 72 total active equity instruments
+- 79 total active equity instruments
 - Commodity group: 10+ symbols (existing energy/metals + new ETFs)
-- FX group: 3 symbols (UUP, FXE, FXY)
+- Transports group: 1 symbol (IYT)
+- Defensive-yield group: 3 symbols (SCHD existing + VYM, SDOG)
+- Factor-market-neutral group: 1 symbol (BTAL)
+- High-beta group: 2 symbols (IPO, SPHB)
+- FX group: 4 symbols (UUP, FXE, FXY, FXA)
 - Rates group: 11+ symbols (existing + EDV)
 - All 6 regime groups producing labels across all 4 timeframes
