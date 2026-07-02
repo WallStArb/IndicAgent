@@ -232,6 +232,15 @@ Alpha must be demonstrated empirically before any ensemble weight is assigned. I
 - Run EnsembleTrainer + AlphaPublisher on full corpus; review alpha_events distribution
 - Plan next milestone (v3.1 or v4.0)
 
+**Phase 141.1 complete (2026-07-02) — Measurement and Decision Integrity Foundation:**
+OOS holdout enforcement (`TRAINING_WINDOW_END` clamps to `alpha.validation.oos_start`;
+`--training-window-end` now required, no silent `MAX(bar_ts)` fallback, in both
+`ic_engine.py` and `forward_return_writer.py`), `feature_ic_scores.regime_scope` column
+disambiguating cross-sectional/symbol_hmm/pooled labels, ensemble weight-epoch fix
+(`DO NOTHING` → `DO UPDATE`, `alpha_events.event_id` now incorporates `weight_version`),
+and a cost-hurdle calibration script (todo 030 Steps 0-3). Gates Phase 142A (ensemble IC
+measurement) so it doesn't run in-sample or against ambiguous regime labels.
+
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
@@ -326,4 +335,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-24 (v3.0 milestone complete)*
+*Last updated: 2026-07-02 (Phase 141.1 complete)*
