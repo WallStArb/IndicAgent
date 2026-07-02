@@ -26,6 +26,7 @@
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
 - 🔄 **v3.1 IC Empirical Proof + Counterfactual Scoring** — Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 (12.47M alpha_events); Phase 141 COMPLETE 2026-06-29; Phase A COMPLETE 2026-06-30 (ic_engine methodology fixes + Renaissance IC gate redesign); Phase B (corpus re-run on corrected engine) COMPLETE 2026-07-01 (3rd rebuild: feature_vectors 10.08M, feature_ic_scores 254,126, qualifying features 5m=37/15m=28/1h=15/1d=28); Phase 141.1 COMPLETE 2026-07-02 (measurement/decision integrity foundation — OOS enforcement, weight-epoch fix, regime_scope schema fix, cost-hurdle calibration); Phase 142A COMPLETE 2026-07-02 (ensemble IC proof: `alpha_ensemble_ic` schema + EnsembleICEngine + hold_max_bars calibration + EIC-04 gate + EIC-05 diagnosis; 142B: single primary frame counterfactual validation + SHADOW-REVIEW.md pre-commitment; no cost model, no UX) — see `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
+- 📋 **v3.15 Conditioning & Identity Foundation** — Phases TBD (proposed, not scheduled; unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 151 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; proposed 2026-07-02 in `.planning/research/2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8, sequenced between v3.1 and v3.2 because AnalogEngine's retrieval hard-filters on regime labels while IC-based work only stratifies by them; build trigger is todo 026's regime-IC separation decision gate, not yet run; explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key)
 - 📋 **v3.2 Signal Diversification — AnalogEngine + Feature Expansion** — Phases 145-147 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI; Renaissance: more diverse weak signals, not stronger strong ones)
 - 📋 **v3.3 Foundational Hardening** — Phases 148-149 (planned; scope TBD — review before v3.2 completes)
 - 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.3 complete + alpha_events schema frozen; consumes alpha_events, never modifies signal weights)
@@ -1593,14 +1594,18 @@ Exit triggers in priority order: (1) stop hit (`low <= stop_price`); (2) target 
 - **E3 — hierarchical partial pooling** for sparse regime strata. Deferred pending E1/E2 proving insufficient — do not amend the "pooled IC is diagnostic only" load-bearing decision (STATE.md) until then.
 - **E4 — per-feature decay half-lives**, replacing the single global `weight_half_life_days`. Sequence after todo 029's decay-curve item ships.
 
-Every variant is a new `weight_version` in the existing `ensemble_weights` PK — zero schema change needed for A/B testing. First commit folds in todo 043 (APR-backed ensemble stale-weight cliff — `ensemble_trainer.py:509` hardcodes `if days_since > 90` while its sibling `weight_half_life_days` is already APR-backed).
+Every variant is a new `weight_version` in the existing `ensemble_weights` PK — zero schema change needed for A/B testing. (Note: the previously-planned "fold in todo 043" first commit is dropped — todo 043's APR-backed stale-weight cliff already shipped in migration 193 / `alpha.ensemble.weight_stale_max_days`; `ensemble_trainer.py:504` reads it, no hardcoded `> 90` remains.)
 
-**Requirements**: TBD — break down at plan time
+**Requirements**: D-01..D-14 (CONTEXT.md decisions; no REQUIREMENTS.md for this project — decisions are the requirements). Mapped to REQ-142B1-* IDs in plan frontmatter.
 **Depends on:** Phase 142A complete (not 142B — 142A's ensemble IC measurement is the judge; kept separate from 142B's frame simulation work, which this phase does not need)
-**Plans:** 0 plans
+**Plans:** 5 plans in 3 waves
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 142B.1 to break down)
+- [ ] 142B.1-01-PLAN.md — Wave 0: migration 196 (2 columns + 4 APR keys) + pooled cross-sectional dispatch in ensemble_ic_engine.py (todo 046, D-01/D-02/D-07)
+- [ ] 142B.1-02-PLAN.md — Pure-fn math (TDD): shrink_ic + leave-one-out prior (shrinkage.py) + mean_variance_weights() in weights.py (D-05/D-06/D-08 math)
+- [ ] 142B.1-03-PLAN.md — E1 wiring: ops_ic_shrinkage.py compute step + hard out-of-fold acceptance gate + ensemble_trainer ic_input toggle + pipeline sequencing (D-04/D-05/D-06)
+- [ ] 142B.1-04-PLAN.md — E2 wiring: mean_variance weight_method branch in ensemble_trainer with condition-number fallback (D-08)
+- [ ] 142B.1-05-PLAN.md — A/B judging: ops_ensemble_weight_compare.py win-decision gate, per-stratum, regime-caveat tagged (D-10/D-11/D-12/D-14)
 
 ### Phase 143: Feature Vector Lifecycle + Alpha Decay Infrastructure 📋 PLANNED
 
