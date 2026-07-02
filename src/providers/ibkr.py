@@ -651,18 +651,18 @@ class IBKRProvider:
         else:
             chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
             chunk_end = end
-            first_chunk = True
 
             # Chunk backward from end→start so recent (high-value) bars are stored
             # first. A mid-run disconnect still leaves useful data. The no-data early
             # exit also fires as soon as we pass the instrument's launch date rather
             # than burning through years of empty pre-launch chunks going forward.
             while chunk_end > start:
-                if not first_chunk:
-                    await asyncio.sleep(10)  # baseline courtesy pacing between chunks
-                first_chunk = False
-
                 # Pre-emptive rate limit: sleep if approaching IBKR's 60 req/10min ceiling.
+                # This is the sole throttle — a flat 10s courtesy sleep used to run before
+                # this on every chunk, stacking on top of the adaptive limiter and forcing
+                # a minimum 10s/chunk even when the rolling window had full headroom
+                # (removed 2026-07-02; the limiter alone has cleanly handled every fetch
+                # since it was added, no Error 162 regressions observed).
                 await _hist_rate_limiter.acquire()
 
                 chunk_start = max(chunk_end - timedelta(days=chunk_days - 1), start)
