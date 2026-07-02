@@ -1482,12 +1482,19 @@ Every (symbol, tf, regime) cell that produces an IC score must meet `n_independe
 3. **`regime_scope` schema fix.** `feature_ic_scores.regime` mixes 9 cross-sectional labels and 5 per-symbol HMM labels in one column with no scope qualifier. Add a `regime_scope` column disambiguating `symbol_hmm` vs `cross_sectional`. Note: the bottom-up audit's original claim that both label sources were look-ahead was partially wrong and corrected 2026-07-02 — `equity_regime_model.py`'s VIX-proxy and breadth computations are already causal (fixed under todo 026 P1a; the module docstring was just stale and has been corrected). Only the schema-ambiguity concern stands here. The per-symbol HMM's full-history-fit concern remains separately tracked under todo 026 — not duplicated in this phase.
 4. **Cost hurdle calibration.** `alpha.quant.cost_hurdle.*` APR keys are all `0.0` today — a real no-op gate. 98.3% of current `alpha_events` sit in the 5m/15m band todo 030 already found net-negative-to-marginal after external costs. Run todo 030's Step 0 calibration here so `alpha_events` reflects a real tradeable population before Phase 142B's frame simulation runs on it.
 
-**Requirements**: TBD — break down at plan time
+**Requirements**: TBD — no REQUIREMENTS.md for this project
 **Depends on:** Phase 141 complete (done). Can be developed in parallel with the in-progress Phase B corpus re-run — these fixes apply to the corpus pipeline scripts themselves and take effect on the next re-run after Phase B's current run completes.
-**Plans:** 0 plans
+**Plans:** 4 plans (2 waves), planned and verified 2026-07-02
 
-Plans:
-- [ ] TBD (run /gsd-plan-phase 141.1 to break down)
+**Wave 1** (parallel — no shared files):
+- [ ] 141.1-01 — OOS holdout enforcement: `TRAINING_WINDOW_END = LEAST(MAX(bar_ts), oos_start)` in the corpus orchestrator, plus a pre-committed, strictly read-only OOS evaluation script
+- [ ] 141.1-02 — `regime_scope` schema (migration 192): NOT-NULL CHECK column (`cross_sectional` / `symbol_hmm` / `pooled`) on `feature_ic_scores`, written from all 3 `ic_engine.py` insert paths
+- [ ] 141.1-03 — Cost hurdle calibration: implements todo 030 Steps 0-3, writes empirical `alpha.quant.cost_hurdle.*`/`threshold.*` via `ConfigService.set` (audited)
+
+**Wave 2** *(depends on Wave 1 — plan 04 shares `ops_corpus_pipeline_run.sh` with plan 01)*:
+- [ ] 141.1-04 — Weight-epoch fix (migration 193): `DO NOTHING → DO UPDATE SET` on both `ensemble_weights`/`ensemble_alpha` writes, per-run `WEIGHT_EPOCH` threaded to `ensemble_trainer` + `alpha_publisher`, folds in todo 043 (90-day cliff → APR)
+
+Cross-cutting constraints: none (each plan touches a disjoint file set except the declared 01→04 dependency).
 
 ### Phase 142A: Ensemble IC Measurement 📋 PLANNED
 
