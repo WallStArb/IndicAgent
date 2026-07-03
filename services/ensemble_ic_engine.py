@@ -110,6 +110,14 @@ _SCALE_RETURN_COLUMNS: dict[str, str] = {
 _POOLED_SYMBOL = "POOLED"
 
 
+def _effective_weight_version(cli_weight_version: str | None, apr_default: str) -> str:
+    """CLI --weight-version overrides the APR default (mirrors ensemble_trainer.py /
+    alpha_publisher.py's identical pattern) -- lets a scoped re-run measure exactly one
+    weight epoch without touching alpha.ensemble.weight_version for every other consumer.
+    """
+    return cli_weight_version if cli_weight_version else apr_default
+
+
 # ---------------------------------------------------------------------------
 # APR compile-time binding
 # ---------------------------------------------------------------------------
@@ -291,6 +299,7 @@ def build_ensemble_ic_row(
     lookahead: str,
     lookahead_bars: int,
     run_ts: datetime,
+    weight_version: str,
     ic_value: float | None = None,
     ic_ci_lower: float | None = None,
     ic_ci_upper: float | None = None,
@@ -308,6 +317,11 @@ def build_ensemble_ic_row(
     excludes run_ts so re-runs on the same cell within one invocation collide on
     (event_row_id, scored_at) and hit ON CONFLICT DO UPDATE (D-142A-R2). scored_at is
     stamped with the single pinned run_ts passed in (never a fresh "now" per-row).
+
+    weight_version tags which weight variant's alpha_events this row measures (mirrors
+    alpha_events.weight_version, migration 168) -- required so Plan 05's A/B judge
+    (ops_ensemble_weight_compare.py) can GROUP BY weight_version without blending two
+    challengers' measurements together (migration 196 Section 3).
     """
     is_pooled = symbol == _POOLED_SYMBOL
     return {
@@ -318,6 +332,7 @@ def build_ensemble_ic_row(
         "lookahead": lookahead,
         "lookahead_bars": lookahead_bars,
         "is_pooled": is_pooled,
+        "weight_version": weight_version,
         "n_independent": n_independent,
         "reliable": reliable,
         "ic_value": ic_value,
@@ -335,10 +350,10 @@ def build_ensemble_ic_row(
 _ENSEMBLE_IC_INSERT_SQL = """
     INSERT INTO alpha_ensemble_ic (
         event_row_id, symbol, tf, regime, lookahead, lookahead_bars, is_pooled,
-        n_independent, reliable, ic_value, ic_ci_lower, ic_ci_upper,
+        weight_version, n_independent, reliable, ic_value, ic_ci_lower, ic_ci_upper,
         ic_sharpe, ic_sharpe_hac, bh_adjusted_p, passes_fdr, walk_forward_stable, scored_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
     ON CONFLICT (event_row_id, scored_at) DO UPDATE SET
         ic_value = EXCLUDED.ic_value,
         ic_ci_lower = EXCLUDED.ic_ci_lower,
@@ -425,6 +440,9 @@ async def _assert_prerequisites(conn: asyncpg.Connection, tfs: list[str] | None 
 # from subprocesses (the deadlock risk is concurrent writers on the same hypertable); it does
 # not forbid read-only fetches, which is exactly how ic_engine already parallelizes I/O with
 # compute across workers (todo 047, 2026-07-02).
+# weight_version is filtered here (not just tagged on write) so a re-run scoped to a
+# challenger variant (e.g. 'v1_shrunk') never blends in a different variant's
+# alpha_events rows that happen to share (symbol, tf, bar_ts) -- migration 196 Section 3.
 _WORKER_FETCH_SQL = """
     SELECT ae.alpha_score, fr.return_fast, fr.return_mid,
            fr.return_slow, fr.return_extended, mr.regime_label
@@ -434,7 +452,7 @@ _WORKER_FETCH_SQL = """
       AND fr.return_type = 'executable_open_to_open'
     JOIN market_regimes mr
       ON mr.asset_class = 'equity' AND mr.tf = ae.tf AND mr.ts = ae.bar_ts
-    WHERE ae.symbol = %s AND ae.tf = %s AND ae.bar_ts < %s
+    WHERE ae.symbol = %s AND ae.tf = %s AND ae.weight_version = %s AND ae.bar_ts < %s
     ORDER BY ae.bar_ts
 """
 
@@ -460,7 +478,7 @@ _POOLED_WORKER_FETCH_SQL = """
       AND fr.return_type = 'executable_open_to_open'
     JOIN market_regimes mr
       ON mr.asset_class = 'equity' AND mr.tf = ae.tf AND mr.ts = ae.bar_ts
-    WHERE ae.tf = %s AND ae.bar_ts < %s
+    WHERE ae.tf = %s AND ae.weight_version = %s AND ae.bar_ts < %s
     ORDER BY ae.bar_ts
 """
 
@@ -540,7 +558,7 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
     could not be pushed into a SQL-side AVG.
 
     Args:
-        args: (symbol, tfs, dsn, oos_start, config, run_ts)
+        args: (symbol, tfs, dsn, oos_start, config, run_ts, weight_version)
             tfs: list[str] -- all timeframes to score for this symbol.
             dsn: str -- DSN passed from the main process rather than re-instantiating
                 Settings(), which re-reads env vars and would diverge if the subprocess
@@ -548,13 +566,16 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
             oos_start: datetime -- OOS boundary; only bar_ts < oos_start is measured.
             config: EnsembleICConfig (frozen, picklable)
             run_ts: datetime -- pinned once per invocation (D-142A-R2)
+            weight_version: str -- scopes both the alpha_events fetch (WHERE
+                ae.weight_version = %s) and every row's tag column, so this run
+                measures exactly one weight variant (migration 196 Section 3).
 
     Returns:
         dict with keys: rows (list[dict]), pvals (list[float]), pval_idxs (list[int]),
         is_pooled (bool), errors (list[str]) -- one entry per TF that failed to
         fetch/compute; a partial per-TF failure does not discard the symbol's other TFs.
     """
-    symbol, tfs, dsn, oos_start, config, run_ts = args
+    symbol, tfs, dsn, oos_start, config, run_ts, weight_version = args
 
     rows: list[dict[str, Any]] = []
     pvals: list[float] = []
@@ -582,11 +603,11 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
                         # pooled row per (tf, regime, bar_ts) cell in Python -- the
                         # grouping/averaging step (Pitfall 5) must happen before any IC
                         # math, so it cannot be folded into a SQL-side AVG here.
-                        cur.execute(_POOLED_WORKER_FETCH_SQL, (tf, oos_start))
+                        cur.execute(_POOLED_WORKER_FETCH_SQL, (tf, weight_version, oos_start))
                         raw_fetched = cur.fetchall()
                         fetched = _aggregate_pooled_series(raw_fetched, tf)
                     else:
-                        cur.execute(_WORKER_FETCH_SQL, (symbol, tf, oos_start))
+                        cur.execute(_WORKER_FETCH_SQL, (symbol, tf, weight_version, oos_start))
                         fetched = cur.fetchall()
             except Exception as error:
                 errors.append(f"{symbol}/{tf}: {error}")
@@ -696,6 +717,7 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
                         lookahead=scale,
                         lookahead_bars=lookahead_bars,
                         run_ts=run_ts,
+                        weight_version=weight_version,
                         ic_value=ic_value,
                         ic_ci_lower=ic_ci_lower,
                         ic_ci_upper=ic_ci_upper,
@@ -739,6 +761,10 @@ class EnsembleICEngine(BaseBatch):
     job_name = "ensemble-ic-engine"
     compute_version = "1.0.0"
 
+    def __init__(self, db_dsn: str, weight_version_override: str | None = None) -> None:
+        super().__init__(db_dsn)
+        self._weight_version_override = weight_version_override
+
     async def execute(self, pool: asyncpg.Pool) -> None:
         manifest = CorpusManifest("ensemble_ic_engine", Path(".planning/corpus_manifests"))
         try:
@@ -761,7 +787,18 @@ class EnsembleICEngine(BaseBatch):
             apr_cfg = await _load_apr_dict(conn, extra_like_patterns=_INFRA_LIKE_PATTERNS)
             config = EnsembleICConfig.from_apr(apr_cfg)
 
-            tfs = await conn.fetch("SELECT DISTINCT tf FROM alpha_events")
+            # Per-run weight epoch: CLI --weight-version overrides the APR default so a
+            # scoped measurement run (e.g. against an E1/E2 challenger's alpha_events) never
+            # silently reads a different weight_version's rows (migration 196 Section 3).
+            weight_version = _effective_weight_version(
+                self._weight_version_override,
+                _cfg(apr_cfg, "alpha.ensemble.weight_version", "v1"),
+            )
+            self.logger.info("ensemble_ic.weight_version_scoped", weight_version=weight_version)
+
+            tfs = await conn.fetch(
+                "SELECT DISTINCT tf FROM alpha_events WHERE weight_version = $1", weight_version
+            )
             tf_list = [r["tf"] for r in tfs]
 
             await _assert_prerequisites(conn, tfs=tf_list)
@@ -784,7 +821,10 @@ class EnsembleICEngine(BaseBatch):
                 raise oos_start_gate_error
 
             symbols_rows = await conn.fetch(
-                "SELECT DISTINCT symbol, tf FROM alpha_events WHERE bar_ts < $1", oos_start
+                "SELECT DISTINCT symbol, tf FROM alpha_events "
+                "WHERE weight_version = $1 AND bar_ts < $2",
+                weight_version,
+                oos_start,
             )
             symbol_tf_pairs = [(r["symbol"], r["tf"]) for r in symbols_rows]
         # conn released here -- each worker below fetches its own slice over its own
@@ -805,7 +845,7 @@ class EnsembleICEngine(BaseBatch):
         symbol_to_tfs[_POOLED_SYMBOL] = tf_list
 
         worker_args = [
-            (symbol, tfs, self._db_dsn, oos_start, config, run_ts)
+            (symbol, tfs, self._db_dsn, oos_start, config, run_ts, weight_version)
             for symbol, tfs in symbol_to_tfs.items()
         ]
 
@@ -860,6 +900,7 @@ class EnsembleICEngine(BaseBatch):
             n_rows=len(rows_to_write),
             n_symbol_tf_pairs=len(symbol_tf_pairs),
             n_hold_max_bars_keys_written=n_keys_written,
+            weight_version=weight_version,
         )
 
     async def _calibrate_hold_max_bars(
@@ -932,6 +973,20 @@ class EnsembleICEngine(BaseBatch):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="EnsembleICEngine oneshot")
+    parser.add_argument(
+        "--weight-version",
+        default=None,
+        help=(
+            "Weight variant to measure; overrides alpha.ensemble.weight_version so a "
+            "challenger run (e.g. after ensemble_trainer --weight-version v1_shrunk) "
+            "scores only its own alpha_events rows, not the champion's"
+        ),
+    )
+    args = parser.parse_args()
+
     try:
         init_otel_providers("indicagent-ensemble-ic-engine")
     except OTelInitError as error:
@@ -939,4 +994,4 @@ if __name__ == "__main__":
 
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    asyncio.run(EnsembleICEngine(db_dsn=db_dsn).run())
+    asyncio.run(EnsembleICEngine(db_dsn=db_dsn, weight_version_override=args.weight_version).run())

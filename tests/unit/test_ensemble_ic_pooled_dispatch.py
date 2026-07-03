@@ -23,7 +23,10 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from services.ensemble_ic_engine import (
+    _ENSEMBLE_IC_INSERT_SQL,
     _POOLED_SYMBOL,
+    _POOLED_WORKER_FETCH_SQL,
+    _WORKER_FETCH_SQL,
     _aggregate_pooled_series,
     build_ensemble_ic_row,
 )
@@ -137,12 +140,14 @@ class TestAggregatePooledSeries:
             lookahead="fast",
             lookahead_bars=1,
             run_ts=datetime.now(UTC),
+            weight_version="v1",
         )
 
         assert built_row["symbol"] == _POOLED_SYMBOL
         assert built_row["is_pooled"] is True
         # CHECK constraint identity: (symbol = 'POOLED') = is_pooled
         assert (built_row["symbol"] == "POOLED") == built_row["is_pooled"]
+        assert built_row["weight_version"] == "v1"
 
     def test_empty_input_yields_no_pooled_row_and_no_divide_by_zero(self):
         """Empty input -> empty output, no ZeroDivisionError / no crash."""
@@ -171,3 +176,32 @@ class TestAggregatePooledSeries:
         pooled = _aggregate_pooled_series(rows, tf="5m")
 
         assert [r["bar_ts"] for r in pooled] == [_T1, _T2]
+
+
+class TestWeightVersionScoping:
+    """Regression guard for the migration-196 fix: alpha_ensemble_ic must be keyed by
+    weight_version so Plan 05's A/B judge can compare two weight variants without
+    blending their rows. Without ae.weight_version filters in both fetch SQL constants,
+    a run scoped to a challenger variant would silently measure the champion's
+    alpha_events rows too (SQL-text inspection, no live DB required)."""
+
+    def test_per_symbol_fetch_sql_filters_by_weight_version(self):
+        assert "ae.weight_version = %s" in _WORKER_FETCH_SQL
+
+    def test_pooled_fetch_sql_filters_by_weight_version(self):
+        assert "ae.weight_version = %s" in _POOLED_WORKER_FETCH_SQL
+
+    def test_insert_sql_writes_weight_version_column(self):
+        assert "weight_version" in _ENSEMBLE_IC_INSERT_SQL
+
+    def test_build_ensemble_ic_row_requires_weight_version(self):
+        row = build_ensemble_ic_row(
+            symbol=_POOLED_SYMBOL,
+            tf="5m",
+            regime="mid_bull",
+            lookahead="fast",
+            lookahead_bars=1,
+            run_ts=_T1,
+            weight_version="v1_shrunk",
+        )
+        assert row["weight_version"] == "v1_shrunk"

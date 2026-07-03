@@ -1,7 +1,7 @@
 -- Migration 196: E1 shrinkage + E2 mean-variance APR contract (Phase 142B.1, Wave 0)
 --
 -- Ships the schema/APR interface every downstream E1 (shrinkage) and E2 (mean-variance
--- combination) wave reads/writes. Two additive changes, both strictly non-breaking:
+-- combination) wave reads/writes. Three additive changes, all strictly non-breaking:
 --
 -- 1. feature_ic_scores gains ic_shrunk + shrinkage_weight (double precision, nullable).
 --    E1 writes these via a bulk UPDATE post-processing step (services/_batch_utils.py's
@@ -12,13 +12,19 @@
 --      - alpha.ensemble.mv_condition_max (E2 np.linalg.cond gate for Sigma^-1 . IC solve)
 --      - alpha.ensemble.weight_method    (default 'ic_proportional' == existing v1 behavior)
 --      - alpha.ensemble.ic_input         (default 'ic_sharpe_hac' == existing v1 behavior)
+-- 3. alpha_ensemble_ic gains weight_version (text, NOT NULL, backfilled 'v1'). Without
+--    this, the A/B judge (Plan 05's ops_ensemble_weight_compare.py) has no column to
+--    GROUP BY / filter on to keep two weight variants' measurements separate -- the
+--    entire point of this phase (comparing v1 vs an E1/E2 challenger) is unbuildable
+--    without it. Mirrors alpha_events.weight_version (migration 168), which is already
+--    NOT NULL there.
 --
 -- See .planning/phases/142B.1-ensemble-weighting-methodology-replace-ensemble-trainer-py-s/
 -- 142B.1-CONTEXT.md D-04 through D-08 for the full decision trail.
 --
 -- All statements idempotent: ADD COLUMN IF NOT EXISTS, idempotent DO-block for the CHECK
 -- constraint (mirrors migration 150's pg_constraint existence-guard pattern), ON CONFLICT
--- DO NOTHING per key insert. Safe to re-run.
+-- DO NOTHING per key insert, backfill UPDATE is a no-op once applied. Safe to re-run.
 
 BEGIN;
 
@@ -158,5 +164,20 @@ VALUES (
     NOW(), 'alpha.ensemble.ic_input', 1, 'ic_sharpe_hac', 'migration_196',
     'Conventional: non-breaking default preserves existing v1 IC column [conventional]'
 );
+
+-- -------------------------------------------------------------------------
+-- Section 3: alpha_ensemble_ic.weight_version (D-01 fix -- A/B comparison keying)
+-- -------------------------------------------------------------------------
+-- Backfill first (existing rows, including the D-02 v1 baseline, predate weight
+-- variants and are all 'v1'), then enforce NOT NULL -- standard add-then-tighten
+-- sequence for a column going onto a table with existing rows.
+
+ALTER TABLE alpha_ensemble_ic
+    ADD COLUMN IF NOT EXISTS weight_version text;
+
+UPDATE alpha_ensemble_ic SET weight_version = 'v1' WHERE weight_version IS NULL;
+
+ALTER TABLE alpha_ensemble_ic
+    ALTER COLUMN weight_version SET NOT NULL;
 
 COMMIT;

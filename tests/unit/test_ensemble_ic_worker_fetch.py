@@ -77,6 +77,7 @@ def _worker_args(config: EnsembleICConfig, tfs: list[str] | None = None) -> tupl
         datetime(2026, 1, 1, tzinfo=UTC),
         config,
         datetime.now(UTC),
+        "v1",
     )
 
 
@@ -173,6 +174,7 @@ class TestWorkerFetch:
                     datetime(2026, 1, 1, tzinfo=UTC),
                     _make_config(),
                     datetime.now(UTC),
+                    "v1",
                 )
             )
 

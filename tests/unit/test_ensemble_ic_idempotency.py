@@ -53,7 +53,10 @@ def test_all_rows_in_one_run_share_identical_scored_at():
         },
     ]
 
-    rows = [build_ensemble_ic_row(**cell, run_ts=run_ts, ic_value=0.05) for cell in cells]
+    rows = [
+        build_ensemble_ic_row(**cell, run_ts=run_ts, weight_version="v1", ic_value=0.05)
+        for cell in cells
+    ]
 
     scored_ats = {row["scored_at"] for row in rows}
     assert len(scored_ats) == 1, f"Expected one shared scored_at, got {scored_ats}"
@@ -72,8 +75,8 @@ def test_event_row_id_is_independent_of_run_ts():
         "lookahead_bars": 1,
     }
 
-    row_a = build_ensemble_ic_row(**cell, run_ts=run_ts_a, ic_value=0.05)
-    row_b = build_ensemble_ic_row(**cell, run_ts=run_ts_b, ic_value=0.07)
+    row_a = build_ensemble_ic_row(**cell, run_ts=run_ts_a, weight_version="v1", ic_value=0.05)
+    row_b = build_ensemble_ic_row(**cell, run_ts=run_ts_b, weight_version="v1", ic_value=0.07)
 
     assert row_a["event_row_id"] == row_b["event_row_id"], (
         "event_row_id must be run_ts-independent so ON CONFLICT (event_row_id, scored_at) "
@@ -93,7 +96,7 @@ def test_event_row_id_matches_content_key_of_cell_identity():
         "lookahead": "fast",
         "lookahead_bars": 1,
     }
-    row = build_ensemble_ic_row(**cell, run_ts=run_ts, ic_value=0.05)
+    row = build_ensemble_ic_row(**cell, run_ts=run_ts, weight_version="v1", ic_value=0.05)
 
     expected_key = BaseBatch.content_key("SPY", "5m", "low_bull", "fast")
     assert row["event_row_id"] == expected_key
@@ -109,6 +112,7 @@ def test_different_cells_produce_different_event_row_ids():
         lookahead="fast",
         lookahead_bars=1,
         run_ts=run_ts,
+        weight_version="v1",
         ic_value=0.05,
     )
     row_b = build_ensemble_ic_row(
@@ -118,6 +122,7 @@ def test_different_cells_produce_different_event_row_ids():
         lookahead="mid",
         lookahead_bars=5,
         run_ts=run_ts,
+        weight_version="v1",
         ic_value=0.05,
     )
     assert row_a["event_row_id"] != row_b["event_row_id"]
