@@ -1,5 +1,11 @@
 # IC Engine Improvements Plan
 
+**Archived 2026-07-02.** P0/P2/P3/P4 verified shipped (Phase A's methodology fixes). P1
+(trailing IC series), P5 (IC vintage/staleness), P6 (cross-sectional effective-N correction)
+verified still open; carried into `docs/ideas/intel-15-measurement-engine.md`'s "Measurement
+Gaps" section as still-live research/build gaps. Kept here for the full per-item fix detail and
+implementation-order reasoning not reproduced there.
+
 Date: 2026-06-29
 Status: OPEN — prioritized backlog; P0/P1 are correctness issues, P2+ are quality improvements
 

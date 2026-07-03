@@ -266,6 +266,14 @@ proving insufficient first, per the sequencing verdict):
 | E3 — factor style | Same territory as `factor_regime` above, originally specced as HMM-fit rather than percentile-rank | `factor_regime` |
 | E4 — flow/positioning | Institutional structural intent via 13F/Form PF/COT | none — blocked on data acquisition (13F/Form PF/COT not yet ingested); the 45-60 day filing lag itself is a valid slow-moving prior, not the blocker |
 
+*(Fable's revision)* Two build prerequisites from the multi-engine doc's open questions survive
+its demotion: (1) K is re-selected by BIC per fitted dimension on its own observation space;
+the incumbent's K=5 verdict applies to the price/vol vector only, so the "K=5" rows in the
+joint-cell table above are naive placeholders for any new fitted dimension, not settled counts.
+(2) E1's intraday noise ratio is cross-timeframe (5m path length inside a 1d bar) and
+`_build_obs_matrix()` is single-TF today; building E1 carries that refactor cost on top of its
+gate.
+
 **Incumbent-variant and deferred candidates** (from the alternatives doc's HMM Variants and
 Microstructure sections; all gated, none in any build sequence):
 

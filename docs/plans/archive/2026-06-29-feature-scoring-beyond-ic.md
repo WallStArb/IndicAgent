@@ -1,5 +1,12 @@
 # Feature Scoring Beyond IC
 
+**Archived 2026-07-02.** Marginal contribution (0a), shrinkage (0b), and calibration (0c)
+carried into `docs/ideas/intel-15-measurement-engine.md`'s "Measurement Gaps" section. The 0b
+finding is time-sensitive: `ic_shrunk` (the column Phase 142B.1's E1 variant is specced to
+consume) does not exist yet — todo 029 is still pending. Kept here for the full method detail
+(residualization, empirical-Bayes shrinkage formula, Brier/reliability calibration) not
+reproduced there.
+
 Date: 2026-06-29
 Status: OPEN — discovery backlog; IC remains the foundation; these extend it
 Updated: 2026-07-01 — council refinement pass. Added the three missing layers (marginal
