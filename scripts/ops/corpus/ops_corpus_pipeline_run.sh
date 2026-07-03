@@ -2,8 +2,9 @@
 #
 # ops_corpus_pipeline_run.sh — v3.0 corpus pipeline orchestrator
 #
-# Runs feature_factory → regime_writer → ic_engine → ensemble_trainer → alpha_publisher sequence
-# for corpus generation. Use for initial population or incremental updates.
+# Runs feature_factory → regime_writer → forward_return_writer → ic_engine →
+# ic_shrinkage → ensemble_trainer → alpha_publisher sequence for corpus generation.
+# Use for initial population or incremental updates.
 # Requires market_data_ohlcv populated and Redpanda + TimescaleDB running.
 #
 
@@ -55,7 +56,7 @@ banner() {
     local status=$3
     echo
     echo "======================================"
-    printf " Step %d/6 — %s\n" "$step" "$name"
+    printf " Step %d/7 — %s\n" "$step" "$name"
     echo " Status: $status"
     echo " $(date)"
     echo "======================================"
@@ -284,13 +285,21 @@ run_step 4 "ic_engine" \
     "${SPACE_SYMBOLS[@]}" \
     --training-window-end "$TRAINING_WINDOW_END"
 
-# Step 5 — Ensemble Trainer (feature_ic_scores + feature_vectors → ensemble_weights + ensemble_alpha)
-run_step 5 "ensemble_trainer" \
+# Step 5 — IC Shrinkage (E1): shrink feature_ic_scores IC estimates toward a
+# leave-one-out peer-group prior; the out-of-fold acceptance gate flips
+# alpha.ensemble.ic_input to 'ic_shrunk' only on empirical PASS (D-04/D-05). A gate
+# FAIL is a valid, expected report (exit 0) -- it must not halt the pipeline; step 6
+# always proceeds using whichever ic_input is currently configured.
+run_step 5 "ic_shrinkage" \
+    "$PYTHON" scripts/ops/alpha/ops_ic_shrinkage.py
+
+# Step 6 — Ensemble Trainer (feature_ic_scores + feature_vectors → ensemble_weights + ensemble_alpha)
+run_step 6 "ensemble_trainer" \
     "$PYTHON" services/ensemble_trainer.py \
     --weight-version "$WEIGHT_EPOCH"
 
-# Step 6 — Alpha Publisher (ensemble_alpha → alpha_events + Kafka)
-run_step 6 "alpha_publisher" \
+# Step 7 — Alpha Publisher (ensemble_alpha → alpha_events + Kafka)
+run_step 7 "alpha_publisher" \
     "$PYTHON" services/alpha_publisher.py \
     --weight-version "$WEIGHT_EPOCH"
 
