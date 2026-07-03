@@ -57,13 +57,8 @@ class TestMeanVarianceWeights:
         assert cond > 1000.0
 
     def test_non_finite_cond_returns_none(self) -> None:
-        """Singular matrix (cond == inf) -> (None, cond)."""
-        cov = np.array(
-            [
-                [1.0, 1.0],
-                [1.0, 1.0],
-            ]
-        )
+        """All-zero matrix (cond == inf, exact SVD zero) -> (None, cond)."""
+        cov = np.zeros((2, 2))
         weights, cond = mean_variance_weights(cov, np.array([1.0, 1.0]), condition_max=1000.0)
 
         assert weights is None
