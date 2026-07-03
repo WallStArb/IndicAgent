@@ -32,6 +32,13 @@ CORRECTNESS INVARIANTS:
 - Crashes loud at startup when alpha_events, forward_returns, OR market_regimes is empty.
 - In-sample filter: all queries restrict bar_ts < alpha.validation.oos_start (OOS half
   reserved for Phase 144).
+- Pooled cross-sectional dispatch (todo 046 / D-01, Phase 142B.1 Wave 0): in addition to
+  the per-(symbol, tf) workers above, one worker task with symbol=_POOLED_SYMBOL runs
+  per invocation, producing symbol='POOLED' alpha_ensemble_ic rows -- the aggregation
+  grain (group by (tf, regime, bar_ts), average alpha_score/returns across symbols
+  BEFORE computing IC) lives in the pure function _aggregate_pooled_series. Per-symbol
+  rows are retained unchanged (D-03) -- pooled is an additional diagnostic-grade
+  UNIVERSE row, not a replacement.
 
 DAG invariant note: this oneshot is exempt from the "only writer subclasses touch DB"
 rule exactly as ic_engine.py / ensemble_trainer.py are -- it is a batch measurement tool,
@@ -431,6 +438,84 @@ _WORKER_FETCH_SQL = """
     ORDER BY ae.bar_ts
 """
 
+# ---------------------------------------------------------------------------
+# Pooled cross-sectional dispatch (todo 046 / D-01) -- Wave 0
+# ---------------------------------------------------------------------------
+#
+# Same joins as _WORKER_FETCH_SQL but with the `ae.symbol = %s` filter dropped, so it
+# returns ONE raw row per (symbol, bar_ts) across ALL symbols sharing this tf. The
+# per-symbol rows are then reduced by the pure function _aggregate_pooled_series below
+# BEFORE any IC math runs -- RESEARCH.md Pitfall 5 requires grouping by
+# (tf, regime, bar_ts) and averaging across symbols first, never averaging first and
+# labeling second. market_regimes is asset_class-scoped (not per-symbol), so every
+# symbol at a given (tf, bar_ts) shares exactly one regime_label by construction --
+# grouping by (regime_label, bar_ts) within a fixed tf is therefore equivalent to
+# grouping by the full (tf, regime, bar_ts) triple.
+_POOLED_WORKER_FETCH_SQL = """
+    SELECT ae.symbol, ae.bar_ts, ae.alpha_score, fr.return_fast, fr.return_mid,
+           fr.return_slow, fr.return_extended, mr.regime_label
+    FROM alpha_events ae
+    JOIN forward_returns fr
+      ON fr.symbol = ae.symbol AND fr.tf = ae.tf AND fr.bar_ts = ae.bar_ts
+      AND fr.return_type = 'executable_open_to_open'
+    JOIN market_regimes mr
+      ON mr.asset_class = 'equity' AND mr.tf = ae.tf AND mr.ts = ae.bar_ts
+    WHERE ae.tf = %s AND ae.bar_ts < %s
+    ORDER BY ae.bar_ts
+"""
+
+# Value columns averaged across symbols for each pooled (tf, regime, bar_ts) cell.
+_POOLED_VALUE_COLS: tuple[str, ...] = (
+    "alpha_score",
+    "return_fast",
+    "return_mid",
+    "return_slow",
+    "return_extended",
+)
+
+
+def _aggregate_pooled_series(fetched_rows: list[dict[str, Any]], tf: str) -> list[dict[str, Any]]:
+    """Pure function (no DB): reduce per-(symbol, bar_ts) rows to one pooled row per
+    (tf, regime, bar_ts) cell, averaging alpha_score + forward returns across symbols.
+
+    RESEARCH.md Pitfall 5 regression guard: groups by the full (tf, regime, bar_ts)
+    triple BEFORE averaging -- rows sharing a bar_ts but carrying DIFFERENT
+    regime_label values are never mixed into the same pooled cell (average-first-
+    label-second would silently blend cross-regime observations).
+
+    Args:
+        fetched_rows: raw per-(symbol, bar_ts) dicts from _POOLED_WORKER_FETCH_SQL
+            (or equivalent), each with keys: bar_ts, regime_label, alpha_score,
+            return_fast, return_mid, return_slow, return_extended.
+        tf: the timeframe this fetch was scoped to (constant across all input rows --
+            included in the group key for an explicit (tf, regime, bar_ts) grain
+            rather than relying on caller discipline).
+
+    Returns:
+        list of dicts, one per (regime_label, bar_ts) cell, sorted by bar_ts, with
+        each _POOLED_VALUE_COLS entry replaced by its cross-symbol mean. Rows with a
+        NULL regime_label or bar_ts are dropped (cannot be assigned to a stratum).
+        Returns [] for empty input -- no divide-by-zero.
+    """
+    groups: dict[tuple[str, Any, Any], list[dict[str, Any]]] = {}
+    for row in fetched_rows:
+        regime_label = row.get("regime_label")
+        bar_ts = row.get("bar_ts")
+        if regime_label is None or bar_ts is None:
+            continue
+        groups.setdefault((tf, regime_label, bar_ts), []).append(row)
+
+    pooled: list[dict[str, Any]] = []
+    for (_tf, regime_label, bar_ts), members in groups.items():
+        agg: dict[str, Any] = {"bar_ts": bar_ts, "regime_label": regime_label}
+        for col in _POOLED_VALUE_COLS:
+            values = [m[col] for m in members if m.get(col) is not None]
+            agg[col] = float(np.mean(values)) if values else None
+        pooled.append(agg)
+
+    pooled.sort(key=lambda r: r["bar_ts"])
+    return pooled
+
 
 def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
     """ProcessPoolExecutor worker -- runs in subprocess. Opens ONE read-only connection
@@ -442,6 +527,17 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
     _run_ic_worker). An earlier version of this worker was dispatched per (symbol, tf)
     pair, opening ~232 connections instead of ~58; grouping by symbol was the missing
     half of mirroring that precedent (todo 047 follow-up, 2026-07-02).
+
+    Pooled cross-sectional dispatch (todo 046 / D-01, Wave 0): when symbol ==
+    _POOLED_SYMBOL, this is the ONE dispatch task covering every tf's cross-sectional
+    aggregate (symbol_to_tfs[_POOLED_SYMBOL] = all distinct tfs in _execute_inner) --
+    it reuses this exact worker function and the entire downstream IC-computation loop
+    unchanged. Only the fetch step differs: _POOLED_WORKER_FETCH_SQL pulls every
+    symbol's raw rows for the tf (no `ae.symbol = %s` filter), then
+    _aggregate_pooled_series reduces them to one row per (tf, regime, bar_ts) cell
+    BEFORE the regime/scale loop below runs its rank-IC math -- the aggregation itself
+    must be a pure, DB-free step for unit testability (RESEARCH.md Pitfall 5), so it
+    could not be pushed into a SQL-side AVG.
 
     Args:
         args: (symbol, tfs, dsn, oos_start, config, run_ts)
@@ -481,8 +577,17 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
         for tf in tfs:
             try:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    cur.execute(_WORKER_FETCH_SQL, (symbol, tf, oos_start))
-                    fetched = cur.fetchall()
+                    if is_pooled:
+                        # Fetch ALL symbols' raw rows for this tf, then reduce to one
+                        # pooled row per (tf, regime, bar_ts) cell in Python -- the
+                        # grouping/averaging step (Pitfall 5) must happen before any IC
+                        # math, so it cannot be folded into a SQL-side AVG here.
+                        cur.execute(_POOLED_WORKER_FETCH_SQL, (tf, oos_start))
+                        raw_fetched = cur.fetchall()
+                        fetched = _aggregate_pooled_series(raw_fetched, tf)
+                    else:
+                        cur.execute(_WORKER_FETCH_SQL, (symbol, tf, oos_start))
+                        fetched = cur.fetchall()
             except Exception as error:
                 errors.append(f"{symbol}/{tf}: {error}")
                 try:
@@ -692,6 +797,13 @@ class EnsembleICEngine(BaseBatch):
         symbol_to_tfs: dict[str, list[str]] = {}
         for symbol, tf in symbol_tf_pairs:
             symbol_to_tfs.setdefault(symbol, []).append(tf)
+
+        # Pooled cross-sectional dispatch (todo 046 / D-01, Wave 0): one additional
+        # worker task, symbol=_POOLED_SYMBOL, covering every tf that has alpha_events.
+        # Per-symbol rows above are untouched (D-03 -- per-symbol stays as a diagnostic
+        # layer, never dropped); this is purely additive to symbol_to_tfs.
+        symbol_to_tfs[_POOLED_SYMBOL] = tf_list
+
         worker_args = [
             (symbol, tfs, self._db_dsn, oos_start, config, run_ts)
             for symbol, tfs in symbol_to_tfs.items()
