@@ -56,6 +56,7 @@ from src.intelligence.ensemble import (
     compute_shrinkage_covariance,
     derive_weights,
     effective_n,
+    mean_variance_weights,
     select_features_per_stratum,
 )
 from src.intelligence.feature_registry_service import FeatureRegistryService
@@ -95,6 +96,8 @@ class EnsembleConfig:
     weight_half_life_days: float
     weight_stale_max_days: int
     ic_input: str
+    weight_method: str
+    mv_condition_max: float
 
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> EnsembleConfig:
@@ -111,6 +114,8 @@ class EnsembleConfig:
             weight_half_life_days=_cfg(cfg, "alpha.ensemble.weight_half_life_days", 30.0),
             weight_stale_max_days=_cfg(cfg, "alpha.ensemble.weight_stale_max_days", 90),
             ic_input=_cfg(cfg, "alpha.ensemble.ic_input", "ic_sharpe_hac"),
+            weight_method=_cfg(cfg, "alpha.ensemble.weight_method", "ic_proportional"),
+            mv_condition_max=_cfg(cfg, "alpha.ensemble.mv_condition_max", 1000.0),
         )
 
 
@@ -140,6 +145,107 @@ def _resolve_ic_input_column(ic_input: str) -> str:
             f"Unknown alpha.ensemble.ic_input value: {ic_input!r}. "
             f"Valid values: {sorted(_IC_INPUT_COLUMNS)}"
         ) from None
+
+
+# alpha.ensemble.weight_method values (E2, D-08). 'ic_proportional' (default) preserves
+# v1 behavior byte-for-byte: derive_weights -> cluster_deflate_weights (binary cluster
+# cap). 'mean_variance' combines over the already-computed Ledoit-Wolf covariance via
+# w ~ Sigma^-1.ic_shrunk (Grinold-Kahn signal combination), gated on covariance condition
+# number -- an ill-conditioned Sigma falls back to the proven cluster_deflate_weights path
+# rather than emitting extreme unstable weights (RESEARCH.md Pitfall 3).
+_VALID_WEIGHT_METHODS = frozenset({"ic_proportional", "mean_variance"})
+
+
+@dataclasses.dataclass(frozen=True)
+class StratumWeightResult:
+    """Output of resolve_stratum_weights(): the final weight vector plus which method
+    actually produced it (for logging/diagnostics -- 'mean_variance_fallback' means the
+    condition-number gate tripped and cluster_deflate_weights was used instead)."""
+
+    raw_weights: np.ndarray
+    weights: np.ndarray
+    method_used: str
+    condition_number: float | None
+
+
+def resolve_stratum_weights(
+    weight_method: str,
+    aged_quality_weights: np.ndarray,
+    cov_matrix: np.ndarray,
+    corr_matrix: np.ndarray,
+    ic_shrunk: np.ndarray,
+    max_feature_weight: float,
+    max_cluster_corr: float,
+    max_cluster_weight: float,
+    mv_condition_max: float,
+) -> StratumWeightResult:
+    """Select and compute the per-stratum weight vector per alpha.ensemble.weight_method (E2, D-08).
+
+    Pure function -- no DB/Kafka/logging -- so it is independently unit-testable without a
+    live ensemble run. Callers (namely EnsembleTrainer._process_stratum) are responsible for
+    emitting a structured log record when method_used == 'mean_variance_fallback' (T-142B1-04-03:
+    a silent fallback that hides instability is a repudiation risk).
+
+    Parameters
+    ----------
+    weight_method:
+        'ic_proportional' (v1, default) or 'mean_variance' (E2). Any other value raises
+        ValueError -- an unrecognized weight_method must fail loud, never silently default
+        to the wrong path.
+    aged_quality_weights:
+        Staleness-decayed IC-Sharpe-derived quality weights, the raw input to derive_weights()
+        for the ic_proportional path (and the ic_proportional fallback path).
+    cov_matrix, corr_matrix:
+        The Ledoit-Wolf shrunk covariance and its derived correlation matrix, already computed
+        by compute_shrinkage_covariance(X) every run regardless of weight_method.
+    ic_shrunk:
+        Per-feature IC vector already selected for this stratum (aliased consistently with
+        E1's alpha.ensemble.ic_input resolution -- the same array select_features_per_stratum
+        used as 'ic_sharpe'), fed to mean_variance_weights() as its ic_shrunk argument.
+    max_feature_weight, max_cluster_corr, max_cluster_weight, mv_condition_max:
+        APR-backed thresholds (EnsembleConfig fields) passed through unchanged.
+
+    Returns
+    -------
+    StratumWeightResult
+        raw_weights: pre-cap/pre-deflation diagnostic weight vector (stored as the
+            'raw_weight' column regardless of method).
+        weights: final post-cap weight vector used for scoring.
+        method_used: 'ic_proportional' | 'mean_variance' | 'mean_variance_fallback'.
+        condition_number: the covariance condition number when the mean_variance path was
+            attempted (success or fallback), else None.
+    """
+    if weight_method == "ic_proportional":
+        raw_weights = derive_weights(aged_quality_weights, max_feature_weight)
+        weights = cluster_deflate_weights(
+            raw_weights, corr_matrix, max_cluster_corr, max_cluster_weight
+        )
+        return StratumWeightResult(raw_weights, weights, "ic_proportional", None)
+
+    if weight_method == "mean_variance":
+        mv_raw, cond = mean_variance_weights(cov_matrix, ic_shrunk, mv_condition_max)
+        if mv_raw is not None:
+            # Success path (D-08): reuse derive_weights' per-feature cap + filter logic
+            # on the raw MV output, unchanged from the ic_proportional path. Cap/sign are
+            # NOT folded into mean_variance_weights() itself -- they run here, identically
+            # to how they run on aged_quality_weights for the ic_proportional path.
+            # cluster_deflate_weights is deliberately SKIPPED: Sigma^-1.IC already
+            # decorrelates continuously, so binary cluster capping would double-penalize.
+            weights = derive_weights(mv_raw, max_feature_weight)
+            return StratumWeightResult(mv_raw, weights, "mean_variance", cond)
+        # Ill-conditioned Sigma (Pitfall 3): fall back to the proven cluster-deflation
+        # path rather than emitting extreme offsetting weights from an unreliable Sigma^-1
+        # solve. Caller MUST log this -- never a silent skip (T-142B1-04-03).
+        raw_weights = derive_weights(aged_quality_weights, max_feature_weight)
+        weights = cluster_deflate_weights(
+            raw_weights, corr_matrix, max_cluster_corr, max_cluster_weight
+        )
+        return StratumWeightResult(raw_weights, weights, "mean_variance_fallback", cond)
+
+    raise ValueError(
+        f"Unknown alpha.ensemble.weight_method value: {weight_method!r}. "
+        f"Valid values: {sorted(_VALID_WEIGHT_METHODS)}"
+    )
 
 
 def _effective_weight_version(cli_weight_version: str | None, apr_default: str) -> str:
@@ -553,8 +659,6 @@ class EnsembleTrainer(BaseBatch):
                 -days_since / config.weight_half_life_days
             )
 
-        raw_weights = derive_weights(aged_quality_weights, config.max_feature_weight)
-
         cov_matrix, shrinkage = compute_shrinkage_covariance(X)
 
         # Convert to correlation matrix for cluster detection
@@ -564,9 +668,35 @@ class EnsembleTrainer(BaseBatch):
             corr_matrix = np.where(outer_std > 1e-10, cov_matrix / outer_std, 0.0)
             np.fill_diagonal(corr_matrix, 1.0)
 
-        weights = cluster_deflate_weights(
-            raw_weights, corr_matrix, config.max_cluster_corr, config.max_cluster_weight
+        # E2 (D-08): alpha.ensemble.weight_method selects ic_proportional (v1,
+        # derive_weights -> cluster_deflate_weights) vs. mean_variance
+        # (Sigma^-1.ic_shrunk, condition-number gated, cluster deflation skipped on
+        # success). ic_sharpes is the ic_input-resolved per-feature IC vector already
+        # selected for this stratum (E1, D-05) -- the same array select_features_per_stratum
+        # used as "ic_sharpe".
+        weight_result = resolve_stratum_weights(
+            config.weight_method,
+            aged_quality_weights,
+            cov_matrix,
+            corr_matrix,
+            ic_sharpes,
+            config.max_feature_weight,
+            config.max_cluster_corr,
+            config.max_cluster_weight,
+            config.mv_condition_max,
         )
+        raw_weights = weight_result.raw_weights
+        weights = weight_result.weights
+        if weight_result.method_used == "mean_variance_fallback":
+            # Never a silent skip (T-142B1-04-03): ill-conditioned Sigma triggered the
+            # condition-number gate, so this stratum fell back to cluster_deflate_weights.
+            log.warning(
+                "ensemble_trainer.weight_method_fallback",
+                weight_method=config.weight_method,
+                condition_number=weight_result.condition_number,
+                mv_condition_max=config.mv_condition_max,
+                fallback_to="cluster_deflate_weights",
+            )
 
         gauge_attrs = {"symbol": "UNIVERSE", "tf": tf, "weight_version": config.weight_version}
 

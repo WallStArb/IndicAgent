@@ -8,6 +8,7 @@ Public API:
     covariance.compute_shrinkage_covariance
     weights.derive_weights
     weights.cluster_deflate_weights
+    weights.mean_variance_weights
     weights.effective_n
     alpha_score.compute_alpha_score
 """
@@ -21,6 +22,7 @@ from src.intelligence.ensemble.weights import (
     cluster_deflate_weights,
     derive_weights,
     effective_n,
+    mean_variance_weights,
 )
 
 __all__ = [
@@ -28,6 +30,7 @@ __all__ = [
     "compute_shrinkage_covariance",
     "derive_weights",
     "cluster_deflate_weights",
+    "mean_variance_weights",
     "effective_n",
     "compute_alpha_score",
 ]
