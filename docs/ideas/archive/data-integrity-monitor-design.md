@@ -1,7 +1,7 @@
 # Drift Detection Service — Reusable Platform Design
 
 **Date:** 2026-06-26
-**Status:** SUPERSEDED 2026-06-27 — consolidated into `docs/plans/2026-06-27-health-guardian-design.md` (Phase 149A DistributionDriftMonitor). Kept for design rationale only; do not build from this doc.
+**Status:** SUPERSEDED 2026-06-27 — consolidated into `docs/plans/archive/2026-06-27-health-guardian-design.md` (Phase 149A DistributionDriftMonitor), itself now superseded by `docs/ideas/intel-14-integrity-monitor.md`. Kept for design rationale only; do not build from this doc.
 **Type:** Service architecture concept
 
 ---

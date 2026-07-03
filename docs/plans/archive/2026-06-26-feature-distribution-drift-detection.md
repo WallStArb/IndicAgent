@@ -1,5 +1,10 @@
 # Feature Distribution Drift Detection — KS Test on 54 Features
 
+**Archived 2026-07-02.** Fully absorbed into `docs/ideas/intel-14-integrity-monitor.md`'s
+DistributionDriftMonitor section (regime-conditioned windows, signed Wasserstein, merged
+queries) with no gaps found. Kept here for the detailed migration and alert-criteria tables not
+reproduced in intel-14.
+
 **Date:** 2026-06-26
 **Status:** PROPOSED — not planned, awaiting prioritization
 **Milestone:** v3.0 Phase 149A (Data Integrity)

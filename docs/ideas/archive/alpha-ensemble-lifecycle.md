@@ -1,8 +1,17 @@
 # Alpha Ensemble Lifecycle
 
+**Archived 2026-07-02.** Source of the cascade-scenario reasoning and the concrete
+retrain-process spec that `docs/plans/archive/2026-06-27-health-guardian-design.md` dropped
+without restatement; both restored into `docs/ideas/intel-14-integrity-monitor.md`. Kept here
+for the full four-scenario cascade walkthrough and the E2A/E2B/E2C detail not reproduced there.
+
 **Status:** Idea — not planned
-**Context:** v3.0 AlphaEngine, post-Phase 142A (alpha_ensemble_ic table exists)
-**Relates to:** `docs/ideas/feature-vector-lifecycle.md`, `docs/plans/2026-06-26-renaissance-drift-detection-v3.md`
+**Context:** v3.0 AlphaEngine, post-Phase 142A (alpha_ensemble_ic table exists — Phase 142A
+completed 2026-07-02, so this doc's stated prerequisite is now satisfied; still not planned,
+just no longer blocked)
+**Relates to:** `docs/ideas/archive/feature-vector-lifecycle.md`, `docs/plans/archive/2026-06-26-drift-detection-architecture.md`
+(broken cross-reference fixed 2026-07-02 — this previously pointed at a nonexistent
+`2026-06-26-renaissance-drift-detection-v3.md`)
 **Completes:** The alpha-side question that drift detection leaves unanswered
 
 ---

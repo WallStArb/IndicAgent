@@ -13,6 +13,21 @@ partially shipped — see HMM regime audit row. New item added: Phase 142B.1 (En
 Methodology), inserted into ROADMAP.md 2026-07-01/02, didn't exist when this matrix was written.
 See row-level notes for what changed and why.
 
+**Refreshed 2026-07-02 evening — second pass, more has shipped:** Phase 142A is now COMPLETE
+(not "next roadmap phase"). Phase 142B.1 has a phase plan (5 plans, 3 waves — E1 shrinkage +
+E2 mean-variance + A/B judging), not just a proposed row. HMM Numba JIT is fully shipped, not
+"in progress." todo 026's Decision Gate Step 1 has been **run** (2026-07-02): pooled SPY+TLT
+result was a methodology artifact; per-symbol split shows SPY's HMM labels separate IC
+reasonably, TLT's don't at all — asset-class-dependent quality, not a single verdict. Most
+importantly: **the regime-stratification rows below (Volatility/Dispersion/Volume/Session/
+Skew-Tail/Factor regime, HMM variants, Microstructure regime) are now consolidated** into
+`docs/ideas/intel-12-stratification-dimension.md` — one unified governance gate
+(structural-redundancy pre-filter → orthogonality study → substitution test) replaces this
+matrix's per-row triage for that whole cluster; treat those rows as historical, read intel-12
+for current status. AnalogEngine (Phase 145/146, LOW tier below) is similarly rescoped in
+`docs/ideas/intel-13-analog-engine.md` — the "no cheap pilot step" gap that row flags is
+resolved (the substrate ships and validates first, by design).
+
 **Columns:** Effort (S/M/L/XL) · Risk (Low/Med/High) · Reward (scored against evidence, not
 the idea doc's own claim — Med/unproven means "plausible, untested") · **Foundational** =
 cheaper to do now than to retrofit once other things build on top of it — bumps priority
@@ -29,12 +44,12 @@ fixed in the plan doc); `is_shadow` is not a do-it-now item, its own gate note r
 
 | Idea | Effort | Risk | Reward | Note |
 |---|---|---|---|---|
-| HMM Numba JIT (ROADMAP Phase B, Tasks 8-10) | M-L | Med | V.High | **Already in progress** — part of the corpus-fix phase running right now (`src/intelligence/hmm_jit.py` + wire into `regime_writer.py`). Gates nearly everything below and Phase 147. |
+| HMM Numba JIT (ROADMAP Phase B, Tasks 8-10) | M-L | Med | V.High | **SHIPPED** (2026-07-02 correction — was "in progress"). `src/intelligence/hmm_jit.py` wired into `regime_writer.py`, Phase 141 P2. |
 | Post-corpus cost-hurdle calibration (030) | S | Low* | High | *Wrong if run before 034 resolves. ~1hr, cheapest real reward, no roadmap phase — todo-only, correctly so (pure calibration, not a build). |
 | Interaction Primitives pilot (037) | S | Low | High/cost | Gatekeeper for the XL primitives-expansion item below (Phase 147) — run before, not alongside. Todo-only, no phase needed for a pilot. |
 | `regime_group` dispatcher (migration 189) | L | Med | High | **Correction 2026-07-02: this row's "not yet in ROADMAP.md" claim was wrong** — Phase 151 already exists as its own ROADMAP.md phase. Status per the 2026-07-01 architecture review (`.planning/research/2026-07-01-v3-architecture-review.md` §4): execution-ready, 0/9 tasks started, live problem not a future one (15/58 corpus symbols mislabeled today). Two policy gaps found and fixed in the plan doc itself: unrouted symbols (GLD/SLV/VNQ/IBIT) now excluded+logged instead of silently defaulting to equity; commodity-group enablement now has an explicit dependency edge on todo 041 (tag taxonomy — see MEDIUM tier). Still **foundational** — Cross-Group Lead-Lag IC below can't build without it. |
-| Phase 142A: Ensemble IC Measurement | L | Med | High | **Actual next roadmap phase**, currently blocked only on Phase B (Numba JIT + corpus fixes) finishing. Unlocks `is_shadow` (011a), Phase 150, and Phase 142B.1 below. |
-| Phase 142B.1: Ensemble Weighting Methodology (E1-E4) | S per variant | Low-Med | High | **New 2026-07-01/02, not on this matrix before.** From the architecture review — the ensemble's Ledoit-Wolf covariance is computed but never inverted. E1 (shrunk-IC inputs, rides on already-scoped todo 029) is the cheapest, highest-value item here: "corrects decisions being made today." E2 (mean-variance `Σ⁻¹·IC`) reuses existing infra. Every variant is a new `weight_version` — zero schema cost for A/B. Gated on Phase 142A complete (its `EnsembleICEngine` is the judge); do not build ahead of that gate. |
+| Phase 142A: Ensemble IC Measurement | L | Med | High | **COMPLETE** (2026-07-02 correction — was "next roadmap phase"). `alpha_ensemble_ic` schema + `EnsembleICEngine` + hold_max_bars calibration + EIC-04/05 shipped, 10/10 verification truths. Unlocked `is_shadow` (011a), Phase 150, and Phase 142B.1. |
+| Phase 142B.1: Ensemble Weighting Methodology (E1-E4) | S per variant | Low-Med | High | **Now has a phase plan** (2026-07-02 correction — was "new, not on this matrix"): 5 plans, 3 waves (E1 shrinkage + E2 mean-variance + A/B judging). E1 (shrunk-IC inputs, rides on already-scoped todo 029) is the cheapest, highest-value item here. E2 (mean-variance `Σ⁻¹·IC`) reuses existing infra. Every variant is a new `weight_version` — zero schema cost for A/B. Judged by Phase 142A's `EnsembleICEngine`, which is now complete. |
 | Phase 150: EnsembleHealthMonitor | M | Low-Med | High | Correctly roadmapped, depends on Phase 142A (`alpha_ensemble_ic`). Live-safety gate, matters more as system nears real capital. |
 | Phase 143: Feature Vector Lifecycle + Alpha Decay | L | Low | High | Correctly roadmapped, depends only on Phase 141 (complete) — independently startable, not blocked on 142A. |
 

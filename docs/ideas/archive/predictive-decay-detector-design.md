@@ -1,10 +1,10 @@
 # Predictive Decay Detector — Reusable Predictive Edge Monitoring Platform
 
 **Date:** 2026-06-27
-**Status:** SUPERSEDED 2026-06-27 — consolidated into `docs/plans/2026-06-27-health-guardian-design.md` (Phase 149B ICLifecycleMonitor). Kept for design rationale only; do not build from this doc.
+**Status:** SUPERSEDED 2026-06-27 — consolidated into `docs/plans/archive/2026-06-27-health-guardian-design.md` (Phase 149B ICLifecycleMonitor), itself now superseded by `docs/ideas/intel-14-integrity-monitor.md` (ICLifecycleMonitor dissolved into an ic_engine post-run hook writing feature_registry/Concept Registry state directly). This doc's core insight (name the service after the decay problem, not the metric) survives as the reasoning behind that generalization. Kept for design rationale only; do not build from this doc.
 **Type:** Service architecture concept
-**Related:** `docs/ideas/feature-vector-lifecycle.md` (IC decay logic to extract)
-**Service pattern:** `docs/ideas/data-integrity-monitor-design.md`, `docs/ideas/system-health-monitor-design.md`
+**Related:** `docs/ideas/archive/feature-vector-lifecycle.md` (IC decay logic to extract)
+**Service pattern:** `docs/ideas/archive/data-integrity-monitor-design.md`, `docs/ideas/archive/system-health-monitor-design.md`
 
 ---
 

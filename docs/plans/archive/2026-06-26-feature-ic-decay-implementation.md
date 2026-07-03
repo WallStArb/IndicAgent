@@ -1,5 +1,10 @@
 # Feature IC Decay Detection — Lifecycle States
 
+**Archived 2026-07-02.** Its cooldown-plus-confirmation recovery policy was one of three
+competing designs found in this cluster; reconciled in `docs/ideas/intel-14-integrity-monitor.md`
+(pure evidence plus Phase 143's new-evidence floor). Kept here for the prior-row LAG-comparison
+implementation notes for ic_engine, not reproduced in intel-14.
+
 **Date:** 2026-06-26
 **Status:** PROPOSED — not planned, awaiting prioritization
 **Milestone:** v3.0 Phase 149B (Data Integrity)

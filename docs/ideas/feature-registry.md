@@ -424,7 +424,7 @@ The pattern already exists: `hmm_regime_prob`, `hmm_entropy`, `hmm_duration` are
 
 ## See Also
 
-- **`docs/ideas/feature-vector-lifecycle.md`** — promotion/demotion details (candidate → active → decaying → deprecated)
+- **`docs/ideas/archive/feature-vector-lifecycle.md`** — promotion/demotion details (candidate → active → decaying → deprecated)
 - **`docs/ideas/renaissance-primitives-ohlcv.md`** — 200+ candidate primitives catalog (add as `status='candidate'`, promote via IC)
 - **`docs/ideas/interaction-factory.md`** — depends on this registry (tier-1 parent metadata)
 - **`008-feature-registry.md`** — historical completed TODO (superseded by this living idea doc)

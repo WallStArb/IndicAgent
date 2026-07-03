@@ -1,9 +1,14 @@
 # Feature Vector Lifecycle
 
+**Archived 2026-07-02.** Its cooldown-based recovery policy is superseded by
+`docs/ideas/intel-14-integrity-monitor.md`'s evidence-based approach; its promotion/demotion gap
+finding was correct, its recovery-timing answer wasn't the one that shipped. Kept here for the
+original state-transition diagram and IC engine change notes not reproduced in intel-14.
+
 **Status:** Idea — not planned
 **Context:** v3.0 AlphaEngine. Applies to all features in `feature_vectors` — atomic primitives (Feature Factory) and compound primitives (Interaction Factory).
 **Relates to:** `docs/ideas/renaissance-primitives-ohlcv.md`, `docs/ideas/interaction-factory.md`
-**Completes:** `docs/ideas/analog-engine-ic-factory.md` §deferred — that doc explicitly deferred the "hard IC on/off governance consumer" as out of scope for the measurement factory. This doc is that consumer.
+**Completes:** `docs/ideas/archive/analog-engine-ic-factory.md` §deferred — that doc explicitly deferred the "hard IC on/off governance consumer" as out of scope for the measurement factory. This doc is that consumer.
 **Eventually generalizes into:** `docs/ideas/concept-governance-registries.md`'s Concept Registry — `is_decaying`/`decay_detected_at`/`recovery_eligible_at` map onto `concept_eval_state.decay_ratio` + `concept_gate.decay_floor` for every domain, not just features. That system is deferred and unscheduled; this doc is the live, buildable version of the same mechanism for the one domain (`feature`) that exists today. Build this now regardless of Concept Registry's timeline — nothing here is wasted if that migration ever happens.
 
 ---

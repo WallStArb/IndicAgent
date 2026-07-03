@@ -1231,9 +1231,9 @@ Full details: `.planning/milestones/v3.0-ROADMAP.md`
 <details>
 <summary>📋 v3.0a Signal Integrity — IntegrityMonitor (Phases 149A, 149B, 150) — PLANNED</summary>
 
-- [ ] **Phase 149A: DistributionDriftMonitor** — Regime-conditioned KS + chi-squared + signed Wasserstein on all 54 features; adaptive penalties (APR-scaled by Wasserstein magnitude); piggybacked recovery; `indicagent-integrity-monitor` service skeleton — see `docs/plans/2026-06-27-health-guardian-design.md`
-- [ ] **Phase 149B: ICLifecycleMonitor** — Shadow governance: `active → shadow → active` (evidence-based, no cooldown); `pre_shadow_weight` restored on promotion; `shadow_corpus_runs` deprecation gate; rename `is_decaying → is_shadowed` — see `docs/plans/2026-06-27-health-guardian-design.md`
-- [x] **Phase 150: EnsembleHealthMonitor** — 3-gate AND logic (E1: IC Sharpe, E2: regime-conditioned conviction stability, E3: non-shadow coverage); halt/reduce via APR keys; requires Phase 142A (`alpha_ensemble_ic`) — see `docs/plans/2026-06-27-health-guardian-design.md` (completed 2026-07-02)
+- [ ] **Phase 149A: DistributionDriftMonitor** — Regime-conditioned KS + chi-squared + signed Wasserstein on all 54 features; adaptive penalties (APR-scaled by Wasserstein magnitude); piggybacked recovery; `indicagent-integrity-monitor` service skeleton — design current in `docs/ideas/intel-14-integrity-monitor.md` (kept from `docs/plans/2026-06-27-health-guardian-design.md` unchanged)
+- [ ] **Phase 149B: feature lifecycle routing, merged with Phase 143** — Evidence-based shadow governance routed through `feature_registry`/Concept Registry, not new `feature_ic_scores` columns; `pre_shadow_weight` restored on promotion — see `docs/ideas/intel-14-integrity-monitor.md` (supersedes `docs/plans/2026-06-27-health-guardian-design.md`'s `ICLifecycleMonitor`, which conflicted with D3)
+- [ ] **Phase 150: EnsembleHealthMonitor** — 3-gate AND logic (E1: IC Sharpe, E2: regime-conditioned conviction stability, E3: non-shadow coverage); halt/reduce via APR keys; requires Phase 142A (`alpha_ensemble_ic`, complete) — design superseded by `docs/ideas/intel-14-integrity-monitor.md` (E2B/E2C restored, CUSUM added, `alpha_events` schema gap found — E2B needs Phase 142B's `alpha_frames`). No monitor code exists; the prior `[x]`/"completed 2026-07-02" was stray, corrected 2026-07-02 (found during intel-14 Fable audit)
 
 **Dependencies:** Phase 142A (`alpha_ensemble_ic` table exists) for Phase 150 only; 149A and 149B independent
 

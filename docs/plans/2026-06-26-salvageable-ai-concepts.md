@@ -3,6 +3,12 @@
 **Date:** 2026-06-26  
 **Status:** EXTRACTED from archived docs  
 **Purpose:** Preserve valuable AI/intelligence concepts applicable to v3.0 AlphaEngine
+**2026-07-02 verification pass:** each concept below tagged BUILT / OPEN / SUPERSEDED against
+current code. 6 of 13 are already built, several as richer implementations than proposed here
+(Concept 2's panel became `alpha_swarm.py`'s 5 agents; Concept 1 became `narrative_swarm.py`).
+Remaining OPEN concepts are all downstream enhancements gated on v3.1's own OOS IC proof
+(Phase 142B/144) before any are worth building — none should be started early. No new
+consolidated doc; this is a light pass, not a rewrite (see conversation context 2026-07-02).
 
 ---
 
@@ -15,6 +21,9 @@ These concepts were tied to the v2.x signal pipeline (now archived), but the **c
 ---
 
 ## Concept 1: AI Narrative Service (I8)
+
+**Status: BUILT.** `services/narrative_swarm.py` (`NarrativeSwarm`, extends `BaseGroupCoordinator`).
+Not from `alpha_events` as speculated below — narrates I7 signals directly.
 
 **Source:** `docs/plans/archive/2026-02-19-i8-ai-narrative-design.md`
 
@@ -52,6 +61,10 @@ SSE → Dashboard narrative panel
 ---
 
 ## Concept 2: Multi-Agent AI Expert Panel
+
+**Status: BUILT, richer than proposed.** `services/alpha_swarm.py` runs 5 specialized agents
+against `alpha_events`: correlation, counterfactual, ml_scorer, regime_coherence, skeptic
+(`src/intelligence/ai/alpha/`). Same "influence not authority" principle as proposed below.
 
 **Source:** `docs/plans/archive/2026-02-16-i7-signals-ai-experts-design.md`
 
@@ -93,6 +106,12 @@ The same multi-agent pattern could enhance **AlphaEvents**:
 
 ## Concept 3: Universal Ensemble (CIS)
 
+**Status: OPEN.** `ensemble_trainer.py` has no per-bucket/domain weight stratification today
+(verified: no domain/category grouping in the weighting code). Genuinely still an idea, not a
+gap in an existing design — and now has a more specific home if pursued: Concept Registry
+domains, or as a candidate stratification dimension (`docs/ideas/intel-12-stratification-dimension.md`)
+rather than a bespoke bucket scheme. Gated on v3.1 OOS IC proof like everything else here.
+
 **Source:** `docs/plans/archive/2026-03-04-cis-universal-ensemble-design.md`
 
 ### Core Idea
@@ -125,6 +144,11 @@ This is **exactly what v3.0 AlphaEngine does**, but the CIS design had one cleve
 
 ## Concept 4: Confidence Pipeline Hardening
 
+**Status: LESSON APPLIED.** No `CONF_FLOOR`-style clamp found in `alpha_publisher.py` — the
+pitfall this concept warns against appears to have been avoided by construction, not by
+explicit design decision citing this doc. Nothing to build; worth a note if anyone considers
+adding a confidence floor later.
+
 **Source:** `docs/plans/archive/2026-06-04-signal-confidence-pipeline-hardening.md`
 
 ### Core Insights
@@ -144,6 +168,11 @@ Detailed Renaissance audit of confidence calibration revealed:
 ---
 
 ## Concept 5: Regime-Adaptive Signal Selection
+
+**Status: OPEN.** Feature-selection-by-regime is not built. Now a natural extension once
+`docs/ideas/intel-12-stratification-dimension.md` ships — a dimension's Measurement Engine
+results already tell you which features carry IC in which regime; gating ensemble membership
+on that is a consumer decision on top of existing facts, not new measurement infrastructure.
 
 **Source:** `docs/plans/archive/2026-02-16-i7-signals-ai-experts-design.md`
 
@@ -171,6 +200,11 @@ This would improve ensemble **signal-to-noise** by excluding features known to h
 
 ## Concept 6: Three-Layer AI Architecture
 
+**Status: PARTIALLY BUILT.** Layer 1 (deterministic ensemble) and Layer 2 (AI enhancement via
+`alpha_swarm.py`'s 5 agents) exist. Layer 3 (AI novel discovery) remains deferred, correctly —
+discovery is exactly the kind of unproven-until-shown capability this project's principles
+gate hardest.
+
 **Source:** `docs/plans/archive/2026-02-16-i7-signals-ai-experts-design.md`
 
 ### Core Idea
@@ -190,6 +224,10 @@ v3.0 should follow this pattern:
 ---
 
 ## Concept 7: Cost-Optimized Model Routing
+
+**Status: OPEN.** `alpha_swarm.py`'s 5 agents do not differentiate model by task type today
+(no per-agent `model=` override found). Still a real idea, still gated behind the agents it
+would route between actually earning their keep first.
 
 **Source:** `docs/plans/archive/2026-02-16-i7-signals-ai-experts-design.md`
 
@@ -269,6 +307,10 @@ The same cost optimization applies to v3.0 AI agents:
 
 ## Concept 8: Signal-to-Noise Optimization at Source
 
+**Status: BUILT.** `alpha_publisher.py` gates emission on both a per-TF threshold
+(`alpha.quant.threshold.{tf}`) and a cost hurdle (`alpha.quant.cost_hurdle.{tf}`) — the
+noise-floor-at-emission idea proposed below, APR-backed.
+
 **Source:** `docs/plans/2026-06-07-signal-quality-crisis-root-cause-analysis.md` (DELETED)
 
 ### Core Insight
@@ -304,6 +346,9 @@ Where `noise_floor_regime` is learned from IC: if features in a regime have `ic_
 ---
 
 ## Concept 9: DAG Integrity & Deterministic IDs
+
+**Status: BUILT.** `alpha_events` uses content-addressed keys with `ON CONFLICT DO NOTHING` —
+verified in `alpha_publisher.py`.
 
 **Source:** `docs/plans/2026-06-11-signal-replay-architecture-plan.md` (DELETED)
 
@@ -347,6 +392,9 @@ v3.0 **fixed these problems by design**:
 ---
 
 ## Concept 10: Three-Tier Validation Strategy
+
+**Status: BUILT.** The corpus/IC-gate/walk-forward pipeline this project already runs is the
+tier-1/2/3 pattern proposed below, just built before deployment rather than validated after.
 
 **Source:** `docs/plans/2026-06-07-signal-quality-crisis-root-cause-analysis.md` (DELETED)
 
@@ -426,13 +474,11 @@ The same three-tier strategy applies to **AlphaEngine validation**:
 
 ---
 
-10. **⏳ Concept 10: Three-Tier Validation**
-    - **Effort:** Already implemented in v3.0 ✅
-    - **Value:** Statistical rigor, prevents deployment of broken features
-
----
-
 ## Concept 11: Multi-Method Synthesis Pattern
+
+**Status: SUPERSEDED.** The v2.x I4/SMC zone-engine machinery this concept was extracted from
+is archived; its own "Applicability to v3.0" section below already correctly identifies the
+`alpha_events` ensemble as the v3.0-native equivalent. Nothing left to build under this name.
 
 **Source:** `docs/plans/archive/2026-06-05-sr-consensus.md` (ARCHIVED)
 
@@ -471,6 +517,10 @@ I7 plugins use consensus values (robust stops/targets)
 ---
 
 ## Concept 12: Immutable Source + Mutable State Separation
+
+**Status: BUILT.** `feature_vectors` -> `forward_returns` -> `alpha_events` is exactly this
+chain, append-only throughout (verified: `alpha_events` insert is `ON CONFLICT DO NOTHING`,
+never `UPDATE`).
 
 **Source:** `docs/plans/archive/2026-06-03-lifecycle-replay-reviews.md` (ARCHIVED)
 
@@ -513,6 +563,10 @@ alpha_events (mutable emission events)
 
 ## Concept 13: Timeframe-Aware Parameters
 
+**Status: BUILT.** Gradient APR naming (`return_fast`/`mid`/`slow`/`extended`,
+`alpha.ic.lookahead.*`) is exactly this pattern, formalized in
+`docs/foundation/naming-system.md` §7.
+
 **Source:** `docs/plans/archive/2026-06-18-timeframe-propagation-fix.md` (ARCHIVED)
 
 ### Core Issue
@@ -553,10 +607,6 @@ alpha.ic.lookahead.extended = 60  # 1h/1d only
 ```
 
 **Lesson:** **Parameter values should adapt to timeframe scale**, not be universal constants.
-
----
-
-## Updated Implementation Priority
 
 ---
 

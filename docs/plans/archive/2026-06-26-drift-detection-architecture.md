@@ -1,5 +1,11 @@
 # Drift Detection Architecture — v3.0 Integration
 
+**Archived 2026-07-02.** Its "Part 3: CUSUM Repurposing" section (ensemble-IC change-detection,
+ported from a working v2.x mechanism) was silently dropped from the 2026-06-27 consolidation
+with no documented reason; restored into `docs/ideas/intel-14-integrity-monitor.md` (build with
+Phase 150, alert-only, self-arming at 20 measurements/key). Kept here for the full CUSUM
+algorithm detail and the v2.x-to-v3.0 adaptation reasoning not reproduced in intel-14.
+
 **Date:** 2026-06-26
 **Status:** PROPOSED — not planned, awaiting prioritization
 **Milestone:** v3.0 Phases 149A-150 (Data Integrity + Observability)
