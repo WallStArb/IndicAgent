@@ -1,16 +1,19 @@
 """
-IC Sharpe weight derivation, cluster deflation, and effective N for ensemble construction.
+IC Sharpe weight derivation, cluster deflation, mean-variance combination, and
+effective N for ensemble construction.
 
 Pure functions only — no DB imports, no Kafka imports.
 
-Three functions:
+Four functions:
     derive_weights            — IC Sharpe → normalized weight vector with per-feature cap
     cluster_deflate_weights   — LW-correlation-based cluster detection and weight deflation
+    mean_variance_weights     — Sigma^-1 . ic_shrunk combination, condition-number gated
     effective_n               — inverse HHI of the final weight vector
 
 All numeric thresholds that are APR-backed (max_weight, max_cluster_corr,
-max_cluster_weight) are accepted as function parameters — callers load them from
-APR via ConfigService.get_sync(). The only numeric constants in this module are:
+max_cluster_weight, condition_max) are accepted as function parameters — callers
+load them from APR via ConfigService.get_sync(). The only numeric constants in
+this module are:
     1e-10  — convergence epsilon (APR-exempt: mathematical tolerance)
     1.0    — renormalization target (APR-exempt: mathematical requirement)
 """
@@ -157,6 +160,53 @@ def cluster_deflate_weights(
     if s < 1e-10:
         return np.zeros(n, dtype=float)
     return w / s
+
+
+def mean_variance_weights(
+    cov_matrix: np.ndarray,
+    ic_shrunk: np.ndarray,
+    condition_max: float,
+) -> tuple[np.ndarray | None, float]:
+    """Compute w proportional to Sigma^-1 . ic_shrunk, gated on numerical stability.
+
+    Source: Grinold & Kahn "Active Portfolio Management" signal-combination framework
+    (textbook mean-variance optimal combination of correlated signals: w ∝ Σ⁻¹ μ).
+    Numerical-stability guard is standard practice for any Σ⁻¹ computation on an
+    estimated (not population) covariance matrix.
+
+    Parameters
+    ----------
+    cov_matrix:
+        Covariance matrix, shape [n_features, n_features] (typically the LW-shrunk
+        covariance from compute_shrinkage_covariance()).
+    ic_shrunk:
+        Per-feature shrunk IC values, shape [n_features].
+    condition_max:
+        Maximum acceptable condition number (2-norm, np.linalg.cond default) before
+        the Sigma^-1 solve is considered numerically unreliable. Loaded from APR key
+        alpha.ensemble.mv_condition_max.
+
+    Returns
+    -------
+    (weights, cond):
+        weights: normalized (sum of abs == 1.0) raw weights, or None if the gate
+            fails. Raw, uncapped, unsigned — the existing derive_weights-style
+            per-feature cap and ic_sign application still run afterward, unchanged
+            (D-08). Do not fold cap/sign logic into this function.
+        cond: the computed condition number, always returned (even on gate failure)
+            so callers can log the fallback reason.
+    """
+    cond = float(np.linalg.cond(cov_matrix))
+    if not np.isfinite(cond) or cond > condition_max:
+        return None, cond
+
+    # solve(), not explicit inv() — standard numerical-linear-algebra practice,
+    # avoids the extra rounding error of forming the inverse explicitly.
+    raw = np.linalg.solve(cov_matrix, ic_shrunk)
+    total = float(np.sum(np.abs(raw)))
+    if total < 1e-10:
+        return np.zeros_like(raw), cond
+    return raw / total, cond
 
 
 def effective_n(weights: np.ndarray) -> float:
