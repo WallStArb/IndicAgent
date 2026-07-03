@@ -1,6 +1,10 @@
 # v3.0 System Design
 # Two Systems: AlphaEngine + AnalogEngine
 
+**Further archived 2026-07-02.** AnalogEngine sections (already noted below as pre-ground-up)
+are now fully superseded by `docs/ideas/intel-13-analog-engine.md`'s D4 rescope — AnalogEngine
+is a predictor family inside the one pipeline, not a second system.
+
 **Date:** 2026-06-20
 **Status:** Partially superseded — see note below
 **Milestone:** v3.0

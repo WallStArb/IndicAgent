@@ -1,5 +1,11 @@
 # VIL Platform Ideas — Substrate-Enabled Extensions Not Yet Promoted
 
+**Archived 2026-07-02.** Top candidates (cost-aware net scoring, agent episodic memory,
+non-parametric hypothesis backtester, decay observatory) ranked and carried forward into
+`docs/ideas/intel-13-analog-engine.md`. The entity/predictor registry idea is explicitly killed
+by Concept Registry (`domain='feature'` covers it) — see that doc for detail. Kept here for the
+full backlog and pruning rationale not reproduced there.
+
 **Version:** 1.0
 **Status:** under-review
 **Priority:** medium

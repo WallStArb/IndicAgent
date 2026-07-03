@@ -1,5 +1,10 @@
 # Predictive Feature Intelligence — I1-I7 State as Forward Price Predictor
 
+**Archived 2026-07-02.** Superseded by the Measurement Engine unification (D4/D1) — feature-level
+IC measurement is now one estimator shared with `ic_engine.py`, not a parallel factory. The
+Analog Finder wrapper concept survives in `docs/ideas/intel-13-analog-engine.md`. Kept here for
+reference (IC methodology detail already covered by `ic_engine.py`/Measurement Engine design).
+
 **Version:** 1.2
 **Status:** under-review
 **Priority:** medium

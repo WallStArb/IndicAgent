@@ -1,5 +1,13 @@
 # Correlation Intelligence Layer — Independence Measurement Across the Stack
 
+**Archived 2026-07-02.** Superseded for its analog-predictor use case: redundancy control for
+analog predictors is already handled by the ensemble's existing Ledoit-Wolf decorrelation
+(`src/intelligence/ensemble/weights.py`) — not the same algorithm as this doc's eigenvalue
+participation ratio, but sufficient for that purpose (see `docs/ideas/intel-13-analog-engine.md`
+for the precise comparison). The entity-generic effective-N design (plugins, signals, agents,
+features, instruments) is kept here as reference — no live consumer needs it built today, but
+it is the correct design if one ever does; do not re-derive from scratch.
+
 **Version:** 1.5
 **Status:** under-review
 **Priority:** high

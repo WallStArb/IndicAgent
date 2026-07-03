@@ -1,5 +1,11 @@
 # Scoring Engine — Transforming Intelligence State Into Actionable Scores
 
+**Archived 2026-07-02.** The composite/combiner and `score_cache` are deleted as a separate
+system (D4) — analog outputs become ordinary predictors weighted by the existing ensemble. The
+sub-scores, conviction envelope, and horizon-profile classification are promoted as predictor
+specs in `docs/ideas/intel-13-analog-engine.md`. Kept here for the full `ScoreObject`/
+`ReturnDistribution` dataclasses and worked examples not reproduced there.
+
 **Version:** 1.0
 **Status:** under-review
 **Priority:** high

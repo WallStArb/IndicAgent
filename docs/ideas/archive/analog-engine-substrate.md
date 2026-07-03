@@ -1,5 +1,9 @@
 # Vector Intelligence Layer
 
+**Archived 2026-07-02.** Substrate design consolidated (kept in full, D4 rescope) into
+`docs/ideas/intel-13-analog-engine.md`. Kept here for implementation-level detail (full
+schema rationale, alternatives-considered reasoning) not reproduced there.
+
 **Version:** 1.1
 **Status:** under-review
 **Priority:** high

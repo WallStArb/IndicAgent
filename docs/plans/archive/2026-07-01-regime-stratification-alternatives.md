@@ -1,5 +1,11 @@
 # Regime Stratification Alternatives
 
+**Archived 2026-07-02.** Decision-relevant content (candidates, gates, substitution-test
+procedure, explicit rejections) consolidated into `docs/ideas/intel-12-stratification-dimension.md`.
+Kept here for the implementation-level detail (formulas, APR key specifics) not reproduced
+there. Superseded as the primary reference; do not treat this doc's own recommended build
+order as current.
+
 Date: 2026-06-29
 Informed by: `.planning/research/2026-07-01-v3-architecture-review.md` (Fable 5) — HMM Variants section's structural dependency on Phase 151 added 2026-07-02 per that review.
 Status: OPEN — speculative backlog; HMM foundation must be solid first (todo 026)

@@ -1,5 +1,12 @@
 # Multi-Engine HMM Regime Architecture
 
+**Archived 2026-07-02.** The E0-E4 domain taxonomy and the percentile-rank-first sequencing
+verdict are consolidated into `docs/ideas/intel-12-stratification-dimension.md` as candidates
+in that doc's unified governance gate. The "coordinated joint-engine architecture" framing here
+(joint state space, 5x5 product matrix) does not survive — dimensions compete independently
+under one substitution-test gate instead. Kept here for the volatility/volume HMM formulas
+(Garman-Klass, Yang-Zhang, VSR/VPC) and per-engine data-source detail not reproduced there.
+
 **Status:** Idea / Research
 **Last Updated:** 2026-07-01 (sequencing verdict vs. percentile-rank stratification added)
 **Extends:** `docs/intelligence/intelligence-hmm-observation-vector.md`
