@@ -94,6 +94,7 @@ class EnsembleConfig:
     sharpe_floor: float
     weight_half_life_days: float
     weight_stale_max_days: int
+    ic_input: str
 
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> EnsembleConfig:
@@ -109,7 +110,36 @@ class EnsembleConfig:
             sharpe_floor=_cfg(cfg, "alpha.ensemble.sharpe_floor", 0.05),
             weight_half_life_days=_cfg(cfg, "alpha.ensemble.weight_half_life_days", 30.0),
             weight_stale_max_days=_cfg(cfg, "alpha.ensemble.weight_stale_max_days", 90),
+            ic_input=_cfg(cfg, "alpha.ensemble.ic_input", "ic_sharpe_hac"),
         )
+
+
+# feature_ic_scores column each alpha.ensemble.ic_input value reads from (E1, D-05).
+# 'ic_sharpe_hac' (default) preserves v1 behavior byte-for-byte; 'ic_shrunk' is only
+# trustworthy once ops_ic_shrinkage.py's out-of-fold gate has PASSED and flipped the
+# APR value -- ensemble_trainer.py never checks the gate itself, it just reads
+# whatever alpha.ensemble.ic_input currently says (the gate script is the sole writer
+# of that flip, and only inside its PASS branch).
+_IC_INPUT_COLUMNS: dict[str, str] = {
+    "ic_sharpe_hac": "ic_sharpe_hac",
+    "ic_shrunk": "ic_shrunk",
+}
+
+
+def _resolve_ic_input_column(ic_input: str) -> str:
+    """Resolve alpha.ensemble.ic_input to its source feature_ic_scores column.
+
+    Fails loud on an unknown value rather than silently falling back to the wrong
+    column -- a mis-set APR value must not silently keep training on stale/wrong IC
+    estimates.
+    """
+    try:
+        return _IC_INPUT_COLUMNS[ic_input]
+    except KeyError:
+        raise ValueError(
+            f"Unknown alpha.ensemble.ic_input value: {ic_input!r}. "
+            f"Valid values: {sorted(_IC_INPUT_COLUMNS)}"
+        ) from None
 
 
 def _effective_weight_version(cli_weight_version: str | None, apr_default: str) -> str:
@@ -384,20 +414,29 @@ class EnsembleTrainer(BaseBatch):
         """Process one (tf, regime) stratum end-to-end using cross-sectional IC."""
         log = self.logger.bind(tf=tf, regime=regime)
 
+        # E1 (D-05): alpha.ensemble.ic_input selects which column feeds quality_weight.
+        # Default 'ic_sharpe_hac' preserves v1 behavior byte-for-byte; 'ic_shrunk' is
+        # only live once ops_ic_shrinkage.py's out-of-fold gate has PASSED.
+        ic_input_column = _resolve_ic_input_column(config.ic_input)
+        ic_shrunk_not_null_clause = (
+            "AND ic_shrunk IS NOT NULL" if ic_input_column == "ic_shrunk" else ""
+        )
+
         # Step 1: Load cross-sectional IC scores for this stratum (symbol='POOLED')
         # feature_status_at_eval = 'active' ensures we only train on IC scores from
         # periods when the feature was actively governed — excludes candidate and
         # shadow_only periods where IC data was gathered but feature not yet promoted.
         ic_rows = await conn.fetch(
-            """
-            SELECT feature_name, ic_sharpe_hac, ic_ci_lower, ic_ci_upper, ic_sign,
-                   lookahead_bars, training_window_end
+            f"""
+            SELECT feature_name, ic_sharpe_hac, ic_shrunk, shrinkage_weight,
+                   ic_ci_lower, ic_ci_upper, ic_sign, lookahead_bars, training_window_end
             FROM feature_ic_scores
             WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'
               AND tf = $1 AND regime = $2
               AND ic_ci_lower > 0 AND passes_fdr = true
               AND reliable = true AND ic_sharpe_hac IS NOT NULL
               AND feature_status_at_eval = 'active'
+              {ic_shrunk_not_null_clause}
             """,
             tf,
             regime,
@@ -409,11 +448,13 @@ class EnsembleTrainer(BaseBatch):
             return
 
         # Step 2: Select best lookahead per feature using quality_weight.
-        # select_features_per_stratum expects key "ic_sharpe"; our column is "ic_sharpe_hac".
-        # quality_weight = ic_ci_lower * max(sharpe_floor, ic_sharpe_hac) is computed inside
+        # select_features_per_stratum expects key "ic_sharpe"; the underlying column is
+        # whichever alpha.ensemble.ic_input currently resolves to (ic_sharpe_hac by
+        # default, or ic_shrunk once E1's out-of-fold gate has passed).
+        # quality_weight = ic_ci_lower * max(sharpe_floor, ic_sharpe) is computed inside
         # select_features_per_stratum and returned on each selected row.
         selected = select_features_per_stratum(
-            [{**dict(r), "ic_sharpe": r["ic_sharpe_hac"]} for r in ic_rows],
+            [{**dict(r), "ic_sharpe": r[ic_input_column]} for r in ic_rows],
             sharpe_floor=config.sharpe_floor,
         )
         if len(selected) < config.min_passing_features:
@@ -428,7 +469,10 @@ class EnsembleTrainer(BaseBatch):
         # quality_weights are the raw weight inputs to derive_weights (A5c).
         # Ledoit-Wolf deflation and weight caps operate on whatever raw weight is passed in.
         quality_weights = np.array([float(r["quality_weight"]) for r in selected])
-        ic_sharpes = np.array([float(r["ic_sharpe_hac"]) for r in selected])
+        # Reads the "ic_sharpe" alias set by the remap above (Step 2) -- resolves to
+        # whichever column alpha.ensemble.ic_input currently selects, not a hardcoded
+        # ic_sharpe_hac literal.
+        ic_sharpes = np.array([float(r["ic_sharpe"]) for r in selected])
         ic_signs = np.array([float(r["ic_sign"]) for r in selected])
         ic_ci_lower = np.array([float(r["ic_ci_lower"]) for r in selected])
         ic_ci_upper = np.array([float(r["ic_ci_upper"]) for r in selected])
