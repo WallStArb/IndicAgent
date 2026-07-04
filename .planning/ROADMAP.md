@@ -1598,14 +1598,14 @@ Every variant is a new `weight_version` in the existing `ensemble_weights` PK �
 
 **Requirements**: D-01..D-14 (CONTEXT.md decisions; no REQUIREMENTS.md for this project — decisions are the requirements). Mapped to REQ-142B1-* IDs in plan frontmatter.
 **Depends on:** Phase 142A complete (not 142B — 142A's ensemble IC measurement is the judge; kept separate from 142B's frame simulation work, which this phase does not need)
-**Plans:** 5 plans in 3 waves
+**Plans:** 5/5 plans complete
 
 Plans:
-- [ ] 142B.1-01-PLAN.md — Wave 0: migration 196 (2 columns + 4 APR keys) + pooled cross-sectional dispatch in ensemble_ic_engine.py (todo 046, D-01/D-02/D-07)
-- [ ] 142B.1-02-PLAN.md — Pure-fn math (TDD): shrink_ic + leave-one-out prior (shrinkage.py) + mean_variance_weights() in weights.py (D-05/D-06/D-08 math)
-- [ ] 142B.1-03-PLAN.md — E1 wiring: ops_ic_shrinkage.py compute step + hard out-of-fold acceptance gate + ensemble_trainer ic_input toggle + pipeline sequencing (D-04/D-05/D-06)
-- [ ] 142B.1-04-PLAN.md — E2 wiring: mean_variance weight_method branch in ensemble_trainer with condition-number fallback (D-08)
-- [ ] 142B.1-05-PLAN.md — A/B judging: ops_ensemble_weight_compare.py win-decision gate, per-stratum, regime-caveat tagged (D-10/D-11/D-12/D-14)
+- [x] 142B.1-01-PLAN.md — Wave 0: migration 196 (2 columns + 4 APR keys) + pooled cross-sectional dispatch in ensemble_ic_engine.py (todo 046, D-01/D-02/D-07)
+- [x] 142B.1-02-PLAN.md — Pure-fn math (TDD): shrink_ic + leave-one-out prior (shrinkage.py) + mean_variance_weights() in weights.py (D-05/D-06/D-08 math)
+- [x] 142B.1-03-PLAN.md — E1 wiring: ops_ic_shrinkage.py compute step + hard out-of-fold acceptance gate + ensemble_trainer ic_input toggle + pipeline sequencing (D-04/D-05/D-06)
+- [x] 142B.1-04-PLAN.md — E2 wiring: mean_variance weight_method branch in ensemble_trainer with condition-number fallback (D-08)
+- [x] 142B.1-05-PLAN.md — A/B judging: ops_ensemble_weight_compare.py win-decision gate, per-stratum, regime-caveat tagged (D-10/D-11/D-12/D-14)
 
 ### Phase 143: Feature Vector Lifecycle + Alpha Decay Infrastructure 📋 PLANNED
 

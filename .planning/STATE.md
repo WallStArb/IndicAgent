@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_plan
-last_updated: "2026-07-02T23:39:27.426Z"
+last_updated: "2026-07-03T09:32:45.553Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
-**Current focus:** Phase 142B.1 — ensemble weighting methodology replace ensemble trainer py s
+**Current focus:** Phase 142B.1 — ensemble-weighting-methodology-replace-ensemble-trainer-py-s
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.1 Current Status
