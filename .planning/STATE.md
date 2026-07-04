@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: ready_to_plan
-last_updated: "2026-07-03T09:32:45.553Z"
+last_updated: "2026-07-04T00:00:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
-**Current focus:** Phase 142B.1 — ensemble-weighting-methodology-replace-ensemble-trainer-py-s
+**Current focus:** Phase 142B.1 machinery is complete (verified 2026-07-04) but the E1/E2 A/B judgment it built has not been run yet. Phase 142B (frame simulation) is still 0/2 plans — blocked on EIC-04 gate, which FAILED on 2026-07-03 (0/50 qualifying cells, data starvation). Next actions: (1) run `EnsembleICEngine --weight-version v1_shrunk` / `v2_mv` + `ops_ensemble_weight_compare.py` to judge/promote a champion weighting, (2) re-run EIC-04 once `alpha_events` accumulate further, (3) only then start Phase 142B.
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.1 Current Status
@@ -48,7 +48,9 @@ See: .planning/PROJECT.md
 
 **Regime-label validation (corrected 2026-07-01):** HMM regime model (`regime_writer.py`) fits on the full corpus before its causal decode — possible look-ahead bias in regime-stratified IC. Tracked in `.planning/todos/pending/026-hmm-regime-audit-optimization.md` (P4a section) — not an unconditional blocker; 026's own decision gate requires empirical proof of harm (baseline-separation query on `feature_ic_scores`) before any fix is warranted.
 
-**Phase 142A — Ensemble IC Measurement:** ✅ COMPLETE 2026-07-02 (2/2 plans) — `alpha_ensemble_ic` schema + `EnsembleICEngine` + `hold_max_bars` decay-curve calibration + EIC-04 gate + EIC-05 diagnosis script. Code review found 2 BLOCKER + 3 WARNING findings, all fixed except WR-02 (pooled cross-sectional measurement gap, captured as todo 046 — not a blocker, EIC-04/EIC-05 both function per-symbol). Verified: 10/10 must-haves. **Next work: Phase 142B.1 — discuss/plan.**
+**Phase 142A — Ensemble IC Measurement:** ✅ COMPLETE 2026-07-02 (2/2 plans) — `alpha_ensemble_ic` schema + `EnsembleICEngine` + `hold_max_bars` decay-curve calibration + EIC-04 gate + EIC-05 diagnosis script. Code review found 2 BLOCKER + 3 WARNING findings, all fixed except WR-02 (pooled cross-sectional measurement gap, captured as todo 046 — not a blocker, EIC-04/EIC-05 both function per-symbol). Verified: 10/10 must-haves. **Machinery complete ≠ gate passage: EIC-04 verdict is FAIL as of 2026-07-03** (0/50 qualifying cells at 0.60 threshold; EIC-05 diagnosis = data starvation, concentrated in the single populated `5m`/`high_bear` cell). **Phase 142B does not begin until a re-run shows PASS or an operator override is recorded with reasoning** (see ROADMAP.md Phase 142A section verdict log).
+
+**Phase 142B.1 — Ensemble Weighting Methodology:** ✅ COMPLETE 2026-07-04 (5/5 plans, verified). Built E1 (shrunk-IC inputs via `ops_ic_shrinkage.py`) and E2 (mean-variance `Σ⁻¹·IC` combination) weighting variants plus `ops_ensemble_weight_compare.py` (D-10 win-decision gate: `challenger.ic_ci_lower > champion.ic_ci_upper AND challenger.walk_forward_stable`, per-stratum, D-14 regime-caveat tagged). CR-01/CR-02 blocker findings (weight_version scoping gaps) fixed same session (`d8b98cfb`). **Deliberately does not run the actual A/B judgment or promote a winner** — verification confirms this is expected end-of-phase state, not a gap; E2 (`mean_variance`) has not been promoted to live `weight_method`. Follow-on noted in ROADMAP but not yet a todo: seed `concept-governance-registries.md`'s four-table Concept Registry MVP from the E1-E4 `weight_version` rows.
 
 ## v3.0 Phase Summary (SHIPPED 2026-06-25)
 
@@ -66,8 +68,9 @@ See: .planning/PROJECT.md
 | 140.5 | Corpus Foundations + Feature Governance | COMPLETE (5/5 plans, 2026-06-26; 27/29 verification truths) |
 | 141 | Corpus Quality Gate + IC Validation | COMPLETE (3/3 plans, 2026-06-29) — gate FAIL: 5m=0 features (pre-Phase-A baseline, see below) |
 | 141.1 | Measurement and Decision Integrity Foundation | COMPLETE (4/4 plans, 2026-07-02) |
-| 142A | Ensemble IC Measurement | COMPLETE (2/2 plans, 2026-07-02) — EIC-04 gate infra shipped, code review blockers fixed |
-| 142B | Frame Simulation + Counterfactual Tracking | IN PROGRESS — targeted for completion night of 2026-07-02 |
+| 142A | Ensemble IC Measurement | COMPLETE (2/2 plans, 2026-07-02) — infra shipped, code review blockers fixed; **EIC-04 gate verdict FAIL as of 2026-07-03** (data starvation, re-run pending) |
+| 142B.1 | Ensemble Weighting Methodology | COMPLETE (5/5 plans, verified 2026-07-04) — E1/E2 machinery + A/B judge script built; actual A/B run + promotion not yet performed |
+| 142B | Frame Simulation + Counterfactual Tracking | PLANNED (0/2 plans) — blocked on EIC-04 showing PASS; not started despite prior "targeted for completion 2026-07-02" note, which never materialized |
 
 **SUPERSEDED — pre-Phase-A/pre-3rd-rebuild baseline, do not cite as current:** the row counts and IC gate
 results below are from the 2026-06-29 corpus run, before Phase A's ic_engine methodology fixes and before
@@ -110,5 +113,7 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 - Phase 142B.1 inserted after Phase 142B: Ensemble Weighting Methodology — from 2026-07-01 v3 architecture review (.planning/research/2026-07-01-v3-architecture-review.md). Not urgent: depends on Phase 142A complete, does not change current-focus sequencing.
 - Phase 141.1 inserted between Phase 141 and Phase 142A (2026-07-02) — measurement/decision integrity fixes needed before 142A's OOS ensemble IC measurement would be trustworthy. See `.planning/research/2026-07-02-v3-bottomup-audit.md`.
-- 2026-07-02 evening: user confirmed Phase 142A complete and Phase 142B (frame simulation) targeted for completion tonight. Immediately next: Phase 142B.1 (ensemble weighting methodology) — CONTEXT.md already gathered and marked "Ready for planning" (`.planning/phases/142B.1-ensemble-weighting-methodology-replace-ensemble-trainer-py-s/142B.1-CONTEXT.md`), no PLAN.md yet. Resume there with `/gsd:plan-phase 142B.1` once 142B lands.
+- 2026-07-02 evening: user confirmed Phase 142A complete and Phase 142B (frame simulation) targeted for completion tonight. **Correction (2026-07-04): that Phase 142B completion never happened** — 142B.1 was planned and executed instead (out of the order this note implied), and 142B remains 0/2 plans, still blocked on EIC-04. This STATE.md file itself sat stale for 2 days (last real update 2026-07-03) claiming 142B "IN PROGRESS" and 142B.1 as "current focus" for planning — both wrong; corrected above.
+- 2026-07-04: Phase 142B.1 verified complete (5/5 plans). Real next steps: run the E1 (`v1_shrunk`)/E2 (`v2_mv`) weight_version variants through `EnsembleICEngine`, judge them with `ops_ensemble_weight_compare.py`, then re-run EIC-04 to check for gate passage before Phase 142B can start. Separately, in another session (2026-07-04), the user is running a Fable review reconciling `docs/ideas/concept-governance-registries.md` against its consumer docs (intel-10/13/14/15) and the ROADMAP — not yet landed as of this update.
+- 2026-07-04: Deep-dive on EIC-04's FAIL verdict found the "data starvation, expect it to resolve with accumulation" framing (ROADMAP.md Phase 142A verdict log, 2026-07-03) was only partly right — see the 2026-07-04 correction entry in that same log for the full breakdown. Summary: 15m is at its old depth ceiling (fixed by the in-progress 20yr backfill, not by waiting); 1h/1d were simply never trained despite already-qualifying features (an unexercised pipeline path — `ensemble_trainer.py` manifest shows only one run ever, 2026-07-01, 5m/15m only); the one well-powered cell we do have (`POOLED`/5m/`high_bear`) is a genuine null, not underpowered; and the gate script itself unweighted-averages `POOLED` with 49 per-symbol cells. Full remediation plan (backfill to 20yr for all 80 active equity instruments, including 22 never-before-processed symbols, then full corpus re-run, then re-run EIC-04/EIC-05, then the still-unexecuted 142B.1 E1/E2 judgment run) is at `/home/bg/.claude/plans/should-we-back-fill-nested-peacock.md` — in progress as of this update, and now the critical path for unblocking Phase 142B.
 - 2026-07-02: `.planning/research/2026-07-02-v3-topdown-architecture.md` proposes a `StratificationDimension` contract to unify the two live regime systems (per-symbol HMM `regime_writer.py`, cross-sectional `equity_regime_model.py`) as part of a new milestone "v3.15 Conditioning & Identity Foundation," sequenced between v3.1 and v3.2 (AnalogEngine). Explicitly does NOT block or change Phase 142B.1's E1→E2→E3→E4 order — E1/E2 only consume existing regime labels as an opaque stratification key. No code changes intended before that milestone is actually planned.
