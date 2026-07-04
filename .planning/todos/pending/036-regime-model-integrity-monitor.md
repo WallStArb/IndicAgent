@@ -13,7 +13,13 @@
 
 ## Problem
 
-Reviewed the full v3.1-v4.1 roadmap plus `docs/plans/2026-06-27-health-guardian-design.md` (source for Phases 149A/149B/150) against todo 034 (HMM non-causal fit contaminating causal decode, found 2026-07-01). None of the three planned IntegrityMonitor modules would have caught the 034 class of bug, and nothing else in the roadmap is designed to catch its recurrence:
+Reviewed the full v3.1-v4.1 roadmap plus `docs/plans/2026-06-27-health-guardian-design.md`
+(archived 2026-07-02, source for Phases 149A/149B/150 — superseded by
+`docs/ideas/intel-14-integrity-monitor.md`, which found this consolidation had dropped real
+content from its own predecessors; `DistributionDriftMonitor` kept unchanged, consult intel-14
+for the current design) against todo 034 (HMM non-causal fit contaminating causal decode, found
+2026-07-01). None of the three planned IntegrityMonitor modules would have caught the 034 class
+of bug, and nothing else in the roadmap is designed to catch its recurrence:
 
 - **DistributionDriftMonitor (149A)** watches `feature_vectors` column *distributions* (KS + chi-squared + Wasserstein) for input data corruption. It explicitly treats regime as a *conditioning variable* to avoid false alerts across regime transitions — it does not evaluate whether the regime *labels themselves* were produced by a methodologically sound (causal) fit.
 - **ICLifecycleMonitor (149B)** watches feature-level IC decay. It would see downstream symptoms (IC quietly degrading) but has no way to attribute that to a regime-model fitting bug specifically — it would look identical to genuine alpha decay.

@@ -5,6 +5,11 @@
 **Status:** current
 **Milestone:** v3.0
 
+**Companion doc:** `docs/intelligence/intelligence-layer-architecture.md` describes
+the same pipeline generically — each layer's contract, separate from IC/HMM/Ledoit-Wolf
+as this milestone's specific mechanism for filling it. Read that first if the question
+is "what does this layer do," read this doc for "how is it computed today."
+
 ---
 
 ## The Core Idea
@@ -134,6 +139,10 @@ HMM regime is not a gate. It is a conditioning variable. The distinction matters
 The v2.x "signal fired" event collapsed three distinct decisions into one. They are now separated absolutely:
 
 ```
+Layer 0: Data             What actually happened in the market, and is it persisted correctly?
+                          → IBKR TWS → Redpanda (hot) → ProviderMerger → market.bars →
+                            BarWriter/feature_writer (cold) → TimescaleDB
+
 Layer 1: Prediction       What will happen, and how confident are we?
                           → Feature Factory → IC Engine → Ensemble → alpha_events
 
@@ -144,7 +153,20 @@ Layer 3: Execution        How do we get filled?
                           → IBKR orders, slippage feedback, fill tracking
 ```
 
+Layer 0 was previously implicit — described in `CLAUDE.md`'s Data Flow section (Hot/Warm/Cold)
+and the DAG Invariants (`ProviderMerger` is the sole writer to `market.bars`), but never given a
+layer number alongside Prediction/Portfolio/Execution. Made explicit here so "layer" always means
+one of these four, not three-plus-an-implicit-zeroth. Layer 0 is infrastructure, not a research
+domain — no IC, no lifecycle governance, no Concept Registry row; its correctness bar is data
+integrity (no gaps, no duplicate writes, no silent drops), not statistical proof.
+
 Layer 2 was entirely absent from v2.x. A position size of "one unit" because a signal fired is not portfolio construction — it is the absence of it.
+
+**Not to be confused with** AlphaEngine's own internal Stage 0-4 breakdown (Primitive Measurement
+→ Stratification → Edge Measurement → Combination → Emission), which all live *inside* Layer 1
+here. See `docs/intelligence/intelligence-layer-architecture.md` and the glossary's `Stage 0`-`Stage 4`
+entries. Two numbering schemes, deliberately different words ("Layer" outer, "Stage" inner) so
+they're never ambiguous in prose.
 
 ---
 

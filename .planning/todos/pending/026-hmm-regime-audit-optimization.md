@@ -22,17 +22,17 @@ Consolidates and supersedes:
 
 10 gaps across per-symbol HMM (`regime_writer.py`) and cross-sectional model (`equity_regime_model.py`):
 
-| Priority | Finding | File |
-|---|---|---|
-| P0 | Numba JIT forward-filter — 20+ hr → ~30 min | `regime_writer.py:234`, new `hmm_jit.py` |
-| P1a | Expanding rank for cross-sectional VIX proxy (look-ahead bug) | `equity_regime_model.py:175` |
-| P1b | TF-normalized windows for VIX z-score and 200MA | `equity_regime_model.py:75-76` |
-| P2a | Multiple HMM restarts, pick max log-likelihood | `regime_writer.py:377` |
-| P2b | Degenerate model detection (occupation fraction gate) | `regime_writer.py:439` |
-| P2c | Regime churn feature (`hmm_churn` column) | `regime_writer.py` + migration |
-| P3 | Empirical threshold calibration for vix/breadth cuts | `equity_regime_model.py` APR |
-| P4a | Rolling HMM refit (parameter look-ahead bias) | `regime_writer.py` — **GATED** |
-| P4b | Expanding StandardScaler | `regime_writer.py:375` — **GATED on P4a** |
+| Priority | Finding | File | Status (verified 2026-07-04) |
+|---|---|---|---|
+| P0 | Numba JIT forward-filter — 20+ hr → ~30 min | `regime_writer.py:234`, new `hmm_jit.py` | **DONE** — `alpha_pass_jit` imported and live in hot path (commits `269ad5f3`, `c4ab422f`) |
+| P1a | Expanding rank for cross-sectional VIX proxy (look-ahead bug) | `equity_regime_model.py:175` | **DONE** — bisect-based causal expanding rank shipped (commit `7c759bdb`) |
+| P1b | TF-normalized windows for VIX z-score and 200MA | `equity_regime_model.py:75-76` | **NOT DONE** — `vix_z_window`/`ma_window_days` are single global APR values, no per-TF variant found |
+| P2a | Multiple HMM restarts, pick max log-likelihood | `regime_writer.py:377` | **NOT DONE** — what exists instead is narrower: on EM non-convergence, one retry, same seed, doubled iterations (`regime_writer.py:428-462`), not multi-seed-restart-and-keep-best. Same gap the P4a section below already flags re: no seed-stability check |
+| P2b | Degenerate model detection (occupation fraction gate) | `regime_writer.py:439` | **NOT DONE** — zero references anywhere in codebase |
+| P2c | Regime churn feature (`hmm_churn` column) | `regime_writer.py` + migration | **NOT DONE** — zero references anywhere in codebase |
+| P3 | Empirical threshold calibration for vix/breadth cuts | `equity_regime_model.py` APR | **PARTIAL** — thresholds moved into APR (migration 182: `alpha.regime.vix_low_pct`/`vix_high_pct`/`breadth_bear`/`breadth_bull`), made tunable, but still sitting at original guessed defaults (0.33/0.67/0.40/0.60) — no empirical recalibration has actually happened |
+| P4a | Rolling HMM refit (parameter look-ahead bias) | `regime_writer.py` — **GATED** | Decision gate not yet cleared (see below) — correctly not started. A pilot scaffold existed briefly (commit `45621857`) but was deleted 2026-06-29 before writing to production |
+| P4b | Expanding StandardScaler | `regime_writer.py:375` — **GATED on P4a** | Not started (gated) |
 
 See plan doc for full implementation notes and APR keys.
 
@@ -94,7 +94,10 @@ ships) before generalizing.**
 look-ahead bias (rolling refit's target). A single generic 5-state trend HMM may simply not fit
 bond regime dynamics — rates markets grind and mean-revert around curve shape more than they
 trend the way equities do. That points at the factor-augmented HMM / `regime_group`-conditional
-direction (`docs/plans/2026-07-01-regime-stratification-alternatives.md`, HMM Variants section)
+direction (`docs/plans/archive/2026-07-01-regime-stratification-alternatives.md`, HMM Variants
+section — archived 2026-07-02, decision-relevant content consolidated into
+`docs/ideas/intel-12-stratification-dimension.md`; this citation is for the implementation-level
+formula detail specifically kept in the archived copy, not decision framing)
 as a competing explanation to rolling refit, not a confirming one. Don't assume rolling refit is
 the universal fix before Step 2 distinguishes these two hypotheses per-symbol.
 

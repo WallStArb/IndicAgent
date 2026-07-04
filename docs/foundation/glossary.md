@@ -14,6 +14,18 @@ A term is a mathematical claim. Using two terms for the same concept introduces 
 
 This document feeds the naming system: `docs/foundation/naming-system.md` defines how to surface a concept across code layers; this document defines what the concept IS.
 
+**Stage vs. mechanism:** `docs/intelligence/intelligence-layer-architecture.md` names
+AlphaEngine's internal stages (Stage 0 Primitive Measurement, Stage 1 Stratification, Stage 2
+Edge Measurement, Stage 3 Combination, Stage 4 Emission) generically, separate from the specific
+statistical mechanism each stage currently uses (`FeatureFactory`, `HMM`, `IC`,
+`Ensemble`/Ledoit-Wolf, threshold crossing). These are deliberately called "stages," not
+"layers" — `Layer 1/2/3` already names the outer Prediction/Portfolio/Execution architecture
+(see `AlphaEngine` below); the two numbering schemes are unrelated and must not be conflated.
+Several entries below (`regime`, `Information Coefficient`, `AlphaEngine`) name a stage's
+current mechanism; that doc is the canonical place the stage/mechanism distinction is made
+explicit and should be consulted before assuming a mechanism name (e.g. "HMM") is the stage's
+permanent identity.
+
 ---
 
 ## How to Use
@@ -44,7 +56,7 @@ A time-stamped, scored trade hypothesis with a defined entry, direction, and exi
 
 A discrete market state that conditions the behavior of indicators, signals, and factor relationships. Produced by the HMM classifier. Examples: trending, mean-reverting, high-volatility, low-volatility.
 
-**Not:** a synonym for "market condition" in general prose. Regime is a specific technical term — it refers to a classified HMM state or a named factor performance state (see `factor_regime`).
+**Not:** a synonym for "market condition" in general prose. Regime is a specific technical term — it refers to a classified HMM state or a named factor performance state (see `factor_regime`). Also not the HMM itself — `regime` is the AlphaEngine internal Stage 1 (Stratification) *contract*; GaussianHMM is today's *mechanism* for filling it. See `docs/intelligence/intelligence-layer-architecture.md` Stage 1 for alternative stratification mechanisms under consideration. (Not to be confused with the outer `Layer 1`/Prediction of the three-layer AlphaEngine/Portfolio/Execution architecture — different numbering, different scope.)
 
 **Banned:** market condition, market state, market environment
 **Status:** active
@@ -474,7 +486,7 @@ CFL closes Bias Layer 2: before CFL, ML models could only train on signals that 
 
 ### `AlphaEngine`
 
-The v3.0 prediction engine: FeatureFactory → IC Engine → Ensemble → alpha emission. The full Layer 1 of the three-layer architecture. Parametric — measures Spearman IC between each `FeatureVector` column and subsequent forward returns, derives Ledoit-Wolf ensemble weights, scores every bar, emits `alpha_events` when `|alpha_score| > threshold AND ci_lower > 0`.
+The v3.0 prediction engine: FeatureFactory → IC Engine → Ensemble → alpha emission. The full Layer 1 (Prediction) of the four-layer architecture — Layer 0 (Data) → Layer 1 (Prediction) → Layer 2 (Portfolio) → Layer 3 (Execution); see `docs/intelligence/intelligence-alphaengine.md` "Three-Layer Architecture" (name kept for continuity, now describes four layers with Layer 0 made explicit). Parametric — measures Spearman IC between each `FeatureVector` column and subsequent forward returns, derives Ledoit-Wolf ensemble weights, scores every bar, emits `alpha_events` when `|alpha_score| > threshold AND ci_lower > 0`.
 
 Runs entirely in the cold batch layer (weekly IC Engine, nightly Ensemble Builder, nightly Alpha Emitter). FeatureFactory runs in-process on the hot path, writing to `feature_vectors` as a DB sink only.
 
@@ -488,7 +500,93 @@ Runs entirely in the cold batch layer (weekly IC Engine, nightly Ensemble Builde
 
 **Canonical doc:** `docs/plans/2026-06-20-alphaengine-architecture.md`
 
+**Internal stages:** `docs/intelligence/intelligence-layer-architecture.md` breaks this Layer 1
+down further into Stage 0-4 (Primitive Measurement → Stratification → Edge Measurement →
+Combination → Emission), naming each stage's contract separately from its current mechanism.
+"Stage" is used there specifically to avoid colliding with this entry's `Layer 1`.
+
 **Formerly called:** "Intelligence Vectors" (internal working name — avoid)
+
+---
+
+### `Stage 0` (Primitive Measurement)
+
+AlphaEngine's first internal stage. Contract: raw OHLCV bar in, a fixed-width vector of scalar
+measurements out. No theory, no conditioning on state. Current mechanism: `FeatureFactory`
+producing `FeatureVector`.
+
+**Not:** a synonym for `FeatureFactory` — `FeatureFactory` is the mechanism; Stage 0 is the
+contract it fills. Not `Layer 1`/`Layer 2`/`Layer 3` (the outer Prediction/Portfolio/Execution
+architecture) — unrelated numbering scheme, see `AlphaEngine`.
+**Banned:** "measurement layer," "I1-I4" as a stage name (I1-I4 names the legacy plugin-tier
+sub-structure *within* Stage 0's mechanism, not the stage itself)
+**Status:** active (mechanism live); sub-tier taxonomy (`docs/ideas/feature-registry.md`'s
+`0_atomic`/`1_interaction`/`2_theory`) proposed, not built
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
+
+---
+
+### `Stage 1` (Stratification)
+
+AlphaEngine's second internal stage. Contract: the `FeatureVector` corpus in, a discrete
+conditioning-state label per bar out. Current mechanism: `regime`, produced by two coexisting
+implementations — per-symbol `GaussianHMM` and a cross-sectional VIX×breadth model (see
+`MEMORY.md` "Dual Regime System").
+
+**Not:** a synonym for `HMM` or `GaussianHMM` — those are the mechanism; `regime`/Stage 1 is the
+contract. A different classifier (IOHMM, factor-augmented HMM, threshold rules) could fill this
+slot without changing what downstream stages expect from it.
+**Banned:** "HMM layer," "regime layer" as if regime IS the layer rather than its current output
+**Status:** active (mechanism live); alternative stratification dimensions (Volume Regime,
+Skew/Tail Regime) proposed and archived pending an orthogonality proof mechanism that does not
+yet exist (see intelligence-layer-architecture.md's "gaps" section)
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
+
+---
+
+### `Stage 2` (Edge Measurement)
+
+AlphaEngine's third internal stage. Contract: a `FeatureVector` column (optionally stratified by
+a Stage 1 label) plus forward returns in, a predictive statistic with a confidence interval out.
+Current mechanism: `IC Engine`, using Spearman `Information Coefficient`.
+
+**Not:** a synonym for `IC` or `Information Coefficient` — IC is the mechanism; Stage 2 is the
+contract. Mutual information or other nonlinear-dependence measures are real, not-yet-built
+candidates for an additional or alternative mechanism at this stage.
+**Banned:** "IC layer" as if IC IS the layer rather than its current statistic
+**Status:** active (mechanism live)
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
+
+---
+
+### `Stage 3` (Combination)
+
+AlphaEngine's fourth internal stage. Contract: many Stage-2-scored features in, one scalar
+composite score per bar out. Current mechanism: `Ensemble`, IC-Sharpe-weighted with Ledoit-Wolf
+covariance shrinkage, `alpha_score` output.
+
+**Not:** a synonym for `Ledoit-Wolf` or any single `weight_method` — those are mechanisms; Stage 3
+is the contract. This is the one stage where multiple mechanisms already coexist by design:
+`weight_method ∈ {ic_proportional, v1_shrunk, mean_variance}` (142A/142B.1), A/B-judged per
+(timeframe, regime) stratum.
+**Banned:** "ensemble layer" as a mechanism-specific name (fine as a stage description, not as if
+Ledoit-Wolf were the only possible weighting method)
+**Status:** active, multi-mechanism (142A/142B.1 shipped `v1_shrunk`/`mean_variance` as code
+paths; `ensemble_weights` currently holds only `weight_version='v1'` rows — see todo 058)
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
+
+---
+
+### `Stage 4` (Emission)
+
+AlphaEngine's fifth and final internal stage. Contract: a per-bar composite score in, a discrete
+timestamped tradeable event out, gated on magnitude and confidence. Current mechanism: threshold
+crossing — `|alpha_score| > threshold[symbol][tf][regime] AND ci_lower > 0` — writing `alpha_events`.
+
+**Not:** a synonym for "alpha emitter" as a service name — Stage 4 is the contract; the Alpha
+Emitter component is one mechanism fulfilling it.
+**Status:** active (mechanism live)
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
 
 ---
 
@@ -674,7 +772,7 @@ IC = 0.03-0.05 is meaningful in practice. IC = 0.10 is exceptional. IC is always
 
 IC is regime-conditional: the same plugin may have IC = 0.07 in trending regimes and IC = -0.01 in mean-reverting regimes. HMM regime conditions ensemble weights.
 
-**Not:** mutual information (a different information-theoretic measure). Not `calibrated_confidence` (v2.x post-calibration output probability).
+**Not:** mutual information (a different information-theoretic measure — though a candidate for a future *additional* Stage 2 mechanism; see `docs/intelligence/intelligence-layer-architecture.md` Stage 2). Not `calibrated_confidence` (v2.x post-calibration output probability). Not the Edge Measurement stage itself — IC is today's mechanism for that stage's contract, not a synonym for it.
 **Banned:** "predictive power score," "signal quality score" (use `IC` or `information coefficient`)
 **Status:** design (v3.0 Phase B); stored in `feature_ic_scores` table
 

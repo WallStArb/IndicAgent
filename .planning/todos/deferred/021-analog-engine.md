@@ -12,7 +12,10 @@
 # 021 — AnalogEngine (System 2 — Non-Parametric K-NN)
 
 **Priority: Phase D+ — gated on AlphaEngine Phase C showing IC > 0 with p < 0.05.**
-**Plan doc:** `docs/plans/2026-06-20-analogengine-design.md` (AnalogEngine sections are canonical)
+**Plan doc (archived 2026-07-02):** `docs/plans/archive/2026-06-20-analogengine-design.md` — no
+longer canonical; its AnalogEngine sections are superseded by `docs/ideas/intel-13-analog-engine.md`'s
+D4 rescope (AnalogEngine is a predictor family inside the one pipeline, not a second system).
+Read intel-13 first; this doc is kept only for detail not reproduced there.
 
 ---
 

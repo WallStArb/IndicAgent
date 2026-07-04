@@ -1,19 +1,33 @@
 ---
 **Created:** 2026-06-28
+**Superseded:** 2026-07-04 (concept doc archived 2026-07-02; scope absorbed into `docs/ideas/intel-14-integrity-monitor.md`)
 **Area:** intelligence
 **Type:** new_feature
-**Priority:** P2
+**Priority:** N/A — superseded
 **Effort:** 2-3 days
 **Benefit:** Prevents silent ensemble dilution from decayed features; enables automatic feature exclusion
 **Risk:** medium (affects ensemble composition)
-**Gate:** Can run in parallel with primitives expansion
+**Gate:** N/A — superseded
 ---
 
 # 015 — Feature Vector Lifecycle (Demotion + Observability)
 
-**Status:** Pending
-**Priority:** Medium — can run in parallel with primitives expansion; should land before ensemble has 100+ features where undetected decay becomes a real risk
-**Concept doc:** `docs/ideas/feature-vector-lifecycle.md`
+## SUPERSEDED — ABSORBED INTO INTEL-14 (2026-07-04)
+
+This todo's concept doc (`docs/ideas/feature-vector-lifecycle.md`) was archived 2026-07-02: its
+cooldown-based recovery policy was superseded by `docs/ideas/intel-14-integrity-monitor.md`'s
+evidence-based approach (2 consecutive passing corpus runs AND ≥
+`alpha.ic.decay_recovery_min_observations` new independent observations, not a calendar cooldown).
+This todo itself was never updated to point at the successor and kept showing `Status: Pending`
+against a design that was no longer the plan — exactly the "notebook nobody reads" failure mode.
+Not implementing this todo as originally scoped; intel-14 is the live design for wiring feature
+decay detection when that work is picked up. The scope/schema notes below are kept for their
+original problem statement and Scope breakdown, not as a build plan — build against intel-14
+instead.
+
+**Status:** Superseded, not implemented as written
+**Concept doc (archived):** `docs/ideas/archive/feature-vector-lifecycle.md`
+**Successor design:** `docs/ideas/intel-14-integrity-monitor.md`
 
 ## What
 
