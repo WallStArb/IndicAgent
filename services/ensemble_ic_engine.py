@@ -395,13 +395,24 @@ def _row_to_tuple(row: dict[str, Any]) -> tuple[Any, ...]:
 # ---------------------------------------------------------------------------
 
 
-async def _assert_prerequisites(conn: asyncpg.Connection, tfs: list[str] | None = None) -> None:
-    """Three COUNT checks; raise RuntimeError (crash loud) if any is empty."""
-    n_alpha = await conn.fetchval("SELECT count(*) FROM alpha_events")
+async def _assert_prerequisites(
+    conn: asyncpg.Connection, weight_version: str, tfs: list[str] | None = None
+) -> None:
+    """Three COUNT checks; raise RuntimeError (crash loud) if any is empty.
+
+    alpha_events is scoped to weight_version (CR-01, code review): an unscoped count(*)
+    would still pass as long as SOME other weight_version has rows, letting a
+    typo'd/stale --weight-version silently complete with n_rows=0 instead of crashing loud.
+    """
+    n_alpha = await conn.fetchval(
+        "SELECT count(*) FROM alpha_events WHERE weight_version = $1", weight_version
+    )
     if not n_alpha:
         raise RuntimeError(
-            "EnsembleICEngine startup gate FAILED: alpha_events is empty. "
-            "Run Phase B corpus (ensemble_trainer + alpha_publisher) first."
+            f"EnsembleICEngine startup gate FAILED: alpha_events has zero rows for "
+            f"weight_version={weight_version!r}. Run ensemble_trainer.py + "
+            f"alpha_publisher.py with --weight-version {weight_version!r} first, or check "
+            f"for a typo / stale alpha.ensemble.weight_version APR value."
         )
 
     n_fr = await conn.fetchval(
@@ -790,9 +801,9 @@ class EnsembleICEngine(BaseBatch):
             # Per-run weight epoch: CLI --weight-version overrides the APR default so a
             # scoped measurement run (e.g. against an E1/E2 challenger's alpha_events) never
             # silently reads a different weight_version's rows (migration 196 Section 3).
+            champion_weight_version = _cfg(apr_cfg, "alpha.ensemble.weight_version", "v1")
             weight_version = _effective_weight_version(
-                self._weight_version_override,
-                _cfg(apr_cfg, "alpha.ensemble.weight_version", "v1"),
+                self._weight_version_override, champion_weight_version
             )
             self.logger.info("ensemble_ic.weight_version_scoped", weight_version=weight_version)
 
@@ -801,7 +812,7 @@ class EnsembleICEngine(BaseBatch):
             )
             tf_list = [r["tf"] for r in tfs]
 
-            await _assert_prerequisites(conn, tfs=tf_list)
+            await _assert_prerequisites(conn, weight_version, tfs=tf_list)
 
             oos_start_gate_error = RuntimeError(
                 "EnsembleICEngine startup gate FAILED: alpha.validation.oos_start is not set "
@@ -892,7 +903,23 @@ class EnsembleICEngine(BaseBatch):
         # EIC-02: calibrate alpha.frame.hold_max_bars.<regime>.<tf> from the IC decay
         # curve AFTER the serial write completes successfully (this task only adds this
         # post-write calibration phase; the IC computation/write above is Plan 01's).
-        n_keys_written = await self._calibrate_hold_max_bars(pool, corpus_all_results, config)
+        #
+        # Gated on weight_version == champion (CR-02, code review): hold_max_bars feeds
+        # live position-hold execution logic. Without this gate, running this engine
+        # against an unproven E1/E2 challenger (exactly the workflow --weight-version
+        # exists to support, mirroring ops_ensemble_weight_compare.py's champion/challenger
+        # measurement) would silently recalibrate production config from data that hasn't
+        # passed the D-10/D-12 win-decision gate yet.
+        if weight_version == champion_weight_version:
+            n_keys_written = await self._calibrate_hold_max_bars(pool, corpus_all_results, config)
+        else:
+            self.logger.info(
+                "ensemble_ic.hold_max_bars_calibration_skipped",
+                reason="scoped_weight_version_run",
+                weight_version=weight_version,
+                champion_weight_version=champion_weight_version,
+            )
+            n_keys_written = 0
 
         manifest.write()
         self.logger.info(

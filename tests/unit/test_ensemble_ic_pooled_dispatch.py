@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -28,6 +29,7 @@ from services.ensemble_ic_engine import (
     _POOLED_WORKER_FETCH_SQL,
     _WORKER_FETCH_SQL,
     _aggregate_pooled_series,
+    _assert_prerequisites,
     build_ensemble_ic_row,
 )
 
@@ -205,3 +207,31 @@ class TestWeightVersionScoping:
             weight_version="v1_shrunk",
         )
         assert row["weight_version"] == "v1_shrunk"
+
+
+class TestAssertPrerequisitesWeightVersionScoped:
+    """Regression guard for CR-01 (code review, 142B.1-REVIEW.md): _assert_prerequisites'
+    alpha_events emptiness check must be scoped to the resolved weight_version. An unscoped
+    count(*) would pass as long as SOME other weight_version has rows, letting a
+    typo'd/stale --weight-version silently complete with zero measured rows instead of
+    crashing loud -- exactly the failure class this module's docstring says it prevents."""
+
+    @pytest.mark.asyncio
+    async def test_raises_when_alpha_events_empty_for_weight_version(self):
+        conn = AsyncMock()
+        conn.fetchval.return_value = 0
+
+        with pytest.raises(RuntimeError, match="weight_version='v1_shrunk'|v1_shrunk"):
+            await _assert_prerequisites(conn, "v1_shrunk", tfs=["5m"])
+
+    @pytest.mark.asyncio
+    async def test_alpha_events_count_query_is_scoped_by_weight_version_param(self):
+        conn = AsyncMock()
+        conn.fetchval.return_value = 5
+
+        await _assert_prerequisites(conn, "v1_shrunk", tfs=["5m"])
+
+        first_call = conn.fetchval.call_args_list[0]
+        query_text = first_call.args[0]
+        assert "weight_version" in query_text
+        assert first_call.args[1] == "v1_shrunk"

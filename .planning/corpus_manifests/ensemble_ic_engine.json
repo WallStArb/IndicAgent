@@ -1,11 +1,13 @@
 {
   "step_name": "ensemble_ic_engine",
   "step_version": "1.0",
-  "timestamp": "2026-07-03T10:02:30.777477+00:00",
-  "status": "partial",
+  "timestamp": "2026-07-04T13:05:47.797601+00:00",
+  "status": "failed",
   "inputs": {},
   "outputs": {},
-  "errors": [],
+  "errors": [
+    "EnsembleICEngine startup gate FAILED: alpha_events has zero rows for weight_version='nonexistent_variant'. Run ensemble_trainer.py + alpha_publisher.py with --weight-version 'nonexistent_variant' first, or check for a typo / stale alpha.ensemble.weight_version APR value."
+  ],
   "warnings": [
     "No outputs recorded"
   ]
