@@ -13,12 +13,13 @@ from datetime import datetime
 
 EXPECTED_TFS = {"5m", "15m", "1h", "1d"}
 PSQL = "PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent"
-N_ETF_SYMBOLS = 58
 
 
 def query(sql: str) -> list[list[str]]:
     cmd = f"{PSQL} -t -A -F'|' -c \"{sql}\""
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"query failed: {sql!r}\n{result.stderr}")
     rows = [line.split("|") for line in result.stdout.strip().splitlines() if line.strip()]
     return rows
 
@@ -26,6 +27,18 @@ def query(sql: str) -> list[list[str]]:
 def scalar(sql: str, default: str = "0") -> str:
     rows = query(sql)
     return rows[0][0] if rows else default
+
+
+def _n_etf_symbols() -> int:
+    """Live active-equity-instrument count — was a hardcoded 58, silently stale once the
+    universe grew to 80 (22 new symbols added 2026-07-04, see the full-depth backfill plan)."""
+    return int(
+        scalar(
+            "SELECT COUNT(*) FROM instruments "
+            "WHERE is_active AND contract_details->>'asset_class' = 'equity'",
+            default="58",
+        )
+    )
 
 
 def bar(done: int, total: int, width: int = 40) -> str:
@@ -43,6 +56,8 @@ def main() -> None:
     print()
     print(f"  v3.0 Corpus Pipeline Progress — {now}")
     print(f"  {'─' * 60}")
+
+    N_ETF_SYMBOLS = _n_etf_symbols()
 
     # ------------------------------------------------------------------
     # Step 1 — Feature Factory: feature_vectors rows
@@ -76,15 +91,17 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # Step 3 — Forward Return Writer: feature_vectors rows with return_fast filled
+    # Step 3 — Forward Return Writer: forward_returns rows (separate table from
+    # feature_vectors — there is no return_fast column on feature_vectors itself;
+    # querying that nonexistent column used to error and get silently masked as 0%)
     # ------------------------------------------------------------------
     fwd_pairs = int(
         scalar(
-            "SELECT COUNT(DISTINCT (symbol, tf)) FROM feature_vectors WHERE return_fast IS NOT NULL"
+            "SELECT COUNT(DISTINCT (symbol, tf)) FROM forward_returns WHERE return_fast IS NOT NULL"
         )
     )
     fwd_symbols = int(
-        scalar("SELECT COUNT(DISTINCT symbol) FROM feature_vectors WHERE return_fast IS NOT NULL")
+        scalar("SELECT COUNT(DISTINCT symbol) FROM forward_returns WHERE return_fast IS NOT NULL")
     )
     print(
         step_bar(
@@ -133,9 +150,22 @@ def main() -> None:
     print()
 
     # ------------------------------------------------------------------
-    # Current step detail
+    # Current step detail — each step's own completion (step_pairs >= total_pairs,
+    # or the row-count check for steps 5/6) gates the next, in strict DAG order.
+    # Previously this fell through to "Pipeline COMPLETE" off ae_rows > 0 alone,
+    # which is stale rows from a prior run, not evidence steps 1-4 finished this
+    # run — the exact silent-wrong-answer this project's principles forbid.
     # ------------------------------------------------------------------
-    if regime_pairs < total_pairs and fv_pairs >= total_pairs:
+    step1_done = fv_pairs >= total_pairs
+    step2_done = regime_pairs >= total_pairs
+    step3_done = fwd_pairs >= total_pairs
+    step4_done = ic_symbols >= N_ETF_SYMBOLS
+    step5_done = ew_rows > 0
+    step6_done = ae_rows > 0
+
+    if not step1_done:
+        print("  Active: Step 1 — Feature Factory")
+    elif not step2_done:
         print("  Active: Step 2 — Regime Writer")
         regime_done_syms = [
             r[0]
@@ -156,18 +186,16 @@ def main() -> None:
                 f"  Next up: {', '.join(regime_pending[:5])}{'...' if len(regime_pending) > 5 else ''}"
             )
         print()
-    elif fwd_pairs < total_pairs and regime_pairs >= total_pairs:
+    elif not step3_done:
         print("  Active: Step 3 — Forward Return Writer")
-    elif ic_symbols < N_ETF_SYMBOLS and fwd_pairs >= total_pairs:
+    elif not step4_done:
         print("  Active: Step 4 — IC Engine")
-    elif ew_rows == 0 and ic_symbols >= N_ETF_SYMBOLS:
+    elif not step5_done:
         print("  Active: Step 5 — Ensemble Trainer")
-    elif ae_rows == 0 and ew_rows > 0:
+    elif not step6_done:
         print("  Active: Step 6 — Alpha Publisher")
-    elif ae_rows > 0:
-        print("  Pipeline COMPLETE")
     else:
-        print("  Active: Step 1 — Feature Factory")
+        print("  Pipeline COMPLETE")
     print()
 
 

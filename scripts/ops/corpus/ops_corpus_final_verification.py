@@ -35,7 +35,6 @@ _logger = structlog.get_logger(__name__)
 
 REQUIRED_STEPS = ["ic_engine", "ensemble_trainer", "alpha_publisher"]
 REQUIRED_TFS = ["5m", "15m", "1h", "1d"]
-REQUIRED_SYMBOL_COUNT = 58
 
 
 def main() -> None:
