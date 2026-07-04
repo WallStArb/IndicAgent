@@ -1585,7 +1585,7 @@ Exit triggers in priority order: (1) stop hit (`low <= stop_price`); (2) target 
 
 ---
 
-### Phase 142B.1: Ensemble Weighting Methodology 📋 PLANNED (INSERTED)
+### Phase 142B.1: Ensemble Weighting Methodology ✅ COMPLETE (2026-07-04)
 
 **Goal:** Replace `ensemble_trainer.py`'s IC-proportional weighting with better-validated alternatives, judged by Phase 142A's `EnsembleICEngine` on OOS data. Full rationale: `.planning/research/2026-07-01-v3-architecture-review.md` §2, §6.
 
