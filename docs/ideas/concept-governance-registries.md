@@ -3,7 +3,7 @@
 **Status**: Partially built — four registries live, two to build
 **Created**: 2026-06-28
 **Informed by**: `.planning/research/2026-07-01-v3-architecture-review.md` (Fable 5) — Domains table gate-metric corrections and MVP build-trigger reassessment (2026-07-02) trace back to that review's ensemble-weighting and HMM-variant findings.
-**Refreshed**: 2026-07-01 — critical re-architecture of Concept Registry; recipe-card framing, concepts-vs-facts boundary, gate-vs-annotation discipline rule; Concept Registry's full spec re-merged into this doc after a same-day split/re-unify (kept as one unified research doc, not an index + satellite file); renamed from "Metadata Governance Registry System" — "metadata" undersold what this actually is: reference (identity/knowledge) *and* lifecycle (active governance — promote, demote, prove), not passive descriptive data. **2026-07-02** — Domains table's `ensemble_strategy`/`hmm_variant` gate metrics corrected against concrete decisions made the same session (Phase 142B.1 insertion, todo 026's Decision Gate) — see §Domains footnotes; MVP build-trigger domain #2 reassessed from an assumed `alpha_pattern` default to `ensemble_strategy` as the more concrete and lower-risk near-term candidate (item 20); the IOHMM and factor-augmented HMM variants' real dependency on Phase 151's `regime_group` signal modules identified and fixed at the source doc. Also dropped this doc's own stray references to the regime-stratification doc's old, now-retired `P1`-`P8` numbering (see that doc's 2026-07-02 update — those codes looked like priority tiers but weren't, and collided with `todo 026`'s legitimate, unrelated `P4a`/`P4b` priority codes).
+**Refreshed**: 2026-07-01 — critical re-architecture of Concept Registry; recipe-card framing, concepts-vs-facts boundary, gate-vs-annotation discipline rule; Concept Registry's full spec re-merged into this doc after a same-day split/re-unify (kept as one unified research doc, not an index + satellite file); renamed from "Metadata Governance Registry System" — "metadata" undersold what this actually is: reference (identity/knowledge) *and* lifecycle (active governance — promote, demote, prove), not passive descriptive data. **2026-07-02** — Domains table's `ensemble_strategy`/`hmm_variant` gate metrics corrected against concrete decisions made the same session (Phase 142B.1 insertion, todo 026's Decision Gate) — see §Domains footnotes; MVP build-trigger domain #2 reassessed from an assumed `alpha_pattern` default to `ensemble_strategy` as the more concrete and lower-risk near-term candidate (item 20); the IOHMM and factor-augmented HMM variants' real dependency on Phase 144's `regime_group` signal modules identified and fixed at the source doc. Also dropped this doc's own stray references to the regime-stratification doc's old, now-retired `P1`-`P8` numbering (see that doc's 2026-07-02 update — those codes looked like priority tiers but weren't, and collided with `todo 026`'s legitimate, unrelated `P4a`/`P4b` priority codes).
 **Type**: Architecture pattern + design
 
 ---
@@ -42,8 +42,9 @@ Three types, distinguished by what drives state changes:
 - **Concept Registry** — generalized lifecycle governance for all research domains _(to build; absorbs Feature Registry only, for now)_
 
 **Type 3 — Vocabulary** (static taxonomy): codes/labels with metadata, no lifecycle states.
-- **Tag Vocabulary** — 6 categories, 301 instrument tags
+- **Tag Vocabulary** — 6 categories, 71 tags, 410 instrument assignments (live-verified 2026-07-04; the "301 tags" figure previously stated here matched neither table)
 - **Controlled Vocabulary** — domain enums _(to build; design at `docs/ideas/controlled-vocabulary.md`)_
+- **Security Classification** — hierarchical instrument classification: strict external schemes (GICS) as new effective-dated tables, soft custom taxonomies via `tag_vocabulary.parent_tag` _(future, unscheduled, gated on individual-equities onboarding; design at `docs/ideas/platform-09-security-classification-hierarchy.md` — a Type 3 sibling by taxonomy, deliberately not a shared implementation with the other two)_
 
 ---
 
@@ -55,7 +56,7 @@ Type 2/3 registries only — APR (Type 1) is the origin analogy for this whole f
 |---|---|---|---|---|
 | Feature Registry | `feature_registry`, `feature_transition_log` | 61 features | IC Sharpe + FDR | Governance only — no knowledge layer; gate params conflated in registry row; migrates to Concept Registry |
 | Shadow Registry | `shadow_registry`, `shadow_transition_log` | 36 components | EV[R] bootstrap CI | Legacy — v2.x I1-I7 plugin/swarm governance, no live systemd consumer, never evaluated (`last_eval_at` NULL). Not migrating; no live domain to absorb it into |
-| Tag Vocabulary | `tag_vocabulary`, `instrument_tags`, `instrument_annotations` | 301 tags | Human curation | — |
+| Tag Vocabulary | `tag_vocabulary`, `instrument_tags`, `instrument_annotations` | 71 tags / 410 assignments | Human curation | — |
 
 ---
 
@@ -146,6 +147,27 @@ already planned and Renaissance-reviewed), and the only upstream dependency is P
 completing — a phase already in flight, not a speculative future capability. `ensemble_strategy`
 may reach the build trigger before `alpha_pattern` does.
 
+**Trigger fired (2026-07-04):** Phase 142B.1 is complete. Tracked at
+`.planning/todos/pending/058-concept-registry-mvp-seed-ensemble-strategy.md` — do not let this
+drift; the 2026-07-04 cluster review (F1) found the trigger had fired with no work item tracking
+it, which is exactly the "notebook nobody reads" failure mode this registry exists to prevent,
+now happening to the registry itself. `ensemble_weights` holds only `weight_version='v1'` as of
+this date — E1/E2 shipped as code paths (`shrinkage.py`, `mean_variance_weights()`), not as rows;
+E3/E4 have theses but no eval mechanism yet (F7). Seeding also surfaced two open design questions
+that must be resolved before the first migration, not after (F2, F3 below).
+
+**Per-stratum status (F2, 2026-07-04):** the MVP's single global `status` column cannot represent
+`ensemble_strategy`'s reality — `ops_ensemble_weight_compare.py` (142B.1-05) selects a champion
+weighting method *per (tf, regime) stratum*, so two variants can be simultaneously legitimate.
+`regime_model` (intel-12) has the identical need at (dimension, regime_group) grain. Resolution
+adopted for `ensemble_strategy`: `status` governs recipe validity (has this weighting method ever
+earned a win anywhere); per-stratum champion stays a *fact*, living in `ensemble_weights` as
+today, not in `concept_registry`; `redundancy_group`'s "only one holds active" displacement rule
+is disabled for this domain (competing weighting strategies are the normal state here, resolved
+per stratum by the A/B judge, not by registry displacement). `regime_model` is provisionally
+expected to need the opposite resolution — one `concept_registry` row per (dimension,
+regime_group), preserving single-status semantics — decide for real at v3.15 planning.
+
 This changes more than timing. `ensemble_strategy`'s E1-E4 candidates are **human-authored**, not
 AI-proposed — which means the six self-improvement invariants below (proposal/decision
 separation, re-evaluation integrity, proposal budgets, proposer track-record, demotion symmetry,
@@ -166,13 +188,15 @@ retired`), gates, provenance, and decay governance — that is a Concept Registr
 refreshed. **Rule to prevent divergence:** if intel-10 reaches build stage before Concept Registry
 exists, its lifecycle tables ARE the Concept Registry MVP instantiated for one domain — build them
 in the four-table generalized shape (concept_registry/concept_gate/concept_transition_log/
-concept_annotation), not as bespoke confluence tables that need migrating later. One mapping
-question to settle at build time: intel-10 uses a `decaying` *status* (weight-consumers stop
-reading, but the concept still fires and records occurrences); this registry deliberately has no
-such status — decay lives in `decay_ratio` + demotion. intel-10's `decaying` is closest to
-`shadow_only` re-entered from `active` (live-observed, not acted on), which suggests the enum
-survives unchanged and `decaying` is a transition pattern, not a new state — but decide against
-that domain's real needs, not by assertion here.
+concept_annotation), not as bespoke confluence tables that need migrating later. **Settled
+(2026-07-04, per intel-10 v3 / 2026-07-03 Fable review F4):** intel-10 uses a `decaying` *status*
+(weight-consumers stop reading, but the concept still fires and records occurrences); this
+registry has no such status — decay lives in `decay_ratio` + demotion. `decaying` maps onto
+`shadow_only` re-entered from `active` (live-observed, not acted on) — a transition pattern, not a
+new enum value; `retired` maps onto `deprecated`. The enum survives unchanged as
+`candidate/shadow_only/active/deprecated`. (This paragraph previously left the mapping as a
+build-time open question; intel-10 v3 has since stated it as settled fact, so the hedge here was
+stale — see `.planning/research/2026-07-04-concept-registry-cluster-fable-review.md` F4.)
 
 ### Promotion/Demotion Design for Autonomous Self-Improvement
 
@@ -180,7 +204,7 @@ This is the part of the design that's actually worth thinking hard about now, be
 
 **1. Proposal and decision are different roles, and the schema must make that structural, not conventional.** An AI agent may create a `concept_registry` row (`status='candidate'`), write its `thesis` annotation (`source='ai'`), even suggest a gate. It may never write to `status` directly. Only the deterministic evaluation engine — a fixed code path with no LLM in it, reading only `concept_gate` and eval results — flips `status`. This is the gate-proves/annotation-explains discipline rule from above, but stated as an access-control invariant instead of a convention: an AI that can write a persuasive `thesis` must be structurally incapable of using that same persuasiveness to promote itself. In practice: the promotion function is a plain SQL transaction or a narrowly-scoped service method: no agent, human or AI, gets a code path that both writes annotation content and flips status in the same call.
 
-**2. Re-evaluation must consume new evidence, not re-roll the same dice.** An autonomous proposer that can resubmit the same candidate for re-evaluation indefinitely will eventually clear a p<0.05 gate by chance alone — the look-elsewhere effect, but self-inflicted by the system itself rather than by an external researcher p-hacking. The fix doesn't need `concept_eval_run`'s full provenance machinery to work at the minimal-version scale: it needs one constraint — a concept cannot be evaluated twice against the same corpus build. `concept_transition_log` already has `triggered_at`; enforcing "the corpus must have advanced since the last eval" (even just a monotonic build identifier compared against the log's last row) closes this without adding a table.
+**2. Re-evaluation must consume new evidence, not re-roll the same dice.** An autonomous proposer that can resubmit the same candidate for re-evaluation indefinitely will eventually clear a p<0.05 gate by chance alone — the look-elsewhere effect, but self-inflicted by the system itself rather than by an external researcher p-hacking. **Corrected (2026-07-04, cluster review F3):** "the corpus must have advanced since the last eval" is not by itself a strong enough guard — this project's corpus rebuilds every few days on mostly-overlapping windows, and intel-14/ROADMAP Phase 143 already adjudicated the identical problem for feature-recovery evidence, rejecting corpus-advance alone for exactly this reason ("rebuilds run days apart on mostly-overlapping windows, so two passes can double-count the same fluke") and adopting a floor of ≥ `alpha.ic.decay_recovery_min_observations` (2000) *new independent observations* instead. Invariant 2 adopts the same standard, generalized: re-evaluation is permitted only once ≥ N new independent observations (a per-domain `concept_gate` field, APR-keyed, same family as the recovery floor) have accrued since the concept's last evaluation; corpus-advance is kept as a cheap necessary-but-not-sufficient precondition, not the whole guard. This requires one column beyond the four-table MVP as originally scoped: `concept_transition_log` needs a `corpus_build_ref` (the existing CorpusManifest identity, per the reference-architecture note below — the MVP correctly omits `concept_eval_run`, but omitting the column too leaves this invariant enforcing against bare `triggered_at` timestamps, weaker than intended).
 
 **3. Proposal volume needs a budget, even at minimal-version scale.** A human researcher self-limits by how many ideas they can physically generate; an AI agent doesn't. Before self-improvement is live, decide a cap — e.g. N new `candidate` rows per domain per day/week from `source='ai'` — enforced at the service layer, not the schema. This is cheap to add now (one config value, `alpha.concept_registry.max_ai_candidates_per_period`, APR-backed per this project's own convention) and expensive to discover the need for after an agent has flooded the registry with a thousand low-quality candidates overnight.
 
@@ -226,6 +250,9 @@ Identity and current state. Changes almost never. Owned by operator/migration.
 CREATE TABLE concept_registry (
     concept_id        UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
     domain            TEXT    NOT NULL
+        -- 7 values today (2026-07-04). `confluence` and an embedding/analog-substrate domain are
+        -- anticipated (see Domains table below) but not added until each has real candidates —
+        -- keep this list and that table in sync when either lands.
         CHECK (domain IN ('feature', 'alpha_pattern', 'hmm_variant', 'ic_method',
                            'ensemble_strategy', 'regime_model', 'feature_interaction')),
     name              TEXT    NOT NULL,
@@ -562,17 +589,38 @@ Knowledge layer tables (annotation, dependency, regime_ic, correlation) are read
 |---|---|---|---|
 | `feature` | IC Sharpe + FDR | Walk-forward | Intelligence vector features (migrated from feature_registry) |
 | `feature_interaction` | IC Sharpe + FDR | Walk-forward | Interaction feature candidates before FeatureVector column |
-| `alpha_pattern` | IC Sharpe | OOS holdout | Alpha signal ideas competing for ensemble inclusion |
+| `alpha_pattern` | IC Sharpe | OOS holdout | **Reserved, pending definition (2026-07-04, F6)** — see note below; do not route proposals here until defined |
 | `hmm_variant` | Held-out log-likelihood† | OOS holdout | HMM architecture variants (covariance structure, obs vector, K) |
 | `ic_method` | Walk-forward IC stability | Walk-forward | IC calculation variants (Spearman, rank-IC, HAC methods) |
 | `ensemble_strategy` | Ensemble IC (`ic_ci_lower`, stable walk-forward folds)‡ | OOS, via EnsembleICEngine | Ensemble weighting strategies |
 | `regime_model` | Cross-validated accuracy | Walk-forward | Regime classification model variants |
+| `confluence` (anticipated, not in CHECK yet) | Gates 1-6 (marginal lift, BH-FDR, walk-forward, calibration, cost hurdle, OOS) | Shadow-mode proof, `n>=100 AND bootstrap_ci_lower(pnl_r)>0` | Empirically validated joint conditions over primitives/analog neighborhoods — `docs/ideas/intel-10-confluence-detection-persistence-layer.md`. Added to CHECK once Phase 150/analog predictors produce real candidates (per that doc's Governance section), not before. |
 
-Each row here becomes a `concept_gate_template` row at build time — this table is now literally the seed data for that table, not just documentation of intent. An eighth domain, `feature_interaction`'s eventual promoted-survivor storage from Interaction Factory (`docs/ideas/interaction-factory.md`), is already covered by the `feature_interaction` row above — no separate `compound_primitive_registry` table needed once Concept Registry exists.
+**`alpha_pattern` note (2026-07-04, F6):** originally "alpha signal ideas competing for ensemble
+inclusion" — since drifted into a vestigial superset once concrete predictor families got their
+own crisper homes: dense deterministic transforms → `feature_interaction`; sparse conditional
+predictors carrying a calibrated return distribution → `confluence`; retrieval-derived columns →
+intel-13's predictors at `feature` grain. Handing an ambiguous catch-all domain to an eventual
+autonomous proposer is the worst bucket for invariant 3's volume budget to govern (the budget caps
+count, not category confusion). Reserved pending a residual definition (e.g. emission-rule
+recipes distinct from the predictors themselves, if that's ever a governed thing) rather than
+defined now, since it currently has zero candidates and no proposer exists yet to misuse it.
+
+**Anticipated eighth-plus domain — embedding/analog-substrate recipes:** intel-13 (OQ6) and todo
+055 (Phase 148's `embedding_feature_registry`) both expect a `concept_registry` row per embedding
+recipe (feature set, normalization, ordering). This does not fit any of the seven domains above.
+Name it at v3.2 (AnalogEngine) planning — `embedding_spec` or a widened `feature` reading — and add
+it here before either consumer builds against an undefined domain (2026-07-04, F5.3).
+
+Each row here becomes a `concept_gate_template` row at build time in the reference architecture, or
+per-concept `concept_gate` rows under the MVP (the ten-table `concept_gate_template` itself is
+deliberately not part of the four-table MVP — see "Minimal Viable Version" above; do not seed that
+table from this one until the MVP graduates to the reference architecture). An eighth domain,
+`feature_interaction`'s eventual promoted-survivor storage from Interaction Factory (`docs/ideas/interaction-factory.md`), is already covered by the `feature_interaction` row above — no separate `compound_primitive_registry` table needed once Concept Registry exists.
 
 **† `hmm_variant` gate note (added 2026-07-02, checked against live decisions):** held-out log-likelihood remains the right *per-candidate* eval metric once an HMM variant is actually built and compared. But it is not the *build trigger* — todo 026's Decision Gate is a regime-IC separation query on the current per-symbol HMM labels (`regime-IC gap < 0.01` escalates to justifying a variant; `> 0.05` means current labels are fine, don't build). Two different gates at two different decision points, both real: the Decision Gate decides *whether* to spend effort on a variant at all; held-out LL (or a domain-appropriate substitute) decides whether a built variant is actually better. Neither table row nor `concept_gate_template` currently has room for a build-trigger gate distinct from a promotion gate — worth a note if `hmm_variant` ever reaches the MVP build trigger, not a reason to change the MVP schema now (no live candidates in this domain yet).
 
-**‡ `ensemble_strategy` gate note (added 2026-07-02):** this row originally guessed "Realized Sharpe" before any concrete ensemble-methodology mechanism existed. Phase 142B.1 (`ROADMAP.md`, inserted 2026-07-01/02 from `.planning/research/2026-07-01-v3-architecture-review.md` §2) now defines the actual mechanism: every weighting variant (IC-proportional, mean-variance `Σ⁻¹·IC`, hierarchical partial-pooling, per-feature decay) is a new `weight_version` in the existing `ensemble_weights` PK, A/B'd by Phase 142A's `EnsembleICEngine` on OOS data — an IC-based gate, consistent with every other domain in this table and with Invariant 1 (executable-return IC is the platform's standard evidentiary currency), not a Sharpe-based one. Corrected to match. This is informal practice today (142B.1 doesn't use `concept_registry` — Concept Registry has no live consumer in this domain), but if/when `ensemble_strategy` reaches its MVP build trigger, this is the gate to seed `concept_gate_template` with.
+**‡ `ensemble_strategy` gate note (added 2026-07-02, updated 2026-07-04):** this row originally guessed "Realized Sharpe" before any concrete ensemble-methodology mechanism existed. Phase 142B.1 (`ROADMAP.md`, inserted 2026-07-01/02 from `.planning/research/2026-07-01-v3-architecture-review.md` §2) defines the actual mechanism: every weighting variant (IC-proportional, mean-variance `Σ⁻¹·IC`, hierarchical partial-pooling, per-feature decay) is a new `weight_version` in the existing `ensemble_weights` PK, A/B'd by Phase 142A's `EnsembleICEngine` on OOS data — an IC-based gate, consistent with every other domain in this table and with Invariant 1 (executable-return IC is the platform's standard evidentiary currency), not a Sharpe-based one. **Status as of 2026-07-04: Phase 142B.1 is complete.** The deterministic judge is `ops_ensemble_weight_compare.py` (142B.1-05) — a win-decision gate, per-stratum (tf, regime), regime-caveat tagged (see the per-stratum-status note above). `ensemble_weights` holds only `weight_version='v1'` as of this date; E1/E2 exist as shipped code paths, not as separate rows; E3/E4 exist only as theses. Seeding lands in per-concept `concept_gate` rows under the MVP, not `concept_gate_template` (reference-architecture only) — tracked at todo 058.
 
 ---
 
@@ -636,9 +684,17 @@ What was already right and left unchanged: `trigger_reason` in `concept_transiti
 15. **The evaluation engine is load-bearing and unspecified.** All six self-improvement
     invariants delegate to "the deterministic evaluation engine" — no doc names the service,
     its cadence, its Ring placement, or oneshot-vs-daemon shape. The ten tables are storage;
-    the engine is the system. This is an acknowledged open gap, to be specced when the MVP
-    build trigger fires — likely a `BaseBatch` oneshot per this project's conventions, but
-    that's a guess, not a decision.
+    the engine is the system. **Two-thirds resolved (2026-07-04, cluster review F5.1):** intel-14
+    has since decided this for `domain='feature'` — no daemon, no module; the transition writer is
+    a post-run hook inside `ic_engine` calling a narrowly-scoped registry service method,
+    explicitly reasoned from this doc's invariant 1 (status changes can only happen through a
+    deterministic code path with no LLM in it) and adopted into ROADMAP Phase 143 2026-07-03. For
+    `ensemble_strategy`, the engine already shipped in practice: `ops_ensemble_weight_compare.py`'s
+    win-decision gate is the deterministic code path invariant 1 requires. The original "likely a
+    `BaseBatch` oneshot" guess is superseded — status changes belong at the end of the measurement
+    run that produces new evidence, not on an independent timer. Still open: whether every future
+    domain's engine takes this same end-of-run-hook shape, or whether some domain's eval cadence
+    genuinely needs its own scheduled scan.
 16. **`corpus_build_ref` doesn't need inventing** — the live CorpusManifest system is the
     identifier. Noted inline at `concept_eval_run`.
 17. **`regime_scope` needs a dimension qualifier** before additional stratification dimensions
@@ -675,16 +731,21 @@ What was already right and left unchanged: `trigger_reason` in `concept_transiti
     a *built* variant, but todo 026's Decision Gate (regime-IC-separation query) is a distinct,
     earlier build-trigger gate the original row didn't distinguish.
 22. **The IOHMM and factor-augmented HMM variants (`docs/plans/2026-07-01-regime-stratification-alternatives.md`) turned out to
-    have a real structural dependency on `regime_group` (Phase 151) that neither doc had stated.**
-    IOHMM's exogenous inputs (VIX, breadth, yield spread) are literally Phase 151's signal-module
+    have a real structural dependency on `regime_group` (Phase 144, renumbered 2026-07-04 —
+    originally 151) that neither doc had stated.**
+    IOHMM's exogenous inputs (VIX, breadth, yield spread) are literally Phase 144's signal-module
     outputs (`breadth_vol.compute()`, `curve_credit.compute()`); the factor-augmented variant's
-    "cross-sectional factor returns" reuses Phase 151's peer-resolution mechanism
+    "cross-sectional factor returns" reuses Phase 144's peer-resolution mechanism
     (`_resolve_group_symbols`) rather than needing a bespoke factor definition. Captured in that doc's HMM Variants section, not just here — this
     is a content fix to the source doc, not a pointer to it.
 
 ### Dependency
 
 Defer until a second domain has real candidates ready to govern — no longer assumed to be `alpha_pattern` by default; see item 20 above. `ensemble_strategy` (Phase 142B.1) is the more concrete near-term candidate and the lower-risk one to build the MVP against first. Build the Minimal Viable Version informed by whichever domain actually gets there first.
+
+**Status update (2026-07-04):** Phase 142B.1 is complete — the build trigger has fired. Tracked at
+`.planning/todos/pending/058-concept-registry-mvp-seed-ensemble-strategy.md`; do not let this defer
+indefinitely (2026-07-04 cluster review, F1).
 
 ---
 

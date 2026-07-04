@@ -3,7 +3,7 @@
 **Version:** 1.0
 **Status:** draft — consolidated from the pre-v3.0 AnalogEngine doc set for independent iteration
 **Priority:** high (v3.2 build surface; the second information source this system has beyond parametric features)
-**Milestone:** v3.2 Signal Diversification — AnalogEngine + Feature Expansion (Phases 145-147, gated on v3.1 OOS IC > 0)
+**Milestone:** v3.2 Signal Diversification — AnalogEngine + Feature Expansion (Phases 148-150, renumbered 2026-07-04 — originally 145-147, gated on v3.1 OOS IC > 0)
 **Last Updated:** 2026-07-02
 **Tags:** pgvector, embedding, retrieval, analog, non-parametric, predictor, measurement-engine, ic
 **Source:** `.planning/research/2026-07-02-v3-topdown-architecture.md` §1.2, §2.5, §3 (D4) — Author: Fable 5. Consolidates five pre-v3.0 idea docs and one design doc (see References).
@@ -215,7 +215,7 @@ A consumer never builds before the substrate it reads. The substrate itself shou
 3. **Rolling-window length for per-feature standardization.** Long enough to be stable, short enough to track regime change — genuinely needs empirical calibration once real data flows, default `analog.embedding.normalization_window_days = 90` is a placeholder, not a result.
 4. **Null-result distance threshold** (`analog.retrieval.max_distance`, default 0.25) — same story, needs calibration against the first meaningful window of real bar embeddings before it means anything.
 5. **Does IC-weighted candidate re-ranking ever get built**, or does plain-cosine retrieval prove sufficient once analog predictors are measured? Per the sequencing discipline above, this should not be built speculatively — only once plain-cosine analog predictors have demonstrated IC and someone can show re-ranking measurably improves it.
-6. **Embedding-version migration policy.** On a version bump: re-embed all history (expensive, full comparability) or carry forward and let the comparable window grow from the bump date? Coupled question: embedding membership (all 54+ `feature_vectors` columns, or a curated subset?) is the versioned recipe itself, one `concept_registry` row per `embedding_version` per D9; note that IC-informed membership selection is a milder form of the rejected bake-IC-into-vectors alternative and changes what "similar" means, so it needs the same scrutiny.
+6. **Embedding-version migration policy.** On a version bump: re-embed all history (expensive, full comparability) or carry forward and let the comparable window grow from the bump date? Coupled question: embedding membership (all 54+ `feature_vectors` columns, or a curated subset?) is the versioned recipe itself, one `concept_registry` row per `embedding_version` per D9; note that IC-informed membership selection is a milder form of the rejected bake-IC-into-vectors alternative and changes what "similar" means, so it needs the same scrutiny. **Open per 2026-07-04 cluster review (F5.3):** an embedding recipe doesn't fit any of `concept-governance-registries.md`'s seven current domains — that doc now carries an "anticipated eighth-plus domain" note for this, to be named (`embedding_spec` or a widened `feature` reading) at v3.2 planning rather than assumed into an undefined domain here.
 7. **Distance-weighting kernel.** Inverse distance, Gaussian kernel, or rank-based, for the distance-weighted sub-scores? All defensible; pick one at build time, measure calibration, revisit. Carried over verbatim from the scoring doc's own open list because it directly shapes every sub-score value.
 
 ---
@@ -235,4 +235,4 @@ A consumer never builds before the substrate it reads. The substrate itself shou
 - `docs/foundation/principles.md` — the "one model, one book" invariant this doc's rescope is a
   direct application of (promoted 2026-07-03 from `docs/ideas/archive/intel-11-dual-system-discrete-vs-portfolio.md`)
 - `docs/ideas/intel-12-stratification-dimension.md` — hard sequencing prerequisite; regime labels this substrate hard-filters on
-- ROADMAP.md v3.2 entry (Phases 145-147)
+- ROADMAP.md v3.2 entry (Phases 148-150, renumbered 2026-07-04 — originally 145-147)

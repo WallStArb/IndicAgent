@@ -98,6 +98,7 @@ salvageable into v3.0's Feature Factory / Phase 150 — check before assuming de
 | [platform-06: Service Resilience Patterns](platform-06-service-resilience.md) | draft, low (Pattern 1 shipped) | Circuit breaker (Pattern 1) already elevated to Phase 084 |
 | [platform-07: Persistence Fragility](platform-07-persistence-fragility.md) | draft, high | Assessment of persistence-layer weak points |
 | [platform-08: Architectural Weaknesses](platform-08-architectural-weaknesses.md) | under-review, high | General weakness assessment — cross-check against `docs/ideas/2026-07-01-intelligence-lifecycle-backlog-matrix.md` and the 2026-07-02 topdown/bottomup reviews, which supersede parts of this for the v3.0 layer specifically |
+| [platform-09: Security Classification Hierarchy](platform-09-security-classification-hierarchy.md) | draft, medium (build gated on individual-equities onboarding) | GICS-style strict layer (3 new effective-dated tables) + custom soft taxonomies as `tag_vocabulary.parent_tag`; two epistemic models, deliberately not one tree (Author: Fable 5) |
 
 ---
 

@@ -8,6 +8,7 @@
 **Tags:** regime, stratification, conditioning, governance, hmm, concept-registry, analog-engine
 **Source:** `.planning/research/2026-07-02-v3-topdown-architecture.md` §1.3, §2.4, §3 (D5, D8), §7 (Q4) — Author: Fable 5
 **Informed by:** Fable 5 - consolidation audit corrections, recommendations in § Open Questions, and design revisions marked *(Fable's revision)* inline (2026-07-02)
+**Renumbered (2026-07-04):** all "Phase 151" references below now read "Phase 144" (Cross-Sectional Regime Model, `regime_group`) per the 2026-07-04 ROADMAP phase renumbering — content unchanged, only the phase number.
 
 ---
 
@@ -19,7 +20,7 @@ a causal per-bar label that sharpens IC estimates by conditioning on regime:
 | System | Service | Table | Grain |
 |---|---|---|---|
 | Per-symbol HMM | `regime_writer.py` | `feature_vectors.regime` | per (symbol, TF) |
-| Cross-sectional | `equity_regime_model.py` / Phase 151 | `market_regimes` | market-wide per TF |
+| Cross-sectional | `equity_regime_model.py` / Phase 144 | `market_regimes` | market-wide per TF |
 
 Plus an informal backlog of more candidate dimensions (`docs/plans/archive/2026-07-01-regime-stratification-alternatives.md`,
 eight candidates: six percentile-rank/deterministic, plus HMM variants and a microstructure
@@ -99,7 +100,7 @@ adding a new consumer should never require special-casing a specific dimension.
 
 **Producers (providers implementing the contract):**
 - `hmm_price_vol` — today's per-symbol HMM (`regime_writer.py`)
-- `cross_sectional_equity` — today's `equity_regime_model.py` / Phase 151 dispatcher
+- `cross_sectional_equity` — today's `equity_regime_model.py` / Phase 144 dispatcher
 - `volatility_pct`, `dispersion` — percentile-rank candidates
 - E1-E4 from the multi-engine HMM doc (volatility structure, volume character, factor style,
   flow/positioning)
@@ -126,7 +127,7 @@ any consumer's code changing.
 - Per-symbol dimensions → columns on `feature_vectors`, written by `regime_writer.py`
   (conceptually renamed to "the per-symbol dimension host" — the HMM becomes provider #1 among
   peers, not the only per-symbol axis forever).
-- Cross-sectional dimensions → rows in `market_regimes`, written by Phase 151's `regime_group`
+- Cross-sectional dimensions → rows in `market_regimes`, written by Phase 144's `regime_group`
   dispatcher, which is *already* shaped like a pluggable provider — keep it as-is, just formalize
   it as a `StratificationDimension` implementation.
 
@@ -178,9 +179,18 @@ committing to any `feature_ic_scores` schema change.
 **Promotion scope is per `regime_group`, not global** *(Fable's revision, generalizing the TLT
 finding into a rule)*. A dimension passes or fails the gates per asset class. Todo 026's Step 1
 is the existence proof: the same dimension (the incumbent HMM) carries real separation for
-equities and none for rates. `concept_registry` records status per (dimension, regime_group);
-a dimension live for `equity` and shadow for `rates` is a normal state, not an exception. This
-is also what Open Question 1's fallback (b) reduces to once stated as a rule rather than a
+equities and none for rates. A dimension live for `equity` and shadow for `rates` is a normal
+state, not an exception. **Mechanism note (2026-07-04, cluster review F2):** the claim that
+`concept_registry` "records status per (dimension, regime_group)" describes a capability the
+hub's four-table MVP does not have as written — `concept_registry.status` is one column per row,
+with no scoped-status representation. `ensemble_strategy` (domain #1) hit the identical wall and
+resolved it as status=recipe-validity + per-stratum deployment as a fact living outside the
+registry; that resolution does not obviously fit `regime_model`'s audit-trail intent (a
+dimension's per-asset-class legitimacy is itself the thing worth an immutable transition log, not
+just a deployment fact). Provisionally: one `concept_registry` row per (dimension, regime_group)
+— preserving single-status semantics and giving each scope its own `concept_transition_log` —
+fits better here. Decide for real at v3.15 planning, not by assertion in this paragraph; this is
+also what Open Question 1's fallback (b) reduces to once stated as a rule rather than a
 remediation.
 
 **Incumbents are re-measured, not grandfathered** *(Fable's revision)*. The substitution test
@@ -279,9 +289,9 @@ Microstructure sections; all gated, none in any build sequence):
 
 | Name | Gate / dependency |
 |---|---|
-| IOHMM variant (exogenous-input transitions) | todo 026 deficiency proof; structural Phase 151 dependency: its exogenous inputs are direct reads of `regime_group` signal outputs (`breadth_vol`, `curve_credit`), so building it pre-151 re-derives inputs 151 obsoletes |
-| Hamilton (1989) variant | todo 026 deficiency proof; no Phase 151 dependency (pure per-symbol simplification) |
-| Factor-augmented HMM variant | todo 026 deficiency proof; structural Phase 151 dependency: reuses `_resolve_group_symbols()` peer resolution. Option (c) in Open Question 1 |
+| IOHMM variant (exogenous-input transitions) | todo 026 deficiency proof; structural Phase 144 dependency: its exogenous inputs are direct reads of `regime_group` signal outputs (`breadth_vol`, `curve_credit`), so building it pre-Phase-144 re-derives inputs Phase 144 obsoletes |
+| Hamilton (1989) variant | todo 026 deficiency proof; no Phase 144 dependency (pure per-symbol simplification) |
+| Factor-augmented HMM variant | todo 026 deficiency proof; structural Phase 144 dependency: reuses `_resolve_group_symbols()` peer resolution. Option (c) in Open Question 1 |
 | Microstructure regime (5m/15m only) | Blocked on order flow / bid-ask infrastructure (V2 microstructure feature vector), not currently in place |
 
 **Non-HMM stamped scalars** (additional candidates from the multi-engine doc, not yet in any
@@ -324,7 +334,7 @@ mental model to carry into this doc:
   forward unconditionally.
 - **Step 2 (partial):** for SPY only, cross-sectional labels showed 1.4x wider IC separation
   than per-symbol HMM on the same SPY/5m/1h slice. TLT's own clean comparison is blocked on
-  Phase 151 shipping a valid `rates` cross-sectional group to compare against (comparing TLT to
+  Phase 144 shipping a valid `rates` cross-sectional group to compare against (comparing TLT to
   the *equity* cross-sectional label would repeat the same pooling error Step 1 just found).
 - **Step 3/4 (rolling refit pilot, full rollout):** not started; gated on Steps 1-2 resolving
   and on P4a/P4b's own decision gate (4 conditions, all must hold — see todo 026).
@@ -337,7 +347,7 @@ This is real, in-progress evidence, not a hypothetical — the doc's contract ex
 Proposed as part of a new milestone, **v3.15 "Conditioning & Identity Foundation,"** between
 v3.1 and v3.2 (AnalogEngine), bundling:
 
-- Phase 151 (regime_group dispatcher: commodity sub-group merge, exclude-unrouted-with-logging
+- Phase 144 (regime_group dispatcher: commodity sub-group merge, exclude-unrouted-with-logging
   policy)
 - todo 026 P1-P3 (JIT speedup, look-ahead bug fixes, restart/degeneracy/churn hardening —
   all ungated, no dependency on the decision gate above)
@@ -345,7 +355,7 @@ v3.1 and v3.2 (AnalogEngine), bundling:
 - The `volatility_pct` substitution test
 - All batched into **one** ic_engine re-run, per roadmap decision D5
 
-Per decision D6, this absorbs Phase 148 (calibrator) and dissolves the standalone v3.3
+Per decision D6, this absorbs Phase 145 (calibrator, renumbered 2026-07-04 — originally 148) and dissolves the standalone v3.3
 milestone — "a milestone whose scope is TBD and whose contents all belong earlier is a
 numbering artifact, not a plan."
 
@@ -395,19 +405,19 @@ Recommendations below are proposals for ratification, not decisions.
    multiplies HMM surface while the one production HMM is still under audit; the
    percentile-rank-first verdict rejects that shape of move for the same reason. (c) is the
    strongest challenger hypothesis (todo 026's root-cause note points at it for TLT
-   specifically) but is gated on both Phase 151 and deficiency proof, so it belongs in the
+   specifically) but is gated on both Phase 144 and deficiency proof, so it belongs in the
    candidate queue as (b)'s eventual challenger, not as the default. Note that if the
    per-`regime_group` promotion rule in § Governance is ratified, (b) stops being a special
    fallback and becomes that rule's normal output for any weak class.
 
-2. **TLT's own clean cross-sectional comparison is blocked on Phase 151.** Needs a valid
+2. **TLT's own clean cross-sectional comparison is blocked on Phase 144.** Needs a valid
    `rates` cross-sectional group before this can be resolved even provisionally.
 
    **Recommendation: accept the block; pre-register the comparison now.** Do not run an interim
    comparison against the equity label - that repeats the exact contamination error Step 2
    already flagged. Write the query (same per-symbol shape as SPY's Step 2(c), TLT vs the
    `rates` group label) and todo 026's existing pass/fail thresholds into the todo now, so it
-   runs mechanically the day Phase 151 ships. Committing criteria before the data exists costs
+   runs mechanically the day Phase 144 ships. Committing criteria before the data exists costs
    nothing and is the whole point of the pre-commit discipline.
 
 3. **Does OOD/unprecedentedness condition IC, cap conviction, or both?** Conditioning (make it
@@ -431,9 +441,9 @@ Recommendations below are proposals for ratification, not decisions.
 4. **Generalizing todo 026's decision gate past SPY+TLT.** The doc's own methodology fix says:
    never pool across symbols with potentially different regime dynamics again; widen to at
    least one member of every `regime_group` before drawing a general verdict. That widening
-   hasn't happened yet and is itself gated on Phase 151.
+   hasn't happened yet and is itself gated on Phase 144.
 
-   **Recommendation: pre-commit the widened protocol now, before Phase 151 makes it runnable.**
+   **Recommendation: pre-commit the widened protocol now, before Phase 144 makes it runnable.**
    One representative symbol per `regime_group` (the most liquid member, maximizing N),
    per-symbol queries only, and the numeric bands todo 026 already uses (gap < 0.01 deficient;
    0.01 to 0.05 ambiguous). The output is a per-asset-class verdict table, never a global

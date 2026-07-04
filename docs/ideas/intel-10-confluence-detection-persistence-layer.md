@@ -5,8 +5,8 @@
 v3 rewritten 2026-07-03 against the post-142A predictor architecture (see Provenance)
 **Priority:** high (a proven confluence is a real predictor family for the ensemble, not a
 side system)
-**Milestone:** future — sequenced after Phase 147 (Interaction Primitives) and `intel-13`'s
-analog predictors (formerly Phase 145-146), and gated on the calibration prerequisite below
+**Milestone:** future — sequenced after Phase 150 (Interaction Primitives) and `intel-13`'s
+analog predictors (formerly Phase 148-149), and gated on the calibration prerequisite below
 **Last Updated:** 2026-07-03
 **Tags:** confluence, ic, calibration, analog-engine, shrinkage, shadow-mode, renaissance,
 concept-registry, predictor
@@ -47,7 +47,7 @@ of the generic layer that now owns them.
 
 | v2 proposed (bespoke, confluence-grain) | Where it actually lives now |
 |---|---|
-| Its own gate machinery (FDR, walk-forward, OOS confirmation) | Measurement Engine kernel (`intel-15`) — one estimator, shared with every predictor including Phase 147's interaction terms |
+| Its own gate machinery (FDR, walk-forward, OOS confirmation) | Measurement Engine kernel (`intel-15`) — one estimator, shared with every predictor including Phase 150's interaction terms |
 | Its own lifecycle (`candidate → shadow → active → decaying → retired`) | Concept Registry's four-table MVP (`concept_registry`/`concept_gate`/`concept_transition_log`/`concept_annotation`) — this deferral was already correct in v2 and is unchanged here |
 | A dedicated live daemon + `confluence_events` occurrence table | The emission layer (`alpha_publisher`/`alpha_events`) + Phase 142B's `alpha_frames` — frozen claim at emission, outcome backfilled, pre-committed review criteria. One simulator concept, not a second one |
 | A bespoke calibrated E[R] estimate | `2026-06-29-feature-scoring-beyond-ic.md` §0b (shrunk weights) / §0c (calibrated return-unit output) — now a **named prerequisite** of gate 1 (see below), not a parallel calibration mechanism |
@@ -61,7 +61,7 @@ first time *anything* is worth firing live. Confluence does not own it.
 1. **Gate 1 — marginal lift over the additive null.** Partial IC / incremental out-of-fold R² of
    the confluence conditioned on the linear combination of its own constituents. This is the
    single most important idea in this doc and exists nowhere else in the built system. It belongs
-   in the measurement kernel as a gate mode, shared with Phase 147's interaction candidates — one
+   in the measurement kernel as a gate mode, shared with Phase 150's interaction candidates — one
    implementation, two consumers.
 2. **Mandatory winner's-curse shrinkage** on the persisted estimate — the same mechanism
    `concept-governance-registries.md`'s `baseline_metric` shrinkage note already uses (feature-
@@ -98,7 +98,7 @@ like units to like.
 1. **Marginal lift over the calibrated additive null** (see prerequisite above). No lift → the
    confluence is a repackaging of known marginals → rejected.
 2. **Multiplicity control at the search level.** BH-FDR across *all candidate confluences tested
-   in the discovery batch*, not per-candidate p-values. Phase 147's ≤50-curated-interactions cap
+   in the discovery batch*, not per-candidate p-values. Phase 150's ≤50-curated-interactions cap
    and the corpus-level FDR machinery from Phase A are the existing controls this inherits.
 3. **Walk-forward stability.** Same fold construction as feature IC; max/min fold ratio bound. An
    effect that lived in one regime-era and died is regime-scoped or rejected, not averaged.
@@ -150,12 +150,20 @@ as a `concept_gate` field, not a new mechanism.
 written.** Implement the lifecycle in `concept-governance-registries.md`'s four-table MVP shape
 (`concept_registry`/`concept_gate`/`concept_transition_log`/`concept_annotation`), not as bespoke
 confluence tables. `decaying` maps onto the registry's status enum as a transition pattern
-(`active → shadow_only` re-entry), not a new status — see that doc's mapping note. Per the topdown
-review (D9), the registry's MVP builds at 142B.1 against `ensemble_strategy` first; `confluence`
-is a later domain, added once real candidates exist (Phase 147 / analog predictors survive their
+(`active → shadow_only` re-entry), not a new status — see that doc's mapping note. `retired` maps
+onto `deprecated`. Per the topdown review (D9), the registry's MVP is built as a follow-on seeded
+from Phase 142B.1's `ensemble_strategy` outputs (topdown Open Q6's backfill path — 142B.1 itself
+shipped no registry code; tracked at todo 058), not built during 142B.1 itself; `confluence`
+is a later domain, added once real candidates exist (Phase 150 / analog predictors survive their
 gates).
 
 ## Decay Is the Steady State, Not an Exception
+
+**Note (2026-07-04, cluster review F4):** `decaying` and `retired` below are domain shorthand, not
+registry enum values — per Governance above, `decaying` = `active → shadow_only` re-entry and
+`retired` = `deprecated`. Kept as narrative labels here because they read naturally for what the
+confluence is *doing* (still firing, not yet acted on / permanently excluded); an implementer
+should write the actual transitions in enum terms.
 
 Renaissance's core operational insight is that signals die — competition, regime change,
 publication. Design for it:
@@ -165,7 +173,7 @@ publication. Design for it:
   bound), auto-demote `active → decaying` (weight-consumers stop reading it), then `→ retired` if
   it fails re-qualification. Symmetric: a `decaying` confluence whose live outcomes recover
   re-promotes by the same evidence bar. No cooldown clocks, no human sign-off — evidence in, state
-  out (Phase 149B semantics, one level up).
+  out (Phase 143's semantics — the merged lifecycle phase, formerly 149B — one level up).
 - Retired confluences and their full occurrence history are **never deleted** — they are training
   data about how edges die, and candidate re-entrants if their regime returns.
 
@@ -188,20 +196,20 @@ publication. Design for it:
 
 ## Dependencies
 
-- **Phase 147** — supplies explicit interaction-term candidates (constituents + condition)
-- **`intel-13` analog predictors** (formerly Phase 145-146) — supplies analog-neighborhood
+- **Phase 150** — supplies explicit interaction-term candidates (constituents + condition)
+- **`intel-13` analog predictors** (formerly Phase 148-149) — supplies analog-neighborhood
   candidates via the return-distribution primitive, not the deleted Score Object
 - **`feature-scoring-beyond-ic.md` §0b/0c** — hard prerequisite of gate 1 (see above), not just a
   shared upgrade path
 - **Todo 030** — cost-hurdle floor for gate 5
-- **Phase 149B** — lifecycle/demotion machinery, reused at confluence grain via Concept Registry
+- **Phase 143 (merged lifecycle phase, formerly 149B)** — lifecycle/demotion machinery, reused at confluence grain via Concept Registry
 - **The emission-layer live daemon** — scope once, system-wide, the first time anything is worth
   firing live; not a confluence-specific build item
 
 ## Open Questions
 
 1. Shrinkage estimator specifics — empirical-Bayes toward the regime-cell baseline vs. out-of-fold
-   mean; how the shrinkage weight maps to effective N. Needs a small study on Phase 147's first
+   mean; how the shrinkage weight maps to effective N. Needs a small study on Phase 150's first
    surviving interactions, not a whiteboard decision.
 2. Combining simultaneous confluences on one bar into the continuous view — independent-evidence
    product/pooling vs. max-conviction vs. learned combiner; must not silently re-introduce the
@@ -223,5 +231,5 @@ publication. Design for it:
 - `docs/plans/2026-06-29-feature-scoring-beyond-ic.md` §0b/0c — hard prerequisite of gate 1
 - Todo `030-cost-hurdle-apr-calibration.md`
 - `.planning/research/2026-07-03-intel10-11-fable-review.md` — this rewrite's source review
-- ROADMAP.md Phase 147, 149B; Phase 142B SHADOW-REVIEW.md pre-commitment pattern (criteria
+- ROADMAP.md Phase 150, Phase 143 (merged lifecycle phase, formerly 149B); Phase 142B SHADOW-REVIEW.md pre-commitment pattern (criteria
   defined before data is seen — the same discipline applies to every gate in this doc)

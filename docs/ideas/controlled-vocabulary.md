@@ -94,7 +94,7 @@ For TEXT-backed namespaces (`regime_hmm`, `regime_cross_sectional`, `timeframe`,
 
 **Out** — internal infrastructure codes users never see: `CircuitState`, `DataSource`, `TransitionType`.
 
-Concept Registry's `domain` column is deliberately **not** a namespace here — it's a fixed 7-value set enforced with a plain `CHECK` constraint on `concept_registry.domain` itself, same pattern as its `status` column. An earlier draft specced a `concept_domain` namespace + runtime `VocabularyService` dependency for this; retracted after review found it coupled two independently-deferred systems to solve a problem a `CHECK` constraint already solves (see `docs/ideas/concept-governance-registries.md`). Concept Registry and Controlled Vocabulary are unrelated sibling designs with no shared build gate.
+Concept Registry's `domain` column is deliberately **not** a namespace here — it's the `CHECK` list on `concept_registry.domain` (7 values today; more anticipated as `confluence`/embedding-recipe domains get real candidates — see that doc's Domains table), enforced with a plain `CHECK` constraint, same pattern as its `status` column. An earlier draft specced a `concept_domain` namespace + runtime `VocabularyService` dependency for this; retracted after review found it coupled two independently-deferred systems to solve a problem a `CHECK` constraint already solves (see `docs/ideas/concept-governance-registries.md`). Concept Registry and Controlled Vocabulary are unrelated sibling designs with no shared build gate.
 
 ---
 
@@ -140,6 +140,19 @@ Do not seed a namespace until there is a concrete consumer. The infrastructure i
 | ML can update values at runtime | Metadata updated only via migration |
 | Any module registers a parameter | Any module seeds a namespace |
 | Startup schema divergence = hard error (all namespaces) | Startup enum divergence = hard error (PG-ENUM namespaces only) |
+
+---
+
+## Out of Scope: Hierarchical Instrument Classification
+
+**(2026-07-04)** An earlier revision of this doc proposed adding a self-referencing
+`parent_code` here to support GICS-style individual-equity classification. Retracted after a
+full design pass: classification is instrument-scoped reference data whose load-bearing half
+is *membership* (effective-dated, exclusive-per-scheme assignment of securities to nodes), a
+concern this platform-wide, migration-seeded, instrument-agnostic metadata registry is the
+wrong shape for. Design lives at
+`docs/ideas/platform-09-security-classification-hierarchy.md`; the two systems remain fully
+decoupled, with no shared build gate.
 
 ---
 

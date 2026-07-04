@@ -134,9 +134,9 @@ Unqualified `weight` in code is a naming violation. Always prefix with context.
 
 The controlled set of valid tags and their categorical structure. Defined in the `tag_vocabulary` table. A vocabulary entry specifies: the tag name, its category, its description, and its measurement contract (factor series, method, lookback).
 
-**Not:** "ontology" or "classification scheme" — these introduce ambiguity. Also not "taxonomy" when used as a loose synonym for the tag system — the tag vocabulary is flat (no parent/child hierarchy); use `taxonomy` only when describing a genuine hierarchical structure.
+**Not:** `classification scheme` (see below — an external, authoritative, single-parent hierarchy; a vocabulary is flat and internally hypothesized) or `taxonomy` (see below — the tag vocabulary itself has no parent/child structure; a `taxonomy` is what a subtree seeded under `parent_tag` becomes). "Ontology" remains banned outright — no referent in this system.
 
-**Banned:** ontology, classification scheme
+**Banned:** ontology
 **Status:** active
 
 ---
@@ -228,6 +228,32 @@ A tag category describing the primary macroeconomic force that drives an instrum
 
 **Banned:** (none)
 **Status:** active
+
+---
+
+### `classification scheme`
+
+An external, authoritative, single-parent classification hierarchy for securities — e.g. GICS (Sector → Industry Group → Industry → Sub-Industry), ICB, or SIC. A security belongs to exactly one node per scheme; membership is a fact to sync from the scheme's authority (S&P/MSCI for GICS), not a hypothesis to test, and carries no `weight`/`source`/`evidence` — those columns would be meaningless for an authoritative assignment. Membership is effective-dated (`valid_from`/`valid_to`), since schemes reclassify securities over time (e.g. GICS's 2018 creation of Communication Services) and a backtest joining on today's membership leaks future information into the past.
+
+**Not:** a `tag` or `vocabulary` entry — those are internally hypothesized and falsifiable; classification scheme membership is externally authoritative and not falsifiable by this system. Not a `taxonomy` — a taxonomy (below) is IndicAgent's own soft, weighted sub-classification; a classification scheme is a strict external one.
+
+**Banned:** (none)
+**Status:** design (`docs/ideas/platform-09-security-classification-hierarchy.md`; unscheduled, gated on individual-equities onboarding)
+
+**Code surface (planned):** `classification_scheme`, `classification_node`, `instrument_classification` tables.
+
+---
+
+### `taxonomy`
+
+A hierarchical subtree of `tag_vocabulary`, formed via the self-referencing `parent_tag` column (e.g. `therapeutic_area` → `indication` → `mechanism_of_action`). Unlike a `classification scheme`, a taxonomy is IndicAgent's own soft, hypothesis-shaped classification — membership lives in `instrument_tags` unchanged (weighted, multi-valued, `source ∈ human/empirical/ai`), and a taxonomy node is subject to the same TagAuditor falsification loop as any flat tag. A taxonomy never nests under a `classification scheme` node — custom sub-classifications (e.g. mechanism-of-action) cross scheme boundaries (a shared mechanism can span two different GICS sub-industries) and correlate with the scheme rather than extend it.
+
+**Not:** the flat tag `vocabulary` itself (which has no parent/child structure) or a `classification scheme` (external, strict, single-parent, non-falsifiable).
+
+**Banned:** (none)
+**Status:** design (`docs/ideas/platform-09-security-classification-hierarchy.md`; unscheduled, gated on a concrete custom-classification research question)
+
+**Code surface (planned):** `tag_vocabulary.parent_tag`.
 
 ---
 
@@ -982,3 +1008,4 @@ Portfolio layer (Layer 2) decides whether and how much to trade.
 - `docs/signals/signals-confidence-patterns.md` — ECL definition and boundary invariant
 - `docs/signals/signal-trade-separation-ADR.md` — 3-table architecture decision record (Phase 127+)
 - `tag_vocabulary` table — the live controlled vocabulary for instrument tags
+- `docs/ideas/platform-09-security-classification-hierarchy.md` — `classification scheme` vs. `taxonomy` design (GICS vs. custom sub-classification), unscheduled

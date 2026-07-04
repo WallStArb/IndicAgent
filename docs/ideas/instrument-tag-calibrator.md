@@ -1,10 +1,10 @@
 # Instrument Tag Auditor
 
-**Version:** 1.2
+**Version:** 1.3
 **Status:** draft
 **Priority:** high
 **Milestone:** post-v2.8
-**Last Updated:** 2026-07-01
+**Last Updated:** 2026-07-04
 **Tags:** instruments, tags, empirical, calibration, renaissance, factor-model
 
 ---
@@ -336,6 +336,27 @@ it. If it becomes real: the natural extension is a third conditioning axis along
 where `instrument_state` is a per-instrument structural variable (for converts: moneyness
 bucket) rather than a shared market regime. Needs its own measurement procedure per
 instrument class; not a generalization of the existing regime-conditioning mechanism.
+
+---
+
+## Forward reference: hierarchical tags and basket factor series (2026-07-04)
+
+`docs/ideas/platform-09-security-classification-hierarchy.md` (individual-equities
+classification design, unscheduled) touches this system in two ways, neither changing
+anything built or planned here today:
+
+1. **`tag_vocabulary` gains a nullable `parent_tag` self-FK** when the first custom
+   sub-classification taxonomy (therapeutic area → indication → mechanism-of-action) is
+   seeded. Existing flat tags stay `NULL`; `category` keeps its thematic-axis role.
+   Strict GICS-style classification deliberately does NOT enter this table - it gets its
+   own exclusive, effective-dated membership system; only the soft, hypothesis-shaped
+   custom layer lives here, because `weight`/`source`/`evidence` is exactly the right
+   membership model for it and this doc's calibration loop is its falsification engine.
+2. **`factor_series` generalizes from a single symbol to a derived basket**: a
+   hierarchical tag's factor series is the equal-weight return basket of its high-weight
+   members, ideally residualized against the symbol's GICS industry basket so the tag
+   must prove co-movement *incremental* to what sub-industry membership already explains.
+   Same `beta_regression` machinery, one new way to construct the regressor.
 
 ---
 

@@ -143,6 +143,15 @@ FOR EACH ROW EXECUTE FUNCTION fn_cascade_parent_deprecation();
 
 ## Lifecycle States
 
+**Forward note (2026-07-04, cluster review F10):** the diagram and table below describe today's
+*live, running* schema and behavior — accurate as production fact, not as target design.
+ROADMAP Phase 143 (LIFECYCLE-01, adopted 2026-07-03 from `docs/ideas/intel-14-integrity-monitor.md`)
+will amend this state machine: auto-`ic_demotion` redirects to `shadow_only` instead of
+`deprecated` (`deprecated` becomes operator-only), a new evidence-based `shadow_only → active`
+transition is added, and the "cooldown + IC re-pass" recovery path shown below is replaced by
+pure evidence (2 consecutive passing corpus runs + a new-observations floor) — no calendar
+cooldown. Read this section as "what runs today," not as the destination.
+
 ```
 candidate ──[IC gate pass]──► active ──[IC fail N periods]──► deprecated
                                   ▲                               │
@@ -424,7 +433,7 @@ The pattern already exists: `hmm_regime_prob`, `hmm_entropy`, `hmm_duration` are
 
 ## See Also
 
-- **`docs/ideas/archive/feature-vector-lifecycle.md`** — promotion/demotion details (candidate → active → decaying → deprecated)
+- **`docs/ideas/archive/feature-vector-lifecycle.md`** — original (archived) promotion/demotion design; its `candidate → active → decaying → deprecated` sketch used a `decaying` status this registry never actually had (decay lives in the demotion mechanism, not an enum value) — superseded by the evidence-based recovery policy in `docs/ideas/concept-governance-registries.md` and ROADMAP Phase 143's LIFECYCLE-01 (see forward note above)
 - **`docs/ideas/renaissance-primitives-ohlcv.md`** — 200+ candidate primitives catalog (add as `status='candidate'`, promote via IC)
 - **`docs/ideas/interaction-factory.md`** — depends on this registry (tier-1 parent metadata)
 - **`008-feature-registry.md`** — historical completed TODO (superseded by this living idea doc)
