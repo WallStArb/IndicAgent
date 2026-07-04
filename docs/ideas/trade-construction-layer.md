@@ -8,9 +8,14 @@ its absence changes what "edge" means upstream)
 **Last Updated:** 2026-07-01
 **Tags:** trade-construction, portfolio, cross-sectional, long-short, sizing, cost, kelly
 
-**Companion to:** `docs/ideas/intel-11-dual-system-discrete-vs-portfolio.md` (this doc is the
-concrete design for PortfolioTrack's construction layer) and `docs/ideas/edge-source-thesis.md`
-(thesis T3 is only testable through this layer).
+**Companion to:** `docs/ideas/edge-source-thesis.md` (thesis T3 is only testable through this
+layer) and `docs/ideas/intel-15-measurement-engine.md`'s Cross-Sectional Rank IC addendum (T3's
+falsification measurement, which must clear before this construction layer is warranted).
+**Note (2026-07-03):** this doc's original companion, `intel-11-dual-system-discrete-vs-portfolio.md`,
+was retired — see `docs/ideas/archive/intel-11-dual-system-discrete-vs-portfolio.md`. Per
+`.planning/research/2026-07-03-intel10-11-fable-review.md` (F9), PortfolioTrack is not a track;
+this doc's construction-layer content remains a v4.0 concern, gated on the addendum's falsification
+result, not on a "PortfolioTrack" scoping event.
 
 ---
 
@@ -102,7 +107,8 @@ unproven forecast). Then this doc's v1 is deliberately buildable in 1-2 phases: 
 
 ## References
 
-- `docs/ideas/intel-11-dual-system-discrete-vs-portfolio.md` — strategic frame (PortfolioTrack)
+- `docs/ideas/archive/intel-11-dual-system-discrete-vs-portfolio.md` — retired strategic frame (historical only)
+- `docs/ideas/intel-15-measurement-engine.md` — Cross-Sectional Rank IC addendum, T3's falsification gate
 - `docs/ideas/edge-source-thesis.md` — thesis T3, which only this layer can test
 - `.planning/todos/pending/030-cost-hurdle-apr-calibration.md` — Step 0 cost floors feed the
   rebalance rule and the net-of-cost measurement

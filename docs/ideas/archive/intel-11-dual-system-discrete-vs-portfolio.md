@@ -1,3 +1,27 @@
+> **ARCHIVED 2026-07-03 — retired as a standalone doc, survivors extracted.** Per
+> `.planning/research/2026-07-03-intel10-11-fable-review.md` (F7-F10, R2): the "One Model, One
+> Book" invariant below is correct and dissolves this doc's own DiscreteTrack/PortfolioTrack
+> frame — once confluences are predictors inside a single ensemble (see `intel-10`'s rewrite),
+> there is nothing left to coordinate between "tracks," because there is one model. Three
+> survivors were extracted and this doc retired rather than rewritten:
+>
+> 1. **The T3 falsification deliverables** (cross-sectional rank IC measurement mode + decile-
+>    spread frame variant) → `docs/ideas/intel-15-measurement-engine.md`, "Addendum: Cross-
+>    Sectional Rank IC (T3 Falsification Mode)".
+> 2. **The combiner upgrade sequencing** (0b shrunk weights → 0c calibrated units → learned
+>    combiner only if it beats calibrated-linear OOS) — already canonical in
+>    `docs/plans/archive/2026-06-29-feature-scoring-beyond-ic.md` / `intel-15`'s Measurement Gaps
+>    table; this doc's restatement added nothing beyond a correct summary and is not carried
+>    forward separately.
+> 3. **"One Model, One Book"** → promoted to a foundation invariant in
+>    `docs/foundation/principles.md` (Principles section), since it binds every future
+>    forecasting proposal, not just this doc's own.
+>
+> Scoping PortfolioTrack as a named parallel track was itself premature architecture (F9) — the
+> useful residue (netting/risk-allocation/turnover live only at a portfolio layer) belongs as a
+> paragraph in the eventual v4.0 gate description, not a track identity. Do not build against
+> this doc.
+
 # Dual-System Architecture — Discrete Confluence Signals vs. Holistic Portfolio Forecasting
 
 **Version:** 1.0

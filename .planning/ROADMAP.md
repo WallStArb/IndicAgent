@@ -26,11 +26,10 @@
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
 - 🔄 **v3.1 IC Empirical Proof + Counterfactual Scoring** — Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 (12.47M alpha_events); Phase 141 COMPLETE 2026-06-29; Phase A COMPLETE 2026-06-30 (ic_engine methodology fixes + Renaissance IC gate redesign); Phase B (corpus re-run on corrected engine) COMPLETE 2026-07-01 (3rd rebuild: feature_vectors 10.08M, feature_ic_scores 254,126, qualifying features 5m=37/15m=28/1h=15/1d=28); Phase 141.1 COMPLETE 2026-07-02 (measurement/decision integrity foundation — OOS enforcement, weight-epoch fix, regime_scope schema fix, cost-hurdle calibration); Phase 142A COMPLETE 2026-07-02 (ensemble IC proof: `alpha_ensemble_ic` schema + EnsembleICEngine + hold_max_bars calibration + EIC-04 gate + EIC-05 diagnosis; 142B: single primary frame counterfactual validation + SHADOW-REVIEW.md pre-commitment; no cost model, no UX) — see `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
-- 📋 **v3.15 Conditioning & Identity Foundation** — Phases TBD (proposed, not scheduled; unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 151 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; idea doc (working copy, iterate here): `docs/ideas/intel-12-stratification-dimension.md`; originally proposed 2026-07-02 in `.planning/research/2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8, sequenced between v3.1 and v3.2 because AnalogEngine's retrieval hard-filters on regime labels while IC-based work only stratifies by them; build trigger is todo 026's regime-IC separation decision gate, not yet run; explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key)
-- 📋 **v3.2 Signal Diversification — AnalogEngine + Feature Expansion** — Phases 145-147 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI; Renaissance: more diverse weak signals, not stronger strong ones)
-- 📋 **v3.3 Foundational Hardening** — Phases 148-149 (planned; scope TBD — review before v3.2 completes)
-- 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.3 complete + alpha_events schema frozen; consumes alpha_events, never modifies signal weights)
-- 📋 **v4.1 IC Governance + Drift Monitoring** — Phases 149A, 149B, 150 (regime-conditioned distribution drift + IC lifecycle shadow governance + ensemble health gates; replaces DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; see `docs/plans/2026-06-27-health-guardian-design.md`). 149A and 149B depend only on `feature_vectors`/`feature_ic_scores` (exist today) — no dependency on live alpha emission or v4.0. Only 150 (EnsembleHealthMonitor) depends on Phase 142A (`alpha_ensemble_ic`).
+- 📋 **v3.15 Conditioning & Identity Foundation** — **Phases 144, 145** (moved into this milestone 2026-07-03 — see `.planning/research/2026-07-03-roadmap-reconciliation.md` F1; previously miscategorized under "v3.3 Foundational Hardening," physically *after* Phases 148-150 despite being their hard prerequisite). Unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 144 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; idea doc: `docs/ideas/intel-12-stratification-dimension.md`; originally proposed 2026-07-02 in `.planning/research/2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8. **Hard prerequisite for Phase 148** (intel-13: AnalogEngine's retrieval hard-filters on regime labels; building the embedding substrate on known-suspect strata bakes the bias into stored vectors — see Phase 148's Depends-on below). Explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key. Batches together in one `ic_engine` re-run per topdown D5: Phase 144 + todo 026 P2b/P2c/P3 + todo 041 (tag taxonomy) + intel-12's first substitution test. Build trigger: todo 026's Step 1 regime-IC separation gate — **already run 2026-07-02, result asset-class-dependent** (SPY separates cleanly, TLT doesn't) — the pre-committed fallback for weak-separation asset classes (topdown Open Q4) needs an operator call at this milestone's planning, before the substitution test runs.
+- 📋 **v3.2 Signal Diversification — AnalogEngine + Feature Expansion** — Phases 148-150 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI AND v3.15 complete for Phase 148; Renaissance: more diverse weak signals, not stronger strong ones. **Framing correction pending** — this milestone's goal text and Phase 149 currently describe AnalogEngine as an "independent System 2," which violates the one-model-one-book invariant `docs/foundation/principles.md`; rewrite against `docs/ideas/intel-13-analog-engine.md` is in scope of todo 055, extended 2026-07-03 to cover this milestone header)
+- 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.2 complete (Phase 154 is independently-gated, not blocking — ETF Universe Expansion removed as a phase 2026-07-04, already done — see below) + `alpha_events` schema frozen; consumes alpha_events, never modifies signal weights)
+- 📋 **v4.1 IC Governance + Drift Monitoring** — Phases 151, 152 (**149B corrected 2026-07-03 — no longer a standalone phase; merged into Phase 143**, see Phase 143's header). Regime-conditioned distribution drift + ensemble health gates; replaces DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; see `docs/ideas/intel-14-integrity-monitor.md` (current design, supersedes `docs/plans/2026-06-27-health-guardian-design.md`). Per topdown D12, **Phases 151 and 152 are schedulable opportunistically any time after Phase 141** — the "v4.1" label is thematic grouping, not a sequencing gate. Phase 151 depends only on `feature_vectors` (exists today); Phase 152 depends on Phase 142A's `alpha_ensemble_ic` (exists, populated — though see the EIC-04 verdict log in Phase 142A's section before treating 142A as fully proven). Do not let either jump ahead of Phase 142B/143 or 147, which carry present-tense value the backlog matrix rates higher.
 
 ## Phases
 
@@ -896,7 +895,7 @@ Plans:
 v3.0 (AlphaEngine) shipped and IC measurement now replaces binary signal scoring. These phases were designed for the v2.x signal-quality problem. Dispositions updated:
 
 - Phase 096: Agent Registry — **REFRAME**: still relevant for narrative/swarm agents that persist in v3.0; scope to non-I7 agents only
-- Phase 097: Zep Episodic Memory — **REFRAME**: lower priority; potentially useful as regime memory in AnalogEngine (Phase 145+); evaluate after AnalogEngine ships
+- Phase 097: Zep Episodic Memory — **REFRAME**: lower priority; potentially useful as regime memory in AnalogEngine (Phase 148+); evaluate after AnalogEngine ships
 - Phase 098: DSPy Offline Prompt Optimizer — **PARTIAL RETIRE**: I7 prompt optimization is irrelevant (I7 archived); narrative agent prompts still exist; scope DSPy to narrative/swarm agents only if parse failure rate justifies it
 - Phase 099: Guardrails AI Validation — **RETIRE**: Instructor structured output shipped in Phase 094; adds no marginal value; parse failure rate on Instructor output is the gate that would have triggered this phase; remove from active planning
 - Phase 101: Composite Fitness Function — **RETIRE**: designed for signal genetic operators under v2.x binary paradigm; IC measurement via ICEngine supersedes composite fitness scoring; remove from active planning
@@ -1229,13 +1228,13 @@ Full details: `.planning/milestones/v3.0-ROADMAP.md`
 </details>
 
 <details>
-<summary>📋 v3.0a Signal Integrity — IntegrityMonitor (Phases 149A, 149B, 150) — PLANNED</summary>
+<summary>📋 v3.0a Signal Integrity — IntegrityMonitor (Phases 151, 149B, 152) — PLANNED</summary>
 
-- [ ] **Phase 149A: DistributionDriftMonitor** — Regime-conditioned KS + chi-squared + signed Wasserstein on all 54 features; adaptive penalties (APR-scaled by Wasserstein magnitude); piggybacked recovery; `indicagent-integrity-monitor` service skeleton — design current in `docs/ideas/intel-14-integrity-monitor.md` (kept from `docs/plans/2026-06-27-health-guardian-design.md` unchanged)
+- [ ] **Phase 151: DistributionDriftMonitor** — Regime-conditioned KS + chi-squared + signed Wasserstein on all 54 features; adaptive penalties (APR-scaled by Wasserstein magnitude); piggybacked recovery; `indicagent-integrity-monitor` service skeleton — design current in `docs/ideas/intel-14-integrity-monitor.md` (kept from `docs/plans/2026-06-27-health-guardian-design.md` unchanged)
 - [ ] **Phase 149B: feature lifecycle routing, merged with Phase 143** — Evidence-based shadow governance routed through `feature_registry`/Concept Registry, not new `feature_ic_scores` columns; `pre_shadow_weight` restored on promotion — see `docs/ideas/intel-14-integrity-monitor.md` (supersedes `docs/plans/2026-06-27-health-guardian-design.md`'s `ICLifecycleMonitor`, which conflicted with D3)
-- [ ] **Phase 150: EnsembleHealthMonitor** — 3-gate AND logic (E1: IC Sharpe, E2: regime-conditioned conviction stability, E3: non-shadow coverage); halt/reduce via APR keys; requires Phase 142A (`alpha_ensemble_ic`, complete) — design superseded by `docs/ideas/intel-14-integrity-monitor.md` (E2B/E2C restored, CUSUM added, `alpha_events` schema gap found — E2B needs Phase 142B's `alpha_frames`). No monitor code exists; the prior `[x]`/"completed 2026-07-02" was stray, corrected 2026-07-02 (found during intel-14 Fable audit)
+- [ ] **Phase 152: EnsembleHealthMonitor** — 3-gate AND logic (E1: IC Sharpe, E2: regime-conditioned conviction stability, E3: non-shadow coverage); halt/reduce via APR keys; requires Phase 142A (`alpha_ensemble_ic`, complete) — design superseded by `docs/ideas/intel-14-integrity-monitor.md` (E2B/E2C restored, CUSUM added, `alpha_events` schema gap found — E2B needs Phase 142B's `alpha_frames`). No monitor code exists; the prior `[x]`/"completed 2026-07-02" was stray, corrected 2026-07-02 (found during intel-14 Fable audit)
 
-**Dependencies:** Phase 142A (`alpha_ensemble_ic` table exists) for Phase 150 only; 149A and 149B independent
+**Dependencies:** Phase 142A (`alpha_ensemble_ic` table exists) for Phase 152 only; Phase 151 and the Phase 149B item (merged into Phase 143, see above) are independent
 
 **Spec:** `docs/plans/2026-06-27-health-guardian-design.md` — replaces three prior idea docs
 
@@ -1416,7 +1415,7 @@ Plans:
 
 ---
 
-## v3.1 AlphaEngine Validation + Alpha Scoring (Phases 140.5-144)
+## v3.1 AlphaEngine Validation + Alpha Scoring (Phases 140.5-147)
 
 **Milestone Goal:** Validate that AlphaEngine produces real, measurable edge on the full 58-symbol corpus. Close the intelligence feedback loop: alpha_events → hypothetical trade lifecycles → counterfactual P&L → scoring system that proves (or disproves) the engine produces alpha. Retire v2.x after gate-validated superiority. Portfolio construction (Kelly sizing, VaR, IBKR execution) is explicitly out of scope — that is v4.0.
 
@@ -1501,7 +1500,7 @@ Cross-cutting constraints: none (each plan touches a disjoint file set except th
 
 **Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_ensemble_ic` table + `alpha.ensemble_ic.*` APR keys. Migration must land before this phase begins.
 
-**Goal:** Prove the ensemble OUTPUT has IC before testing any execution rules. Measure `IC(alpha_score, forward_return_*)` per (symbol, tf, regime, lookahead) using the same BH-FDR + bootstrap CI + walk-forward machinery as feature IC. No stops, no targets, no frame assumptions — pure signal measurement. The IC decay curve across lookaheads calibrates `hold_max_bars` APR keys empirically. This is the primary OOS gate for Phase 144.
+**Goal:** Prove the ensemble OUTPUT has IC before testing any execution rules. Measure `IC(alpha_score, forward_return_*)` per (symbol, tf, regime, lookahead) using the same BH-FDR + bootstrap CI + walk-forward machinery as feature IC. No stops, no targets, no frame assumptions — pure signal measurement. The IC decay curve across lookaheads calibrates `hold_max_bars` APR keys empirically. This is the primary OOS gate for Phase 147.
 
 **Depends on:** Phase 141.1 complete (Measurement and Decision Integrity Foundation — OOS enforcement, weight-epoch fix, regime_scope schema fix, cost hurdle calibration; inserted 2026-07-02 so this phase's IC measurement isn't done in-sample or against ambiguous regime labels). `alpha_events` accumulating (Phase 139 running). `forward_returns` populated (Phase 138).
 
@@ -1516,7 +1515,7 @@ Reads `alpha_events` joined to `forward_returns` on (symbol, tf, bar_ts). Comput
 For each (symbol, tf, regime), find the first lookahead where IC Sharpe drops below `alpha.ensemble_ic.decay_threshold`. Update `alpha.frame.hold_max_bars.<regime>.<tf>` APR keys to match. This replaces initial estimates with data-derived values before Phase 142B runs any frames.
 
 **EIC-03 — Walk-forward stability gate:**
-IC Sharpe max/min fold ratio < 3× across walk-forward folds. Features with high IC variance are regime-specific, not structural. Gate written to `alpha_ensemble_ic.walk_forward_stable` — Phase 144 OOS validation reads this column.
+IC Sharpe max/min fold ratio < 3× across walk-forward folds. Features with high IC variance are regime-specific, not structural. Gate written to `alpha_ensemble_ic.walk_forward_stable` — Phase 147 OOS validation reads this column.
 
 **EIC-04 — Phase gate (hard):**
 `ic_ci_lower > 0` at 95% CI on in-sample data in at least `alpha.ensemble_ic.min_qualifying_fraction` of (symbol, tf, regime) cells before Phase 142B begins. APR key seeded at 0.60 `[initial_estimate]` — no empirical basis yet, recalibrate after first run reveals how many cells have sufficient N. If gate fails, run EIC-05 diagnosis before any changes.
@@ -1542,18 +1541,26 @@ Plans:
 
 - [x] 142A-02-PLAN.md — Wave 2 (depends on 142A-01): EIC-02 decay-curve to hold_max_bars APR calibration + EIC-04 gate script (threshold from APR, not baked in) + EIC-05 diagnosis script (4-section markdown report) + 2 unit test files
 
+**EIC-04 Verdict Log (machinery completion ≠ gate passage — track separately, per the intel-10/11 review's F10):**
+
+- **2026-07-03: FAIL.** `alpha_ensemble_ic` populated (429 rows, `scored_at` 2026-07-03 09:54-10:02). Gate: 0/50 qualifying cells (threshold 0.60). EIC-05 diagnosis run same day: all failing cells flagged **DATA STARVATION** (N as low as 100-275, below `alpha.ic.min_obs_per_regime`), concentrated in `5m`/`high_bear` — the only (tf, regime) combination populated in this run. Per EIC-05's own documented interpretation, this is "expect more cells to pass as alpha_events accumulates," not a signal-negative result — but it is the current, real verdict. **Phase 142B does not begin until a re-run shows PASS or an operator override is recorded here with reasoning.** Do not treat 142A's "COMPLETE" status (machinery shipped) as gate passage.
+
 ---
 
 ### Phase 142B: Frame Simulation + Counterfactual Tracking 📋 PLANNED
 
-**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_frames` table + `alpha.frame.*` APR keys. No cost model (`alpha.cost.*`) — real cost data (slippage, commission) does not exist until v4.0 execution; cost model belongs there.
+**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_frames` table + `alpha.frame.*` APR keys + `corpus_run_id`/`weight_epoch` provenance columns (canonical-simulator binding rule). No fill-calibrated cost model (`alpha.cost.*`) — real fill data (slippage, commission) does not exist until v4.0 execution. The externally-calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) do exist now and are applied as a net-of-cost reporting column per the note below — not a gate change, and not the v4.0 fill-based model.
 
-**Goal:** Prove that a reasonable execution rule (stop/target/hold) can capture the signal IC proven in Phase 142A as positive counterfactual P&L. This is a binary question: does any sensible frame work? Calibration of which frame variant is optimal is a refinement question that belongs after this validation passes, not during it. This is the secondary OOS gate for Phase 144.
+**Goal:** Prove that a reasonable execution rule (stop/target/hold) can capture the signal IC proven in Phase 142A as positive counterfactual P&L. This is a binary question: does any sensible frame work? Calibration of which frame variant is optimal is a refinement question that belongs after this validation passes, not during it. This is the secondary OOS gate for Phase 147.
 
-**Depends on:** Phase 142A complete — EIC-04 gate passed, `hold_max_bars` APR keys calibrated from EIC-02 decay curve.
+**Depends on:** Phase 142A complete — **EIC-04 gate must show PASS** (see verdict log in the Phase 142A section above; as of 2026-07-03 it does not — FAIL, data-starvation diagnosis, re-run pending), `hold_max_bars` APR keys calibrated from EIC-02 decay curve.
+
+**Also carries (added 2026-07-03, canonical-simulator v2 requirements — see `docs/ideas/canonical-simulator.md`):**
+- `alpha_frames`'s P1 migration adds `corpus_run_id`/`weight_epoch` provenance columns — every counterfactual claim must attribute the machinery that produced it (the binding rule's provenance clause).
+- **Decide gross vs. net-of-cost SHADOW-REVIEW criteria before that document is committed** (see below) — this cannot be revisited post-launch per the phase's own no-post-hoc-negotiation rule. The externally-calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) exist now; applying them as a net-of-cost *reporting column* alongside the gross criteria is cheap and closes canonical-simulator's cost-kernel gap as this phase's natural second consumer.
 
 **Renaissance pre-commitment (ships at Phase 142B launch, before shadow emissions start):**
-Write `docs/plans/SHADOW-REVIEW.md` — a one-page document committed to the repo before any counterfactual data is collected, specifying the exact numeric criteria required for Phase 144 live promotion. Criteria are defined before you can see the data; they are not negotiated post-hoc. Proposed criteria (final values committed in the document):
+Write `docs/plans/SHADOW-REVIEW.md` — a one-page document committed to the repo before any counterfactual data is collected, specifying the exact numeric criteria required for Phase 147 live promotion. Criteria are defined before you can see the data; they are not negotiated post-hoc. Proposed criteria (final values committed in the document):
 
 - ≥ 60 trading days of closed alpha_frames (primary variant)
 - `mean(counterfactual_pnl_r) > 0` at 95% CI (bootstrap, one-tailed) on OOS data
@@ -1607,64 +1614,115 @@ Plans:
 - [x] 142B.1-04-PLAN.md — E2 wiring: mean_variance weight_method branch in ensemble_trainer with condition-number fallback (D-08)
 - [x] 142B.1-05-PLAN.md — A/B judging: ops_ensemble_weight_compare.py win-decision gate, per-stratum, regime-caveat tagged (D-10/D-11/D-12/D-14)
 
-### Phase 143: Feature Vector Lifecycle + Alpha Decay Infrastructure 📋 PLANNED
+**Concept Registry MVP — landing spot recorded 2026-07-03** (topdown D9 named this phase as the
+registry's build trigger via the `ensemble_strategy` domain, but 142B.1's 5 plans above contain
+no registry item — topdown Open Q6 allowed running on bare `weight_version` rows and backfilling
+after, which is what's happening). **Next step once 142B.1 completes:** a small follow-on item
+seeding `concept-governance-registries.md`'s four-table MVP from 142B.1's E1-E4 `weight_version`
+rows, before any `confluence`/`regime_model` domain needs it (those are still further out — see
+v3.15 and intel-10 v3). Not doing this promptly is how "deferred" becomes "deferred indefinitely."
 
-**Goal:** Features that lose IC must be demoted automatically. Demotion mechanics close the open-ended ensemble: features enter through IC gate, exit through decay gate. Alpha Decay Monitor runs daily, detects cell-level IC collapse, triggers EnsembleBuilder re-solve. Regime-shift guard prevents mass zeroing during market dislocations.
+### Phase 143: Feature Lifecycle Routing (merged with Phase 149B) 📋 PLANNED
 
-**Depends on:** Phase 141 complete (`feature_ic_scores` populated). LIFECYCLE-01..06 read `feature_ic_scores` only — no dependency on `alpha_frames` or Phase 142A/142B.
+**Rewritten 2026-07-03 against `docs/ideas/intel-14-integrity-monitor.md`** (Fable-reviewed
+2026-07-02). The previous version of this phase specced a standalone `is_decaying` state
+machine writing directly to `feature_ic_scores`, a separate `feature_deprecations` table, a
+daily-scan `AlphaDecayMonitor` daemon, and cooldown-gated recovery — all four were superseded by
+the topdown architecture review's decision D3 and Fable's intel-14 consolidation before this
+phase was ever executed. **This is not a new subsystem to build. It is a routing decision**:
+`feature_registry.md` already implements the exact state machine this phase re-derived
+(`candidate → active → shadow_only → deprecated`, 61 rows in production today), and `ic_engine`
+already stamps `feature_status_at_eval` from it. The only missing piece is the **transition
+writer** that flips registry status when a corpus run's results demand it.
+
+**Goal:** Features that lose IC get demoted through the registry automatically; features that
+recover get promoted back through the same evidence bar as everything else in this codebase.
+Regime-shift guard prevents mass zeroing during market dislocations. No new tables, no new
+daemon.
+
+**Depends on:** Phase 141 complete (`feature_ic_scores` populated, `feature_registry` live).
+No dependency on `alpha_frames` or Phase 142A/142B.
 
 **Requirements:**
 
-**LIFECYCLE-00 — HMM Regime Label Validation (todo 026 P1-P3):** LIFECYCLE-04's regime-shift
-guard is only as trustworthy as the regime labels it reads, so this ships first, same phase.
-Plan: `docs/plans/2026-06-28-hmm-regime-audit-optimization.md`. P1a/P1b: fix look-ahead bug in
-cross-sectional VIX proxy (expanding rank) and TF-normalize the VIX z-score/200MA windows
-(`equity_regime_model.py`). P2a/P2b/P2c: multiple HMM restarts picking max log-likelihood,
-degenerate-model detection (occupation-fraction gate), regime-churn feature (`hmm_churn`
-column) in `regime_writer.py`. P3: empirical threshold calibration for the vix/breadth cuts via
-APR. Also run todo 034's Step 1 baseline-separation query (regime-IC gap by label) against this
-corpus run before trusting LIFECYCLE-04 in production — gap < 0.01 escalates to root-cause
-analysis per todo 026's P4a decision gate; gap > 0.05 means labels are fine, no further action.
-Effort 3-5 days, no gate, P0 (Numba) already shipping separately in Phase B.
+**LIFECYCLE-00 — HMM Regime Label Validation (todo 026 P1-P3):** unchanged from the prior
+version — the regime-shift guard is only as trustworthy as the regime labels it reads, so this
+ships first, same phase. Plan: `docs/plans/2026-06-28-hmm-regime-audit-optimization.md`.
+P1a/P1b/P2a already shipped (see 026's own status). What's left: P2b (degenerate-model
+occupation-fraction gate), P2c (`hmm_churn` feature column), P3 (empirical threshold
+calibration). Also run todo 034's Step 1 baseline-separation query against this corpus run
+before trusting the regime-shift guard in production.
 
-**LIFECYCLE-01 — Feature state machine:**
-States: `candidate` → `active` → `decaying` → `deprecated`. Transitions:
+**LIFECYCLE-01 — Registry amendments (replaces the old bespoke state machine):**
+`feature_registry`'s existing `candidate → active → shadow_only → deprecated` machine gets
+three amendments, not a parallel one:
+1. Redirect automated `ic_demotion` to target `shadow_only`, not `deprecated`; `deprecated`
+   becomes operator-only (closes the auto-deprecation path the registry currently allows).
+2. Add the missing `shadow_only → active` promotion transition — none exists today;
+   `shadow_only` is currently an operator-entered dead end. Promotion requires **2 consecutive
+   passing corpus runs AND ≥ `alpha.ic.decay_recovery_min_observations = 2000` new independent
+   observations since demotion** — no cooldown clock (Fable's reconciliation explicitly
+   rejected calendar-gated recovery: it blocks fast recovery for no statistical reason, and the
+   observation floor already guards against evidence reuse that a cooldown was trying to
+   prevent).
+3. Add `pre_shadow_weight` (restored as starting weight on promotion) and shadow-run counters
+   (consecutive fails/passes, observations since demotion) as **registry columns**, not
+   `feature_ic_scores` columns — they are lifecycle state, so they live with the status.
 
-- `candidate → active`: IC Sharpe gate passes (existing Phase 139 logic, already wired)
-- `active → decaying`: IC Sharpe drops below `alpha.ic.decay_ic_sharpe_threshold = 0.0` OR `ic_ci_lower < 0` in rolling window; `decay_detected_at` populated
-- `decaying → active` (recovery): `recovery_eligible_at` must have passed (cooldown) AND IC re-passes gate with `>= alpha.ic.decay_recovery_min_observations = 2000` new independent observations; recovery re-solve uses current data only, no partial restore
-- `active/decaying → deprecated`: manual operator action only; requires explicit reason in `config_history`
+**Do NOT build:** `is_decaying`/`decay_detected_at`/`recovery_eligible_at` on `feature_ic_scores`
+(D3 — these three columns exist unread in the live schema today and get **dropped**, not
+wired) or a `feature_deprecations` table (registry `status='deprecated'` + a
+`feature_transition_log` row with an operator reason already covers it).
 
-Schema already has `is_decaying`, `decay_detected_at`, `recovery_eligible_at` columns — nothing reads or writes them. This phase wires the state machine.
+**LIFECYCLE-02 — Ensemble query enforcement:** unchanged in effect, corrected in mechanism —
+`ensemble_trainer` already filters `WHERE feature_status_at_eval = 'active'` (Phase 139 logic).
+No new filter needed; this requirement is satisfied by existing code once LIFECYCLE-01's
+registry amendments land.
 
-**LIFECYCLE-02 — Ensemble query enforcement:**
-EnsembleBuilder filters: `WHERE is_decaying = false AND feature_name NOT IN (SELECT feature_name FROM feature_deprecations)`. Weight re-solve triggered on any state transition.
+**LIFECYCLE-03 — Transition writer (replaces "Alpha Decay Monitor daemon"):** **no separate
+daemon, no daily scan, no Kafka subscription.** Lifecycle state can only change when new IC
+measurements land, so the writer is a post-run step inside `ic_engine` calling
+`FeatureRegistryService` after each corpus run. A daily scan would re-read unchanged data six
+days out of seven (IC engine runs weekly); the end-of-run hook gives identical detection latency
+with no daemon and no event-vs-data-visibility race. Materiality gate on re-solve unchanged:
+`weight × |ic_ci_lower| > alpha.decay.materiality_threshold = 0.005`. OTel metrics unchanged:
+`alpha_decay_cells_flagged`, `alpha_decay_ensemble_rebuild_total`. The hook writes a
+gate-evaluation fact row to `integrity_monitor` (`monitor_type='ic_lifecycle'`) — metric vs.
+threshold, pass/fail — so drift/lifecycle/ensemble-health stay queryable from one table, while
+`feature_transition_log` remains the sole authoritative transition record (nothing written
+twice). **Initial candidate list unchanged:** todo 033's 7 zero-IC features, gated on the
+todo 034/026 regime-label validation above per todo 033's 2026-07-01 update.
 
-**LIFECYCLE-03 — Alpha Decay Monitor (daemon):**
-Daily scan of `feature_ic_scores` rolling window per (feature, symbol, tf, regime). Flags cells where rolling IC Sharpe drops below threshold. Writes `is_decaying = true` to `feature_ic_scores`. Triggers `EnsembleBuilder` re-solve if any materiality threshold crossed: `weight × |ic_ci_lower| > alpha.decay.materiality_threshold = 0.005` (prevents re-solve on negligible-weight features). OTel metrics: `alpha_decay_cells_flagged`, `alpha_decay_ensemble_rebuild_total`. **Refinement candidate (todo 029, 2026-07-01 review):** the flat IC-Sharpe threshold here is a blunt instrument compared to todo 029's IC decay curve (per-feature predictive half-life) — consider reading the decay curve's estimated half-life as an additional signal alongside the threshold rather than a bare cutoff, once todo 029's near-term items ship. Not a blocker for this phase; the threshold approach ships first, decay-curve refinement is additive. **Initial candidate list:** todo 033's 7 zero-IC features (momentum_rank_z, volume_rank_z, volatility_rank_z, poc_dist_atr, va_position, sr_support_dist, sr_resist_dist) are the natural first cells to run through this state machine once it's wired — but per todo 033's 2026-07-01 update, don't treat their current zero-IC readings as final until the todo 034/026 regime-label validation (below) has run, since 3 of the 7 are regime-stratified cross-sectional-rank features.
+**LIFECYCLE-04 — Regime-shift guard:** unchanged. If ≥ `alpha.decay.regime_shift_fraction = 0.60`
+of active feature-regime cells fail simultaneously, classify as market regime shift — hold all
+weights rather than mass-zero, human review before any weight changes. Runs in the same
+end-of-run hook as LIFECYCLE-03 (it needs exactly the per-run view the hook already has).
+Depends on LIFECYCLE-00 having run first.
 
-**LIFECYCLE-04 — Regime-shift guard:**
-If ≥ `alpha.decay.regime_shift_fraction = 0.60` of active feature-regime cells decay simultaneously, classify as market regime shift — hold all weights rather than mass-zero. Emit `alpha_decay_regime_shift_total` counter. Human review before any weight changes during a regime-shift event. Depends on LIFECYCLE-00 (above) having run first.
+**LIFECYCLE-05 — IC staleness alerting:** unchanged. `alpha.ic.staleness_alert_days = 5`
+[initial_estimate]; OTel gauge `ic_engine_last_run_age_days`; `IC_ENGINE_STALE` alert if stale.
+**Sequencing note (2026-07-03):** this phase is independently startable now, while Phase 151
+(`DistributionDriftMonitor`) is unbuilt and unscheduled. Ships as a standalone gauge check in
+this phase's own end-of-run hook; consolidate onto `DistributionDriftMonitor`'s check cycle
+later if/when Phase 151 lands, not a blocking dependency now.
 
-**LIFECYCLE-05 — IC/ensemble coherence contract:**
-IC engine runs weekly. Decay monitor runs daily. Contract: decay monitor reads rolling IC computed from the most recent IC engine run (0-7 days stale). This is acceptable given IC Sharpe has a daily resolution anyway; the 7-day lag is documented as the decay detection SLA. Decay monitor SLA = "detects decay within 7 days of IC engine run after collapse."
+**LIFECYCLE-06 — Decay diagnostics:** unchanged. Ad-hoc SQL via
+`docs/analysis/feature-decay-queries.sql`; Superset dashboard deferred until the routed system
+has operated ≥ 30 days.
 
-**IC staleness alerting (ships with Phase 143):** Add APR key `alpha.ic.staleness_alert_days = 5` [initial_estimate]. Decay monitor emits OTel gauge `ic_engine_last_run_age_days` on every daily run. Alert rule: if `ic_engine_last_run_age_days > staleness_alert_days`, fire `IC_ENGINE_STALE` alert to Alertmanager. Without this, a missed IC engine run silently degrades decay detection for up to 14 days before anyone notices.
-
-**LIFECYCLE-06 — Decay diagnostics:**
-Query `feature_ic_scores` directly via SQL for decay analysis. No dashboard infrastructure until the decay system has been validated in production. SQL queries for the key questions (which features are decaying, in which regimes) are documented in `docs/analysis/feature-decay-queries.sql` and run ad-hoc. Superset dashboard deferred until Phase 143 state machine has operated for ≥ 30 days and the query patterns are stable.
-
-**Plans:** 4 plans (Wave 0: HMM regime label validation [LIFECYCLE-00]; Wave 1: state machine + EnsembleBuilder filter; Wave 2: AlphaDecayMonitor daemon; Wave 3: regime-shift guard + gate evaluation)
+**Plans:** 3 plans (Wave 0: HMM regime label validation [LIFECYCLE-00]; Wave 1: registry
+amendments [LIFECYCLE-01, replaces the old state-machine + daemon waves]; Wave 2: end-of-run
+hook [LIFECYCLE-02/03/04] + gate evaluation + staleness alerting)
 
 ---
 
-### Phase 143.5: I7 Alpha Scorer Transition 📋 PLANNED (Conditional on CORPUS-07)
+### Phase 146: I7 Alpha Scorer Transition 📋 PLANNED (Conditional on CORPUS-07)
 
-**Conditional gate:** Phase 143.5 does not begin until Phase 141 CORPUS-07 is complete and evaluated. CORPUS-07 maps each I7 plugin to its constituent `feature_vectors` dimensions and determines whether the plugin introduces information not captured in the 54 atomic features. If CORPUS-07 shows ≥ 80% of plugins are fully captured (no marginal IC beyond existing features), Phase 143.5 scope collapses to retirement-only — no conversion infrastructure is built. Only build the alpha-scorer conversion layer if CORPUS-07 reveals material uncaptured information that justifies the added complexity.
+**Conditional gate:** Phase 146 does not begin until Phase 141 CORPUS-07 is complete and evaluated. CORPUS-07 maps each I7 plugin to its constituent `feature_vectors` dimensions and determines whether the plugin introduces information not captured in the 54 atomic features. If CORPUS-07 shows ≥ 80% of plugins are fully captured (no marginal IC beyond existing features), Phase 146 scope collapses to retirement-only — no conversion infrastructure is built. Only build the alpha-scorer conversion layer if CORPUS-07 reveals material uncaptured information that justifies the added complexity.
 
 **Default path is retirement, not conversion.** The 54 features were designed to capture I7 signals. Conversion is the exception; retirement is the rule.
 
-**Goal:** For plugins with confirmed marginal IC beyond feature_vectors, convert from binary emitters to continuous alpha scorers (`alpha_score = raw_confidence × direction` every bar, no fire/no-fire decision). This is the structural prerequisite for Phase 144's retirement gate: a binary v2.x signal vs. a continuous v3.0 alpha score cannot be compared on outcome quality — the comparison surface requires both systems to produce continuous scores.
+**Goal:** For plugins with confirmed marginal IC beyond feature_vectors, convert from binary emitters to continuous alpha scorers (`alpha_score = raw_confidence × direction` every bar, no fire/no-fire decision). This is the structural prerequisite for Phase 147's retirement gate: a binary v2.x signal vs. a continuous v3.0 alpha score cannot be compared on outcome quality — the comparison surface requires both systems to produce continuous scores.
 
 **Depends on:** Phase 141 CORPUS-07 evaluated (see Conditional gate above). No dependency on Phase 143.
 
@@ -1679,7 +1737,7 @@ For each active I7 plugin, analyze which dimensions in `feature_vectors` encode 
 - **Convert to alpha scorer (exception):** Plugin has confirmed IC on dimensions NOT present in `feature_vectors` — plugin introduces genuinely new information. Replace `if confidence > threshold: emit` with `alpha_score = confidence × direction` computed every bar. No emission decision in the plugin — emission is solely the ensemble's responsibility.
 - **Direct IC measurement (ambiguous):** Plugin logic is ambiguous (>5 constituent features or cross-cutting logic). Treat the plugin's continuous output as a candidate feature and measure its IC directly via the IC engine before deciding. Default to alpha scorer mode during evaluation.
 
-Only plugins in the second or third category justify conversion infrastructure. If all fall in the first, Phase 143.5 is retirement-only — no adapter, no mixing weights, no I7 emission layer changes beyond flagging deprecated.
+Only plugins in the second or third category justify conversion infrastructure. If all fall in the first, Phase 146 is retirement-only — no adapter, no mixing weights, no I7 emission layer changes beyond flagging deprecated.
 
 **I7-02 — signal_events enrichment:**
 Add `alpha_score float` column to `signal_events`. Populated prospectively as plugins convert. Legacy rows have `NULL`. This column is the comparison surface for todo 007 dual-pipeline shadow comparison.
@@ -1694,19 +1752,19 @@ Add `alpha_score float` column to `signal_events`. Populated prospectively as pl
 - `i7_conversion_complete` gauge: 1 when all plugins converted
 
 **I7-05 — Retirement eligibility gate:**
-Phase 144 LIVE-04 (v2.x retirement) requires all active I7 plugins to be in alpha-scorer mode. `i7_conversion_complete = 1` is a hard prerequisite for the retirement script — enforced at Phase 144 startup, not as a soft check.
+Phase 147 LIVE-04 (v2.x retirement) requires all active I7 plugins to be in alpha-scorer mode. `i7_conversion_complete = 1` is a hard prerequisite for the retirement script — enforced at Phase 147 startup, not as a soft check.
 
 **Plans:** 3 plans (Wave 1: plugin adapter contract + first 10 plugins; Wave 2: remaining ~25 plugins; Wave 3: ensemble ingestion + mixing weights + observability)
 
 ---
 
-### Phase 144: Alpha Scoring System + v2.x Retirement Gate 📋 PLANNED
+### Phase 147: Alpha Scoring System + v2.x Retirement Gate 📋 PLANNED
 
 **Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_strategy_scores` table + `alpha.scoring.*` APR keys. Full two-gate retirement logic in "Phase Sequencing" section.
 
 **Goal:** Build the scoring system and run the two independent OOS gates that prove the intelligence engine works. Retire v2.x only after both pass. No live execution — that is v4.0.
 
-**Depends on:** Phase 143.5 complete (`i7_conversion_complete = 1`) + Phase 142A OOS ensemble IC data available + Phase 142B production `alpha_frames` accumulating ≥ 60 trading days of closed rows.
+**Depends on:** Phase 146 complete (`i7_conversion_complete = 1`) + Phase 142A OOS ensemble IC data available + Phase 142B production `alpha_frames` accumulating ≥ 60 trading days of closed rows.
 
 **Two-gate retirement model (non-negotiable):**
 Gate 1 and Gate 2 are independent. Failure modes are different. Never conflate.
@@ -1737,19 +1795,95 @@ Executes only when Gate 1 + Gate 2 both pass AND `i7_conversion_complete = 1`. R
 
 ---
 
-## v3.2 AnalogEngine + Feature Expansion (Phases 145-147)
+## v3.15 Conditioning & Identity Foundation (Phases 144, 145)
 
-**Milestone Goal:** Build System 2 (non-parametric K-NN retrieval) as an independent complement to AlphaEngine. Expand the feature set with new primitives and compound interactions. Phases 145-146 (AnalogEngine substrate + scoring) are strictly sequential — each gated on the prior. Phase 147 (primitives + interaction layer) is a System-1 feature-engineering track with no real dependency on 145/146 (see Phase 147 sequencing note) and may run in parallel with, or before, the AnalogEngine phases — only the milestone-level v3.1 OOS IC gate applies to all three.
+**Added as its own milestone 2026-07-03** (`.planning/research/2026-07-03-roadmap-reconciliation.md`
+F1) — previously existed only as a milestone-list bullet with "Phases TBD" while its actual
+phases (144, and 145 once evidence names it load-bearing) sat physically after Phases 148-150 in
+the old "v3.3" section, contradicting the milestone bullet's own stated reason for existing.
+**Renumbered 2026-07-04** (phases 143-152 renumbered into logical/dependency order — nothing
+past Phase 142B.1 had execution artifacts yet, so this was a safe, purely textual pass).
+
+**Milestone Goal:** Unify the two live regime systems (per-symbol HMM `regime_writer.py`,
+cross-sectional `equity_regime_model.py`) behind clean peer-group routing before AnalogEngine's
+retrieval substrate is built on top of them. Per `docs/ideas/intel-13-analog-engine.md`: *"this
+substrate must not be built on strata suspected of being wrong — retrieval hard-filters on
+regime labels, and re-embedding after the fact is prohibitively expensive."* This is a hard
+prerequisite for Phase 148, not a parallel hardening track.
+
+**Batched into one `ic_engine` re-run** (topdown D5): Phase 144 (`regime_group`) + todo 026
+P2b/P2c/P3 (remaining HMM regime audit items) + todo 041 (tag exposure-vs-sensitivity taxonomy
+audit — gates commodity/fx group enablement) + `docs/ideas/intel-12-stratification-dimension.md`'s
+first substitution test. Phase 145 (Empirical Instrument Tag Calibrator) joins evidence-gated:
+if todo 041's audit shows tag calibration is load-bearing for group routing (not merely
+descriptive), pull it into this batch; otherwise it trails independently (its own Depends-on
+already states no dependency on Phase 148-150).
+
+**Build trigger:** todo 026's Step 1 regime-IC separation decision gate — **already run
+2026-07-02**, result asset-class-dependent (SPY's HMM labels separate IC reasonably, TLT's
+don't). The pre-committed fallback for weak-separation asset classes (per-asset-class HMM vs.
+demote to shadow vs. factor-augmented variant — topdown Open Q4) needs an operator decision at
+this milestone's planning, SHADOW-REVIEW-style, before intel-12's substitution test runs.
+
+---
+
+### Phase 144: Cross-Sectional Regime Model (`regime_group`) 📋 PLANNED
+
+**Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules). Migration 189. Full design: `docs/plans/2026-07-01-cross-sectional-regime-model.md`.
+
+**Status per 2026-07-01 architecture review** (`.planning/research/2026-07-01-v3-architecture-review.md` §4): confirmed live today, not a future risk — 15/58 corpus symbols (all `fi_*` bonds + GLD/SLV/VNQ/IBIT) are excluded from equity breadth by `equity_regime_model.py`'s own filter yet get equity regime labels in IC stratification and ensemble scoring. This phase fixes 11/15 via the rates group. Two decisions made (first-principles, not re-opened for user input):
+- **Unrouted symbols (GLD/SLV/VNQ/IBIT):** exclude from regime-stratified IC with loud startup logging of unrouted symbols, NOT the plan's current silent default-to-equity (plan `:1618-1622` asserts `GLD → "equity"` — that assertion must change before execution). Pooled IC still covers them; no data lost. "Silent wrong answers are worse than loud crashes."
+- **Commodity/fx group enablement is blocked** on todo 041 (tag exposure-vs-sensitivity taxonomy audit) — OIH/XLE/XOP carry both `eq_*` and `commodity_energy_*` tags and will raise `AmbiguousRegimeGroupError` the moment `commodity_energy` is enabled. Add this as an explicit dependency edge, not just a scope-note aside.
+- Job-1 peer-set purity (OIH/XLE staying in equity breadth despite commodity sensitivity tags) is NOT a blocker — defensible by convention (equity sector funds), revisit only if Phase 145 tag calibration shows material contamination.
+
+**Sequencing:** land Phase 142A's ensemble-IC baseline first (pre-regime_group equity-only strata), then batch this phase with todo 026 P1-P3 into one ic_engine re-run — empirical pre/post comparison over blind trust that the new strata help.
+
+---
+
+### Phase 145: Empirical Instrument Tag Calibrator 📋 PLANNED
+
+**Goal:** Replace manually-asserted instrument tags (e.g., `equity_beta`, `rate_sensitive`) with measured OLS factor betas computed nightly. Tags auto-expire when the statistical relationship stops holding. Renaissance demands falsifiable hypotheses.
+
+**Depends on:** Nothing upstream of Phase 141. TAG-01's OLS regression runs on instrument daily returns vs. factor ETF series (`instruments`, `market_data_ohlcv`), not `feature_vectors` — no dependency on Phase 148-150.
+
+**Requirements:**
+
+**TAG-01 — Measured betas (nightly batch, `TagAuditor`):**
+8 core factor betas via OLS regression of instrument daily returns vs. factor series: equity_beta (SPY), rate_beta (TLT), gold_beta (GLD), credit_beta (HYG), dollar_beta (DXY), vol_beta (VIX), oil_beta (USO), china_beta (FXI). Gate per tag: bootstrap CI, p-value < 0.05, min_r2 floor. Exponential decay: `effective_weight = weight × exp(-days_since_estimated / half_life_days)` — stale measurements auto-expire.
+
+**TAG-02 — Regime conditioning (Phase 2 extension):**
+Initially PK is `(symbol, tag)`. Phase 2 extends to `(symbol, tag, regime)` — different regimes produce different factor exposures (e.g., flight-to-quality regime makes TLT beta unreliable for equity instruments). Phase 2 does not ship in Phase 145 — it ships when IC stratification by tag shows regime-dependent divergence.
+
+**TAG-03 — Discovery gate:**
+Tags that are fully computable from the factor vector (all 8 OLS betas) must not exist as permanent human assertions. They are query-time threshold applications on the `instrument_tags` empirical table. Human-only tags (`definitional`, `classification`) remain — but must be annotated as measurement_type='definitional' with owner.
+
+**Plans:** 3 plans (Wave 1: TagAuditor batch service + OLS pipeline; Wave 2: DB migration + expiry mechanics; Wave 3: regime conditioning Phase 2 design)
+
+---
+
+## v3.2 AnalogEngine + Feature Expansion (Phases 148-150)
+
+**Milestone Goal (framing corrected 2026-07-03 — full rewrite in scope of todo 055):** Build the
+AnalogEngine substrate and analog predictor family — a second *evidence source*, not a second
+*system* (`docs/ideas/intel-13-analog-engine.md`; the prior "independent complement"/"System 2"
+framing here violated the one-model-one-book invariant now in `docs/foundation/principles.md`).
+Expand the feature set with new primitives and compound interactions. Phases 148-149 (AnalogEngine
+substrate + scoring) are strictly sequential — each gated on the prior — **and both depend on
+v3.15 completing first** (Phase 148's Depends-on, below). Phase 150 (primitives + interaction
+layer) is a feature-engineering track with no real dependency on 145/146 (see Phase 150
+sequencing note) and may run in parallel with, or before, the AnalogEngine phases, subject only
+to its own todo-037 pilot gate — per the 2026-07-01 backlog matrix, 147 is closer to actionable
+than 145/146 right now.
 
 **Hard prerequisite:** v3.1 complete + live IC > 0 at 95% CI confirmed on OOS holdout.
 
 ---
 
-### Phase 145: AnalogEngine — Embedding Substrate + Retrieval 📋 PLANNED
+### Phase 148: AnalogEngine — Embedding Substrate + Retrieval 📋 PLANNED
 
 **Goal:** Build the non-parametric retrieval substrate. Embed bar states into pgvector HNSW index. Validate retrieval quality before committing to a dimension and building the full corpus. "Have we seen a bar like this before, and what happened next?"
 
-**Depends on:** Phase 142A OOS validation showing `ic_ci_lower > 0` at p < 0.05. ANALOG-01..05 read `feature_vectors` only — no dependency on `alpha_events`, `alpha_frames`, or v2.x retirement.
+**Depends on:** **v3.15 complete** (Phase 144 `regime_group` live + todo 026 P2b/P2c/P3 resolved) — added 2026-07-03, intel-13's hard prerequisite: retrieval hard-filters on regime labels and re-embedding after the fact is prohibitively expensive. Plus Phase 142A OOS validation showing `ic_ci_lower > 0` at p < 0.05 (see EIC-04 verdict log in Phase 142A's section — not yet passing as of 2026-07-03). ANALOG-01..05 read `feature_vectors` only — no dependency on `alpha_events`, `alpha_frames`, or v2.x retirement.
 
 **Requirements:**
 
@@ -1777,11 +1911,11 @@ Thin research utility built on top of the retrieval primitive. Accepts an arbitr
 
 ---
 
-### Phase 146: AnalogEngine — IC Factory + Scoring Engine + Enrichment 📋 PLANNED
+### Phase 149: AnalogEngine — IC Factory + Scoring Engine + Enrichment 📋 PLANNED
 
 **Goal:** Feature-level IC within the embedding space (for k-NN re-ranking). Correlation service (effective-N). Scoring engine (transforms retrieval results into Score Objects). Analog enricher (annotates alpha_events). Complete the System 2 pipeline.
 
-**Depends on:** Phase 145 (embedding substrate live, HNSW populated).
+**Depends on:** Phase 148 (embedding substrate live, HNSW populated).
 
 **Key distinction:** `feature_ic_stats` here measures IC at the feature level within the embedding (used for k-NN re-ranking weights). This is NOT the same as `feature_ic_scores` (System 1 ensemble weights). Different grain, different table ownership, different purpose.
 
@@ -1801,25 +1935,33 @@ Joins `score_cache` to `alpha_events` on (symbol, tf, bar_ts). Writes `alpha_eve
 
 **Plans:** 3 plans (Wave 1: analog-ic-factory + correlation-svc; Wave 2: scoring-engine; Wave 3: analog-enricher + integration)
 
-**Note (2026-07-01):** ANALOG-08's Score Object (`E[R]` distribution, direction, OOD flag, analog
-count) is a partial precursor to the calibrated confluence-detection layer proposed in
-`docs/ideas/intel-10-confluence-detection-persistence-layer.md`. Once this phase produces validated
-analog-based confluences, revisit that idea doc to scope it as a phase — it consumes this phase's
-output, don't build it standalone before this exists.
+**Note (corrected 2026-07-03 — this phase's requirements above are stale, see todo 055):**
+ANALOG-06..09 above (`feature_ic_stats`, `similarity_pairs`, `score_cache`, Score Objects,
+`analog-enricher`) still spec the pre-rescope AnalogEngine design. `docs/ideas/intel-13-analog-engine.md`
+(2026-07-02) deleted the Score Object and this phase's proposed tables in favor of analog
+predictors + a return-distribution primitive living in the shared measurement kernel — rewrite
+this phase's requirements against intel-13 before planning (todo 055). The original note's
+premise is also stale: intel-13's analog predictors converge with `docs/ideas/intel-10-confluence-detection-persistence-layer.md`
+v3 (rewritten 2026-07-03) directly via that return-distribution primitive, not via a Score
+Object this phase would produce — intel-10 no longer waits on this phase's output to be
+scoped, it already specs the convergence.
 
 ---
 
-### Phase 147: Feature Primitives Expansion + Theory-Motivated Interaction Layer 📋 PLANNED
+### Phase 150: Feature Primitives Expansion + Theory-Motivated Interaction Layer 📋 PLANNED
 
 **Goal:** Expand the atomic feature set (~60 new candidates, full priority-tiered list in todo 014 — corrected 2026-07-01, ROADMAP previously cited a phantom "todo 003" that doesn't exist in the tree), screen through IC machinery, promote survivors. Build a Theory-Motivated Interaction Layer of ≤50 curated compound features — not a combinatorial factory. Gated on Feature Registry (todo 008, COMPLETE).
 
-**Note (2026-07-01):** the interaction terms this phase validates are one of two inputs to the
-confluence-detection-and-persistence layer proposed in
-`docs/ideas/intel-10-confluence-detection-persistence-layer.md` (the other being Phase 146's analog
-matches). Once ≥1 interaction term clears this phase's IC/OOS gates, revisit that idea doc to scope
-it as a phase.
+**Note (updated 2026-07-03):** the interaction terms this phase validates are one of two
+constituent sources for `docs/ideas/intel-10-confluence-detection-persistence-layer.md` v3
+("Confluence — a Governed Predictor Family," rewritten 2026-07-03; the other source is
+`intel-13`'s analog predictors, formerly "Phase 149's analog matches" — see todo 055 for why
+Phase 149 itself needs rewriting). Once ≥1 interaction term clears this phase's IC/OOS gates,
+confluence's gate 1 (marginal lift over the calibrated additive null) becomes runnable against
+it — gated itself on `feature-scoring-beyond-ic.md` §0b/0c landing first (intel-10 v3's hard
+prerequisite, not just a nice-to-have).
 
-**Depends on:** Feature Registry shipped (todo 008 — COMPLETE) — ratio operation validity requires feature metadata (sign_type, scale). No dependency on Phase 145/146.
+**Depends on:** Feature Registry shipped (todo 008 — COMPLETE) — ratio operation validity requires feature metadata (sign_type, scale). No dependency on Phase 148/146.
 
 **Why not a combinatorial Interaction Factory:**
 ~30K compound candidates in a separate BH-FDR pool at FDR=0.05 produces ~1,500 expected false discoveries regardless of pre-screening. BH-FDR was designed for focused hypothesis testing, not combinatorial enumeration — at 30K tests, the correction loses meaningful power-versus-discovery-rate guarantees. Every surviving compound feature would have no stated reason to survive, making it impossible to distinguish genuine signal from leakage. Renaissance does not enumerate pairwise products. They test theory-motivated combinations where the researcher states WHY the compound should predict returns, so the surviving features can be reasoned about and decay patterns explained.
@@ -1840,60 +1982,28 @@ Phase 140's collinearity clustering is global. Extend to regime-conditioned clus
 
 ---
 
-## v3.3 Foundational Hardening (Phases 148-149)
+## Deferred / Independently-Gated (Phase 154)
 
-**Milestone Goal:** Replace the remaining manually-asserted foundations with empirically-derived ones. Instrument tag calibration replaces belief-based tags with measured OLS betas. Alternative data vectors add new IC-measurable signal sources per the vector-agnostic architecture.
+**Corrected 2026-07-03** (`.planning/research/2026-07-03-roadmap-reconciliation.md` F1) — this
+section was "v3.3 Foundational Hardening," and under the pre-2026-07-04 numbering held the
+phases now called 144 (Cross-Sectional Regime Model) and 145 (Tag Calibrator). Those two moved
+to the **v3.15 Conditioning & Identity Foundation** section (before v3.2, above) since they are
+v3.2's hard prerequisite, not a hardening pass that comes after it.
 
----
-
-### Phase 148: Empirical Instrument Tag Calibrator 📋 PLANNED
-
-**Goal:** Replace manually-asserted instrument tags (e.g., `equity_beta`, `rate_sensitive`) with measured OLS factor betas computed nightly. Tags auto-expire when the statistical relationship stops holding. Renaissance demands falsifiable hypotheses.
-
-**Depends on:** Nothing upstream of Phase 141. TAG-01's OLS regression runs on instrument daily returns vs. factor ETF series (`instruments`, `market_data_ohlcv`), not `feature_vectors` — no dependency on Phase 145-147.
-
-**Requirements:**
-
-**TAG-01 — Measured betas (nightly batch, `TagAuditor`):**
-8 core factor betas via OLS regression of instrument daily returns vs. factor series: equity_beta (SPY), rate_beta (TLT), gold_beta (GLD), credit_beta (HYG), dollar_beta (DXY), vol_beta (VIX), oil_beta (USO), china_beta (FXI). Gate per tag: bootstrap CI, p-value < 0.05, min_r2 floor. Exponential decay: `effective_weight = weight × exp(-days_since_estimated / half_life_days)` — stale measurements auto-expire.
-
-**TAG-02 — Regime conditioning (Phase 2 extension):**
-Initially PK is `(symbol, tag)`. Phase 2 extends to `(symbol, tag, regime)` — different regimes produce different factor exposures (e.g., flight-to-quality regime makes TLT beta unreliable for equity instruments). Phase 2 does not ship in Phase 148 — it ships when IC stratification by tag shows regime-dependent divergence.
-
-**TAG-03 — Discovery gate:**
-Tags that are fully computable from the factor vector (all 8 OLS betas) must not exist as permanent human assertions. They are query-time threshold applications on the `instrument_tags` empirical table. Human-only tags (`definitional`, `classification`) remain — but must be annotated as measurement_type='definitional' with owner.
-
-**Plans:** 3 plans (Wave 1: TagAuditor batch service + OLS pipeline; Wave 2: DB migration + expiry mechanics; Wave 3: regime conditioning Phase 2 design)
+**ETF Universe Expansion removed as a phase, 2026-07-04** — it was done (migrations 188/190,
+58→80 instruments, 2026-07-01; full 4-timeframe OHLCV backfill for all 22 new symbols,
+2026-07-04) but still carried a `📋 PLANNED` status and a sequencing note claiming it "waits
+until the end-to-end system is proven" — a contradiction of stale status text against actual
+state, which is worse than no entry at all. No further phase is needed for it; `regime_group`
+routing for these symbols is Phase 144's job, unaffected by this removal.
 
 ---
 
-### Phase 151: Cross-Sectional Regime Model (`regime_group`) 📋 PLANNED
-
-**Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules). Migration 189. Full design: `docs/plans/2026-07-01-cross-sectional-regime-model.md`.
-
-**Status per 2026-07-01 architecture review** (`.planning/research/2026-07-01-v3-architecture-review.md` §4): confirmed live today, not a future risk — 15/58 corpus symbols (all `fi_*` bonds + GLD/SLV/VNQ/IBIT) are excluded from equity breadth by `equity_regime_model.py`'s own filter yet get equity regime labels in IC stratification and ensemble scoring. This phase fixes 11/15 via the rates group. Two decisions made (first-principles, not re-opened for user input):
-- **Unrouted symbols (GLD/SLV/VNQ/IBIT):** exclude from regime-stratified IC with loud startup logging of unrouted symbols, NOT the plan's current silent default-to-equity (plan `:1618-1622` asserts `GLD → "equity"` — that assertion must change before execution). Pooled IC still covers them; no data lost. "Silent wrong answers are worse than loud crashes."
-- **Commodity/fx group enablement is blocked** on todo 041 (tag exposure-vs-sensitivity taxonomy audit) — OIH/XLE/XOP carry both `eq_*` and `commodity_energy_*` tags and will raise `AmbiguousRegimeGroupError` the moment `commodity_energy` is enabled. Add this as an explicit dependency edge, not just a scope-note aside.
-- Job-1 peer-set purity (OIH/XLE staying in equity breadth despite commodity sensitivity tags) is NOT a blocker — defensible by convention (equity sector funds), revisit only if Phase 148 tag calibration shows material contamination.
-
-**Sequencing:** land Phase 142A's ensemble-IC baseline first (pre-151 equity-only strata), then batch this phase with todo 026 P1-P3 into one ic_engine re-run — empirical pre/post comparison over blind trust that the new strata help.
-
-### Phase 152: ETF Universe Expansion (58→79) 📋 PLANNED
-
-**Goal:** Add 21 new ETFs (commodity, international, FX, factor) with fine-grained tag_vocabulary entries for the Phase 151 regime groups. Migration 188. Full design: `docs/plans/2026-06-27-etf-universe-expansion.md`.
-
-**Sequencing decision (operator, 2026-07-01):** universe expansion (this phase, and any future
-single-name expansion beyond it) waits until the end-to-end system is proven — pipeline through
-P&L, validated via the canonical simulator concept (`docs/ideas/canonical-simulator.md`).
-Breadth is the biggest lever on IR (see `docs/ideas/edge-source-thesis.md`, breadth section)
-and is deliberately pulled last: multiplying the universe before the path is trusted multiplies
-unvalidated machinery, not returns.
-
-### Phase 149: Alternative Data Vectors 📋 PLANNED
+### Phase 154: Alternative Data Vectors 📋 PLANNED
 
 **Goal:** Add new IC-measurable signal sources to the vector-agnostic architecture. Each vector enters at weight=0, earns weight through IC measurement independently, and never blends with price IC until independently validated. Recommended order: Flows first (highest signal/infra delta ratio), then Kalshi as regime conditioning, then Fundamentals.
 
-**Depends on:** `alt_feature_vectors` table + IC engine capable of joining it (Phase 138 pattern). No dependency on Phase 148. Each vector gated on its own IC validation before any ensemble weight is assigned.
+**Depends on:** `alt_feature_vectors` table + IC engine capable of joining it (Phase 138 pattern). No dependency on Phase 145. Each vector gated on its own IC validation before any ensemble weight is assigned.
 
 **Requirements:**
 
@@ -1926,7 +2036,7 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join. Hist
 - **Portfolio construction:** Portfolio Kelly using Ledoit-Wolf covariance on realized daily returns (NOT the EnsembleBuilder covariance). This distinction is load-bearing: EnsembleBuilder's LW covariance is estimated in feature-IC space to decorrelate ensemble feature weights. Portfolio Kelly requires covariance in return space — estimated from realized daily returns per symbol. These are different matrices applied to different vectors; conflating them produces wrong position sizes with no error signal. A separate `ReturnCovarianceEstimator` service applies LW shrinkage to the realized daily return matrix (reusing the same LW machinery as EnsembleBuilder, but on a different input). `weights ∝ Sigma_return^-1 × mu` where `mu` is the vector of `net_expected_r` per open position. Single-instrument Kelly (`kelly_fraction × E[R]_net / garch_vol`) applied independently to correlated positions overstates diversification — 58 equity ETFs all load on common SPY/sector factors, and independent sizing treats them as uncorrelated when they are not. Portfolio Kelly accounts for this by allocating less to positions that move together. Minimum position notional filter. Max portfolio VaR ceiling (95% historical simulation).
 - **Risk management:** Portfolio VaR ceiling (95% historical simulation), per-symbol drawdown limits, regime-conditioned position caps.
 - **Execution layer:** IBKR market order routing at T+1 open. Fill model: `expected_fill = open × (1 + slippage)`. No-fill handler (timeout → cancel + log). `trade_executions` table for actual fills.
-- **Cost calibration feedback loop:** `ActualSlippageWriter` (daily oneshot) regresses realized slippage vs expected per (symbol, TF, time_of_day). Updates `alpha.cost.slippage_r` APR key. Closes the cost model loop established in Phase 142.
+- **Cost calibration feedback loop:** `ActualSlippageWriter` (daily oneshot) regresses realized slippage vs expected per (symbol, TF, time_of_day). Updates `alpha.cost.slippage_r` APR key. Closes the loop against the v3-side cost artifacts: the calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) and the shared cost kernel + net-of-cost reporting (Phase 142B, canonical-simulator binding rule) — this is where fill-calibrated costs finally replace the externally-calibrated estimates.
 - **Execution scoring:** Compare `actual_pnl_r` vs `counterfactual_pnl_r`. Execution quality measured independently of signal quality — keeps the two layers honest.
 
 **Note:** Emission thresholds (`alpha_score` floor where `E[R]_net > cost`) are set here, not in the intelligence engine. The intelligence engine emits all signals above a statistical significance gate; the execution layer decides what to act on based on net expected value after costs.

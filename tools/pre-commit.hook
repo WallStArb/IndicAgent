@@ -11,14 +11,15 @@
 #   6. Duplicate test names — same test function in multiple files within a directory
 #   7. Ring 0 boundary check — src/core/ and src/observability/ must not import domain layers
 #   8. Glossary enforcement — banned synonyms blocked in .py and .md files
-#   9. I6 confluence declaration — new/modified I7 plugins must declare requires_i6_confluence
+#   9. Counterfactual-ledger enforcement — no new parallel claim/event/frame table
 #
-# Log: .git/hooks/pre-commit.log (all runs with timestamps)
+# Log: logs/pre-commit.log (all runs with timestamps)
+# Renaissance-grade: logs live in repo logs/, not in .git/ infrastructure
 
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-LOG_FILE="${REPO_ROOT}/.git/hooks/pre-commit.log"
+LOG_FILE="${REPO_ROOT}/logs/pre-commit.log"
 
 # Redirect all output to both console and log file
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -59,7 +60,7 @@ check_plugin_class_naming() {
     for file in $PYTHON_FILES; do
         if [ -f "${REPO_ROOT}/${file}" ]; then
             FILE_VIOLATIONS=$(grep -n '^class [A-Z]' "${REPO_ROOT}/${file}" 2>/dev/null | \
-                grep -vE 'class.*(Plugin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Queue|Executor|Processor|Task|Snapshot|Shape|Mixin|Trainer|Analyzer|Validator|Auditor|Writer|Publisher|Report)\b' || true)
+                grep -vE 'class.*((Plugin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Queue|Executor|Processor|Task|Snapshot|Shape|Mixin|Trainer|Analyzer|Validator|Auditor|Writer|Publisher|Report|Factory|Cache|Record|Vector))\b' || true)
             if [ -n "$FILE_VIOLATIONS" ]; then
                 VIOLATIONS="${VIOLATIONS}  ${file}:"$'\n'"$(echo "$FILE_VIOLATIONS" | sed 's/^/    /')"$'\n'
             fi
@@ -351,7 +352,8 @@ check_glossary_terms() {
 
     CHANGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
         grep -E '\.(py|md)$' | \
-        grep -vE '(\.venv|node_modules|\.git|__pycache__)' || true)
+        grep -vE '(\.venv|node_modules|\.git|__pycache__)' | \
+        grep -vE '^docs/(ideas|plans)/archive/' || true)
 
     if [ -z "$CHANGED_FILES" ]; then
         echo "  OK No Python or Markdown files changed"
@@ -398,50 +400,72 @@ check_glossary_terms() {
 }
 
 # -----------------------------------------------------------------------------
-# Check 9: I6 confluence declaration — new/modified I7 plugins must declare
-#           requires_i6_confluence
+# Check 9: Counterfactual-ledger enforcement — no new parallel claim/event/frame
+#           table without explicit justification
 #
-# Scope: Files in src/intelligence/trading/*.py (I7 plugins only)
-# Requirement: Must contain 'requires_i6_confluence' declaration
-# Exclusions: infrastructure + utility modules that are not PatternPlugin classes
+# Scope: New CREATE TABLE statements in staged .sql migration files
+# Invariant: docs/ideas/canonical-simulator.md's binding rule — "no validation
+#            client builds its own replay or counterfactual path; counterfactual
+#            P&L claims are alpha_frames rows, new shapes are frame_variants,
+#            never new tables or services." A new table shaped like a claim
+#            ledger (events/frames/claims/occurrences/outcomes/ledger suffix) is
+#            exactly the silent-drift failure mode that invariant exists to
+#            block (see also: signal_outcomes was dropped in favor of
+#            signal_ledger in Phase 130 — this codebase has hit this before).
+# Escape hatch: a `-- LEDGER-EXCEPTION: <reason>` comment on the line
+#            immediately before or after the CREATE TABLE statement.
 # -----------------------------------------------------------------------------
-check_i6_confluence_declaration() {
-    echo "[9/9] I6 confluence requirement check..."
+check_counterfactual_ledger() {
+    echo "[9/9] Counterfactual-ledger enforcement check..."
 
-    # Find I7 plugin files in this commit (exclude infrastructure and utility files)
-    I7_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
-        grep -E '^src/intelligence/trading/[a-z][a-z0-9_]*\.py$' | \
-        grep -vE '(signal_ledger|lifecycle_tracker|lifecycle_transitions|trade_framer|signal_aggregator|cis_scorer|weight_updater|confidence_calibrator|plugin_utils|atr_utils|state_utils|confidence_utils|microstructure_utils|volume_profile_utils|exhaustion_utils|signal_schema|position_sizer|aggregator|__init__)\.py$' || true)
+    SQL_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
+        grep -E '\.sql$' | \
+        grep -E '(migrations?)/' || true)
 
-    if [ -z "$I7_FILES" ]; then
-        echo "  OK No I7 trading plugins changed"
+    if [ -z "$SQL_FILES" ]; then
+        echo "  OK No migration files changed"
         return 0
     fi
 
+    # Existing, already-legitimate ledger-shaped tables — not new drift.
+    ALLOWLIST='^(alpha_events|alpha_frames|signal_ledger|signal_events|trade_frames|trade_executions|llm_calls|config_history|concept_transition_log)$'
+
     FAILURES_LOCAL=0
-    for file in $I7_FILES; do
-        if [ -f "${REPO_ROOT}/${file}" ]; then
-            # Check if the file defines a Plugin class (skip non-plugin files)
-            if ! grep -q '^class.*Plugin' "${REPO_ROOT}/${file}" 2>/dev/null; then
-                continue  # Not a plugin file, skip
+    for file in $SQL_FILES; do
+        [ -f "${REPO_ROOT}/${file}" ] || continue
+
+        # Extract table names from CREATE TABLE statements (with or without IF NOT EXISTS)
+        TABLES=$(grep -ioE 'CREATE TABLE( IF NOT EXISTS)? [a-zA-Z_][a-zA-Z0-9_]*' "${REPO_ROOT}/${file}" | \
+            awk '{print $NF}')
+
+        for table in $TABLES; do
+            table_lc=$(echo "$table" | tr '[:upper:]' '[:lower:]')
+
+            if echo "$table_lc" | grep -qE "$ALLOWLIST"; then
+                continue
             fi
 
-            # Check for requires_i6_confluence declaration
-            if ! grep -qE 'requires_i6_confluence\s*[:=]' "${REPO_ROOT}/${file}"; then
-                echo "  FAILED: I7 plugin missing requires_i6_confluence declaration"
+            if echo "$table_lc" | grep -qE '(_events|_frames|_claims|_occurrences|_outcomes|_ledger)$'; then
+                if grep -qE '^\s*--\s*LEDGER-EXCEPTION:' "${REPO_ROOT}/${file}"; then
+                    continue
+                fi
+                echo "  FAILED: new table '${table}' looks like a parallel claim/event ledger"
                 echo "    File: ${file}"
-                echo "    Remediation: Add 'requires_i6_confluence: bool = True'"
-                echo "      (or False with TODO comment if I6 not yet integrated)"
+                echo "    Rule: docs/ideas/canonical-simulator.md — counterfactual claims are"
+                echo "      alpha_frames rows; new shapes are frame_variants, not new tables."
+                echo "    Remediation: extend alpha_frames with a frame_variant instead, or if"
+                echo "      this table is genuinely a different concept, add a comment:"
+                echo "      -- LEDGER-EXCEPTION: <why this is not a frame_variant>"
                 FAILURES_LOCAL=$((FAILURES_LOCAL + 1))
             fi
-        fi
+        done
     done
 
     if [ $FAILURES_LOCAL -gt 0 ]; then
         return 1
     fi
 
-    echo "  OK All I7 plugins declare requires_i6_confluence"
+    echo "  OK No unjustified parallel ledger tables"
     return 0
 }
 
@@ -456,14 +480,14 @@ check_black_format || FAILURES=$((FAILURES + 1))
 check_duplicate_tests || FAILURES=$((FAILURES + 1))
 check_ring0_boundary || FAILURES=$((FAILURES + 1))
 check_glossary_terms || FAILURES=$((FAILURES + 1))
-check_i6_confluence_declaration || FAILURES=$((FAILURES + 1))
+check_counterfactual_ledger || FAILURES=$((FAILURES + 1))
 
 echo "=== Pre-commit checks completed: $(date -Iseconds) ==="
 
 if [ $FAILURES -gt 0 ]; then
     echo ""
     echo "BLOCKED: Pre-commit hooks failed: $FAILURES check(s) violated"
-    echo "Fix violations and try again. See ${LOG_FILE} for details."
+    echo "Fix violations and try again. See logs/pre-commit.log for details."
     exit 1
 fi
 

@@ -80,9 +80,9 @@ single instrument is predictable directionally. **Why we might win:** relative-v
 cancellation is statistically much easier than directional prediction; this is the
 lowest-IC-requirement thesis on the list. **Falsification:** cross-sectional long-short
 spread portfolios built from feature rankings must show positive net return where per-symbol
-directional trades on the same features don't. Requires the PortfolioTrack
-(`docs/ideas/intel-11-dual-system-discrete-vs-portfolio.md`) to even test. If the spread
-portfolio is no better than directional, T3 is dead.
+directional trades on the same features don't. Requires the cross-sectional rank IC measurement
+mode (`docs/ideas/intel-15-measurement-engine.md`, "Addendum: Cross-Sectional Rank IC") to even
+test. If the spread portfolio is no better than directional, T3 is dead.
 
 ### T4 — Horizon arbitrage at 1h/1d (counterparty: nobody — risk premium)
 The honest fallback: at longer horizons with low turnover, small conditional tilts
@@ -145,8 +145,8 @@ pulled last.
 - `docs/intelligence/intelligence-alphaengine.md` — the epistemology this doc completes:
   "the data discovers confluence" answers HOW to find edge; this doc asks WHY edge should
   exist at all
-- `docs/ideas/intel-11-dual-system-discrete-vs-portfolio.md` — PortfolioTrack (T3's test
-  vehicle)
+- `docs/ideas/intel-15-measurement-engine.md` — Cross-Sectional Rank IC addendum (T3's test
+  vehicle; retired from `intel-11`, see `docs/ideas/archive/intel-11-dual-system-discrete-vs-portfolio.md`)
 - `.planning/todos/pending/030-cost-hurdle-apr-calibration.md` — the first falsification
 - `docs/plans/2026-06-29-feature-scoring-beyond-ic.md` — marginal contribution / shrinkage
   (the machinery that keeps thesis evidence honest)

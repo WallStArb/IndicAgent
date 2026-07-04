@@ -6,8 +6,9 @@ closed; written to answer "is this still worth pursuing," not to assume yes
 **Priority:** high (both `intel-12` and `intel-13` build on "the Measurement Engine" as a
 settled arrival without either one defining it)
 **Milestone:** none currently — this doc's job is to determine whether one is warranted
-**Last Updated:** 2026-07-02
-**Tags:** ic-engine, measurement, predictor, ensemble-ic, kernel-extraction, concept-registry
+**Last Updated:** 2026-07-03
+**Tags:** ic-engine, measurement, predictor, ensemble-ic, kernel-extraction, concept-registry,
+cross-sectional-ic
 **Source:** `.planning/research/2026-07-02-v3-topdown-architecture.md` §2.3, §3 (D1, D2, D11) —
 Author: Fable 5
 **Informed by:** Fable 5 - audit corrections (kernel coverage, `alpha_ensemble_ic` consumers and
@@ -235,6 +236,43 @@ for the HAC/Fisher-z math**: does it land once in `ic_math.py` (or a sibling ker
 and get consumed by both engines, or does it get built inside one engine and recreate exactly
 the per-engine methodology drift D1 was written to prevent? 142B.1's shrinkage estimator is the
 first test of this: D-07 currently scopes it as columns on `feature_ic_scores` only.
+
+---
+
+## Addendum: Cross-Sectional Rank IC (T3 Falsification Mode)
+
+**Added 2026-07-03**, extracted from `docs/ideas/intel-11-dual-system-discrete-vs-portfolio.md`
+on its retirement (`.planning/research/2026-07-03-intel10-11-fable-review.md`, F8/R2) — a
+Measurement Engine mode, not a separate track or system.
+
+**The asymmetry this closes:** per-symbol directional trading is the hardest way to monetize a
+small IC — it requires each symbol's signal to overcome that symbol's full volatility plus market
+beta. Cross-sectional long-short on the 58-ETF universe is far more forgiving: relative-value
+ranking cancels idiosyncratic noise and hedges beta, so an IC too weak to trade directionally can
+still pay as a spread. Edge thesis T3 (`docs/ideas/edge-source-thesis.md`) — relative mispricing
+across correlated instruments — is only testable through this measurement, and a time-series-only
+system would silently conclude "no edge" while a spread on the same features pays.
+
+**The minimal falsification instrument (measure first, construct later):**
+
+1. **Cross-sectional rank IC as a kernel mode.** Per-bar Spearman of `alpha_score` (or any
+   predictor) against forward returns *across the 58-symbol universe*, aggregated over bars, with
+   the cross-sectional effective-N correction `edge-source-thesis.md` §P6 already flags as missing
+   (58 correlated symbols on one bar are not 58 independent observations — this is the same P6 gap
+   named in the Measurement Gaps table above, now with a second consumer). A kernel extension,
+   weeks not quarters — bolt it onto `ensemble_ic_engine.py` as it stands if the kernel-unification
+   decision (Open Questions, this doc) is still open; don't wait on that decision to run this.
+2. **A counterfactual decile-spread simulation** in the 142B frame machinery — long top decile,
+   short bottom decile, dollar-neutral, at the executable-return definition, cost-hurdle applied
+   per leg. This is `alpha_frames` with a portfolio-shaped frame variant, not a new system.
+
+**Decision rule:** if (1) shows cross-sectional IC materially exceeding time-series IC and (2)
+shows the spread paying net of the cost floor, a portfolio-constructor design doc becomes
+warranted — with evidence in hand rather than institutional analogy. If not, the thesis dies
+cheaply, without ever having required a parallel "PortfolioTrack" system. Per the `one model, one
+book` principle (`docs/foundation/principles.md`), this measurement's output is an input to the
+single forecast, never a second book — see intel-10's rewrite for how a confirmed cross-sectional
+effect would be consumed as a predictor, the same way a confluence is.
 
 ---
 
