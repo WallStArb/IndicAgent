@@ -221,7 +221,7 @@ class TestAssertPrerequisitesWeightVersionScoped:
         conn = AsyncMock()
         conn.fetchval.return_value = 0
 
-        with pytest.raises(RuntimeError, match="weight_version='v1_shrunk'|v1_shrunk"):
+        with pytest.raises(RuntimeError, match="v1_shrunk"):
             await _assert_prerequisites(conn, "v1_shrunk", tfs=["5m"])
 
     @pytest.mark.asyncio
