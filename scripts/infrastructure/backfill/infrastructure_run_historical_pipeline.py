@@ -2393,9 +2393,15 @@ def main() -> None:
                                 fetched_tfs.add(tf)
                                 continue
 
+                            # Bound the fetch to the actual missing span instead of the
+                            # full configured window — a symbol with 10y already loaded
+                            # that needs 20y should only request the missing 10y, not
+                            # re-request data IBKR has already given us.
+                            gap_start = min(g[0] for g in gaps)
+                            gap_end = max(g[1] for g in gaps)
                             print(
                                 f"  {instrument.symbol}/{tf}: {len(gaps)} gaps detected, "
-                                f"fetching full window {start_dt.date()} to {end_dt.date()}..."
+                                f"fetching {gap_start.date()} to {gap_end.date()}..."
                             )
 
                             # Skip continuous contracts for short windows (no rolls needed)
@@ -2404,17 +2410,19 @@ def main() -> None:
                                 and (fetch_days > 14)
                                 and (instrument.asset_class == AssetClass.FUTURES)
                             )
-                            # Fetch the full window in one call; the provider chunks at
-                            # _MAX_CHUNK_DAYS[tf] (364d for 4h/1h/1d) with 10s between
-                            # chunks. Per-gap fetching sent N×IBKR requests + N×2s sleep
-                            # for trivially small windows — absurdly slow on initial backfill.
-                            # ON CONFLICT DO NOTHING makes this idempotent.
+                            # Fetch the gap-bounded window in one call; the provider chunks
+                            # at _MAX_CHUNK_DAYS[tf] (364d for 4h/1h/1d) with 10s between
+                            # chunks. Per-gap (rather than per-run) fetching sent N×IBKR
+                            # requests + N×2s sleep for trivially small windows — absurdly
+                            # slow on initial backfill — so gaps within one run are still
+                            # coalesced into a single request. ON CONFLICT DO NOTHING makes
+                            # this idempotent regardless.
                             try:
                                 ohlcv_bars = await provider.fetch_historical_bars(
                                     symbol=instrument.symbol,
                                     timeframe=tf,
-                                    start=start_dt,
-                                    end=end_dt,
+                                    start=gap_start,
+                                    end=gap_end,
                                     continuous=use_cont,
                                 )
                                 bar_dicts = [
@@ -2433,8 +2441,8 @@ def main() -> None:
                                     bar_dicts,
                                     symbol=instrument.symbol,
                                     timeframe=tf,
-                                    start=start_dt,
-                                    end=end_dt,
+                                    start=gap_start,
+                                    end=gap_end,
                                 )
                                 try:
                                     db_conn.cursor().execute("SELECT 1")
