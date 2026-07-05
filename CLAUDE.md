@@ -1,10 +1,9 @@
 # CLAUDE.md
 
-Version: 5.49.0
+Version: 5.50.0
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
 
-**Skill commands:** Always use `/gsd-<name>` syntax (e.g. `/gsd-plan-phase`). Never suggest `gsd:<name>`.
 **Principles:** Instrument everything · shadow mode first · data quality over model complexity · never drop data that could contain signal · earn promotion through proof (p<0.05, sufficient N) · segment by regime · automate manual tasks · empirical over theoretical · resist overfitting. Full doc: `docs/foundation/principles.md`.
 **Design mindset:** Think as a council of senior engineers at Renaissance Technologies. Data integrity is paramount. Ruthlessly eliminate complexity. Silent wrong answers are worse than loud crashes. Deterministic DAG topology — every node does one thing, data flows one direction, no cycles. SoC: compute ≠ persistence ≠ transport. Async-first. Before committing to a design: (1) survives 10x volume? (2) what fails silently or introduces hidden bias? (3) does the DAG still hold? (4) what manual step does this eliminate?
 **5-Step mandate (Musk):** Make requirements less dumb → delete → simplify → accelerate → automate. Run in order. Don't optimize what should be deleted. Don't accelerate in the wrong direction. Don't automate what isn't proven. Full doc: `docs/foundation/musk-5-step-process.md`.
@@ -12,7 +11,6 @@ Version: 5.49.0
 **Glossary:** Every domain term has exactly one definition. Check before naming new concepts; glossary wins over existing code on collision. Full spec: `docs/foundation/glossary.md`.
 **Doc locations:** `docs/foundation/` canonical home. `docs/` root is index only.
 **Gotchas:** `docs/reference/gotchas.md` — rare pitfalls moved out of per-turn context.
-**Agentic DAG:** ComputeAgents (I1-I6) are DB-ignorant, publish to tiered topics, DataWriterAgents manage persistence.
 
 ## Done-Coding SOP
 
@@ -26,13 +24,13 @@ Version: 5.49.0
 7. git push origin main
 ```
 
-**Commands:** `.venv/bin/pytest tests/unit/ -v` · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · `docs/cheatsheet.md` for full reference.
+**Commands:** `.venv/bin/pytest tests/unit/ -v` · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · `docs/reference/cheatsheet.md` for full reference.
 
 ## Architecture
 
-**Layers (v3.0):** Feature Factory (replaces I1-I4) · I5-I7 archived · I8 AI (Ollama, default `nemotron-3-nano:4b` via `OLLAMA_MODEL`)
+**Layers (v3.0):** Feature Factory (replaces I1-I4) · I5-I7 archived · I8 AI (Ollama; effective model `nemotron-3-nano:4b` set by `OLLAMA_MODEL` in `.env` — the `settings.py` code default `gemma4:e4b` is NOT pulled locally, so a missing `.env` entry breaks all LLM calls)
 **Pipeline (v2.x — ARCHIVED, no live consumer as of 2026-07-02):** `indicagent-intelligence-pipeline.service` is `failed`; `ExecStart` points at a deleted file. Do not restart this unit expecting it to work. Full architecture: `src/intelligence/CLAUDE.md`.
-**Pipeline (v3.0):** `IBKR TWS → FeatureVectorWriter → feature_vectors → IC engine → alpha_events`
+**Pipeline (v3.0):** `IBKR TWS → FeatureVectorPipeline (compute) → FeatureVectorWriter → feature_vectors → forward_return_writer → ic_engine → ensemble_trainer/EnsembleICEngine (alpha_ensemble_ic) → alpha_publisher → alpha_events`. `alpha_publisher` is the sole `alpha_events` writer.
 **Typed Bus (v2.x — ARCHIVED, no live consumer as of 2026-07-02):** `IntelligenceEvent` (`src/intelligence/schemas.py`) — tiered JSONB (i1/i2/i3/i4/i5/smc/i6), persisted to `intelligence_features` by `feature_writer`. `indicagent-feature-writer.service` is `inactive (dead)`.
 
 **Service DAG:** canonical registry is `_DAG_ORDER` in `services/service_auditor.py`. Live state: `systemctl list-units --all | grep indicagent`. Monitoring: Grafana `:3001`.
@@ -42,7 +40,7 @@ Version: 5.49.0
 
 - **DB queries:** `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "..."`. Plain `psql -U postgres` fails.
 - **Instrument asset class filter:** `instruments.contract_details->>'asset_class'` — values: `'equity'` (ETFs), `'futures'`, `'fx'`. No top-level column. Use `is_active = true AND contract_details->>'asset_class' = 'equity'` to target ETFs only.
-- **Historical backfill:** `scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py --client-id 40` (provider uses 35; default 56 exceeds `_MAX_CLIENT_ID=50`).
+- **Historical backfill:** `scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py` (default `--client-id 40`; provider uses 35; IDs must stay ≤ `_MAX_CLIENT_ID=50` in `ibkr.py`).
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`
@@ -57,7 +55,7 @@ Version: 5.49.0
 ```
 Hot:  IBKR TWS → Redpanda Streams → Services              (sub-ms)
 Warm: Streams → indicator/analysis/signal pipeline        (<10ms)
-Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
+Cold: BarWriter + FeatureVectorWriter → TimescaleDB (batch, async)
 ```
 **Real-time pipeline never touches the database directly.**
 
@@ -96,9 +94,8 @@ All tunable numeric values live in `config_state` under `<domain>.<concept>.<par
 
 **Gradient column naming:** Use scale qualifiers (`fast`/`mid`/`slow`, `low`/`mid`/`high`, `primary`/`secondary`) instead of numbers for tunable calibration params. `return_fast` column + `alpha.ic.lookahead.fast = 1` APR key — update APR to change, no migration. Compare: `momentum_z_5` (5 defines the statistic, immutable) vs. `return_fast` (1 calibrates "fast," tunable). Full spec: `docs/foundation/naming-system.md §7`.
 
-**Migrate-as-you-go:** Any numeric threshold, weight, period, or count encountered in `src/` or `services/` that is not APR-backed MUST be migrated in the same session. Module-level constants and inline magic numbers are architecture violations. Pattern for module-level utilities: `_config_service: Any | None = None` + `set_config_service()` + `get_sync()` wrapper, registered in `intelligence_pipeline._prewarm_threshold_config()`. Pattern for plugin dataclasses: `_config_service: Any = field(default=None, compare=False, repr=False)`, read via `cfg.get_sync(key, fallback) if cfg else fallback`.
+**Migrate-as-you-go:** Any numeric threshold, weight, period, or count encountered in `src/` or `services/` that is not APR-backed MUST be migrated in the same session. Module-level constants and inline magic numbers are architecture violations. Pattern for module-level utilities: `_config_service: Any | None = None` + `set_config_service()` + `get_sync()` wrapper, registered in `FeatureVectorPipeline._prewarm_threshold_config()` (`services/feature_vector_pipeline.py`). Pattern for plugin dataclasses: `_config_service: Any = field(default=None, compare=False, repr=False)`, read via `cfg.get_sync(key, fallback) if cfg else fallback`.
 
-**`ui.*` requires one-line change first:** add `"ui."` to `OPS_PREFIXES` in `src/config/config_service.py`.
 **Dashboard:** `/config/parameters` — view/edit all parameters, full change history per key.
 
 ## Plugin System (v2.x, archived 2026-07-02)
@@ -110,8 +107,8 @@ Entire I1-I7 tier has no live consumer. Full architecture, tier lists, shadow go
 Non-negotiable. Any violation is wrong regardless of whether it works locally.
 
 1. **`ProviderMerger` is the sole writer to `market.bars`**
-2. **I1–I7 runs entirely in-process** — `IntelligencePipeline` is DB-ignorant; Kafka is a sink, not an inter-stage pipe.
-3. **No analyzer or pipeline daemon touches the database** — only `BaseWriter`, `BaseTracker`, `BaseAuditor` subclasses do DB ops.
+2. **Compute stages run in-process** — feature computation publishes to Kafka; Kafka is a sink, not an inter-stage pipe. Compute daemons (e.g. `FeatureVectorPipeline`) may hold a DB handle for their own reads (warmup history, ConfigService) and one-time schema bootstrap, but must never persist their own computed output rows.
+3. **A compute daemon never writes its own computed output** — that persistence goes through a dedicated `BaseWriter`/`BaseBatch` subclass (e.g. `FeatureVectorWriter`), never inline in the compute daemon. (`BaseTracker`/`BaseAuditor` no longer exist as base classes — auditors like `BarAuditor` extend `BaseDaemon` directly.)
 4. **All topic keys via `stream_keys.py`** — no hardcoded topic strings.
 5. **No agent calls another agent directly** — topics are the only coupling.
 6. **All timestamps UTC** — `datetime.now(UTC)` only; never `datetime.now()` or `datetime.utcnow()`.
@@ -133,7 +130,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **`get_active_contracts()`** is a module-level function in `settings.py`. Call as `get_active_contracts(settings)`, not `settings.get_active_contracts()`.
 - **asyncpg**: JSONB → `dict` (no `json.loads()`/`json.dumps()`). Timestamps → `datetime`. UUIDs → `str()` before Kafka.
 - **structlog `event` kwarg collision**: Never pass `event=<value>` — use `signal=`, `payload=`, `data=` instead.
-- **Service registry**: when adding a service, update `_DAG_ORDER`, `_LAG_THRESHOLDS`, `_AGENT_ID_TO_UNIT` in `service_auditor.py`.
+- **Service registry**: when adding a service, update `_DAG_ORDER` and `_AGENT_ID_TO_UNIT` in `service_auditor.py`; seed its lag threshold as an `alert.lag.*` APR key (loaded by `_load_lag_thresholds()`, hot-reloaded via Kafka) — do not hardcode it.
 - **`INDICAGENT_ENV` consistency**: Mixed env prefixes → services subscribe to different topics → zero data flow.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
 - **Metrics**: `src/observability/metrics.py` (direct OTel SDK — `prometheus_client` fully removed). Counters → `.add(1, attrs)`, histograms → `.record(val, attrs)`, up-down gauges → `.add(delta, attrs)`, point gauges → `.set(value, attrs)`. Never import `prometheus_client`.
@@ -151,8 +148,8 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 **Services**
 - **Logging**: `structlog` → `logs/<snake_case_class_name>.log` via `setup_service_logging("logs/<name>.log")`. NOT journald.
 - **`PERSISTENCE_BATCH_LATENCY` label key is `agent_id`** — not `agent=`.
-- **`intelligence_pipeline` subscribes to:** `topic_market_bars` (1m) AND `topic_market_bars_htf` (HTF).
-- **Tests**: `tests/unit/`, `tests/integration/`, `tests/e2e/`. Unit tests must be CI-clean.
+- **`feature_vector_pipeline` subscribes to:** `topic_market_bars` (1m) AND `topic_market_bars_htf` (HTF).
+- **Tests**: `tests/unit/`, `tests/integration/`. Unit tests must be CI-clean.
 
 ## OTel Health Contract
 

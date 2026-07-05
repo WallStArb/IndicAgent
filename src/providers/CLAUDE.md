@@ -27,14 +27,14 @@ All ib_insync logic is isolated here. **No ib_insync imports anywhere else.**
 - `fetch_historical_bars()` supports `continuous=True` for back-adjusted `ContFuture` data (multi-year backfill).
 
 ### Active Contracts
-Count drifts with futures rolls — `get_active_contracts()` from `src/config/settings.py` is authoritative. As of last update: ~63 instruments (~21 futures, 4 FX, 38 ETFs). IBKR subscription limit 80. **Never hardcode counts.**
+`get_active_contracts()` from `src/config/settings.py` is authoritative. As of 2026-07-05: 80 active instruments, all equity (v3.0 Phase A scope — zero active futures/FX). **This is exactly the IBKR 80-subscription limit: adding any instrument requires retiring one.** Never hardcode counts.
 
 Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200. NG/BZ valid in live account.
 
 ### Adding New Contracts
 1. Add to `get_active_contracts()` in `src/config/settings.py`
 2. INSERT to `instruments` table with `contract_details` JSONB; restart `indicagent-ibkr-provider`
-3. Backfill historical data: see root CLAUDE.md "New contracts" command
+3. Backfill historical data: see root CLAUDE.md "Historical backfill" command
 
 ### Bar Delivery Latency
 

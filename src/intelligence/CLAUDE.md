@@ -5,10 +5,10 @@
 > deleted in commit `cb8f581a`. Root `CLAUDE.md` marks Feature Factory as the v3.0 replacement
 > for I1-I4, with I5-I7 archived outright. Do not follow the "Creating a New I7 Plugin" or
 > restart instructions below expecting them to work — kept for historical reference and for
-> whenever/if this subsystem is formally reactivated or ported. LLM Provider Chain / LiteLLM
-> sections below may still be partially relevant to live v3.0 AI services — not verified either
-> way in this pass. `shadow_registry`'s 36 rows all have `last_eval_at IS NULL` — confirmed
-> dead, not just I5-I7.
+> whenever/if this subsystem is formally reactivated or ported. LLM Provider Chain / LiteLLM /
+> audit-stream sections below verified live and accurate as of 2026-07-05 (`src/core/llm/chain.py`,
+> `litellm_backend.py`, `llm_writer` scoring). `shadow_registry`'s 36 rows all have `last_eval_at IS NULL` —
+> confirmed dead, not just I5-I7.
 
 ## Throughput
 
@@ -92,7 +92,8 @@ All live in `src/intelligence/trading/`:
 
 - **Qwen3 thinking mode**: `content` empty if `num_predict < 500` (thinking tokens consume budget). Use `/no_think` prefix or `num_predict ≥ 500`.
 - **Local Ollama models**: default nemotron-3-nano:4b; also available qwen3.5:4b. Set via `OLLAMA_MODEL` in `.env` (Docker `:11434`).
+- **`OLLAMA_MODEL` unset = broken**: `settings.py` code default is `gemma4:e4b`, which is not pulled in the container — LLM calls fail model-not-found without the `.env` line.
 - **Plugin state write-back is load-bearing**: GARCH/HMM fully reassign `_state` — always write back after `compute_full()`.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts so raw signals never get `adjusted_rank`. Derive `active` from `all_ranked`, not from the raw `signals` list — otherwise `perf_weights` silently have no effect on winner selection.
 
-**After plugin changes:** Restart `indicagent-intelligence-pipeline` (unified I1-I7). See root CLAUDE.md Active Services table for canonical service names and metrics ports.
+**After plugin changes (v2.x, archived):** Restart `indicagent-intelligence-pipeline` (unified I1-I7). Canonical service registry: `_DAG_ORDER` in `services/service_auditor.py`.
