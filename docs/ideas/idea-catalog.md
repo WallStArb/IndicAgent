@@ -14,6 +14,10 @@ archived.
 an actual review pass; blank = never reviewed. Don't confuse "draft" status with "unreviewed" —
 they're independent axes.
 
+**For a high-level, low-detail view** — what's weak in each major area and what's being proposed,
+across the whole system (not just Cluster 1) — see `roadmap-scope-map.md`. This catalog is full
+navigation depth; that doc is the one-page product-management view.
+
 ---
 
 ## Cluster 1 — v3.0 Intelligence Lifecycle (the active build surface)
@@ -30,7 +34,7 @@ assertion) as of 2026-07-02 evening. Read this first for "what's next," not this
 | [intel-13: AnalogEngine](intel-13-analog-engine.md) | draft, high | ✅ | Non-parametric K-NN retrieval as a predictor family; Score Object deleted, return-distribution primitive kept |
 | [intel-14: IntegrityMonitor](intel-14-integrity-monitor.md) | draft, high | ✅ | Drift/decay/ensemble-health, reconciled from a 10-doc cluster |
 | [intel-15: MeasurementEngine](intel-15-measurement-engine.md) | draft, high | ✅ | Where kernel unification actually stands; now carries the Cross-Sectional Rank IC (T3) addendum |
-| [Concept Governance Registries](concept-governance-registries.md) | — | | Four-table MVP (concept_registry/gate/transition_log/annotation) for evidence-gated lifecycle across domains |
+| [Concept Governance Registries](concept-governance-registries.md) | — | ✅ (2026-07-04) | Four-table MVP (concept_registry/gate/transition_log/annotation) for evidence-gated lifecycle across domains |
 | [Feature Registry](feature-registry.md) | — | | DB-backed feature governance (todo 008, COMPLETE) |
 | [Edge Source Thesis](edge-source-thesis.md) | draft, high | | T1-T4 falsifiable theses on where edge comes from; standing doc, revisit per thesis |
 | [Canonical Simulator](canonical-simulator.md) | draft, **critical** | ✅ (v2, 2026-07-03) | One counterfactual ledger + cost kernel + run identity, not a replay engine; enforced via pre-commit Check 9 |
@@ -40,10 +44,6 @@ assertion) as of 2026-07-02 evening. Read this first for "what's next," not this
 | [Comomentum Crowding Metric](comomentum-crowding-metric.md) | — | | Cross-sectional crowding metric for momentum regimes |
 | [Interaction Factory](interaction-factory.md) | idea, no build trigger met | | Combinatorial-factory alternative rejected in favor of Phase 150's curated ≤50 interactions |
 | [Controlled Vocabulary](controlled-vocabulary.md) | idea, unscheduled | | Ready to build whenever prioritized; prerequisite already satisfied |
-
-**Superseded / legacy within this cluster (kept for reference, not active):**
-[intel-04: I6 Confluence Patterns](intel-04-confluence-patterns.md) (superseded by intel-10) ·
-[intel-05: I6 Confluence Architecture](intel-05-i6-confluence-architecture.md) (adopted, v2.x-era)
 
 ---
 
@@ -58,9 +58,7 @@ salvageable into v3.0's Feature Factory / Phase 150 — check before assuming de
 | [intel-02: Second Derivative Indicators](intel-02-second-derivative-indicators.md) | draft, medium | Current state + future additions |
 | [intel-03: Future Indicators Backlog](intel-03-future-indicators.md) | draft, low | Grab-bag of candidate indicators |
 | [intel-06: Regime Transition Detection](intel-06-regime-transition-detection.md) | draft, medium | Early detection of regime transitions |
-| [intel-07: HMM Multi-TF Training](intel-07-hmm-multi-tf-training.md) | draft, high | Multi-timeframe HMM design; largely superseded by shipped HMM improvement plan — check against `project_hmm_improvement_decisions` memory before reading as current |
 | [intel-08: Macro & Cross-Asset Intelligence](intel-08-macro-cross-asset.md) | draft, medium | Improvement backlog for macro/cross-asset features |
-| [intel-09: Intelligence Stack Latency](intel-09-stack-latency.md) | under-review, medium | Latency reduction across the (now archived) I1-I7 stack — likely stale given v3.0's architecture |
 
 ---
 
@@ -93,7 +91,6 @@ salvageable into v3.0's Feature Factory / Phase 150 — check before assuming de
 | [platform-01: Architecture (Vision)](platform-01-architecture.md) | draft, high | Unified intelligence & execution suite — long-horizon vision |
 | [platform-02: Tech Stack](platform-02-tech-stack.md) | draft, medium | Decisions/reasoning/migration path |
 | [platform-03: AI/ML Tech Stack](platform-03-tech-stack-intelligence.md) | under-review, high | Consolidated AI/ML stack reference |
-| [platform-04: Kubernetes](platform-04-kubernetes.md) | draft, low | **Check against CLAUDE.md's explicit "no Kubernetes HPA" rule before relying on this — likely stale** |
 | [platform-05: Redpanda Stream Topology](platform-05-stream-topology.md) | draft, low | Granular stream topology proposal |
 | [platform-06: Service Resilience Patterns](platform-06-service-resilience.md) | draft, low (Pattern 1 shipped) | Circuit breaker (Pattern 1) already elevated to Phase 084 |
 | [platform-07: Persistence Fragility](platform-07-persistence-fragility.md) | draft, high | Assessment of persistence-layer weak points |
@@ -183,6 +180,13 @@ salvageable into v3.0's Feature Factory / Phase 150 — check before assuming de
 - `docs/ideas/archive/` — superseded idea docs, including `intel-10-v2-confluence-persistence.md`,
   `intel-11-dual-system-discrete-vs-portfolio.md`, and the pre-consolidation AnalogEngine/
   IntegrityMonitor/StratificationDimension doc sets that fed intel-12/13/14.
+- **Archived 2026-07-05** (self-flagged stale, no further review needed): `intel-04-confluence-patterns.md`
+  (superseded by intel-10) · `intel-05-i6-confluence-architecture.md` (v2.x-era, I1-I7 tier archived
+  2026-07-02) · `intel-07-hmm-multi-tf-training.md` (superseded by the shipped HMM improvement plan) ·
+  `intel-09-stack-latency.md` (latency work for the now-archived I1-I7 stack) · `platform-04-kubernetes.md`
+  (contradicts CLAUDE.md's explicit no-Kubernetes-HPA rule). Cluster 2's remaining pre-v3.0 docs
+  (intel-01/02/03/06/08) were deliberately left alone — "mixed relevance, check before assuming dead"
+  needs real content review, not a bulk sweep; tracked as todo 060.
 - `docs/plans/archive/` — superseded plan docs, including the pre-142A IC-engine-improvements and
   feature-scoring-beyond-ic plans (content now carried in `intel-15`).
 - `docs/ideas/ai-index.md` — **archived by this catalog 2026-07-03.** Its own links were stale
