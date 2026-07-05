@@ -182,6 +182,41 @@ probably a fifth layer (between Stage 0 and Stage 2, operating across vectors
 rather than within one) if ever built. Not scoped here; flagged so they don't
 get silently assumed solved just because the layer language now exists.
 
+### Sequencing note (2026-07-05) — how this relates to intel-12's gate, and what not to build yet
+
+`intel-12` (Stage 1, StratificationDimension) already has a working three-gate design for
+exactly this class of problem — structural redundancy pre-filter → orthogonality study
+(Pearson/mutual-information) → substitution test (partial IC) — applied to ~10 candidate
+regime dimensions. That gate's *protocol shape* generalizes cleanly to features and vectors.
+Its *statistical test* does not: Pearson/MI is a scalar-vs-scalar comparison; "does vector V3
+leak into vector V1" is a group-vs-group question needing canonical correlation or a
+leakage-regression (predict one vector's columns from the other's, check R²), not a single
+correlation coefficient.
+
+Where each level actually stands:
+- **Regime dimensions (Stage 1):** fully specified — `intel-12`, gated on Phase 144/145.
+- **Features (Stage 0):** has a natural, cheap home once it's needed — `feature_registry`'s
+  existing `candidate → active` promotion gate (IC Sharpe + FDR already designed in) just needs
+  one more condition added: reject/merge a candidate that's redundant with an already-`active`
+  feature. No new infrastructure — this rides `feature_registry`'s migration into
+  `concept_registry` (`domain='feature'`), not a separate build.
+- **Cross-vector (this doc's two gaps above):** the only level with no home and no consumer —
+  only one vector (V1 Quant) exists today, so there is nothing to check against yet.
+
+**Do not build any of this yet.** No real caller exists for a generic orthogonality function
+today — `intel-12` isn't built, `concept_registry` isn't built, and v3.1 itself hasn't cleared
+its OOS gate (EIC-04 failed 2026-07-03 on data starvation; see `STATE.md`). Building ahead of a
+proven consumer risks guessing the wrong shape, same as everything else this milestone has
+already had to walk back once. When a real caller does exist: the *compute* (pairwise
+correlation, partial-IC) should extend `src/intelligence/statistics/ic_math.py` — the existing
+shared home for this codebase's correlation/Fisher-z/CI machinery — not get reimplemented
+per domain. The *governance* (gate status, promotion, transition log) stays inside
+`concept_registry`, scoped per domain, until at least two real domains are live; `regime_model`
+(intel-12) already surfaced a schema gap (per-stratum status, found in the 2026-07-04 cluster
+review) that should get fixed from real experience before a second domain's needs are guessed
+at too. **Build trigger:** whichever lands first — Phase 144/145, or the Feature Registry →
+Concept Registry migration.
+
 ---
 
 ## Stage summary table
