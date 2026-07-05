@@ -84,11 +84,13 @@ That framing is parked — the underlying module concepts are not. Read through 
 live-trading lens instead of the product lens: AegisAgent and TradeAgent map to Decision/Action
 (§2.2 above), PrimeAgent maps to Portfolio (§2.3), and DerivAgent/QualAgent/FlowAgent/FundAgent
 map to future Intelligence modules (§3) rather than to standalone products. **Known
-inconsistency, not resolved here:** `docs/ideas/signal-08-intelligence-refactor.md` maps V7
-Qualitative → QualAgent and V8 Fundamental → FundAgent as separate vectors, while
-`docs/ideas/roadmap-scope-map.md` describes QualAgent itself as covering "fundamental/
-qualitative intelligence" (combined) and lists FundAgent as "scope unclear, titles only." Which
-vision doc actually owns which vector is unresolved — flagged in §7, not guessed at here.
+inconsistency, not resolved here — and one level deeper than it first looks:** whether V8
+Fundamental exists as its own vector is itself unsettled (§3, §7 item 1 — the glossary only
+canonically recognizes V1/V3/V5/V7). Layered on top of that, `signal-08` maps V7 Qualitative →
+QualAgent and V8 Fundamental → FundAgent as separate vectors, while `roadmap-scope-map.md`
+describes QualAgent itself as covering "fundamental/qualitative intelligence" (combined) and
+lists FundAgent as "scope unclear, titles only." Which vision doc owns which vector is unresolved
+at two levels, not one — flagged in §7, not guessed at here.
 
 Building Decision or Portfolio modules now would be premature — §6 states the bar V1 Quant has
 to clear first, and nothing downstream should be designed in detail before that bar is cleared.
@@ -119,8 +121,17 @@ call it too. Given "data integrity is paramount" is a house principle, closing t
 requirements picture before a new data source multiplies the number of consumers that have to
 get this right independently.
 
-**The full intelligence-vector taxonomy** (`docs/ideas/signal-08-intelligence-refactor.md`)
-names eight vectors, split into two kinds with different cadence behavior:
+**Canon vs. draft — the vector count itself is not settled.** `docs/foundation/glossary.md` (the
+authoritative term source, per house rule "glossary wins on collision") formally recognizes only
+**V1 Quant, V3 Macro, V5 Flow, V7 Qual** as vectors, and is explicit that a vector is "not a
+synonym for tier" — I1-I4 are measurement tiers *within* V1, not vectors in their own right.
+`signal-08-intelligence-refactor.md`, dated the same day as the glossary's last update and marked
+**"Status: working draft — for discussion and refinement,"** proposes splitting V1's internal
+tiers into four additional standalone vectors (V2 Microstructure, V4 Calendar, V6
+Derivatives/Gamma, V8 Fundamental) — a draft that was never reconciled back into the glossary.
+The table below presents `signal-08`'s eight-vector version because it's the only place a full
+cadence taxonomy exists, but **do not treat V2/V4/V6/V8 as canonical** until that reconciliation
+happens (§7):
 
 | Vector | Domain | Cadence kind | Status |
 |---|---|---|---|
@@ -167,12 +178,12 @@ answer it.
 
 | Tier | Business question it answers | Current approach | Real alternatives on the table |
 |---|---|---|---|
-| **Feature Fabric** | What can we measure about this instrument, right now, with no theory attached? | ~61 pure functions computing a fixed vector per bar | Not a mechanism-swap question (unlikely to need a different measurement paradigm) but a genuine scale question: Renaissance's own reference point is ~499 raw signals into Medallion's ensemble, vs. our 54-61 today. `renaissance-primitives-ohlcv.md` catalogs true stateless primitives not yet computed; a proposed atomic/interaction/theory sub-classification is designed but informal. The next tier up — second-order (pairwise) interaction primitives, "Interaction Factory" — is deliberately evidence-gated: build only after a cheap pilot proves the atomics are IC-saturated, not on readiness alone |
-| **Stratification** | Which observations belong together, so we don't average unlike market conditions into one number? | Two coexisting systems: per-symbol HMM (5 states) and cross-sectional VIX×breadth (9 states) | Volume/skew/factor regimes, IOHMM, factor-augmented HMM — a formal `StratificationDimension` contract with a promotion gate (orthogonality + substitution test) is proposed but not built (`intel-12`) |
-| **Edge Measurement** | Does this measurement actually predict forward returns, and how confident are we? | Spearman rank correlation (IC), bootstrap CI, IC Sharpe | Mutual information as a secondary, non-monotonic-aware measure — a real open question, not yet a scoped plan |
-| **Combination** | Given many individually-scored measurements, which matter and how much? | IC-weighted linear combination, Ledoit-Wolf covariance shrinkage for redundancy | Already multi-mechanism by design today (`ic_proportional`, `v1_shrunk`, `mean_variance`, being A/B judged) — the model for how the other tiers should eventually work |
-| **Emission** | When is the combined view strong and confident enough to act on? | Threshold + CI crossing | Not currently questioned — but see the conflation noted below |
-| **Simulation/Validation** | Did acting on this actually make money, under rules committed to in advance? | Frame-based counterfactual P&L tracking (Phase 142B), pre-committed criteria before data collection | Not currently questioned — this discipline (commit criteria before seeing data) is considered load-bearing, not up for revision |
+| **Primitive Measurement** (Stage 0) | What can we measure about this instrument, right now, with no theory attached? | ~61 pure functions computing a fixed vector per bar | Not a mechanism-swap question (unlikely to need a different measurement paradigm) but a genuine scale question: Renaissance's own reference point is ~499 raw signals into Medallion's ensemble, vs. our 54-61 today. `renaissance-primitives-ohlcv.md` catalogs true stateless primitives not yet computed; a proposed atomic/interaction/theory sub-classification is designed but informal. The next tier up — second-order (pairwise) interaction primitives, "Interaction Factory" — is deliberately evidence-gated: build only after a cheap pilot proves the atomics are IC-saturated, not on readiness alone |
+| **Stratification** (Stage 1) | Which observations belong together, so we don't average across regimes as if they behaved the same? | Two coexisting systems: per-symbol HMM (5 states) and cross-sectional VIX×breadth (9 states) | Volume/skew/factor regimes, IOHMM, factor-augmented HMM — a formal `StratificationDimension` contract with a promotion gate (orthogonality + substitution test) is proposed but not built (`intel-12`) |
+| **Edge Measurement** (Stage 2) | Does this measurement actually predict forward returns, and how confident are we? | Spearman rank correlation (IC), bootstrap CI, IC Sharpe | Mutual information as a secondary, non-monotonic-aware measure — a real open question, not yet a scoped plan |
+| **Combination** (Stage 3) | Given many individually-scored measurements, which matter and how much? | IC-weighted linear combination, Ledoit-Wolf covariance shrinkage for redundancy | Already multi-mechanism by design today (`ic_proportional`, `v1_shrunk`, `mean_variance`, being A/B judged) — the model for how the other tiers should eventually work |
+| **Emission** (Stage 4) | When is the combined view strong and confident enough to act on? | Threshold + CI crossing | Not currently questioned — but see the conflation noted below |
+| **Simulation/Validation** (not yet a numbered Stage in `intelligence-layer-architecture.md`, which stops at Stage 4 — a real cross-doc naming gap, not resolved here) | Did acting on this actually make money, under rules committed to in advance? | Frame-based counterfactual P&L tracking (Phase 142B), pre-committed criteria before data collection | Not currently questioned — this discipline (commit criteria before seeing data) is considered load-bearing, not up for revision |
 
 **Two acknowledged gaps with no tier and no mechanism yet:** proving that separate intelligence
 vectors are actually statistically independent (asserted, never measured), and any
@@ -253,28 +264,34 @@ data sources (§3) is: name them, understand roughly where they'd fit, and do no
 Genuinely undecided calls that shape how much of the above ever gets built, in rough priority
 order:
 
-1. **Ambient-modifier vs. fill-forward-IC-measurement (§3).** Two source docs propose
-   incompatible answers to how a slow-cadence source enters the system. This has to be resolved
-   before V5-V8 or the alt-data sources become more than a list of names.
-2. **Which vision doc owns which future vector (§2).** `signal-08` and `roadmap-scope-map.md`
+1. **Does V2/V4/V6/V8 exist at all, canonically (§3)?** `glossary.md` recognizes only V1/V3/V5/V7
+   and calls a vector "not a synonym for tier"; `signal-08`'s eight-vector split is a same-day,
+   never-merged working draft. This sits upstream of nearly every other item below — the vision-
+   doc mapping in §2, the build order in this list, and the cadence-handling question all assume
+   an eight-vector world that may not be canonical. Resolve this first: either ratify `signal-08`
+   into the glossary, or fold V2/V4/V6/V8 back into their parent vectors as tiers.
+2. **Ambient-modifier vs. fill-forward-IC-measurement (§3).** Two source docs propose
+   incompatible answers to how a slow-cadence source enters the system. Only reachable once #1
+   is settled — if V2/V4/V6/V8 aren't real vectors, this question may only apply to V5/V7 (and a
+   hypothetical V8-as-part-of-V7 or similar), not eight independent cases.
+3. **Which vision doc owns which future vector (§2).** `signal-08` and `roadmap-scope-map.md`
    disagree on whether QualAgent is Qualitative-only or Qualitative+Fundamental combined, and
-   FundAgent's scope is described as "titles only" in one place. Needs a single reconciling pass
-   before any of V5-V8 moves from idea to plan.
-3. **Is a Portfolio module in scope at all before Decision modules exist?** §2.3 is real but has
+   FundAgent's scope is described as "titles only" in one place. Also downstream of #1.
+4. **Is a Portfolio module in scope at all before Decision modules exist?** §2.3 is real but has
    zero designed infrastructure; worth deciding whether it's a v4.x-adjacent concern or genuinely
    later, given the endgame is personal capital (likely a small number of concurrent positions,
    which changes how much portfolio machinery is actually needed).
-4. **Does cross-vector orthogonality need its own tier**, or is it adequately handled by the
+5. **Does cross-vector orthogonality need its own tier**, or is it adequately handled by the
    combination tier's existing covariance-shrinkage step once a second vector actually exists?
    Currently unmeasurable because only one vector exists — see §4's acknowledged gap.
-5. **Build order for V5-V8**, if pursued: `alt-data-extension.md`'s recommendation (Flows →
+6. **Build order for V5-V8**, if pursued: `alt-data-extension.md`'s recommendation (Flows →
    Kalshi-as-conditioning → Fundamentals → Qualitative) is the only sequencing proposal on
    record and hasn't been cross-checked against `signal-08`'s ambient/bar-aligned split or
    against which of the parked vision docs are actually ready to inform a build.
-6. **Mutual information as a second edge-measurement statistic (§4)** — real question, no
+7. **Mutual information as a second edge-measurement statistic (§4)** — real question, no
    scoping done yet, would need a schema note (does `feature_ic_scores`/`predictor_ic_scores`
    reserve room for a second statistic type per cell?) before it's actionable.
-7. **Research-qualifying vs. cost-hurdle-actionable (§4, §5).** `alpha_events` needs an explicit
+8. **Research-qualifying vs. cost-hurdle-actionable (§4, §5).** `alpha_events` needs an explicit
    second gate (a real cost hurdle, not the current no-op) or an explicit second column/tier
    before any Decision module design starts — otherwise "consume alpha_events" quietly means
    "consume a ~98%-cost-negative population."
