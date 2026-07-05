@@ -15,7 +15,7 @@ import signal
 import threading
 import time
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 # Python 3.14 removed implicit event loop creation. eventkit (ib_insync dependency)
@@ -119,6 +119,27 @@ _MAX_CHUNK_DAYS: dict[str, int] = {
 # reactive pacing violations entirely.
 _IBKR_HIST_RATE_LIMIT = 55  # conservative: hard limit is 60; 5-slot buffer absorbs jitter
 _IBKR_HIST_WINDOW_S = 600.0  # 10-minute sliding window (IBKR's documented period)
+
+# Defense-in-depth outer timeout on reqHistoricalDataAsync, in addition to ib_insync's
+# own internal `timeout=60` default on that call. [rca_analysis] Live 2026-07-05 backfill
+# runs hung for 25+ minutes with near-zero CPU and no "reqHistoricalData: Timeout for..."
+# warning ever logged -- confirmed via py-spy + strace that the main thread was genuinely
+# idle in epoll_wait, not blocked on a synchronous call, meaning ib_insync's own internal
+# asyncio.wait_for(future, timeout=60) never fired despite far exceeding 60s elapsed.
+# This module already documents Python 3.14 asyncio.timeout()/wait_for reliability risk
+# (see the nest_asyncio note above) -- this constant does not assume this wrapper is
+# bulletproof against that same class of runtime issue; the actual safety net against an
+# indefinite hang is the external bar-count watchdog in backfill_retry_loop.sh, which
+# force-kills the process based on observed DB progress, independent of in-process timers.
+# This wrapper is still worth having as the first line of defense for the common case.
+_HIST_REQUEST_TIMEOUT_SEC = 90.0
+
+# [rca_analysis 2026-07-05, F4] reqContractDetailsAsync (qualify_instrument,
+# resolve_instrument) has no timeout at all in ib_insync -- not even an internal
+# default like reqHistoricalDataAsync's timeout=60. Same failure class as the
+# historical-data hang; a contract-qualification hang would otherwise only be
+# caught by the external bar-count watchdog (much slower, much less specific).
+_CONTRACT_DETAILS_TIMEOUT_SEC = 30.0
 
 # Error 162 "no data" fires for ANY empty query window -- a genuine pre-listing date,
 # but also extended halts, thin back-month futures windows, or permission hiccups. A
@@ -554,6 +575,7 @@ class IBKRProvider:
         start: datetime,
         end: datetime,
         continuous: bool = False,
+        on_chunk: Callable[[list[OHLCVBar]], Awaitable[None]] | None = None,
     ) -> list[OHLCVBar]:
         """Fetch historical OHLCV bars from IBKR.
 
@@ -569,6 +591,16 @@ class IBKRProvider:
                 Use for multi-year history that spans contract rolls. The named
                 contract must still be pre-qualified so the base symbol and
                 exchange can be resolved.
+            on_chunk: Optional async callback invoked with each chunk's bars as
+                soon as they're parsed, in addition to the full list still being
+                returned at the end. [rca_analysis 2026-07-05] Persistence used
+                to happen only once, on the full return value, after the whole
+                (potentially many-chunk, many-minute) fetch completed — so a kill
+                or disconnect mid-fetch discarded all in-memory progress for that
+                (symbol, timeframe), and a bar-count-based external stall watchdog
+                had no true per-chunk heartbeat to observe. Callers that pass this
+                get truthful incremental progress; ibkr.py stays DB-ignorant
+                (DAG invariant 3) since the callback itself is the caller's.
         """
         if timeframe not in _TF_TO_IB:
             raise ValueError(f"Unsupported timeframe '{timeframe}'. Valid: {list(_TF_TO_IB)}")
@@ -588,6 +620,7 @@ class IBKRProvider:
                 start=start,
                 end=end,
                 continuous=continuous,
+                on_chunk=on_chunk,
             )
         finally:
             self._ib.errorEvent -= _on_ib_error
@@ -599,6 +632,7 @@ class IBKRProvider:
         start: datetime,
         end: datetime,
         continuous: bool = False,
+        on_chunk: Callable[[list[OHLCVBar]], Awaitable[None]] | None = None,
     ) -> list[OHLCVBar]:
         named_contract = self._qualified_contracts.get(symbol)
         if not named_contract:
@@ -638,18 +672,29 @@ class IBKRProvider:
                 duration_str = f"{math.ceil(total_days / 365)} Y"
             else:
                 duration_str = f"{total_days} D"
-            ib_bars = await self._ib.reqHistoricalDataAsync(
-                contract,
-                endDateTime="",  # must be empty for ContFuture
-                durationStr=duration_str,
-                barSizeSetting=_TF_TO_IB[timeframe],
-                whatToShow=what_to_show,
-                useRTH=False,
-                formatDate=1,
-            )
+            try:
+                ib_bars = await asyncio.wait_for(
+                    self._ib.reqHistoricalDataAsync(
+                        contract,
+                        endDateTime="",  # must be empty for ContFuture
+                        durationStr=duration_str,
+                        barSizeSetting=_TF_TO_IB[timeframe],
+                        whatToShow=what_to_show,
+                        useRTH=False,
+                        formatDate=1,
+                    ),
+                    timeout=_HIST_REQUEST_TIMEOUT_SEC,
+                )
+            except TimeoutError:
+                logger.error(
+                    "ibkr.hist_request_outer_timeout",
+                    extra={"symbol": symbol, "timeframe": timeframe, "continuous": True},
+                )
+                ib_bars = []
+            continuous_bars: list[OHLCVBar] = []
             for bar in ib_bars or []:
                 bar_ts = _normalize_ib_bar_ts(bar.date)
-                all_bars.append(
+                continuous_bars.append(
                     OHLCVBar(
                         symbol=symbol,
                         timeframe=timeframe,
@@ -662,6 +707,9 @@ class IBKRProvider:
                         source=source_tag,
                     )
                 )
+            all_bars.extend(continuous_bars)
+            if on_chunk and continuous_bars:
+                await on_chunk(continuous_bars)
         else:
             chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
             chunk_end = end
@@ -688,35 +736,59 @@ class IBKRProvider:
                     duration_str = f"{max(1, (chunk_end - chunk_start).days + 1)} D"
 
                 # Retry up to 3 times with exponential backoff on an empty result.
-                # Snapshot _no_data_req_ids BEFORE the request so callbacks that fire
-                # during reqHistoricalDataAsync are captured in the diff.
+                # reqId-based matching (not snapshot-diff — see migration 199 / F3
+                # 2026-07-05): BarDataList carries .reqId, so a no-data Error 162 can be
+                # attributed to exactly the request that caused it. Our own outer
+                # asyncio.wait_for timeout below cancels the coroutine before it returns
+                # a BarDataList, so we never get a reqId for THAT attempt — treated as a
+                # plain retryable failure, never as a no-data signal (the alternative,
+                # snapshot-diffing the global _no_data_req_ids set, could misattribute a
+                # late 162 callback for an abandoned request to an unrelated later chunk).
                 ib_bars: list = []
                 hit_definitive_no_data = False
                 for attempt in range(3):
-                    no_data_before = _no_data_req_ids.copy()
-                    result = await self._ib.reqHistoricalDataAsync(
-                        contract,
-                        endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
-                        durationStr=duration_str,
-                        barSizeSetting=_TF_TO_IB[timeframe],
-                        whatToShow=what_to_show,
-                        useRTH=use_rth,
-                        formatDate=1,
-                    )
+                    outer_timed_out = False
+                    try:
+                        result = await asyncio.wait_for(
+                            self._ib.reqHistoricalDataAsync(
+                                contract,
+                                endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
+                                durationStr=duration_str,
+                                barSizeSetting=_TF_TO_IB[timeframe],
+                                whatToShow=what_to_show,
+                                useRTH=use_rth,
+                                formatDate=1,
+                            ),
+                            timeout=_HIST_REQUEST_TIMEOUT_SEC,
+                        )
+                    except TimeoutError:
+                        logger.error(
+                            "ibkr.hist_request_outer_timeout",
+                            extra={
+                                "symbol": symbol,
+                                "timeframe": timeframe,
+                                "chunk_end": chunk_end.isoformat(),
+                                "attempt": attempt + 1,
+                            },
+                        )
+                        result = None
+                        outer_timed_out = True
                     if result:
                         ib_bars = result
                         break
 
-                    # Yield so any late Error 162 callbacks can fire.
+                    # Yield so any late Error 162 callback for this reqId can fire.
                     await asyncio.sleep(0)
-                    if _no_data_req_ids - no_data_before:
-                        _no_data_req_ids.difference_update(_no_data_req_ids - no_data_before)
+                    req_id = getattr(result, "reqId", None) if result is not None else None
+                    if not outer_timed_out and req_id in _no_data_req_ids:
+                        _no_data_req_ids.discard(req_id)
                         logger.warning(
                             "ibkr.hist_no_data_skip",
                             extra={
                                 "symbol": symbol,
                                 "timeframe": timeframe,
                                 "chunk_end": chunk_end.isoformat(),
+                                "reqId": req_id,
                             },
                         )
                         hit_definitive_no_data = True
@@ -732,19 +804,12 @@ class IBKRProvider:
                                 "chunk_end": chunk_end.isoformat(),
                                 "attempt": attempt + 1,
                                 "backoff_s": backoff,
+                                "outer_timed_out": outer_timed_out,
                             },
                         )
                         await asyncio.sleep(backoff)
                         await _hist_rate_limiter.acquire()
                 else:
-                    # Yield so pending Error 162 callbacks fire before we check
-                    # _no_data_req_ids — the callback may not have run yet when
-                    # reqHistoricalDataAsync resolves with an empty result.
-                    # Snapshot before the yield so we only catch errors from this chunk.
-                    # reqHistoricalDataAsync returns a bar list (no .reqId), so requests
-                    # cannot be matched to callbacks; set diff is the only option.
-                    no_data_baseline = _no_data_req_ids.copy()
-                    await asyncio.sleep(0)
                     logger.error(
                         "ibkr.hist_chunk_failed_all_retries",
                         extra={
@@ -754,15 +819,8 @@ class IBKRProvider:
                             "chunk_end": chunk_end.isoformat(),
                         },
                     )
-                    new_no_data = _no_data_req_ids - no_data_baseline
-                    if new_no_data:
-                        _no_data_req_ids.difference_update(new_no_data)
-                        logger.warning(
-                            "ibkr.hist_no_data_abort",
-                            extra={"symbol": symbol, "timeframe": timeframe},
-                        )
-                        hit_definitive_no_data = True  # confirmed below, not an instant break
 
+                chunk_bars: list[OHLCVBar] = []
                 for bar in ib_bars or []:
                     bar_ts = (
                         bar.date
@@ -771,7 +829,7 @@ class IBKRProvider:
                     )
                     if bar_ts.tzinfo is None:
                         bar_ts = bar_ts.replace(tzinfo=UTC)
-                    all_bars.append(
+                    chunk_bars.append(
                         OHLCVBar(
                             symbol=symbol,
                             timeframe=timeframe,
@@ -784,6 +842,9 @@ class IBKRProvider:
                             source=source_tag,
                         )
                     )
+                all_bars.extend(chunk_bars)
+                if on_chunk and chunk_bars:
+                    await on_chunk(chunk_bars)
 
                 if hit_definitive_no_data:
                     consecutive_no_data_chunks += 1
@@ -850,7 +911,13 @@ class IBKRProvider:
             else:
                 contract = Stock(symbol=instrument.symbol, exchange=instrument.exchange)
 
-            details = await self._ib.reqContractDetailsAsync(contract)
+            # [rca_analysis 2026-07-05, F4] reqContractDetailsAsync has NO timeout of its
+            # own in ib_insync (unlike reqHistoricalDataAsync's internal default=60) --
+            # fully unbounded without this wrapper. Same failure class as the historical-
+            # data hang migration 199 fixed elsewhere in this file.
+            details = await asyncio.wait_for(
+                self._ib.reqContractDetailsAsync(contract), timeout=_CONTRACT_DETAILS_TIMEOUT_SEC
+            )
             if details:
                 qualified = details[0].contract
                 self._qualified_contracts[instrument.symbol] = qualified
@@ -1143,7 +1210,9 @@ class IBKRProvider:
         try:
             # Try as futures first (most common for this platform)
             contract = Future(symbol=query)
-            details = await self._ib.reqContractDetailsAsync(contract)
+            details = await asyncio.wait_for(
+                self._ib.reqContractDetailsAsync(contract), timeout=_CONTRACT_DETAILS_TIMEOUT_SEC
+            )
             if details:
                 d = details[0]
                 c = d.contract

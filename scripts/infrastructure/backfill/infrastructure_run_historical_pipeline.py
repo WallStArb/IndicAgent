@@ -51,29 +51,90 @@ from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.service_utils import TF_SECONDS, min_bars_for_tf
 from src.core.service_utils import bar_close_ts as compute_bar_close_ts
-from src.intelligence.pipeline.seed_constants import (
-    _I3_NUMERIC_KEYS as _SEED_NUMERIC_KEYS,
-)
-from src.intelligence.pipeline.seed_constants import (
-    _I3_SEED_COLS as _SEED_COLS,
-)
-from src.intelligence.pipeline.seed_constants import (
-    _I3_SEED_QUERY_PG as _SEED_QUERY_PG,
-)
-from src.intelligence.pipeline.signal_processor import annotate_signal_with_context
-from src.intelligence.plugins import registry
-from src.intelligence.plugins.mixins import incremental_compute
-from src.intelligence.register_plugins import register_all_plugins
-from src.intelligence.schemas import CTF_DEDICATED_COLUMNS, FEATURE_SCHEMA_VERSION
-from src.intelligence.setup_performance_updater import _compute_perf_multipliers
-from src.intelligence.trading.aggregator import AggregatedResult, aggregate
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION, make_signal_id
 from src.observability.metrics import flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
-from src.persistence.repository.signal_events_repository import LedgerEntry
 from src.providers import IBKRProvider, ibkr
 
 _logger = structlog.get_logger(__name__)
+
+# [rca_analysis 2026-07-05, F7] Stage 2 (Intelligence Replay) dependencies are
+# imported lazily via _load_stage2_intelligence_imports() below, NOT at module
+# level. This entire archived v2.x plugin/replay stack has no live consumer
+# (root CLAUDE.md), yet --fetch-only (Stage 1, the mode the live backfill retry
+# loop actually runs) used to import it anyway as a side effect of importing
+# this module -- any import-time breakage anywhere in that archived stack would
+# have crashed live data acquisition, which never touches any of that code.
+# Bound as module globals here so the existing Stage 2 function bodies below
+# (which reference these as bare names) work unchanged once the loader runs.
+_SEED_NUMERIC_KEYS: Any = None
+_SEED_COLS: Any = None
+_SEED_QUERY_PG: Any = None
+annotate_signal_with_context: Any = None
+registry: Any = None
+incremental_compute: Any = None
+register_all_plugins: Any = None
+CTF_DEDICATED_COLUMNS: Any = None
+FEATURE_SCHEMA_VERSION: Any = None
+_compute_perf_multipliers: Any = None
+AggregatedResult: Any = None
+aggregate: Any = None
+SIGNAL_SCHEMA_VERSION: Any = None
+make_signal_id: Any = None
+LedgerEntry: Any = None
+_stage2_imports_loaded = False
+
+
+def _load_stage2_intelligence_imports() -> None:
+    """Import the archived v2.x intelligence/replay stack, once, on first use.
+
+    Safe to call more than once (e.g. from both main()'s Stage 2 branch and
+    _replay_worker, which runs in a separate ProcessPoolExecutor process) --
+    a second call is a cheap no-op via the module import cache.
+    """
+    global _stage2_imports_loaded
+    if _stage2_imports_loaded:
+        return
+    global _SEED_NUMERIC_KEYS, _SEED_COLS, _SEED_QUERY_PG
+    global annotate_signal_with_context, registry, incremental_compute
+    global register_all_plugins, CTF_DEDICATED_COLUMNS, FEATURE_SCHEMA_VERSION
+    global _compute_perf_multipliers, AggregatedResult, aggregate
+    global SIGNAL_SCHEMA_VERSION, make_signal_id, LedgerEntry
+
+    from src.intelligence.pipeline.seed_constants import _I3_NUMERIC_KEYS as sn
+    from src.intelligence.pipeline.seed_constants import _I3_SEED_COLS as sc
+    from src.intelligence.pipeline.seed_constants import _I3_SEED_QUERY_PG as sq
+    from src.intelligence.pipeline.signal_processor import (
+        annotate_signal_with_context as _annotate,
+    )
+    from src.intelligence.plugins import registry as _registry
+    from src.intelligence.plugins.mixins import incremental_compute as _incremental_compute
+    from src.intelligence.register_plugins import register_all_plugins as _register_all_plugins
+    from src.intelligence.schemas import CTF_DEDICATED_COLUMNS as _ctf_cols
+    from src.intelligence.schemas import FEATURE_SCHEMA_VERSION as _feat_ver
+    from src.intelligence.setup_performance_updater import (
+        _compute_perf_multipliers as _perf_mult,
+    )
+    from src.intelligence.trading.aggregator import AggregatedResult as _AggResult
+    from src.intelligence.trading.aggregator import aggregate as _aggregate
+    from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION as _sig_ver
+    from src.intelligence.trading.signal_schema import make_signal_id as _make_signal_id
+    from src.persistence.repository.signal_events_repository import LedgerEntry as _LedgerEntry
+
+    _SEED_NUMERIC_KEYS, _SEED_COLS, _SEED_QUERY_PG = sn, sc, sq
+    annotate_signal_with_context = _annotate
+    registry = _registry
+    incremental_compute = _incremental_compute
+    register_all_plugins = _register_all_plugins
+    CTF_DEDICATED_COLUMNS = _ctf_cols
+    FEATURE_SCHEMA_VERSION = _feat_ver
+    _compute_perf_multipliers = _perf_mult
+    AggregatedResult = _AggResult
+    aggregate = _aggregate
+    SIGNAL_SCHEMA_VERSION = _sig_ver
+    make_signal_id = _make_signal_id
+    LedgerEntry = _LedgerEntry
+    _stage2_imports_loaded = True
+
 
 # ---------------------------------------------------------------------------
 # Per-Contract Futures Storage — Renaissance-style canonical truth
@@ -502,6 +563,45 @@ def _load_ibkr_chunk_days_config(settings: Settings) -> None:
         print(f"  (APR chunk-days lookup failed, using hardcoded defaults: {error})")
 
 
+def _load_ibkr_hist_timeout_config(settings: Settings) -> None:
+    """Overlay the APR-configured outer request timeout (migration 199) onto
+    ibkr._HIST_REQUEST_TIMEOUT_SEC in place. Same fallback contract as the loaders
+    above -- falls back to the hardcoded default if the APR key isn't present or
+    the DB is unreachable.
+    """
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT config_value FROM config_state "
+                    "WHERE config_key = 'infra.ibkr.historical_request_timeout_sec'"
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if row:
+            ibkr._HIST_REQUEST_TIMEOUT_SEC = float(row[0])
+    except Exception as error:
+        print(f"  (APR hist-timeout lookup failed, using hardcoded default: {error})")
+
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT config_value FROM config_state "
+                    "WHERE config_key = 'infra.ibkr.contract_details_timeout_sec'"
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if row:
+            ibkr._CONTRACT_DETAILS_TIMEOUT_SEC = float(row[0])
+    except Exception as error:
+        print(f"  (APR contract-details-timeout lookup failed, using hardcoded default: {error})")
+
+
 def _reorder_contracts_by_gap(
     contracts: list[Any], settings: Settings, timeframes: list[str]
 ) -> list[Any]:
@@ -590,6 +690,7 @@ def run_i1_plugins(
             isolate stateful plugins (GARCH, HMM, Kalman) across symbols.
         df: pre-built DataFrame for bar_history; constructed here if not provided.
     """
+    _load_stage2_intelligence_imports()
     if len(bar_history) < min_bars_for_tf(timeframe):
         return {}
 
@@ -636,6 +737,7 @@ def run_analysis_pipeline(
     Returns:
         Tuple of (merged intelligence dict, per-tier output dict).
     """
+    _load_stage2_intelligence_imports()
     features = dict(frames.get("features", {}))
     frames["features"] = features
     intelligence: dict[str, Any] = {}
@@ -799,6 +901,7 @@ def _event_to_sync_params(event: Any) -> tuple:
       bar, technical_indicators, pattern_detections, regime_features,
       confluence_scores, smc, cross_timeframe_context, composite_events
     """
+    _load_stage2_intelligence_imports()
     return (
         event.ts,  # datetime — psycopg2 native
         event.symbol,
@@ -935,6 +1038,7 @@ def _build_ledger_entries(
         feature_tf: timeframe of the corresponding intelligence_features row (None if not written)
         bar_history: rolling bar deque; close of last bar used as market_entry_price proxy
     """
+    _load_stage2_intelligence_imports()
     if not result.all_ranked:
         return []
 
@@ -1045,6 +1149,7 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
     frame_id is deterministic via uuid5 — idempotent across re-runs.
     Status starts as 'pending'; lifecycle_replay.py updates it.
     """
+    _load_stage2_intelligence_imports()
     if not entries:
         return
 
@@ -1201,6 +1306,7 @@ def _load_perf_weights(conn: Any) -> dict[str, tuple[float, int]]:
 
     Returns {} when no setups have sample_size >= MIN_SAMPLE_SIZE (100).
     """
+    _load_stage2_intelligence_imports()
     from src.intelligence.setup_performance_updater import MIN_SAMPLE_SIZE
 
     with conn.cursor() as cur:
@@ -1340,6 +1446,7 @@ def run_i7_and_persist(
     Returns:
         Number of ledger entries produced (0 if no signals fired).
     """
+    _load_stage2_intelligence_imports()
     if len(bar_history) < min_bars_for_tf(timeframe):
         return 0
 
@@ -1771,6 +1878,7 @@ def replay_symbol(
     Returns:
         dict mapping timeframe → number of ledger entries inserted.
     """
+    _load_stage2_intelligence_imports()
     if timeframes is None:
         timeframes = DEFAULT_TIMEFRAMES
 
@@ -2041,6 +2149,7 @@ def _replay_worker(args: _WorkerArgs) -> tuple[str, int, dict[str, int]]:
         overwrite_features,
         seed_from_db,
     ) = args
+    _load_stage2_intelligence_imports()
     register_all_plugins()
     conn = psycopg2.connect(dsn=db_url)
     conn.autocommit = True
@@ -2374,6 +2483,7 @@ def main() -> None:
 
     tf_fetch_config = _load_tf_fetch_config(settings)
     _load_ibkr_chunk_days_config(settings)
+    _load_ibkr_hist_timeout_config(settings)
 
     print("Historical Backfill Pipeline")
     print(f"  Contracts : {[c.symbol for c in contracts]}")
@@ -2404,7 +2514,7 @@ def main() -> None:
     if not args.replay_only:
         print("=== Stage 1: IBKR Fetch ===")
 
-        async def _run_fetch_stage() -> int:
+        async def _run_fetch_stage() -> tuple[int, int]:
             nonlocal db_conn
             provider = IBKRProvider(
                 host=settings.ib_host,
@@ -2413,10 +2523,16 @@ def main() -> None:
             )
             if not await provider.connect():
                 print("Cannot connect to TWS — aborting fetch stage")
-                return -1
+                return -1, 0
 
             end_dt = datetime.now(tz=UTC)
             total_bars = 0
+            # [rca_analysis 2026-07-05, F5] Per-(symbol, tf) fetch exceptions below are
+            # caught and printed but previously just swallowed — main() would still
+            # unconditionally print "Backfill complete." in --fetch-only mode regardless
+            # of how many of these fired. Tracked here so the caller can propagate a
+            # nonzero exit code instead of silently declaring success with real holes.
+            fetch_errors = 0
             fetch_tfs = [tf for tf in timeframes if tf in tf_fetch_config]
             print(f"  Fetching TFs: {fetch_tfs}")
             print()
@@ -2498,6 +2614,7 @@ def main() -> None:
                                 and (fetch_days > 14)
                                 and (instrument.asset_class == AssetClass.FUTURES)
                             )
+
                             # Fetch the gap-bounded window in one call; the provider chunks
                             # at _MAX_CHUNK_DAYS[tf] (364d for 4h/1h/1d) with 10s between
                             # chunks. Per-gap (rather than per-run) fetching sent N×IBKR
@@ -2505,6 +2622,45 @@ def main() -> None:
                             # slow on initial backfill — so gaps within one run are still
                             # coalesced into a single request. ON CONFLICT DO NOTHING makes
                             # this idempotent regardless.
+                            # [rca_analysis 2026-07-05, F1/F2] Persist each chunk's real
+                            # bars as soon as they arrive, in addition to the full-window
+                            # normalize_bars()+store_bars() pass below. Without this, DB
+                            # growth (and thus the external stall watchdog's heartbeat) only
+                            # happens once per (symbol, tf), after the entire — potentially
+                            # many-chunk, many-minute — fetch completes, and a kill mid-fetch
+                            # discards all in-memory progress for that (symbol, tf). This
+                            # writes raw real bars only (no synthetic fill, which needs the
+                            # full window's prev_close carried across chunk boundaries — see
+                            # normalize_bars). ON CONFLICT DO NOTHING in store_bars makes the
+                            # later full-window pass re-affirming these rows a safe no-op.
+                            async def _persist_chunk(
+                                chunk_bars: list, _tf: str = tf, _symbol: str = instrument.symbol
+                            ) -> None:
+                                nonlocal db_conn
+                                if not chunk_bars:
+                                    return
+                                chunk_dicts = [
+                                    {
+                                        "timestamp": b.timestamp,
+                                        "open": b.open,
+                                        "high": b.high,
+                                        "low": b.low,
+                                        "close": b.close,
+                                        "volume": b.volume,
+                                        "source": b.source,
+                                    }
+                                    for b in chunk_bars
+                                ]
+                                try:
+                                    db_conn.cursor().execute("SELECT 1")
+                                except Exception:
+                                    try:
+                                        db_conn.close()
+                                    except Exception:
+                                        pass
+                                    db_conn = connect_db(settings)
+                                store_bars(db_conn, chunk_dicts, _symbol, _tf)
+
                             try:
                                 ohlcv_bars = await provider.fetch_historical_bars(
                                     symbol=instrument.symbol,
@@ -2512,6 +2668,7 @@ def main() -> None:
                                     start=gap_start,
                                     end=gap_end,
                                     continuous=use_cont,
+                                    on_chunk=_persist_chunk,
                                 )
                                 bar_dicts = [
                                     {
@@ -2549,6 +2706,7 @@ def main() -> None:
                                     f"({len(gaps)} gaps filled)"
                                 )
                             except Exception as e:
+                                fetch_errors += 1
                                 print(f"  {instrument.symbol}/{tf}: fetch error — {e}")
 
                         # FX and crypto: fetch deeper 1m window and derive any TFs
@@ -2596,6 +2754,7 @@ def main() -> None:
                                     n = store_bars(db_conn, canonical_1m, instrument.symbol, "1m")
                                     print(f"  {instrument.symbol}/1m (deep {deep_days}d): {n} bars")
                                 except Exception as e:
+                                    fetch_errors += 1
                                     print(f"  {instrument.symbol}/1m deep fetch error — {e}")
                                 bars_1m = fetch_bars(db_conn, instrument.symbol, "1m")
                                 if bars_1m:
@@ -2621,6 +2780,7 @@ def main() -> None:
                         # Gaps in IBKR 4h data are handled by the gap detection + refetch path.
 
                     except Exception as e:
+                        fetch_errors += 1
                         print(f"  {instrument.symbol}: error — {e}")
                         try:
                             db_conn.cursor().execute("SELECT 1")
@@ -2634,19 +2794,35 @@ def main() -> None:
                     await asyncio.sleep(2)  # IBKR pacing between instruments
             finally:
                 await provider.disconnect()
-            return total_bars
+            return total_bars, fetch_errors
 
-        result = asyncio.run(_run_fetch_stage())
-        if result == -1:
+        total_bars, fetch_errors = asyncio.run(_run_fetch_stage())
+        if total_bars == -1:
             if args.fetch_only:
                 db_conn.close()
                 return
             print("Continuing with replay-only...")
         else:
-            print(f"\nStage 1 complete: {result:,} total bars stored\n")
+            print(
+                f"\nStage 1 complete: {total_bars:,} total bars stored, "
+                f"{fetch_errors} fetch error(s)\n"
+            )
+            # [rca_analysis 2026-07-05, F5] Don't silently print "Backfill complete."
+            # when real fetch errors occurred in --fetch-only mode — that string is
+            # exactly what backfill_retry_loop.sh greps for to decide the run was
+            # clean. A nonzero exit here makes the retry loop correctly treat this as
+            # incomplete and try again, instead of declaring victory over silent holes.
+            if args.fetch_only and fetch_errors > 0:
+                print(
+                    f"Backfill FINISHED WITH {fetch_errors} FETCH ERROR(S) — "
+                    "not declaring complete. See error lines above."
+                )
+                db_conn.close()
+                sys.exit(1)
 
     # --------------- Stage 2: Intelligence Replay ---------------
     if not args.fetch_only:
+        _load_stage2_intelligence_imports()
         print("=== Stage 2: Intelligence Replay ===")
         # When --days is provided, limit replay to that window.
         # Full-history replay (default, no --days) uses since_dt=None to read all DB bars.

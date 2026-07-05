@@ -156,13 +156,29 @@ class TestFetchHistoricalBars:
     async def test_two_consecutive_no_data_chunks_aborts_backfill(self, provider, mock_ib):
         """Two CONSECUTIVE confirmed Error 162 chunks are strong enough evidence to
         stop the backward walk (todo 049 confirmation threshold)."""
+        # Local import: src.providers.ibkr (imported at module level above) applies
+        # a Python 3.14 event-loop workaround before eventkit/ib_insync get pulled
+        # in transitively -- importing ib_insync directly at module level here,
+        # ahead of that workaround, would trip the same failure.
+        from ib_insync import BarDataList
+
         ibkr_module._no_data_req_ids.clear()
         calls = {"n": 0}
 
         async def fake_req(*args, **kwargs):
+            # Real ib_insync.reqHistoricalDataAsync always returns a BarDataList
+            # with .reqId set (even when empty) -- see F3 2026-07-05: the provider
+            # now matches Error 162 callbacks to this exact reqId instead of a
+            # global snapshot-diff, so the mock must carry a real reqId for the
+            # no-data detection path to fire (otherwise it falls through to real
+            # 65s/130s backoff sleeps instead of the fast no-data abort this test
+            # is meant to verify).
             calls["n"] += 1
-            ibkr_module._no_data_req_ids.add(90100 + calls["n"])
-            return []
+            req_id = 90100 + calls["n"]
+            ibkr_module._no_data_req_ids.add(req_id)
+            bars = BarDataList()
+            bars.reqId = req_id
+            return bars
 
         mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=fake_req)
         provider._ib = mock_ib
