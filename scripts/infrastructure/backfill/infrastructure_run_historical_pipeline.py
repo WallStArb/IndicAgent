@@ -71,7 +71,7 @@ from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION, make_s
 from src.observability.metrics import flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.persistence.repository.signal_events_repository import LedgerEntry
-from src.providers import IBKRProvider
+from src.providers import IBKRProvider, ibkr
 
 _logger = structlog.get_logger(__name__)
 
@@ -475,6 +475,93 @@ def _load_tf_fetch_config(settings: Settings) -> dict[str, tuple[int, bool]]:
     except Exception as error:
         print(f"  (APR backfill-depth lookup failed, using hardcoded defaults: {error})")
     return config
+
+
+def _load_ibkr_chunk_days_config(settings: Settings) -> None:
+    """Overlay APR-configured chunk-size limits (infra.ibkr.chunk_days.*) onto
+    ibkr._MAX_CHUNK_DAYS in place (migration 197). Same fallback contract as
+    _load_tf_fetch_config above — falls back to the hardcoded defaults already in
+    ibkr._MAX_CHUNK_DAYS if the APR keys aren't present or the DB is unreachable.
+    """
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT config_key, config_value FROM config_state "
+                    "WHERE config_key LIKE 'infra.ibkr.chunk_days.%'"
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+        for key, value in rows:
+            tf = key.rsplit(".", 1)[-1]
+            if tf in ibkr._MAX_CHUNK_DAYS:
+                ibkr._MAX_CHUNK_DAYS[tf] = int(value)
+    except Exception as error:
+        print(f"  (APR chunk-days lookup failed, using hardcoded defaults: {error})")
+
+
+def _reorder_contracts_by_gap(
+    contracts: list[Any], settings: Settings, timeframes: list[str]
+) -> list[Any]:
+    """Sort contracts by largest *recoverable* 5m/15m/1h history shortfall first.
+
+    44 of 80 core ETFs have 5m truncated to 2022-01-03 while their own 15m/1h reach
+    back to 2016/2011 against the same 20yr infra.backfill.depth_days.* target — a
+    prior run's artifact, not an inception boundary. Scoring against the raw target
+    would also rank young ETFs (e.g. IBIT, inception 2024) at the top, since they're
+    "behind" on all three TFs identically — but that's a real inception wall, not
+    fetchable data, and IBKR pacing makes wasting a cycle there expensive. Instead,
+    each symbol's own deepest timeframe stands in for its true available history:
+    shortfall = that proven depth minus a TF's actual depth. Young-ETF shortfalls
+    collapse to ~0 (all TFs equally shallow); the 44-symbol 5m/15m split does not.
+    """
+    gap_tfs = [tf for tf in ("5m", "15m", "1h") if tf in timeframes]
+    if not gap_tfs:
+        return contracts
+
+    tf_fetch_config = _load_tf_fetch_config(settings)
+    now = datetime.now(UTC)
+    gaps: dict[str, float] = {}
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT symbol, timeframe, min(timestamp) FROM market_data_ohlcv "
+                    "WHERE timeframe = ANY(%s) GROUP BY symbol, timeframe",
+                    (gap_tfs,),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+        earliest: dict[tuple[str, str], datetime] = {(r[0], r[1]): r[2] for r in rows}
+        for c in contracts:
+            actual_days = {}
+            for tf in gap_tfs:
+                actual = earliest.get((c.symbol, tf))
+                actual_days[tf] = (now - actual).days if actual else 0
+            proven_days = max(actual_days.values())
+            gap_days = 0.0
+            for tf in gap_tfs:
+                target_days = tf_fetch_config.get(tf, (0, False))[0]
+                ceiling = min(proven_days, target_days)
+                gap_days += max(0, ceiling - actual_days[tf])
+            gaps[c.symbol] = gap_days
+    except Exception as error:
+        print(f"  (gap-based reorder failed, keeping default order: {error})")
+        return contracts
+
+    ordered = list(contracts)
+    ordered.sort(
+        key=lambda c: (
+            1 if c.asset_class == AssetClass.FX else 0,
+            -gaps.get(c.symbol, 0.0),
+            c.symbol,
+        )
+    )
+    return ordered
 
 
 # FX and crypto: IBKR *can* return higher-TF bars for major pairs (EURUSD, GBPUSD, etc.).
@@ -2283,9 +2370,10 @@ def main() -> None:
             print(f"No matching contracts for: {args.symbols}")
             return
 
-    contracts.sort(key=lambda c: (1 if c.asset_class == AssetClass.FX else 0, c.symbol))
+    contracts = _reorder_contracts_by_gap(contracts, settings, timeframes)
 
     tf_fetch_config = _load_tf_fetch_config(settings)
+    _load_ibkr_chunk_days_config(settings)
 
     print("Historical Backfill Pipeline")
     print(f"  Contracts : {[c.symbol for c in contracts]}")
