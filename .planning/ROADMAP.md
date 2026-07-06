@@ -1629,7 +1629,7 @@ seeding `concept-governance-registries.md`'s four-table MVP from 142B.1's E1-E4 
 rows, before any `confluence`/`regime_model` domain needs it (those are still further out — see
 v3.15 and intel-10 v3). Not doing this promptly is how "deferred" becomes "deferred indefinitely."
 
-### Phase 143: Feature Lifecycle Routing (merged with Phase 149B) 📋 PLANNED
+### Phase 143: Feature Lifecycle Routing (merged with Phase 149B) 📐 PLANNED (3 plans)
 
 **Rewritten 2026-07-03 against `docs/ideas/intel-14-integrity-monitor.md`** (Fable-reviewed
 2026-07-02). The previous version of this phase specced a standalone `is_decaying` state
@@ -1717,9 +1717,10 @@ later if/when Phase 151 lands, not a blocking dependency now.
 `docs/analysis/feature-decay-queries.sql`; Superset dashboard deferred until the routed system
 has operated ≥ 30 days.
 
-**Plans:** 3 plans (Wave 0: HMM regime label validation [LIFECYCLE-00]; Wave 1: registry
-amendments [LIFECYCLE-01, replaces the old state-machine + daemon waves]; Wave 2: end-of-run
-hook [LIFECYCLE-02/03/04] + gate evaluation + staleness alerting)
+**Plans:** 3 plans (planned 2026-07-05):
+- [ ] 143-01-PLAN.md — Wave 1: LIFECYCLE-00 HMM regime label validation (P2b occupation gate, P2c hmm_churn, APR keys)
+- [ ] 143-02-PLAN.md — Wave 2: LIFECYCLE-01 registry amendments (lifecycle columns, sync record_transition_sync + evidence-only promotion, drop dead decay columns)
+- [ ] 143-03-PLAN.md — Wave 3: LIFECYCLE-02/03/04/05/06 ic_engine post-run hook (demote/promote, regime-shift guard, staleness gauge, integrity_monitor, decay diagnostics SQL)
 
 ---
 
