@@ -344,6 +344,37 @@ def _check_occupation_gate(
     return False, {"reason": None, "occupation": occupation}
 
 
+def _compute_hmm_churn(labels: list | np.ndarray, churn_window: int) -> np.ndarray:
+    """Rolling label-change churn rate over the prior churn_window bars (P2c).
+
+    churn[i] = (# label changes in labels[max(0, i-churn_window+1) : i+1]) /
+               min(i+1, churn_window)
+
+    Partial windows (the first churn_window-1 bars) divide by bars-available,
+    never by a hardcoded churn_window -- no NaN, no divide-by-zero. The very
+    first bar has no predecessor and is defined as zero change (label-change
+    rate is undefined, not degenerate, for a single observation).
+
+    Accepts any sequence whose elements support `!=` (regime label strings or
+    raw state indices) -- churn is computed on whatever label identity the
+    caller passes in.
+    """
+    n = len(labels)
+    if n == 0:
+        return np.zeros(0, dtype=float)
+
+    labels_arr = np.asarray(labels, dtype=object)
+    changes = np.zeros(n, dtype=float)
+    if n > 1:
+        changes[1:] = (labels_arr[1:] != labels_arr[:-1]).astype(float)
+
+    churn = np.zeros(n, dtype=float)
+    for i in range(n):
+        window_start = max(0, i - churn_window + 1)
+        churn[i] = float(np.mean(changes[window_start : i + 1]))
+    return churn
+
+
 def _build_label_map(means: np.ndarray) -> dict[int, str]:
     """Map integer HMM states to canonical regime text labels.
 
@@ -573,6 +604,12 @@ def _compute_symbol_tf(
     bearish_states = [k for k, v in label_map.items() if v in _BEARISH_LABELS]
     ranging_states = [k for k, v in label_map.items() if v == _LABEL_RANGING]
 
+    # P2c hmm_churn — rolling label-change rate over the prior churn_window bars.
+    # Computed on the actual mapped labels (not raw state indices) so it stays
+    # correct even when n_components > 5 lets two distinct states share a label.
+    labels_seq = [label_map[int(s)] for s in smoothed_states]
+    churn_values = _compute_hmm_churn(labels_seq, churn_window)
+
     # Explicit loop — required for index-based alpha_history access and stateful
     # duration counter simultaneously. Uses smoothed states for regime label and
     # duration; alpha_history reflects the raw forward-filter probability.
@@ -601,6 +638,7 @@ def _compute_symbol_tf(
                 prob_val,
                 entropy_val,
                 float(duration),
+                float(churn_values[i]),
                 symbol,
                 tf,
                 ts,
@@ -642,6 +680,7 @@ def _write_regime_results(
                     "hmm_regime_prob",
                     "hmm_entropy",
                     "hmm_duration",
+                    "hmm_churn",
                 ],
                 col_types={
                     "regime": "text",
@@ -651,6 +690,7 @@ def _write_regime_results(
                     "hmm_regime_prob": "double precision",
                     "hmm_entropy": "double precision",
                     "hmm_duration": "double precision",
+                    "hmm_churn": "double precision",
                     "symbol": "text",
                     "tf": "text",
                     "bar_ts": "timestamptz",
