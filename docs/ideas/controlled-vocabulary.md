@@ -3,7 +3,7 @@
 **Created:** 2026-06-18
 **Refreshed:** 2026-07-01
 **Status:** Idea / Design — unscheduled (Phase 135 deferred indefinitely; original prerequisite now satisfied, ready to build whenever prioritized)
-**Type:** Architecture pattern + design, Type 3 (static taxonomy) in the [Concept Governance Registries](concept-governance-registries.md) family
+**Type:** Architecture pattern + design, Type 3 (static taxonomy) in the [Concept Governance Registries](intel-governance-registries.md) family
 
 ---
 
@@ -94,7 +94,7 @@ For TEXT-backed namespaces (`regime_hmm`, `regime_cross_sectional`, `timeframe`,
 
 **Out** — internal infrastructure codes users never see: `CircuitState`, `DataSource`, `TransitionType`.
 
-Concept Registry's `domain` column is deliberately **not** a namespace here — it's the `CHECK` list on `concept_registry.domain` (7 values today; more anticipated as `confluence`/embedding-recipe domains get real candidates — see that doc's Domains table), enforced with a plain `CHECK` constraint, same pattern as its `status` column. An earlier draft specced a `concept_domain` namespace + runtime `VocabularyService` dependency for this; retracted after review found it coupled two independently-deferred systems to solve a problem a `CHECK` constraint already solves (see `docs/ideas/concept-governance-registries.md`). Concept Registry and Controlled Vocabulary are unrelated sibling designs with no shared build gate.
+Concept Registry's `domain` column is deliberately **not** a namespace here — it's the `CHECK` list on `concept_registry.domain` (7 values today; more anticipated as `confluence`/embedding-recipe domains get real candidates — see that doc's Domains table), enforced with a plain `CHECK` constraint, same pattern as its `status` column. An earlier draft specced a `concept_domain` namespace + runtime `VocabularyService` dependency for this; retracted after review found it coupled two independently-deferred systems to solve a problem a `CHECK` constraint already solves (see `docs/ideas/intel-governance-registries.md`). Concept Registry and Controlled Vocabulary are unrelated sibling designs with no shared build gate.
 
 ---
 

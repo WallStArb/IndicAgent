@@ -117,7 +117,7 @@ either way — flag, don't decide.
 `feature_registry.md` already implements the exact state machine every source doc in this
 cluster independently re-derives (`candidate → active → shadow_only → deprecated`, with
 `trigger_reason ∈ {ic_promotion, ic_demotion, parent_cascade, operator_override}`), already in
-production with 61 rows. `docs/ideas/concept-governance-registries.md`'s Concept Registry is the
+production with 61 rows. `docs/ideas/intel-governance-registries.md`'s Concept Registry is the
 already-decided generalization of that same state machine across domains (`feature`,
 `ensemble_strategy`, `regime_model`, ...). The consumer half already works end to end:
 `ic_engine` stamps `feature_status_at_eval` from registry state on every IC score row, and
@@ -355,7 +355,7 @@ Phase 152 (ensemble health, originally 150) is the one genuinely gated dependenc
 writing.
 
 **Status (2026-07-04):** D9's Concept Registry build trigger has since fired (Phase 142B.1
-complete) — see `docs/ideas/concept-governance-registries.md`'s build-trigger section and todo
+complete) — see `docs/ideas/intel-governance-registries.md`'s build-trigger section and todo
 058. The registry is not yet built, so "if D9's build trigger has fired by then" below should be
 read as "the registry may already be mid-build by the time this phase lands" (OQ3 below still
 applies as the build-time routing check).
@@ -435,7 +435,7 @@ Recommended build order, correcting the original three-phase split:
   concrete retrain-process spec, both dropped from health-guardian-design.md without restatement.
 - `docs/ideas/feature-registry.md` — the already-production state machine feature lifecycle
   should route through, not duplicate.
-- `docs/ideas/concept-governance-registries.md` — the eventual generalization target (D9); its
+- `docs/ideas/intel-governance-registries.md` — the eventual generalization target (D9); its
   invariant 1 (only a deterministic, narrowly-scoped code path flips status) shapes the
   transition-writer position above.
 - `.planning/research/2026-07-02-v3-topdown-architecture.md` — D3 (lifecycle state out of

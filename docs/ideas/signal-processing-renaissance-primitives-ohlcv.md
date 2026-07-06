@@ -1,7 +1,8 @@
 # Renaissance Primitives — OHLCV Expansion Candidates
 
-**Status:** Idea — not planned  
-**Context:** Feature Factory (Phase 137) produces 54 features. This doc catalogs true
+**Status:** Idea — not planned
+**Restored:** 2026-07-06 — moved from archive (was `docs/ideas/archive/renaissance-primitives-ohlcv.md`)
+**Context:** Feature Factory (v3.0) produces 54 features. This doc catalogs true
 primitives derivable from OHLCV bar data that we do not yet compute. The goal is a
 basket analogous to the 499+ raw signals Renaissance feeds into Medallion's ensemble
 — no human theory baked in, just transformations of raw data. IC engine decides what's
@@ -151,6 +152,44 @@ All three will cluster in IC space with `atr_z` and `vol_ratio` but carry increm
 the OHLC dimensions ATR ignores. IC engine determines which survives.
 
 **Natural score ranges:** all z-scored, centered at 0. Ready as-is for linear and tree models.
+
+---
+
+**Related work:** These three estimators (Parkinson, Garman-Klass, Yang-Zhang) form the observation space for **E1 (volatility structure)** in `intel-stratification-dimension.md` — the volatility-regime stratification dimension. E1 proposes these as inputs to a separate HMM or percentile-rank classifier that learns volatility states (compressing, quiet, chop, expanding, panic). Implementation under that contract is gated on the simpler `volatility_pct` (percentile-rank of realized vol) proving insufficient via substitution test.
+
+---
+
+## Volatility Dynamics Primitives
+
+Beyond static volatility estimators, these capture how volatility itself changes over time — acceleration, deceleration, and noise structure.
+
+| Feature | Formula | Naming | What it captures |
+|---|---|---|---|
+| `parkinson_vol_velocity` | `parkinson_vol_z_t - parkinson_vol_z_{t-1}` | None (no window) | First derivative of Parkinson vol — distinguishes steady high vol from accelerating panic |
+| `garman_klass_vol_velocity` | `garman_klass_vol_z_t - garman_klass_vol_z_{t-1}` | None (no window) | First derivative of GK vol — detects vol expansion/contraction onset |
+| `yang_zhang_vol_velocity` | `yang_zhang_vol_z_t - yang_zhang_vol_z_{t-1}` | None (no window) | First derivative of YZ vol — most comprehensive vol acceleration signal (includes overnight gap changes) |
+| `vol_velocity_z` | z-score of rolling `atr_z` velocity, N = APR `feature.vol_velocity.window` | APR-backed (single window) | Normalized vol rate-of-change — standardized across symbols and timeframes |
+| `intraday_noise_ratio` | `sum(abs(1m_rets_in_session)) / abs(daily_ret)` or `sum(|ret_5m|) / |ret_1d|` over N bars, N = APR `feature.intraday_noise.window` | APR-backed (single window) | Ratio of intraday oscillation to net directional progress — high = chop (State 3), low = trend (State 2/4) |
+
+**What "Volatility Velocity" means:** The first derivative (rate of change) of a volatility metric. A large positive value means volatility is accelerating (panic onset); a large negative value means volatility is decelerating (stabilization); near-zero means steady-state vol (quiet or stable high vol).
+
+**What "Intraday Noise Ratio" means:** Measures how much price oscillates within a session vs. how much net progress it makes. A ratio of 10+ means price moved 10x more up-and-down than it ended up net — classic mean-reverting chop (market makers dominating). A ratio near 1 means clean directional progress (trending or drifting).
+
+**Why these matter for regime detection:** 
+
+- **Velocity discriminates States 4 vs 5**: Both have high vol, but State 4 (directional expansion) has low/constant velocity while State 5 (systemic liquidation) has sharply positive velocity (vol accelerating out of control).
+- **Noise ratio discriminates States 2 vs 3**: Both have moderate vol, but State 2 (quiet bull drift) has low noise ratio (clean progress) while State 3 (mean-reverting chop) has high noise ratio (oscillation without progress).
+- **Cross-asset**: Vol velocity on SPY vs. TLT can reveal whether vol is equity-specific (idiosyncratic risk) or systemic (cross-asset contagion).
+
+**Natural score ranges:**
+- `*_vol_velocity` (unsmoothed) — unbounded, centered near 0. Use z-score for linear models; ready as-is for tree models.
+- `vol_velocity_z` — z-scored, centered at 0. Ready as-is.
+- `intraday_noise_ratio` — unbounded positive [1, ∞). Log-transform or percentile for linear models; ready as-is for tree models.
+
+**Computational notes:**
+- All three `*_vol_velocity` features are O(1) — simple difference of two z-scores already computed.
+- `intraday_noise_ratio` requires summing absolute returns over a session window; O(N) but small N (typically 78 bars for 5m in US equity session, 390 for 1m).
+- For cross-TF noise ratio, pull the 1d bar's return from HTF cache via `feature_cache.py` and sum the current TF's absolute intraday returns.
 
 ---
 

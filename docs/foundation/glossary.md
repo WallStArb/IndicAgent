@@ -37,6 +37,26 @@ When introducing a new concept:
 
 ---
 
+## Naming Convention
+
+**Prefer industry-standard terms over project-specific names.**
+
+When introducing a new concept:
+1. Check if an industry-standard term exists (signal processing, feature engineering, ensemble, etc.)
+2. Use the industry-standard term as the canonical glossary entry
+3. Project-specific names (FeatureFactory, AlphaEngine) are implementation details, not the concept itself
+
+**Rationale:** Industry terms are portable across teams, papers, and systems. Project-specific names should be reserved for truly unique inventions, not repackaged standard concepts. A new engineer should recognize the layer's purpose from its name, not learn project-specific jargon for standard concepts.
+
+**Examples:**
+- **Signal Processing Layer** (industry-standard) vs. "Feature Factory" (project-specific implementation)
+- **Ensemble** (industry-standard) vs. "AlphaSwarm" (project-specific)
+- **Feature Engineering** (industry-standard) vs. "Feature Factory" (project-specific)
+
+When both exist, the industry-standard term is the concept; the project-specific name is the current mechanism. See `AlphaEngine` glossary entry for the stage/mechanism distinction.
+
+---
+
 ## Core Trading Terms
 
 ### `signal`
@@ -67,6 +87,108 @@ A discrete market state that conditions the behavior of indicators, signals, and
 - `volatility_regime` — a sub-classification of regime by realized vol level
 
 **Code surface:** `regime` column in `intelligence_features`, `RegimeClassifier`, `factor_regime` category in `tag_vocabulary`.
+
+---
+
+### `conditioning layer` (aka `regime detection layer`)
+
+The layer in the quant stack that detects market states and enables downstream processes to condition predictions on those states. **Internal project name** — emphasizes the stratification purpose (conditioning IC on regime). Takes primitive features (OHLCV-derived signals) as input, outputs categorical labels stamped onto each bar. Enables IC stratification, regime-conditioned ensemble weights, and analog retrieval filtering.
+
+**Industry-standard term:** `market state classification` — use that term for external communications, papers, and cross-system discussions. `conditioning layer` is used internally when emphasizing the statistical function (conditional prediction).
+
+**Not:** synonymous with "HMM" — HMM is one implementation method for regime detection, not the layer itself. Other methods include percentile-rank bucketing, deterministic rules (session_position), threshold-based classifiers, change-point detection, and ML classifiers. See `StratificationDimension` protocol (`docs/ideas/intel-multi-regime-layer.md`) for the contract that all regime detection providers implement.
+
+**See also:** `market state classification` (industry-standard equivalent)
+
+**Synonyms:** `regime detection layer` — interchangeable; `conditioning layer` emphasizes the statistical function (stratified IC), `regime detection layer` emphasizes the operational function (detecting market states). Both refer to the same layer.
+
+**Position in stack:** Between Primitive Feature / Signal Processing Layer (Feature Factory) and Alpha Generation / Execution Layer (IC Engine, Ensemble, AlphaEmitter).
+
+**Banned:** (none)
+**Status:** active
+
+**Code surface:** `regime_writer.py` (per-symbol HMM), `equity_regime_model.py` (cross-sectional), future `StratificationDimension` providers.
+
+---
+
+### `market state classification`
+
+Industry-standard term for the layer that detects and classifies market conditions (regime, volatility, trend). Also called **regime detection** or **market condition classification**. In this codebase, realized through `conditioning layer` and its `regime_classifier` implementations.
+
+**Usage:** Use `market state classification` for external communications, papers, and cross-system discussions. This is the term other quants and researchers will recognize immediately.
+
+**Internal name:** `conditioning layer` — used internally when emphasizing the statistical function (conditional prediction via stratified IC). See dedicated entry.
+
+**Purpose:** Enable downstream processes to condition predictions on market context. Classification produces discrete labels per (symbol, tf, bar) that stratify IC measurements, ensemble weights, and analog retrieval.
+
+**Industry standard:** Quant systems universally stratify by market state — high/low vol, trending/mean-reverting, risk-on/risk-off. The classifier mechanism varies (HMM, threshold rules, ML, change-point detection) but the function is standard: context-aware prediction.
+
+**See also:** `conditioning layer` (internal project name), `regime classifier`, `StratificationDimension` protocol (`docs/ideas/intel-multi-regime-layer.md`)
+
+**Status:** active (multiple implementations)
+**Banned:** "market detector," "state detector" (use `market state classification` or `regime detection`)
+
+---
+
+### `signal generation`
+
+Industry-standard term for the process that converts predictive scores into actionable trade signals. A signal is a time-stamped, scored trade hypothesis with defined entry/exit logic. In this codebase, realized through `alpha emitter` functional slot.
+
+**Industry standard:** Every quant system has a signal generation boundary — prediction produces a continuous score; signal generation applies thresholds, confidence gates, and risk filters to emit discrete actionable events. This is where "predictive model" becomes "trade decision."
+
+**Our implementation:** `alpha emitter` filters `alpha_score` by magnitude and statistical confidence (`|alpha_score| > threshold[symbol][tf][regime] AND ci_lower > 0`) → `alpha_events` table.
+
+**See also:** `alpha emitter`, `signal` (core trading term), `alpha_events`
+
+**Status:** design (v3.0 Phase C)
+**Banned:** "trade signaler," "emitter" as standalone (use `signal generation` or `alpha emitter`)
+
+---
+
+### `portfolio construction`
+
+Industry-standard term for the layer that converts signals into positions. Takes emitted signals as input, applies position sizing, risk limits, and portfolio constraints, outputs trade frames. In this codebase, Layer 2 of the four-layer architecture.
+
+**Industry standard:** Signal generation (Layer 1) and portfolio construction (Layer 2) are distinct concerns. A signal says "buy X"; portfolio construction says "buy N contracts of X given current portfolio, risk limits, and capital."
+
+**Our implementation:** Planned as Layer 2 — reads `alpha_events`, applies Kelly-inspired sizing, regime-aware risk limits, correlation constraints, writes `trade_frames` (hypothesis layer) and eventually `trade_executions` (execution layer).
+
+**See also:** `Signal Ledger Architecture`, `trade_frames`, `trade_executions`, `docs/signals/signal-trade-separation-ADR.md`
+
+**Status:** design (v3.0, post-Phase C)
+**Banned:** "position builder," "sizing layer" (use `portfolio construction`)
+
+---
+
+### `order management`
+
+Industry-standard term for the layer that handles order routing, execution, and fill management. Takes trade frames from portfolio construction, routes orders to brokers/exchanges, tracks fills, records actual execution outcomes. In this codebase, Layer 3 (Execution) of the four-layer architecture.
+
+**Industry standard:** Order Management System (OMS) is the industry term for the component that manages the lifecycle of an order from submission to fill. Key functions: order routing, split orders, partial fill handling, fill reconciliation, slippage measurement.
+
+**Our implementation:** Layer 3 (Execution) — submits orders to IBKR, tracks fills via `trade_executions` table, records `actual_pnl_r` vs `counterfactual_pnl_r` for execution quality measurement.
+
+**See also:** `trade_executions`, `counterfactual_pnl_r`, `execution layer` (SLA)
+
+**Status:** design (v3.0, post-portfolio construction)
+**Banned:** "execution engine," "trader" (use `order management` or `execution layer`)
+
+---
+
+### `signal processing layer`
+
+The layer that transforms raw market data (OHLCV) into measurable features — deterministic, stateless transformations with no market theory embedded. These are primitives: different researchers with the same data compute identical numbers. Industry-standard term; see naming convention above.
+
+**Current implementation:** `FeatureFactory` (54 features, I1-I4 cadence tiers)
+**Output:** `FeatureVector` → `feature_vectors` table
+**Not:** synonymous with "Feature Factory" — FeatureFactory is the mechanism; signal processing layer is the generic concept. Other implementations could exist (different feature sets, different computation strategies) without changing what this layer IS.
+
+**Distinction from theory-laden features:** Primitives like `body_ratio` or `overnight_gap_z` encode no market theory. Theory-laden features like `poc_dist_atr` or `sr_support_dist` assume support/resistance has meaning — they may have IC but they are not primitives.
+
+**Synonyms:** `feature engineering layer` (ML community), `feature extraction layer` (signal processing). All refer to the same concept: raw data in, measurable features out.
+
+**Status:** active (mechanism live)
+**Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md` Stage 0
 
 ---
 
@@ -1107,3 +1229,4 @@ Portfolio layer (Layer 2) decides whether and how much to trade.
 - `docs/signals/signal-trade-separation-ADR.md` — 3-table architecture decision record (Phase 127+)
 - `tag_vocabulary` table — the live controlled vocabulary for instrument tags
 - `docs/ideas/platform-09-security-classification-hierarchy.md` — `classification scheme` vs. `taxonomy` design (GICS vs. custom sub-classification), unscheduled
+- `docs/ideas/intel-multi-regime-layer.md` — StratificationDimension protocol for unified conditioning layer

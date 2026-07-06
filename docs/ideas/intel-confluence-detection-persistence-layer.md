@@ -64,7 +64,7 @@ first time *anything* is worth firing live. Confluence does not own it.
    in the measurement kernel as a gate mode, shared with Phase 150's interaction candidates — one
    implementation, two consumers.
 2. **Mandatory winner's-curse shrinkage** on the persisted estimate — the same mechanism
-   `concept-governance-registries.md`'s `baseline_metric` shrinkage note already uses (feature-
+   `intel-governance-registries.md`'s `baseline_metric` shrinkage note already uses (feature-
    scoring §0b's estimator). Keep unified, not reimplemented.
 3. **Effective-N via temporal-clustering correction** on occurrence counts — the same HAC/
    subsampling discipline `ic_engine` already applies, applied to a new count. Occurrences of a
@@ -147,7 +147,7 @@ as a `concept_gate` field, not a new mechanism.
 ## Governance: Concept Registry, Unchanged
 
 **This deferral was already correct in v2 and Fable review confirmed it stays exactly as
-written.** Implement the lifecycle in `concept-governance-registries.md`'s four-table MVP shape
+written.** Implement the lifecycle in `intel-governance-registries.md`'s four-table MVP shape
 (`concept_registry`/`concept_gate`/`concept_transition_log`/`concept_annotation`), not as bespoke
 confluence tables. `decaying` maps onto the registry's status enum as a transition pattern
 (`active → shadow_only` re-entry), not a new status — see that doc's mapping note. `retired` maps
@@ -226,7 +226,7 @@ publication. Design for it:
 - `docs/ideas/intel-13-analog-engine.md` — return-distribution primitive, definedness rules, analog
   point-in-time discipline (all inherited verbatim, not restated)
 - `docs/ideas/intel-15-measurement-engine.md` — the shared kernel gate 1 lives in
-- `docs/ideas/concept-governance-registries.md` — lifecycle MVP, `baseline_metric` shrinkage,
+- `docs/ideas/intel-governance-registries.md` — lifecycle MVP, `baseline_metric` shrinkage,
   `decaying`-as-transition mapping
 - `docs/plans/2026-06-29-feature-scoring-beyond-ic.md` §0b/0c — hard prerequisite of gate 1
 - Todo `030-cost-hurdle-apr-calibration.md`

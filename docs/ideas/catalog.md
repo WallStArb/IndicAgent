@@ -30,19 +30,18 @@ assertion) as of 2026-07-02 evening. Read this first for "what's next," not this
 | Doc | Status / Priority | Fable-reviewed | One-line |
 |---|---|---|---|
 | [intel-10: Confluence — a Governed Predictor Family](intel-10-confluence-detection-persistence-layer.md) | draft, high | ✅ (v3, 2026-07-03) | Confluences as governed predictors, not a second system; gates 1-6, mandatory shrinkage |
-| [intel-12: StratificationDimension](intel-12-stratification-dimension.md) | draft, high | ✅ | Unified conditioning layer across regime/vol/session strata |
+| [Multi-Regime Layer](intel-multi-regime-layer.md) | draft, high | ✅ | Unified conditioning layer across multiple regime models (HMM, percentile-rank, etc.) |
 | [intel-13: AnalogEngine](intel-13-analog-engine.md) | draft, high | ✅ | Non-parametric K-NN retrieval as a predictor family; Score Object deleted, return-distribution primitive kept |
-| [intel-14: IntegrityMonitor](intel-14-integrity-monitor.md) | draft, high | ✅ | Drift/decay/ensemble-health, reconciled from a 10-doc cluster |
+| [Governance Monitor](intel-governance-monitor.md) | draft, high | ✅ | Cross-domain governance: drift/decay detection (CUSUM), ensemble health, promotion/demotion state machine (candidate→active→shadow_only→deprecated), regime-shift guards; feature_registry→concept_registry transition for feature/ensemble_strategy/regime_model/etc. |
 | [intel-15: MeasurementEngine](intel-15-measurement-engine.md) | draft, high | ✅ | Where kernel unification actually stands; now carries the Cross-Sectional Rank IC (T3) addendum |
-| [Concept Governance Registries](concept-governance-registries.md) | — | ✅ (2026-07-04) | Four-table MVP (concept_registry/gate/transition_log/annotation) for evidence-gated lifecycle across domains |
-| [Feature Registry](feature-registry.md) | — | | DB-backed feature governance (todo 008, COMPLETE) |
+| [Governance & Registries](intel-governance-registries.md) | — | ✅ (2026-07-04) | Registry taxonomy (APR, Concept, Shadow, Vocabulary) with promotion/demotion state machine; four-table MVP (concept_registry/gate/transition_log/annotation) for evidence-gated lifecycle across domains |
 | [Edge Source Thesis](edge-source-thesis.md) | draft, high | | T1-T4 falsifiable theses on where edge comes from; standing doc, revisit per thesis |
 | [Canonical Simulator](canonical-simulator.md) | draft, **critical** | ✅ (v2, 2026-07-03) | One counterfactual ledger + cost kernel + run identity, not a replay engine; enforced via pre-commit Check 9 |
 | [Trade Construction Layer](trade-construction-layer.md) | draft, high | | Forecast → position; v4.0 concern, gated on the T3 falsification result |
 | [Instrument Tag Calibrator](instrument-tag-calibrator.md) | draft, high | | Todo 040/Phase 145 (renumbered 2026-07-04); routing currently ignores calibrated weight |
 | [Cross-Group Lead-Lag IC](cross-group-lead-lag-ic.md) | idea, gated on Phase 144 | | 6 candidate cross-group pairs; needs `regime_group` first |
 | [Comomentum Crowding Metric](comomentum-crowding-metric.md) | — | | Cross-sectional crowding metric for momentum regimes |
-| [Interaction Factory](interaction-factory.md) | idea, no build trigger met | | Combinatorial-factory alternative rejected in favor of Phase 150's curated ≤50 interactions |
+| [Interaction Factory](intel-feature-interaction-factory.md) | idea, blocked on prerequisites | | Candidate-generation strategy for pairwise feature interactions; blocked on pilot test (037), primitives expansion, and feature demotion (015) |
 | [Controlled Vocabulary](controlled-vocabulary.md) | idea, unscheduled | | Ready to build whenever prioritized; prerequisite already satisfied |
 
 ---
@@ -138,7 +137,7 @@ salvageable into v3.0's Feature Factory / Phase 150 — check before assuming de
 | [renaissance-01: Jim Simons / Renaissance Principles](renaissance-01-simons-principles.md) | draft, high | Source research behind `docs/foundation/principles.md` |
 | [renaissance-02: The Renaissance Framing](renaissance-02-framing.md) | draft, high | "How Simons would build this" applied to IndicAgent |
 | [renaissance-03: Plugin State Management Bug Analysis](renaissance-03-state-management.md) | draft, high | Renaissance-style root-cause analysis of a specific bug |
-| [Renaissance Primitives — OHLCV Expansion](renaissance-primitives-ohlcv.md) | idea, not planned | Candidate OHLCV-derived primitives |
+| [Renaissance Primitives — OHLCV Expansion](signal-processing-renaissance-primitives-ohlcv.md) | idea, not planned | OHLCV-derived primitives for Signal Processing Layer (499+ raw signals approach) |
 
 ---
 

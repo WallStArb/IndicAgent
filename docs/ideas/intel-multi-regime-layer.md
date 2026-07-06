@@ -466,6 +466,6 @@ Recommendations below are proposals for ratification, not decisions.
   superseded in spirit (not deleted) by this doc's governance model
 - `docs/ideas/archive/multi-engine-regime-architecture.md` — E0-E4 domain taxonomy, demoted from
   parallel system to candidate list
-- `docs/ideas/concept-governance-registries.md` — the three-registry taxonomy (`domain='regime_model'`
+- `docs/ideas/intel-governance-registries.md` — the three-registry taxonomy (`domain='regime_model'`
   is a Concept Registry domain, same governance shape as `feature` and `ensemble_strategy`)
 - ROADMAP.md v3.15 entry; `.planning/STATE.md` line 114

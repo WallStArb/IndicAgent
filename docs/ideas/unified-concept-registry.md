@@ -1,9 +1,11 @@
-# Concept Governance Registries
+# Unified Concept Registry
 
 **Status**: Partially built — four registries live, two to build
+
+**Scope**: Cross-tier lifecycle governance system that unifies the feature tier (Feature Registry) and intelligence tier (alpha patterns, HMM variants, ensemble strategies, regime models) under one schema, one service (`ConceptRegistryService`), and a single promotion/demotion discipline.
 **Created**: 2026-06-28
 **Informed by**: `.planning/research/2026-07-01-v3-architecture-review.md` (Fable 5) — Domains table gate-metric corrections and MVP build-trigger reassessment (2026-07-02) trace back to that review's ensemble-weighting and HMM-variant findings.
-**Refreshed**: 2026-07-01 — critical re-architecture of Concept Registry; recipe-card framing, concepts-vs-facts boundary, gate-vs-annotation discipline rule; Concept Registry's full spec re-merged into this doc after a same-day split/re-unify (kept as one unified research doc, not an index + satellite file); renamed from "Metadata Governance Registry System" — "metadata" undersold what this actually is: reference (identity/knowledge) *and* lifecycle (active governance — promote, demote, prove), not passive descriptive data. **2026-07-02** — Domains table's `ensemble_strategy`/`hmm_variant` gate metrics corrected against concrete decisions made the same session (Phase 142B.1 insertion, todo 026's Decision Gate) — see §Domains footnotes; MVP build-trigger domain #2 reassessed from an assumed `alpha_pattern` default to `ensemble_strategy` as the more concrete and lower-risk near-term candidate (item 20); the IOHMM and factor-augmented HMM variants' real dependency on Phase 144's `regime_group` signal modules identified and fixed at the source doc. Also dropped this doc's own stray references to the regime-stratification doc's old, now-retired `P1`-`P8` numbering (see that doc's 2026-07-02 update — those codes looked like priority tiers but weren't, and collided with `todo 026`'s legitimate, unrelated `P4a`/`P4b` priority codes).
+**Refreshed**: 2026-07-06 — added Renaissance-mandate safeguards: (1) Invariant 7 (initial promotion minimum observation floors, p-value alone is insufficient), (2) per-domain minimum observation floors in Domains table, (3) "What Jim Simons Would Demand" section making eight non-negotiable requirements explicit. **2026-07-01** — critical re-architecture of Concept Registry; recipe-card framing, concepts-vs-facts boundary, gate-vs-annotation discipline rule; Concept Registry's full spec re-merged into this doc after a same-day split/re-unify (kept as one unified research doc, not an index + satellite file); renamed from "Metadata Governance Registry System" — "metadata" undersold what this actually is: reference (identity/knowledge) *and* lifecycle (active governance — promote, demote, prove), not passive descriptive data. **2026-07-02** — Domains table's `ensemble_strategy`/`hmm_variant` gate metrics corrected against concrete decisions made the same session (Phase 142B.1 insertion, todo 026's Decision Gate) — see §Domains footnotes; MVP build-trigger domain #2 reassessed from an assumed `alpha_pattern` default to `ensemble_strategy` as the more concrete and lower-risk near-term candidate (item 20); the IOHMM and factor-augmented HMM variants' real dependency on Phase 144's `regime_group` signal modules identified and fixed at the source doc. Also dropped this doc's own stray references to the regime-stratification doc's old, now-retired `P1`-`P8` numbering (see that doc's 2026-07-02 update — those codes looked like priority tiers but weren't, and collided with `todo 026`'s legitimate, unrelated `P4a`/`P4b` priority codes).
 **Type**: Architecture pattern + design
 
 ---
@@ -18,6 +20,23 @@ But evidence alone is not enough. The other half of institutional knowledge is u
 
 The registries in this system capture both halves. The **governance layer** answers: *Is this valid? What state is it in? What happened?* The **knowledge layer** answers: *Why does it work? What breaks it? What have we learned? What depends on it?*
 
+### What Jim Simons Would Demand
+
+Renaissance principles demand specific safeguards against the most common failure modes in quantitative research. This system implements eight non-negotiable requirements:
+
+| Requirement | Implementation | Status |
+|---|---|---|
+| **No fluke promotions** | Minimum observation floors per domain (Invariant 7); p<0.05 alone is insufficient | ✅ Added |
+| **Every decision queryable** | Full audit trail in `concept_transition_log`; queryable 10 years later | ✅ Covered |
+| **No silent decay** | CUSUM change detection (`intel-governance-monitor.md`); continuous re-evaluation | ✅ Covered |
+| **Shadow mode before live** | Mandatory shadow period for AI-sourced concepts (Invariant 6) | ✅ Covered |
+| **Regime-aware evaluation** | `concept_regime_ic` table; regime-specific IC profiles; conditional weighting | ✅ Covered |
+| **False discovery control** | FDR correction for multi-candidate domains (`feature`, `feature_interaction`) | ✅ Covered |
+| **Redundancy as evidence** | `concept_correlation` table; correlation-based diversity guards; `redundancy_group` displacement | ✅ Covered |
+| **Concepts vs facts boundary** | Recipes governed in `concept_registry`; outputs recomputed in fact tables | ✅ Covered |
+
+**The Renaissance question this answers:** "When someone asks ten years from now 'why don't we use this feature/strategy/model anymore?' the answer is in the database: demotion triggered 2026-XX-XX, held-out LL = -847.3, p < 0.01, n = 1200 bars. Not in Slack. Not in memory. Queryable."
+
 ---
 
 ## What This Is: A Recipe Card File
@@ -30,19 +49,95 @@ Concept Registry is where the platform's actual secret sauce lives — not the i
 
 ---
 
+## Cross-Tier Unification
+
+**What makes Unified Concept Registry unique:** it generalizes lifecycle governance across BOTH the feature tier and the intelligence tier — one system, instead of separate bespoke registries for each tier.
+
+### Before: Separate tier-specific governance
+
+| Tier | Existing Registry | What it governed | Status |
+|------|-------------------|------------------|--------|
+| **Feature tier** | `feature_registry` | 61 intelligence vector features, IC Sharpe + FDR gate | Live, will migrate into Unified Concept Registry as `domain='feature'` |
+| **Intelligence tier** | Shadow Registry | 36 I1-I7 plugins/swarm agents, EV[R] bootstrap CI gate | Legacy, archived v2.x system; not migrating — no live v3.0 domain |
+
+### After: One unified system
+
+```
+Unified Concept Registry
+├── feature tier domain
+│   └── domain='feature' — 61 current features, eventually feature_interaction survivors
+│   └── Gate: IC Sharpe + FDR, walk-forward, 20,000-bar floor
+│
+└── intelligence tier domains
+    ├── domain='ensemble_strategy' — weighting method variants (E1-E4)
+    ├── domain='hmm_variant' — HMM architecture variants (covariance, obs vector, K)
+    ├── domain='ic_method' — IC calculation variants (Spearman, rank-IC, HAC)
+    ├── domain='regime_model' — regime classification variants
+    ├── domain='alpha_pattern' — signal pattern strategies (reserved, pending definition)
+    └── domain='confluence' — validated joint conditions (anticipated, per intel-10)
+```
+
+**Cross-tier discipline:** same tables, same service, same promotion/demotion engine, same audit trail — whether you're governing a momentum feature or an HMM variant. The tier doesn't matter; the evidence discipline does.
+
+### Why this matters
+
+Without unification, every new research domain needs a new bespoke table:
+- `feature_registry` for features
+- `hmm_variant_registry` for HMM architectures (would need to be built)
+- `ensemble_strategy_registry` for weighting methods (would need to be built)
+- ...one per domain forever
+
+With unification, every new domain is just another `domain` value in the same schema:
+- Seed the domain row in the `Domains` table (this doc §Domains)
+- Define its gate metric and eval method
+- Start promoting candidates
+
+The architecture scales; the governance discipline stays consistent.
+
+---
+
 ## Registry Taxonomy
 
-Three types, distinguished by what drives state changes:
+**"Unified Concept Registry" is the specific system this document describes** — a cross-tier lifecycle governance system that unifies feature and intelligence tiers under one schema. The broader governance *family* (APR, vocabularies, legacy registries) is context; Unified Concept Registry is the subject.
+
+```
+Unified Concept Registry (this doc)
+├── Type 1: APR (Adaptive Parameter Registry) — context, separate infrastructure
+│   └── Tables: config_state, config_history, config_schema
+│   └── Purpose: value-mutable runtime tuning, no lifecycle states
+│   └── Full spec: docs/foundation/adaptive-parameter-registry.md
+│
+├── Type 2: Lifecycle registries — the unified piece
+│   ├── Shadow Registry (legacy, separate tables: shadow_registry, shadow_transition_log)
+│   │   └── Governs: archived v2.x I1-I7 plugin/swarm system; no live systemd consumer
+│   │   └── Status: legacy, not migrating — no v3.0 domain to absorb into
+│   │
+│   └── Unified Concept Registry (the subject of this doc)
+│       └── Tables: concept_registry, concept_gate, concept_transition_log, concept_annotation...
+│       └── Purpose: evidence-gated lifecycle governance for ALL research domains
+│       └── Key: ONE schema, ONE service (ConceptRegistryService), MANY domains (partitioned by `domain` column)
+│       └── Domains: feature, ensemble_strategy, hmm_variant, ic_method, regime_model, alpha_pattern, confluence
+│       └── Status: design complete, MVP deferred until domain #2 has real candidates
+│
+└── Type 3: Vocabulary registries (static taxonomy) — context, separate infrastructure
+    ├── Tag Vocabulary (live, tables: tag_vocabulary, instrument_tags, instrument_annotations)
+    ├── Controlled Vocabulary (to build, design at docs/ideas/controlled-vocabulary.md)
+    └── Security Classification (future, design at docs/ideas/platform-09-security-classification-hierarchy.md)
+```
+
+**What's actually unified:** Unified Concept Registry (Type 2) is the single-schema system that governs multiple research domains across BOTH feature and intelligence tiers. APR and the vocabularies are related by governance philosophy only — they have separate tables, separate services, and separate purposes.
+
+**Three types, distinguished by what drives state changes:**
 
 **Type 1 — Parameter** (value-mutable): entries have tunable values ML can update at runtime. Gate is a validation range.
-- **APR** — 348 numeric/behavioral params across 13 namespaces
+- **APR** — 348 numeric/behavioral params across 13 namespaces. Separate infrastructure (`config_state`, `config_history`, `config_schema`). Full spec: `docs/foundation/adaptive-parameter-registry.md`.
 
 **Type 2 — Lifecycle** (evidence-gated): entries move through `candidate → shadow_only → active → deprecated` based on statistical evidence.
-- **Shadow Registry** — 36 components (`i7_plugin`, `swarm_agent`), EV[R] bootstrap CI gated. **Legacy** — no systemd unit runs `shadow_auditor`/`shadow_validator`/`alpha_swarm`, `last_eval_at` is NULL on all 36 rows, and it governs the v2.x I1-I7 plugin/swarm system that CLAUDE.md documents as archived under v3.0 (Feature Factory replaces I1-I4; I5-I7 archived outright). Not a migration target — there is no live plugin/swarm domain for Concept Registry to absorb it into. Revisit only if I7 plugins or swarm agents come back into active use.
-- **Concept Registry** — generalized lifecycle governance for all research domains _(to build; absorbs Feature Registry only, for now)_
+- **Shadow Registry** — 36 components (`i7_plugin`, `swarm_agent`), EV[R] bootstrap CI gated. **Legacy** — no systemd unit runs `shadow_auditor`/`shadow_validator`/`alpha_swarm`, `last_eval_at` is NULL on all 36 rows, and it governs the v2.x I1-I7 plugin/swarm system that CLAUDE.md documents as archived under v3.0 (Feature Factory replaces I1-I4; I5-I7 archived outright). Separate tables (`shadow_registry`, `shadow_transition_log`). Not a migration target — there is no live plugin/swarm domain for Concept Registry to absorb it into. Revisit only if I7 plugins or swarm agents come back into active use.
+- **Concept Registry** — generalized lifecycle governance for all research domains _(to build; absorbs Feature Registry only, for now)_. **This is the unified piece** — one schema, one service (`ConceptRegistryService`), many domains partitioned by the `domain` column.
 
-**Type 3 — Vocabulary** (static taxonomy): codes/labels with metadata, no lifecycle states.
-- **Tag Vocabulary** — 6 categories, 71 tags, 410 instrument assignments (live-verified 2026-07-04; the "301 tags" figure previously stated here matched neither table)
+**Type 3 — Vocabulary** (static taxonomy): codes/labels with metadata, no lifecycle states. Separate infrastructure per registry.
+- **Tag Vocabulary** — 6 categories, 71 tags, 410 instrument assignments (live-verified 2026-07-04; the "301 tags" figure previously stated here matched neither table). Tables: `tag_vocabulary`, `instrument_tags`, `instrument_annotations`.
 - **Controlled Vocabulary** — domain enums _(to build; design at `docs/ideas/controlled-vocabulary.md`)_
 - **Security Classification** — hierarchical instrument classification: strict external schemes (GICS) as new effective-dated tables, soft custom taxonomies via `tag_vocabulary.parent_tag` _(future, unscheduled, gated on individual-equities onboarding; design at `docs/ideas/platform-09-security-classification-hierarchy.md` — a Type 3 sibling by taxonomy, deliberately not a shared implementation with the other two)_
 
@@ -216,7 +311,9 @@ This is the part of the design that's actually worth thinking hard about now, be
 
 **Documented exception: `domain='feature'`.** `docs/ideas/archive/feature-vector-lifecycle.md` explicitly designs *without* a live shadow period — "the IC gate is retrospective... this is not a gap" — and that reasoning holds: features are hand-engineered (not proposer-driven, no self-improvement risk this invariant exists to guard against), and the walk-forward IC gate already provides fold-based OOS validation that serves an equivalent evidentiary function to live observation, just through a different, already-reasoned mechanism. Earlier drafts of this invariant stated it as absolute ("for any domain, regardless of proposer") — that was an over-generalization: a rule built for one specific risk (AI proposers overfitting to backtest-only conditions) got stated as universal, contradicting an already-good design decision for a domain where that risk doesn't apply. **The corrected rule:** any domain claiming this exception must document, like `feature` does, why its gate already provides evidence live observation would add — not merely assert the exception. `feature_interaction` inherits `feature`'s exception once/if it exists, since it's the same evaluation methodology on the same gate. Domains with proposer-driven or self-improvement-adjacent concepts (`alpha_pattern` especially, once real) do not get this exception by default.
 
-None of this requires the ten-table reference architecture. All six invariants apply directly to the four-table minimal version — they're rules about *who can write what, and in what order*, not about additional storage.
+**7. Initial promotion requires a minimum observation floor, regardless of statistical significance.** A concept that clears p<0.05 on 50 bars is not proven — it's a fluke. Every domain specifies a `min_observation_floor` in its gate template (APR-backed, per-domain: `alpha.concept_registry.feature_min_observations`, `alpha.concept_registry.ensemble_strategy_min_observations`, etc.). No promotion fires until this floor is met, even if the gate metric clears. This invariant applies to first promotion only; re-evaluation uses Invariant 2's N-new-observations rule. Renaissance principle: never promote based on statistical significance alone — sample size matters. A 10-bar IC of 0.15 with p=0.03 is not evidence; it's noise that happened to align.
+
+None of this requires the ten-table reference architecture. All seven invariants apply directly to the four-table minimal version — they're rules about *who can write what, and in what order*, not about additional storage.
 
 ### Full Reference Architecture (do not build yet) — two layers, ten tables
 
@@ -585,16 +682,16 @@ Knowledge layer tables (annotation, dependency, regime_ic, correlation) are read
 
 ### Domains
 
-| Domain | Gate metric | Eval method | What it governs |
-|---|---|---|---|
-| `feature` | IC Sharpe + FDR | Walk-forward | Intelligence vector features (migrated from feature_registry) |
-| `feature_interaction` | IC Sharpe + FDR | Walk-forward | Interaction feature candidates before FeatureVector column |
-| `alpha_pattern` | IC Sharpe | OOS holdout | **Reserved, pending definition (2026-07-04, F6)** — see note below; do not route proposals here until defined |
-| `hmm_variant` | Held-out log-likelihood† | OOS holdout | HMM architecture variants (covariance structure, obs vector, K) |
-| `ic_method` | Walk-forward IC stability | Walk-forward | IC calculation variants (Spearman, rank-IC, HAC methods) |
-| `ensemble_strategy` | Ensemble IC (`ic_ci_lower`, stable walk-forward folds)‡ | OOS, via EnsembleICEngine | Ensemble weighting strategies |
-| `regime_model` | Cross-validated accuracy | Walk-forward | Regime classification model variants |
-| `confluence` (anticipated, not in CHECK yet) | Gates 1-6 (marginal lift, BH-FDR, walk-forward, calibration, cost hurdle, OOS) | Shadow-mode proof, `n>=100 AND bootstrap_ci_lower(pnl_r)>0` | Empirically validated joint conditions over primitives/analog neighborhoods — `docs/ideas/intel-10-confluence-detection-persistence-layer.md`. Added to CHECK once Phase 150/analog predictors produce real candidates (per that doc's Governance section), not before. |
+| Domain | Gate metric | Eval method | Min observation floor | What it governs |
+|---|---|---|---|---|
+| `feature` | IC Sharpe + FDR | Walk-forward | 20,000 bars | Intelligence vector features (migrated from feature_registry; IC Sharpe gate requires this minimum) |
+| `feature_interaction` | IC Sharpe + FDR | Walk-forward | 2,000 bars | Interaction feature candidates before FeatureVector column (interaction-specific minimum) |
+| `alpha_pattern` | IC Sharpe | OOS holdout | — | **Reserved, pending definition (2026-07-04, F6)** — see note below; do not route proposals here until defined |
+| `hmm_variant` | Held-out log-likelihood† | OOS holdout | 5,000 bars | HMM architecture variants (covariance structure, obs vector, K; regime-eval context) |
+| `ic_method` | Walk-forward IC stability | Walk-forward | 10,000 bars | IC calculation variants (Spearman, rank-IC, HAC methods; IC stability requires sufficient context) |
+| `ensemble_strategy` | Ensemble IC (`ic_ci_lower`, stable walk-forward folds)‡ | OOS, via EnsembleICEngine | 1,000 bars | Ensemble weighting strategies (per-TF fold minimum) |
+| `regime_model` | Cross-validated accuracy | Walk-forward | 10,000 bars | Regime classification model variants (classification context) |
+| `confluence` (anticipated, not in CHECK yet) | Gates 1-6 (marginal lift, BH-FDR, walk-forward, calibration, cost hurdle, OOS) | Shadow-mode proof, `n>=100 AND bootstrap_ci_lower(pnl_r)>0` | 100 events (bootstrap CI requirement) | Empirically validated joint conditions over primitives/analog neighborhoods — `docs/ideas/intel-10-confluence-detection-persistence-layer.md`. Added to CHECK once Phase 150/analog predictors produce real candidates (per that doc's Governance section), not before. |
 
 **`alpha_pattern` note (2026-07-04, F6):** originally "alpha signal ideas competing for ensemble
 inclusion" — since drifted into a vestigial superset once concrete predictor families got their

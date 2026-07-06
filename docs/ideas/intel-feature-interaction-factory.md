@@ -1,7 +1,8 @@
 # Interaction Factory
 
-**Status:** Idea — not planned, no build trigger met
-**Refreshed:** 2026-07-01 — clarified what this actually is, added the missing evidence-based trigger, fixed statistical/architecture gaps, reframed from "a service" to "a candidate-generation strategy"
+**Status:** Idea — blocked on prerequisites (pilot test + primitives expansion + feature demotion mechanism)
+**Refreshed:** 2026-07-06 — restored from archive; this is legitimate future work, not a rejected idea
+**Original authorship:** 2026-07-01 — clarified what this actually is, added the missing evidence-based trigger, fixed statistical/architecture gaps, reframed from "a service" to "a candidate-generation strategy"
 **Demotion mechanism:** see "Demotion" section below; implementation tracked at `.planning/todos/deferred/015-feature-vector-lifecycle.md`
 
 ---
@@ -70,7 +71,7 @@ compound_ic_scores (
 )
 ```
 
-- **Promotion, once Concept Registry ships** — survivors become `domain='feature_interaction'` rows in the unified `concept_registry` (`docs/ideas/concept-governance-registries.md`), through the *same* gate/promotion/decay machinery every other domain uses. `feature_a`/`feature_b`/`operation`/`xf_name` live in `concept_registry.metadata JSONB`; a `concept_registry` row is INSERTed with `status='candidate'` pointing back at its `compound_ic_scores` row. No bespoke lifecycle logic, no separate `compound_primitive_registry` table.
+- **Promotion, once Concept Registry ships** — survivors become `domain='feature_interaction'` rows in the unified `concept_registry` (`docs/ideas/intel-governance-registries.md`), through the *same* gate/promotion/decay machinery every other domain uses. `feature_a`/`feature_b`/`operation`/`xf_name` live in `concept_registry.metadata JSONB`; a `concept_registry` row is INSERTed with `status='candidate'` pointing back at its `compound_ic_scores` row. No bespoke lifecycle logic, no separate `compound_primitive_registry` table.
 - **Promotion, interim state (Concept Registry not built, likely true when the pilot or an early full build runs)** — survivors land in the live `feature_registry` instead, as ordinary rows alongside atomic features, governed by whatever demotion mechanism `.planning/todos/deferred/015-feature-vector-lifecycle.md` ships. No separate table needed here either — the interim path reuses live infrastructure exactly like the eventual path reuses Concept Registry.
 
 This is the concrete reason the earlier "is it a service" framing was wrong: the only genuinely new code is the generator and the raw-screening table. Screening, gating, promotion, decay, and knowledge annotation are all inherited for free.
@@ -109,7 +110,7 @@ Time-varying joint behavior over a causal window ending at the current bar. Capt
 
 ## Feature Metadata Dependency
 
-The factory cannot run without knowing each atomic feature's `sign_type` (`signed`/`positive`/`bounded_01`/`binary`) and `scale` (`z_scored`/`natural_bounded`/`raw_ratio`/`raw_unbounded`) — this is what determines ratio validity and whether to pre-normalize before a product. This is exactly what Feature Registry (`docs/ideas/feature-registry.md`, live today, 61 rows) already provides, or its eventual Concept Registry successor. Without it, the factory has to hardcode scale knowledge per feature — a maintenance burden that grows with the feature set. **Implementation order, if built: Feature Registry (already satisfied) first, Interaction Factory second.**
+The factory cannot run without knowing each atomic feature's `sign_type` (`signed`/`positive`/`bounded_01`/`binary`) and `scale` (`z_scored`/`natural_bounded`/`raw_ratio`/`raw_unbounded`) — this is what determines ratio validity and whether to pre-normalize before a product. This metadata is provided by `feature_registry` (61 rows, live in production) and will be absorbed into `concept_registry` per `intel-governance-registries.md`. Historical design: `docs/ideas/archive/feature-registry.md`. Without this metadata, the factory has to hardcode scale knowledge per feature — a maintenance burden that grows with the feature set. **Implementation order, if built:** feature_registry already satisfied; Interaction Factory second.
 
 ---
 
@@ -138,7 +139,7 @@ That principle argues for *why systematic generation is better than hand-picking
 
 ## Does This Generalize Beyond Features?
 
-Yes, as a *methodology* — "generate candidates combinatorially, screen through the existing gate/promotion pipeline" applies just as well to combining `alpha_pattern`s into meta-patterns or `hmm_variant` configurations as it does to feature pairs. It does **not** generalize as a *service* right now — building a generalized combinatorial-generation subsystem today, for domains (`alpha_pattern`, `hmm_variant`) that have zero real candidates, would repeat the exact premature-abstraction mistake already caught and reversed in Concept Registry's design (see `docs/ideas/concept-governance-registries.md`, "Status check, applied honestly"). If a future domain needs this pattern, it gets its own thin generator function feeding the same shared pipeline — not a shared "Combinatorial Factory" framework built ahead of need.
+Yes, as a *methodology* — "generate candidates combinatorially, screen through the existing gate/promotion pipeline" applies just as well to combining `alpha_pattern`s into meta-patterns or `hmm_variant` configurations as it does to feature pairs. It does **not** generalize as a *service* right now — building a generalized combinatorial-generation subsystem today, for domains (`alpha_pattern`, `hmm_variant`) that have zero real candidates, would repeat the exact premature-abstraction mistake already caught and reversed in Concept Registry's design (see `docs/ideas/intel-governance-registries.md`, "Status check, applied honestly"). If a future domain needs this pattern, it gets its own thin generator function feeding the same shared pipeline — not a shared "Combinatorial Factory" framework built ahead of need.
 
 ---
 

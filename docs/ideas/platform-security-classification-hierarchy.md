@@ -240,7 +240,7 @@ from that doc in this same change).
   relationship. Classification is instrument *reference data* with vendor sync and
   effective dating. Same word ("vocabulary-ish"), different object.
 - Couples equity classification to an unbuilt, indefinitely-deferred system - the exact
-  mistake `concept-governance-registries.md` already retracted once (the `concept_domain`
+  mistake `intel-governance-registries.md` already retracted once (the `concept_domain`
   namespace coupling: two deferred systems gating each other's build).
 - CV has no effective dating, and adding it would distort the contract for every flat
   namespace (`signal_outcome` does not need `valid_from`).
@@ -279,7 +279,7 @@ Vocabulary under one table family / service base class.
 ## Relationship to the registry family (the unification verdict)
 
 **Verdict: no umbrella - conceptually yes, structurally no.** This system slots into
-`docs/ideas/concept-governance-registries.md` as a third **Type 3** (static taxonomy)
+`docs/ideas/intel-governance-registries.md` as a third **Type 3** (static taxonomy)
 sibling next to Tag Vocabulary and Controlled Vocabulary; that doc's taxonomy IS the
 umbrella, and it costs nothing because it is documentation. A shared implementation
 (common table family, `BaseRegistryService`) is rejected: two of the three systems do not
