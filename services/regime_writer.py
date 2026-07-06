@@ -297,6 +297,53 @@ def _smooth_states(raw_states: np.ndarray, min_hold: int) -> np.ndarray:
     return smoothed
 
 
+def _check_occupation_gate(
+    smoothed_states: np.ndarray,
+    n_components: int,
+    min_state_occupation: float,
+    converged: bool,
+) -> tuple[bool, dict[str, Any]]:
+    """Guard against degenerate HMM fits before their labels can be written.
+
+    Returns (is_degenerate, diagnostics). is_degenerate=True means the caller must
+    skip the write for this cell -- the smoothed label sequence is either empty,
+    too short to trust, came from a non-converged fit, or one state's occupation
+    fraction collapsed below min_state_occupation (the model degenerated onto too
+    few effective states, absorbing almost all bars into one label). Guards run
+    in this order BEFORE any division by len(smoothed_states) so empty/short
+    input can never divide-by-zero or index out of range.
+
+    Occupation fractions are computed from smoothed_states -- the actual label
+    assignments that would be written -- not from the model's stationary
+    distribution or any other summary statistic.
+    """
+    n_obs = len(smoothed_states)
+    if n_obs == 0:
+        return True, {"reason": "empty_series", "n_obs": 0}
+    if n_obs < n_components:
+        return True, {
+            "reason": "insufficient_obs",
+            "n_obs": n_obs,
+            "n_components": n_components,
+        }
+    if not converged:
+        return True, {"reason": "not_converged", "n_obs": n_obs}
+
+    occupation = {
+        int(k): float(np.count_nonzero(smoothed_states == k)) / n_obs for k in range(n_components)
+    }
+    min_state = min(occupation, key=occupation.get)
+    min_fraction = occupation[min_state]
+    if min_fraction < min_state_occupation:
+        return True, {
+            "reason": "degenerate_occupation",
+            "min_state": min_state,
+            "min_fraction": min_fraction,
+            "occupation": occupation,
+        }
+    return False, {"reason": None, "occupation": occupation}
+
+
 def _build_label_map(means: np.ndarray) -> dict[int, str]:
     """Map integer HMM states to canonical regime text labels.
 
@@ -363,12 +410,19 @@ def _compute_symbol_tf(
     min_hold_bars: int = 3,
     heldout_fraction: float = 0.2,
     full_cov_min_obs: int = 500,
+    min_state_occupation: float = 0.05,
+    churn_window: int = 10,
 ) -> tuple[list[tuple], bool, float] | None:
     """Fit HMM for one (symbol, tf) cell. Returns (update_rows, converged, heldout_ll) or None.
 
     No DB writes — clears any open transaction before the server-side cursor, then runs pure
     HMM compute. Each tuple in update_rows matches the UPDATE SQL parameter order:
-    (regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration, symbol, tf, ts).
+    (regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration, hmm_churn, symbol, tf, ts).
+
+    Returns None if OHLCV is absent/insufficient (existing behavior) OR if the
+    occupation gate (P2b) flags the fit as degenerate/non-converged/too-short —
+    _check_occupation_gate's skip reasons all funnel into this same None marker
+    so _run_symbol_worker/main() handle every skip path uniformly.
     """
     timestamps = []
     closes = []
@@ -491,6 +545,24 @@ def _compute_symbol_tf(
 
     # Minimum holding-period smoothing — prevents single-bar flips when alpha is diffuse.
     smoothed_states = _smooth_states(raw_states, min_hold_bars)
+
+    # P2b degenerate-model gate — must run BEFORE building update_rows so a
+    # collapsed/non-converged fit never reaches feature_vectors. See
+    # _check_occupation_gate for the empty/short/non-converged/degenerate cases
+    # it guards against, all funneled into the same None skip marker used by the
+    # pre-existing no_ohlcv/insufficient_obs early-returns above.
+    is_degenerate, gate_info = _check_occupation_gate(
+        smoothed_states, n_components, min_state_occupation, converged
+    )
+    if is_degenerate:
+        _logger.warning(
+            "regime_writer.degenerate_model_skipped",
+            symbol=symbol,
+            tf=tf,
+            min_state_occupation=min_state_occupation,
+            **gate_info,
+        )
+        return None
 
     label_map = _build_label_map(model.means_)
     # For K>=4, hmm_prob_trending_up/down aggregate all bullish/bearish probability mass.
@@ -652,7 +724,8 @@ def _run_symbol_worker(args: tuple) -> dict:
     Args:
         args: (symbol, tfs, dsn, n_components, vol_window, momentum_window,
                vol_of_vol_window, n_iter, hmm_random_state, covariance_type,
-               min_hold_bars, heldout_fraction, full_cov_min_obs)
+               min_hold_bars, heldout_fraction, full_cov_min_obs,
+               min_state_occupation, churn_window)
 
     Returns:
         dict with keys:
@@ -674,6 +747,8 @@ def _run_symbol_worker(args: tuple) -> dict:
         min_hold_bars,
         heldout_fraction,
         full_cov_min_obs,
+        min_state_occupation,
+        churn_window,
     ) = args
 
     setup_service_logging("logs/regime_writer.log")
@@ -702,6 +777,8 @@ def _run_symbol_worker(args: tuple) -> dict:
                     min_hold_bars=min_hold_bars,
                     heldout_fraction=heldout_fraction,
                     full_cov_min_obs=full_cov_min_obs,
+                    min_state_occupation=min_state_occupation,
+                    churn_window=churn_window,
                 )
                 if result is None:
                     results.append(
@@ -832,6 +909,8 @@ def main() -> None:
                 min_hold_bars = int(cfg.get_sync("feature.hmm.min_hold_bars", 3))
                 heldout_fraction = float(cfg.get_sync("feature.hmm.heldout_fraction", 0.2))
                 full_cov_min_obs = int(cfg.get_sync("feature.hmm.full_cov_min_obs", 500))
+                min_state_occupation = float(cfg.get_sync("feature.hmm.min_state_occupation", 0.05))
+                churn_window = int(cfg.get_sync("feature.hmm.churn_window", 10))
 
                 symbols = args.symbols if args.symbols else _discover_symbols(_conn)
                 tfs: list[str] = args.tf
@@ -856,6 +935,8 @@ def main() -> None:
                 covariance_type=covariance_type,
                 min_hold_bars=min_hold_bars,
                 heldout_fraction=heldout_fraction,
+                min_state_occupation=min_state_occupation,
+                churn_window=churn_window,
             )
 
             worker_args = [
@@ -873,6 +954,8 @@ def main() -> None:
                     min_hold_bars,
                     heldout_fraction,
                     full_cov_min_obs,
+                    min_state_occupation,
+                    churn_window,
                 )
                 for symbol in symbols
             ]
