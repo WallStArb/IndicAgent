@@ -1629,6 +1629,37 @@ seeding `concept-governance-registries.md`'s four-table MVP from 142B.1's E1-E4 
 rows, before any `confluence`/`regime_model` domain needs it (those are still further out — see
 v3.15 and intel-10 v3). Not doing this promptly is how "deferred" becomes "deferred indefinitely."
 
+### Phase 142.5: Renaissance Primitives 📋 READY TO EXECUTE (7 plans) (INSERTED)
+
+**Goal:** Add ~83 foundational primitives from `signal-renaissance-primitives-ohlcv.md` to Feature Factory v3.0. Corpus backfill and IC evaluation will happen as part of the next corpus run (before 142B).
+
+**Requirements:**
+- Implement all primitives in `src/intelligence/feature_factory.py`:
+  - Bar anatomy ratios (8)
+  - Lagged return series (6)
+  - Temporal coordinates (12, 6 new)
+  - Open-to-Close split (4, existing)
+  - Volume structure primitives (10)
+  - Return distribution primitives (8)
+  - Realized variance / volatility primitives (13)
+  - Alternative volatility estimators (3)
+  - Volatility dynamics primitives (5)
+  - Breakout distance primitives (14)
+- Add APR entries for window-based features
+- Update schema to 144 columns (61 baseline + 83 Renaissance)
+- **Deliverable:** FeatureFactory computes 144 features, schema expanded, ready for corpus run
+
+**Depends on:** Phase 142B.1 (Ensemble Weighting Methodology)
+**Plans:** 7 plans
+Plans:
+- [ ] 142.5-00-PLAN.md — Wave 0: Test infrastructure
+- [ ] 142.5-01-PLAN.md — Bar anatomy ratios (8) + Lagged returns (6)
+- [ ] 142.5-02-PLAN.md — Temporal coordinates (12) + Volume structure (10)
+- [ ] 142.5-03-PLAN.md — Return distribution (8) + Realized variance (13)
+- [ ] 142.5-04-PLAN.md — Alternative volatility (3) + Volatility dynamics (5)
+- [ ] 142.5-05-PLAN.md — Breakout distance (14)
+- [ ] 142.5-06-PLAN.md — APR entries + Schema migration
+
 ### Phase 143: Feature Lifecycle Routing (merged with Phase 149B) 📐 PLANNED (3 plans)
 
 **Rewritten 2026-07-03 against `docs/ideas/intel-14-integrity-monitor.md`** (Fable-reviewed
