@@ -1,9 +1,11 @@
-# Signal Layer Refactor — Intelligence Vectors Concept
+# v3.0 North Star — Intelligence Vectors Concept
 
 **Version:** 1.1
-**Status:** working draft — for discussion and refinement
+**Status:** Canonical — foundational v3.0 philosophy
 **Last Updated:** 2026-06-20
 **Tags:** intelligence-vectors, alphaengine, analogengine, ic, signal-layer, v3.0, renaissance
+
+**Location:** Moved to `docs/foundation/` as canonical v3.0 origin document (2026-07-06). This establishes the Renaissance-grade principle that governs all v3.0 architectural decisions.
 
 ---
 
