@@ -295,7 +295,8 @@ Clean calendar arithmetic from `bar.timestamp`. No state. No event tracking. O(1
 |---|---|---|---|
 | `dow_sin`, `dow_cos` | `sin(2π * dow / 7)`, `cos(...)` | Every bar | Day-of-week cycle (preserves Friday-Monday = 3 days, not 4) |
 | `hour_of_day_sin`, `hour_of_day_cos` | `sin(2π * hour / 24)`, `cos(...)` | Every bar | Intraday cycle (23:00 is 1 hour from 00:00, not 23 hours) |
-| `day_of_month_sin`, `day_of_month_cos` | `sin(2π * day / 31)`, `cos(...)` | Every bar | Month-cycle position (for "3rd Friday" effects, month-end, etc.) |
+| `week_of_month_sin`, `week_of_month_cos` | `sin(2π * week / 5)`, `cos(...)` | Every bar | Position within month (week 1-5), for "3rd Friday" OPEX effects |
+| `day_of_month_sin`, `day_of_month_cos` | `sin(2π * day / 31)`, `cos(...)` | Every bar | Month-cycle position (for month-end, dividend dates, etc.) |
 | `week_of_year_sin`, `week_of_year_cos` | `sin(2π * week / 52)`, `cos(...)` | Every bar | Intra-annual seasonality (Q1 vs Q4, holiday periods) |
 | `month_sin`, `month_cos` | Already in factory | Every bar | Annual cycle (seasonal effects) |
 
@@ -303,7 +304,8 @@ Clean calendar arithmetic from `bar.timestamp`. No state. No event tracking. O(1
 
 **What we're adding:**
 - `hour_of_day_sin/cos` — circular version of `session_time_pos`, cleaner for intraday effects
-- `day_of_month_sin/cos` — NEW, captures month-cycle patterns (OPEX, month-end, dividend dates)
+- `week_of_month_sin/cos` — NEW, precise "3rd Friday" OPEX encoding (week 3 + dow = Friday)
+- `day_of_month_sin/cos` — NEW, captures month-cycle patterns (month-end, dividend dates)
 - `week_of_year_sin/cos` — NEW, captures intra-annual seasonality (turn-of-month, Q-effects)
 
 **Why sin/cos and not raw numbers?**
@@ -312,9 +314,9 @@ Raw `dow = 3` (Wednesday) doesn't encode that Thursday (4) is 1 day away and Mon
 
 **How the ensemble discovers calendar effects:**
 
-Given `dow_sin/cos` + `day_of_month_sin/cos` + `week_of_year_sin/cos` + `month_sin/cos` + price/volume features, the ensemble can discover:
+Given `dow_sin/cos` + `week_of_month_sin/cos` + `day_of_month_sin/cos` + `week_of_year_sin/cos` + `month_sin/cos` + price/volume features, the ensemble can discover:
 
-- "When `day_of_month` ≈ 15-19 (3rd Friday range) and `vol_z` > 2, next-bar returns are negative" — OPEX pin risk, discovered
+- "When `week_of_month` ≈ 3 AND `dow` ≈ Friday (3rd Friday) and `vol_z` > 2, next-bar returns are negative" — OPEX pin risk, discovered
 - "When `week_of_year` ≈ 51 (last week) and `volume_z` > 1.5, momentum reverses" — window dressing, discovered
 - "When `dow` ≈ 1 (Monday) and `overnight_gap` > 2σ, returns are negative" — Monday effect, discovered
 
@@ -330,6 +332,16 @@ def hour_of_day_sin(dt: datetime) -> float:
 def hour_of_day_cos(dt: datetime) -> float:
     hour = dt.hour + dt.minute / 60
     return cos(2 * pi * hour / 24)
+
+def week_of_month_sin(dt: datetime) -> float:
+    # Week of month: 1-5 (some months have 5 partial weeks)
+    # First week = week containing day 1
+    week = (dt.day - 1) // 7 + 1
+    return sin(2 * pi * week / 5)
+
+def week_of_month_cos(dt: datetime) -> float:
+    week = (dt.day - 1) // 7 + 1
+    return cos(2 * pi * week / 5)
 
 def day_of_month_sin(dt: datetime) -> float:
     return sin(2 * pi * dt.day / 31)
@@ -351,6 +363,25 @@ No APR keys needed. No state. Pure function of `bar.timestamp`.
 **Natural score ranges:**
 
 All sin/cos features are bounded [-1, 1]. Ready as-is for linear models. No normalization needed.
+
+### Storage and Pre-Optimization: Don't
+
+**Question:** At 5m TF, `week_of_month` is constant for all 78 bars in a day. Does this "waste space" in the feature vector?
+
+**Renaissance answer:** Who cares? Storage is cheap. Signal is expensive.
+
+**Cost:**
+- `week_of_month` = 8 bytes per row (float64)
+- 5m TF: ~196,000 rows/year/symbol → ~1.6 MB/year/symbol
+- 58 ETFs: ~93 MB/year total
+
+**Benefit:** If `week_of_month + dow = Friday` has IC Sharpe > 0.5 and p < 0.05, it pays for itself 1000x over. If it doesn't, IC engine prunes it.
+
+**Why not HTF join?** Pull `week_of_month` from daily table at analysis time. But this breaks the DAG — features should compute from the bar in front of you, not via cross-TF join. Stateful joins add complexity. Renaissance avoided them.
+
+**Pre-optimization is premature.** Throw everything at the wall. Let IC decide. Renaissance's "499+ signals" included many redundancies and constants at certain cadences. The ensemble pruned. Signal survived.
+
+**Feature clustering (todo 009) handles redundancy.** `week_of_month` and `day_of_month` will cluster. If one survives IC and the other doesn't, we keep the survivor. No human judgment needed.
 
 ---
 
@@ -500,6 +531,7 @@ Features computed directly from OHLCV with no intermediate features:
 **From Temporal Coordinate Primitives section:**
 - `dow_sin`, `dow_cos` (existing)
 - `hour_of_day_sin`, `hour_of_day_cos` (NEW)
+- `week_of_month_sin`, `week_of_month_cos` (NEW)
 - `day_of_month_sin`, `day_of_month_cos` (NEW)
 - `week_of_year_sin`, `week_of_year_cos` (NEW)
 - `month_sin`, `month_cos` (existing)
