@@ -1629,36 +1629,42 @@ seeding `concept-governance-registries.md`'s four-table MVP from 142B.1's E1-E4 
 rows, before any `confluence`/`regime_model` domain needs it (those are still further out — see
 v3.15 and intel-10 v3). Not doing this promptly is how "deferred" becomes "deferred indefinitely."
 
-### Phase 142.5: Renaissance Primitives 📋 READY TO EXECUTE (7 plans) (INSERTED)
+### Phase 142.5: Renaissance Primitives 📋 READY TO EXECUTE (8 plans) (INSERTED)
 
-**Goal:** Add ~83 foundational primitives from `signal-renaissance-primitives-ohlcv.md` to Feature Factory v3.0. Corpus backfill and IC evaluation will happen as part of the next corpus run (before 142B).
+**Goal:** Add 91 foundational primitives from `signal-renaissance-primitives-ohlcv.md` to Feature Factory v3.0. Corpus backfill and IC evaluation will happen as part of the next corpus run (before 142B).
 
-**Requirements:**
+**Requirements** (counts reconciled 2026-07-06 — see `142.5-PLAN-OUTLINE.md`):
 - Implement all primitives in `src/intelligence/feature_factory.py`:
   - Bar anatomy ratios (8)
   - Lagged return series (6)
-  - Temporal coordinates (12, 6 new)
-  - Open-to-Close split (4, existing)
-  - Volume structure primitives (10)
-  - Return distribution primitives (8)
-  - Realized variance / volatility primitives (13)
+  - Open-to-Close split (4) — spec claimed "existing" but verified absent; implemented in Plan 01
+  - Temporal coordinates (8 new sin/cos pairs; dow already exists)
+  - month_sin/cos (2) — only month_position existed; sin/cos pair added
+  - Volume structure primitives (12)
+  - Return distribution primitives (7)
+  - Realized variance / volatility primitives (14)
   - Alternative volatility estimators (3)
   - Volatility dynamics primitives (5)
   - Breakout distance primitives (14)
-- Add APR entries for window-based features
-- Update schema to 144 columns (61 baseline + 83 Renaissance)
-- **Deliverable:** FeatureFactory computes 144 features, schema expanded, ready for corpus run
+  - Price-volume interaction primitives (8) — Plan 05.5
+- Add APR entries for window-based features (54 total: 44 in Plan 06, 10 breakout in Plan 05)
+- Update schema to 152 columns (61 baseline + 91 Renaissance) + seed feature_registry to 152 rows
+- Migration: `production/migrations/202_add_renaissance_primitives.sql`
+- **Deferred (OUT):** Cross-Timeframe Divergences (3) — require HTF-cache coupling; scoped to a
+  follow-on cross-TF unit (see `.planning/todos/pending/`)
+- **Deliverable:** FeatureFactory computes 152 features, schema expanded, registry seeded, ready for corpus run
 
 **Depends on:** Phase 142B.1 (Ensemble Weighting Methodology)
-**Plans:** 7 plans
+**Plans:** 8 plans
 Plans:
-- [ ] 142.5-00-PLAN.md — Wave 0: Test infrastructure
-- [ ] 142.5-01-PLAN.md — Bar anatomy ratios (8) + Lagged returns (6)
-- [ ] 142.5-02-PLAN.md — Temporal coordinates (12) + Volume structure (10)
-- [ ] 142.5-03-PLAN.md — Return distribution (8) + Realized variance (13)
-- [ ] 142.5-04-PLAN.md — Alternative volatility (3) + Volatility dynamics (5)
-- [ ] 142.5-05-PLAN.md — Breakout distance (14)
-- [ ] 142.5-06-PLAN.md — APR entries + Schema migration
+- [ ] 142.5-00-PLAN.md — Wave 0: Test infrastructure (11 RED categories, schema test asserts 152)
+- [ ] 142.5-01-PLAN.md — Bar anatomy (8) + Lagged returns (6) + Open-to-close split (4) → 79
+- [ ] 142.5-02-PLAN.md — Temporal coords new (8) + month_sin/cos (2) + Volume structure (12) → 101
+- [ ] 142.5-03-PLAN.md — Return distribution (7) + Realized variance (14) → 122
+- [ ] 142.5-04-PLAN.md — Alternative volatility (3) + Volatility dynamics (5) → 130
+- [ ] 142.5-05-PLAN.md — Breakout distance (14) + migration 202 (breakout cols/APR) → 144
+- [ ] 142.5-05.5-PLAN.md — Price-volume interactions (8) → 152
+- [ ] 142.5-06-PLAN.md — APR seeds (44) + 77 columns + 91 feature_registry rows + schema test (152)
 
 ### Phase 143: Feature Lifecycle Routing (merged with Phase 149B) 📐 PLANNED (3 plans)
 
