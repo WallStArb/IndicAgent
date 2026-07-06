@@ -1231,7 +1231,7 @@ Full details: `.planning/milestones/v3.0-ROADMAP.md`
 <summary>📋 v3.0a Signal Integrity — IntegrityMonitor (Phases 151, 149B, 152) — PLANNED</summary>
 
 - [ ] **Phase 151: DistributionDriftMonitor** — Regime-conditioned KS + chi-squared + signed Wasserstein on all 54 features; adaptive penalties (APR-scaled by Wasserstein magnitude); piggybacked recovery; `indicagent-integrity-monitor` service skeleton — design current in `docs/ideas/intel-14-integrity-monitor.md` (kept from `docs/plans/2026-06-27-health-guardian-design.md` unchanged)
-- [ ] **Phase 149B: feature lifecycle routing, merged with Phase 143** — Evidence-based shadow governance routed through `feature_registry`/Concept Registry, not new `feature_ic_scores` columns; `pre_shadow_weight` restored on promotion — see `docs/ideas/intel-14-integrity-monitor.md` (supersedes `docs/plans/2026-06-27-health-guardian-design.md`'s `ICLifecycleMonitor`, which conflicted with D3)
+- [ ] **Phase 149B: feature lifecycle routing, merged with Phase 143** — Evidence-based shadow governance routed through `feature_registry`/Concept Registry, not new `feature_ic_scores` columns; weight restored on promotion via status flip + `ensemble_trainer`'s next recompute, not a `pre_shadow_weight` column (dropped 2026-07-06, see Phase 143's LIFECYCLE-01 correction) — see `docs/ideas/intel-14-integrity-monitor.md` (supersedes `docs/plans/2026-06-27-health-guardian-design.md`'s `ICLifecycleMonitor`, which conflicted with D3)
 - [ ] **Phase 152: EnsembleHealthMonitor** — 3-gate AND logic (E1: IC Sharpe, E2: regime-conditioned conviction stability, E3: non-shadow coverage); halt/reduce via APR keys; requires Phase 142A (`alpha_ensemble_ic`, complete) — design superseded by `docs/ideas/intel-14-integrity-monitor.md` (E2B/E2C restored, CUSUM added, `alpha_events` schema gap found — E2B needs Phase 142B's `alpha_frames`). No monitor code exists; the prior `[x]`/"completed 2026-07-02" was stray, corrected 2026-07-02 (found during intel-14 Fable audit)
 
 **Dependencies:** Phase 142A (`alpha_ensemble_ic` table exists) for Phase 152 only; Phase 151 and the Phase 149B item (merged into Phase 143, see above) are independent
@@ -1672,9 +1672,17 @@ three amendments, not a parallel one:
    rejected calendar-gated recovery: it blocks fast recovery for no statistical reason, and the
    observation floor already guards against evidence reuse that a cooldown was trying to
    prevent).
-3. Add `pre_shadow_weight` (restored as starting weight on promotion) and shadow-run counters
-   (consecutive fails/passes, observations since demotion) as **registry columns**, not
-   `feature_ic_scores` columns — they are lifecycle state, so they live with the status.
+3. Add shadow-run counters (consecutive passes, observations since demotion) as **registry
+   columns**, not `feature_ic_scores` columns — they are lifecycle state, so they live with the
+   status. **Correction (2026-07-06, `/gsd:plan-phase --reviews` replan against 143-REVIEWS.md):**
+   `pre_shadow_weight` is dropped, not added. `services/ensemble_trainer.py` is the sole writer of
+   `ensemble_weights` (line 744) and recomputes every weight from scratch each run from current
+   `feature_ic_scores` — no warm-start/prior-weight read exists anywhere in that file — so a scalar
+   `pre_shadow_weight` on `feature_registry` would write to a column nothing reads. Promotion
+   restores weight by the status flip alone: `active` status → next `ic_engine` run stamps
+   `feature_status_at_eval='active'` → next `ensemble_trainer` run recomputes a fresh weight. There
+   is no consecutive-fail counter either (demotion is `ic_engine`'s single-run materiality gate,
+   decided in LIFECYCLE-03, not a registry column).
 
 **Do NOT build:** `is_decaying`/`decay_detected_at`/`recovery_eligible_at` on `feature_ic_scores`
 (D3 — these three columns exist unread in the live schema today and get **dropped**, not
