@@ -268,6 +268,92 @@ calendar group alongside `dow_sin`, `dow_cos`, `month_position`.
 
 ---
 
+## Temporal Coordinate Primitives
+
+### Renaissance Principle: No State, No Theory, No Hand-Holding
+
+**What we don't do:**
+
+- No "bars since OPEX" — stateful, requires tracking last event, reset logic, recovery paths
+- No "quarter progress" — encodes theory that quarter-end is the relevant event
+- No "days to month-end" — HTF constants at LTF, or stateful countdowns
+- No binary flags for events — "is_opex_day" bakes in the hypothesis that OPEX matters
+
+**Why: State is complexity.** Every stateful feature is a bug magnet. What happens on data gaps? What's the recovery logic? How do we verify correctness? DAG violations — single-pass compute broken.
+
+**Why: Theory-laden features bias discovery.** If OPEX matters, let the ensemble discover it from `dow`, `day_of_month`, `vol_z`, `ret_lag_1`. Don't hand it a pre-cooked OPEX counter. Renaissance's "499+ signals" were mostly log returns at different lags. Not "bars since FOMC."
+
+**What Jim Simons would demand:**
+
+"If OPEX causes pin risk, why can't the ensemble discover that from temporal coordinates + price/volume features? Are you telling me the pattern is so obscure it needs a hand-crafted counter? Then it's probably overfit."
+
+### Pure Temporal Coordinates
+
+Clean calendar arithmetic from `bar.timestamp`. No state. No event tracking. O(1) compute per bar. Sin/cos encodings preserve circular distance — Friday (dow=4) is 1 day from Thursday (3), 6 days from Wednesday (2). Raw integers don't encode this.
+
+| Feature | Formula | Varies at | What it captures |
+|---|---|---|---|
+| `dow_sin`, `dow_cos` | `sin(2π * dow / 7)`, `cos(...)` | Every bar | Day-of-week cycle (preserves Friday-Monday = 3 days, not 4) |
+| `hour_of_day_sin`, `hour_of_day_cos` | `sin(2π * hour / 24)`, `cos(...)` | Every bar | Intraday cycle (23:00 is 1 hour from 00:00, not 23 hours) |
+| `day_of_month_sin`, `day_of_month_cos` | `sin(2π * day / 31)`, `cos(...)` | Every bar | Month-cycle position (for "3rd Friday" effects, month-end, etc.) |
+| `week_of_year_sin`, `week_of_year_cos` | `sin(2π * week / 52)`, `cos(...)` | Every bar | Intra-annual seasonality (Q1 vs Q4, holiday periods) |
+| `month_sin`, `month_cos` | Already in factory | Every bar | Annual cycle (seasonal effects) |
+
+**Existing features:** `dow_sin/cos`, `month_sin/cos`, `session_time_pos` (linear 0-1 intraday position).
+
+**What we're adding:**
+- `hour_of_day_sin/cos` — circular version of `session_time_pos`, cleaner for intraday effects
+- `day_of_month_sin/cos` — NEW, captures month-cycle patterns (OPEX, month-end, dividend dates)
+- `week_of_year_sin/cos` — NEW, captures intra-annual seasonality (turn-of-month, Q-effects)
+
+**Why sin/cos and not raw numbers?**
+
+Raw `dow = 3` (Wednesday) doesn't encode that Thursday (4) is 1 day away and Monday (0) is 3 days away. Sin/cos preserve circular distance in 2D space. That's geometry, not market theory. The ensemble learns the pattern if it exists.
+
+**How the ensemble discovers calendar effects:**
+
+Given `dow_sin/cos` + `day_of_month_sin/cos` + `week_of_year_sin/cos` + `month_sin/cos` + price/volume features, the ensemble can discover:
+
+- "When `day_of_month` ≈ 15-19 (3rd Friday range) and `vol_z` > 2, next-bar returns are negative" — OPEX pin risk, discovered
+- "When `week_of_year` ≈ 51 (last week) and `volume_z` > 1.5, momentum reverses" — window dressing, discovered
+- "When `dow` ≈ 1 (Monday) and `overnight_gap` > 2σ, returns are negative" — Monday effect, discovered
+
+No theory. No state. Just coordinates.
+
+**Implementation:**
+
+```python
+def hour_of_day_sin(dt: datetime) -> float:
+    hour = dt.hour + dt.minute / 60
+    return sin(2 * pi * hour / 24)
+
+def hour_of_day_cos(dt: datetime) -> float:
+    hour = dt.hour + dt.minute / 60
+    return cos(2 * pi * hour / 24)
+
+def day_of_month_sin(dt: datetime) -> float:
+    return sin(2 * pi * dt.day / 31)
+
+def day_of_month_cos(dt: datetime) -> float:
+    return cos(2 * pi * dt.day / 31)
+
+def week_of_year_sin(dt: datetime) -> float:
+    _, week, _ = dt.isocalendar()
+    return sin(2 * pi * week / 52)
+
+def week_of_year_cos(dt: datetime) -> float:
+    _, week, _ = dt.isocalendar()
+    return cos(2 * pi * week / 52)
+```
+
+No APR keys needed. No state. Pure function of `bar.timestamp`.
+
+**Natural score ranges:**
+
+All sin/cos features are bounded [-1, 1]. Ready as-is for linear models. No normalization needed.
+
+---
+
 ## Interaction Primitives
 
 ### What "interaction" means here
@@ -342,8 +428,9 @@ via `feature_cache.py`.
 
 | Range | Features | Linear model | Tree model |
 |---|---|---|---|
-| [-1, 1] naturally | `body_ratio`, `ret_autocorr_1`, `ret_autocorr_5`, `vol_persistence`, `price_vol_corr_*`, `high_low_corr` | Ready as-is | Ready as-is |
+| [-1, 1] naturally | `body_ratio`, `ret_autocorr_1`, `ret_autocorr_5`, `vol_persistence`, `price_vol_corr_*`, `high_low_corr`, ALL sin/cos temporal coords (`dow_*`, `hour_of_day_*`, `day_of_month_*`, `week_of_year_*`, `month_*`) | Ready as-is | Ready as-is |
 | [0, 1] naturally | `upper_wick_ratio`, `lower_wick_ratio`, `new_high_flag`, `new_low_flag`, `vol_percentile`, `up_vol_ratio_*`, `range_efficiency`, `stoch_k_*`, `mfi_*`, `price_percentile_*`, `efficiency_ratio_*`, `session_time_pos` | Shift to [-1,1]: `(x - 0.5) * 2` | Ready as-is |
+| Binary {0, 1} | `new_high_flag`, `new_low_flag` | Ready as-is | Ready as-is |
 | Unbounded, centered | z-scored features (`ret_kurtosis_z_*`, `overnight_gap_z`, `dollar_vol_z`, `vol_std_z`, `vol_body_product`, `parkinson_vol_z`, `garman_klass_vol_z`, `yang_zhang_vol_z`, `vol_asymmetry_z`, `streak_z`, `obv_z`, `bb_pct_b_*`, etc.) | Ready as-is | Ready as-is |
 | Centered around 1, unbounded | `variance_ratio_*` | Use `(vr - 1)` then z-score | Ready as-is |
 | Unbounded, uncentered | Raw ratios (`range_vs_atr`, `vol_acceleration`, `vol_trend_ratio`, `updown_ratio_*`, log returns, `ret_vol_ratio_*`, `realized_var_ratio`) | Need z-score or percentile | Ready as-is |
@@ -409,6 +496,14 @@ Features computed directly from OHLCV with no intermediate features:
 **From Open-to-Close Split section:**
 - `open_ret`, `intraday_ret`, `open_vs_intraday`
 - `session_time_pos` (no OHLCV, pure timestamp)
+
+**From Temporal Coordinate Primitives section:**
+- `dow_sin`, `dow_cos` (existing)
+- `hour_of_day_sin`, `hour_of_day_cos` (NEW)
+- `day_of_month_sin`, `day_of_month_cos` (NEW)
+- `week_of_year_sin`, `week_of_year_cos` (NEW)
+- `month_sin`, `month_cos` (existing)
+- `session_time_pos` (existing, no OHLCV, pure timestamp)
 
 **From Flow Activity Primitives section:**
 - `volume_change`, `volume_pct_change`
