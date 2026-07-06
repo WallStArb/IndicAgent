@@ -533,9 +533,9 @@ already in scope in `main()`. No new connection needs to be opened for the hook.
 **If this table is empty:** N/A - see above; both entries are genuinely low-to-medium risk
 process/scope questions, not factual claims about library behavior or existing code.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should the sync transition-write method live on `FeatureRegistryService` itself, or as a
+1. **RESOLVED — Should the sync transition-write method live on `FeatureRegistryService` itself, or as a
    free function in `ic_engine.py`?**
    - What we know: `load_sync()` already exists as a method on `FeatureRegistryService` for the
      symmetric read-side sync/async split - a `record_transition_sync()` method on the same class
@@ -543,21 +543,23 @@ process/scope questions, not factual claims about library behavior or existing c
    - What's unclear: whether `ic_engine.py`'s existing `_write_ic_results`/`_write_cross_sectional_results`
      module-level-function style (not class-based) argues for a matching free function instead, to
      avoid mixing service-object and free-function DB-write styles in the same call site.
-   - Recommendation: put it on `FeatureRegistryService` as a method (matches `load_sync()`
-     precedent, keeps registry-table logic colocated regardless of caller), call it from a small
-     free function in `ic_engine.py` (matching that file's existing style) that does the
-     gate-evaluation arithmetic and then calls `registry_svc.record_transition_sync(write_conn, ...)`.
+   - Resolution (adopted in planning): put it on `FeatureRegistryService` as a method (matches
+     `load_sync()` precedent, keeps registry-table logic colocated regardless of caller), call it
+     from a small free function in `ic_engine.py` (matching that file's existing style) that does
+     the gate-evaluation arithmetic and then calls `registry_svc.record_transition_sync(write_conn, ...)`.
+     Implemented as such in Plan 143-02 Task 2 / Plan 143-03 Task 2.
 
-2. **Does the `feature_registry -> concept_registry` migration (D9's build trigger has fired per
+2. **RESOLVED — Does the `feature_registry -> concept_registry` migration (D9's build trigger has fired per
    intel-14, but Concept Registry itself is not yet built per todo 058) affect this phase's
    timing?**
    - What we know: intel-14 explicitly says route through `feature_registry` now and migrate later
      "for free" if Concept Registry isn't built yet by the time this phase ships.
    - What's unclear: whether todo 058 (Concept Registry MVP seed) is scheduled to land before or
      after this phase in current sequencing.
-   - Recommendation: check `.planning/todos/pending/058-concept-registry-mvp-seed-ensemble-strategy.md`
-     status immediately before starting Wave 1 (registry amendments); if still pending, proceed
-     against `feature_registry` as planned - this is explicitly the doc's own recommended default.
+   - Resolution (adopted in planning): route through `feature_registry` unconditionally, without a
+     pre-Wave-1 todo-058 status check — this is the doc's own recommended default regardless of
+     todo 058's state, so gating Wave 1 start on checking it would add a step with no decision
+     branch (the action is identical either way). If Concept Registry lands later, migrate then.
 
 ## Environment Availability
 
