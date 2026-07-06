@@ -265,6 +265,10 @@ def test_causal_decode_vectorized_matches_original():
     Uses synthetic K=3 HMM parameters and a short obs sequence.
     Validates that the vectorized batch-emit precomputation does not alter
     the forward-filter result compared to the original per-step Python loop.
+
+    Note: _causal_decode is now a backward-compat alias for _alpha_pass, which expects
+    pre-computed log emissions rather than raw observations. This test computes log_emit
+    explicitly to match the current signature.
     """
     rng = np.random.default_rng(0)
     K, d, n = 3, 5, 200
@@ -275,7 +279,18 @@ def test_causal_decode_vectorized_matches_original():
     A = raw_A / raw_A.sum(axis=1, keepdims=True)
     obs = rng.normal(0, 1, (n, d))
 
-    states, alpha_hist = _causal_decode(obs, means, variances, A, K)
+    # Compute log emissions: log_emit[t, k] = log P(obs[t] | means[k], variances[k])
+    # Diagonal covariance MVN log PDF
+    log_emit = np.zeros((n, K))
+    for k in range(K):
+        diff = obs - means[k]
+        z = (diff**2) / variances[k]
+        log_emit[:, k] = -0.5 * (
+            d * np.log(2 * np.pi) + np.sum(np.log(variances[k])) + np.sum(z, axis=1)
+        )
+
+    pi0 = np.ones(K) / K  # Uniform initial distribution
+    states, alpha_hist = _causal_decode(log_emit, A, pi0)
     assert states.shape == (n,)
     assert alpha_hist.shape == (n, K)
     # Alpha rows must sum to ~1
