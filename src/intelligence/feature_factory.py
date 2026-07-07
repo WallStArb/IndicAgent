@@ -174,6 +174,10 @@ class FeatureFactoryConfig:
         power_hour_end_utc_hour: APR feature.session.power_hour_end_utc_hour
         opening_range_start_minute: APR feature.session.opening_range_start_minute
         opening_range_end_minute: APR feature.session.opening_range_end_minute
+        ret_lag_fast: APR feature.ret_lag.fast
+        ret_lag_mid: APR feature.ret_lag.mid
+        ret_lag_slow: APR feature.ret_lag.slow
+        overnight_gap_window: APR feature.overnight_gap.window
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -225,6 +229,11 @@ class FeatureFactoryConfig:
     ret_acf_window: int  # feature.ret_acf.window
     ret_acf_zscore_window: int  # feature.ret_acf.zscore_window
     high_52w_window: int  # feature.high_52w.window
+    # Renaissance Primitives — lagged returns + overnight gap z-score (Phase 142.5 Plan 01)
+    ret_lag_fast: int  # feature.ret_lag.fast
+    ret_lag_mid: int  # feature.ret_lag.mid
+    ret_lag_slow: int  # feature.ret_lag.slow
+    overnight_gap_window: int  # feature.overnight_gap.window
 
 
 # ---------------------------------------------------------------------------
