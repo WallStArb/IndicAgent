@@ -1,6 +1,6 @@
 """Integration test: feature_vectors schema validation (Phase 142.5 Plan 00).
 
-RED until migration 206_add_renaissance_primitives.sql lands (Plan 06). Verifies
+GREEN as of migration 206_add_renaissance_primitives.sql (Plan 06). Verifies
 the reconciled Renaissance Primitives inventory (142.5-PLAN-OUTLINE.md):
 
     61 baseline FeatureVector columns + 91 new Renaissance primitive columns
@@ -11,6 +11,14 @@ column name explicitly rather than deriving it from src.intelligence.schemas.Fea
 so that it independently cross-checks the DB schema against the dataclass —
 a divergence between the two is exactly the failure mode this test exists to catch.
 
+IMPORTANT: This test validates the real database (indicagent), not indicagent_test —
+same override idiom as tests/integration/test_pipeline_flow.py. indicagent_test has
+no feature_vectors/feature_registry schema at all in this environment (pre-existing
+gap, confirmed unrelated to this migration — see 142.5-06-SUMMARY.md Deviations), so
+this test bypasses get_settings() (whose module-level Settings singleton would
+otherwise cache conftest.py's indicagent_test DATABASE_URL) and connects directly to
+the real dev database that migration 206 was applied against.
+
 Run: pytest tests/integration/ -m integration
 """
 
@@ -19,9 +27,14 @@ from __future__ import annotations
 import asyncpg
 import pytest
 
-from src.config.settings import get_settings
-
 pytestmark = pytest.mark.integration
+
+# IMPORTANT: Override conftest.py's indicagent_test setting — this test must
+# validate the real database that migration 206 is applied against, not the
+# (unmigrated) indicagent_test DB. Bypasses get_settings() entirely since its
+# Settings singleton may already be cached from conftest.py's env var by the
+# time this module is collected.
+_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent"
 
 # 61 baseline columns (src.intelligence.schemas.FeatureVector, Phase 137-141).
 BASELINE_COLUMNS: frozenset[str] = frozenset(
@@ -223,13 +236,12 @@ assert len(EXPECTED_COLUMNS) == 152, f"Expected 152 total columns, got {len(EXPE
 async def test_renaissance_columns_exist() -> None:
     """feature_vectors must have all 152 expected columns (61 baseline + 91 new).
 
-    RED until migration 206_add_renaissance_primitives.sql is applied. Queries
+    GREEN as of migration 206_add_renaissance_primitives.sql. Queries
     information_schema.columns directly rather than trusting ORM/dataclass state
     — silent wrong answers (a column silently missing) are worse than a loud
     assertion failure here.
     """
-    settings = get_settings()
-    conn = await asyncpg.connect(settings.database_url)
+    conn = await asyncpg.connect(_DB_URL)
     try:
         rows = await conn.fetch(
             "SELECT column_name FROM information_schema.columns " "WHERE table_name = $1",
@@ -253,4 +265,28 @@ async def test_renaissance_columns_exist() -> None:
     assert len(feature_columns_present) == 152, (
         f"Expected exactly 152 feature_vectors feature columns, found "
         f"{len(feature_columns_present)}. Missing: {sorted(EXPECTED_COLUMNS - actual_columns)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_feature_registry_row_count_matches_gate() -> None:
+    """feature_registry must have exactly 152 rows, matching
+    feature_registry_service._REGISTRY_ROW_COUNT (the startup alignment gate).
+
+    GREEN as of migration 206_add_renaissance_primitives.sql, which seeds the
+    91 new rows (77 non-breakout + 14 breakout) on top of migration 172's 61
+    baseline rows. Without this, FeatureRegistryService.load() raises
+    RuntimeError at daemon startup (antigravity H2/H3).
+    """
+    from src.intelligence.feature_registry_service import _REGISTRY_ROW_COUNT
+
+    conn = await asyncpg.connect(_DB_URL)
+    try:
+        count = await conn.fetchval("SELECT COUNT(*) FROM feature_registry")
+    finally:
+        await conn.close()
+
+    assert count == _REGISTRY_ROW_COUNT == 152, (
+        f"feature_registry has {count} rows; expected {_REGISTRY_ROW_COUNT} "
+        "(_REGISTRY_ROW_COUNT). Run migration 206_add_renaissance_primitives.sql."
     )
