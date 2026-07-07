@@ -616,3 +616,448 @@ class TestCrossAssetProxies:
         assert math.isclose(fv.vix_z, 1.23, abs_tol=1e-9)
         assert math.isclose(fv.flight_quality, -0.45, abs_tol=1e-9)
         assert math.isclose(fv.yield_slope_z, 0.67, abs_tol=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Phase 142.5 (Renaissance Primitives) — Wave 0 RED tests
+#
+# 91 new primitives across 11 categories (61 baseline + 91 = 152 total
+# FeatureVector fields at end of phase). DO NOT implement primitives here —
+# these tests must fail RED (AttributeError: FeatureVector has no field X)
+# until Plans 01/02/03/04/05/05.5 add the fields. See:
+#   .planning/phases/142.5-renaissance-primitives/142.5-PLAN-OUTLINE.md
+#   docs/ideas/signal-renaissance-primitives-ohlcv.md
+# ---------------------------------------------------------------------------
+
+# Canonical list of all 91 new field names, grouped by category in plan order.
+# Used by test_compute_batch_parity to guard against per-bar/vectorized
+# divergence (M1) once these fields exist.
+RENAISSANCE_PRIMITIVE_FIELDS: tuple[str, ...] = (
+    # Bar Anatomy (8)
+    "body_ratio",
+    "upper_wick_ratio",
+    "lower_wick_ratio",
+    "range_vs_atr",
+    "close_vs_open_direction",
+    "overnight_gap",
+    "overnight_gap_z",
+    "range_efficiency",
+    # Lagged Returns (6)
+    "ret_lag_1",
+    "ret_lag_2",
+    "ret_lag_3",
+    "ret_lag_fast",
+    "ret_lag_mid",
+    "ret_lag_slow",
+    # Open-to-Close Split (4)
+    "open_ret",
+    "intraday_ret",
+    "open_vs_intraday",
+    "session_time_pos",
+    # Temporal Coordinates: new pairs + month_sin/cos (10)
+    "hour_of_day_sin",
+    "hour_of_day_cos",
+    "week_of_month_sin",
+    "week_of_month_cos",
+    "day_of_month_sin",
+    "day_of_month_cos",
+    "week_of_year_sin",
+    "week_of_year_cos",
+    "month_sin",
+    "month_cos",
+    # Volume Structure (12)
+    "vol_acceleration",
+    "dollar_vol_z",
+    "vol_range_ratio",
+    "vol_trend_ratio",
+    "up_vol_ratio_fast",
+    "up_vol_ratio_slow",
+    "vol_percentile",
+    "vol_persistence",
+    "vol_std_z",
+    "mfi_fast",
+    "mfi_slow",
+    "obv_z",
+    # Return Distribution (7)
+    "ret_kurtosis_z_fast",
+    "ret_kurtosis_z_slow",
+    "ret_autocorr_1",
+    "ret_autocorr_5",
+    "updown_ratio_fast",
+    "updown_ratio_slow",
+    "streak_z",
+    # Realized Variance (14)
+    "realized_var_ratio_fast",
+    "realized_var_ratio_slow",
+    "range_to_close",
+    "true_range_pct",
+    "vol_of_vol",
+    "high_low_corr",
+    "variance_ratio_fast",
+    "variance_ratio_slow",
+    "vol_asymmetry_z",
+    "bb_pct_b_fast",
+    "bb_pct_b_slow",
+    "hv_z_fast",
+    "hv_z_slow",
+    "hv_ratio",
+    # Alternative Volatility (3)
+    "parkinson_vol_z",
+    "garman_klass_vol_z",
+    "yang_zhang_vol_z",
+    # Volatility Dynamics (5)
+    "parkinson_vol_velocity",
+    "garman_klass_vol_velocity",
+    "yang_zhang_vol_velocity",
+    "vol_velocity_z",
+    "intraday_noise_ratio",
+    # Breakout Distance (14)
+    "dist_from_high_fast",
+    "dist_from_high_slow",
+    "dist_from_low_fast",
+    "dist_from_low_slow",
+    "range_pct_fast",
+    "range_pct_slow",
+    "new_high_flag",
+    "new_low_flag",
+    "stoch_k_fast",
+    "stoch_k_slow",
+    "price_percentile_fast",
+    "price_percentile_slow",
+    "efficiency_ratio_fast",
+    "efficiency_ratio_slow",
+    # Price-Volume Interactions (8)
+    "vol_body_product",
+    "ret_vol_product_fast",
+    "price_vol_corr_fast",
+    "price_vol_corr_slow",
+    "range_vol_product",
+    "up_vol_body_diff",
+    "ret_vol_ratio_fast",
+    "vol_skew_product",
+)
+
+assert (
+    len(RENAISSANCE_PRIMITIVE_FIELDS) == 91
+), f"Expected 91 Renaissance primitive field names, got {len(RENAISSANCE_PRIMITIVE_FIELDS)}"
+
+
+def test_bar_anatomy_primitives() -> None:
+    """8 bar-anatomy ratios: body_ratio, upper/lower_wick_ratio, range_vs_atr,
+    close_vs_open_direction, overnight_gap(+z), range_efficiency.
+    """
+    bars = _make_bars(60)
+    config = _make_config()
+    cache = _make_cache()
+    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+
+    # body_ratio = (C - O) / (H - L), bounded [-1, 1]
+    assert -1.0 <= fv.body_ratio <= 1.0
+    # upper/lower wick ratios bounded [0, 1]
+    assert 0.0 <= fv.upper_wick_ratio <= 1.0
+    assert 0.0 <= fv.lower_wick_ratio <= 1.0
+    # range_vs_atr: (H - L) / ATR_N, unbounded positive
+    assert fv.range_vs_atr >= 0.0
+    # close_vs_open_direction: sign(C - O), categorical {-1, 0, 1}
+    assert fv.close_vs_open_direction in (-1.0, 0.0, 1.0)
+    # overnight_gap / overnight_gap_z: unbounded, finite
+    assert math.isfinite(fv.overnight_gap)
+    assert math.isfinite(fv.overnight_gap_z)
+    # range_efficiency: abs(C - prev_C) / (H - L), bounded [0, 1]
+    assert 0.0 <= fv.range_efficiency <= 1.0
+
+    # Edge case: degenerate bar (high == low) must not raise; epsilon guard applies.
+    bars_degenerate = _make_bars(60)
+    bars_degenerate[-1]["high"] = 10.0
+    bars_degenerate[-1]["low"] = 10.0
+    bars_degenerate[-1]["close"] = 10.0
+    bars_degenerate[-1]["open"] = 10.0
+    fv_deg = FeatureFactory.compute(bars_degenerate, "SPY", "1m", cache, config)
+    assert math.isfinite(fv_deg.body_ratio)
+    assert math.isfinite(fv_deg.upper_wick_ratio)
+    assert math.isfinite(fv_deg.lower_wick_ratio)
+    assert math.isfinite(fv_deg.range_efficiency)
+
+
+def test_lagged_returns() -> None:
+    """6 lagged log-return primitives: ret_lag_1/2/3 (definitional) +
+    ret_lag_fast/mid/slow (APR-backed gradient windows).
+    """
+    bars = _make_bars(80)
+    config = _make_config()
+    cache = _make_cache()
+    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+
+    for field_name in (
+        "ret_lag_1",
+        "ret_lag_2",
+        "ret_lag_3",
+        "ret_lag_fast",
+        "ret_lag_mid",
+        "ret_lag_slow",
+    ):
+        val = getattr(fv, field_name)
+        assert math.isfinite(val), f"{field_name} must be finite, got {val}"
+
+    # Edge case: insufficient history (fewer bars than the longest lag) must
+    # not raise — cold-start neutral value (0.0) expected.
+    bars_short = _make_bars(2)
+    fv_short = FeatureFactory.compute(bars_short, "SPY", "1m", cache, config)
+    assert math.isfinite(fv_short.ret_lag_3)
+    assert math.isfinite(fv_short.ret_lag_slow)
+
+
+def test_open_to_close_split() -> None:
+    """4 primitives decomposing total return into overnight/intraday components."""
+    bars = _make_bars(60)
+    config = _make_config()
+    cache = _make_cache()
+    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+
+    # open_ret = log(O_t / C_{t-1}); intraday_ret = log(C_t / O_t); both unbounded finite.
+    assert math.isfinite(fv.open_ret)
+    assert math.isfinite(fv.intraday_ret)
+    # open_vs_intraday = open_ret - intraday_ret, unbounded finite.
+    assert math.isclose(fv.open_vs_intraday, fv.open_ret - fv.intraday_ret, abs_tol=1e-9)
+    # session_time_pos = bar_index_in_session / total_session_bars, bounded [0, 1].
+    assert 0.0 <= fv.session_time_pos <= 1.0
+
+
+def test_temporal_coordinates() -> None:
+    """10 sin/cos temporal coordinates: hour_of_day, week_of_month, day_of_month,
+    week_of_year (all NEW) + month_sin/cos (NEW pair; only month_position existed
+    before). All bounded [-1, 1] — circular calendar arithmetic, no state.
+    """
+    bars = _make_bars(50)
+    config = _make_config()
+    cache = _make_cache()
+    bars[-1]["ts"] = datetime(2026, 6, 19, 14, 30, tzinfo=UTC)  # 3rd Friday-ish
+    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+
+    for field_name in (
+        "hour_of_day_sin",
+        "hour_of_day_cos",
+        "week_of_month_sin",
+        "week_of_month_cos",
+        "day_of_month_sin",
+        "day_of_month_cos",
+        "week_of_year_sin",
+        "week_of_year_cos",
+        "month_sin",
+        "month_cos",
+    ):
+        val = getattr(fv, field_name)
+        assert -1.0 <= val <= 1.0, f"{field_name} must be in [-1, 1], got {val}"
+
+
+def test_volume_structure() -> None:
+    """12 volume-structure primitives beyond simple z-scores of volume level."""
+    bars = _make_bars(80)
+    config = _make_config()
+    cache = _make_cache()
+    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+
+    # vol_acceleration = V_t / V_{t-1}, unbounded positive.
+    assert fv.vol_acceleration >= 0.0
+    # z-scored primitives, finite, centered at 0.
+    for field_name in ("dollar_vol_z", "vol_std_z", "obv_z"):
+        assert math.isfinite(getattr(fv, field_name))
+    # unbounded positive ratios.
+    assert fv.vol_range_ratio >= 0.0
+    assert fv.vol_trend_ratio >= 0.0
+    # up_vol_ratio_fast/slow bounded [0, 1] (fraction of volume on up bars).
+    assert 0.0 <= fv.up_vol_ratio_fast <= 1.0
+    assert 0.0 <= fv.up_vol_ratio_slow <= 1.0
+    # vol_percentile bounded [0, 1] (rolling percentile rank).
+    assert 0.0 <= fv.vol_percentile <= 1.0
+    # vol_persistence bounded [-1, 1] (lag-1 autocorrelation of volume).
+    assert -1.0 <= fv.vol_persistence <= 1.0
+    # mfi_fast/slow bounded [0, 100] (Money Flow Index, RSI-like).
+    assert 0.0 <= fv.mfi_fast <= 100.0
+    assert 0.0 <= fv.mfi_slow <= 100.0
+
+    # Edge case: zero volume on prior bar must not raise ZeroDivisionError
+    # (epsilon guard on vol_acceleration = V_t / V_{t-1}).
+    bars_zero_vol = _make_bars(80)
+    bars_zero_vol[-2]["volume"] = 0.0
+    fv_zero = FeatureFactory.compute(bars_zero_vol, "SPY", "1m", cache, config)
+    assert math.isfinite(fv_zero.vol_acceleration)
+
+
+def test_return_distribution() -> None:
+    """7 return-distribution primitives: kurtosis, autocorrelation, win-rate, streak."""
+    bars = _make_bars(80)
+    config = _make_config()
+    cache = _make_cache()
+    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+
+    assert math.isfinite(fv.ret_kurtosis_z_fast)
+    assert math.isfinite(fv.ret_kurtosis_z_slow)
+    # ret_autocorr_1/5: mathematically bounded [-1, 1].
+    assert -1.0 <= fv.ret_autocorr_1 <= 1.0
+    assert -1.0 <= fv.ret_autocorr_5 <= 1.0
+    # updown_ratio_fast/slow: count(up) / count(down), unbounded non-negative.
+    assert fv.updown_ratio_fast >= 0.0
+    assert fv.updown_ratio_slow >= 0.0
+    # streak_z: z-scored signed directional streak length.
+    assert math.isfinite(fv.streak_z)
+
+
+def test_realized_variance() -> None:
+    """14 realized-variance / volatility-structure primitives."""
+    bars = _make_bars(80)
+    config = _make_config()
+    cache = _make_cache()
+    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+
+    # unbounded positive ratios, centered near 1.0 under random walk.
+    assert fv.realized_var_ratio_fast >= 0.0
+    assert fv.realized_var_ratio_slow >= 0.0
+    assert fv.variance_ratio_fast >= 0.0
+    assert fv.variance_ratio_slow >= 0.0
+    assert fv.hv_ratio >= 0.0
+    # unbounded positive (price-normalized range).
+    assert fv.range_to_close >= 0.0
+    assert fv.true_range_pct >= 0.0
+    # z-scored, finite.
+    for field_name in ("vol_of_vol", "vol_asymmetry_z", "hv_z_fast", "hv_z_slow"):
+        assert math.isfinite(getattr(fv, field_name))
+    # high_low_corr bounded [-1, 1] (correlation of H and L over N bars).
+    assert -1.0 <= fv.high_low_corr <= 1.0
+    # bb_pct_b_fast/slow: nominally [0, 1] but unbounded in practice (price can
+    # exit its own bands) — only assert finiteness.
+    assert math.isfinite(fv.bb_pct_b_fast)
+    assert math.isfinite(fv.bb_pct_b_slow)
+
+    # Edge case: insufficient history (fewer bars than longest window) must
+    # not raise — cold-start neutral fallback expected.
+    bars_short = _make_bars(3)
+    fv_short = FeatureFactory.compute(bars_short, "SPY", "1m", cache, config)
+    assert math.isfinite(fv_short.variance_ratio_slow)
+    assert math.isfinite(fv_short.hv_z_slow)
+
+
+def test_alt_volatility() -> None:
+    """3 alternative OHLC-based volatility estimators: Parkinson, Garman-Klass, Yang-Zhang."""
+    bars = _make_bars(80)
+    config = _make_config()
+    cache = _make_cache()
+    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+
+    # All z-scored, centered at 0, finite.
+    assert math.isfinite(fv.parkinson_vol_z)
+    assert math.isfinite(fv.garman_klass_vol_z)
+    assert math.isfinite(fv.yang_zhang_vol_z)
+
+
+def test_volatility_dynamics() -> None:
+    """5 volatility-dynamics primitives: first derivatives of the 3 estimators
+    above + normalized velocity + intraday noise ratio.
+    """
+    bars = _make_bars(80)
+    config = _make_config()
+    cache = _make_cache()
+    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+
+    # *_vol_velocity: first derivative of z-scored vol, unbounded, finite.
+    assert math.isfinite(fv.parkinson_vol_velocity)
+    assert math.isfinite(fv.garman_klass_vol_velocity)
+    assert math.isfinite(fv.yang_zhang_vol_velocity)
+    # vol_velocity_z: z-scored, finite.
+    assert math.isfinite(fv.vol_velocity_z)
+    # intraday_noise_ratio: unbounded positive [1, inf) per spec; require > 0.
+    assert fv.intraday_noise_ratio > 0.0
+
+
+def test_breakout_distance() -> None:
+    """14 breakout-distance primitives: raw distance from recent extremes,
+    range position, and trend-purity measures — no S/R zone theory.
+    """
+    bars = _make_bars(100)
+    config = _make_config()
+    cache = _make_cache()
+    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+
+    # dist_from_high/low_*: (rolling_extreme - C) / ATR, unbounded non-negative.
+    assert fv.dist_from_high_fast >= 0.0
+    assert fv.dist_from_high_slow >= 0.0
+    assert fv.dist_from_low_fast >= 0.0
+    assert fv.dist_from_low_slow >= 0.0
+    # range_pct_fast/slow: (rolling_high - rolling_low) / C, unbounded non-negative.
+    assert fv.range_pct_fast >= 0.0
+    assert fv.range_pct_slow >= 0.0
+    # new_high_flag / new_low_flag: binary {0, 1}.
+    assert fv.new_high_flag in (0.0, 1.0)
+    assert fv.new_low_flag in (0.0, 1.0)
+    # stoch_k_fast/slow: (C - L_N) / (H_N - L_N), bounded [0, 1].
+    assert 0.0 <= fv.stoch_k_fast <= 1.0
+    assert 0.0 <= fv.stoch_k_slow <= 1.0
+    # price_percentile_fast/slow: rolling percentile rank, bounded [0, 1].
+    assert 0.0 <= fv.price_percentile_fast <= 1.0
+    assert 0.0 <= fv.price_percentile_slow <= 1.0
+    # efficiency_ratio_fast/slow: Kaufman ER, bounded [0, 1] (0=chop, 1=trend).
+    assert 0.0 <= fv.efficiency_ratio_fast <= 1.0
+    assert 0.0 <= fv.efficiency_ratio_slow <= 1.0
+
+    # Edge case: bar closing exactly at the rolling high must set new_high_flag.
+    bars_new_high = _make_bars(100)
+    rolling_high = max(b["high"] for b in bars_new_high[-21:-1])
+    bars_new_high[-1]["high"] = rolling_high + 1.0
+    bars_new_high[-1]["close"] = rolling_high + 1.0
+    fv_high = FeatureFactory.compute(bars_new_high, "SPY", "1m", cache, config)
+    assert fv_high.new_high_flag == 1.0
+
+
+def test_price_volume_interactions() -> None:
+    """8 price x volume interaction primitives — deterministic combinations of
+    two atomic features (product, ratio, or rolling correlation). No theory.
+    """
+    bars = _make_bars(80)
+    config = _make_config()
+    cache = _make_cache()
+    fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
+
+    # Products/ratios: unbounded, symmetric around 0, finite.
+    for field_name in (
+        "vol_body_product",
+        "ret_vol_product_fast",
+        "range_vol_product",
+        "ret_vol_ratio_fast",
+        "vol_skew_product",
+    ):
+        assert math.isfinite(getattr(fv, field_name)), f"{field_name} must be finite"
+    # price_vol_corr_fast/slow: rolling Pearson correlation, bounded [-1, 1].
+    assert -1.0 <= fv.price_vol_corr_fast <= 1.0
+    assert -1.0 <= fv.price_vol_corr_slow <= 1.0
+    # up_vol_body_diff: difference of two ~bounded [0,1]/[−1,1] parents, approx [-1, 1].
+    assert -1.5 <= fv.up_vol_body_diff <= 1.5
+
+
+def test_compute_batch_parity() -> None:
+    """General regression guard (Round 2 review M1/M4): compute() (per-bar live
+    path) and compute_batch() (vectorized backfill path) must return identical
+    values for every Renaissance primitive on the same synthetic bar series.
+
+    RED now: fields don't exist yet (AttributeError on first getattr). Stays
+    green once Plans 01-05.5 add matching `_*_series_full` precompute helpers
+    — catching any per-bar/vectorized divergence (e.g. an off-by-one window
+    boundary) that unit tests of either path alone would miss.
+    """
+    bars = _make_bars(120)
+    config = _make_config()
+    cache_live = FeatureCache()
+    cache_batch = FeatureCache()
+
+    live_fv = FeatureFactory.compute(bars, "SPY", "5m", cache_live, config)
+    batch_results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache_batch, config)
+    assert batch_results, "compute_batch() returned no rows"
+    _, batch_fv = batch_results[-1]
+
+    for field_name in RENAISSANCE_PRIMITIVE_FIELDS:
+        live_val = getattr(live_fv, field_name)
+        batch_val = getattr(batch_fv, field_name)
+        if live_val is None or batch_val is None:
+            continue
+        assert math.isclose(
+            live_val, batch_val, abs_tol=1e-6
+        ), f"Parity mismatch for {field_name}: compute()={live_val} vs compute_batch()={batch_val}"
