@@ -33,7 +33,7 @@ import structlog
 
 _logger = structlog.get_logger()
 
-_REGISTRY_ROW_COUNT = 144  # 61 + 18 P01 + 22 P02 + 14 P05 + 21 P03 + 8 P04
+_REGISTRY_ROW_COUNT = 152  # 61 + 18 P01 + 22 P02 + 14 P05 + 21 P03 + 8 P04 + 8 P05.5 (final)
 # NOTE (142.5-03): this plan's own frontmatter/acceptance criteria assumed a
 # base of 101 (only Plans 01/02 merged before Plan 03), targeting 122 total.
 # This worktree's actual fork point already had Plan 05 merged (115 fields —
