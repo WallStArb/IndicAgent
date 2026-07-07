@@ -124,6 +124,27 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "high_52w_dist": "quant",
     "ret_skew_z": "quant",
     "ret_acf1_z": "quant",
+    # Renaissance Primitives — Bar Anatomy Ratios (Phase 142.5 Plan 01)
+    "body_ratio": "quant",
+    "upper_wick_ratio": "quant",
+    "lower_wick_ratio": "quant",
+    "range_vs_atr": "quant",
+    "close_vs_open_direction": "quant",
+    "overnight_gap": "quant",
+    "overnight_gap_z": "quant",
+    "range_efficiency": "quant",
+    # Renaissance Primitives — Lagged Return Series (Phase 142.5 Plan 01)
+    "ret_lag_1": "quant",
+    "ret_lag_2": "quant",
+    "ret_lag_3": "quant",
+    "ret_lag_fast": "quant",
+    "ret_lag_mid": "quant",
+    "ret_lag_slow": "quant",
+    # Renaissance Primitives — Open-to-Close Split (Phase 142.5 Plan 01)
+    "open_ret": "quant",
+    "intraday_ret": "quant",
+    "open_vs_intraday": "quant",
+    "session_time_pos": "calendar",
     # Cross-sectional (nullable — populated by Phase 139)
     "momentum_rank_z": "quant",
     "volume_rank_z": "quant",
@@ -1103,6 +1124,7 @@ class _PrecomputedSeries:
     high_52w_dist: np.ndarray
     ret_skew_z: np.ndarray
     ret_acf1_z: np.ndarray
+    overnight_gap_z: np.ndarray  # Renaissance Primitives (Phase 142.5 Plan 01)
 
 
 def _precompute_series(
@@ -1156,6 +1178,7 @@ def _precompute_series(
         ret_acf1_z=_ret_acf1_z_series_full(
             closes, config.ret_acf_window, config.ret_acf_zscore_window
         ),
+        overnight_gap_z=_overnight_gap_z_series_full(opens, closes, config.overnight_gap_window),
     )
 
 
@@ -1231,6 +1254,24 @@ def _build_feature_vector(
     high_52w_dist: float,
     ret_skew_z: float,
     ret_acf1_z: float,
+    body_ratio: float,
+    upper_wick_ratio: float,
+    lower_wick_ratio: float,
+    range_vs_atr: float,
+    close_vs_open_direction: float,
+    overnight_gap: float,
+    overnight_gap_z: float,
+    range_efficiency: float,
+    ret_lag_1: float,
+    ret_lag_2: float,
+    ret_lag_3: float,
+    ret_lag_fast: float,
+    ret_lag_mid: float,
+    ret_lag_slow: float,
+    open_ret: float,
+    intraday_ret: float,
+    open_vs_intraday: float,
+    session_time_pos: float,
 ) -> FeatureVector:
     return FeatureVector(
         momentum_z_fast=_guard(momentum_z_fast),
@@ -1291,6 +1332,24 @@ def _build_feature_vector(
         high_52w_dist=_guard(high_52w_dist),
         ret_skew_z=_guard(ret_skew_z),
         ret_acf1_z=_guard(ret_acf1_z),
+        body_ratio=_guard(body_ratio, 0.0),
+        upper_wick_ratio=_guard(upper_wick_ratio, 0.5),
+        lower_wick_ratio=_guard(lower_wick_ratio, 0.5),
+        range_vs_atr=_guard(range_vs_atr, 0.0),
+        close_vs_open_direction=close_vs_open_direction,
+        overnight_gap=_guard(overnight_gap, 0.0),
+        overnight_gap_z=_guard(overnight_gap_z, 0.0),
+        range_efficiency=_guard(range_efficiency, 0.0),
+        ret_lag_1=_guard(ret_lag_1, 0.0),
+        ret_lag_2=_guard(ret_lag_2, 0.0),
+        ret_lag_3=_guard(ret_lag_3, 0.0),
+        ret_lag_fast=_guard(ret_lag_fast, 0.0),
+        ret_lag_mid=_guard(ret_lag_mid, 0.0),
+        ret_lag_slow=_guard(ret_lag_slow, 0.0),
+        open_ret=_guard(open_ret, 0.0),
+        intraday_ret=_guard(intraday_ret, 0.0),
+        open_vs_intraday=_guard(open_vs_intraday, 0.0),
+        session_time_pos=session_time_pos,
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,
@@ -1377,6 +1436,27 @@ class FeatureFactory:
 
         _dow = _dow_encoding(bar_ts)
 
+        # Renaissance Primitives (Phase 142.5 Plan 01)
+        prev_close_ = float(closes[-2])
+        body_ratio_val = _body_ratio(open_, high_, low_, close_)
+        upper_wick_ratio_val = _upper_wick_ratio(open_, high_, low_, close_)
+        lower_wick_ratio_val = _lower_wick_ratio(open_, high_, low_, close_)
+        range_vs_atr_val = _range_vs_atr(high_, low_, atr_val)
+        close_vs_open_direction_val = _close_vs_open_direction(open_, close_)
+        overnight_gap_val = _overnight_gap(open_, prev_close_)
+        overnight_gap_z_val = _overnight_gap_z(opens, closes, config.overnight_gap_window)
+        range_efficiency_val = _range_efficiency(close_, prev_close_, high_, low_)
+        ret_lag_1_val = _ret_lag_1(closes)
+        ret_lag_2_val = _ret_lag_2(closes)
+        ret_lag_3_val = _ret_lag_3(closes)
+        ret_lag_fast_val = _ret_lag_fast(closes, config.ret_lag_fast)
+        ret_lag_mid_val = _ret_lag_mid(closes, config.ret_lag_mid)
+        ret_lag_slow_val = _ret_lag_slow(closes, config.ret_lag_slow)
+        open_ret_val = _open_ret(open_, prev_close_)
+        intraday_ret_val = _intraday_ret(close_, open_)
+        open_vs_intraday_val = _open_vs_intraday(open_ret_val, intraday_ret_val)
+        session_time_pos_val = _session_time_pos(bar_ts, config)
+
         return _build_feature_vector(
             momentum_z_fast=_series_last(s.momentum_z_fast, 0.0),
             momentum_z_mid=_series_last(s.momentum_z_mid, 0.0),
@@ -1436,6 +1516,24 @@ class FeatureFactory:
             high_52w_dist=_series_last(s.high_52w_dist, 0.0),
             ret_skew_z=_series_last(s.ret_skew_z, 0.0),
             ret_acf1_z=_series_last(s.ret_acf1_z, 0.0),
+            body_ratio=body_ratio_val,
+            upper_wick_ratio=upper_wick_ratio_val,
+            lower_wick_ratio=lower_wick_ratio_val,
+            range_vs_atr=range_vs_atr_val,
+            close_vs_open_direction=close_vs_open_direction_val,
+            overnight_gap=overnight_gap_val,
+            overnight_gap_z=overnight_gap_z_val,
+            range_efficiency=range_efficiency_val,
+            ret_lag_1=ret_lag_1_val,
+            ret_lag_2=ret_lag_2_val,
+            ret_lag_3=ret_lag_3_val,
+            ret_lag_fast=ret_lag_fast_val,
+            ret_lag_mid=ret_lag_mid_val,
+            ret_lag_slow=ret_lag_slow_val,
+            open_ret=open_ret_val,
+            intraday_ret=intraday_ret_val,
+            open_vs_intraday=open_vs_intraday_val,
+            session_time_pos=session_time_pos_val,
         )
 
     @staticmethod
@@ -1637,6 +1735,30 @@ class FeatureFactory:
                 ctf_vwap_align_val = cache.ctf_vwap_align
                 ctf_regime_align_val = cache.ctf_regime_align
 
+            # Renaissance Primitives (Phase 142.5 Plan 01). ret_lag_* index the full
+            # `closes` array (view slice closes[:i+1], O(1)) rather than the bounded
+            # w_closes window, since ret_lag_slow's APR window can exceed MIN_WINDOW.
+            # overnight_gap_z reads the precomputed series (O(n) total, not O(n^2)).
+            prev_close_ = float(closes[i - 1])
+            body_ratio_val = _body_ratio(open_, high_, low_, close_)
+            upper_wick_ratio_val = _upper_wick_ratio(open_, high_, low_, close_)
+            lower_wick_ratio_val = _lower_wick_ratio(open_, high_, low_, close_)
+            range_vs_atr_val = _range_vs_atr(high_, low_, atr_val)
+            close_vs_open_direction_val = _close_vs_open_direction(open_, close_)
+            overnight_gap_val = _overnight_gap(open_, prev_close_)
+            overnight_gap_z_val = float(s.overnight_gap_z[i]) if i < len(s.overnight_gap_z) else 0.0
+            range_efficiency_val = _range_efficiency(close_, prev_close_, high_, low_)
+            ret_lag_1_val = _ret_lag_1(closes[: i + 1])
+            ret_lag_2_val = _ret_lag_2(closes[: i + 1])
+            ret_lag_3_val = _ret_lag_3(closes[: i + 1])
+            ret_lag_fast_val = _ret_lag_fast(closes[: i + 1], config.ret_lag_fast)
+            ret_lag_mid_val = _ret_lag_mid(closes[: i + 1], config.ret_lag_mid)
+            ret_lag_slow_val = _ret_lag_slow(closes[: i + 1], config.ret_lag_slow)
+            open_ret_val = _open_ret(open_, prev_close_)
+            intraday_ret_val = _intraday_ret(close_, open_)
+            open_vs_intraday_val = _open_vs_intraday(open_ret_val, intraday_ret_val)
+            session_time_pos_val = _session_time_pos(bar_ts, config)
+
             # Build FeatureVector
             fv = _build_feature_vector(
                 momentum_z_fast=momentum_z_fast_val,
@@ -1697,6 +1819,24 @@ class FeatureFactory:
                 high_52w_dist=high_52w_dist_val,
                 ret_skew_z=ret_skew_z_val,
                 ret_acf1_z=ret_acf1_z_val,
+                body_ratio=body_ratio_val,
+                upper_wick_ratio=upper_wick_ratio_val,
+                lower_wick_ratio=lower_wick_ratio_val,
+                range_vs_atr=range_vs_atr_val,
+                close_vs_open_direction=close_vs_open_direction_val,
+                overnight_gap=overnight_gap_val,
+                overnight_gap_z=overnight_gap_z_val,
+                range_efficiency=range_efficiency_val,
+                ret_lag_1=ret_lag_1_val,
+                ret_lag_2=ret_lag_2_val,
+                ret_lag_3=ret_lag_3_val,
+                ret_lag_fast=ret_lag_fast_val,
+                ret_lag_mid=ret_lag_mid_val,
+                ret_lag_slow=ret_lag_slow_val,
+                open_ret=open_ret_val,
+                intraday_ret=intraday_ret_val,
+                open_vs_intraday=open_vs_intraday_val,
+                session_time_pos=session_time_pos_val,
             )
 
             results.append((bar_ts, fv))
@@ -1779,6 +1919,24 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         high_52w_dist=0.0,
         ret_skew_z=0.0,
         ret_acf1_z=0.0,
+        body_ratio=0.0,
+        upper_wick_ratio=0.5,
+        lower_wick_ratio=0.5,
+        range_vs_atr=0.0,
+        close_vs_open_direction=0.0,
+        overnight_gap=0.0,
+        overnight_gap_z=0.0,
+        range_efficiency=0.0,
+        ret_lag_1=0.0,
+        ret_lag_2=0.0,
+        ret_lag_3=0.0,
+        ret_lag_fast=0.0,
+        ret_lag_mid=0.0,
+        ret_lag_slow=0.0,
+        open_ret=0.0,
+        intraday_ret=0.0,
+        open_vs_intraday=0.0,
+        session_time_pos=0.0,
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,
