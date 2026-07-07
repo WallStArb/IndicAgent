@@ -1202,8 +1202,8 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """79 orthogonal feature primitives computed per bar by FeatureFactory
-    (61 v3.0 baseline + 18 Phase 142.5 Plan 01 Renaissance primitives).
+    """101 orthogonal feature primitives computed per bar by FeatureFactory
+    (61 v3.0 baseline + 18 Phase 142.5 Plan 01 + 22 Phase 142.5 Plan 02 Renaissance primitives).
 
     Frozen dataclass (not Pydantic) per D-08: pure-function output, no IO,
     immutable after construction. Non-optional fields typed float, no defaults
@@ -1224,8 +1224,10 @@ class FeatureVector:
       Bar Anatomy Ratios (8, Phase 142.5 Plan 01): body/wick ratios, range vs ATR, direction, overnight gap(+z), range efficiency
       Lagged Return Series (6, Phase 142.5 Plan 01): ret_lag_1/2/3 + fast/mid/slow gradient windows
       Open-to-Close Split (4, Phase 142.5 Plan 01): open_ret, intraday_ret, open_vs_intraday, session_time_pos
+      Temporal Coordinates (10, Phase 142.5 Plan 02): hour_of_day/week_of_month/day_of_month/week_of_year sin+cos, month_sin/cos
+      Volume Structure (12, Phase 142.5 Plan 02): vol_acceleration, dollar_vol_z, vol_range_ratio, vol_trend_ratio, up_vol_ratio_fast/slow, vol_percentile, vol_persistence, vol_std_z, mfi_fast/slow, obv_z
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 79 (76 required + 3 optional)
+      Total: 101 (98 required + 3 optional)
     """
 
     # Momentum (7 total: 5 original + 2 new scale-named)
@@ -1317,6 +1319,38 @@ class FeatureVector:
     intraday_ret: float  # log(C_t / O_t), intraday component
     open_vs_intraday: float  # open_ret - intraday_ret
     session_time_pos: float  # continuous [0, 1] position within the NY session
+    # Renaissance Primitives — Temporal Coordinates (10, Phase 142.5 Plan 02)
+    hour_of_day_sin: float  # sin(2*pi*(hour+minute/60)/24), bounded [-1, 1]
+    hour_of_day_cos: float  # cos(2*pi*(hour+minute/60)/24), bounded [-1, 1]
+    week_of_month_sin: float  # sin(2*pi*week/5), week=(day-1)//7+1, bounded [-1, 1]
+    week_of_month_cos: float  # cos(2*pi*week/5), week=(day-1)//7+1, bounded [-1, 1]
+    day_of_month_sin: float  # sin(2*pi*day/31), bounded [-1, 1]
+    day_of_month_cos: float  # cos(2*pi*day/31), bounded [-1, 1]
+    week_of_year_sin: float  # sin(2*pi*isocalendar_week/52), bounded [-1, 1]
+    week_of_year_cos: float  # cos(2*pi*isocalendar_week/52), bounded [-1, 1]
+    month_sin: (
+        float  # sin(2*pi*month/12), bounded [-1, 1] (NEW pair; only month_position existed before)
+    )
+    month_cos: (
+        float  # cos(2*pi*month/12), bounded [-1, 1] (NEW pair; only month_position existed before)
+    )
+    # Renaissance Primitives — Volume Structure (12, Phase 142.5 Plan 02)
+    vol_acceleration: float  # V_t / V_{t-1}, unbounded positive (APR: none, bar-relative)
+    dollar_vol_z: float  # z-score of (V*C) (APR: feature.dollar_vol.window)
+    vol_range_ratio: float  # V_t/(H-L) normalized over N (APR: feature.vol_range_ratio.window)
+    vol_trend_ratio: float  # vol_MA_fast/vol_MA_slow (APR: feature.vol_trend.fast/.slow)
+    up_vol_ratio_fast: float  # sum(V|C>O)/sum(V), bounded [0,1] (APR: feature.up_vol_ratio.fast)
+    up_vol_ratio_slow: float  # sum(V|C>O)/sum(V), bounded [0,1] (APR: feature.up_vol_ratio.slow)
+    vol_percentile: (
+        float  # rolling percentile rank of V_t, bounded [0,1] (APR: feature.vol_percentile.window)
+    )
+    vol_persistence: (
+        float  # lag-1 autocorrelation of V, bounded [-1,1] (APR: feature.vol_persistence.window)
+    )
+    vol_std_z: float  # z-score of rolling std(V) (APR: feature.vol_std.window)
+    mfi_fast: float  # Money Flow Index, bounded [0,100] (APR: feature.mfi.fast)
+    mfi_slow: float  # Money Flow Index, bounded [0,100] (APR: feature.mfi.slow)
+    obv_z: float  # z-score of OBV (APR: feature.obv.window)
     # Cross-sectional (3, nullable — populated by Phase 139 enrichment pass)
     momentum_rank_z: float | None = None  # cross-sectional momentum rank z-score
     volume_rank_z: float | None = None  # cross-sectional volume rank z-score
