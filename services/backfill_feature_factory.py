@@ -481,6 +481,16 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         hv_fast=int(cfg.get_sync("feature.hv.fast", 10)),
         hv_slow=int(cfg.get_sync("feature.hv.slow", 30)),
         hv_ratio_window=int(cfg.get_sync("feature.hv.ratio_window", 20)),
+        parkinson_vol_window=int(cfg.get_sync("feature.parkinson_vol.window", 10)),
+        parkinson_vol_zscore_window=int(cfg.get_sync("feature.parkinson_vol.zscore_window", 20)),
+        garman_klass_vol_window=int(cfg.get_sync("feature.garman_klass_vol.window", 10)),
+        garman_klass_vol_zscore_window=int(
+            cfg.get_sync("feature.garman_klass_vol.zscore_window", 20)
+        ),
+        yang_zhang_vol_window=int(cfg.get_sync("feature.yang_zhang_vol.window", 20)),
+        yang_zhang_vol_zscore_window=int(cfg.get_sync("feature.yang_zhang_vol.zscore_window", 20)),
+        vol_velocity_window=int(cfg.get_sync("feature.vol_velocity.window", 20)),
+        intraday_noise_window=int(cfg.get_sync("feature.intraday_noise.window", 20)),
     )
 
 

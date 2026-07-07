@@ -527,6 +527,14 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.hv.fast", 10),
         ("feature.hv.slow", 30),
         ("feature.hv.ratio_window", 20),
+        ("feature.parkinson_vol.window", 10),
+        ("feature.parkinson_vol.zscore_window", 20),
+        ("feature.garman_klass_vol.window", 10),
+        ("feature.garman_klass_vol.zscore_window", 20),
+        ("feature.yang_zhang_vol.window", 20),
+        ("feature.yang_zhang_vol.zscore_window", 20),
+        ("feature.vol_velocity.window", 20),
+        ("feature.intraday_noise.window", 20),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -632,6 +640,14 @@ class FeatureVectorPipeline(BaseDaemon):
             hv_fast=_int("feature.hv.fast", 10),
             hv_slow=_int("feature.hv.slow", 30),
             hv_ratio_window=_int("feature.hv.ratio_window", 20),
+            parkinson_vol_window=_int("feature.parkinson_vol.window", 10),
+            parkinson_vol_zscore_window=_int("feature.parkinson_vol.zscore_window", 20),
+            garman_klass_vol_window=_int("feature.garman_klass_vol.window", 10),
+            garman_klass_vol_zscore_window=_int("feature.garman_klass_vol.zscore_window", 20),
+            yang_zhang_vol_window=_int("feature.yang_zhang_vol.window", 20),
+            yang_zhang_vol_zscore_window=_int("feature.yang_zhang_vol.zscore_window", 20),
+            vol_velocity_window=_int("feature.vol_velocity.window", 20),
+            intraday_noise_window=_int("feature.intraday_noise.window", 20),
         )
 
         self.logger.info(
