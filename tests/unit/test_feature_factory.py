@@ -90,6 +90,16 @@ def _make_config(**overrides: int) -> FeatureFactoryConfig:
         mfi_fast=7,
         mfi_slow=14,
         obv_window=20,
+        dist_window_fast=20,
+        dist_window_slow=50,
+        range_window_fast=20,
+        range_window_slow=50,
+        stoch_window_fast=14,
+        stoch_window_slow=50,
+        percentile_window_fast=50,
+        percentile_window_slow=200,
+        efficiency_window_fast=10,
+        efficiency_window_slow=50,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -506,7 +516,11 @@ class TestComputePurity:
     def test_all_fields_are_finite_floats(self) -> None:
         """All FeatureVector fields must be finite floats (no NaN, no inf).
 
-        61 baseline (v3.0) + 18 Plan 01 + 22 Plan 02 Renaissance primitives = 101.
+        61 baseline (v3.0) + 18 Plan 01 + 22 Plan 02 + 14 Plan 05 Renaissance
+        primitives = 115. (Plan 05 depends only on 00/01 per its frontmatter;
+        this worktree forked after Plan 02 merged, before Plans 03/04 — see
+        142.5-05-SUMMARY.md Deviations. Plan 06 reconciles the final count to
+        152 once every plan has landed, regardless of merge order.)
         """
         import dataclasses
 
@@ -515,7 +529,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 101, f"Expected 101 fields, got {len(fields)}"
+        assert len(fields) == 115, f"Expected 115 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,
