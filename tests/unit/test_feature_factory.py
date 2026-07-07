@@ -100,6 +100,24 @@ def _make_config(**overrides: int) -> FeatureFactoryConfig:
         percentile_window_slow=200,
         efficiency_window_fast=10,
         efficiency_window_slow=50,
+        ret_kurtosis_fast=10,
+        ret_kurtosis_slow=40,
+        ret_kurtosis_zscore_window=20,
+        updown_ratio_fast=5,
+        updown_ratio_slow=20,
+        streak_window=20,
+        realized_var_fast=5,
+        realized_var_slow=20,
+        vol_of_vol_window=20,
+        high_low_corr_window=20,
+        variance_ratio_fast=5,
+        variance_ratio_slow=20,
+        vol_asymmetry_window=20,
+        bb_pct_b_fast=20,
+        bb_pct_b_slow=50,
+        hv_fast=10,
+        hv_slow=30,
+        hv_ratio_window=20,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -516,11 +534,12 @@ class TestComputePurity:
     def test_all_fields_are_finite_floats(self) -> None:
         """All FeatureVector fields must be finite floats (no NaN, no inf).
 
-        61 baseline (v3.0) + 18 Plan 01 + 22 Plan 02 + 14 Plan 05 Renaissance
-        primitives = 115. (Plan 05 depends only on 00/01 per its frontmatter;
-        this worktree forked after Plan 02 merged, before Plans 03/04 — see
-        142.5-05-SUMMARY.md Deviations. Plan 06 reconciles the final count to
-        152 once every plan has landed, regardless of merge order.)
+        61 baseline (v3.0) + 18 Plan 01 + 22 Plan 02 + 14 Plan 05 + 21 Plan 03
+        Renaissance primitives = 136. (Plan 05 merged before Plans 03/04 per
+        the actual dependency-DAG-valid merge order — see 142.5-05-SUMMARY.md
+        Deviations; this plan's own base was 115, not the phase outline's
+        assumed 101. Plan 06 reconciles the final count to 152 once every
+        plan has landed, regardless of merge order.)
         """
         import dataclasses
 
@@ -529,7 +548,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 115, f"Expected 115 fields, got {len(fields)}"
+        assert len(fields) == 136, f"Expected 136 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,
