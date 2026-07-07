@@ -131,6 +131,8 @@ def _make_cfg(**overrides) -> FeatureFactoryConfig:
         yang_zhang_vol_zscore_window=20,
         vol_velocity_window=20,
         intraday_noise_window=20,
+        price_vol_corr_fast=10,
+        price_vol_corr_slow=30,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -418,9 +420,9 @@ def test_hmm_duration_increments():
 
 def test_feature_vector_domain_complete():
     """61 baseline + 18 Plan 01 + 22 Plan 02 + 14 Plan 05 + 21 Plan 03 + 8 Plan 04
-    Renaissance primitives = 144."""
+    + 8 Plan 05.5 Renaissance primitives = 152 (final total, all plans landed)."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 144
+    assert len(FEATURE_VECTOR_DOMAIN) == 152
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

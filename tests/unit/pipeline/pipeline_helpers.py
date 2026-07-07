@@ -188,6 +188,8 @@ def make_agent() -> FeatureVectorPipeline:
         yang_zhang_vol_zscore_window=20,
         vol_velocity_window=20,
         intraday_noise_window=20,
+        price_vol_corr_fast=10,
+        price_vol_corr_slow=30,
     )
     return agent
 
