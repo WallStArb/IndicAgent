@@ -3,12 +3,69 @@
 **Version:** 1.0
 **Status:** draft — extracted from 2026-07-02 top-down architecture review for independent iteration
 **Priority:** high (blocks AnalogEngine's retrieval correctness; names a real glossary gap)
-**Milestone:** proposed v3.15 "Conditioning & Identity Foundation" — not scheduled, Phases TBD
-**Last Updated:** 2026-07-02
+**Milestone:** v3.15 "Conditioning & Identity Foundation" - formalized in ROADMAP.md 2026-07-03 as Phases 144, 145 (no longer "Phases TBD"; see 2026-07-06 re-verification below)
+**Last Updated:** 2026-07-06 (Fable 5 re-verification pass against live code/schema and Phase 143's executed LIFECYCLE-00; previously 2026-07-02)
 **Tags:** regime, stratification, conditioning, governance, hmm, concept-registry, analog-engine
 **Source:** `.planning/research/2026-07-02-v3-topdown-architecture.md` §1.3, §2.4, §3 (D5, D8), §7 (Q4) — Author: Fable 5
 **Informed by:** Fable 5 - consolidation audit corrections, recommendations in § Open Questions, and design revisions marked *(Fable's revision)* inline (2026-07-02)
 **Renumbered (2026-07-04):** all "Phase 151" references below now read "Phase 144" (Cross-Sectional Regime Model, `regime_group`) per the 2026-07-04 ROADMAP phase renumbering — content unchanged, only the phase number.
+
+**Re-verification pass (2026-07-06, Fable 5):** full check of every schema/column/code claim
+against live code, psql, ROADMAP, and the Phase 143 artifacts executed since this doc was last
+touched. The core premise (two live regime systems, per-symbol HMM in `feature_vectors.regime`
+plus the 9-label `{low/mid/high}_{bull/neutral/bear}` cross-sectional model in
+`market_regimes.regime_label`, no shared contract) re-verified accurate, as is the todo 026
+empirical-state section (numbers match the todo as of today) and the AnalogEngine sequencing
+claim, which is now *stronger* than this doc states: ROADMAP Phase 148's Depends-on line
+hard-codes "v3.15 complete" as of 2026-07-03, so the dependency is an encoded roadmap edge, not
+just this doc's argument. Eight findings drifted and carry dated inline corrections below:
+
+1. **v3.15 is formalized, not "proposed/unscheduled."** ROADMAP added it as its own milestone
+   section 2026-07-03 (`.planning/research/2026-07-03-roadmap-reconciliation.md` F1) with
+   concrete Phases 144, 145. Header corrected above.
+2. **The incumbent per-symbol HMM changed on 2026-07-06.** Phase 143 Plan 01 (LIFECYCLE-00,
+   commits `11b1047e`/`009a76c7`/`a5c79856`) shipped a degenerate-model occupation-fraction gate
+   (`_check_occupation_gate()`, `services/regime_writer.py:300`, APR
+   `feature.hmm.min_state_occupation = 0.05`) and a rolling label-change instability feature
+   (`_compute_hmm_churn()`, `regime_writer.py:347`, new nullable `feature_vectors.hmm_churn`
+   column via migration 201, APR `feature.hmm.churn_window = 10`; column live, 0 rows populated
+   until the next regime_writer run). This doc's picture of provider #1 predates both; inline
+   notes added where it matters (contract `score()`, the degenerate-state-risk rationale).
+3. **Part of this doc's v3.15 batch already executed elsewhere.** The Sequencing section bundles
+   "todo 026 P1-P3" into v3.15; in reality P1a shipped earlier (commit `7c759bdb`, causal
+   expanding rank) and P2b/P2c shipped today via Phase 143, leaving P1b, P2a, and P3 (partial -
+   thresholds are APR-backed via migration 182 but still at guessed defaults) as the open
+   remainder. Corrected inline.
+4. **The "standing counterexample" is half-fixed.** `feature_ic_scores` gained a `regime_scope`
+   qualifier column in Phase 141.1 (live values via psql: `cross_sectional`/`pooled`/
+   `symbol_hmm`, stamped by `_resolve_regime_scope()`, `services/ic_engine.py:150`). Labels are
+   no longer *unqualified*; the invariant survives as the generalization (scope is a 3-value
+   source tag, not a full `(dimension, label)` identity that scales past two dimensions).
+   Corrected inline and in References.
+5. **`_build_symbol_regime_class` does not exist** anywhere in the codebase (grep: zero hits).
+   The real hand-wiring is the `mr_dict` cross-sectional join and `_resolve_regime_scope`
+   (`ic_engine.py:150, 440, 555-584`). The hand-wiring premise stands; the function name was
+   invented. Corrected inline.
+6. **Universe is 80 symbols, not 58** (live count: `instruments` where `is_active` and
+   `asset_class='equity'` returns 80; ETF Universe Expansion completed). Dispersion row
+   corrected.
+7. **A fourth consumer now exists**: Phase 143's LIFECYCLE-04 regime-shift guard (ic_engine
+   post-run hook; holds all weights when ≥ `alpha.decay.regime_shift_fraction = 0.60` of active
+   feature-regime cells fail simultaneously). It reads regime-stratified cell outcomes and
+   ROADMAP explicitly conditions its trustworthiness on label validation - direct new evidence
+   for this doc's thesis. Added to the consumer list.
+8. **Filename provenance:** this file was renamed from `intel-12-stratification-dimension.md`
+   in the docs/ideas renaming sweep; ROADMAP (line ~1869), `intel-analog-engine.md`, the
+   backlog matrix, and `platform-security-classification-hierarchy.md` still reference the old
+   name. "intel-12" in sibling docs means this file.
+
+Verdict after re-verification: the core proposal is still warranted as scoped, and the evidence
+has moved *toward* it (formalized milestone, encoded AnalogEngine dependency edge, a third
+producer-side hardening landing through a phase that had to special-case the incumbent, a fourth
+consumer reading labels through yet another bespoke path, and `regime_model` now fully vetted -
+gate shape, row grain options, effective-N floor - in `platform-unified-concept-registry.md`'s
+2026-07-06 Domain Vetting pass, unseeded until it has real candidates). Build timing unchanged:
+nothing here should be built before v3.15 planning.
 
 ---
 
@@ -21,6 +78,12 @@ a causal per-bar label that sharpens IC estimates by conditioning on regime:
 |---|---|---|---|
 | Per-symbol HMM | `regime_writer.py` | `feature_vectors.regime` | per (symbol, TF) |
 | Cross-sectional | `equity_regime_model.py` / Phase 144 | `market_regimes` | market-wide per TF |
+
+*(corrected 2026-07-06, Fable 5)* Schema precision, verified via psql: the cross-sectional label
+column is `market_regimes.regime_label` (PK `(asset_class, tf, ts)`, plus a
+`regime_prob_vector` JSONB), and the per-symbol host now also writes `feature_vectors.hmm_churn`
+(rolling label-change rate, Phase 143 LIFECYCLE-00, 2026-07-06) alongside `regime`,
+`regime_label_source`, `regime_rolling`, and the `hmm_*` posterior columns.
 
 Plus an informal backlog of more candidate dimensions (`docs/plans/archive/2026-07-01-regime-stratification-alternatives.md`,
 eight candidates: six percentile-rank/deterministic, plus HMM variants and a microstructure
@@ -74,7 +137,11 @@ machinery:
   rediscovered per audit.
 - `score()` exists because the orthogonality gate below runs Pearson correlation on continuous
   values, which a labels-only contract cannot serve. Providers expose their underlying
-  continuous score (percentile rank, HMM state posterior) where one exists.
+  continuous score (percentile rank, HMM state posterior) where one exists. *(note 2026-07-06,
+  Fable 5: the incumbent HMM now also emits a continuous instability score - the
+  `feature_vectors.hmm_churn` rolling label-change rate shipped by Phase 143 LIFECYCLE-00 -
+  which is exactly the shape of side-channel this field anticipates; a provider's `score()`
+  need not be limited to the label's own posterior.)*
 
 Promotion state (shadow/live, per `regime_group`; see Governance) lives in `concept_registry`,
 not on the provider.
@@ -88,9 +155,16 @@ not on the provider.
 
 **Label identity invariant** *(Fable's revision, promoting the bottomup audit's §2.3 finding
 to a contract rule)*: a label is only meaningful as a `(dimension, label)` pair. No consumer
-or table stores a bare label without its dimension qualifier; the current
-`feature_ic_scores.regime` column, which mixes 9 cross-sectional with 5 per-symbol labels
-unqualified, is the standing counterexample this rule exists to kill.
+or table stores a bare label without its dimension qualifier. *(corrected 2026-07-06, Fable 5)*
+The original "standing counterexample" here - `feature_ic_scores.regime` mixing 9
+cross-sectional with 5 per-symbol labels unqualified - was fixed at scope grain by Phase 141.1:
+the table now carries a `regime_scope` column (live values `cross_sectional`/`pooled`/
+`symbol_hmm`, stamped by `_resolve_regime_scope()`, `services/ic_engine.py:150`). The invariant
+is not thereby satisfied, only its worst live instance: `regime_scope` is a 3-value *source*
+tag hardcoded to the two incumbent systems plus pooling, not a dimension name - it cannot
+represent a third dimension without another enum edit, which is exactly the hand-wiring this
+contract exists to remove. Treat `regime_scope` as the shipped special case of this rule, to be
+generalized (scope value = dimension `name`) when the contract lands.
 
 ### Many Producers, Many Consumers
 
@@ -116,12 +190,21 @@ adding a new consumer should never require special-casing a specific dimension.
   consumer most sensitive to a bad dimension (see "Why This Matters Now")
 - **MeasurementEngine** (proposed L4 unification of ic_engine + EnsembleICEngine) — both a
   consumer and the judge: it runs the substitution test that promotes/demotes dimensions
+- **Regime-shift guard** (LIFECYCLE-04, Phase 143 ic_engine post-run hook) *(added 2026-07-06,
+  Fable 5)* — holds all ensemble weights instead of mass-zeroing when
+  ≥ `alpha.decay.regime_shift_fraction` of active feature-regime cells fail a corpus run
+  simultaneously. A consumer that exists *because* labels can be wrong: ROADMAP explicitly
+  gates its trustworthiness on regime-label validation (LIFECYCLE-00), which is this doc's
+  thesis restated as a shipped dependency edge.
 
 Today, HMM and cross-sectional regime are each hand-wired into `ic_engine.py`'s routing logic
-as one-off integrations (`_build_symbol_regime_class`, the `mr_dict` cross-sectional join,
-etc.). Under this contract, every consumer reads through the same interface, and a new
-dimension — say, factor style — starts competing for adoption via the substitution test without
-any consumer's code changing.
+as one-off integrations. *(corrected 2026-07-06, Fable 5: the function name
+`_build_symbol_regime_class` cited here previously does not exist anywhere in the codebase;
+the real hand-wiring is the `mr_dict` ts→label join from `market_regimes` and the
+`_resolve_regime_scope()` source-tag branch, `services/ic_engine.py:150, 440, 555-584` — the
+premise stands, the symbol was wrong.)* Under this contract, every consumer reads through the
+same interface, and a new dimension — say, factor style — starts competing for adoption via the
+substitution test without any consumer's code changing.
 
 **Hosting (unchanged storage split, just named):**
 - Per-symbol dimensions → columns on `feature_vectors`, written by `regime_writer.py`
@@ -239,7 +322,13 @@ insufficient) becomes every candidate's default mechanism, not just E1/E2's. Thr
 - The one HMM already in production is under active audit for exactly the failure modes HMMs
   are prone to (non-causal full-history fit, degenerate-state risk; see todo 026 below).
   Building more HMM engines before that audit resolves multiplies an unresolved risk instead
-  of fixing it once.
+  of fixing it once. *(updated 2026-07-06, Fable 5: the degenerate-state half now has a shipped
+  mitigation - Phase 143 LIFECYCLE-00's occupation-fraction gate,
+  `_check_occupation_gate()` in `regime_writer.py:300`, skips writing labels from any fit where
+  a state's occupation falls below `feature.hmm.min_state_occupation`, plus a `hmm_churn`
+  rolling-instability column for downstream regime-shift discrimination. The non-causal
+  full-history-fit half - todo 026 P4a/P4b - remains gated and unresolved, so the argument
+  stands at half strength: one of the two named failure modes is now instrumented, not open.)*
 - Percentile-rank's one real capability gap vs. an HMM, regime persistence/stickiness (a
   transition matrix encodes "once in state X, tend to stay there"), is patchable:
   `regime_writer.py` already applies `min_hold_bars` smoothing as a post-processing step
@@ -259,7 +348,7 @@ insufficient) becomes every candidate's default mechanism, not just E1/E2's. Thr
 | Name | What it measures | Why it might earn its cells | APR / notes |
 |---|---|---|---|
 | `volatility_pct` | Expanding percentile rank of realized vol | Vol directly controls sizing, spread costs, mean-reversion speed; factor relationships are documented to flip across vol regimes; causal by construction, no distributional assumptions | `alpha.volatility_regime.low_pct`/`high_pct`; per-symbol version of the existing cross-sectional VIX axis; exempt from the orthogonality gate (with `dispersion`) |
-| `dispersion` | Cross-sectional return std across the 58-symbol universe | Invisible to per-symbol HMM by construction — a feature's IC in a low-dispersion (macro-driven) market differs fundamentally from a high-dispersion (stock-picker's) market | Exempt from the orthogonality pre-check — already measurably distinct in kind (per-symbol level vs. cross-sectional spread), not just presumed distinct |
+| `dispersion` | Cross-sectional return std across the equity universe (80 active symbols as of 2026-07-06, was 58 when written - *corrected 2026-07-06, Fable 5*) | Invisible to per-symbol HMM by construction — a feature's IC in a low-dispersion (macro-driven) market differs fundamentally from a high-dispersion (stock-picker's) market | Exempt from the orthogonality pre-check — already measurably distinct in kind (per-symbol level vs. cross-sectional spread), not just presumed distinct |
 | `factor_regime` | Which factor (momentum/value/quality/low-vol) is driving cross-sectional returns, via MTUM/QUAL/VTV/USMV rolling return spreads | Explicit economic mechanism rather than a learned latent state; a momentum feature's IC flips sign between momentum-rewarding and mean-reversion regimes in a way HMM state boundaries (learned from price dynamics, not factor rotation) don't capture | No new data pipeline — all 4 proxy ETFs already active; percentile-rank bucketing of the spread, not unsupervised |
 | `volume_pct` | Expanding percentile rank of `rel_volume` | Plausibly captures participation/liquidity distinct from volatility's dispersion-of-outcomes | **Gated on orthogonality study** — volume and volatility spikes are well-documented to co-move; must clear the correlation check before admission, not approved alongside `volatility_pct` by default |
 | `skew_tail` | Rolling return skewness percentile | High-vol-positive-skew (lottery-like) vs. high-vol-negative-skew (crash risk) are different prediction problems at the same vol percentile | **Gated on orthogonality study** — skew clusters with vol in the tails, exactly where this dimension would matter most |
@@ -354,6 +443,19 @@ v3.1 and v3.2 (AnalogEngine), bundling:
 - todo 041 (tag category audit — exposure vs sensitivity)
 - The `volatility_pct` substitution test
 - All batched into **one** ic_engine re-run, per roadmap decision D5
+
+*(corrected 2026-07-06, Fable 5)* Two facts moved since the list above was written. First,
+v3.15 is no longer merely "proposed": ROADMAP formalized it as its own milestone section
+(Phases 144, 145) on 2026-07-03. Second, most of the "todo 026 P1-P3" bullet has already
+executed *outside* this milestone: the HMM JIT shipped in Phase 141 (`src/intelligence/hmm_jit.py`,
+wired into `regime_writer.py`), P1a's causal expanding rank shipped (commit `7c759bdb`), and
+P2b (occupation gate) + P2c (`hmm_churn`) shipped 2026-07-06 via Phase 143 Plan 01
+(LIFECYCLE-00). What actually remains for this milestone's batched ic_engine re-run from that
+bullet is P3 (empirical vix/breadth threshold calibration - keys are APR-backed via migration
+182 but still at guessed defaults 0.33/0.67/0.40/0.60), plus P1b (TF-normalized windows) and
+P2a (multi-seed restarts) if pulled in. Note the resulting division of labor is clean, not a
+conflict: Phase 143 hardened the incumbent provider's *internals*; this milestone still owns
+the *contract* and the cross-dimension governance.
 
 Per decision D6, this absorbs Phase 145 (calibrator, renumbered 2026-07-04 — originally 148) and dissolves the standalone v3.3
 milestone — "a milestone whose scope is TBD and whose contents all belong earlier is a
@@ -456,10 +558,12 @@ Recommendations below are proposals for ratification, not decisions.
 
 - `.planning/research/2026-07-02-v3-topdown-architecture.md` — source proposal (§1.3, §2.4,
   §3 D5/D8, §7 Q4)
-- `.planning/research/2026-07-02-v3-bottomup-audit.md` §2.3 — companion finding: today's
-  `feature_ic_scores.regime` column mixes 9 cross-sectional and 5 per-symbol labels with no
-  `regime_scope` qualifier; this doc's dimension-level identity (each dimension a named,
-  registered concept) is the structural fix for that ambiguity.
+- `.planning/research/2026-07-02-v3-bottomup-audit.md` §2.3 — companion finding: at audit time,
+  `feature_ic_scores.regime` mixed 9 cross-sectional and 5 per-symbol labels with no
+  `regime_scope` qualifier. *(corrected 2026-07-06, Fable 5: Phase 141.1 added the
+  `regime_scope` column - live values `cross_sectional`/`pooled`/`symbol_hmm` - so the finding
+  as stated is fixed; this doc's dimension-level identity remains the generalization of that
+  fix to N dimensions, see § Label identity invariant.)*
 - `.planning/todos/pending/026-hmm-regime-audit-optimization.md` — the live decision gate and
   empirical findings this doc's "current state" section is built on
 - `docs/plans/archive/2026-07-01-regime-stratification-alternatives.md` — informal candidate backlog,
@@ -468,4 +572,12 @@ Recommendations below are proposals for ratification, not decisions.
   parallel system to candidate list
 - [Concept Governance Registries](concept-governance-registries.md) — the three-registry taxonomy (`domain='regime_model'`
   is a Concept Registry domain, same governance shape as `feature` and `ensemble_strategy`)
-- ROADMAP.md v3.15 entry; `.planning/STATE.md` line 114
+- ROADMAP.md — v3.15 milestone section (Phases 144, 145, formalized 2026-07-03) and Phase 148's
+  Depends-on line ("v3.15 complete"), which encodes this doc's AnalogEngine sequencing claim as
+  a hard roadmap edge *(pointer updated 2026-07-06, Fable 5; the previous "`.planning/STATE.md`
+  line 114" reference no longer points at relevant content after STATE.md edits)*
+- `platform-unified-concept-registry.md` § Domain Vetting (2026-07-06 third pass) — the
+  governance target this doc leans on has advanced: `regime_model` is now fully vetted there
+  (three-stage gate cascade matching this doc's gates 0-2, both row-grain options specced per
+  the F2 mechanism note above, effective-N floor), deliberately *not* seeded into the live
+  `domain` CHECK until it has real candidates — i.e., until v3.15 planning ratifies this doc

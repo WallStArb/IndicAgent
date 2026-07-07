@@ -7,15 +7,46 @@ substance, for independent iteration
 **Milestone:** proposed v4.1 IC Governance + Drift Monitoring (Phases 151, 143 (merged lifecycle phase), 152 — renumbered 2026-07-04, originally 149A/149B/150) — per
 topdown doc D12, should be unhooked from "v4.1" framing and scheduled opportunistically once
 its table dependencies exist, not held for a milestone boundary
-**Last Updated:** 2026-07-02
+**Last Updated:** 2026-07-06 (Fable 5 re-verification pass against locked Phase 143 plans + live schema; previously 2026-07-02)
 **Tags:** drift, decay, promotion, demotion, shadow, ensemble-health, cusum, concept-registry
 **Informed by:** Fable 5 - consolidation audit corrections (D3 framing, feature_registry transition semantics, live alpha_events schema), Phase 143 reconciliation, recommendation in § Open Questions, and design revisions marked *(Fable's revision)* inline (2026-07-02)
 **Status note (2026-07-04, cluster review F9):** ROADMAP Phase 143 was rewritten 2026-07-03
-*adopting this doc's own recommendations* — the merge is executed (cooldown rejected, D3 applied,
-`pre_shadow_weight` in LIFECYCLE-01). Passages below that frame the two planned lifecycle builds
-as an unreconciled conflict, or describe roadmap Phase 143 as still specifying a bespoke
-`AlphaDecayMonitor`/`is_decaying` writer, are historical record of the state *before* that
-rewrite, not a live conflict — do not "fix" it a second time.
+*adopting this doc's own recommendations* — the merge is executed (cooldown rejected, D3 applied).
+Passages below that frame the two planned lifecycle builds as an unreconciled conflict, or
+describe roadmap Phase 143 as still specifying a bespoke `AlphaDecayMonitor`/`is_decaying` writer,
+are historical record of the state *before* that rewrite, not a live conflict — do not "fix" it a
+second time.
+
+**Correction (2026-07-06, verified against the executed Phase 143 plans + an independent Fable
+code review in the same pass):** the line above previously also claimed `pre_shadow_weight` landed
+in LIFECYCLE-01. It did not, and this doc's own recommendation to keep it (below) was wrong —
+caught and reversed during Phase 143 planning, then independently re-verified against live code
+just now. `services/ensemble_trainer.py` is the sole writer of `ensemble_weights` (line 744, the
+only `INSERT` in the codebase) and recomputes every weight from scratch each run — `_process_stratum`
+rebuilds `quality_weights` from *that run's* `feature_ic_scores` rows (line 544 filter) with zero
+read of any prior weight anywhere in the file. A `pre_shadow_weight` scalar restored onto
+`feature_registry` would therefore be written to a column nothing downstream reads — dead state,
+not a warm-start. **`pre_shadow_weight` was dropped, not added.** Promotion restores weight purely
+by the `feature_registry` status flip: the next `ic_engine` run stamps `feature_status_at_eval =
+'active'`, and the next `ensemble_trainer` run naturally recomputes a fresh weight from the
+feature's current IC — the same cadence every other feature earns weight through, no seed, no
+special case. Every passage below that still lists `pre_shadow_weight` as "kept from the source
+designs" or a registry amendment to add is superseded by this correction; treat those as historical
+record of a recommendation that did not survive contact with the code, not the current design.
+
+**Re-verification pass (2026-07-06, Fable 5):** the whole doc was re-checked against the locked
+`143-02-PLAN.md`/`143-03-PLAN.md`, the `143-REVIEWS.md` cross-AI findings (N1-N8), and live
+schema/APR state via psql. Beyond `pre_shadow_weight`, five more passages had drifted from executed
+reality and carry dated inline corrections below: the recovery-policy APR key name (real key is
+`alpha.decay.recovery_min_observations`, and the plans add counter-reset-on-demotion plus
+lookahead-pinned observation counting this doc never specified), the registry-amendments list (two
+counters not three, no fail counter, no `feature_transition_log.note` column), the
+`shadow_max_corpus_runs` deprecation-candidate event (unbuilt - no fail counter exists to drive it),
+IC staleness alerting (ships as an in-run ic_engine gauge with a documented absence-detection
+limitation, not the drift-monitor piggyback described below), and the `integrity_monitor` schema
+(migration 204 is minimal gate-facts + idempotency UNIQUE, not health-guardian's recovery/halt-state
+column set). The E2 `alpha_events` correction and the DistributionDriftMonitor/CUSUM sections
+re-verified clean, except the CUSUM formula's `ic_mean` (live column is `ic_value`).
 
 ---
 
@@ -136,7 +167,10 @@ Phase 143 contributes three things this doc cluster lacks and should keep: LIFEC
 **regime-shift guard** (if ≥ `alpha.decay.regime_shift_fraction`, default 0.60, of active
 feature-regime cells fail in the same run, classify as market regime shift and hold existing
 weights rather than mass-zeroing - human review before any weight change), and IC staleness
-alerting. health-guardian contributes evidence-based recovery and `pre_shadow_weight`. The
+alerting. health-guardian contributes evidence-based recovery and `pre_shadow_weight`
+*(superseded 2026-07-06, Fable 5: `pre_shadow_weight` was dropped during Phase 143 planning -
+see the correction block at the top; only the evidence-based recovery half of this
+contribution survived)*. The
 merged build routes all state through `feature_registry` per D3.
 
 **Recovery policy: four designs, one verdict.**
@@ -153,7 +187,10 @@ shadow mode is a benched feature proving."* The confirmation requirement, not th
 what prevents flapping on noisy IC measurements.
 
 *(Fable's revision)* **Adopt pure evidence plus Phase 143's new-evidence floor:** promotion
-requires 2 consecutive passing corpus runs AND ≥ `alpha.ic.decay_recovery_min_observations`
+requires 2 consecutive passing corpus runs AND ≥ `alpha.decay.recovery_min_observations`
+*(key name corrected 2026-07-06, Fable 5 - this doc previously wrote
+`alpha.ic.decay_recovery_min_observations`, which does not exist; the live key, migration 161,
+is `alpha.decay.recovery_min_observations` = 2000, verified in `config_state`)*
 (default 2000) independent observations accumulated since demotion. Consecutive corpus runs
 are not independent evidence - rebuilds run days apart on mostly-overlapping windows, so two
 passes can double-count the same fluke. The run count guards against measurement noise; the
@@ -161,9 +198,36 @@ observation floor guards against evidence reuse. Neither alone does both jobs, a
 is evidence-denominated, not calendar-denominated, so it keeps the "no cooldown clock"
 principle intact.
 
+**How the executed Phase 143 plans hardened this rule (2026-07-06, Fable 5 - three
+code-review findings from the independent pass in `143-REVIEWS.md`, all folded into the locked
+`143-02-PLAN.md`/`143-03-PLAN.md`, which this doc's description above predates):**
+
+1. **Counters reset to zero on every demotion (finding N1, HIGH).** The two recovery counters
+   (`consecutive_shadow_passes`, `observations_since_demotion`) live as `feature_registry`
+   columns and are zeroed in the same transaction as every `active → shadow_only` status flip.
+   Without this, a feature that recovered once and decays again inherits counters that already
+   satisfied the floors and re-promotes after a single passing run - the exact oscillation the
+   evidence bar exists to prevent. The description above is silent on reset semantics; the
+   reset is now load-bearing, not an implementation detail.
+2. **Observations are counted at one pinned lookahead (finding N3).** `feature_ic_scores`
+   carries 4 rows per (feature, tf, regime) cell, one per lookahead horizon; summing
+   `n_independent` across all 4 counts the same underlying bars four times and silently
+   weakens the 2000-observation floor to an effective ~500. The hook pins
+   `lookahead_bars = alpha.ic.lookahead.mid` (5) before any aggregation, so "2000 independent
+   observations" means 2000 at the mid horizon, once each.
+3. **The pass-count companion floor is its own APR key.** `alpha.decay.recovery_min_passes`
+   (default 2), seeded by Phase 143's migration 202 - the "2 consecutive passing runs" above
+   is APR-tunable, not a constant.
+
 **Kept from the source designs, once routed:**
 
-1. **`pre_shadow_weight` restoration on promotion.** The IC Sharpe value at the moment of
+1. **`pre_shadow_weight` restoration on promotion.** *(SUPERSEDED 2026-07-06, Fable 5 - not
+   kept; see the correction block at the top. `ensemble_trainer` recomputes every weight from
+   scratch each run with no prior-weight read, so this column would be dead state. Promotion
+   restores weight by the registry status flip alone: next `ic_engine` run stamps
+   `feature_status_at_eval = 'active'`, next `ensemble_trainer` run recomputes a fresh weight
+   from current IC. Original recommendation preserved below as historical record.)* The IC
+   Sharpe value at the moment of
    demotion becomes the starting ensemble weight on the first post-promotion run - the feature
    earned that number once, confirmed recovery says it's back, no reason to make it re-earn
    weight from zero. Normal IC-based weighting takes over on subsequent runs. New column on
@@ -175,6 +239,15 @@ principle intact.
    simply hasn't seen during its shadow window. Note this is a *change* to `feature_registry`'s
    current semantics, not a reuse: today the registry automates `active → deprecated` via
    `ic_demotion` after `alpha.feature_registry.demotion_periods` (default 3) failing evals.
+   *(Status vs executed Phase 143 plans, 2026-07-06, Fable 5: the operator-only guard IS in the
+   locked build - `record_transition_sync` raises before any write if an automated `ic_*`
+   transition targets `deprecated`. The `shadow_max_corpus_runs` deprecation-candidate EVENT is
+   NOT: Phase 143 deliberately added no consecutive-fail counter at all (Plan 02: "Do NOT add a
+   consecutive_shadow_fails column"; a failing shadow run only resets
+   `consecutive_shadow_passes` to 0), so nothing in the shipped design can count 12 consecutive
+   failing shadow runs. A permanently-failing shadow feature simply stays `shadow_only` until
+   an operator acts, surfaced by the LIFECYCLE-06 diagnostics SQL rather than an automated
+   event. The candidate-event idea remains unbuilt future scope, not executed reality.)*
 
 **Registry amendments required** *(Fable's revision - this is the actual Phase 143 scope (merged
 from the then-separate 149B) once routed, so the "routing decision" framing doesn't understate
@@ -189,6 +262,24 @@ it)*:
    observations since demotion) as registry columns - they are lifecycle state, so they live
    with the status. All transitions land in `feature_transition_log` as today; add a nullable
    free-text `note` column there for the operator's deprecation reason.
+
+   *(Corrected against the locked Phase 143 plans, 2026-07-06, Fable 5 - item 3 as written
+   above shipped roughly one-third intact:*
+   - *`pre_shadow_weight`: DROPPED, not added (top correction block).*
+   - *Counters: TWO registry columns only - `consecutive_shadow_passes` and
+     `observations_since_demotion` (migration 202). There is NO consecutive-fails counter;
+     demotion is a single-run materiality-fraction gate decided by ic_engine's hook, not a
+     counter, and Plan 02 explicitly forbids adding one. Both counters reset to 0 in the same
+     transaction as every demotion (review finding N1 - see the recovery-policy section).*
+   - *`feature_transition_log.note`: NOT in the locked plans and does not exist live (verified
+     via information_schema 2026-07-06). Operator deprecation reasons currently have no
+     dedicated free-text home; if that gap bites in practice it is a one-line migration, but
+     do not cite this doc as evidence the column exists.*
+   - *Items 1 and 2 above (automated demotion targets `shadow_only`, `deprecated` becomes
+     operator-only; evidence-based `shadow_only → active` promotion) landed as written, plus
+     hardening this doc predates: the transition writer is `record_transition_sync`,
+     optimistic-locked on `from_status` so reruns are safe no-ops, cache-coherent, and
+     transactional with the transition-log insert.)*
 
 **Who writes the transition - ICLifecycleMonitor dissolves** *(Fable's revision)*: no separate
 monitor module, no corpus-complete Kafka subscription, no daily scan daemon. Lifecycle state
@@ -205,6 +296,38 @@ threshold) so drift, lifecycle, and ensemble health stay queryable from one tabl
 authoritative transition record is `feature_transition_log`. IC staleness alerting, the one
 job that needs a process running when ic_engine *doesn't*, piggybacks as a one-query check on
 DistributionDriftMonitor's existing 4h cycle, not a module.
+
+**How the locked Phase 143 plans actually resolved this section (2026-07-06, Fable 5 -
+verified against `143-03-PLAN.md` and the `143-REVIEWS.md` independent review):**
+
+- **The hook architecture landed as recommended** - post-run step in `ic_engine.main()`, no
+  daemon, no Kafka subscription, transitions via `FeatureRegistryService.record_transition_sync`,
+  one `integrity_monitor` gate-evaluation fact per run, `feature_transition_log` authoritative.
+- **Staleness alerting did NOT land as described above.** The piggyback-on-drift-monitor idea
+  was unbuildable at Phase 143 time (DistributionDriftMonitor is Phase 151, unbuilt), so the
+  plan ships an in-run `ic_engine_last_run_age_days` gauge + alert inside the hook itself -
+  and the review (finding N6, accepted limitation) documents plainly that an in-run gauge of
+  a oneshot batch process cannot detect the failure mode staleness alerting exists for: if
+  ic_engine stops running entirely, nothing sets the gauge. The true absence alert is a
+  Prometheus expression over the D-06 `job_completed_total` samples ic_engine already emits,
+  deferred out of Phase 143. When Phase 151 builds DistributionDriftMonitor, the 4h-cycle
+  piggyback above is still a reasonable third home, but treat the Prometheus absence alert as
+  the primary fix, not this doc's piggyback.
+- **The demotion trigger this doc never specified is now pinned:** an active feature demotes
+  when the fraction of its active cells this run that *materially* fail (fail =
+  `ic_ci_lower <= 0` OR not `passes_fdr`; material = standing ensemble weight x |ic_ci_lower|
+  > `alpha.decay.materiality_threshold`) reaches >= (1 - `alpha.ensemble.meta_fdr_min_fraction`),
+  reusing the ensemble's own inclusion constant rather than inventing a second threshold. The
+  transition unit is the FEATURE (registry PK is feature_name), aggregated by GROUP BY from
+  per-(tf, regime) cells at the pinned mid lookahead.
+- **Three more review-hardened semantics the hook carries** (all from the 2026-07-06 Fable
+  pass, folded into the locked plan): idempotency keyed on `training_window_end` with a UNIQUE
+  constraint on `integrity_monitor` (a rerun cannot double-apply transitions or duplicate
+  facts); standing weight is read at the APR champion `alpha.ensemble.weight_version`, never
+  the most-recent row by `computed_at` (so a future E1/E2 challenger epoch cannot silently
+  become the materiality gate's weight source); and a zero-cell run (equity model disabled,
+  symbols-only) logs and returns without writing a fact, avoiding both division-by-zero and
+  poisoning the idempotency key for a later run against the same window.
 
 **What NOT to build:** any of the `is_shadowed`/`shadow_corpus_runs`/`shadow_confirmation_count`
 columns as specced directly on `feature_ic_scores` - that table is a measurement fact store;
@@ -238,6 +361,12 @@ S+_n = max(0, S+_{n-1} + (x_n - k))     # detects improvement    k = 0.5σ allow
 S-_n = max(0, S-_{n-1} + (-x_n - k))    # detects degradation
 Alert when S- > h (4.0σ warning, 8.0σ critical)
 ```
+
+*(Column-name correction, 2026-07-06, Fable 5: live `alpha_ensemble_ic` has no `ic_mean` -
+the measurement column is `ic_value` (with `ic_sharpe_hac` for the E1 threshold check);
+verified via information_schema. The (symbol, tf, regime, lookahead) key columns all exist as
+written. Same class of assumed-schema error the E2 section below already corrects for
+`alpha_events`; the formula's `ic_mean[n]` should read `ic_value[n]`.)*
 
 This is a real, previously-working mechanism that got dropped without a stated reason during
 consolidation. *(Fable's revision)* Verdict rather than another open flag: **build it with
@@ -282,7 +411,10 @@ source docs were written against an assumed schema. Live `alpha_events` (Phase 1
 percentile-based collapse checks) before they gate anything. E2B reads closed `alpha_frames`
 rows and is buildable only once enough closed frames exist per (symbol, tf); it is the
 last-arriving gate within Phase 152, not a blocker for the others. The three questions the
-gates ask are unchanged; the columns they ask them of are not.
+gates ask are unchanged; the columns they ask them of are not. *(Re-verified against live
+schema 2026-07-06, Fable 5: still accurate - `alpha_events` has `alpha_score`, no
+`conviction`, no `outcome_r`; `alpha_frames` does not exist yet, Phase 142B remains blocked
+on the EIC-04 data-starvation gate.)*
 
 ### E3 — Feature Coverage, unchanged
 
@@ -330,6 +462,18 @@ through the registry, `feature_transition_log` is the authoritative transition r
 `integrity_monitor`'s `ic_lifecycle` rows carry per-run gate-evaluation facts (metric vs
 threshold, pass/fail), not a second copy of the state change. Everything recorded once.
 
+*(Superseded in part by the locked Phase 143 plans, 2026-07-06, Fable 5: migration 204 in
+`143-03-PLAN.md` creates `integrity_monitor` MINIMAL - `monitor_type`, `subject`,
+`metric_name`, `metric_value`, `threshold_value`, `passed`, `training_window_end`,
+`evaluated_at`, plus a UNIQUE idempotency key on (monitor_type, training_window_end,
+metric_name, COALESCE(subject,'')). The `monitor_type` discriminator and one-table shape
+survive as designed above, but "kept as specced in health-guardian-design.md" is no longer
+true: the shared recovery-state and halt-state columns are NOT in the 204 shape. Phases
+151/152 must add whatever recovery/halt columns their monitors need as additive migrations
+against this minimal base - do not assume they exist. The idempotency UNIQUE key, which no
+version of this doc specified, came out of the cross-AI review and is load-bearing for hook
+rerun safety.)*
+
 **Not built as specced:** the `feature_ic_scores` schema additions (`is_shadowed`,
 `shadow_corpus_runs`, `shadow_confirmation_count`, `shadow_recovery_confirmed_at`,
 `pre_shadow_weight`) and the `is_decaying → is_shadowed` rename. Per D3, `feature_ic_scores`
@@ -368,6 +512,15 @@ Recommended build order, correcting the original three-phase split:
    trigger has fired by then): the registry amendments listed above, plus Phase 143's
    LIFECYCLE-00 regime-label validation, regime-shift guard, and staleness alerting. No new
    columns on `feature_ic_scores`, no AlphaDecayMonitor daemon, no ICLifecycleMonitor module.
+   *(Status 2026-07-06, Fable 5: this is now the executed planning reality. Phase 143 is fully
+   planned and cross-AI reviewed - Plan 01 (LIFECYCLE-00 regime-label validation) executed;
+   Plans 02/03 locked after a Codex review plus an independent Fable code-verified pass
+   (`143-REVIEWS.md`, findings N1-N8, all HIGH/MEDIUM items folded in). The locked plans route
+   through `feature_registry`, not `concept_registry` (the registry is still unbuilt - OQ3's
+   build-time check resolved in favor of route-now-migrate-later). Where this doc's prose and
+   the plans disagree - `pre_shadow_weight`, the fail counter, the `note` column, the staleness
+   home, the `integrity_monitor` column set - the plans are authoritative; the corrections
+   above mark each divergence.)*
 3. **Phase 152 (originally 150) — EnsembleHealthMonitor**, with E2B/E2C restored (re-based on the live schema:
    `alpha_score`, `alpha_frames`; see E2 section) and CUSUM built alert-only per Open
    Question 1. Within the phase, E2B lands last; it needs closed `alpha_frames` rows that
@@ -404,6 +557,10 @@ Recommended build order, correcting the original three-phase split:
    has already been built by the time Phase 143 ships, skip `feature_registry` entirely and route
    there directly. Not a design question, just an ordering one to check at build time — the
    trigger having fired doesn't resolve it, since firing and building are different events.
+   *(Resolved for Phase 143, 2026-07-06, Fable 5: the locked plans route through
+   `feature_registry` - Concept Registry is still unbuilt (todo 058), so the first branch
+   above is the one that fired. The later `feature_registry → concept_registry` migration
+   remains open, now with two more columns (the recovery counters) to carry across.)*
 
 ---
 
@@ -443,5 +600,10 @@ Recommended build order, correcting the original three-phase split:
 - `.planning/ROADMAP.md` Phase 143 (Feature Vector Lifecycle + Alpha Decay Infrastructure),
   the phase the then-separate 149B was merged into (executed 2026-07-03); source of the
   regime-shift guard, the new-evidence recovery floor, LIFECYCLE-00, and IC staleness alerting
+- `.planning/phases/143-feature-lifecycle-routing-merged-with-phase-149b-planned/` —
+  `143-02-PLAN.md` / `143-03-PLAN.md` (the locked, reviewed lifecycle build) and
+  `143-REVIEWS.md` (Codex review + independent Fable code-verified pass, findings N1-N8).
+  *(Added 2026-07-06, Fable 5: these are now AUTHORITATIVE over this doc's lifecycle prose
+  wherever they diverge - see the dated corrections inline above for each divergence.)*
 - `docs/ideas/intel-12-stratification-dimension.md` — regime-conditioning overlap noted above
   in the DistributionDriftMonitor section

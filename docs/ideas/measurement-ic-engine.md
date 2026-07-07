@@ -1,12 +1,14 @@
 # MeasurementEngine — Where the Unification Actually Stands
 
 **Version:** 1.0
-**Status:** draft — investigates a proposal whose own decision window has already partially
-closed; written to answer "is this still worth pursuing," not to assume yes
+**Status:** answered — core question resolved (D1's fallback is the landed state; config
+unification is the one remaining refactor, table/service merges deferred behind named triggers);
+verdict re-verified against live code 2026-07-06 *(Fable 5 review)* — remains open only as the
+tracking doc for the config-loader refactor and the deferral triggers
 **Priority:** high (both `intel-12` and `intel-13` build on "the Measurement Engine" as a
 settled arrival without either one defining it)
 **Milestone:** none currently — this doc's job is to determine whether one is warranted
-**Last Updated:** 2026-07-03
+**Last Updated:** 2026-07-06 (Fable 5 review pass; original analysis 2026-07-03)
 **Tags:** ic-engine, measurement, predictor, ensemble-ic, kernel-extraction, concept-registry,
 cross-sectional-ic
 **Source:** `.planning/research/2026-07-02-v3-topdown-architecture.md` §2.3, §3 (D1, D2, D11) —
@@ -14,6 +16,65 @@ Author: Fable 5
 **Informed by:** Fable 5 - audit corrections (kernel coverage, `alpha_ensemble_ic` consumers and
 row count, config-drift evidence, intel-12/13 characterization), Open Questions 1-2 resolved,
 design revisions marked *(Fable's revision)* inline (2026-07-02)
+**Reviewed by:** Fable 5 (2026-07-06) — full re-verification against live code and DB; see the
+dated review block below and *(Fable 5 review, 2026-07-06)* markers inline.
+
+**Review (2026-07-06, Fable 5, verified against live code + DB):** the core question this doc
+was written to answer — "is unification still warranted" — is answered, and the answer below
+survives re-verification: the D1 fallback (shared kernel + two tables + two services) is the
+landed state, config unification is the one cheap remaining refactor, table/service merges stay
+deferred behind their named triggers. Nothing in this pass reverses a verdict. What changed is
+the facts under it, because Phase 142B.1 completed 2026-07-04 between this doc's writing and now:
+
+1. **Config unification is still not done and the drift is still live.** Verified today:
+   `ICEngineConfig.from_apr` falls back to `sharpe_min_windows=10` (`services/ic_engine.py:310`)
+   while `EnsembleICConfig.from_apr` falls back to `30` (`services/ensemble_ic_engine.py:177`);
+   `config_state` carries 30, so the divergence remains latent. `services/_batch_utils.py` still
+   has no `load_shared_ic_fields`; nobody built the recommendation. It is now four days stale
+   and still the single actionable item in this doc.
+2. **0b shrinkage is BUILT, and it passed this doc's own "first test of the kernel question."**
+   142B.1 shipped it as a pure shared module — `src/intelligence/ensemble/shrinkage.py`
+   (`shrink_ic`, `leave_one_out_group_prior`; no DB, no config imports), applied by
+   `scripts/ops/alpha/ops_ic_shrinkage.py`, consumed by `services/ensemble_trainer.py:537`.
+   Migration 196 added `ic_shrunk`/`shrinkage_weight` to `feature_ic_scores` (13,567 of
+   256,566 rows populated — reliable cells only, by design). It landed once, in a sibling
+   kernel module, not inside one engine — exactly the outcome the "Measurement Gaps" table
+   below asked the question about. D-07's "columns on feature_ic_scores only" concern is moot.
+3. **Two table-merge facts inverted.** `alpha_ensemble_ic` is no longer empty (572 rows today;
+   still derived, still repopulated per run — the "retrofit cost is not data history" logic
+   holds). And `weight_version` now exists on it (migration 196, backfilled `'v1'`) — the
+   "schema still evolving inside the phase" evidence is resolved, not because the merge got
+   easier but because the phase finished. The deferral recommendation is unchanged and its
+   trigger is still not met: the E1/E2 A/B judgment is still pending and
+   `scripts/ops/alpha/ops_ensemble_weight_compare.py` keys its win decision on this schema,
+   so an in-flight decision remains keyed to it.
+4. **The kernel-coverage gap is unchanged.** Todo 032 is still pending; `build_walk_forward_folds`,
+   `compute_ic_for_window`, `apply_corpus_fdr` exist nowhere; both engines still call
+   `multipletests` independently (`ic_engine.py:71`, `ensemble_ic_engine.py:67,889`).
+   P1 (no trailing-IC table), P5 (`training_window_start` absent), P6 (no effective-N
+   correction), 0a, and 0c (todo 029 still pending) all re-verified unbuilt. No
+   `predictor_ic_scores` or predictor-registration trace anywhere — as this doc said.
+5. **`ensemble_ic_engine.py` grew 830 → 1,024 lines** (142B.1 Wave 0 pooled cross-sectional
+   dispatch, todo 046 / D-01: `symbol='POOLED'` rows via `_aggregate_pooled_series`). Do not
+   mistake this for the Addendum's cross-sectional rank IC — it averages alpha_score and
+   returns *across* symbols first, then computes a time-series IC of the aggregate. The
+   per-bar Spearman *across the universe* (T3 falsification mode) remains unbuilt; see the
+   inline marker in the Addendum.
+6. **Stale cross-references** (docs/ideas reorganization since 2026-07-03):
+   `intel-12-stratification-dimension.md` → `regime-multi-regime-layer.md`;
+   `intel-13-analog-engine.md` → `intel-analog-engine.md`;
+   `edge-source-thesis.md` → `data-edge-source-thesis.md`;
+   `intel-11-dual-system-discrete-vs-portfolio.md` → `docs/ideas/archive/`. The "What Intel-12
+   and Intel-13 Should Actually Say" section's substance still applies to the renamed docs.
+   Minor: the second kernel consumer's import is now `ensemble_ic_engine.py:82` (was :75).
+7. **Open Question 6 is answered by shipped code:** the prior grain went live as leave-one-out
+   `(group_name, regime, tf)` per D-06 (`ops_ic_shrinkage.py:compute_shrinkage_updates`),
+   symbol- and lookahead-agnostic; features without a `feature_registry.group_name` are
+   skipped. The fallback-grain question stays open only for the case where the out-of-fold
+   gate fails. **Open Question 7 (winner's-curse at ensemble grain) is now live-relevant, not
+   hypothetical:** the champion-selection machinery (`ops_ensemble_weight_compare.py`) exists
+   and the A/B judgment is the next pending act; nothing in it shrinks the winning variant's
+   measured IC. Raise it before, not after, the judgment is run.
 
 ---
 
@@ -25,7 +86,8 @@ much larger review, and its own text contains a deadline that has already passed
 alpha_ensemble_ic (migration 187) has not landed yet and feature_ic_scores is a derived table
 rebuilt every corpus run, the unification window is open now and closes when 142A executes."*
 
-Phase 142A executed. `services/ensemble_ic_engine.py` exists, 830 lines, its own `BaseBatch`
+Phase 142A executed. `services/ensemble_ic_engine.py` exists, 830 lines *(Fable 5 review,
+2026-07-06: now 1,024 — 142B.1 added pooled cross-sectional dispatch)*, its own `BaseBatch`
 entry point, its own DAG node (`indicagent-ensemble-ic-engine`). That is exactly the standalone
 service D1's sibling decision (D2) argued against building. Two of the three docs written this
 session — `docs/ideas/intel-12-stratification-dimension.md` and `docs/ideas/intel-13-analog-engine.md` —
@@ -118,8 +180,9 @@ This is where "the window closed" is genuinely true in a way config unification 
 with production code keyed to it: the 830-line writer, the EIC-04/EIC-05 scripts
 (`ops_ensemble_ic_gate.py`, `ops_ensemble_ic_diagnosis.py`), and 142B.1's in-flight plans
 (142B.1-05 keys its A/B win rule directly on `alpha_ensemble_ic` columns). The table itself is
-empty today (zero rows as of 2026-07-02; it repopulates each IC pipeline run), so the retrofit
-cost is not data history. It is:
+empty today (zero rows as of 2026-07-02; it repopulates each IC pipeline run) *(Fable 5 review,
+2026-07-06: 572 rows now — still derived, so the "cost is not data history" logic holds)*, so
+the retrofit cost is not data history. It is:
 
 - Every code consumer above needing its queries rewritten
 - A real schema reconciliation, not a rename: the two tables live at different grains
@@ -130,6 +193,11 @@ cost is not data history. It is:
 - Timing: 142B.1 is mid-flight and its plans assume this schema; 142B.1-05 additionally expects
   a `weight_version` key the current table lacks, i.e. the schema is still evolving inside the
   phase. Merging tables under an in-progress phase keyed to both is the worst possible moment.
+  *(Fable 5 review, 2026-07-06: 142B.1 completed 2026-07-04 and migration 196 added
+  `weight_version` (backfilled `'v1'`), so this bullet's evidence is historical — but the timing
+  objection transfers intact: the E1/E2 A/B judgment is still pending and
+  `ops_ensemble_weight_compare.py` keys its win decision on this schema. The trigger below,
+  "no in-flight phase keyed to either schema," is still not met.)*
 
 Against that cost, the benefit D1 claimed — "one estimator = commensurable gates across
 features/ensemble/analogs" — is still real and still matters for exactly the two docs that
@@ -223,7 +291,7 @@ anything in the unification question above:
 | **P5: IC vintage** (`training_window_start` column) | Not built; `feature_ic_scores` has only `training_window_end` | A 2019-2023 estimate is silently treated as equally valid as a 2023-2026 one. The source doc itself notes P1 supersedes this for recency-sensitive use; P5 is the cheap schema-only fallback. |
 | **P6: cross-sectional effective N** (`N_eff = N_raw / (1 + (n_symbols-1)·rho_bar)`) | Not built. The `n_eff` near `ic_engine.py:1501` is a metrics gauge reporting existing `n_independent`, not this correction | 58 symbols on the same bar share regime/macro exposure and are not 58 independent observations; CIs on POOLED cross-sectional rows are overconfident. Affects POOLED rows only. |
 | **0a: marginal contribution** (partial IC after regressing out the active set) | Not built, unscheduled (todo 029 pending) | Standalone IC admits features that add zero marginal value over what the ensemble already holds. |
-| **0b: shrinkage** (`ic_shrunk`, empirical-Bayes toward peer-group prior) | Not built, but **scheduled**: 142B.1 D-04 builds it as E1's first wave, 2 new columns on `feature_ic_scores`, with the out-of-fold acceptance test as a hard gate (D-05) | Corrects winner's-curse bias on every persisted estimate. The one piece of the beyond-IC doc with a committed home. |
+| **0b: shrinkage** (`ic_shrunk`, empirical-Bayes toward peer-group prior) | ~~Not built, but **scheduled**~~ **BUILT** *(Fable 5 review, 2026-07-06)*: shipped in 142B.1 as `src/intelligence/ensemble/shrinkage.py` (pure module) + `scripts/ops/alpha/ops_ic_shrinkage.py` (applier) + migration 196 (`ic_shrunk`/`shrinkage_weight` columns); 13,567 rows populated | Corrects winner's-curse bias on every persisted estimate. The one piece of the beyond-IC doc with a committed home. |
 | **0c: calibration** (reliability curve / Brier on predicted magnitude) | Not built, unscheduled | IC says the ordering correlates; calibration says the magnitude is honest, which is the property position sizing (Kelly) actually depends on. |
 
 Note on 0b, stated precisely because it looks like a blocker and isn't: `ic_shrunk` does not
@@ -236,6 +304,11 @@ for the HAC/Fisher-z math**: does it land once in `ic_math.py` (or a sibling ker
 and get consumed by both engines, or does it get built inside one engine and recreate exactly
 the per-engine methodology drift D1 was written to prevent? 142B.1's shrinkage estimator is the
 first test of this: D-07 currently scopes it as columns on `feature_ic_scores` only.
+*(Fable 5 review, 2026-07-06: the first test passed — shrinkage landed as a sibling pure
+module, `src/intelligence/ensemble/shrinkage.py`, not inside either engine. The pattern held
+without anyone enforcing it, which is the strongest evidence yet that the kernel convention is
+self-sustaining and no further service-level unification is needed to protect methodology
+unity.)*
 
 ---
 
@@ -262,6 +335,12 @@ system would silently conclude "no edge" while a spread on the same features pay
    named in the Measurement Gaps table above, now with a second consumer). A kernel extension,
    weeks not quarters — bolt it onto `ensemble_ic_engine.py` as it stands if the kernel-unification
    decision (Open Questions, this doc) is still open; don't wait on that decision to run this.
+   *(Fable 5 review, 2026-07-06: still unbuilt, and one near-miss worth naming — 142B.1's
+   pooled dispatch (`symbol='POOLED'` rows via `_aggregate_pooled_series` in
+   `ensemble_ic_engine.py`) is NOT this. It averages alpha_score and returns across symbols
+   first, then computes a time-series IC of the aggregate; this mode is the per-bar Spearman
+   ACROSS the universe. Averaging destroys exactly the cross-sectional ranking information T3
+   is a thesis about. Do not count POOLED rows as evidence for or against T3.)*
 2. **A counterfactual decile-spread simulation** in the 142B frame machinery — long top decile,
    short bottom decile, dollar-neutral, at the executable-return definition, cost-hurdle applied
    per leg. This is `alpha_frames` with a portfolio-shaped frame variant, not a new system.
@@ -307,12 +386,24 @@ Genuinely open: measurement-methodology research this doc's scope touches but ca
 6. **What shrinkage prior grain actually wins?** Todo 029 specs the prior as the feature
    family x regime x tf peer-group mean; 142B.1's hard gate (shrunk must predict next-window IC
    better than raw) tests the mechanism but not the grain choice. If the gate fails, the grain
-   is the first suspect, and no fallback grain is specced.
+   is the first suspect, and no fallback grain is specced. *(Fable 5 review, 2026-07-06:
+   partially answered by shipped code — the grain went live as leave-one-out
+   `(group_name, regime, tf)` per D-06, symbol- and lookahead-agnostic
+   (`ops_ic_shrinkage.py:compute_shrinkage_updates`); features lacking a
+   `feature_registry.group_name` are skipped, not shrunk. The fallback-grain question stays
+   open only for the failure branch.)*
 7. **Does winner's-curse correction apply at ensemble grain too?** 142B.1 selects a champion
    per (tf, regime) stratum among E1-E4 variants; selection among variants is itself a search,
    so the winning variant's measured IC in `alpha_ensemble_ic` is upward-biased by the same
    mechanism 0b corrects at feature grain. Nothing in 142B.1's plans addresses this; if real,
    the shrinkage estimator belongs in the shared kernel, not in `ensemble_trainer.py`.
+   *(Fable 5 review, 2026-07-06: no longer hypothetical — 142B.1 is complete, the A/B
+   machinery exists (`ops_ensemble_weight_compare.py`), and the judgment is the next pending
+   act; nothing in it shrinks the winning variant's measured IC. Note the correction now has a
+   ready-made shared home: `src/intelligence/ensemble/shrinkage.py`'s `shrink_ic` is grain-
+   agnostic — the open work is choosing the peer group for variants, not writing the math.
+   Resolve before running the judgment, or at minimum record that its winner's IC is
+   selection-biased when interpreting the result.)*
 8. **What replaces a static IC number as the weighter's input once P1 exists?** Trailing IC,
    vintage-weighted static IC (P5), and shrunk IC (0b) are three different answers to "what is
    this feature's IC *now*"; they overlap, and nothing yet says how they compose or which
@@ -333,7 +424,11 @@ Genuinely open: measurement-methodology research this doc's scope touches but ca
   shared IC math, consolidate APR loader" — the actual, unplanned origin of the kernel extraction
 - `docs/ideas/intel-12-stratification-dimension.md`, `docs/ideas/intel-13-analog-engine.md` —
   both build on "the Measurement Engine" arriving as designed; both need their references
-  corrected per the section above when next touched
+  corrected per the section above when next touched *(Fable 5 review, 2026-07-06: since renamed
+  to `regime-multi-regime-layer.md` and `intel-analog-engine.md` respectively; the section's
+  substance still applies to the renamed docs. Likewise `edge-source-thesis.md` in the Addendum
+  is now `data-edge-source-thesis.md`, and `intel-11-dual-system-discrete-vs-portfolio.md` is
+  in `docs/ideas/archive/`)*
 - `.planning/todos/pending/032-ic-engine-pure-function-refactor.md` - still fully open, NOT
   superseded by 047/048: it asks for three specific extractions (`build_walk_forward_folds`,
   `compute_ic_for_window`, `apply_corpus_fdr`: fold construction, single-window IC, FDR
@@ -343,7 +438,8 @@ Genuinely open: measurement-methodology research this doc's scope touches but ca
 - `docs/plans/archive/2026-06-29-ic-engine-improvements.md` - the P0-P6 audit; P0/P2/P3/P4 executed by
   Phase A, P1/P5/P6 open (see gaps section)
 - `docs/plans/archive/2026-06-29-feature-scoring-beyond-ic.md` + `.planning/todos/pending/029-feature-scoring-beyond-ic.md`
-  - layers 0a/0b/0c; 0b scheduled inside 142B.1 (CONTEXT.md D-04/D-05/D-07), 0a/0c unscheduled
+  - layers 0a/0b/0c; 0b scheduled inside 142B.1 (CONTEXT.md D-04/D-05/D-07) *(Fable 5 review,
+  2026-07-06: 0b shipped — see gaps table)*, 0a/0c unscheduled
 - `.planning/phases/142B.1-*/142B.1-CONTEXT.md` - E1 shrinkage scope and hard acceptance gate;
   `ops_ensemble_ic_gate.py`/`ops_ensemble_ic_diagnosis.py` - the actual `alpha_ensemble_ic`
   consumers today (EIC-04/EIC-05)

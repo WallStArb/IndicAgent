@@ -6,13 +6,25 @@
 **Priority:** medium (design-ahead; build is gated, see Staging)
 **Milestone:** unscheduled - individual-equities era, no ROADMAP phase exists yet
 **Created:** 2026-07-04
+**Last Updated:** 2026-07-06 (Fable 5 review pass - items 6-8 resolved, Layer 1/2 refinements)
 **Tags:** instruments, classification, taxonomy, gics, tags, equities, stratification, point-in-time
-**Pending review (2026-07-04):** Consumers items 6-8 (thematic contagion as a confluence
-variant, definitional-vs-empirical exposure reporting, human-lookup queries) were added by
-Sonnet in the same session, reasoning from this doc's existing design plus `intel-10`'s gate
-stack and the calibrator's `measurement_type` field - not yet Fable-reviewed like the rest of
-this doc. Flagged for a follow-up pass; nothing in the additions changes Layers 1/2 as
-Fable specced them.
+**Review resolved (2026-07-06, Fable 5):** the pending flag below is closed. Items 6-8 were
+reviewed against intel-10 v3 (`intel-confluence-detection-persistence-layer.md`), the
+calibrator doc, and live schema (psql, 2026-07-06). Verdicts: item 6's intent survives but its
+routing is corrected in place - the missing build step is a per-symbol peer-feature family
+measured by the standard IC machinery, with the confluence gate stack as the second stage, and
+its discovery-first origin gatekeeping is dropped; items 7 and 8 stand with refinements
+(epistemic-provenance rendering; definitional-staleness handling plus a wording fix -
+`measurement_type` is calibrator-designed, not live). The two-layer split itself is confirmed
+(see the new Design gate check section); a node-immutability invariant and two silent-failure
+guards were added to Layer 1, and one look-ahead note to Layer 2. All changes carry dated
+inline markers.
+**Pending review (2026-07-04 - RESOLVED above, kept as historical record):** Consumers items
+6-8 (thematic contagion as a confluence variant, definitional-vs-empirical exposure reporting,
+human-lookup queries) were added by Sonnet in the same session, reasoning from this doc's
+existing design plus `intel-10`'s gate stack and the calibrator's `measurement_type` field -
+not yet Fable-reviewed like the rest of this doc. Flagged for a follow-up pass; nothing in the
+additions changes Layers 1/2 as Fable specced them.
 
 ---
 
@@ -27,7 +39,7 @@ for healthcare names). Nothing in the platform models a multi-level classificati
   (`commodity`, `international`, `fixed_income`, ...) - one level, not GICS, no hierarchy.
 - `tag_vocabulary` / `instrument_tags` (live: 71 tags, 410 assignments, all `source='human'`,
   verified 2026-07-04) is flat, soft, weighted, multi-membership - by design.
-- `controlled_vocabulary` (`docs/ideas/controlled-vocabulary.md`, unbuilt) is flat,
+- `controlled_vocabulary` (`docs/ideas/platform-controlled-vocabulary.md`, unbuilt) is flat,
   platform-wide symbolic-code metadata with deliberately zero relationship to instruments.
 
 A prior pass proposed adding `parent_code` to `controlled_vocabulary`. This doc replaces
@@ -54,7 +66,7 @@ A mechanism-of-action assignment is our own claim: uncertain, legitimately multi
 (a company can be 40% oncology / 20% cardiovascular by pipeline), and testable against
 market data. The first is a fact to sync; the second is a hypothesis to calibrate - which
 is exactly the epistemic model `instrument_tags` + the TagAuditor
-(`docs/ideas/instrument-tag-calibrator.md`) were built around: "tags are hypotheses; the
+(`docs/ideas/data-instrument-tag-calibrator.md`) were built around: "tags are hypotheses; the
 system tests hypotheses, not stores beliefs."
 
 Forcing both through one membership table means either a `weight` column that is
@@ -115,7 +127,7 @@ CREATE TABLE classification_node (
 );
 
 CREATE TABLE instrument_classification (
-    symbol      TEXT NOT NULL REFERENCES instruments(symbol) ON DELETE CASCADE,
+    symbol      TEXT NOT NULL REFERENCES instruments(symbol) ON DELETE RESTRICT,
     scheme      TEXT NOT NULL,
     code        TEXT NOT NULL,           -- deepest known node; normally the leaf (sub-industry)
     valid_from  DATE NOT NULL,
@@ -151,6 +163,32 @@ Deliberate design points:
 - **Reclassification never overwrites.** Close the old row (`valid_to`), insert the new
   one. `instrument_classification` is append-only in effect, like `config_history` and
   `concept_transition_log`.
+- **Node immutability invariant** *(added 2026-07-06, Fable 5)*: `parent_code` and `level`
+  are immutable per `(scheme, code)` - the seeding migration hard-fails if a new seed
+  disagrees with an existing row's parent or level, never updates in place. The node table
+  is effective-dated in its columns but not in its key (PK is `(scheme, code)`, one row per
+  code), so a reparented code cannot be represented - and absorbing one as an UPDATE would
+  silently rewrite history for every as-of join that walks `path`, which is the exact
+  bias class this table exists to prevent. GICS is safe under this invariant because
+  reparenting always mints a new code (the parent is embedded in the digits); renames that
+  keep the code do happen (sector 50 kept its code through the 2018 Communication Services
+  restructure) and are fine: `name` is display metadata and updates in place, because no
+  consumer keys on historical node names - stratification keys on codes. A future scheme
+  that reuses or reparents codes cannot be loaded into this shape, and the seed must crash
+  saying so; widening the PK to `(scheme, code, valid_from)` is the known escape hatch,
+  paid only if such a scheme ever earns a consumer.
+- **`instrument_classification.symbol` is `ON DELETE RESTRICT`** *(corrected from CASCADE
+  2026-07-06, Fable 5; schema above already reflects it)*: cascading an instrument delete silently destroys
+  point-in-time classification history - quiet data loss in the one table whose whole
+  justification is history that cannot be reconstructed. Instruments are deactivated
+  (`is_active = false`), not deleted; if a delete is ever attempted, this FK should be
+  what crashes it loudly.
+- **NULL-at-requested-level handling** *(added 2026-07-06, Fable 5)*: "consumers get NULL,
+  loudly" is only loud if consumers make it so - a NULL stratification key silently drops
+  rows or forms an anonymous NULL stratum, both of which violate never-drop-data. Rule:
+  stratification consumers map NULL-at-level to an explicit scheme-qualified
+  `unclassified` label (e.g. `gics:unclassified`), so unclassified names form a visible,
+  countable stratum instead of vanishing from denominators.
 
 ### Point-in-time correctness is the reason Layer 1 must be purpose-built
 
@@ -216,7 +254,17 @@ the symbol's GICS industry basket, so the tag must prove *incremental* co-moveme
 what the sub-industry already explains). A custom classification tag thereby becomes a
 falsifiable hypothesis with an expiry path, like every other tag - which is precisely
 what an authoritative GICS row could never be, and why the two layers must not share a
-table. Forward-referenced in `docs/ideas/instrument-tag-calibrator.md`.
+table. Forward-referenced in `docs/ideas/data-instrument-tag-calibrator.md`.
+
+**Look-ahead asymmetry, stated once** *(added 2026-07-06, Fable 5)*: Layer 1 buys
+point-in-time correctness with effective dating; Layer 2's live membership table has only
+`assigned_at`. The calibrator doc already plans `valid_from`/`valid_to` on `instrument_tags`
+(its temporal-validity section), which gives Layer 2 as-of membership when it ships. Until
+then, any retrospective study that groups historical bars by *current* tag weights is a
+look-ahead - the same leak the Layer 1 rules above exist to block, entering through the soft
+layer instead. Discipline: tag-grouping studies either restrict to post-assignment data (the
+calibrator's own forward-testing shape) or are labeled hypothesis-generation, never
+measurement.
 
 ### How the layers relate
 
@@ -310,7 +358,7 @@ the other's build.
 ## Consumers (what this is actually for)
 
 1. **Stratification** - `gics_sector` / `gics_industry` become `StratificationDimension`
-   providers (`docs/ideas/intel-12-stratification-dimension.md`): `grain='per_symbol'`,
+   providers (intel-12, now `docs/ideas/regime-multi-regime-layer.md`): `grain='per_symbol'`,
    `causality_basis='deterministic'` (as-of joins on effective-dated membership), labels
    scheme-qualified per intel-12's label-identity invariant (`gics:35`, never bare `35`).
    Whether industry-level stratification earns its cells is decided by that doc's
@@ -318,7 +366,7 @@ the other's build.
 2. **Cross-sectional neutralization** - individual-equity IC work requires demeaning or
    residualizing returns within industry peers; peer sets come from tree-walk queries.
 3. **Peer baskets** - the calibrator's residualization controls (above), and
-   AnalogEngine (`docs/ideas/intel-13-analog-engine.md`) conditioning neighbor retrieval
+   AnalogEngine (intel-13, now `docs/ideas/intel-analog-engine.md`) conditioning neighbor retrieval
    on classification.
 4. **Exposure aggregation** - portfolio-level sector/industry exposure for the trade
    construction layer (`docs/ideas/trade-construction-layer.md`, v4.0 concern).
@@ -326,28 +374,53 @@ the other's build.
    (indication, MOA) carry co-movement or IC *incremental to* GICS? If it does not, Layer
    2 taxonomies expire via the calibrator like any failed tag. That falsifiability is a
    feature of this placement, not an accident.
-6. **Thematic contagion as a confluence variant, not a new mechanism** *(added 2026-07-04,
-   flagged for Fable review)* - the motivating question: if two exposure-weighted members
-   of a theme (e.g. `quantum_computing`) fire together, can that be used to infer effect on
-   other members, scaled by their weight? As posed, this fails the project's own evidentiary
-   standard - two data points is an anecdote, and a hand-named theme with 2-5 pure-play
-   constituents has effective breadth too small for any direct inference to mean anything.
-   The corrected shape is not a new subsystem, it's an existing one applied: (a) the
-   *cluster itself* should be discovered statistically by the TagAuditor's factor-vector
-   approach (`docs/ideas/instrument-tag-calibrator.md`'s "Simons version" - derive tags from
-   residual co-movement, then have a human name the region - not the reverse); (b) "does
-   co-firing within this cluster predict the other members' forward returns" is then a
-   `condition` in `intel-10`'s confluence sense, and must clear that doc's full gate stack
-   (marginal lift over the calibrated additive null, batch-level BH-FDR across every theme
-   considered, walk-forward stability, calibration, cost hurdle, OOS confirmation) before it
-   is trusted with a single dollar, and only ever reaches `shadow` before `active`. No
-   propagation heuristic gets built outside that gate.
+6. **Thematic contagion - routed through the feature pipeline first, confluence second**
+   *(original added 2026-07-04 by Sonnet; reviewed and revised in place 2026-07-06, Fable 5)* -
+   the motivating question: if exposure-weighted members of a theme (e.g. `quantum_computing`)
+   fire together, can that be used to infer effect on other members, scaled by their weight?
+   The original item's two instincts survive review intact: no propagation heuristic gets
+   built outside the promotion gates, and two co-firing names are an anecdote, not evidence.
+   Two corrections to how it gets there:
+   (a) **The missing build step is a per-symbol feature, not a gate-stack routing.** intel-10
+   v3 (`intel-confluence-detection-persistence-layer.md`) defines a confluence as a joint
+   condition *over primitive features* - but a cross-symbol event ("two theme peers fired")
+   is not a primitive anything currently computes, so "run it through the confluence gate
+   stack" has nothing to condition on until the cross-sectional quantity is materialized per
+   symbol. The concrete shape is a small **peer-feature family** in the Feature Factory: for
+   symbol `s` and tag `t`, e.g. `peer_return_z(s, t)` = exposure-weighted same-bar return of
+   the *other* high-weight members of `t`, residualized against `s`'s GICS industry basket
+   (Layer 1 supplying the control - exactly the calibration-convergence pattern above);
+   optionally a peer co-fire count at the alpha-event grain. These are ordinary features:
+   ic_engine measures them, FDR and sample-size gates apply, the ensemble weights them - and
+   the standard machinery already encodes every objection the original item raised (a
+   3-member theme yields a noisy feature that simply fails the gates; no special-casing, no
+   breadth heuristic). Only if the *joint* claim - "co-firing predicts more than the additive
+   combination of these peer features" - remains interesting after that does this become an
+   intel-10 condition, where gate 1's marginal-lift-over-the-additive-null test is precisely
+   the right arbiter, along with the rest of that stack (batch-level BH-FDR across every
+   theme considered, walk-forward stability, calibration, cost hurdle, OOS confirmation,
+   `shadow` before `active`). Cheapest sufficient machinery first; the confluence layer is
+   the second stage, not the front door.
+   (b) **Origin gatekeeping is dropped.** The original item required the cluster itself to be
+   discovered statistically before use ("derive tags from residual co-movement... not the
+   reverse"). That is over-strict, and inconsistent with the calibrator's own philosophy,
+   which admits human-asserted tags as seed hypotheses and lets the falsification engine
+   decide. A hand-named theme is a legitimate hypothesis; a TagAuditor-discovered cluster is
+   the same hypothesis with a better prior. The gate stack protects promotion; nothing needs
+   to protect hypothesis origin. (The Simons-version discovery path stays valuable - as the
+   stronger *generator* of candidate themes, not as an admission requirement.)
 7. **Human-facing relationship lookup, decoupled from any trading claim** - "given company
    A, what else shares its classification or taxonomy membership, and how strongly" is a
    plain read query (tree-walk on `classification_node` / weighted lookup on
    `instrument_tags`, including subtree rollup via `parent_tag`), not a promotion-gated
    claim. Showing a relationship and trading on a relationship are different acts with
    different burdens of proof; this consumer only needs the former.
+   *(Reviewed 2026-07-06, Fable 5 - kept as written, one addition:)* the lookup surface must
+   render epistemic provenance per row - scheme-authoritative (Layer 1, with effective
+   dates), `definitional` (asserted, with its as-of date, see item 8), or `empirical` (with
+   weight and age) - so the human-facing view never flattens the two-model split this doc
+   exists to maintain. A UI that shows "AMGN: Biotechnology, oncology 0.8" as two peer facts
+   has silently re-merged the layers.
 8. **Portfolio/watchlist exposure reporting across themes, whether or not they feed
    trading logic** - "how exposed am I to AI, quantum, semis, lithography, etc." is the
    same query as (7), aggregated across a book. This is where `tag_vocabulary`'s existing
@@ -362,6 +435,69 @@ the other's build.
    weight 0.7 and `semiconductors_ai_accelerator` weight 0.1 under a shared
    `semiconductors` parent - so an exposure report doesn't conflate "high semis exposure"
    with "high AI exposure" the way one flat sub-industry bucket would.
+   *(Reviewed 2026-07-06, Fable 5 - placement confirmed, two refinements.)* First, a wording
+   fix: `measurement_type` is not "existing" - it is a calibrator-designed column
+   (`data-instrument-tag-calibrator.md`, schema section), unbuilt live (verified via psql
+   2026-07-06: `tag_vocabulary` carries `tag`/`category`/`description` only). Item 8
+   therefore depends on the calibrator's Phase 1 migration shipping first, worth stating.
+   Second, the real strain this item puts on the two-model split, named and resolved: a
+   filing-sourced revenue split is epistemically closer to Layer 1 than Layer 2 - externally
+   asserted, dated, revisable by the issuer, not falsifiable by regression - yet it lands in
+   `instrument_tags`. The placement is still right, for three reasons Layer 1 cannot absorb:
+   the values are multi-valued weights (Layer 1's exclusive-membership index forbids that by
+   design); mapping reported segments onto our taxonomy ("Client Computing Group" →
+   `semiconductors_pc`) is itself a judgment, so the stored weight is an interpretation of a
+   fact, not the fact; and a third membership table for "weighted facts" is exactly
+   Alternative C. But `definitional` means the calibrator never expires these rows, and
+   unlike Layer 1 they have no vendor sync - so a 2026 revenue mix silently drives a 2029
+   exposure report. The proportionate fix, no schema change: definitional tags encoding
+   dated facts carry provenance in the existing `evidence` JSONB
+   (`{"source": "10-K FY2025", "as_of": "2026-02-15"}`), and exposure reports render
+   staleness (flag weights whose `as_of` exceeds a threshold - an APR key, not a constant).
+   If definitional exposure ever graduates from reporting to trade-construction inputs
+   (consumer 4), it graduates to effective dating at the same moment - reporting can
+   tolerate flagged staleness; position limits cannot.
+
+---
+
+## Design gate check (2026-07-06, Fable 5)
+
+The CLAUDE.md four-question gate, applied to the whole design:
+
+1. **Survives 10x volume?** Yes, trivially. This is reference data: ~800 symbols at 10x, a
+   few thousand classification nodes, membership rows accruing only on reclassification
+   events. Every consumer query is an indexed as-of join or a subtree walk over tables that
+   fit in cache. Not a scaling design at all, and doesn't need to be.
+2. **What fails silently?** Five vectors, each now addressed in place: snapshot backfill
+   (accumulate-forward rule, original); seed migrations silently rewriting node parents
+   (node-immutability invariant, added); NULL-at-level rows vanishing from strata
+   (`unclassified` label rule, added); definitional fact staleness (as-of provenance plus
+   report flagging, item 8); current-weight retrospective studies on Layer 2 (look-ahead
+   note, added). The residual risk is the as-of join discipline itself - it lives in
+   application code, which is why the `ClassificationService` read layer with its as-of
+   helper should be the only sanctioned access path, same posture as `stream_keys.py` for
+   topics.
+3. **Does the DAG still hold?** Yes. Both layers are read-only reference data at runtime;
+   seeds and vendor sync are the only writers, and the one-writer rule applies: whatever job
+   syncs vendor classifications is the sole post-seed writer to `instrument_classification`,
+   and the TagAuditor remains the sole empirical writer to `instrument_tags`. No compute
+   daemon persists classification state, no cycles, and the two layers deliberately share no
+   FK.
+4. **What manual step does this eliminate?** Honestly: none that exists today. It prevents a
+   class of future manual work (ad-hoc per-study classification lists, hand-maintained peer
+   baskets) and a class of unfixable bias (single-snapshot history in the training corpus)
+   rather than deleting a current step. That is consistent with its own staging rule below:
+   build nothing until the equities trigger fires.
+
+**Verdict on the two-layer split: confirmed.** The strongest argument is not the dead-column
+smell (weight=1.0 authoritative rows would be ugly but survivable) - it is that the
+calibrator is a falsification engine, and an authoritative row inside one must be either
+falsified (wrong) or permanently exempted (the schema lying about what the row is), while the
+exclusivity and point-in-time constraints Layer 1 needs are inexpressible in
+`instrument_tags`' key. The steelman for unification - one membership table, fewer moving
+parts - buys one fewer table at the cost of a permanent exemption class in the calibrator, an
+exclusivity constraint enforced only by convention, and effective dating retrofitted onto 410
+live rows that don't want it. A council signs off on the split.
 
 ---
 

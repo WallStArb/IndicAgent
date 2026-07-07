@@ -1,11 +1,17 @@
 # Instrument Tag Auditor
 
-**Version:** 1.3
+**Version:** 1.4
 **Status:** draft
 **Priority:** high
 **Milestone:** post-v2.8
-**Last Updated:** 2026-07-04
+**Last Updated:** 2026-07-06 (Fable 5 first full review pass - see § Fable 5 Review at end)
 **Tags:** instruments, tags, empirical, calibration, renaissance, factor-model
+
+**Review note (2026-07-06, Fable 5):** first rigorous pass on this doc. Verdict: the problem
+diagnosis is right and the layering is right, but the calibration loop as specced in v1.3
+fails its own Simons critique on multiple-testing correction, tests the wrong null, and has
+a `weight = |beta|` bug that violates the live CHECK constraint. All fixed concretely in the
+review section; the revised loop there supersedes § Calibration loop below.
 
 ---
 
@@ -20,6 +26,11 @@ The `instrument_tags` table holds human-asserted priors. "TLT is `rate_sensitive
 ### The measurable primitives
 
 > "You have 53 tags. I can measure 8 things precisely. The other 45 are either derivable from the 8 or they're noise. Delete them."
+
+*(Count drift, noted 2026-07-06, Fable 5: the live vocabulary is 71 tags / 410 assignments as
+of 2026-07-04, and the primitive tables below have grown to 19 entries since this quote was
+drafted. The principle stands unchanged - a small measurable core, everything else derived or
+deleted - read "8" as "the primitive set," not a literal count.)*
 
 Primitives that can be computed directly from market data, grouped by type:
 
@@ -213,6 +224,13 @@ The existing `evidence` JSONB holds full output including decay metadata: `{beta
 
 ### Calibration loop
 
+*(Superseded 2026-07-06, Fable 5 - this loop has three defects fixed in § Fable 5 Review:
+no multiple-testing correction across ~1,600 simultaneous (symbol, tag) tests, `weight = |beta|`
+violates the live `[0,1]` CHECK constraint, and single-run p>0.05 expiry causes sequential-test
+flicker. Kept for history; the revised loop in the review section is the buildable spec. Also:
+"nightly" here contradicts "weekly cadence, Sunday night" in § Architecture fit - weekly is
+correct, weekly re-estimation of 252-day betas is already 97% window overlap run-over-run.)*
+
 ```
 nightly TagAuditor (timer-triggered oneshot, same pattern as roll_batch.py)
 
@@ -296,6 +314,12 @@ The regime classifier can use tag vectors as features: "give me all instruments 
 
 ## Open question: signed magnitude access pattern (2026-07-01 design review)
 
+*(Resolved 2026-07-06, Fable 5 - finding F3 in the review section resolves this as a side
+effect of fixing the `weight = |beta|` bug: `instrument_tags` gains a signed `loading` column
+(standardized loading, `[-1, 1]`) and `weight` is defined as `|loading|`. Direction becomes a
+first-class queryable column; `evidence->>'beta'` stays as raw-scale provenance only. The
+paragraph below is kept as the original statement of the problem.)*
+
 `weight` (`instrument_tags.weight`) is unsigned, `[0.0, 1.0]`, magnitude-only per the live
 CHECK constraint. Sign isn't actually lost by this design — `evidence` already captures it
 (`{beta: -8.3, ...}`, signed) — but sign is only reachable by parsing unstructured JSONB
@@ -341,7 +365,8 @@ instrument class; not a generalization of the existing regime-conditioning mecha
 
 ## Forward reference: hierarchical tags and basket factor series (2026-07-04)
 
-`docs/ideas/platform-09-security-classification-hierarchy.md` (individual-equities
+`docs/ideas/platform-security-classification-hierarchy.md` *(filename corrected 2026-07-06,
+Fable 5 - the `platform-09-` prefix never existed on disk)* (individual-equities
 classification design, unscheduled) touches this system in two ways, neither changing
 anything built or planned here today:
 
@@ -365,4 +390,300 @@ anything built or planned here today:
 - **`shadow_registry`** — same gatekeeping logic: n >= threshold, CI clears zero → promote; EV drops → demote. TagAuditor applies this discipline to tags.
 - **`roll_batch.py`** — same timer-triggered oneshot pattern
 - **HMM regime classifier** — already produces regime state; `mutual_information` measurement plugs directly in
-- **`market_data_ohlcv`** — daily return series already available for all 58 equity instruments
+- **`market_data_ohlcv`** — daily return series already available for the full equity universe *(80 symbols since the ETF universe expansion; "58" was the pre-expansion count - corrected 2026-07-06, Fable 5)*
+- **`ic_math.py` / `ic_engine.py`** *(added 2026-07-06, Fable 5)* — the statistical kernel this doc must reuse, not reimplement: Fisher z-transform CIs, correlation p-values, HAC machinery, and the BH-FDR run-level correction pattern. See review findings F1 and F4.
+
+---
+
+## Fable 5 Review (2026-07-06) — first full review pass
+
+**Scope:** first rigorous review of this doc (no prior Fable pass, unlike its siblings).
+Reviewed as a design for an unbuilt system - the question is whether the proposed
+falsification engine actually delivers on the doc's own Simons critique, not whether it
+matches live code. Cross-checked against `services/ic_engine.py`,
+`src/intelligence/statistics/ic_math.py`, and
+`docs/ideas/platform-security-classification-hierarchy.md`.
+
+**Verdict: right diagnosis, right layering, under-delivered engine - fixable in place.**
+The problem statement ("beliefs with no measurement procedure") is exactly right, the
+schema separation and provenance model are right, and the Simons-inversion instinct
+(compute the factor vector, derive the tags) is the correct end-state. But the v1.3
+calibration loop quietly reintroduces the belief problem it diagnoses: it runs ~1,600
+simultaneous hypothesis tests per run with no multiple-testing correction, tests the wrong
+null hypothesis, and writes a weight that violates the live schema. A falsification engine
+whose own statistics are anticonservative is a belief generator with extra steps. Every
+fix below stays inside the existing architecture; nothing structural changes.
+
+### F1 — Multiple testing is the load-bearing gap (must fix before Phase 1 ships)
+
+The loop tests every measurable `(symbol, tag)` pair at raw `p < 0.05`. With the 80-symbol
+universe and ~20 measurable tags that is ~1,600 simultaneous hypotheses per run - roughly
+80 expected false positives per run under the global null. The Simons-inversion / gap-discovery
+mode makes it strictly worse: scanning the full factor matrix for any threshold crossing is
+the garden of forking paths in its purest form. And weekly re-runs are uncorrected
+sequential testing - a truly null `(symbol, tag)` pair will eventually pass by chance, get
+written as `source='empirical'`, then flicker in and out on subsequent runs.
+
+This is structurally the same problem `ic_engine.py` already solves for features
+(module docstring: "BH-FDR multiple-testing correction"; `statsmodels multipletests` with
+`alpha.ic.fdr_alpha`, storing `bh_adjusted_p` / `passes_fdr` per row). The calibrator must
+apply the identical pattern:
+
+- **Correct once per run, at run level:** collect the raw p-value for every measured pair
+  into one vector, then `multipletests(p_vector, alpha=fdr_alpha, method='fdr_bh')`.
+- **Store both:** `p_value` (raw, HAC-robust per F4) and `bh_adjusted_p` + `passes_fdr` on
+  `instrument_tags` - mirroring `feature_ic_scores` columns, so downstream queries filter
+  on `passes_fdr`, never on raw p.
+- **BH validity:** instrument returns and factor series are positively cross-correlated;
+  BH-FDR remains valid under positive regression dependence (PRDS) - the same argument
+  `ic_engine` already relies on. If factor-series collinearity (TLT/IEF/SHY; VUG/VTV/MTUM)
+  ever proves material, `ic_engine`'s cluster-representative refinement (one representative
+  per correlated cluster enters `multipletests`) is the established in-house pattern to
+  borrow. Not needed for v1.
+- **Consequence for the schema:** the per-tag `p_value_threshold` column in
+  `tag_vocabulary` is incoherent under run-level FDR (per-hypothesis alpha and run-level
+  FDR control are competing regimes; keeping both invites silent misuse). Delete it
+  (5-step: delete). The run-level knob is one APR key: `alpha.tag_auditor.fdr_alpha`
+  (default 0.05, `[conventional]`, ML learning target: no).
+
+### F2 — The loop tests the wrong null
+
+Every derivation in this doc defines a tag by a *magnitude* claim (`rate_sensitive` =
+`abs(rate_beta) > 0.4`), but the loop keeps a tag whenever `beta ≠ 0` is significant.
+Those come apart in both directions: at n=252 a beta of 0.05 can be significant at
+p<0.001 (trivially nonzero, economically meaningless - `min_r2` is a patch over exactly
+this), and a marginal-sample beta of 0.6 can fail p<0.05 (economically large, expired
+anyway). The hypothesis IS the threshold; test it. Revised keep condition, two gates:
+
+1. **Existence:** `passes_fdr` on H0: loading = 0 (per F1, HAC SEs per F4).
+2. **Relevance:** `|loading| >= tag_vocabulary.loading_threshold` - the derivation
+   threshold, promoted from prose into a schema column. This replaces `min_r2`, which is
+   redundant once loading is standardized (for univariate OLS, r² = loading²; two knobs
+   encoding one quantity).
+
+And expiry gets hysteresis: a single failing run must not expire a tag (sequential-test
+flicker, F1). Expire only after `alpha.tag_auditor.expiry_consecutive_fails` (default 3,
+`[initial_estimate]`) consecutive failing runs - the same promote-slow/demote-deliberate
+discipline as `shadow_registry`, which this doc already cites as prior art but did not
+actually apply.
+
+### F3 — `weight = |beta|` is a bug against the live schema
+
+The doc's own evidence example is `{beta: -8.3, ...}`; the doc's own open-question section
+states the live CHECK constraint is `weight ∈ [0.0, 1.0]`. `weight = |beta|` = 8.3 fails
+the CHECK - the loop as written crashes on its first strongly-loaded instrument (loud, at
+least, but designed-in). Raw beta is also not comparable across instruments (a 3x levered
+ETF has equity_beta ≈ 3 by construction; that is leverage, not signal strength). Fix by
+standardizing:
+
+- `loading = beta * σ_factor / σ_instrument` - the standardized loading, which for
+  univariate OLS is exactly the return correlation, bounded `[-1, 1]`, comparable across
+  instruments and across tags.
+- `weight = |loading|` - satisfies the existing CHECK with no migration to `weight`.
+- `loading` becomes a first-class signed column on `instrument_tags` - which resolves the
+  "signed magnitude access pattern" open question above as a side effect (direction is
+  queryable; `evidence->>'beta'` remains raw-scale provenance only).
+- `loading_threshold` values in `tag_vocabulary` are then in correlation units, so one
+  threshold semantics works for `beta_regression` and `correlation` measurement types
+  alike - the factor-series mapping table's beta/correlation split becomes purely about
+  estimation method, not about interpretation.
+
+### F4 — Reuse the measurement kernel; do not grow a second one
+
+The loop as specced implies bespoke OLS/correlation/CI/p-value code inside the service.
+This repo already extracted shared IC math into `src/intelligence/statistics/ic_math.py`
+precisely because three consumers were reimplementing the same statistics (todo 048). Hold
+this design to that precedent from day one:
+
+- **Reuse directly:** `_fisher_z_ci` (CIs for the `correlation` measurement type - loading
+  IS a correlation after F3), `_p_values_from_ic` (correlation p-values), and the HAC
+  pattern from `_hac_sharpe_nd`.
+- **New math goes next to it:** `src/intelligence/statistics/factor_math.py` - pure
+  functions, no DB, no config imports (duck-typed config protocol, same as
+  `SharpeWindowConfig`). Contents: OLS loading with Newey-West (HAC) standard errors,
+  lagged cross-correlation, mutual information vs a discrete state series.
+- **HAC is not optional.** Daily-return volatility clustering makes plain OLS standard
+  errors anticonservative - which compounds F1 (too-small p-values feeding an uncorrected
+  multiple-testing procedure is the worst combination). `alpha.tag_auditor.hac_max_lag`
+  (default 5, `[conventional]`).
+
+### F5 — "Tests on next run" is not out-of-sample confirmation
+
+The promotion path validates an AI-discovered tag "on the next run." With a 252-day
+lookback and weekly cadence, the next run shares ~97% of its window with the run that
+generated the hypothesis. That is the same data voting twice. Discovered (previously
+unasserted) tags must be confirmed on data disjoint from the discovery window before the
+row is treated as established: hold them in a `pending_oos` state (or simply
+`source='empirical'` with `passes_fdr` but flagged in `evidence`) until they pass on
+`alpha.tag_auditor.discovery_oos_days` (default 63 - one quarter, `[initial_estimate]`)
+of post-discovery data. This mirrors `ic_engine`'s walk-forward embargo discipline: the
+gate that separates measurement from confirmation is temporal disjointness, nothing less.
+
+### F6 — Degenerate and contaminated regressions (silent-bias inventory)
+
+1. **Self-regression tautology:** TLT carries `rate_sensitive`, whose factor series is
+   TLT. The calibrator will regress TLT on itself, get loading = 1.0 / p ≈ 0, and
+   "empirically confirm" a tautology forever. Skip `symbol == factor_series` pairs and
+   write them as definitional-by-identity (annotation, not empirical row).
+2. **Futures factor series:** CL front month has roll gaps; unadjusted returns put a
+   spurious jump into every calibration window that spans a roll, contaminating every
+   `oil_price` loading. Factor return series built from futures must be roll-adjusted
+   (contract_metadata / roll_batch already knows the roll dates). Same applies if VIX
+   futures ever replace the VIX-changes series for `vol_beta`.
+3. **Phase 2 sample starvation:** conditioning on 9 cross-sectional regimes splits a
+   252-day lookback into strata that can drop below 30 observations. Per-stratum gate:
+   `alpha.tag_auditor.min_sample_n` (default 60, `[initial_estimate]`; the codebase
+   precedent is `sample_size >= 30`, doubled here because HAC estimation needs headroom).
+   And note: Phase 2 multiplies the hypothesis count by ~9 (→ ~14,000 tests/run), so F1's
+   FDR correction is a hard prerequisite for Phase 2, not an enhancement.
+4. **Metric cardinality:** `tag_calibration_total{symbol, tag, outcome}` is ~1,600 label
+   combinations today and ~16,000 at 10x - that fails the 10x gate for the metrics
+   backend. Labels should be `{tag, outcome}` only; per-symbol detail lives in the DB
+   rows, which are the queryable artifact anyway.
+
+### F7 — The half-life story contradicts itself between critique and schema
+
+The Simons critique says `beta_stability` should drive per-instrument half-lives
+("unstable instruments get shorter half-lives"). The schema then puts a single static
+`half_life_days` on `tag_vocabulary` - per tag, shared by every instrument carrying it.
+The critique's version is right and the schema can't express it. Fix without a new
+column: the calibrator computes an effective per-row half-life
+`clamp(tag_default * (universe_median_stability / instrument_stability), 30, 365)` and
+writes it into `instrument_tags.evidence.half_life_days` (the evidence example already
+shows a per-row `half_life_days` - the doc was one step from this already). Tag-level
+`half_life_days` stays as the prior/default. Clamp bounds as APR keys
+(`alpha.tag_auditor.half_life_min_days` / `half_life_max_days`). Fine to defer the
+coupling to Phase 1.5; not fine to leave the contradiction unstated.
+
+### F8 — The Simons inversion should be Phase 1, not a research item
+
+The doc treats "run the calibration unconditionally across all instruments, derive tags
+from the vector" as a future research item. With F1 in place it is actually the *simpler*
+design, and it should be the day-one loop:
+
+- Measuring all `(symbol, measurable-tag)` pairs instead of only asserted rows costs
+  nothing extra - it is the same regression loop over a fixed matrix (~1,600 cells of
+  252-point OLS; trivial compute, embarrassingly parallel if it ever matters).
+- It fixes a subtle selection bias in the v1.3 loop: testing only human-asserted pairs
+  conditions the FDR denominator on human beliefs. The full matrix gives BH-FDR its
+  honest denominator.
+- Discovery stops being a separate scanning mode: a "discovered tag" is simply a pair
+  that passes F1+F2 gates where no row existed (then held for F5's OOS confirmation),
+  and a "gap annotation" is a pair that passes with no human assertion. One uniform
+  measurement pass; assertion, validation, and discovery become three read-outs of the
+  same matrix.
+
+This deletes the Phase-1-vs-discovery split entirely. Human-asserted rows keep exactly the
+role § Philosophy already gives them - seed priors, never auto-expired - but the engine
+never special-cases them in measurement.
+
+### F9 — Naming and housekeeping
+
+- **`TagAuditor` overloads "auditor."** In this codebase auditors are health-check daemons
+  (`BarAuditor`, `service_auditor.py`); this service estimates parameters, which is
+  calibration. The filename already says `tag-calibrator`. Recommend concept name
+  `tag_calibrator` → `TagCalibrator` → `indicagent-tag-calibrator.timer/.service` →
+  `job='tag-calibrator'` (glossary one-term rule; naming-system derivation). Doc title
+  left as-is pending the rename decision at planning time.
+- **Extend `BaseBatch`** (`src/core/agent/base_batch.py`) - the "timer-triggered like
+  roll_batch.py" framing predates it; BaseBatch is the house pattern for Phase 138+ batch
+  services and gives D-06 `job_completed_total` for free.
+- Count drift, cadence contradiction (nightly vs weekly), and the broken
+  `platform-09-` forward-reference filename: corrected inline above, marked.
+
+### Revised schema (supersedes § Schema additions)
+
+```sql
+ALTER TABLE tag_vocabulary
+  ADD COLUMN factor_series      text,     -- canonical regressor ('TLT', 'HYG'); NULL for definitional
+  ADD COLUMN measurement_type   text DEFAULT 'beta_regression'
+      CHECK (measurement_type IN (
+          'beta_regression', 'correlation', 'cross_correlation',
+          'mutual_information', 'definitional')),
+  ADD COLUMN lookback_days      int   DEFAULT 252,
+  ADD COLUMN loading_threshold  float,    -- F2: the magnitude hypothesis, in correlation units
+  ADD COLUMN half_life_days     int   DEFAULT 180;
+  -- p_value_threshold: deleted (F1 - run-level FDR replaces per-hypothesis alpha)
+  -- min_r2:            deleted (F2/F3 - redundant with loading_threshold; r² = loading²)
+
+ALTER TABLE instrument_tags
+  ADD COLUMN loading           float,    -- F3: signed standardized loading, [-1, 1]
+  ADD COLUMN p_value           float,    -- raw, HAC-robust (F4)
+  ADD COLUMN bh_adjusted_p     float,    -- F1
+  ADD COLUMN passes_fdr        boolean,  -- F1
+  ADD COLUMN consecutive_fails int DEFAULT 0,  -- F2 hysteresis
+  ADD COLUMN sample_n          int,
+  ADD COLUMN estimated_at      timestamptz;
+-- weight (existing, CHECK [0,1]) := |loading|. No change to the column.
+```
+
+### Revised calibration loop (supersedes § Calibration loop)
+
+```
+weekly TagCalibrator (BaseBatch oneshot, indicagent-tag-calibrator.timer, Sunday night)
+
+pass 1 - measure the full matrix (F8):
+  for each (symbol, tag) in instruments x measurable tag_vocabulary rows
+      where measurement_type != 'definitional'
+        and symbol != tag.factor_series            -- F6.1
+        and symbol has >= lookback_days daily bars:
+    compute loading, raw HAC p-value, sample_n     -- factor_math.py (F4)
+    collect (pair, p) into the run-level p-vector
+
+pass 2 - correct once (F1):
+  bh_adjusted_p, passes_fdr = multipletests(p_vector, alpha=fdr_alpha, method='fdr_bh')
+
+pass 3 - decide per pair (F2):
+  keep = passes_fdr AND |loading| >= loading_threshold
+  keep, row exists:      UPSERT empirical row; consecutive_fails = 0
+  keep, no row:          INSERT empirical row flagged pending-OOS until
+                         discovery_oos_days of disjoint data confirm (F5);
+                         if no human assertion either: gap annotation (ai_insight)
+  fail, empirical row:   consecutive_fails += 1;
+                         if >= expiry_consecutive_fails: valid_to = now() + annotation
+  fail, human-only row:  never expired (seed prior, per § Philosophy); annotation notes
+                         the measured contradiction so humans see it
+
+OTel: tag_calibration_total{tag, outcome=kept|expired|discovered|pending} (F6.4)
+      job_completed_total{job='tag-calibrator', status}
+```
+
+### APR keys introduced by this review
+
+| Key | Default | Provenance |
+|-----|---------|------------|
+| `alpha.tag_auditor.fdr_alpha` | 0.05 | `[conventional]` |
+| `alpha.tag_auditor.expiry_consecutive_fails` | 3 | `[initial_estimate]` |
+| `alpha.tag_auditor.discovery_oos_days` | 63 | `[initial_estimate]` |
+| `alpha.tag_auditor.min_sample_n` | 60 | `[initial_estimate]` |
+| `alpha.tag_auditor.hac_max_lag` | 5 | `[conventional]` |
+| `alpha.tag_auditor.half_life_min_days` | 30 | `[initial_estimate]` |
+| `alpha.tag_auditor.half_life_max_days` | 365 | `[initial_estimate]` |
+
+(Namespace note: `alpha.*` because this is measurement-stack machinery alongside
+`alpha.ic.*`; per-tag knobs - lookback, loading_threshold, half-life default - correctly
+live as `tag_vocabulary` columns, which is this system's data-driven analog of APR.
+Swap the prefix to `tag_calibrator` if F9's rename lands.)
+
+### CLAUDE.md 4-question gate
+
+1. **10x volume?** Yes - 16,000 cells of 252-point univariate OLS is trivial compute, and
+   run-level FDR is O(n log n) in the pair count. The one 10x failure was metric label
+   cardinality; fixed in F6.4.
+2. **Silent failures / hidden bias?** The v1.3 spec had five: uncorrected multiple testing
+   (F1), anticonservative OLS SEs (F4), self-regression tautologies (F6.1), futures roll
+   contamination (F6.2), and overlapping-window "confirmation" (F5). Plus one loud one:
+   the weight CHECK violation (F3). All addressed above.
+3. **DAG holds?** Yes - Ring 2 batch measurement oneshot (same exemption class as
+   `ic_engine`), sole empirical writer to `instrument_tags`, no Kafka inter-stage pipe,
+   reads regime state from the DB. Extending `BaseBatch` (F9) keeps it on the paved road.
+4. **Manual step eliminated?** Hand-maintained tag weights and hand-enumerated tag
+   discovery - and with F8, also the manual decision of *which* pairs to test.
+
+### Sequencing
+
+Phase 1 = F8's full-matrix loop with F1-F4 and F6.1-F6.2 built in (they are cheap at
+design time and expensive to retrofit); F5's OOS confirmation gate in the same phase since
+discovery is now day-one behavior. F7's stability-driven half-life is Phase 1.5. Phase 2
+(regime conditioning) unchanged in intent, but gated on F1 by construction and on F6.3's
+per-stratum sample gate.
