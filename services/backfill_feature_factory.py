@@ -441,6 +441,18 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         ret_lag_mid=int(cfg.get_sync("feature.ret_lag.mid", 20)),
         ret_lag_slow=int(cfg.get_sync("feature.ret_lag.slow", 60)),
         overnight_gap_window=int(cfg.get_sync("feature.overnight_gap.window", 20)),
+        dollar_vol_window=int(cfg.get_sync("feature.dollar_vol.window", 20)),
+        vol_range_ratio_window=int(cfg.get_sync("feature.vol_range_ratio.window", 20)),
+        vol_trend_fast=int(cfg.get_sync("feature.vol_trend.fast", 5)),
+        vol_trend_slow=int(cfg.get_sync("feature.vol_trend.slow", 20)),
+        up_vol_ratio_fast=int(cfg.get_sync("feature.up_vol_ratio.fast", 5)),
+        up_vol_ratio_slow=int(cfg.get_sync("feature.up_vol_ratio.slow", 20)),
+        vol_percentile_window=int(cfg.get_sync("feature.vol_percentile.window", 20)),
+        vol_persistence_window=int(cfg.get_sync("feature.vol_persistence.window", 20)),
+        vol_std_window=int(cfg.get_sync("feature.vol_std.window", 20)),
+        mfi_fast=int(cfg.get_sync("feature.mfi.fast", 7)),
+        mfi_slow=int(cfg.get_sync("feature.mfi.slow", 14)),
+        obv_window=int(cfg.get_sync("feature.obv.window", 20)),
     )
 
 

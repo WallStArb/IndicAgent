@@ -78,6 +78,18 @@ def _make_config(**overrides: int) -> FeatureFactoryConfig:
         ret_lag_mid=20,
         ret_lag_slow=60,
         overnight_gap_window=20,
+        dollar_vol_window=20,
+        vol_range_ratio_window=20,
+        vol_trend_fast=5,
+        vol_trend_slow=20,
+        up_vol_ratio_fast=5,
+        up_vol_ratio_slow=20,
+        vol_percentile_window=20,
+        vol_persistence_window=20,
+        vol_std_window=20,
+        mfi_fast=7,
+        mfi_slow=14,
+        obv_window=20,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)

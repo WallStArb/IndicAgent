@@ -483,6 +483,19 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.ret_lag.mid", 20),
         ("feature.ret_lag.slow", 60),
         ("feature.overnight_gap.window", 20),
+        # --- migration 206: Phase 142.5 Plan 02 Renaissance primitives (volume structure) ---
+        ("feature.dollar_vol.window", 20),
+        ("feature.vol_range_ratio.window", 20),
+        ("feature.vol_trend.fast", 5),
+        ("feature.vol_trend.slow", 20),
+        ("feature.up_vol_ratio.fast", 5),
+        ("feature.up_vol_ratio.slow", 20),
+        ("feature.vol_percentile.window", 20),
+        ("feature.vol_persistence.window", 20),
+        ("feature.vol_std.window", 20),
+        ("feature.mfi.fast", 7),
+        ("feature.mfi.slow", 14),
+        ("feature.obv.window", 20),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -548,6 +561,18 @@ class FeatureVectorPipeline(BaseDaemon):
             ret_lag_mid=_int("feature.ret_lag.mid", 20),
             ret_lag_slow=_int("feature.ret_lag.slow", 60),
             overnight_gap_window=_int("feature.overnight_gap.window", 20),
+            dollar_vol_window=_int("feature.dollar_vol.window", 20),
+            vol_range_ratio_window=_int("feature.vol_range_ratio.window", 20),
+            vol_trend_fast=_int("feature.vol_trend.fast", 5),
+            vol_trend_slow=_int("feature.vol_trend.slow", 20),
+            up_vol_ratio_fast=_int("feature.up_vol_ratio.fast", 5),
+            up_vol_ratio_slow=_int("feature.up_vol_ratio.slow", 20),
+            vol_percentile_window=_int("feature.vol_percentile.window", 20),
+            vol_persistence_window=_int("feature.vol_persistence.window", 20),
+            vol_std_window=_int("feature.vol_std.window", 20),
+            mfi_fast=_int("feature.mfi.fast", 7),
+            mfi_slow=_int("feature.mfi.slow", 14),
+            obv_window=_int("feature.obv.window", 20),
         )
 
         self.logger.info(

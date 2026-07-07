@@ -199,6 +199,18 @@ class FeatureFactoryConfig:
         ret_lag_mid: APR feature.ret_lag.mid
         ret_lag_slow: APR feature.ret_lag.slow
         overnight_gap_window: APR feature.overnight_gap.window
+        dollar_vol_window: APR feature.dollar_vol.window
+        vol_range_ratio_window: APR feature.vol_range_ratio.window
+        vol_trend_fast: APR feature.vol_trend.fast
+        vol_trend_slow: APR feature.vol_trend.slow
+        up_vol_ratio_fast: APR feature.up_vol_ratio.fast
+        up_vol_ratio_slow: APR feature.up_vol_ratio.slow
+        vol_percentile_window: APR feature.vol_percentile.window
+        vol_persistence_window: APR feature.vol_persistence.window
+        vol_std_window: APR feature.vol_std.window
+        mfi_fast: APR feature.mfi.fast
+        mfi_slow: APR feature.mfi.slow
+        obv_window: APR feature.obv.window
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -255,6 +267,19 @@ class FeatureFactoryConfig:
     ret_lag_mid: int  # feature.ret_lag.mid
     ret_lag_slow: int  # feature.ret_lag.slow
     overnight_gap_window: int  # feature.overnight_gap.window
+    # Renaissance Primitives — volume structure (Phase 142.5 Plan 02)
+    dollar_vol_window: int  # feature.dollar_vol.window
+    vol_range_ratio_window: int  # feature.vol_range_ratio.window
+    vol_trend_fast: int  # feature.vol_trend.fast
+    vol_trend_slow: int  # feature.vol_trend.slow
+    up_vol_ratio_fast: int  # feature.up_vol_ratio.fast
+    up_vol_ratio_slow: int  # feature.up_vol_ratio.slow
+    vol_percentile_window: int  # feature.vol_percentile.window
+    vol_persistence_window: int  # feature.vol_persistence.window
+    vol_std_window: int  # feature.vol_std.window
+    mfi_fast: int  # feature.mfi.fast
+    mfi_slow: int  # feature.mfi.slow
+    obv_window: int  # feature.obv.window
 
 
 # ---------------------------------------------------------------------------
