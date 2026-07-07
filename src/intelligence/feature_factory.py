@@ -1434,136 +1434,13 @@ def _bb_pct_b(closes_window: np.ndarray, eps: float = 1e-10) -> float:
 # Renaissance Primitives — Alternative Volatility Estimators (Phase 142.5 Plan 04)
 #
 # Parkinson/Garman-Klass/Yang-Zhang all extract more information from a single
-# bar's OHLC than a close-only estimator (ATR/HV). The scalar raw-term
-# functions below compute the classic single-bar (Parkinson/GK) or windowed
-# (YZ) variance proxy; the _z wrappers smooth (Parkinson/GK) or window (YZ)
-# that proxy and z-score it -- both delegate to the vectorized _series_full
-# implementations further below so there is one source of truth for the
-# math (compute() and compute_batch() both read those same arrays).
+# bar's OHLC than a close-only estimator (ATR/HV), and volatility dynamics
+# (first derivatives of those z-scores) capture panic onset vs stabilization.
+# All of these are computed only by the vectorized _series_full
+# implementations further below (single source of truth read by both
+# compute() and compute_batch()) — there are no standalone scalar wrappers
+# here since nothing outside this module calls them individually.
 # ---------------------------------------------------------------------------
-
-
-def _parkinson_vol(high: float, low: float, eps: float = 1e-10) -> float:
-    """Parkinson single-bar variance proxy: ln(H/L)^2 / (4*ln(2)).
-
-    4*ln(2) is the Parkinson estimator's definitional normalizing constant
-    (not APR-tunable — same status as Garman-Klass's `2*ln(2)-1` term below).
-    Returns 0.0 on a degenerate/inverted bar (H <= L or L <= eps).
-    """
-    if high <= low or low <= eps:
-        return 0.0
-    return (math.log(high / low) ** 2) / (4.0 * math.log(2.0))
-
-
-def _garman_klass_vol(
-    open_: float, high: float, low: float, close: float, eps: float = 1e-10
-) -> float:
-    """Garman-Klass single-bar variance proxy:
-    0.5*ln(H/L)^2 - (2*ln(2)-1)*ln(C/O)^2.
-
-    `2*ln(2)-1` is the estimator's definitional weighting constant (not
-    APR-tunable). Returns 0.0 on a degenerate bar (H <= L, or O/C <= eps).
-    """
-    if high <= low or low <= eps or open_ <= eps or close <= eps:
-        return 0.0
-    hl_term = 0.5 * (math.log(high / low) ** 2)
-    co_term = (2.0 * math.log(2.0) - 1.0) * (math.log(close / open_) ** 2)
-    return hl_term - co_term
-
-
-def _yang_zhang_vol(
-    opens_window: np.ndarray,
-    closes_window: np.ndarray,
-    prev_closes_window: np.ndarray,
-    k: float = 0.34,
-) -> float:
-    """Yang-Zhang variance estimator over a window of bars:
-    var(overnight_gap) + k*var(open-to-close), where overnight_gap =
-    ln(O_t/prev_C_{t-1}) and open-to-close = ln(C_t/O_t).
-
-    k ~= 0.34 is the standard Yang-Zhang weighting constant (definitional,
-    not APR-tunable -- same status as the Parkinson/GK constants above).
-    Returns 0.0 on insufficient history (fewer than 2 bars in the window).
-    """
-    if len(opens_window) < 2:
-        return 0.0
-    o = opens_window.astype(float)
-    c = closes_window.astype(float)
-    prev_c = prev_closes_window.astype(float)
-    overnight = np.log(np.maximum(o, 1e-10) / np.maximum(prev_c, 1e-10))
-    o2c = np.log(np.maximum(c, 1e-10) / np.maximum(o, 1e-10))
-    return float(np.var(overnight) + k * np.var(o2c))
-
-
-def _parkinson_vol_z(highs: np.ndarray, lows: np.ndarray, window: int, zscore_window: int) -> float:
-    """Z-score of the rolling-averaged Parkinson variance proxy. Delegates to
-    `_parkinson_vol_z_series_full` (single source of truth shared with
-    compute_batch()) and returns its last element. Returns 0.0 on cold start.
-    """
-    return _series_last(_parkinson_vol_z_series_full(highs, lows, window, zscore_window), 0.0)
-
-
-def _garman_klass_vol_z(
-    opens: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    window: int,
-    zscore_window: int,
-) -> float:
-    """Z-score of the rolling-averaged Garman-Klass variance proxy. Delegates
-    to `_garman_klass_vol_z_series_full`. Returns 0.0 on cold start.
-    """
-    return _series_last(
-        _garman_klass_vol_z_series_full(opens, highs, lows, closes, window, zscore_window), 0.0
-    )
-
-
-def _yang_zhang_vol_z(
-    opens: np.ndarray, closes: np.ndarray, window: int, zscore_window: int
-) -> float:
-    """Z-score of the rolling Yang-Zhang variance estimator. Delegates to
-    `_yang_zhang_vol_z_series_full`. Returns 0.0 on cold start.
-    """
-    return _series_last(_yang_zhang_vol_z_series_full(opens, closes, window, zscore_window), 0.0)
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Volatility Dynamics (Phase 142.5 Plan 04)
-#
-# First derivatives of the 3 alt-vol z-scores (panic onset vs stabilization),
-# a normalized velocity of atr_z, and an intraday choppiness measure.
-# parkinson/garman_klass/yang_zhang_vol_velocity are computed inline in
-# compute()/compute_batch() as a difference of two precomputed z-score-series
-# elements (stateless, no separate helper needed -- see Deviations/decisions
-# in the plan summary).
-# ---------------------------------------------------------------------------
-
-
-def _vol_velocity_z(atr_z_values: np.ndarray, window: int) -> float:
-    """Z-score of the rolling velocity (first difference) of atr_z. Delegates
-    to `_vol_velocity_z_series_full`. Returns 0.0 on cold start.
-    """
-    return _series_last(_vol_velocity_z_series_full(atr_z_values, window), 0.0)
-
-
-def _intraday_noise_ratio(closes: np.ndarray, session_bars: int, eps: float = 1e-10) -> float:
-    """Intraday noise ratio: sum(|log_ret|) / |net log_ret| over the trailing
-    `session_bars` window. High values indicate choppy back-and-forth
-    movement; values near 1.0 indicate a clean directional move. Returns 1.0
-    (neutral) when net progress is at or near zero, 0.0 when insufficient
-    history exists (fewer than session_bars + 1 closes).
-    """
-    n = len(closes)
-    if n < session_bars + 1:
-        return 0.0
-    window = closes[-(session_bars + 1) :].astype(float)
-    log_rets = np.diff(np.log(np.maximum(window, 1e-10)))
-    sum_abs = float(np.sum(np.abs(log_rets)))
-    net = float(np.sum(log_rets))
-    if abs(net) < eps:
-        return 1.0
-    return sum_abs / abs(net)
 
 
 # ---------------------------------------------------------------------------
@@ -1582,28 +1459,13 @@ def _intraday_noise_ratio(closes: np.ndarray, session_bars: int, eps: float = 1e
 # ---------------------------------------------------------------------------
 
 
-def _vol_body_product(body_ratio: float, volume_z: float) -> float:
-    """vol_body_product = body_ratio * volume_z. Pure product of Plan 01's
-    body_ratio and baseline volume_z -- no new window. Unbounded, symmetric
-    around 0.
+def _product(a: float, b: float) -> float:
+    """Pure product of two already-computed parent scalars -- no new window.
+    Shared by vol_body_product, ret_vol_product_fast, range_vol_product, and
+    vol_skew_product (all four were byte-identical `a * b` bodies). Unbounded,
+    symmetric around 0.
     """
-    return body_ratio * volume_z
-
-
-def _ret_vol_product(ret_lag: float, volume_z: float) -> float:
-    """ret_vol_product = ret_lag * volume_z. Pure product; reused for
-    ret_vol_product_fast with ret_lag = ret_lag_fast (Plan 01) against
-    baseline volume_z -- no new window. Unbounded, symmetric around 0.
-    """
-    return ret_lag * volume_z
-
-
-def _range_vol_product(range_vs_atr: float, volume_z: float) -> float:
-    """range_vol_product = range_vs_atr * volume_z. Pure product of Plan 01's
-    range_vs_atr and baseline volume_z -- no new window. Unbounded, symmetric
-    around 0.
-    """
-    return range_vs_atr * volume_z
+    return a * b
 
 
 def _up_vol_body_diff(up_vol_ratio: float, body_ratio: float) -> float:
@@ -1623,42 +1485,6 @@ def _ret_vol_ratio(ret_lag: float, atr_z: float, eps: float = 1e-10) -> float:
     if abs(atr_z) < eps:
         return 0.0
     return ret_lag / atr_z
-
-
-def _vol_skew_product(ret_skew_z: float, volume_z: float) -> float:
-    """vol_skew_product = ret_skew_z * volume_z. Pure product of two baseline
-    scalars -- no new window. Unbounded, symmetric around 0.
-    """
-    return ret_skew_z * volume_z
-
-
-def _price_vol_corr(
-    closes: np.ndarray, volumes: np.ndarray, window: int, eps: float = 1e-10
-) -> float:
-    """Rolling Pearson correlation between |log return| and volume over the
-    trailing `window` bars -- the only 2 of the 8 interactions needing a new
-    APR window (feature.price_vol_corr.fast/slow). Deterministic combination
-    of the price-shock-magnitude series and the volume series already
-    available to FeatureFactory; no new market theory.
-
-    Returns 0.0 when insufficient history (len(closes) < window + 1) or when
-    either sliced series has near-zero variance (degenerate: constant price
-    or constant volume). Any NaN from np.corrcoef (can occur under
-    floating-point edge cases even past the std guard) is clamped to 0.0.
-    Bounded [-1, 1].
-    """
-    if len(closes) < window + 1:
-        return 0.0
-    abs_rets = np.abs(np.diff(np.log(np.maximum(closes.astype(float), eps))))
-    vol_aligned = volumes[-len(abs_rets) :].astype(float)
-    abs_rets_window = abs_rets[-window:]
-    vol_window = vol_aligned[-window:]
-    if len(abs_rets_window) < 2:
-        return 0.0
-    if float(np.std(abs_rets_window)) < eps or float(np.std(vol_window)) < eps:
-        return 0.0
-    corr = np.corrcoef(abs_rets_window, vol_window)[0, 1]
-    return float(corr) if math.isfinite(corr) else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -2801,9 +2627,11 @@ def _yang_zhang_vol_z_series_full(
     opens: np.ndarray, closes: np.ndarray, window: int, zscore_window: int
 ) -> np.ndarray:
     """z-score of the rolling Yang-Zhang variance estimator (var(overnight) +
-    k*var(open-to-close), k ~= 0.34, definitional). O(n x window) — same
-    cost class as the pre-existing _high_low_corr_series_full/
-    _vol_asymmetry_z_series_full nested-window loops.
+    k*var(open-to-close), k ~= 0.34, definitional). O(n) via the same
+    cumsum-based rolling-variance building block _rolling_std_series already
+    provides (var = std^2) -- both series share its expanding-until-window
+    trailing semantics, so this is an exact, not approximate, replacement
+    for a naive per-bar np.var(window_slice) loop.
     """
     n = len(closes)
     if n < 2:
@@ -2814,15 +2642,9 @@ def _yang_zhang_vol_z_series_full(
     overnight = np.log(np.maximum(o, 1e-10) / np.maximum(prev_c, 1e-10))
     o2c = np.log(np.maximum(c, 1e-10) / np.maximum(o, 1e-10))
     k = 0.34
-    yz = np.zeros(n, dtype=float)
-    for i in range(n):
-        w = min(window, i + 1)
-        if w < 2:
-            continue
-        start = i + 1 - w
-        var_overnight = float(np.var(overnight[start : i + 1]))
-        var_o2c = float(np.var(o2c[start : i + 1]))
-        yz[i] = var_overnight + k * var_o2c
+    var_overnight = _rolling_std_series(overnight, window) ** 2
+    var_o2c = _rolling_std_series(o2c, window) ** 2
+    yz = var_overnight + k * var_o2c
     return _fixed_window_zscore_series(yz, zscore_window)
 
 
@@ -2842,10 +2664,11 @@ def _vol_velocity_z_series_full(atr_z: np.ndarray, window: int) -> np.ndarray:
 def _intraday_noise_ratio_series_full(
     closes: np.ndarray, session_bars: int, eps: float = 1e-10
 ) -> np.ndarray:
-    """result[i] == streaming _intraday_noise_ratio(closes[:i+1], session_bars)
-    at bar i. O(n) via cumsum of |log_ret| and log_ret over a fixed
-    `session_bars` window. Stays 0.0 until i >= session_bars (matches the
-    streaming function's insufficient-history guard).
+    """result[i] == the intraday noise ratio (sum(|log_ret|) / |net log_ret|)
+    over the trailing `session_bars` bars ending at bar i. O(n) via cumsum of
+    |log_ret| and log_ret over a fixed `session_bars` window. Stays 0.0 until
+    i >= session_bars (insufficient-history guard); 1.0 when net progress is
+    at or near zero (no dominant direction).
     """
     n = len(closes)
     result = np.zeros(n, dtype=float)
@@ -2865,30 +2688,42 @@ def _intraday_noise_ratio_series_full(
 # ---------------------------------------------------------------------------
 # Renaissance Primitives — Price-Volume Interactions batch precompute
 # (Phase 142.5 Plan 05.5)
-# result[i] matches the corresponding streaming _price_vol_corr() value at
-# bar i. The 6 window-free scalar combinators need no series_full function --
-# they are O(1) per bar, computed inline in compute()/compute_batch() from
+# result[i] matches the streaming rolling Pearson correlation between
+# |log return| and volume over the trailing `window` bars ending at bar i.
+# The 6 window-free scalar combinators need no series_full function -- they
+# are O(1) per bar, computed inline in compute()/compute_batch() from
 # already-available parent scalars.
 # ---------------------------------------------------------------------------
 
 
 def _price_vol_corr_series_full(
-    closes: np.ndarray, volumes: np.ndarray, window: int, eps: float = 1e-10
+    closes: np.ndarray,
+    volumes: np.ndarray,
+    window: int,
+    eps: float = 1e-10,
+    abs_rets: np.ndarray | None = None,
 ) -> np.ndarray:
-    """result[i] == streaming _price_vol_corr(closes[:i+1], volumes[:i+1],
-    window) for every bar i. O(n x window) -- same cost class as
-    _high_low_corr_series_full, since rolling Pearson correlation under a
-    strict (non-expanding) window-size gate has no O(n) prefix-sum shortcut.
+    """Rolling Pearson correlation between |log return| and volume over the
+    trailing `window` bars ending at bar i, for every i. O(n x window) --
+    same cost class as the pre-existing _high_low_corr_series_full; kept
+    intentionally consistent with that established rolling-correlation
+    pattern rather than introducing a one-off O(n) prefix-sum variant that
+    would diverge from it. Degeneracy handling (near-zero variance in either
+    slice -> 0.0) delegates to `_correlation()`, the same shared helper
+    _high_low_corr_series_full already uses.
 
-    abs_rets is precomputed once over the full array (O(n)); the loop only
-    slices bounded `window`-sized chunks of abs_rets/volumes per bar, so the
-    per-bar cost is O(window), not O(i).
+    `abs_rets` may be passed in precomputed (the fast/slow calls in
+    `_precompute_series` share one `abs_rets` array rather than each
+    recomputing it from `closes`); if omitted it's derived here. Either way
+    it's an O(n) pass, and the loop only slices bounded `window`-sized chunks
+    of abs_rets/volumes per bar, so the per-bar cost is O(window), not O(i).
     """
     n = len(closes)
     result = np.zeros(n, dtype=float)
     if n < 2:
         return result
-    abs_rets = np.abs(np.diff(np.log(np.maximum(closes.astype(float), eps))))
+    if abs_rets is None:
+        abs_rets = np.abs(np.diff(np.log(np.maximum(closes.astype(float), eps))))
     vols = volumes.astype(float)
     for i in range(n):
         if i < window:
@@ -2898,10 +2733,7 @@ def _price_vol_corr_series_full(
         vol_w = vols[start + 1 : i + 1]
         if len(rets_w) < 2:
             continue
-        if float(np.std(rets_w)) < eps or float(np.std(vol_w)) < eps:
-            continue
-        corr = np.corrcoef(rets_w, vol_w)[0, 1]
-        result[i] = float(corr) if math.isfinite(corr) else 0.0
+        result[i] = _correlation(rets_w, vol_w)
     return result
 
 
@@ -3035,6 +2867,10 @@ def _precompute_series(
     atr_raw = _atr_series_full(highs, lows, closes, config.adx_period)
     atr_padded = np.concatenate([[0.0], atr_raw])
     atr_z = _rolling_zscore_series(atr_padded, config.momentum_zscore_window)
+    # Shared once for both price_vol_corr_fast/slow below (same |log return|
+    # series either window correlates against volume) rather than each
+    # recomputing it from closes.
+    price_vol_abs_rets = np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))
 
     return _PrecomputedSeries(
         atr_raw=atr_raw,
@@ -3161,10 +2997,10 @@ def _precompute_series(
             closes, config.intraday_noise_window
         ),
         price_vol_corr_fast=_price_vol_corr_series_full(
-            closes, volumes, config.price_vol_corr_fast
+            closes, volumes, config.price_vol_corr_fast, abs_rets=price_vol_abs_rets
         ),
         price_vol_corr_slow=_price_vol_corr_series_full(
-            closes, volumes, config.price_vol_corr_slow
+            closes, volumes, config.price_vol_corr_slow, abs_rets=price_vol_abs_rets
         ),
     )
 
@@ -3614,12 +3450,12 @@ class FeatureFactory:
         atr_z_val = _series_last(s.atr_z, 0.0)
         ret_skew_z_val = _series_last(s.ret_skew_z, 0.0)
         up_vol_ratio_fast_val = _series_last(s.up_vol_ratio_fast, 0.5)
-        vol_body_product_val = _vol_body_product(body_ratio_val, volume_z_val)
-        ret_vol_product_fast_val = _ret_vol_product(ret_lag_fast_val, volume_z_val)
-        range_vol_product_val = _range_vol_product(range_vs_atr_val, volume_z_val)
+        vol_body_product_val = _product(body_ratio_val, volume_z_val)
+        ret_vol_product_fast_val = _product(ret_lag_fast_val, volume_z_val)
+        range_vol_product_val = _product(range_vs_atr_val, volume_z_val)
         up_vol_body_diff_val = _up_vol_body_diff(up_vol_ratio_fast_val, body_ratio_val)
         ret_vol_ratio_fast_val = _ret_vol_ratio(ret_lag_fast_val, atr_z_val)
-        vol_skew_product_val = _vol_skew_product(ret_skew_z_val, volume_z_val)
+        vol_skew_product_val = _product(ret_skew_z_val, volume_z_val)
         price_vol_corr_fast_val = _series_last(s.price_vol_corr_fast, 0.0)
         price_vol_corr_slow_val = _series_last(s.price_vol_corr_slow, 0.0)
 
@@ -4164,12 +4000,12 @@ class FeatureFactory:
             # computed scalar locals (O(1) per bar); the 2 rolling
             # correlations read the precomputed series (O(n) total, not
             # per-bar O(n x window)), guaranteeing exact parity with compute().
-            vol_body_product_val = _vol_body_product(body_ratio_val, volume_z_val)
-            ret_vol_product_fast_val = _ret_vol_product(ret_lag_fast_val, volume_z_val)
-            range_vol_product_val = _range_vol_product(range_vs_atr_val, volume_z_val)
+            vol_body_product_val = _product(body_ratio_val, volume_z_val)
+            ret_vol_product_fast_val = _product(ret_lag_fast_val, volume_z_val)
+            range_vol_product_val = _product(range_vs_atr_val, volume_z_val)
             up_vol_body_diff_val = _up_vol_body_diff(up_vol_ratio_fast_val, body_ratio_val)
             ret_vol_ratio_fast_val = _ret_vol_ratio(ret_lag_fast_val, atr_z_val)
-            vol_skew_product_val = _vol_skew_product(ret_skew_z_val, volume_z_val)
+            vol_skew_product_val = _product(ret_skew_z_val, volume_z_val)
             price_vol_corr_fast_val = (
                 float(s.price_vol_corr_fast[i]) if i < len(s.price_vol_corr_fast) else 0.0
             )

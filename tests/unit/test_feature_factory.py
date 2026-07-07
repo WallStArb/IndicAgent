@@ -1100,26 +1100,23 @@ def test_price_volume_interactions() -> None:
 
 
 def test_price_volume_interaction_helpers_direct() -> None:
-    """Direct unit coverage of the 7 price-volume-interaction helper functions
+    """Direct unit coverage of the price-volume-interaction helper functions
     (exact products/ratios + epsilon-guard edge cases), independent of the
     FeatureFactory.compute() integration test above.
     """
     from src.intelligence.feature_factory import (
-        _price_vol_corr,
-        _range_vol_product,
-        _ret_vol_product,
+        _price_vol_corr_series_full,
+        _product,
         _ret_vol_ratio,
         _up_vol_body_diff,
-        _vol_body_product,
-        _vol_skew_product,
     )
 
-    # Test 1: _vol_body_product returns body_ratio * volume_z (pure product).
-    assert _vol_body_product(0.4, 2.0) == pytest.approx(0.8)
-    # Test 2: _ret_vol_product returns ret_lag * volume_z.
-    assert _ret_vol_product(0.02, -1.5) == pytest.approx(-0.03)
-    # Test 3: _range_vol_product returns range_vs_atr * volume_z.
-    assert _range_vol_product(1.2, 0.5) == pytest.approx(0.6)
+    # Test 1-3, 6: _product returns a * b (pure product) -- shared by
+    # vol_body_product, ret_vol_product_fast, range_vol_product, vol_skew_product.
+    assert _product(0.4, 2.0) == pytest.approx(0.8)
+    assert _product(0.02, -1.5) == pytest.approx(-0.03)
+    assert _product(1.2, 0.5) == pytest.approx(0.6)
+    assert _product(-0.3, 1.1) == pytest.approx(-0.33)
     # Test 4: _up_vol_body_diff returns up_vol_ratio - body_ratio, bounded ~[-1, 1].
     assert _up_vol_body_diff(0.7, 0.4) == pytest.approx(0.3)
     assert _up_vol_body_diff(0.0, 1.0) == pytest.approx(-1.0)
@@ -1127,25 +1124,26 @@ def test_price_volume_interaction_helpers_direct() -> None:
     assert _ret_vol_ratio(0.04, 2.0) == pytest.approx(0.02)
     assert _ret_vol_ratio(0.04, 0.0) == 0.0
     assert _ret_vol_ratio(0.04, 1e-12) == 0.0
-    # Test 6: _vol_skew_product returns ret_skew_z * volume_z.
-    assert _vol_skew_product(-0.3, 1.1) == pytest.approx(-0.33)
 
-    # Test 7/8: _price_vol_corr — bounded [-1, 1] on warm input; 0.0 on
-    # insufficient history and on degenerate (constant volume / constant
-    # returns) input.
+    # Test 7/8: _price_vol_corr_series_full's last element — bounded [-1, 1]
+    # on warm input; 0.0 on insufficient history and on degenerate (constant
+    # volume / constant returns) input. (No standalone scalar wrapper exists
+    # for this primitive — compute()/compute_batch() both read this same
+    # vectorized series directly, so testing its last element IS testing the
+    # production code path, not a parallel reimplementation of it.)
     rng = np.random.default_rng(7)
     closes = np.cumprod(1.0 + rng.normal(0, 0.01, 60)) * 100.0
     volumes = rng.uniform(1e5, 1e6, 60)
-    corr = _price_vol_corr(closes, volumes, window=20)
+    corr = _price_vol_corr_series_full(closes, volumes, window=20)[-1]
     assert -1.0 <= corr <= 1.0
-    # Insufficient history: len(closes) < window + 1.
-    assert _price_vol_corr(closes[:10], volumes[:10], window=20) == 0.0
+    # Insufficient history: fewer bars than window.
+    assert _price_vol_corr_series_full(closes[:10], volumes[:10], window=20)[-1] == 0.0
     # Degenerate: constant volume (zero variance).
     const_volumes = np.full(60, 5e5)
-    assert _price_vol_corr(closes, const_volumes, window=20) == 0.0
+    assert _price_vol_corr_series_full(closes, const_volumes, window=20)[-1] == 0.0
     # Degenerate: constant price (zero return variance).
     const_closes = np.full(60, 100.0)
-    assert _price_vol_corr(const_closes, volumes, window=20) == 0.0
+    assert _price_vol_corr_series_full(const_closes, volumes, window=20)[-1] == 0.0
 
 
 def test_compute_batch_parity() -> None:

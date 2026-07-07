@@ -34,18 +34,11 @@ import structlog
 _logger = structlog.get_logger()
 
 _REGISTRY_ROW_COUNT = 152  # 61 + 18 P01 + 22 P02 + 14 P05 + 21 P03 + 8 P04 + 8 P05.5 (final)
-# NOTE (142.5-03): this plan's own frontmatter/acceptance criteria assumed a
-# base of 101 (only Plans 01/02 merged before Plan 03), targeting 122 total.
-# This worktree's actual fork point already had Plan 05 merged (115 fields —
-# see the prior 142.5-05 note this replaces), so the real base was 115, not
-# 101. 136 = 115 + 21 is internally consistent (FeatureVector fields ==
-# FEATURE_VECTOR_DOMAIN entries == this count); Plan 06 reconciles the final
-# total to 152 once every plan (01-05.5) has landed, regardless of order.
-# NOTE (142.5-04): this plan's own base (depends_on: [01, 02]) assumed 101 +
-# 8 = 109, but the actual merge order (01/02/05/03 all landed first) put the
-# real base at 136. 144 = 136 + 8 is internally consistent with this
-# worktree's actual FeatureVector field count. Plan 06 still reconciles the
-# final total to 152 once every plan (01-05.5) has landed.
+# Individual Phase 142.5 plans (03, 04) were authored assuming a lower base
+# count than what had actually merged by the time each one executed, since
+# plans landed out of their nominal order -- see git history on this line for
+# the intermediate counts each plan reconciled against. 152 is the final,
+# reconciled total once every plan (00-06 + 05.5) landed.
 
 _LOAD_QUERY = """
     SELECT feature_name, group_name, tier, status,
