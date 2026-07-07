@@ -145,6 +145,30 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "intraday_ret": "quant",
     "open_vs_intraday": "quant",
     "session_time_pos": "calendar",
+    # Renaissance Primitives — Temporal Coordinates (Phase 142.5 Plan 02)
+    "hour_of_day_sin": "calendar",
+    "hour_of_day_cos": "calendar",
+    "week_of_month_sin": "calendar",
+    "week_of_month_cos": "calendar",
+    "day_of_month_sin": "calendar",
+    "day_of_month_cos": "calendar",
+    "week_of_year_sin": "calendar",
+    "week_of_year_cos": "calendar",
+    "month_sin": "calendar",
+    "month_cos": "calendar",
+    # Renaissance Primitives — Volume Structure (Phase 142.5 Plan 02)
+    "vol_acceleration": "quant",
+    "dollar_vol_z": "quant",
+    "vol_range_ratio": "quant",
+    "vol_trend_ratio": "quant",
+    "up_vol_ratio_fast": "quant",
+    "up_vol_ratio_slow": "quant",
+    "vol_percentile": "quant",
+    "vol_persistence": "quant",
+    "vol_std_z": "quant",
+    "mfi_fast": "quant",
+    "mfi_slow": "quant",
+    "obv_z": "quant",
     # Cross-sectional (nullable — populated by Phase 139)
     "momentum_rank_z": "quant",
     "volume_rank_z": "quant",
@@ -199,6 +223,18 @@ class FeatureFactoryConfig:
         ret_lag_mid: APR feature.ret_lag.mid
         ret_lag_slow: APR feature.ret_lag.slow
         overnight_gap_window: APR feature.overnight_gap.window
+        dollar_vol_window: APR feature.dollar_vol.window
+        vol_range_ratio_window: APR feature.vol_range_ratio.window
+        vol_trend_fast: APR feature.vol_trend.fast
+        vol_trend_slow: APR feature.vol_trend.slow
+        up_vol_ratio_fast: APR feature.up_vol_ratio.fast
+        up_vol_ratio_slow: APR feature.up_vol_ratio.slow
+        vol_percentile_window: APR feature.vol_percentile.window
+        vol_persistence_window: APR feature.vol_persistence.window
+        vol_std_window: APR feature.vol_std.window
+        mfi_fast: APR feature.mfi.fast
+        mfi_slow: APR feature.mfi.slow
+        obv_window: APR feature.obv.window
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -255,6 +291,19 @@ class FeatureFactoryConfig:
     ret_lag_mid: int  # feature.ret_lag.mid
     ret_lag_slow: int  # feature.ret_lag.slow
     overnight_gap_window: int  # feature.overnight_gap.window
+    # Renaissance Primitives — volume structure (Phase 142.5 Plan 02)
+    dollar_vol_window: int  # feature.dollar_vol.window
+    vol_range_ratio_window: int  # feature.vol_range_ratio.window
+    vol_trend_fast: int  # feature.vol_trend.fast
+    vol_trend_slow: int  # feature.vol_trend.slow
+    up_vol_ratio_fast: int  # feature.up_vol_ratio.fast
+    up_vol_ratio_slow: int  # feature.up_vol_ratio.slow
+    vol_percentile_window: int  # feature.vol_percentile.window
+    vol_persistence_window: int  # feature.vol_persistence.window
+    vol_std_window: int  # feature.vol_std.window
+    mfi_fast: int  # feature.mfi.fast
+    mfi_slow: int  # feature.mfi.slow
+    obv_window: int  # feature.obv.window
 
 
 # ---------------------------------------------------------------------------
@@ -645,6 +694,290 @@ def _session_time_pos(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
         return 0.0
     frac = (total_minutes - start_minutes) / session_length
     return max(0.0, min(1.0, frac))
+
+
+# ---------------------------------------------------------------------------
+# Renaissance Primitives — Temporal Coordinates (Phase 142.5 Plan 02)
+# ---------------------------------------------------------------------------
+# Pure timestamp arithmetic — no state, no OHLCV, no APR keys. Sin/cos encodings
+# preserve circular distance (e.g. 23:00 is 1 hour from 00:00, not 23 hours).
+# All bounded [-1, 1] by construction (math.sin/math.cos range).
+
+
+def _hour_of_day_sin(bar_ts: datetime) -> float:
+    """Circular hour-of-day encoding: sin(2*pi*(hour + minute/60)/24)."""
+    hour = bar_ts.hour + bar_ts.minute / 60.0
+    return math.sin(2.0 * math.pi * hour / 24.0)
+
+
+def _hour_of_day_cos(bar_ts: datetime) -> float:
+    """Circular hour-of-day encoding: cos(2*pi*(hour + minute/60)/24)."""
+    hour = bar_ts.hour + bar_ts.minute / 60.0
+    return math.cos(2.0 * math.pi * hour / 24.0)
+
+
+def _week_of_month_sin(bar_ts: datetime) -> float:
+    """Circular week-of-month encoding: sin(2*pi*week/5). week = (day-1)//7 + 1."""
+    week = (bar_ts.day - 1) // 7 + 1
+    return math.sin(2.0 * math.pi * week / 5.0)
+
+
+def _week_of_month_cos(bar_ts: datetime) -> float:
+    """Circular week-of-month encoding: cos(2*pi*week/5). week = (day-1)//7 + 1."""
+    week = (bar_ts.day - 1) // 7 + 1
+    return math.cos(2.0 * math.pi * week / 5.0)
+
+
+def _day_of_month_sin(bar_ts: datetime) -> float:
+    """Circular day-of-month encoding: sin(2*pi*day/31)."""
+    return math.sin(2.0 * math.pi * bar_ts.day / 31.0)
+
+
+def _day_of_month_cos(bar_ts: datetime) -> float:
+    """Circular day-of-month encoding: cos(2*pi*day/31)."""
+    return math.cos(2.0 * math.pi * bar_ts.day / 31.0)
+
+
+def _week_of_year_sin(bar_ts: datetime) -> float:
+    """Circular week-of-year encoding: sin(2*pi*isocalendar_week/52)."""
+    _, week, _ = bar_ts.isocalendar()
+    return math.sin(2.0 * math.pi * week / 52.0)
+
+
+def _week_of_year_cos(bar_ts: datetime) -> float:
+    """Circular week-of-year encoding: cos(2*pi*isocalendar_week/52)."""
+    _, week, _ = bar_ts.isocalendar()
+    return math.cos(2.0 * math.pi * week / 52.0)
+
+
+def _month_sin(bar_ts: datetime) -> float:
+    """Circular month-of-year encoding: sin(2*pi*month/12). NEW pair — only
+    _month_position (linear) existed before this plan."""
+    return math.sin(2.0 * math.pi * bar_ts.month / 12.0)
+
+
+def _month_cos(bar_ts: datetime) -> float:
+    """Circular month-of-year encoding: cos(2*pi*month/12). NEW pair — only
+    _month_position (linear) existed before this plan."""
+    return math.cos(2.0 * math.pi * bar_ts.month / 12.0)
+
+
+# ---------------------------------------------------------------------------
+# Renaissance Primitives — Volume Structure (Phase 142.5 Plan 02)
+# ---------------------------------------------------------------------------
+# Beyond simple z-scores of volume level. Streaming (per-bar) implementations —
+# see _*_series_full below for the O(n) batch/backfill precompute path.
+
+
+def _percentile_rank(hist: np.ndarray, current: float) -> float:
+    """Percentile rank of `current` within `hist` (inclusive, "weak" semantics).
+
+    Uses scipy.stats.percentileofscore when available; falls back to a manual
+    rank computation if scipy is not importable (T-142.5-02-02 mitigation).
+    Bounded [0, 1].
+    """
+    try:
+        from scipy import stats  # noqa: PLC0415
+
+        pct = stats.percentileofscore(hist, current, kind="weak") / 100.0
+    except ImportError:
+        rank = float(np.sum(hist <= current))
+        pct = rank / len(hist)
+    return float(np.clip(pct, 0.0, 1.0))
+
+
+def _vol_acceleration(volumes: np.ndarray, eps: float = 1e-10) -> float:
+    """Volume surge relative to prior bar: V_t / V_{t-1}. Unbounded positive.
+
+    Returns 1.0 (neutral) on insufficient history or near-zero prior volume.
+    """
+    if len(volumes) < 2:
+        return 1.0
+    prev = float(volumes[-2])
+    if prev < eps:
+        return 1.0
+    return float(volumes[-1]) / prev
+
+
+def _dollar_vol_z(volumes: np.ndarray, closes: np.ndarray, window: int) -> float:
+    """Z-score of dollar volume (V * C) over the trailing window. Returns 0.0 on cold start."""
+    if len(volumes) < 2:
+        return 0.0
+    dollar_vol = volumes.astype(float) * closes.astype(float)
+    return _zscore_last(dollar_vol, window)
+
+
+def _vol_range_ratio(
+    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
+) -> float:
+    """Volume per unit of price range, normalized against its own trailing average.
+
+    raw_t = V_t / (H_t - L_t); result = raw_t / mean(raw, trailing window).
+    Unbounded positive. Returns 0.0 on a degenerate current bar (H == L) or cold start.
+    """
+    n = len(volumes)
+    if n < 1:
+        return 0.0
+    ranges = highs.astype(float) - lows.astype(float)
+    raw = np.where(ranges > eps, volumes.astype(float) / np.where(ranges > eps, ranges, 1.0), 0.0)
+    w = min(window, n)
+    mean_raw = float(np.mean(raw[-w:]))
+    if mean_raw < eps:
+        return 0.0
+    return float(raw[-1]) / mean_raw
+
+
+def _vol_trend_ratio(
+    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = 1e-10
+) -> float:
+    """Volume participation trend: vol_MA_fast / vol_MA_slow. Unbounded positive.
+
+    Returns 1.0 (neutral) on cold start (fewer than slow_window bars).
+    """
+    n = len(volumes)
+    if n < slow_window:
+        return 1.0
+    v = volumes.astype(float)
+    ma_fast = float(np.mean(v[-fast_window:]))
+    ma_slow = float(np.mean(v[-slow_window:]))
+    return ma_fast / ma_slow if ma_slow > eps else 1.0
+
+
+def _up_vol_ratio(
+    volumes: np.ndarray,
+    opens: np.ndarray,
+    closes: np.ndarray,
+    window: int,
+    eps: float = 1e-10,
+) -> float:
+    """Fraction of volume occurring on up bars: sum(V | C > O) / sum(V) over window.
+
+    Bounded [0, 1]. Returns 0.5 (neutral) on cold start or near-zero total volume.
+    Shared implementation for up_vol_ratio_fast/slow (different window arguments).
+    """
+    n = len(volumes)
+    w = min(window, n)
+    if w < 1:
+        return 0.5
+    v = volumes[-w:].astype(float)
+    o = opens[-w:].astype(float)
+    c = closes[-w:].astype(float)
+    total = float(np.sum(v))
+    if total < eps:
+        return 0.5
+    up_vol = float(np.sum(np.where(c > o, v, 0.0)))
+    return up_vol / total
+
+
+def _vol_percentile(volumes: np.ndarray, window: int) -> float:
+    """Rolling percentile rank of V_t over the trailing window. Bounded [0, 1].
+
+    Returns 0.5 (neutral) on cold start (fewer than 2 bars in the window).
+    """
+    n = len(volumes)
+    w = min(window, n)
+    if w < 2:
+        return 0.5
+    hist = volumes[-w:].astype(float)
+    return _percentile_rank(hist, float(hist[-1]))
+
+
+def _vol_persistence(volumes: np.ndarray, window: int) -> float:
+    """Lag-1 autocorrelation of volume over the trailing window. Bounded [-1, 1].
+
+    Returns 0.0 on cold start (fewer than 2 bars in the window). Reuses _pearson_acf1.
+    """
+    n = len(volumes)
+    w = min(window, n)
+    if w < 2:
+        return 0.0
+    hist = volumes[-w:].astype(float)
+    return _pearson_acf1(hist)
+
+
+def _rolling_std_series(arr: np.ndarray, window: int) -> np.ndarray:
+    """Trailing rolling std series (expanding until `window` bars, then fixed window).
+
+    O(n) via cumulative sums. Shared building block for _vol_std_z (streaming) and
+    _vol_std_z_series_full (batch).
+    """
+    n = len(arr)
+    out = np.zeros(n, dtype=float)
+    if n == 0:
+        return out
+    cs = np.cumsum(arr)
+    cs2 = np.cumsum(arr * arr)
+    for i in range(n):
+        eff_w = min(window, i + 1)
+        start = i + 1 - eff_w
+        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
+        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
+        mean = s / eff_w
+        var = max(s2 / eff_w - mean * mean, 0.0)
+        out[i] = math.sqrt(var)
+    return out
+
+
+def _vol_std_z(volumes: np.ndarray, window: int) -> float:
+    """Z-score of rolling std(V) over the trailing window (single-window design:
+    the same `window` both computes the rolling std series and z-scores its last
+    value). Returns 0.0 on cold start.
+    """
+    if len(volumes) < 2:
+        return 0.0
+    std_series = _rolling_std_series(volumes.astype(float), window)
+    return _zscore_last(std_series, window)
+
+
+def _mfi(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    volumes: np.ndarray,
+    window: int,
+    eps: float = 1e-10,
+) -> float:
+    """Money Flow Index: 100 * sum(tp*V | tp rising) / sum(tp*V) over window.
+
+    tp = (H + L + C) / 3. Bounded [0, 100]. Returns 50.0 (neutral) on cold start
+    or near-zero total money flow. Shared implementation for mfi_fast/slow.
+    """
+    n = len(closes)
+    w = min(window, n - 1) if n >= 2 else 0
+    if w < 1:
+        return 50.0
+    tp_full = (highs[-(w + 1) :].astype(float) + lows[-(w + 1) :].astype(float)) + closes[
+        -(w + 1) :
+    ].astype(float)
+    tp_full = tp_full / 3.0
+    v_full = volumes[-(w + 1) :].astype(float)
+    tp = tp_full[1:]
+    prev_tp = tp_full[:-1]
+    v = v_full[1:]
+    money_flow = tp * v
+    total = float(np.sum(money_flow))
+    if total < eps:
+        return 50.0
+    rising_flow = float(np.sum(money_flow[tp > prev_tp]))
+    return float(np.clip(100.0 * rising_flow / total, 0.0, 100.0))
+
+
+def _obv_z(closes: np.ndarray, volumes: np.ndarray, window: int) -> float:
+    """Z-score of On-Balance Volume (cumulative +V on up bars, -V on down bars).
+
+    Returns 0.0 on cold start (fewer than 2 bars).
+    """
+    n = len(closes)
+    if n < 2:
+        return 0.0
+    diffs = np.diff(closes.astype(float))
+    signed_vol = np.where(
+        diffs > 0,
+        volumes[1:].astype(float),
+        np.where(diffs < 0, -volumes[1:].astype(float), 0.0),
+    )
+    obv = np.cumsum(signed_vol)
+    return _zscore_last(obv, window)
 
 
 # ---------------------------------------------------------------------------
@@ -1074,6 +1407,183 @@ def _rel_volume_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# Renaissance Primitives — Volume Structure batch series (Phase 142.5 Plan 02)
+# result[i] matches the streaming per-bar helper above at bar i. O(n) except
+# vol_percentile/vol_persistence which are O(n x window) (same cost class as
+# the pre-existing ret_skew_z_series_full / ret_acf1_z_series_full).
+# ---------------------------------------------------------------------------
+
+
+def _vol_acceleration_series_full(volumes: np.ndarray, eps: float = 1e-10) -> np.ndarray:
+    """result[i] == streaming _vol_acceleration at bar i. Index 0 padded with 1.0."""
+    n = len(volumes)
+    result = np.ones(n, dtype=float)
+    if n < 2:
+        return result
+    v = volumes.astype(float)
+    prev = v[:-1]
+    curr = v[1:]
+    safe_prev = np.where(prev > eps, prev, 1.0)
+    result[1:] = np.where(prev > eps, curr / safe_prev, 1.0)
+    return result
+
+
+def _dollar_vol_z_series_full(volumes: np.ndarray, closes: np.ndarray, window: int) -> np.ndarray:
+    """result[i] == streaming _dollar_vol_z at bar i."""
+    dollar_vol = volumes.astype(float) * closes.astype(float)
+    return _fixed_window_zscore_series(dollar_vol, window)
+
+
+def _vol_range_ratio_series_full(
+    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _vol_range_ratio at bar i. O(n) via cumsum."""
+    n = len(volumes)
+    result = np.zeros(n, dtype=float)
+    if n < 1:
+        return result
+    ranges = highs.astype(float) - lows.astype(float)
+    raw = np.where(ranges > eps, volumes.astype(float) / np.where(ranges > eps, ranges, 1.0), 0.0)
+    cs = np.cumsum(raw)
+    for i in range(n):
+        w = min(window, i + 1)
+        start = i + 1 - w
+        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
+        mean_raw = s / w
+        result[i] = raw[i] / mean_raw if mean_raw > eps else 0.0
+    return result
+
+
+def _vol_trend_ratio_series_full(
+    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _vol_trend_ratio at bar i. O(n) via cumsum."""
+    n = len(volumes)
+    result = np.ones(n, dtype=float)
+    v = volumes.astype(float)
+    cs = np.cumsum(v)
+    for i in range(n):
+        if i + 1 < slow_window:
+            continue
+        sum_f = cs[i] - (cs[i - fast_window] if i - fast_window >= 0 else 0.0)
+        sum_s = cs[i] - (cs[i - slow_window] if i - slow_window >= 0 else 0.0)
+        ma_f = sum_f / fast_window
+        ma_s = sum_s / slow_window
+        result[i] = ma_f / ma_s if ma_s > eps else 1.0
+    return result
+
+
+def _up_vol_ratio_series_full(
+    volumes: np.ndarray,
+    opens: np.ndarray,
+    closes: np.ndarray,
+    window: int,
+    eps: float = 1e-10,
+) -> np.ndarray:
+    """result[i] == streaming _up_vol_ratio at bar i. O(n) via cumsum."""
+    n = len(volumes)
+    result = np.full(n, 0.5, dtype=float)
+    v = volumes.astype(float)
+    up_v = np.where(closes.astype(float) > opens.astype(float), v, 0.0)
+    cs_total = np.cumsum(v)
+    cs_up = np.cumsum(up_v)
+    for i in range(n):
+        w = min(window, i + 1)
+        start = i + 1 - w
+        total = cs_total[i] - (cs_total[start - 1] if start > 0 else 0.0)
+        up = cs_up[i] - (cs_up[start - 1] if start > 0 else 0.0)
+        if total > eps:
+            result[i] = up / total
+    return result
+
+
+def _vol_percentile_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
+    """result[i] == streaming _vol_percentile at bar i. O(n x window)."""
+    n = len(volumes)
+    result = np.full(n, 0.5, dtype=float)
+    if n < 2:
+        return result
+    vols = volumes.astype(float)
+    for i in range(n):
+        w = min(window, i + 1)
+        if w < 2:
+            continue
+        hist = vols[i + 1 - w : i + 1]
+        result[i] = _percentile_rank(hist, float(hist[-1]))
+    return result
+
+
+def _vol_persistence_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
+    """result[i] == streaming _vol_persistence at bar i. O(n x window)."""
+    n = len(volumes)
+    result = np.zeros(n, dtype=float)
+    if n < 2:
+        return result
+    vols = volumes.astype(float)
+    for i in range(n):
+        w = min(window, i + 1)
+        if w < 2:
+            continue
+        hist = vols[i + 1 - w : i + 1]
+        result[i] = _pearson_acf1(hist)
+    return result
+
+
+def _vol_std_z_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
+    """result[i] == streaming _vol_std_z at bar i. O(n) total."""
+    std_series = _rolling_std_series(volumes.astype(float), window)
+    return _fixed_window_zscore_series(std_series, window)
+
+
+def _mfi_series_full(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    volumes: np.ndarray,
+    window: int,
+    eps: float = 1e-10,
+) -> np.ndarray:
+    """result[i] == streaming _mfi at bar i. O(n) via cumsum (rising-flag is
+    fixed per bar regardless of window; only the rolling sums need cumsum).
+    """
+    n = len(closes)
+    result = np.full(n, 50.0, dtype=float)
+    if n < 2:
+        return result
+    tp = (highs.astype(float) + lows.astype(float) + closes.astype(float)) / 3.0
+    money_flow = tp * volumes.astype(float)
+    rising = np.zeros(n, dtype=bool)
+    rising[1:] = tp[1:] > tp[:-1]
+    rising_flow = np.where(rising, money_flow, 0.0)
+    cs_total = np.cumsum(money_flow)
+    cs_rising = np.cumsum(rising_flow)
+    for i in range(1, n):
+        w = min(window, i)
+        start = i - w + 1
+        total = cs_total[i] - (cs_total[start - 1] if start > 0 else 0.0)
+        rise = cs_rising[i] - (cs_rising[start - 1] if start > 0 else 0.0)
+        if total > eps:
+            result[i] = float(np.clip(100.0 * rise / total, 0.0, 100.0))
+    return result
+
+
+def _obv_z_series_full(closes: np.ndarray, volumes: np.ndarray, window: int) -> np.ndarray:
+    """result[i] == streaming _obv_z at bar i. Index 0 padded with 0.0 (cold start)."""
+    n = len(closes)
+    if n < 2:
+        return np.zeros(n, dtype=float)
+    diffs = np.diff(closes.astype(float))
+    signed_vol = np.where(
+        diffs > 0,
+        volumes[1:].astype(float),
+        np.where(diffs < 0, -volumes[1:].astype(float), 0.0),
+    )
+    obv = np.cumsum(signed_vol)
+    z = _fixed_window_zscore_series(obv, window)
+    return np.concatenate([[0.0], z])
+
+
+# ---------------------------------------------------------------------------
 # Calendar helpers (shared by compute() and compute_batch())
 # ---------------------------------------------------------------------------
 
@@ -1125,6 +1635,19 @@ class _PrecomputedSeries:
     ret_skew_z: np.ndarray
     ret_acf1_z: np.ndarray
     overnight_gap_z: np.ndarray  # Renaissance Primitives (Phase 142.5 Plan 01)
+    # Renaissance Primitives — Volume Structure (Phase 142.5 Plan 02)
+    vol_acceleration: np.ndarray
+    dollar_vol_z: np.ndarray
+    vol_range_ratio: np.ndarray
+    vol_trend_ratio: np.ndarray
+    up_vol_ratio_fast: np.ndarray
+    up_vol_ratio_slow: np.ndarray
+    vol_percentile: np.ndarray
+    vol_persistence: np.ndarray
+    vol_std_z: np.ndarray
+    mfi_fast: np.ndarray
+    mfi_slow: np.ndarray
+    obv_z: np.ndarray
 
 
 def _precompute_series(
@@ -1179,6 +1702,26 @@ def _precompute_series(
             closes, config.ret_acf_window, config.ret_acf_zscore_window
         ),
         overnight_gap_z=_overnight_gap_z_series_full(opens, closes, config.overnight_gap_window),
+        vol_acceleration=_vol_acceleration_series_full(volumes),
+        dollar_vol_z=_dollar_vol_z_series_full(volumes, closes, config.dollar_vol_window),
+        vol_range_ratio=_vol_range_ratio_series_full(
+            volumes, highs, lows, config.vol_range_ratio_window
+        ),
+        vol_trend_ratio=_vol_trend_ratio_series_full(
+            volumes, config.vol_trend_fast, config.vol_trend_slow
+        ),
+        up_vol_ratio_fast=_up_vol_ratio_series_full(
+            volumes, opens, closes, config.up_vol_ratio_fast
+        ),
+        up_vol_ratio_slow=_up_vol_ratio_series_full(
+            volumes, opens, closes, config.up_vol_ratio_slow
+        ),
+        vol_percentile=_vol_percentile_series_full(volumes, config.vol_percentile_window),
+        vol_persistence=_vol_persistence_series_full(volumes, config.vol_persistence_window),
+        vol_std_z=_vol_std_z_series_full(volumes, config.vol_std_window),
+        mfi_fast=_mfi_series_full(highs, lows, closes, volumes, config.mfi_fast),
+        mfi_slow=_mfi_series_full(highs, lows, closes, volumes, config.mfi_slow),
+        obv_z=_obv_z_series_full(closes, volumes, config.obv_window),
     )
 
 
@@ -1272,6 +1815,28 @@ def _build_feature_vector(
     intraday_ret: float,
     open_vs_intraday: float,
     session_time_pos: float,
+    hour_of_day_sin: float,
+    hour_of_day_cos: float,
+    week_of_month_sin: float,
+    week_of_month_cos: float,
+    day_of_month_sin: float,
+    day_of_month_cos: float,
+    week_of_year_sin: float,
+    week_of_year_cos: float,
+    month_sin: float,
+    month_cos: float,
+    vol_acceleration: float,
+    dollar_vol_z: float,
+    vol_range_ratio: float,
+    vol_trend_ratio: float,
+    up_vol_ratio_fast: float,
+    up_vol_ratio_slow: float,
+    vol_percentile: float,
+    vol_persistence: float,
+    vol_std_z: float,
+    mfi_fast: float,
+    mfi_slow: float,
+    obv_z: float,
 ) -> FeatureVector:
     return FeatureVector(
         momentum_z_fast=_guard(momentum_z_fast),
@@ -1350,6 +1915,28 @@ def _build_feature_vector(
         intraday_ret=_guard(intraday_ret, 0.0),
         open_vs_intraday=_guard(open_vs_intraday, 0.0),
         session_time_pos=session_time_pos,
+        hour_of_day_sin=hour_of_day_sin,
+        hour_of_day_cos=hour_of_day_cos,
+        week_of_month_sin=week_of_month_sin,
+        week_of_month_cos=week_of_month_cos,
+        day_of_month_sin=day_of_month_sin,
+        day_of_month_cos=day_of_month_cos,
+        week_of_year_sin=week_of_year_sin,
+        week_of_year_cos=week_of_year_cos,
+        month_sin=month_sin,
+        month_cos=month_cos,
+        vol_acceleration=_guard(vol_acceleration, 1.0),
+        dollar_vol_z=_guard(dollar_vol_z, 0.0),
+        vol_range_ratio=_guard(vol_range_ratio, 0.0),
+        vol_trend_ratio=_guard(vol_trend_ratio, 1.0),
+        up_vol_ratio_fast=_guard(up_vol_ratio_fast, 0.5),
+        up_vol_ratio_slow=_guard(up_vol_ratio_slow, 0.5),
+        vol_percentile=_guard(vol_percentile, 0.5),
+        vol_persistence=_guard(vol_persistence, 0.0),
+        vol_std_z=_guard(vol_std_z, 0.0),
+        mfi_fast=_guard(mfi_fast, 50.0),
+        mfi_slow=_guard(mfi_slow, 50.0),
+        obv_z=_guard(obv_z, 0.0),
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,
@@ -1457,6 +2044,20 @@ class FeatureFactory:
         open_vs_intraday_val = _open_vs_intraday(open_ret_val, intraday_ret_val)
         session_time_pos_val = _session_time_pos(bar_ts, config)
 
+        # Renaissance Primitives (Phase 142.5 Plan 02) — temporal coordinates
+        # are O(1) pure functions of bar_ts; volume structure reads the
+        # precomputed series (s.*) built once above.
+        hour_of_day_sin_val = _hour_of_day_sin(bar_ts)
+        hour_of_day_cos_val = _hour_of_day_cos(bar_ts)
+        week_of_month_sin_val = _week_of_month_sin(bar_ts)
+        week_of_month_cos_val = _week_of_month_cos(bar_ts)
+        day_of_month_sin_val = _day_of_month_sin(bar_ts)
+        day_of_month_cos_val = _day_of_month_cos(bar_ts)
+        week_of_year_sin_val = _week_of_year_sin(bar_ts)
+        week_of_year_cos_val = _week_of_year_cos(bar_ts)
+        month_sin_val = _month_sin(bar_ts)
+        month_cos_val = _month_cos(bar_ts)
+
         return _build_feature_vector(
             momentum_z_fast=_series_last(s.momentum_z_fast, 0.0),
             momentum_z_mid=_series_last(s.momentum_z_mid, 0.0),
@@ -1534,6 +2135,28 @@ class FeatureFactory:
             intraday_ret=intraday_ret_val,
             open_vs_intraday=open_vs_intraday_val,
             session_time_pos=session_time_pos_val,
+            hour_of_day_sin=hour_of_day_sin_val,
+            hour_of_day_cos=hour_of_day_cos_val,
+            week_of_month_sin=week_of_month_sin_val,
+            week_of_month_cos=week_of_month_cos_val,
+            day_of_month_sin=day_of_month_sin_val,
+            day_of_month_cos=day_of_month_cos_val,
+            week_of_year_sin=week_of_year_sin_val,
+            week_of_year_cos=week_of_year_cos_val,
+            month_sin=month_sin_val,
+            month_cos=month_cos_val,
+            vol_acceleration=_series_last(s.vol_acceleration, 1.0),
+            dollar_vol_z=_series_last(s.dollar_vol_z, 0.0),
+            vol_range_ratio=_series_last(s.vol_range_ratio, 0.0),
+            vol_trend_ratio=_series_last(s.vol_trend_ratio, 1.0),
+            up_vol_ratio_fast=_series_last(s.up_vol_ratio_fast, 0.5),
+            up_vol_ratio_slow=_series_last(s.up_vol_ratio_slow, 0.5),
+            vol_percentile=_series_last(s.vol_percentile, 0.5),
+            vol_persistence=_series_last(s.vol_persistence, 0.0),
+            vol_std_z=_series_last(s.vol_std_z, 0.0),
+            mfi_fast=_series_last(s.mfi_fast, 50.0),
+            mfi_slow=_series_last(s.mfi_slow, 50.0),
+            obv_z=_series_last(s.obv_z, 0.0),
         )
 
     @staticmethod
@@ -1759,6 +2382,38 @@ class FeatureFactory:
             open_vs_intraday_val = _open_vs_intraday(open_ret_val, intraday_ret_val)
             session_time_pos_val = _session_time_pos(bar_ts, config)
 
+            # Renaissance Primitives (Phase 142.5 Plan 02). Temporal coordinates
+            # are O(1) per bar (pure bar_ts arithmetic). Volume structure reads
+            # the precomputed series (O(n) total, not per-bar O(n x window)).
+            hour_of_day_sin_val = _hour_of_day_sin(bar_ts)
+            hour_of_day_cos_val = _hour_of_day_cos(bar_ts)
+            week_of_month_sin_val = _week_of_month_sin(bar_ts)
+            week_of_month_cos_val = _week_of_month_cos(bar_ts)
+            day_of_month_sin_val = _day_of_month_sin(bar_ts)
+            day_of_month_cos_val = _day_of_month_cos(bar_ts)
+            week_of_year_sin_val = _week_of_year_sin(bar_ts)
+            week_of_year_cos_val = _week_of_year_cos(bar_ts)
+            month_sin_val = _month_sin(bar_ts)
+            month_cos_val = _month_cos(bar_ts)
+            vol_acceleration_val = (
+                float(s.vol_acceleration[i]) if i < len(s.vol_acceleration) else 1.0
+            )
+            dollar_vol_z_val = float(s.dollar_vol_z[i]) if i < len(s.dollar_vol_z) else 0.0
+            vol_range_ratio_val = float(s.vol_range_ratio[i]) if i < len(s.vol_range_ratio) else 0.0
+            vol_trend_ratio_val = float(s.vol_trend_ratio[i]) if i < len(s.vol_trend_ratio) else 1.0
+            up_vol_ratio_fast_val = (
+                float(s.up_vol_ratio_fast[i]) if i < len(s.up_vol_ratio_fast) else 0.5
+            )
+            up_vol_ratio_slow_val = (
+                float(s.up_vol_ratio_slow[i]) if i < len(s.up_vol_ratio_slow) else 0.5
+            )
+            vol_percentile_val = float(s.vol_percentile[i]) if i < len(s.vol_percentile) else 0.5
+            vol_persistence_val = float(s.vol_persistence[i]) if i < len(s.vol_persistence) else 0.0
+            vol_std_z_val = float(s.vol_std_z[i]) if i < len(s.vol_std_z) else 0.0
+            mfi_fast_val = float(s.mfi_fast[i]) if i < len(s.mfi_fast) else 50.0
+            mfi_slow_val = float(s.mfi_slow[i]) if i < len(s.mfi_slow) else 50.0
+            obv_z_val = float(s.obv_z[i]) if i < len(s.obv_z) else 0.0
+
             # Build FeatureVector
             fv = _build_feature_vector(
                 momentum_z_fast=momentum_z_fast_val,
@@ -1837,6 +2492,28 @@ class FeatureFactory:
                 intraday_ret=intraday_ret_val,
                 open_vs_intraday=open_vs_intraday_val,
                 session_time_pos=session_time_pos_val,
+                hour_of_day_sin=hour_of_day_sin_val,
+                hour_of_day_cos=hour_of_day_cos_val,
+                week_of_month_sin=week_of_month_sin_val,
+                week_of_month_cos=week_of_month_cos_val,
+                day_of_month_sin=day_of_month_sin_val,
+                day_of_month_cos=day_of_month_cos_val,
+                week_of_year_sin=week_of_year_sin_val,
+                week_of_year_cos=week_of_year_cos_val,
+                month_sin=month_sin_val,
+                month_cos=month_cos_val,
+                vol_acceleration=vol_acceleration_val,
+                dollar_vol_z=dollar_vol_z_val,
+                vol_range_ratio=vol_range_ratio_val,
+                vol_trend_ratio=vol_trend_ratio_val,
+                up_vol_ratio_fast=up_vol_ratio_fast_val,
+                up_vol_ratio_slow=up_vol_ratio_slow_val,
+                vol_percentile=vol_percentile_val,
+                vol_persistence=vol_persistence_val,
+                vol_std_z=vol_std_z_val,
+                mfi_fast=mfi_fast_val,
+                mfi_slow=mfi_slow_val,
+                obv_z=obv_z_val,
             )
 
             results.append((bar_ts, fv))
@@ -1937,6 +2614,28 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         intraday_ret=0.0,
         open_vs_intraday=0.0,
         session_time_pos=0.0,
+        hour_of_day_sin=0.0,
+        hour_of_day_cos=1.0,
+        week_of_month_sin=0.0,
+        week_of_month_cos=1.0,
+        day_of_month_sin=0.0,
+        day_of_month_cos=1.0,
+        week_of_year_sin=0.0,
+        week_of_year_cos=1.0,
+        month_sin=0.0,
+        month_cos=1.0,
+        vol_acceleration=1.0,
+        dollar_vol_z=0.0,
+        vol_range_ratio=0.0,
+        vol_trend_ratio=0.0,
+        up_vol_ratio_fast=0.5,
+        up_vol_ratio_slow=0.5,
+        vol_percentile=0.5,
+        vol_persistence=0.0,
+        vol_std_z=0.0,
+        mfi_fast=50.0,
+        mfi_slow=50.0,
+        obv_z=0.0,
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,

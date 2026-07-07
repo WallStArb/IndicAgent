@@ -95,6 +95,18 @@ def _make_config() -> FeatureFactoryConfig:
         ret_lag_mid=20,
         ret_lag_slow=60,
         overnight_gap_window=20,
+        dollar_vol_window=20,
+        vol_range_ratio_window=20,
+        vol_trend_fast=5,
+        vol_trend_slow=20,
+        up_vol_ratio_fast=5,
+        up_vol_ratio_slow=20,
+        vol_percentile_window=20,
+        vol_persistence_window=20,
+        vol_std_window=20,
+        mfi_fast=7,
+        mfi_slow=14,
+        obv_window=20,
     )
 
 
@@ -201,6 +213,31 @@ def _make_zero_vector() -> FeatureVector:
         intraday_ret=0.0,
         open_vs_intraday=0.0,
         session_time_pos=0.0,
+        # Renaissance Primitives (Phase 142.5 Plan 02) — not yet in the persisted
+        # tuple (migration 206 / writer wiring land in a later plan); construction
+        # requires these non-optional fields.
+        hour_of_day_sin=0.0,
+        hour_of_day_cos=1.0,
+        week_of_month_sin=0.0,
+        week_of_month_cos=1.0,
+        day_of_month_sin=0.0,
+        day_of_month_cos=1.0,
+        week_of_year_sin=0.0,
+        week_of_year_cos=1.0,
+        month_sin=0.0,
+        month_cos=1.0,
+        vol_acceleration=1.0,
+        dollar_vol_z=0.0,
+        vol_range_ratio=0.0,
+        vol_trend_ratio=1.0,
+        up_vol_ratio_fast=0.5,
+        up_vol_ratio_slow=0.5,
+        vol_percentile=0.5,
+        vol_persistence=0.0,
+        vol_std_z=0.0,
+        mfi_fast=50.0,
+        mfi_slow=50.0,
+        obv_z=0.0,
     )
 
 

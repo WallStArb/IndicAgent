@@ -33,7 +33,7 @@ import structlog
 
 _logger = structlog.get_logger()
 
-_REGISTRY_ROW_COUNT = 79  # 61 baseline + 18 Plan 01
+_REGISTRY_ROW_COUNT = 101  # 61 baseline + 18 Plan 01 + 22 Plan 02
 
 _LOAD_QUERY = """
     SELECT feature_name, group_name, tier, status,

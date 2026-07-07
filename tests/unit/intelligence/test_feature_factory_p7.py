@@ -83,6 +83,18 @@ def _make_cfg(**overrides) -> FeatureFactoryConfig:
         ret_lag_mid=20,
         ret_lag_slow=60,
         overnight_gap_window=20,
+        dollar_vol_window=20,
+        vol_range_ratio_window=20,
+        vol_trend_fast=5,
+        vol_trend_slow=20,
+        up_vol_ratio_fast=5,
+        up_vol_ratio_slow=20,
+        vol_percentile_window=20,
+        vol_persistence_window=20,
+        vol_std_window=20,
+        mfi_fast=7,
+        mfi_slow=14,
+        obv_window=20,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -369,9 +381,9 @@ def test_hmm_duration_increments():
 
 
 def test_feature_vector_domain_complete():
-    """61 baseline + 18 Renaissance primitives (Phase 142.5 Plan 01) = 79."""
+    """61 baseline + 18 Plan 01 + 22 Plan 02 Renaissance primitives = 101."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 79
+    assert len(FEATURE_VECTOR_DOMAIN) == 101
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 
