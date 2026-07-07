@@ -648,6 +648,72 @@ def _session_time_pos(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Renaissance Primitives — Temporal Coordinates (Phase 142.5 Plan 02)
+# ---------------------------------------------------------------------------
+# Pure timestamp arithmetic — no state, no OHLCV, no APR keys. Sin/cos encodings
+# preserve circular distance (e.g. 23:00 is 1 hour from 00:00, not 23 hours).
+# All bounded [-1, 1] by construction (math.sin/math.cos range).
+
+
+def _hour_of_day_sin(bar_ts: datetime) -> float:
+    """Circular hour-of-day encoding: sin(2*pi*(hour + minute/60)/24)."""
+    hour = bar_ts.hour + bar_ts.minute / 60.0
+    return math.sin(2.0 * math.pi * hour / 24.0)
+
+
+def _hour_of_day_cos(bar_ts: datetime) -> float:
+    """Circular hour-of-day encoding: cos(2*pi*(hour + minute/60)/24)."""
+    hour = bar_ts.hour + bar_ts.minute / 60.0
+    return math.cos(2.0 * math.pi * hour / 24.0)
+
+
+def _week_of_month_sin(bar_ts: datetime) -> float:
+    """Circular week-of-month encoding: sin(2*pi*week/5). week = (day-1)//7 + 1."""
+    week = (bar_ts.day - 1) // 7 + 1
+    return math.sin(2.0 * math.pi * week / 5.0)
+
+
+def _week_of_month_cos(bar_ts: datetime) -> float:
+    """Circular week-of-month encoding: cos(2*pi*week/5). week = (day-1)//7 + 1."""
+    week = (bar_ts.day - 1) // 7 + 1
+    return math.cos(2.0 * math.pi * week / 5.0)
+
+
+def _day_of_month_sin(bar_ts: datetime) -> float:
+    """Circular day-of-month encoding: sin(2*pi*day/31)."""
+    return math.sin(2.0 * math.pi * bar_ts.day / 31.0)
+
+
+def _day_of_month_cos(bar_ts: datetime) -> float:
+    """Circular day-of-month encoding: cos(2*pi*day/31)."""
+    return math.cos(2.0 * math.pi * bar_ts.day / 31.0)
+
+
+def _week_of_year_sin(bar_ts: datetime) -> float:
+    """Circular week-of-year encoding: sin(2*pi*isocalendar_week/52)."""
+    _, week, _ = bar_ts.isocalendar()
+    return math.sin(2.0 * math.pi * week / 52.0)
+
+
+def _week_of_year_cos(bar_ts: datetime) -> float:
+    """Circular week-of-year encoding: cos(2*pi*isocalendar_week/52)."""
+    _, week, _ = bar_ts.isocalendar()
+    return math.cos(2.0 * math.pi * week / 52.0)
+
+
+def _month_sin(bar_ts: datetime) -> float:
+    """Circular month-of-year encoding: sin(2*pi*month/12). NEW pair — only
+    _month_position (linear) existed before this plan."""
+    return math.sin(2.0 * math.pi * bar_ts.month / 12.0)
+
+
+def _month_cos(bar_ts: datetime) -> float:
+    """Circular month-of-year encoding: cos(2*pi*month/12). NEW pair — only
+    _month_position (linear) existed before this plan."""
+    return math.cos(2.0 * math.pi * bar_ts.month / 12.0)
+
+
+# ---------------------------------------------------------------------------
 # Calendar primitive functions
 # ---------------------------------------------------------------------------
 
