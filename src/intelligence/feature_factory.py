@@ -169,6 +169,21 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "mfi_fast": "quant",
     "mfi_slow": "quant",
     "obv_z": "quant",
+    # Renaissance Primitives — Breakout Distance (Phase 142.5 Plan 05)
+    "dist_from_high_fast": "quant",
+    "dist_from_high_slow": "quant",
+    "dist_from_low_fast": "quant",
+    "dist_from_low_slow": "quant",
+    "range_pct_fast": "quant",
+    "range_pct_slow": "quant",
+    "new_high_flag": "quant",
+    "new_low_flag": "quant",
+    "stoch_k_fast": "quant",
+    "stoch_k_slow": "quant",
+    "price_percentile_fast": "quant",
+    "price_percentile_slow": "quant",
+    "efficiency_ratio_fast": "quant",
+    "efficiency_ratio_slow": "quant",
     # Cross-sectional (nullable — populated by Phase 139)
     "momentum_rank_z": "quant",
     "volume_rank_z": "quant",
@@ -235,6 +250,16 @@ class FeatureFactoryConfig:
         mfi_fast: APR feature.mfi.fast
         mfi_slow: APR feature.mfi.slow
         obv_window: APR feature.obv.window
+        dist_window_fast: APR feature.breakout.dist_window_fast
+        dist_window_slow: APR feature.breakout.dist_window_slow
+        range_window_fast: APR feature.breakout.range_window_fast
+        range_window_slow: APR feature.breakout.range_window_slow
+        stoch_window_fast: APR feature.breakout.stoch_window_fast
+        stoch_window_slow: APR feature.breakout.stoch_window_slow
+        percentile_window_fast: APR feature.breakout.percentile_window_fast
+        percentile_window_slow: APR feature.breakout.percentile_window_slow
+        efficiency_window_fast: APR feature.breakout.efficiency_window_fast
+        efficiency_window_slow: APR feature.breakout.efficiency_window_slow
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -304,6 +329,17 @@ class FeatureFactoryConfig:
     mfi_fast: int  # feature.mfi.fast
     mfi_slow: int  # feature.mfi.slow
     obv_window: int  # feature.obv.window
+    # Renaissance Primitives — breakout distance (Phase 142.5 Plan 05)
+    dist_window_fast: int  # feature.breakout.dist_window_fast
+    dist_window_slow: int  # feature.breakout.dist_window_slow
+    range_window_fast: int  # feature.breakout.range_window_fast
+    range_window_slow: int  # feature.breakout.range_window_slow
+    stoch_window_fast: int  # feature.breakout.stoch_window_fast
+    stoch_window_slow: int  # feature.breakout.stoch_window_slow
+    percentile_window_fast: int  # feature.breakout.percentile_window_fast
+    percentile_window_slow: int  # feature.breakout.percentile_window_slow
+    efficiency_window_fast: int  # feature.breakout.efficiency_window_fast
+    efficiency_window_slow: int  # feature.breakout.efficiency_window_slow
 
 
 # ---------------------------------------------------------------------------
@@ -978,6 +1014,105 @@ def _obv_z(closes: np.ndarray, volumes: np.ndarray, window: int) -> float:
     )
     obv = np.cumsum(signed_vol)
     return _zscore_last(obv, window)
+
+
+# ---------------------------------------------------------------------------
+# Renaissance Primitives — Breakout Distance (Phase 142.5 Plan 05)
+#
+# Price structure primitives with no theory: raw distance from recent extremes,
+# range position, and trend-purity — the IC engine evaluates whether any of
+# these carry signal. No S/R zone semantics, no chart-pattern logic.
+# ---------------------------------------------------------------------------
+
+
+def _dist_from_high(close: float, highs: np.ndarray, atr: float, eps: float = 1e-10) -> float:
+    """Distance from the rolling high, ATR-normalized: (rolling_high_N - C) / ATR.
+
+    Unbounded non-negative (the current bar's high is always in the window,
+    so rolling_high_N >= C by construction). Returns 0.0 when ATR is near zero
+    (cold start / degenerate volatility).
+    """
+    if atr < eps:
+        return 0.0
+    rolling_high = float(np.max(highs))
+    return (rolling_high - close) / atr
+
+
+def _dist_from_low(close: float, lows: np.ndarray, atr: float, eps: float = 1e-10) -> float:
+    """Distance from the rolling low, ATR-normalized: (C - rolling_low_N) / ATR.
+
+    Unbounded non-negative (the current bar's low is always in the window,
+    so rolling_low_N <= C by construction). Returns 0.0 when ATR is near zero.
+    """
+    if atr < eps:
+        return 0.0
+    rolling_low = float(np.min(lows))
+    return (close - rolling_low) / atr
+
+
+def _range_pct(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1e-10) -> float:
+    """Rolling range as a fraction of price: (rolling_high_N - rolling_low_N) / C.
+
+    Unbounded non-negative. Returns 0.0 when close is near zero.
+    """
+    if close < eps:
+        return 0.0
+    return (float(np.max(highs)) - float(np.min(lows))) / close
+
+
+def _new_high_flag(close: float, highs: np.ndarray, eps: float = 1e-10) -> float:
+    """1.0 if the current close is at (or above, epsilon-tolerant) the rolling
+    high, else 0.0. Binary {0.0, 1.0}.
+    """
+    rolling_high = float(np.max(highs))
+    return 1.0 if close >= rolling_high - eps else 0.0
+
+
+def _new_low_flag(close: float, lows: np.ndarray, eps: float = 1e-10) -> float:
+    """1.0 if the current close is at (or below, epsilon-tolerant) the rolling
+    low, else 0.0. Binary {0.0, 1.0}.
+    """
+    rolling_low = float(np.min(lows))
+    return 1.0 if close <= rolling_low + eps else 0.0
+
+
+def _stoch_k(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1e-10) -> float:
+    """Stochastic %K: (C - L_N) / (H_N - L_N). Bounded [0, 1].
+
+    Returns 0.5 (neutral) on a degenerate range (H_N == L_N).
+    """
+    rolling_high = float(np.max(highs))
+    rolling_low = float(np.min(lows))
+    rng = rolling_high - rolling_low
+    if rng < eps:
+        return 0.5
+    return (close - rolling_low) / rng
+
+
+def _price_percentile(close: float, closes: np.ndarray) -> float:
+    """Rolling percentile rank of the current close within its trailing window.
+
+    Bounded [0, 1]. Returns 0.5 (neutral) on cold start (fewer than 2 bars).
+    Reuses _percentile_rank (scipy percentileofscore with manual fallback).
+    """
+    if len(closes) < 2:
+        return 0.5
+    return _percentile_rank(closes, close)
+
+
+def _efficiency_ratio(closes: np.ndarray, eps: float = 1e-10) -> float:
+    """Kaufman efficiency ratio: |C_t - C_{t-N}| / sum(|C_i - C_{i-1}|) over the window.
+
+    Bounded [0, 1] (0 = pure chop, 1 = perfectly linear trend). Returns 0.0 for
+    fewer than 2 bars or a degenerate (zero-movement) window.
+    """
+    if len(closes) < 2:
+        return 0.0
+    net = abs(float(closes[-1]) - float(closes[0]))
+    total = float(np.sum(np.abs(np.diff(closes))))
+    if total < eps:
+        return 0.0
+    return float(np.clip(net / total, 0.0, 1.0))
 
 
 # ---------------------------------------------------------------------------
