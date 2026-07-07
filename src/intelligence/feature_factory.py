@@ -714,6 +714,224 @@ def _month_cos(bar_ts: datetime) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Renaissance Primitives — Volume Structure (Phase 142.5 Plan 02)
+# ---------------------------------------------------------------------------
+# Beyond simple z-scores of volume level. Streaming (per-bar) implementations —
+# see _*_series_full below for the O(n) batch/backfill precompute path.
+
+
+def _percentile_rank(hist: np.ndarray, current: float) -> float:
+    """Percentile rank of `current` within `hist` (inclusive, "weak" semantics).
+
+    Uses scipy.stats.percentileofscore when available; falls back to a manual
+    rank computation if scipy is not importable (T-142.5-02-02 mitigation).
+    Bounded [0, 1].
+    """
+    try:
+        from scipy import stats  # noqa: PLC0415
+
+        pct = stats.percentileofscore(hist, current, kind="weak") / 100.0
+    except ImportError:
+        rank = float(np.sum(hist <= current))
+        pct = rank / len(hist)
+    return float(np.clip(pct, 0.0, 1.0))
+
+
+def _vol_acceleration(volumes: np.ndarray, eps: float = 1e-10) -> float:
+    """Volume surge relative to prior bar: V_t / V_{t-1}. Unbounded positive.
+
+    Returns 1.0 (neutral) on insufficient history or near-zero prior volume.
+    """
+    if len(volumes) < 2:
+        return 1.0
+    prev = float(volumes[-2])
+    if prev < eps:
+        return 1.0
+    return float(volumes[-1]) / prev
+
+
+def _dollar_vol_z(volumes: np.ndarray, closes: np.ndarray, window: int) -> float:
+    """Z-score of dollar volume (V * C) over the trailing window. Returns 0.0 on cold start."""
+    if len(volumes) < 2:
+        return 0.0
+    dollar_vol = volumes.astype(float) * closes.astype(float)
+    return _zscore_last(dollar_vol, window)
+
+
+def _vol_range_ratio(
+    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
+) -> float:
+    """Volume per unit of price range, normalized against its own trailing average.
+
+    raw_t = V_t / (H_t - L_t); result = raw_t / mean(raw, trailing window).
+    Unbounded positive. Returns 0.0 on a degenerate current bar (H == L) or cold start.
+    """
+    n = len(volumes)
+    if n < 1:
+        return 0.0
+    ranges = highs.astype(float) - lows.astype(float)
+    raw = np.where(ranges > eps, volumes.astype(float) / ranges, 0.0)
+    w = min(window, n)
+    mean_raw = float(np.mean(raw[-w:]))
+    if mean_raw < eps:
+        return 0.0
+    return float(raw[-1]) / mean_raw
+
+
+def _vol_trend_ratio(
+    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = 1e-10
+) -> float:
+    """Volume participation trend: vol_MA_fast / vol_MA_slow. Unbounded positive.
+
+    Returns 1.0 (neutral) on cold start (fewer than slow_window bars).
+    """
+    n = len(volumes)
+    if n < slow_window:
+        return 1.0
+    v = volumes.astype(float)
+    ma_fast = float(np.mean(v[-fast_window:]))
+    ma_slow = float(np.mean(v[-slow_window:]))
+    return ma_fast / ma_slow if ma_slow > eps else 1.0
+
+
+def _up_vol_ratio(
+    volumes: np.ndarray,
+    opens: np.ndarray,
+    closes: np.ndarray,
+    window: int,
+    eps: float = 1e-10,
+) -> float:
+    """Fraction of volume occurring on up bars: sum(V | C > O) / sum(V) over window.
+
+    Bounded [0, 1]. Returns 0.5 (neutral) on cold start or near-zero total volume.
+    Shared implementation for up_vol_ratio_fast/slow (different window arguments).
+    """
+    n = len(volumes)
+    w = min(window, n)
+    if w < 1:
+        return 0.5
+    v = volumes[-w:].astype(float)
+    o = opens[-w:].astype(float)
+    c = closes[-w:].astype(float)
+    total = float(np.sum(v))
+    if total < eps:
+        return 0.5
+    up_vol = float(np.sum(np.where(c > o, v, 0.0)))
+    return up_vol / total
+
+
+def _vol_percentile(volumes: np.ndarray, window: int) -> float:
+    """Rolling percentile rank of V_t over the trailing window. Bounded [0, 1].
+
+    Returns 0.5 (neutral) on cold start (fewer than 2 bars in the window).
+    """
+    n = len(volumes)
+    w = min(window, n)
+    if w < 2:
+        return 0.5
+    hist = volumes[-w:].astype(float)
+    return _percentile_rank(hist, float(hist[-1]))
+
+
+def _vol_persistence(volumes: np.ndarray, window: int) -> float:
+    """Lag-1 autocorrelation of volume over the trailing window. Bounded [-1, 1].
+
+    Returns 0.0 on cold start (fewer than 2 bars in the window). Reuses _pearson_acf1.
+    """
+    n = len(volumes)
+    w = min(window, n)
+    if w < 2:
+        return 0.0
+    hist = volumes[-w:].astype(float)
+    return _pearson_acf1(hist)
+
+
+def _rolling_std_series(arr: np.ndarray, window: int) -> np.ndarray:
+    """Trailing rolling std series (expanding until `window` bars, then fixed window).
+
+    O(n) via cumulative sums. Shared building block for _vol_std_z (streaming) and
+    _vol_std_z_series_full (batch).
+    """
+    n = len(arr)
+    out = np.zeros(n, dtype=float)
+    if n == 0:
+        return out
+    cs = np.cumsum(arr)
+    cs2 = np.cumsum(arr * arr)
+    for i in range(n):
+        eff_w = min(window, i + 1)
+        start = i + 1 - eff_w
+        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
+        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
+        mean = s / eff_w
+        var = max(s2 / eff_w - mean * mean, 0.0)
+        out[i] = math.sqrt(var)
+    return out
+
+
+def _vol_std_z(volumes: np.ndarray, window: int) -> float:
+    """Z-score of rolling std(V) over the trailing window (single-window design:
+    the same `window` both computes the rolling std series and z-scores its last
+    value). Returns 0.0 on cold start.
+    """
+    if len(volumes) < 2:
+        return 0.0
+    std_series = _rolling_std_series(volumes.astype(float), window)
+    return _zscore_last(std_series, window)
+
+
+def _mfi(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    volumes: np.ndarray,
+    window: int,
+    eps: float = 1e-10,
+) -> float:
+    """Money Flow Index: 100 * sum(tp*V | tp rising) / sum(tp*V) over window.
+
+    tp = (H + L + C) / 3. Bounded [0, 100]. Returns 50.0 (neutral) on cold start
+    or near-zero total money flow. Shared implementation for mfi_fast/slow.
+    """
+    n = len(closes)
+    w = min(window, n - 1) if n >= 2 else 0
+    if w < 1:
+        return 50.0
+    tp_full = (highs[-(w + 1) :].astype(float) + lows[-(w + 1) :].astype(float)) + closes[
+        -(w + 1) :
+    ].astype(float)
+    tp_full = tp_full / 3.0
+    v_full = volumes[-(w + 1) :].astype(float)
+    tp = tp_full[1:]
+    prev_tp = tp_full[:-1]
+    v = v_full[1:]
+    money_flow = tp * v
+    total = float(np.sum(money_flow))
+    if total < eps:
+        return 50.0
+    rising_flow = float(np.sum(money_flow[tp > prev_tp]))
+    return float(np.clip(100.0 * rising_flow / total, 0.0, 100.0))
+
+
+def _obv_z(closes: np.ndarray, volumes: np.ndarray, window: int) -> float:
+    """Z-score of On-Balance Volume (cumulative +V on up bars, -V on down bars).
+
+    Returns 0.0 on cold start (fewer than 2 bars).
+    """
+    n = len(closes)
+    if n < 2:
+        return 0.0
+    diffs = np.diff(closes.astype(float))
+    signed_vol = np.where(
+        diffs > 0,
+        volumes[1:].astype(float),
+        np.where(diffs < 0, -volumes[1:].astype(float), 0.0),
+    )
+    obv = np.cumsum(signed_vol)
+    return _zscore_last(obv, window)
+
+
+# ---------------------------------------------------------------------------
 # Calendar primitive functions
 # ---------------------------------------------------------------------------
 
