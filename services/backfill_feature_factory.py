@@ -437,6 +437,10 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
             cfg.get_sync("feature.session.opening_range_start_minute", 810)
         ),
         opening_range_end_minute=int(cfg.get_sync("feature.session.opening_range_end_minute", 900)),
+        ret_lag_fast=int(cfg.get_sync("feature.ret_lag.fast", 5)),
+        ret_lag_mid=int(cfg.get_sync("feature.ret_lag.mid", 20)),
+        ret_lag_slow=int(cfg.get_sync("feature.ret_lag.slow", 60)),
+        overnight_gap_window=int(cfg.get_sync("feature.overnight_gap.window", 20)),
     )
 
 

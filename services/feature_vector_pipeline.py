@@ -478,6 +478,11 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.session.opening_range_start_minute", 810),
         ("feature.session.opening_range_end_minute", 900),
         ("threshold.backfill.coverage_gate", 0.80),
+        # --- migration 206: Phase 142.5 Plan 01 Renaissance primitives (lagged returns + overnight gap) ---
+        ("feature.ret_lag.fast", 5),
+        ("feature.ret_lag.mid", 20),
+        ("feature.ret_lag.slow", 60),
+        ("feature.overnight_gap.window", 20),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -539,6 +544,10 @@ class FeatureVectorPipeline(BaseDaemon):
             power_hour_end_utc_hour=_int("feature.session.power_hour_end_utc_hour", 21),
             opening_range_start_minute=_int("feature.session.opening_range_start_minute", 810),
             opening_range_end_minute=_int("feature.session.opening_range_end_minute", 900),
+            ret_lag_fast=_int("feature.ret_lag.fast", 5),
+            ret_lag_mid=_int("feature.ret_lag.mid", 20),
+            ret_lag_slow=_int("feature.ret_lag.slow", 60),
+            overnight_gap_window=_int("feature.overnight_gap.window", 20),
         )
 
         self.logger.info(
