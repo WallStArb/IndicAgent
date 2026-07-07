@@ -423,6 +423,201 @@ def _cmf(
 
 
 # ---------------------------------------------------------------------------
+# Renaissance Primitives — Bar Anatomy Ratios (Phase 142.5 Plan 01)
+# ---------------------------------------------------------------------------
+
+
+def _body_ratio(
+    open_price: float, high: float, low: float, close: float, eps: float = 1e-10
+) -> float:
+    """Bar body ratio: (C - O) / (H - L). Bounded [-1, 1]. Returns 0.0 on degenerate bar (H == L)."""
+    hl = high - low
+    if hl < eps:
+        return 0.0
+    return (close - open_price) / hl
+
+
+def _upper_wick_ratio(
+    open_price: float, high: float, low: float, close: float, eps: float = 1e-10
+) -> float:
+    """Upper wick ratio: (H - max(O, C)) / (H - L). Bounded [0, 1]. Returns 0.5 on degenerate bar."""
+    hl = high - low
+    if hl < eps:
+        return 0.5
+    return (high - max(open_price, close)) / hl
+
+
+def _lower_wick_ratio(
+    open_price: float, high: float, low: float, close: float, eps: float = 1e-10
+) -> float:
+    """Lower wick ratio: (min(O, C) - L) / (H - L). Bounded [0, 1]. Returns 0.5 on degenerate bar."""
+    hl = high - low
+    if hl < eps:
+        return 0.5
+    return (min(open_price, close) - low) / hl
+
+
+def _range_vs_atr(high: float, low: float, atr: float, eps: float = 1e-10) -> float:
+    """Bar range relative to ATR: (H - L) / ATR_N. Unbounded positive. Returns 0.0 when atr < eps."""
+    return (high - low) / atr if atr > eps else 0.0
+
+
+def _close_vs_open_direction(open_price: float, close: float) -> float:
+    """Directional sign of the bar: sign(C - O). Categorical {-1.0, 0.0, 1.0}."""
+    diff = close - open_price
+    if diff == 0.0:
+        return 0.0
+    return math.copysign(1.0, diff)
+
+
+def _overnight_gap(open_price: float, prev_close: float, eps: float = 1e-10) -> float:
+    """Overnight gap return: (O - prev_C) / prev_C. Unbounded. Returns 0.0 when prev_C < eps."""
+    return (open_price - prev_close) / prev_close if prev_close > eps else 0.0
+
+
+def _overnight_gap_series_full(
+    opens: np.ndarray, closes: np.ndarray, eps: float = 1e-10
+) -> np.ndarray:
+    """Raw overnight_gap value per bar index i (i >= 1); index 0 padded with 0.0.
+
+    result[i] == streaming _overnight_gap(opens[i], closes[i-1]) for i >= 1.
+    Batch precompute helper — used only to feed _overnight_gap_z_series_full below;
+    the raw per-bar overnight_gap value itself is O(1) via _overnight_gap() directly.
+    """
+    n = len(closes)
+    if n < 2:
+        return np.zeros(n, dtype=float)
+    prev_closes = closes[:-1]
+    raw_gaps = np.where(prev_closes > eps, (opens[1:] - prev_closes) / prev_closes, 0.0)
+    return np.concatenate([[0.0], raw_gaps])
+
+
+def _overnight_gap_z(
+    opens: np.ndarray, closes: np.ndarray, window: int, eps: float = 1e-10
+) -> float:
+    """Z-score of overnight_gap over a trailing window of bars (streaming path).
+
+    Builds the full overnight_gap series then z-scores the last value against the
+    trailing `window`, matching _zscore_last semantics. Returns 0.0 on insufficient
+    history (fewer than `window` gap observations).
+    """
+    if len(closes) < 2:
+        return 0.0
+    prev_closes = closes[:-1]
+    gaps = np.where(prev_closes > eps, (opens[1:] - prev_closes) / prev_closes, 0.0)
+    return _zscore_last(gaps, window)
+
+
+def _overnight_gap_z_series_full(opens: np.ndarray, closes: np.ndarray, window: int) -> np.ndarray:
+    """Z-scored overnight_gap series (batch path). result[i] == streaming
+    _overnight_gap_z(opens[:i+1], closes[:i+1], window) for i >= 1.
+
+    O(n) total — required because _overnight_gap_z rebuilds the full gap array per
+    call; looping compute_batch() calling the streaming version would be O(n^2).
+    """
+    n = len(closes)
+    if n < 2:
+        return np.zeros(n, dtype=float)
+    raw_gaps = _overnight_gap_series_full(opens, closes)[1:]  # index j == gap at bar j+1
+    z = _fixed_window_zscore_series(raw_gaps, window)
+    return np.concatenate([[0.0], z])  # index i == z-score at bar i (i >= 1)
+
+
+def _range_efficiency(
+    close: float, prev_close: float, high: float, low: float, eps: float = 1e-10
+) -> float:
+    """Range efficiency: abs(C - prev_C) / (H - L). Bounded [0, 1]. Returns 0.0 on degenerate bar."""
+    hl = high - low
+    if hl < eps:
+        return 0.0
+    return min(abs(close - prev_close) / hl, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Renaissance Primitives — Lagged Return Series (Phase 142.5 Plan 01)
+# ---------------------------------------------------------------------------
+
+
+def _ret_lag_k(closes: np.ndarray, k: int, eps: float = 1e-10) -> float:
+    """Shared implementation: log(C_t / C_{t-k}). Returns 0.0 when history < k + 1."""
+    if len(closes) < k + 1:
+        return 0.0
+    return float(np.log(max(float(closes[-1]), eps) / max(float(closes[-(k + 1)]), eps)))
+
+
+def _ret_lag_1(closes: np.ndarray, eps: float = 1e-10) -> float:
+    """1-bar lagged log return: log(C_t / C_{t-1}). Definitional — no APR key."""
+    return _ret_lag_k(closes, 1, eps)
+
+
+def _ret_lag_2(closes: np.ndarray, eps: float = 1e-10) -> float:
+    """2-bar lagged log return: log(C_t / C_{t-2}). Definitional — no APR key."""
+    return _ret_lag_k(closes, 2, eps)
+
+
+def _ret_lag_3(closes: np.ndarray, eps: float = 1e-10) -> float:
+    """3-bar lagged log return: log(C_t / C_{t-3}). Definitional — no APR key."""
+    return _ret_lag_k(closes, 3, eps)
+
+
+def _ret_lag_fast(closes: np.ndarray, window: int, eps: float = 1e-10) -> float:
+    """Gradient fast-scale lagged log return: log(C_t / C_{t-window}). APR: feature.ret_lag.fast"""
+    return _ret_lag_k(closes, window, eps)
+
+
+def _ret_lag_mid(closes: np.ndarray, window: int, eps: float = 1e-10) -> float:
+    """Gradient mid-scale lagged log return: log(C_t / C_{t-window}). APR: feature.ret_lag.mid"""
+    return _ret_lag_k(closes, window, eps)
+
+
+def _ret_lag_slow(closes: np.ndarray, window: int, eps: float = 1e-10) -> float:
+    """Gradient slow-scale lagged log return: log(C_t / C_{t-window}). APR: feature.ret_lag.slow"""
+    return _ret_lag_k(closes, window, eps)
+
+
+# ---------------------------------------------------------------------------
+# Renaissance Primitives — Open-to-Close Split (Phase 142.5 Plan 01)
+# ---------------------------------------------------------------------------
+
+
+def _open_ret(open_price: float, prev_close: float, eps: float = 1e-10) -> float:
+    """Overnight component of return: log(O_t / prev_C). Returns 0.0 when prev_C < eps."""
+    if prev_close < eps:
+        return 0.0
+    return float(np.log(max(open_price, eps) / prev_close))
+
+
+def _intraday_ret(close: float, open_price: float, eps: float = 1e-10) -> float:
+    """Intraday component of return: log(C_t / O_t). Returns 0.0 when O_t < eps."""
+    if open_price < eps:
+        return 0.0
+    return float(np.log(max(close, eps) / open_price))
+
+
+def _open_vs_intraday(open_ret: float, intraday_ret: float) -> float:
+    """Overnight-vs-intraday return decomposition gap: open_ret - intraday_ret."""
+    return open_ret - intraday_ret
+
+
+def _session_time_pos(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
+    """Continuous [0, 1] position within the NY regular session for bar_ts's date.
+
+    Formula: clamp((total_minutes - start_minutes) / (end_minutes - start_minutes), 0.0, 1.0).
+    0.0 before/at session open, 1.0 at/after session close. Pure timestamp arithmetic — no
+    OHLCV. Deviation from source spec (discrete bar_index/total_session_bars) documented in
+    142.5-01-PLAN.md: continuous fraction is TF-independent (session bar count varies by TF).
+    """
+    total_minutes = bar_ts.hour * 60 + bar_ts.minute
+    start_minutes = config.ny_session_start_utc_hour * 60 + config.ny_session_start_utc_minute
+    end_minutes = config.ny_session_end_utc_hour * 60
+    session_length = end_minutes - start_minutes
+    if session_length <= 0:
+        return 0.0
+    frac = (total_minutes - start_minutes) / session_length
+    return max(0.0, min(1.0, frac))
+
+
+# ---------------------------------------------------------------------------
 # Calendar primitive functions
 # ---------------------------------------------------------------------------
 
