@@ -507,6 +507,26 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.breakout.percentile_window_slow", 200),
         ("feature.breakout.efficiency_window_fast", 10),
         ("feature.breakout.efficiency_window_slow", 50),
+        # --- migration 206: Phase 142.5 Plan 03 Renaissance primitives (return
+        # distribution + realized variance/volatility) ---
+        ("feature.ret_kurtosis.fast", 10),
+        ("feature.ret_kurtosis.slow", 40),
+        ("feature.ret_kurtosis.zscore_window", 20),
+        ("feature.updown_ratio.fast", 5),
+        ("feature.updown_ratio.slow", 20),
+        ("feature.streak.window", 20),
+        ("feature.realized_var.fast", 5),
+        ("feature.realized_var.slow", 20),
+        ("feature.vol_of_vol.window", 20),
+        ("feature.high_low_corr.window", 20),
+        ("feature.variance_ratio.fast", 5),
+        ("feature.variance_ratio.slow", 20),
+        ("feature.vol_asymmetry.window", 20),
+        ("feature.bb_pct_b.fast", 20),
+        ("feature.bb_pct_b.slow", 50),
+        ("feature.hv.fast", 10),
+        ("feature.hv.slow", 30),
+        ("feature.hv.ratio_window", 20),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -594,6 +614,24 @@ class FeatureVectorPipeline(BaseDaemon):
             percentile_window_slow=_int("feature.breakout.percentile_window_slow", 200),
             efficiency_window_fast=_int("feature.breakout.efficiency_window_fast", 10),
             efficiency_window_slow=_int("feature.breakout.efficiency_window_slow", 50),
+            ret_kurtosis_fast=_int("feature.ret_kurtosis.fast", 10),
+            ret_kurtosis_slow=_int("feature.ret_kurtosis.slow", 40),
+            ret_kurtosis_zscore_window=_int("feature.ret_kurtosis.zscore_window", 20),
+            updown_ratio_fast=_int("feature.updown_ratio.fast", 5),
+            updown_ratio_slow=_int("feature.updown_ratio.slow", 20),
+            streak_window=_int("feature.streak.window", 20),
+            realized_var_fast=_int("feature.realized_var.fast", 5),
+            realized_var_slow=_int("feature.realized_var.slow", 20),
+            vol_of_vol_window=_int("feature.vol_of_vol.window", 20),
+            high_low_corr_window=_int("feature.high_low_corr.window", 20),
+            variance_ratio_fast=_int("feature.variance_ratio.fast", 5),
+            variance_ratio_slow=_int("feature.variance_ratio.slow", 20),
+            vol_asymmetry_window=_int("feature.vol_asymmetry.window", 20),
+            bb_pct_b_fast=_int("feature.bb_pct_b.fast", 20),
+            bb_pct_b_slow=_int("feature.bb_pct_b.slow", 50),
+            hv_fast=_int("feature.hv.fast", 10),
+            hv_slow=_int("feature.hv.slow", 30),
+            hv_ratio_window=_int("feature.hv.ratio_window", 20),
         )
 
         self.logger.info(
