@@ -1655,16 +1655,16 @@ v3.15 and intel-10 v3). Not doing this promptly is how "deferred" becomes "defer
 - **Deliverable:** FeatureFactory computes 152 features, schema expanded, registry seeded, ready for corpus run
 
 **Depends on:** Phase 142B.1 (Ensemble Weighting Methodology)
-**Plans:** 8 plans
+**Plans:** 8/8 plans complete
 Plans:
-- [ ] 142.5-00-PLAN.md — Wave 0: Test infrastructure (11 RED categories, schema test asserts 152)
-- [ ] 142.5-01-PLAN.md — Bar anatomy (8) + Lagged returns (6) + Open-to-close split (4) → 79
-- [ ] 142.5-02-PLAN.md — Temporal coords new (8) + month_sin/cos (2) + Volume structure (12) → 101
-- [ ] 142.5-03-PLAN.md — Return distribution (7) + Realized variance (14) → 122
-- [ ] 142.5-04-PLAN.md — Alternative volatility (3) + Volatility dynamics (5) → 130
-- [ ] 142.5-05-PLAN.md — Breakout distance (14) + migration 206 (breakout cols/APR) → 144
-- [ ] 142.5-05.5-PLAN.md — Price-volume interactions (8) → 152
-- [ ] 142.5-06-PLAN.md — APR seeds (44) + 77 columns + 91 feature_registry rows + schema test (152)
+- [x] 142.5-00-PLAN.md — Wave 0: Test infrastructure (11 RED categories, schema test asserts 152)
+- [x] 142.5-01-PLAN.md — Bar anatomy (8) + Lagged returns (6) + Open-to-close split (4) → 79
+- [x] 142.5-02-PLAN.md — Temporal coords new (8) + month_sin/cos (2) + Volume structure (12) → 101
+- [x] 142.5-03-PLAN.md — Return distribution (7) + Realized variance (14) → 122
+- [x] 142.5-04-PLAN.md — Alternative volatility (3) + Volatility dynamics (5) → 130
+- [x] 142.5-05-PLAN.md — Breakout distance (14) + migration 206 (breakout cols/APR) → 144
+- [x] 142.5-05.5-PLAN.md — Price-volume interactions (8) → 152
+- [x] 142.5-06-PLAN.md — APR seeds (44) + 77 columns + 91 feature_registry rows + schema test (152)
 
 ### Phase 143: Feature Lifecycle Routing (merged with Phase 149B) 📐 PLANNED (3 plans)
 
