@@ -506,7 +506,7 @@ class TestComputePurity:
     def test_all_fields_are_finite_floats(self) -> None:
         """All FeatureVector fields must be finite floats (no NaN, no inf).
 
-        61 baseline (v3.0) + 18 Renaissance primitives (Phase 142.5 Plan 01) = 79.
+        61 baseline (v3.0) + 18 Plan 01 + 22 Plan 02 Renaissance primitives = 101.
         """
         import dataclasses
 
@@ -515,7 +515,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 79, f"Expected 79 fields, got {len(fields)}"
+        assert len(fields) == 101, f"Expected 101 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,

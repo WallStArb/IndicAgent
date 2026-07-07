@@ -113,6 +113,31 @@ def _make_sentinel_record():
         intraday_ret=55.16,
         open_vs_intraday=55.17,
         session_time_pos=55.18,
+        # Renaissance Primitives (Phase 142.5 Plan 02) — not yet in the persisted
+        # tuple (migration 206 / writer wiring land in a later plan); construction
+        # requires these non-optional fields, so sentinel values only.
+        hour_of_day_sin=56.01,
+        hour_of_day_cos=56.02,
+        week_of_month_sin=56.03,
+        week_of_month_cos=56.04,
+        day_of_month_sin=56.05,
+        day_of_month_cos=56.06,
+        week_of_year_sin=56.07,
+        week_of_year_cos=56.08,
+        month_sin=56.09,
+        month_cos=56.10,
+        vol_acceleration=56.11,
+        dollar_vol_z=56.12,
+        vol_range_ratio=56.13,
+        vol_trend_ratio=56.14,
+        up_vol_ratio_fast=56.15,
+        up_vol_ratio_slow=56.16,
+        vol_percentile=56.17,
+        vol_persistence=56.18,
+        vol_std_z=56.19,
+        mfi_fast=56.20,
+        mfi_slow=56.21,
+        obv_z=56.22,
     )
     return FeatureVectorRecord(
         symbol="SPY",

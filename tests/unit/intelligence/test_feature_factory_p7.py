@@ -381,9 +381,9 @@ def test_hmm_duration_increments():
 
 
 def test_feature_vector_domain_complete():
-    """61 baseline + 18 Renaissance primitives (Phase 142.5 Plan 01) = 79."""
+    """61 baseline + 18 Plan 01 + 22 Plan 02 Renaissance primitives = 101."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 79
+    assert len(FEATURE_VECTOR_DOMAIN) == 101
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 
