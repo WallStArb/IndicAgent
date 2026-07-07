@@ -179,6 +179,17 @@ def _make_sentinel_record():
         hv_z_fast=58.19,
         hv_z_slow=58.20,
         hv_ratio=58.21,
+        # Renaissance Primitives (Phase 142.5 Plan 04) — not yet in the persisted
+        # tuple (migration 206 / writer wiring land in a later plan); construction
+        # requires these non-optional fields, so sentinel values only.
+        parkinson_vol_z=59.01,
+        garman_klass_vol_z=59.02,
+        yang_zhang_vol_z=59.03,
+        parkinson_vol_velocity=59.04,
+        garman_klass_vol_velocity=59.05,
+        yang_zhang_vol_velocity=59.06,
+        vol_velocity_z=59.07,
+        intraday_noise_ratio=59.08,
     )
     return FeatureVectorRecord(
         symbol="SPY",
