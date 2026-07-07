@@ -1440,6 +1440,15 @@ class FeatureVector:
     )
     vol_velocity_z: float  # z-score of rolling atr_z velocity (APR: feature.vol_velocity.window)
     intraday_noise_ratio: float  # sum(|ret|)/|net_ret| over session, unbounded non-neg (APR: feature.intraday_noise.window)
+    # Renaissance Primitives — Price-Volume Interactions (8, Phase 142.5 Plan 05.5)
+    vol_body_product: float  # body_ratio * volume_z, unbounded symmetric around 0 (no APR)
+    ret_vol_product_fast: float  # ret_lag_fast * volume_z, unbounded symmetric around 0 (no APR)
+    price_vol_corr_fast: float  # rolling Pearson(|log ret|, volume), bounded [-1,1] (APR: feature.price_vol_corr.fast)
+    price_vol_corr_slow: float  # rolling Pearson(|log ret|, volume), bounded [-1,1] (APR: feature.price_vol_corr.slow)
+    range_vol_product: float  # range_vs_atr * volume_z, unbounded symmetric around 0 (no APR)
+    up_vol_body_diff: float  # up_vol_ratio_fast - body_ratio, approx bounded [-1,1] (no APR)
+    ret_vol_ratio_fast: float  # ret_lag_fast / atr_z, unbounded symmetric around 0 (no APR)
+    vol_skew_product: float  # ret_skew_z * volume_z, unbounded symmetric around 0 (no APR)
     # Cross-sectional (3, nullable — populated by Phase 139 enrichment pass)
     momentum_rank_z: float | None = None  # cross-sectional momentum rank z-score
     volume_rank_z: float | None = None  # cross-sectional volume rank z-score
