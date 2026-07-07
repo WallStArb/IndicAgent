@@ -38,7 +38,30 @@ if [ -f "$STATE_FILE" ]; then
     echo ""
     echo "=== delta vs last check ==="
     join -t'|' -a1 -a2 -e0 -o0,1.2,2.2 <(sort "$STATE_FILE") <(echo "$COUNTS" | sort) | \
-        awk -F'|' '{printf "%-4s %+d (was %s, now %s)\n", $1, $3-$2, $2, $3}'
+        awk -F'|' '
+        function commas(n) {
+            n = sprintf("%d", n)
+            neg = ""
+            if (n ~ /^-/) { neg = "-"; n = substr(n, 2) }
+            while (n ~ /^[0-9]+[0-9][0-9][0-9]($|,)/) {
+                n = gensub(/([0-9])([0-9][0-9][0-9])($|,)/, "\\1,\\2\\3", 1, n)
+            }
+            return neg n
+        }
+        BEGIN {
+            printf "┌─────┬─────────────┬─────────────┬──────────────┐\n"
+            printf "│ %-3s │ %-11s │ %-11s │ %-12s │\n", "TF", "Before", "Now", "Delta"
+            printf "├─────┼─────────────┼─────────────┼──────────────┤\n"
+        }
+        {
+            delta = $3 - $2
+            sign = (delta >= 0) ? "+" : ""
+            printf "│ %-3s │ %11s │ %11s │ %12s │\n", $1, commas($2), commas($3), sign commas(delta)
+        }
+        END {
+            printf "└─────┴─────────────┴─────────────┴──────────────┘\n"
+        }
+        '
 else
     echo "(no prior baseline -- this is the first check)"
 fi
