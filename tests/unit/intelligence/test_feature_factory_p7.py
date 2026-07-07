@@ -105,6 +105,24 @@ def _make_cfg(**overrides) -> FeatureFactoryConfig:
         percentile_window_slow=200,
         efficiency_window_fast=10,
         efficiency_window_slow=50,
+        ret_kurtosis_fast=10,
+        ret_kurtosis_slow=40,
+        ret_kurtosis_zscore_window=20,
+        updown_ratio_fast=5,
+        updown_ratio_slow=20,
+        streak_window=20,
+        realized_var_fast=5,
+        realized_var_slow=20,
+        vol_of_vol_window=20,
+        high_low_corr_window=20,
+        variance_ratio_fast=5,
+        variance_ratio_slow=20,
+        vol_asymmetry_window=20,
+        bb_pct_b_fast=20,
+        bb_pct_b_slow=50,
+        hv_fast=10,
+        hv_slow=30,
+        hv_ratio_window=20,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -391,9 +409,9 @@ def test_hmm_duration_increments():
 
 
 def test_feature_vector_domain_complete():
-    """61 baseline + 18 Plan 01 + 22 Plan 02 + 14 Plan 05 Renaissance primitives = 115."""
+    """61 baseline + 18 Plan 01 + 22 Plan 02 + 14 Plan 05 + 21 Plan 03 Renaissance primitives = 136."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 115
+    assert len(FEATURE_VECTOR_DOMAIN) == 136
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 

@@ -134,6 +134,30 @@ def _make_valid_feature_vector():
         price_percentile_slow=0.5,
         efficiency_ratio_fast=0.0,
         efficiency_ratio_slow=0.0,
+        # Renaissance Primitives (Phase 142.5 Plan 03) — not yet in the persisted
+        # tuple (migration 206 / writer wiring land in a later plan); construction
+        # requires these non-optional fields.
+        ret_kurtosis_z_fast=0.0,
+        ret_kurtosis_z_slow=0.0,
+        ret_autocorr_1=0.0,
+        ret_autocorr_5=0.0,
+        updown_ratio_fast=1.0,
+        updown_ratio_slow=1.0,
+        streak_z=0.0,
+        realized_var_ratio_fast=1.0,
+        realized_var_ratio_slow=1.0,
+        range_to_close=0.0,
+        true_range_pct=0.0,
+        vol_of_vol=0.0,
+        high_low_corr=0.0,
+        variance_ratio_fast=1.0,
+        variance_ratio_slow=1.0,
+        vol_asymmetry_z=0.0,
+        bb_pct_b_fast=0.5,
+        bb_pct_b_slow=0.5,
+        hv_z_fast=0.0,
+        hv_z_slow=0.0,
+        hv_ratio=1.0,
     )
 
 
