@@ -11,6 +11,14 @@ query sites across 3 files:
 - `services/regime_writer.py` — `_compute_symbol_tf` bar fetch
 - `services/forward_return_writer.py` — windowed CTE
 
+**Update 2026-07-07:** this todo's own file list was incomplete — `services/equity_regime_model.py`
+(the LIVE cross-sectional regime system, `market_regimes` table) had the exact same leak in
+2 query sites (SPY realized-vol fetch, cross-sectional breadth query) and was missed by both
+the original fix and this todo. Found and fixed same day (added `volume > 0` to both), ahead
+of a full corpus rerun so no separate `market_regimes` recompute/invalidation was needed. Now
+5 query sites across 4 files. This is exactly the failure mode the "single boundary" fix below
+is meant to prevent — a 5th file already slipped through per-callsite discipline.
+
 This works but is the wrong altitude long-term: it's a data-quality invariant
 about the whole table, not a per-query concern. Every future bar-reading call
 site (and `grep -rln "FROM market_data_ohlcv"` currently shows 18 files) has to

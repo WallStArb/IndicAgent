@@ -274,6 +274,7 @@ def _compute_breadth_fraction(
         FROM market_data_ohlcv m
         JOIN instruments i ON i.symbol = m.symbol
         WHERE m.timeframe = %s
+          AND m.volume > 0
           AND i.is_active = true
           AND EXISTS (
               SELECT 1 FROM instrument_tags t
@@ -339,7 +340,7 @@ def _fetch_spy_bars(dsn: str, tf: str) -> tuple[list, list[float]]:
     sql = """
         SELECT timestamp, close
         FROM market_data_ohlcv
-        WHERE symbol = 'SPY' AND timeframe = %s
+        WHERE symbol = 'SPY' AND timeframe = %s AND volume > 0
         ORDER BY timestamp ASC
     """
     fresh_conn = psycopg2.connect(dsn)
