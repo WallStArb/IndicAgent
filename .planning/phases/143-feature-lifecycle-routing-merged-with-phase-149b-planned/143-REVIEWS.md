@@ -1,6 +1,6 @@
 ---
 phase: 143
-reviewers: [codex]
+reviewers: [codex, fable]
 reviewed_at: 2026-07-06T00:00:00Z
 plans_reviewed: [143-01-PLAN.md, 143-02-PLAN.md, 143-03-PLAN.md]
 ---
@@ -132,6 +132,148 @@ treating as open until Wave 2/3 re-planning addresses them.
 
 ---
 
+## Fable Review (independent)
+
+Reviewed 2026-07-06, against the REVISED 143-02-PLAN.md and 143-03-PLAN.md (post-replan commits
+`3e47494a`, `05ba47f9`). Plan 01 treated as fixed context (executed, 143-01-SUMMARY.md). Every claim
+below was checked against live schema (`psql`) and current source, not against the plans' own
+self-citations. This is the first pass on the revised plans by a reviewer that did not write them.
+
+### Verdict on the four original Codex findings
+
+**Finding 1 (feature-vs-cell aggregation) - RESOLVED, verified.**
+Plan 03 now states the rule explicitly (must_haves truth 1-2, objective §1): transition unit is the
+FEATURE; demotion fires when the material-fail fraction of the feature's active cells this run is
+>= (1 - alpha.ensemble.meta_fdr_min_fraction). The supporting claims hold against code:
+`feature_registry.feature_name` is the sole PK (migration 172); `ic_engine.py:1764-1767` builds
+`feature_status_map` per-feature from registry status at run start, so all of a feature's cells carry
+one status stamp; `ensemble_trainer.py:261-269` (`_meta_eligible`) uses the same constant at the same
+feature-level granularity. The plan's own honesty note is also accurate: I verified the trainer's
+`fdr_pass_rows` query (`ensemble_trainer.py:425-437`) has NO `training_window_end` filter, so the
+plan correctly does NOT overclaim cross-consistency with the trainer's historical eligibility check.
+Residual (LOW, noted as N7 below): the two denominators also differ in eligibility filters, and the
+plan never pins whether a "cell" is (tf, regime) or (tf, regime, lookahead) - see N3.
+
+**Finding 2 (pre_shadow_weight write path) - RESOLVED, verified, and the right call.**
+The revision drops the column instead of inventing a write path. Evidence checks out exactly:
+`ensemble_trainer.py:744-748` is the sole `INSERT INTO ensemble_weights` in the codebase, with
+`ON CONFLICT ... DO UPDATE SET weight = EXCLUDED.weight`; `_process_stratum` (lines 535-549) rebuilds
+weights from this run's `feature_ic_scores` rows filtered `feature_status_at_eval = 'active'`
+(line 544); there is no prior-weight read anywhere in the file. So a restored scalar would indeed be
+dead, and status-flip + natural recompute is the only mechanism that respects the sole-writer
+invariant. The acknowledged one-run lag (hook runs after this run's stamps are written) is real and
+correctly characterized. Plan 03's grep-based acceptance criterion (no INSERT/UPDATE ensemble_weights
+in ic_engine) locks it.
+
+**Finding 3 (idempotency on hook rerun) - MOSTLY RESOLVED, one residual gap (see N1a).**
+Three mechanisms now exist and are individually sound: (a) integrity_monitor UNIQUE on
+(monitor_type, training_window_end, metric_name, COALESCE(subject,'')) + ON CONFLICT DO NOTHING;
+(b) hook short-circuit keyed on training_window_end (Plan 03 step 0); (c) Plan 02's optimistic
+`WHERE status = from_status` lock with rowcount==0 rolling back the log INSERT too (verified feasible:
+`write_conn` is autocommit-off via `_batch_utils.py:34`, so `with conn:` gives real transaction
+semantics). BUT the ordering leaves a window: transitions and counter advances run at step 4, the
+idempotency fact is written at step 5. A crash between them means a rerun re-executes step 4.
+Transitions are protected by (c); `advance_shadow_counters_sync` is NOT - it is a plain increment
+with no run keying, so a rerun double-increments `consecutive_shadow_passes` and double-adds
+`observations_since_demotion`, inflating promotion evidence. Tagged MEDIUM below (N2a).
+
+**Finding 4 (cache coherency) - RESOLVED, verified feasible.**
+Plan 02 must_haves truth 5 + Task 2 explicitly require both sync methods to mutate
+`self._features[feature_name]` on successful commit, with a dedicated cache-coherency test, and
+`is_promotion_eligible` reads counters from the cache. This matches the existing implementation
+pattern exactly - the async path already does the same mutation
+(`feature_registry_service.py:261-263`), and `_LOAD_QUERY` extension is specified so `load_sync`
+caches the counters at run start. Within one hook invocation the sequence
+advance-counters -> eligibility-read is coherent by construction. Closed.
+
+### New findings (introduced or exposed by this revision)
+
+- **HIGH (N1): No counter reset on demotion - repeat-decay features get an instant re-promotion.**
+  `observations_since_demotion` and `consecutive_shadow_passes` are created with DEFAULT 0
+  (migration 202) and only ever mutated by `advance_shadow_counters_sync` (increment/reset-on-fail
+  and add). Nothing in either plan zeroes them when a feature is DEMOTED. First decay cycle is fine
+  (columns start at 0), but after a promote -> re-demote cycle the counters still hold the values
+  that satisfied the floors at the previous promotion (>= 2 passes, >= 2000 obs, never reset).
+  One passing run later, `is_promotion_eligible` is trivially True and the feature re-promotes after
+  a single run instead of re-earning 2 passes + 2000 observations. This defeats the evidence bar in
+  exactly the oscillation scenario lifecycle routing exists to prevent. Fix is one line of semantics:
+  `record_transition_sync` (or the hook's demotion step, same transaction) must reset both counters
+  to 0 when to_status='shadow_only'. Should be added to Plan 02 Task 2 (and a test) before execution.
+
+- **MEDIUM (N2a): `advance_shadow_counters_sync` is not rerun-safe (residual of finding 3).**
+  As described under Finding 3: crash after step 4, before the step-5 fact, and a rerun double-counts
+  a run's passes/observations. Cheapest fix: write the per-run gate-evaluation fact and the counter
+  advances in one transaction, or key counter advances on training_window_end (e.g. a
+  `last_counter_window` column checked in the UPDATE's WHERE, mirroring the optimistic-lock pattern).
+
+- **MEDIUM (N3): "Cell" silently includes 4 lookahead rows; recovery observations are ~4x overcounted.**
+  POOLED cross-sectional rows exist per (feature, tf, regime, lookahead_bars) - PK verified, and live
+  data confirms 4 distinct lookaheads. Plan 03's cell query neither filters nor groups by lookahead,
+  so `new_observations = sum(n_independent)` counts the same underlying bars once per horizon -
+  4 overlapping views of one window are not independent observations. The 2000-obs recovery floor is
+  effectively ~500. The demotion FRACTION is unharmed (numerator and denominator scale together, and
+  the trainer's meta gate is equally lookahead-blind), but the promotion evidence floor is materially
+  weakened. Specify the intended semantics (e.g. max or single-lookahead n_independent per (tf,
+  regime)) before execution.
+
+- **MEDIUM (N4): Standing-weight lookup keys on the globally most recent weight_version.**
+  Plan 03 interface + step 1 use `ew.weight_version = (SELECT weight_version FROM ensemble_weights
+  ORDER BY computed_at DESC LIMIT 1)`. Today this is safe (live table holds exactly one version,
+  'v1', 103 rows) but `ensemble_trainer` explicitly supports per-run epoch overrides via
+  `--weight-version` (ensemble_trainer.py:840), built for the E1/E2 champion/challenger A/B that is
+  still pending. The first challenger epoch written after this hook ships would silently become the
+  materiality gate's weight source. Read the champion version from APR `alpha.ensemble.weight_version`
+  instead (the same key the trainer resolves), or select latest per (tf, regime) at that version.
+
+- **MEDIUM (N5): Zero-cell runs are undefined.** The hook is inserted unconditionally after the
+  `if equity_model_enabled and corpus_cs_rows:` block (ic_engine.py:2048-2053). A run with the equity
+  model disabled, or a per-symbol-only run, yields zero POOLED cells for this training_window_end:
+  the regime-shift fraction is a division by zero and every demotion denominator is 0. Neither the
+  plan steps nor the behavior tests cover the empty population. Add an explicit "no cells -> log and
+  return (write no fact)" rule so a symbols-only run doesn't poison the idempotency key either.
+
+- **MEDIUM (N6): The staleness alert cannot fire for the failure mode it exists to catch.**
+  `ic_engine_last_run_age_days` is only set DURING a run of a oneshot batch process. If ic_engine
+  stops running entirely (T-143-08's actual scenario), no new samples are exported and `age >
+  staleness_alert_days` never evaluates true - the design detects a too-long gap retroactively, at
+  the start of the NEXT run, when it is no longer stale. LIFECYCLE-05's intent needs an
+  absence-style alert evaluated by something that is alive (e.g. Prometheus `time() -` last
+  `job_completed_total{job="ic-engine..."}` sample, per the D-06 contract ic_engine already emits),
+  with the in-run gauge kept as a secondary diagnostic. At minimum document the limitation.
+
+- **LOW (N7): Demotion denominator differs from the trainer's meta-gate denominator.** The trainer
+  restricts its per-feature cell population to eligible cells (`ic_ci_lower > 0 AND reliable AND
+  ic_sharpe_hac IS NOT NULL`, ensemble_trainer.py:425-437); the hook's denominator is ALL active
+  cells. "Same pass/fail semantics" in Plan 03's objective is therefore looser than stated - the
+  plan-checker NOTE already concedes divergence on the time axis; this adds a population axis.
+  Acceptable as designed (the hook's rule is self-contained and deterministic), but the wording
+  should not imply equivalence.
+
+- **LOW (N8): Stale manifest metadata after migration 203.** `ic_engine.py:2122-2123` lists
+  `is_decaying` and `decay_detected_at` in the manifest's `columns_written` for feature_ic_scores.
+  Migration 203 drops those columns; the list is a plain Python literal so nothing breaks, but the
+  manifest will assert columns that no longer exist. One-line cleanup that belongs in Plan 02's
+  drop task.
+
+### Verdict
+
+The replan genuinely closed the two confirmed HIGH findings - not cosmetically. The
+pre_shadow_weight resolution in particular is the correct first-principles call (delete, don't
+plumb), and both plans' evidence citations survived independent verification against live schema and
+code with no overclaims found. Findings 3 and 4 are closed in design, with one residual
+non-idempotent path (counters). The revision does, however, introduce one new HIGH: the missing
+counter reset on demotion, which deterministically breaks the promotion evidence bar on the second
+decay cycle of any feature.
+
+**Overall risk: MEDIUM.** Down from HIGH, but not execution-ready as-is. Before
+`/gsd:execute-phase 143`: (1) add counter reset on demotion to Plan 02 (N1 - required); (2) pin the
+lookahead semantics for `new_observations` (N3) and the zero-cell rule (N5) in Plan 03 - both are
+one-paragraph plan edits; (3) switch the standing-weight lookup to the APR champion weight_version
+(N4). N2a and N6 can ship as documented limitations if noted in the SUMMARY, though both fixes are
+cheap.
+
+---
+
 ## Consensus Summary
 
 Only one reviewer ran this pass, so there is no cross-model consensus to report — but the
@@ -175,3 +317,53 @@ Findings 1 and 2 are confirmed, load-bearing, and affect the phase's core correc
 edge-case polish. Recommend running `/gsd:plan-phase 143 --reviews` to have the planner resolve the
 feature-vs-cell aggregation rule and the weight-restoration write path explicitly before execution,
 rather than executing against the current plans and discovering the ambiguity mid-implementation.
+
+### Update (2026-07-06, after Fable independent pass on the revised plans)
+
+The replan was subsequently reviewed independently by Fable against the revised 143-02/143-03 plan
+text. Status of the four agreed concerns as of that pass:
+
+1. Feature-vs-cell aggregation — **RESOLVED and independently verified** (rule now explicit; all
+   supporting code/schema citations check out).
+2. pre_shadow_weight write path — **RESOLVED and independently verified** (column dropped;
+   status-flip + natural ensemble_trainer recompute; sole-writer invariant preserved).
+3. Idempotency — **mostly resolved** (integrity_monitor UNIQUE key + short-circuit + optimistic
+   lock all verified sound); residual: `advance_shadow_counters_sync` is not rerun-safe on a crash
+   between hook step 4 and step 5 (Fable N2a, MEDIUM).
+4. Cache coherency — **RESOLVED** (explicit cache-mutation-on-commit contract + test, consistent
+   with the existing async-path pattern).
+
+The Fable pass found one NEW HIGH not present in the original review: lifecycle counters are never
+reset on demotion, so a feature's second demotion inherits satisfied floors and re-promotes after a
+single passing run (Fable N1). Revised consensus: overall risk **MEDIUM** — do not execute until
+N1 (counter reset), N3 (lookahead/observation semantics), and N5 (zero-cell rule) are folded into
+the plans; N4 (weight_version pinning) strongly recommended given the pending E1/E2 A/B.
+
+### Update (2026-07-06, findings folded into the plans)
+
+N1, N3, N4, and N5 are now folded directly into `143-02-PLAN.md` / `143-03-PLAN.md`:
+
+- **N1 (counter reset on demotion)** — `record_transition_sync` now zeroes both
+  `consecutive_shadow_passes` and `observations_since_demotion` in the same UPDATE whenever
+  `to_status == 'shadow_only'` (Plan 02, must_haves + Task 2).
+- **N3 (lookahead overcounting)** — the hook's per-run query now pins `lookahead_bars = config.lookahead_mid`
+  (`alpha.ic.lookahead.mid`, reused key) before any aggregation, so a "cell" is exactly one row per
+  (feature_name, tf, regime) (Plan 03, objective + Task 2).
+- **N4 (weight_version pinning)** — the standing-weight JOIN now binds `ew.weight_version` to
+  `alpha.ensemble.weight_version` (the same APR key `ensemble_trainer` defaults to), replacing the
+  `ORDER BY computed_at DESC LIMIT 1` recency lookup (Plan 03, objective + Task 2).
+- **N5 (zero-cell rule)** — the hook now returns immediately with no `integrity_monitor` write when
+  the per-run query yields zero POOLED rows for the training_window_end (Plan 03, objective + Task 2).
+- **N8 (stale manifest entries)** — folded into Plan 03 Task 2 as a one-line cleanup alongside the
+  migration 203 column drops.
+
+**Accepted as documented limitations, no plan change required** (per Fable's own recommendation):
+N2a (`advance_shadow_counters_sync` not rerun-safe on a crash between hook steps 4-5 — residual of
+finding 3) and N6 (in-run staleness gauge cannot detect ic_engine having stopped entirely — needs a
+Prometheus absence alert, out of scope here). Both are now called out explicitly in Plan 03 so
+`143-03-SUMMARY.md` documents them rather than silently shipping unremarked.
+
+All four folded fixes are plan-text edits only — `143-02-PLAN.md` and `143-03-PLAN.md` were not
+executed yet, so no source code changed. Overall risk assessment for execution readiness: the
+plans as they now stand address every N1/N3/N4/N5 gap Fable identified; re-review not required
+before `/gsd:execute-phase 143` unless the executor deviates from the specified mechanism.
