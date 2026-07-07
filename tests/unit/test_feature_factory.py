@@ -118,6 +118,17 @@ def _make_config(**overrides: int) -> FeatureFactoryConfig:
         hv_fast=10,
         hv_slow=30,
         hv_ratio_window=20,
+        # Plan 04 added 8 more: parkinson_vol_window/zscore_window,
+        # garman_klass_vol_window/zscore_window, yang_zhang_vol_window/
+        # zscore_window, vol_velocity_window, intraday_noise_window.
+        parkinson_vol_window=10,
+        parkinson_vol_zscore_window=20,
+        garman_klass_vol_window=10,
+        garman_klass_vol_zscore_window=20,
+        yang_zhang_vol_window=20,
+        yang_zhang_vol_zscore_window=20,
+        vol_velocity_window=20,
+        intraday_noise_window=20,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -535,11 +546,12 @@ class TestComputePurity:
         """All FeatureVector fields must be finite floats (no NaN, no inf).
 
         61 baseline (v3.0) + 18 Plan 01 + 22 Plan 02 + 14 Plan 05 + 21 Plan 03
-        Renaissance primitives = 136. (Plan 05 merged before Plans 03/04 per
-        the actual dependency-DAG-valid merge order — see 142.5-05-SUMMARY.md
-        Deviations; this plan's own base was 115, not the phase outline's
-        assumed 101. Plan 06 reconciles the final count to 152 once every
-        plan has landed, regardless of merge order.)
+        + 8 Plan 04 Renaissance primitives = 144. (Plans 05/03 merged before
+        this plan per the actual dependency-DAG-valid merge order — see
+        142.5-05-SUMMARY.md / 142.5-03-SUMMARY.md Deviations; this plan's own
+        base was 136, not the phase outline's assumed 101/109. Plan 06
+        reconciles the final count to 152 once every plan has landed,
+        regardless of merge order.)
         """
         import dataclasses
 
@@ -548,7 +560,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 136, f"Expected 136 fields, got {len(fields)}"
+        assert len(fields) == 144, f"Expected 144 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,
