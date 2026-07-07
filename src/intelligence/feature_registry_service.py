@@ -33,12 +33,12 @@ import structlog
 
 _logger = structlog.get_logger()
 
-_REGISTRY_ROW_COUNT = 115  # 61 baseline + 18 Plan 01 + 22 Plan 02 + 14 Plan 05
-# NOTE (142.5-05): the phase outline's cumulative table assumed Plans 03/04
-# (21 + 8 fields) would merge before Plan 05, giving 144. This worktree forked
-# after only Plan 02 merged (101 fields) — Plan 05 depends only on 00/01 per
-# its own frontmatter, so the actual merge order has 05 landing before 03/04.
-# 115 = 101 + 14 is internally consistent (FeatureVector fields ==
+_REGISTRY_ROW_COUNT = 136  # 61 baseline + 18 Plan 01 + 22 Plan 02 + 14 Plan 05 + 21 Plan 03
+# NOTE (142.5-03): this plan's own frontmatter/acceptance criteria assumed a
+# base of 101 (only Plans 01/02 merged before Plan 03), targeting 122 total.
+# This worktree's actual fork point already had Plan 05 merged (115 fields —
+# see the prior 142.5-05 note this replaces), so the real base was 115, not
+# 101. 136 = 115 + 21 is internally consistent (FeatureVector fields ==
 # FEATURE_VECTOR_DOMAIN entries == this count); Plan 06 reconciles the final
 # total to 152 once every plan (01-05.5) has landed, regardless of order.
 

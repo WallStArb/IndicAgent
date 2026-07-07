@@ -1202,8 +1202,9 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """101 orthogonal feature primitives computed per bar by FeatureFactory
-    (61 v3.0 baseline + 18 Phase 142.5 Plan 01 + 22 Phase 142.5 Plan 02 Renaissance primitives).
+    """136 orthogonal feature primitives computed per bar by FeatureFactory
+    (61 v3.0 baseline + 18 Phase 142.5 Plan 01 + 22 Phase 142.5 Plan 02 +
+    14 Phase 142.5 Plan 05 + 21 Phase 142.5 Plan 03 Renaissance primitives).
 
     Frozen dataclass (not Pydantic) per D-08: pure-function output, no IO,
     immutable after construction. Non-optional fields typed float, no defaults
@@ -1226,8 +1227,11 @@ class FeatureVector:
       Open-to-Close Split (4, Phase 142.5 Plan 01): open_ret, intraday_ret, open_vs_intraday, session_time_pos
       Temporal Coordinates (10, Phase 142.5 Plan 02): hour_of_day/week_of_month/day_of_month/week_of_year sin+cos, month_sin/cos
       Volume Structure (12, Phase 142.5 Plan 02): vol_acceleration, dollar_vol_z, vol_range_ratio, vol_trend_ratio, up_vol_ratio_fast/slow, vol_percentile, vol_persistence, vol_std_z, mfi_fast/slow, obv_z
+      Breakout Distance (14, Phase 142.5 Plan 05): dist_from_high/low_fast/slow, range_pct_fast/slow, new_high_flag, new_low_flag, stoch_k_fast/slow, price_percentile_fast/slow, efficiency_ratio_fast/slow
+      Return Distribution (7, Phase 142.5 Plan 03): ret_kurtosis_z_fast/slow, ret_autocorr_1/5, updown_ratio_fast/slow, streak_z
+      Realized Variance / Volatility (14, Phase 142.5 Plan 03): realized_var_ratio_fast/slow, range_to_close, true_range_pct, vol_of_vol, high_low_corr, variance_ratio_fast/slow, vol_asymmetry_z, bb_pct_b_fast/slow, hv_z_fast/slow, hv_ratio
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 101 (98 required + 3 optional)
+      Total: 136 (133 required + 3 optional)
     """
 
     # Momentum (7 total: 5 original + 2 new scale-named)
@@ -1378,6 +1382,47 @@ class FeatureVector:
     price_percentile_slow: float  # rolling percentile rank of C, bounded [0,1] (APR: feature.breakout.percentile_window_slow)
     efficiency_ratio_fast: float  # Kaufman ER, bounded [0,1] (0=chop,1=trend) (APR: feature.breakout.efficiency_window_fast)
     efficiency_ratio_slow: float  # Kaufman ER, bounded [0,1] (0=chop,1=trend) (APR: feature.breakout.efficiency_window_slow)
+    # Renaissance Primitives — Return Distribution (7, Phase 142.5 Plan 03)
+    ret_kurtosis_z_fast: (
+        float  # z-score of rolling excess kurtosis (APR: feature.ret_kurtosis.fast)
+    )
+    ret_kurtosis_z_slow: (
+        float  # z-score of rolling excess kurtosis (APR: feature.ret_kurtosis.slow)
+    )
+    ret_autocorr_1: (
+        float  # lag-1 Pearson autocorrelation of log returns, bounded [-1,1] (definitional, no APR)
+    )
+    ret_autocorr_5: (
+        float  # lag-5 Pearson autocorrelation of log returns, bounded [-1,1] (definitional, no APR)
+    )
+    updown_ratio_fast: (
+        float  # count(up)/count(down) returns, unbounded non-neg (APR: feature.updown_ratio.fast)
+    )
+    updown_ratio_slow: (
+        float  # count(up)/count(down) returns, unbounded non-neg (APR: feature.updown_ratio.slow)
+    )
+    streak_z: float  # z-score of signed directional streak length (APR: feature.streak.window)
+    # Renaissance Primitives — Realized Variance / Volatility (14, Phase 142.5 Plan 03)
+    realized_var_ratio_fast: float  # var(ret,fast)/var(ret,slow), unbounded non-neg (APR: feature.realized_var.fast/slow)
+    realized_var_ratio_slow: float  # var(ret,fast)/var(ret,slow), unbounded non-neg (APR: feature.realized_var.fast/slow)
+    range_to_close: float  # (H-L)/C, unbounded non-neg (no APR)
+    true_range_pct: float  # TR/C, unbounded non-neg (no APR)
+    vol_of_vol: float  # z-score of rolling std(atr_z) (APR: feature.vol_of_vol.window)
+    high_low_corr: (
+        float  # correlation of H and L, bounded [-1,1] (APR: feature.high_low_corr.window)
+    )
+    variance_ratio_fast: float  # Lo-MacKinlay VR, unbounded non-neg, ~1.0 under random walk (APR: feature.variance_ratio.fast)
+    variance_ratio_slow: float  # Lo-MacKinlay VR, unbounded non-neg, ~1.0 under random walk (APR: feature.variance_ratio.slow)
+    vol_asymmetry_z: (
+        float  # z-score of std(ret|up)/std(ret|down) (APR: feature.vol_asymmetry.window)
+    )
+    bb_pct_b_fast: float  # (C-lower_band)/(upper_band-lower_band) (APR: feature.bb_pct_b.fast)
+    bb_pct_b_slow: float  # (C-lower_band)/(upper_band-lower_band) (APR: feature.bb_pct_b.slow)
+    hv_z_fast: float  # z-score of close-to-close historical volatility (APR: feature.hv.fast)
+    hv_z_slow: float  # z-score of close-to-close historical volatility (APR: feature.hv.slow)
+    hv_ratio: (
+        float  # hv_fast / rolling_mean(hv, N), unbounded non-neg (APR: feature.hv.ratio_window)
+    )
     # Cross-sectional (3, nullable — populated by Phase 139 enrichment pass)
     momentum_rank_z: float | None = None  # cross-sectional momentum rank z-score
     volume_rank_z: float | None = None  # cross-sectional volume rank z-score

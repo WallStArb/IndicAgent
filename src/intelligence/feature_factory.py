@@ -184,6 +184,29 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "price_percentile_slow": "quant",
     "efficiency_ratio_fast": "quant",
     "efficiency_ratio_slow": "quant",
+    # Renaissance Primitives — Return Distribution (Phase 142.5 Plan 03)
+    "ret_kurtosis_z_fast": "quant",
+    "ret_kurtosis_z_slow": "quant",
+    "ret_autocorr_1": "quant",
+    "ret_autocorr_5": "quant",
+    "updown_ratio_fast": "quant",
+    "updown_ratio_slow": "quant",
+    "streak_z": "quant",
+    # Renaissance Primitives — Realized Variance / Volatility (Phase 142.5 Plan 03)
+    "realized_var_ratio_fast": "quant",
+    "realized_var_ratio_slow": "quant",
+    "range_to_close": "quant",
+    "true_range_pct": "quant",
+    "vol_of_vol": "quant",
+    "high_low_corr": "quant",
+    "variance_ratio_fast": "quant",
+    "variance_ratio_slow": "quant",
+    "vol_asymmetry_z": "quant",
+    "bb_pct_b_fast": "quant",
+    "bb_pct_b_slow": "quant",
+    "hv_z_fast": "quant",
+    "hv_z_slow": "quant",
+    "hv_ratio": "quant",
     # Cross-sectional (nullable — populated by Phase 139)
     "momentum_rank_z": "quant",
     "volume_rank_z": "quant",
@@ -260,6 +283,24 @@ class FeatureFactoryConfig:
         percentile_window_slow: APR feature.breakout.percentile_window_slow
         efficiency_window_fast: APR feature.breakout.efficiency_window_fast
         efficiency_window_slow: APR feature.breakout.efficiency_window_slow
+        ret_kurtosis_fast: APR feature.ret_kurtosis.fast
+        ret_kurtosis_slow: APR feature.ret_kurtosis.slow
+        ret_kurtosis_zscore_window: APR feature.ret_kurtosis.zscore_window
+        updown_ratio_fast: APR feature.updown_ratio.fast
+        updown_ratio_slow: APR feature.updown_ratio.slow
+        streak_window: APR feature.streak.window
+        realized_var_fast: APR feature.realized_var.fast
+        realized_var_slow: APR feature.realized_var.slow
+        vol_of_vol_window: APR feature.vol_of_vol.window
+        high_low_corr_window: APR feature.high_low_corr.window
+        variance_ratio_fast: APR feature.variance_ratio.fast
+        variance_ratio_slow: APR feature.variance_ratio.slow
+        vol_asymmetry_window: APR feature.vol_asymmetry.window
+        bb_pct_b_fast: APR feature.bb_pct_b.fast
+        bb_pct_b_slow: APR feature.bb_pct_b.slow
+        hv_fast: APR feature.hv.fast
+        hv_slow: APR feature.hv.slow
+        hv_ratio_window: APR feature.hv.ratio_window
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -340,6 +381,25 @@ class FeatureFactoryConfig:
     percentile_window_slow: int  # feature.breakout.percentile_window_slow
     efficiency_window_fast: int  # feature.breakout.efficiency_window_fast
     efficiency_window_slow: int  # feature.breakout.efficiency_window_slow
+    # Renaissance Primitives — return distribution + realized variance (Phase 142.5 Plan 03)
+    ret_kurtosis_fast: int  # feature.ret_kurtosis.fast
+    ret_kurtosis_slow: int  # feature.ret_kurtosis.slow
+    ret_kurtosis_zscore_window: int  # feature.ret_kurtosis.zscore_window
+    updown_ratio_fast: int  # feature.updown_ratio.fast
+    updown_ratio_slow: int  # feature.updown_ratio.slow
+    streak_window: int  # feature.streak.window
+    realized_var_fast: int  # feature.realized_var.fast
+    realized_var_slow: int  # feature.realized_var.slow
+    vol_of_vol_window: int  # feature.vol_of_vol.window
+    high_low_corr_window: int  # feature.high_low_corr.window
+    variance_ratio_fast: int  # feature.variance_ratio.fast
+    variance_ratio_slow: int  # feature.variance_ratio.slow
+    vol_asymmetry_window: int  # feature.vol_asymmetry.window
+    bb_pct_b_fast: int  # feature.bb_pct_b.fast
+    bb_pct_b_slow: int  # feature.bb_pct_b.slow
+    hv_fast: int  # feature.hv.fast
+    hv_slow: int  # feature.hv.slow
+    hv_ratio_window: int  # feature.hv.ratio_window
 
 
 # ---------------------------------------------------------------------------
@@ -1116,6 +1176,200 @@ def _efficiency_ratio(closes: np.ndarray, eps: float = 1e-10) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Renaissance Primitives — Return Distribution (Phase 142.5 Plan 03)
+#
+# Statistical moments and streak/win-rate structure of the return series.
+# ---------------------------------------------------------------------------
+
+
+def _kurtosis(arr: np.ndarray) -> float:
+    """Pearson excess kurtosis: mean(((x-mean)/std)**4) - 3.0.
+
+    Returns 0.0 for degenerate input (fewer than 4 samples or std < 1e-10).
+    """
+    if len(arr) < 4:
+        return 0.0
+    mean = arr.mean()
+    std = arr.std()
+    if std < 1e-10:
+        return 0.0
+    result = float(np.mean(((arr - mean) / std) ** 4) - 3.0)
+    return result if math.isfinite(result) else 0.0
+
+
+def _ret_autocorr(closes: np.ndarray, lag: int) -> float:
+    """Lag-k Pearson autocorrelation of log returns, computed over ALL
+    available return history (expanding window, not a rolling APR window).
+
+    The lag itself is a definitional constant (1 or 5), matching the
+    ret_lag_1/2/3 convention of fixed-lag primitives with no tunable window
+    (source spec: "Number (definitional)"). Bounded [-1, 1] by construction.
+    Returns 0.0 when fewer than lag + 2 return observations exist.
+    """
+    if len(closes) < lag + 3:
+        return 0.0
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    if len(log_rets) < lag + 2:
+        return 0.0
+    x = log_rets[:-lag] - log_rets[:-lag].mean()
+    y = log_rets[lag:] - log_rets[lag:].mean()
+    denom = float(np.sqrt(np.dot(x, x) * np.dot(y, y)))
+    if denom < 1e-10:
+        return 0.0
+    return float(np.dot(x, y) / denom)
+
+
+def _updown_ratio(rets: np.ndarray, eps: float = 1e-10) -> float:
+    """count(up bars) / count(down bars) over the given return window.
+
+    Returns 1.0 (neutral) when there are zero down bars — including an empty
+    window — rather than an unbounded/undefined ratio.
+    """
+    up = int(np.sum(rets > eps))
+    down = int(np.sum(rets < -eps))
+    return float(up) / down if down > 0 else 1.0
+
+
+def _streak_length(signs: np.ndarray) -> float:
+    """Current signed directional streak length ending at the last element:
+    positive for an up-streak, negative for a down-streak, magnitude = number
+    of consecutive same-sign observations. Returns 0.0 for empty input or a
+    zero-return final bar (streak reset).
+    """
+    if len(signs) == 0:
+        return 0.0
+    last_sign = signs[-1]
+    if last_sign == 0:
+        return 0.0
+    streak = 0
+    for s in signs[::-1]:
+        if s == last_sign:
+            streak += 1
+        else:
+            break
+    return float(streak) if last_sign > 0 else -float(streak)
+
+
+# ---------------------------------------------------------------------------
+# Renaissance Primitives — Realized Variance / Volatility (Phase 142.5 Plan 03)
+#
+# Second-moment structure beyond ATR: aggregated-return variance ratios
+# (Lo-MacKinlay VR), close-to-close historical volatility, Bollinger %B band
+# position, H/L correlation, and up/down volatility asymmetry.
+# ---------------------------------------------------------------------------
+
+
+def _realized_var_ratio(closes: np.ndarray, fast_window: int, slow_window: int) -> float:
+    """Ratio of realized return variance across two window scales:
+    var(ret, fast) / var(ret, slow). Uses expanding windows
+    (min(window, available)) for consistency with the batch series
+    precompute. Returns 1.0 (neutral) on insufficient history in either
+    window or near-zero slow-window variance.
+    """
+    if len(closes) < 2:
+        return 1.0
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    w_slow = min(slow_window, len(log_rets))
+    w_fast = min(fast_window, len(log_rets))
+    if w_slow < 2 or w_fast < 2:
+        return 1.0
+    var_slow = float(np.var(log_rets[-w_slow:]))
+    var_fast = float(np.var(log_rets[-w_fast:]))
+    return var_fast / var_slow if var_slow > 1e-14 else 1.0
+
+
+def _range_to_close(high: float, low: float, close: float, eps: float = 1e-10) -> float:
+    """Rolling range as a fraction of price: (H - L) / C. Unbounded non-negative.
+    Returns 0.0 when close is near zero.
+    """
+    return (high - low) / close if close > eps else 0.0
+
+
+def _true_range_pct(
+    high: float, low: float, prev_close: float, close: float, eps: float = 1e-10
+) -> float:
+    """True range as a fraction of price: TR / C, where
+    TR = max(H-L, |H-prev_C|, |L-prev_C|). Unbounded non-negative.
+    Returns 0.0 when close is near zero.
+    """
+    if close < eps:
+        return 0.0
+    tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+    return tr / close
+
+
+def _correlation(x: np.ndarray, y: np.ndarray) -> float:
+    """Pearson correlation coefficient between two equal-length arrays.
+    Returns 0.0 for degenerate input (fewer than 2 samples or zero variance
+    in either series).
+    """
+    if len(x) < 2 or len(y) < 2:
+        return 0.0
+    xm = x - x.mean()
+    ym = y - y.mean()
+    denom = float(np.sqrt(np.dot(xm, xm) * np.dot(ym, ym)))
+    if denom < 1e-10:
+        return 0.0
+    return float(np.dot(xm, ym) / denom)
+
+
+def _variance_ratio(closes: np.ndarray, n: int) -> float:
+    """Lo-MacKinlay variance ratio: Var(N-period return) / (N * Var(1-period
+    return)), using overlapping N-period sums computed over ALL available
+    return history (the classic full-sample VR specification-test estimator
+    — no separate sample-window APR key). Under a random walk, VR -> 1.0.
+    Returns 1.0 (random-walk neutral) when insufficient history exists for
+    either variance estimate.
+    """
+    if len(closes) < 2 or n < 1:
+        return 1.0
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    m = len(log_rets)
+    if m < n + 1:
+        return 1.0
+    var_1 = float(np.var(log_rets))
+    if var_1 < 1e-14:
+        return 1.0
+    cs = np.concatenate([[0.0], np.cumsum(log_rets)])
+    agg = cs[n:] - cs[:-n]
+    if len(agg) < 2:
+        return 1.0
+    var_n = float(np.var(agg))
+    return var_n / (n * var_1)
+
+
+def _vol_asymmetry_ratio(rets_window: np.ndarray, eps: float = 1e-10) -> float:
+    """Ratio of up-bar return std to down-bar return std within the window:
+    std(ret | ret > 0) / std(ret | ret < 0). Returns 1.0 (neutral) when
+    fewer than 2 up or 2 down observations exist in the window.
+    """
+    up = rets_window[rets_window > eps]
+    down = rets_window[rets_window < -eps]
+    if len(up) < 2 or len(down) < 2:
+        return 1.0
+    std_up = float(np.std(up))
+    std_down = float(np.std(down))
+    return std_up / std_down if std_down > eps else 1.0
+
+
+def _bb_pct_b(closes_window: np.ndarray, eps: float = 1e-10) -> float:
+    """Bollinger %B: (C - lower_band) / (upper_band - lower_band), where the
+    bands are SMA +/- 2*std over the window. Returns 0.5 (neutral) on a
+    degenerate (near-zero-std) band.
+    """
+    if len(closes_window) < 2:
+        return 0.5
+    mean = float(np.mean(closes_window))
+    std = float(np.std(closes_window))
+    if std < eps:
+        return 0.5
+    upper = mean + 2.0 * std
+    lower = mean - 2.0 * std
+    c = float(closes_window[-1])
+    return (c - lower) / (upper - lower)
+
+
+# ---------------------------------------------------------------------------
 # Calendar primitive functions
 # ---------------------------------------------------------------------------
 
@@ -1860,6 +2114,346 @@ def _efficiency_ratio_series_full(
 
 
 # ---------------------------------------------------------------------------
+# Renaissance Primitives — Return Distribution batch precompute (Phase 142.5 Plan 03)
+# result[i] matches the corresponding value function above at bar i.
+# ---------------------------------------------------------------------------
+
+
+def _ret_kurtosis_z_series_full(
+    closes: np.ndarray, kurt_window: int, zscore_window: int
+) -> np.ndarray:
+    """Rolling return-kurtosis z-score series. result[i] == z-score of
+    kurtosis(log_rets[i-kurt_window+1:i+1]) against a trailing zscore_window
+    of kurtosis values. O(n x kurt_window) total — same cost class as the
+    pre-existing _ret_skew_z_series_full. Returns zeros for i < kurt_window
+    (cold start).
+    """
+    n = len(closes)
+    if n < kurt_window + 3:
+        return np.zeros(n, dtype=float)
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    kurt_vals = np.array(
+        [_kurtosis(log_rets[k : k + kurt_window]) for k in range(len(log_rets) - kurt_window + 1)],
+        dtype=float,
+    )
+    z = _fixed_window_zscore_series(kurt_vals, zscore_window)
+    return np.concatenate([np.zeros(kurt_window, dtype=float), z])
+
+
+def _ret_autocorr_series_full(closes: np.ndarray, lag: int) -> np.ndarray:
+    """Expanding-window lag-k Pearson autocorrelation of log returns, computed
+    over ALL available history up to each bar. result[i] == streaming
+    _ret_autocorr(closes[:i+1], lag). O(n) total via incremental running sums
+    (one new pair added per bar, no window to re-sum).
+    """
+    n = len(closes)
+    result = np.zeros(n, dtype=float)
+    if n < 2:
+        return result
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    m = len(log_rets)
+    if m < lag + 2:
+        return result
+    sum_x = sum_y = sum_x2 = sum_y2 = sum_xy = 0.0
+    count = 0
+    for j in range(m):
+        if j >= lag:
+            x = float(log_rets[j - lag])
+            y = float(log_rets[j])
+            sum_x += x
+            sum_y += y
+            sum_x2 += x * x
+            sum_y2 += y * y
+            sum_xy += x * y
+            count += 1
+        if count >= 2:
+            mean_x = sum_x / count
+            mean_y = sum_y / count
+            var_x = sum_x2 / count - mean_x * mean_x
+            var_y = sum_y2 / count - mean_y * mean_y
+            denom = math.sqrt(max(var_x, 0.0) * max(var_y, 0.0))
+            if denom > 1e-10:
+                cov = sum_xy / count - mean_x * mean_y
+                result[j + 1] = cov / denom
+    return result
+
+
+def _updown_ratio_series_full(closes: np.ndarray, window: int, eps: float = 1e-10) -> np.ndarray:
+    """result[i] == streaming _updown_ratio over the trailing `window` returns
+    ending at bar i. O(n) via cumulative up/down bar counts.
+    """
+    n = len(closes)
+    result = np.ones(n, dtype=float)
+    if n < 2:
+        return result
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    up_flags = (log_rets > eps).astype(float)
+    down_flags = (log_rets < -eps).astype(float)
+    cs_up = np.concatenate([[0.0], np.cumsum(up_flags)])
+    cs_down = np.concatenate([[0.0], np.cumsum(down_flags)])
+    m = len(log_rets)
+    for j in range(m):
+        w = min(window, j + 1)
+        start = j + 1 - w
+        up_count = cs_up[j + 1] - cs_up[start]
+        down_count = cs_down[j + 1] - cs_down[start]
+        result[j + 1] = up_count / down_count if down_count > 0 else 1.0
+    return result
+
+
+def _streak_length_series_full(closes: np.ndarray) -> np.ndarray:
+    """Full signed streak-length series. O(n) single forward pass (does NOT
+    call _streak_length per bar — that would be O(n^2); this maintains the
+    running streak incrementally instead). result[i] is the streak ending at
+    bar i (i >= 1); index 0 padded with 0.0.
+    """
+    n = len(closes)
+    result = np.zeros(n, dtype=float)
+    if n < 2:
+        return result
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    signs = np.sign(log_rets)
+    current = 0.0
+    for j in range(len(signs)):
+        s = float(signs[j])
+        if s == 0.0:
+            current = 0.0
+        elif current != 0.0 and math.copysign(1.0, current) == s:
+            current += s
+        else:
+            current = s
+        result[j + 1] = current
+    return result
+
+
+def _streak_z_series_full(closes: np.ndarray, streak_window: int) -> np.ndarray:
+    """z-score of the signed streak-length series over a trailing window.
+    result[i] == streaming streak_z at bar i.
+    """
+    streak_series = _streak_length_series_full(closes)
+    return _fixed_window_zscore_series(streak_series, streak_window)
+
+
+# ---------------------------------------------------------------------------
+# Renaissance Primitives — Realized Variance / Volatility batch precompute
+# (Phase 142.5 Plan 03)
+# ---------------------------------------------------------------------------
+
+
+def _realized_var_ratio_series_full(
+    closes: np.ndarray, fast_window: int, slow_window: int
+) -> np.ndarray:
+    """result[i] == streaming _realized_var_ratio(closes[:i+1], fast_window,
+    slow_window). O(n) via cumsum of returns and squared returns.
+    """
+    n = len(closes)
+    result = np.ones(n, dtype=float)
+    if n < 2:
+        return result
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    m = len(log_rets)
+    cs = np.cumsum(log_rets)
+    cs2 = np.cumsum(log_rets * log_rets)
+    for j in range(m):
+        bar_idx = j + 1
+        w_slow = min(slow_window, j + 1)
+        w_fast = min(fast_window, j + 1)
+        if w_slow < 2 or w_fast < 2:
+            continue
+        start_slow = j + 1 - w_slow
+        s_slow = cs[j] - (cs[start_slow - 1] if start_slow > 0 else 0.0)
+        s2_slow = cs2[j] - (cs2[start_slow - 1] if start_slow > 0 else 0.0)
+        mean_slow = s_slow / w_slow
+        var_slow = s2_slow / w_slow - mean_slow * mean_slow
+        if var_slow < 1e-14:
+            continue
+        start_fast = j + 1 - w_fast
+        s_fast = cs[j] - (cs[start_fast - 1] if start_fast > 0 else 0.0)
+        s2_fast = cs2[j] - (cs2[start_fast - 1] if start_fast > 0 else 0.0)
+        mean_fast = s_fast / w_fast
+        var_fast = s2_fast / w_fast - mean_fast * mean_fast
+        result[bar_idx] = var_fast / var_slow
+    return result
+
+
+def _range_to_close_series_full(
+    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _range_to_close at bar i. Fully vectorized O(n)."""
+    c = closes.astype(float)
+    safe_c = np.where(c > eps, c, 1.0)
+    raw = (highs.astype(float) - lows.astype(float)) / safe_c
+    return np.where(c > eps, raw, 0.0)
+
+
+def _true_range_pct_series_full(
+    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _true_range_pct at bar i. Fully vectorized O(n).
+    Index 0 padded with 0.0 (no prev close available).
+    """
+    n = len(closes)
+    result = np.zeros(n, dtype=float)
+    if n < 2:
+        return result
+    h = highs[1:].astype(float)
+    lo = lows[1:].astype(float)
+    prev_c = closes[:-1].astype(float)
+    tr = np.maximum(h - lo, np.maximum(np.abs(h - prev_c), np.abs(lo - prev_c)))
+    c = closes[1:].astype(float)
+    safe_c = np.where(c > eps, c, 1.0)
+    raw = np.where(c > eps, tr / safe_c, 0.0)
+    result[1:] = raw
+    return result
+
+
+def _vol_of_vol_series_full(atr_z: np.ndarray, window: int) -> np.ndarray:
+    """z-score of rolling std(atr_z) over `window` (single window used for
+    both the std computation and the z-score, matching the vol_std_z
+    double-duty convention). result[i] == streaming vol_of_vol at bar i.
+    """
+    std_series = _rolling_std_series(atr_z.astype(float), window)
+    return _fixed_window_zscore_series(std_series, window)
+
+
+def _high_low_corr_series_full(highs: np.ndarray, lows: np.ndarray, window: int) -> np.ndarray:
+    """result[i] == streaming _correlation(H, L) over the trailing (expanding
+    until saturated) `window` bars ending at bar i. O(n x window).
+    """
+    n = len(highs)
+    result = np.zeros(n, dtype=float)
+    h = highs.astype(float)
+    lo = lows.astype(float)
+    for i in range(n):
+        w = min(window, i + 1)
+        start = i + 1 - w
+        result[i] = _correlation(h[start : i + 1], lo[start : i + 1])
+    return result
+
+
+def _variance_ratio_series_full(closes: np.ndarray, n_window: int) -> np.ndarray:
+    """result[i] == streaming _variance_ratio(closes[:i+1], n_window). O(n)
+    via prefix sums of the 1-period return series and its N-period
+    overlapping aggregate (both expanding over ALL available history, no
+    bounded rolling sample — matches the full-sample Lo-MacKinlay estimator).
+    """
+    total = len(closes)
+    result = np.ones(total, dtype=float)
+    if total < 2 or n_window < 1:
+        return result
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    m = len(log_rets)
+    if m < n_window + 1:
+        return result
+    cs1 = np.cumsum(log_rets)
+    cs1_sq = np.cumsum(log_rets * log_rets)
+    cs_pad = np.concatenate([[0.0], cs1])
+    agg = cs_pad[n_window:] - cs_pad[:-n_window]  # length m - n_window + 1
+    cs_agg = np.cumsum(agg)
+    cs_agg_sq = np.cumsum(agg * agg)
+
+    for j in range(m):
+        cnt1 = j + 1
+        if cnt1 < 2:
+            continue
+        mean1 = cs1[j] / cnt1
+        var1 = cs1_sq[j] / cnt1 - mean1 * mean1
+        if var1 < 1e-14:
+            continue
+        agg_upper = j - n_window + 1
+        if agg_upper < 1:
+            continue
+        cnt_agg = agg_upper + 1
+        mean_agg = cs_agg[agg_upper] / cnt_agg
+        var_agg = cs_agg_sq[agg_upper] / cnt_agg - mean_agg * mean_agg
+        result[j + 1] = var_agg / (n_window * var1)
+    return result
+
+
+def _vol_asymmetry_z_series_full(closes: np.ndarray, window: int) -> np.ndarray:
+    """z-score of the up/down volatility-asymmetry ratio series over `window`
+    (single window used for both the ratio computation and the z-score,
+    matching the vol_std_z double-duty convention). O(n x window).
+    """
+    n = len(closes)
+    if n < 2:
+        return np.zeros(n, dtype=float)
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    m = len(log_rets)
+    ratio_vals = np.ones(m, dtype=float)
+    for j in range(m):
+        w = min(window, j + 1)
+        ratio_vals[j] = _vol_asymmetry_ratio(log_rets[j + 1 - w : j + 1])
+    z = _fixed_window_zscore_series(ratio_vals, window)
+    return np.concatenate([[0.0], z])
+
+
+def _bb_pct_b_series_full(closes: np.ndarray, window: int, eps: float = 1e-10) -> np.ndarray:
+    """result[i] == streaming _bb_pct_b over the trailing (expanding until
+    saturated) `window` bars ending at bar i. O(n) via cumsum of price and
+    squared price.
+    """
+    n = len(closes)
+    result = np.full(n, 0.5, dtype=float)
+    if n < 2:
+        return result
+    c = closes.astype(float)
+    cs = np.cumsum(c)
+    cs2 = np.cumsum(c * c)
+    for i in range(n):
+        w = min(window, i + 1)
+        start = i + 1 - w
+        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
+        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
+        mean = s / w
+        var = max(s2 / w - mean * mean, 0.0)
+        std = math.sqrt(var)
+        if std < eps:
+            continue
+        upper = mean + 2.0 * std
+        lower = mean - 2.0 * std
+        result[i] = (c[i] - lower) / (upper - lower)
+    return result
+
+
+def _hv_z_series_full(closes: np.ndarray, window: int) -> np.ndarray:
+    """z-score of rolling std(log returns) over `window` (single window used
+    for both the HV computation and the z-score, matching the vol_std_z
+    double-duty convention). result[i] == streaming hv_z at bar i.
+    """
+    n = len(closes)
+    if n < 2:
+        return np.zeros(n, dtype=float)
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    hv_series = _rolling_std_series(log_rets.astype(float), window)
+    z = _fixed_window_zscore_series(hv_series, window)
+    return np.concatenate([[0.0], z])
+
+
+def _hv_ratio_series_full(
+    closes: np.ndarray, hv_fast_window: int, ratio_window: int, eps: float = 1e-10
+) -> np.ndarray:
+    """hv_fast / rolling_mean(hv_fast series, ratio_window). result[i] ==
+    streaming hv_ratio at bar i. O(n) via cumsum of the HV series.
+    """
+    n = len(closes)
+    result = np.ones(n, dtype=float)
+    if n < 2:
+        return result
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    hv_series = _rolling_std_series(log_rets.astype(float), hv_fast_window)
+    m = len(hv_series)
+    cs = np.cumsum(hv_series)
+    for j in range(m):
+        w = min(ratio_window, j + 1)
+        start = j + 1 - w
+        s = cs[j] - (cs[start - 1] if start > 0 else 0.0)
+        mean_hv = s / w
+        result[j + 1] = hv_series[j] / mean_hv if mean_hv > eps else 1.0
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Calendar helpers (shared by compute() and compute_batch())
 # ---------------------------------------------------------------------------
 
@@ -1939,6 +2533,29 @@ class _PrecomputedSeries:
     price_percentile_slow: np.ndarray
     efficiency_ratio_fast: np.ndarray
     efficiency_ratio_slow: np.ndarray
+    # Renaissance Primitives — Return Distribution (Phase 142.5 Plan 03)
+    ret_kurtosis_z_fast: np.ndarray
+    ret_kurtosis_z_slow: np.ndarray
+    ret_autocorr_1: np.ndarray
+    ret_autocorr_5: np.ndarray
+    updown_ratio_fast: np.ndarray
+    updown_ratio_slow: np.ndarray
+    streak_z: np.ndarray
+    # Renaissance Primitives — Realized Variance / Volatility (Phase 142.5 Plan 03)
+    realized_var_ratio_fast: np.ndarray
+    realized_var_ratio_slow: np.ndarray
+    range_to_close: np.ndarray
+    true_range_pct: np.ndarray
+    vol_of_vol: np.ndarray
+    high_low_corr: np.ndarray
+    variance_ratio_fast: np.ndarray
+    variance_ratio_slow: np.ndarray
+    vol_asymmetry_z: np.ndarray
+    bb_pct_b_fast: np.ndarray
+    bb_pct_b_slow: np.ndarray
+    hv_z_fast: np.ndarray
+    hv_z_slow: np.ndarray
+    hv_ratio: np.ndarray
 
 
 def _precompute_series(
@@ -2035,6 +2652,35 @@ def _precompute_series(
         price_percentile_slow=_price_percentile_series_full(closes, config.percentile_window_slow),
         efficiency_ratio_fast=_efficiency_ratio_series_full(closes, config.efficiency_window_fast),
         efficiency_ratio_slow=_efficiency_ratio_series_full(closes, config.efficiency_window_slow),
+        ret_kurtosis_z_fast=_ret_kurtosis_z_series_full(
+            closes, config.ret_kurtosis_fast, config.ret_kurtosis_zscore_window
+        ),
+        ret_kurtosis_z_slow=_ret_kurtosis_z_series_full(
+            closes, config.ret_kurtosis_slow, config.ret_kurtosis_zscore_window
+        ),
+        ret_autocorr_1=_ret_autocorr_series_full(closes, 1),
+        ret_autocorr_5=_ret_autocorr_series_full(closes, 5),
+        updown_ratio_fast=_updown_ratio_series_full(closes, config.updown_ratio_fast),
+        updown_ratio_slow=_updown_ratio_series_full(closes, config.updown_ratio_slow),
+        streak_z=_streak_z_series_full(closes, config.streak_window),
+        realized_var_ratio_fast=_realized_var_ratio_series_full(
+            closes, config.realized_var_fast, config.realized_var_slow
+        ),
+        realized_var_ratio_slow=_realized_var_ratio_series_full(
+            closes, config.realized_var_fast, config.realized_var_slow
+        ),
+        range_to_close=_range_to_close_series_full(highs, lows, closes),
+        true_range_pct=_true_range_pct_series_full(highs, lows, closes),
+        vol_of_vol=_vol_of_vol_series_full(atr_z, config.vol_of_vol_window),
+        high_low_corr=_high_low_corr_series_full(highs, lows, config.high_low_corr_window),
+        variance_ratio_fast=_variance_ratio_series_full(closes, config.variance_ratio_fast),
+        variance_ratio_slow=_variance_ratio_series_full(closes, config.variance_ratio_slow),
+        vol_asymmetry_z=_vol_asymmetry_z_series_full(closes, config.vol_asymmetry_window),
+        bb_pct_b_fast=_bb_pct_b_series_full(closes, config.bb_pct_b_fast),
+        bb_pct_b_slow=_bb_pct_b_series_full(closes, config.bb_pct_b_slow),
+        hv_z_fast=_hv_z_series_full(closes, config.hv_fast),
+        hv_z_slow=_hv_z_series_full(closes, config.hv_slow),
+        hv_ratio=_hv_ratio_series_full(closes, config.hv_fast, config.hv_ratio_window),
     )
 
 
@@ -2164,6 +2810,27 @@ def _build_feature_vector(
     price_percentile_slow: float,
     efficiency_ratio_fast: float,
     efficiency_ratio_slow: float,
+    ret_kurtosis_z_fast: float,
+    ret_kurtosis_z_slow: float,
+    ret_autocorr_1: float,
+    ret_autocorr_5: float,
+    updown_ratio_fast: float,
+    updown_ratio_slow: float,
+    streak_z: float,
+    realized_var_ratio_fast: float,
+    realized_var_ratio_slow: float,
+    range_to_close: float,
+    true_range_pct: float,
+    vol_of_vol: float,
+    high_low_corr: float,
+    variance_ratio_fast: float,
+    variance_ratio_slow: float,
+    vol_asymmetry_z: float,
+    bb_pct_b_fast: float,
+    bb_pct_b_slow: float,
+    hv_z_fast: float,
+    hv_z_slow: float,
+    hv_ratio: float,
 ) -> FeatureVector:
     return FeatureVector(
         momentum_z_fast=_guard(momentum_z_fast),
@@ -2278,6 +2945,27 @@ def _build_feature_vector(
         price_percentile_slow=_guard(price_percentile_slow, 0.5),
         efficiency_ratio_fast=_guard(efficiency_ratio_fast, 0.0),
         efficiency_ratio_slow=_guard(efficiency_ratio_slow, 0.0),
+        ret_kurtosis_z_fast=_guard(ret_kurtosis_z_fast, 0.0),
+        ret_kurtosis_z_slow=_guard(ret_kurtosis_z_slow, 0.0),
+        ret_autocorr_1=_guard(ret_autocorr_1, 0.0),
+        ret_autocorr_5=_guard(ret_autocorr_5, 0.0),
+        updown_ratio_fast=_guard(updown_ratio_fast, 1.0),
+        updown_ratio_slow=_guard(updown_ratio_slow, 1.0),
+        streak_z=_guard(streak_z, 0.0),
+        realized_var_ratio_fast=_guard(realized_var_ratio_fast, 1.0),
+        realized_var_ratio_slow=_guard(realized_var_ratio_slow, 1.0),
+        range_to_close=_guard(range_to_close, 0.0),
+        true_range_pct=_guard(true_range_pct, 0.0),
+        vol_of_vol=_guard(vol_of_vol, 0.0),
+        high_low_corr=_guard(high_low_corr, 0.0),
+        variance_ratio_fast=_guard(variance_ratio_fast, 1.0),
+        variance_ratio_slow=_guard(variance_ratio_slow, 1.0),
+        vol_asymmetry_z=_guard(vol_asymmetry_z, 0.0),
+        bb_pct_b_fast=_guard(bb_pct_b_fast, 0.5),
+        bb_pct_b_slow=_guard(bb_pct_b_slow, 0.5),
+        hv_z_fast=_guard(hv_z_fast, 0.0),
+        hv_z_slow=_guard(hv_z_slow, 0.0),
+        hv_ratio=_guard(hv_ratio, 1.0),
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,
@@ -2512,6 +3200,27 @@ class FeatureFactory:
             price_percentile_slow=_series_last(s.price_percentile_slow, 0.5),
             efficiency_ratio_fast=_series_last(s.efficiency_ratio_fast, 0.0),
             efficiency_ratio_slow=_series_last(s.efficiency_ratio_slow, 0.0),
+            ret_kurtosis_z_fast=_series_last(s.ret_kurtosis_z_fast, 0.0),
+            ret_kurtosis_z_slow=_series_last(s.ret_kurtosis_z_slow, 0.0),
+            ret_autocorr_1=_series_last(s.ret_autocorr_1, 0.0),
+            ret_autocorr_5=_series_last(s.ret_autocorr_5, 0.0),
+            updown_ratio_fast=_series_last(s.updown_ratio_fast, 1.0),
+            updown_ratio_slow=_series_last(s.updown_ratio_slow, 1.0),
+            streak_z=_series_last(s.streak_z, 0.0),
+            realized_var_ratio_fast=_series_last(s.realized_var_ratio_fast, 1.0),
+            realized_var_ratio_slow=_series_last(s.realized_var_ratio_slow, 1.0),
+            range_to_close=_series_last(s.range_to_close, 0.0),
+            true_range_pct=_series_last(s.true_range_pct, 0.0),
+            vol_of_vol=_series_last(s.vol_of_vol, 0.0),
+            high_low_corr=_series_last(s.high_low_corr, 0.0),
+            variance_ratio_fast=_series_last(s.variance_ratio_fast, 1.0),
+            variance_ratio_slow=_series_last(s.variance_ratio_slow, 1.0),
+            vol_asymmetry_z=_series_last(s.vol_asymmetry_z, 0.0),
+            bb_pct_b_fast=_series_last(s.bb_pct_b_fast, 0.5),
+            bb_pct_b_slow=_series_last(s.bb_pct_b_slow, 0.5),
+            hv_z_fast=_series_last(s.hv_z_fast, 0.0),
+            hv_z_slow=_series_last(s.hv_z_slow, 0.0),
+            hv_ratio=_series_last(s.hv_ratio, 1.0),
         )
 
     @staticmethod
@@ -2803,6 +3512,48 @@ class FeatureFactory:
                 float(s.efficiency_ratio_slow[i]) if i < len(s.efficiency_ratio_slow) else 0.0
             )
 
+            # Renaissance Primitives (Phase 142.5 Plan 03) — return distribution +
+            # realized variance. All 21 fields read the precomputed series (O(n)
+            # total, not per-bar O(n x window)); indexing here guarantees exact
+            # parity with compute().
+            ret_kurtosis_z_fast_val = (
+                float(s.ret_kurtosis_z_fast[i]) if i < len(s.ret_kurtosis_z_fast) else 0.0
+            )
+            ret_kurtosis_z_slow_val = (
+                float(s.ret_kurtosis_z_slow[i]) if i < len(s.ret_kurtosis_z_slow) else 0.0
+            )
+            ret_autocorr_1_val = float(s.ret_autocorr_1[i]) if i < len(s.ret_autocorr_1) else 0.0
+            ret_autocorr_5_val = float(s.ret_autocorr_5[i]) if i < len(s.ret_autocorr_5) else 0.0
+            updown_ratio_fast_val = (
+                float(s.updown_ratio_fast[i]) if i < len(s.updown_ratio_fast) else 1.0
+            )
+            updown_ratio_slow_val = (
+                float(s.updown_ratio_slow[i]) if i < len(s.updown_ratio_slow) else 1.0
+            )
+            streak_z_val = float(s.streak_z[i]) if i < len(s.streak_z) else 0.0
+            realized_var_ratio_fast_val = (
+                float(s.realized_var_ratio_fast[i]) if i < len(s.realized_var_ratio_fast) else 1.0
+            )
+            realized_var_ratio_slow_val = (
+                float(s.realized_var_ratio_slow[i]) if i < len(s.realized_var_ratio_slow) else 1.0
+            )
+            range_to_close_val = float(s.range_to_close[i]) if i < len(s.range_to_close) else 0.0
+            true_range_pct_val = float(s.true_range_pct[i]) if i < len(s.true_range_pct) else 0.0
+            vol_of_vol_val = float(s.vol_of_vol[i]) if i < len(s.vol_of_vol) else 0.0
+            high_low_corr_val = float(s.high_low_corr[i]) if i < len(s.high_low_corr) else 0.0
+            variance_ratio_fast_val = (
+                float(s.variance_ratio_fast[i]) if i < len(s.variance_ratio_fast) else 1.0
+            )
+            variance_ratio_slow_val = (
+                float(s.variance_ratio_slow[i]) if i < len(s.variance_ratio_slow) else 1.0
+            )
+            vol_asymmetry_z_val = float(s.vol_asymmetry_z[i]) if i < len(s.vol_asymmetry_z) else 0.0
+            bb_pct_b_fast_val = float(s.bb_pct_b_fast[i]) if i < len(s.bb_pct_b_fast) else 0.5
+            bb_pct_b_slow_val = float(s.bb_pct_b_slow[i]) if i < len(s.bb_pct_b_slow) else 0.5
+            hv_z_fast_val = float(s.hv_z_fast[i]) if i < len(s.hv_z_fast) else 0.0
+            hv_z_slow_val = float(s.hv_z_slow[i]) if i < len(s.hv_z_slow) else 0.0
+            hv_ratio_val = float(s.hv_ratio[i]) if i < len(s.hv_ratio) else 1.0
+
             # Build FeatureVector
             fv = _build_feature_vector(
                 momentum_z_fast=momentum_z_fast_val,
@@ -2917,6 +3668,27 @@ class FeatureFactory:
                 price_percentile_slow=price_percentile_slow_val,
                 efficiency_ratio_fast=efficiency_ratio_fast_val,
                 efficiency_ratio_slow=efficiency_ratio_slow_val,
+                ret_kurtosis_z_fast=ret_kurtosis_z_fast_val,
+                ret_kurtosis_z_slow=ret_kurtosis_z_slow_val,
+                ret_autocorr_1=ret_autocorr_1_val,
+                ret_autocorr_5=ret_autocorr_5_val,
+                updown_ratio_fast=updown_ratio_fast_val,
+                updown_ratio_slow=updown_ratio_slow_val,
+                streak_z=streak_z_val,
+                realized_var_ratio_fast=realized_var_ratio_fast_val,
+                realized_var_ratio_slow=realized_var_ratio_slow_val,
+                range_to_close=range_to_close_val,
+                true_range_pct=true_range_pct_val,
+                vol_of_vol=vol_of_vol_val,
+                high_low_corr=high_low_corr_val,
+                variance_ratio_fast=variance_ratio_fast_val,
+                variance_ratio_slow=variance_ratio_slow_val,
+                vol_asymmetry_z=vol_asymmetry_z_val,
+                bb_pct_b_fast=bb_pct_b_fast_val,
+                bb_pct_b_slow=bb_pct_b_slow_val,
+                hv_z_fast=hv_z_fast_val,
+                hv_z_slow=hv_z_slow_val,
+                hv_ratio=hv_ratio_val,
             )
 
             results.append((bar_ts, fv))
@@ -3053,6 +3825,27 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         price_percentile_slow=0.5,
         efficiency_ratio_fast=0.0,
         efficiency_ratio_slow=0.0,
+        ret_kurtosis_z_fast=0.0,
+        ret_kurtosis_z_slow=0.0,
+        ret_autocorr_1=0.0,
+        ret_autocorr_5=0.0,
+        updown_ratio_fast=1.0,
+        updown_ratio_slow=1.0,
+        streak_z=0.0,
+        realized_var_ratio_fast=1.0,
+        realized_var_ratio_slow=1.0,
+        range_to_close=0.0,
+        true_range_pct=0.0,
+        vol_of_vol=0.0,
+        high_low_corr=0.0,
+        variance_ratio_fast=1.0,
+        variance_ratio_slow=1.0,
+        vol_asymmetry_z=0.0,
+        bb_pct_b_fast=0.5,
+        bb_pct_b_slow=0.5,
+        hv_z_fast=0.0,
+        hv_z_slow=0.0,
+        hv_ratio=1.0,
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,

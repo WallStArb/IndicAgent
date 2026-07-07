@@ -117,6 +117,24 @@ def _make_config() -> FeatureFactoryConfig:
         percentile_window_slow=200,
         efficiency_window_fast=10,
         efficiency_window_slow=50,
+        ret_kurtosis_fast=10,
+        ret_kurtosis_slow=40,
+        ret_kurtosis_zscore_window=20,
+        updown_ratio_fast=5,
+        updown_ratio_slow=20,
+        streak_window=20,
+        realized_var_fast=5,
+        realized_var_slow=20,
+        vol_of_vol_window=20,
+        high_low_corr_window=20,
+        variance_ratio_fast=5,
+        variance_ratio_slow=20,
+        vol_asymmetry_window=20,
+        bb_pct_b_fast=20,
+        bb_pct_b_slow=50,
+        hv_fast=10,
+        hv_slow=30,
+        hv_ratio_window=20,
     )
 
 
@@ -265,6 +283,30 @@ def _make_zero_vector() -> FeatureVector:
         price_percentile_slow=0.5,
         efficiency_ratio_fast=0.0,
         efficiency_ratio_slow=0.0,
+        # Renaissance Primitives (Phase 142.5 Plan 03) — not yet in the persisted
+        # tuple (migration 206 / writer wiring land in a later plan); construction
+        # requires these non-optional fields.
+        ret_kurtosis_z_fast=0.0,
+        ret_kurtosis_z_slow=0.0,
+        ret_autocorr_1=0.0,
+        ret_autocorr_5=0.0,
+        updown_ratio_fast=1.0,
+        updown_ratio_slow=1.0,
+        streak_z=0.0,
+        realized_var_ratio_fast=1.0,
+        realized_var_ratio_slow=1.0,
+        range_to_close=0.0,
+        true_range_pct=0.0,
+        vol_of_vol=0.0,
+        high_low_corr=0.0,
+        variance_ratio_fast=1.0,
+        variance_ratio_slow=1.0,
+        vol_asymmetry_z=0.0,
+        bb_pct_b_fast=0.5,
+        bb_pct_b_slow=0.5,
+        hv_z_fast=0.0,
+        hv_z_slow=0.0,
+        hv_ratio=1.0,
     )
 
 

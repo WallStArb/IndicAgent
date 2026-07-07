@@ -155,6 +155,30 @@ def _make_sentinel_record():
         price_percentile_slow=57.12,
         efficiency_ratio_fast=57.13,
         efficiency_ratio_slow=57.14,
+        # Renaissance Primitives (Phase 142.5 Plan 03) — not yet in the persisted
+        # tuple (migration 206 / writer wiring land in a later plan); construction
+        # requires these non-optional fields, so sentinel values only.
+        ret_kurtosis_z_fast=58.01,
+        ret_kurtosis_z_slow=58.02,
+        ret_autocorr_1=58.03,
+        ret_autocorr_5=58.04,
+        updown_ratio_fast=58.05,
+        updown_ratio_slow=58.06,
+        streak_z=58.07,
+        realized_var_ratio_fast=58.08,
+        realized_var_ratio_slow=58.09,
+        range_to_close=58.10,
+        true_range_pct=58.11,
+        vol_of_vol=58.12,
+        high_low_corr=58.13,
+        variance_ratio_fast=58.14,
+        variance_ratio_slow=58.15,
+        vol_asymmetry_z=58.16,
+        bb_pct_b_fast=58.17,
+        bb_pct_b_slow=58.18,
+        hv_z_fast=58.19,
+        hv_z_slow=58.20,
+        hv_ratio=58.21,
     )
     return FeatureVectorRecord(
         symbol="SPY",
