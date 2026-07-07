@@ -180,6 +180,14 @@ def make_agent() -> FeatureVectorPipeline:
         hv_fast=10,
         hv_slow=30,
         hv_ratio_window=20,
+        parkinson_vol_window=10,
+        parkinson_vol_zscore_window=20,
+        garman_klass_vol_window=10,
+        garman_klass_vol_zscore_window=20,
+        yang_zhang_vol_window=20,
+        yang_zhang_vol_zscore_window=20,
+        vol_velocity_window=20,
+        intraday_noise_window=20,
     )
     return agent
 

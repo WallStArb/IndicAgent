@@ -207,6 +207,16 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "hv_z_fast": "quant",
     "hv_z_slow": "quant",
     "hv_ratio": "quant",
+    # Renaissance Primitives — Alternative Volatility Estimators (Phase 142.5 Plan 04)
+    "parkinson_vol_z": "quant",
+    "garman_klass_vol_z": "quant",
+    "yang_zhang_vol_z": "quant",
+    # Renaissance Primitives — Volatility Dynamics (Phase 142.5 Plan 04)
+    "parkinson_vol_velocity": "quant",
+    "garman_klass_vol_velocity": "quant",
+    "yang_zhang_vol_velocity": "quant",
+    "vol_velocity_z": "quant",
+    "intraday_noise_ratio": "quant",
     # Cross-sectional (nullable — populated by Phase 139)
     "momentum_rank_z": "quant",
     "volume_rank_z": "quant",
@@ -301,6 +311,14 @@ class FeatureFactoryConfig:
         hv_fast: APR feature.hv.fast
         hv_slow: APR feature.hv.slow
         hv_ratio_window: APR feature.hv.ratio_window
+        parkinson_vol_window: APR feature.parkinson_vol.window
+        parkinson_vol_zscore_window: APR feature.parkinson_vol.zscore_window
+        garman_klass_vol_window: APR feature.garman_klass_vol.window
+        garman_klass_vol_zscore_window: APR feature.garman_klass_vol.zscore_window
+        yang_zhang_vol_window: APR feature.yang_zhang_vol.window
+        yang_zhang_vol_zscore_window: APR feature.yang_zhang_vol.zscore_window
+        vol_velocity_window: APR feature.vol_velocity.window
+        intraday_noise_window: APR feature.intraday_noise.window
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -400,6 +418,15 @@ class FeatureFactoryConfig:
     hv_fast: int  # feature.hv.fast
     hv_slow: int  # feature.hv.slow
     hv_ratio_window: int  # feature.hv.ratio_window
+    # Renaissance Primitives — Alternative Volatility + Volatility Dynamics (Phase 142.5 Plan 04)
+    parkinson_vol_window: int  # feature.parkinson_vol.window
+    parkinson_vol_zscore_window: int  # feature.parkinson_vol.zscore_window
+    garman_klass_vol_window: int  # feature.garman_klass_vol.window
+    garman_klass_vol_zscore_window: int  # feature.garman_klass_vol.zscore_window
+    yang_zhang_vol_window: int  # feature.yang_zhang_vol.window
+    yang_zhang_vol_zscore_window: int  # feature.yang_zhang_vol.zscore_window
+    vol_velocity_window: int  # feature.vol_velocity.window
+    intraday_noise_window: int  # feature.intraday_noise.window
 
 
 # ---------------------------------------------------------------------------
@@ -1014,6 +1041,26 @@ def _rolling_std_series(arr: np.ndarray, window: int) -> np.ndarray:
     return out
 
 
+def _rolling_mean_series(arr: np.ndarray, window: int) -> np.ndarray:
+    """Trailing rolling mean series (expanding until `window` bars, then fixed window).
+
+    O(n) via cumulative sums. Shared building block for the Parkinson/Garman-Klass
+    alternative volatility estimators (Phase 142.5 Plan 04), which smooth their
+    per-bar variance proxy over `window` bars before z-scoring.
+    """
+    n = len(arr)
+    out = np.zeros(n, dtype=float)
+    if n == 0:
+        return out
+    cs = np.cumsum(arr)
+    for i in range(n):
+        eff_w = min(window, i + 1)
+        start = i + 1 - eff_w
+        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
+        out[i] = s / eff_w
+    return out
+
+
 def _vol_std_z(volumes: np.ndarray, window: int) -> float:
     """Z-score of rolling std(V) over the trailing window (single-window design:
     the same `window` both computes the rolling std series and z-scores its last
@@ -1367,6 +1414,142 @@ def _bb_pct_b(closes_window: np.ndarray, eps: float = 1e-10) -> float:
     lower = mean - 2.0 * std
     c = float(closes_window[-1])
     return (c - lower) / (upper - lower)
+
+
+# ---------------------------------------------------------------------------
+# Renaissance Primitives — Alternative Volatility Estimators (Phase 142.5 Plan 04)
+#
+# Parkinson/Garman-Klass/Yang-Zhang all extract more information from a single
+# bar's OHLC than a close-only estimator (ATR/HV). The scalar raw-term
+# functions below compute the classic single-bar (Parkinson/GK) or windowed
+# (YZ) variance proxy; the _z wrappers smooth (Parkinson/GK) or window (YZ)
+# that proxy and z-score it -- both delegate to the vectorized _series_full
+# implementations further below so there is one source of truth for the
+# math (compute() and compute_batch() both read those same arrays).
+# ---------------------------------------------------------------------------
+
+
+def _parkinson_vol(high: float, low: float, eps: float = 1e-10) -> float:
+    """Parkinson single-bar variance proxy: ln(H/L)^2 / (4*ln(2)).
+
+    4*ln(2) is the Parkinson estimator's definitional normalizing constant
+    (not APR-tunable — same status as Garman-Klass's `2*ln(2)-1` term below).
+    Returns 0.0 on a degenerate/inverted bar (H <= L or L <= eps).
+    """
+    if high <= low or low <= eps:
+        return 0.0
+    return (math.log(high / low) ** 2) / (4.0 * math.log(2.0))
+
+
+def _garman_klass_vol(
+    open_: float, high: float, low: float, close: float, eps: float = 1e-10
+) -> float:
+    """Garman-Klass single-bar variance proxy:
+    0.5*ln(H/L)^2 - (2*ln(2)-1)*ln(C/O)^2.
+
+    `2*ln(2)-1` is the estimator's definitional weighting constant (not
+    APR-tunable). Returns 0.0 on a degenerate bar (H <= L, or O/C <= eps).
+    """
+    if high <= low or low <= eps or open_ <= eps or close <= eps:
+        return 0.0
+    hl_term = 0.5 * (math.log(high / low) ** 2)
+    co_term = (2.0 * math.log(2.0) - 1.0) * (math.log(close / open_) ** 2)
+    return hl_term - co_term
+
+
+def _yang_zhang_vol(
+    opens_window: np.ndarray,
+    closes_window: np.ndarray,
+    prev_closes_window: np.ndarray,
+    k: float = 0.34,
+) -> float:
+    """Yang-Zhang variance estimator over a window of bars:
+    var(overnight_gap) + k*var(open-to-close), where overnight_gap =
+    ln(O_t/prev_C_{t-1}) and open-to-close = ln(C_t/O_t).
+
+    k ~= 0.34 is the standard Yang-Zhang weighting constant (definitional,
+    not APR-tunable -- same status as the Parkinson/GK constants above).
+    Returns 0.0 on insufficient history (fewer than 2 bars in the window).
+    """
+    if len(opens_window) < 2:
+        return 0.0
+    o = opens_window.astype(float)
+    c = closes_window.astype(float)
+    prev_c = prev_closes_window.astype(float)
+    overnight = np.log(np.maximum(o, 1e-10) / np.maximum(prev_c, 1e-10))
+    o2c = np.log(np.maximum(c, 1e-10) / np.maximum(o, 1e-10))
+    return float(np.var(overnight) + k * np.var(o2c))
+
+
+def _parkinson_vol_z(highs: np.ndarray, lows: np.ndarray, window: int, zscore_window: int) -> float:
+    """Z-score of the rolling-averaged Parkinson variance proxy. Delegates to
+    `_parkinson_vol_z_series_full` (single source of truth shared with
+    compute_batch()) and returns its last element. Returns 0.0 on cold start.
+    """
+    return _series_last(_parkinson_vol_z_series_full(highs, lows, window, zscore_window), 0.0)
+
+
+def _garman_klass_vol_z(
+    opens: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    window: int,
+    zscore_window: int,
+) -> float:
+    """Z-score of the rolling-averaged Garman-Klass variance proxy. Delegates
+    to `_garman_klass_vol_z_series_full`. Returns 0.0 on cold start.
+    """
+    return _series_last(
+        _garman_klass_vol_z_series_full(opens, highs, lows, closes, window, zscore_window), 0.0
+    )
+
+
+def _yang_zhang_vol_z(
+    opens: np.ndarray, closes: np.ndarray, window: int, zscore_window: int
+) -> float:
+    """Z-score of the rolling Yang-Zhang variance estimator. Delegates to
+    `_yang_zhang_vol_z_series_full`. Returns 0.0 on cold start.
+    """
+    return _series_last(_yang_zhang_vol_z_series_full(opens, closes, window, zscore_window), 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Renaissance Primitives — Volatility Dynamics (Phase 142.5 Plan 04)
+#
+# First derivatives of the 3 alt-vol z-scores (panic onset vs stabilization),
+# a normalized velocity of atr_z, and an intraday choppiness measure.
+# parkinson/garman_klass/yang_zhang_vol_velocity are computed inline in
+# compute()/compute_batch() as a difference of two precomputed z-score-series
+# elements (stateless, no separate helper needed -- see Deviations/decisions
+# in the plan summary).
+# ---------------------------------------------------------------------------
+
+
+def _vol_velocity_z(atr_z_values: np.ndarray, window: int) -> float:
+    """Z-score of the rolling velocity (first difference) of atr_z. Delegates
+    to `_vol_velocity_z_series_full`. Returns 0.0 on cold start.
+    """
+    return _series_last(_vol_velocity_z_series_full(atr_z_values, window), 0.0)
+
+
+def _intraday_noise_ratio(closes: np.ndarray, session_bars: int, eps: float = 1e-10) -> float:
+    """Intraday noise ratio: sum(|log_ret|) / |net log_ret| over the trailing
+    `session_bars` window. High values indicate choppy back-and-forth
+    movement; values near 1.0 indicate a clean directional move. Returns 1.0
+    (neutral) when net progress is at or near zero, 0.0 when insufficient
+    history exists (fewer than session_bars + 1 closes).
+    """
+    n = len(closes)
+    if n < session_bars + 1:
+        return 0.0
+    window = closes[-(session_bars + 1) :].astype(float)
+    log_rets = np.diff(np.log(np.maximum(window, 1e-10)))
+    sum_abs = float(np.sum(np.abs(log_rets)))
+    net = float(np.sum(log_rets))
+    if abs(net) < eps:
+        return 1.0
+    return sum_abs / abs(net)
 
 
 # ---------------------------------------------------------------------------
@@ -2454,6 +2637,123 @@ def _hv_ratio_series_full(
 
 
 # ---------------------------------------------------------------------------
+# Renaissance Primitives — Alternative Volatility + Volatility Dynamics batch
+# precompute (Phase 142.5 Plan 04)
+# result[i] matches the corresponding streaming value function above at bar i.
+# ---------------------------------------------------------------------------
+
+
+def _parkinson_vol_z_series_full(
+    highs: np.ndarray, lows: np.ndarray, window: int, zscore_window: int
+) -> np.ndarray:
+    """z-score of the rolling-averaged Parkinson variance proxy. `window`
+    smooths the per-bar ln(H/L)^2/(4*ln(2)) term via a rolling mean;
+    `zscore_window` normalizes the smoothed series against its own trailing
+    history. Fully vectorized O(n) via boolean masking + cumsum.
+    """
+    n = len(highs)
+    terms = np.zeros(n, dtype=float)
+    h = highs.astype(float)
+    lo = lows.astype(float)
+    valid = (h > lo) & (lo > 1e-10)
+    terms[valid] = (np.log(h[valid] / lo[valid]) ** 2) / (4.0 * math.log(2.0))
+    smoothed = _rolling_mean_series(terms, window)
+    return _fixed_window_zscore_series(smoothed, zscore_window)
+
+
+def _garman_klass_vol_z_series_full(
+    opens: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    window: int,
+    zscore_window: int,
+) -> np.ndarray:
+    """z-score of the rolling-averaged Garman-Klass variance proxy. `window`
+    smooths the per-bar GK term via a rolling mean; `zscore_window`
+    normalizes the smoothed series. Fully vectorized O(n) via boolean
+    masking + cumsum.
+    """
+    n = len(closes)
+    terms = np.zeros(n, dtype=float)
+    o = opens.astype(float)
+    h = highs.astype(float)
+    lo = lows.astype(float)
+    c = closes.astype(float)
+    valid = (h > lo) & (lo > 1e-10) & (o > 1e-10) & (c > 1e-10)
+    hl_term = 0.5 * (np.log(h[valid] / lo[valid]) ** 2)
+    co_term = (2.0 * math.log(2.0) - 1.0) * (np.log(c[valid] / o[valid]) ** 2)
+    terms[valid] = hl_term - co_term
+    smoothed = _rolling_mean_series(terms, window)
+    return _fixed_window_zscore_series(smoothed, zscore_window)
+
+
+def _yang_zhang_vol_z_series_full(
+    opens: np.ndarray, closes: np.ndarray, window: int, zscore_window: int
+) -> np.ndarray:
+    """z-score of the rolling Yang-Zhang variance estimator (var(overnight) +
+    k*var(open-to-close), k ~= 0.34, definitional). O(n x window) — same
+    cost class as the pre-existing _high_low_corr_series_full/
+    _vol_asymmetry_z_series_full nested-window loops.
+    """
+    n = len(closes)
+    if n < 2:
+        return np.zeros(n, dtype=float)
+    o = opens.astype(float)
+    c = closes.astype(float)
+    prev_c = np.concatenate([[c[0]], c[:-1]])  # prev_close[0] undefined -> neutral (zero gap)
+    overnight = np.log(np.maximum(o, 1e-10) / np.maximum(prev_c, 1e-10))
+    o2c = np.log(np.maximum(c, 1e-10) / np.maximum(o, 1e-10))
+    k = 0.34
+    yz = np.zeros(n, dtype=float)
+    for i in range(n):
+        w = min(window, i + 1)
+        if w < 2:
+            continue
+        start = i + 1 - w
+        var_overnight = float(np.var(overnight[start : i + 1]))
+        var_o2c = float(np.var(o2c[start : i + 1]))
+        yz[i] = var_overnight + k * var_o2c
+    return _fixed_window_zscore_series(yz, zscore_window)
+
+
+def _vol_velocity_z_series_full(atr_z: np.ndarray, window: int) -> np.ndarray:
+    """z-score of the rolling velocity (first difference) of atr_z over
+    `window`. result[i] == streaming vol_velocity_z at bar i. Fully
+    vectorized O(n).
+    """
+    n = len(atr_z)
+    if n < 2:
+        return np.zeros(n, dtype=float)
+    velocity = np.diff(atr_z.astype(float))
+    padded = np.concatenate([[0.0], velocity])
+    return _fixed_window_zscore_series(padded, window)
+
+
+def _intraday_noise_ratio_series_full(
+    closes: np.ndarray, session_bars: int, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _intraday_noise_ratio(closes[:i+1], session_bars)
+    at bar i. O(n) via cumsum of |log_ret| and log_ret over a fixed
+    `session_bars` window. Stays 0.0 until i >= session_bars (matches the
+    streaming function's insufficient-history guard).
+    """
+    n = len(closes)
+    result = np.zeros(n, dtype=float)
+    if n < session_bars + 1:
+        return result
+    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
+    cs_abs = np.concatenate([[0.0], np.cumsum(np.abs(log_rets))])
+    cs_net = np.concatenate([[0.0], np.cumsum(log_rets)])
+    for idx in range(session_bars, n):
+        start = idx - session_bars
+        sum_abs = cs_abs[idx] - cs_abs[start]
+        net = cs_net[idx] - cs_net[start]
+        result[idx] = sum_abs / abs(net) if abs(net) > eps else 1.0
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Calendar helpers (shared by compute() and compute_batch())
 # ---------------------------------------------------------------------------
 
@@ -2556,6 +2856,12 @@ class _PrecomputedSeries:
     hv_z_fast: np.ndarray
     hv_z_slow: np.ndarray
     hv_ratio: np.ndarray
+    # Renaissance Primitives — Alternative Volatility / Volatility Dynamics (Phase 142.5 Plan 04)
+    parkinson_vol_z: np.ndarray
+    garman_klass_vol_z: np.ndarray
+    yang_zhang_vol_z: np.ndarray
+    vol_velocity_z: np.ndarray
+    intraday_noise_ratio: np.ndarray
 
 
 def _precompute_series(
@@ -2681,6 +2987,24 @@ def _precompute_series(
         hv_z_fast=_hv_z_series_full(closes, config.hv_fast),
         hv_z_slow=_hv_z_series_full(closes, config.hv_slow),
         hv_ratio=_hv_ratio_series_full(closes, config.hv_fast, config.hv_ratio_window),
+        parkinson_vol_z=_parkinson_vol_z_series_full(
+            highs, lows, config.parkinson_vol_window, config.parkinson_vol_zscore_window
+        ),
+        garman_klass_vol_z=_garman_klass_vol_z_series_full(
+            opens,
+            highs,
+            lows,
+            closes,
+            config.garman_klass_vol_window,
+            config.garman_klass_vol_zscore_window,
+        ),
+        yang_zhang_vol_z=_yang_zhang_vol_z_series_full(
+            opens, closes, config.yang_zhang_vol_window, config.yang_zhang_vol_zscore_window
+        ),
+        vol_velocity_z=_vol_velocity_z_series_full(atr_z, config.vol_velocity_window),
+        intraday_noise_ratio=_intraday_noise_ratio_series_full(
+            closes, config.intraday_noise_window
+        ),
     )
 
 
@@ -2831,6 +3155,14 @@ def _build_feature_vector(
     hv_z_fast: float,
     hv_z_slow: float,
     hv_ratio: float,
+    parkinson_vol_z: float,
+    garman_klass_vol_z: float,
+    yang_zhang_vol_z: float,
+    parkinson_vol_velocity: float,
+    garman_klass_vol_velocity: float,
+    yang_zhang_vol_velocity: float,
+    vol_velocity_z: float,
+    intraday_noise_ratio: float,
 ) -> FeatureVector:
     return FeatureVector(
         momentum_z_fast=_guard(momentum_z_fast),
@@ -2966,6 +3298,14 @@ def _build_feature_vector(
         hv_z_fast=_guard(hv_z_fast, 0.0),
         hv_z_slow=_guard(hv_z_slow, 0.0),
         hv_ratio=_guard(hv_ratio, 1.0),
+        parkinson_vol_z=_guard(parkinson_vol_z, 0.0),
+        garman_klass_vol_z=_guard(garman_klass_vol_z, 0.0),
+        yang_zhang_vol_z=_guard(yang_zhang_vol_z, 0.0),
+        parkinson_vol_velocity=_guard(parkinson_vol_velocity, 0.0),
+        garman_klass_vol_velocity=_guard(garman_klass_vol_velocity, 0.0),
+        yang_zhang_vol_velocity=_guard(yang_zhang_vol_velocity, 0.0),
+        vol_velocity_z=_guard(vol_velocity_z, 0.0),
+        intraday_noise_ratio=_guard(intraday_noise_ratio, 1.0),
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,
@@ -3221,6 +3561,31 @@ class FeatureFactory:
             hv_z_fast=_series_last(s.hv_z_fast, 0.0),
             hv_z_slow=_series_last(s.hv_z_slow, 0.0),
             hv_ratio=_series_last(s.hv_ratio, 1.0),
+            # Renaissance Primitives (Phase 142.5 Plan 04) — alternative volatility
+            # estimators + volatility dynamics. All read the precomputed series (s.*)
+            # built once above; velocity primitives are the O(1) difference of the
+            # current and prior-bar z-score elements (stateless, no cache dependency),
+            # guaranteeing exact parity with compute_batch()'s indexing.
+            parkinson_vol_z=_series_last(s.parkinson_vol_z, 0.0),
+            garman_klass_vol_z=_series_last(s.garman_klass_vol_z, 0.0),
+            yang_zhang_vol_z=_series_last(s.yang_zhang_vol_z, 0.0),
+            parkinson_vol_velocity=(
+                float(s.parkinson_vol_z[-1] - s.parkinson_vol_z[-2])
+                if len(s.parkinson_vol_z) >= 2
+                else 0.0
+            ),
+            garman_klass_vol_velocity=(
+                float(s.garman_klass_vol_z[-1] - s.garman_klass_vol_z[-2])
+                if len(s.garman_klass_vol_z) >= 2
+                else 0.0
+            ),
+            yang_zhang_vol_velocity=(
+                float(s.yang_zhang_vol_z[-1] - s.yang_zhang_vol_z[-2])
+                if len(s.yang_zhang_vol_z) >= 2
+                else 0.0
+            ),
+            vol_velocity_z=_series_last(s.vol_velocity_z, 0.0),
+            intraday_noise_ratio=_series_last(s.intraday_noise_ratio, 1.0),
         )
 
     @staticmethod
@@ -3554,6 +3919,38 @@ class FeatureFactory:
             hv_z_slow_val = float(s.hv_z_slow[i]) if i < len(s.hv_z_slow) else 0.0
             hv_ratio_val = float(s.hv_ratio[i]) if i < len(s.hv_ratio) else 1.0
 
+            # Renaissance Primitives (Phase 142.5 Plan 04) — alternative volatility
+            # estimators + volatility dynamics. All 8 fields read the precomputed
+            # series (O(n) total, not per-bar O(n x window)); velocity primitives
+            # are the O(1) difference of consecutive precomputed z-score elements,
+            # guaranteeing exact parity with compute().
+            parkinson_vol_z_val = float(s.parkinson_vol_z[i]) if i < len(s.parkinson_vol_z) else 0.0
+            garman_klass_vol_z_val = (
+                float(s.garman_klass_vol_z[i]) if i < len(s.garman_klass_vol_z) else 0.0
+            )
+            yang_zhang_vol_z_val = (
+                float(s.yang_zhang_vol_z[i]) if i < len(s.yang_zhang_vol_z) else 0.0
+            )
+            parkinson_vol_velocity_val = (
+                float(s.parkinson_vol_z[i] - s.parkinson_vol_z[i - 1])
+                if i >= 1 and i < len(s.parkinson_vol_z)
+                else 0.0
+            )
+            garman_klass_vol_velocity_val = (
+                float(s.garman_klass_vol_z[i] - s.garman_klass_vol_z[i - 1])
+                if i >= 1 and i < len(s.garman_klass_vol_z)
+                else 0.0
+            )
+            yang_zhang_vol_velocity_val = (
+                float(s.yang_zhang_vol_z[i] - s.yang_zhang_vol_z[i - 1])
+                if i >= 1 and i < len(s.yang_zhang_vol_z)
+                else 0.0
+            )
+            vol_velocity_z_val = float(s.vol_velocity_z[i]) if i < len(s.vol_velocity_z) else 0.0
+            intraday_noise_ratio_val = (
+                float(s.intraday_noise_ratio[i]) if i < len(s.intraday_noise_ratio) else 1.0
+            )
+
             # Build FeatureVector
             fv = _build_feature_vector(
                 momentum_z_fast=momentum_z_fast_val,
@@ -3689,6 +4086,14 @@ class FeatureFactory:
                 hv_z_fast=hv_z_fast_val,
                 hv_z_slow=hv_z_slow_val,
                 hv_ratio=hv_ratio_val,
+                parkinson_vol_z=parkinson_vol_z_val,
+                garman_klass_vol_z=garman_klass_vol_z_val,
+                yang_zhang_vol_z=yang_zhang_vol_z_val,
+                parkinson_vol_velocity=parkinson_vol_velocity_val,
+                garman_klass_vol_velocity=garman_klass_vol_velocity_val,
+                yang_zhang_vol_velocity=yang_zhang_vol_velocity_val,
+                vol_velocity_z=vol_velocity_z_val,
+                intraday_noise_ratio=intraday_noise_ratio_val,
             )
 
             results.append((bar_ts, fv))
@@ -3846,6 +4251,14 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         hv_z_fast=0.0,
         hv_z_slow=0.0,
         hv_ratio=1.0,
+        parkinson_vol_z=0.0,
+        garman_klass_vol_z=0.0,
+        yang_zhang_vol_z=0.0,
+        parkinson_vol_velocity=0.0,
+        garman_klass_vol_velocity=0.0,
+        yang_zhang_vol_velocity=0.0,
+        vol_velocity_z=0.0,
+        intraday_noise_ratio=1.0,
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,

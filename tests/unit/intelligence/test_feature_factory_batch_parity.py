@@ -119,6 +119,14 @@ def _make_cfg() -> FeatureFactoryConfig:
         hv_fast=10,
         hv_slow=30,
         hv_ratio_window=20,
+        parkinson_vol_window=10,
+        parkinson_vol_zscore_window=20,
+        garman_klass_vol_window=10,
+        garman_klass_vol_zscore_window=20,
+        yang_zhang_vol_window=20,
+        yang_zhang_vol_zscore_window=20,
+        vol_velocity_window=20,
+        intraday_noise_window=20,
     )
 
 
@@ -642,6 +650,14 @@ def test_build_feature_vector_guards_nan():
         hv_z_fast=0.0,
         hv_z_slow=0.0,
         hv_ratio=1.0,
+        parkinson_vol_z=0.0,
+        garman_klass_vol_z=0.0,
+        yang_zhang_vol_z=0.0,
+        parkinson_vol_velocity=0.0,
+        garman_klass_vol_velocity=0.0,
+        yang_zhang_vol_velocity=0.0,
+        vol_velocity_z=0.0,
+        intraday_noise_ratio=1.0,
     )
     assert fv.momentum_z_fast == 0.0  # nan -> fallback 0.0
     assert fv.range_position == 0.5  # inf -> fallback 0.5
@@ -784,6 +800,14 @@ def test_build_feature_vector_none_passthrough():
         hv_z_fast=0.0,
         hv_z_slow=0.0,
         hv_ratio=1.0,
+        parkinson_vol_z=0.0,
+        garman_klass_vol_z=0.0,
+        yang_zhang_vol_z=0.0,
+        parkinson_vol_velocity=0.0,
+        garman_klass_vol_velocity=0.0,
+        yang_zhang_vol_velocity=0.0,
+        vol_velocity_z=0.0,
+        intraday_noise_ratio=1.0,
     )
     assert fv.poc_dist_atr is None
     assert fv.va_position is None

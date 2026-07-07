@@ -1202,9 +1202,10 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """136 orthogonal feature primitives computed per bar by FeatureFactory
+    """144 orthogonal feature primitives computed per bar by FeatureFactory
     (61 v3.0 baseline + 18 Phase 142.5 Plan 01 + 22 Phase 142.5 Plan 02 +
-    14 Phase 142.5 Plan 05 + 21 Phase 142.5 Plan 03 Renaissance primitives).
+    14 Phase 142.5 Plan 05 + 21 Phase 142.5 Plan 03 + 8 Phase 142.5 Plan 04
+    Renaissance primitives).
 
     Frozen dataclass (not Pydantic) per D-08: pure-function output, no IO,
     immutable after construction. Non-optional fields typed float, no defaults
@@ -1230,8 +1231,10 @@ class FeatureVector:
       Breakout Distance (14, Phase 142.5 Plan 05): dist_from_high/low_fast/slow, range_pct_fast/slow, new_high_flag, new_low_flag, stoch_k_fast/slow, price_percentile_fast/slow, efficiency_ratio_fast/slow
       Return Distribution (7, Phase 142.5 Plan 03): ret_kurtosis_z_fast/slow, ret_autocorr_1/5, updown_ratio_fast/slow, streak_z
       Realized Variance / Volatility (14, Phase 142.5 Plan 03): realized_var_ratio_fast/slow, range_to_close, true_range_pct, vol_of_vol, high_low_corr, variance_ratio_fast/slow, vol_asymmetry_z, bb_pct_b_fast/slow, hv_z_fast/slow, hv_ratio
+      Alternative Volatility Estimators (3, Phase 142.5 Plan 04): parkinson_vol_z, garman_klass_vol_z, yang_zhang_vol_z
+      Volatility Dynamics (5, Phase 142.5 Plan 04): parkinson/garman_klass/yang_zhang_vol_velocity, vol_velocity_z, intraday_noise_ratio
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 136 (133 required + 3 optional)
+      Total: 144 (141 required + 3 optional)
     """
 
     # Momentum (7 total: 5 original + 2 new scale-named)
@@ -1423,6 +1426,20 @@ class FeatureVector:
     hv_ratio: (
         float  # hv_fast / rolling_mean(hv, N), unbounded non-neg (APR: feature.hv.ratio_window)
     )
+    # Renaissance Primitives — Alternative Volatility Estimators (3, Phase 142.5 Plan 04)
+    parkinson_vol_z: float  # z-score of rolling-avg ln(H/L)^2/(4ln2) (APR: feature.parkinson_vol.window/.zscore_window)
+    garman_klass_vol_z: float  # z-score of rolling-avg GK term (APR: feature.garman_klass_vol.window/.zscore_window)
+    yang_zhang_vol_z: float  # z-score of rolling YZ variance estimator (APR: feature.yang_zhang_vol.window/.zscore_window)
+    # Renaissance Primitives — Volatility Dynamics (5, Phase 142.5 Plan 04)
+    parkinson_vol_velocity: float  # parkinson_vol_z_t - parkinson_vol_z_{t-1}, unbounded (no APR)
+    garman_klass_vol_velocity: (
+        float  # garman_klass_vol_z_t - garman_klass_vol_z_{t-1}, unbounded (no APR)
+    )
+    yang_zhang_vol_velocity: (
+        float  # yang_zhang_vol_z_t - yang_zhang_vol_z_{t-1}, unbounded (no APR)
+    )
+    vol_velocity_z: float  # z-score of rolling atr_z velocity (APR: feature.vol_velocity.window)
+    intraday_noise_ratio: float  # sum(|ret|)/|net_ret| over session, unbounded non-neg (APR: feature.intraday_noise.window)
     # Cross-sectional (3, nullable — populated by Phase 139 enrichment pass)
     momentum_rank_z: float | None = None  # cross-sectional momentum rank z-score
     volume_rank_z: float | None = None  # cross-sectional volume rank z-score

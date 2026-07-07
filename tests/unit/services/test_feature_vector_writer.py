@@ -158,6 +158,17 @@ def _make_valid_feature_vector():
         hv_z_fast=0.0,
         hv_z_slow=0.0,
         hv_ratio=1.0,
+        # Renaissance Primitives (Phase 142.5 Plan 04) — not yet in the persisted
+        # tuple (migration 206 / writer wiring land in a later plan); construction
+        # requires these non-optional fields.
+        parkinson_vol_z=0.0,
+        garman_klass_vol_z=0.0,
+        yang_zhang_vol_z=0.0,
+        parkinson_vol_velocity=0.0,
+        garman_klass_vol_velocity=0.0,
+        yang_zhang_vol_velocity=0.0,
+        vol_velocity_z=0.0,
+        intraday_noise_ratio=1.0,
     )
 
 
