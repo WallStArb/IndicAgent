@@ -91,6 +91,104 @@ COMMENT ON COLUMN feature_vectors.efficiency_ratio_slow IS
     'Kaufman efficiency ratio: |C_t - C_t-N| / sum(|C_i - C_i-1|). Bounded '
     '[0,1] (0=chop, 1=linear trend). APR: feature.breakout.efficiency_window_slow.';
 
+-- ---------------------------------------------------------------------------
+-- Plan 05: Breakout Distance APR seeds (10 keys, feature.breakout.* namespace)
+--
+-- Provenance [conventional]: standard fast/slow lookback pairings matching
+-- the existing rsi_fast/mid/slow, cci_fast/mid/slow, mfi_fast/slow
+-- conventions already seeded in this codebase. Not ML learning targets at
+-- seed time (initial conventional defaults); may become ML learning targets
+-- once IC evaluation runs (deferred to a future corpus run per this phase's
+-- scope). Column signature matches migration 200
+-- (200_hmm_lifecycle_apr_keys.sql) exactly.
+-- ---------------------------------------------------------------------------
+
+INSERT INTO config_schema (config_key, value_type, default_value, min_value, max_value, description) VALUES
+(
+    'feature.breakout.dist_window_fast',
+    'int',
+    '20',
+    5, 100,
+    '[conventional] Fast rolling window (bars) for dist_from_high/low_fast and new_high/low_flag. Not an ML learning target at seed time.'
+),
+(
+    'feature.breakout.dist_window_slow',
+    'int',
+    '50',
+    10, 300,
+    '[conventional] Slow rolling window (bars) for dist_from_high/low_slow. Not an ML learning target at seed time.'
+),
+(
+    'feature.breakout.range_window_fast',
+    'int',
+    '20',
+    5, 100,
+    '[conventional] Fast rolling window (bars) for range_pct_fast. Not an ML learning target at seed time.'
+),
+(
+    'feature.breakout.range_window_slow',
+    'int',
+    '50',
+    10, 300,
+    '[conventional] Slow rolling window (bars) for range_pct_slow. Not an ML learning target at seed time.'
+),
+(
+    'feature.breakout.stoch_window_fast',
+    'int',
+    '14',
+    5, 100,
+    '[conventional] Fast rolling window (bars) for stoch_k_fast (classic Stochastic %K period). Not an ML learning target at seed time.'
+),
+(
+    'feature.breakout.stoch_window_slow',
+    'int',
+    '50',
+    10, 300,
+    '[conventional] Slow rolling window (bars) for stoch_k_slow. Not an ML learning target at seed time.'
+),
+(
+    'feature.breakout.percentile_window_fast',
+    'int',
+    '50',
+    10, 300,
+    '[conventional] Fast rolling window (bars) for price_percentile_fast. Not an ML learning target at seed time.'
+),
+(
+    'feature.breakout.percentile_window_slow',
+    'int',
+    '200',
+    50, 1000,
+    '[conventional] Slow rolling window (bars) for price_percentile_slow. Not an ML learning target at seed time.'
+),
+(
+    'feature.breakout.efficiency_window_fast',
+    'int',
+    '10',
+    3, 100,
+    '[conventional] Fast rolling window (bars) for efficiency_ratio_fast (Kaufman ER). Not an ML learning target at seed time.'
+),
+(
+    'feature.breakout.efficiency_window_slow',
+    'int',
+    '50',
+    10, 300,
+    '[conventional] Slow rolling window (bars) for efficiency_ratio_slow (Kaufman ER). Not an ML learning target at seed time.'
+)
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_state (config_key, config_value, version) VALUES
+('feature.breakout.dist_window_fast',       '20',  1),
+('feature.breakout.dist_window_slow',       '50',  1),
+('feature.breakout.range_window_fast',      '20',  1),
+('feature.breakout.range_window_slow',      '50',  1),
+('feature.breakout.stoch_window_fast',      '14',  1),
+('feature.breakout.stoch_window_slow',      '50',  1),
+('feature.breakout.percentile_window_fast', '50',  1),
+('feature.breakout.percentile_window_slow', '200', 1),
+('feature.breakout.efficiency_window_fast', '10',  1),
+('feature.breakout.efficiency_window_slow', '50',  1)
+ON CONFLICT (config_key) DO NOTHING;
+
 -- Plans 05.5 and 06 append their sections below this line.
 
 COMMIT;
