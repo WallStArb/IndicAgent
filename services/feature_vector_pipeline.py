@@ -535,6 +535,8 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.yang_zhang_vol.zscore_window", 20),
         ("feature.vol_velocity.window", 20),
         ("feature.intraday_noise.window", 20),
+        ("feature.price_vol_corr.fast", 10),
+        ("feature.price_vol_corr.slow", 30),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -648,6 +650,8 @@ class FeatureVectorPipeline(BaseDaemon):
             yang_zhang_vol_zscore_window=_int("feature.yang_zhang_vol.zscore_window", 20),
             vol_velocity_window=_int("feature.vol_velocity.window", 20),
             intraday_noise_window=_int("feature.intraday_noise.window", 20),
+            price_vol_corr_fast=_int("feature.price_vol_corr.fast", 10),
+            price_vol_corr_slow=_int("feature.price_vol_corr.slow", 30),
         )
 
         self.logger.info(

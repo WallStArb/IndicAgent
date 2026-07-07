@@ -217,6 +217,15 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "yang_zhang_vol_velocity": "quant",
     "vol_velocity_z": "quant",
     "intraday_noise_ratio": "quant",
+    # Renaissance Primitives — Price-Volume Interactions (Phase 142.5 Plan 05.5)
+    "vol_body_product": "quant",
+    "ret_vol_product_fast": "quant",
+    "price_vol_corr_fast": "quant",
+    "price_vol_corr_slow": "quant",
+    "range_vol_product": "quant",
+    "up_vol_body_diff": "quant",
+    "ret_vol_ratio_fast": "quant",
+    "vol_skew_product": "quant",
     # Cross-sectional (nullable — populated by Phase 139)
     "momentum_rank_z": "quant",
     "volume_rank_z": "quant",
@@ -319,6 +328,8 @@ class FeatureFactoryConfig:
         yang_zhang_vol_zscore_window: APR feature.yang_zhang_vol.zscore_window
         vol_velocity_window: APR feature.vol_velocity.window
         intraday_noise_window: APR feature.intraday_noise.window
+        price_vol_corr_fast: APR feature.price_vol_corr.fast
+        price_vol_corr_slow: APR feature.price_vol_corr.slow
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -427,6 +438,9 @@ class FeatureFactoryConfig:
     yang_zhang_vol_zscore_window: int  # feature.yang_zhang_vol.zscore_window
     vol_velocity_window: int  # feature.vol_velocity.window
     intraday_noise_window: int  # feature.intraday_noise.window
+    # Renaissance Primitives — Price-Volume Interactions (Phase 142.5 Plan 05.5)
+    price_vol_corr_fast: int  # feature.price_vol_corr.fast
+    price_vol_corr_slow: int  # feature.price_vol_corr.slow
 
 
 # ---------------------------------------------------------------------------
@@ -1550,6 +1564,101 @@ def _intraday_noise_ratio(closes: np.ndarray, session_bars: int, eps: float = 1e
     if abs(net) < eps:
         return 1.0
     return sum_abs / abs(net)
+
+
+# ---------------------------------------------------------------------------
+# Renaissance Primitives — Price-Volume Interactions (Phase 142.5 Plan 05.5)
+#
+# 8 deterministic combinations (product, ratio, or rolling correlation) of two
+# already-computed parent primitives from earlier in the same compute() pass.
+# No new market theory embedded -- closes the gap flagged by three
+# independent reviews (antigravity review H5 == VERIFICATION.md BLOCKER #1 ==
+# internal-Claude H1): the migration, APR seeds, and integration-test
+# assertion already referenced these fields with no plan computing them.
+# Six are O(1) scalar combinators reusing parent scalar values with zero
+# extra window; only the 2 rolling correlations (price_vol_corr_fast/slow)
+# need a new APR window. See docs/ideas/signal-renaissance-primitives-ohlcv.md
+# (Interaction Primitives section).
+# ---------------------------------------------------------------------------
+
+
+def _vol_body_product(body_ratio: float, volume_z: float) -> float:
+    """vol_body_product = body_ratio * volume_z. Pure product of Plan 01's
+    body_ratio and baseline volume_z -- no new window. Unbounded, symmetric
+    around 0.
+    """
+    return body_ratio * volume_z
+
+
+def _ret_vol_product(ret_lag: float, volume_z: float) -> float:
+    """ret_vol_product = ret_lag * volume_z. Pure product; reused for
+    ret_vol_product_fast with ret_lag = ret_lag_fast (Plan 01) against
+    baseline volume_z -- no new window. Unbounded, symmetric around 0.
+    """
+    return ret_lag * volume_z
+
+
+def _range_vol_product(range_vs_atr: float, volume_z: float) -> float:
+    """range_vol_product = range_vs_atr * volume_z. Pure product of Plan 01's
+    range_vs_atr and baseline volume_z -- no new window. Unbounded, symmetric
+    around 0.
+    """
+    return range_vs_atr * volume_z
+
+
+def _up_vol_body_diff(up_vol_ratio: float, body_ratio: float) -> float:
+    """up_vol_body_diff = up_vol_ratio_fast - body_ratio. Pure difference of
+    Plan 02's up_vol_ratio_fast (bounded [0,1]) and Plan 01's body_ratio
+    (bounded [-1,1]) -- no new window. Approximately bounded [-1, 1].
+    """
+    return up_vol_ratio - body_ratio
+
+
+def _ret_vol_ratio(ret_lag: float, atr_z: float, eps: float = 1e-10) -> float:
+    """ret_vol_ratio_fast = ret_lag_fast / atr_z. Pure ratio of Plan 01's
+    ret_lag_fast and baseline atr_z -- no new window. Returns 0.0 when
+    abs(atr_z) < eps (epsilon guard; degenerate near-zero volatility
+    z-score). Unbounded, symmetric around 0.
+    """
+    if abs(atr_z) < eps:
+        return 0.0
+    return ret_lag / atr_z
+
+
+def _vol_skew_product(ret_skew_z: float, volume_z: float) -> float:
+    """vol_skew_product = ret_skew_z * volume_z. Pure product of two baseline
+    scalars -- no new window. Unbounded, symmetric around 0.
+    """
+    return ret_skew_z * volume_z
+
+
+def _price_vol_corr(
+    closes: np.ndarray, volumes: np.ndarray, window: int, eps: float = 1e-10
+) -> float:
+    """Rolling Pearson correlation between |log return| and volume over the
+    trailing `window` bars -- the only 2 of the 8 interactions needing a new
+    APR window (feature.price_vol_corr.fast/slow). Deterministic combination
+    of the price-shock-magnitude series and the volume series already
+    available to FeatureFactory; no new market theory.
+
+    Returns 0.0 when insufficient history (len(closes) < window + 1) or when
+    either sliced series has near-zero variance (degenerate: constant price
+    or constant volume). Any NaN from np.corrcoef (can occur under
+    floating-point edge cases even past the std guard) is clamped to 0.0.
+    Bounded [-1, 1].
+    """
+    if len(closes) < window + 1:
+        return 0.0
+    abs_rets = np.abs(np.diff(np.log(np.maximum(closes.astype(float), eps))))
+    vol_aligned = volumes[-len(abs_rets) :].astype(float)
+    abs_rets_window = abs_rets[-window:]
+    vol_window = vol_aligned[-window:]
+    if len(abs_rets_window) < 2:
+        return 0.0
+    if float(np.std(abs_rets_window)) < eps or float(np.std(vol_window)) < eps:
+        return 0.0
+    corr = np.corrcoef(abs_rets_window, vol_window)[0, 1]
+    return float(corr) if math.isfinite(corr) else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -2754,6 +2863,49 @@ def _intraday_noise_ratio_series_full(
 
 
 # ---------------------------------------------------------------------------
+# Renaissance Primitives — Price-Volume Interactions batch precompute
+# (Phase 142.5 Plan 05.5)
+# result[i] matches the corresponding streaming _price_vol_corr() value at
+# bar i. The 6 window-free scalar combinators need no series_full function --
+# they are O(1) per bar, computed inline in compute()/compute_batch() from
+# already-available parent scalars.
+# ---------------------------------------------------------------------------
+
+
+def _price_vol_corr_series_full(
+    closes: np.ndarray, volumes: np.ndarray, window: int, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _price_vol_corr(closes[:i+1], volumes[:i+1],
+    window) for every bar i. O(n x window) -- same cost class as
+    _high_low_corr_series_full, since rolling Pearson correlation under a
+    strict (non-expanding) window-size gate has no O(n) prefix-sum shortcut.
+
+    abs_rets is precomputed once over the full array (O(n)); the loop only
+    slices bounded `window`-sized chunks of abs_rets/volumes per bar, so the
+    per-bar cost is O(window), not O(i).
+    """
+    n = len(closes)
+    result = np.zeros(n, dtype=float)
+    if n < 2:
+        return result
+    abs_rets = np.abs(np.diff(np.log(np.maximum(closes.astype(float), eps))))
+    vols = volumes.astype(float)
+    for i in range(n):
+        if i < window:
+            continue
+        start = i - window
+        rets_w = abs_rets[start:i]
+        vol_w = vols[start + 1 : i + 1]
+        if len(rets_w) < 2:
+            continue
+        if float(np.std(rets_w)) < eps or float(np.std(vol_w)) < eps:
+            continue
+        corr = np.corrcoef(rets_w, vol_w)[0, 1]
+        result[i] = float(corr) if math.isfinite(corr) else 0.0
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Calendar helpers (shared by compute() and compute_batch())
 # ---------------------------------------------------------------------------
 
@@ -2862,6 +3014,9 @@ class _PrecomputedSeries:
     yang_zhang_vol_z: np.ndarray
     vol_velocity_z: np.ndarray
     intraday_noise_ratio: np.ndarray
+    # Renaissance Primitives — Price-Volume Interactions (Phase 142.5 Plan 05.5)
+    price_vol_corr_fast: np.ndarray
+    price_vol_corr_slow: np.ndarray
 
 
 def _precompute_series(
@@ -3004,6 +3159,12 @@ def _precompute_series(
         vol_velocity_z=_vol_velocity_z_series_full(atr_z, config.vol_velocity_window),
         intraday_noise_ratio=_intraday_noise_ratio_series_full(
             closes, config.intraday_noise_window
+        ),
+        price_vol_corr_fast=_price_vol_corr_series_full(
+            closes, volumes, config.price_vol_corr_fast
+        ),
+        price_vol_corr_slow=_price_vol_corr_series_full(
+            closes, volumes, config.price_vol_corr_slow
         ),
     )
 
@@ -3163,6 +3324,14 @@ def _build_feature_vector(
     yang_zhang_vol_velocity: float,
     vol_velocity_z: float,
     intraday_noise_ratio: float,
+    vol_body_product: float,
+    ret_vol_product_fast: float,
+    price_vol_corr_fast: float,
+    price_vol_corr_slow: float,
+    range_vol_product: float,
+    up_vol_body_diff: float,
+    ret_vol_ratio_fast: float,
+    vol_skew_product: float,
 ) -> FeatureVector:
     return FeatureVector(
         momentum_z_fast=_guard(momentum_z_fast),
@@ -3306,6 +3475,14 @@ def _build_feature_vector(
         yang_zhang_vol_velocity=_guard(yang_zhang_vol_velocity, 0.0),
         vol_velocity_z=_guard(vol_velocity_z, 0.0),
         intraday_noise_ratio=_guard(intraday_noise_ratio, 1.0),
+        vol_body_product=_guard(vol_body_product, 0.0),
+        ret_vol_product_fast=_guard(ret_vol_product_fast, 0.0),
+        price_vol_corr_fast=_guard(price_vol_corr_fast, 0.0),
+        price_vol_corr_slow=_guard(price_vol_corr_slow, 0.0),
+        range_vol_product=_guard(range_vol_product, 0.0),
+        up_vol_body_diff=_guard(up_vol_body_diff, 0.0),
+        ret_vol_ratio_fast=_guard(ret_vol_ratio_fast, 0.0),
+        vol_skew_product=_guard(vol_skew_product, 0.0),
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,
@@ -3427,6 +3604,25 @@ class FeatureFactory:
         month_sin_val = _month_sin(bar_ts)
         month_cos_val = _month_cos(bar_ts)
 
+        # Renaissance Primitives (Phase 142.5 Plan 05.5) — price-volume
+        # interactions. Baseline scalars (volume_z, atr_z, ret_skew_z,
+        # up_vol_ratio_fast) captured into named locals so the 6 window-free
+        # combinators can reuse them without recomputation; the 2 rolling
+        # correlations read the precomputed series built above (s.*),
+        # guaranteeing exact parity with compute_batch()'s indexing.
+        volume_z_val = _series_last(s.volume_z, 0.0)
+        atr_z_val = _series_last(s.atr_z, 0.0)
+        ret_skew_z_val = _series_last(s.ret_skew_z, 0.0)
+        up_vol_ratio_fast_val = _series_last(s.up_vol_ratio_fast, 0.5)
+        vol_body_product_val = _vol_body_product(body_ratio_val, volume_z_val)
+        ret_vol_product_fast_val = _ret_vol_product(ret_lag_fast_val, volume_z_val)
+        range_vol_product_val = _range_vol_product(range_vs_atr_val, volume_z_val)
+        up_vol_body_diff_val = _up_vol_body_diff(up_vol_ratio_fast_val, body_ratio_val)
+        ret_vol_ratio_fast_val = _ret_vol_ratio(ret_lag_fast_val, atr_z_val)
+        vol_skew_product_val = _vol_skew_product(ret_skew_z_val, volume_z_val)
+        price_vol_corr_fast_val = _series_last(s.price_vol_corr_fast, 0.0)
+        price_vol_corr_slow_val = _series_last(s.price_vol_corr_slow, 0.0)
+
         return _build_feature_vector(
             momentum_z_fast=_series_last(s.momentum_z_fast, 0.0),
             momentum_z_mid=_series_last(s.momentum_z_mid, 0.0),
@@ -3436,14 +3632,14 @@ class FeatureFactory:
             momentum_z_slow=_series_last(s.momentum_z_slow, 0.0),
             momentum_reversal_z=_series_last(s.momentum_reversal_z, 0.0),
             informed_flow=_informed_flow(open_, close_, atr_val),
-            volume_z=_series_last(s.volume_z, 0.0),
+            volume_z=volume_z_val,
             ofi_z=_series_last(s.ofi_z, 0.0),
             ofi_div=_series_last(s.ofi_z, 0.0) - _series_last(s.momentum_z_fast, 0.0),
             cvd_slope_z=_series_last(s.cvd_slope_z, 0.0),
             cmf=_cmf(highs, lows, closes, volumes, config.cmf_period),
             rel_volume=_series_last(s.rel_volume, 1.0),
             vwap_dev_sigma=_series_last(s.vwap_dev_sigma, 0.0),
-            atr_z=_series_last(s.atr_z, 0.0),
+            atr_z=atr_z_val,
             vol_ratio=_vol_ratio(closes, config.vol_short_bars, config.vol_long_bars),
             poc_dist_atr=poc_dist_atr_val,
             va_position=va_position_val,
@@ -3484,7 +3680,7 @@ class FeatureFactory:
             ctf_regime_align=cache.ctf_regime_align,
             amihud_illiq_z=_series_last(s.amihud_illiq_z, 0.0),
             high_52w_dist=_series_last(s.high_52w_dist, 0.0),
-            ret_skew_z=_series_last(s.ret_skew_z, 0.0),
+            ret_skew_z=ret_skew_z_val,
             ret_acf1_z=_series_last(s.ret_acf1_z, 0.0),
             body_ratio=body_ratio_val,
             upper_wick_ratio=upper_wick_ratio_val,
@@ -3518,7 +3714,7 @@ class FeatureFactory:
             dollar_vol_z=_series_last(s.dollar_vol_z, 0.0),
             vol_range_ratio=_series_last(s.vol_range_ratio, 0.0),
             vol_trend_ratio=_series_last(s.vol_trend_ratio, 1.0),
-            up_vol_ratio_fast=_series_last(s.up_vol_ratio_fast, 0.5),
+            up_vol_ratio_fast=up_vol_ratio_fast_val,
             up_vol_ratio_slow=_series_last(s.up_vol_ratio_slow, 0.5),
             vol_percentile=_series_last(s.vol_percentile, 0.5),
             vol_persistence=_series_last(s.vol_persistence, 0.0),
@@ -3586,6 +3782,18 @@ class FeatureFactory:
             ),
             vol_velocity_z=_series_last(s.vol_velocity_z, 0.0),
             intraday_noise_ratio=_series_last(s.intraday_noise_ratio, 1.0),
+            # Renaissance Primitives (Phase 142.5 Plan 05.5) — price-volume
+            # interactions. 6 window-free combinators computed inline above
+            # from already-captured parent scalars; the 2 rolling
+            # correlations read the precomputed series (s.*) built above.
+            vol_body_product=vol_body_product_val,
+            ret_vol_product_fast=ret_vol_product_fast_val,
+            price_vol_corr_fast=price_vol_corr_fast_val,
+            price_vol_corr_slow=price_vol_corr_slow_val,
+            range_vol_product=range_vol_product_val,
+            up_vol_body_diff=up_vol_body_diff_val,
+            ret_vol_ratio_fast=ret_vol_ratio_fast_val,
+            vol_skew_product=vol_skew_product_val,
         )
 
     @staticmethod
@@ -3951,6 +4159,24 @@ class FeatureFactory:
                 float(s.intraday_noise_ratio[i]) if i < len(s.intraday_noise_ratio) else 1.0
             )
 
+            # Renaissance Primitives (Phase 142.5 Plan 05.5) — price-volume
+            # interactions. The 6 window-free combinators reuse already-
+            # computed scalar locals (O(1) per bar); the 2 rolling
+            # correlations read the precomputed series (O(n) total, not
+            # per-bar O(n x window)), guaranteeing exact parity with compute().
+            vol_body_product_val = _vol_body_product(body_ratio_val, volume_z_val)
+            ret_vol_product_fast_val = _ret_vol_product(ret_lag_fast_val, volume_z_val)
+            range_vol_product_val = _range_vol_product(range_vs_atr_val, volume_z_val)
+            up_vol_body_diff_val = _up_vol_body_diff(up_vol_ratio_fast_val, body_ratio_val)
+            ret_vol_ratio_fast_val = _ret_vol_ratio(ret_lag_fast_val, atr_z_val)
+            vol_skew_product_val = _vol_skew_product(ret_skew_z_val, volume_z_val)
+            price_vol_corr_fast_val = (
+                float(s.price_vol_corr_fast[i]) if i < len(s.price_vol_corr_fast) else 0.0
+            )
+            price_vol_corr_slow_val = (
+                float(s.price_vol_corr_slow[i]) if i < len(s.price_vol_corr_slow) else 0.0
+            )
+
             # Build FeatureVector
             fv = _build_feature_vector(
                 momentum_z_fast=momentum_z_fast_val,
@@ -4094,6 +4320,14 @@ class FeatureFactory:
                 yang_zhang_vol_velocity=yang_zhang_vol_velocity_val,
                 vol_velocity_z=vol_velocity_z_val,
                 intraday_noise_ratio=intraday_noise_ratio_val,
+                vol_body_product=vol_body_product_val,
+                ret_vol_product_fast=ret_vol_product_fast_val,
+                price_vol_corr_fast=price_vol_corr_fast_val,
+                price_vol_corr_slow=price_vol_corr_slow_val,
+                range_vol_product=range_vol_product_val,
+                up_vol_body_diff=up_vol_body_diff_val,
+                ret_vol_ratio_fast=ret_vol_ratio_fast_val,
+                vol_skew_product=vol_skew_product_val,
             )
 
             results.append((bar_ts, fv))
@@ -4259,6 +4493,14 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         yang_zhang_vol_velocity=0.0,
         vol_velocity_z=0.0,
         intraday_noise_ratio=1.0,
+        vol_body_product=0.0,
+        ret_vol_product_fast=0.0,
+        price_vol_corr_fast=0.0,
+        price_vol_corr_slow=0.0,
+        range_vol_product=0.0,
+        up_vol_body_diff=0.0,
+        ret_vol_ratio_fast=0.0,
+        vol_skew_product=0.0,
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,

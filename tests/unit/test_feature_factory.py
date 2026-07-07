@@ -11,6 +11,7 @@ import math
 from datetime import UTC, datetime
 
 import numpy as np
+import pytest
 
 from src.intelligence.feature_cache import FeatureCache
 
@@ -129,6 +130,9 @@ def _make_config(**overrides: int) -> FeatureFactoryConfig:
         yang_zhang_vol_zscore_window=20,
         vol_velocity_window=20,
         intraday_noise_window=20,
+        # Plan 05.5 added 2 more: price_vol_corr_fast/slow.
+        price_vol_corr_fast=10,
+        price_vol_corr_slow=30,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -546,12 +550,10 @@ class TestComputePurity:
         """All FeatureVector fields must be finite floats (no NaN, no inf).
 
         61 baseline (v3.0) + 18 Plan 01 + 22 Plan 02 + 14 Plan 05 + 21 Plan 03
-        + 8 Plan 04 Renaissance primitives = 144. (Plans 05/03 merged before
-        this plan per the actual dependency-DAG-valid merge order — see
-        142.5-05-SUMMARY.md / 142.5-03-SUMMARY.md Deviations; this plan's own
-        base was 136, not the phase outline's assumed 101/109. Plan 06
-        reconciles the final count to 152 once every plan has landed,
-        regardless of merge order.)
+        + 8 Plan 04 + 8 Plan 05.5 Renaissance primitives = 152 (final total,
+        all plans landed). See 142.5-05-SUMMARY.md / 142.5-03-SUMMARY.md /
+        142.5-04-SUMMARY.md Deviations for the actual dependency-DAG-valid
+        merge order vs. the phase outline's originally assumed counts.
         """
         import dataclasses
 
@@ -560,7 +562,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 144, f"Expected 144 fields, got {len(fields)}"
+        assert len(fields) == 152, f"Expected 152 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,
@@ -1095,6 +1097,55 @@ def test_price_volume_interactions() -> None:
     assert -1.0 <= fv.price_vol_corr_slow <= 1.0
     # up_vol_body_diff: difference of two ~bounded [0,1]/[−1,1] parents, approx [-1, 1].
     assert -1.5 <= fv.up_vol_body_diff <= 1.5
+
+
+def test_price_volume_interaction_helpers_direct() -> None:
+    """Direct unit coverage of the 7 price-volume-interaction helper functions
+    (exact products/ratios + epsilon-guard edge cases), independent of the
+    FeatureFactory.compute() integration test above.
+    """
+    from src.intelligence.feature_factory import (
+        _price_vol_corr,
+        _range_vol_product,
+        _ret_vol_product,
+        _ret_vol_ratio,
+        _up_vol_body_diff,
+        _vol_body_product,
+        _vol_skew_product,
+    )
+
+    # Test 1: _vol_body_product returns body_ratio * volume_z (pure product).
+    assert _vol_body_product(0.4, 2.0) == pytest.approx(0.8)
+    # Test 2: _ret_vol_product returns ret_lag * volume_z.
+    assert _ret_vol_product(0.02, -1.5) == pytest.approx(-0.03)
+    # Test 3: _range_vol_product returns range_vs_atr * volume_z.
+    assert _range_vol_product(1.2, 0.5) == pytest.approx(0.6)
+    # Test 4: _up_vol_body_diff returns up_vol_ratio - body_ratio, bounded ~[-1, 1].
+    assert _up_vol_body_diff(0.7, 0.4) == pytest.approx(0.3)
+    assert _up_vol_body_diff(0.0, 1.0) == pytest.approx(-1.0)
+    # Test 5: _ret_vol_ratio returns ret_lag / atr_z; 0.0 when abs(atr_z) < eps.
+    assert _ret_vol_ratio(0.04, 2.0) == pytest.approx(0.02)
+    assert _ret_vol_ratio(0.04, 0.0) == 0.0
+    assert _ret_vol_ratio(0.04, 1e-12) == 0.0
+    # Test 6: _vol_skew_product returns ret_skew_z * volume_z.
+    assert _vol_skew_product(-0.3, 1.1) == pytest.approx(-0.33)
+
+    # Test 7/8: _price_vol_corr — bounded [-1, 1] on warm input; 0.0 on
+    # insufficient history and on degenerate (constant volume / constant
+    # returns) input.
+    rng = np.random.default_rng(7)
+    closes = np.cumprod(1.0 + rng.normal(0, 0.01, 60)) * 100.0
+    volumes = rng.uniform(1e5, 1e6, 60)
+    corr = _price_vol_corr(closes, volumes, window=20)
+    assert -1.0 <= corr <= 1.0
+    # Insufficient history: len(closes) < window + 1.
+    assert _price_vol_corr(closes[:10], volumes[:10], window=20) == 0.0
+    # Degenerate: constant volume (zero variance).
+    const_volumes = np.full(60, 5e5)
+    assert _price_vol_corr(closes, const_volumes, window=20) == 0.0
+    # Degenerate: constant price (zero return variance).
+    const_closes = np.full(60, 100.0)
+    assert _price_vol_corr(const_closes, volumes, window=20) == 0.0
 
 
 def test_compute_batch_parity() -> None:

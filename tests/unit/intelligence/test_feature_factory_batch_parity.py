@@ -127,6 +127,8 @@ def _make_cfg() -> FeatureFactoryConfig:
         yang_zhang_vol_zscore_window=20,
         vol_velocity_window=20,
         intraday_noise_window=20,
+        price_vol_corr_fast=10,
+        price_vol_corr_slow=30,
     )
 
 
@@ -658,6 +660,14 @@ def test_build_feature_vector_guards_nan():
         yang_zhang_vol_velocity=0.0,
         vol_velocity_z=0.0,
         intraday_noise_ratio=1.0,
+        vol_body_product=0.0,
+        ret_vol_product_fast=0.0,
+        price_vol_corr_fast=0.0,
+        price_vol_corr_slow=0.0,
+        range_vol_product=0.0,
+        up_vol_body_diff=0.0,
+        ret_vol_ratio_fast=0.0,
+        vol_skew_product=0.0,
     )
     assert fv.momentum_z_fast == 0.0  # nan -> fallback 0.0
     assert fv.range_position == 0.5  # inf -> fallback 0.5
@@ -808,6 +818,14 @@ def test_build_feature_vector_none_passthrough():
         yang_zhang_vol_velocity=0.0,
         vol_velocity_z=0.0,
         intraday_noise_ratio=1.0,
+        vol_body_product=0.0,
+        ret_vol_product_fast=0.0,
+        price_vol_corr_fast=0.0,
+        price_vol_corr_slow=0.0,
+        range_vol_product=0.0,
+        up_vol_body_diff=0.0,
+        ret_vol_ratio_fast=0.0,
+        vol_skew_product=0.0,
     )
     assert fv.poc_dist_atr is None
     assert fv.va_position is None

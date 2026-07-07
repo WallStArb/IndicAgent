@@ -190,6 +190,18 @@ def _make_sentinel_record():
         yang_zhang_vol_velocity=59.06,
         vol_velocity_z=59.07,
         intraday_noise_ratio=59.08,
+        # Renaissance Primitives (Phase 142.5 Plan 05.5) — not yet in the
+        # persisted tuple (migration 206 / writer wiring land in a later
+        # plan); construction requires these non-optional fields, so
+        # sentinel values only.
+        vol_body_product=60.01,
+        ret_vol_product_fast=60.02,
+        price_vol_corr_fast=60.03,
+        price_vol_corr_slow=60.04,
+        range_vol_product=60.05,
+        up_vol_body_diff=60.06,
+        ret_vol_ratio_fast=60.07,
+        vol_skew_product=60.08,
     )
     return FeatureVectorRecord(
         symbol="SPY",

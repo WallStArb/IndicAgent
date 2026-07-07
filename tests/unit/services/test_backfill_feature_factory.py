@@ -143,6 +143,8 @@ def _make_config() -> FeatureFactoryConfig:
         yang_zhang_vol_zscore_window=20,
         vol_velocity_window=20,
         intraday_noise_window=20,
+        price_vol_corr_fast=10,
+        price_vol_corr_slow=30,
     )
 
 
@@ -326,6 +328,17 @@ def _make_zero_vector() -> FeatureVector:
         yang_zhang_vol_velocity=0.0,
         vol_velocity_z=0.0,
         intraday_noise_ratio=1.0,
+        # Renaissance Primitives (Phase 142.5 Plan 05.5) — not yet in the
+        # persisted tuple (migration 206 / writer wiring land in a later
+        # plan); construction requires these non-optional fields.
+        vol_body_product=0.0,
+        ret_vol_product_fast=0.0,
+        price_vol_corr_fast=0.0,
+        price_vol_corr_slow=0.0,
+        range_vol_product=0.0,
+        up_vol_body_diff=0.0,
+        ret_vol_ratio_fast=0.0,
+        vol_skew_product=0.0,
     )
 
 

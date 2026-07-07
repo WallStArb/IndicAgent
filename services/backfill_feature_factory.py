@@ -491,6 +491,8 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         yang_zhang_vol_zscore_window=int(cfg.get_sync("feature.yang_zhang_vol.zscore_window", 20)),
         vol_velocity_window=int(cfg.get_sync("feature.vol_velocity.window", 20)),
         intraday_noise_window=int(cfg.get_sync("feature.intraday_noise.window", 20)),
+        price_vol_corr_fast=int(cfg.get_sync("feature.price_vol_corr.fast", 10)),
+        price_vol_corr_slow=int(cfg.get_sync("feature.price_vol_corr.slow", 30)),
     )
 
 
