@@ -75,6 +75,10 @@ def _make_cfg() -> FeatureFactoryConfig:
         ret_acf_window=5,
         ret_acf_zscore_window=20,
         high_52w_window=20,
+        ret_lag_fast=5,
+        ret_lag_mid=20,
+        ret_lag_slow=60,
+        overnight_gap_window=20,
     )
 
 
@@ -523,6 +527,24 @@ def test_build_feature_vector_guards_nan():
         high_52w_dist=0.0,
         ret_skew_z=0.0,
         ret_acf1_z=0.0,
+        body_ratio=0.0,
+        upper_wick_ratio=0.5,
+        lower_wick_ratio=0.5,
+        range_vs_atr=0.0,
+        close_vs_open_direction=0.0,
+        overnight_gap=0.0,
+        overnight_gap_z=0.0,
+        range_efficiency=0.0,
+        ret_lag_1=0.0,
+        ret_lag_2=0.0,
+        ret_lag_3=0.0,
+        ret_lag_fast=0.0,
+        ret_lag_mid=0.0,
+        ret_lag_slow=0.0,
+        open_ret=0.0,
+        intraday_ret=0.0,
+        open_vs_intraday=0.0,
+        session_time_pos=0.0,
     )
     assert fv.momentum_z_fast == 0.0  # nan -> fallback 0.0
     assert fv.range_position == 0.5  # inf -> fallback 0.5
@@ -590,6 +612,24 @@ def test_build_feature_vector_none_passthrough():
         high_52w_dist=0.0,
         ret_skew_z=0.0,
         ret_acf1_z=0.0,
+        body_ratio=0.0,
+        upper_wick_ratio=0.5,
+        lower_wick_ratio=0.5,
+        range_vs_atr=0.0,
+        close_vs_open_direction=0.0,
+        overnight_gap=0.0,
+        overnight_gap_z=0.0,
+        range_efficiency=0.0,
+        ret_lag_1=0.0,
+        ret_lag_2=0.0,
+        ret_lag_3=0.0,
+        ret_lag_fast=0.0,
+        ret_lag_mid=0.0,
+        ret_lag_slow=0.0,
+        open_ret=0.0,
+        intraday_ret=0.0,
+        open_vs_intraday=0.0,
+        session_time_pos=0.0,
     )
     assert fv.poc_dist_atr is None
     assert fv.va_position is None

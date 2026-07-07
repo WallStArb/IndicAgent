@@ -1202,7 +1202,8 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """61 orthogonal feature primitives computed per bar by FeatureFactory.
+    """79 orthogonal feature primitives computed per bar by FeatureFactory
+    (61 v3.0 baseline + 18 Phase 142.5 Plan 01 Renaissance primitives).
 
     Frozen dataclass (not Pydantic) per D-08: pure-function output, no IO,
     immutable after construction. Non-optional fields typed float, no defaults
@@ -1220,8 +1221,11 @@ class FeatureVector:
       Calendar (11): NY/London session, overlap, power hour, opening range, weekly VWAP, dow sin/cos, month position, quarter position, days to month end
       Cross-timeframe (3): momentum/VWAP/regime alignment from HTF cache
       Statistical/liquidity (4): Amihud illiquidity, 52w high distance, return skewness, return autocorrelation
+      Bar Anatomy Ratios (8, Phase 142.5 Plan 01): body/wick ratios, range vs ATR, direction, overnight gap(+z), range efficiency
+      Lagged Return Series (6, Phase 142.5 Plan 01): ret_lag_1/2/3 + fast/mid/slow gradient windows
+      Open-to-Close Split (4, Phase 142.5 Plan 01): open_ret, intraday_ret, open_vs_intraday, session_time_pos
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 61 (58 required + 3 optional)
+      Total: 79 (76 required + 3 optional)
     """
 
     # Momentum (7 total: 5 original + 2 new scale-named)
@@ -1292,6 +1296,27 @@ class FeatureVector:
     high_52w_dist: float
     ret_skew_z: float
     ret_acf1_z: float
+    # Renaissance Primitives — Bar Anatomy Ratios (8, Phase 142.5 Plan 01)
+    body_ratio: float  # (C - O) / (H - L), bounded [-1, 1]
+    upper_wick_ratio: float  # (H - max(O,C)) / (H - L), bounded [0, 1]
+    lower_wick_ratio: float  # (min(O,C) - L) / (H - L), bounded [0, 1]
+    range_vs_atr: float  # (H - L) / ATR_N, unbounded positive
+    close_vs_open_direction: float  # sign(C - O), categorical {-1, 0, 1}
+    overnight_gap: float  # (O - prev_C) / prev_C, unbounded
+    overnight_gap_z: float  # z-score of overnight_gap (APR: feature.overnight_gap.window)
+    range_efficiency: float  # abs(C - prev_C) / (H - L), bounded [0, 1]
+    # Renaissance Primitives — Lagged Return Series (6, Phase 142.5 Plan 01)
+    ret_lag_1: float  # log(C_t / C_{t-1}), definitional
+    ret_lag_2: float  # log(C_t / C_{t-2}), definitional
+    ret_lag_3: float  # log(C_t / C_{t-3}), definitional
+    ret_lag_fast: float  # log(C_t / C_{t-N}) (APR: feature.ret_lag.fast)
+    ret_lag_mid: float  # log(C_t / C_{t-N}) (APR: feature.ret_lag.mid)
+    ret_lag_slow: float  # log(C_t / C_{t-N}) (APR: feature.ret_lag.slow)
+    # Renaissance Primitives — Open-to-Close Split (4, Phase 142.5 Plan 01)
+    open_ret: float  # log(O_t / prev_C), overnight component
+    intraday_ret: float  # log(C_t / O_t), intraday component
+    open_vs_intraday: float  # open_ret - intraday_ret
+    session_time_pos: float  # continuous [0, 1] position within the NY session
     # Cross-sectional (3, nullable — populated by Phase 139 enrichment pass)
     momentum_rank_z: float | None = None  # cross-sectional momentum rank z-score
     volume_rank_z: float | None = None  # cross-sectional volume rank z-score

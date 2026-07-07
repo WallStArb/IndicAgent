@@ -91,6 +91,10 @@ def _make_config() -> FeatureFactoryConfig:
         power_hour_end_utc_hour=21,
         opening_range_start_minute=810,
         opening_range_end_minute=900,
+        ret_lag_fast=5,
+        ret_lag_mid=20,
+        ret_lag_slow=60,
+        overnight_gap_window=20,
     )
 
 
@@ -176,6 +180,27 @@ def _make_zero_vector() -> FeatureVector:
         high_52w_dist=0.0,
         ret_skew_z=0.0,
         ret_acf1_z=0.0,
+        # Renaissance Primitives (Phase 142.5 Plan 01) — not yet in the persisted
+        # tuple (migration 206 / writer wiring land in a later plan); construction
+        # requires these non-optional fields.
+        body_ratio=0.0,
+        upper_wick_ratio=0.5,
+        lower_wick_ratio=0.5,
+        range_vs_atr=0.0,
+        close_vs_open_direction=0.0,
+        overnight_gap=0.0,
+        overnight_gap_z=0.0,
+        range_efficiency=0.0,
+        ret_lag_1=0.0,
+        ret_lag_2=0.0,
+        ret_lag_3=0.0,
+        ret_lag_fast=0.0,
+        ret_lag_mid=0.0,
+        ret_lag_slow=0.0,
+        open_ret=0.0,
+        intraday_ret=0.0,
+        open_vs_intraday=0.0,
+        session_time_pos=0.0,
     )
 
 

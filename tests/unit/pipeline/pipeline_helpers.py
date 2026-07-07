@@ -136,6 +136,10 @@ def make_agent() -> FeatureVectorPipeline:
         power_hour_end_utc_hour=21,
         opening_range_start_minute=810,
         opening_range_end_minute=900,
+        ret_lag_fast=5,
+        ret_lag_mid=20,
+        ret_lag_slow=60,
+        overnight_gap_window=20,
     )
     return agent
 

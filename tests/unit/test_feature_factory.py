@@ -74,6 +74,10 @@ def _make_config(**overrides: int) -> FeatureFactoryConfig:
         power_hour_end_utc_hour=21,
         opening_range_start_minute=810,
         opening_range_end_minute=900,
+        ret_lag_fast=5,
+        ret_lag_mid=20,
+        ret_lag_slow=60,
+        overnight_gap_window=20,
     )
     defaults.update(overrides)
     return FeatureFactoryConfig(**defaults)
@@ -488,7 +492,10 @@ class TestComputePurity:
         assert isinstance(result, FeatureVector)
 
     def test_all_fields_are_finite_floats(self) -> None:
-        """All 36 FeatureVector fields must be finite floats (no NaN, no inf)."""
+        """All FeatureVector fields must be finite floats (no NaN, no inf).
+
+        61 baseline (v3.0) + 18 Renaissance primitives (Phase 142.5 Plan 01) = 79.
+        """
         import dataclasses
 
         bars = _make_bars(100)
@@ -496,7 +503,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 61, f"Expected 61 fields, got {len(fields)}"
+        assert len(fields) == 79, f"Expected 79 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,

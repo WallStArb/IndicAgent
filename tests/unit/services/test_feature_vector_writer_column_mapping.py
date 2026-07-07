@@ -92,6 +92,27 @@ def _make_sentinel_record():
         high_52w_dist=52.52,
         ret_skew_z=53.53,
         ret_acf1_z=54.54,
+        # Renaissance Primitives (Phase 142.5 Plan 01) — not yet in the persisted
+        # tuple (migration 206 / writer wiring land in a later plan); construction
+        # requires these non-optional fields, so sentinel values only.
+        body_ratio=55.01,
+        upper_wick_ratio=55.02,
+        lower_wick_ratio=55.03,
+        range_vs_atr=55.04,
+        close_vs_open_direction=55.05,
+        overnight_gap=55.06,
+        overnight_gap_z=55.07,
+        range_efficiency=55.08,
+        ret_lag_1=55.09,
+        ret_lag_2=55.10,
+        ret_lag_3=55.11,
+        ret_lag_fast=55.12,
+        ret_lag_mid=55.13,
+        ret_lag_slow=55.14,
+        open_ret=55.15,
+        intraday_ret=55.16,
+        open_vs_intraday=55.17,
+        session_time_pos=55.18,
     )
     return FeatureVectorRecord(
         symbol="SPY",
