@@ -453,6 +453,16 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         mfi_fast=int(cfg.get_sync("feature.mfi.fast", 7)),
         mfi_slow=int(cfg.get_sync("feature.mfi.slow", 14)),
         obv_window=int(cfg.get_sync("feature.obv.window", 20)),
+        dist_window_fast=int(cfg.get_sync("feature.breakout.dist_window_fast", 20)),
+        dist_window_slow=int(cfg.get_sync("feature.breakout.dist_window_slow", 50)),
+        range_window_fast=int(cfg.get_sync("feature.breakout.range_window_fast", 20)),
+        range_window_slow=int(cfg.get_sync("feature.breakout.range_window_slow", 50)),
+        stoch_window_fast=int(cfg.get_sync("feature.breakout.stoch_window_fast", 14)),
+        stoch_window_slow=int(cfg.get_sync("feature.breakout.stoch_window_slow", 50)),
+        percentile_window_fast=int(cfg.get_sync("feature.breakout.percentile_window_fast", 50)),
+        percentile_window_slow=int(cfg.get_sync("feature.breakout.percentile_window_slow", 200)),
+        efficiency_window_fast=int(cfg.get_sync("feature.breakout.efficiency_window_fast", 10)),
+        efficiency_window_slow=int(cfg.get_sync("feature.breakout.efficiency_window_slow", 50)),
     )
 
 

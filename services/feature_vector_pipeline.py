@@ -496,6 +496,17 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.mfi.fast", 7),
         ("feature.mfi.slow", 14),
         ("feature.obv.window", 20),
+        # --- migration 206: Phase 142.5 Plan 05 Renaissance primitives (breakout distance) ---
+        ("feature.breakout.dist_window_fast", 20),
+        ("feature.breakout.dist_window_slow", 50),
+        ("feature.breakout.range_window_fast", 20),
+        ("feature.breakout.range_window_slow", 50),
+        ("feature.breakout.stoch_window_fast", 14),
+        ("feature.breakout.stoch_window_slow", 50),
+        ("feature.breakout.percentile_window_fast", 50),
+        ("feature.breakout.percentile_window_slow", 200),
+        ("feature.breakout.efficiency_window_fast", 10),
+        ("feature.breakout.efficiency_window_slow", 50),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -573,6 +584,16 @@ class FeatureVectorPipeline(BaseDaemon):
             mfi_fast=_int("feature.mfi.fast", 7),
             mfi_slow=_int("feature.mfi.slow", 14),
             obv_window=_int("feature.obv.window", 20),
+            dist_window_fast=_int("feature.breakout.dist_window_fast", 20),
+            dist_window_slow=_int("feature.breakout.dist_window_slow", 50),
+            range_window_fast=_int("feature.breakout.range_window_fast", 20),
+            range_window_slow=_int("feature.breakout.range_window_slow", 50),
+            stoch_window_fast=_int("feature.breakout.stoch_window_fast", 14),
+            stoch_window_slow=_int("feature.breakout.stoch_window_slow", 50),
+            percentile_window_fast=_int("feature.breakout.percentile_window_fast", 50),
+            percentile_window_slow=_int("feature.breakout.percentile_window_slow", 200),
+            efficiency_window_fast=_int("feature.breakout.efficiency_window_fast", 10),
+            efficiency_window_slow=_int("feature.breakout.efficiency_window_slow", 50),
         )
 
         self.logger.info(

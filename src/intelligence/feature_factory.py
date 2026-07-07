@@ -169,6 +169,21 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "mfi_fast": "quant",
     "mfi_slow": "quant",
     "obv_z": "quant",
+    # Renaissance Primitives — Breakout Distance (Phase 142.5 Plan 05)
+    "dist_from_high_fast": "quant",
+    "dist_from_high_slow": "quant",
+    "dist_from_low_fast": "quant",
+    "dist_from_low_slow": "quant",
+    "range_pct_fast": "quant",
+    "range_pct_slow": "quant",
+    "new_high_flag": "quant",
+    "new_low_flag": "quant",
+    "stoch_k_fast": "quant",
+    "stoch_k_slow": "quant",
+    "price_percentile_fast": "quant",
+    "price_percentile_slow": "quant",
+    "efficiency_ratio_fast": "quant",
+    "efficiency_ratio_slow": "quant",
     # Cross-sectional (nullable — populated by Phase 139)
     "momentum_rank_z": "quant",
     "volume_rank_z": "quant",
@@ -235,6 +250,16 @@ class FeatureFactoryConfig:
         mfi_fast: APR feature.mfi.fast
         mfi_slow: APR feature.mfi.slow
         obv_window: APR feature.obv.window
+        dist_window_fast: APR feature.breakout.dist_window_fast
+        dist_window_slow: APR feature.breakout.dist_window_slow
+        range_window_fast: APR feature.breakout.range_window_fast
+        range_window_slow: APR feature.breakout.range_window_slow
+        stoch_window_fast: APR feature.breakout.stoch_window_fast
+        stoch_window_slow: APR feature.breakout.stoch_window_slow
+        percentile_window_fast: APR feature.breakout.percentile_window_fast
+        percentile_window_slow: APR feature.breakout.percentile_window_slow
+        efficiency_window_fast: APR feature.breakout.efficiency_window_fast
+        efficiency_window_slow: APR feature.breakout.efficiency_window_slow
     """
 
     momentum_window_fast: int  # feature.momentum.window_fast
@@ -304,6 +329,17 @@ class FeatureFactoryConfig:
     mfi_fast: int  # feature.mfi.fast
     mfi_slow: int  # feature.mfi.slow
     obv_window: int  # feature.obv.window
+    # Renaissance Primitives — breakout distance (Phase 142.5 Plan 05)
+    dist_window_fast: int  # feature.breakout.dist_window_fast
+    dist_window_slow: int  # feature.breakout.dist_window_slow
+    range_window_fast: int  # feature.breakout.range_window_fast
+    range_window_slow: int  # feature.breakout.range_window_slow
+    stoch_window_fast: int  # feature.breakout.stoch_window_fast
+    stoch_window_slow: int  # feature.breakout.stoch_window_slow
+    percentile_window_fast: int  # feature.breakout.percentile_window_fast
+    percentile_window_slow: int  # feature.breakout.percentile_window_slow
+    efficiency_window_fast: int  # feature.breakout.efficiency_window_fast
+    efficiency_window_slow: int  # feature.breakout.efficiency_window_slow
 
 
 # ---------------------------------------------------------------------------
@@ -981,6 +1017,105 @@ def _obv_z(closes: np.ndarray, volumes: np.ndarray, window: int) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Renaissance Primitives — Breakout Distance (Phase 142.5 Plan 05)
+#
+# Price structure primitives with no theory: raw distance from recent extremes,
+# range position, and trend-purity — the IC engine evaluates whether any of
+# these carry signal. No S/R zone semantics, no chart-pattern logic.
+# ---------------------------------------------------------------------------
+
+
+def _dist_from_high(close: float, highs: np.ndarray, atr: float, eps: float = 1e-10) -> float:
+    """Distance from the rolling high, ATR-normalized: (rolling_high_N - C) / ATR.
+
+    Unbounded non-negative (the current bar's high is always in the window,
+    so rolling_high_N >= C by construction). Returns 0.0 when ATR is near zero
+    (cold start / degenerate volatility).
+    """
+    if atr < eps:
+        return 0.0
+    rolling_high = float(np.max(highs))
+    return (rolling_high - close) / atr
+
+
+def _dist_from_low(close: float, lows: np.ndarray, atr: float, eps: float = 1e-10) -> float:
+    """Distance from the rolling low, ATR-normalized: (C - rolling_low_N) / ATR.
+
+    Unbounded non-negative (the current bar's low is always in the window,
+    so rolling_low_N <= C by construction). Returns 0.0 when ATR is near zero.
+    """
+    if atr < eps:
+        return 0.0
+    rolling_low = float(np.min(lows))
+    return (close - rolling_low) / atr
+
+
+def _range_pct(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1e-10) -> float:
+    """Rolling range as a fraction of price: (rolling_high_N - rolling_low_N) / C.
+
+    Unbounded non-negative. Returns 0.0 when close is near zero.
+    """
+    if close < eps:
+        return 0.0
+    return (float(np.max(highs)) - float(np.min(lows))) / close
+
+
+def _new_high_flag(close: float, highs: np.ndarray, eps: float = 1e-10) -> float:
+    """1.0 if the current close is at (or above, epsilon-tolerant) the rolling
+    high, else 0.0. Binary {0.0, 1.0}.
+    """
+    rolling_high = float(np.max(highs))
+    return 1.0 if close >= rolling_high - eps else 0.0
+
+
+def _new_low_flag(close: float, lows: np.ndarray, eps: float = 1e-10) -> float:
+    """1.0 if the current close is at (or below, epsilon-tolerant) the rolling
+    low, else 0.0. Binary {0.0, 1.0}.
+    """
+    rolling_low = float(np.min(lows))
+    return 1.0 if close <= rolling_low + eps else 0.0
+
+
+def _stoch_k(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1e-10) -> float:
+    """Stochastic %K: (C - L_N) / (H_N - L_N). Bounded [0, 1].
+
+    Returns 0.5 (neutral) on a degenerate range (H_N == L_N).
+    """
+    rolling_high = float(np.max(highs))
+    rolling_low = float(np.min(lows))
+    rng = rolling_high - rolling_low
+    if rng < eps:
+        return 0.5
+    return (close - rolling_low) / rng
+
+
+def _price_percentile(close: float, closes: np.ndarray) -> float:
+    """Rolling percentile rank of the current close within its trailing window.
+
+    Bounded [0, 1]. Returns 0.5 (neutral) on cold start (fewer than 2 bars).
+    Reuses _percentile_rank (scipy percentileofscore with manual fallback).
+    """
+    if len(closes) < 2:
+        return 0.5
+    return _percentile_rank(closes, close)
+
+
+def _efficiency_ratio(closes: np.ndarray, eps: float = 1e-10) -> float:
+    """Kaufman efficiency ratio: |C_t - C_{t-N}| / sum(|C_i - C_{i-1}|) over the window.
+
+    Bounded [0, 1] (0 = pure chop, 1 = perfectly linear trend). Returns 0.0 for
+    fewer than 2 bars or a degenerate (zero-movement) window.
+    """
+    if len(closes) < 2:
+        return 0.0
+    net = abs(float(closes[-1]) - float(closes[0]))
+    total = float(np.sum(np.abs(np.diff(closes))))
+    if total < eps:
+        return 0.0
+    return float(np.clip(net / total, 0.0, 1.0))
+
+
+# ---------------------------------------------------------------------------
 # Calendar primitive functions
 # ---------------------------------------------------------------------------
 
@@ -1584,6 +1719,147 @@ def _obv_z_series_full(closes: np.ndarray, volumes: np.ndarray, window: int) -> 
 
 
 # ---------------------------------------------------------------------------
+# Renaissance Primitives — Breakout Distance batch precompute (Phase 142.5 Plan 05)
+#
+# Rolling max/min via np.lib.stride_tricks.sliding_window_view: a single
+# vectorized numpy call over the saturated region (no Python-level per-bar
+# loop for the O(n x window) work), plus a small Python loop only for the
+# initial `window - 1` expanding-window bars. Avoids the O(n x window)
+# per-bar-call cost of invoking the streaming primitives directly in a loop.
+# ---------------------------------------------------------------------------
+
+
+def _sliding_rolling_max(arr: np.ndarray, window: int) -> np.ndarray:
+    """result[i] == max(arr[max(0, i-window+1):i+1]) for every i. O(n) calls,
+    vectorized over the saturated region via sliding_window_view."""
+    n = len(arr)
+    out = np.empty(n, dtype=float)
+    if n == 0:
+        return out
+    expand_n = min(window - 1, n)
+    for i in range(expand_n):
+        out[i] = np.max(arr[: i + 1])
+    if n >= window:
+        windows = np.lib.stride_tricks.sliding_window_view(arr, window)
+        out[window - 1 :] = np.max(windows, axis=1)
+    return out
+
+
+def _sliding_rolling_min(arr: np.ndarray, window: int) -> np.ndarray:
+    """result[i] == min(arr[max(0, i-window+1):i+1]) for every i. O(n) calls,
+    vectorized over the saturated region via sliding_window_view."""
+    n = len(arr)
+    out = np.empty(n, dtype=float)
+    if n == 0:
+        return out
+    expand_n = min(window - 1, n)
+    for i in range(expand_n):
+        out[i] = np.min(arr[: i + 1])
+    if n >= window:
+        windows = np.lib.stride_tricks.sliding_window_view(arr, window)
+        out[window - 1 :] = np.min(windows, axis=1)
+    return out
+
+
+def _dist_from_high_series_full(
+    closes: np.ndarray, highs: np.ndarray, atr_padded: np.ndarray, window: int, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _dist_from_high at bar i."""
+    rolling_high = _sliding_rolling_max(highs, window)
+    safe_atr = np.where(atr_padded > eps, atr_padded, 1.0)
+    raw = (rolling_high - closes.astype(float)) / safe_atr
+    return np.where(atr_padded > eps, raw, 0.0)
+
+
+def _dist_from_low_series_full(
+    closes: np.ndarray, lows: np.ndarray, atr_padded: np.ndarray, window: int, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _dist_from_low at bar i."""
+    rolling_low = _sliding_rolling_min(lows, window)
+    safe_atr = np.where(atr_padded > eps, atr_padded, 1.0)
+    raw = (closes.astype(float) - rolling_low) / safe_atr
+    return np.where(atr_padded > eps, raw, 0.0)
+
+
+def _range_pct_series_full(
+    closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _range_pct at bar i."""
+    rolling_high = _sliding_rolling_max(highs, window)
+    rolling_low = _sliding_rolling_min(lows, window)
+    c = closes.astype(float)
+    safe_c = np.where(c > eps, c, 1.0)
+    raw = (rolling_high - rolling_low) / safe_c
+    return np.where(c > eps, raw, 0.0)
+
+
+def _new_high_flag_series_full(
+    closes: np.ndarray, highs: np.ndarray, window: int, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _new_high_flag at bar i."""
+    rolling_high = _sliding_rolling_max(highs, window)
+    return np.where(closes.astype(float) >= rolling_high - eps, 1.0, 0.0)
+
+
+def _new_low_flag_series_full(
+    closes: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _new_low_flag at bar i."""
+    rolling_low = _sliding_rolling_min(lows, window)
+    return np.where(closes.astype(float) <= rolling_low + eps, 1.0, 0.0)
+
+
+def _stoch_k_series_full(
+    closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _stoch_k at bar i. 0.5 on degenerate range."""
+    rolling_high = _sliding_rolling_max(highs, window)
+    rolling_low = _sliding_rolling_min(lows, window)
+    rng = rolling_high - rolling_low
+    safe_rng = np.where(rng > eps, rng, 1.0)
+    raw = (closes.astype(float) - rolling_low) / safe_rng
+    return np.where(rng > eps, raw, 0.5)
+
+
+def _price_percentile_series_full(closes: np.ndarray, window: int) -> np.ndarray:
+    """result[i] == streaming _price_percentile at bar i. O(n x window)."""
+    n = len(closes)
+    result = np.full(n, 0.5, dtype=float)
+    if n < 2:
+        return result
+    c = closes.astype(float)
+    for i in range(n):
+        w = min(window, i + 1)
+        if w < 2:
+            continue
+        hist = c[i + 1 - w : i + 1]
+        result[i] = _percentile_rank(hist, float(hist[-1]))
+    return result
+
+
+def _efficiency_ratio_series_full(
+    closes: np.ndarray, window: int, eps: float = 1e-10
+) -> np.ndarray:
+    """result[i] == streaming _efficiency_ratio at bar i. O(n) via cumsum of |diffs|."""
+    n = len(closes)
+    result = np.zeros(n, dtype=float)
+    if n < 2:
+        return result
+    c = closes.astype(float)
+    diffs = np.abs(np.diff(c))
+    cs_padded = np.concatenate([[0.0], np.cumsum(diffs)])  # cs_padded[i] = sum(|diffs[0:i]|)
+    for i in range(n):
+        w = min(window, i)
+        if w < 1:
+            continue
+        start = i - w
+        net = abs(c[i] - c[start])
+        total = cs_padded[i] - cs_padded[start]
+        result[i] = net / total if total > eps else 0.0
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Calendar helpers (shared by compute() and compute_batch())
 # ---------------------------------------------------------------------------
 
@@ -1648,6 +1924,21 @@ class _PrecomputedSeries:
     mfi_fast: np.ndarray
     mfi_slow: np.ndarray
     obv_z: np.ndarray
+    # Renaissance Primitives — Breakout Distance (Phase 142.5 Plan 05)
+    dist_from_high_fast: np.ndarray
+    dist_from_high_slow: np.ndarray
+    dist_from_low_fast: np.ndarray
+    dist_from_low_slow: np.ndarray
+    range_pct_fast: np.ndarray
+    range_pct_slow: np.ndarray
+    new_high_flag: np.ndarray
+    new_low_flag: np.ndarray
+    stoch_k_fast: np.ndarray
+    stoch_k_slow: np.ndarray
+    price_percentile_fast: np.ndarray
+    price_percentile_slow: np.ndarray
+    efficiency_ratio_fast: np.ndarray
+    efficiency_ratio_slow: np.ndarray
 
 
 def _precompute_series(
@@ -1722,6 +2013,28 @@ def _precompute_series(
         mfi_fast=_mfi_series_full(highs, lows, closes, volumes, config.mfi_fast),
         mfi_slow=_mfi_series_full(highs, lows, closes, volumes, config.mfi_slow),
         obv_z=_obv_z_series_full(closes, volumes, config.obv_window),
+        dist_from_high_fast=_dist_from_high_series_full(
+            closes, highs, atr_padded, config.dist_window_fast
+        ),
+        dist_from_high_slow=_dist_from_high_series_full(
+            closes, highs, atr_padded, config.dist_window_slow
+        ),
+        dist_from_low_fast=_dist_from_low_series_full(
+            closes, lows, atr_padded, config.dist_window_fast
+        ),
+        dist_from_low_slow=_dist_from_low_series_full(
+            closes, lows, atr_padded, config.dist_window_slow
+        ),
+        range_pct_fast=_range_pct_series_full(closes, highs, lows, config.range_window_fast),
+        range_pct_slow=_range_pct_series_full(closes, highs, lows, config.range_window_slow),
+        new_high_flag=_new_high_flag_series_full(closes, highs, config.dist_window_fast),
+        new_low_flag=_new_low_flag_series_full(closes, lows, config.dist_window_fast),
+        stoch_k_fast=_stoch_k_series_full(closes, highs, lows, config.stoch_window_fast),
+        stoch_k_slow=_stoch_k_series_full(closes, highs, lows, config.stoch_window_slow),
+        price_percentile_fast=_price_percentile_series_full(closes, config.percentile_window_fast),
+        price_percentile_slow=_price_percentile_series_full(closes, config.percentile_window_slow),
+        efficiency_ratio_fast=_efficiency_ratio_series_full(closes, config.efficiency_window_fast),
+        efficiency_ratio_slow=_efficiency_ratio_series_full(closes, config.efficiency_window_slow),
     )
 
 
@@ -1837,6 +2150,20 @@ def _build_feature_vector(
     mfi_fast: float,
     mfi_slow: float,
     obv_z: float,
+    dist_from_high_fast: float,
+    dist_from_high_slow: float,
+    dist_from_low_fast: float,
+    dist_from_low_slow: float,
+    range_pct_fast: float,
+    range_pct_slow: float,
+    new_high_flag: float,
+    new_low_flag: float,
+    stoch_k_fast: float,
+    stoch_k_slow: float,
+    price_percentile_fast: float,
+    price_percentile_slow: float,
+    efficiency_ratio_fast: float,
+    efficiency_ratio_slow: float,
 ) -> FeatureVector:
     return FeatureVector(
         momentum_z_fast=_guard(momentum_z_fast),
@@ -1937,6 +2264,20 @@ def _build_feature_vector(
         mfi_fast=_guard(mfi_fast, 50.0),
         mfi_slow=_guard(mfi_slow, 50.0),
         obv_z=_guard(obv_z, 0.0),
+        dist_from_high_fast=_guard(dist_from_high_fast, 0.0),
+        dist_from_high_slow=_guard(dist_from_high_slow, 0.0),
+        dist_from_low_fast=_guard(dist_from_low_fast, 0.0),
+        dist_from_low_slow=_guard(dist_from_low_slow, 0.0),
+        range_pct_fast=_guard(range_pct_fast, 0.0),
+        range_pct_slow=_guard(range_pct_slow, 0.0),
+        new_high_flag=_guard(new_high_flag, 0.0),
+        new_low_flag=_guard(new_low_flag, 0.0),
+        stoch_k_fast=_guard(stoch_k_fast, 0.5),
+        stoch_k_slow=_guard(stoch_k_slow, 0.5),
+        price_percentile_fast=_guard(price_percentile_fast, 0.5),
+        price_percentile_slow=_guard(price_percentile_slow, 0.5),
+        efficiency_ratio_fast=_guard(efficiency_ratio_fast, 0.0),
+        efficiency_ratio_slow=_guard(efficiency_ratio_slow, 0.0),
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,
@@ -2157,6 +2498,20 @@ class FeatureFactory:
             mfi_fast=_series_last(s.mfi_fast, 50.0),
             mfi_slow=_series_last(s.mfi_slow, 50.0),
             obv_z=_series_last(s.obv_z, 0.0),
+            dist_from_high_fast=_series_last(s.dist_from_high_fast, 0.0),
+            dist_from_high_slow=_series_last(s.dist_from_high_slow, 0.0),
+            dist_from_low_fast=_series_last(s.dist_from_low_fast, 0.0),
+            dist_from_low_slow=_series_last(s.dist_from_low_slow, 0.0),
+            range_pct_fast=_series_last(s.range_pct_fast, 0.0),
+            range_pct_slow=_series_last(s.range_pct_slow, 0.0),
+            new_high_flag=_series_last(s.new_high_flag, 0.0),
+            new_low_flag=_series_last(s.new_low_flag, 0.0),
+            stoch_k_fast=_series_last(s.stoch_k_fast, 0.5),
+            stoch_k_slow=_series_last(s.stoch_k_slow, 0.5),
+            price_percentile_fast=_series_last(s.price_percentile_fast, 0.5),
+            price_percentile_slow=_series_last(s.price_percentile_slow, 0.5),
+            efficiency_ratio_fast=_series_last(s.efficiency_ratio_fast, 0.0),
+            efficiency_ratio_slow=_series_last(s.efficiency_ratio_slow, 0.0),
         )
 
     @staticmethod
@@ -2414,6 +2769,40 @@ class FeatureFactory:
             mfi_slow_val = float(s.mfi_slow[i]) if i < len(s.mfi_slow) else 50.0
             obv_z_val = float(s.obv_z[i]) if i < len(s.obv_z) else 0.0
 
+            # Renaissance Primitives (Phase 142.5 Plan 05) — breakout distance.
+            # All 14 fields read the precomputed series (O(n) total, not per-bar
+            # O(n x window)); indexing here guarantees exact parity with compute().
+            dist_from_high_fast_val = (
+                float(s.dist_from_high_fast[i]) if i < len(s.dist_from_high_fast) else 0.0
+            )
+            dist_from_high_slow_val = (
+                float(s.dist_from_high_slow[i]) if i < len(s.dist_from_high_slow) else 0.0
+            )
+            dist_from_low_fast_val = (
+                float(s.dist_from_low_fast[i]) if i < len(s.dist_from_low_fast) else 0.0
+            )
+            dist_from_low_slow_val = (
+                float(s.dist_from_low_slow[i]) if i < len(s.dist_from_low_slow) else 0.0
+            )
+            range_pct_fast_val = float(s.range_pct_fast[i]) if i < len(s.range_pct_fast) else 0.0
+            range_pct_slow_val = float(s.range_pct_slow[i]) if i < len(s.range_pct_slow) else 0.0
+            new_high_flag_val = float(s.new_high_flag[i]) if i < len(s.new_high_flag) else 0.0
+            new_low_flag_val = float(s.new_low_flag[i]) if i < len(s.new_low_flag) else 0.0
+            stoch_k_fast_val = float(s.stoch_k_fast[i]) if i < len(s.stoch_k_fast) else 0.5
+            stoch_k_slow_val = float(s.stoch_k_slow[i]) if i < len(s.stoch_k_slow) else 0.5
+            price_percentile_fast_val = (
+                float(s.price_percentile_fast[i]) if i < len(s.price_percentile_fast) else 0.5
+            )
+            price_percentile_slow_val = (
+                float(s.price_percentile_slow[i]) if i < len(s.price_percentile_slow) else 0.5
+            )
+            efficiency_ratio_fast_val = (
+                float(s.efficiency_ratio_fast[i]) if i < len(s.efficiency_ratio_fast) else 0.0
+            )
+            efficiency_ratio_slow_val = (
+                float(s.efficiency_ratio_slow[i]) if i < len(s.efficiency_ratio_slow) else 0.0
+            )
+
             # Build FeatureVector
             fv = _build_feature_vector(
                 momentum_z_fast=momentum_z_fast_val,
@@ -2514,6 +2903,20 @@ class FeatureFactory:
                 mfi_fast=mfi_fast_val,
                 mfi_slow=mfi_slow_val,
                 obv_z=obv_z_val,
+                dist_from_high_fast=dist_from_high_fast_val,
+                dist_from_high_slow=dist_from_high_slow_val,
+                dist_from_low_fast=dist_from_low_fast_val,
+                dist_from_low_slow=dist_from_low_slow_val,
+                range_pct_fast=range_pct_fast_val,
+                range_pct_slow=range_pct_slow_val,
+                new_high_flag=new_high_flag_val,
+                new_low_flag=new_low_flag_val,
+                stoch_k_fast=stoch_k_fast_val,
+                stoch_k_slow=stoch_k_slow_val,
+                price_percentile_fast=price_percentile_fast_val,
+                price_percentile_slow=price_percentile_slow_val,
+                efficiency_ratio_fast=efficiency_ratio_fast_val,
+                efficiency_ratio_slow=efficiency_ratio_slow_val,
             )
 
             results.append((bar_ts, fv))
@@ -2636,6 +3039,20 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         mfi_fast=50.0,
         mfi_slow=50.0,
         obv_z=0.0,
+        dist_from_high_fast=0.0,
+        dist_from_high_slow=0.0,
+        dist_from_low_fast=0.0,
+        dist_from_low_slow=0.0,
+        range_pct_fast=0.0,
+        range_pct_slow=0.0,
+        new_high_flag=0.0,
+        new_low_flag=0.0,
+        stoch_k_fast=0.5,
+        stoch_k_slow=0.5,
+        price_percentile_fast=0.5,
+        price_percentile_slow=0.5,
+        efficiency_ratio_fast=0.0,
+        efficiency_ratio_slow=0.0,
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,

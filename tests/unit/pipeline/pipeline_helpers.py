@@ -152,6 +152,16 @@ def make_agent() -> FeatureVectorPipeline:
         mfi_fast=7,
         mfi_slow=14,
         obv_window=20,
+        dist_window_fast=20,
+        dist_window_slow=50,
+        range_window_fast=20,
+        range_window_slow=50,
+        stoch_window_fast=14,
+        stoch_window_slow=50,
+        percentile_window_fast=50,
+        percentile_window_slow=200,
+        efficiency_window_fast=10,
+        efficiency_window_slow=50,
     )
     return agent
 

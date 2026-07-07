@@ -117,6 +117,23 @@ def _make_valid_feature_vector():
         mfi_fast=50.0,
         mfi_slow=50.0,
         obv_z=0.0,
+        # Renaissance Primitives (Phase 142.5 Plan 05) — not yet in the persisted
+        # tuple (migration 206 / writer wiring land in a later plan); construction
+        # requires these non-optional fields.
+        dist_from_high_fast=0.0,
+        dist_from_high_slow=0.0,
+        dist_from_low_fast=0.0,
+        dist_from_low_slow=0.0,
+        range_pct_fast=0.0,
+        range_pct_slow=0.0,
+        new_high_flag=0.0,
+        new_low_flag=0.0,
+        stoch_k_fast=0.5,
+        stoch_k_slow=0.5,
+        price_percentile_fast=0.5,
+        price_percentile_slow=0.5,
+        efficiency_ratio_fast=0.0,
+        efficiency_ratio_slow=0.0,
     )
 
 

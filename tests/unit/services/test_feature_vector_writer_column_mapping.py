@@ -138,6 +138,23 @@ def _make_sentinel_record():
         mfi_fast=56.20,
         mfi_slow=56.21,
         obv_z=56.22,
+        # Renaissance Primitives (Phase 142.5 Plan 05) — not yet in the persisted
+        # tuple (migration 206 / writer wiring land in a later plan); construction
+        # requires these non-optional fields, so sentinel values only.
+        dist_from_high_fast=57.01,
+        dist_from_high_slow=57.02,
+        dist_from_low_fast=57.03,
+        dist_from_low_slow=57.04,
+        range_pct_fast=57.05,
+        range_pct_slow=57.06,
+        new_high_flag=57.07,
+        new_low_flag=57.08,
+        stoch_k_fast=57.09,
+        stoch_k_slow=57.10,
+        price_percentile_fast=57.11,
+        price_percentile_slow=57.12,
+        efficiency_ratio_fast=57.13,
+        efficiency_ratio_slow=57.14,
     )
     return FeatureVectorRecord(
         symbol="SPY",

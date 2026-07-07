@@ -1351,6 +1351,33 @@ class FeatureVector:
     mfi_fast: float  # Money Flow Index, bounded [0,100] (APR: feature.mfi.fast)
     mfi_slow: float  # Money Flow Index, bounded [0,100] (APR: feature.mfi.slow)
     obv_z: float  # z-score of OBV (APR: feature.obv.window)
+    # Renaissance Primitives — Breakout Distance (14, Phase 142.5 Plan 05)
+    dist_from_high_fast: (
+        float  # (rolling_high-C)/ATR, unbounded non-neg (APR: feature.breakout.dist_window_fast)
+    )
+    dist_from_high_slow: (
+        float  # (rolling_high-C)/ATR, unbounded non-neg (APR: feature.breakout.dist_window_slow)
+    )
+    dist_from_low_fast: (
+        float  # (C-rolling_low)/ATR, unbounded non-neg (APR: feature.breakout.dist_window_fast)
+    )
+    dist_from_low_slow: (
+        float  # (C-rolling_low)/ATR, unbounded non-neg (APR: feature.breakout.dist_window_slow)
+    )
+    range_pct_fast: float  # (rolling_high-rolling_low)/C, unbounded non-neg (APR: feature.breakout.range_window_fast)
+    range_pct_slow: float  # (rolling_high-rolling_low)/C, unbounded non-neg (APR: feature.breakout.range_window_slow)
+    new_high_flag: float  # 1.0 if C == rolling_high else 0.0, binary {0,1} (APR: feature.breakout.dist_window_fast)
+    new_low_flag: float  # 1.0 if C == rolling_low else 0.0, binary {0,1} (APR: feature.breakout.dist_window_fast)
+    stoch_k_fast: (
+        float  # (C-L_N)/(H_N-L_N), bounded [0,1] (APR: feature.breakout.stoch_window_fast)
+    )
+    stoch_k_slow: (
+        float  # (C-L_N)/(H_N-L_N), bounded [0,1] (APR: feature.breakout.stoch_window_slow)
+    )
+    price_percentile_fast: float  # rolling percentile rank of C, bounded [0,1] (APR: feature.breakout.percentile_window_fast)
+    price_percentile_slow: float  # rolling percentile rank of C, bounded [0,1] (APR: feature.breakout.percentile_window_slow)
+    efficiency_ratio_fast: float  # Kaufman ER, bounded [0,1] (0=chop,1=trend) (APR: feature.breakout.efficiency_window_fast)
+    efficiency_ratio_slow: float  # Kaufman ER, bounded [0,1] (0=chop,1=trend) (APR: feature.breakout.efficiency_window_slow)
     # Cross-sectional (3, nullable — populated by Phase 139 enrichment pass)
     momentum_rank_z: float | None = None  # cross-sectional momentum rank z-score
     volume_rank_z: float | None = None  # cross-sectional volume rank z-score
