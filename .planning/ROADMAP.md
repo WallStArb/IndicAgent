@@ -1629,7 +1629,7 @@ seeding `concept-governance-registries.md`'s four-table MVP from 142B.1's E1-E4 
 rows, before any `confluence`/`regime_model` domain needs it (those are still further out — see
 v3.15 and intel-10 v3). Not doing this promptly is how "deferred" becomes "deferred indefinitely."
 
-### Phase 142.5: Renaissance Primitives 📋 READY TO EXECUTE (8 plans) (INSERTED)
+### Phase 142.5: Renaissance Primitives ✅ COMPLETE (8/8 plans, 2026-07-07) (INSERTED)
 
 **Goal:** Add 91 foundational primitives from `signal-renaissance-primitives-ohlcv.md` to Feature Factory v3.0. Corpus backfill and IC evaluation will happen as part of the next corpus run (before 142B).
 
