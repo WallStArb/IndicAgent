@@ -1524,6 +1524,11 @@ def _write_ic_results(
         with conn.cursor() as cur:
             psycopg2.extras.execute_batch(cur, _POOLED_INSERT_SQL, pooled_rows)
         n_committed += len(pooled_rows)
+        # Commit now rather than batching with regime_rows below: regime_rows is
+        # typically far larger, and ON CONFLICT DO NOTHING makes an early commit
+        # safe to re-run into -- a failure partway through regime_rows no longer
+        # loses the already-computed pooled_rows write too.
+        conn.commit()
     if regime_rows:
         with conn.cursor() as cur:
             psycopg2.extras.execute_batch(cur, _REGIME_INSERT_SQL, regime_rows)
@@ -1546,6 +1551,88 @@ def _write_cross_sectional_results(
             psycopg2.extras.execute_batch(cur, _CROSS_SECTIONAL_INSERT_SQL, all_results)
         conn.commit()
     return len(all_results)
+
+
+def _persist_corpus_results(
+    settings: Settings,
+    cross_sectional_only: bool,
+    corpus_pooled_rows: list[dict],
+    corpus_regime_rows: list[dict],
+    equity_model_enabled: bool,
+    corpus_cs_rows: list[dict],
+    per_symbol_results: list[tuple[str, list[dict]]],
+    training_window_end: Any,
+) -> tuple[int, dict[str, int], dict[str, int], int]:
+    """Persist all corpus IC results end-to-end in one self-contained call.
+
+    Compute (the per-symbol ProcessPoolExecutor pass + the cross-sectional pass, both of
+    which can run 30-60+ minutes) is entirely separate from persistence: this is the only
+    place in the module that opens a write connection, and it opens it, uses it, and closes
+    it within this one call -- the caller (main's compute orchestration) never holds or
+    reasons about connection lifetime. That separation is the actual fix for the 2026-07-08
+    incident (a connection opened before ~53 minutes of compute, left idle that whole time,
+    dead by the time it was finally used for the write -- "server closed the connection
+    unexpectedly", 819,538 computed rows lost). Opening late (services/ic_engine.py's prior
+    fix within this same incident) treats the symptom; this treats the cause structurally.
+
+    Returns (total_committed, rows_by_tf, rows_by_regime, rows_total) for the manifest.
+    """
+    total_committed = 0
+    conn = _connect_db(settings)
+    try:
+        if not cross_sectional_only:
+            n_written = _write_ic_results(conn, corpus_pooled_rows, corpus_regime_rows)
+            total_committed += n_written
+            # Emit OTel health gauges per (symbol, tf)
+            for sym, sym_results in per_symbol_results:
+                if sym_results:
+                    by_tf: dict[str, list] = {}
+                    for r in sym_results:
+                        tf_key = r.get("tf")
+                        if tf_key:
+                            by_tf.setdefault(tf_key, []).append(r)
+                    for tf_key, tf_results in by_tf.items():
+                        _emit_health_gauges(sym, tf_key, tf_results)
+                    _logger.info("ic_engine.symbol_done", symbol=sym, n_rows=len(sym_results))
+
+        if equity_model_enabled and corpus_cs_rows:
+            n_written = _write_cross_sectional_results(conn, corpus_cs_rows)
+            total_committed += n_written
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT tf, COUNT(*) as count
+                FROM feature_ic_scores
+                WHERE training_window_end = %s
+                GROUP BY tf
+                ORDER BY tf
+                """,
+                (training_window_end,),
+            )
+            rows_by_tf = {r[0]: r[1] for r in cur.fetchall()}
+
+            cur.execute(
+                """
+                SELECT regime, COUNT(*) as count
+                FROM feature_ic_scores
+                WHERE training_window_end = %s
+                GROUP BY regime
+                ORDER BY regime
+                """,
+                (training_window_end,),
+            )
+            rows_by_regime = {r[0]: r[1] for r in cur.fetchall()}
+
+            cur.execute(
+                "SELECT COUNT(*) FROM feature_ic_scores WHERE training_window_end = %s",
+                (training_window_end,),
+            )
+            rows_total = cur.fetchone()[0]
+
+        return total_committed, rows_by_tf, rows_by_regime, rows_total
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1853,10 +1940,11 @@ def main() -> None:
                     )
 
             # ----------------------------------------------------------
-            # Build worker args then open write_conn -- workers open their own
+            # Build worker args -- workers open their own read connections;
+            # persistence (total_committed) is owned entirely by
+            # _persist_corpus_results, called once after compute completes.
             # ----------------------------------------------------------
             existing_keys_frozen = frozenset(existing_keys)
-            total_committed = 0
             total_skipped = 0
 
             # Corpus-level BH-FDR accumulators (initialized before if/else to avoid NameError
@@ -1868,14 +1956,10 @@ def main() -> None:
             corpus_pval_result_idxs: list[int] = []
             per_symbol_results: list[tuple[str, list[dict]]] = []
 
-            # Open write_conn for serial writes in main process
-            write_conn = _connect_db(settings)
-
             if args.cross_sectional_only:
                 _logger.info("ic_engine.skipping_per_symbol_pass", reason="--cross-sectional-only")
                 conn.close()
                 conn = None
-                # write_conn stays open — needed for cross-sectional writes and manifest queries
             else:
                 worker_args = [
                     (
@@ -2023,70 +2107,24 @@ def main() -> None:
             )
 
             # ----------------------------------------------------------
-            # Write all per-symbol results (after corpus BH-FDR)
+            # Persist everything through one self-contained call. Compute (above)
+            # and persistence (here) are fully decoupled -- main() never opens,
+            # holds, or closes a write connection itself; _persist_corpus_results
+            # owns that lifecycle start to finish. See its docstring for why.
             # ----------------------------------------------------------
-            if not args.cross_sectional_only:
-                n_written = _write_ic_results(write_conn, corpus_pooled_rows, corpus_regime_rows)
-                total_committed += n_written
-                # Emit OTel health gauges per (symbol, tf)
-                for sym, sym_results in per_symbol_results:
-                    if sym_results:
-                        by_tf: dict[str, list] = {}
-                        for r in sym_results:
-                            tf_key = r.get("tf")
-                            if tf_key:
-                                by_tf.setdefault(tf_key, []).append(r)
-                        for tf_key, tf_results in by_tf.items():
-                            _emit_health_gauges(sym, tf_key, tf_results)
-                        _logger.info(
-                            "ic_engine.symbol_done",
-                            symbol=sym,
-                            n_rows=len(sym_results),
-                        )
-
-            # Write all cross-sectional results (after corpus BH-FDR)
-            if equity_model_enabled and corpus_cs_rows:
-                n_written = _write_cross_sectional_results(write_conn, corpus_cs_rows)
-                total_committed += n_written
+            total_committed, rows_by_tf, rows_by_regime, rows_total = _persist_corpus_results(
+                settings=settings,
+                cross_sectional_only=args.cross_sectional_only,
+                corpus_pooled_rows=corpus_pooled_rows,
+                corpus_regime_rows=corpus_regime_rows,
+                equity_model_enabled=equity_model_enabled,
+                corpus_cs_rows=corpus_cs_rows,
+                per_symbol_results=per_symbol_results,
+                training_window_end=training_window_end,
+            )
 
             elapsed = time.monotonic() - t0
             IC_ENGINE_RUN_LATENCY_SECONDS.record(elapsed)
-
-            # Record outputs to manifest (conn is closed by this point; use write_conn)
-            with write_conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT tf, COUNT(*) as count
-                    FROM feature_ic_scores
-                    WHERE training_window_end = %s
-                    GROUP BY tf
-                    ORDER BY tf
-                    """,
-                    (training_window_end,),
-                )
-                rows_by_tf = {r[0]: r[1] for r in cur.fetchall()}
-
-                cur.execute(
-                    """
-                    SELECT regime, COUNT(*) as count
-                    FROM feature_ic_scores
-                    WHERE training_window_end = %s
-                    GROUP BY regime
-                    ORDER BY regime
-                    """,
-                    (training_window_end,),
-                )
-                rows_by_regime = {r[0]: r[1] for r in cur.fetchall()}
-
-                cur.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM feature_ic_scores
-                    WHERE training_window_end = %s
-                    """,
-                    (training_window_end,),
-                )
-                rows_total = cur.fetchone()[0]
 
             manifest.add_output(
                 table_name="feature_ic_scores",
@@ -2151,12 +2189,8 @@ def main() -> None:
     finally:
         if conn is not None:
             conn.close()
-        # Close write_conn if it was opened
-        try:
-            if "write_conn" in locals() and write_conn is not None:
-                write_conn.close()
-        except (NameError, Exception):
-            pass
+        # No write_conn to close here -- _persist_corpus_results owns its own
+        # connection's full lifecycle (open/use/close) internally.
         JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": status})
         flush_and_shutdown_metrics()
 
