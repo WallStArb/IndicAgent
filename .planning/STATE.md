@@ -19,7 +19,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
-**Current focus:** Phase 142.5 (Renaissance Primitives) is now COMPLETE (8/8 plans, 2026-07-07) — schema (152 columns), APR (54 keys), and feature_registry (152 rows) are live in the `indicagent` DB; migration 206 applied and verified idempotent. The 91 new primitives are NOT yet populated in existing `feature_vectors` rows — that requires a corpus run (backfill_feature_factory / feature_vector_pipeline) to compute them, which was deliberately deferred to the next corpus run rather than done as part of this phase. Separately, Phase 142B.1 machinery is complete (verified 2026-07-04) but the E1/E2 A/B judgment it built has not been run yet. Phase 142B (frame simulation) is still 0/2 plans — blocked on EIC-04 gate, which FAILED on 2026-07-03 (0/50 qualifying cells, data starvation). Next actions: (1) run the next corpus rerun so the new Renaissance primitives get populated and can enter IC evaluation, (2) run `EnsembleICEngine --weight-version v1_shrunk` / `v2_mv` + `ops_ensemble_weight_compare.py` to judge/promote a champion weighting, (3) re-run EIC-04 once `alpha_events` accumulate further, (4) only then start Phase 142B.
+**Current focus (updated 2026-07-08):** Phase 142.5 (Renaissance Primitives) COMPLETE (8/8 plans, 2026-07-07). The corpus rerun to populate those 91 primitives and produce fresh IC has been attempted 3 times and failed 3 times — **currently blocked, unresolved:**
+1. Attempt 1 (2026-07-07 20:32): `ic_engine` step FAILED after 3462s, exit 1, no captured traceback — root cause never confirmed.
+2. Attempt 2 (2026-07-08 00:36, resumed by a concurrent session): ran the full 53-minute per-symbol + cross-sectional compute successfully (819,538 representative rows through corpus-wide BH-FDR), then died at the very first DB write — `write_conn` was opened at the top of the run and held idle the entire compute phase, dead by the time it was used. **Root-caused and fixed** (`services/ic_engine.py`, commit `c2288f1b`): persistence is now a single self-contained `_persist_corpus_results()` call that owns its connection's full lifecycle internally — compute (`main()`) never opens/holds/closes a connection, so this class of bug can't recur. Filed as todo 151.
+3. Attempt 3 (2026-07-08 06:18, resumed again with the fix in place): got through ~18 minutes of compute, then **killed — exit 137, confirmed OOM via cgroup `memory.events` (`oom_kill 1`)**, not the connection bug. Likely resource contention: `ic_engine`'s 12-worker `ProcessPoolExecutor` competing with multiple concurrent Claude sessions + services on the same 29GB box (swap was at 6.4GB/22GB). **Nobody has retried since — this is the actual next blocking step**, not a corpus rerun in progress.
+
+Separately: Phase 142B.1 machinery is complete (verified 2026-07-04) but the E1/E2 A/B judgment (`ops_ensemble_weight_compare.py`) hasn't been run yet — it now flags a winner's-curse caveat on every WIN verdict (commit `ac9e7f25`, todo 153) since OQ7's peer-group-for-shrinkage question is still genuinely unresolved, not silently ignored. Phase 142B (frame simulation) is still 0/2 plans, blocked on EIC-04 (FAILED 2026-07-03, 0/50 qualifying cells). Phase 144 (Cross-Sectional Regime Model) is now unblocked for `/gsd-discuss-phase` — its HMM weak-separation fallback decision was made 2026-07-08 (see `docs/research/fable-2026-07-07-phase144-conditioning-decision.md`), though its own evidence needs re-measuring once the corpus rerun actually succeeds. A large backlog of Renaissance-refinement proposals (todos 152-169) was filed 2026-07-08 from a full layer-by-layer Fable review (`docs/research/fable-2026-07-07-renaissance-layer-refinements.md`) — none are urgent, most batch into whichever corpus rerun eventually lands.
+
+**Next actions, in order:** (1) get the corpus rerun to actually succeed — investigate `infra.ic_engine.workers` reduction or wait for concurrent-session memory pressure to ease before retrying `bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --from-step 4`, (2) once `feature_ic_scores`/`alpha_ensemble_ic` are fresh, run the E1/E2 A/B judgment, (3) re-run EIC-04, (4) only then start Phase 142B. Todo 045 (pre-existing, unrelated to this session's incidents) flags a possible numeric/JIT drift in `regime_writer.py`'s causal-decode path — worth a look given it's the exact machinery Phase 144 planning depends on.
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.1 Current Status
@@ -73,6 +80,14 @@ See: .planning/PROJECT.md
 | 142.5 | Renaissance Primitives | COMPLETE (8/8 plans, 2026-07-07) — 91 new primitives implemented in Feature Factory (61 baseline + 91 = 152 total fields); migration 206 applied live to `indicagent` DB (152 feature_vectors columns, 152 feature_registry rows, 54 APR keys), verified idempotent; corpus backfill to populate these fields in existing rows deferred to next corpus run. Replanned 2026-07-06 from cross-AI review (142.5-REVIEWS.md): added Plan 05.5 to implement the 8 price-volume interaction primitives Plan 06 was already creating schema/APR for; fixed cold-start crash, feature_registry seeding, and registry row-count sync gaps |
 | 142B | Frame Simulation + Counterfactual Tracking | PLANNED (0/2 plans) — blocked on EIC-04 showing PASS; not started despite prior "targeted for completion 2026-07-02" note, which never materialized |
 
+**4th corpus rebuild IN PROGRESS as of 2026-07-08** (started 2026-07-07 17:00) — will supersede
+the Phase B row counts above once complete (`feature_vectors` already at 36.7M rows mid-rebuild,
+up from 10.08M, from the ETF expansion + Phase 142.5 primitives landing for the first time).
+Live status and step-by-step detail: `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md`
+("Operational context") — don't duplicate row counts here, that doc and
+`logs/corpus_pipeline/full_run_20260707_170028.log` are the source of truth until this rebuild
+finishes and this section gets its own update.
+
 **SUPERSEDED — pre-Phase-A/pre-3rd-rebuild baseline, do not cite as current:** the row counts and IC gate
 results below are from the 2026-06-29 corpus run, before Phase A's ic_engine methodology fixes and before
 the 2026-07-01 3rd rebuild. Current counts are in the Phase B entry above.
@@ -89,7 +104,7 @@ the 2026-07-01 3rd rebuild. Current counts are in the Phase B entry above.
 ## Key Decisions (load-bearing — don't re-derive)
 
 - **HMM_RANDOM_STATE = 42** — changing invalidates all feature_ic_scores, requires full re-run
-- **Pooled IC (is_pooled=true)** — diagnostic only; all ensemble reads filter WHERE is_pooled = false
+- **Pooled IC (is_pooled=true)** — cross-sectional POOLED strata ARE the ensemble training eligibility source. `ensemble_trainer.py` reads `WHERE symbol='POOLED' AND is_pooled=true AND regime != '_pooled'` (lines 317, 430-431, 469, 540) — the prior "diagnostic only, filter WHERE is_pooled=false" claim here was inverted (semantics changed when cross-sectional POOLED strata became the eligibility source in Phase A/141.1; corrected 2026-07-08)
 - **IC Sharpe gate** — sharpe_window_size=2000 RAW bars; gate is n_raw_bars >= 20,000; stride divides inside _compute_ic_rolling_metrics
 - **regime_label_source DEFAULT** — 'forward_filter' (not 'filtered') in both forward_returns and feature_ic_scores
 - **APR key** — alpha.ic.subsample_min_stride is a floor: actual_stride = max(min_stride, lookahead_bars)
