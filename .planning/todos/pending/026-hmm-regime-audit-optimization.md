@@ -133,3 +133,14 @@ same contamination error found above.
 - Migration 184: `feature_vectors.regime_rolling` column exists
 - `docs/experiments/2024-06-29-hmm-rolling-refit-pilot.md` — experiment doc
 - Pilot code was deleted (2026-06-29) — rebuild from scratch if gates pass
+
+---
+
+**Resolved 2026-07-07 (fallback decision):** the operator decision the v3.15 build trigger
+required is made - option (b) pre-committed (demote per-symbol HMM to shadow per weak
+regime_group; cross-sectional + volatility_pct stratification), (c) factor-augmented variant
+pre-registered as the rates challenger with a defined build trigger. See
+`.planning/research/fable-2026-07-07-phase144-conditioning-decision.md` for reasoning and
+falsifiers. Caveat carried forward from that doc: the Step 1/Step 2 magnitudes above are stale
+(synthetic-bar filter fix `26efb75b`, 142.5's 91 new primitives, full-depth backfill) - the
+widened per-regime_group Step 1 must re-run on the fresh corpus before any demotion executes.

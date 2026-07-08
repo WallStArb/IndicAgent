@@ -1877,6 +1877,10 @@ already states no dependency on Phase 148-150).
 don't). The pre-committed fallback for weak-separation asset classes (per-asset-class HMM vs.
 demote to shadow vs. factor-augmented variant — topdown Open Q4) needs an operator decision at
 this milestone's planning, SHADOW-REVIEW-style, before intel-12's substitution test runs.
+**Resolved 2026-07-07:** fallback pre-committed as option (b) - demote HMM to shadow per weak
+regime_group, stratify on cross-sectional + volatility_pct; (c) pre-registered as the rates
+challenger with a defined build trigger. Phase 144 is unblocked for `/gsd-discuss-phase`. Full
+reasoning and falsifiers: `.planning/research/fable-2026-07-07-phase144-conditioning-decision.md`.
 
 ---
 
