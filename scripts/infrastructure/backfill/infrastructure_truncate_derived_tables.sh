@@ -34,10 +34,14 @@ UNION ALL
 SELECT 'ensemble_alpha',    count(*) FROM ensemble_alpha
 UNION ALL
 SELECT 'alpha_events',      count(*) FROM alpha_events
+UNION ALL
+SELECT 'market_regimes',    count(*) FROM market_regimes
+UNION ALL
+SELECT 'alpha_ensemble_ic', count(*) FROM alpha_ensemble_ic
 ORDER BY table_name;"
 
 echo
-read -r -p "Truncate all seven tables and re-seed backfill_status? This cannot be undone. [y/N] " confirm
+read -r -p "Truncate all nine tables and re-seed backfill_status? This cannot be undone. [y/N] " confirm
 if [[ "${confirm,,}" != "y" ]]; then
     echo "Aborted."
     exit 0
@@ -46,11 +50,13 @@ fi
 echo
 echo "Truncating..."
 
+psql -c "TRUNCATE alpha_ensemble_ic;" && echo "  - alpha_ensemble_ic: done"
 psql -c "TRUNCATE alpha_events;"      && echo "  - alpha_events: done"
 psql -c "TRUNCATE ensemble_alpha;"    && echo "  - ensemble_alpha: done"
 psql -c "TRUNCATE ensemble_weights;"  && echo "  - ensemble_weights: done"
 psql -c "TRUNCATE feature_ic_scores;" && echo "  - feature_ic_scores: done"
 psql -c "TRUNCATE forward_returns;"   && echo "  - forward_returns: done"
+psql -c "TRUNCATE market_regimes;"    && echo "  - market_regimes: done"
 psql -c "TRUNCATE feature_vectors;"   && echo "  - feature_vectors: done"
 psql -c "TRUNCATE backfill_status;"   && echo "  - backfill_status: done"
 
@@ -83,6 +89,10 @@ UNION ALL
 SELECT 'ensemble_alpha',    count(*) FROM ensemble_alpha
 UNION ALL
 SELECT 'alpha_events',      count(*) FROM alpha_events
+UNION ALL
+SELECT 'market_regimes',    count(*) FROM market_regimes
+UNION ALL
+SELECT 'alpha_ensemble_ic', count(*) FROM alpha_ensemble_ic
 ORDER BY table_name;"
 
 echo

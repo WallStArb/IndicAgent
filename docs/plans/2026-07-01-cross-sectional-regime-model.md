@@ -162,14 +162,16 @@ VALUES (
     'tag_filter patterns match instrument_tags.tag values (prefix match, trailing * stripped). '
     'signal_type maps to a module in src/intelligence/regime_signals/. '
     'params_prefix is the APR namespace for that signal''s thresholds. '
-    'Groups are checked in order; first matching group wins for symbol routing. '
-    'Symbols with no matching group default to the first enabled group named "equity".'
+    'Groups are checked in order; symbols matching more than one enabled group raise '
+    'AmbiguousRegimeGroupError (fail loud). Symbols matching no enabled group are '
+    'OMITTED from regime-stratified IC this run (pooled IC still covers them) with a '
+    'loud startup warning — never silently defaulted to "equity".'
 ) ON CONFLICT (config_key) DO NOTHING;
 
 INSERT INTO config_state (config_key, config_value, version)
 VALUES (
     'alpha.regime.groups',
-    '[{"name":"equity","tag_filter":["eq_*","intl_*"],"signal_type":"breadth_vol","params_prefix":"alpha.equity_regime","enabled":true},{"name":"rates","tag_filter":["fi_*"],"signal_type":"curve_credit","params_prefix":"alpha.rates_regime","enabled":true},{"name":"commodity_energy","tag_filter":["commodity_energy_crude","commodity_energy_natgas","commodity_energy_pipeline"],"signal_type":"commodity_momentum_ts","params_prefix":"alpha.commodity_energy_regime","enabled":false},{"name":"commodity_metals","tag_filter":["commodity_metals_precious","commodity_metals_industrial"],"signal_type":"commodity_momentum_ts","params_prefix":"alpha.commodity_metals_regime","enabled":false},{"name":"commodity_agri","tag_filter":["commodity_agri"],"signal_type":"commodity_momentum_ts","params_prefix":"alpha.commodity_agri_regime","enabled":false},{"name":"fx","tag_filter":["fx_*"],"signal_type":"fx_dollar_carry","params_prefix":"alpha.fx_regime","enabled":false}]',
+    '[{"name":"equity","tag_filter":["eq_*","intl_*"],"signal_type":"breadth_vol","params_prefix":"alpha.equity_regime","enabled":true},{"name":"rates","tag_filter":["fi_*"],"signal_type":"curve_credit","params_prefix":"alpha.rates_regime","enabled":true},{"name":"commodity_energy","tag_filter":["commodity_energy_crude","commodity_energy_natgas","commodity_energy_pipeline"],"signal_type":"commodity_momentum_ts","params_prefix":"alpha.commodity_energy_regime","enabled":false},{"name":"commodity_metals","tag_filter":["commodity_metals_precious","commodity_metals_industrial"],"signal_type":"commodity_momentum_ts","params_prefix":"alpha.commodity_metals_regime","enabled":false},{"name":"commodity_agri","tag_filter":["commodity_agri"],"signal_type":"commodity_momentum_ts","params_prefix":"alpha.commodity_agri_regime","enabled":false},{"name":"fx","tag_filter":["fx_*","crypto"],"signal_type":"fx_dollar_carry","params_prefix":"alpha.fx_regime","enabled":false}]',
     1
 ) ON CONFLICT (config_key) DO NOTHING;
 
@@ -1160,7 +1162,11 @@ _DEFAULT_GROUPS_JSON = json.dumps([
     },
     {
         "name": "fx",
-        "tag_filter": ["fx_*"],
+        # crypto lumped in with fx (2026-07-07 decision): IBIT is the only crypto
+        # instrument in the corpus — N=1 does not support a dedicated regime signal
+        # module, and both are macro-liquidity-driven, non-equity, single-symbol-per-
+        # currency-like exposures. Revisit if the crypto sleeve grows past N=1.
+        "tag_filter": ["fx_*", "crypto"],
         "signal_type": "fx_dollar_carry",
         "params_prefix": "alpha.fx_regime",
         "enabled": False,

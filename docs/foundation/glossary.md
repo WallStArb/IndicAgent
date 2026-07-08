@@ -74,19 +74,24 @@ A time-stamped, scored trade hypothesis with a defined entry, direction, and exi
 
 ### `regime`
 
-A discrete market state that conditions the behavior of indicators, signals, and factor relationships. Produced by the HMM classifier. Examples: trending, mean-reverting, high-volatility, low-volatility.
+A discrete conditioning-state label that partitions bars into groups expected to behave differently downstream (IC stratification, ensemble weights, analog retrieval). Produced by Stage 1 (Stratification) of the AlphaEngine internal layers — see that entry. Two coexisting mechanisms fill this contract today, each with its own sanctioned vocabulary (see `MEMORY.md` "Dual Regime System"):
 
-**Not:** a synonym for "market condition" in general prose. Regime is a specific technical term — it refers to a classified HMM state or a named factor performance state (see `factor_regime`). Also not the HMM itself — `regime` is the AlphaEngine internal Stage 1 (Stratification) *contract*; GaussianHMM is today's *mechanism* for filling it. See `docs/intelligence/intelligence-layer-architecture.md` Stage 1 for alternative stratification mechanisms under consideration. (Not to be confused with the outer `Layer 1`/Prediction of the three-layer AlphaEngine/Portfolio/Execution architecture — different numbering, different scope.)
+- **Idiosyncratic regime** (aka **symbol regime**) — per-symbol `GaussianHMM` state (5 labels: `trending_down`, `transition_down`, `ranging`, `transition_up`, `trending_up`), fit per (symbol, timeframe) from log-return/vol-of-vol/relative-volume observations. Stored in `feature_vectors.regime`. "Idiosyncratic" is the standard factor-model term for a security-specific, non-market-wide component — parallels how `sensitivity`/`factor_regime` also operate at security scope.
+- **Systematic regime** (aka **market regime**) — cross-sectional VIX×breadth state (9 labels: `{low/mid/high}_{bull/neutral/bear}`), one label per timeframe shared across the whole universe. Stored in `market_regimes`. "Systematic" is the standard factor-model term for the common, market-wide component every instrument shares exposure to.
+
+**Not:** a synonym for "market condition" in general prose. Also not the HMM itself — `regime` is the Stage 1 *contract*; GaussianHMM (idiosyncratic) and the VIX×breadth model (systematic) are today's *mechanisms* filling it. (Not to be confused with the outer `Layer 1`/Prediction of the three-layer AlphaEngine/Portfolio/Execution architecture — different numbering, different scope.)
 
 **Banned:** market condition, market state, market environment
 **Status:** active
 
 **Disambiguation:**
-- `regime` (unqualified) — the HMM-classified market state
+- `regime` (unqualified) — either regime system; qualify with `idiosyncratic`/`systematic` (or the informal `symbol`/`market`) when the distinction matters
+- `idiosyncratic regime` / `symbol regime` — per-symbol HMM state (interchangeable synonyms)
+- `systematic regime` / `market regime` — cross-sectional VIX×breadth state (interchangeable synonyms)
 - `factor_regime` — a tag category describing conditional instrument performance: `risk_on`, `risk_off`, `defensive`, `growth`, `value`, `momentum`
 - `volatility_regime` — a sub-classification of regime by realized vol level
 
-**Code surface:** `regime` column in `intelligence_features`, `RegimeClassifier`, `factor_regime` category in `tag_vocabulary`.
+**Code surface:** `feature_vectors.regime` (idiosyncratic/symbol, `regime_writer.py`), `market_regimes` (systematic/market, `equity_regime_model.py`), `factor_regime` category in `tag_vocabulary`.
 
 ---
 
@@ -652,8 +657,9 @@ sub-structure *within* Stage 0's mechanism, not the stage itself)
 
 AlphaEngine's second internal stage. Contract: the `FeatureVector` corpus in, a discrete
 conditioning-state label per bar out. Current mechanism: `regime`, produced by two coexisting
-implementations — per-symbol `GaussianHMM` and a cross-sectional VIX×breadth model (see
-`MEMORY.md` "Dual Regime System").
+implementations — per-symbol `GaussianHMM` (**idiosyncratic**/**symbol** regime) and a
+cross-sectional VIX×breadth model (**systematic**/**market** regime) — see `MEMORY.md` "Dual
+Regime System" and the `regime` glossary entry for the sanctioned vocabulary distinguishing them.
 
 **Not:** a synonym for `HMM` or `GaussianHMM` — those are the mechanism; `regime`/Stage 1 is the
 contract. A different classifier (IOHMM, factor-augmented HMM, threshold rules) could fill this
