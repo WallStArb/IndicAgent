@@ -57,6 +57,19 @@ _POOLED_REGIME_SENTINEL = "_pooled"
 
 _D14_REGIME_CAVEAT = "HMM regime-label look-ahead caveat (todo 026/034) -- re-validate once fixed"
 
+# D-15: winner's-curse caveat (measurement-ic-engine.md OQ7, todo 153). Selecting a champion
+# among variants is itself a search -- the winning variant's measured IC in alpha_ensemble_ic
+# is upward-biased by the same mechanism 0b's shrink_ic() corrects at feature grain. OQ7 is
+# explicitly unresolved on *which peer group* variants should shrink toward (that is a design
+# decision, not a math one -- shrink_ic() itself is already grain-agnostic and ready). Until
+# that peer-group choice is made, this script records the caveat on every WIN verdict rather
+# than silently reporting a selection-biased IC as if it were an unbiased estimate.
+_D15_WINNERS_CURSE_CAVEAT = (
+    "winner's-curse: champion-vs-challenger selection is a search; this IC is "
+    "unshrunk and upward-biased (todo 153 / OQ7 -- peer group for variant shrinkage "
+    "not yet decided)"
+)
+
 # D-12 comparison SQL: two weight_versions, each read at its OWN deterministic latest
 # scored_at vintage (GROUP BY weight_version, not a single global max) -- mirrors
 # ops_ensemble_ic_gate.py's `latest AS (SELECT max(scored_at) ...)` pattern (D-142A-R2),
@@ -100,6 +113,16 @@ def _regime_caveat(regime: str) -> str:
     is not the '_pooled' aggregate-across-regime sentinel, empty string otherwise.
     """
     return "" if regime == _POOLED_REGIME_SENTINEL else _D14_REGIME_CAVEAT
+
+
+def _winners_curse_flag(verdict: str) -> str:
+    """Pure helper: D-15 winner's-curse caveat tag.
+
+    Only a WIN verdict is actionable (it's the one that would drive a promotion), so only
+    WIN carries the caveat -- a LOSS or HOLD doesn't select the challenger's IC as a
+    representative estimate of anything.
+    """
+    return _D15_WINNERS_CURSE_CAVEAT if verdict == "WIN" else ""
 
 
 async def main() -> int:
@@ -199,7 +222,8 @@ async def main() -> int:
                 )
                 verdict = "WIN" if win else "LOSS"
 
-            flag = _regime_caveat(regime)
+            flags = [f for f in (_regime_caveat(regime), _winners_curse_flag(verdict)) if f]
+            flag = "; ".join(flags)
 
             champion_ci_str = f"[{champion_ci_lower}, {champion_ci_upper}]"
             challenger_ci_str = f"[{challenger_ci_lower}, {challenger_ci_upper}]"

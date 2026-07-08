@@ -23,8 +23,10 @@ if str(_scripts_alpha_dir) not in sys.path:
 from ops_ensemble_weight_compare import (
     _COMPARE_SQL,
     _D14_REGIME_CAVEAT,
+    _D15_WINNERS_CURSE_CAVEAT,
     _evaluate_win_rule,
     _regime_caveat,
+    _winners_curse_flag,
 )
 
 
@@ -95,3 +97,13 @@ def test_sql_scopes_to_single_lookahead_scale():
     within one (tf, regime) stratum.
     """
     assert _COMPARE_SQL.count("lookahead = $3") == 2
+
+
+def test_winners_curse_flag_applied_only_on_win():
+    """D-15: only a WIN verdict is actionable (drives a promotion), so only WIN carries
+    the winner's-curse caveat -- a LOSS or HOLD doesn't select the challenger's IC as a
+    representative estimate of anything, so there's nothing to caveat.
+    """
+    assert _winners_curse_flag("WIN") == _D15_WINNERS_CURSE_CAVEAT
+    assert _winners_curse_flag("LOSS") == ""
+    assert _winners_curse_flag("HOLD") == ""
