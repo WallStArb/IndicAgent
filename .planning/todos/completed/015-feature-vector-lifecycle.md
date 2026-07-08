@@ -1,6 +1,6 @@
 ---
 **Created:** 2026-06-28
-**Superseded:** 2026-07-04 (concept doc archived 2026-07-02; scope absorbed into `docs/ideas/intel-14-integrity-monitor.md`)
+**Superseded:** 2026-07-04 (concept doc archived 2026-07-02; scope absorbed into `docs/research/intel-14-integrity-monitor.md`)
 **Area:** intelligence
 **Type:** new_feature
 **Priority:** N/A — superseded
@@ -14,8 +14,8 @@
 
 ## SUPERSEDED — ABSORBED INTO INTEL-14 (2026-07-04)
 
-This todo's concept doc (`docs/ideas/feature-vector-lifecycle.md`) was archived 2026-07-02: its
-cooldown-based recovery policy was superseded by `docs/ideas/intel-14-integrity-monitor.md`'s
+This todo's concept doc (`docs/research/feature-vector-lifecycle.md`) was archived 2026-07-02: its
+cooldown-based recovery policy was superseded by `docs/research/intel-14-integrity-monitor.md`'s
 evidence-based approach (2 consecutive passing corpus runs AND ≥
 `alpha.ic.decay_recovery_min_observations` new independent observations, not a calendar cooldown).
 This todo itself was never updated to point at the successor and kept showing `Status: Pending`
@@ -26,8 +26,8 @@ original problem statement and Scope breakdown, not as a build plan — build ag
 instead.
 
 **Status:** Superseded, not implemented as written
-**Concept doc (archived):** `docs/ideas/archive/feature-vector-lifecycle.md`
-**Successor design:** `docs/ideas/intel-14-integrity-monitor.md`
+**Concept doc (archived):** `docs/research/archive/feature-vector-lifecycle.md`
+**Successor design:** `docs/research/intel-14-integrity-monitor.md`
 
 ## What
 

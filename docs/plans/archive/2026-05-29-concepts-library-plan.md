@@ -283,7 +283,7 @@ The infrastructure for evolvable AI agents is operational. eAI agents (v2.8 road
 
 **Design principle:** eAI agents are `BaseAIAgent` subclasses with an additional `genome` parameter dict. Reproductive operators (mutation, crossover, selection) are applied to the genome dict between evaluation cycles. The shadow governance lifecycle handles statistical gating before any mutant agent affects production scoring.
 
-See `docs/ideas/ai-03-evolvable-ai-agents.md` for the full research vision and `docs/ideas/eai-phase-recommendations.md` for the v2.8 implementation roadmap.
+See `docs/research/ai-03-evolvable-ai-agents.md` for the full research vision and `docs/research/eai-phase-recommendations.md` for the v2.8 implementation roadmap.
 ```
 
 - [ ] **Step 3: Verify**
@@ -1000,7 +1000,7 @@ git commit -m "docs(concepts): add evidence-graded-signals, remove cis-scoring (
 
 - [ ] **Step 1: Read source material**
 
-Read `docs/concepts/evolvable-ai.md`. Read `docs/intelligence/intelligence-ai.md` Shadow Governance and eAI Substrate sections (added in Task 3). Read `docs/ideas/ai-03-evolvable-ai-agents.md` — the research vision for broader context.
+Read `docs/concepts/evolvable-ai.md`. Read `docs/intelligence/intelligence-ai.md` Shadow Governance and eAI Substrate sections (added in Task 3). Read `docs/research/ai-03-evolvable-ai-agents.md` — the research vision for broader context.
 
 - [ ] **Step 2: Write adaptive-intelligence.md**
 

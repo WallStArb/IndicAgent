@@ -4,7 +4,7 @@
 **Status:** current
 **Last Updated:** 2026-04-21
 **Tags:** performance, pipeline-throughput, parallelization, bottleneck, optimization, latency
-**Related:** `docs/ideas/pipeline-throughput-bottleneck-analysis.md` · `docs/architecture/current-state.md`
+**Related:** `docs/research/pipeline-throughput-bottleneck-analysis.md` · `docs/architecture/current-state.md`
 
 ---
 
@@ -179,7 +179,7 @@ JIT-compile numpy operations for native speed.
 
 ## References
 
-- **Analysis:** `docs/ideas/pipeline-throughput-bottleneck-analysis.md`
+- **Analysis:** `docs/research/pipeline-throughput-bottleneck-analysis.md`
 - **Current State:** `docs/architecture/current-state.md`
 
 ---

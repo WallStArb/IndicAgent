@@ -15,7 +15,7 @@
 
 Reviewed the full v3.1-v4.1 roadmap plus `docs/plans/2026-06-27-health-guardian-design.md`
 (archived 2026-07-02, source for Phases 149A/149B/150 — superseded by
-`docs/ideas/intel-14-integrity-monitor.md`, which found this consolidation had dropped real
+`docs/research/intel-14-integrity-monitor.md`, which found this consolidation had dropped real
 content from its own predecessors; `DistributionDriftMonitor` kept unchanged, consult intel-14
 for the current design) against todo 034 (HMM non-causal fit contaminating causal decode, found
 2026-07-01). None of the three planned IntegrityMonitor modules would have caught the 034 class

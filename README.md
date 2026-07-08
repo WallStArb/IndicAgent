@@ -598,7 +598,7 @@ The VIL substrate is domain-agnostic. The same embed → label → retrieve arch
 
 Each domain plugs into the same VIL tables, the same k-NN primitive, the same scoring engine. No new infrastructure per domain - the substrate compounds with every domain added and every bar processed. The older the system, the more valuable it becomes.
 
-Full design: [`docs/ideas/vil-01-vector-intelligence-layer.md`](docs/ideas/vil-01-vector-intelligence-layer.md) through `vil-05`.
+Full design: [`docs/research/vil-01-vector-intelligence-layer.md`](docs/research/vil-01-vector-intelligence-layer.md) through `vil-05`.
 
 ---
 
@@ -717,14 +717,14 @@ Docs in `docs/foundation/` and domain folders (`intelligence/`, `data/`, `signal
 
 | Document | Covers |
 |----------|--------|
-| [ML Architecture](docs/ideas/ai-02-ml-agent-architecture.md) | ML layer design - 5 agents, LangGraph orchestration, promotion gates |
-| [eAI Design](docs/ideas/ai-03-evolvable-ai-agents.md) | Evolvable AI framework - genome model, reproductive operators, fitness function |
-| [VIL - Substrate](docs/ideas/vil-01-vector-intelligence-layer.md) | pgvector retrieval substrate - embed, label, retrieve; schema; serialization spec |
-| [VIL - Feature IC](docs/ideas/vil-02-predictive-feature-intelligence.md) | Outcome Labeler, IC Factory, Analog Finder - what predicts price |
-| [VIL - Scoring Engine](docs/ideas/vil-03-scoring-engine.md) | Analog set → Score Object; four resolution levels; conviction envelope |
-| [VIL - Correlation](docs/ideas/vil-04-correlation-intelligence.md) | Effective-N; plugin/signal independence; redundancy suppression |
-| [VIL - Signal Combiner](docs/ideas/vil-05-signal-combiner.md) | IC-weighted, decorrelated combination of the live edge set |
-| [VIL - Platform Ideas](docs/ideas/vil-06-platform-ideas.md) | Regime discovery, lead-lag, hypothesis backtester, episodic memory |
+| [ML Architecture](docs/research/ai-02-ml-agent-architecture.md) | ML layer design - 5 agents, LangGraph orchestration, promotion gates |
+| [eAI Design](docs/research/ai-03-evolvable-ai-agents.md) | Evolvable AI framework - genome model, reproductive operators, fitness function |
+| [VIL - Substrate](docs/research/vil-01-vector-intelligence-layer.md) | pgvector retrieval substrate - embed, label, retrieve; schema; serialization spec |
+| [VIL - Feature IC](docs/research/vil-02-predictive-feature-intelligence.md) | Outcome Labeler, IC Factory, Analog Finder - what predicts price |
+| [VIL - Scoring Engine](docs/research/vil-03-scoring-engine.md) | Analog set → Score Object; four resolution levels; conviction envelope |
+| [VIL - Correlation](docs/research/vil-04-correlation-intelligence.md) | Effective-N; plugin/signal independence; redundancy suppression |
+| [VIL - Signal Combiner](docs/research/vil-05-signal-combiner.md) | IC-weighted, decorrelated combination of the live edge set |
+| [VIL - Platform Ideas](docs/research/vil-06-platform-ideas.md) | Regime discovery, lead-lag, hypothesis backtester, episodic memory |
 | [DAG Execution](docs/concepts/dag-execution.md) | Service DAG topology and execution model |
 | [Roadmap](.planning/ROADMAP.md) | Phase roadmap and current position |
 

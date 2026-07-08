@@ -404,7 +404,7 @@ check_glossary_terms() {
 #           table without explicit justification
 #
 # Scope: New CREATE TABLE statements in staged .sql migration files
-# Invariant: docs/ideas/canonical-simulator.md's binding rule — "no validation
+# Invariant: docs/research/canonical-simulator.md's binding rule — "no validation
 #            client builds its own replay or counterfactual path; counterfactual
 #            P&L claims are alpha_frames rows, new shapes are frame_variants,
 #            never new tables or services." A new table shaped like a claim
@@ -451,7 +451,7 @@ check_counterfactual_ledger() {
                 fi
                 echo "  FAILED: new table '${table}' looks like a parallel claim/event ledger"
                 echo "    File: ${file}"
-                echo "    Rule: docs/ideas/canonical-simulator.md — counterfactual claims are"
+                echo "    Rule: docs/research/canonical-simulator.md — counterfactual claims are"
                 echo "      alpha_frames rows; new shapes are frame_variants, not new tables."
                 echo "    Remediation: extend alpha_frames with a frame_variant instead, or if"
                 echo "      this table is genuinely a different concept, add a comment:"

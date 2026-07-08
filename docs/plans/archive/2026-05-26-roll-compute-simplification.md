@@ -184,7 +184,7 @@ Structured logs (`structlog`) for detail:
 
 - Delete `services/roll_compute_agent.py`
 - Delete `services/contract_metadata_writer_agent.py`
-- Archive `docs/ideas/futures-roll-simplification.md` to `docs/ideas/archive/`
+- Archive `docs/research/futures-roll-simplification.md` to `docs/research/archive/`
 - Remove `roll_compute_` OTel metric definitions
 - Remove `contract_writer_` OTel metric definitions
 - Update `CLAUDE.md`:

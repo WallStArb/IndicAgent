@@ -13,7 +13,7 @@ instrument's association with a tag; driven by beta magnitude after empirical ca
 
 But today nearly every weight in the table is a `source='human'` assertion — a guess, not a
 measurement. The design to fix this already exists in full at
-`docs/ideas/instrument-tag-calibrator.md` (status: draft, v1.1, priority: high, milestone:
+`docs/research/instrument-tag-calibrator.md` (status: draft, v1.1, priority: high, milestone:
 post-v2.8) and does not need to be re-specced from scratch — it needs to be **picked up and
 turned into a phase**. Do not re-derive its design; read that doc first.
 

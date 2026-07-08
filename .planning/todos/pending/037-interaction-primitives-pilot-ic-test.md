@@ -3,7 +3,7 @@
 **Status:** pending
 **Priority:** P2 — cheap, high information value, settles a real open question with existing infrastructure
 **Gate:** Phase B corpus re-run complete (need a clean, corrected corpus and IC Engine to measure against)
-**Concept doc:** `docs/ideas/interaction-factory.md` — this todo is the evidence-gathering step that doc's "Build Trigger" now requires before Interaction Factory itself is built
+**Concept doc:** `docs/research/interaction-factory.md` — this todo is the evidence-gathering step that doc's "Build Trigger" now requires before Interaction Factory itself is built
 
 ## Why
 

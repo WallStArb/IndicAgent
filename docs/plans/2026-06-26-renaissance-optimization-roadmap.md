@@ -770,7 +770,7 @@ for window in ROLLING_WINDOWS:
 
 **Issue:** v2.x had distribution drift detection (`drift_state` table with KS test + CUSUM) for intelligence_features. v3.0 feature_vectors has no equivalent.
 
-**Note:** v3.0 has IC-based decay detection (`docs/ideas/feature-vector-lifecycle.md`) — detects when a feature's predictive edge degrades. That's different from distribution drift. Both are needed:
+**Note:** v3.0 has IC-based decay detection (`docs/research/feature-vector-lifecycle.md`) — detects when a feature's predictive edge degrades. That's different from distribution drift. Both are needed:
 - **IC decay detection** (implemented as lifecycle states): Feature edge erodes over time
 - **Distribution drift detection** (missing): Input data distribution shifts (data corruption, provider changes)
 

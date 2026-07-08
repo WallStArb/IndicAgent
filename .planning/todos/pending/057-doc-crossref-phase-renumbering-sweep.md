@@ -18,21 +18,21 @@ order (v3.15 conditioning phases moved before v3.2's AnalogEngine, since nothing
 | 152 | 153 | ETF Universe Expansion (58→79) |
 | 149 | 154 | Alternative Data Vectors |
 
-**Already fixed:** `ROADMAP.md` itself (full pass), `docs/ideas/idea-catalog.md`, and
-`docs/ideas/2026-07-01-intelligence-lifecycle-backlog-matrix.md` (all cross-references updated
+**Already fixed:** `ROADMAP.md` itself (full pass), `docs/research/idea-catalog.md`, and
+`docs/research/2026-07-01-intelligence-lifecycle-backlog-matrix.md` (all cross-references updated
 and spot-checked for slash/list-separator edge cases the bulk regex missed).
 
 **Still stale — grep confirmed references to old numbers, not yet fixed:**
-- `docs/ideas/edge-source-thesis.md`
-- `docs/ideas/cross-group-lead-lag-ic.md`
-- `docs/ideas/canonical-simulator.md`
-- `docs/ideas/phase142-redesign-musk5step-audit.md` (likely just historical, check before editing)
-- `docs/ideas/intel-10-confluence-detection-persistence-layer.md` (v3)
-- `docs/ideas/comomentum-crowding-metric.md`
-- `docs/ideas/intel-13-analog-engine.md`
-- `docs/ideas/intel-12-stratification-dimension.md`
-- `docs/ideas/intel-14-integrity-monitor.md`
-- `docs/ideas/concept-governance-registries.md`
+- `docs/research/edge-source-thesis.md`
+- `docs/research/cross-group-lead-lag-ic.md`
+- `docs/research/canonical-simulator.md`
+- `docs/research/phase142-redesign-musk5step-audit.md` (likely just historical, check before editing)
+- `docs/research/intel-10-confluence-detection-persistence-layer.md` (v3)
+- `docs/research/comomentum-crowding-metric.md`
+- `docs/research/intel-13-analog-engine.md`
+- `docs/research/intel-12-stratification-dimension.md`
+- `docs/research/intel-14-integrity-monitor.md`
+- `docs/research/concept-governance-registries.md`
 
 **Action:** for each file above, grep for `Phase 151|148|144|145|146|147|149A|150|152|149` (bare
 `143.5` too) and apply the mapping table. Do NOT blind-sed — these are free-form prose, not

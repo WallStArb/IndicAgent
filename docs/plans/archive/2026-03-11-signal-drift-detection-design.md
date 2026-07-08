@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-11
 **Status:** Shipped — KS drift_penalty in aggregator.py; CUSUM in setup_performance_updater.py + drift_state table; runs in service layer (not as plugin)
-**Research ref:** `docs/ideas/renaissance-gap-analysis.md` § T3-A, T3-B
+**Research ref:** `docs/research/renaissance-gap-analysis.md` § T3-A, T3-B
 **Milestone target:** v1.8
 
 ---

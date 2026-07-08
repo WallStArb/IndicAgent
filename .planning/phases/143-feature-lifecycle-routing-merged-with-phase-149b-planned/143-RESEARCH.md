@@ -650,7 +650,7 @@ zero string-interpolated SQL for values).
 - `docs/plans/2026-06-28-hmm-regime-audit-optimization.md` - full plan doc for LIFECYCLE-00
 - `.planning/todos/pending/026-hmm-regime-audit-optimization.md` - per-item status table (verified 2026-07-04)
 - `.planning/todos/pending/033-zero-ic-feature-refinement.md` and `.planning/todos/completed/034-hmm-walk-forward-refit.md`
-- `docs/ideas/intel-14-integrity-monitor.md` - full doc read, reconciliation history and schema recommendation
+- `docs/research/intel-14-integrity-monitor.md` - full doc read, reconciliation history and schema recommendation
 - Live DB queries (this session): `feature_registry` status distribution (61/61 active), `integrity_monitor` non-existence, `feature_ic_scores` row/training_window_end counts for the 4 zero-IC features, `feature_vectors.momentum_rank_z` still NULL (todo 013 unshipped)
 - `.planning/ROADMAP.md` lines 1632-1723 - the authoritative Phase 143 spec itself
 - `.planning/STATE.md` - Phase B corpus re-run figures, cross-checked against live DB counts

@@ -46,6 +46,6 @@ their effect on `feature_ic_scores`.
 
 ## References
 
-- `docs/ideas/edge-source-thesis.md` — data quality as edge context
+- `docs/research/edge-source-thesis.md` — data quality as edge context
 - `docs/plans/methodology-change-ledger.md` — any exclusion rule added as a result of this
   hunt is a methodology change and gets a ledger entry

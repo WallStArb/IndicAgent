@@ -1,7 +1,7 @@
 # Regime Stratification Alternatives
 
 **Archived 2026-07-02.** Decision-relevant content (candidates, gates, substitution-test
-procedure, explicit rejections) consolidated into `docs/ideas/intel-12-stratification-dimension.md`.
+procedure, explicit rejections) consolidated into `docs/research/intel-12-stratification-dimension.md`.
 Kept here for the implementation-level detail (formulas, APR key specifics) not reproduced
 there. Superseded as the primary reference; do not treat this doc's own recommended build
 order as current.
@@ -12,9 +12,9 @@ Status: OPEN — speculative backlog; HMM foundation must be solid first (todo 0
 Updated: 2026-07-01 — three decisions from other docs now bind this one:
 - Session Regime downgraded: cheap+safe is not the same as valuable — no case made for
   session effects at this system's swing (not HFT) cadence. It is no longer "evaluate ahead of
-  Volume Regime" (see `docs/ideas/2026-07-01-intelligence-lifecycle-backlog-matrix.md`).
+  Volume Regime" (see `docs/research/2026-07-01-intelligence-lifecycle-backlog-matrix.md`).
 - Percentile-rank-first sequencing verdict: any dimension here that has an HMM-engine equivalent
-  in `docs/ideas/multi-engine-regime-architecture.md` is built as deterministic
+  in `docs/research/multi-engine-regime-architecture.md` is built as deterministic
   percentile-rank first; an HMM engine only if that proves insufficient.
 - Storage split settled: per-symbol dimensions (Volatility Regime, Volume Regime, Session
   Regime, Skew/Tail Regime) become columns on `feature_vectors` alongside `regime`;
@@ -274,7 +274,7 @@ on this list and arguably should be evaluated ahead of Volume Regime.
 
 **Downgraded 2026-07-01:** cheap+safe is not the same as valuable -- no case made for why
 session effects matter at this system's (swing, not HFT) cadence. See
-`docs/ideas/2026-07-01-intelligence-lifecycle-backlog-matrix.md`.
+`docs/research/2026-07-01-intelligence-lifecycle-backlog-matrix.md`.
 
 **Gate:** none technical -- only intraday TFs (5m/15m) benefit; daily/1h bars have no
 useful session position.
@@ -284,7 +284,7 @@ useful session position.
 ### Skew/Tail Regime (candidate; gated on orthogonality check)
 
 **What it is:** Rolling return skewness percentile per (symbol, tf). Already identified
-as a measurable primitive in `docs/ideas/instrument-tag-calibrator.md` (`skewness`).
+as a measurable primitive in `docs/research/instrument-tag-calibrator.md` (`skewness`).
 
 **Why it might matter:** Distinct information from vol level in principle -- a symbol can
 be high-vol-positive-skew (lottery-like, e.g. XBI) or high-vol-negative-skew (crash risk,

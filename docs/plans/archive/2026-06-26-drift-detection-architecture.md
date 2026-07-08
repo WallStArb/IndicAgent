@@ -2,7 +2,7 @@
 
 **Archived 2026-07-02.** Its "Part 3: CUSUM Repurposing" section (ensemble-IC change-detection,
 ported from a working v2.x mechanism) was silently dropped from the 2026-06-27 consolidation
-with no documented reason; restored into `docs/ideas/intel-14-integrity-monitor.md` (build with
+with no documented reason; restored into `docs/research/intel-14-integrity-monitor.md` (build with
 Phase 150, alert-only, self-arming at 20 measurements/key). Kept here for the full CUSUM
 algorithm detail and the v2.x-to-v3.0 adaptation reasoning not reproduced in intel-14.
 
@@ -10,7 +10,7 @@ algorithm detail and the v2.x-to-v3.0 adaptation reasoning not reproduced in int
 **Status:** PROPOSED — not planned, awaiting prioritization
 **Milestone:** v3.0 Phases 149A-150 (Data Integrity + Observability)
 **v2.x reference:** `docs/plans/archive/2026-03-11-signal-drift-detection-design.md` (shipped March 2026)
-**Service design:** `docs/ideas/data-integrity-monitor-design.md` (Renaissance-grade reusable platform)
+**Service design:** `docs/research/data-integrity-monitor-design.md` (Renaissance-grade reusable platform)
 
 ---
 

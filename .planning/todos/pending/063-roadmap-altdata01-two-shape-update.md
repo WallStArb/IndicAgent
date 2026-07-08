@@ -10,7 +10,7 @@
 
 # 063 — Update ROADMAP Phase 154 ALTDATA-01 to the two-shape alt-data design
 
-Found 2026-07-06 during the Fable 5 review of `docs/ideas/data-alt-data-sources.md`.
+Found 2026-07-06 during the Fable 5 review of `docs/research/data-alt-data-sources.md`.
 ROADMAP's ALTDATA-01 requirement ("`alt_feature_vectors` table keyed on
 `(symbol, ts, data_source)`; IC engine joins both") was inherited from that doc's original
 2026-06-23 text. The review rejected the single grab-bag table and replaced it with a

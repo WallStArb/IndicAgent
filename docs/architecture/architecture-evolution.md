@@ -300,7 +300,7 @@ Signal status strings: `"pending"`, `"active"`, `"regime_suppressed"` — raw st
 - **Trade-off:** High overhead (process spawn, IPC serialization)
 - **Status:** Not pursued unless batch processing insufficient
 
-**See:** `docs/architecture/pipeline-optimization.md` for detailed strategy and `docs/ideas/pipeline-throughput-bottleneck-analysis.md` for profiling analysis.
+**See:** `docs/architecture/pipeline-optimization.md` for detailed strategy and `docs/research/pipeline-throughput-bottleneck-analysis.md` for profiling analysis.
 
 ---
 

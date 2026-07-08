@@ -1,6 +1,6 @@
 # IntegrityMonitor — Unified Monitoring Platform Design
 
-**Archived 2026-07-02.** Superseded by `docs/ideas/intel-14-integrity-monitor.md`, which found
+**Archived 2026-07-02.** Superseded by `docs/research/intel-14-integrity-monitor.md`, which found
 this consolidation dropped real content from its own predecessors (E2B/E2C conviction
 sub-tests, CUSUM, cascade reasoning) and proposed a `feature_ic_scores` schema since overruled
 by the topdown review's D3. `DistributionDriftMonitor` (Monitor 1) is kept unchanged. Kept here
@@ -8,7 +8,7 @@ for the full schema DDL, APR key table, and observability spec not reproduced in
 
 **Date:** 2026-06-27
 **Status:** PROPOSED — awaiting prioritization
-**Replaces:** `docs/ideas/data-integrity-monitor-design.md`, `docs/ideas/system-health-monitor-design.md`, `docs/ideas/predictive-decay-detector-design.md`
+**Replaces:** `docs/research/data-integrity-monitor-design.md`, `docs/research/system-health-monitor-design.md`, `docs/research/predictive-decay-detector-design.md`
 **Milestone:** v3.0a-c (Phases 149A, 149B, 150, 151A-C)
 
 ---

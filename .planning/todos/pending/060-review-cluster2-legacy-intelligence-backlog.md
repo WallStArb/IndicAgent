@@ -4,7 +4,7 @@
 **Type:** tech_debt
 **Priority:** P3
 **Effort:** ~2-3 hours
-**Benefit:** Either salvage real content into v3.0's Feature Factory / Phase 150, or clear dead weight from docs/ideas/
+**Benefit:** Either salvage real content into v3.0's Feature Factory / Phase 150, or clear dead weight from docs/research/
 **Risk:** low
 **Gate:** None
 ---
@@ -13,7 +13,7 @@
 
 ## Problem
 
-`docs/ideas/idea-catalog.md` Cluster 2 ("Pre-v3.0 Intelligence Backlog, I1-I9 era") holds five docs
+`docs/research/idea-catalog.md` Cluster 2 ("Pre-v3.0 Intelligence Backlog, I1-I9 era") holds five docs
 of unresolved status: `intel-01-momentum-acceleration.md`, `intel-02-second-derivative-indicators.md`,
 `intel-03-future-indicators.md`, `intel-06-regime-transition-detection.md`,
 `intel-08-macro-cross-asset.md`. The catalog's own note says "some content may still be salvageable

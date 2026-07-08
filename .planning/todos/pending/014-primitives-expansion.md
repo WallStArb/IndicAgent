@@ -13,7 +13,7 @@
 
 **Priority: Medium-High — next feature set chapter after clean corpus + IC validation on existing 54.**
 **Gate: 001 (batch primitives fix) complete + clean 58-symbol corpus + IC discovery on 54 features confirms stable results.**
-**Idea doc:** `docs/ideas/renaissance-primitives-ohlcv.md` — formulas, naming conventions, score ranges, full priority order.
+**Idea doc:** `docs/research/renaissance-primitives-ohlcv.md` — formulas, naming conventions, score ranges, full priority order.
 
 ---
 

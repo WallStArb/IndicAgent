@@ -12,7 +12,7 @@
 # 150 — Cross-Timeframe Divergence Primitives
 
 **Priority: Medium — completes the Renaissance primitive basket**
-**Source:** `docs/ideas/signal-renaissance-primitives-ohlcv.md` (Interaction Primitives → Cross-Timeframe Divergences)
+**Source:** `docs/research/signal-renaissance-primitives-ohlcv.md` (Interaction Primitives → Cross-Timeframe Divergences)
 
 ---
 

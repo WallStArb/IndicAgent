@@ -137,7 +137,7 @@ Scanning for deprecated glossary terms...
     src/intelligence/plugins/foo.py:42:  # taxonomy weight
 
   ontology (replace with: vocabulary)
-    docs/ideas/some-idea.md:7:  "...ontology-driven classification..."
+    docs/research/some-idea.md:7:  "...ontology-driven classification..."
 
 2 deprecated terms found across 3 occurrences.
 Fix these and promote to 'retired' in the glossary.

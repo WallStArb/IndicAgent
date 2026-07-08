@@ -1,7 +1,7 @@
 # Feature Scoring Beyond IC
 
 **Archived 2026-07-02.** Marginal contribution (0a), shrinkage (0b), and calibration (0c)
-carried into `docs/ideas/intel-15-measurement-engine.md`'s "Measurement Gaps" section. The 0b
+carried into `docs/research/intel-15-measurement-engine.md`'s "Measurement Gaps" section. The 0b
 finding is time-sensitive: `ic_shrunk` (the column Phase 142B.1's E1 variant is specced to
 consume) does not exist yet — todo 029 is still pending. Kept here for the full method detail
 (residualization, empirical-Bayes shrinkage formula, Brier/reliability calibration) not
@@ -12,7 +12,7 @@ Status: OPEN — discovery backlog; IC remains the foundation; these extend it
 Updated: 2026-07-01 — council refinement pass. Added the three missing layers (marginal
 contribution, shrinkage, calibration), fixed two technical flaws in the original proposals
 (MI's positive bias, breadth's independence assumption), tied scoring to the cost hurdle.
-Companion concepts: `docs/ideas/intel-10-confluence-detection-persistence-layer.md` applies
+Companion concepts: `docs/research/intel-10-confluence-detection-persistence-layer.md` applies
 the same shrinkage/calibration/effective-N discipline at confluence grain.
 
 Renaissance Council analysis of what IC measures, what it misses, and what complementary
@@ -321,7 +321,7 @@ everything else adds information, shrinkage removes a known bias.
 - `services/ic_engine.py` -- current IC implementation
 - `docs/plans/2026-06-29-ic-engine-improvements.md` -- IC engine correctness fixes
 - `docs/plans/2026-06-20-alphaengine-architecture.md` -- IC methodology spec
-- `docs/ideas/intel-10-confluence-detection-persistence-layer.md` -- same
+- `docs/research/intel-10-confluence-detection-persistence-layer.md` -- same
   shrinkage/calibration/effective-N stack at confluence grain; build the machinery once
 - ROADMAP.md Phase 146 ANALOG-07 -- existing effective-N design to reuse for breadth
 - Kelly, Bryan et al. "Empirical Asset Pricing via Machine Learning" (2019)

@@ -96,7 +96,7 @@ bond regime dynamics — rates markets grind and mean-revert around curve shape 
 trend the way equities do. That points at the factor-augmented HMM / `regime_group`-conditional
 direction (`docs/plans/archive/2026-07-01-regime-stratification-alternatives.md`, HMM Variants
 section — archived 2026-07-02, decision-relevant content consolidated into
-`docs/ideas/intel-12-stratification-dimension.md`; this citation is for the implementation-level
+`docs/research/intel-12-stratification-dimension.md`; this citation is for the implementation-level
 formula detail specifically kept in the archived copy, not decision framing)
 as a competing explanation to rolling refit, not a confirming one. Don't assume rolling refit is
 the universal fix before Step 2 distinguishes these two hypotheses per-symbol.
@@ -140,7 +140,7 @@ same contamination error found above.
 required is made - option (b) pre-committed (demote per-symbol HMM to shadow per weak
 regime_group; cross-sectional + volatility_pct stratification), (c) factor-augmented variant
 pre-registered as the rates challenger with a defined build trigger. See
-`.planning/research/fable-2026-07-07-phase144-conditioning-decision.md` for reasoning and
+`docs/research/fable-2026-07-07-phase144-conditioning-decision.md` for reasoning and
 falsifiers. Caveat carried forward from that doc: the Step 1/Step 2 magnitudes above are stale
 (synthetic-bar filter fix `26efb75b`, 142.5's 91 new primitives, full-depth backfill) - the
 widened per-regime_group Step 1 must re-run on the fresh corpus before any demotion executes.

@@ -10,7 +10,7 @@ now **Phase 150**. Body below updated to match; original finding and scope uncha
 `ROADMAP.md` Phase 148 (AnalogEngine — Embedding Substrate + Retrieval) and Phase 149 (AnalogEngine
 — IC Factory + Scoring Engine + Enrichment) still specify `feature_ic_stats`, `similarity_pairs`,
 `score_cache`, Score Objects, `analog-enricher`, `embedding_feature_registry` — all of which
-`docs/ideas/intel-13-analog-engine.md` (2026-07-02, the topdown-architecture rescope, decision D4)
+`docs/research/intel-13-analog-engine.md` (2026-07-02, the topdown-architecture rescope, decision D4)
 deleted in favor of analog predictors + a return-distribution primitive living in the shared
 Measurement Engine, not a bespoke parallel scoring stack.
 

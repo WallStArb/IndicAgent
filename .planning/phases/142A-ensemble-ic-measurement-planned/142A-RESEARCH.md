@@ -6,7 +6,7 @@
 
 ## Summary
 
-Phase 142A measures whether the ensemble OUTPUT (`alpha_events.alpha_score`) predicts forward returns, using the same corrected methodology the feature IC engine shipped in Phase A. It is the assumption-free signal proof that must pass before any frame/execution logic (142B) is built. The scope is LOCKED by the Musk 5-step + Renaissance audit (`docs/ideas/phase142-redesign-musk5step-audit.md`) — research covers HOW to implement EIC-01..EIC-05, not WHETHER.
+Phase 142A measures whether the ensemble OUTPUT (`alpha_events.alpha_score`) predicts forward returns, using the same corrected methodology the feature IC engine shipped in Phase A. It is the assumption-free signal proof that must pass before any frame/execution logic (142B) is built. The scope is LOCKED by the Musk 5-step + Renaissance audit (`docs/research/phase142-redesign-musk5step-audit.md`) — research covers HOW to implement EIC-01..EIC-05, not WHETHER.
 
 The implementation is a near-mechanical port of `services/ic_engine.py` onto a single composite predictor (`alpha_score`) instead of 54 features. Because alpha_score is ONE column, the heavy per-feature numpy vectorization, collinearity clustering, and corpus-level BH-FDR representative selection collapse dramatically — there is no cluster deflation step and BH-FDR runs over the (symbol × tf × regime × lookahead) cells directly. The IC math primitives (Fisher z CI, t-approximation p-values, expanding-window walk-forward with scale-specific embargo, HAC IC Sharpe) are pure functions already imported from `ic_engine.py` and must be reused verbatim — re-deriving them is an architecture violation (silent-wrong-answer risk).
 
@@ -653,7 +653,7 @@ SELECT
 - Live DB queries against `indicagent` (2026-06-30): `alpha_events` schema (alpha_score column confirmed), `market_regimes` (9 labels confirmed), `feature_vectors.regime` (5 HMM labels — NOT used for ensemble IC), `feature_ic_scores` schema (32 columns), `forward_returns` schema (return_type + 4 scales + complete_* flags), `config_state`/`config_schema` (columns are `config_key`/`config_value`, NOT `key`/`value`), APR keys present/absent.
 - `.venv/bin/python` import verification: scipy 1.17.1, statsmodels 0.14.6, numpy 2.4.6, asyncpg 0.31.0; `multipletests`, `rankdata`, `t_dist`, `fcluster`, `linkage`, `squareform` all resolve.
 - `.planning/phases/142A-ensemble-ic-measurement-planned/142A-CONTEXT.md` — locked decisions EIC-01..05, deferred ideas, open questions OQ-1/2/3.
-- `docs/ideas/phase142-redesign-musk5step-audit.md` — the authority on scope (KEEP/DELETE/SIMPLIFY verdicts).
+- `docs/research/phase142-redesign-musk5step-audit.md` — the authority on scope (KEEP/DELETE/SIMPLIFY verdicts).
 - `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_ensemble_ic` DDL, APR key lists (regime namespace STALE — see OQ-1 resolution).
 
 ### Secondary (MEDIUM confidence)

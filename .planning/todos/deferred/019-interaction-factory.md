@@ -14,7 +14,7 @@
 **Status:** Pending — blocked on evidence, not just readiness
 **Priority:** Post-pilot (see `.planning/todos/pending/037-interaction-primitives-pilot-ic-test.md`)
 **Depends on:** 008-feature-registry (metadata required, implemented), primitives expansion landed (~100+ tier-0 atomics), IC engine stable on full 58-symbol corpus, **037 pilot showing real incremental IC on hand-picked interactions**
-**Concept doc:** `docs/ideas/interaction-factory.md` (refreshed 2026-07-01 — reframed from a service to a candidate-generation strategy, added the evidence-based trigger, fixed statistical gaps)
+**Concept doc:** `docs/research/interaction-factory.md` (refreshed 2026-07-01 — reframed from a service to a candidate-generation strategy, added the evidence-based trigger, fixed statistical gaps)
 
 ## What
 
@@ -37,7 +37,7 @@ Renaissance doesn't hand-curate feature interactions — they generate all candi
 4. IC score persistence — `compound_ic_scores` table (new, lightweight, outside Concept Registry), keyed to an `eval_run_id`
 5. **Batch-level FDR correction across the full candidate set is mandatory before promotion** — naive `p<0.05` across ~30,000 candidates produces ~1,000-1,500 false discoveries from chance alone
 6. Promotion — survivors land in the **live `feature_registry`** if Concept Registry hasn't shipped yet, or `concept_registry` (`domain='feature_interaction'`) if it has. No standalone `compound_primitive_registry` table either way.
-7. Demotion/decay — governed by `docs/ideas/intel-14-integrity-monitor.md` (interim, `feature_registry`) or Concept Registry's `decay_floor` (eventual). (Was previously scoped as todo 015, now superseded/completed — see `.planning/todos/completed/015-feature-vector-lifecycle.md`.)
+7. Demotion/decay — governed by `docs/research/intel-14-integrity-monitor.md` (interim, `feature_registry`) or Concept Registry's `decay_floor` (eventual). (Was previously scoped as todo 015, now superseded/completed — see `.planning/todos/completed/015-feature-vector-lifecycle.md`.)
 
 ## Key Design Decisions (pre-resolved in concept doc)
 

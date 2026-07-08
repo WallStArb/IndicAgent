@@ -306,4 +306,4 @@ Nothing in Phase C or beyond starts before IC is measured and positive. Shadow m
 - **IC methodology:** `docs/plans/2026-06-20-alphaengine-ic-spec.md` — Spearman, IC Sharpe, FDR, block bootstrap
 - **AnalogEngine:** `docs/plans/2026-06-20-analogengine-design.md` — deferred; pgvector similarity search
 - **Feature Factory foundation:** `src/intelligence/features/` (Phase A implementation)
-- **Prior art:** `docs/ideas/archive/renaissance-alpha-pipeline.md`
+- **Prior art:** `docs/research/archive/renaissance-alpha-pipeline.md`

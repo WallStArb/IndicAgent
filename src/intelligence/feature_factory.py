@@ -1454,7 +1454,7 @@ def _bb_pct_b(closes_window: np.ndarray, eps: float = 1e-10) -> float:
 # assertion already referenced these fields with no plan computing them.
 # Six are O(1) scalar combinators reusing parent scalar values with zero
 # extra window; only the 2 rolling correlations (price_vol_corr_fast/slow)
-# need a new APR window. See docs/ideas/signal-renaissance-primitives-ohlcv.md
+# need a new APR window. See docs/research/signal-renaissance-primitives-ohlcv.md
 # (Interaction Primitives section).
 # ---------------------------------------------------------------------------
 

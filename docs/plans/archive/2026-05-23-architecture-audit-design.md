@@ -4,14 +4,14 @@
 **Last Updated:** 2026-05-23
 **Date:** 2026-05-23
 **Status:** Approved - ready to execute next session
-**Output:** Updated `docs/ideas/architectural-weakness-assessment.md`
+**Output:** Updated `docs/research/architectural-weakness-assessment.md`
 **Framing:** Renaissance/Simons — audit the machine for alpha leakage, information destruction, and feedback loop gaps. Every piece of complexity that can be removed should be removed.
 
 ---
 
 ## Purpose
 
-A full-spectrum architectural audit of IndicAgent across 7 domains, executed as 7 parallel `gsd-codebase-mapper` agents feeding into a synthesis agent. The audit extends the existing `docs/ideas/architectural-weakness-assessment.md` with new numbered findings, a ranked improvement backlog, and a simplification readiness assessment for v2.8.
+A full-spectrum architectural audit of IndicAgent across 7 domains, executed as 7 parallel `gsd-codebase-mapper` agents feeding into a synthesis agent. The audit extends the existing `docs/research/architectural-weakness-assessment.md` with new numbered findings, a ranked improvement backlog, and a simplification readiness assessment for v2.8.
 
 The existing doc covers compute (#1), settings (#2), persistence (#3), dead AI foundations (#4), queue drops (#5), and error handling (#6-#12). This audit adds fresh coverage of telemetry alignment, code reuse, DAG correctness, shadow governance, and cross-cutting simplification opportunities.
 
@@ -187,7 +187,7 @@ The fourth question for Agent 7 only:
 
 **Inputs:** All 7 domain findings docs at `docs/architecture/audit-2026-05-23-<domain>.md`
 
-**Task:** Produce an updated `docs/ideas/architectural-weakness-assessment.md` that:
+**Task:** Produce an updated `docs/research/architectural-weakness-assessment.md` that:
 
 1. Preserves all existing findings (#1-#12) with their current status
 2. Adds new findings as #13 onward from domain agent outputs, deduplicated and consolidated
@@ -200,7 +200,7 @@ The fourth question for Agent 7 only:
 5. Produces a **v2.8 readiness section** summarizing Agent 7's findings as: "do this before v2.8 starts", "do this during v2.8", "safe to defer"
 
 **Output files:**
-- Updated `docs/ideas/architectural-weakness-assessment.md` (in-place update)
+- Updated `docs/research/architectural-weakness-assessment.md` (in-place update)
 - `docs/architecture/audit-2026-05-23-synthesis.md` (synthesis working doc, preserved for reference)
 
 ---

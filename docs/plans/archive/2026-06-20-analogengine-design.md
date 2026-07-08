@@ -2,7 +2,7 @@
 # Two Systems: AlphaEngine + AnalogEngine
 
 **Further archived 2026-07-02.** AnalogEngine sections (already noted below as pre-ground-up)
-are now fully superseded by `docs/ideas/intel-13-analog-engine.md`'s D4 rescope — AnalogEngine
+are now fully superseded by `docs/research/intel-13-analog-engine.md`'s D4 rescope — AnalogEngine
 is a predictor family inside the one pipeline, not a second system.
 
 **Date:** 2026-06-20
@@ -599,11 +599,11 @@ The ML model trains on the outcome target in `alpha_events`. All six enrichment 
 
 | Document | Status | Disposition |
 |----------|--------|-------------|
-| `docs/ideas/analog-engine-substrate.md` | under-review | Canonical detail for AnalogEngine substrate; schema section superseded by this doc |
-| `docs/ideas/analog-engine-ic-factory.md` | under-review | Canonical detail for analog-ic-factory and Analog Finder |
-| `docs/ideas/analog-engine-scoring-engine.md` | under-review | Canonical detail for scoring-engine (Score Object, granularity dial) |
-| `docs/ideas/analog-engine-correlation.md` | under-review | Canonical detail for correlation-svc and effective-N |
-| `docs/ideas/analog-engine-ideas.md` | under-review | Holding doc; unaffected |
+| `docs/research/analog-engine-substrate.md` | under-review | Canonical detail for AnalogEngine substrate; schema section superseded by this doc |
+| `docs/research/analog-engine-ic-factory.md` | under-review | Canonical detail for analog-ic-factory and Analog Finder |
+| `docs/research/analog-engine-scoring-engine.md` | under-review | Canonical detail for scoring-engine (Score Object, granularity dial) |
+| `docs/research/analog-engine-correlation.md` | under-review | Canonical detail for correlation-svc and effective-N |
+| `docs/research/analog-engine-ideas.md` | under-review | Holding doc; unaffected |
 | `docs/plans/2026-06-20-alphaengine-ic-spec.md` | active | Strategic foundation: core thesis, V1-V4 rationale, Quant Vector seed feature library, phasing A-E with success criteria. This doc is the conceptual "why"; the VIL reference is the technical "how." Read together. |
 
 ---

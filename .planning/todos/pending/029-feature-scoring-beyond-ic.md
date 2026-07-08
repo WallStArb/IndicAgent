@@ -12,7 +12,7 @@
 
 **Plan (archived 2026-07-02):** `docs/plans/archive/2026-06-29-feature-scoring-beyond-ic.md` —
 marginal contribution (0a), shrinkage (0b), and calibration (0c) carried forward into
-`docs/ideas/intel-15-measurement-engine.md`'s "Measurement Gaps" section, but this todo is
+`docs/research/intel-15-measurement-engine.md`'s "Measurement Gaps" section, but this todo is
 still the live build reference (intel-15 note: "todo 029 is still pending" as of 2026-07-02).
 Kept in archive/ for the full method detail (residualization, empirical-Bayes shrinkage
 formula, Brier/reliability calibration) not reproduced in intel-15.

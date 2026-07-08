@@ -13,7 +13,7 @@ This violates Renaissance Invariant 1. The IC measured on theoretical returns is
 
 ## Renaissance Mandate
 
-From `docs/ideas/signal-08-intelligence-refactor.md` Invariant 1:
+From `docs/research/signal-08-intelligence-refactor.md` Invariant 1:
 
 > **Rule:** Forward returns MUST use executable entry/exit prices.
 > ```
@@ -94,6 +94,6 @@ After fix, verify:
 
 ## Reference
 
-- `docs/ideas/signal-08-intelligence-refactor.md` — Invariant 1
+- `docs/research/signal-08-intelligence-refactor.md` — Invariant 1
 - `docs/plans/2026-06-20-alphaengine-ic-spec.md` §V.1 — Executable Return Specification
 - Renaissance Invariants Summary Table — status: ⚠️ NOT IMPLEMENTED

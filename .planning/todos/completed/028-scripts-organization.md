@@ -22,7 +22,7 @@ tags: [infrastructure, scripts, operations, organization, naming]
 
 Reorganize `scripts/` and `production/scripts/` into a clean directory structure with consistent naming conventions and clear purpose boundaries.
 
-Full audit: `docs/ideas/scripts-organization-audit.md`
+Full audit: `docs/research/scripts-organization-audit.md`
 
 ## Current Problems
 

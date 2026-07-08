@@ -109,7 +109,7 @@ The same multi-agent pattern could enhance **AlphaEvents**:
 **Status: OPEN.** `ensemble_trainer.py` has no per-bucket/domain weight stratification today
 (verified: no domain/category grouping in the weighting code). Genuinely still an idea, not a
 gap in an existing design — and now has a more specific home if pursued: Concept Registry
-domains, or as a candidate stratification dimension (`docs/ideas/intel-12-stratification-dimension.md`)
+domains, or as a candidate stratification dimension (`docs/research/intel-12-stratification-dimension.md`)
 rather than a bespoke bucket scheme. Gated on v3.1 OOS IC proof like everything else here.
 
 **Source:** `docs/plans/archive/2026-03-04-cis-universal-ensemble-design.md`
@@ -170,7 +170,7 @@ Detailed Renaissance audit of confidence calibration revealed:
 ## Concept 5: Regime-Adaptive Signal Selection
 
 **Status: OPEN.** Feature-selection-by-regime is not built. Now a natural extension once
-`docs/ideas/intel-12-stratification-dimension.md` ships — a dimension's Measurement Engine
+`docs/research/intel-12-stratification-dimension.md` ships — a dimension's Measurement Engine
 results already tell you which features carry IC in which regime; gating ensemble membership
 on that is a consumer decision on top of existing facts, not new measurement infrastructure.
 

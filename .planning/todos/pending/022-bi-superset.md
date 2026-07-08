@@ -16,7 +16,7 @@ area: tooling
 priority: low
 v3_phase: Phase B+ — natural trigger is when IC scores + feature_ic_scores table are populated and need exploration; Superset connects directly to TimescaleDB
 files:
-  - docs/ideas/bi-analytics-layer-design.md
+  - docs/research/bi-analytics-layer-design.md
 ---
 
 ## Problem
@@ -25,7 +25,7 @@ IndicAgent has no analytical visualization layer. Grafana covers ops, Next.js co
 
 ## Solution
 
-Full design spec at `docs/ideas/bi-analytics-layer-design.md`. MVP scope:
+Full design spec at `docs/research/bi-analytics-layer-design.md`. MVP scope:
 
 - **Apache Superset** in Docker (:8088), connected to TimescaleDB via read-only user
 - **2 dashboards:** Edge Audit (quant desk) + Pipeline Health (risk desk), ~8 charts total

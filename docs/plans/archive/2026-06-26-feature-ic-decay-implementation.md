@@ -1,15 +1,15 @@
 # Feature IC Decay Detection — Lifecycle States
 
 **Archived 2026-07-02.** Its cooldown-plus-confirmation recovery policy was one of three
-competing designs found in this cluster; reconciled in `docs/ideas/intel-14-integrity-monitor.md`
+competing designs found in this cluster; reconciled in `docs/research/intel-14-integrity-monitor.md`
 (pure evidence plus Phase 143's new-evidence floor). Kept here for the prior-row LAG-comparison
 implementation notes for ic_engine, not reproduced in intel-14.
 
 **Date:** 2026-06-26
 **Status:** PROPOSED — not planned, awaiting prioritization
 **Milestone:** v3.0 Phase 149B (Data Integrity)
-**Concept spec:** `docs/ideas/feature-vector-lifecycle.md` (June 25, 2026)
-**Service design:** `docs/ideas/data-integrity-monitor-design.md` (Renaissance-grade reusable platform)
+**Concept spec:** `docs/research/feature-vector-lifecycle.md` (June 25, 2026)
+**Service design:** `docs/research/data-integrity-monitor-design.md` (Renaissance-grade reusable platform)
 
 ---
 
@@ -36,7 +36,7 @@ IC decay catches **edge erosion**. A feature's predictive relationship with forw
 
 ## Concept Already Spec'd
 
-`docs/ideas/feature-vector-lifecycle.md` (Jun 25) already specifies IC decay detection. This section pulls that spec into the implementation plan.
+`docs/research/feature-vector-lifecycle.md` (Jun 25) already specifies IC decay detection. This section pulls that spec into the implementation plan.
 
 **What it does:** Detects when a feature's IC (predictive edge) degrades over time
 

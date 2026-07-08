@@ -26,10 +26,10 @@
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
 - 🔄 **v3.1 IC Empirical Proof + Counterfactual Scoring** — Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 (12.47M alpha_events); Phase 141 COMPLETE 2026-06-29; Phase A COMPLETE 2026-06-30 (ic_engine methodology fixes + Renaissance IC gate redesign); Phase B (corpus re-run on corrected engine) COMPLETE 2026-07-01 (3rd rebuild: feature_vectors 10.08M, feature_ic_scores 254,126, qualifying features 5m=37/15m=28/1h=15/1d=28); Phase 141.1 COMPLETE 2026-07-02 (measurement/decision integrity foundation — OOS enforcement, weight-epoch fix, regime_scope schema fix, cost-hurdle calibration); Phase 142A COMPLETE 2026-07-02 (ensemble IC proof: `alpha_ensemble_ic` schema + EnsembleICEngine + hold_max_bars calibration + EIC-04 gate + EIC-05 diagnosis; 142B: single primary frame counterfactual validation + SHADOW-REVIEW.md pre-commitment; no cost model, no UX) — see `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
-- 📋 **v3.15 Conditioning & Identity Foundation** — **Phases 144, 145** (moved into this milestone 2026-07-03 — see `.planning/research/2026-07-03-roadmap-reconciliation.md` F1; previously miscategorized under "v3.3 Foundational Hardening," physically *after* Phases 148-150 despite being their hard prerequisite). Unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 144 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; idea doc: `docs/ideas/intel-12-stratification-dimension.md`; originally proposed 2026-07-02 in `.planning/research/2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8. **Hard prerequisite for Phase 148** (intel-13: AnalogEngine's retrieval hard-filters on regime labels; building the embedding substrate on known-suspect strata bakes the bias into stored vectors — see Phase 148's Depends-on below). Explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key. Batches together in one `ic_engine` re-run per topdown D5: Phase 144 + todo 026 P2b/P2c/P3 + todo 041 (tag taxonomy) + intel-12's first substitution test. Build trigger: todo 026's Step 1 regime-IC separation gate — **already run 2026-07-02, result asset-class-dependent** (SPY separates cleanly, TLT doesn't) — the pre-committed fallback for weak-separation asset classes (topdown Open Q4) needs an operator call at this milestone's planning, before the substitution test runs.
-- 📋 **v3.2 Signal Diversification — AnalogEngine + Feature Expansion** — Phases 148-150 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI AND v3.15 complete for Phase 148; Renaissance: more diverse weak signals, not stronger strong ones. **Framing correction pending** — this milestone's goal text and Phase 149 currently describe AnalogEngine as an "independent System 2," which violates the one-model-one-book invariant `docs/foundation/principles.md`; rewrite against `docs/ideas/intel-13-analog-engine.md` is in scope of todo 055, extended 2026-07-03 to cover this milestone header)
+- 📋 **v3.15 Conditioning & Identity Foundation** — **Phases 144, 145** (moved into this milestone 2026-07-03 — see `.planning/research/2026-07-03-roadmap-reconciliation.md` F1; previously miscategorized under "v3.3 Foundational Hardening," physically *after* Phases 148-150 despite being their hard prerequisite). Unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 144 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; idea doc: `docs/research/intel-12-stratification-dimension.md`; originally proposed 2026-07-02 in `.planning/research/2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8. **Hard prerequisite for Phase 148** (intel-13: AnalogEngine's retrieval hard-filters on regime labels; building the embedding substrate on known-suspect strata bakes the bias into stored vectors — see Phase 148's Depends-on below). Explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key. Batches together in one `ic_engine` re-run per topdown D5: Phase 144 + todo 026 P2b/P2c/P3 + todo 041 (tag taxonomy) + intel-12's first substitution test. Build trigger: todo 026's Step 1 regime-IC separation gate — **already run 2026-07-02, result asset-class-dependent** (SPY separates cleanly, TLT doesn't) — the pre-committed fallback for weak-separation asset classes (topdown Open Q4) needs an operator call at this milestone's planning, before the substitution test runs.
+- 📋 **v3.2 Signal Diversification — AnalogEngine + Feature Expansion** — Phases 148-150 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI AND v3.15 complete for Phase 148; Renaissance: more diverse weak signals, not stronger strong ones. **Framing correction pending** — this milestone's goal text and Phase 149 currently describe AnalogEngine as an "independent System 2," which violates the one-model-one-book invariant `docs/foundation/principles.md`; rewrite against `docs/research/intel-13-analog-engine.md` is in scope of todo 055, extended 2026-07-03 to cover this milestone header)
 - 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.2 complete (Phase 154 is independently-gated, not blocking — ETF Universe Expansion removed as a phase 2026-07-04, already done — see below) + `alpha_events` schema frozen; consumes alpha_events, never modifies signal weights)
-- 📋 **v4.1 IC Governance + Drift Monitoring** — Phases 151, 152 (**149B corrected 2026-07-03 — no longer a standalone phase; merged into Phase 143**, see Phase 143's header). Regime-conditioned distribution drift + ensemble health gates; replaces DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; see `docs/ideas/intel-14-integrity-monitor.md` (current design, supersedes `docs/plans/2026-06-27-health-guardian-design.md`). Per topdown D12, **Phases 151 and 152 are schedulable opportunistically any time after Phase 141** — the "v4.1" label is thematic grouping, not a sequencing gate. Phase 151 depends only on `feature_vectors` (exists today); Phase 152 depends on Phase 142A's `alpha_ensemble_ic` (exists, populated — though see the EIC-04 verdict log in Phase 142A's section before treating 142A as fully proven). Do not let either jump ahead of Phase 142B/143 or 147, which carry present-tense value the backlog matrix rates higher.
+- 📋 **v4.1 IC Governance + Drift Monitoring** — Phases 151, 152 (**149B corrected 2026-07-03 — no longer a standalone phase; merged into Phase 143**, see Phase 143's header). Regime-conditioned distribution drift + ensemble health gates; replaces DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; see `docs/research/intel-14-integrity-monitor.md` (current design, supersedes `docs/plans/2026-06-27-health-guardian-design.md`). Per topdown D12, **Phases 151 and 152 are schedulable opportunistically any time after Phase 141** — the "v4.1" label is thematic grouping, not a sequencing gate. Phase 151 depends only on `feature_vectors` (exists today); Phase 152 depends on Phase 142A's `alpha_ensemble_ic` (exists, populated — though see the EIC-04 verdict log in Phase 142A's section before treating 142A as fully proven). Do not let either jump ahead of Phase 142B/143 or 147, which carry present-tense value the backlog matrix rates higher.
 
 ## Phases
 
@@ -245,7 +245,7 @@ Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
 - [x] **Phase 65: Gradient Audit** — 25+ binary fields converted, 8-function gradient_utils.py, CI scanner gate, 5/5 plans — COMPLETE 2026-04-24. Note: swing_amplitude_expanding companion (swing_amplitude_intensity) not implemented — minor gap, non-blocking.
 - [x] **Phase 64: I6 Confluence Expansion** — COMPLETE 2026-05-14. 5 new I6 cross-TF plugins (momentum divergence, S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) + MacroComputeAgent (yield curve + FTQ) + full pipeline integration. 03C USD strength deferred (low priority; YC+FTQ providing macro context).
 
-Design doc: `docs/ideas/i6-confluence-expansion.md`
+Design doc: `docs/research/i6-confluence-expansion.md`
 
 - [x] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService with Skeptic, Correlation, and Volume agents. 16/16 truths verified, 43/43 tests passing — COMPLETE 2026-04-24. Operational gates pending: live service deploy + 30-day statistical validation (~May 25).
 
@@ -1175,7 +1175,7 @@ Plans:
 
 **Sequencing note:** Independent of Phase 133 (corpus rebuild). Can run in parallel or after 133 — no shared schema dependencies. Should run before any dashboard or API work that needs filter dropdowns.
 
-**Design doc:** `docs/ideas/controlled-vocabulary.md`
+**Design doc:** `docs/research/controlled-vocabulary.md`
 
 **Plans:** TBD (plan-phase to produce)
 
@@ -1230,9 +1230,9 @@ Full details: `.planning/milestones/v3.0-ROADMAP.md`
 <details>
 <summary>📋 v3.0a Signal Integrity — IntegrityMonitor (Phases 151, 149B, 152) — PLANNED</summary>
 
-- [ ] **Phase 151: DistributionDriftMonitor** — Regime-conditioned KS + chi-squared + signed Wasserstein on all 54 features; adaptive penalties (APR-scaled by Wasserstein magnitude); piggybacked recovery; `indicagent-integrity-monitor` service skeleton — design current in `docs/ideas/intel-14-integrity-monitor.md` (kept from `docs/plans/2026-06-27-health-guardian-design.md` unchanged)
-- [ ] **Phase 149B: feature lifecycle routing, merged with Phase 143** — Evidence-based shadow governance routed through `feature_registry`/Concept Registry, not new `feature_ic_scores` columns; weight restored on promotion via status flip + `ensemble_trainer`'s next recompute, not a `pre_shadow_weight` column (dropped 2026-07-06, see Phase 143's LIFECYCLE-01 correction) — see `docs/ideas/intel-14-integrity-monitor.md` (supersedes `docs/plans/2026-06-27-health-guardian-design.md`'s `ICLifecycleMonitor`, which conflicted with D3)
-- [ ] **Phase 152: EnsembleHealthMonitor** — 3-gate AND logic (E1: IC Sharpe, E2: regime-conditioned conviction stability, E3: non-shadow coverage); halt/reduce via APR keys; requires Phase 142A (`alpha_ensemble_ic`, complete) — design superseded by `docs/ideas/intel-14-integrity-monitor.md` (E2B/E2C restored, CUSUM added, `alpha_events` schema gap found — E2B needs Phase 142B's `alpha_frames`). No monitor code exists; the prior `[x]`/"completed 2026-07-02" was stray, corrected 2026-07-02 (found during intel-14 Fable audit)
+- [ ] **Phase 151: DistributionDriftMonitor** — Regime-conditioned KS + chi-squared + signed Wasserstein on all 54 features; adaptive penalties (APR-scaled by Wasserstein magnitude); piggybacked recovery; `indicagent-integrity-monitor` service skeleton — design current in `docs/research/intel-14-integrity-monitor.md` (kept from `docs/plans/2026-06-27-health-guardian-design.md` unchanged)
+- [ ] **Phase 149B: feature lifecycle routing, merged with Phase 143** — Evidence-based shadow governance routed through `feature_registry`/Concept Registry, not new `feature_ic_scores` columns; weight restored on promotion via status flip + `ensemble_trainer`'s next recompute, not a `pre_shadow_weight` column (dropped 2026-07-06, see Phase 143's LIFECYCLE-01 correction) — see `docs/research/intel-14-integrity-monitor.md` (supersedes `docs/plans/2026-06-27-health-guardian-design.md`'s `ICLifecycleMonitor`, which conflicted with D3)
+- [ ] **Phase 152: EnsembleHealthMonitor** — 3-gate AND logic (E1: IC Sharpe, E2: regime-conditioned conviction stability, E3: non-shadow coverage); halt/reduce via APR keys; requires Phase 142A (`alpha_ensemble_ic`, complete) — design superseded by `docs/research/intel-14-integrity-monitor.md` (E2B/E2C restored, CUSUM added, `alpha_events` schema gap found — E2B needs Phase 142B's `alpha_frames`). No monitor code exists; the prior `[x]`/"completed 2026-07-02" was stray, corrected 2026-07-02 (found during intel-14 Fable audit)
 
 **Dependencies:** Phase 142A (`alpha_ensemble_ic` table exists) for Phase 152 only; Phase 151 and the Phase 149B item (merged into Phase 143, see above) are independent
 
@@ -1562,7 +1562,7 @@ Plans:
 
 **Depends on:** Phase 142A complete — **EIC-04 gate must show PASS** (see verdict log in the Phase 142A section above; as of 2026-07-03 it does not — FAIL, data-starvation diagnosis, re-run pending), `hold_max_bars` APR keys calibrated from EIC-02 decay curve.
 
-**Also carries (added 2026-07-03, canonical-simulator v2 requirements — see `docs/ideas/canonical-simulator.md`):**
+**Also carries (added 2026-07-03, canonical-simulator v2 requirements — see `docs/research/canonical-simulator.md`):**
 - `alpha_frames`'s P1 migration adds `corpus_run_id`/`weight_epoch` provenance columns — every counterfactual claim must attribute the machinery that produced it (the binding rule's provenance clause).
 - **Decide gross vs. net-of-cost SHADOW-REVIEW criteria before that document is committed** (see below) — this cannot be revisited post-launch per the phase's own no-post-hoc-negotiation rule. The externally-calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) exist now; applying them as a net-of-cost *reporting column* alongside the gross criteria is cheap and closes canonical-simulator's cost-kernel gap as this phase's natural second consumer.
 
@@ -1668,7 +1668,7 @@ Plans:
 
 ### Phase 143: Feature Lifecycle Routing (merged with Phase 149B) 📐 PLANNED (3 plans)
 
-**Rewritten 2026-07-03 against `docs/ideas/intel-14-integrity-monitor.md`** (Fable-reviewed
+**Rewritten 2026-07-03 against `docs/research/intel-14-integrity-monitor.md`** (Fable-reviewed
 2026-07-02). The previous version of this phase specced a standalone `is_decaying` state
 machine writing directly to `feature_ic_scores`, a separate `feature_deprecations` table, a
 daily-scan `AlphaDecayMonitor` daemon, and cooldown-gated recovery — all four were superseded by
@@ -1859,14 +1859,14 @@ past Phase 142B.1 had execution artifacts yet, so this was a safe, purely textua
 
 **Milestone Goal:** Unify the two live regime systems (per-symbol HMM `regime_writer.py`,
 cross-sectional `equity_regime_model.py`) behind clean peer-group routing before AnalogEngine's
-retrieval substrate is built on top of them. Per `docs/ideas/intel-13-analog-engine.md`: *"this
+retrieval substrate is built on top of them. Per `docs/research/intel-13-analog-engine.md`: *"this
 substrate must not be built on strata suspected of being wrong — retrieval hard-filters on
 regime labels, and re-embedding after the fact is prohibitively expensive."* This is a hard
 prerequisite for Phase 148, not a parallel hardening track.
 
 **Batched into one `ic_engine` re-run** (topdown D5): Phase 144 (`regime_group`) + todo 026
 P2b/P2c/P3 (remaining HMM regime audit items) + todo 041 (tag exposure-vs-sensitivity taxonomy
-audit — gates commodity/fx group enablement) + `docs/ideas/intel-12-stratification-dimension.md`'s
+audit — gates commodity/fx group enablement) + `docs/research/intel-12-stratification-dimension.md`'s
 first substitution test. Phase 145 (Empirical Instrument Tag Calibrator) joins evidence-gated:
 if todo 041's audit shows tag calibration is load-bearing for group routing (not merely
 descriptive), pull it into this batch; otherwise it trails independently (its own Depends-on
@@ -1880,7 +1880,7 @@ this milestone's planning, SHADOW-REVIEW-style, before intel-12's substitution t
 **Resolved 2026-07-07:** fallback pre-committed as option (b) - demote HMM to shadow per weak
 regime_group, stratify on cross-sectional + volatility_pct; (c) pre-registered as the rates
 challenger with a defined build trigger. Phase 144 is unblocked for `/gsd-discuss-phase`. Full
-reasoning and falsifiers: `.planning/research/fable-2026-07-07-phase144-conditioning-decision.md`.
+reasoning and falsifiers: `docs/research/fable-2026-07-07-phase144-conditioning-decision.md`.
 
 ---
 
@@ -1923,7 +1923,7 @@ Tags that are fully computable from the factor vector (all 8 OLS betas) must not
 
 **Milestone Goal (framing corrected 2026-07-03 — full rewrite in scope of todo 055):** Build the
 AnalogEngine substrate and analog predictor family — a second *evidence source*, not a second
-*system* (`docs/ideas/intel-13-analog-engine.md`; the prior "independent complement"/"System 2"
+*system* (`docs/research/intel-13-analog-engine.md`; the prior "independent complement"/"System 2"
 framing here violated the one-model-one-book invariant now in `docs/foundation/principles.md`).
 Expand the feature set with new primitives and compound interactions. Phases 148-149 (AnalogEngine
 substrate + scoring) are strictly sequential — each gated on the prior — **and both depend on
@@ -1995,11 +1995,11 @@ Joins `score_cache` to `alpha_events` on (symbol, tf, bar_ts). Writes `alpha_eve
 
 **Note (corrected 2026-07-03 — this phase's requirements above are stale, see todo 055):**
 ANALOG-06..09 above (`feature_ic_stats`, `similarity_pairs`, `score_cache`, Score Objects,
-`analog-enricher`) still spec the pre-rescope AnalogEngine design. `docs/ideas/intel-13-analog-engine.md`
+`analog-enricher`) still spec the pre-rescope AnalogEngine design. `docs/research/intel-13-analog-engine.md`
 (2026-07-02) deleted the Score Object and this phase's proposed tables in favor of analog
 predictors + a return-distribution primitive living in the shared measurement kernel — rewrite
 this phase's requirements against intel-13 before planning (todo 055). The original note's
-premise is also stale: intel-13's analog predictors converge with `docs/ideas/intel-10-confluence-detection-persistence-layer.md`
+premise is also stale: intel-13's analog predictors converge with `docs/research/intel-10-confluence-detection-persistence-layer.md`
 v3 (rewritten 2026-07-03) directly via that return-distribution primitive, not via a Score
 Object this phase would produce — intel-10 no longer waits on this phase's output to be
 scoped, it already specs the convergence.
@@ -2011,7 +2011,7 @@ scoped, it already specs the convergence.
 **Goal:** Expand the atomic feature set (~60 new candidates, full priority-tiered list in todo 014 — corrected 2026-07-01, ROADMAP previously cited a phantom "todo 003" that doesn't exist in the tree), screen through IC machinery, promote survivors. Build a Theory-Motivated Interaction Layer of ≤50 curated compound features — not a combinatorial factory. Gated on Feature Registry (todo 008, COMPLETE).
 
 **Note (updated 2026-07-03):** the interaction terms this phase validates are one of two
-constituent sources for `docs/ideas/intel-10-confluence-detection-persistence-layer.md` v3
+constituent sources for `docs/research/intel-10-confluence-detection-persistence-layer.md` v3
 ("Confluence — a Governed Predictor Family," rewritten 2026-07-03; the other source is
 `intel-13`'s analog predictors, formerly "Phase 149's analog matches" — see todo 055 for why
 Phase 149 itself needs rewriting). Once ≥1 interaction term clears this phase's IC/OOS gates,

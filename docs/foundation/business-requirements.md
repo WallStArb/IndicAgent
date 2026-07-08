@@ -19,10 +19,10 @@ built so far, not a scope limit on this doc.
 - `docs/intelligence/intelligence-layer-architecture.md` — the intelligence tier stack (§4) at
   mechanism altitude (what HMM/IC/Ledoit-Wolf actually compute)
 - `docs/intelligence/intelligence-alphaengine.md` — today's concrete implementation manual
-- `docs/ideas/roadmap-scope-map.md` — impact-ranked scan of what's weak/proposed per area,
+- `docs/research/roadmap-scope-map.md` — impact-ranked scan of what's weak/proposed per area,
   kept current; this doc explains *why the areas are shaped the way they are*, that one tracks
   *what's currently missing in each*
-- `docs/ideas/idea-catalog.md` — full navigation index across every idea doc
+- `docs/research/idea-catalog.md` — full navigation index across every idea doc
 - `.planning/research/2026-07-02-v3-topdown-architecture.md` and
   `2026-07-02-v3-bottomup-audit.md` — the Fable-assisted analyses this doc synthesizes
 
@@ -68,13 +68,13 @@ may eventually run several.
    should require touching an existing one.
 2. **Decision/Action modules** — take one instrument's intelligence output and decide whether
    and when to act on it: size, enter, exit. Scope is deliberately singular — one instrument at
-   a time. This is what `docs/ideas/vision-05-tradeagent.md` (execution vehicle) and part of
+   a time. This is what `docs/research/vision-05-tradeagent.md` (execution vehicle) and part of
    `vision-01-aegisagent.md` (risk overlay: sizing, drawdown limits) describe, and it's the same
    thing already gated on ROADMAP as the v4.0 Execution Layer ("consumes `alpha_events`, never
    modifies signal weights").
 3. **Portfolio modules** — a genuinely different scope: many instruments considered together,
    where correlation, capital allocation, and risk budgeting produce a different right answer
-   than any single instrument's view would suggest in isolation. `docs/ideas/vision-03-primeagent.md`
+   than any single instrument's view would suggest in isolation. `docs/research/vision-03-primeagent.md`
    (portfolio management) is the existing doc for this. Does not exist yet, and isn't a bigger
    version of a Decision module — it's a different consumer of the same upstream intelligence.
 
@@ -151,7 +151,7 @@ bar-aligned decision (tilting the emission threshold up or down) rather than fir
 directly, with a `valid_until` timestamp that decays an unrefreshed score to neutral rather than
 holding a stale value.
 
-**Open reconciliation (see §7):** `docs/ideas/alphaengine-alt-data-extension.md` proposes a
+**Open reconciliation (see §7):** `docs/research/alphaengine-alt-data-extension.md` proposes a
 *different* answer to the same cadence problem for its four candidate sources (Flows,
 Fundamentals, Qualitative, Kalshi prediction markets) — fill-forward the slow-cadence value into
 `feature_vectors` as an ordinary column, measured by IC exactly like any bar-aligned feature,
@@ -302,16 +302,16 @@ order:
 
 - Business/vision altitude (this doc) → tier mechanism detail: `intelligence-layer-architecture.md`
 - Tier mechanism detail → current concrete implementation: `intelligence-alphaengine.md`
-- What's weak/proposed per area, kept current: `docs/ideas/roadmap-scope-map.md`
-- Full idea-doc navigation index: `docs/ideas/idea-catalog.md`
+- What's weak/proposed per area, kept current: `docs/research/roadmap-scope-map.md`
+- Full idea-doc navigation index: `docs/research/idea-catalog.md`
 - Clean-sheet structural proposal this doc draws on heavily:
   `.planning/research/2026-07-02-v3-topdown-architecture.md`
 - What the running system actually does today, verified against code/DB:
   `.planning/research/2026-07-02-v3-bottomup-audit.md`
-- New data source candidates in depth: `docs/ideas/alphaengine-alt-data-extension.md`
-- Full intelligence-vector taxonomy: `docs/ideas/signal-08-intelligence-refactor.md`
+- New data source candidates in depth: `docs/research/alphaengine-alt-data-extension.md`
+- Full intelligence-vector taxonomy: `docs/research/signal-08-intelligence-refactor.md`
 - Exchange-aware bar filtering and the deliberate flat-bar design: `docs/data/data-provider.md`
-- Parked-but-relevant module concepts: `docs/ideas/vision-01-aegisagent.md` (risk overlay),
+- Parked-but-relevant module concepts: `docs/research/vision-01-aegisagent.md` (risk overlay),
   `vision-03-primeagent.md` (portfolio), `vision-05-tradeagent.md` (execution vehicle),
   `vision-02-derivagent.md`, `vision-04-qualagent.md`, `vision-06-flowagent.md`,
   `vision-07-fundagent.md`

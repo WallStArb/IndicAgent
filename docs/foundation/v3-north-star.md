@@ -579,8 +579,8 @@ Calendar vector first (trivially orthogonal, time-based only). Macro vector seco
 
 - `docs/plans/2026-06-20-intelligence-vectors-architecture.md` — AlphaEngine technical design (Phases A-E detail)
 - `docs/plans/2026-06-20-v30-reference-architecture.md` — v3.0 reference: both systems, 10 Simons demands, full microservice DAG
-- `docs/ideas/analog-engine-01-substrate.md` — VIL substrate: embedding, retrieval, pgvector
-- `docs/ideas/analog-engine-02-ic-factory.md` — IC Factory: feature-level IC, Outcome Labeler, Analog Finder
-- `docs/ideas/analog-engine-03-scoring-engine.md` — Score Object: transformation from analog set to scored conviction
-- `docs/ideas/analog-engine-04-correlation.md` — Correlation Intelligence: effective-N measurement
+- `docs/research/analog-engine-01-substrate.md` — VIL substrate: embedding, retrieval, pgvector
+- `docs/research/analog-engine-02-ic-factory.md` — IC Factory: feature-level IC, Outcome Labeler, Analog Finder
+- `docs/research/analog-engine-03-scoring-engine.md` — Score Object: transformation from analog set to scored conviction
+- `docs/research/analog-engine-04-correlation.md` — Correlation Intelligence: effective-N measurement
 - `docs/foundation/glossary.md` — canonical term definitions (IC, ECL, AlphaEngine, AnalogEngine, VIL)

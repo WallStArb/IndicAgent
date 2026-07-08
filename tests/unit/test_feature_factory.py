@@ -692,7 +692,7 @@ class TestCrossAssetProxies:
 # these tests must fail RED (AttributeError: FeatureVector has no field X)
 # until Plans 01/02/03/04/05/05.5 add the fields. See:
 #   .planning/phases/142.5-renaissance-primitives/142.5-PLAN-OUTLINE.md
-#   docs/ideas/signal-renaissance-primitives-ohlcv.md
+#   docs/research/signal-renaissance-primitives-ohlcv.md
 # ---------------------------------------------------------------------------
 
 # Canonical list of all 91 new field names, grouped by category in plan order.

@@ -316,7 +316,7 @@ oscillator 6 · regime 10 · macro 3 · calendar 11 · cross_tf 3 = **61**
 ## Relationship to Other Todos
 
 - `001-ic-engine-correctness-p0.md` — primitive-only IC pass requires `tier` filter; registry is the prerequisite
-- `docs/ideas/renaissance-primitives-ohlcv.md` — new primitives add as `status = 'candidate'`; promoted to `active` only after IC validation
+- `docs/research/renaissance-primitives-ohlcv.md` — new primitives add as `status = 'candidate'`; promoted to `active` only after IC validation
 - `006-asset-class-regime-model.md` — regime features (`hmm_*`) classified `2_theory`; asset-class regime replacement would add new tier-0 features
 
 ## Trigger
@@ -329,7 +329,7 @@ promote via IC evidence — not directly to `active`.
 
 ## Flow Activity Primitives (First-Order Expansion)
 
-**Context**: Renaissance-grade approach to detecting flow synchronization/crowding. See `docs/ideas/renaissance-primitives-ohlcv.md` for full catalog. **Key insight**: Don't pre-judge what "crowding" means — provide raw primitives, let IC engine + ensemble discover patterns.
+**Context**: Renaissance-grade approach to detecting flow synchronization/crowding. See `docs/research/renaissance-primitives-ohlcv.md` for full catalog. **Key insight**: Don't pre-judge what "crowding" means — provide raw primitives, let IC engine + ensemble discover patterns.
 
 ### Design Philosophy (vs. Theory-Heavy Approach)
 
@@ -421,7 +421,7 @@ If flow synchronization/crowding is real, the ensemble will discover patterns li
 
 ### Relationship to Theory-Heavy Approach
 
-**Alternative considered** (see `docs/ideas/comomentum-crowding-metric.md`):
+**Alternative considered** (see `docs/research/comomentum-crowding-metric.md`):
 - Cross-sectional correlation metrics (volume_sync_z, return_abnormal_resid)
 - Composite crowding_index with weighted formula
 - Pre-built regime filter ("crowded" vs "uncrowded")
@@ -440,8 +440,8 @@ If flow synchronization/crowding is real, the ensemble will discover patterns li
 
 ### See Also
 
-- `docs/ideas/renaissance-primitives-ohlcv.md` — full catalog (200+ candidates organized by computation order)
-- `docs/ideas/comomentum-crowding-metric.md` — theory-heavy approach we chose NOT to use
-- `docs/ideas/feature-vector-lifecycle.md` — promotion/demotion (candidate → active → decaying → deprecated)
+- `docs/research/renaissance-primitives-ohlcv.md` — full catalog (200+ candidates organized by computation order)
+- `docs/research/comomentum-crowding-metric.md` — theory-heavy approach we chose NOT to use
+- `docs/research/feature-vector-lifecycle.md` — promotion/demotion (candidate → active → decaying → deprecated)
 
 **Key distinction**: Feature registry = metadata repository (what exists, what tier). Feature lifecycle = IC-driven promotion (what works). Flow activity primitives = raw inputs (how we detect crowding without theory).

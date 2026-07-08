@@ -75,7 +75,7 @@ When designing an adaptive system:
 
 - Implementation: `docs/intelligence/intelligence-ai.md` — shadow governance lifecycle, auto-enrollment, eAI substrate table
 - Fitness dataset: `docs/intelligence/intelligence-foundation.md` — signal_ledger schema, CIS weight learning
-- Research vision: `docs/ideas/ai-03-evolvable-ai-agents.md` — full eAI design
-- v2.8 roadmap: `docs/ideas/eai-phase-recommendations.md` — genome mutations, fitness function, Phase 101-103
+- Research vision: `docs/research/ai-03-evolvable-ai-agents.md` — full eAI design
+- v2.8 roadmap: `docs/research/eai-phase-recommendations.md` — genome mutations, fitness function, Phase 101-103
 - Related concept: `docs/concepts/evidence-graded-signals.md` — CIS weight adaptation
 - Related concept: `docs/concepts/swarm-intelligence.md` — agent shadow governance

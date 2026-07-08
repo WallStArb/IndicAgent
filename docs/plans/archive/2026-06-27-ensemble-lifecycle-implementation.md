@@ -2,7 +2,7 @@
 
 **Archived 2026-07-02.** Source of the E2B (calibration) and E2C (distribution health) conviction
 sub-tests that `docs/plans/archive/2026-06-27-health-guardian-design.md` silently dropped;
-restored into `docs/ideas/intel-14-integrity-monitor.md`, with a schema correction found there
+restored into `docs/research/intel-14-integrity-monitor.md`, with a schema correction found there
 (live `alpha_events` has no `conviction`/`outcome_r` columns — E2B needs Phase 142B's
 `alpha_frames`). Kept here for the full E1/E2/E3 SQL and APR key detail not reproduced in
 intel-14.
@@ -10,8 +10,8 @@ intel-14.
 **Date:** 2026-06-27
 **Status:** PROPOSED — not planned, awaiting prioritization
 **Milestone:** v3.0 Phases 151A-151C (System Health + Observability)
-**Concept spec:** `docs/ideas/alpha-ensemble-lifecycle.md` (June 25, 2026)
-**Service design:** `docs/ideas/system-health-monitor-design.md` (Renaissance-grade reusable platform)
+**Concept spec:** `docs/research/alpha-ensemble-lifecycle.md` (June 25, 2026)
+**Service design:** `docs/research/system-health-monitor-design.md` (Renaissance-grade reusable platform)
 
 ---
 

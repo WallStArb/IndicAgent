@@ -24,7 +24,7 @@ Two plugins also need structural redesign (not just removal):
 - `squeeze_expansion`: redistribute weights after removing `regime_score` (20%)
 - `trend_following`: redesign composite — 60% is currently extrinsic
 
-See full audit rationale: `docs/ideas/signal-07-signal-ranker.md`
+See full audit rationale: `docs/research/signal-07-signal-ranker.md`
 
 ---
 

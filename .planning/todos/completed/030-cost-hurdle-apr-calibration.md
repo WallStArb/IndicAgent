@@ -23,7 +23,7 @@ entire timeframe. Gross IC of 0.02-0.08 at 5m on ETFs is plausibly eaten whole b
 half-spread. If Step 0 shows 5m (and possibly 15m) net-negative across the board, concentrate
 feature/compute budget on 1h/1d — a conclusion worth reaching BEFORE more 5m-heavy work
 (backfill deepening, per-symbol regime IC runs) is invested. See
-`docs/ideas/edge-source-thesis.md` — every edge thesis dies or survives at a different rate
+`docs/research/edge-source-thesis.md` — every edge thesis dies or survives at a different rate
 once gross IC becomes net E[R] per tf.
 
 ---
@@ -42,7 +42,7 @@ cost:
    ~3-5bp half-spread); pull actual quotes from IBKR where uncertain.
 3. **Verdict per tf:** median IC-implied E[R] of qualifying cells vs cost floor. Net-negative
    at the median → that tf's features are not tradeable as *directional* signals at current
-   IC levels; record the verdict here and in `docs/ideas/edge-source-thesis.md`.
+   IC levels; record the verdict here and in `docs/research/edge-source-thesis.md`.
    (Cross-sectional spread portfolios have different cost dynamics — a 5m directional fail
    does not kill 5m for the PortfolioTrack; record as tf-directional-fail specifically.)
 

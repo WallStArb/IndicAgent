@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-06-30
 **Status:** Ready for planning
-**Source:** Transcribed from `docs/ideas/phase142-redesign-musk5step-audit.md` (Musk 5-step + Renaissance audit, 2026-06-30) + ROADMAP §142A. Design decisions are LOCKED by that audit; this file transcribes them for the planner/checker. Do not re-litigate scope.
+**Source:** Transcribed from `docs/research/phase142-redesign-musk5step-audit.md` (Musk 5-step + Renaissance audit, 2026-06-30) + ROADMAP §142A. Design decisions are LOCKED by that audit; this file transcribes them for the planner/checker. Do not re-litigate scope.
 
 <domain>
 ## Phase Boundary
@@ -73,7 +73,7 @@ ROADMAP.md EIC-03 states "IC Sharpe max/min fold ratio < 3×". The implementatio
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Locked scope (source of truth)
-- `docs/ideas/phase142-redesign-musk5step-audit.md` — the Musk 5-step + Renaissance audit. EIC-01..05 verdicts, deletions, simplifications. **This is the authority on 142A scope.**
+- `docs/research/phase142-redesign-musk5step-audit.md` — the Musk 5-step + Renaissance audit. EIC-01..05 verdicts, deletions, simplifications. **This is the authority on 142A scope.**
 - `.planning/ROADMAP.md` §Phase 142A — formal roadmap entry with EIC-01..05 requirements text
 
 ### Schema + APR

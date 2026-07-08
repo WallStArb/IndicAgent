@@ -10,7 +10,7 @@
 
 # 058 — Build the Concept Registry MVP and seed it from Phase 142B.1's ensemble-strategy outcomes
 
-From the 2026-07-04 cluster review of `docs/ideas/concept-governance-registries.md` and its
+From the 2026-07-04 cluster review of `docs/research/concept-governance-registries.md` and its
 consumers (`.planning/research/2026-07-04-concept-registry-cluster-fable-review.md`, F1/F2/F3/F7/F8).
 
 ## Why this is P1, not deferred
@@ -87,10 +87,10 @@ todo ships first (intel-14's OQ3 — check at build time, not a design decision 
 - `.planning/research/2026-07-04-concept-registry-cluster-fable-review.md` — F1 (this todo's
   existence), F2 (per-stratum status), F3 (evidence-mass re-eval floor), F7 (seed material
   corrections), F8 (baseline_metric shrinkage gap)
-- `docs/ideas/concept-governance-registries.md` — MVP schema, invariants, Domains table
+- `docs/research/concept-governance-registries.md` — MVP schema, invariants, Domains table
 - `.planning/ROADMAP.md` Phase 142B.1 (source of the E1-E4 candidates, complete 2026-07-04) and
   its Concept Registry landing-spot note
 - `services/ensemble_trainer.py`, `scripts/ops/alpha/ops_ensemble_weight_compare.py` (or
   equivalent — the shipped 142B.1-05 win-decision judge)
-- `docs/ideas/intel-14-integrity-monitor.md` OQ3 — feature_registry migration ordering check
-- `docs/ideas/intel-15-measurement-engine.md` OQ7 — ensemble-grain shrinkage, parked not solved here
+- `docs/research/intel-14-integrity-monitor.md` OQ3 — feature_registry migration ordering check
+- `docs/research/intel-15-measurement-engine.md` OQ7 — ensemble-grain shrinkage, parked not solved here
