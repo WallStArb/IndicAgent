@@ -501,7 +501,9 @@ def _compute_symbol_tf(
         del bar_ts_list
         regime_arr = np.array(regime_list)
         del regime_list
-        X_raw = np.array(X_list, dtype=float)
+        # float32: see the analogous cross-sectional comment in
+        # _compute_cross_sectional_tf -- rank-based IC doesn't need float64 raw values.
+        X_raw = np.array(X_list, dtype=np.float32)
         del X_list
 
         # ------------------------------------------------------------------
@@ -599,7 +601,10 @@ def _compute_symbol_tf(
             # regardless of stride. A feature constant in the full regime is constant in any
             # subsample — but the converse may not hold for large strides.
             # ------------------------------------------------------------------
-            feature_stds = np.std(X_regime, axis=0)
+            # dtype=float64: X_regime is float32 now (memory optimization), force the
+            # reduction itself to accumulate in float64 so this threshold check stays
+            # exactly as precise as before -- see the cross-sectional path's identical note.
+            feature_stds = np.std(X_regime, axis=0, dtype=np.float64)
             degenerate_mask = feature_stds < 1e-8
             non_degenerate_mask = ~degenerate_mask
             n_degenerate = degenerate_mask.sum()
@@ -1240,8 +1245,16 @@ def _compute_cross_sectional_tf(
         if not batch:
             continue
         n_batch = len(batch)
+        # float32, not float64: every downstream use of this array (_vectorized_ic,
+        # _compute_ic_rolling_metrics) ranks it via rankdata() and computes statistics
+        # on the resulting ranks/IC values, never on the raw floats directly -- rank
+        # order is preserved essentially perfectly at float32 precision for z-score/
+        # ratio-scale feature values. Halves the memory of X_raw, X_nd, and every
+        # per-scale subsample copy below -- the direct fix for the 2026-07-08 OOM
+        # incidents, where the largest cross-sectional cell (5m/low_bull, ~9.4M rows
+        # x 152 features after the 80-symbol ETF expansion) peaked at 20GB+ RSS.
         X_chunks.append(
-            np.array([[r[i + 1] for i in range(n_features)] for r in batch], dtype=float)
+            np.array([[r[i + 1] for i in range(n_features)] for r in batch], dtype=np.float32)
         )
         ret_chunk = np.full((n_batch, n_scales), np.nan)
         cmp_chunk = np.zeros((n_batch, n_scales), dtype=bool)
@@ -1269,8 +1282,12 @@ def _compute_cross_sectional_tf(
     del cmp_chunks
     n_raw = len(X_raw)
 
-    # Degenerate feature detection
-    feature_stds = np.std(X_raw, axis=0)
+    # Degenerate feature detection. dtype=float64 here despite X_raw being float32:
+    # this reduction produces only an n_features-length result (cheap either way), and
+    # forcing float64 accumulation keeps the 1e-8 threshold check exactly as precise
+    # as before the float32 memory optimization above -- variance is sensitive to
+    # accumulation precision in a way rank order is not.
+    feature_stds = np.std(X_raw, axis=0, dtype=np.float64)
     degenerate_mask = feature_stds < 1e-8
     non_degenerate_mask = ~degenerate_mask
     X_nd = X_raw[:, non_degenerate_mask]
