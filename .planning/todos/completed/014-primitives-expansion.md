@@ -9,6 +9,15 @@
 **Gate:** 001 complete + clean 58-symbol corpus + IC discovery confirms stable results
 ---
 
+**DONE 2026-07-08 — superseded by Phase 142.5 (Renaissance Primitives), shipped 2026-07-07.**
+Every tier below (bar anatomy ratios, Parkinson/GK/YZ vol estimators, breakout distance, lagged
+returns, open/intraday split, variance ratio, volume structure, stochastic/BB/HV, return
+distribution/vol asymmetry) shipped as part of 142.5's 91 new primitives (61→152 total feature
+columns, migration 206). The one piece NOT done — Tier 10's cross-TF divergence
+(`ret_div_1m_5m`/`ret_div_5m_1h`/`ret_div_1h_1d`) — was deliberately deferred out of 142.5 and is
+tracked separately as todo 150 (`cross-tf-divergence-primitives`), still pending. Moved to
+`completed/` since this todo's scope is done; see todo 150 for the one remaining piece.
+
 # 014 — Feature Primitives Expansion (~60 candidates)
 
 **Priority: Medium-High — next feature set chapter after clean corpus + IC validation on existing 54.**

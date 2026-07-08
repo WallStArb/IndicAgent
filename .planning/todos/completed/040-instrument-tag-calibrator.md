@@ -1,5 +1,14 @@
 # Build the empirical Instrument Tag Calibrator (promote from idea to phase)
 
+**DONE 2026-07-08 — the promotion this todo asks for already happened.** ROADMAP.md's Phase 145
+("Empirical Instrument Tag Calibrator") is exactly this: TAG-01 (measured OLS factor betas, 8
+core factors, nightly `TagAuditor` batch), TAG-02 (regime-conditioned Phase 2 extension), TAG-03
+(discovery gate retiring human-assertable tags). Phase 145 is 📋 PLANNED, not yet executed, but
+the "idea → phase" step this todo tracked is complete. See ROADMAP.md's v3.15 section and
+`docs/research/data-instrument-tag-calibrator.md` (Fable-reviewed 2026-07-06) for current status
+and implementation detail — don't re-derive from this file. Moved to `completed/` since the
+promotion (not the build) was this todo's actual scope.
+
 **Found:** 2026-07-01, during design discussion of `regime_group` and `instrument_tags`
 multi-membership/weighting semantics.
 

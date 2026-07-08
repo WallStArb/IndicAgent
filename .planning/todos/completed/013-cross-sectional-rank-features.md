@@ -9,6 +9,15 @@
 **Gate:** Phase 141 complete + feature_vectors stable (OPEN) — do after Phase B corpus re-run confirms cross-sectional columns are useful
 ---
 
+**SUPERSEDED 2026-07-08 — merged into `.planning/todos/pending/157-cross-sectional-relative-value-feature-family.md`.**
+Independently rediscovered via a Fable review (same finding: `momentum_rank_z`/`volume_rank_z`/
+`volatility_rank_z` declared in schema, verified 0/36,719,598 rows populated, zero writers
+anywhere). Todo 157 is the canonical version — broader scope (peer-relative return,
+cross-sectional dispersion, lead-lag riding the same infra, pairs with the cross-sectional rank
+IC mode) — but this file's "Option A" sketch below (standalone batch script + a new step in
+`corpus_pipeline_run.sh`) is a concrete, still-useful implementation shape worth keeping as
+reference. Moved to `completed/` as superseded, not because the underlying work shipped.
+
 # 013 — Cross-Sectional Rank Features (momentum_rank_z, volume_rank_z, volatility_rank_z)
 
 **Priority: Medium — free alpha, schema already exists, columns are NULL**
