@@ -7,7 +7,27 @@ discovered: 2026-07-02
 
 ## What
 
-33 test failures discovered running the full `tests/unit/` suite during Phase 142A
+**Scope narrowed 2026-07-08:** the `test_run_historical_pipeline.py` subset (14 failures,
+stale `production.scripts.run_historical_pipeline` mock patch paths from a since-completed
+scripts reorg) is now fully diagnosed with a concrete fix, tracked separately as todo 062 —
+don't duplicate that work here. **Re-confirmed live 2026-07-08** (full `tests/unit/` run,
+`git stash` comparison): the `test_regime_writer.py`/`test_causal_hmm_decoding.py` subset (14
+failures) still reproduces identically, still pre-existing, still unexplained by anything in
+this session's changes. This todo's remaining scope is that subset plus
+`test_fetch_htf_bars.py`/`test_roll_batch.py` (4 more, likely unrelated causes — a missing
+debug module and a date-dependent contract-roll assertion respectively; worth splitting into
+their own todos if this is ever picked up rather than treating all ~18 as one investigation).
+
+**Why the regime_writer/causal_hmm subset matters more than "pre-existing test failure"
+suggests:** if this really is numeric/JIT precision drift in `regime_writer.py`'s causal
+decode path (as suspected below), it means the per-symbol HMM regime labels
+(`feature_vectors.regime`) — one of the two live regime systems, and the exact machinery
+central to today's Phase 144 conditioning decision
+(`docs/research/fable-2026-07-07-phase144-conditioning-decision.md`) — may already be
+computing degraded output in production, silently. Worth prioritizing the bisect below over
+its current P3-adjacent treatment, given that connection.
+
+33 test failures originally discovered running the full `tests/unit/` suite during Phase 142A
 execution (post-merge gate, confirmed reproducible twice — identical failure set
 before and after merging plan 142A-01). Confirmed via `git diff --stat` against
 these files that none were touched by 142A-01's commits — pre-existing on `main`
@@ -16,10 +36,10 @@ at `8cd562f6`, not caused by any recent phase.
 Full breakdown logged in
 `.planning/phases/142A-ensemble-ic-measurement-planned/deferred-items.md`.
 
-**Affected files:**
+**Affected files (original 33; see narrowing note above for current scope):**
 - `tests/unit/scripts/test_fetch_htf_bars.py` (3 failures)
 - `tests/unit/scripts/test_roll_batch.py` (1 failure)
-- `tests/unit/scripts/test_run_historical_pipeline.py` (14 failures)
+- `tests/unit/scripts/test_run_historical_pipeline.py` (14 failures — now todo 062's scope)
 - `tests/unit/services/test_regime_writer.py` (8 failures)
 - `tests/unit/test_causal_hmm_decoding.py` (6 failures)
 - `tests/unit/test_regime_writer.py` (1 failure)

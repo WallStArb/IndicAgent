@@ -10,6 +10,12 @@
 
 # 062 — Fix stale `production.scripts.run_historical_pipeline` mock patch paths
 
+**Relationship to todo 045:** this is the fully-diagnosed subset of the broader 33-test-failure
+set todo 045 originally tracked — 045 has been narrowed to exclude this file now that it has
+its own concrete fix here. The `test_regime_writer.py`/`test_causal_hmm_decoding.py` failures
+045 still tracks are a different, unexplained root cause (possible HMM numeric drift), not
+stale mock paths — don't conflate the two when picking either up.
+
 Discovered 2026-07-05 while verifying an unrelated fix (F1-F7 IBKR backfill robustness
 pass) didn't regress `tests/unit/scripts/test_run_historical_pipeline.py`. Confirmed via
 `git stash` that 15 tests in that file **already fail on main, independent of any change
