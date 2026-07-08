@@ -81,6 +81,53 @@ class TestStaleCliffUsesAPR:
         assert "config.weight_stale_max_days" in source
 
 
+class TestWeightVersionFullReplace:
+    """A re-run under the same weight_version must fully replace that version's row-set,
+    not incrementally upsert on top of it.
+
+    Root cause this guards: _process_stratum silently early-returns (no write, no log
+    above DEBUG) when a stratum's meta-eligible feature count drops below
+    min_passing_features -- e.g. after the per-timeframe meta-FDR fix correctly tightens
+    eligibility for a timeframe. Without a delete-scoped-to-weight_version at run start,
+    a stratum that qualified under an older run's logic keeps its stale rows forever
+    under a weight_version that's supposed to be a fully self-consistent snapshot of
+    "this run's logic + this run's data." Found 2026-07-08: a re-run after the
+    per-timeframe meta-FDR fix left 5 stale 1h/high_bear ensemble_weights rows
+    (computed_at from the PRE-fix run) sitting under the same weight_version as the
+    fixed run's genuinely-qualifying strata.
+    """
+
+    def _source(self) -> str:
+        return inspect.getsource(ensemble_trainer_module)
+
+    def test_deletes_ensemble_weights_scoped_to_weight_version(self) -> None:
+        source = self._source()
+        assert "DELETE FROM ensemble_weights" in source
+
+    def test_deletes_ensemble_alpha_scoped_to_weight_version(self) -> None:
+        source = self._source()
+        assert "DELETE FROM ensemble_alpha" in source
+
+    def test_deletes_do_not_use_returning(self) -> None:
+        """RETURNING on a bulk DELETE forces Postgres to materialize the full deleted-row
+        result set before a count can be taken. Against ensemble_alpha (30M+ rows for an
+        active weight_version) this OOM-killed the Postgres backend and crashed the
+        entire TimescaleDB instance (2026-07-08, required WAL recovery on restart) --
+        confirmed via docker logs: 'client backend ... terminated by signal 9: Killed',
+        'DETAIL: Failed process was running: WITH d AS (DELETE ... RETURNING 1) ...'.
+        conn.execute()'s command-tag ("DELETE <n>") gives the row count without ever
+        materializing result rows -- the same pattern already used correctly in
+        alpha_publisher.py's delete.
+        """
+        source = self._source()
+        # Exact-match the full DELETE statement strings (including the closing quote) --
+        # this can only be present if the statement ends at weight_version = $1 with no
+        # RETURNING clause appended. A blanket "RETURNING" not in source would false-positive
+        # on this test's own docstring/comments explaining why RETURNING must be avoided here.
+        assert 'DELETE FROM ensemble_weights WHERE weight_version = $1",\n' in source
+        assert 'DELETE FROM ensemble_alpha WHERE weight_version = $1",\n' in source
+
+
 class TestWeightVersionCLIOverride:
     """EnsembleTrainer accepts a CLI weight-version override threaded into config."""
 

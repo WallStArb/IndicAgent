@@ -2,7 +2,7 @@
 
 GaussianHMM.predict() is full-sequence Viterbi. It is NOT causal. It uses both
 past AND future observations to decode each timestep via the Viterbi algorithm
-over the complete sequence. _causal_decode() is the causal forward-filter (alpha-
+over the complete sequence. _decode() is the causal forward-filter (alpha-
 pass only) -- at timestep t it uses ONLY observations obs[0..t].
 
 This test verifies they produce DIFFERENT results on a deterministic 30-bar
@@ -11,7 +11,7 @@ sequence with a sharp regime switch at bar 20. On this sequence:
     because it processes the full sequence before decoding any single bar
   - The causal filter at bars 1-15 has never seen bars 16-30 at all
 
-If _causal_decode() and model.predict() agree on this sequence, the causal decoder
+If _decode() and model.predict() agree on this sequence, the causal decoder
 is NOT actually causal -- it is replicating Viterbi behavior. This test would fail
 (marking a real architecture violation).
 
@@ -31,7 +31,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.regime_writer import _causal_decode
+from tests.unit._hmm_decode_helpers import decode as _decode
 
 _SEED = 42
 
@@ -99,7 +99,7 @@ class TestCausalVsViterbi:
         viterbi_states = self.model.predict(self.obs)  # full-sequence Viterbi
         covars_diag = self._covars_diag()
 
-        causal_states, _ = _causal_decode(
+        causal_states, _ = _decode(
             self.obs,
             self.model.means_,
             covars_diag,
@@ -118,13 +118,13 @@ class TestCausalVsViterbi:
 
         assert not np.array_equal(viterbi_states, causal_states), (
             "Causal forward-filter produced identical results to full-sequence Viterbi. "
-            "This means _causal_decode() is NOT causal -- it replicates Viterbi. "
-            "Check for a backward pass or smoothing step in _causal_decode()."
+            "This means _decode() is NOT causal -- it replicates Viterbi. "
+            "Check for a backward pass or smoothing step in _decode()."
         )
 
     def test_causal_states_dtype_and_range(self):
         """Causal decoded states must be integer type, all values in {0, 1}."""
-        causal_states, _ = _causal_decode(
+        causal_states, _ = _decode(
             self.obs,
             self.model.means_,
             self._covars_diag(),
@@ -147,7 +147,7 @@ class TestCausalVsViterbi:
         Viterbi may assign a different state (due to backward smoothing) but the
         causal decoder must be internally consistent on the clear pre-switch region.
         """
-        causal_states, _ = _causal_decode(
+        causal_states, _ = _decode(
             self.obs,
             self.model.means_,
             self._covars_diag(),
@@ -173,7 +173,7 @@ class TestCausalVsViterbi:
         covars_diag = self._covars_diag()
 
         # Decode first half only
-        causal_half, _ = _causal_decode(
+        causal_half, _ = _decode(
             obs[:half],
             self.model.means_,
             covars_diag,
@@ -182,7 +182,7 @@ class TestCausalVsViterbi:
         )
 
         # Decode full sequence
-        causal_full, _ = _causal_decode(
+        causal_full, _ = _decode(
             obs,
             self.model.means_,
             covars_diag,
@@ -194,14 +194,14 @@ class TestCausalVsViterbi:
             causal_half,
             causal_full[:half],
             err_msg=(
-                "Causality violation in _causal_decode(): state at T changed when "
+                "Causality violation in _decode(): state at T changed when "
                 "future observations were added. Check for backward pass or smoothing."
             ),
         )
 
     def test_causal_decode_output_shape(self):
         """Output state array must have length == n_bars."""
-        causal_states, alpha_hist = _causal_decode(
+        causal_states, alpha_hist = _decode(
             self.obs,
             self.model.means_,
             self._covars_diag(),

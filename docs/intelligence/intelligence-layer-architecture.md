@@ -154,8 +154,13 @@ confident enough to act on.
 
 **What it's called:** "Alpha Emitter."
 
-**Current mechanism:** threshold crossing — `|alpha_score| > threshold[symbol][tf][regime]
-AND ci_lower > 0` — writing to `alpha_events`.
+**Current mechanism:** a four-gate stack in `services/alpha_publisher.py`, evaluated in order
+— (1) `effective_n >= alpha.ensemble.effective_n_gate` per (tf, regime) stratum, (2)
+`ABS(alpha_score) > alpha.quant.threshold.{tf}` (per-TF only — no symbol or regime
+granularity), (3) direction-aware CI + cost hurdle: long `alpha_ci_lower > alpha.quant.cost_hurdle.{tf}`,
+short `alpha_ci_upper < -alpha.quant.cost_hurdle.{tf}`, (4) `top_features` non-empty for the
+stratum — writing to `alpha_events`. Detail and structural notes on gate 3 (the CI margin is
+constant per stratum, not truly per-bar): `docs/research/measurement-alpha-emission.md`.
 
 ---
 

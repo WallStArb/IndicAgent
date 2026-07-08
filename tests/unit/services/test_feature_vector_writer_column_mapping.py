@@ -1,24 +1,28 @@
 """Regression test pinning the column mapping in _record_to_insert_params.
 
 Verifies that the tuple produced by _record_to_insert_params
-carries data in the correct position for each INSERT column
-after migration 159 expanded the tuple from 61 to 70 elements:
+carries data in the correct position for each INSERT column.
+Migration 159 expanded the tuple from 61 to 70 elements; migration 206's
+2026-07-08 persistence-wiring fix (see feature_vector_persistence.py
+docstring) extended it to 161:
 
-  $1  (params[0])  -> feature_vector_id       UUID (content-key)
-  $2  (params[1])  -> symbol                  str
-  $3  (params[2])  -> tf                      str
-  $4  (params[3])  -> bar_ts                  datetime
-  $5  (params[4])  -> pipeline_version        str
-  $6  (params[5])  -> feature_factory_version str  (NEW in 138-P1)
-  $7  (params[6])  -> regime                  str | None
-  $8  (params[7])  -> regime_label_source     str
-  $9  (params[8])  -> momentum_z_fast         float
-  $22 (params[21]) -> atr_z                   float
-  $31 (params[30]) -> hurst                   float
-  $56 (params[55]) -> ctf_momentum            float
-  $62 (params[61]) -> ret_acf1_z              float
-  $63 (params[62]) -> bar_close_ts            datetime  (NEW in 138-P1)
-  $70 (params[69]) -> volatility_rank_z       float | None  (NEW in 138-P1)
+  $1   (params[0])   -> feature_vector_id       UUID (content-key)
+  $2   (params[1])   -> symbol                  str
+  $3   (params[2])   -> tf                      str
+  $4   (params[3])   -> bar_ts                  datetime
+  $5   (params[4])   -> pipeline_version        str
+  $6   (params[5])   -> feature_factory_version str  (NEW in 138-P1)
+  $7   (params[6])   -> regime                  str | None
+  $8   (params[7])   -> regime_label_source     str
+  $9   (params[8])   -> momentum_z_fast         float
+  $22  (params[21])  -> atr_z                   float
+  $31  (params[30])  -> hurst                   float
+  $56  (params[55])  -> ctf_momentum            float
+  $62  (params[61])  -> ret_acf1_z              float
+  $63  (params[62])  -> bar_close_ts            datetime  (NEW in 138-P1)
+  $70  (params[69])  -> volatility_rank_z       float | None  (NEW in 138-P1)
+  $71  (params[70])  -> body_ratio              float  (NEW in migration 206)
+  $161 (params[160]) -> vol_skew_product        float  (NEW in migration 206, last column)
 
 This test will fail if any column shift occurs in _record_to_insert_params.
 """
@@ -92,9 +96,8 @@ def _make_sentinel_record():
         high_52w_dist=52.52,
         ret_skew_z=53.53,
         ret_acf1_z=54.54,
-        # Renaissance Primitives (Phase 142.5 Plan 01) — not yet in the persisted
-        # tuple (migration 206 / writer wiring land in a later plan); construction
-        # requires these non-optional fields, so sentinel values only.
+        # Renaissance Primitives (Phase 142.5 Plan 01) — wired into the persisted
+        # tuple 2026-07-08 (migration 206 writer wiring).
         body_ratio=55.01,
         upper_wick_ratio=55.02,
         lower_wick_ratio=55.03,
@@ -113,9 +116,8 @@ def _make_sentinel_record():
         intraday_ret=55.16,
         open_vs_intraday=55.17,
         session_time_pos=55.18,
-        # Renaissance Primitives (Phase 142.5 Plan 02) — not yet in the persisted
-        # tuple (migration 206 / writer wiring land in a later plan); construction
-        # requires these non-optional fields, so sentinel values only.
+        # Renaissance Primitives (Phase 142.5 Plan 02) — wired into the persisted
+        # tuple 2026-07-08 (migration 206 writer wiring).
         hour_of_day_sin=56.01,
         hour_of_day_cos=56.02,
         week_of_month_sin=56.03,
@@ -138,9 +140,8 @@ def _make_sentinel_record():
         mfi_fast=56.20,
         mfi_slow=56.21,
         obv_z=56.22,
-        # Renaissance Primitives (Phase 142.5 Plan 05) — not yet in the persisted
-        # tuple (migration 206 / writer wiring land in a later plan); construction
-        # requires these non-optional fields, so sentinel values only.
+        # Renaissance Primitives (Phase 142.5 Plan 05) — wired into the persisted
+        # tuple 2026-07-08 (migration 206 writer wiring).
         dist_from_high_fast=57.01,
         dist_from_high_slow=57.02,
         dist_from_low_fast=57.03,
@@ -155,9 +156,8 @@ def _make_sentinel_record():
         price_percentile_slow=57.12,
         efficiency_ratio_fast=57.13,
         efficiency_ratio_slow=57.14,
-        # Renaissance Primitives (Phase 142.5 Plan 03) — not yet in the persisted
-        # tuple (migration 206 / writer wiring land in a later plan); construction
-        # requires these non-optional fields, so sentinel values only.
+        # Renaissance Primitives (Phase 142.5 Plan 03) — wired into the persisted
+        # tuple 2026-07-08 (migration 206 writer wiring).
         ret_kurtosis_z_fast=58.01,
         ret_kurtosis_z_slow=58.02,
         ret_autocorr_1=58.03,
@@ -179,9 +179,8 @@ def _make_sentinel_record():
         hv_z_fast=58.19,
         hv_z_slow=58.20,
         hv_ratio=58.21,
-        # Renaissance Primitives (Phase 142.5 Plan 04) — not yet in the persisted
-        # tuple (migration 206 / writer wiring land in a later plan); construction
-        # requires these non-optional fields, so sentinel values only.
+        # Renaissance Primitives (Phase 142.5 Plan 04) — wired into the persisted
+        # tuple 2026-07-08 (migration 206 writer wiring).
         parkinson_vol_z=59.01,
         garman_klass_vol_z=59.02,
         yang_zhang_vol_z=59.03,
@@ -190,10 +189,8 @@ def _make_sentinel_record():
         yang_zhang_vol_velocity=59.06,
         vol_velocity_z=59.07,
         intraday_noise_ratio=59.08,
-        # Renaissance Primitives (Phase 142.5 Plan 05.5) — not yet in the
-        # persisted tuple (migration 206 / writer wiring land in a later
-        # plan); construction requires these non-optional fields, so
-        # sentinel values only.
+        # Renaissance Primitives (Phase 142.5 Plan 05.5) — wired into the
+        # persisted tuple 2026-07-08 (migration 206 writer wiring).
         vol_body_product=60.01,
         ret_vol_product_fast=60.02,
         price_vol_corr_fast=60.03,
@@ -215,14 +212,15 @@ def _make_sentinel_record():
     )
 
 
-def test_params_length_is_70():
-    """_record_to_insert_params must return exactly 70 elements (post migration 159)."""
+def test_params_length_is_161():
+    """_record_to_insert_params must return exactly 161 elements (post migration 206,
+    2026-07-08 persistence-wiring fix — see feature_vector_persistence.py docstring)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 70, f"Expected 70, got {len(params)}"
+    assert len(params) == 161, f"Expected 161, got {len(params)}"
 
 
 def test_feature_vector_id_at_index_0():
@@ -381,3 +379,46 @@ def test_no_cross_contamination_between_feature_groups():
     ), "momentum_z_fast sentinel leaked into vol_ratio position"
     # atr_z = 14.14 must not appear at momentum_z_fast position ($9 = index 8)
     assert params[8] != pytest.approx(14.14), "atr_z sentinel leaked into momentum_z_fast position"
+
+
+def test_body_ratio_at_index_70():
+    """params[70] ($71) must be body_ratio sentinel value 55.01 -- first of the
+    91 Renaissance primitive columns wired 2026-07-08."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert params[70] == pytest.approx(55.01), f"$71 (body_ratio) wrong: {params[70]}"
+
+
+def test_hour_of_day_sin_at_index_88():
+    """params[88] ($89) must be hour_of_day_sin sentinel value 56.01."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert params[88] == pytest.approx(56.01), f"$89 (hour_of_day_sin) wrong: {params[88]}"
+
+
+def test_parkinson_vol_z_at_index_145():
+    """params[145] ($146) must be parkinson_vol_z sentinel value 59.01."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert params[145] == pytest.approx(59.01), f"$146 (parkinson_vol_z) wrong: {params[145]}"
+
+
+def test_vol_skew_product_at_index_160_is_last_element():
+    """params[160] ($161) must be vol_skew_product sentinel value 60.08 -- the
+    final column, confirming the full 91-column extension lands correctly."""
+    from services.feature_vector_writer import _record_to_insert_params
+
+    record = _make_sentinel_record()
+    params = _record_to_insert_params(record)
+
+    assert len(params) == 161
+    assert params[160] == pytest.approx(60.08), f"$161 (vol_skew_product) wrong: {params[160]}"

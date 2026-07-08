@@ -19,8 +19,8 @@ order (v3.15 conditioning phases moved before v3.2's AnalogEngine, since nothing
 | 149 | 154 | Alternative Data Vectors |
 
 **Already fixed:** `ROADMAP.md` itself (full pass), `docs/research/idea-catalog.md`, and
-`docs/research/2026-07-01-intelligence-lifecycle-backlog-matrix.md` (all cross-references updated
-and spot-checked for slash/list-separator edge cases the bulk regex missed).
+`docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md` (renamed from the
+2026-07-01 version in a full rewrite 2026-07-08; current phase numbers throughout).
 
 **Still stale — grep confirmed references to old numbers, not yet fixed:**
 - `docs/research/edge-source-thesis.md`

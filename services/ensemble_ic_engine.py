@@ -5,10 +5,25 @@ lookahead) for the v3.0 ensemble output (Phase 142A, EIC-01).
 Proves the ensemble OUTPUT has IC before any execution rules are tested. Composes the
 SAME corrected IC methodology as ic_engine.py (Fisher z-transform CI, NOT circular block
 bootstrap; corpus-level BH-FDR; expanding-window walk-forward with scale-specific embargo)
-onto a single composite predictor (alpha_score), reading alpha_events joined to
+onto a single composite predictor (alpha_score), reading ensemble_alpha joined to
 forward_returns and market_regimes.
 
 CORRECTNESS INVARIANTS:
+- Measurement population is ensemble_alpha (every scored bar), NOT alpha_events (the
+  post-emission-threshold execution subset) -- 2026-07-08 finding. This engine's own
+  stated purpose is "prove the ensemble OUTPUT has IC... no frame assumptions," but
+  alpha_events is ensemble_alpha AFTER a threshold + directional-CI + cost-hurdle
+  filter -- an execution-policy gate, not a signal-validation population. Measuring
+  IC only on bars that already cleared a confidence threshold is post-selection bias:
+  it conditions the correlation test on the very thing being validated, which can bias
+  the measured IC in either direction and destroys statistical power. Observed effect
+  before this fix: alpha_events was 0.17% of ensemble_alpha's row count, collapsing
+  per-cell N to 100-150 against a 3000-observation floor -- switching to ensemble_alpha
+  empirically resolved 90-96% of 5m/15m cells to N>=3000 (1d remains structurally
+  underpowered regardless of population -- too few daily bars ever, not fixable this
+  way). alpha_events/the emission threshold is still the correct population for
+  Phase 142B (frame simulation tests whether an execution RULE is profitable -- a
+  different question, correctly downstream of signal validation).
 - Executable returns only (Invariant 1): every forward_returns query filters
   WHERE return_type = 'executable_open_to_open'.
 - ProcessPoolExecutor workers are dispatched one per symbol, each opening its own
@@ -29,7 +44,7 @@ CORRECTNESS INVARIANTS:
   accumulate distinct vintages (mirrors ic_engine.computed_at).
 - walk_forward_stable (EIC-03) is the fold IC-MAGNITUDE max/min ratio, NOT a fold
   IC-Sharpe ratio (D-142A-R1: reasoned v1 relaxation -- see compute_walk_forward_stable).
-- Crashes loud at startup when alpha_events, forward_returns, OR market_regimes is empty.
+- Crashes loud at startup when ensemble_alpha, forward_returns, OR market_regimes is empty.
 - In-sample filter: all queries restrict bar_ts < alpha.validation.oos_start (OOS half
   reserved for Phase 144).
 - Pooled cross-sectional dispatch (todo 046 / D-01, Phase 142B.1 Wave 0): in addition to
@@ -53,6 +68,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import sys
+from collections.abc import Iterable
 from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -149,6 +165,7 @@ class EnsembleICConfig:
     lookahead_slow: int
     lookahead_extended: int
     n_workers: int
+    pooled_fetch_itersize: int
     # EnsembleIC-specific keys (migration 195)
     decay_threshold: float
     min_qualifying_fraction: float
@@ -183,6 +200,9 @@ class EnsembleICConfig:
             lookahead_slow=_cfg(cfg, "alpha.ic.lookahead.slow", 20),
             lookahead_extended=_cfg(cfg, "alpha.ic.lookahead.extended", 60),
             n_workers=_cfg(cfg, "infra.ensemble_ic_engine.workers", 12),
+            pooled_fetch_itersize=_cfg(
+                cfg, "infra.ensemble_ic_engine.pooled_fetch_itersize", 50_000
+            ),
             decay_threshold=_cfg(cfg, "alpha.ensemble_ic.decay_threshold", 0.1),
             min_qualifying_fraction=_cfg(cfg, "alpha.ensemble_ic.min_qualifying_fraction", 0.60),
             wf_stability_ratio=_cfg(cfg, "alpha.ensemble_ic.wf_stability_ratio", 3.0),
@@ -318,8 +338,8 @@ def build_ensemble_ic_row(
     (event_row_id, scored_at) and hit ON CONFLICT DO UPDATE (D-142A-R2). scored_at is
     stamped with the single pinned run_ts passed in (never a fresh "now" per-row).
 
-    weight_version tags which weight variant's alpha_events this row measures (mirrors
-    alpha_events.weight_version, migration 168) -- required so Plan 05's A/B judge
+    weight_version tags which weight variant's ensemble_alpha this row measures (mirrors
+    ensemble_alpha.weight_version, migration 168) -- required so Plan 05's A/B judge
     (ops_ensemble_weight_compare.py) can GROUP BY weight_version without blending two
     challengers' measurements together (migration 196 Section 3).
     """
@@ -396,24 +416,39 @@ def _row_to_tuple(row: dict[str, Any]) -> tuple[Any, ...]:
 
 
 async def _assert_prerequisites(
-    conn: asyncpg.Connection, weight_version: str, tfs: list[str] | None = None
+    conn: asyncpg.Connection,
+    weight_version: str,
+    tfs: list[str] | None = None,
+    manifest_dir: Path = CorpusManifest.DEFAULT_MANIFEST_DIR,
 ) -> None:
-    """Three COUNT checks; raise RuntimeError (crash loud) if any is empty.
+    """Three COUNT checks plus a manifest check; raise RuntimeError (crash loud) if any
+    fails.
 
-    alpha_events is scoped to weight_version (CR-01, code review): an unscoped count(*)
+    ensemble_alpha is scoped to weight_version (CR-01, code review): an unscoped count(*)
     would still pass as long as SOME other weight_version has rows, letting a
     typo'd/stale --weight-version silently complete with n_rows=0 instead of crashing loud.
     """
     n_alpha = await conn.fetchval(
-        "SELECT count(*) FROM alpha_events WHERE weight_version = $1", weight_version
+        "SELECT count(*) FROM ensemble_alpha WHERE weight_version = $1", weight_version
     )
     if not n_alpha:
         raise RuntimeError(
-            f"EnsembleICEngine startup gate FAILED: alpha_events has zero rows for "
-            f"weight_version={weight_version!r}. Run ensemble_trainer.py + "
-            f"alpha_publisher.py with --weight-version {weight_version!r} first, or check "
+            f"EnsembleICEngine startup gate FAILED: ensemble_alpha has zero rows for "
+            f"weight_version={weight_version!r}. Run ensemble_trainer.py "
+            f"with --weight-version {weight_version!r} first, or check "
             f"for a typo / stale alpha.ensemble.weight_version APR value."
         )
+
+    # A nonzero row count above does not mean the run that wrote those rows finished.
+    # ensemble_trainer.py is the sole writer of ensemble_alpha; its "full replace" delete
+    # (both DELETEs auto-commit standalone) then repopulates one stratum's transaction at
+    # a time -- a mid-run crash after the delete leaves exactly this: nonzero but
+    # incomplete rows for the weight_version. CorpusManifest.ensure_success_for closes
+    # this the same way for every prerequisite-gate call site (2026-07-08 altitude
+    # review finding: alpha_publisher.py's gate has the identical exposure).
+    CorpusManifest.ensure_success_for(
+        manifest_dir, "ensemble_trainer", scope_suffix=weight_version, weight_version=weight_version
+    )
 
     n_fr = await conn.fetchval(
         "SELECT count(*) FROM forward_returns WHERE return_type = 'executable_open_to_open'"
@@ -453,25 +488,27 @@ async def _assert_prerequisites(
 # compute across workers (todo 047, 2026-07-02).
 # weight_version is filtered here (not just tagged on write) so a re-run scoped to a
 # challenger variant (e.g. 'v1_shrunk') never blends in a different variant's
-# alpha_events rows that happen to share (symbol, tf, bar_ts) -- migration 196 Section 3.
+# ensemble_alpha rows that happen to share (symbol, tf, bar_ts) -- migration 196 Section 3.
+# Sources from ensemble_alpha (every scored bar), NOT alpha_events (the emission-gated
+# execution subset) -- see module docstring's measurement-population invariant.
 _WORKER_FETCH_SQL = """
-    SELECT ae.alpha_score, fr.return_fast, fr.return_mid,
+    SELECT ea.alpha_score, fr.return_fast, fr.return_mid,
            fr.return_slow, fr.return_extended, mr.regime_label
-    FROM alpha_events ae
+    FROM ensemble_alpha ea
     JOIN forward_returns fr
-      ON fr.symbol = ae.symbol AND fr.tf = ae.tf AND fr.bar_ts = ae.bar_ts
+      ON fr.symbol = ea.symbol AND fr.tf = ea.tf AND fr.bar_ts = ea.bar_ts
       AND fr.return_type = 'executable_open_to_open'
     JOIN market_regimes mr
-      ON mr.asset_class = 'equity' AND mr.tf = ae.tf AND mr.ts = ae.bar_ts
-    WHERE ae.symbol = %s AND ae.tf = %s AND ae.weight_version = %s AND ae.bar_ts < %s
-    ORDER BY ae.bar_ts
+      ON mr.asset_class = 'equity' AND mr.tf = ea.tf AND mr.ts = ea.bar_ts
+    WHERE ea.symbol = %s AND ea.tf = %s AND ea.weight_version = %s AND ea.bar_ts < %s
+    ORDER BY ea.bar_ts
 """
 
 # ---------------------------------------------------------------------------
 # Pooled cross-sectional dispatch (todo 046 / D-01) -- Wave 0
 # ---------------------------------------------------------------------------
 #
-# Same joins as _WORKER_FETCH_SQL but with the `ae.symbol = %s` filter dropped, so it
+# Same joins as _WORKER_FETCH_SQL but with the `ea.symbol = %s` filter dropped, so it
 # returns ONE raw row per (symbol, bar_ts) across ALL symbols sharing this tf. The
 # per-symbol rows are then reduced by the pure function _aggregate_pooled_series below
 # BEFORE any IC math runs -- RESEARCH.md Pitfall 5 requires grouping by
@@ -481,16 +518,16 @@ _WORKER_FETCH_SQL = """
 # grouping by (regime_label, bar_ts) within a fixed tf is therefore equivalent to
 # grouping by the full (tf, regime, bar_ts) triple.
 _POOLED_WORKER_FETCH_SQL = """
-    SELECT ae.symbol, ae.bar_ts, ae.alpha_score, fr.return_fast, fr.return_mid,
+    SELECT ea.symbol, ea.bar_ts, ea.alpha_score, fr.return_fast, fr.return_mid,
            fr.return_slow, fr.return_extended, mr.regime_label
-    FROM alpha_events ae
+    FROM ensemble_alpha ea
     JOIN forward_returns fr
-      ON fr.symbol = ae.symbol AND fr.tf = ae.tf AND fr.bar_ts = ae.bar_ts
+      ON fr.symbol = ea.symbol AND fr.tf = ea.tf AND fr.bar_ts = ea.bar_ts
       AND fr.return_type = 'executable_open_to_open'
     JOIN market_regimes mr
-      ON mr.asset_class = 'equity' AND mr.tf = ae.tf AND mr.ts = ae.bar_ts
-    WHERE ae.tf = %s AND ae.weight_version = %s AND ae.bar_ts < %s
-    ORDER BY ae.bar_ts
+      ON mr.asset_class = 'equity' AND mr.tf = ea.tf AND mr.ts = ea.bar_ts
+    WHERE ea.tf = %s AND ea.weight_version = %s AND ea.bar_ts < %s
+    ORDER BY ea.bar_ts
 """
 
 # Value columns averaged across symbols for each pooled (tf, regime, bar_ts) cell.
@@ -503,7 +540,27 @@ _POOLED_VALUE_COLS: tuple[str, ...] = (
 )
 
 
-def _aggregate_pooled_series(fetched_rows: list[dict[str, Any]], tf: str) -> list[dict[str, Any]]:
+@dataclasses.dataclass
+class _RunningMean:
+    """Streaming mean accumulator -- one per (cell, column). Replaces collecting a
+    full list of raw values per column then calling np.mean() at the end, which
+    would hold every raw row in memory simultaneously (see _aggregate_pooled_series
+    docstring for why that's a real memory risk against ensemble_alpha's size)."""
+
+    total: float = 0.0
+    count: int = 0
+
+    def add(self, value: float) -> None:
+        self.total += value
+        self.count += 1
+
+    def mean(self) -> float | None:
+        return self.total / self.count if self.count else None
+
+
+def _aggregate_pooled_series(
+    fetched_rows: Iterable[dict[str, Any]], tf: str
+) -> list[dict[str, Any]]:
     """Pure function (no DB): reduce per-(symbol, bar_ts) rows to one pooled row per
     (tf, regime, bar_ts) cell, averaging alpha_score + forward returns across symbols.
 
@@ -511,6 +568,19 @@ def _aggregate_pooled_series(fetched_rows: list[dict[str, Any]], tf: str) -> lis
     triple BEFORE averaging -- rows sharing a bar_ts but carrying DIFFERENT
     regime_label values are never mixed into the same pooled cell (average-first-
     label-second would silently blend cross-regime observations).
+
+    Accumulates a running (sum, count) per group instead of collecting full member
+    lists -- accepts any iterable (a list, or a live server-side DB cursor), and peak
+    memory is O(distinct (regime, bar_ts) cells) rather than O(raw row count). The
+    pooled fetch has no per-symbol filter (by design -- it needs every symbol sharing
+    a tf), so raw row count scales with symbols x bars; against ensemble_alpha's full
+    scored population (not the much smaller emission-gated alpha_events this engine
+    used to read from) a collect-then-mean implementation held every raw row in memory
+    at once. 2026-07-08: this is the same fetchall()-before-reduce shape that OOM'd
+    ic_engine.py's cross-sectional pass twice the same week; the pooled worker doesn't
+    hold a full-width feature matrix like that code did, but it already caused a real
+    "No space left on device" shared-memory failure on 2 of 240 symbol/tf cells during
+    a live corpus run, silently dropped and logged rather than surfaced.
 
     Args:
         fetched_rows: raw per-(symbol, bar_ts) dicts from _POOLED_WORKER_FETCH_SQL
@@ -526,20 +596,32 @@ def _aggregate_pooled_series(fetched_rows: list[dict[str, Any]], tf: str) -> lis
         NULL regime_label or bar_ts are dropped (cannot be assigned to a stratum).
         Returns [] for empty input -- no divide-by-zero.
     """
-    groups: dict[tuple[str, Any, Any], list[dict[str, Any]]] = {}
+    groups: dict[tuple[str, Any, Any], dict[str, _RunningMean]] = {}
     for row in fetched_rows:
         regime_label = row.get("regime_label")
         bar_ts = row.get("bar_ts")
         if regime_label is None or bar_ts is None:
             continue
-        groups.setdefault((tf, regime_label, bar_ts), []).append(row)
+        key = (tf, regime_label, bar_ts)
+        # Plain `if key not in groups` instead of setdefault(key, <fresh dict>) --
+        # setdefault's default argument is built eagerly on every call regardless of
+        # whether the key already exists, so a per-row setdefault would allocate a
+        # throwaway dict for every one of the symbols x bars raw rows even though
+        # there are only bars-many distinct groups.
+        col_stats = groups.get(key)
+        if col_stats is None:
+            col_stats = {col: _RunningMean() for col in _POOLED_VALUE_COLS}
+            groups[key] = col_stats
+        for col in _POOLED_VALUE_COLS:
+            value = row.get(col)
+            if value is not None:
+                col_stats[col].add(value)
 
     pooled: list[dict[str, Any]] = []
-    for (_tf, regime_label, bar_ts), members in groups.items():
+    for (_tf, regime_label, bar_ts), col_stats in groups.items():
         agg: dict[str, Any] = {"bar_ts": bar_ts, "regime_label": regime_label}
         for col in _POOLED_VALUE_COLS:
-            values = [m[col] for m in members if m.get(col) is not None]
-            agg[col] = float(np.mean(values)) if values else None
+            agg[col] = col_stats[col].mean()
         pooled.append(agg)
 
     pooled.sort(key=lambda r: r["bar_ts"])
@@ -577,8 +659,8 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
             oos_start: datetime -- OOS boundary; only bar_ts < oos_start is measured.
             config: EnsembleICConfig (frozen, picklable)
             run_ts: datetime -- pinned once per invocation (D-142A-R2)
-            weight_version: str -- scopes both the alpha_events fetch (WHERE
-                ae.weight_version = %s) and every row's tag column, so this run
+            weight_version: str -- scopes both the ensemble_alpha fetch (WHERE
+                ea.weight_version = %s) and every row's tag column, so this run
                 measures exactly one weight variant (migration 196 Section 3).
 
     Returns:
@@ -608,16 +690,29 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
     try:
         for tf in tfs:
             try:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    if is_pooled:
-                        # Fetch ALL symbols' raw rows for this tf, then reduce to one
-                        # pooled row per (tf, regime, bar_ts) cell in Python -- the
-                        # grouping/averaging step (Pitfall 5) must happen before any IC
-                        # math, so it cannot be folded into a SQL-side AVG here.
+                if is_pooled:
+                    # Fetch ALL symbols' raw rows for this tf, then reduce to one
+                    # pooled row per (tf, regime, bar_ts) cell in Python -- the
+                    # grouping/averaging step (Pitfall 5) must happen before any IC
+                    # math, so it cannot be folded into a SQL-side AVG here. No
+                    # per-symbol filter means row count scales with symbols x bars;
+                    # a named (server-side) cursor streams rows in itersize-sized
+                    # batches instead of psycopg2's default of buffering the entire
+                    # result client-side on execute() -- _aggregate_pooled_series
+                    # accumulates a running sum/count per group as it consumes the
+                    # cursor, so peak memory is O(distinct cells), not O(raw rows).
+                    # Matches regime_writer.py's _compute_symbol_tf precedent: commit
+                    # any transaction left open by a prior tf iteration on this same
+                    # connection before declaring the named cursor.
+                    conn.commit()
+                    with conn.cursor(
+                        name=f"pooled_fetch_{tf}", cursor_factory=psycopg2.extras.RealDictCursor
+                    ) as cur:
+                        cur.itersize = config.pooled_fetch_itersize
                         cur.execute(_POOLED_WORKER_FETCH_SQL, (tf, weight_version, oos_start))
-                        raw_fetched = cur.fetchall()
-                        fetched = _aggregate_pooled_series(raw_fetched, tf)
-                    else:
+                        fetched = _aggregate_pooled_series(cur, tf)
+                else:
+                    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                         cur.execute(_WORKER_FETCH_SQL, (symbol, tf, weight_version, oos_start))
                         fetched = cur.fetchall()
             except Exception as error:
@@ -763,7 +858,7 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
 
 
 class EnsembleICEngine(BaseBatch):
-    """Batch compute service: alpha_events + forward_returns + market_regimes -> alpha_ensemble_ic.
+    """Batch compute service: ensemble_alpha + forward_returns + market_regimes -> alpha_ensemble_ic.
 
     Measures IC(alpha_score, forward_return_<scale>) per (symbol, tf, regime, lookahead)
     using the same Fisher-z CI + corpus-level BH-FDR + walk-forward machinery as ic_engine.
@@ -777,7 +872,7 @@ class EnsembleICEngine(BaseBatch):
         self._weight_version_override = weight_version_override
 
     async def execute(self, pool: asyncpg.Pool) -> None:
-        manifest = CorpusManifest("ensemble_ic_engine", Path(".planning/corpus_manifests"))
+        manifest = CorpusManifest("ensemble_ic_engine", CorpusManifest.DEFAULT_MANIFEST_DIR)
         try:
             await self._execute_inner(pool, manifest)
         except Exception as error:  # CLAUDE.md: exception variable name is `error`
@@ -799,7 +894,7 @@ class EnsembleICEngine(BaseBatch):
             config = EnsembleICConfig.from_apr(apr_cfg)
 
             # Per-run weight epoch: CLI --weight-version overrides the APR default so a
-            # scoped measurement run (e.g. against an E1/E2 challenger's alpha_events) never
+            # scoped measurement run (e.g. against an E1/E2 challenger's ensemble_alpha) never
             # silently reads a different weight_version's rows (migration 196 Section 3).
             champion_weight_version = _cfg(apr_cfg, "alpha.ensemble.weight_version", "v1")
             weight_version = _effective_weight_version(
@@ -808,7 +903,7 @@ class EnsembleICEngine(BaseBatch):
             self.logger.info("ensemble_ic.weight_version_scoped", weight_version=weight_version)
 
             tfs = await conn.fetch(
-                "SELECT DISTINCT tf FROM alpha_events WHERE weight_version = $1", weight_version
+                "SELECT DISTINCT tf FROM ensemble_alpha WHERE weight_version = $1", weight_version
             )
             tf_list = [r["tf"] for r in tfs]
 
@@ -832,7 +927,7 @@ class EnsembleICEngine(BaseBatch):
                 raise oos_start_gate_error
 
             symbols_rows = await conn.fetch(
-                "SELECT DISTINCT symbol, tf FROM alpha_events "
+                "SELECT DISTINCT symbol, tf FROM ensemble_alpha "
                 "WHERE weight_version = $1 AND bar_ts < $2",
                 weight_version,
                 oos_start,
@@ -850,7 +945,7 @@ class EnsembleICEngine(BaseBatch):
             symbol_to_tfs.setdefault(symbol, []).append(tf)
 
         # Pooled cross-sectional dispatch (todo 046 / D-01, Wave 0): one additional
-        # worker task, symbol=_POOLED_SYMBOL, covering every tf that has alpha_events.
+        # worker task, symbol=_POOLED_SYMBOL, covering every tf that has ensemble_alpha.
         # Per-symbol rows above are untouched (D-03 -- per-symbol stays as a diagnostic
         # layer, never dropped); this is purely additive to symbol_to_tfs.
         symbol_to_tfs[_POOLED_SYMBOL] = tf_list
@@ -1009,7 +1104,7 @@ if __name__ == "__main__":
         help=(
             "Weight variant to measure; overrides alpha.ensemble.weight_version so a "
             "challenger run (e.g. after ensemble_trainer --weight-version v1_shrunk) "
-            "scores only its own alpha_events rows, not the champion's"
+            "scores only its own ensemble_alpha rows, not the champion's"
         ),
     )
     args = parser.parse_args()

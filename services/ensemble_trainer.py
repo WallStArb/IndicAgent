@@ -92,6 +92,7 @@ class EnsembleConfig:
     max_cluster_corr: float
     max_cluster_weight: float
     meta_fdr_min_fraction: float
+    meta_fdr_min_cells: int
     sharpe_floor: float
     weight_half_life_days: float
     weight_stale_max_days: int
@@ -110,6 +111,7 @@ class EnsembleConfig:
             max_cluster_corr=_cfg(cfg, "alpha.ensemble.max_cluster_correlation", 0.80),
             max_cluster_weight=_cfg(cfg, "alpha.ensemble.max_cluster_weight", 0.40),
             meta_fdr_min_fraction=_cfg(cfg, "alpha.ensemble.meta_fdr_min_fraction", 0.50),
+            meta_fdr_min_cells=_cfg(cfg, "alpha.ensemble.meta_fdr_min_cells", 3),
             sharpe_floor=_cfg(cfg, "alpha.ensemble.sharpe_floor", 0.05),
             weight_half_life_days=_cfg(cfg, "alpha.ensemble.weight_half_life_days", 30.0),
             weight_stale_max_days=_cfg(cfg, "alpha.ensemble.weight_stale_max_days", 90),
@@ -258,15 +260,34 @@ def _effective_weight_version(cli_weight_version: str | None, apr_default: str) 
     return cli_weight_version if cli_weight_version else apr_default
 
 
-def _meta_eligible(fdr_pass_rows: list[dict], min_fraction: float) -> set[str]:
-    """Return feature names whose BH-FDR pass-rate across eligible cells meets the threshold.
+def _meta_eligible(
+    fdr_pass_rows: list[dict], min_fraction: float, min_cells: int
+) -> dict[str, set[str]]:
+    """Return, per timeframe, feature names whose BH-FDR pass-rate across that
+    timeframe's eligible cells meets the threshold.
 
-    Denominator is restricted to cross-sectional cells that pass all ensemble eligibility filters
-    (symbol='POOLED', is_pooled=true, regime != '_pooled', ic_ci_lower > 0, passes_fdr=true,
-     reliable=true, ic_sharpe_hac IS NOT NULL)
-    — the same population consumed by _process_stratum.
+    Scoped per-tf rather than pooled globally: timeframes are not exchangeable draws of
+    the same experiment (different bars/day, different noise floor, different horizon),
+    so pooling BH-FDR outcomes across all 4 timeframes into one fraction conflates
+    cross-timeframe power differences with feature quality — a feature genuinely strong
+    at 1d can get vetoed everywhere by a weak showing in 5m noise. Each row must carry
+    'feature_name', 'tf', 'fdr_pass_rate', 'n_cells'.
+
+    min_cells excludes (feature, tf) pairs with too little evidence to make the
+    fraction meaningful — a single-cell 100% pass rate is a tautology, not replication.
+
+    Denominator (fdr_pass_rate) is restricted to cross-sectional cells that pass all
+    ensemble eligibility filters (symbol='POOLED', is_pooled=true, regime != '_pooled',
+    ic_ci_lower > 0, reliable=true, ic_sharpe_hac IS NOT NULL) — the same population
+    consumed by _process_stratum.
     """
-    return {r["feature_name"] for r in fdr_pass_rows if r["fdr_pass_rate"] >= min_fraction}
+    result: dict[str, set[str]] = {}
+    for r in fdr_pass_rows:
+        if r["n_cells"] < min_cells:
+            continue
+        if r["fdr_pass_rate"] >= min_fraction:
+            result.setdefault(r["tf"], set()).add(r["feature_name"])
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -310,8 +331,12 @@ async def _get_feature_columns(conn: asyncpg.Connection) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-async def _assert_prerequisites(conn: asyncpg.Connection) -> None:
-    """Two startup gates. Raise RuntimeError to prevent a silent empty run."""
+async def _assert_prerequisites(
+    conn: asyncpg.Connection,
+    manifest_dir: Path = CorpusManifest.DEFAULT_MANIFEST_DIR,
+) -> None:
+    """Two startup gates plus a manifest check. Raise RuntimeError to prevent a
+    silent empty OR silently-partial run."""
     n_ic = await conn.fetchval(
         "SELECT count(*) FROM feature_ic_scores"
         " WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'"
@@ -325,6 +350,15 @@ async def _assert_prerequisites(conn: asyncpg.Connection) -> None:
             "passes_fdr=true, reliable=true). "
             "Run ic_engine.py first."
         )
+
+    # A nonzero row count above does not mean the ic_engine.py run that wrote them
+    # finished -- ic_engine.py is the sole writer of feature_ic_scores, and this is
+    # the identical "nonzero rows isn't proof the run finished" gap already closed
+    # one hop downstream (ensemble_ic_engine.py / alpha_publisher.py reading
+    # ensemble_trainer's output). ic_engine.py has no weight_version-style scoping
+    # axis (one canonical corpus-wide run, not coexisting variants), so no
+    # scope_suffix is needed here.
+    CorpusManifest.ensure_success_for(manifest_dir, "ic_engine")
 
     n_fv = await conn.fetchval("SELECT count(*) FROM feature_vectors")
     if not n_fv:
@@ -357,7 +391,7 @@ class EnsembleTrainer(BaseBatch):
 
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Run the full ensemble weight derivation and alpha scoring pipeline."""
-        manifest = CorpusManifest("ensemble_trainer", Path(".planning/corpus_manifests"))
+        manifest = CorpusManifest("ensemble_trainer", CorpusManifest.DEFAULT_MANIFEST_DIR)
         try:
             await self._execute_inner(pool, manifest)
         except Exception as error:
@@ -395,6 +429,12 @@ class EnsembleTrainer(BaseBatch):
                 sharpe_floor=config.sharpe_floor,
             )
             manifest.set_inputs(weight_version=config.weight_version)
+            # Scope the manifest FILE by weight_version too, not just its recorded
+            # inputs: champion + challenger weight_version runs coexist by design
+            # (migration 196 Section 3) and must not share one manifest file, or a
+            # crashed challenger run would overwrite the record a healthy champion
+            # run's readers (ensemble_ic_engine.py, alpha_publisher.py) depend on.
+            manifest.scope_suffix = config.weight_version
 
             # --- Startup gates ---
             await _assert_prerequisites(conn)
@@ -418,12 +458,53 @@ class EnsembleTrainer(BaseBatch):
                 weight_half_life_days=config.weight_half_life_days,
             )
 
-            # --- Meta-FDR gate: feature must pass BH-FDR in >=meta_fdr_min_fraction of cells ---
-            # Denominator mirrors _process_stratum WHERE clause exactly — cells that fail
-            # the significance gate or have NULL ic_sharpe_hac are never consumed by the ensemble,
-            # so including them would artificially deflate every feature's pass-rate.
+            # --- Full replace, scoped to this weight_version ---
+            # A re-run under the same weight_version must produce a fully self-consistent
+            # row-set, not an incremental upsert on top of a prior run's output.
+            # _process_stratum silently early-returns (debug-level log only) when a
+            # stratum's meta-eligible feature count drops below min_passing_features --
+            # e.g. after a gate tightens (as the per-timeframe meta-FDR fix did for 1h).
+            # Without this delete, a stratum that qualified under an OLDER run's logic
+            # keeps its stale rows forever under a weight_version that is supposed to be
+            # a deterministic snapshot of "this run's logic + this run's data." Scoped
+            # strictly to config.weight_version -- never touches other versions (the
+            # champion 'v1' or other challenger runs) sharing the same tables. Placed
+            # after all startup/registry gates so a gate failure never touches existing
+            # data -- only a run that's actually going to complete triggers the delete.
+            #
+            # NEVER add RETURNING here: ensemble_alpha holds one row per (symbol, tf,
+            # bar_ts) and can exceed 30M rows for an active weight_version. RETURNING
+            # forces Postgres to materialize the full deleted-row result set before a
+            # count can be taken -- against this table's size that OOM-killed the
+            # Postgres backend and crashed the entire TimescaleDB instance (2026-07-08,
+            # required WAL recovery on restart). conn.execute()'s command tag
+            # ("DELETE <n>") gives the row count without materializing any result rows.
+            weights_tag = await conn.execute(
+                "DELETE FROM ensemble_weights WHERE weight_version = $1",
+                config.weight_version,
+            )
+            alpha_tag = await conn.execute(
+                "DELETE FROM ensemble_alpha WHERE weight_version = $1",
+                config.weight_version,
+            )
+            self.logger.info(
+                "ensemble_trainer.prior_weight_version_cleared",
+                weight_version=config.weight_version,
+                weights_tag=weights_tag,
+                alpha_tag=alpha_tag,
+            )
+
+            # --- Meta-FDR gate: feature must pass BH-FDR in >=meta_fdr_min_fraction of cells,
+            # scoped per timeframe (GROUP BY includes tf) — timeframes are not exchangeable
+            # draws of the same experiment (different bars/day, noise floor, horizon), so
+            # pooling pass rates across all 4 timeframes would silently veto features that
+            # are genuinely strong at one horizon but weak at another. See _meta_eligible
+            # docstring. Denominator mirrors _process_stratum's WHERE clause exactly — cells
+            # that fail the significance gate or have NULL ic_sharpe_hac are never consumed
+            # by the ensemble, so including them would artificially deflate every feature's
+            # pass-rate.
             fdr_pass_rows = await conn.fetch("""
-                SELECT feature_name,
+                SELECT feature_name, tf,
                        SUM(CASE WHEN passes_fdr THEN 1 ELSE 0 END)::float / COUNT(*) AS fdr_pass_rate,
                        COUNT(*) AS n_cells
                 FROM feature_ic_scores
@@ -433,15 +514,18 @@ class EnsembleTrainer(BaseBatch):
                   AND ic_ci_lower > 0
                   AND reliable = true
                   AND ic_sharpe_hac IS NOT NULL
-                GROUP BY feature_name
+                GROUP BY feature_name, tf
                 """)
-            meta_eligible_features = _meta_eligible(fdr_pass_rows, config.meta_fdr_min_fraction)
+            meta_eligible_by_tf = _meta_eligible(
+                fdr_pass_rows, config.meta_fdr_min_fraction, config.meta_fdr_min_cells
+            )
             n_total_cells = sum(r["n_cells"] for r in fdr_pass_rows)
             self.logger.info(
                 "ensemble_trainer.meta_fdr_gate",
-                n_eligible=len(meta_eligible_features),
-                n_total_features=len(fdr_pass_rows),
+                n_eligible_by_tf={tf: len(feats) for tf, feats in meta_eligible_by_tf.items()},
+                n_total_features=len({r["feature_name"] for r in fdr_pass_rows}),
                 min_fraction=config.meta_fdr_min_fraction,
+                min_cells=config.meta_fdr_min_cells,
                 n_total_cells_evaluated=n_total_cells,
             )
             if fdr_pass_rows:
@@ -484,7 +568,7 @@ class EnsembleTrainer(BaseBatch):
                     regime=regime,
                     feature_cols=feature_cols,
                     config=config,
-                    meta_eligible_features=meta_eligible_features,
+                    meta_eligible_features=meta_eligible_by_tf.get(tf, set()),
                 )
 
         self.logger.info(
@@ -629,9 +713,22 @@ class EnsembleTrainer(BaseBatch):
 
         symbol_list = [r["symbol"] for r in fv_rows]
         bar_ts_list = [r["bar_ts"] for r in fv_rows]
+        # float32, not float64: same wide-matrix-from-DB-fetch shape that OOM'd
+        # ic_engine.py's cross-sectional pass twice in one week (fixed there via the
+        # same dtype change, commit 95a57806). Empirically validated safe end-to-end
+        # for this file's specific downstream math (2026-07-08, todo 171 -- deleted
+        # after this fix landed): compute_shrinkage_covariance's LedoitWolf preserves
+        # input dtype rather than upcasting; mean_variance_weights' np.linalg.solve on
+        # a float32 covariance showed max relative weight diff ~0.006% on a
+        # well-conditioned matrix and ~0.2% right at the alpha.ensemble.mv_condition_max
+        # gate boundary (n_obs=200_000, n_features=60, both far below any threshold
+        # that could flip a trading decision); the final `X @ signed_weights` scoring
+        # matmul (line ~853) auto-promotes to float64 via numpy's mixed-dtype rules
+        # since signed_weights stays float64, so no further precision loss compounds
+        # there.
         X_raw = np.array(
             [[float(r[c]) if r[c] is not None else 0.0 for c in col_subset] for r in fv_rows],
-            dtype=float,
+            dtype=np.float32,
         )  # shape [n_bars, n_features]
 
         # Map feature order in X to the IC-selected feature order

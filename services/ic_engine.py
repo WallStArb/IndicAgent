@@ -1829,7 +1829,7 @@ def main() -> None:
     conn = _connect_db(settings)
 
     # Initialize corpus manifest
-    manifest_dir = Path(".planning/corpus_manifests")
+    manifest_dir = CorpusManifest.DEFAULT_MANIFEST_DIR
     manifest = CorpusManifest("ic_engine", manifest_dir)
 
     try:

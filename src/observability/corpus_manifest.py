@@ -45,13 +45,39 @@ from pathlib import Path
 from typing import Any
 
 
+def _manifest_filename(step_name: str, scope_suffix: str | None) -> str:
+    """Single source of truth for the manifest filename convention, shared by the
+    write side (CorpusManifest.write) and read side (CorpusManifest.read,
+    ensure_success_for) so they can never drift apart."""
+    if scope_suffix is None:
+        return f"{step_name}.json"
+    return f"{step_name}__{scope_suffix}.json"
+
+
 class CorpusManifest:
     """Manifest emitter for corpus pipeline steps."""
+
+    # Single source of truth for the manifest directory -- every corpus pipeline step
+    # (ic_engine, ensemble_trainer, ensemble_ic_engine, alpha_publisher, ...) reads
+    # and writes manifests from the same directory; hardcoding the literal
+    # separately at each call site let them drift.
+    DEFAULT_MANIFEST_DIR: Path = Path(".planning/corpus_manifests")
 
     def __init__(self, step_name: str, manifest_dir: Path):
         self.step_name = step_name
         self.manifest_dir = Path(manifest_dir)
         self.manifest_dir.mkdir(parents=True, exist_ok=True)
+        # Set (e.g. `manifest.scope_suffix = weight_version`) for steps that can
+        # legitimately run for multiple concurrent inputs under the same step_name --
+        # ensemble_trainer.py runs once per weight_version (champion + challenger
+        # variants coexist by design, migration 196 Section 3). Without this, two
+        # weight_version runs share one manifest file and stomp each other: a crashed
+        # run for a challenger variant would overwrite the manifest a completely
+        # unrelated, still-healthy champion weight_version's readers rely on,
+        # producing a false "run failed" rejection for data that was never touched.
+        # None preserves the original single-file-per-step behavior for steps with no
+        # such scoping axis (ic_engine, regime_writer, feature_factory, etc).
+        self.scope_suffix: str | None = None
 
         self.data: dict[str, Any] = {
             "step_name": step_name,
@@ -113,21 +139,98 @@ class CorpusManifest:
         if not self.data["outputs"]:
             self.add_warning("No outputs recorded")
 
-        manifest_path = self.manifest_dir / f"{self.step_name}.json"
+        manifest_path = self.manifest_dir / _manifest_filename(self.step_name, self.scope_suffix)
         with open(manifest_path, "w") as f:
             json.dump(self.data, f, indent=2, default=str)
 
         return manifest_path
 
     @staticmethod
-    def read(manifest_dir: Path, step_name: str) -> dict[str, Any]:
-        """Read a manifest file."""
-        manifest_path = Path(manifest_dir) / f"{step_name}.json"
+    def read(manifest_dir: Path, step_name: str, scope_suffix: str | None = None) -> dict[str, Any]:
+        """Read a manifest file.
+
+        scope_suffix must match whatever the writer set on `manifest.scope_suffix`
+        (see CorpusManifest.__init__) -- steps with no scoping axis pass None (the
+        default) and read the single per-step file as before.
+        """
+        manifest_path = Path(manifest_dir) / _manifest_filename(step_name, scope_suffix)
         if not manifest_path.exists():
             raise FileNotFoundError(f"Manifest not found: {manifest_path}")
 
         with open(manifest_path) as f:
             return json.load(f)
+
+    @staticmethod
+    def ensure_success_for(
+        manifest_dir: Path,
+        step_name: str,
+        scope_suffix: str | None = None,
+        **expected_inputs: Any,
+    ) -> dict[str, Any]:
+        """Assert a prerequisite step's manifest shows a clean success FOR THESE EXACT
+        inputs, and return it. Raises RuntimeError (crash loud) otherwise.
+
+        Row/table data existing downstream of `step_name` is not sufficient evidence
+        that the run which wrote it finished -- a step whose write pattern is a
+        delete-then-repopulate (not wrapped in one transaction spanning the whole
+        run) can be interrupted mid-run, leaving nonzero-but-incomplete rows behind
+        with no exception ever raised on the READ side. Unlike verify_prerequisites()
+        (which treats any non-"failed" status, including "partial", as acceptable, and
+        has no concept of matching specific input values), this requires status ==
+        "success" exactly and that every kwarg in expected_inputs matches the
+        manifest's recorded `inputs` -- so a manifest left over from a different run
+        (e.g. a different weight_version) is never mistaken for evidence about the
+        run a caller actually cares about.
+
+        Pass scope_suffix for prerequisite steps that can run for multiple
+        legitimately-coexisting inputs under one step_name (e.g. ensemble_trainer.py
+        runs once per weight_version, champion + challenger variants coexist by
+        design). Without it, two such runs would share one manifest file: a crashed
+        run for one weight_version would overwrite the manifest a completely
+        unrelated, still-healthy weight_version's readers rely on, either falsely
+        rejecting healthy data (status mismatch) or -- worse -- being masked by the
+        input-matching check below into a "wrong weight_version" error that looks
+        like a caller bug rather than the real cross-run clobbering it is.
+
+        KNOWN GAP: a hard process kill (OOM-killer, SIGKILL) never reaches the
+        except-handler that marks a manifest "failed", so the manifest on disk can
+        still show a PRIOR run's success after an unclean interruption. This closes
+        the loud-crash gap, not the hard-kill gap.
+        """
+        try:
+            manifest = CorpusManifest.read(manifest_dir, step_name, scope_suffix=scope_suffix)
+        except FileNotFoundError as error:
+            raise RuntimeError(
+                f"No manifest found for prerequisite step {step_name!r}. Row/table data "
+                f"existing is not sufficient evidence the run that wrote it finished -- "
+                f"run {step_name}.py first."
+            ) from error
+
+        manifest_inputs = manifest.get("inputs", {})
+        mismatched = {
+            key: (manifest_inputs.get(key), expected)
+            for key, expected in expected_inputs.items()
+            if manifest_inputs.get(key) != expected
+        }
+        if mismatched:
+            detail = ", ".join(
+                f"{key}: manifest has {got!r}, expected {want!r}"
+                for key, (got, want) in mismatched.items()
+            )
+            raise RuntimeError(
+                f"Prerequisite step {step_name!r}'s last manifest does not match this "
+                f"run's inputs ({detail}). Data existing under a matching-looking key may "
+                f"be a stale leftover from a different run -- re-run {step_name}.py."
+            )
+
+        if manifest.get("status") != "success":
+            raise RuntimeError(
+                f"Prerequisite step {step_name!r}'s manifest shows status="
+                f"{manifest.get('status')!r}, not 'success' -- its run did not finish "
+                f"cleanly. Re-run {step_name}.py before trusting its output."
+            )
+
+        return manifest
 
     @staticmethod
     def verify_prerequisites(

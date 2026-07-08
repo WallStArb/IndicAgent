@@ -1,13 +1,24 @@
 """Canonical persistence contract for the feature_vectors hypertable.
 
 Single source of truth for:
-  - INSERT SQL (70 columns: 1 content-key + 7 structural + 54 feature floats + 8 new columns)
+  - INSERT SQL (161 columns: 1 content-key + 8 structural + 152 feature floats)
   - Content-key derivation: SHA-256(symbol|tf|bar_ts_ns|pipeline_version|feature_factory_version)[:32] as UUID
-  - Row serializer: FeatureVector fields -> 70-element INSERT tuple
+  - Row serializer: FeatureVector fields -> 161-element INSERT tuple
 
 Both the live write path (FeatureVectorWriter, asyncpg) and the batch compute
 path (backfill_feature_factory, psycopg2) import from here. One schema
 definition, two consumers — schema drift is structurally impossible.
+
+2026-07-08: extended from 70 to 161 columns. Phase 142.5 added 91 primitive
+fields to FeatureVector and the DB schema (migration 206) with compute logic
+fully wired, but this file was never updated to persist them -- the values
+were computed correctly, then silently discarded before reaching the
+database. 91/152 feature columns were 100% NULL across the entire corpus,
+indistinguishable from "no signal" in every downstream IC measurement.
+tests/unit/test_feature_vector_persistence_completeness.py guards this
+invariant going forward: every dataclasses.fields(FeatureVector) entry must
+appear as an INSERT column, checked structurally rather than by a hardcoded
+count that itself needs remembering to update.
 
 Ring 1: imports FeatureVector from src.intelligence.schemas.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
@@ -31,6 +42,23 @@ from src.intelligence.schemas import FeatureVector
 # 'unknown'  = regime computation failed or not yet run.
 # 'viterbi_batch' is explicitly excluded — it introduces look-ahead bias.
 VALID_REGIME_LABEL_SOURCES: frozenset[str] = frozenset({"filtered", "unknown"})
+
+# The 91 Renaissance primitive fields (migration 206, Phase 142.5) are a
+# contiguous, same-order slice of dataclasses.fields(FeatureVector) -- from
+# body_ratio through vol_skew_product. Deriving the name list here (once, at
+# import time) instead of hand-typing 91 `vector.<name>` lines is what makes
+# the original bug class (91 fields silently missing from the INSERT tuple
+# because this list was never updated) structurally impossible: the params
+# tuple can no longer drift out of sync with the dataclass by hand-edit error.
+_ALL_FEATURE_VECTOR_FIELD_NAMES: tuple[str, ...] = tuple(
+    f.name for f in dataclasses.fields(FeatureVector)
+)
+_RENAISSANCE_PRIMITIVE_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
+    _ALL_FEATURE_VECTOR_FIELD_NAMES.index("body_ratio") : _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
+        "vol_skew_product"
+    )
+    + 1
+]
 
 
 def _compute_bar_close_ts(bar_ts: datetime, tf: str) -> datetime:
@@ -66,10 +94,12 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 
 # ── Canonical INSERT SQL ──────────────────────────────────────────────────────
 
-# 70 columns: $1 content-key, $2-$8 structural, $9-$62 feature floats, $63-$70 new columns.
-# Column order is binding — matches migration 159 column definition order exactly.
+# 161 columns: $1 content-key, $2-$8 structural, $9-$62 original feature floats,
+# $63-$70 migration-159 additions, $71-$161 migration-206 Renaissance primitives
+# (2026-07-08 fix — see module docstring).
+# Column order is binding — matches migration 159/206 column definition order.
 # ON CONFLICT DO NOTHING: idempotent replay; duplicate bars are skipped silently.
-FEATURE_VECTOR_INSERT_SQL = """
+FEATURE_VECTOR_INSERT_SQL = f"""
 INSERT INTO feature_vectors (
     feature_vector_id,
     symbol, tf, bar_ts, pipeline_version, feature_factory_version,
@@ -88,7 +118,8 @@ INSERT INTO feature_vectors (
     amihud_illiq_z, high_52w_dist, ret_skew_z, ret_acf1_z,
     bar_close_ts,
     momentum_z_slow, momentum_reversal_z, quarter_position, days_to_month_end,
-    momentum_rank_z, volume_rank_z, volatility_rank_z
+    momentum_rank_z, volume_rank_z, volatility_rank_z,
+    {", ".join(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)}
 )
 VALUES (
     $1,
@@ -108,16 +139,17 @@ VALUES (
     $59, $60, $61, $62,
     $63,
     $64, $65, $66, $67,
-    $68, $69, $70
+    $68, $69, $70,
+    {", ".join(f"${i}" for i in range(71, 71 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)))}
 )
 ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 """
 
 # psycopg2 callers use %s placeholders; asyncpg uses $N. Both forms encode the
-# same 70-column contract. Callers choose the right constant for their driver.
+# same 161-column contract. Callers choose the right constant for their driver.
 # Descending replacement order prevents $1 matching inside $10, $11, etc.
 _pg2 = FEATURE_VECTOR_INSERT_SQL
-for i in range(70, 0, -1):
+for i in range(161, 0, -1):
     _pg2 = _pg2.replace(f"${i}", "%s")
 FEATURE_VECTOR_INSERT_SQL_PSYCOPG2 = _pg2
 del _pg2
@@ -160,7 +192,7 @@ def feature_vector_to_insert_params(
     regime_label_source: str,
     vector: FeatureVector,
 ) -> tuple:
-    """Serialize a FeatureVector to the canonical 70-element INSERT tuple.
+    """Serialize a FeatureVector to the canonical 161-element INSERT tuple.
 
     Column order matches FEATURE_VECTOR_INSERT_SQL exactly:
       $1:       feature_vector_id (content-key UUID)
@@ -171,6 +203,9 @@ def feature_vector_to_insert_params(
       $64-$67:  4 new computed features (momentum_z_slow, momentum_reversal_z,
                 quarter_position, days_to_month_end)
       $68-$70:  3 cross-sectional Optional features (None until Phase 139)
+      $71-$161: 91 Renaissance primitives (migration 206, Phase 142.5) in
+                dataclasses.fields(FeatureVector) order — wired 2026-07-08,
+                see module docstring for the gap this closes
 
     Args:
         symbol: Instrument symbol (e.g. 'SPY').
@@ -187,7 +222,7 @@ def feature_vector_to_insert_params(
         vector: Fully-populated FeatureVector from FeatureFactory.compute().
 
     Returns:
-        70-element tuple for use with asyncpg executemany() or psycopg2
+        161-element tuple for use with asyncpg executemany() or psycopg2
         execute_batch(). Compatible with both drivers — asyncpg and psycopg2
         handle uuid.UUID and datetime natively.
 
@@ -296,4 +331,10 @@ def feature_vector_to_insert_params(
         vector.momentum_rank_z,  # $68  None until Phase 139 enrichment
         vector.volume_rank_z,  # $69  None until Phase 139 enrichment
         vector.volatility_rank_z,  # $70  None until Phase 139 enrichment
+        # Renaissance Primitives (migration 206, Phase 142.5) — wired 2026-07-08,
+        # see module docstring. $71-$161: derived by name from
+        # _RENAISSANCE_PRIMITIVE_FIELD_NAMES (dataclasses.fields(FeatureVector)
+        # order) rather than hand-typed, so this segment can't silently drift
+        # out of sync with the dataclass again.
+        *(getattr(vector, name) for name in _RENAISSANCE_PRIMITIVE_FIELD_NAMES),
     )

@@ -11,14 +11,11 @@ No DB, no Kafka. Pure string assertion.
 
 from __future__ import annotations
 
-from pathlib import Path
-
-_SOURCE_PATH = Path(__file__).parent.parent.parent / "services" / "ensemble_ic_engine.py"
+from tests.unit._source_grep_helpers import read_source
 
 
 def _read_source() -> str:
-    assert _SOURCE_PATH.exists(), f"services/ensemble_ic_engine.py not found at {_SOURCE_PATH}"
-    return _SOURCE_PATH.read_text()
+    return read_source("services", "ensemble_ic_engine.py")
 
 
 def test_executable_open_to_open_filter_present():

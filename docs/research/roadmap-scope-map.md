@@ -5,7 +5,7 @@
 **Purpose:** one page, high level — what's weak or missing in each major area of the system,
 what's being proposed to address it, and roughly how much it matters. Built for product-management
 scanning (scope and breadth), not implementation detail. For depth: `idea-catalog.md` is the full
-navigation index across every doc; `2026-07-01-intelligence-lifecycle-backlog-matrix.md` is the
+navigation index across every doc; `2026-07-08-intelligence-lifecycle-backlog-matrix.md` is the
 effort/risk/reward sequencing within the Core Alpha Pipeline area below.
 **Keep current:** when a new idea/plan meaningfully changes an area's weak points or proposals,
 update that area's bullets here in the same commit. This doc stays a paragraph or two per area —

@@ -36,9 +36,9 @@ navigation depth; that doc is the one-page product-management view.
 ## Cluster 1 — v3.0 Intelligence Lifecycle (the active build surface)
 
 **Master priority doc for this whole cluster:**
-[2026-07-01 Intelligence Lifecycle Backlog Matrix](2026-07-01-intelligence-lifecycle-backlog-matrix.md)
+[2026-07-08 Intelligence Lifecycle Backlog Matrix](2026-07-08-intelligence-lifecycle-backlog-matrix.md)
 — HIGH/MEDIUM/LOW triage across everything below, refreshed against real code/DB state (not
-assertion) as of 2026-07-02 evening. Read this first for "what's next," not this catalog.
+assertion) as of 2026-07-08. Read this first for "what's next," not this catalog.
 
 | Doc | Status / Priority | Fable-reviewed | One-line |
 |---|---|---|---|
@@ -47,6 +47,7 @@ assertion) as of 2026-07-02 evening. Read this first for "what's next," not this
 | [AnalogEngine](intel-analog-engine.md) | draft, high | ✅ | Non-parametric K-NN retrieval as a predictor family; Score Object deleted, return-distribution primitive kept |
 | [IntegrityMonitor — Drift, Decay, Ensemble Health](measurement-governance-monitor.md) | draft, high | ✅ (2026-07-06) | Reconciled cluster doc; 7 stale passages found/fixed against executed Phase 143 (pre_shadow_weight was dead, registry amendments, staleness design, schema) |
 | [MeasurementEngine — IC Kernel Unification](measurement-ic-engine.md) | answered | ✅ (2026-07-06) | Kernel-unification question resolved by existing `ic_math.py`; unfixed config drift between `ic_engine.py`/`ensemble_ic_engine.py` flagged |
+| [AlphaEmitter — Stage 4 Emission Mechanisms](measurement-alpha-emission.md) | idea, not planned | ✅ (2026-07-07) | Threshold-crossing is structurally fine; real gaps are uncalibrated thresholds (EM-CAL), stratum-constant CI gate, weight-staleness blindness; gate stack as the swappable unit, three rejections recorded |
 | [Unified Concept Registry](platform-unified-concept-registry.md) | design complete, not built | ✅ (4 passes, 2026-07-06) | Cross-tier lifecycle governance unifying feature + intelligence tiers; adversarial stress-test survived (event-sourcing/graph-DB/full-separation alternatives rejected); MVP build trigger fired (todo 058), zero `concept_*` tables exist yet |
 | [Governance & Registries](concept-governance-registries.md) | — | ✅ (2026-07-06) | Umbrella framework for three registry types: Parameter (APR), Lifecycle (Concept Registry), Vocabulary (Tag + Controlled); links to canonical docs |
 | [Edge Source Thesis](data-edge-source-thesis.md) | draft, high | | T1-T4 falsifiable theses on where edge comes from; standing doc, revisit per thesis |
@@ -170,5 +171,5 @@ of what was removed and why. These three are what's actually still live.
 - `.planning/research/2026-07-02-v3-topdown-architecture.md`, `2026-07-02-v3-bottomup-audit.md`,
   `2026-07-03-intel10-11-fable-review.md`, `2026-07-03-canonical-simulator-fable-review.md`
   (when complete) — the Fable review passes this catalog's "Fable-reviewed" column tracks
-- `docs/research/2026-07-01-intelligence-lifecycle-backlog-matrix.md` — the priority triage for
+- `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md` — the priority triage for
   Cluster 1; this catalog is navigation, that doc is sequencing

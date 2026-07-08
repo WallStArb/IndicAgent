@@ -32,6 +32,7 @@ from services.ensemble_ic_engine import (
     _assert_prerequisites,
     build_ensemble_ic_row,
 )
+from src.observability.corpus_manifest import CorpusManifest
 
 _T1 = datetime(2026, 1, 1, tzinfo=UTC)
 _T2 = datetime(2026, 1, 1, 0, 5, tzinfo=UTC)
@@ -183,15 +184,15 @@ class TestAggregatePooledSeries:
 class TestWeightVersionScoping:
     """Regression guard for the migration-196 fix: alpha_ensemble_ic must be keyed by
     weight_version so Plan 05's A/B judge can compare two weight variants without
-    blending their rows. Without ae.weight_version filters in both fetch SQL constants,
+    blending their rows. Without ea.weight_version filters in both fetch SQL constants,
     a run scoped to a challenger variant would silently measure the champion's
-    alpha_events rows too (SQL-text inspection, no live DB required)."""
+    ensemble_alpha rows too (SQL-text inspection, no live DB required)."""
 
     def test_per_symbol_fetch_sql_filters_by_weight_version(self):
-        assert "ae.weight_version = %s" in _WORKER_FETCH_SQL
+        assert "ea.weight_version = %s" in _WORKER_FETCH_SQL
 
     def test_pooled_fetch_sql_filters_by_weight_version(self):
-        assert "ae.weight_version = %s" in _POOLED_WORKER_FETCH_SQL
+        assert "ea.weight_version = %s" in _POOLED_WORKER_FETCH_SQL
 
     def test_insert_sql_writes_weight_version_column(self):
         assert "weight_version" in _ENSEMBLE_IC_INSERT_SQL
@@ -211,13 +212,13 @@ class TestWeightVersionScoping:
 
 class TestAssertPrerequisitesWeightVersionScoped:
     """Regression guard for CR-01 (code review, 142B.1-REVIEW.md): _assert_prerequisites'
-    alpha_events emptiness check must be scoped to the resolved weight_version. An unscoped
+    ensemble_alpha emptiness check must be scoped to the resolved weight_version. An unscoped
     count(*) would pass as long as SOME other weight_version has rows, letting a
     typo'd/stale --weight-version silently complete with zero measured rows instead of
     crashing loud -- exactly the failure class this module's docstring says it prevents."""
 
     @pytest.mark.asyncio
-    async def test_raises_when_alpha_events_empty_for_weight_version(self):
+    async def test_raises_when_ensemble_alpha_empty_for_weight_version(self):
         conn = AsyncMock()
         conn.fetchval.return_value = 0
 
@@ -225,13 +226,106 @@ class TestAssertPrerequisitesWeightVersionScoped:
             await _assert_prerequisites(conn, "v1_shrunk", tfs=["5m"])
 
     @pytest.mark.asyncio
-    async def test_alpha_events_count_query_is_scoped_by_weight_version_param(self):
+    async def test_ensemble_alpha_count_query_is_scoped_by_weight_version_param(self, tmp_path):
         conn = AsyncMock()
         conn.fetchval.return_value = 5
+        manifest = CorpusManifest("ensemble_trainer", tmp_path)
+        manifest.set_inputs(weight_version="v1_shrunk")
+        manifest.scope_suffix = "v1_shrunk"
+        manifest.mark_success()
+        manifest.write()
 
-        await _assert_prerequisites(conn, "v1_shrunk", tfs=["5m"])
+        await _assert_prerequisites(conn, "v1_shrunk", tfs=["5m"], manifest_dir=tmp_path)
 
         first_call = conn.fetchval.call_args_list[0]
         query_text = first_call.args[0]
         assert "weight_version" in query_text
         assert first_call.args[1] == "v1_shrunk"
+
+
+class TestAssertPrerequisitesManifestGate:
+    """Regression guard (2026-07-08 altitude review): ensemble_alpha having nonzero rows
+    for a weight_version is not sufficient evidence the ensemble_trainer run that wrote
+    them finished -- its 'full replace' delete-then-repopulate can be interrupted mid-run
+    by a crash, leaving nonzero but incomplete rows. _assert_prerequisites must also
+    check ensemble_trainer's manifest for that exact weight_version before trusting the
+    row counts checked above it."""
+
+    @pytest.mark.asyncio
+    async def test_raises_when_no_trainer_manifest_exists(self, tmp_path):
+        conn = AsyncMock()
+        conn.fetchval.return_value = 5
+
+        with pytest.raises(RuntimeError, match="No manifest found for prerequisite step"):
+            await _assert_prerequisites(conn, "v1_shrunk", tfs=["5m"], manifest_dir=tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_raises_when_manifest_content_disagrees_with_its_own_scoped_file(self, tmp_path):
+        """A manifest written under the v1_shrunk-scoped filename but whose recorded
+        inputs.weight_version says something else (a corrupted/mislabeled file) must
+        still be rejected -- the input-matching check is defense in depth on top of
+        filename scoping, not a substitute for it."""
+        conn = AsyncMock()
+        conn.fetchval.return_value = 5
+        manifest = CorpusManifest("ensemble_trainer", tmp_path)
+        manifest.set_inputs(weight_version="v1")
+        manifest.scope_suffix = "v1_shrunk"
+        manifest.mark_success()
+        manifest.write()
+
+        with pytest.raises(RuntimeError, match="does not match this run's inputs"):
+            await _assert_prerequisites(conn, "v1_shrunk", tfs=["5m"], manifest_dir=tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_raises_when_manifest_status_is_not_success(self, tmp_path):
+        conn = AsyncMock()
+        conn.fetchval.return_value = 5
+        manifest = CorpusManifest("ensemble_trainer", tmp_path)
+        manifest.set_inputs(weight_version="v1_shrunk")
+        manifest.scope_suffix = "v1_shrunk"
+        manifest.add_error("crashed mid-run")
+        manifest.write()
+
+        with pytest.raises(RuntimeError, match="status='failed'"):
+            await _assert_prerequisites(conn, "v1_shrunk", tfs=["5m"], manifest_dir=tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_passes_when_manifest_matches_and_succeeded(self, tmp_path):
+        conn = AsyncMock()
+        conn.fetchval.return_value = 5
+        manifest = CorpusManifest("ensemble_trainer", tmp_path)
+        manifest.set_inputs(weight_version="v1_shrunk")
+        manifest.scope_suffix = "v1_shrunk"
+        manifest.mark_success()
+        manifest.write()
+
+        await _assert_prerequisites(conn, "v1_shrunk", tfs=["5m"], manifest_dir=tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_does_not_confuse_two_different_weight_versions_manifests(self, tmp_path):
+        """Regression guard for the exact bug this scope_suffix mechanism fixes: a
+        crashed run for one weight_version must never affect a completely different,
+        still-healthy weight_version's gate check -- they must live in separate
+        manifest files, not overwrite the same one."""
+        conn = AsyncMock()
+        conn.fetchval.return_value = 5
+
+        healthy = CorpusManifest("ensemble_trainer", tmp_path)
+        healthy.set_inputs(weight_version="v1")
+        healthy.scope_suffix = "v1"
+        healthy.mark_success()
+        healthy.write()
+
+        crashed = CorpusManifest("ensemble_trainer", tmp_path)
+        crashed.set_inputs(weight_version="v1_shrunk")
+        crashed.scope_suffix = "v1_shrunk"
+        crashed.add_error("simulated crash")
+        crashed.write()
+
+        # The healthy v1 run's gate must still pass, unaffected by the unrelated
+        # v1_shrunk run's failure.
+        await _assert_prerequisites(conn, "v1", tfs=["5m"], manifest_dir=tmp_path)
+
+        # The crashed v1_shrunk run's gate must still correctly raise.
+        with pytest.raises(RuntimeError, match="status='failed'"):
+            await _assert_prerequisites(conn, "v1_shrunk", tfs=["5m"], manifest_dir=tmp_path)

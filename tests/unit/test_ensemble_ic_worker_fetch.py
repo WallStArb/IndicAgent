@@ -36,6 +36,7 @@ def _make_config(**overrides) -> EnsembleICConfig:
         lookahead_slow=20,
         lookahead_extended=60,
         n_workers=1,
+        pooled_fetch_itersize=50_000,
         decay_threshold=0.1,
         min_qualifying_fraction=0.6,
         wf_stability_ratio=3.0,

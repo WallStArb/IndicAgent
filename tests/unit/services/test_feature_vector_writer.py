@@ -218,15 +218,16 @@ def _make_valid_payload():
 # ── _record_to_insert_params ──────────────────────────────────────────────────
 
 
-def test_record_to_insert_params_returns_70_tuple():
-    """_record_to_insert_params returns exactly 70 elements matching INSERT columns (post migration 159)."""
+def test_record_to_insert_params_returns_161_tuple():
+    """_record_to_insert_params returns exactly 161 elements matching INSERT columns
+    (post migration 206, 2026-07-08 persistence-wiring fix)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_valid_record()
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 70, f"Expected 70, got {len(params)}"
+    assert len(params) == 161, f"Expected 161, got {len(params)}"
 
 
 def test_record_to_insert_params_feature_vector_id_is_uuid():
@@ -325,8 +326,9 @@ def test_feature_vector_id_differs_for_different_inputs():
 # ── _parse_payload ────────────────────────────────────────────────────────────
 
 
-def test_parse_payload_valid_record_returns_70_param_tuple():
-    """Valid FeatureVectorRecord payload parses to a 70-element params tuple (post migration 159)."""
+def test_parse_payload_valid_record_returns_161_param_tuple():
+    """Valid FeatureVectorRecord payload parses to a 161-element params tuple
+    (post migration 206, 2026-07-08 persistence-wiring fix)."""
     from services.feature_vector_writer import FeatureVectorWriter
 
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
@@ -341,7 +343,7 @@ def test_parse_payload_valid_record_returns_70_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 70, f"Expected 70-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 161, f"Expected 161-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -488,14 +490,15 @@ def test_insert_sql_targets_feature_vectors():
     assert "ON CONFLICT (symbol, tf, bar_ts) DO NOTHING" in _INSERT_FEATURE_VECTOR_SQL
 
 
-def test_insert_sql_has_70_placeholders():
-    """_INSERT_FEATURE_VECTOR_SQL must have exactly 70 positional placeholders $1..$70 (post migration 159)."""
+def test_insert_sql_has_161_placeholders():
+    """_INSERT_FEATURE_VECTOR_SQL must have exactly 161 positional placeholders $1..$161
+    (post migration 206, 2026-07-08 persistence-wiring fix)."""
     import re
 
     from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 70, f"Expected 70 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 161, f"Expected 161 placeholders, got {len(placeholders)}"
 
 
 def test_insert_sql_includes_feature_vector_id_column():

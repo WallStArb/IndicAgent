@@ -433,7 +433,8 @@ def test_vector_to_params_regime_label_source() -> None:
 
 
 def test_vector_to_params_all_features_present() -> None:
-    """All FeatureVector fields must appear in the INSERT params tuple (70 total after migration 159)."""
+    """All FeatureVector fields must appear in the INSERT params tuple (161 total
+    after migration 206, 2026-07-08 persistence-wiring fix)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -444,8 +445,8 @@ def test_vector_to_params_all_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 7 structural + 54 feature floats + 8 new columns = 70 total
-    assert len(params) == 70, f"Expected 70 params, got {len(params)}"
+    # 1 content-key + 8 structural + 152 feature floats = 161 total
+    assert len(params) == 161, f"Expected 161 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:

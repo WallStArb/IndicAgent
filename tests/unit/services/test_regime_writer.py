@@ -30,9 +30,9 @@ from services.regime_writer import (
     _LABEL_TRENDING_UP,
     _build_label_map,
     _build_obs_matrix,
-    _causal_decode,
     _compute_symbol_tf,
 )
+from tests.unit._hmm_decode_helpers import decode as _decode
 
 _HMM_RANDOM_STATE = 42  # conventional seed; lives in APR as alpha.hmm.random_state
 
@@ -199,9 +199,7 @@ def test_causal_decode_valid_states():
     model = _fit_simple_hmm(obs, n_components)
     d = model.means_.shape[1]
     covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
-    states, alpha_history = _causal_decode(
-        obs, model.means_, covars_diag, model.transmat_, n_components
-    )
+    states, alpha_history = _decode(obs, model.means_, covars_diag, model.transmat_, n_components)
 
     assert states.shape == (obs.shape[0],)
     assert np.all(states >= 0) and np.all(
@@ -228,7 +226,7 @@ def test_causal_decode_no_predict():
     covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
 
     # Our causal decoder
-    causal_states, alpha_history = _causal_decode(
+    causal_states, alpha_history = _decode(
         obs, model.means_, covars_diag, model.transmat_, n_components
     )
 
@@ -259,12 +257,8 @@ def test_causal_decode_deterministic():
     d = model.means_.shape[1]
     covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
 
-    states1, alpha_history1 = _causal_decode(
-        obs, model.means_, covars_diag, model.transmat_, n_components
-    )
-    states2, alpha_history2 = _causal_decode(
-        obs, model.means_, covars_diag, model.transmat_, n_components
-    )
+    states1, alpha_history1 = _decode(obs, model.means_, covars_diag, model.transmat_, n_components)
+    states2, alpha_history2 = _decode(obs, model.means_, covars_diag, model.transmat_, n_components)
 
     np.testing.assert_array_equal(states1, states2)
     np.testing.assert_array_almost_equal(alpha_history1, alpha_history2)
@@ -293,12 +287,10 @@ def test_causal_decode_uses_only_past_observations():
 
     # Decode on first half of obs
     half = len(obs) // 2
-    states_half, _ = _causal_decode(
-        obs[:half], model.means_, covars_diag, model.transmat_, n_components
-    )
+    states_half, _ = _decode(obs[:half], model.means_, covars_diag, model.transmat_, n_components)
 
     # Decode on full sequence
-    states_full, _ = _causal_decode(obs, model.means_, covars_diag, model.transmat_, n_components)
+    states_full, _ = _decode(obs, model.means_, covars_diag, model.transmat_, n_components)
 
     # The decoded state at each position in the first half must be identical
     # between the two decoding runs — future observations cannot change past states
@@ -329,7 +321,7 @@ def test_causal_decode_single_obs():
     covars_diag = model.covars_[:, np.arange(d), np.arange(d)]
 
     single_obs = obs[:1]  # shape (1, 5)
-    states, alpha_history = _causal_decode(
+    states, alpha_history = _decode(
         single_obs, model.means_, covars_diag, model.transmat_, n_components
     )
     assert states.shape == (1,)
@@ -480,7 +472,12 @@ def _make_mock_conn(closes, volumes, timestamps):
 
 
 def test_compute_symbol_tf_returns_tuple_structure():
-    """_compute_symbol_tf must return (update_rows, converged) with correct row shape."""
+    """_compute_symbol_tf must return (update_rows, converged, heldout_ll) with correct row shape.
+
+    min_state_occupation=0.0 disables the P2b degenerate-model gate for this fixture —
+    this test verifies return-tuple structure, not gate behavior (gate has no dedicated
+    coverage of its own; see todo captured this session).
+    """
     n = 500
     closes = _make_ranging_closes(n)
     volumes = _make_volumes(n)
@@ -497,15 +494,18 @@ def test_compute_symbol_tf_returns_tuple_structure():
         hmm_random_state=42,
         momentum_window=20,
         vol_of_vol_window=20,
+        min_state_occupation=0.0,
     )
 
     assert result is not None
-    update_rows, converged = result
+    update_rows, converged, heldout_ll = result
     assert isinstance(update_rows, list)
     assert len(update_rows) > 0
-    # Each tuple: (regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration, symbol, tf, ts)
-    assert len(update_rows[0]) == 10
+    # Each tuple: (regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration,
+    #              hmm_churn, symbol, tf, ts)
+    assert len(update_rows[0]) == 11
     assert isinstance(converged, bool)
+    assert isinstance(heldout_ll, float)
 
 
 def test_compute_symbol_tf_regime_values():
@@ -526,10 +526,11 @@ def test_compute_symbol_tf_regime_values():
         hmm_random_state=42,
         momentum_window=20,
         vol_of_vol_window=20,
+        min_state_occupation=0.0,
     )
 
     assert result is not None
-    update_rows, _ = result
+    update_rows, _, _ = result
     valid_labels = {"trending_up", "trending_down", "ranging"}
     for row in update_rows:
         assert row[0] in valid_labels, f"Invalid regime label: {row[0]}"
@@ -553,12 +554,25 @@ def test_compute_symbol_tf_probabilities_sum_to_one():
         hmm_random_state=42,
         momentum_window=20,
         vol_of_vol_window=20,
+        min_state_occupation=0.0,
     )
 
     assert result is not None
-    update_rows, _ = result
+    update_rows, _, _ = result
     for row in update_rows:
-        _regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration, sym, tf, ts = row
+        (
+            _regime,
+            p_up,
+            p_ranging,
+            p_down,
+            prob_val,
+            entropy_val,
+            duration,
+            _hmm_churn,
+            sym,
+            tf,
+            ts,
+        ) = row
         total = p_up + p_ranging + p_down
         assert abs(total - 1.0) < 1e-6, f"Probabilities sum to {total}, expected ~1.0"
 

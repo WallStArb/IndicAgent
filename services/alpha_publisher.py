@@ -106,7 +106,7 @@ class AlphaPublisher(BaseBatch):
 
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Read ensemble_alpha, enforce gates, write alpha_events, publish to Kafka."""
-        manifest = CorpusManifest("alpha_publisher", Path(".planning/corpus_manifests"))
+        manifest = CorpusManifest("alpha_publisher", CorpusManifest.DEFAULT_MANIFEST_DIR)
         try:
             await self._execute_inner(pool, manifest)
         except Exception as error:
@@ -171,6 +171,22 @@ class AlphaPublisher(BaseBatch):
                     f"weight_version={weight_version!r}. Run ensemble_trainer.py first."
                 )
 
+            # A nonzero row count above does not mean the run that wrote those rows
+            # finished. ensemble_trainer.py's "full replace" delete-then-repopulate can
+            # be interrupted mid-run, leaving nonzero-but-incomplete rows for a
+            # weight_version -- AlphaPublisher is the sole writer of alpha_events, so
+            # publishing from partial rows here is a silent wrong answer feeding
+            # whatever reads alpha_events downstream, not just a measurement artifact
+            # (2026-07-08 altitude review finding: this exact gap was fixed in
+            # ensemble_ic_engine.py first but missed here, the more consequential
+            # consumer).
+            CorpusManifest.ensure_success_for(
+                CorpusManifest.DEFAULT_MANIFEST_DIR,
+                "ensemble_trainer",
+                scope_suffix=weight_version,
+                weight_version=weight_version,
+            )
+
             # --- Preload weights_cache (one query, not N+1) ---
             weight_rows = await conn.fetch(
                 "SELECT symbol, tf, regime, feature_name, weight FROM ensemble_weights WHERE weight_version = $1",
@@ -212,6 +228,26 @@ class AlphaPublisher(BaseBatch):
             pending_events: list[dict] = []
 
             async with conn.transaction():
+                # --- Full replace, scoped to this weight_version ---
+                # ensemble_alpha is a full-batch rescan/rewrite per ensemble_trainer run
+                # (not incremental), so this cursor below always processes the CURRENT
+                # complete snapshot for weight_version. ON CONFLICT DO NOTHING alone
+                # cannot remove rows for bars that no longer qualify (e.g. a stratum a
+                # newer ensemble_trainer run stopped writing because a gate tightened) --
+                # it only adds or no-ops, never deletes. Delete lives inside this same
+                # transaction as the insert loop below so a mid-run failure rolls back
+                # the delete too -- atomic replace, never a partially-empty table visible
+                # to readers. Found 2026-07-08: 2346 stale 1h/high_bear alpha_events rows
+                # survived a re-run because of exactly this gap.
+                deleted = await conn.execute(
+                    "DELETE FROM alpha_events WHERE weight_version = $1", weight_version
+                )
+                self.logger.info(
+                    "alpha_publisher.prior_weight_version_cleared",
+                    weight_version=weight_version,
+                    deleted=deleted,
+                )
+
                 async for row in conn.cursor(
                     """
                     WITH g AS (

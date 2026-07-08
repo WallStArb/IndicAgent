@@ -70,7 +70,7 @@ alpha_score = Σ(normalized_score[f] × ic_sharpe[f][regime]) / effective_n
 
 This is a continuous estimate of expected return, regime-conditioned, corrected for feature redundancy. It is not a binary signal. It carries confidence bounds (IC standard error propagated through the ensemble).
 
-When `alpha_score` crosses a regime-specific threshold, an `alpha_event` is emitted. The threshold is an APR parameter (`alpha.threshold.<regime>`), not a fixed constant.
+When `alpha_score` crosses a per-timeframe threshold, an `alpha_event` is emitted. The threshold is an APR parameter (`alpha.quant.threshold.{tf}`), not a fixed constant — it has no symbol or regime granularity today.
 
 ### Feature vs Signal
 
@@ -213,7 +213,7 @@ IC_SHARPE_GAUGE          per feature × TF × regime  — IC stability (mean/std
 
 These are point gauges updated at the end of each IC engine run. Grafana alerts fire if `EFFECTIVE_N_GAUGE` drops below a threshold (concentrated bets masquerading as diversification) or if `FEATURES_SURVIVING_FDR` drops sharply (regime shift or data quality event).
 
-**Alpha decomposition on every emission.** `alpha_events.feature_contributions` JSONB stores per-feature score, IC Sharpe weight, and normalized contribution to the final alpha score. `ensemble_version` stores the APR snapshot active at fire time. Every emission is fully auditable.
+**Alpha decomposition on every emission.** `alpha_events.top_features` JSONB stores per-feature score, IC Sharpe weight, and normalized contribution to the final alpha score. `ensemble_version` stores the APR snapshot active at fire time. Every emission is fully auditable.
 
 ---
 
