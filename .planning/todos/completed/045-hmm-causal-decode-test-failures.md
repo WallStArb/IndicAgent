@@ -1,9 +1,28 @@
 ---
 title: Investigate 33 pre-existing HMM causal-decode / regime-writer test failures
-status: pending
+status: completed
 discovered_by: phase-142A (142A-01 execution)
 discovered: 2026-07-02
+resolved: 2026-07-08
 ---
+
+**Resolved 2026-07-08:** all three subsets in this todo's final scope are now closed.
+
+- `test_regime_writer.py` / `test_causal_hmm_decoding.py` (14 failures): do NOT reproduce.
+  `pytest tests/unit/test_causal_hmm_decoding.py tests/unit/test_regime_writer.py
+  tests/unit/services/test_regime_writer.py` → 39 passed, 1 skipped. Root cause was a test
+  signature mismatch, already fixed by commit `771324d9` ("fix(143-01): update
+  test_causal_decode for _alpha_pass signature") before this todo's 2026-07-08
+  "re-confirmed live" note was written — that note was stale, not current at the time it was
+  added. No numeric/JIT precision drift; the regime-label correctness concern this todo raised
+  does not hold.
+- `test_fetch_htf_bars.py` (3 failures): fixed today — stale module path
+  (`scripts.debug.replay.debug_fetch_htf_bars` → `scripts.infrastructure.backfill.infrastructure_fetch_htf_bars`).
+- `test_roll_batch.py` (1 failure): fixed today — not a stale fixture as suspected, a real bug:
+  `detect_rolls()` in `ops_roll_batch.py` failed to pass `ref_year`/`ref_month` through to
+  `derive_roll_chain()`, silently falling back to wall-clock "now" instead of its own `today`
+  argument. Fixed in `ops_roll_batch.py`; test updated to the now-correct expected values.
+- `test_run_historical_pipeline.py` (14 failures): covered by todo 062 (also resolved today).
 
 ## What
 

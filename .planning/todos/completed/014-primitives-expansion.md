@@ -15,8 +15,8 @@ returns, open/intraday split, variance ratio, volume structure, stochastic/BB/HV
 distribution/vol asymmetry) shipped as part of 142.5's 91 new primitives (61→152 total feature
 columns, migration 206). The one piece NOT done — Tier 10's cross-TF divergence
 (`ret_div_1m_5m`/`ret_div_5m_1h`/`ret_div_1h_1d`) — was deliberately deferred out of 142.5 and is
-tracked separately as todo 150 (`cross-tf-divergence-primitives`), still pending. Moved to
-`completed/` since this todo's scope is done; see todo 150 for the one remaining piece.
+tracked separately as todo 066 (`cross-tf-divergence-primitives`), still pending. Moved to
+`completed/` since this todo's scope is done; see todo 066 for the one remaining piece.
 
 # 014 — Feature Primitives Expansion (~60 candidates)
 

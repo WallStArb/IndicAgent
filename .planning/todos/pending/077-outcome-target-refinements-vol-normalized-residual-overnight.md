@@ -1,4 +1,4 @@
-# 161 — Outcome-target refinements: vol-normalized, residual (beta-hedged), overnight/intraday decomposition
+# 077 — Outcome-target refinements: vol-normalized, residual (beta-hedged), overnight/intraday decomposition
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §6 (L3-1, L3-2,
 L3-4). All are measurement-time transforms — joins computed inside the measurement layer, never
@@ -23,7 +23,7 @@ existing feature's window; a join + divide inside `ic_engine`'s existing corpus 
 `return_x(symbol) - beta * return_x(SPY)`, beta from Phase 145's Instrument Tag Calibrator
 (`data-instrument-tag-calibrator.md`, already committed to producing measured, FDR-corrected
 factor betas). This is the outcome definition T3 actually requires: a cross-sectional edge is a
-claim about *idiosyncratic* mispricing, and measuring candidate features (todo 157) against raw
+claim about *idiosyncratic* mispricing, and measuring candidate features (todo 073) against raw
 returns lets market-timing leak into what looks like relative-value IC. Verdict: features whose
 IC survives against raw returns but dies against residual returns are market-timing features
 wearing relative-value costume. Sequence into the same v3.15 batched rerun as Phase 145 lands.

@@ -1,4 +1,4 @@
-# 154 — Family-balanced embedding geometry (decide before Phase 148 locks `embedding_version=1`)
+# 070 — Family-balanced embedding geometry (decide before Phase 148 locks `embedding_version=1`)
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §4 (L1a-1),
 executive summary item 7.

@@ -1,4 +1,4 @@
-# 162 — Frame-outcome labels as a second outcome definition (post-142B)
+# 078 — Frame-outcome labels as a second outcome definition (post-142B)
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §6 (L3-3).
 **Priority:** medium — diagnostic gold once available, but explicitly not a reason to touch

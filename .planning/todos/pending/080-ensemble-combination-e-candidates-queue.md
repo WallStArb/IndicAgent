@@ -1,4 +1,4 @@
-# 164 — Ensemble combination E-candidate queue (posterior blending, HRP-lite, Bayesian averaging, trailing-IC)
+# 080 — Ensemble combination E-candidate queue (posterior blending, HRP-lite, Bayesian averaging, trailing-IC)
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §8 (L5-1 through
 L5-4), executive summary item 5.
@@ -34,8 +34,8 @@ realized `effective_n` and family weight-share concentration between variants.
 ## L5-3 — Bayesian averaging over variants instead of champion selection (gated on 3+ variants)
 
 Champion selection per stratum is strong-signal concentration at the meta level, with the
-winner's-curse bias todo 153 documents. Once 3+ variants exist, blend variants with weights
-proportional to accumulated evidence (todo 163's e-values slot in naturally as unnormalized
+winner's-curse bias todo 069 documents. Once 3+ variants exist, blend variants with weights
+proportional to accumulated evidence (todo 079's e-values slot in naturally as unnormalized
 evidence weights). No single variant needs to be right; regime-varying variant quality handled
 automatically. Just another `weight_version` in the A/B framework — if the blend can't beat its
 own best constituent OOS, averaging loses and champion selection stands.

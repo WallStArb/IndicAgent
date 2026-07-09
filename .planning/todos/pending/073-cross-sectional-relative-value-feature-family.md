@@ -1,8 +1,8 @@
-# 157 — Cross-sectional relative-value feature family (finish the ghost columns properly)
+# 073 — Cross-sectional relative-value feature family (finish the ghost columns properly)
 
 **Merged 2026-07-08:** this exact finding was independently discovered twice — first as todo
-013 (2026-06-28, `.planning/todos/completed/013-cross-sectional-rank-features.md`), then again
-via this Fable review. Todo 013's "Option A" sketch (standalone batch script, e.g.
+013 (2026-06-28; the completed-todo file itself was deleted 2026-07-09 as doc bloat once merged
+here), then again via this Fable review. Todo 013's "Option A" sketch (standalone batch script, e.g.
 `compute_cross_sectional_ranks.py`, run as a new step in `corpus_pipeline_run.sh` right after
 `backfill_feature_factory`) is a concrete implementation shape worth reusing when this is built.
 

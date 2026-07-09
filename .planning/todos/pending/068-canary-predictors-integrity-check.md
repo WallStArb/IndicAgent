@@ -1,4 +1,4 @@
-# 152 — Canary (negative-control) predictors
+# 068 — Canary (negative-control) predictors
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §11 (G-1), executive
 summary item 2.

@@ -1,4 +1,4 @@
-# 170 — HMM regime-writer test coverage gaps
+# 086 — HMM regime-writer test coverage gaps
 
 Source: council-style rigor review during Phase 142B EIC-04 remediation (2026-07-08), triggered
 by discovering `tests/unit/ -q` had 34 silent failures in `regime_writer`/causal-decode tests

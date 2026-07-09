@@ -1,4 +1,4 @@
-# 156 — Crowding proxy: alpha overlap with public-factor signals
+# 072 — Crowding proxy: alpha overlap with public-factor signals
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §10 (L7-3).
 **Priority:** medium — runs against data that exists *today*, no dependency on the corpus rerun

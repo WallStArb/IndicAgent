@@ -1,4 +1,4 @@
-# 168 — Pre-committed ablation protocol for ensemble degradation
+# 084 — Pre-committed ablation protocol for ensemble degradation
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §11 (G-2).
 **Priority:** medium — cheap precursor of the already-planned 0a (marginal contribution) item in

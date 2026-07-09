@@ -1,4 +1,4 @@
-# 163 — Anytime-valid inference (e-values) across corpus reruns
+# 079 — Anytime-valid inference (e-values) across corpus reruns
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §7 (L4-1),
 executive summary item 6.
@@ -27,7 +27,7 @@ on *any* build.
 
 ## Verdict path / mechanics
 
-The e-process is self-checkable against the canary predictors (todo 152) — canary e-values must
+The e-process is self-checkable against the canary predictors (todo 068) — canary e-values must
 decay toward zero. This *removes* an unaccounted multiplicity surface rather than adding one. A
 kernel function (`ic_math.py` sibling) + one column per cell + manifest plumbing; no new service.
 Pilot on one tf first given this is genuinely new math for the codebase.

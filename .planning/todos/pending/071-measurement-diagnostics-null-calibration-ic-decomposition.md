@@ -1,8 +1,8 @@
-# 155 — Measurement diagnostics: empirical null calibration + IC hit-rate/magnitude decomposition
+# 071 — Measurement diagnostics: empirical null calibration + IC hit-rate/magnitude decomposition
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §7 (L4-2, L4-4).
 **Priority:** medium — cheap, standalone, no schema dependency; good candidates to run against
-the current corpus once the ic_engine incident (todo 151) is resolved and a fresh rerun completes.
+the current corpus once the ic_engine incident (todo 067) is resolved and a fresh rerun completes.
 **Gate:** none structurally; practically wants a healthy `feature_ic_scores` table to run against.
 
 ## L4-2 — Empirical null calibration via circular-shift permutation

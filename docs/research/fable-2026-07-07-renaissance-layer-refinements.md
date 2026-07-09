@@ -112,7 +112,7 @@ close's direction), are strictly more information than any single-bar OHLC estim
   the 142.5 vol estimators and LW cluster deflation handles the redundancy. (W) Small incremental
   columns in an existing family. (C) Computable in `backfill_feature_factory` where the LTF data
   already streams past; the one real cost is a cross-TF read, which `feature_cache.py` already
-  supports for the `ret_div_*` cross-TF divergences 142.5 deferred (todo 150) - build them in the
+  supports for the `ret_div_*` cross-TF divergences 142.5 deferred (todo 066) - build them in the
   same pass.
 
 ---
@@ -677,7 +677,7 @@ are excluded - they are prior art, not this doc's proposals.
 | 11 | **L5-1 posterior-blended variant** (+ L5-2 HRP-lite) | Variant flag in trainer/publisher, pure functions in `weights.py` | Existing A/B judge; one corpus run per variant |
 | 12 | **L3-2 residual-return target** | Measurement-time join | Gated on Phase 145 betas; batch into the same v3.15 rerun |
 | 13 | **L4-1 e-values** | Kernel fn + per-cell column + manifest plumbing | Pilot one tf; compounds in value with every future rerun |
-| 14 | **L0-2 sub-bar path features** (+ deferred `ret_div_*`, todo 150) | Cross-TF reads in backfill | Next corpus rerun after implementation |
+| 14 | **L0-2 sub-bar path features** (+ deferred `ret_div_*`, todo 066) | Cross-TF reads in backfill | Next corpus rerun after implementation |
 | 15 | **L0-1 dollar-bar pilot** | One-off aggregation script | 5-symbol pilot through `ic_engine`; fuller build only on a positive verdict |
 | 16 | **L7-1/L7-2/L7-4, L6-2, L3-3, L6-3, L5-3/L5-4, L1a-2/L1a-3, G-2** | Post-142B / post-P1 / post-cost-kernel respectively | Queued behind their named prerequisites; none should be built speculatively |
 

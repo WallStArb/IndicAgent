@@ -8,6 +8,23 @@
 **Risk:** low
 ---
 
+**Resolved 2026-07-08 — differently than proposed:** rather than sweeping the stale
+`production.scripts.run_historical_pipeline` patch paths for all 15 tests, the underlying
+Stage 2 (I1-I7 intelligence-replay) code they cover was deleted outright. It was confirmed
+dead independent of this todo: `signal_events`/`trade_frames`/`trade_executions` all had 0
+rows, every writer service (`indicagent-signal-writer`, `indicagent-signal-tracker-compute`,
+`indicagent-lifecycle-writer`) was `inactive dead`, and the file already carried its own
+2026-07-05 RCA comment (`F7`) independently concluding "this entire archived v2.x
+plugin/replay stack has no live consumer." The full I1-I7 plugin corpus remains preserved in
+`src/intelligence/archive/` for any future reimplementation. `infrastructure_run_historical_pipeline.py`
+went from 3055 to 1329 lines (Stage 1 IBKR-fetch logic, still live, untouched); the file's own
+docstring and git history now record the removal. `test_run_historical_pipeline.py` was
+rewritten to keep only the 12 tests covering surviving Stage 1 functions
+(`aggregate_bars_from_1m`, `fetch_bars`/`store_bars`, `detect_gaps` — the latter's patch
+paths fixed to the correct module) — all pass. The `TestDetectGaps` tests specifically
+(3 of the 15) were live-code coverage that a naive whole-file delete would have destroyed;
+worth remembering for next time this kind of cleanup comes up.
+
 # 062 — Fix stale `production.scripts.run_historical_pipeline` mock patch paths
 
 **Relationship to todo 045:** this is the fully-diagnosed subset of the broader 33-test-failure

@@ -1,4 +1,4 @@
-# 167 — Analog substrate refinements: ensemble-of-metrics retrieval, conformal coverage
+# 083 — Analog substrate refinements: ensemble-of-metrics retrieval, conformal coverage
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §4 (L1a-2, L1a-3).
 `intel-analog-engine.md` already covers retrieval design, definedness rules, OOD monitoring, and

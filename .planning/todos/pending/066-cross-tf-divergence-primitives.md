@@ -9,7 +9,7 @@
 **Gate:** Phase 142.5 complete (OPEN) — deferred OUT of 142.5 by explicit scope decision
 ---
 
-# 150 — Cross-Timeframe Divergence Primitives
+# 066 — Cross-Timeframe Divergence Primitives
 
 **Priority: Medium — completes the Renaissance primitive basket**
 **Source:** `docs/research/signal-renaissance-primitives-ohlcv.md` (Interaction Primitives → Cross-Timeframe Divergences)

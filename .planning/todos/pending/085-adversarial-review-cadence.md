@@ -1,4 +1,4 @@
-# 169 — Adversarial review as cadence, not one-off event
+# 085 — Adversarial review as cadence, not one-off event
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §11 (G-3).
 **Priority:** low-medium — a process change, not a code change. No infrastructure cost (a prompt
@@ -17,7 +17,7 @@ ones.
 
 ## Why
 
-Promotion machinery is symmetric on evidence (todo 152's canaries, the FDR/gate stack), but
+Promotion machinery is symmetric on evidence (todo 068's canaries, the FDR/gate stack), but
 *proposal* flow today is all-positive — people and models propose predictors, nobody's job is
 proposing their deaths. This closes that asymmetry at near-zero mechanism cost.
 

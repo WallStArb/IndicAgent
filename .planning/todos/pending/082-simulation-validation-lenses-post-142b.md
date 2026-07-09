@@ -1,4 +1,4 @@
-# 166 — Additional simulation/validation lenses (post-142B)
+# 082 — Additional simulation/validation lenses (post-142B)
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §10 (L7-1, L7-2, L7-4).
 142B's frame design and SHADOW-REVIEW pre-commitment are kept-by-design, untouched — these are
@@ -26,7 +26,7 @@ Pure SQL over `alpha_frames` × `market_regimes`.
 
 ## L7-4 — Cost-sensitivity sweep instead of point costs
 
-When the cost kernel lands (canonical simulator's build item, see todo 158's dual-use note),
+When the cost kernel lands (canonical simulator's build item, see todo 074's dual-use note),
 report frame P&L as a *curve* over cost multipliers (0.5x, 1x, 2x, 4x calibrated cost) rather
 than a single net number. Todo 030 moved the cost picture materially once already — a strategy
 whose profitability dies at 2x assumed cost is a different asset from one that survives 4x. One

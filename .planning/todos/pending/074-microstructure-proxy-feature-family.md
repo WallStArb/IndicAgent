@@ -1,4 +1,4 @@
-# 158 — OHLCV microstructure proxy family (liquidity/friction, dual-use with cost kernel)
+# 074 — OHLCV microstructure proxy family (liquidity/friction, dual-use with cost kernel)
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §3 (L1-2),
 executive summary item 4.

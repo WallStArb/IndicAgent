@@ -1,8 +1,8 @@
-# 159 — Small feature additions: permutation entropy, dollar-bar pilot, sub-bar path summaries
+# 075 — Small feature additions: permutation entropy, dollar-bar pilot, sub-bar path summaries
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §2-3 (L0-1, L0-2,
 L1-4). Note: the `ret_div_*` cross-TF divergences L0-2 mentions "building in the same pass" are
-**already tracked as todo 150** — don't duplicate, just ride the same cross-TF-read
+**already tracked as todo 066** — don't duplicate, just ride the same cross-TF-read
 infrastructure when picked up.
 **Priority:** low-medium, genuinely small/cheap items; bundle rather than build separately.
 **Gate:** none.
@@ -41,5 +41,5 @@ intrabar return skew and signed path (fraction of intrabar movement in the close
 are strictly more information than any single-bar OHLC estimator. The GK-vs-realized-variance
 *gap* is itself a candidate feature (jump/noise decomposition). 3-4 columns, standard FDR pool;
 computable in `backfill_feature_factory` where LTF data already streams past — `feature_cache.py`
-already supports the cross-TF read (same infra todo 150's `ret_div_*` needs), build both in the
+already supports the cross-TF read (same infra todo 066's `ret_div_*` needs), build both in the
 same pass.

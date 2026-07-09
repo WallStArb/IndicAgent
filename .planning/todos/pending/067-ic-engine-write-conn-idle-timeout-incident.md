@@ -1,4 +1,4 @@
-# 151 — ic_engine.py write_conn idle-timeout incident (fixed 2026-07-08)
+# 067 — ic_engine.py write_conn idle-timeout incident (fixed 2026-07-08)
 
 **Status:** fix applied and unit-tested same session; needs a fresh corpus rerun to confirm in
 production before this todo closes.
@@ -44,11 +44,21 @@ nothing), container health (`docker inspect` shows healthy, no restart).
 
 - The **first** attempt's failure (20:32-21:29) never got a real root-cause — its log only has
   RuntimeWarnings. If it recurs after this fix, that's a second, different bug.
-- No corpus rerun has actually completed successfully yet with this fix in place. Resume via
-  `bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --from-step 4` and confirm `feature_ic_scores`
-  gets fully populated for `training_window_end = 2025-12-24 05:15:00+00` before treating this
-  as closed.
 - Consider (not done here, scope creep for an incident fix): the same "long-idle-then-write"
   pattern may exist in other long-running corpus-DAG steps — worth a quick audit of
   `ensemble_trainer.py`/`alpha_publisher.py`/`forward_return_writer.py` for the same idiom if
   this recurs elsewhere.
+
+**Update 2026-07-09:** the 6th corpus rebuild resumed from step 4 today and got through this
+exact write path — the idle-connection fix held, no recurrence. It then hit a **different,
+unrelated** OOM in the per-symbol `ProcessPoolExecutor` pass (plain `fetchall()`-before-reduce
+pulling a full 392K-row/150-column symbol cell client-side, ~4.3GB/worker × 12 workers > box
+memory) — root-caused and fixed in the same session that discovered it: switched to a chunked
+named server-side cursor, same shape as the sibling fixes in migrations 183 and 209
+(`infra.ic_engine.symbol_fetch_chunk_rows`, migration 212). That fix is a separate incident, not
+a recurrence of this todo's bug — no new todo filed for it since it's fully resolved (root
+cause, fix, and regression-preventing pattern match to prior sibling fixes), not deferred.
+**This todo's own closure gate is unchanged and still open:** no corpus rerun has completed
+successfully end-to-end yet. Resume via
+`bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --from-step 4` and confirm `feature_ic_scores`
+gets fully populated for `training_window_end = 2025-12-24 05:15:00+00` before closing.

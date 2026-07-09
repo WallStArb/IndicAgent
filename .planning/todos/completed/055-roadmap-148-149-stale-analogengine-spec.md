@@ -1,5 +1,33 @@
 # ROADMAP.md Phases 148-149 (AnalogEngine) still spec the pre-rescope design — will silently revert D4 if planned as written
 
+**Resolved 2026-07-09:** ROADMAP.md Phases 148-149 requirement bodies rewritten in full against
+`docs/research/intel-analog-engine.md` (the renamed intel-13; D4 rescope is the source of truth).
+
+- Phase 148: ANALOG-01's "why not IC-weighted at index time" paragraph now points at the deferred
+  capability (intel-analog-engine Open Question 5, `candidate_k` oversampling as the mechanism),
+  not at a sibling ANALOG-08 that no longer exists in that form. ANALOG-02's standalone
+  `embedding_feature_registry` table replaced with one `concept_registry` row per
+  `embedding_version` (D9), with the domain-naming question (F5.3, `embedding_spec` vs. widened
+  `feature`) deferred to v3.2 planning per `platform-unified-concept-registry.md`. ANALOG-04's
+  APR keys corrected to the doc's `analog.retrieval.max_distance = 0.25` /
+  `analog.ood.alert_rate_threshold = 0.20` and the one-fact-three-consumers / no-feedback-into-
+  `retrieve()` constraints added. ANALOG-03/05 verified accurate as written, left alone.
+  ANALOG-RESEARCH-01's todo pointer fixed (017, not the nonexistent 018), table name fixed
+  (`embeddings`, not `feature_embeddings`), script path moved off the dead `production/scripts/`.
+- Phase 149: goal, "Key distinction" note, and ANALOG-06..09 rewritten wholesale. The parallel
+  stack (`feature_ic_stats`, `similarity_pairs`, `score_cache`, Score Objects, `analog-enricher`)
+  is gone; requirements are now Analog Finder wrapper, return-distribution primitive, nightly
+  analog-predictor batch (definedness NULL-never-zero, `regime_purity` as conviction cap, storage
+  grain = Open Question 1), and registration into the shared IC machinery + existing ensemble.
+  The 2026-07-03 staleness warning note removed as redundant once the text it warned about was fixed.
+- Phase 150, phase numbering, and all Depends-on lines untouched. Residual: Phase 150's note still
+  says "see todo 055 for why Phase 149 itself needs rewriting" (out of scope per the explicit
+  do-not-touch instruction; harmless, one parenthetical).
+
+Original todo below, unchanged.
+
+---
+
 **Renumbered 2026-07-04:** phases 143-152 were renumbered into logical dependency order (nothing
 past Phase 142B.1 had execution artifacts, so this was a safe textual pass). What this todo
 originally called "Phase 145/146" is now **Phase 148/149**; "Phase 147" (Feature Primitives) is

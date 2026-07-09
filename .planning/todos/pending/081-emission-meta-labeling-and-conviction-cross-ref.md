@@ -1,4 +1,4 @@
-# 165 — Emission: meta-labeling gate (new) + conviction column (cross-ref, don't duplicate EM-CAL)
+# 081 — Emission: meta-labeling gate (new) + conviction column (cross-ref, don't duplicate EM-CAL)
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §9 (L6-1, L6-3).
 **Reconciliation note:** a separate, independent Fable review of the emission layer already

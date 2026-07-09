@@ -1,4 +1,4 @@
-# 160 — New/refined stratification dimensions: correlation regime, liquidity regime, posterior-weighted IC
+# 076 — New/refined stratification dimensions: correlation regime, liquidity regime, posterior-weighted IC
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §5 (L2-1, L2-2, L2-3).
 **Priority:** medium-high; these are new candidate `StratificationDimension` entries for the
@@ -14,11 +14,11 @@ groups won't consume it.
 Cross-sectional mean pairwise correlation of universe returns (rolling window, expanding
 percentile rank). VIX×breadth measures fear level and participation; average pairwise
 correlation measures whether the universe is *one trade or many* — precisely the condition under
-which the cross-sectional features (todo 157) should gain or lose IC, and the documented
+which the cross-sectional features (todo 073) should gain or lose IC, and the documented
 precursor of momentum crashes. This is the stratification-shaped descendant of the archived
 `comomentum-crowding-metric.md` (whose own recommendation was to decompose crowding into
 primitives, not build the paper's bespoke index) — a conditioning axis through the standard gate
-instead. Sharpest pre-registered prediction: the cross-sectional features (todo 157) show
+instead. Sharpest pre-registered prediction: the cross-sectional features (todo 073) show
 materially lower IC in the top correlation decile. Computed from the same close series
 `equity_regime_model.py._fetch_spy_bars` already generalizes from; one more provider under the
 Phase 144 dispatcher.
