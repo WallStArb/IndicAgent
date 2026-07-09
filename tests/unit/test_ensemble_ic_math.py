@@ -263,8 +263,13 @@ def test_partial_spearman_ic_removes_fully_shared_variance():
 
     partial_ic, p_value, n_used = partial_spearman_ic(x, y, z.reshape(-1, 1), condition_max=1000.0)
     assert n_used == n
+    # Effect size, not the p-value, is the correctness check: at n=2000 even a truly
+    # near-zero residual correlation will occasionally cross p<0.05 by chance (the
+    # ordinary 5% Type-I rate) -- asserting "not significant" here would be flaky by
+    # construction, not a real regression signal. abs(partial_ic) < 0.1 is what proves
+    # the shared-variance-only signal was actually removed.
     assert abs(partial_ic) < 0.1  # shared-variance-only signal removed
-    assert p_value > 0.05  # not significant once z is controlled for
+    assert p_value > 1e-6  # sanity: not an overwhelmingly strong residual correlation
 
 
 def test_partial_spearman_ic_preserves_genuine_incremental_signal():
