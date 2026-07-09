@@ -171,8 +171,8 @@ Some Ring 2 daemons are the concept itself — no category suffix adds precision
 | `IntelligencePipeline` | IS the pipeline — any suffix would misrepresent the unified I1-I7 compute process |
 | `AlphaSwarm` | IS the swarm — the swarm is the architectural concept |
 | `NarrativeSwarm` | Same pattern — group coordinator IS the swarm |
-| `AlphaEngine` | IS the system — the IC measurement + ensemble alpha generation system (System 1, v3.0) |
-| `AnalogEngine` | IS the system — the pgvector k-NN historical retrieval substrate (System 2, v3.0) |
+| `AlphaEngine` | IS the system — the IC measurement + ensemble alpha generation system, the entirety of Layer 1 (Prediction), v3.0 |
+| `CaseSubstrate` | IS the substrate — the pgvector k-NN historical-retrieval layer that produces case-derived predictors as inputs to AlphaEngine's shared IC/ensemble machinery. Not a second system (D4 rescope, `docs/research/intel-case-substrate.md`) — never call it "System 2" or "independent." Formerly `AnalogEngine`, renamed 2026-07-09: "analog" collided with the electronics sense of the word given this codebase's dense signal-processing vocabulary (see naming-system.md §1 Whiteboard Test); "case" is the term of art from case-based reasoning and carries no such collision. |
 
 New plain role nouns require explicit addition to this table. The anti-creep rule applies.
 
@@ -201,7 +201,7 @@ taxonomy:
     no_base_prefix: true
   runtime_processes:
     suffixes: [Provider, Merger, Aggregator, Analyzer, Writer, Tracker, Auditor, Monitor, Orchestrator, Trainer, Publisher]
-    plain_role_nouns: [IntelligencePipeline, AlphaSwarm, NarrativeSwarm, AlphaEngine, AnalogEngine, ICEngine]
+    plain_role_nouns: [IntelligencePipeline, AlphaSwarm, NarrativeSwarm, AlphaEngine, CaseSubstrate, ICEngine]
     rings: [2]
     inherits: BaseDaemon
   infrastructure_bases:

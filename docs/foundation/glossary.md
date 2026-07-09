@@ -74,7 +74,7 @@ A time-stamped, scored trade hypothesis with a defined entry, direction, and exi
 
 ### `regime`
 
-A discrete conditioning-state label that partitions bars into groups expected to behave differently downstream (IC stratification, ensemble weights, analog retrieval). Produced by Stage 1 (Stratification) of the AlphaEngine internal layers — see that entry. Two coexisting mechanisms fill this contract today, each with its own sanctioned vocabulary (see `MEMORY.md` "Dual Regime System"):
+A discrete conditioning-state label that partitions bars into groups expected to behave differently downstream (IC stratification, ensemble weights, case retrieval). Produced by Stage 1 (Stratification) of the AlphaEngine internal layers — see that entry. Two coexisting mechanisms fill this contract today, each with its own sanctioned vocabulary (see `MEMORY.md` "Dual Regime System"):
 
 - **Idiosyncratic regime** (aka **symbol regime**) — per-symbol `GaussianHMM` state (5 labels: `trending_down`, `transition_down`, `ranging`, `transition_up`, `trending_up`), fit per (symbol, timeframe) from log-return/vol-of-vol/relative-volume observations. Stored in `feature_vectors.regime`. "Idiosyncratic" is the standard factor-model term for a security-specific, non-market-wide component — parallels how `sensitivity`/`factor_regime` also operate at security scope.
 - **Systematic regime** (aka **market regime**) — cross-sectional VIX×breadth state (9 labels: `{low/mid/high}_{bull/neutral/bear}`), one label per timeframe shared across the whole universe. Stored in `market_regimes`. "Systematic" is the standard factor-model term for the common, market-wide component every instrument shares exposure to.
@@ -97,7 +97,7 @@ A discrete conditioning-state label that partitions bars into groups expected to
 
 ### `conditioning layer` (aka `regime detection layer`)
 
-The layer in the quant stack that detects market states and enables downstream processes to condition predictions on those states. **Internal project name** — emphasizes the stratification purpose (conditioning IC on regime). Takes primitive features (OHLCV-derived signals) as input, outputs categorical labels stamped onto each bar. Enables IC stratification, regime-conditioned ensemble weights, and analog retrieval filtering.
+The layer in the quant stack that detects market states and enables downstream processes to condition predictions on those states. **Internal project name** — emphasizes the stratification purpose (conditioning IC on regime). Takes primitive features (OHLCV-derived signals) as input, outputs categorical labels stamped onto each bar. Enables IC stratification, regime-conditioned ensemble weights, and case retrieval filtering.
 
 **Industry-standard term:** `market state classification` — use that term for external communications, papers, and cross-system discussions. `conditioning layer` is used internally when emphasizing the statistical function (conditional prediction).
 
@@ -124,7 +124,7 @@ Industry-standard term for the layer that detects and classifies market conditio
 
 **Internal name:** `conditioning layer` — used internally when emphasizing the statistical function (conditional prediction via stratified IC). See dedicated entry.
 
-**Purpose:** Enable downstream processes to condition predictions on market context. Classification produces discrete labels per (symbol, tf, bar) that stratify IC measurements, ensemble weights, and analog retrieval.
+**Purpose:** Enable downstream processes to condition predictions on market context. Classification produces discrete labels per (symbol, tf, bar) that stratify IC measurements, ensemble weights, and case retrieval.
 
 **Industry standard:** Quant systems universally stratify by market state — high/low vol, trending/mean-reverting, risk-on/risk-off. The classifier mechanism varies (HMM, threshold rules, ML, change-point detection) but the function is standard: context-aware prediction.
 
@@ -617,7 +617,7 @@ The v3.0 prediction engine: FeatureFactory → IC Engine → Ensemble → alpha 
 
 Runs entirely in the cold batch layer (weekly IC Engine, nightly Ensemble Builder, nightly Alpha Emitter). FeatureFactory runs in-process on the hot path, writing to `feature_vectors` as a DB sink only.
 
-**Distinction from AnalogEngine:** AlphaEngine is parametric (Spearman correlation across all observations on pre-specified features). AnalogEngine is non-parametric (k-NN retrieval of similar historical bar states). Gated: AnalogEngine does not start until AlphaEngine demonstrates IC > 0 with p < 0.05.
+**Distinction from CaseSubstrate:** AlphaEngine is parametric (Spearman correlation across all observations on pre-specified features). CaseSubstrate is non-parametric (k-NN retrieval of similar historical bar states). CaseSubstrate is not a second AlphaEngine — its case-derived predictors register into and are weighted by this same engine, per the `CaseSubstrate` entry below. Gated: CaseSubstrate does not start until AlphaEngine demonstrates IC > 0 with p < 0.05.
 
 **Not:** an enrichment annotator on `signal_events`. AlphaEngine replaces the I5-I7 plugin stack as the primary alpha source. It does not annotate the old signal architecture — it supersedes it.
 
@@ -718,19 +718,21 @@ Emitter component is one mechanism fulfilling it.
 
 ---
 
-### `AnalogEngine`
+### `CaseSubstrate`
 
-The non-parametric pgvector retrieval substrate (v3.0, System 2). Embeds full I1-I7 bar states as L2-normalized vectors in pgvector. Finds K nearest historical neighbors via HNSW index. Returns what price did after each analog at T+5/10/20/60. Does not score — scoring is the Scoring Engine (analog-engine-03). The null result ("no close analogs exist") is a first-class output and drives the OOD monitor.
+The non-parametric pgvector retrieval substrate (v3.0). Embeds `FeatureVector` states as L2-normalized vectors in pgvector. Finds K nearest historical neighbors via HNSW index (cosine similarity). Returns what price did after each retrieved case at the canonical gradient horizons (fast/mid/slow/extended), joined from the existing `forward_returns` table. The null result ("no close cases exist") is a first-class output and drives the OOD monitor.
 
-**Distinction from AlphaEngine:** AnalogEngine is non-parametric (retrieves historical instances). AlphaEngine is parametric (measures Spearman correlation across all observations). Both are independent and additive.
+A nightly `BaseBatch` job turns retrieved neighbor sets into ordinary predictor columns (`case_expected_r`, `case_hit_rate`, `case_ret_dispersion`, `case_nn_dist`, plus a conviction envelope and horizon-profile label) — there is no separate scoring/combiner system; this replaced the pre-rescope design's standalone Scoring Engine.
 
-**Plain role noun** — added to `naming-system.md` plain_role_nouns. Services prefixed `analog-` (e.g. `indicagent-analog-bar-embedder`). APR namespace: `analog.*`.
+**Distinction from AlphaEngine — read this carefully, it was wrong before 2026-07-09:** CaseSubstrate is non-parametric (retrieves historical instances via k-NN); AlphaEngine is parametric (measures Spearman correlation on pre-specified features). But CaseSubstrate is **not** a second, independent system — its case-derived predictors register into and are measured/weighted by AlphaEngine's own IC machinery and ensemble, exactly like any parametric feature (D4 rescope, `docs/foundation/principles.md`'s "one model, one book" invariant). CaseSubstrate is a second *evidence source* feeding the one book, not a second book. An earlier version of this entry said "both are independent and additive" — that was a real error, since corrected; do not repeat it.
 
-**Status:** design (pre-implementation, v3.0)
+**Plain role noun** — `naming-system.md` plain_role_nouns. Services prefixed `case-` (e.g. `indicagent-case-bar-embedder`). APR namespace: `case.*`.
 
-**Canonical doc:** `docs/plans/2026-06-20-analogengine-design.md` — also `docs/research/analog-engine-01` through `analog-engine-06` for per-layer detail.
+**Status:** design (pre-implementation, v3.0) — gated behind v3.15 (Phase 144/145) completing; retrieval hard-filters on regime labels, so the regime-model unification must land first.
 
-**Formerly called:** "VIL" / "Vector Intelligence Layer" (internal shorthand still acceptable in code comments; canonical name is AnalogEngine)
+**Canonical doc:** `docs/research/intel-case-substrate.md` (the current, correct design — the D4 rescope). `docs/plans/archive/2026-06-20-analogengine-design.md` is the original pre-rescope design doc, superseded, kept for history only.
+
+**Formerly called:** "AnalogEngine" (renamed 2026-07-09 — "analog" collided with the electronics/signal-processing sense of the word in a codebase already dense with that vocabulary; "case" is the case-based-reasoning term of art and carries no such collision, see `naming-system.md` §1 Whiteboard Test). Before that: "VIL" / "Vector Intelligence Layer" (internal shorthand still acceptable in code comments).
 
 ---
 
