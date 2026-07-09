@@ -1,4 +1,4 @@
-# 069 - Winner's-curse correction before the E1/E2 champion judgment (decision + implementation DONE; OOS confirmation step remains)
+# 069 - Winner's-curse correction before the E1/E2 champion judgment (COMPLETE - judgment ran, E2 rejected)
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §7 (L4-3),
 concretizes `docs/research/measurement-ic-engine.md` Open Question 7.
@@ -37,15 +37,16 @@ reporting of the winner's point IC, and (c) sequential-ladder multiplicity acros
 4. ✅ `docs/plans/methodology-change-ledger.md`: E5 entry added, pre-registered (written
    before the judgment has ever run - the clean E4 pattern).
 
-## What's left
+## Judgment result (2026-07-09)
 
-5. **OOS confirmation step** - not code, an operational step: once the E1/E2 judgment
-   actually runs and promotes a champion for some stratum, run
-   `services/ensemble_ic_engine.py` for that `weight_version` over the untouched holdout
-   window (`docs/plans/OOS-EVAL-PROTOCOL.md`) before citing its IC anywhere downstream (cost
-   hurdle, Kelly, promotion claims). This can't be done until the judgment produces a
-   promotion - tracked here so it isn't forgotten when that happens, not because anything is
-   blocked today.
+Ran `ops_ensemble_weight_compare.py --champion run_2025122405150000 --challenger
+run_2025122405150000_mv` (E1 = shrunk-IC, E2 = mean-variance Σ⁻¹·IC) against the fresh,
+trustworthy corpus (6th rebuild, completed 08:44 same day). Result: **E2 LOSS in all 20/20
+strata** (5m/15m/1d × regime) - no WIN, no WIN-FDR-VETO. E1 remains champion by default
+everywhere; nothing was promoted.
+
+Item 5 (OOS confirmation) does not apply - it only triggers on a promotion, and this judgment
+produced none. Nothing left on this todo.
 
 ## Why this could wait no longer
 
