@@ -26,10 +26,14 @@ D-02: sampling scopes to the single latest `training_window_end` vintage in
 `feature_ic_scores`, matching the existing "latest vintage" convention used by
 `ops_ensemble_ic_diagnosis.py` -- prevents mixing cells across corpus rebuilds.
 
-D-03: the `n_independent` cross-check (production's `_compute_ic_rolling_metrics`
-computes this as `len(sub_idx)` BEFORE the completeness/finite-value mask) compares
-against the diagnostic's own post-stride, pre-completeness-filter row count -- not
-the post-filter valid count -- to match production's definition exactly.
+D-03: the `n_independent` cross-check compares against the diagnostic's own post-
+stride, post-completeness/finite-value-filter valid count (`n_valid`), because that
+is what production actually persists to `feature_ic_scores.n_independent`
+(`services/ic_engine.py` writes `int(n_valid)`/`n_valid`, computed AFTER
+`valid_mask = scale_complete & np.isfinite(returns_scale)`). Production also has a
+same-named local variable `n_independent = len(sub_idx)` computed BEFORE that mask,
+but it is used only for an internal early-exit threshold check and is never written
+to the DB -- comparing against it here would be comparing the wrong quantity.
 
 This report is diagnostic; remediation (delete the dead `alpha.ic.bootstrap_*` APR
 keys, or reopen circular block bootstrap) is a follow-up decision recorded in
@@ -198,15 +202,14 @@ def _evaluate_cell(
 ) -> dict | None:
     n_raw = len(x_raw)
     sub_idx = np.arange(0, n_raw, stride)
-    n_independent = len(sub_idx)
-    if n_independent != stored_n_independent:
-        return None  # mismatch: cell mis-selected or corpus drifted since measurement
 
     x_sub = x_raw[sub_idx]
     y_sub = y_raw[sub_idx]
     complete_sub = complete_raw[sub_idx]
     valid_mask = complete_sub & np.isfinite(y_sub) & np.isfinite(x_sub)
     n_valid = int(valid_mask.sum())
+    if n_valid != stored_n_independent:
+        return None  # mismatch: cell mis-selected or corpus drifted since measurement
     if n_valid < 4:
         return None  # _fisher_z_ci requires n >= 4
 
