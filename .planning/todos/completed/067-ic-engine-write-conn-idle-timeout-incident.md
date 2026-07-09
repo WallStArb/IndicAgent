@@ -1,7 +1,6 @@
 # 067 — ic_engine.py write_conn idle-timeout incident (fixed 2026-07-08)
 
-**Status:** fix applied and unit-tested same session; needs a fresh corpus rerun to confirm in
-production before this todo closes.
+**Status:** CLOSED 2026-07-09 — confirmed in production, no recurrence.
 
 ## What happened
 
@@ -58,7 +57,7 @@ named server-side cursor, same shape as the sibling fixes in migrations 183 and 
 (`infra.ic_engine.symbol_fetch_chunk_rows`, migration 212). That fix is a separate incident, not
 a recurrence of this todo's bug — no new todo filed for it since it's fully resolved (root
 cause, fix, and regression-preventing pattern match to prior sibling fixes), not deferred.
-**This todo's own closure gate is unchanged and still open:** no corpus rerun has completed
-successfully end-to-end yet. Resume via
-`bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --from-step 4` and confirm `feature_ic_scores`
-gets fully populated for `training_window_end = 2025-12-24 05:15:00+00` before closing.
+**Closure (2026-07-09, 08:44 EDT):** the 6th rebuild's `--from-step 4` resume completed all 8
+steps end-to-end for the first time — `ic_engine` finished clean in 3127s ("DONE", first time
+ever without an OOM or write failure), `feature_ic_scores` fully populated (920,649 rows). The
+closure gate this todo's previous update stated is satisfied. Closing.
