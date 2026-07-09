@@ -19,10 +19,18 @@ from __future__ import annotations
 from typing import Protocol
 
 import numpy as np
-from scipy.stats import rankdata
+from scipy.stats import norm, rankdata
 from scipy.stats import t as t_dist
+from statsmodels.stats.multitest import multipletests
 
 _Z95 = 1.959963985  # norm.ppf(0.975) — 95% two-tailed critical value
+
+
+def _arctanh_clip(x: np.ndarray | float) -> np.ndarray | float:
+    """Fisher z-transform with the standard epsilon clip against +/-1 (arctanh is
+    undefined exactly at +/-1). Shared by every Fisher-z-based function in this module.
+    """
+    return np.arctanh(np.clip(x, -1 + 1e-10, 1 - 1e-10))
 
 
 class SharpeWindowConfig(Protocol):
@@ -58,7 +66,7 @@ def _fisher_z_ci(
     if n < 4:
         nan = np.full_like(ic_vector, np.nan, dtype=float)
         return nan, nan.copy()
-    z = np.arctanh(np.clip(ic_vector, -1 + 1e-10, 1 - 1e-10))
+    z = _arctanh_clip(ic_vector)
     se = 1.0 / np.sqrt(n - 3)
     return np.tanh(z - _Z95 * se), np.tanh(z + _Z95 * se)
 
@@ -126,6 +134,71 @@ def _p_values_from_ic(ic_vector: np.ndarray, n: int) -> np.ndarray:
     """
     t_stat = ic_vector * np.sqrt((n - 2) / np.maximum(1 - ic_vector**2, 1e-10))
     return 2.0 * (1.0 - t_dist.cdf(np.abs(t_stat), df=n - 2))
+
+
+# ---------------------------------------------------------------------------
+# Two-sample IC difference test (todo 069 / measurement-ic-engine.md OQ7)
+# ---------------------------------------------------------------------------
+
+
+def fisher_z_difference_p(
+    ic_a: float,
+    n_a: float,
+    ic_b: float,
+    n_b: float,
+) -> float:
+    """Two-sided p-value for the difference between two independent IC estimates.
+
+    Standard two-independent-correlations difference test via Fisher z-transform:
+    z_diff = (arctanh(ic_a) - arctanh(ic_b)) / SE, SE = sqrt(1/(n_a-3) + 1/(n_b-3)),
+    p = 2 * (1 - Phi(|z_diff|)) under the standard normal.
+
+    Conservative under positive dependence: this formula assumes ic_a and ic_b are
+    estimated on independent samples. When the two estimates are measured on the same
+    bars with largely overlapping alpha constructions (e.g. two ensemble weight_version
+    variants scored on the same corpus), their estimation errors are positively
+    correlated, so the true standard error of the difference is smaller than this
+    formula assumes -- the returned p-value is therefore an overestimate, biased toward
+    NOT rejecting H0. That is the intended, safe direction for this use (see
+    docs/research/fable-2026-07-09-ensemble-winners-curse-peer-group.md).
+
+    Returns NaN when n_a <= 3 or n_b <= 3 (the SE term is undefined -- same n>3
+    requirement as _fisher_z_ci's arctanh variance approximation).
+    """
+    if n_a <= 3 or n_b <= 3:
+        return float("nan")
+    z_a = _arctanh_clip(ic_a)
+    z_b = _arctanh_clip(ic_b)
+    se = np.sqrt(1.0 / (n_a - 3) + 1.0 / (n_b - 3))
+    z_diff = (z_a - z_b) / se
+    return float(2.0 * (1.0 - norm.cdf(np.abs(z_diff))))
+
+
+# ---------------------------------------------------------------------------
+# Shared BH-FDR correction (todo 069)
+# ---------------------------------------------------------------------------
+
+
+def apply_bh_fdr(p_values: list[float], alpha: float) -> tuple[np.ndarray, np.ndarray]:
+    """Benjamini-Hochberg FDR correction over one family of p-values.
+
+    Thin, deliberately minimal wrapper around statsmodels' multipletests: this
+    "collect p-values -> one multipletests call -> scatter reject/corrected-p back by
+    index" shape was independently hand-rolled at three call sites (services/ic_engine.py,
+    services/ensemble_ic_engine.py, scripts/ops/corpus/ops_oos_holdout_eval.py's
+    _apply_corpus_fdr) before this extraction. Only the multipletests call itself is
+    shared here, not the scatter-back-into-a-container step -- each caller's result
+    container shape differs (flat list of dicts, dict keyed by stratum, etc.), so forcing
+    one scatter convention on all of them would be a worse fit than leaving that one line
+    local to each caller.
+
+    Returns (reject, p_corrected) as parallel arrays in the same order as p_values.
+    Returns two empty arrays for an empty input (no family to correct).
+    """
+    if not p_values:
+        return np.array([], dtype=bool), np.array([], dtype=float)
+    reject, p_corrected, _, _ = multipletests(p_values, alpha=alpha, method="fdr_bh")
+    return reject, p_corrected
 
 
 # ---------------------------------------------------------------------------

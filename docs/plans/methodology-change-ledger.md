@@ -91,3 +91,28 @@ last month's weights is a silent methodology choice too.
 - **Changed:** <what, where, commit>
 - **Pre-registered?** <yes / partially / no — and the honest justification>
 -->
+
+### E5 — 2026-07-09: BH-FDR multiplicity correction added to the ensemble weight_version A/B judgment, before the judgment has ever run
+- **Observed first:** nothing — the E1/E2 A/B judgment (`ops_ensemble_weight_compare.py`,
+  built 2026-07-04 in Phase 142B.1) has never been executed. `ensemble_weights` still
+  holds only `weight_version='v1'` rows. This entry is written before any result exists.
+- **Changed:** `ops_ensemble_weight_compare.py`'s D-10 win rule (challenger CI strictly
+  above champion CI, walk-forward stable) is applied independently across every (tf,
+  regime) stratum in a comparison round (~36 strata: 4 tfs × 9 cross-sectional regime
+  labels). Added a per-stratum Fisher-z difference test (`fisher_z_difference_p`,
+  `src/intelligence/statistics/ic_math.py`) plus one `multipletests` BH-FDR pass across
+  all strata compared in the run (`alpha.ensemble.compare_fdr_alpha`, migration 213,
+  seeded 0.05). A stratum must now pass D-10 AND survive BH-FDR to report `WIN`; passing
+  D-10 alone reports `WIN-FDR-VETO`, a distinct, visible verdict rather than a silent
+  fold into `LOSS`. Resolves measurement-ic-engine.md Open Question 7 (does winner's-curse
+  correction apply at ensemble grain) — full reasoning and rejected alternatives (LOO
+  shrinkage across variants, cross-strata priors, hierarchical two-level, conditional
+  post-selection inference) in
+  `docs/research/fable-2026-07-09-ensemble-winners-curse-peer-group.md`. Todo 069.
+- **Pre-registered?** Yes — this is the clean pattern (same shape as E4). The correction
+  is decided and implemented before the judgment has ever run, specifically so the first
+  E1-vs-v1 / E2-vs-v1 verdicts are corrected from the start rather than reported raw and
+  retroactively caveated. No result influenced this design; the decision doc's own
+  candidate analysis (§4) explicitly rejected the more elaborate alternatives (variant
+  shrinkage, hierarchical pooling) as unsupported by current evidence (only 2-3 variants
+  exist) rather than reaching for complexity to look more rigorous.

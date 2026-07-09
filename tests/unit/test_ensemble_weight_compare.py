@@ -16,7 +16,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_scripts_alpha_dir = Path(__file__).parent.parent.parent / "scripts" / "ops" / "alpha"
+_project_root = Path(__file__).parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+_scripts_alpha_dir = _project_root / "scripts" / "ops" / "alpha"
 if str(_scripts_alpha_dir) not in sys.path:
     sys.path.insert(0, str(_scripts_alpha_dir))
 
@@ -25,9 +29,12 @@ from ops_ensemble_weight_compare import (
     _D14_REGIME_CAVEAT,
     _D15_WINNERS_CURSE_CAVEAT,
     _evaluate_win_rule,
+    _final_verdict,
     _regime_caveat,
     _winners_curse_flag,
 )
+
+from src.intelligence.statistics.ic_math import apply_bh_fdr
 
 
 def test_win_when_ci_non_overlapping_and_stable():
@@ -107,3 +114,84 @@ def test_winners_curse_flag_applied_only_on_win():
     assert _winners_curse_flag("WIN") == _D15_WINNERS_CURSE_CAVEAT
     assert _winners_curse_flag("LOSS") == ""
     assert _winners_curse_flag("HOLD") == ""
+
+
+def test_winners_curse_flag_not_applied_on_win_fdr_veto():
+    """A WIN-FDR-VETO already failed multiplicity correction -- it is not a promotable
+    win, so there is no promotion decision left to caveat (todo 069).
+    """
+    assert _winners_curse_flag("WIN-FDR-VETO") == ""
+
+
+def test_sql_selects_ic_value_and_n_independent():
+    """Regression (todo 069): the comparison SQL must select ic_value and n_independent
+    -- these feed fisher_z_difference_p's per-stratum BH-FDR pass. Without them the
+    multiplicity correction silently has nothing to compute on.
+    """
+    assert "ae.ic_value" in _COMPARE_SQL
+    assert "ae.n_independent" in _COMPARE_SQL
+
+
+# ---------------------------------------------------------------------------
+# _final_verdict (todo 069: D-10 win rule + BH-FDR multiplicity correction)
+# ---------------------------------------------------------------------------
+
+
+def test_final_verdict_loss_regardless_of_bh():
+    """win=False -> LOSS no matter what BH says. Multiplicity correction can only
+    downgrade a D-10 win; it can never manufacture one that wasn't there.
+    """
+    assert _final_verdict(win=False, bh_reject=True) == "LOSS"
+    assert _final_verdict(win=False, bh_reject=False) == "LOSS"
+    assert _final_verdict(win=False, bh_reject=None) == "LOSS"
+
+
+def test_final_verdict_win_and_bh_reject_is_win():
+    """win=True, BH survives (reject=True) -> WIN. Both the pairwise test and the
+    corrected family-wise multiplicity check passed.
+    """
+    assert _final_verdict(win=True, bh_reject=True) == "WIN"
+
+
+def test_final_verdict_win_but_bh_fail_is_win_fdr_veto():
+    """win=True, BH does not survive (reject=False) -> WIN-FDR-VETO, a distinct verdict
+    from LOSS -- silently folding this into LOSS would hide exactly the multiplicity
+    information this fix exists to surface.
+    """
+    assert _final_verdict(win=True, bh_reject=False) == "WIN-FDR-VETO"
+
+
+def test_final_verdict_win_with_degenerate_p_is_hold():
+    """win=True but bh_reject is None (p-value was degenerate, e.g. n_independent <= 3
+    on one side, and was excluded from the BH correction pool) -> HOLD. No verdict can
+    be rendered without a testable p-value.
+    """
+    assert _final_verdict(win=True, bh_reject=None) == "HOLD"
+
+
+def test_bh_fdr_vetoes_lone_marginal_win_among_null_strata():
+    """Integration test of apply_bh_fdr + _final_verdict composed together, the same
+    pairing main() uses: a single marginally-significant p-value (p=0.04) surrounded
+    by many null strata (p~0.5-0.9) must be vetoed once corrected across the full
+    family -- the concrete "fluke WIN in one stratum out of ~36" scenario todo 069
+    exists to catch. apply_bh_fdr's own correctness (statsmodels' BH-FDR behavior in
+    isolation) is covered directly in tests/unit/test_ensemble_ic_math.py; this test
+    only proves the two functions compose correctly.
+    """
+    p_values = [0.04] + [0.5, 0.6, 0.7, 0.8, 0.9, 0.55, 0.65, 0.75, 0.85] * 4  # 41 strata
+    reject, _ = apply_bh_fdr(p_values, alpha=0.05)
+
+    verdict = _final_verdict(win=True, bh_reject=bool(reject[0]))
+    assert verdict == "WIN-FDR-VETO"
+
+
+def test_bh_fdr_passes_multi_stratum_win():
+    """Integration test of apply_bh_fdr + _final_verdict composed together: a
+    challenger winning strongly (p << 0.05) across many strata should survive
+    correction and report WIN, not be vetoed as a broad-based improvement.
+    """
+    p_values = [0.0001, 0.0003, 0.0002, 0.0005] + [0.5, 0.6, 0.7, 0.8, 0.9] * 6  # 34 strata
+    reject, _ = apply_bh_fdr(p_values, alpha=0.05)
+
+    for i in range(4):
+        assert _final_verdict(win=True, bh_reject=bool(reject[i])) == "WIN"

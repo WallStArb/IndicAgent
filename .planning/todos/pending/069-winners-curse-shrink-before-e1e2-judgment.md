@@ -1,44 +1,56 @@
-# 069 - Winner's-curse correction before the E1/E2 champion judgment (peer-group decision MADE; implementation open)
+# 069 - Winner's-curse correction before the E1/E2 champion judgment (decision + implementation DONE; OOS confirmation step remains)
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §7 (L4-3),
 concretizes `docs/research/measurement-ic-engine.md` Open Question 7.
-**Priority:** MEDIUM - decision made 2026-07-09; remaining work is a small, well-specified
-implementation that must land before the E1/E2 judgment is next attempted.
-**Gate:** none. The design decision this todo was blocked on is resolved:
-`docs/research/fable-2026-07-09-ensemble-winners-curse-peer-group.md`.
+**Priority:** LOW - the code fix that had to land before the judgment is now landed. What
+remains is a one-time operational step (OOS confirmation) that only applies once the judgment
+actually runs and promotes a champion.
+**Gate:** none.
 
-**Status (2026-07-09): peer-group question ANSWERED, implementation still open.** The decision
-doc concludes there is NO defensible shrinkage peer group at ensemble-variant grain -
-`shrink_ic()` is not applied to variant ICs at all. The comparison is a pairwise CI-ordering
-test per stratum (already ~p<0.006 stringent), not a k-way argmax; the real residual biases are
-(a) across-strata multiplicity, (b) post-selection reporting of the winner's point IC, and
-(c) sequential-ladder multiplicity across rounds. The corrections are BH-FDR across strata in
-the compare script, `ic_ci_lower` + OOS holdout as the citable number, and
-methodology-change-ledger entries per round. Full reasoning and rejected alternatives (LOO
-across variants, cross-strata prior, hierarchical two-level, conditional post-selection
-inference) in the decision doc §4.
+**Status (2026-07-09): peer-group question ANSWERED, implementation LANDED.** The decision
+doc (`docs/research/fable-2026-07-09-ensemble-winners-curse-peer-group.md`) concluded there is
+NO defensible shrinkage peer group at ensemble-variant grain - `shrink_ic()` is not applied to
+variant ICs at all. The comparison is a pairwise CI-ordering test per stratum, not a k-way
+argmax; the real residual biases are (a) across-strata multiplicity, (b) post-selection
+reporting of the winner's point IC, and (c) sequential-ladder multiplicity across rounds.
 
-## Remaining implementation (per decision doc §6 - write the plan from there)
+## Implementation (complete, 2026-07-09)
 
-1. `src/intelligence/statistics/ic_math.py`: add pure `fisher_z_difference_p()` kernel helper.
-2. `scripts/ops/alpha/ops_ensemble_weight_compare.py`: `_COMPARE_SQL` selects
-   `ic_value`/`n_independent`; per-stratum difference p + BH across strata; WIN requires D-10
-   AND BH survival (`WIN-FDR-VETO` verdict for D-10-pass/BH-fail); new APR key
-   `alpha.ensemble.compare_fdr_alpha` (seeded `[conventional]`); update
-   `_D15_WINNERS_CURSE_CAVEAT` text (point at decision doc; fix stale "todo 153" → 069);
-   footer states the reporting rule.
-3. `tests/unit/test_ensemble_weight_compare.py`: extend (BH veto of lone marginal WIN,
-   multi-stratum pass, degenerate n).
-4. `docs/plans/methodology-change-ledger.md`: entry in the implementing commit (this is a
-   pre-registered rule change - judgment has never run).
-5. OOS confirmation step for any promoted champion via `ensemble_ic_engine.py` over the holdout
-   per `docs/plans/OOS-EVAL-PROTOCOL.md` before its IC is cited anywhere downstream.
+1. ✅ `src/intelligence/statistics/ic_math.py`: `fisher_z_difference_p()` pure kernel helper
+   added - two-sided p-value for the difference between two IC estimates via Fisher z,
+   conservative under positive dependence (same-corpus measurement), NaN on degenerate n.
+2. ✅ `scripts/ops/alpha/ops_ensemble_weight_compare.py`: `_COMPARE_SQL` now selects
+   `ic_value`/`n_independent`; per-stratum difference p computed for every stratum, ONE
+   `multipletests` BH-FDR pass across all strata in the run
+   (`alpha.ensemble.compare_fdr_alpha`, migration 213, seeded 0.05 - applied to the live DB);
+   verdict is now `_final_verdict(win, bh_reject)`: WIN requires D-10 AND BH survival,
+   `WIN-FDR-VETO` for D-10-pass/BH-fail (distinct from LOSS, not silently folded in);
+   `_D15_WINNERS_CURSE_CAVEAT` text rewritten to state the citation rule (cite `ic_ci_lower`,
+   not `ic_value`) and point at the decision doc instead of the stale "todo 153"; footer
+   states the full reporting rule.
+3. ✅ `tests/unit/test_ensemble_weight_compare.py`: extended - `_final_verdict` truth table
+   (LOSS regardless of BH, WIN on BH-reject, WIN-FDR-VETO on BH-fail, HOLD on degenerate p),
+   BH veto of a lone marginal WIN among ~40 null strata, BH pass on a genuine multi-stratum
+   WIN, `_COMPARE_SQL` selects the new columns. `tests/unit/test_ensemble_ic_math.py`:
+   `fisher_z_difference_p` - identical ICs, large/small gaps, symmetry, degenerate n, unit
+   interval. 27/27 new+existing tests green; ruff/black clean.
+4. ✅ `docs/plans/methodology-change-ledger.md`: E5 entry added, pre-registered (written
+   before the judgment has ever run - the clean E4 pattern).
 
-## Why this can't wait
+## What's left
 
-Unchanged: cheaper to land before the judgment runs than to unwind after - once a champion is
-promoted and `alpha.ensemble.weight_method` flips on an uncorrected verdict, undoing it means
-re-litigating a shipped decision. The corpus rerun (todo 067) is the direct predecessor of the
-judgment; this implementation should land before that judgment is next attempted. The interim
-D-15 caveat (commit `ac9e7f25`) remains in place until then, so no verdict can be silently
-misread in the meantime.
+5. **OOS confirmation step** - not code, an operational step: once the E1/E2 judgment
+   actually runs and promotes a champion for some stratum, run
+   `services/ensemble_ic_engine.py` for that `weight_version` over the untouched holdout
+   window (`docs/plans/OOS-EVAL-PROTOCOL.md`) before citing its IC anywhere downstream (cost
+   hurdle, Kelly, promotion claims). This can't be done until the judgment produces a
+   promotion - tracked here so it isn't forgotten when that happens, not because anything is
+   blocked today.
+
+## Why this could wait no longer
+
+The corpus rebuild (todo 067, the judgment's direct predecessor) completed end-to-end
+2026-07-09 - the E1/E2 judgment is now the next real step on the critical path. This fix
+needed to land before that judgment runs, not after: undoing a champion promoted off an
+uncorrected verdict means re-litigating a shipped decision. It has landed. The judgment can
+now be run.
