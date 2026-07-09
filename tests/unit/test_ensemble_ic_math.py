@@ -22,6 +22,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from src.intelligence.statistics.ic_math import (
+    _circular_shift_null,
     _fisher_z_ci,
     _p_values_from_ic,
     _vectorized_ic,
@@ -194,3 +195,54 @@ def test_apply_bh_fdr_passes_multi_stratum_significance():
     p_values = [0.0001, 0.0003, 0.0002, 0.0005] + [0.5, 0.6, 0.7, 0.8, 0.9] * 6  # 34 values
     reject, _ = apply_bh_fdr(p_values, alpha=0.05)
     assert all(bool(r) for r in reject[:4])
+
+
+# ---------------------------------------------------------------------------
+# _circular_shift_null (todo 071 / L4-2 null calibration)
+# ---------------------------------------------------------------------------
+
+
+def test_circular_shift_null_preserves_value_multiset():
+    """Shifting must not fabricate or drop any value -- same multiset, same length."""
+    rng = np.random.default_rng(7)
+    Y = np.array([10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0])
+    shifted = _circular_shift_null(Y, rng)
+    assert len(shifted) == len(Y)
+    assert sorted(shifted.tolist()) == sorted(Y.tolist())
+
+
+def test_circular_shift_null_never_returns_identity_for_distinct_values():
+    """Offset excludes 0 -- with all-distinct values, output must differ from input."""
+    Y = np.arange(50.0)
+    for seed in range(20):
+        rng = np.random.default_rng(seed)
+        shifted = _circular_shift_null(Y, rng)
+        assert not np.array_equal(shifted, Y)
+
+
+def test_circular_shift_null_is_deterministic_given_seeded_generator():
+    """Two independently-seeded generators with the same seed must produce the same shift."""
+    Y = np.arange(30.0)
+    rng_a = np.random.default_rng(123)
+    rng_b = np.random.default_rng(123)
+    shifted_a = _circular_shift_null(Y, rng_a)
+    shifted_b = _circular_shift_null(Y, rng_b)
+    assert np.array_equal(shifted_a, shifted_b)
+
+
+def test_circular_shift_null_wraps_circularly_matches_np_roll():
+    """Implementation must be np.roll (circular, no truncation) -- verify against a known offset."""
+    Y = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    rng = np.random.default_rng(99)
+    offset = int(rng.integers(1, len(Y)))
+    rng_replay = np.random.default_rng(99)
+    shifted = _circular_shift_null(Y, rng_replay)
+    assert np.array_equal(shifted, np.roll(Y, offset))
+
+
+def test_circular_shift_null_handles_length_one():
+    """n < 2: no valid nonzero offset exists -- return the array unchanged."""
+    rng = np.random.default_rng(1)
+    Y = np.array([42.0])
+    shifted = _circular_shift_null(Y, rng)
+    assert np.array_equal(shifted, Y)

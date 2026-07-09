@@ -96,6 +96,28 @@ def _vectorized_ic(ranks_X: np.ndarray, ranks_Y: np.ndarray) -> np.ndarray:
         return np.where(denom > 1e-10, (X_c * Y_c[:, None]).sum(axis=0) / denom, 0.0)
 
 
+def _circular_shift_null(
+    Y: np.ndarray,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Circularly shift Y by a random offset in [1, len(Y)-1] (todo 071 / L4-2).
+
+    Destroys alignment with any paired X while preserving Y's own autocorrelation/
+    spectral structure exactly -- every value present, same adjacency structure up
+    to the wrap point. This is what makes the result a meaningful null for an
+    autocorrelated series; an i.i.d. shuffle would destroy the autocorrelation the
+    stride-subsampling/HAC design exists to handle, producing an easier strawman null.
+
+    Excludes offset=0 (the identity permutation, which would leave X-Y aligned).
+    n < 2 has no valid nonzero offset; returns a copy of Y unchanged.
+    """
+    n = len(Y)
+    if n < 2:
+        return Y.copy()
+    offset = int(rng.integers(1, n))
+    return np.roll(Y, offset)
+
+
 def compute_ic_vectorized(X: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Compute vectorized Spearman IC between each column of X and y.
 
