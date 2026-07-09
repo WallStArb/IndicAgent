@@ -277,7 +277,10 @@ def _select_hold_bars_from_decay(
     ic_sharpe < decay_threshold, returns the lookahead_bars of the PRECEDING qualifying
     scale (the last scale where the edge was still alive) -- or 1 if the very first
     qualifying scale is already below threshold. If no scale crosses the threshold,
-    returns scale_to_bars['extended'] (edge persists to the longest horizon measured).
+    returns the lookahead_bars of the longest scale actually measured and confirmed
+    non-decaying (preceding_bars) -- NOT the nominal ceiling scale_to_bars['extended'],
+    which may not have qualified (small-N/low-significance tail cells are the common
+    failure case at that horizon). Falls back to 1 if nothing qualified at all.
     A cell with ic_sharpe=None is treated as "no data" and skipped in the walk, not as
     a below-threshold crossing.
 
@@ -303,8 +306,8 @@ def _select_hold_bars_from_decay(
             return preceding_bars if preceding_bars is not None else 1
         preceding_bars = scale_to_bars[scale]
 
-    # No scale crossed the threshold -- edge persists to the longest horizon measured.
-    return scale_to_bars["extended"]
+    # preceding_bars, not the extended ceiling -- see docstring.
+    return preceding_bars if preceding_bars is not None else 1
 
 
 # ---------------------------------------------------------------------------

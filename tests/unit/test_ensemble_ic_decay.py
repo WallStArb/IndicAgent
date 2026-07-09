@@ -147,3 +147,28 @@ def test_empty_cell_list_returns_none():
     """No cells at all for this group -> None (nothing to calibrate from)."""
     result = _select_hold_bars_from_decay([], decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
     assert result is None
+
+
+def test_extended_never_qualifies_returns_last_measured_scale_not_ceiling():
+    """extended is absent from cells entirely (never qualified) -- fast/mid/slow all
+    above threshold. Must NOT default to the extended ceiling (60): that would claim
+    "edge confirmed to persist to 60 bars" with zero data behind it. Correct answer is
+    slow's bars (20) -- the longest scale actually measured and confirmed non-decaying.
+    """
+    cells = [
+        _cell("fast", 0.5),
+        _cell("mid", 0.4),
+        _cell("slow", 0.3),
+        # no "extended" cell at all
+    ]
+    result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
+    assert result == 20
+
+
+def test_only_fast_qualifies_above_threshold_returns_fast_bars_not_ceiling():
+    """Only fast ever qualifies and stays above threshold -- mid/slow/extended all
+    absent/excluded. Must return fast's bars (1), not the extended ceiling (60).
+    """
+    cells = [_cell("fast", 0.5)]
+    result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
+    assert result == 1
