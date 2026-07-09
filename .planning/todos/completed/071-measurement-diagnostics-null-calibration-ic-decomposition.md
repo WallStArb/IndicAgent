@@ -11,7 +11,7 @@ This todo covered two unrelated scopes. Both are now accounted for separately:
 
 - **L4-2 (empirical null calibration) — investigated, not resolved-clean.** Ran via
   `scripts/ops/alpha/ops_ic_null_calibration.py` against the live corpus: 29/66 sampled cells
-  evaluated, **11/29 (38%) flagged SUSPECT** (`se_ratio > 1.2`), spanning 5 of 8 sampled
+  evaluated, **11/29 (38%) flagged SUSPECT** (`se_ratio > 1.2`), spanning 4 of 8 sampled
   `(tf, is_pooled)` strata including high-N `5m`/`15m`, not just thin `1d`. This is evidence the
   analytic Fisher-z CI may be systematically too narrow, not the "agree, delete the bootstrap
   keys" outcome this todo originally anticipated. Durable record:

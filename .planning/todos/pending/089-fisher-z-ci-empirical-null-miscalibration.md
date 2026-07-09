@@ -19,7 +19,7 @@ mundane now).
 **11 of 29 evaluated cells (38%) flagged SUSPECT** (`se_ratio > 1.2`, meaning the empirical null's
 standard error exceeds the analytic Fisher-z prediction by more than 20%).
 
-SUSPECT cells span **5 of 8 sampled `(tf, is_pooled)` strata**:
+SUSPECT cells span **4 of 8 sampled `(tf, is_pooled)` strata**:
 - `tf=5m, is_pooled=false`: 2 SUSPECT
 - `tf=15m, is_pooled=false`: 1 SUSPECT
 - `tf=1d, is_pooled=false`: 3 SUSPECT
