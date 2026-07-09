@@ -404,6 +404,13 @@ Genuinely open: measurement-methodology research this doc's scope touches but ca
    agnostic — the open work is choosing the peer group for variants, not writing the math.
    Resolve before running the judgment, or at minimum record that its winner's IC is
    selection-biased when interpreting the result.)*
+   *(Resolved 2026-07-09: see `docs/research/fable-2026-07-09-ensemble-winners-curse-peer-group.md`.
+   Answer: no shrinkage peer group at variant grain - the selection is a pairwise CI-ordering
+   test per stratum, not a k-way argmax, and 2-3 correlated non-exchangeable variants are not
+   an empirical-Bayes population. The correction decomposes into BH-FDR across strata inside
+   `ops_ensemble_weight_compare.py`, `ic_ci_lower` + OOS holdout (per OOS-EVAL-PROTOCOL.md)
+   as the citable post-selection estimate, and a methodology-change-ledger entry per judgment
+   round. Implementation tracked in todo 069.)*
 8. **What replaces a static IC number as the weighter's input once P1 exists?** Trailing IC,
    vintage-weighted static IC (P5), and shrunk IC (0b) are three different answers to "what is
    this feature's IC *now*"; they overlap, and nothing yet says how they compose or which
