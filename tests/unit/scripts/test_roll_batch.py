@@ -27,8 +27,8 @@ class TestDetectRolls:
     def test_roll_decision_fields(self):
         result = detect_rolls(date(2026, 9, 15))
         es = next(d for d in result if d.base_symbol == "ES")
-        assert es.old_contract == "ESM6"
-        assert es.new_contract == "ESU6"
+        assert es.old_contract == "ESU6"
+        assert es.new_contract == "ESZ6"
         assert es.roll_end == date(2026, 9, 11)  # Friday before expiry week (3rd Fri Sep 18)
 
     def test_idempotent_same_day(self):

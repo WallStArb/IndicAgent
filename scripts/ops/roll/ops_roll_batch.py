@@ -93,7 +93,7 @@ def detect_rolls(today: date) -> list[RollDecision]:
             continue
 
         try:
-            chain = derive_roll_chain(base_symbol)
+            chain = derive_roll_chain(base_symbol, ref_year=today.year, ref_month=today.month)
         except (ValueError, IndexError):
             _logger.warning("roll_batch.chain_derivation_failed", base_symbol=base_symbol)
             continue

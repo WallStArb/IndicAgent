@@ -16,9 +16,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import re
 import sys
+import tokenize
 from pathlib import Path
 
 # --- Configuration ---
@@ -155,12 +157,35 @@ def _project_root() -> Path:
     sys.exit(2)
 
 
+def _string_token_lines(text: str) -> set[int]:
+    """Return every line number (1-indexed) that falls inside a STRING token.
+
+    A prior line-local heuristic (checking whether a line itself contains a
+    triple-quote delimiter) only caught the first/last line of a docstring,
+    not its body, letting prose lines inside a multi-line docstring (e.g. one
+    describing a return-value invariant in the "sum equals one" sense) get
+    scanned as if they were code. tokenize walks real Python string literals
+    regardless of how many lines they span, so this is correct instead of
+    line-local.
+
+    Falls back to an empty set (scan every line) if the file doesn't
+    tokenize, e.g. a syntax error, so a bad file degrades to the old
+    behavior rather than crashing the whole scan.
+    """
+    try:
+        tokens = tokenize.tokenize(io.BytesIO(text.encode("utf-8")).readline)
+        string_lines: set[int] = set()
+        for tok in tokens:
+            if tok.type == tokenize.STRING:
+                string_lines.update(range(tok.start[0], tok.end[0] + 1))
+        return string_lines
+    except (tokenize.TokenizeError, SyntaxError, IndentationError):
+        return set()
+
+
 def _is_allowed(line: str) -> bool:
     """Check if a line matches any allowlist pattern (legitimate binary usage)."""
-    # Skip lines inside docstrings (triple-quoted strings used as documentation)
     stripped = line.strip()
-    if stripped.startswith(('"""', "'''")) or '"""' in stripped or "'''" in stripped:
-        return True
     # Skip lines that are documentation examples of patterns to replace.
     # These appear as prose or backtick-wrapped code in docstrings.
     if stripped.startswith(("Replaces patterns", "Replace patterns")):
@@ -186,10 +211,17 @@ def scan_file(filepath: Path) -> list[dict]:
         return violations
 
     lines = text.splitlines()
+    string_lines = _string_token_lines(text)
     for line_idx, line in enumerate(lines):
         stripped = line.strip()
         # Skip comments and empty lines
         if not stripped or stripped.startswith("#"):
+            continue
+
+        # Skip lines that are entirely inside a string literal (docstrings,
+        # multi-line SQL, etc.), not executable code, so not a real scoring
+        # pattern regardless of what substrings they contain.
+        if (line_idx + 1) in string_lines:
             continue
 
         # Check allowlist first

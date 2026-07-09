@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
 """
-infrastructure_run_historical_pipeline.py — multi-stage OHLCV backfill and signal pipeline replay
+infrastructure_run_historical_pipeline.py — historical OHLCV backfill from IBKR
 
-Stage 1 (--fetch-only): Fetches multi-timeframe OHLCV from IBKR to market_data_ohlcv.
-Stage 2 (--replay-only): Replays bars through full I1→I7 pipeline to populate signal_events,
-trade_frames, and intelligence_features.
-Run for initial system bootstrap, gap-filling, or after logic changes.
-Requires IBKR Gateway available; --fetch-only uses named contracts (HTF uses continuous).
+Fetches multi-timeframe OHLCV from IBKR to market_data_ohlcv.
+Run for initial system bootstrap or gap-filling.
+Requires IBKR Gateway available; uses named contracts (HTF uses continuous).
+
+The I1-I7 intelligence-replay stage (populating the archived signal_events/
+trade_frames/intelligence_features tables) was removed 2026-07-08 — confirmed
+dead (0 rows, all writer services inactive) via two independent investigations.
+The full I1-I7 plugin corpus remains preserved in src/intelligence/archive/ for
+any future reimplementation; see git history on this file for the removed
+replay orchestration if ever needed for reference.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import concurrent.futures
-import json
-import math
 import sys
-import time
-import uuid
-from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -32,7 +31,6 @@ import structlog
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-import pandas as pd
 
 from src.config.contracts import (
     FUTURES_ROLL_CYCLES,
@@ -49,91 +47,11 @@ from src.core.bar_normalizer import (
 )
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
-from src.core.service_utils import TF_SECONDS, min_bars_for_tf
-from src.core.service_utils import bar_close_ts as compute_bar_close_ts
 from src.observability.metrics import flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import IBKRProvider, ibkr
 
 _logger = structlog.get_logger(__name__)
-
-# [rca_analysis 2026-07-05, F7] Stage 2 (Intelligence Replay) dependencies are
-# imported lazily via _load_stage2_intelligence_imports() below, NOT at module
-# level. This entire archived v2.x plugin/replay stack has no live consumer
-# (root CLAUDE.md), yet --fetch-only (Stage 1, the mode the live backfill retry
-# loop actually runs) used to import it anyway as a side effect of importing
-# this module -- any import-time breakage anywhere in that archived stack would
-# have crashed live data acquisition, which never touches any of that code.
-# Bound as module globals here so the existing Stage 2 function bodies below
-# (which reference these as bare names) work unchanged once the loader runs.
-_SEED_NUMERIC_KEYS: Any = None
-_SEED_COLS: Any = None
-_SEED_QUERY_PG: Any = None
-annotate_signal_with_context: Any = None
-registry: Any = None
-incremental_compute: Any = None
-register_all_plugins: Any = None
-CTF_DEDICATED_COLUMNS: Any = None
-FEATURE_SCHEMA_VERSION: Any = None
-_compute_perf_multipliers: Any = None
-AggregatedResult: Any = None
-aggregate: Any = None
-SIGNAL_SCHEMA_VERSION: Any = None
-make_signal_id: Any = None
-LedgerEntry: Any = None
-_stage2_imports_loaded = False
-
-
-def _load_stage2_intelligence_imports() -> None:
-    """Import the archived v2.x intelligence/replay stack, once, on first use.
-
-    Safe to call more than once (e.g. from both main()'s Stage 2 branch and
-    _replay_worker, which runs in a separate ProcessPoolExecutor process) --
-    a second call is a cheap no-op via the module import cache.
-    """
-    global _stage2_imports_loaded
-    if _stage2_imports_loaded:
-        return
-    global _SEED_NUMERIC_KEYS, _SEED_COLS, _SEED_QUERY_PG
-    global annotate_signal_with_context, registry, incremental_compute
-    global register_all_plugins, CTF_DEDICATED_COLUMNS, FEATURE_SCHEMA_VERSION
-    global _compute_perf_multipliers, AggregatedResult, aggregate
-    global SIGNAL_SCHEMA_VERSION, make_signal_id, LedgerEntry
-
-    from src.intelligence.pipeline.seed_constants import _I3_NUMERIC_KEYS as sn
-    from src.intelligence.pipeline.seed_constants import _I3_SEED_COLS as sc
-    from src.intelligence.pipeline.seed_constants import _I3_SEED_QUERY_PG as sq
-    from src.intelligence.pipeline.signal_processor import (
-        annotate_signal_with_context as _annotate,
-    )
-    from src.intelligence.plugins import registry as _registry
-    from src.intelligence.plugins.mixins import incremental_compute as _incremental_compute
-    from src.intelligence.register_plugins import register_all_plugins as _register_all_plugins
-    from src.intelligence.schemas import CTF_DEDICATED_COLUMNS as _ctf_cols
-    from src.intelligence.schemas import FEATURE_SCHEMA_VERSION as _feat_ver
-    from src.intelligence.setup_performance_updater import (
-        _compute_perf_multipliers as _perf_mult,
-    )
-    from src.intelligence.trading.aggregator import AggregatedResult as _AggResult
-    from src.intelligence.trading.aggregator import aggregate as _aggregate
-    from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION as _sig_ver
-    from src.intelligence.trading.signal_schema import make_signal_id as _make_signal_id
-    from src.persistence.repository.signal_events_repository import LedgerEntry as _LedgerEntry
-
-    _SEED_NUMERIC_KEYS, _SEED_COLS, _SEED_QUERY_PG = sn, sc, sq
-    annotate_signal_with_context = _annotate
-    registry = _registry
-    incremental_compute = _incremental_compute
-    register_all_plugins = _register_all_plugins
-    CTF_DEDICATED_COLUMNS = _ctf_cols
-    FEATURE_SCHEMA_VERSION = _feat_ver
-    _compute_perf_multipliers = _perf_mult
-    AggregatedResult = _AggResult
-    aggregate = _aggregate
-    SIGNAL_SCHEMA_VERSION = _sig_ver
-    make_signal_id = _make_signal_id
-    LedgerEntry = _LedgerEntry
-    _stage2_imports_loaded = True
 
 
 # ---------------------------------------------------------------------------
@@ -403,65 +321,6 @@ async def fetch_per_contract(
     return (total_bars, metadata_list)
 
 
-# ---------------------------------------------------------------------------
-# Plugin lists — sourced from register_plugins (single source of truth)
-# ---------------------------------------------------------------------------
-from src.intelligence.register_plugins import (
-    TIER_I1,
-    TIER_I2,
-    TIER_I3,
-    TIER_I4,
-    TIER_I5,
-    TIER_I6,
-    TIER_I7,
-    TIER_SMC,
-)
-
-I1_PLUGINS = TIER_I1
-I2_PLUGINS = TIER_I2
-I3_PLUGINS = TIER_I3
-I4_PLUGINS = TIER_I4
-I5_PLUGINS = TIER_I5
-SMC_PLUGINS = TIER_SMC
-I6_PLUGINS = TIER_I6
-I7_PLUGINS = TIER_I7
-
-DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"]
-# Larger than live service batch (50) — replay has no latency pressure and benefits from
-# fewer commits over millions of bars.
-_FEATURE_BATCH_SIZE = 2000
-
-# Plugin error tracking — count failures per plugin name, emit on first occurrence.
-# Never suppress silently: a crashing plugin produces missing features and garbage signals.
-_plugin_error_counts: dict[str, int] = defaultdict(int)
-
-
-def _log_plugin_error(name: str, symbol: str, tf: str, error: Exception) -> None:
-    _plugin_error_counts[name] += 1
-    if _plugin_error_counts[name] == 1:
-        print(f"  [plugin error] {name} ({symbol}/{tf}): {error}")
-
-
-# Per-plugin cumulative wall-clock seconds spent in incremental_compute across
-# the whole replay. Proves the dispatch speedup and surfaces any remaining hot
-# plugin. Aggregated via _accumulate_plugin_time; reported by _report_plugin_times.
-_plugin_timings: dict[str, float] = defaultdict(float)
-
-
-def _accumulate_plugin_time(name: str, t0: float) -> None:
-    _plugin_timings[name] += time.perf_counter() - t0
-
-
-def _report_plugin_times() -> None:
-    if not _plugin_timings:
-        return
-    ranked = sorted(_plugin_timings.items(), key=lambda kv: kv[1], reverse=True)
-    total = sum(_plugin_timings.values())
-    print(f"  [plugin timing] total={total:.1f}s  top:")
-    for name, secs in ranked[:12]:
-        print(f"    {name:<36} {secs:7.2f}s ({100 * secs / total:5.1f}%)")
-
-
 # Per-TF fetch config: (days_of_history, use_continuous_contract)
 #
 # Design rationale (Renaissance framing):
@@ -671,856 +530,6 @@ def _reorder_contracts_by_gap(
 #   Crypto (PAXOS/AGGTRADES): Paxos data reliable for ~90d. 90d → ~2,160 derived 1h bars.
 _1M_DAYS_FX: int = 180
 _1M_DAYS_CRYPTO: int = 90
-
-
-def run_i1_plugins(
-    bar_history: deque,
-    symbol: str,
-    timeframe: str,
-    plugin_states: dict[tuple[str, str, str], dict],
-    df: pd.DataFrame | None = None,
-) -> dict[str, Any]:
-    """Run all I1 indicator plugins on the current bar history.
-
-    Returns empty dict if fewer than MIN_BARS are available (indicators
-    need warmup history to produce meaningful values).
-
-    Args:
-        plugin_states: per-(name, symbol, tf) state dict; mutated in place to
-            isolate stateful plugins (GARCH, HMM, Kalman) across symbols.
-        df: pre-built DataFrame for bar_history; constructed here if not provided.
-    """
-    _load_stage2_intelligence_imports()
-    if len(bar_history) < min_bars_for_tf(timeframe):
-        return {}
-
-    if df is None:
-        df = pd.DataFrame(list(bar_history))
-    frames: dict[str, Any] = {"main": df, "features": {}}
-    features: dict[str, Any] = {}
-
-    for name in I1_PLUGINS:
-        try:
-            plugin = registry.get_indicator(name)
-            state_key = (name, symbol, timeframe)
-            state = plugin_states.setdefault(state_key, {})
-            t0 = time.perf_counter()
-            out, plugin_states[state_key] = incremental_compute(plugin, frames, state)
-            _accumulate_plugin_time(name, t0)
-            if out:
-                features.update(
-                    {k: v for k, v in out.items() if isinstance(v, (int, float, str, bool))}
-                )
-                frames["features"] = features
-        except Exception as error:
-            _log_plugin_error(name, symbol, timeframe, error)
-
-    return features
-
-
-def run_analysis_pipeline(
-    frames: dict[str, Any],
-    intelligence_cache: dict[str, dict[str, Any]],
-    symbol: str,
-    timeframe: str,
-    plugin_states: dict[tuple[str, str, str], dict],
-) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
-    """Run I2 → I3 → I4 → I5 → SMC → I6 plugins in tier order.
-
-    Mutates frames["features"] in-place (same as market_analysis_service).
-    Caches result in intelligence_cache[symbol][timeframe] for I6 cross-TF plugin.
-
-    Args:
-        plugin_states: per-(name, symbol, tf) state dict; mutated in place to
-            isolate stateful plugins (GARCH, HMM, Kalman) across symbols.
-
-    Returns:
-        Tuple of (merged intelligence dict, per-tier output dict).
-    """
-    _load_stage2_intelligence_imports()
-    features = dict(frames.get("features", {}))
-    frames["features"] = features
-    intelligence: dict[str, Any] = {}
-    tiered: dict[str, dict[str, Any]] = {}
-
-    tier_sequence = [
-        (I2_PLUGINS, "I2"),
-        (I3_PLUGINS, "I3"),
-        (I4_PLUGINS, "I4"),
-        (I5_PLUGINS, "I5"),
-        (SMC_PLUGINS, "SMC"),
-        (I6_PLUGINS, "I6"),
-    ]
-
-    for plugin_names, tier_label in tier_sequence:
-        tier_key_lower = tier_label.lower()
-        for name in plugin_names:
-            try:
-                plugin = registry.get_pattern(name)
-                state_key = (name, symbol, timeframe)
-                state = plugin_states.setdefault(state_key, {})
-                t0 = time.perf_counter()
-                out, plugin_states[state_key] = incremental_compute(plugin, frames, state)
-                _accumulate_plugin_time(name, t0)
-                if out:
-                    intelligence.update(out)
-                    tiered.setdefault(tier_key_lower, {}).update(out)
-                    features.update(out)
-                    frames["features"] = features
-                    # Mirror live executor (executor.py:709): stamp each tier's output
-                    # as frames[tier_key] so cross-tier plugins (e.g. I6 CTF) can read
-                    # structured tier dicts rather than the flat merged features dict.
-                    # Without this, frames["i3"] is None inside I6.compute_full() →
-                    # cur_trend=0 → ctf_score=0.0 on every bar (A7 root cause).
-                    frames[tier_key_lower] = tiered[tier_key_lower]
-            except Exception as error:
-                _log_plugin_error(name, symbol, timeframe, error)
-
-    intelligence_cache.setdefault(symbol, {})[timeframe] = intelligence
-    return intelligence, tiered
-
-
-# ---------------------------------------------------------------------------
-# Intelligence features — sync DB insert (mirrors feature_writer_service with %s placeholders)
-# ---------------------------------------------------------------------------
-
-_FEATURE_KEY_COLS = ("ts", "symbol", "tf")
-_FEATURE_DATA_COLS = (
-    "platform",
-    "source",
-    "schema_version",
-    "bar",
-    "technical_indicators",
-    "pattern_detections",
-    "regime_features",
-    "confluence_scores",
-    "smc",
-    "cross_timeframe_context",
-    "composite_events",
-)
-
-
-def _feature_insert_sql(overwrite: bool) -> str:
-    cols = ", ".join(_FEATURE_KEY_COLS + _FEATURE_DATA_COLS)
-    conflict = (
-        "DO UPDATE SET " + ", ".join(f"{c} = EXCLUDED.{c}" for c in _FEATURE_DATA_COLS)
-        if overwrite
-        else "DO NOTHING"
-    )
-    return (
-        f"INSERT INTO intelligence_features ({cols}) VALUES %s"
-        f" ON CONFLICT (ts, symbol, tf) {conflict}"
-    )
-
-
-# Per-row template for execute_values — JSONB casts must be explicit per column.
-_INSERT_FEATURE_SYNC_TEMPLATE = (
-    "(%s, %s, %s, %s, %s, %s,"
-    " %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb)"
-)
-
-
-def _build_intelligence_event(
-    bar: dict,
-    i1_features: dict,
-    tiered: dict[str, dict],
-    symbol: str,
-    tf: str,
-    ts: datetime,
-) -> Any:
-    """Build IntelligenceEvent from per-bar pipeline outputs.
-
-    Returns None on any exception (never crashes the replay loop).
-    source is always 'backfill'.
-
-    Args:
-        bar: dict with keys 'open', 'high', 'low', 'close', 'volume'
-        i1_features: flat dict of I1 indicator outputs (extra='allow' model)
-        tiered: per-tier output dict from run_analysis_pipeline — keys i2/i3/i4/i5/smc/i6
-        symbol: contract symbol (e.g. 'ESH6')
-        tf: timeframe string (e.g. '1m')
-        ts: bar timestamp (timezone-aware datetime)
-    """
-    try:
-        from src.intelligence.schemas import (
-            I1Indicators,
-            I2Events,
-            I3Structure,
-            I4Context,
-            I5Patterns,
-            I6Confluence,
-            IntelligenceEvent,
-            OHLCVBar,
-            SMCContext,
-        )
-
-        return IntelligenceEvent(
-            ts=ts,
-            symbol=symbol,
-            tf=tf,
-            source="backfill",
-            bar_close_ts=compute_bar_close_ts(ts, tf),  # always set; i1/computed_at left None
-            bar=OHLCVBar(
-                o=float(bar["open"]),
-                h=float(bar["high"]),
-                l=float(bar["low"]),
-                c=float(bar["close"]),
-                v=int(bar["volume"]),
-            ),
-            i1=I1Indicators(**i1_features),
-            i2=I2Events(**tiered.get("i2", {})),
-            i3=I3Structure(**tiered.get("i3", {})),
-            i4=I4Context(**tiered.get("i4", {})),
-            i5=I5Patterns(**tiered.get("i5", {})),
-            smc=SMCContext(**tiered.get("smc", {})),
-            i6=I6Confluence(**tiered.get("i6", {})),
-        )
-    except Exception as error:
-        print(f"  [feature_build_error] {symbol}/{tf}@{ts}: {type(error).__name__}: {error}")
-        return None
-
-
-def _sanitize_for_json(obj: Any) -> Any:
-    """Recursively replace float NaN/Inf with None so json.dumps produces valid JSONB."""
-    import math
-
-    if isinstance(obj, float):
-        return None if (math.isnan(obj) or math.isinf(obj)) else obj
-    if isinstance(obj, dict):
-        return {k: _sanitize_for_json(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_sanitize_for_json(v) for v in obj]
-    return obj
-
-
-def _event_to_sync_params(event: Any) -> tuple:
-    """Serialize IntelligenceEvent to a 14-element tuple for psycopg2 batch insert.
-
-    Column order matches _FEATURE_KEY_COLS + _FEATURE_DATA_COLS:
-      ts, symbol, tf, platform, source, schema_version,
-      bar, technical_indicators, pattern_detections, regime_features,
-      confluence_scores, smc, cross_timeframe_context, composite_events
-    """
-    _load_stage2_intelligence_imports()
-    return (
-        event.ts,  # datetime — psycopg2 native
-        event.symbol,
-        event.tf,
-        event.platform,
-        event.source,
-        event.schema_version,
-        json.dumps(_sanitize_for_json(event.bar.model_dump())),  # bar
-        json.dumps(_sanitize_for_json(event.i1.model_dump())),  # i1
-        json.dumps(_sanitize_for_json(event.i5.model_dump(exclude_none=True))),  # i5
-        json.dumps(_sanitize_for_json(event.i3.model_dump(exclude_none=True))),  # i3
-        json.dumps(_sanitize_for_json(event.i4.model_dump(exclude_none=True))),  # i4
-        json.dumps(_sanitize_for_json(event.smc.model_dump(exclude_none=True))),  # smc
-        json.dumps(
-            _sanitize_for_json(
-                event.i6.model_dump(exclude_none=True, exclude=CTF_DEDICATED_COLUMNS)
-            )
-        ),  # cross_timeframe_context
-        json.dumps(_sanitize_for_json(event.i2.model_dump(exclude_none=True))),  # i2
-    )
-
-
-def _insert_features_sync(conn: Any, rows: list, overwrite: bool = False) -> None:
-    """Synchronous psycopg2 batch insert into intelligence_features.
-
-    Uses execute_values() (single multi-row INSERT) rather than execute_batch()
-    (N separate statements) for ~3-5x throughput on large replay batches.
-
-    Args:
-        conn: psycopg2 connection
-        rows: list of 14-element tuples from _event_to_sync_params()
-        overwrite: if True, use DO UPDATE to replace stale rows with freshly
-            computed values. Use when I1-I6 was recomputed from source bars.
-            If False (default), DO NOTHING skips existing rows (gap-fill only).
-    """
-    if not rows:
-        return
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_values(
-            cur, _feature_insert_sql(overwrite), rows, template=_INSERT_FEATURE_SYNC_TEMPLATE
-        )
-    conn.commit()
-
-
-# ---------------------------------------------------------------------------
-# Signal generation + sync DB insert
-# ---------------------------------------------------------------------------
-
-MARKET_CONTEXT_KEYS = (
-    "trend_regime",
-    "volatility_regime",
-    "trend_confidence",
-    "atr_14",
-    "rsi_14",
-    "ctf_score",
-    "swing_pattern",
-    "trend_strength",
-    "volatility_percentile",
-    "hmm_regime_state",
-)
-
-# uuid5 namespace for deterministic frame_id generation — same as migrate_signal_ledger.py
-_FRAME_ID_NS = uuid.NAMESPACE_DNS
-
-
-def _direction_text(direction_int: int) -> str:
-    """Convert direction integer (1/-1) to text ('long'/'short') for signal_events."""
-    return "long" if direction_int == 1 else "short"
-
-
-def _make_frame_id(signal_id: str, entry_type: str) -> str:
-    """Deterministic frame_id — same signal_id + entry_type always produces same UUID."""
-    return str(uuid.uuid5(_FRAME_ID_NS, f"{signal_id}:{entry_type}"))
-
-
-_INSERT_SIGNAL_EVENTS_SYNC_SQL = """
-INSERT INTO signal_events (
-    signal_id, ts, symbol, tf, setup_plugin, direction,
-    raw_confidence, calibrated_confidence, cis_score, weights_version,
-    factor_scores, context_features,
-    ctf_score, ctf_confirmed, zone_friction_score,
-    hmm_regime_at_fire, plugin_regime_type, garch_sigma_at_fire,
-    is_shadow, is_backfill, status, signal_schema_version,
-    ttl_bars, expires_at, signal_computed_at, feature_ts
-) VALUES %s
-ON CONFLICT (signal_id, ts) DO NOTHING
-"""
-
-_INSERT_SIGNAL_EVENTS_SYNC_TEMPLATE = (
-    "(%s::uuid, %s, %s, %s, %s, %s,"
-    " %s, %s, %s, %s,"
-    " %s::jsonb, %s::jsonb,"
-    " %s, %s, %s,"
-    " %s, %s, %s,"
-    " %s, TRUE, %s, %s,"
-    " %s, %s, %s, %s)"
-)
-
-_INSERT_TRADE_FRAMES_SYNC_SQL = """
-INSERT INTO trade_frames (
-    frame_id, signal_id, signal_ts, entry_type, direction,
-    entry_price, stop_price, target_price, r_multiple,
-    ttl_bars, expires_at, counterfactual_pnl_r, was_selected, frame_details, targets
-) VALUES %s
-ON CONFLICT (frame_id) DO NOTHING
-"""
-
-_INSERT_TRADE_FRAMES_SYNC_TEMPLATE = (
-    "(%s::uuid, %s::uuid, %s, %s, %s,"
-    " %s, %s, %s, %s,"
-    " %s, %s, NULL, %s, %s::jsonb, %s::double precision[])"
-)
-
-
-def _build_ledger_entries(
-    result: AggregatedResult,
-    symbol: str,
-    timeframe: str,
-    timestamp: datetime,
-    features: dict[str, Any],
-    feature_ts: datetime | None = None,
-    feature_tf: str | None = None,
-    bar_history: Any = None,
-) -> list[LedgerEntry]:
-    """Convert an AggregatedResult into LedgerEntry objects for DB insertion.
-
-    Args:
-        result: aggregated I7 signals
-        symbol: contract symbol
-        timeframe: bar timeframe
-        timestamp: bar timestamp
-        features: merged feature dict for market_context extraction
-        feature_ts: timestamp of the corresponding intelligence_features row (None if not written)
-        feature_tf: timeframe of the corresponding intelligence_features row (None if not written)
-        bar_history: rolling bar deque; close of last bar used as market_entry_price proxy
-    """
-    _load_stage2_intelligence_imports()
-    if not result.all_ranked:
-        return []
-
-    last_bar = bar_history[-1] if bar_history else None
-    bar_close = float(last_bar["close"]) if last_bar else None
-    tf_secs = TF_SECONDS.get(timeframe, 60)
-    garch_sigma = features.get("garch_sigma")
-    hmm_regime = features.get("hmm_regime")
-
-    entries = []
-    for sig in result.all_ranked:
-        rank = sig.get("composite_rank", 99)
-        was_selected = rank == 1 and result.selected_signal is not None
-
-        ttl = sig.get("ttl_bars")
-        expires_at = None
-        if ttl is not None:
-            try:
-                expires_at = timestamp + timedelta(seconds=int(ttl) * tf_secs)
-            except (OverflowError, TypeError, ValueError):
-                expires_at = None
-
-        setup_plugin = sig.get("setup_plugin", "unknown")
-        direction = int(sig.get("direction", 0))
-        if last_bar is not None:
-            sid = make_signal_id(
-                symbol=symbol,
-                feature_ts_ns=int(timestamp.timestamp() * 1e9),
-                feature_tf=timeframe,
-                open_=float(last_bar["open"]),
-                high=float(last_bar["high"]),
-                low=float(last_bar["low"]),
-                close=float(last_bar["close"]),
-                volume=float(last_bar["volume"]),
-                setup_plugin=setup_plugin,
-                direction=direction,
-            )
-        else:
-            # last_bar is None — malformed signal with no bar data; cannot generate deterministic ID
-            _logger.warning(
-                "Skipping signal with no bar data — cannot generate deterministic signal_id",
-                symbol=symbol,
-                timeframe=timeframe,
-                setup_plugin=setup_plugin,
-                timestamp=str(timestamp),
-            )
-            continue
-
-        entries.append(
-            LedgerEntry(
-                signal_id=sid,
-                timestamp=timestamp,
-                symbol=symbol,
-                timeframe=timeframe,
-                setup_plugin=setup_plugin,
-                signal_type=sig.get("signal_type", "unknown"),
-                direction=direction,
-                was_selected=was_selected,
-                is_shadow=bool(sig.get("is_shadow", False)),
-                is_backfill=True,
-                feature_ts=feature_ts,
-                feature_tf=feature_tf,
-                hmm_regime_at_fire=(
-                    sig.get("hmm_regime_at_fire") if "hmm_regime_at_fire" in sig else hmm_regime
-                ),
-                garch_sigma_at_fire=garch_sigma,
-                ttl_bars=ttl,
-                entry_price=float(sig.get("entry_price", 0.0)),
-                stop_loss=float(sig.get("stop_loss", 0.0)),
-                targets=[float(t) for t in sig.get("targets", [])],
-                entry_zone_low=sig.get("zone_low"),
-                entry_zone_high=sig.get("zone_high"),
-                market_entry_price=bar_close,
-                cis_score=(
-                    sig.get("filtered_cis_score")
-                    if sig.get("filtered_cis_score") is not None
-                    else result.cis_score
-                ),
-                bucket_scores=result.bucket_scores,
-                weights_version=result.weights_version,
-                expires_at=expires_at,
-                feature_schema_version=FEATURE_SCHEMA_VERSION,
-                stop_basis=sig.get("stop_basis"),
-                stop_type_col=sig.get("stop_type"),
-                structural_stop_distance_atr=sig.get("structural_stop_distance_atr"),
-                adaptive_buffer_mult=sig.get("adaptive_buffer_mult"),
-                plugin_regime_type=sig.get("plugin_regime_type"),
-                stop_structure_age_bars=sig.get("stop_structure_age_bars"),
-                raw_confidence=sig.get("pre_quality_confidence") or sig.get("confidence"),
-                calibrated_confidence=sig.get("calibrated_confidence"),
-                context_features={
-                    **(sig.get("context_features") or {}),
-                    "zone_source": sig.get("zone_source"),
-                },
-                ctf_score=sig.get("ctf_score"),
-                ctf_confirmed=sig.get("ctf_confirmed"),
-                zone_friction_score=sig.get("zone_friction_score"),
-            )
-        )
-    return entries
-
-
-def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
-    """Synchronous psycopg2 batch insert into signal_events + trade_frames (G0 grouping).
-
-    G0: one signal_events row + one trade_frames row (entry_type='at_close') per signal.
-    Direction converted from int (1/-1) to text ('long'/'short').
-    frame_id is deterministic via uuid5 — idempotent across re-runs.
-    Status starts as 'pending'; lifecycle_replay.py updates it.
-    """
-    _load_stage2_intelligence_imports()
-    if not entries:
-        return
-
-    se_params = []
-    tf_params = []
-
-    for e in entries:
-        signal_id = str(e.signal_id)
-        direction = _direction_text(
-            int(e.direction) if isinstance(e.direction, (int, float)) else 1
-        )
-        raw_confidence = e.raw_confidence if e.raw_confidence is not None else 0.0
-
-        # Build frame_details JSONB: stop architecture + zone fields archived here
-        frame_details: dict = {}
-        if e.stop_basis is not None:
-            frame_details["stop_basis"] = e.stop_basis
-        if e.stop_type_col is not None:
-            frame_details["stop_type_col"] = e.stop_type_col
-        if e.structural_stop_distance_atr is not None:
-            frame_details["structural_stop_distance_atr"] = float(e.structural_stop_distance_atr)
-        if e.adaptive_buffer_mult is not None:
-            frame_details["adaptive_buffer_mult"] = float(e.adaptive_buffer_mult)
-        if e.stop_structure_age_bars is not None:
-            frame_details["stop_structure_age_bars"] = e.stop_structure_age_bars
-        if e.entry_zone_low is not None:
-            frame_details["entry_zone_low"] = float(e.entry_zone_low)
-        if e.entry_zone_high is not None:
-            frame_details["entry_zone_high"] = float(e.entry_zone_high)
-        if e.market_entry_price is not None:
-            frame_details["market_entry_price"] = float(e.market_entry_price)
-        frame_details_json = json.dumps(frame_details) if frame_details else None
-
-        # Build target list; first target also goes to target_price for backward compat
-        targets = [float(t) for t in (e.targets or [])]
-        target_price = targets[0] if targets else None
-        stop_price = float(e.stop_loss) if e.stop_loss is not None else None
-        entry_price = float(e.entry_price) if e.entry_price is not None else None
-        r_multiple = None
-        if target_price is not None and entry_price is not None and stop_price is not None:
-            denom = entry_price - stop_price
-            if denom != 0:
-                r_multiple = (target_price - entry_price) / denom
-
-        frame_id = _make_frame_id(signal_id, "at_close")
-
-        se_params.append(
-            (
-                signal_id,  # signal_id
-                e.timestamp,  # ts
-                e.symbol,  # symbol
-                e.timeframe,  # tf
-                e.setup_plugin,  # setup_plugin
-                direction,  # direction (text)
-                raw_confidence,  # raw_confidence (NOT NULL)
-                e.calibrated_confidence,  # calibrated_confidence (nullable)
-                e.cis_score,  # cis_score
-                e.weights_version,  # weights_version
-                None,  # factor_scores (plugin-local, not in replay path)
-                (
-                    json.dumps(_sanitize_for_json(e.context_features))
-                    if e.context_features
-                    else None
-                ),  # context_features (psycopg2 serialized JSONB)
-                e.ctf_score,  # ctf_score
-                e.ctf_confirmed,  # ctf_confirmed
-                e.zone_friction_score,  # zone_friction_score
-                e.hmm_regime_at_fire,  # hmm_regime_at_fire
-                e.plugin_regime_type,  # plugin_regime_type
-                e.garch_sigma_at_fire,  # garch_sigma_at_fire
-                e.is_shadow,  # is_shadow
-                # is_backfill = TRUE via SQL template
-                "pending",  # status
-                SIGNAL_SCHEMA_VERSION,  # signal_schema_version (int)
-                e.ttl_bars,  # ttl_bars
-                e.expires_at,  # expires_at
-                e.signal_computed_at,  # signal_computed_at
-                e.feature_ts,  # feature_ts
-            )
-        )
-
-        tf_params.append(
-            (
-                frame_id,  # frame_id
-                signal_id,  # signal_id
-                e.timestamp,  # signal_ts (FK anchor for hypertable composite PK)
-                "at_close",  # entry_type
-                direction,  # direction (text)
-                entry_price,  # entry_price
-                stop_price,  # stop_price (was stop_loss)
-                target_price,  # target_price (first target only)
-                r_multiple,  # r_multiple
-                e.ttl_bars,  # ttl_bars
-                e.expires_at,  # expires_at
-                # counterfactual_pnl_r = NULL (CounterfactualTracker v2.11)
-                e.was_selected,  # was_selected
-                frame_details_json,  # frame_details
-                targets if targets else None,  # targets::double precision[]
-            )
-        )
-
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_values(
-            cur,
-            _INSERT_SIGNAL_EVENTS_SYNC_SQL,
-            se_params,
-            template=_INSERT_SIGNAL_EVENTS_SYNC_TEMPLATE,
-        )
-        psycopg2.extras.execute_values(
-            cur,
-            _INSERT_TRADE_FRAMES_SYNC_SQL,
-            tf_params,
-            template=_INSERT_TRADE_FRAMES_SYNC_TEMPLATE,
-        )
-    conn.commit()
-
-
-def _load_calibration_curves(
-    conn: Any, symbol: str = "*"
-) -> dict[tuple[str, str], tuple[list, list]]:
-    """Load calibration curves from DB as 2-tuple keyed dict for aggregate().
-
-    The DB stores 3-tuple keys (plugin, tf, symbol). aggregate() uses 2-tuple
-    (plugin, tf). Symbol-specific curves take precedence over the global '*' sentinel.
-
-    Returns {} when the table is empty — aggregate() falls back to raw confidence.
-    """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT setup_plugin, timeframe, symbol, curve_data "
-            "FROM calibration_curves "
-            "WHERE symbol = %s OR symbol = '*'",
-            (symbol,),
-        )
-        rows = cur.fetchall()
-
-    result: dict[tuple[str, str], tuple[list, list]] = {}
-    for plugin, tf, row_symbol, curve_data in rows:
-        if not curve_data:
-            continue
-        bp = curve_data.get("breakpoints")
-        vals = curve_data.get("values")
-        if not bp or not vals:
-            continue
-        key = (plugin, tf)
-        if key not in result or row_symbol != "*":
-            result[key] = (bp, vals)
-    return result
-
-
-def _load_perf_weights(conn: Any) -> dict[str, tuple[float, int]]:
-    """Load perf multipliers from setup_performance using the same Sharpe-rank
-    formula as the live pipeline (_compute_perf_multipliers).
-
-    Returns {} when no setups have sample_size >= MIN_SAMPLE_SIZE (100).
-    """
-    _load_stage2_intelligence_imports()
-    from src.intelligence.setup_performance_updater import MIN_SAMPLE_SIZE
-
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT setup_plugin, win_rate, avg_pnl_r, sample_size, sharpe_ratio "
-            "FROM setup_performance WHERE sample_size >= %s",
-            (MIN_SAMPLE_SIZE,),
-        )
-        rows = cur.fetchall()
-
-    if not rows:
-        return {}
-
-    stats = {
-        plugin: {
-            "win_rate": win_rate,
-            "avg_pnl_r": avg_pnl_r,
-            "sample_size": sample_size,
-            "sharpe_ratio": sharpe_ratio,
-        }
-        for plugin, win_rate, avg_pnl_r, sample_size, sharpe_ratio in rows
-    }
-    return _compute_perf_multipliers(stats)
-
-
-def _warm_config_service(conn: Any) -> Any:
-    """Load APR config values from config_state and inject into framing-path modules.
-
-    Constructs a ConfigService with a pre-warmed in-memory cache (no asyncpg pool
-    needed — the cache is populated directly from a psycopg2 query). After this call,
-    all _cfg() reads in trade_framer, zone_engine, aggregator, confidence, and
-    volume_profile_utils will return APR values rather than hardcoded fallbacks.
-
-    DAG invariant: ConfigService reads config_state once at warm-up only, then serves
-    from in-memory cache via get_sync(). No DB access occurs during replay_symbol().
-
-    Returns the ConfigService instance (also injected into module singletons as a
-    side effect).
-    """
-    from src.config.config_service import ConfigService
-    from src.intelligence.trading import (  # noqa: PLC0415
-        aggregator,
-        confidence,
-        trade_framer,
-        volume_profile_utils,
-        zone_engine,
-    )
-
-    cfg = ConfigService(database_url="")  # No asyncpg pool — cache-only mode
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT cs.config_key, cs.config_value, csc.value_type "
-            "FROM config_state cs "
-            "JOIN config_schema csc USING (config_key)"
-        )
-        rows = cur.fetchall()
-
-    for config_key, config_value, value_type in rows:
-        cfg._cache[config_key] = cfg._parse_value(config_value, value_type)
-
-    trade_framer.set_config_service(cfg)
-    zone_engine.set_config_service(cfg)
-    aggregator.set_config_service(cfg)
-    confidence.set_config_service(cfg)
-    volume_profile_utils.set_config_service(cfg)
-
-    key_count = len(cfg._cache)
-    print(f"  Replay config service wired ({key_count} keys from config_state)")
-    return cfg
-
-
-def _load_precomputed_features(
-    conn: Any, symbol: str, since: datetime | None = None
-) -> dict[tuple[str, datetime], dict]:
-    """Load intelligence_features for symbol into (tf, ts) -> merged flat dict.
-
-    Used by --use-precomputed-features to skip I1-I6 recomputation entirely.
-    All eight JSONB tier columns (including composite_events and market_context) are merged
-    into one flat dict per bar.
-    """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT ts, tf,"
-            " technical_indicators, pattern_detections, regime_features,"
-            " confluence_scores, smc, cross_timeframe_context,"
-            " composite_events, market_context"
-            " FROM intelligence_features"
-            " WHERE symbol = %s AND (%s IS NULL OR ts >= %s)"
-            " ORDER BY ts ASC",
-            (symbol, since, since),
-        )
-        rows = cur.fetchall()
-
-    result: dict[tuple[str, datetime], dict] = {}
-    for ts, tf, i1_data, i5_data, i3_data, i4_data, smc_col, ctf, ce_col, mkt_col in rows:
-        merged: dict = {}
-        for tier in (i1_data, i5_data, i3_data, i4_data, smc_col, ctf, ce_col, mkt_col):
-            if not tier:
-                continue
-            if isinstance(tier, str):
-                tier = json.loads(tier)
-            merged.update(tier)
-        key_ts = ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
-        result[(tf, key_ts)] = merged
-    return result
-
-
-def run_i7_and_persist(
-    bar_history: deque,
-    features: dict[str, Any],
-    symbol: str,
-    timeframe: str,
-    timestamp: datetime,
-    db_conn: Any,
-    feature_ts: datetime | None = None,
-    feature_tf: str | None = None,
-    df: pd.DataFrame | None = None,
-    signal_buffer: list | None = None,
-    calibration_curves: dict | None = None,
-    perf_weights: dict | None = None,
-    plugin_states: dict[tuple[str, str, str], dict] | None = None,
-) -> int:
-    """Run I7 setup plugins on bar_history+features, aggregate, persist to signal_events + trade_frames.
-
-    Args:
-        bar_history: rolling window of bar dicts
-        features: merged I1-I6 feature dict
-        symbol: contract symbol
-        timeframe: bar timeframe
-        timestamp: bar timestamp
-        db_conn: psycopg2 connection (None for dry-run)
-        feature_ts: timestamp of the intelligence_features row for this bar (None if not written)
-        feature_tf: timeframe of the intelligence_features row (None if not written)
-        df: pre-built DataFrame for bar_history; constructed here if not provided.
-        signal_buffer: if provided, entries are appended here instead of inserted immediately.
-
-    Returns:
-        Number of ledger entries produced (0 if no signals fired).
-    """
-    _load_stage2_intelligence_imports()
-    if len(bar_history) < min_bars_for_tf(timeframe):
-        return 0
-
-    if df is None:
-        df = pd.DataFrame(list(bar_history))
-    # I7 plugins build their internal features dict by merging typed sub-dicts:
-    #   features = {**(frames.get("i1") or {}), **(frames.get("i4") or {}), ...}
-    # The live executor populates these from the typed IntelligenceEvent tiers.
-    # Backfill has one merged flat dict — put it in all tier slots so every plugin
-    # finds its features regardless of which tier key it reads from.
-    # Also set "symbol" so get_atr_with_floor_from_frames can apply the tick floor.
-    frames: dict[str, Any] = {
-        "main": df,
-        "features": features,
-        "i1": features,
-        "i2": features,
-        "i3": features,
-        "i4": features,
-        "i5": features,
-        "smc": features,
-        "i6": features,
-        "symbol": symbol,
-        "__timeframe__": timeframe,
-        "timeframe": timeframe,
-    }
-
-    raw_signals = []
-    states = plugin_states if plugin_states is not None else {}
-    for name in I7_PLUGINS:
-        try:
-            plugin = registry.get_pattern(name)
-            state_key = (name, symbol, timeframe)
-            state = states.setdefault(state_key, {})
-            t0 = time.perf_counter()
-            result, states[state_key] = incremental_compute(plugin, frames, state)
-            _accumulate_plugin_time(name, t0)
-            if result and result.get("direction", 0) != 0:
-                result["setup_plugin"] = name
-                raw_signals.append(result)
-        except Exception as error:
-            _log_plugin_error(name, symbol, timeframe, error)
-
-    if not raw_signals:
-        return 0
-
-    for sig in raw_signals:
-        annotate_signal_with_context(sig, features)
-
-    trend_regime = float(features.get("trend_regime", 0.0))
-    agg_result = aggregate(
-        raw_signals,
-        trend_regime=trend_regime,
-        features=features,
-        calibration_curves=calibration_curves,
-        perf_weights=perf_weights,
-    )
-    entries = _build_ledger_entries(
-        agg_result,
-        symbol,
-        timeframe,
-        timestamp,
-        features,
-        feature_ts=feature_ts,
-        feature_tf=feature_tf,
-        bar_history=bar_history,
-    )
-
-    if entries:
-        if signal_buffer is not None:
-            signal_buffer.extend(entries)
-        elif db_conn is not None:
-            _insert_signals_sync(db_conn, entries)
-
-    return len(entries)
 
 
 # ---------------------------------------------------------------------------
@@ -1837,415 +846,6 @@ def store_bars(
     return len(params)
 
 
-# ---------------------------------------------------------------------------
-# Replay orchestrator
-# ---------------------------------------------------------------------------
-
-
-def replay_symbol(
-    symbol: str,
-    db_conn: Any,
-    timeframes: list[str] | None = None,
-    since: datetime | None = None,
-    skip_signals: bool = False,
-    calibration_curves: dict | None = None,
-    perf_weights: dict | None = None,
-    precomputed_features: dict | None = None,
-    overwrite_features: bool = False,
-    seed_from_db: bool = True,
-) -> dict[str, int]:
-    """Replay bars for *symbol* through the I1→I7 pipeline.
-
-    Processes timeframes in order: 1m first, then 5m, 15m, 1h.
-    Lower-TF bar history is available as cross-TF context when processing
-    higher timeframes (same as live services).
-
-    # A4 CONFIRMED (2026-06-17): asset_class=None for ALL symbols (NQM6, YMM6, ESM6, etc.)
-    # in all_features throughout replay_symbol(). Root cause: live pipeline injects asset_class
-    # via instrument_map (built from Settings.Instrument objects in FeaturePipelineExecutor),
-    # but replay_symbol() never constructs this lookup and passes no instrument context to
-    # run_i7_and_persist(). This is NOT specific to rolled contracts — active front-month
-    # contracts are equally affected. Fix: build symbol→asset_class lookup from
-    # contract_metadata + instruments tables at replay_symbol() startup and inject into
-    # all_features before run_i7_and_persist(). See plan 131-03-PLAN.md T-01.
-
-    Args:
-        since: If provided, only replay bars on or after this timestamp.
-        skip_signals: If True, run I1→I6 and write intelligence_features but
-            skip I7 and signal_ledger writes. Use for seed/warmup runs where
-            you only want indicator history, not historical signals.
-
-    Returns:
-        dict mapping timeframe → number of ledger entries inserted.
-    """
-    _load_stage2_intelligence_imports()
-    if timeframes is None:
-        timeframes = DEFAULT_TIMEFRAMES
-
-    # Load native stored bars for each requested timeframe.
-    # Each TF reads its own rows from market_data_ohlcv (1m = named contract,
-    # 5m/1h/1d = back-adjusted continuous). Higher TFs have deeper history.
-    bars_by_tf: dict[str, list[dict]] = {}
-    for tf in timeframes:
-        bars = fetch_bars(db_conn, symbol, tf, since=since)
-        if bars:
-            bars_by_tf[tf] = bars
-            print(f"  {symbol}: {len(bars):,} {tf} bars loaded")
-        else:
-            print(f"  {symbol}: no {tf} bars in DB — skipping (run fetch stage first)")
-
-    if not bars_by_tf:
-        print(f"  {symbol}: no bars found in DB — run fetch stage first")
-        return {}
-
-    # Release the read transaction so idle_in_transaction_session_timeout
-    # doesn't kill the connection during the multi-minute processing loop.
-    db_conn.commit()
-
-    # A4 fix: resolve asset_class for this symbol from contract_metadata (futures rolls)
-    # or instruments (equities/ETFs/FX). Mirrors FeaturePipelineExecutor.execute():332.
-    # replay_symbol() never builds an instrument_map (unlike the live pipeline which injects
-    # asset_class via FeaturePipelineExecutor DI at startup). Without this, trade_framer
-    # _min_zone_width_atr() uses default thresholds for ALL replay signals — A4 CONFIRMED
-    # in plan 131-01 (affects ALL symbols, not just rolled contracts).
-    _symbol_asset_class: str | None = None
-    with db_conn.cursor() as _cur:
-        _cur.execute(
-            """SELECT COALESCE(cm.asset_class, i.contract_details->>'asset_class')
-               FROM (SELECT %s::text AS sym) s
-               LEFT JOIN contract_metadata cm ON cm.symbol = s.sym
-               LEFT JOIN instruments i ON i.symbol = s.sym
-               LIMIT 1""",
-            (symbol,),
-        )
-        _row = _cur.fetchone()
-        if _row and _row[0] is not None:
-            _symbol_asset_class = str(_row[0])
-
-    # Shared state across timeframes for cross-TF context
-    # 800 bars: SessionLevelsPlugin needs _SESSION_BARS=390 current + 390 prior window
-    bar_histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=800))
-    intelligence_cache: dict[str, dict] = {}
-
-    if seed_from_db:
-        # A7 fix: seed intelligence_cache with prior I3 data from DB so I6 has
-        # non-None trend fields on bar 1. Without this seed, ctf_score=0 for all bars.
-        _standard_tfs = ["1m", "5m", "15m", "1h"]
-        for _seed_tf in _standard_tfs:
-            with db_conn.cursor() as _cur:
-                _cur.execute(_SEED_QUERY_PG, (symbol, _seed_tf))
-                _seed_row = _cur.fetchone()
-            if _seed_row and any(_seed_row):
-                # Filter None values — extract_trend_sign() handles missing keys as 0.
-                # JSONB text extraction returns strings; coerce numeric fields to float so
-                # is_num() in extract_trend_sign() passes (it requires isinstance(x, float)).
-                _seed_dict = {
-                    k: (float(v) if k in _SEED_NUMERIC_KEYS and v is not None else v)
-                    for k, v in zip(_SEED_COLS, _seed_row)
-                    if v is not None
-                }
-                if symbol not in intelligence_cache:
-                    intelligence_cache[symbol] = {}
-                intelligence_cache[symbol][_seed_tf] = _seed_dict
-                print(
-                    f"  [A7-seed] {symbol}/{_seed_tf}: seeded trend_direction={_seed_dict.get('trend_direction')!r}"
-                )
-
-    # A4: resolve asset_class once and merge into every all_features dict via _base_features.
-    # Both the precomputed and computed paths call all_features.update(_base_features).
-    _base_features: dict[str, str] = (
-        {"asset_class": _symbol_asset_class} if _symbol_asset_class is not None else {}
-    )
-
-    # Per-(plugin_name, symbol, tf) state dict — isolates stateful plugins (GARCH/HMM/Kalman)
-    # across symbols. Scoped to this symbol so state never bleeds into the next symbol.
-    plugin_states: dict[tuple[str, str, str], dict] = {}
-
-    # Per-TF accumulators — maintained across the merged event stream.
-    _TF_SORT_KEY: dict[str, int] = {"1m": 0, "5m": 1, "15m": 2, "1h": 3, "4h": 4, "1d": 5}
-    feature_buffers: dict[str, list] = defaultdict(list)
-    signal_buffers: dict[str, list] = defaultdict(list)
-    total_features_by_tf: dict[str, int] = defaultdict(int)
-    total_signals_by_tf: dict[str, int] = defaultdict(int)
-    bars_processed_by_tf: dict[str, int] = defaultdict(int)
-    bars_total_by_tf: dict[str, int] = {tf: len(b) for tf, b in bars_by_tf.items()}
-
-    for tf, count in bars_total_by_tf.items():
-        print(f"  {symbol}/{tf}: replaying {count:,} bars...")
-
-    # Merge all TF bar streams into a single chronological event sequence.
-    # Lower TFs sort before higher TFs at the same timestamp — this ensures 1m bars are
-    # processed before the 1h bar that closes at the same timestamp, so intelligence_cache
-    # reflects only contemporaneous information when cross-TF context is injected.
-    # Processing TFs sequentially (old approach) injected future 1m intel into past 1h
-    # signal computation — a look-ahead bias that corrupts all cross-TF signals.
-    events: list[tuple[datetime, int, str, dict]] = []
-    for tf, bars in bars_by_tf.items():
-        sort_key = _TF_SORT_KEY.get(tf, 99)
-        for bar in bars:
-            events.append((bar["timestamp"], sort_key, tf, bar))
-    events.sort(key=lambda e: (e[0], e[1]))
-
-    tf_hierarchy = ["1m", "5m", "15m", "1h"]
-
-    for _ts, _sort, tf, bar in events:
-        ts = bar["timestamp"]
-        history_key = f"{symbol}:{tf}"
-        bar_histories[history_key].append(bar)
-        history = bar_histories[history_key]
-        bars_processed_by_tf[tf] += 1
-
-        # Skip indicator computation and signal emission on synthetic flat-fill bars.
-        # Running quantitative indicators on fabricated prices produces misleading
-        # features and signals built on noise. Bar is still appended to history above
-        # so real bars that follow have correct context.
-        if bar.get("source") == SOURCE_SYNTHETIC_FILL:
-            continue
-
-        # Warmup guard: skip until enough bars exist for stable indicator output.
-        # Checked here so pd.DataFrame is never constructed on warmup bars.
-        if len(history) < min_bars_for_tf(tf):
-            continue
-
-        # Build DataFrame once — shared across I1, frames, and I7.
-        df = pd.DataFrame(list(history))
-        written_feature_ts: datetime | None = None
-
-        if precomputed_features is not None:
-            # Precomputed mode: skip I1-I6 entirely; features already in intelligence_features.
-            ts_utc = ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
-            all_features = precomputed_features.get((tf, ts_utc))
-            if not all_features:
-                continue
-            all_features.update(_base_features)
-            written_feature_ts = ts
-        else:
-            # I1 — pass pre-built df
-            i1_features = run_i1_plugins(history, symbol, tf, plugin_states, df=df)
-            if not i1_features:
-                continue
-
-            # Build frames with cross-TF context (for I6 confluence).
-            # Because we process bars chronologically across all TFs, intelligence_cache
-            # here contains only intel from timestamps <= ts — no look-ahead.
-            frames: dict[str, Any] = {"main": df, "features": i1_features}
-            for other_tf in tf_hierarchy:
-                if other_tf == tf:
-                    continue
-                other_key = f"{symbol}:{other_tf}"
-                if other_key in bar_histories and len(bar_histories[other_key]) >= 50:
-                    frames[f"tf_{other_tf}"] = pd.DataFrame(list(bar_histories[other_key]))
-                cached = intelligence_cache.get(symbol, {}).get(other_tf)
-                if cached:
-                    frames[f"intel_{other_tf}"] = cached
-
-            # I2 → I6
-            intelligence, tiered = run_analysis_pipeline(
-                frames, intelligence_cache, symbol, tf, plugin_states
-            )
-
-            # Merge all features for I7
-            all_features = {**i1_features, **intelligence}
-            all_features.update(_base_features)
-
-            # Build IntelligenceEvent and buffer for batch insert
-            event = _build_intelligence_event(bar, i1_features, tiered, symbol, tf, ts)
-            if event is not None:
-                feature_buffers[tf].append(_event_to_sync_params(event))
-                written_feature_ts = ts
-                total_features_by_tf[tf] += 1
-                if len(feature_buffers[tf]) >= _FEATURE_BATCH_SIZE:
-                    _insert_features_sync(
-                        db_conn, feature_buffers[tf], overwrite=overwrite_features
-                    )
-                    feature_buffers[tf].clear()
-
-        # I7 → signal_ledger (skipped in seed/warmup mode)
-        if not skip_signals:
-            n = run_i7_and_persist(
-                history,
-                all_features,
-                symbol,
-                tf,
-                ts,
-                db_conn,
-                feature_ts=written_feature_ts,
-                feature_tf=(tf if written_feature_ts is not None else None),
-                df=df,
-                signal_buffer=signal_buffers[tf],
-                calibration_curves=calibration_curves,
-                perf_weights=perf_weights,
-                plugin_states=plugin_states,
-            )
-            total_signals_by_tf[tf] += n
-            if len(signal_buffers[tf]) >= _FEATURE_BATCH_SIZE:
-                # Flush features first — signals must never commit before their features.
-                if feature_buffers[tf]:
-                    _insert_features_sync(
-                        db_conn, feature_buffers[tf], overwrite=overwrite_features
-                    )
-                    feature_buffers[tf].clear()
-                _insert_signals_sync(db_conn, signal_buffers[tf])
-                signal_buffers[tf].clear()
-
-        processed = bars_processed_by_tf[tf]
-        if processed % 1000 == 0:
-            total = bars_total_by_tf[tf]
-            count = total_features_by_tf[tf] if skip_signals else total_signals_by_tf[tf]
-            label = "features" if skip_signals else "signals"
-            print(f"    {symbol}/{tf}: {processed:,}/{total:,} bars, {count} {label}")
-
-    # Flush remaining feature and signal buffers for all TFs
-    for tf, buf in feature_buffers.items():
-        if buf:
-            _insert_features_sync(db_conn, buf, overwrite=overwrite_features)
-    for tf, buf in signal_buffers.items():
-        if buf:
-            _insert_signals_sync(db_conn, buf)
-
-    signal_counts: dict[str, int] = {}
-    for tf in timeframes:
-        if tf not in bars_by_tf:
-            continue
-        count = total_features_by_tf[tf] if skip_signals else total_signals_by_tf[tf]
-        signal_counts[tf] = count
-        label = "feature rows written" if skip_signals else "signals inserted"
-        print(f"  {symbol}/{tf}: done — {count} {label}")
-
-    if _plugin_error_counts:
-        total_errors = sum(_plugin_error_counts.values())
-        print(
-            f"  {symbol}: {total_errors} plugin errors across {len(_plugin_error_counts)} plugins — check logs above"
-        )
-
-    return signal_counts
-
-
-class _WorkerArgs(NamedTuple):
-    symbol: str
-    db_url: str
-    timeframes: list[str]
-    since_dt: datetime | None
-    skip_signals: bool
-    use_precomputed: bool
-    overwrite_features: bool
-    seed_from_db: bool
-
-
-def _replay_worker(args: _WorkerArgs) -> tuple[str, int, dict[str, int]]:
-    """Worker for parallel symbol replay.
-
-    Runs in a subprocess via ProcessPoolExecutor. Opens its own psycopg2
-    connection (connections cannot be shared across processes), registers
-    plugins, replays the symbol, commits, and closes.
-    """
-    (
-        symbol,
-        db_url,
-        timeframes,
-        since_dt,
-        skip_signals,
-        use_precomputed,
-        overwrite_features,
-        seed_from_db,
-    ) = args
-    _load_stage2_intelligence_imports()
-    register_all_plugins()
-    conn = psycopg2.connect(dsn=db_url)
-    conn.autocommit = True
-    with conn.cursor() as cur:
-        cur.execute("SET synchronous_commit = off")
-    try:
-        _warm_config_service(conn)
-        calibration_curves = _load_calibration_curves(conn, symbol=symbol)
-        perf_weights = _load_perf_weights(conn)
-        precomputed = (
-            _load_precomputed_features(conn, symbol, since=since_dt) if use_precomputed else None
-        )
-        counts = replay_symbol(
-            symbol,
-            conn,
-            timeframes,
-            since=since_dt,
-            skip_signals=skip_signals,
-            calibration_curves=calibration_curves,
-            perf_weights=perf_weights,
-            precomputed_features=precomputed,
-            overwrite_features=overwrite_features,
-            seed_from_db=seed_from_db,
-        )
-        return symbol, sum(counts.values()), counts
-    finally:
-        conn.close()
-
-
-# ---------------------------------------------------------------------------
-def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
-    """Assert was_selected and signal_id invariants across all symbols in one pass.
-
-    Invariant 1: was_selected = TRUE occurs at most once per (symbol, tf, bar_ts).
-    Invariant 2: Every signal_id in signal_events is globally unique.
-
-    Runs two queries using ANY(%s) — covered by idx_signal_events_symbol_tf_ts (migration 140)
-    and idx_signal_events_symbol_signal_id (migration 144). sys.exit(1) on any violation.
-    """
-    # --- Invariant 1: was_selected uniqueness per (symbol, tf, bar_ts) ---
-    all_violations: list[Any] = []
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT se.symbol, se.tf, se.ts, COUNT(*) AS winner_count
-                FROM signal_events se
-                JOIN trade_frames tf ON tf.signal_id = se.signal_id
-                                   AND tf.signal_ts = se.ts
-                WHERE se.symbol = ANY(%s) AND tf.was_selected = TRUE
-                GROUP BY se.symbol, se.tf, se.ts
-                HAVING COUNT(*) > 1
-                ORDER BY winner_count DESC
-                LIMIT 20
-                """,
-                (symbols,),
-            )
-            all_violations = cur.fetchall()
-    except Exception as error:
-        print(f"\n[INTEGRITY WARN] invariant 1 query failed: {error}")
-        print("  Data may be intact; re-run audit manually to confirm.")
-
-    if all_violations:
-        print(f"\n[INTEGRITY FAIL] was_selected > 1 per bar — {len(all_violations)} bars affected:")
-        for sym, tf, ts, cnt in all_violations:
-            print(f"  {sym}/{tf} @ {ts}: {cnt} winners")
-        sys.exit(1)
-
-    # --- Invariant 2: signal_id global uniqueness ---
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT COUNT(*) FROM (
-                    SELECT signal_id FROM signal_events
-                    WHERE symbol = ANY(%s)
-                    GROUP BY signal_id HAVING COUNT(*) > 1
-                ) dups
-                """,
-                (symbols,),
-            )
-            total_dup_count = cur.fetchone()[0]
-    except Exception as error:
-        print(f"\n[INTEGRITY WARN] invariant 2 query failed: {error}")
-        print("  Data may be intact; re-run audit manually to confirm.")
-        return
-
-    if total_dup_count:
-        print(f"\n[INTEGRITY FAIL] {total_dup_count} duplicate signal_ids found")
-        sys.exit(1)
-
-    print(
-        f"\n[INTEGRITY PASS] was_selected invariant holds across {len(symbols)} symbols. signal_ids unique."
-    )
-
-
 # Normalization pass
 # ---------------------------------------------------------------------------
 
@@ -2306,25 +906,12 @@ def run_normalize(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Historical Backfill — fetch IBKR bars + replay intelligence pipeline"
-    )
+    parser = argparse.ArgumentParser(description="Historical Backfill — fetch IBKR bars")
     parser.add_argument(
         "--days",
         type=int,
         default=None,
-        help="Max days to fetch/replay for ALL timeframes (default: per-TF config defaults).",
-    )
-    parser.add_argument(
-        "--min-bars",
-        type=int,
-        default=None,
-        dest="min_bars",
-        help=(
-            "Minimum bars per timeframe for replay. Derives lookback days from the slowest TF "
-            "(1d ≈ 5 bars/7 calendar days), ensuring all TFs have enough bars to exercise "
-            "plugins. Overrides --days. E.g. --min-bars 50 → ~70 calendar days."
-        ),
+        help="Max days to fetch for ALL timeframes (default: per-TF config defaults).",
     )
     parser.add_argument(
         "--symbols",
@@ -2338,61 +925,12 @@ def main() -> None:
     )
     parser.add_argument("--client-id", type=int, default=40, help="IBKR client ID (default: 40)")
     parser.add_argument(
-        "--fetch-only",
-        action="store_true",
-        help="Only fetch from IBKR → DB, skip intelligence replay",
-    )
-    parser.add_argument(
-        "--replay-only", action="store_true", help="Only replay DB → signal_events, skip IBKR fetch"
-    )
-    parser.add_argument(
         "--include-rolled",
         action="store_true",
         help=(
-            "Include rolled/expired futures contracts in replay (not just is_front_month=true). "
-            "Use with --replay-only to replay full roll-chain history. "
+            "Include rolled/expired futures contracts (not just is_front_month=true). "
             "Non-futures instruments are always included regardless of this flag."
         ),
-    )
-    parser.add_argument(
-        "--clean",
-        action="store_true",
-        help="Delete existing signals before replay (use with --replay-only to avoid duplicates)",
-    )
-    parser.add_argument(
-        "--truncate-all",
-        action="store_true",
-        help=(
-            "TRUNCATE all signal/feature/derivative tables before replay. "
-            "Faster than --clean for full corpus rebuilds. "
-            "Resets: signal_events, trade_frames, trade_executions, intelligence_features, "
-            "signal_lineage, signal_metrics, signal_metrics_ic, signal_metrics_dq_failures, "
-            "signal_ai_enrichment, intelligence_ai_enrichment, intelligence_metrics, "
-            "setup_performance, pattern_reliability, tod_multipliers, shadow_registry, "
-            "shadow_transition_log, alpha_multiplier_shadow, signal_transform_log, "
-            "transform_graduation, confidence_calibration, calibration_curves, cis_weights, "
-            "swarm_agent_weights, drift_monitor, drift_state, ml_signal_training, "
-            "parity_certification_state, remediation_ledger, memory_episodes_raw, "
-            "memory_episodes_labeled, memory_calibration_promoted, memory_calibration_spc, "
-            "memory_regime_transitions."
-        ),
-    )
-    parser.add_argument(
-        "--setups",
-        type=str,
-        default=None,
-        help=(
-            "Comma-separated setup_plugin names to scope --clean deletion. "
-            "When provided, only deletes signal_events and trade_frames rows for these setups "
-            "(intelligence_features is NOT deleted). "
-            "Default: None (full-symbol clean)."
-        ),
-    )
-    parser.add_argument(
-        "--workers",
-        type=int,
-        default=8,
-        help="Parallel worker processes for replay stage (default: 8). Use 1 to disable.",
     )
     parser.add_argument(
         "--per-contract",
@@ -2413,30 +951,6 @@ def main() -> None:
         default=False,
         help="Fill gaps in existing market_data_ohlcv rows with synthetic flat bars. "
         "Idempotent — safe to re-run. Combines with --symbols to limit scope.",
-    )
-    parser.add_argument(
-        "--use-precomputed-features",
-        action="store_true",
-        default=False,
-        help="Skip I1-I6 recomputation; load stored intelligence_features rows and feed "
-        "them directly to I7. Use when only I7 plugins changed (phases 118-119). "
-        "5-10x faster than full replay. Requires intelligence_features to be current.",
-    )
-    parser.add_argument(
-        "--overwrite-features",
-        action="store_true",
-        default=False,
-        help="When running I1-I6 fresh, overwrite existing intelligence_features rows "
-        "(DO UPDATE) instead of skipping them (DO NOTHING). Use when I1-I6 code changed "
-        "and you want the stored feature vectors to reflect current computation.",
-    )
-    parser.add_argument(
-        "--no-seed",
-        action="store_true",
-        default=False,
-        help="Skip DB seed of intelligence_cache before bar 1 (for testing unseeded path). "
-        "By default the replay seeds cross-TF I3 trend data from intelligence_features so "
-        "I6 ctf_score is non-zero on bar 1 (A7 fix).",
     )
     args = parser.parse_args()
 
@@ -2494,13 +1008,6 @@ def main() -> None:
         if tf in tf_fetch_config
     }
     print(f"  TF depths : {tf_depths}")
-    if args.fetch_only:
-        stage = "fetch-only"
-    elif args.replay_only:
-        stage = "replay-only"
-    else:
-        stage = "fetch+replay"
-    print(f"  Stages    : {stage}")
     print()
 
     db_conn = connect_db(settings)
@@ -2510,540 +1017,307 @@ def main() -> None:
         db_conn.close()
         return
 
-    # --------------- Stage 1: IBKR Fetch ---------------
-    if not args.replay_only:
-        print("=== Stage 1: IBKR Fetch ===")
+    async def _run_fetch_stage() -> tuple[int, int]:
+        nonlocal db_conn
+        provider = IBKRProvider(
+            host=settings.ib_host,
+            port=settings.ib_port,
+            client_id=args.client_id,
+        )
+        if not await provider.connect():
+            print("Cannot connect to TWS — aborting fetch stage")
+            return -1, 0
 
-        async def _run_fetch_stage() -> tuple[int, int]:
-            nonlocal db_conn
-            provider = IBKRProvider(
-                host=settings.ib_host,
-                port=settings.ib_port,
-                client_id=args.client_id,
-            )
-            if not await provider.connect():
-                print("Cannot connect to TWS — aborting fetch stage")
-                return -1, 0
+        end_dt = datetime.now(tz=UTC)
+        total_bars = 0
+        # [rca_analysis 2026-07-05, F5] Per-(symbol, tf) fetch exceptions below are
+        # caught and printed but previously just swallowed — main() would still
+        # unconditionally print "Backfill complete." regardless of how many of these
+        # fired. Tracked here so the caller can propagate a nonzero exit code instead
+        # of silently declaring success with real holes.
+        fetch_errors = 0
+        fetch_tfs = [tf for tf in timeframes if tf in tf_fetch_config]
+        print(f"  Fetching TFs: {fetch_tfs}")
+        print()
+        try:
+            for instrument in contracts:
+                try:
+                    db_conn.cursor().execute("SELECT 1")
+                except Exception:
+                    print("  DB connection stale — reconnecting before next symbol...")
+                    try:
+                        db_conn.close()
+                    except Exception:
+                        pass
+                    db_conn = connect_db(settings)
+                try:
+                    qualified = await provider.qualify_instrument(instrument)
+                    if not qualified:
+                        print(f"  {instrument.symbol}: skipped (qualify failed)")
+                        continue
 
-            end_dt = datetime.now(tz=UTC)
-            total_bars = 0
-            # [rca_analysis 2026-07-05, F5] Per-(symbol, tf) fetch exceptions below are
-            # caught and printed but previously just swallowed — main() would still
-            # unconditionally print "Backfill complete." in --fetch-only mode regardless
-            # of how many of these fired. Tracked here so the caller can propagate a
-            # nonzero exit code instead of silently declaring success with real holes.
-            fetch_errors = 0
-            fetch_tfs = [tf for tf in timeframes if tf in tf_fetch_config]
-            print(f"  Fetching TFs: {fetch_tfs}")
-            print()
-            try:
-                for instrument in contracts:
+                    # Per-contract mode for futures: fetch each contract in roll chain
+                    if args.per_contract and instrument.asset_class == AssetClass.FUTURES:
+                        print(f"  {instrument.symbol}: per-contract mode (Renaissance-style)")
+                        for tf in fetch_tfs:
+                            fetch_days, _ = tf_fetch_config[tf]
+                            if args.days:
+                                fetch_days = min(fetch_days, args.days)
+                            print(f"  {instrument.symbol}/{tf} (per-contract, {fetch_days}d):")
+                            bars, metadata = await fetch_per_contract(
+                                provider=provider,
+                                instrument=instrument,
+                                timeframe=tf,
+                                fetch_days=fetch_days,
+                                end_dt=end_dt,
+                                db_conn=db_conn,
+                            )
+                            total_bars += bars
+                        continue  # Skip the standard continuous fetch loop
+
+                    # Standard mode: use continuous contract for longer timeframes
+                    fetched_tfs: set[str] = set()  # TFs that got bars from IBKR directly
+                    for tf in fetch_tfs:
+                        fetch_days, use_continuous = tf_fetch_config[tf]
+                        if args.days:
+                            fetch_days = min(fetch_days, args.days)
+
+                        start_dt = (end_dt - timedelta(days=fetch_days)).replace(
+                            hour=0, minute=0, second=0, microsecond=0
+                        )
+
+                        gaps = detect_gaps(
+                            db_conn,
+                            instrument.symbol,
+                            tf,
+                            start_dt,
+                            end_dt,
+                            session_id=instrument.session_id,
+                            exchange=instrument.exchange,
+                        )
+                        if not gaps:
+                            print(f"  {instrument.symbol}/{tf}: no gaps found.")
+                            fetched_tfs.add(tf)
+                            continue
+
+                        # Bound the fetch to the actual missing span instead of the
+                        # full configured window — a symbol with 10y already loaded
+                        # that needs 20y should only request the missing 10y, not
+                        # re-request data IBKR has already given us.
+                        gap_start = min(g[0] for g in gaps)
+                        gap_end = max(g[1] for g in gaps)
+                        print(
+                            f"  {instrument.symbol}/{tf}: {len(gaps)} gaps detected, "
+                            f"fetching {gap_start.date()} to {gap_end.date()}..."
+                        )
+
+                        # Skip continuous contracts for short windows (no rolls needed)
+                        use_cont = (
+                            use_continuous
+                            and (fetch_days > 14)
+                            and (instrument.asset_class == AssetClass.FUTURES)
+                        )
+
+                        # Fetch the gap-bounded window in one call; the provider chunks
+                        # at _MAX_CHUNK_DAYS[tf] (364d for 4h/1h/1d) with 10s between
+                        # chunks. Per-gap (rather than per-run) fetching sent N×IBKR
+                        # requests + N×2s sleep for trivially small windows — absurdly
+                        # slow on initial backfill — so gaps within one run are still
+                        # coalesced into a single request. ON CONFLICT DO NOTHING makes
+                        # this idempotent regardless.
+                        # [rca_analysis 2026-07-05, F1/F2] Persist each chunk's real
+                        # bars as soon as they arrive, in addition to the full-window
+                        # normalize_bars()+store_bars() pass below. Without this, DB
+                        # growth (and thus the external stall watchdog's heartbeat) only
+                        # happens once per (symbol, tf), after the entire — potentially
+                        # many-chunk, many-minute — fetch completes, and a kill mid-fetch
+                        # discards all in-memory progress for that (symbol, tf). This
+                        # writes raw real bars only (no synthetic fill, which needs the
+                        # full window's prev_close carried across chunk boundaries — see
+                        # normalize_bars). ON CONFLICT DO NOTHING in store_bars makes the
+                        # later full-window pass re-affirming these rows a safe no-op.
+                        async def _persist_chunk(
+                            chunk_bars: list, _tf: str = tf, _symbol: str = instrument.symbol
+                        ) -> None:
+                            nonlocal db_conn
+                            if not chunk_bars:
+                                return
+                            chunk_dicts = [
+                                {
+                                    "timestamp": b.timestamp,
+                                    "open": b.open,
+                                    "high": b.high,
+                                    "low": b.low,
+                                    "close": b.close,
+                                    "volume": b.volume,
+                                    "source": b.source,
+                                }
+                                for b in chunk_bars
+                            ]
+                            try:
+                                db_conn.cursor().execute("SELECT 1")
+                            except Exception:
+                                try:
+                                    db_conn.close()
+                                except Exception:
+                                    pass
+                                db_conn = connect_db(settings)
+                            store_bars(db_conn, chunk_dicts, _symbol, _tf)
+
+                        try:
+                            ohlcv_bars = await provider.fetch_historical_bars(
+                                symbol=instrument.symbol,
+                                timeframe=tf,
+                                start=gap_start,
+                                end=gap_end,
+                                continuous=use_cont,
+                                on_chunk=_persist_chunk,
+                            )
+                            bar_dicts = [
+                                {
+                                    "timestamp": b.timestamp,
+                                    "open": b.open,
+                                    "high": b.high,
+                                    "low": b.low,
+                                    "close": b.close,
+                                    "volume": b.volume,
+                                    "source": b.source,
+                                }
+                                for b in ohlcv_bars
+                            ]
+                            canonical = normalize_bars(
+                                bar_dicts,
+                                symbol=instrument.symbol,
+                                timeframe=tf,
+                                start=gap_start,
+                                end=gap_end,
+                            )
+                            try:
+                                db_conn.cursor().execute("SELECT 1")
+                            except Exception:
+                                try:
+                                    db_conn.close()
+                                except Exception:
+                                    pass
+                                db_conn = connect_db(settings)
+                            n = store_bars(db_conn, canonical, instrument.symbol, tf)
+                            total_bars += n
+                            if n > 0:
+                                fetched_tfs.add(tf)
+                            print(
+                                f"  {instrument.symbol}/{tf}: stored {n} bars "
+                                f"({len(gaps)} gaps filled)"
+                            )
+                        except Exception as e:
+                            fetch_errors += 1
+                            print(f"  {instrument.symbol}/{tf}: fetch error — {e}")
+
+                    # FX and crypto: fetch deeper 1m window and derive any TFs
+                    # that IBKR didn't return bars for in the named fetch above.
+                    if instrument.asset_class in (AssetClass.FX, AssetClass.CRYPTO):
+                        missing_tfs = [
+                            tf for tf in ("5m", "15m", "1h", "1d") if tf not in fetched_tfs
+                        ]
+                        if missing_tfs:
+                            deep_days = (
+                                _1M_DAYS_FX
+                                if instrument.asset_class == AssetClass.FX
+                                else _1M_DAYS_CRYPTO
+                            )
+                            deep_start = (end_dt - timedelta(days=deep_days)).replace(
+                                hour=0, minute=0, second=0, microsecond=0
+                            )
+                            try:
+                                deep_bars = await provider.fetch_historical_bars(
+                                    symbol=instrument.symbol,
+                                    timeframe="1m",
+                                    start=deep_start,
+                                    end=end_dt,
+                                    continuous=False,
+                                )
+                                deep_dicts = [
+                                    {
+                                        "timestamp": b.timestamp,
+                                        "open": b.open,
+                                        "high": b.high,
+                                        "low": b.low,
+                                        "close": b.close,
+                                        "volume": b.volume,
+                                        "source": b.source,
+                                    }
+                                    for b in deep_bars
+                                ]
+                                canonical_1m = normalize_bars(
+                                    deep_dicts,
+                                    symbol=instrument.symbol,
+                                    timeframe="1m",
+                                    start=deep_start,
+                                    end=end_dt,
+                                )
+                                n = store_bars(db_conn, canonical_1m, instrument.symbol, "1m")
+                                print(f"  {instrument.symbol}/1m (deep {deep_days}d): {n} bars")
+                            except Exception as e:
+                                fetch_errors += 1
+                                print(f"  {instrument.symbol}/1m deep fetch error — {e}")
+                            bars_1m = fetch_bars(db_conn, instrument.symbol, "1m")
+                            if bars_1m:
+                                for derived_tf in missing_tfs:
+                                    aggregated = aggregate_bars_from_1m(bars_1m, derived_tf)
+                                    n = store_bars(
+                                        db_conn, aggregated, instrument.symbol, derived_tf
+                                    )
+                                    total_bars += n
+                                    sym = instrument.symbol
+                                    print(f"  {sym}/{derived_tf} (derived from 1m): {n} bars")
+                            else:
+                                print(f"  {instrument.symbol}: no 1m bars — skipping derivation")
+                        else:
+                            sym = instrument.symbol
+                            print(f"  {sym}: all TFs fetched from IBKR — skipping derivation")
+
+                    # 4h bars are fetched directly from IBKR at 730d depth above.
+                    # No derivation needed: 1m only covers 14d (named contract, no rolls)
+                    # which is inferior in both depth and price series to the direct fetch.
+                    # Gaps in IBKR 4h data are handled by the gap detection + refetch path.
+
+                except Exception as e:
+                    fetch_errors += 1
+                    print(f"  {instrument.symbol}: error — {e}")
                     try:
                         db_conn.cursor().execute("SELECT 1")
                     except Exception:
-                        print("  DB connection stale — reconnecting before next symbol...")
+                        print("  DB connection lost — reconnecting...")
                         try:
                             db_conn.close()
                         except Exception:
                             pass
                         db_conn = connect_db(settings)
-                    try:
-                        qualified = await provider.qualify_instrument(instrument)
-                        if not qualified:
-                            print(f"  {instrument.symbol}: skipped (qualify failed)")
-                            continue
+                await asyncio.sleep(2)  # IBKR pacing between instruments
+        finally:
+            await provider.disconnect()
+        return total_bars, fetch_errors
 
-                        # Per-contract mode for futures: fetch each contract in roll chain
-                        if args.per_contract and instrument.asset_class == AssetClass.FUTURES:
-                            print(f"  {instrument.symbol}: per-contract mode (Renaissance-style)")
-                            for tf in fetch_tfs:
-                                fetch_days, _ = tf_fetch_config[tf]
-                                if args.days:
-                                    fetch_days = min(fetch_days, args.days)
-                                print(f"  {instrument.symbol}/{tf} (per-contract, {fetch_days}d):")
-                                bars, metadata = await fetch_per_contract(
-                                    provider=provider,
-                                    instrument=instrument,
-                                    timeframe=tf,
-                                    fetch_days=fetch_days,
-                                    end_dt=end_dt,
-                                    db_conn=db_conn,
-                                )
-                                total_bars += bars
-                            continue  # Skip the standard continuous fetch loop
+    total_bars, fetch_errors = asyncio.run(_run_fetch_stage())
+    if total_bars == -1:
+        db_conn.close()
+        return
 
-                        # Standard mode: use continuous contract for longer timeframes
-                        fetched_tfs: set[str] = set()  # TFs that got bars from IBKR directly
-                        for tf in fetch_tfs:
-                            fetch_days, use_continuous = tf_fetch_config[tf]
-                            if args.days:
-                                fetch_days = min(fetch_days, args.days)
-
-                            start_dt = (end_dt - timedelta(days=fetch_days)).replace(
-                                hour=0, minute=0, second=0, microsecond=0
-                            )
-
-                            gaps = detect_gaps(
-                                db_conn,
-                                instrument.symbol,
-                                tf,
-                                start_dt,
-                                end_dt,
-                                session_id=instrument.session_id,
-                                exchange=instrument.exchange,
-                            )
-                            if not gaps:
-                                print(f"  {instrument.symbol}/{tf}: no gaps found.")
-                                fetched_tfs.add(tf)
-                                continue
-
-                            # Bound the fetch to the actual missing span instead of the
-                            # full configured window — a symbol with 10y already loaded
-                            # that needs 20y should only request the missing 10y, not
-                            # re-request data IBKR has already given us.
-                            gap_start = min(g[0] for g in gaps)
-                            gap_end = max(g[1] for g in gaps)
-                            print(
-                                f"  {instrument.symbol}/{tf}: {len(gaps)} gaps detected, "
-                                f"fetching {gap_start.date()} to {gap_end.date()}..."
-                            )
-
-                            # Skip continuous contracts for short windows (no rolls needed)
-                            use_cont = (
-                                use_continuous
-                                and (fetch_days > 14)
-                                and (instrument.asset_class == AssetClass.FUTURES)
-                            )
-
-                            # Fetch the gap-bounded window in one call; the provider chunks
-                            # at _MAX_CHUNK_DAYS[tf] (364d for 4h/1h/1d) with 10s between
-                            # chunks. Per-gap (rather than per-run) fetching sent N×IBKR
-                            # requests + N×2s sleep for trivially small windows — absurdly
-                            # slow on initial backfill — so gaps within one run are still
-                            # coalesced into a single request. ON CONFLICT DO NOTHING makes
-                            # this idempotent regardless.
-                            # [rca_analysis 2026-07-05, F1/F2] Persist each chunk's real
-                            # bars as soon as they arrive, in addition to the full-window
-                            # normalize_bars()+store_bars() pass below. Without this, DB
-                            # growth (and thus the external stall watchdog's heartbeat) only
-                            # happens once per (symbol, tf), after the entire — potentially
-                            # many-chunk, many-minute — fetch completes, and a kill mid-fetch
-                            # discards all in-memory progress for that (symbol, tf). This
-                            # writes raw real bars only (no synthetic fill, which needs the
-                            # full window's prev_close carried across chunk boundaries — see
-                            # normalize_bars). ON CONFLICT DO NOTHING in store_bars makes the
-                            # later full-window pass re-affirming these rows a safe no-op.
-                            async def _persist_chunk(
-                                chunk_bars: list, _tf: str = tf, _symbol: str = instrument.symbol
-                            ) -> None:
-                                nonlocal db_conn
-                                if not chunk_bars:
-                                    return
-                                chunk_dicts = [
-                                    {
-                                        "timestamp": b.timestamp,
-                                        "open": b.open,
-                                        "high": b.high,
-                                        "low": b.low,
-                                        "close": b.close,
-                                        "volume": b.volume,
-                                        "source": b.source,
-                                    }
-                                    for b in chunk_bars
-                                ]
-                                try:
-                                    db_conn.cursor().execute("SELECT 1")
-                                except Exception:
-                                    try:
-                                        db_conn.close()
-                                    except Exception:
-                                        pass
-                                    db_conn = connect_db(settings)
-                                store_bars(db_conn, chunk_dicts, _symbol, _tf)
-
-                            try:
-                                ohlcv_bars = await provider.fetch_historical_bars(
-                                    symbol=instrument.symbol,
-                                    timeframe=tf,
-                                    start=gap_start,
-                                    end=gap_end,
-                                    continuous=use_cont,
-                                    on_chunk=_persist_chunk,
-                                )
-                                bar_dicts = [
-                                    {
-                                        "timestamp": b.timestamp,
-                                        "open": b.open,
-                                        "high": b.high,
-                                        "low": b.low,
-                                        "close": b.close,
-                                        "volume": b.volume,
-                                        "source": b.source,
-                                    }
-                                    for b in ohlcv_bars
-                                ]
-                                canonical = normalize_bars(
-                                    bar_dicts,
-                                    symbol=instrument.symbol,
-                                    timeframe=tf,
-                                    start=gap_start,
-                                    end=gap_end,
-                                )
-                                try:
-                                    db_conn.cursor().execute("SELECT 1")
-                                except Exception:
-                                    try:
-                                        db_conn.close()
-                                    except Exception:
-                                        pass
-                                    db_conn = connect_db(settings)
-                                n = store_bars(db_conn, canonical, instrument.symbol, tf)
-                                total_bars += n
-                                if n > 0:
-                                    fetched_tfs.add(tf)
-                                print(
-                                    f"  {instrument.symbol}/{tf}: stored {n} bars "
-                                    f"({len(gaps)} gaps filled)"
-                                )
-                            except Exception as e:
-                                fetch_errors += 1
-                                print(f"  {instrument.symbol}/{tf}: fetch error — {e}")
-
-                        # FX and crypto: fetch deeper 1m window and derive any TFs
-                        # that IBKR didn't return bars for in the named fetch above.
-                        if instrument.asset_class in (AssetClass.FX, AssetClass.CRYPTO):
-                            missing_tfs = [
-                                tf for tf in ("5m", "15m", "1h", "1d") if tf not in fetched_tfs
-                            ]
-                            if missing_tfs:
-                                deep_days = (
-                                    _1M_DAYS_FX
-                                    if instrument.asset_class == AssetClass.FX
-                                    else _1M_DAYS_CRYPTO
-                                )
-                                deep_start = (end_dt - timedelta(days=deep_days)).replace(
-                                    hour=0, minute=0, second=0, microsecond=0
-                                )
-                                try:
-                                    deep_bars = await provider.fetch_historical_bars(
-                                        symbol=instrument.symbol,
-                                        timeframe="1m",
-                                        start=deep_start,
-                                        end=end_dt,
-                                        continuous=False,
-                                    )
-                                    deep_dicts = [
-                                        {
-                                            "timestamp": b.timestamp,
-                                            "open": b.open,
-                                            "high": b.high,
-                                            "low": b.low,
-                                            "close": b.close,
-                                            "volume": b.volume,
-                                            "source": b.source,
-                                        }
-                                        for b in deep_bars
-                                    ]
-                                    canonical_1m = normalize_bars(
-                                        deep_dicts,
-                                        symbol=instrument.symbol,
-                                        timeframe="1m",
-                                        start=deep_start,
-                                        end=end_dt,
-                                    )
-                                    n = store_bars(db_conn, canonical_1m, instrument.symbol, "1m")
-                                    print(f"  {instrument.symbol}/1m (deep {deep_days}d): {n} bars")
-                                except Exception as e:
-                                    fetch_errors += 1
-                                    print(f"  {instrument.symbol}/1m deep fetch error — {e}")
-                                bars_1m = fetch_bars(db_conn, instrument.symbol, "1m")
-                                if bars_1m:
-                                    for derived_tf in missing_tfs:
-                                        aggregated = aggregate_bars_from_1m(bars_1m, derived_tf)
-                                        n = store_bars(
-                                            db_conn, aggregated, instrument.symbol, derived_tf
-                                        )
-                                        total_bars += n
-                                        sym = instrument.symbol
-                                        print(f"  {sym}/{derived_tf} (derived from 1m): {n} bars")
-                                else:
-                                    print(
-                                        f"  {instrument.symbol}: no 1m bars — skipping derivation"
-                                    )
-                            else:
-                                sym = instrument.symbol
-                                print(f"  {sym}: all TFs fetched from IBKR — skipping derivation")
-
-                        # 4h bars are fetched directly from IBKR at 730d depth above.
-                        # No derivation needed: 1m only covers 14d (named contract, no rolls)
-                        # which is inferior in both depth and price series to the direct fetch.
-                        # Gaps in IBKR 4h data are handled by the gap detection + refetch path.
-
-                    except Exception as e:
-                        fetch_errors += 1
-                        print(f"  {instrument.symbol}: error — {e}")
-                        try:
-                            db_conn.cursor().execute("SELECT 1")
-                        except Exception:
-                            print("  DB connection lost — reconnecting...")
-                            try:
-                                db_conn.close()
-                            except Exception:
-                                pass
-                            db_conn = connect_db(settings)
-                    await asyncio.sleep(2)  # IBKR pacing between instruments
-            finally:
-                await provider.disconnect()
-            return total_bars, fetch_errors
-
-        total_bars, fetch_errors = asyncio.run(_run_fetch_stage())
-        if total_bars == -1:
-            if args.fetch_only:
-                db_conn.close()
-                return
-            print("Continuing with replay-only...")
-        else:
-            print(
-                f"\nStage 1 complete: {total_bars:,} total bars stored, "
-                f"{fetch_errors} fetch error(s)\n"
-            )
-            # [rca_analysis 2026-07-05, F5] Don't silently print "Backfill complete."
-            # when real fetch errors occurred in --fetch-only mode — that string is
-            # exactly what backfill_retry_loop.sh greps for to decide the run was
-            # clean. A nonzero exit here makes the retry loop correctly treat this as
-            # incomplete and try again, instead of declaring victory over silent holes.
-            if args.fetch_only and fetch_errors > 0:
-                print(
-                    f"Backfill FINISHED WITH {fetch_errors} FETCH ERROR(S) — "
-                    "not declaring complete. See error lines above."
-                )
-                db_conn.close()
-                sys.exit(1)
-
-    # --------------- Stage 2: Intelligence Replay ---------------
-    if not args.fetch_only:
-        _load_stage2_intelligence_imports()
-        print("=== Stage 2: Intelligence Replay ===")
-        # When --days is provided, limit replay to that window.
-        # Full-history replay (default, no --days) uses since_dt=None to read all DB bars.
-        if args.min_bars:
-            # Derive lookback from slowest TF (1d ≈ 5 trading bars per 7 calendar days).
-            # All faster TFs will have more than min_bars in this window.
-            days_needed = math.ceil(args.min_bars * 7 / 5)
-            since_dt = datetime.now(UTC) - timedelta(days=days_needed)
-            print(
-                f"  --min-bars {args.min_bars}: {days_needed}d window "
-                f"(1d TF ≈ 5 bars/wk → {days_needed}d ≥ {args.min_bars} bars)"
-            )
-        elif args.days:
-            since_dt = datetime.now(UTC) - timedelta(days=args.days)
-            print(f"  Replaying bars since: {since_dt.date()} ({args.days}d)")
-        else:
-            since_dt = None
-
-        # Full corpus reset via TRUNCATE (faster than row-by-row DELETE)
-        if args.truncate_all:
-            print("  Truncating all signal/feature/derivative tables...")
-            with db_conn.cursor() as cur:
-                cur.execute("""
-                    TRUNCATE
-                        trade_executions, trade_frames, signal_events,
-                        intelligence_features,
-                        signal_lineage, signal_metrics, signal_metrics_ic,
-                        signal_metrics_dq_failures, signal_ai_enrichment,
-                        intelligence_ai_enrichment, intelligence_metrics,
-                        setup_performance, pattern_reliability, tod_multipliers,
-                        shadow_registry, shadow_transition_log, alpha_multiplier_shadow,
-                        signal_transform_log, transform_graduation,
-                        confidence_calibration, calibration_curves, cis_weights,
-                        swarm_agent_weights, drift_monitor, drift_state,
-                        ml_signal_training, parity_certification_state, remediation_ledger,
-                        memory_episodes_raw, memory_episodes_labeled,
-                        memory_calibration_promoted, memory_calibration_spc,
-                        memory_regime_transitions
-                    CASCADE
-                """)
-            db_conn.commit()
-            print("  Truncate complete.")
-
-        # Clean up old signals for replayed symbols if --clean flag is set
-        if args.clean:
-            print("  Cleaning up old signals for replayed symbols...")
-            with db_conn.cursor() as cur:
-                symbol_values = [c.symbol for c in contracts]
-
-                # Determine setup filter scope.
-                # When --setups is explicitly "ALL", fall back to full-symbol clean.
-                # Otherwise: if --setups provided, use that list; default scope is the
-                # 22 _SHADOW_VALIDATION_SETUPS frozenset (never hardcoded here).
-                if args.setups == "ALL":
-                    setup_filter: list[str] | None = None
-                elif args.setups is not None:
-                    setup_filter = [s.strip() for s in args.setups.split(",") if s.strip()]
-                else:
-                    # Default: scope to the 22 shadow validation setups.
-                    # Add services/ to sys.path so shadow_validator's _path_bootstrap import works.
-                    import sys as _sys
-
-                    _services_dir = str(project_root / "services")
-                    if _services_dir not in _sys.path:
-                        _sys.path.insert(0, _services_dir)
-                    from services.shadow_validator import _SHADOW_VALIDATION_SETUPS
-
-                    setup_filter = list(_SHADOW_VALIDATION_SETUPS)
-
-                if setup_filter is not None:
-                    # Plugin-scoped clean: skip intelligence_features (no setup_plugin column;
-                    # per-bar feature vectors are shared across all 30 setups — deleting by
-                    # symbol would destroy the 8 GOOD control setups' feature data).
-                    print(
-                        f"  Plugin-scoped clean: {len(setup_filter)} setups, "
-                        f"{len(symbol_values)} symbols — intelligence_features NOT deleted"
-                    )
-                    # Required for TimescaleDB compressed chunks: allow unlimited decompression
-                    # during DML. Without this, deletes across compressed hypertable chunks fail
-                    # with "tuple decompression limit exceeded".
-                    cur.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
-                    # Delete trade_frames (FK child) then signal_events (FK parent)
-                    cur.execute(
-                        """DELETE FROM trade_frames
-                           WHERE signal_id IN (
-                               SELECT signal_id FROM signal_events
-                               WHERE symbol = ANY(%s) AND setup_plugin = ANY(%s)
-                           )""",
-                        (symbol_values, setup_filter),
-                    )
-                    deleted_frames = cur.rowcount
-                    cur.execute(
-                        """DELETE FROM signal_events
-                           WHERE symbol = ANY(%s) AND setup_plugin = ANY(%s)""",
-                        (symbol_values, setup_filter),
-                    )
-                    deleted_signals = cur.rowcount
-                    db_conn.commit()
-                    print(
-                        f"  Deleted {deleted_signals:,} signal_events rows + "
-                        f"{deleted_frames:,} trade_frames rows "
-                        f"(intelligence_features preserved)"
-                    )
-                else:
-                    # Full-symbol clean (legacy path, requires --setups ALL)
-                    # Delete signals AND intelligence_features for the symbols we're about to replay
-                    cur.execute(
-                        "DELETE FROM intelligence_features WHERE symbol = ANY(%s)",
-                        (symbol_values,),
-                    )
-                    deleted_features = cur.rowcount
-
-                    # Delete in FK order: trade_executions → trade_frames → signal_events
-                    cur.execute(
-                        """
-                        DELETE FROM trade_executions
-                        WHERE frame_id IN (
-                            SELECT tf.frame_id FROM trade_frames tf
-                            JOIN signal_events se ON tf.signal_id = se.signal_id
-                            WHERE se.symbol = ANY(%s)
-                        );
-                    """,
-                        (symbol_values,),
-                    )
-                    deleted_executions = cur.rowcount
-                    cur.execute(
-                        """
-                        DELETE FROM trade_frames
-                        WHERE signal_id IN (
-                            SELECT signal_id FROM signal_events WHERE symbol = ANY(%s)
-                        );
-                    """,
-                        (symbol_values,),
-                    )
-                    deleted_frames = cur.rowcount
-                    cur.execute(
-                        """
-                        DELETE FROM signal_events
-                        WHERE symbol = ANY(%s);
-                    """,
-                        (symbol_values,),
-                    )
-                    deleted_signals = cur.rowcount
-
-                    db_conn.commit()
-                    print(
-                        f"  Deleted {deleted_signals:,} signals + "
-                        f"{deleted_frames:,} trade_frames + "
-                        f"{deleted_executions:,} trade_executions + "
-                        f"{deleted_features:,} intelligence feature rows"
-                    )
-
-        register_all_plugins()
-        grand_total = 0
-
-        if args.workers == 1:
-            with db_conn.cursor() as cur:
-                cur.execute("SET synchronous_commit = off")
-            _warm_config_service(db_conn)
-            perf_weights = _load_perf_weights(db_conn)
-
-            for contract in contracts:
-                print(f"\n{contract.symbol}:")
-                calibration_curves = _load_calibration_curves(db_conn, symbol=contract.symbol)
-                precomputed = (
-                    _load_precomputed_features(db_conn, contract.symbol, since=since_dt)
-                    if args.use_precomputed_features
-                    else None
-                )
-                counts = replay_symbol(
-                    contract.symbol,
-                    db_conn,
-                    timeframes,
-                    since=since_dt,
-                    calibration_curves=calibration_curves,
-                    perf_weights=perf_weights,
-                    precomputed_features=precomputed,
-                    overwrite_features=args.overwrite_features,
-                    seed_from_db=not args.no_seed,
-                )
-                symbol_total = sum(counts.values())
-                grand_total += symbol_total
-                print(f"  {contract.symbol} total: {symbol_total} signals")
-        else:
-            worker_args = [
-                _WorkerArgs(
-                    symbol=contract.symbol,
-                    db_url=settings.database_url,
-                    timeframes=timeframes,
-                    since_dt=since_dt,
-                    skip_signals=False,
-                    use_precomputed=args.use_precomputed_features,
-                    overwrite_features=args.overwrite_features,
-                    seed_from_db=not args.no_seed,
-                )
-                for contract in contracts
-            ]
-            print(f"  Spawning {args.workers} workers for {len(contracts)} symbols...")
-            try:
-                with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as executor:
-                    futures = {executor.submit(_replay_worker, arg): arg[0] for arg in worker_args}
-                    for future in concurrent.futures.as_completed(futures):
-                        symbol = futures[future]
-                        try:
-                            sym, total, counts = future.result()
-                            grand_total += total
-                            print(f"\n  {sym} done: {total} signals  {dict(counts)}")
-                        except Exception as error:
-                            print(f"\n  {symbol} FAILED: {error}")
-            except KeyboardInterrupt:
-                print("\nInterrupted — workers will be terminated.")
-                raise
-
-        print(f"\nStage 2 complete: {grand_total} total signals inserted into signal_events")
-        _assert_backfill_integrity(db_conn, [c.symbol for c in contracts])
+    print(f"\nStage 1 complete: {total_bars:,} total bars stored, {fetch_errors} fetch error(s)\n")
+    # [rca_analysis 2026-07-05, F5] Don't silently print "Backfill complete." when
+    # real fetch errors occurred — that string is exactly what backfill_retry_loop.sh
+    # greps for to decide the run was clean. A nonzero exit here makes the retry loop
+    # correctly treat this as incomplete and try again, instead of declaring victory
+    # over silent holes.
+    if fetch_errors > 0:
+        print(
+            f"Backfill FINISHED WITH {fetch_errors} FETCH ERROR(S) — "
+            "not declaring complete. See error lines above."
+        )
+        db_conn.close()
+        sys.exit(1)
 
     db_conn.close()
     flush_and_shutdown_metrics()
-    # Per-plugin cumulative dispatch time (single-worker/in-process path only;
-    # parallel workers each have their own dict and do not aggregate here).
-    _report_plugin_times()
     print("\nBackfill complete.")
 
 
