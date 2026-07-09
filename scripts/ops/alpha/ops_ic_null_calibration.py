@@ -81,6 +81,7 @@ _BOUNDARY_CELLS_SQL = """
     FROM feature_ic_scores
     WHERE tf = $1 AND is_pooled = $2 AND training_window_end = $3
       AND passes_fdr = true AND reliable = true AND ic_ci_lower IS NOT NULL
+      AND regime != '_pooled'
     ORDER BY abs(ic_ci_lower) ASC
     LIMIT $4
 """
@@ -91,6 +92,7 @@ _NULL_CELLS_SQL = """
     FROM feature_ic_scores
     WHERE tf = $1 AND is_pooled = $2 AND training_window_end = $3
       AND passes_fdr = false AND reliable = true AND ic_value IS NOT NULL
+      AND regime != '_pooled'
     ORDER BY abs(ic_value) ASC
     LIMIT $4
 """
@@ -101,6 +103,7 @@ _STRONG_CELLS_SQL = """
     FROM feature_ic_scores
     WHERE tf = $1 AND is_pooled = $2 AND training_window_end = $3
       AND reliable = true AND ic_sharpe_hac IS NOT NULL
+      AND regime != '_pooled'
     ORDER BY ic_sharpe_hac DESC
     LIMIT $4
 """
