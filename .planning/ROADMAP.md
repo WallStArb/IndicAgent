@@ -1016,6 +1016,10 @@ Exit triggers in priority order: (1) stop hit (`low <= stop_price`); (2) target 
 
 **Plans:** 2 plans (Wave 1: AlphaFrameWriter + SHADOW-REVIEW.md pre-commitment; Wave 2: CounterfactualTracker + state machine + gate evaluation)
 
+Plans:
+- [ ] 142B-01-PLAN.md — Wave 1: migration 214 (alpha_frames + APR seeds) + AlphaFrameWriter (FRAME-01) + SHADOW-REVIEW.md pre-commitment
+- [ ] 142B-02-PLAN.md — Wave 2: CounterfactualTracker (FRAME-02/03 state machine, named-cursor scan) + FRAME-04 bootstrap gate + IC-staleness instrumentation
+
 ---
 
 ### Phase 142B.1: Ensemble Weighting Methodology ✅ COMPLETE (2026-07-04)
