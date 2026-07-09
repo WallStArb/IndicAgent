@@ -896,11 +896,13 @@ Every (symbol, tf, regime) cell that produces an IC score must meet `n_independe
 **Plans:** 4/4 plans complete
 
 **Wave 1** (parallel — no shared files):
+
 - [x] 141.1-01 — OOS holdout enforcement: `TRAINING_WINDOW_END = LEAST(MAX(bar_ts), oos_start)` in the corpus orchestrator, plus a pre-committed, strictly read-only OOS evaluation script
 - [x] 141.1-02 — `regime_scope` schema (migration 192): NOT-NULL CHECK column (`cross_sectional` / `symbol_hmm` / `pooled`) on `feature_ic_scores`, written from all 3 `ic_engine.py` insert paths
 - [x] 141.1-03 — Cost hurdle calibration: implements todo 030 Steps 0-3, writes empirical `alpha.quant.cost_hurdle.*`/`threshold.*` via `ConfigService.set` (audited)
 
 **Wave 2** *(depends on Wave 1 — plan 04 shares `ops_corpus_pipeline_run.sh` with plan 01)*:
+
 - [x] 141.1-04 — Weight-epoch fix (migration 193): `DO NOTHING → DO UPDATE SET` on both `ensemble_weights`/`ensemble_alpha` writes, per-run `WEIGHT_EPOCH` threaded to `ensemble_trainer` + `alpha_publisher`, folds in todo 043 (90-day cliff → APR)
 
 Cross-cutting constraints: none (each plan touches a disjoint file set except the declared 01→04 dependency).
@@ -960,15 +962,19 @@ Plans:
   4. **Separately, the gate's cell-counting is architecturally unweighted** — `ops_ensemble_ic_gate.py` counts `POOLED` and each of 49 per-symbol rows as one equal vote in a flat 50-cell fraction, conflating "no pooled signal" with "per-symbol slices too thin to individually resolve a real pooled effect." Worth deciding whether to weight/split this before trusting the next re-run's PASS/FAIL at face value.
   
   Remediation (backfill to 20yr depth for all 80 active equity instruments, full corpus re-run, then re-run EIC-04/EIC-05) is captured in `/home/bg/.claude/plans/should-we-back-fill-nested-peacock.md` — that plan is now in progress and is the active path to resolving this gate, not a parallel/optional track.
+
 - **2026-07-08: FAIL, but for a different and now cleanly-diagnosed reason.** 5th corpus rebuild completed (see Corpus pipeline state memory), then two real bugs found and fixed in the same session before re-measuring:
   1. **`ensemble_trainer.py`'s meta-FDR eligibility gate pooled BH-FDR pass/fail across all 4 timeframes into one fraction per feature** (`GROUP BY feature_name` only), so a feature strong at 1d/1h but weak at 5m noise got vetoed everywhere. Empirically confirmed 18 feature×timeframe combinations flip eligible under per-timeframe scoping. Fixed: `GROUP BY feature_name, tf` + a new `alpha.ensemble.meta_fdr_min_cells` APR floor (seeded 3, matching EIC-03's fold convention) so a 1-cell 100% pass rate can't trivially qualify (migration 207, commit pending).
   2. **A "full replace per weight_version" fix to prevent stale strata surviving a re-run** (added to guard against exactly the 5 stale pre-fix `1h/high_bear` rows this investigation found) itself had a critical bug: `DELETE ... RETURNING 1` against `ensemble_alpha` (30M+ rows) forced Postgres to materialize the entire deleted-row set, OOM-killed the backend, and **crashed the whole TimescaleDB instance** (required WAL recovery on restart; confirmed via `docker logs` — `terminated by signal 9: Killed`). No data loss (Postgres rolled back the incomplete transaction before the crash), but a serious near-miss. Fixed: `conn.execute()` command-tag count instead of `RETURNING`, matching the already-correct pattern in `alpha_publisher.py`.
   Re-ran the full chain (`ensemble_trainer` → `alpha_publisher` → `EnsembleICEngine`) clean after both fixes. Gate result: **0/31 qualifying cells** (up from 0/3 — the prior "3" was itself measured against partially-stale data, not a real number). EIC-05 diagnosis on the clean data: every one of the 31 measurable cells is `low_bull` or `mid_bull` regime only (no other regime has enough in-sample `alpha_events` to even be measured), N = 101-147 per cell — roughly 20-30x below `alpha.ic.min_obs_per_regime=3000`. `alpha_events` regime distribution confirms this isn't a code bug: e.g. `15m/high_bear` has only 20 events total across all 77 symbols vs. `1d/mid_bull`'s 26,644 — the OOS-enforced training window (ends 2025-12-24) plus the still-uncalibrated `alpha.quant.threshold.{tf}` emission gate (todo 065/EM-CAL — seeded values "1.5/1.2/1.0/0.8" are admitted guesses) are jointly suppressing per-regime event volume well below the floor. Per EIC-05's own documented interpretation this is genuine data starvation, not a signal-negative result — but per this phase's own rule, **Phase 142B still does not begin until a re-run shows PASS or an operator override is recorded here with reasoning.**
+
 - **2026-07-08 (same day, continued): root cause of the N-starvation was a methodology error, not a data gap — fixed, gate FAILs cleanly now with a real, well-powered measurement.** `EnsembleICEngine` (EIC-01) was measuring IC on `alpha_events` — the population AFTER a threshold + directional-CI + cost-hurdle emission filter — not the raw `ensemble_alpha` scored-bar population. This conditions the correlation test on the very confidence gate being validated (post-selection bias) and is in direct tension with the phase's own stated design: "prove the ensemble OUTPUT has IC before testing any execution rules... no frame assumptions." The emission threshold IS a frame/execution assumption; it does not belong in signal validation. `alpha_events` was 0.17% of `ensemble_alpha`'s row count (54,846 vs. 32.9M), which is what collapsed per-cell N below the floor — not insufficient underlying data (40M+ raw bars exist). Traced to Phase 142A's original design: at planning time (2026-06-30) `alpha_events` had 12.47M rows, nearly as complete as the full scored population, so the distinction didn't matter then; it was never revisited as the emission gate tightened. **Fixed:** `EnsembleICEngine`'s worker fetch, pooled fetch, startup gate, and tf/symbol enumeration queries (6 SQL sites) now source from `ensemble_alpha` directly (commit pending; `tests/unit/test_ensemble_ic_measurement_population.py`, 6 new tests). Empirically validated before implementing: full-population query showed 96% of 5m cells and 90% of 15m cells clear N≥3000 (vs. 0% under the old population); 1d remains structurally underpowered regardless (too few daily bars ever) — expected, not a new problem. `alpha_events`/the emission threshold is still correct for Phase 142B (frame/execution-rule testing, a different and correctly-downstream question) — todo 065/EM-CAL was **not** actioned, since calibrating an execution threshold specifically to manufacture EIC-04 sample size would itself have been a p-hacking risk.
   **Result after the fix, full clean re-run (2026-07-08 ~15:25-15:32 UTC, 240/240 symbol-tf pairs succeeded, 5191 rows in `alpha_ensemble_ic`):** EIC-04 **FAIL, 67/1425 qualifying cells (4.7%)** against the 60% threshold — but this is now a real, honestly-measured scientific result, not a measurement artifact. Coverage jumped 46x (31 → 1425 measurable cells); N is abundant almost everywhere except 1d and a handful of `extended`-lookahead corner cells (still ~100-110, expected — longer lookaheads lose usable windows near the OOS embargo boundary). EIC-05 diagnosis surfaces a live instance of the exact concern flagged-but-unresolved in the 2026-07-04 entry above ("the gate's cell-counting is architecturally unweighted"): multiple (tf, regime, lookahead) cells show `POOLED ci_lower` positive/near-zero while the per-symbol median is meaningfully more negative (flagged `REGIME GRANULARITY ISSUE` — cross-sectional label too coarse), meaning a real pooled cross-sectional signal may exist in cells the flat unweighted per-cell vote is counting as failures. Regime/TF breakdown also shows real heterogeneity, not uniform noise: 5m qualifies at ~17.7% (497/2810) vs 15m ~7.2% (160/2226); `high_bull`/`high_bear` regimes qualify at ~22%/~15% vs `low_bear` at ~5.5%.
+
 - **2026-07-08 (same day, superseding all verdicts above): the entire measurement chain above was computed against a corpus with 60% of its feature columns silently NULL. Every number in this section — the 4.7% ensemble qualifying rate, the feature-level comparison, the regime/TF heterogeneity — needs to be treated as provisional until a full corpus rebuild completes.** Root cause, found while investigating whether the weak per-symbol IC traced back to feature quality: `src/intelligence/features/feature_vector_persistence.py` — the single canonical `INSERT INTO feature_vectors` contract all three writers (`FeatureVectorWriter`, `backfill_feature_factory.py`, and by extension every corpus rebuild run today) import from — was never updated when Phase 142.5 added 91 new primitive fields to `FeatureVector` and the DB schema (migration 206). The compute logic was correct and unit-tested (`FeatureFactory.compute()`/`compute_batch()` both produce real values, verified by tracing `body_ratio_val` through both code paths and confirmed by 132/133 passing compute-layer tests); the values were computed correctly in memory, then silently discarded before ever reaching the database — the INSERT statement simply never listed those 91 columns. Confirmed empirically: 98 of 156 numeric `feature_vectors` columns were 100% NULL across all 36.7M rows (98 minus 4 legitimately-None VP/SR columns minus 3 documented "None until Phase 139" rank_z columns = exactly 91). This is not a new oversight — Phase 142.5's own persistence test (`test_feature_vector_writer_column_mapping.py`) explicitly built its sentinel fixture with a comment on every affected field group: *"not yet in the persisted tuple (migration 206 / writer wiring land in a later plan)."* That later plan never happened, and no todo tracked it as outstanding — Phase 142.5's completion summary said *"Corpus backfill and IC evaluation are explicitly deferred to a future corpus run,"* and today's 5th corpus rebuild was that future run, except nobody re-verified the wiring landed before running it.
   **Fixed** (commit pending): `feature_vector_persistence.py`'s `FEATURE_VECTOR_INSERT_SQL` and `feature_vector_to_insert_params()` extended from 70 to 161 columns (91 new, generated programmatically from `dataclasses.fields(FeatureVector)` to eliminate hand-transcription risk across a change this consequential — a single positional mismatch would silently write a wrong value into a wrong column, worse than the prior all-NULL state). New systemic regression guard added: `tests/unit/test_feature_vector_persistence_completeness.py` asserts every `FeatureVector` field appears as an INSERT column, structurally — this exact failure mode is now impossible to ship silently again. 5 existing tests with stale hardcoded `70`-element assertions updated to `161`. 77/77 tests green on the full affected suite; 22 pre-existing/unrelated failures elsewhere unchanged (archived I1-I7 pipeline tests + the already-tracked smoothing-grep false positive, todo 086).
   **What this means for every measurement above:** feature-level IC, ensemble-level IC, the cross-sectional-rank-IC recommendation, the pooled-vs-per-symbol weighting concern — all of it was computed on a corpus where 60% of features never had real values. **The entire corpus must be rebuilt from `services/backfill_feature_factory.py` (step 1) forward** — not just the downstream steps re-run today — before any of tonight's IC verdicts can be trusted. This is a substantially larger operation than anything run today (all of which started from an already-complete `feature_vectors`); step 1 alone recomputes features for 77 symbols × 4 timeframes × years of history. Not yet started — needs explicit scoping given today's DB crash precedent (see Corpus pipeline state memory) before kicking off.
+
 - **2026-07-09: corpus rebuild resumed (6th attempt, first since the persistence-fix batch `bc751979` landed), plus two more real bugs found and fixed mid-run.** Steps 1-3 (`backfill_feature_factory`, `regime_writer`, `forward_return_writer`) completed clean. Step 4 (`ic_engine`) failed immediately: `market_regimes` was completely empty across all 4 timeframes — `services/equity_regime_model.py` (populates the cross-sectional VIX×breadth regime table `ic_engine` requires when `equity_model_enabled=true`) was never included in `scripts/ops/corpus/ops_corpus_pipeline_run.sh`'s 7-step sequence, a genuine orchestration gap, not a new regression. Ran it manually (529,499 rows written across 5m/15m/1h/1d, all 9 regime labels present); the orchestrator script itself still needs a step added for this so the gap doesn't recur on the next rebuild. Separately in the same window (code-review pass on `tools/scan_binary_patterns.py` violations), `new_high_flag`/`new_low_flag` were found redundant with `dist_from_high`/`dist_from_low` and removed (migration 211 — see the Phase 142.5 section above for the proof). Timing mattered: the migration was applied while `ic_engine` was down (avoiding an `ACCESS EXCLUSIVE` lock collision with its long-running queries against the same 36.7M-row table) and specifically *before* resuming the pipeline, since the code change alone (dynamic `_REGISTRY_ROW_COUNT` now reading 150 from the dataclass) would have made `ic_engine` crash against the still-152-row `feature_registry` otherwise. Pipeline resumed from step 4 (`bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --from-step 4`); in progress as of this writing — check [Corpus pipeline state](project_corpus_pipeline_state.md) or live process/DB state for current status.
 
 ---
@@ -982,6 +988,7 @@ Plans:
 **Depends on:** Phase 142A complete — **EIC-04 gate must show PASS** (see verdict log in the Phase 142A section above). **Both dependencies now satisfied as of 2026-07-09** (see [Corpus pipeline state](project_corpus_pipeline_state.md) memory for full detail — don't duplicate the numbers here): EIC-04 PASSes (35/1585 = 2.21% against a threshold recalibrated 0.60→0.02 `[rca_analysis]`, since 0.60 was an untested guess incompatible with rigorous correction at the corpus's true ~516K-hypothesis BH-FDR scale — not a data problem, confirmed via p-value histogram showing genuine, modest signal). `hold_max_bars` APR keys are calibrated from the EIC-02 decay curve for every (regime, tf) cell with qualifying per-symbol evidence (16/36 cells, mostly 5m/15m) after a real bug fix (`services/ensemble_ic_engine.py`'s `_select_hold_bars_from_decay` was silently defaulting to the 60-bar ceiling with zero evidence when the "extended" scale never qualified — fixed, commit `88bd4e44`); the remaining 20 cells (mostly 1h/1d) correctly retain their original `[initial_estimate]` seed because no qualifying decay curve exists there, not because anything is broken. **Phase 142B is no longer blocked.**
 
 **Also carries (added 2026-07-03, canonical-simulator v2 requirements — see `docs/research/canonical-simulator.md`):**
+
 - `alpha_frames`'s P1 migration adds `corpus_run_id`/`weight_epoch` provenance columns — every counterfactual claim must attribute the machinery that produced it (the binding rule's provenance clause).
 - **Decide gross vs. net-of-cost SHADOW-REVIEW criteria before that document is committed** (see below) — this cannot be revisited post-launch per the phase's own no-post-hoc-negotiation rule. The externally-calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) exist now; applying them as a net-of-cost *reporting column* alongside the gross criteria is cheap and closes canonical-simulator's cost-kernel gap as this phase's natural second consumer.
 
@@ -1017,7 +1024,12 @@ Exit triggers in priority order: (1) stop hit (`low <= stop_price`); (2) target 
 **Plans:** 2 plans (Wave 1: AlphaFrameWriter + SHADOW-REVIEW.md pre-commitment; Wave 2: CounterfactualTracker + state machine + gate evaluation)
 
 Plans:
+**Wave 1**
+
 - [ ] 142B-01-PLAN.md — Wave 1: migration 214 (alpha_frames + APR seeds) + AlphaFrameWriter (FRAME-01) + SHADOW-REVIEW.md pre-commitment
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 142B-02-PLAN.md — Wave 2: CounterfactualTracker (FRAME-02/03 state machine, named-cursor scan) + FRAME-04 bootstrap gate + IC-staleness instrumentation
 
 ---
@@ -1038,6 +1050,7 @@ Every variant is a new `weight_version` in the existing `ensemble_weights` PK �
 **Plans:** 5/5 plans complete
 
 Plans:
+
 - [x] 142B.1-01-PLAN.md — Wave 0: migration 196 (2 columns + 4 APR keys) + pooled cross-sectional dispatch in ensemble_ic_engine.py (todo 046, D-01/D-02/D-07)
 - [x] 142B.1-02-PLAN.md — Pure-fn math (TDD): shrink_ic + leave-one-out prior (shrinkage.py) + mean_variance_weights() in weights.py (D-05/D-06/D-08 math)
 - [x] 142B.1-03-PLAN.md — E1 wiring: ops_ic_shrinkage.py compute step + hard out-of-fold acceptance gate + ensemble_trainer ic_input toggle + pipeline sequencing (D-04/D-05/D-06)
@@ -1057,6 +1070,7 @@ v3.15 and intel-10 v3). Not doing this promptly is how "deferred" becomes "defer
 **Goal:** Add 91 foundational primitives from `signal-renaissance-primitives-ohlcv.md` to Feature Factory v3.0. Corpus backfill and IC evaluation will happen as part of the next corpus run (before 142B).
 
 **Requirements** (counts reconciled 2026-07-06 — see `142.5-PLAN-OUTLINE.md`):
+
 - Implement all primitives in `src/intelligence/feature_factory.py`:
   - Bar anatomy ratios (8)
   - Lagged return series (6)
@@ -1075,11 +1089,13 @@ v3.15 and intel-10 v3). Not doing this promptly is how "deferred" becomes "defer
 - Migration: `production/migrations/206_add_renaissance_primitives.sql`
 - **Deferred (OUT):** Cross-Timeframe Divergences (3) — require HTF-cache coupling; scoped to a
   follow-on cross-TF unit (see `.planning/todos/pending/`)
+
 - **Deliverable:** FeatureFactory computes 152 features, schema expanded, registry seeded, ready for corpus run
 
 **Depends on:** Phase 142B.1 (Ensemble Weighting Methodology)
 **Plans:** 8/8 plans complete
 Plans:
+
 - [x] 142.5-00-PLAN.md — Wave 0: Test infrastructure (11 RED categories, schema test asserts 152)
 - [x] 142.5-01-PLAN.md — Bar anatomy (8) + Lagged returns (6) + Open-to-close split (4) → 79
 - [x] 142.5-02-PLAN.md — Temporal coords new (8) + month_sin/cos (2) + Volume structure (12) → 101
@@ -1131,8 +1147,10 @@ before trusting the regime-shift guard in production.
 **LIFECYCLE-01 — Registry amendments (replaces the old bespoke state machine):**
 `feature_registry`'s existing `candidate → active → shadow_only → deprecated` machine gets
 three amendments, not a parallel one:
+
 1. Redirect automated `ic_demotion` to target `shadow_only`, not `deprecated`; `deprecated`
    becomes operator-only (closes the auto-deprecation path the registry currently allows).
+
 2. Add the missing `shadow_only → active` promotion transition — none exists today;
    `shadow_only` is currently an operator-entered dead end. Promotion requires **2 consecutive
    passing corpus runs AND ≥ `alpha.ic.decay_recovery_min_observations = 2000` new independent
@@ -1140,6 +1158,7 @@ three amendments, not a parallel one:
    rejected calendar-gated recovery: it blocks fast recovery for no statistical reason, and the
    observation floor already guards against evidence reuse that a cooldown was trying to
    prevent).
+
 3. Add shadow-run counters (consecutive passes, observations since demotion) as **registry
    columns**, not `feature_ic_scores` columns — they are lifecycle state, so they live with the
    status. **Correction (2026-07-06, `/gsd:plan-phase --reviews` replan against 143-REVIEWS.md):**
@@ -1194,6 +1213,7 @@ later if/when Phase 151 lands, not a blocking dependency now.
 has operated ≥ 30 days.
 
 **Plans:** 3 plans (planned 2026-07-05):
+
 - [ ] 143-01-PLAN.md — Wave 1: LIFECYCLE-00 HMM regime label validation (P2b occupation gate, P2c hmm_churn, APR keys)
 - [ ] 143-02-PLAN.md — Wave 2: LIFECYCLE-01 registry amendments (lifecycle columns, sync record_transition_sync + evidence-only promotion, drop dead decay columns)
 - [ ] 143-03-PLAN.md — Wave 3: LIFECYCLE-02/03/04/05/06 ic_engine post-run hook (demote/promote, regime-shift guard, staleness gauge, integrity_monitor, decay diagnostics SQL)
@@ -1320,6 +1340,7 @@ reasoning and falsifiers: `docs/research/fable-2026-07-07-phase144-conditioning-
 **Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules). Migration 189. Full design: `docs/plans/2026-07-01-cross-sectional-regime-model.md`.
 
 **Status per 2026-07-01 architecture review** (`.planning/research/2026-07-01-v3-architecture-review.md` §4): confirmed live today, not a future risk — corpus symbols (all `fi_*` bonds + GLD/SLV/VNQ, plus IBIT) are excluded from equity breadth by `equity_regime_model.py`'s own filter yet get equity regime labels in IC stratification and ensemble scoring. This phase fixes the `fi_*` bonds via the rates group. Decisions made (first-principles, not re-opened for user input):
+
 - **Unrouted-until-group-enabled symbols (GLD/SLV/VNQ, IBIT):** exclude from regime-stratified IC with loud startup logging of unrouted symbols, NOT the plan's original silent default-to-equity (fixed in the plan doc's `_build_symbol_regime_class` — omits unmatched symbols, raises `AmbiguousRegimeGroupError` on multi-match, never defaults to `"equity"`). Pooled IC still covers them; no data lost. "Silent wrong answers are worse than loud crashes."
 - **Crypto lumped into the `fx` group (2026-07-07 decision):** IBIT's `tag_filter` match is `fx` (`docs/plans/2026-07-01-cross-sectional-regime-model.md` fx group now matches `["fx_*", "crypto"]`), not a standalone `crypto` group — N=1 crypto instrument doesn't support its own regime signal module, and both are macro-liquidity-driven, single-symbol-per-exposure assets. IBIT stays unrouted in practice until `fx` is enabled (same blocker as commodity, below); revisit the grouping if the crypto sleeve grows past N=1.
 - **Commodity/fx group enablement is blocked** on todo 041 (tag exposure-vs-sensitivity taxonomy audit) — OIH/XLE/XOP carry both `eq_*` and `commodity_energy_*` tags and will raise `AmbiguousRegimeGroupError` the moment `commodity_energy` is enabled. Add this as an explicit dependency edge, not just a scope-note aside.
