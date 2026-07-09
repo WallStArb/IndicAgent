@@ -1,7 +1,7 @@
 {
   "step_name": "ic_engine",
   "step_version": "1.0",
-  "timestamp": "2026-07-08T11:27:52.006825+00:00",
+  "timestamp": "2026-07-09T10:45:26.311639+00:00",
   "status": "success",
   "inputs": {
     "training_window_end": "2025-12-24 05:15:00+00:00",
@@ -98,24 +98,24 @@
   "outputs": {
     "feature_ic_scores": {
       "table": "feature_ic_scores",
-      "rows_total": 932921,
+      "rows_total": 920649,
       "rows_by_tf": {
-        "15m": 289560,
-        "1d": 122457,
-        "1h": 106704,
-        "5m": 414200
+        "15m": 285750,
+        "1d": 120849,
+        "1h": 105300,
+        "5m": 408750
       },
       "rows_by_regime": {
-        "_pooled": 139177,
-        "high_bear": 108984,
-        "high_bull": 106096,
-        "high_neutral": 73720,
-        "low_bear": 58824,
-        "low_bull": 121448,
-        "low_neutral": 61864,
-        "mid_bear": 70376,
-        "mid_bull": 120384,
-        "mid_neutral": 72048
+        "_pooled": 137349,
+        "high_bear": 107550,
+        "high_bull": 104700,
+        "high_neutral": 72750,
+        "low_bear": 58050,
+        "low_bull": 119850,
+        "low_neutral": 61050,
+        "mid_bear": 69450,
+        "mid_bull": 118800,
+        "mid_neutral": 71100
       },
       "columns_written": [
         "feature_name",

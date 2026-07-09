@@ -2,8 +2,8 @@
 #
 # ops_corpus_pipeline_run.sh — v3.0 corpus pipeline orchestrator
 #
-# Runs feature_factory → regime_writer → forward_return_writer → ic_engine →
-# ic_shrinkage → ensemble_trainer → alpha_publisher sequence for corpus generation.
+# Runs feature_factory → regime_writer → forward_return_writer → equity_regime_model →
+# ic_engine → ic_shrinkage → ensemble_trainer → alpha_publisher sequence for corpus generation.
 # Use for initial population or incremental updates.
 # Requires market_data_ohlcv populated and Redpanda + TimescaleDB running.
 #
@@ -56,7 +56,7 @@ banner() {
     local status=$3
     echo
     echo "======================================"
-    printf " Step %d/7 — %s\n" "$step" "$name"
+    printf " Step %d/8 — %s\n" "$step" "$name"
     echo " Status: $status"
     echo " $(date)"
     echo "======================================"
@@ -70,7 +70,7 @@ elapsed_since() {
 }
 
 check_regime_consistency() {
-    if (( FROM_STEP > 4 )); then
+    if (( FROM_STEP > 5 )); then
         return 0
     fi
 
@@ -279,27 +279,35 @@ run_step 3 "forward_return_writer" \
     "${SPACE_SYMBOLS[@]}" \
     --training-window-end "$TRAINING_WINDOW_END"
 
-# Step 4 — IC Engine (feature_vectors + forward_returns → feature_ic_scores)
-run_step 4 "ic_engine" \
+# Step 4 — Equity Regime Model (market_data_ohlcv → market_regimes, cross-sectional
+# VIX×breadth labels). Independent of feature_vectors/regime_writer — reads raw bars
+# only — but must land before ic_engine, whose startup gate FAILs immediately if
+# market_regimes is empty and alpha.regime.equity_model_enabled=true. No --symbols
+# arg: always computes across the full active-instrument universe per TF.
+run_step 4 "equity_regime_model" \
+    "$PYTHON" services/equity_regime_model.py
+
+# Step 5 — IC Engine (feature_vectors + forward_returns → feature_ic_scores)
+run_step 5 "ic_engine" \
     "$PYTHON" services/ic_engine.py \
     "${SPACE_SYMBOLS[@]}" \
     --training-window-end "$TRAINING_WINDOW_END"
 
-# Step 5 — IC Shrinkage (E1): shrink feature_ic_scores IC estimates toward a
+# Step 6 — IC Shrinkage (E1): shrink feature_ic_scores IC estimates toward a
 # leave-one-out peer-group prior; the out-of-fold acceptance gate flips
 # alpha.ensemble.ic_input to 'ic_shrunk' only on empirical PASS (D-04/D-05). A gate
-# FAIL is a valid, expected report (exit 0) -- it must not halt the pipeline; step 6
+# FAIL is a valid, expected report (exit 0) -- it must not halt the pipeline; step 7
 # always proceeds using whichever ic_input is currently configured.
-run_step 5 "ic_shrinkage" \
+run_step 6 "ic_shrinkage" \
     "$PYTHON" scripts/ops/alpha/ops_ic_shrinkage.py
 
-# Step 6 — Ensemble Trainer (feature_ic_scores + feature_vectors → ensemble_weights + ensemble_alpha)
-run_step 6 "ensemble_trainer" \
+# Step 7 — Ensemble Trainer (feature_ic_scores + feature_vectors → ensemble_weights + ensemble_alpha)
+run_step 7 "ensemble_trainer" \
     "$PYTHON" services/ensemble_trainer.py \
     --weight-version "$WEIGHT_EPOCH"
 
-# Step 7 — Alpha Publisher (ensemble_alpha → alpha_events + Kafka)
-run_step 7 "alpha_publisher" \
+# Step 8 — Alpha Publisher (ensemble_alpha → alpha_events + Kafka)
+run_step 8 "alpha_publisher" \
     "$PYTHON" services/alpha_publisher.py \
     --weight-version "$WEIGHT_EPOCH"
 
