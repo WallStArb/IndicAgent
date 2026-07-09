@@ -34,6 +34,18 @@ expected variance: `hurst`/BIL/1d (`se_ratio=2.242`, Shapiro `p=0.0000`), `ret_a
 (`se_ratio=2.200`, Shapiro `p=0.0000`). This suggests the Fisher-z CLT-normality assumption itself
 may be breaking down for some features, not only the SE magnitude being off.
 
+**Two distinct mechanisms, not one.** The 5 `tf=1d, is_pooled=true` SUSPECT cells are consistent
+with the already-documented **P6 cross-sectional effective-N gap** (`docs/research/measurement-ic-engine.md`
+Measurement Gaps table): 58 symbols on the same bar share regime/macro exposure and are not
+independent observations, so `1/sqrt(n-3)` understates the true SE there by construction — not new
+evidence the formula itself is broken. The other 6 SUSPECT cells (`ret_autocorr_1`/VNQ/5m,
+`range_pct_slow`/HYG/5m, `range_pct_slow`/EWY/15m, `efficiency_ratio_slow`/BIL/1d,
+`overnight_gap`/BIL/1d, `hurst`/BIL/1d) are all `is_pooled=false` — per-symbol cells with no
+cross-sectional pooling involved — so P6 cannot explain them; that SE inflation is the genuinely
+novel finding, most plausibly residual temporal autocorrelation that stride-subsampling didn't
+fully remove (fittingly, `ret_autocorr_1`/VNQ/5m, an autocorrelation-named feature, is the most
+extreme SUSPECT cell at `se_ratio=2.20`).
+
 Full cell-by-cell table: `.superpowers/sdd/task-2-live-run-output.md` (this session's captured
 stdout, the twice-corrected authoritative run — do not use the two earlier buggy runs referenced
 inside that file for numbers).
@@ -65,7 +77,9 @@ owner, not resolved here.
    touches every CI-gated promotion in the stack). The 66-cell stratified sample is a diagnostic,
    not an exhaustive census — before reopening bootstrap machinery, consider whether a broader run
    (all strata, more cells per stratum, or the full `feature_ic_scores` table) changes the picture
-   materially, or just tightens the same conclusion.
+   materially, or just tightens the same conclusion. Any such run should stratify `is_pooled=true`
+   vs. `is_pooled=false` results explicitly and report them separately, so the P6 cross-sectional
+   effect and the novel per-symbol autocorrelation effect don't get re-conflated into one number.
 2. **Reopening circular block bootstrap in the kernel is the natural fix per the original design
    doc** (`docs/plans/2026-07-09-ic-null-calibration-design.md`), but treat this as the leading
    candidate, not a foregone conclusion, until step 1's confirmation (or the project owner's
