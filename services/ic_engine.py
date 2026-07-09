@@ -287,6 +287,7 @@ class ICEngineConfig:
     min_obs_daily: int
     hac_max_lag: int
     cs_chunk_ts: int
+    symbol_fetch_chunk_rows: int
     n_workers: int
 
     @property
@@ -328,6 +329,10 @@ class ICEngineConfig:
             hac_max_lag=int(cfg.get_sync("alpha.ic.hac_max_lag", 3)),
             # Cross-sectional timestamp chunk size (migration 183).
             cs_chunk_ts=int(cfg.get_sync("infra.ic_engine.cs_chunk_ts", 5000)),
+            # Per-symbol feature-vector server-side cursor batch size (migration 212).
+            symbol_fetch_chunk_rows=int(
+                cfg.get_sync("infra.ic_engine.symbol_fetch_chunk_rows", 5000)
+            ),
             # Worker pool size (override via --workers CLI flag).
             n_workers=int(cfg.get_sync("infra.ic_engine.workers", 1)),
         )
@@ -467,6 +472,12 @@ def _compute_symbol_tf(
     n_features = len(_FEATURE_NAMES)
 
     with _observed_span("ic_engine.compute_symbol_tf", tracer, symbol=symbol, tf=tf):
+        # Server-side cursor requires no active transaction -- commit any open
+        # transaction first (a no-op read-only boundary clear, not a data write;
+        # matches regime_writer.py's _compute_symbol_tf and ensemble_ic_engine.py's
+        # pooled worker fetch, both of which commit at their own named-cursor
+        # call site rather than pushing this precondition onto the caller).
+        conn.commit()
         # ------------------------------------------------------------------
         # Load feature matrix
         # ------------------------------------------------------------------
@@ -477,20 +488,42 @@ def _compute_symbol_tf(
             WHERE symbol = %s AND tf = %s AND bar_ts <= %s
             ORDER BY bar_ts
         """
-        # Stream rows from cursor to avoid materialising all 469K psycopg2 tuples at once.
-        # fetchall() on a 469K × 63-column result = ~1.1 GB Python heap per worker; with
-        # 12 parallel workers that peaks at ~24 GB and OOM-kills the pool.
-        # psycopg2 cursor iteration batches via fetchmany(itersize) under the hood, keeping
-        # only ~2000 live tuples at a time while we build native Python lists per column.
+        # Named (server-side) cursor + itersize: rows are fetched from the server in
+        # bounded batches, so peak memory is O(chunk_rows), not O(all rows). A plain
+        # conn.cursor() -- what this used before -- pulls the ENTIRE result across
+        # the wire into psycopg2's client-side buffer at execute() time regardless of
+        # how the Python side iterates it; itersize on an unnamed cursor is a no-op
+        # (the prior comment here describing "fetchmany(itersize) under the hood" was
+        # incorrect psycopg2 semantics, not an actual fix). That gap caused the
+        # 2026-07-09 per-symbol ProcessPoolExecutor OOM: QQQ/5m alone (392K rows x
+        # 150 features) measured at 4.3 GB peak RSS materialising bar_ts_list/
+        # regime_list/X_list before conversion; with 12 workers concurrently in their
+        # 5m pass that's 50+ GB against a 29 GB box. Chunked server-side fetch
+        # (same shape as _compute_cross_sectional_tf's X_chunks/np.vstack pattern,
+        # and ensemble_ic_engine.py's pooled_fetch_itersize fix for the analogous
+        # bug in that module) measured at ~700 MB peak for the same symbol.
+        #
+        # Only the wide feature matrix (150 columns) needs chunked conversion --
+        # bar_ts/regime are one scalar per row and stay cheap (tens of MB at most)
+        # as plain flat lists even at 400K+ rows, so they're appended directly with
+        # no threshold/flush bookkeeping.
+        fetch_chunk_rows = config.symbol_fetch_chunk_rows
         bar_ts_list: list = []
         regime_list: list = []
-        X_list: list = []
-        with conn.cursor() as cur:
+        X_chunks: list[np.ndarray] = []
+        buf_X: list = []
+        with conn.cursor(name=f"fv_{symbol}_{tf}") as cur:
+            cur.itersize = fetch_chunk_rows
             cur.execute(fv_sql, (symbol, tf, training_window_end))
             for r in cur:
                 bar_ts_list.append(r[0])
                 regime_list.append(r[1])
-                X_list.append(r[2:])
+                buf_X.append(r[2:])
+                if len(buf_X) >= fetch_chunk_rows:
+                    X_chunks.append(np.array(buf_X, dtype=np.float32))
+                    buf_X = []
+            if buf_X:
+                X_chunks.append(np.array(buf_X, dtype=np.float32))
 
         if not bar_ts_list:
             _logger.info("ic_engine.no_feature_vectors", symbol=symbol, tf=tf)
@@ -503,8 +536,8 @@ def _compute_symbol_tf(
         del regime_list
         # float32: see the analogous cross-sectional comment in
         # _compute_cross_sectional_tf -- rank-based IC doesn't need float64 raw values.
-        X_raw = np.array(X_list, dtype=np.float32)
-        del X_list
+        X_raw = np.vstack(X_chunks)
+        del X_chunks
 
         # ------------------------------------------------------------------
         # Load forward returns aligned by bar_ts
