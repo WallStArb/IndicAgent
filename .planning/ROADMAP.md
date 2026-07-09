@@ -411,100 +411,21 @@ Refer to the archived file for detailed success criteria, requirements, and plan
 </details>
 
 <details>
-<summary>✅ v2.1 Phase Details (Phases 48-52) — SHIPPED 2026-03-28</summary>
+<summary>✅ v2.1 Phase Details (Phases 48-52) — ARCHIVED 2026-03-28</summary>
 
-### Phase 48: Tick Aggregation & I7 Quality ✅ COMPLETE
+**Full phase details for v2.1 have been archived to:** `.planning/milestones/v2.1-PHASE-DETAILS.md`
 
-**Goal**: Verify and complete tick aggregation feature (5s real-time bars → 1m OHLCV), then refactor I7 trading layer for code reuse and efficiency.
+This includes complete documentation for:
 
-**Status**: ✅ Complete (2026-03-23) — Tick aggregation operational, I7 refactoring delivered (550+ lines saved, 3 shared utilities, 4 I6 violations fixed, aggregator optimized)
+- Phase 48: Tick Aggregation & I7 Quality
+- Phase 49: DB Performance & Signal Ledger Hardening
+- Phase 49.1: Regime Gate Fix — Write All Signals to Signal Ledger
+- Phase 49.2: HMM Operational Fixes
+- Phase 50: Roll Monitor & DualDivergence Graduation
+- Phase 51: Signal & Indicator Validation Framework
+- Phase 52: Infrastructure Hardening
 
-**Depends on**: v2.0 completion (FeaturePipelineService unification, BarMessage schema)
-
-**Requirements**: TICK-01 ✅, I7-REF-01 ✅, I7-REF-02 ✅, I7-REF-03 ✅
-
-**Success Criteria** (all met):
-
-  1. ✅ TWS daemon publishes 5s real-time bars from IBKR; bars aggregate to 1m OHLCV; no `bars_processed` freeze bug
-  2. ✅ After-hours data flows correctly; 1m bars match IBKR official bars (within drift tolerance)
-  3. ✅ Dashboard live pricing updates via `market.ticks` topic
-  4. ✅ Microstructure spike detector extracted to shared utility (`microstructure_utils.py`) — 153 LOC saved
-  5. ✅ I6 confluence violations fixed in 4 SMC/FVG plugins — all capture `ctf_fvg_alignment` / `ctf_ob_alignment`
-  6. ✅ Aggregator calibration batching optimized — 83% reduction in np.interp() calls (36 → 6 per bar)
-
-**Plans**: 2 plans completed (48.1: warmup seed, 48.2: I7 refactoring)
-
-### Phase 49: DB Performance & Signal Ledger Hardening
-
-**Goal**: Optimize database performance, complete CIS null repair, close test gaps, and fix requirements traceability.
-
-**Status**: ✅ Complete (ad-hoc, 2026-03-26)
-
-**Depends on**: Phase 48 completion
-
-**Outcome**:
-
-  1. ✅ `idx_ledger_feature_join` composite index exists on `signal_ledger`
-  2. ⏸ CIS null repair deferred to v2.3 — todo `2026-03-26-backfill-cis-null-scores-in-signal-ledger.md`
-  3. ✅ `tests/unit/service_tests/test_concurrent_lock_behavior.py` exists and passes
-  4. 🗑 Requirements traceability dropped — housekeeping, no downstream impact
-
-### Phase 49.2: HMM Operational Fixes — INSERTED
-
-**Goal:** Make HMM regime gating observable and self-correcting — log 2D fallback, persist hmm_n_dims and hmm_warmed_up to intelligence_features JSONB, suppress warm-up noise via prob zeroing.
-**Requirements**: [HMM-01, HMM-02, HMM-03, HMM-04]
-**Depends on:** Phase 49
-**Plans:** 1 plan
-
-Plans:
-
-- [x] 49.2-01-PLAN.md — TDD: HMM observability + warm-up suppression (schema, plugin, tests)
-
-### Phase 49.1: Regime Gate Fix — Write All Signals to Signal Ledger (INSERTED)
-
-**Goal:** Decouple signal_ledger writes from winner selection — write ALL ranked signals unconditionally. Populate regime_type_at_fire and hmm_regime_at_fire for ML training segmentation.
-**Requirements**: [SHADOW-01, DATA-11]
-**Depends on:** Phase 49
-**Plans:** 1 plan
-
-Plans:
-
-- [x] 49.1-01-PLAN.md — TDD: regime gate fix + regime label population (2 tasks)
-
-### Phase 50: Roll Monitor & DualDivergence Graduation
-
-**Goal**: Graduate roll monitor and trad_DualDivergence from shadow mode after empirical validation.
-
-**Status**: 🚧 Ready to Execute
-
-**Depends on**: Phase 093 ✅ (market_data_5m exists), Phase 093 ✅ (RollComputeAgent validated)
-
-**Requirements**: SHADOW-03, INTEL-04, SHADOW-04
-
-**Success Criteria** (what must be TRUE):
-
-  1. D-21 validation confirms roll detection works correctly with 5m backfilled data (≥90% detection, ≤10% FP)
-  2. Migration `049_roll_premium_pct.sql` applied; `roll_premium_pct` populated in intelligence_features
-  3. `ROLL_MONITOR_ENABLED=true` set in production environment
-  4. trad_DualDivergence promoted (IS_SHADOW=False) after D-07 gate passes (N≥100, 95% CI E[PnL_R] > 0)
-
-**Plans**: 4 plans (50.1: D-21 validation, 50.2: migration, 50.3: enable flag, 50.4: DualDivergence gate)
-
-### Phase 51: Signal & Indicator Validation Framework
-
-**Goal**: Establish automated validation to ensure data quality across all intelligence layers.
-
-**Status**: ✅ Complete (absorbed into v2.1) — per-layer sanity scaffolding delivered via Phase 52.x subphases. Remaining items (VAL-01 full sweep, automated pre-deploy gate) deferred to Phase 51 standalone if prioritized in v2.3.
-
-**Depends on**: None (can run in parallel with Phases 49-50)
-
-### Phase 52: Infrastructure Hardening
-
-**Goal**: Eliminate manual intervention — Docker restart policies, log rotation, deploy scripts, health checks.
-
-**Status**: ✅ Complete (absorbed into v2.1 via 52.1–52.8 subphases) — Docker restart policies, log rotation, systemd hardening, OTEL, trace propagation all shipped.
-
-**Note**: Automated gap-fill moved to Phase 091.1 (BarAuditorAgent). Remaining undelivered items (deploy_dashboard.sh, /health endpoints) carry to v2.2 if needed.
+Refer to the archived file for detailed success criteria, requirements, and plan breakdowns.
 
 </details>
 
@@ -535,542 +456,30 @@ Plans:
 </details>
 
 <details>
-<summary>✅ v2.7 Mathematical Correctness, Storage & Hardening (Phases 093, 100, 100.5, 104-109) — SHIPPED 2026-05-29</summary>
-
-**Milestone Goal:** (1) Ensure mathematical correctness of all intelligence pipeline computations via Renaissance-style validation (ATR bug fix + systematic audit). (2) Build plugin shared infrastructure and incremental compute foundation. (3) Redesign storage architecture (column rename + signal ledger slim). (4) Infrastructure hardening: architecture hotfixes, foundation hardening, infrastructure hygiene, self-healing hardening, config foundation. Phases 094-099 (AI platform) deferred to v2.8.
-
-### Phase 093: Renaissance Mathematical Correctness Audit
-
-**Goal**: Fix ATR bug and systematically validate all mathematical computations against reference implementations. Ensure every indicator, transform, and statistical function is mathematically correct with invariant tests and edge case coverage.
-**Depends on**: Phase 092
-**Requirements**: MATH-01, MATH-02, MATH-03, MATH-04, MATH-05
-**Success Criteria** (what must be TRUE):
-
-  1. ATR bug is fixed and validated against pandas-ta or TA-lib reference implementation
-  2. All Tier 1 financial math (ATR, Bollinger, VWAP, Volume Profile, MACD, RSI, Stochastic, GARCH, Kalman) has reference validation tests
-  3. All stateful computations (Kalman filters, GARCH models, rolling windows) have invariant tests
-  4. Edge case coverage for gap handling, zero volatility, numerical stability
-  5. CI gate prevents merges with failing correctness tests
-  6. No regression in existing functionality
-
-**Plans**: 5 plans
-
-Plans:
-
-**Wave 1**
-
-- [x] 093-01-PLAN.md — Test infrastructure (pandas-ta install, correctness/ package, conftest fixtures)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 093-02-PLAN.md — Tier 1 indicator reference validation vs pandas-ta (10 indicators) + ATR Wilder investigation
-- [x] 093-03-PLAN.md — Kalman and GARCH stateful invariant tests
-- [x] 093-04-PLAN.md — Hot-path efficiency fixes (np.percentile, remove .tolist()) + numeric equivalence guard
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 093-05-PLAN.md — Edge case coverage, numerical stability over 10K bars, CI gate confirmation
-
-### Phase 094: LiteLLM Backend — COMPLETE 2026-05-29
-
-**Goal**: Users of `LLMProviderChain.generate()` get multi-provider routing, automatic retries, and a consistent audit interface — without knowing which underlying HTTP client is in use.
-**Depends on**: Phase 092
-**Requirements**: LLM-INFRA-01, LLM-INFRA-02, LLM-INFRA-03, LLM-INFRA-04, LLM-INFRA-05
-**Success Criteria** (what must be TRUE):
-
-  1. `LiteLLMBackend` handles calls to Ollama (primary) and OpenRouter (fallback) via LiteLLM model strings; no custom HTTP code remains
-  2. `LLMProviderChain.generate()` signature is unchanged; `BaseGroupService` and all 4 swarm agents compile without modification
-  3. `last_provider_id` and `last_token_usage` populate in `llm_calls` rows; Grafana token-spend panel shows real values
-  4. Kafka audit callbacks, `SemanticCache`, and `TokenBudget` produce identical behavior before and after swap (verified by existing tests)
-  5. `OllamaProvider`, `OpenRouterProvider`, and `LLMChain` classes are deleted; `git grep` finds zero references
-
-**Plans:** 7 plans in 3 waves
-
-Plans:
-
-- [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
-- [x] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
-- [x] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
-- [x] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
-- [x] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
-- [x] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
-
-### Phase 095: Pydantic AI Agent Adapter — COMPLETE 2026-05-31
-
-**Goal**: Agent authors write typed `_compute()` implementations against a `RunContext[AgentDeps]`; all session lifecycle, error handling, and dependency injection are handled by the adapter — not hand-coded per agent.
-**Depends on**: Phase 093
-**Requirements**: AGENT-EXEC-01, AGENT-EXEC-02, AGENT-EXEC-03, AGENT-EXEC-04, AGENT-EXEC-05
-**Success Criteria** (what must be TRUE):
-
-  1. `PydanticAIAdapter` exists; calling `adapter.run(context)` produces the same `AgentOutput` as the legacy `_compute()` path, verified by a test against the Skeptic agent
-  2. `AgentDeps` carries `signal_context`, `llm_chain`, `db_pool`, and optional `memory_client`; agents access them via `RunContext[AgentDeps]` without constructor injection
-  3. Skeptic agent runs on Pydantic AI adapter in shadow mode (`shadow_only=True`); all other agents run on `BaseAIAgent` unchanged
-  4. After >= 100 inferences, `calibrated_confidence` delta between Skeptic (Pydantic AI) and baseline is measured and logged; promotion requires explicit operator action
-  5. `BaseAIAgent` class is unchanged; unmigrated agents continue to pass all existing tests
-
-**Plans:** 5 plans in 3 waves
-
-- [x] 094-01-PLAN.md — AgentDeps dependency container (Wave 1)
-- [x] 094-02-PLAN.md — PydanticAIAdapter bridge class (Wave 1)
-- [x] 094-03-PLAN.md — SkepticResult Pydantic model (Wave 2)
-- [ ] 094-04-PLAN.md — SkepticComputeAgentPydantic implementation (Wave 2)
-- [ ] 094-05-PLAN.md — Service registration + pydantic-ai dependency (Wave 3)
-
-### Phase 096: Agent Registry
-
-**Goal**: Operators can add or reconfigure an agent by editing `agents.yaml` and restarting the service; no Python file changes, no deployment, no code review required.
-**Depends on**: Phase 094
-**Requirements**: AGENT-REG-01, AGENT-REG-02, AGENT-REG-03, AGENT-REG-04
-**Success Criteria** (what must be TRUE):
-
-  1. `agents.yaml` exists; adding a new entry with valid `agent_id`, `group`, `model_override`, `shadow_only`, `latency_budget_ms`, `prompt_version` and restarting the service instantiates the agent without code changes
-  2. `AgentRegistry` reads `agents.yaml` at startup and constructs agent instances; the registry is the sole construction path — no agent is instantiated elsewhere
-  3. Starting the service with a spec missing a required field or pointing to a non-existent agent class fails fast with a descriptive error before any bar is processed
-  4. `shadow_registry` DB table is the promotion/demotion authority; `agents.yaml` can set `shadow_only=True` but cannot force production promotion — that requires the statistical gate
-
-**Plans:** 3 plans in 3 waves
-
-Plans:
-
-**Wave 1**
-
-- [x] 096-01-PLAN.md — SwarmDeps + registry core (AgentSpec, _REGISTRY, AgentRegistry) + __init_subclass__ self-registration (Wave 1)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 096-02-PLAN.md — Migrate all six agent constructors + BaseAIWorker.__init__ to deps: SwarmDeps (Wave 2)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 096-03-PLAN.md — register_agents.py + config/agents.yaml + wire BaseSwarmCoordinator._setup + slim AlphaSwarm/NarrativeSwarm (Wave 3)
-
-### Phase 097: Zep Episodic Memory
-
-**Goal**: Agents can recall past setups by regime, symbol, and setup type; memory is gated behind feature flag and validated for quality before production use.
-**Depends on**: Phase 095
-**Requirements**: MEM-01, MEM-02, MEM-03, MEM-04
-**Success Criteria** (what must be TRUE):
-
-  1. `ZepMemoryClient` provides `recall(context: AIContext) -> list[Episode]` and `store(episode: Episode)` interface; agents receive it via `AgentDeps.memory_client`
-  2. Memory recall is scoped by `(regime_type, symbol, setup_type)` to surface contextually relevant past setups
-  3. Memory is gated behind `AGENT_MEMORY_ENABLED` feature flag; disabled by default; enabled only after shadow-mode recall quality is validated
-  4. Memory latency is measured per-call via OTel histogram; recall must complete within 50ms p95 to remain within agent `latency_budget_ms`
-
-**Plans:** 6 plans in 3 waves
-
-Plans:
-
-- [x] 097-01-PLAN.md — DB migration: 6 memory tables + 3 ENUMs + indexes + hypertables + compression policies
-- [x] 097-02-PLAN.md — Core types (Episode/CalibrationStats/RegimeHistory) + 4 backend Protocols + AGENT_MEMORY_ENABLED + config/memory.yaml + 6 OTel metrics
-- [x] 097-03-PLAN.md — EmbeddingService + Pgvector episodic/calibration/regime read backends
-- [x] 097-04-PLAN.md — Mem0 backend + MemoryClient facade + MemoryEpisodeWriter/EmbeddingWorker + WorkerContext wiring
-- [x] 097-05-PLAN.md — memory_batch.py 4-step nightly orchestrator + systemd timer/service + _DAG_ORDER registration
-- [x] 097-06-PLAN.md — Unit tests for MemoryClient, MemoryEpisodeWriter, EmbeddingService (CI-clean)
-
-### Phase 098: DSPy Offline Prompt Optimizer
-
-**Goal**: DSPy optimizer reads labeled (prompt, result, outcome) tuples from `llm_calls` table, compiles optimized prompts, and stores them for A/B testing.
-**Depends on**: Phase 096
-**Requirements**: OPT-01, OPT-02, OPT-03, OPT-04
-**Success Criteria** (what must be TRUE):
-
-  1. `DSPyOptimizer` reads labeled (prompt, result, outcome) tuples from `llm_calls` table where `outcome` is non-null; compiles optimized prompt variants offline
-  2. Optimized prompts are stored in `prompt_versions` table with A/B test assignment; `prompt_version` field in `llm_calls` enables controlled comparison
-  3. DSPy optimizer runs as a timer-triggered batch job (not a daemon); optimizer does not touch the live inference path
-  4. A/B comparison report (win rate delta, parse failure delta, calibrated_confidence delta) shows measurable improvement before any optimized prompt is promoted to default
-
-**Plans:** 5 plans in 4 waves
-
-Plans:
-
-**Wave 1**
-
-- [ ] 098-01-PLAN.md — Migration 115_prompt_versions table (status CHECK candidate/active/retired) + dspy>=3.2.1 pin
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [ ] 098-02-PLAN.md — DSPyOptimizer core class: per-agent data gate, BootstrapFewShot compile, JSONB candidate write
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [ ] 098-03-PLAN.md — Oneshot entrypoint + systemd service/timer (weekly Mon 07:00 UTC) + _DAG_ORDER registration
-- [ ] 098-04-PLAN.md — A/B promotion runner (D-09 criteria, '0'/'1'/'2' regime guard) + comparison report + unit tests
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [ ] 098-05-PLAN.md — [DEFERRED until Phase 096] Startup prompt injection via AgentDependencies + prompt_loader + unit tests
-
-### Phase 099: Guardrails AI Validation
-
-**Goal**: `GuardrailsAIValidator` implements the same interface as existing validators; drop-in replacement with zero call-site changes.
-**Depends on**: Phase 097
-**Requirements**: GUARD-01, GUARD-02, GUARD-03
-**Success Criteria** (what must be TRUE):
-
-  1. `GuardrailsAIValidator` implements the same interface as existing validators; drop-in replacement with zero call-site changes
-  2. Guardrails AI replaces custom field-level validation in `_validate_*_fields` methods; total custom validation LOC reduced
-  3. Latency overhead of Guardrails AI validation is measured and documented; must not exceed 10ms p95 vs existing validator
-
-**Plans:** 7 plans in 3 waves
-
-Plans:
-
-- [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
-- [x] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
-- [x] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
-- [x] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
-- [x] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
-- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
-
-### Phase 100: Plugin Shared Infrastructure
-
-**Goal**: Reduce duplication across 132 plugins (I1-I7) through promoted shared utilities and a targeted IncrementalMixin for the 31 genuine incremental plugins.
-**Depends on**: Phase 093
-**Requirements**: PLUGIN-INFRA-01 through PLUGIN-INFRA-06
-**Success Criteria** (what must be TRUE):
-
-  1. State archetype mixins exist for the 7 identified state shapes (Wilder's Accumulator, Rolling Window+Min/Max, etc.)
-  2. IncrementalMixin provides correct incremental update semantics for the 31 genuine incremental plugins
-  3. All 132 plugins continue to produce identical outputs (golden-file parity tests)
-  4. Shared validation utilities replace duplicated NaN/guard logic across all tiers
-  5. Plugin registration uses shared metadata helpers (no more ad-hoc `supports_incremental` patterns)
-  6. Zero increase in per-bar latency (shared code must not add overhead to hot path)
-
-**Status**: ✅ COMPLETE — 6/6 plans executed and verified (2026-05-22)
-
-**Plans**: 6 plans in 4 waves
-
-**Wave 1**
-
-- [x] 100-01-PLAN.md — Shared utility functions (wilders_update, update_ema, get_main_df)
-
-**Wave 2**
-
-- [x] 100-02-PLAN.md — IncrementalMixin class + ATR reference implementation
-- [x] 100-03-PLAN.md — Fix 5 HIGH bugs (RSI, CMF, MarketProfile, SessionLevels, BOCPD)
-
-**Wave 3**
-
-- [x] 100-04-PLAN.md — Migrate 6 easy plugins to IncrementalMixin (ADX, Stochastic, WilliamsR, MFI, VolumeZscore, Keltner)
-
-**Wave 4**
-
-- [x] 100-05-PLAN.md — Migrate I1/I2 plugins to get_main_df() (Bollinger, MovingAverages, MACD, ROC/PPO, AC Oscillator, CCI, AccelerationRegime) — PLANNED
-- [x] 100-06-PLAN.md — Correct supports_incremental flags on delegation plugins (CVD, OFI, MAComposite) + conformance test — PLANNED
-
-</details>
-
-<details>
-<summary>✅ Phase 100.5: Plugin Infrastructure Hardening — COMPLETE 2026-05-22</summary>
-
-### Phase 100.5: Plugin Infrastructure Hardening ✅
-
-**Goal**: Eliminate silent failure in the plugin system by enforcing structural contracts, wiring production-grade observability, and migrating 24 incremental plugins from ad-hoc state management to IncrementalMixin.
-**Depends on**: Phase 100 (IncrementalMixin + ATR reference), Phase 093 (mathematical correctness)
-**Status**: ✅ Complete (2026-05-22) — 16 tasks, ~55 files, 24 plugins migrated to IncrementalMixin
-
-**Architecture:** PluginObserver (single recording surface) + IncrementalMixin (state lifecycle) + emit_signal() (validate at construction).
-
-**Wave 1** — Observability layer (independent)
-
-- [x] 100.5-PLAN.md Task 1 — Add 5 new OTel instruments + rename plugin_fallbacks_total
-- [x] 100.5-PLAN.md Task 2 — Move plugin_validator inline metrics to metrics.py
-- [x] 100.5-PLAN.md Task 3 — Add PluginCallResult dataclass to executor.py
-- [x] 100.5-PLAN.md Task 4 — Create PluginObserver + NoOpPluginObserver
-
-**Wave 2** — Executor integration (requires Wave 1)
-
-- [x] 100.5-PLAN.md Task 5 — Wire PluginObserver into PluginExecutor + frame pre-validation
-
-**Wave 3** — Signal contract + CI gates (independent)
-
-- [x] 100.5-PLAN.md Task 6 — Add emit_signal() to plugin_utils.py
-- [x] 100.5-PLAN.md Task 7 — CI hard-block: test_incremental_mixin_adoption.py
-- [x] 100.5-PLAN.md Task 8 — Equivalence test infrastructure + fixture directory
-
-**Wave 4** — Plugin migrations (requires Task 8)
-
-- [x] 100.5-PLAN.md Task 9  — Migrate Group 1A: RSI, MACD (reference implementations)
-- [x] 100.5-PLAN.md Task 10 — Migrate Group 1B: CCI, Aroon, Chandelier, CMF
-- [x] 100.5-PLAN.md Task 11 — Migrate Group 1C: HV, ROC/PPO, PSAR, StochRSI, AC Oscillator
-- [x] 100.5-PLAN.md Task 12 — Migrate remaining simple plugins (Bollinger, Donchian, MAs, OBV, SuperTrend, VWAP, SessionLevels, MarketProfile, BollingerSqueeze)
-- [x] 100.5-PLAN.md Task 13 — (consolidated into Task 12)
-- [x] 100.5-PLAN.md Task 14 — Migrate Group 3: BOCPD, HMM, GARCH, Kalman (src/intelligence/context/)
-
-**Wave 5** — Output consistency + cleanup (requires Wave 4)
-
-- [x] 100.5-PLAN.md Task 15 — Output key consistency CI test
-- [x] 100.5-PLAN.md Task 16 — Final verification + legacy fixture cleanup + service restart
-
-</details>
-
-<details>
-<summary>✅ Phase 104: Storage Architecture Redesign — COMPLETE 2026-05-22</summary>
-
-### Phase 104: Storage Architecture Redesign ✅
-
-**Goal**: Eliminate 39 GB/week disk growth from 3 structural violations. Establish 3-store architecture: intelligence_features (canonical, renamed columns) + signal_ledger (slimmed to ~25 columns, lifecycle/outcome only) + ml_signal_training (nightly materialized typed-column store). Apply retention policies to 9 hypertables and byte caps to 6 unbounded Kafka topics.
-**Depends on**: None (tactical insertion - no upstream phase blockers)
-**Plans**: 4 plans in 3 waves (completed 2026-05-22)
-
-**Wave 1** *(parallel, no schema changes)*
-
-- [x] 104-01-PLAN.md — Storage audit doc + retention policies on 9 hypertables + Kafka byte caps on 6 topics
-- [x] 104-02-PLAN.md — Drop feature_snapshots_shadow (13 GB) + retire parity_auditor + feature_snapshot_writer; replace with SQL freshness function + consumer lag verification before group deletion
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 104-03-PLAN.md — Atomic maintenance window: rename intelligence_features tier columns (i1..i8 -> concept names) + slim signal_ledger (drop ~47 fire-time duplicate columns); update all read/write callsites and dashboard API LATERAL JOIN; explicit systemctl stop/start sequence with verification; rollback procedure (pg_dump backup + reverse DDL); dashboard LATERAL JOIN performance note
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 104-04-PLAN.md — Create ml_signal_training hypertable + MLSignalTrainingMaterializeAgent + nightly systemd timer (02:00 UTC) + service_auditor registration; outcome backfill via ON CONFLICT DO UPDATE UPSERT (idempotent, handles late-resolving pnl_r/mae/mfe)
-
-**Success Criteria** (all met):
-
-  1. 9 hypertables have retention policies (timescaledb_information.jobs has 9+ policy_retention rows)
-  2. 6 Kafka topics have retention.bytes=524288000 (no longer -1)
-  3. feature_snapshots_shadow table no longer exists; 13 GB reclaimed
-  4. feature_snapshot_writer_group consumer group deleted only after verifying zero lag (orphan offsets prevented)
-  5. intelligence_features has 8 renamed columns (technical_indicators, market_context, pattern_detections, regime_features, confluence_scores, cross_timeframe_context, trading_signals, llm_narrative); no i1..i8 columns
-  6. signal_ledger has ~38 columns (down from 97); no entry_price/stop_loss/confidence/cis_score (live in trading_signals JSONB)
-  7. ml_signal_training hypertable exists, flat typed columns, nightly populated via systemd timer
-  8. Dashboard /api/signals/active continues to return fire-time fields (via LATERAL jsonb_array_elements join)
-  9. All affected services (feature_writer, signal_writer, signal_tracker_compute, lifecycle_writer, signal_auditor, signal_metrics_compute) restart cleanly with new schema
-  10. DB backup exists at /tmp/indicagent-pre-migration-*.dump and rollback procedure documented
-  11. Dashboard LATERAL JOIN latency monitored (target <500ms p95)
-  12. ml_signal_training outcome backfill uses UPSERT pattern for idempotent updates
-
-**Revision notes (2026-05-22):**
-
-- Plan 02: Added consumer lag verification before deleting feature_snapshot_writer_group to prevent orphan offsets
-- Plan 03: Added explicit systemctl stop sequence with verification; added pg_dump backup and rollback DDL procedure; added LATERAL JOIN performance note for dashboard API
-- Plan 04: Clarified outcome backfill strategy using ON CONFLICT DO UPDATE UPSERT pattern; handles late-resolving pnl_r/mae/mfe idempotently
-
-</details>
-
-<details>
-<summary>✅ Phase 105: Architecture Hotfix Sprint — COMPLETE 2026-05-24</summary>
-
-### Phase 105: Architecture Hotfix Sprint ✅
-
-**Goal**: Fix 11 active bugs identified in the 2026-05-23 architectural audit — shadow signal suppression, data loss in persistence writers, stall watchdog wiring, and FeatureWriter ghost-run on DB failure.
-**Depends on**: Phase 104
-**Status**: ✅ Complete (5/5 plans)
-
-- [x] 105-01-PLAN.md — ctx_writer + llm_writer AttributeErrors, stall watchdog, dead topics (HF-2, HF-3, HF-6, HF-10, HF-11)
-- [x] 105-02-PLAN.md — feature_writer fail-fast, bar_writer liveness, swarm_ledger auto-commit (HF-4, HF-5, HF-7)
-- [x] 105-03-PLAN.md — OTel metric types: shadow gauges + pipeline latency histograms (HF-8 defs, HF-9)
-- [x] 105-04-PLAN.md — Shadow signal suppression: is_shadow stamp, winner filter, auditor SQL + .set() (HF-1, HF-8 call sites)
-- [x] 105-05-PLAN.md — Regression tests for shadow suppression + writer fixes; full unit suite green
-
-</details>
-
-<details>
-<summary>✅ v2.8 AI Platform — Part 1 (Phases 094-095, 106-108, 110-116) — SHIPPED 2026-06-08</summary>
-
-**Milestone Goal (Part 1)**: Execute foundational AI platform stack (LiteLLM, Pydantic AI), infrastructure hardening, naming alignment, SR consensus, framing audit, and Occam's razor foundation. Part 2 (genetic operators, remaining AI platform) is blocked until v2.9 Signal Quality Renaissance completes.
-
-**Completed Phases (Part 1)**:
-
-- Phase 094: LiteLLM + Instructor Structured Output ✅
-- Phase 095: Pydantic AI Agent Execution Layer ✅
-- Phase 106: Foundation Hardening ✅
-- Phase 107: Infrastructure Hygiene ✅
-- Phase 107.5: Signal Lifecycle Architecture Fix ✅
-- Phase 108: Self-Healing Hardening ✅ (6/7 plans, 108-07 deferred)
-- Phase 109: Config Foundation & Self-Healing Engine ✅
-- Phase 110: Renaissance Rename ✅
-- Phase 111: Full Naming Alignment ✅
-- Phase 112: Intelligence Pipeline Signal Integrity ✅
-- Phase 113: Architecture Hardening ✅
-- Phase 114: Occam's Razor — Complexity-Aware Model Selection ✅ (4/4 plans written, 0 executed)
-- Phase 115: Framing Audit Trail ✅
-- Phase 116: SR Consensus — Multi-Method Support/Resistance ✅
-
-**Phases (Part 2 — re-evaluated 2026-06-25 post-v3.0 ship)**:
-
-v3.0 (AlphaEngine) shipped and IC measurement now replaces binary signal scoring. These phases were designed for the v2.x signal-quality problem. Dispositions updated:
-
-- Phase 096: Agent Registry — **REFRAME**: still relevant for narrative/swarm agents that persist in v3.0; scope to non-I7 agents only
-- Phase 097: Zep Episodic Memory — **REFRAME**: lower priority; potentially useful as regime memory in AnalogEngine (Phase 148+); evaluate after AnalogEngine ships
-- Phase 098: DSPy Offline Prompt Optimizer — **PARTIAL RETIRE**: I7 prompt optimization is irrelevant (I7 archived); narrative agent prompts still exist; scope DSPy to narrative/swarm agents only if parse failure rate justifies it
-- Phase 099: Guardrails AI Validation — **RETIRE**: Instructor structured output shipped in Phase 094; adds no marginal value; parse failure rate on Instructor output is the gate that would have triggered this phase; remove from active planning
-- Phase 101: Composite Fitness Function — **RETIRE**: designed for signal genetic operators under v2.x binary paradigm; IC measurement via ICEngine supersedes composite fitness scoring; remove from active planning
-- Phase 102: Genetic Infrastructure — **RETIRE**: superseded by AlphaEngine IC measurement as the arbiter of signal quality; genetic evolution of I7 plugins no longer applies; remove from active planning
-- Phase 103: Reproductive Operators — **RETIRE**: same as 102; remove from active planning
-
-Phases 099, 101, 102, 103 are formally retired. Phases 096, 097, 098 remain in backlog with reduced/reframed scope.
-
-**Design principles (Renaissance standard):**
-
-- Every AI platform phase states the metric it must move — no phase ships without naming the measurement
-- Evidence gates between phases: 099 (Guardrails) only if post-Instructor parse failure rate > 1%; 102-103 (genetics) only if FIT-06 discriminative power gate passes
-- DAG discipline: no new Kafka topics without named producer-consumer pair; no new daemons without justification; compute is in-process
-- Shadow mode by default: all new agent behavior runs shadow_only=True until >= 100 inferences measured
-
-### Phase 106: Foundation Hardening
-
-**Goal**: Zero structural weaknesses from the audit that block v2.8. DAG correctly models all deployed services and never restarts oneshots. Dead code removed. Shared infrastructure reused (retry path, JSONB pool wrapper). PluginCircuitBreaker wired (shadow-mode-first). Queue backpressure and O(1) state lookup in place. Hot path traced via observed_span.
-**Depends on**: Phase 105
-**Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04, FOUND-05, FOUND-06
-**Success Criteria** (what must be TRUE):
-
-  1. `git grep -r "ShadowRecorder\|GuardrailsValidator"` returns zero results; dead Settings fields absent from Settings class
-  2. `_DAG_ORDER` lists all deployed services; starting the service auditor with an ML batch service active does not trigger a restart attempt
-  3. `bar_aggregator_agent` startup uses `BaseAgent._setup_with_retry`; all DB pool creation goes through the shared pool wrapper — no bare `asyncpg.create_pool` calls outside the wrapper
-  4. Sending a burst of 500 bars to the pipeline does not grow the output queue unboundedly; `enqueue_blocking` blocks callers rather than dropping; `process_bar_inner` emits an OTel span
-  5. `PluginCircuitBreaker` trips on repeated plugin failures and the OTel gauge reflects OPEN/CLOSED state; shadow-mode flag controls whether trips affect live processing
-  6. `pytest tests/unit/ -q` passes with no failures after all Phase 106 plans execute
-
-**Plans**: 6 plans
-
-**Wave 1** *(parallel, non-overlapping files; 106-04 depends on 105-03 for shared file)*
-
-- [x] 106-01-PLAN.md — Dead code deletion: ShadowRecorder, GuardrailsValidator (+ chain.py branch), 6+1 dead Settings fields
-- [x] 106-02-PLAN.md — DAG correctness: 9 missing services, _ONESHOT_UNITS guard, lag thresholds, agent-id key, systemd unit fixes
-- [x] 106-03-PLAN.md — Code reuse: bar_aggregator retry → BaseAgent._setup_with_retry, 3 JSONB create_pool bypasses
-- [x] 106-04-PLAN.md — Queue backpressure (enqueue_blocking for intel/journal), PluginStateManager O(1) index, process_bar_inner span
-
-**Wave 2** *(blocked on 106-04 + 105-03/105-04 for shared intelligence_pipeline_agent.py)*
-
-- [x] 106-05-PLAN.md — PluginCircuitBreaker wiring: populate circuit_breakers dict, shadow-mode enabled flag, OTel state gauge
-
-**Wave 3** *(blocked on all code changes)*
-
-- [x] 106-06-PLAN.md — Regression tests: oneshot guard, state index parity, breaker wiring, backpressure; full suite green
-
-### Phase 107: Infrastructure Hygiene
-
-**Goal**: Audit and close accumulated DB and observability debt before AI platform work begins. Fix silent data loss, standardize service patterns, eliminate dead code, and ensure metrics correctness across 9 measurable criteria organized into 3 waves.
-**Depends on**: Phase 106
-**Requirements**: HYGIENE-01, HYGIENE-02, HYGIENE-03, HYGIENE-04 (expanded to 9 criteria via Renaissance design)
-**Success Criteria** (what must be TRUE):
-
-  1. Binary SQL verification query returns TRUE for all 9 criteria (see 107-CONTEXT.md for query)
-  2. All 42+ services use BaseAgent lifecycle with SIGTERM handling and stall detection
-  3. All services use DatabaseManager.create_pool() with JSONB codecs
-  4. Metric label consistency: agent_id used across all services
-  5. All writer services have flush span coverage (no silent data loss)
-  6. Zero AttributeError bugs in persistence writers
-  7. Shadow metrics use correct OTel instrument types (Gauge, not UpDownCounter)
-  8. _DAG_ORDER contains all deployed services with justified priorities
-  9. Shadow promotion queries exclude shadow signals (is_shadow=FALSE filter)
-
-**Plans**: 3 plans (3 waves)
-
-**Wave 1** — Service Consistency (30%):
-
-- [x] 107-01-PLAN.md — BaseAgent migration (2 services) + DatabaseManager standardization (3 services) + agent_id label consistency
-
-**Wave 2** — Silent Failure Elimination (35%):
-
-- [x] 107-02-PLAN.md — Writer flush spans + AttributeError fixes + metric type corrections (shadow gauges, latency histograms)
-
-**Wave 3** — Complexity Reduction (35%):
-
-- [x] 107-03-PLAN.md — DAG completeness (11 missing services) + shadow promotion query fixes + assessment update
-
-**Renaissance Design Notes:**
-
-- Expanded from 4 criteria (HYGIENE-01–04) to 9 criteria (HYGIENE-01–09) based on architectural weakness assessment
-- 3-wave structure: Service Consistency → Silent Failure Elimination → Complexity Reduction
-- Measurement-driven: every criterion has quantified before/after metrics and binary verification
-- Serial wave execution with stabilization gates (Wave 1 → verify → stabilize → Wave 2 → verify → stabilize → Wave 3)
-- Root-cause focused: fixes include CI gates, pre-commit hooks, and process changes
-
-### Phase 107.5: Signal Lifecycle Architecture Fix
-
-**Goal**: Fix four structural defects in signal lifecycle that caused 96% of signals to be permanently pending and mask real performance data. After this phase: signal records are self-contained, TTL evaluation is deterministic and unified, the live tracker handles restarts correctly, and the replay auditor is a true canary processing near-zero signals in steady state.
-**Depends on**: Phase 107
-**Requirements**: LIFECYCLE-FIX-01, LIFECYCLE-FIX-02, LIFECYCLE-FIX-03, LIFECYCLE-FIX-04
-**Success Criteria** (what must be TRUE):
-
-  1. After the next restart, stale pending signals fire TTL-expired transitions immediately (no backlog accumulation) - measured by zero pending signals surviving first `_ingest_signal` cycle post-restart
-  2. `signal_ledger.entry_zone_low` and `entry_zone_high` are non-NULL for all new signals; backfill reconciliation report shows zero unmatched signal_ids
-  3. `signal_ledger.expires_at` is non-NULL for all signals; `lifecycle_tracker.py` and `signal_tracker_compute_agent.py` use `expires_at` exclusively; zero dual-model divergence
-  4. `signal_replay_auditor` processes near-zero signals in steady state (< 5 signals/cycle after 10 minutes); LATERAL JOIN removed; `REPLAY_BATCH_SIZE`/`REPLAY_INTERVAL_SECONDS` in Settings
-
-**Plans**: 6 plans in 6 serial waves
-
-Plans:
-
-- [x] 107.5-01-PLAN.md — Fix 1: Remove is_backfill guard from _ingest_signal (Wave 1)
-- [x] 107.5-02-PLAN.md — Fix 2a: zone field name fix in signal_writer + migration 096 DDL (Wave 2)
-- [x] 107.5-03-PLAN.md — Fix 2b: Zone field backfill script + reconciliation report (Wave 3)
-- [x] 107.5-04-PLAN.md — Fix 3a: tf_to_seconds utility + migration 097 + expires_at backfill (Wave 4)
-- [x] 107.5-05-PLAN.md — Fix 3b: Atomic evaluator deploy — both TTL evaluators switch to expires_at (Wave 5)
-- [x] 107.5-06-PLAN.md — Fix 4: Replay auditor LATERAL JOIN removal + canary params via Settings (Wave 6)
-
-### Phase 108: Self-Healing Hardening
-
-**Goal**: Eliminate the remaining availability gaps left after Phase 107. systemd WatchdogSec rollout gives the init system automatic service recovery without manual intervention. A nightly pg_dump backup ensures DB recovery is possible. Three self-healing gaps in the runtime layer are closed: circuit breaker opens emit to the health event bus, DLQ poison-pill quarantine prevents infinite retry loops, and ServiceAuditor detects stuck consumers that are alive but not processing.
-**Depends on**: Phase 107
-**Requirements**: HEAL-01, HEAL-02, HEAL-03, HEAL-04
-**Success Criteria** (what must be TRUE):
-
-  1. All 39 daemon services have `WatchdogSec=60` in their unit files; `BaseAgent` heartbeat loop calls `sd_notify(WATCHDOG=1)` every 30s; `systemd-analyze verify` passes on all units
-  2. `indicagent-db-backup.service` + `.timer` present and active; nightly `pg_dump` runs; `/var/backups/indicagent/` contains a `.sql.gz` no older than 25h; retention script deletes files older than 7 days
-  3. When a `PluginCircuitBreaker` opens, an event is published to `system.health.events` with `type=circuit_breaker_open`, `plugin_id`, `failure_count`, `opened_at`; CB events visible in service auditor log
-  4. DLQ messages re-delivered more than `DLQ_MAX_RETRIES` times (default 3) are quarantined to a dead-letter-final topic with metadata; ServiceAuditor emits a `consumer_stall` alert when a consumer lag stops decreasing for > `STALL_TIMEOUT_SEC` (default 120s)
-
-**Plans:** 7/7 plans complete
-
-Plans:
-
-**Wave 1**
-
-- [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
-- [x] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
-- [x] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
-- [x] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
-
-### Phase 109: Config Foundation & Self-Healing Engine
-
-**Goal**: Unified config system with time-series audit trail and control-theory-based self-healing engine. Config changes propagate via Kafka with hot-reload. Automated remediation for common infrastructure issues.
-**Depends on**: Phase 108
-**Success Criteria** (what must be TRUE):
-
-  1. Database migration 109_config_foundation.sql applied (4 config tables + remediation_ledger)
-  2. ConfigService HTTP API serves on port 9001 with set/get/list/revert endpoints
-  3. OutboxDispatcherAgent publishes to topic_config_updates (compacted)
-  4. BaseAgent loads config snapshot on startup and subscribes to Kafka for OPS layer hot-reload
-  5. SelfHealingAgent receives Alertmanager webhooks on port 9002
-  6. SelfHealingEngine executes remediation strategies (disk cleanup, consumer restart, pool flush)
-  7. Remediation outcomes recorded to remediation_ledger with success rate tracking
-  8. 15 runtime params migrated from settings.py to config DB (regime.*, swarm.*, roll.*, etc.)
-  9. _LAG_THRESHOLDS dict removed from service_auditor_agent.py, loaded from config instead
-  10. Hardcoded shadow_only flags removed from AI agents, loaded from config instead
-
-**Plans**: 5 plans in 5 waves
-
-Plans:
-
-**Wave 1**
-
-- [x] 109-01-PLAN.md — Config foundation: DB tables, ConfigService, validation schemas
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 109-02-PLAN.md — OutboxDispatcherAgent + topic_config_updates + ConfigService integration
-- [x] 109-03-PLAN.md — BaseAgent config snapshot + hot-reload subscription
-- [x] 109-04-PLAN.md — SelfHealingAgent + webhook receiver + SelfHealingEngine
-- [x] 109-05-PLAN.md — 15 runtime params migration + CLAUDE.md update
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 109-06-PLAN.md — Regression tests + full suite green
+<summary>✅ v2.7 Phase Details (Phases 093, 100, 100.5, 104-109) — ARCHIVED 2026-05-29</summary>
+
+**Full phase details for v2.7 have been archived to:** `.planning/milestones/v2.7-PHASE-DETAILS.md`
+
+This includes complete documentation for:
+
+- Phase 093: Renaissance Mathematical Correctness Audit
+- Phase 094: LiteLLM Backend
+- Phase 095: Pydantic AI Agent Adapter
+- Phase 096: Agent Registry
+- Phase 097: Zep Episodic Memory
+- Phase 098: DSPy Offline Prompt Optimizer
+- Phase 099: Guardrails AI Validation
+- Phase 100: Plugin Shared Infrastructure
+- Phase 100.5: Plugin Infrastructure Hardening
+- Phase 104: Storage Architecture Redesign
+- Phase 105: Architecture Hotfix Sprint
+- Phase 106: Foundation Hardening
+- Phase 107: Infrastructure Hygiene
+- Phase 107.5: Signal Lifecycle Architecture Fix
+- Phase 108: Self-Healing Hardening
+- Phase 109: Config Foundation & Self-Healing Engine
+
+Refer to the archived file for detailed success criteria, requirements, and plan breakdowns.
 
 </details>
 
@@ -1558,8 +967,9 @@ Plans:
 - **2026-07-08 (same day, continued): root cause of the N-starvation was a methodology error, not a data gap — fixed, gate FAILs cleanly now with a real, well-powered measurement.** `EnsembleICEngine` (EIC-01) was measuring IC on `alpha_events` — the population AFTER a threshold + directional-CI + cost-hurdle emission filter — not the raw `ensemble_alpha` scored-bar population. This conditions the correlation test on the very confidence gate being validated (post-selection bias) and is in direct tension with the phase's own stated design: "prove the ensemble OUTPUT has IC before testing any execution rules... no frame assumptions." The emission threshold IS a frame/execution assumption; it does not belong in signal validation. `alpha_events` was 0.17% of `ensemble_alpha`'s row count (54,846 vs. 32.9M), which is what collapsed per-cell N below the floor — not insufficient underlying data (40M+ raw bars exist). Traced to Phase 142A's original design: at planning time (2026-06-30) `alpha_events` had 12.47M rows, nearly as complete as the full scored population, so the distinction didn't matter then; it was never revisited as the emission gate tightened. **Fixed:** `EnsembleICEngine`'s worker fetch, pooled fetch, startup gate, and tf/symbol enumeration queries (6 SQL sites) now source from `ensemble_alpha` directly (commit pending; `tests/unit/test_ensemble_ic_measurement_population.py`, 6 new tests). Empirically validated before implementing: full-population query showed 96% of 5m cells and 90% of 15m cells clear N≥3000 (vs. 0% under the old population); 1d remains structurally underpowered regardless (too few daily bars ever) — expected, not a new problem. `alpha_events`/the emission threshold is still correct for Phase 142B (frame/execution-rule testing, a different and correctly-downstream question) — todo 065/EM-CAL was **not** actioned, since calibrating an execution threshold specifically to manufacture EIC-04 sample size would itself have been a p-hacking risk.
   **Result after the fix, full clean re-run (2026-07-08 ~15:25-15:32 UTC, 240/240 symbol-tf pairs succeeded, 5191 rows in `alpha_ensemble_ic`):** EIC-04 **FAIL, 67/1425 qualifying cells (4.7%)** against the 60% threshold — but this is now a real, honestly-measured scientific result, not a measurement artifact. Coverage jumped 46x (31 → 1425 measurable cells); N is abundant almost everywhere except 1d and a handful of `extended`-lookahead corner cells (still ~100-110, expected — longer lookaheads lose usable windows near the OOS embargo boundary). EIC-05 diagnosis surfaces a live instance of the exact concern flagged-but-unresolved in the 2026-07-04 entry above ("the gate's cell-counting is architecturally unweighted"): multiple (tf, regime, lookahead) cells show `POOLED ci_lower` positive/near-zero while the per-symbol median is meaningfully more negative (flagged `REGIME GRANULARITY ISSUE` — cross-sectional label too coarse), meaning a real pooled cross-sectional signal may exist in cells the flat unweighted per-cell vote is counting as failures. Regime/TF breakdown also shows real heterogeneity, not uniform noise: 5m qualifies at ~17.7% (497/2810) vs 15m ~7.2% (160/2226); `high_bull`/`high_bear` regimes qualify at ~22%/~15% vs `low_bear` at ~5.5%.
 - **2026-07-08 (same day, superseding all verdicts above): the entire measurement chain above was computed against a corpus with 60% of its feature columns silently NULL. Every number in this section — the 4.7% ensemble qualifying rate, the feature-level comparison, the regime/TF heterogeneity — needs to be treated as provisional until a full corpus rebuild completes.** Root cause, found while investigating whether the weak per-symbol IC traced back to feature quality: `src/intelligence/features/feature_vector_persistence.py` — the single canonical `INSERT INTO feature_vectors` contract all three writers (`FeatureVectorWriter`, `backfill_feature_factory.py`, and by extension every corpus rebuild run today) import from — was never updated when Phase 142.5 added 91 new primitive fields to `FeatureVector` and the DB schema (migration 206). The compute logic was correct and unit-tested (`FeatureFactory.compute()`/`compute_batch()` both produce real values, verified by tracing `body_ratio_val` through both code paths and confirmed by 132/133 passing compute-layer tests); the values were computed correctly in memory, then silently discarded before ever reaching the database — the INSERT statement simply never listed those 91 columns. Confirmed empirically: 98 of 156 numeric `feature_vectors` columns were 100% NULL across all 36.7M rows (98 minus 4 legitimately-None VP/SR columns minus 3 documented "None until Phase 139" rank_z columns = exactly 91). This is not a new oversight — Phase 142.5's own persistence test (`test_feature_vector_writer_column_mapping.py`) explicitly built its sentinel fixture with a comment on every affected field group: *"not yet in the persisted tuple (migration 206 / writer wiring land in a later plan)."* That later plan never happened, and no todo tracked it as outstanding — Phase 142.5's completion summary said *"Corpus backfill and IC evaluation are explicitly deferred to a future corpus run,"* and today's 5th corpus rebuild was that future run, except nobody re-verified the wiring landed before running it.
-  **Fixed** (commit pending): `feature_vector_persistence.py`'s `FEATURE_VECTOR_INSERT_SQL` and `feature_vector_to_insert_params()` extended from 70 to 161 columns (91 new, generated programmatically from `dataclasses.fields(FeatureVector)` to eliminate hand-transcription risk across a change this consequential — a single positional mismatch would silently write a wrong value into a wrong column, worse than the prior all-NULL state). New systemic regression guard added: `tests/unit/test_feature_vector_persistence_completeness.py` asserts every `FeatureVector` field appears as an INSERT column, structurally — this exact failure mode is now impossible to ship silently again. 5 existing tests with stale hardcoded `70`-element assertions updated to `161`. 77/77 tests green on the full affected suite; 22 pre-existing/unrelated failures elsewhere unchanged (archived I1-I7 pipeline tests + the already-tracked smoothing-grep false positive, todo 170).
+  **Fixed** (commit pending): `feature_vector_persistence.py`'s `FEATURE_VECTOR_INSERT_SQL` and `feature_vector_to_insert_params()` extended from 70 to 161 columns (91 new, generated programmatically from `dataclasses.fields(FeatureVector)` to eliminate hand-transcription risk across a change this consequential — a single positional mismatch would silently write a wrong value into a wrong column, worse than the prior all-NULL state). New systemic regression guard added: `tests/unit/test_feature_vector_persistence_completeness.py` asserts every `FeatureVector` field appears as an INSERT column, structurally — this exact failure mode is now impossible to ship silently again. 5 existing tests with stale hardcoded `70`-element assertions updated to `161`. 77/77 tests green on the full affected suite; 22 pre-existing/unrelated failures elsewhere unchanged (archived I1-I7 pipeline tests + the already-tracked smoothing-grep false positive, todo 086).
   **What this means for every measurement above:** feature-level IC, ensemble-level IC, the cross-sectional-rank-IC recommendation, the pooled-vs-per-symbol weighting concern — all of it was computed on a corpus where 60% of features never had real values. **The entire corpus must be rebuilt from `services/backfill_feature_factory.py` (step 1) forward** — not just the downstream steps re-run today — before any of tonight's IC verdicts can be trusted. This is a substantially larger operation than anything run today (all of which started from an already-complete `feature_vectors`); step 1 alone recomputes features for 77 symbols × 4 timeframes × years of history. Not yet started — needs explicit scoping given today's DB crash precedent (see Corpus pipeline state memory) before kicking off.
+- **2026-07-09: corpus rebuild resumed (6th attempt, first since the persistence-fix batch `bc751979` landed), plus two more real bugs found and fixed mid-run.** Steps 1-3 (`backfill_feature_factory`, `regime_writer`, `forward_return_writer`) completed clean. Step 4 (`ic_engine`) failed immediately: `market_regimes` was completely empty across all 4 timeframes — `services/equity_regime_model.py` (populates the cross-sectional VIX×breadth regime table `ic_engine` requires when `equity_model_enabled=true`) was never included in `scripts/ops/corpus/ops_corpus_pipeline_run.sh`'s 7-step sequence, a genuine orchestration gap, not a new regression. Ran it manually (529,499 rows written across 5m/15m/1h/1d, all 9 regime labels present); the orchestrator script itself still needs a step added for this so the gap doesn't recur on the next rebuild. Separately in the same window (code-review pass on `tools/scan_binary_patterns.py` violations), `new_high_flag`/`new_low_flag` were found redundant with `dist_from_high`/`dist_from_low` and removed (migration 211 — see the Phase 142.5 section above for the proof). Timing mattered: the migration was applied while `ic_engine` was down (avoiding an `ACCESS EXCLUSIVE` lock collision with its long-running queries against the same 36.7M-row table) and specifically *before* resuming the pipeline, since the code change alone (dynamic `_REGISTRY_ROW_COUNT` now reading 150 from the dataclass) would have made `ic_engine` crash against the still-152-row `feature_registry` otherwise. Pipeline resumed from step 4 (`bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --from-step 4`); in progress as of this writing — check [Corpus pipeline state](project_corpus_pipeline_state.md) or live process/DB state for current status.
 
 ---
 
@@ -1674,6 +1084,14 @@ Plans:
 - [x] 142.5-05-PLAN.md — Breakout distance (14) + migration 206 (breakout cols/APR) → 144
 - [x] 142.5-05.5-PLAN.md — Price-volume interactions (8) → 152
 - [x] 142.5-06-PLAN.md — APR seeds (44) + 77 columns + 91 feature_registry rows + schema test (152)
+
+**Post-completion correction (2026-07-09, migration 211):** `new_high_flag`/`new_low_flag`
+(2 of the 91 primitives) were found redundant with `dist_from_high`/`dist_from_low` — same
+rolling-max window, same comparison, `new_high_flag[i] == 1{dist_from_high[i] <= eps/atr[i]}`
+exactly, zero orthogonal information. Removed from `FeatureVector`, `feature_factory.py`, and
+the DB schema (`production/migrations/211_drop_redundant_breakout_flags.sql` has the full
+proof and rationale in its header comment). Current state: **89 Renaissance primitives, 150
+total FeatureVector columns** (61 baseline + 89), `feature_registry` at 150 rows.
 
 ### Phase 143: Feature Lifecycle Routing (merged with Phase 149B) 📐 PLANNED (3 plans)
 
@@ -1930,9 +1348,9 @@ Tags that are fully computable from the factor vector (all 8 OLS betas) must not
 
 ## v3.2 AnalogEngine + Feature Expansion (Phases 148-150)
 
-**Milestone Goal (framing corrected 2026-07-03 — full rewrite in scope of todo 055):** Build the
+**Milestone Goal (framing corrected 2026-07-03; phase requirement bodies rewritten 2026-07-09, todo 055):** Build the
 AnalogEngine substrate and analog predictor family — a second *evidence source*, not a second
-*system* (`docs/research/intel-13-analog-engine.md`; the prior "independent complement"/"System 2"
+*system* (`docs/research/intel-analog-engine.md`; the prior "independent complement"/"System 2"
 framing here violated the one-model-one-book invariant now in `docs/foundation/principles.md`).
 Expand the feature set with new primitives and compound interactions. Phases 148-149 (AnalogEngine
 substrate + scoring) are strictly sequential — each gated on the prior — **and both depend on
@@ -1959,61 +1377,50 @@ while 147 sits behind Phase 146 completing plus Phase 142B accumulating 60 days 
 **ANALOG-01 — Embedding dimension calibration (one-way door):**
 Before committing to an embedding dimension, run a calibration study: embed 6 months of `feature_vectors` bars at three candidate dimensions (64, 128, 256) using variance-normalized features (z-score per feature, L2-normalize). Measure retrieval quality: recall@10, mean reciprocal rank, analog distance distribution on known-outcome bars. Pick the winning dimension. Lock `embedding_version = 1`. This step happens BEFORE any full historical embedding run — changing the dimension after is prohibitively expensive.
 
-**Why not IC-weighted at index time:** IC weights update weekly from the IC engine. Baking them into the HNSW index would require a full re-embedding of the historical corpus (O(N×D)) on every IC recalibration cycle. ANALOG-08 already handles IC-weighted re-ranking at query time — encoding IC into the embedding double-counts the signal while coupling index freshness to IC engine cadence. Keep the embedding stable; put IC discrimination in ANALOG-08 where it belongs.
+**Why not IC-weighted at index time:** IC weights update weekly from the IC engine. Baking them into the HNSW index would require a full re-embedding of the historical corpus (O(N×D)) on every IC recalibration cycle, coupling index freshness to IC engine cadence. The substrate's answer is `candidate_k` oversampling: the retrieval primitive accepts a generous candidate set (default 200) so a future consumer can re-rank to its final K itself, keeping the index simple and any weights always current. IC-weighted re-ranking itself is a deferred capability, not a requirement of this milestone; per `docs/research/intel-analog-engine.md` Open Question 5, it is not built until plain-cosine analog predictors have demonstrated IC on their own and re-ranking can be shown to measurably improve it. Keep the embedding stable; nothing in Phases 148-149 encodes IC into vectors or retrieval.
 
 **ANALOG-02 — Embedding serialization contract (variance-normalized):**
-For each bar: (1) per-feature rolling z-score, point-in-time trailing window, no lookahead; (2) L2-normalize the result. No IC-weight multiplication at index time. Regime and session applied as hard retrieval filters (not encoded in vector). Stable feature ordering in `embedding_feature_registry` table. `embedding_version` bump on any change — feature set or z-score window — invalidates all stored vectors; treat as a database migration. IC-weighted re-ranking is handled entirely by ANALOG-08 at query time. **Dependency note (2026-07-01 review):** "regime applied as a hard retrieval filter" means AnalogEngine's retrieval quality directly inherits any bias in the regime labels themselves — same open question as Phase 143's LIFECYCLE-04 (see todo 034/026). If that validation finds the per-symbol HMM labels are empirically fine, no action needed here; if it finds material bias, ANALOG-02's regime filter should wait for the corrected labels rather than hard-filtering on known-biased strata — a "have we seen a bar like this before" retrieval is especially sensitive to a wrong stratification since it can silently retrieve analogs from the wrong regime bucket.
+For each bar: (1) per-feature rolling z-score, point-in-time trailing window, no lookahead; (2) L2-normalize the result. No IC-weight multiplication at index time (see ANALOG-01's deferral). Regime and session applied as hard retrieval filters (not encoded in vector); filter labels resolve as `(dimension, label)` pairs per intel-12's label-identity invariant, never a bare label. Stable feature ordering is part of the versioned embedding recipe, the `(feature set, normalization, ordering)` triple, registered as one `concept_registry` row per `embedding_version` (D9; no standalone `embedding_feature_registry` table). The registry domain for embedding recipes gets named at v3.2 planning, `embedding_spec` or a widened `feature` reading, per the anticipated-domain note in `docs/research/platform-unified-concept-registry.md`. `embedding_version` bump on any change to the triple invalidates all stored vectors and forbids cross-version comparison; treat as a database migration (re-embed vs. grow-forward policy is intel-analog-engine Open Question 6). **Dependency note (2026-07-01 review):** "regime applied as a hard retrieval filter" means AnalogEngine's retrieval quality directly inherits any bias in the regime labels themselves — same open question as Phase 143's LIFECYCLE-04 (see todo 034/026). If that validation finds the per-symbol HMM labels are empirically fine, no action needed here; if it finds material bias, ANALOG-02's regime filter should wait for the corrected labels rather than hard-filtering on known-biased strata — a "have we seen a bar like this before" retrieval is especially sensitive to a wrong stratification since it can silently retrieve analogs from the wrong regime bucket.
 
 **ANALOG-03 — bar-embedder (oneshot, nightly):**
 Reads `feature_vectors`. Writes to `embeddings` table (entity_type='bar'). Processes in chronological order; skips bars already embedded at current `embedding_version`. HNSW index built/updated after batch.
 
 **ANALOG-04 — OOD monitor (first-class output):**
-`vil_ood_rate`: rolling fraction of recent retrievals returning null (no analogs within `max_distance`). `vil_nearest_distance`: distance to nearest neighbor even on null results. Rising `vil_ood_rate` is a regime-break early warning — surfaces it, never hides it. APR key: `alpha.analog.max_distance = 0.3` [initial_estimate, calibrate from distance distribution on full corpus].
+Rolling rate and severity of null/near-null retrievals across queries; nearest-neighbor distance recorded even on null results. A rising OOD rate is a regime-break early warning, often firing before a parametric regime classifier catches the same break; surface it, never hide it. The per-bar nearest-neighbor distance is one fact with three consumers: the `analog_nn_dist` predictor column (Phase 149), intel-12's `ood_distance` candidate stratification dimension, and this monitor's threshold aggregate. The monitor measures and surfaces, never acts; a consumer decides whether to shrink conviction, widen an interval, or alert research. DAG constraint carried from intel-12: the distance may condition anything downstream but must never feed back into `retrieve()`'s own filter set (retrieval conditioning on its own output is a cycle). APR keys: `analog.retrieval.max_distance = 0.25` and `analog.ood.alert_rate_threshold = 0.20` [both initial_estimate placeholders, calibrate from the distance distribution on the first real corpus window].
 
 **ANALOG-05 — Null result contract:**
 Empty retrieval (`[]`) when no analogs within `max_distance`. This is a named, surfaced event — not a fallback to nearest-available. AnalogEngine must never silently return the nearest bar when it is out-of-distribution. OOD is information.
 
-**ANALOG-RESEARCH-01 — Hypothesis backtester script (todo 018):**
-Thin research utility built on top of the retrieval primitive. Accepts an arbitrary query feature vector, runs K-NN against `feature_embeddings`, reads empirical outcome distributions from `forward_returns`. Answers "Is this edge real?" with zero new infrastructure. Ships as `production/scripts/analog_backtest.py` alongside the retrieval primitive in Wave 4.
+**ANALOG-RESEARCH-01 — Hypothesis backtester script (todo 017):**
+Thin research utility built on top of the retrieval primitive. Accepts an arbitrary query feature vector, runs K-NN against `embeddings`, reads empirical outcome distributions from `forward_returns`. Answers "Is this edge real?" with zero new infrastructure. Ships as `scripts/analysis/analog_backtest.py` alongside the retrieval primitive in Wave 4 (gated backlog entry: `.planning/todos/deferred/017-non-parametric-hypothesis-backtester.md`).
 
-**Plans:** 4 plans (Wave 1: dimension calibration study; Wave 2: embedding contract + registry; Wave 3: bar-embedder + HNSW; Wave 4: OOD monitor + retrieval primitive + hypothesis backtester script)
+**Plans:** 4 plans (Wave 1: dimension calibration study; Wave 2: embedding contract + concept_registry registration; Wave 3: bar-embedder + HNSW; Wave 4: OOD monitor + retrieval primitive + hypothesis backtester script)
 
 ---
 
 ### Phase 149: AnalogEngine — IC Factory + Scoring Engine + Enrichment 📋 PLANNED
 
-**Goal:** Feature-level IC within the embedding space (for k-NN re-ranking). Correlation service (effective-N). Scoring engine (transforms retrieval results into Score Objects). Analog enricher (annotates alpha_events). Complete the System 2 pipeline.
+**Goal:** Turn retrieval into measured predictors. Compute the shared return-distribution primitive and the analog predictor family from retrieved neighbor sets in a nightly batch, register each output as an ordinary predictor in the shared IC machinery, and let the existing ensemble weight the survivors. One measurement engine, one ensemble, one book (D4, `docs/research/intel-analog-engine.md`): analog outputs are a second evidence source entering the same pipeline as every parametric feature, not a second system.
 
 **Depends on:** Phase 148 (embedding substrate live, HNSW populated).
 
-**Key distinction:** `feature_ic_stats` here measures IC at the feature level within the embedding (used for k-NN re-ranking weights). This is NOT the same as `feature_ic_scores` (System 1 ensemble weights). Different grain, different table ownership, different purpose.
+**Key deletion (D4):** the pre-rescope design's parallel measurement stack (`feature_ic_stats`, `similarity_pairs`, `score_cache`, Score Objects, the composite combiner, the `analog-enricher` daemon) does not exist in this phase. IC measurement is the shared machinery (`ic_engine` today; the D1 Measurement Engine / `predictor_ic_scores` unification when it lands), redundancy control is the ensemble's existing Ledoit-Wolf cluster deflation, weighting is `ensemble_trainer`. The only new state is the analog predictor columns (storage grain per ANALOG-08) plus their registry rows; nothing here writes to `alpha_events`.
 
 **Requirements:**
 
-**ANALOG-06 — analog-ic-factory (weekly oneshot):**
-Reads `embeddings` + `forward_returns`. Computes per-feature IC within the embedding — "which features in the bar state best predict outcomes among retrieved analogs." Writes `feature_ic_stats`. Used only for `candidate_k` re-ranking, not for ensemble weighting.
+**ANALOG-06 — Analog Finder wrapper (`_find_analogs`):**
+Thin wrapper exposing the substrate's `retrieve()` as `_find_analogs(k, scope, regime)` on `BaseAIWorker`; the single retrieval entry point every consumer uses (this phase's nightly batch, and later the LLM swarm's episodic memory). No consumer queries pgvector directly. Warm-tier use is read-only over pre-computed state, never a live pgvector query at inference latency.
 
-**ANALOG-07 — correlation-svc (weekly oneshot):**
-Reads `embeddings` (entity_type='bar'). Computes pairwise cosine similarity between plugin score histories. Writes `similarity_pairs` + `effective_n_scores`. Effective-N for the analog retrieval context.
+**ANALOG-07 — Return-distribution primitive (computed once per horizon per query):**
+Before any scalar is derived, the K retrieved analogs produce a full empirical distribution of forward returns at each canonical gradient horizon, joined from the existing `forward_returns` (`return_type = 'executable_open_to_open'`; `forward_return_writer` remains the sole writer of that fact, no second outcomes table). Percentiles, moments, skew/kurtosis, scenario probabilities, and a shape label (`tight_unimodal`, `bimodal`, `fat_left_tail`, `flat`, `null`). A bare mean hides whether it comes from a tight consensus or a coin flip between two very different outcomes; every derived score in ANALOG-08 reads from this distribution. Units are canonical executable open-to-open log returns; the original design's ATR-normalized R-multiples died with v2.x.
 
-**ANALOG-08 — scoring-engine (nightly oneshot):**
-Reads `embeddings` + `feature_ic_stats` + `forward_returns`. For each bar, retrieves K nearest analogs, re-ranks by IC-weighted feature importance (`candidate_k` oversample → re-rank → trim to K), computes Score Object (E[R] distribution, direction, OOD flag, analog count). Writes `score_cache`. Does NOT execute k-NN internally on live path — batch only.
+**ANALOG-08 — Nightly analog-predictor batch (`BaseBatch` oneshot):**
+For each bar with a valid retrieval, computes the single-TF sub-scores as ordinary predictor columns: `analog_expected_r` (distance-weighted mean forward return), `analog_hit_rate` (distance-weighted directional hit rate), `analog_ret_dispersion` / `sharpe_horizon`, `analog_nn_dist`; plus the conviction envelope as sibling columns (`analog_count`, `mean_distance`, `regime_purity`, `distribution_shape`, `analog_novelty`) and the horizon-profile character label (`flat`/`mean_revert`/`scalp`/`structural`/`mixed`). Load-bearing rules: (1) definedness is NULL, never zero, on a null retrieval or when `analog_count` < `analog.scoring.min_analog_count` (default 10, placeholder); imputing 0.0 silently poisons IC downstream, so record per-predictor coverage and let the existing min-obs gates handle the sparsity. (2) `regime_purity` caps conviction (LOW below a purity floor); it is never a score multiplier. (3) The distance-weighting kernel (inverse-distance, Gaussian, or rank-based) is a build-time decision (intel-analog-engine Open Question 7): pick one, measure calibration, revisit. (4) Storage grain is a schema decision at planning (Open Question 1): columns on `feature_vectors` vs. a sibling `analog_scores` table keyed `(symbol, tf, bar_ts, embedding_version)`; intel-analog-engine leans sibling-table for version hygiene. (5) Out of scope by sequencing discipline: cross-TF `alignment_z`/`coherence` (different grain, and defined over first-order analog predictors that must demonstrate IC first) and IC-weighted candidate re-ranking (ANALOG-01's deferral, Open Question 5).
 
-**ANALOG-09 — analog-enricher (nightly oneshot):**
-Joins `score_cache` to `alpha_events` on (symbol, tf, bar_ts). Writes `alpha_events.analog_score`, `alpha_events.analog_count`, `alpha_events.analog_conviction_lower`, `alpha_events.ood_flagged`. Cold path, never at emission time.
+**ANALOG-09 — Predictor registration + ensemble entry:**
+Each single-TF analog predictor lands at exactly feature grain, one value per (symbol, tf, bar_ts), and is registered as an ordinary predictor (a `concept_registry` row per D1/D9) into the same IC machinery that measures every parametric feature. No analog-specific IC factory and no analog-specific correlation service: the ensemble's existing Ledoit-Wolf `|corr|` cluster deflation already provides redundancy control at the predictor grain, and a third redundancy implementation is precisely the failure mode D4 exists to avoid. Survivors are weighted by `ensemble_trainer` alongside everything else; one combiner, not two. Measurement caveat: analog IC is conditional on being in-distribution (the predictor only exists on bars that had analogs), a legitimate conditionality that must never be read as unconditional IC; stratifying analog predictors by `ood_distance` is near-degenerate by construction.
 
-**Plans:** 3 plans (Wave 1: analog-ic-factory + correlation-svc; Wave 2: scoring-engine; Wave 3: analog-enricher + integration)
-
-**Note (corrected 2026-07-03 — this phase's requirements above are stale, see todo 055):**
-ANALOG-06..09 above (`feature_ic_stats`, `similarity_pairs`, `score_cache`, Score Objects,
-`analog-enricher`) still spec the pre-rescope AnalogEngine design. `docs/research/intel-13-analog-engine.md`
-(2026-07-02) deleted the Score Object and this phase's proposed tables in favor of analog
-predictors + a return-distribution primitive living in the shared measurement kernel — rewrite
-this phase's requirements against intel-13 before planning (todo 055). The original note's
-premise is also stale: intel-13's analog predictors converge with `docs/research/intel-10-confluence-detection-persistence-layer.md`
-v3 (rewritten 2026-07-03) directly via that return-distribution primitive, not via a Score
-Object this phase would produce — intel-10 no longer waits on this phase's output to be
-scoped, it already specs the convergence.
+**Plans:** 3 plans (Wave 1: Analog Finder wrapper + return-distribution primitive; Wave 2: nightly analog-predictor batch + storage-grain decision; Wave 3: predictor registration + ensemble integration)
 
 ---
 
