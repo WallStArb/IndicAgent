@@ -176,9 +176,11 @@ lands:
   bootstrap in the kernel (giving the dead keys their first real reader), and widen the affected gates'
   interpretation in the interim.
 
-Either outcome gets written back into `docs/research/measurement-ic-engine.md`'s Measurement Gaps table
-(the `L4-2`/null-calibration row currently reads "genuinely open" in the Open Questions section) — same
-pattern OQ7's resolution used: inline dated addendum, not a silent close.
+Either outcome gets added as a new dated row in `docs/research/measurement-ic-engine.md`'s Measurement
+Gaps table (verified 2026-07-09: no existing L4-2 entry there today — the L4-2 label lives only in todo
+071 and `fable-2026-07-07-renaissance-layer-refinements.md` §7; this is a new addition, not an update to
+a placeholder) — same inline-dated-addendum convention OQ7's resolution used elsewhere in that doc. Todo
+071 gets its L4-2 half moved to `completed/` (L4-4 stays open as the separate follow-on spec).
 
 ---
 
