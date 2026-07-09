@@ -551,7 +551,7 @@ def frame_gate_passes(pnl_r_values: np.ndarray, min_n: int) -> tuple[bool, float
 | A3 | `topic_alpha_frames` and Kafka publish are unnecessary for this phase (no named consumer) | Pitfall 5 | Medium — if a downstream consumer is later discovered to need a live Kafka feed of frame outcomes (rather than DB polling), this would need to be added retroactively; low probability given `EnsembleICEngine`'s identical precedent has stood for 5+ days with no such need surfacing |
 | A4 | `alpha.frame.target_r_multiple` (not `target_r_fallback`) is the correct key name to seed | Pitfall 3 | Low — purely a naming choice between two docs that describe the identical value; either name works as long as migration and code agree |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should `AlphaFrameWriter` also be parallelized via `ProcessPoolExecutor`, or is a single
    chunked pass (like `alpha_publisher.py`) sufficient?**
@@ -560,7 +560,7 @@ def frame_gate_passes(pnl_r_values: np.ndarray, min_n: int) -> tuple[bool, float
      same 12M-row order of magnitude single-process with chunked flushing.
    - What's unclear: whether nightly-incremental volume alone (post-backfill) ever needs
      parallelism, versus only the one-time 12.2M-row backfill pass.
-   - Recommendation: start single-process (Pattern 2), matching `alpha_publisher.py` exactly;
+   - RESOLVED (adopted by 142B plans — Plan 01 AlphaFrameWriter is single-process chunked): start single-process (Pattern 2), matching `alpha_publisher.py` exactly;
      only add `ProcessPoolExecutor` if the one-time backfill benchmarks too slow in practice —
      this is a `--backfill`-mode-only optimization question, not a correctness one.
 
@@ -571,7 +571,7 @@ def frame_gate_passes(pnl_r_values: np.ndarray, min_n: int) -> tuple[bool, float
    - What's unclear: whether TimescaleDB's chunk exclusion on the hypertable's time dimension
      needs any additional tuning at 250-child-table scale (confirmed: `market_data_ohlcv` has 250
      child tables today).
-   - Recommendation: no new index needed a priori; if `EXPLAIN ANALYZE` on a representative range
+   - RESOLVED (adopted by 142B plans — no new index in migration 214; revisit only on EXPLAIN evidence): no new index needed a priori; if `EXPLAIN ANALYZE` on a representative range
      query during Wave 2 implementation shows a sequential scan across chunks, revisit.
 
 ## Environment Availability
