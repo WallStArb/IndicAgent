@@ -126,8 +126,6 @@ def _make_valid_feature_vector():
         dist_from_low_slow=0.0,
         range_pct_fast=0.0,
         range_pct_slow=0.0,
-        new_high_flag=0.0,
-        new_low_flag=0.0,
         stoch_k_fast=0.5,
         stoch_k_slow=0.5,
         price_percentile_fast=0.5,
@@ -218,16 +216,16 @@ def _make_valid_payload():
 # ── _record_to_insert_params ──────────────────────────────────────────────────
 
 
-def test_record_to_insert_params_returns_161_tuple():
-    """_record_to_insert_params returns exactly 161 elements matching INSERT columns
-    (post migration 206, 2026-07-08 persistence-wiring fix)."""
+def test_record_to_insert_params_returns_159_tuple():
+    """_record_to_insert_params returns exactly 159 elements matching INSERT columns
+    (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_valid_record()
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 161, f"Expected 161, got {len(params)}"
+    assert len(params) == 159, f"Expected 159, got {len(params)}"
 
 
 def test_record_to_insert_params_feature_vector_id_is_uuid():
@@ -326,9 +324,9 @@ def test_feature_vector_id_differs_for_different_inputs():
 # ── _parse_payload ────────────────────────────────────────────────────────────
 
 
-def test_parse_payload_valid_record_returns_161_param_tuple():
-    """Valid FeatureVectorRecord payload parses to a 161-element params tuple
-    (post migration 206, 2026-07-08 persistence-wiring fix)."""
+def test_parse_payload_valid_record_returns_159_param_tuple():
+    """Valid FeatureVectorRecord payload parses to a 159-element params tuple
+    (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed)."""
     from services.feature_vector_writer import FeatureVectorWriter
 
     svc = FeatureVectorWriter.__new__(FeatureVectorWriter)
@@ -343,7 +341,7 @@ def test_parse_payload_valid_record_returns_161_param_tuple():
     assert not invalid
     assert len(valid) == 1
     assert isinstance(valid[0], tuple)
-    assert len(valid[0]) == 161, f"Expected 161-element tuple, got {len(valid[0])}"
+    assert len(valid[0]) == 159, f"Expected 159-element tuple, got {len(valid[0])}"
 
 
 def test_parse_payload_malformed_returns_empty_valid_invalid_payload():
@@ -490,15 +488,15 @@ def test_insert_sql_targets_feature_vectors():
     assert "ON CONFLICT (symbol, tf, bar_ts) DO NOTHING" in _INSERT_FEATURE_VECTOR_SQL
 
 
-def test_insert_sql_has_161_placeholders():
-    """_INSERT_FEATURE_VECTOR_SQL must have exactly 161 positional placeholders $1..$161
-    (post migration 206, 2026-07-08 persistence-wiring fix)."""
+def test_insert_sql_has_159_placeholders():
+    """_INSERT_FEATURE_VECTOR_SQL must have exactly 159 positional placeholders $1..$159
+    (post migration 211, 2026-07-09 -- redundant new_high_flag/new_low_flag removed)."""
     import re
 
     from services.feature_vector_writer import _INSERT_FEATURE_VECTOR_SQL
 
     placeholders = re.findall(r"\$\d+", _INSERT_FEATURE_VECTOR_SQL)
-    assert len(placeholders) == 161, f"Expected 161 placeholders, got {len(placeholders)}"
+    assert len(placeholders) == 159, f"Expected 159 placeholders, got {len(placeholders)}"
 
 
 def test_insert_sql_includes_feature_vector_id_column():

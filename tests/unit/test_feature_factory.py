@@ -562,7 +562,7 @@ class TestComputePurity:
         cache = FeatureCache()
         fv = FeatureFactory.compute(bars, "SPY", "1m", cache, config)
         fields = dataclasses.fields(fv)
-        assert len(fields) == 152, f"Expected 152 fields, got {len(fields)}"
+        assert len(fields) == 150, f"Expected 150 fields, got {len(fields)}"
         for f in fields:
             val = getattr(fv, f.name)
             # Optional cross-sectional fields (momentum_rank_z, volume_rank_z,
@@ -688,14 +688,16 @@ class TestCrossAssetProxies:
 # Phase 142.5 (Renaissance Primitives) — Wave 0 RED tests
 #
 # 91 new primitives across 11 categories (61 baseline + 91 = 152 total
-# FeatureVector fields at end of phase). DO NOT implement primitives here —
-# these tests must fail RED (AttributeError: FeatureVector has no field X)
-# until Plans 01/02/03/04/05/05.5 add the fields. See:
+# FeatureVector fields at end of phase; reduced to 89/150 2026-07-09 after
+# new_high_flag/new_low_flag were found redundant with dist_from_high/
+# dist_from_low and removed, migration 211). DO NOT implement primitives
+# here — these tests must fail RED (AttributeError: FeatureVector has no
+# field X) until Plans 01/02/03/04/05/05.5 add the fields. See:
 #   .planning/phases/142.5-renaissance-primitives/142.5-PLAN-OUTLINE.md
 #   docs/research/signal-renaissance-primitives-ohlcv.md
 # ---------------------------------------------------------------------------
 
-# Canonical list of all 91 new field names, grouped by category in plan order.
+# Canonical list of all 89 new field names, grouped by category in plan order.
 # Used by test_compute_batch_parity to guard against per-bar/vectorized
 # divergence (M1) once these fields exist.
 RENAISSANCE_PRIMITIVE_FIELDS: tuple[str, ...] = (
@@ -777,15 +779,13 @@ RENAISSANCE_PRIMITIVE_FIELDS: tuple[str, ...] = (
     "yang_zhang_vol_velocity",
     "vol_velocity_z",
     "intraday_noise_ratio",
-    # Breakout Distance (14)
+    # Breakout Distance (12)
     "dist_from_high_fast",
     "dist_from_high_slow",
     "dist_from_low_fast",
     "dist_from_low_slow",
     "range_pct_fast",
     "range_pct_slow",
-    "new_high_flag",
-    "new_low_flag",
     "stoch_k_fast",
     "stoch_k_slow",
     "price_percentile_fast",
@@ -804,8 +804,8 @@ RENAISSANCE_PRIMITIVE_FIELDS: tuple[str, ...] = (
 )
 
 assert (
-    len(RENAISSANCE_PRIMITIVE_FIELDS) == 91
-), f"Expected 91 Renaissance primitive field names, got {len(RENAISSANCE_PRIMITIVE_FIELDS)}"
+    len(RENAISSANCE_PRIMITIVE_FIELDS) == 89
+), f"Expected 89 Renaissance primitive field names, got {len(RENAISSANCE_PRIMITIVE_FIELDS)}"
 
 
 def test_bar_anatomy_primitives() -> None:
@@ -1052,9 +1052,6 @@ def test_breakout_distance() -> None:
     # range_pct_fast/slow: (rolling_high - rolling_low) / C, unbounded non-negative.
     assert fv.range_pct_fast >= 0.0
     assert fv.range_pct_slow >= 0.0
-    # new_high_flag / new_low_flag: binary {0, 1}.
-    assert fv.new_high_flag in (0.0, 1.0)
-    assert fv.new_low_flag in (0.0, 1.0)
     # stoch_k_fast/slow: (C - L_N) / (H_N - L_N), bounded [0, 1].
     assert 0.0 <= fv.stoch_k_fast <= 1.0
     assert 0.0 <= fv.stoch_k_slow <= 1.0
@@ -1065,13 +1062,14 @@ def test_breakout_distance() -> None:
     assert 0.0 <= fv.efficiency_ratio_fast <= 1.0
     assert 0.0 <= fv.efficiency_ratio_slow <= 1.0
 
-    # Edge case: bar closing exactly at the rolling high must set new_high_flag.
+    # Edge case: bar closing exactly at the rolling high must zero out
+    # dist_from_high (close is at, not below, the rolling high).
     bars_new_high = _make_bars(100)
     rolling_high = max(b["high"] for b in bars_new_high[-21:-1])
     bars_new_high[-1]["high"] = rolling_high + 1.0
     bars_new_high[-1]["close"] = rolling_high + 1.0
     fv_high = FeatureFactory.compute(bars_new_high, "SPY", "1m", cache, config)
-    assert fv_high.new_high_flag == 1.0
+    assert fv_high.dist_from_high_fast == pytest.approx(0.0, abs=1e-9)
 
 
 def test_price_volume_interactions() -> None:

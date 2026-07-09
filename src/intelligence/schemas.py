@@ -1202,9 +1202,9 @@ SignalMetricsEvent = Annotated[
 
 @dataclasses.dataclass(frozen=True)
 class FeatureVector:
-    """144 orthogonal feature primitives computed per bar by FeatureFactory
+    """142 orthogonal feature primitives computed per bar by FeatureFactory
     (61 v3.0 baseline + 18 Phase 142.5 Plan 01 + 22 Phase 142.5 Plan 02 +
-    14 Phase 142.5 Plan 05 + 21 Phase 142.5 Plan 03 + 8 Phase 142.5 Plan 04
+    12 Phase 142.5 Plan 05 + 21 Phase 142.5 Plan 03 + 8 Phase 142.5 Plan 04
     Renaissance primitives).
 
     Frozen dataclass (not Pydantic) per D-08: pure-function output, no IO,
@@ -1228,7 +1228,7 @@ class FeatureVector:
       Open-to-Close Split (4, Phase 142.5 Plan 01): open_ret, intraday_ret, open_vs_intraday, session_time_pos
       Temporal Coordinates (10, Phase 142.5 Plan 02): hour_of_day/week_of_month/day_of_month/week_of_year sin+cos, month_sin/cos
       Volume Structure (12, Phase 142.5 Plan 02): vol_acceleration, dollar_vol_z, vol_range_ratio, vol_trend_ratio, up_vol_ratio_fast/slow, vol_percentile, vol_persistence, vol_std_z, mfi_fast/slow, obv_z
-      Breakout Distance (14, Phase 142.5 Plan 05): dist_from_high/low_fast/slow, range_pct_fast/slow, new_high_flag, new_low_flag, stoch_k_fast/slow, price_percentile_fast/slow, efficiency_ratio_fast/slow
+      Breakout Distance (12, Phase 142.5 Plan 05): dist_from_high/low_fast/slow, range_pct_fast/slow, stoch_k_fast/slow, price_percentile_fast/slow, efficiency_ratio_fast/slow
       Return Distribution (7, Phase 142.5 Plan 03): ret_kurtosis_z_fast/slow, ret_autocorr_1/5, updown_ratio_fast/slow, streak_z
       Realized Variance / Volatility (14, Phase 142.5 Plan 03): realized_var_ratio_fast/slow, range_to_close, true_range_pct, vol_of_vol, high_low_corr, variance_ratio_fast/slow, vol_asymmetry_z, bb_pct_b_fast/slow, hv_z_fast/slow, hv_ratio
       Alternative Volatility Estimators (3, Phase 142.5 Plan 04): parkinson_vol_z, garman_klass_vol_z, yang_zhang_vol_z
@@ -1373,8 +1373,6 @@ class FeatureVector:
     )
     range_pct_fast: float  # (rolling_high-rolling_low)/C, unbounded non-neg (APR: feature.breakout.range_window_fast)
     range_pct_slow: float  # (rolling_high-rolling_low)/C, unbounded non-neg (APR: feature.breakout.range_window_slow)
-    new_high_flag: float  # 1.0 if C == rolling_high else 0.0, binary {0,1} (APR: feature.breakout.dist_window_fast)
-    new_low_flag: float  # 1.0 if C == rolling_low else 0.0, binary {0,1} (APR: feature.breakout.dist_window_fast)
     stoch_k_fast: (
         float  # (C-L_N)/(H_N-L_N), bounded [0,1] (APR: feature.breakout.stoch_window_fast)
     )

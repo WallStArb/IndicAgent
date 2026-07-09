@@ -176,8 +176,6 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "dist_from_low_slow": "quant",
     "range_pct_fast": "quant",
     "range_pct_slow": "quant",
-    "new_high_flag": "quant",
-    "new_low_flag": "quant",
     "stoch_k_fast": "quant",
     "stoch_k_slow": "quant",
     "price_percentile_fast": "quant",
@@ -1181,22 +1179,6 @@ def _range_pct(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1
     return (float(np.max(highs)) - float(np.min(lows))) / close
 
 
-def _new_high_flag(close: float, highs: np.ndarray, eps: float = 1e-10) -> float:
-    """1.0 if the current close is at (or above, epsilon-tolerant) the rolling
-    high, else 0.0. Binary {0.0, 1.0}.
-    """
-    rolling_high = float(np.max(highs))
-    return 1.0 if close >= rolling_high - eps else 0.0
-
-
-def _new_low_flag(close: float, lows: np.ndarray, eps: float = 1e-10) -> float:
-    """1.0 if the current close is at (or below, epsilon-tolerant) the rolling
-    low, else 0.0. Binary {0.0, 1.0}.
-    """
-    rolling_low = float(np.min(lows))
-    return 1.0 if close <= rolling_low + eps else 0.0
-
-
 def _stoch_k(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1e-10) -> float:
     """Stochastic %K: (C - L_N) / (H_N - L_N). Bounded [0, 1].
 
@@ -2165,22 +2147,6 @@ def _range_pct_series_full(
     return np.where(c > eps, raw, 0.0)
 
 
-def _new_high_flag_series_full(
-    closes: np.ndarray, highs: np.ndarray, window: int, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == streaming _new_high_flag at bar i."""
-    rolling_high = _sliding_rolling_max(highs, window)
-    return np.where(closes.astype(float) >= rolling_high - eps, 1.0, 0.0)
-
-
-def _new_low_flag_series_full(
-    closes: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == streaming _new_low_flag at bar i."""
-    rolling_low = _sliding_rolling_min(lows, window)
-    return np.where(closes.astype(float) <= rolling_low + eps, 1.0, 0.0)
-
-
 def _stoch_k_series_full(
     closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
 ) -> np.ndarray:
@@ -2809,8 +2775,6 @@ class _PrecomputedSeries:
     dist_from_low_slow: np.ndarray
     range_pct_fast: np.ndarray
     range_pct_slow: np.ndarray
-    new_high_flag: np.ndarray
-    new_low_flag: np.ndarray
     stoch_k_fast: np.ndarray
     stoch_k_slow: np.ndarray
     price_percentile_fast: np.ndarray
@@ -2941,8 +2905,6 @@ def _precompute_series(
         ),
         range_pct_fast=_range_pct_series_full(closes, highs, lows, config.range_window_fast),
         range_pct_slow=_range_pct_series_full(closes, highs, lows, config.range_window_slow),
-        new_high_flag=_new_high_flag_series_full(closes, highs, config.dist_window_fast),
-        new_low_flag=_new_low_flag_series_full(closes, lows, config.dist_window_fast),
         stoch_k_fast=_stoch_k_series_full(closes, highs, lows, config.stoch_window_fast),
         stoch_k_slow=_stoch_k_series_full(closes, highs, lows, config.stoch_window_slow),
         price_percentile_fast=_price_percentile_series_full(closes, config.percentile_window_fast),
@@ -3123,8 +3085,6 @@ def _build_feature_vector(
     dist_from_low_slow: float,
     range_pct_fast: float,
     range_pct_slow: float,
-    new_high_flag: float,
-    new_low_flag: float,
     stoch_k_fast: float,
     stoch_k_slow: float,
     price_percentile_fast: float,
@@ -3274,8 +3234,6 @@ def _build_feature_vector(
         dist_from_low_slow=_guard(dist_from_low_slow, 0.0),
         range_pct_fast=_guard(range_pct_fast, 0.0),
         range_pct_slow=_guard(range_pct_slow, 0.0),
-        new_high_flag=_guard(new_high_flag, 0.0),
-        new_low_flag=_guard(new_low_flag, 0.0),
         stoch_k_fast=_guard(stoch_k_fast, 0.5),
         stoch_k_slow=_guard(stoch_k_slow, 0.5),
         price_percentile_fast=_guard(price_percentile_fast, 0.5),
@@ -3564,8 +3522,6 @@ class FeatureFactory:
             dist_from_low_slow=_series_last(s.dist_from_low_slow, 0.0),
             range_pct_fast=_series_last(s.range_pct_fast, 0.0),
             range_pct_slow=_series_last(s.range_pct_slow, 0.0),
-            new_high_flag=_series_last(s.new_high_flag, 0.0),
-            new_low_flag=_series_last(s.new_low_flag, 0.0),
             stoch_k_fast=_series_last(s.stoch_k_fast, 0.5),
             stoch_k_slow=_series_last(s.stoch_k_slow, 0.5),
             price_percentile_fast=_series_last(s.price_percentile_fast, 0.5),
@@ -3904,8 +3860,6 @@ class FeatureFactory:
             )
             range_pct_fast_val = float(s.range_pct_fast[i]) if i < len(s.range_pct_fast) else 0.0
             range_pct_slow_val = float(s.range_pct_slow[i]) if i < len(s.range_pct_slow) else 0.0
-            new_high_flag_val = float(s.new_high_flag[i]) if i < len(s.new_high_flag) else 0.0
-            new_low_flag_val = float(s.new_low_flag[i]) if i < len(s.new_low_flag) else 0.0
             stoch_k_fast_val = float(s.stoch_k_fast[i]) if i < len(s.stoch_k_fast) else 0.5
             stoch_k_slow_val = float(s.stoch_k_slow[i]) if i < len(s.stoch_k_slow) else 0.5
             price_percentile_fast_val = (
@@ -4119,8 +4073,6 @@ class FeatureFactory:
                 dist_from_low_slow=dist_from_low_slow_val,
                 range_pct_fast=range_pct_fast_val,
                 range_pct_slow=range_pct_slow_val,
-                new_high_flag=new_high_flag_val,
-                new_low_flag=new_low_flag_val,
                 stoch_k_fast=stoch_k_fast_val,
                 stoch_k_slow=stoch_k_slow_val,
                 price_percentile_fast=price_percentile_fast_val,
@@ -4292,8 +4244,6 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         dist_from_low_slow=0.0,
         range_pct_fast=0.0,
         range_pct_slow=0.0,
-        new_high_flag=0.0,
-        new_low_flag=0.0,
         stoch_k_fast=0.5,
         stoch_k_slow=0.5,
         price_percentile_fast=0.5,

@@ -107,8 +107,6 @@ RENAISSANCE_PRIMITIVE_NAMES: tuple[str, ...] = (
     "dist_from_low_slow",
     "range_pct_fast",
     "range_pct_slow",
-    "new_high_flag",
-    "new_low_flag",
     "stoch_k_fast",
     "stoch_k_slow",
     "price_percentile_fast",
@@ -127,8 +125,8 @@ RENAISSANCE_PRIMITIVE_NAMES: tuple[str, ...] = (
 )
 
 assert (
-    len(RENAISSANCE_PRIMITIVE_NAMES) == 91
-), f"Expected 91 Renaissance primitive names, got {len(RENAISSANCE_PRIMITIVE_NAMES)}"
+    len(RENAISSANCE_PRIMITIVE_NAMES) == 89
+), f"Expected 89 Renaissance primitive names, got {len(RENAISSANCE_PRIMITIVE_NAMES)}"
 
 
 def _build_primitive_ic_query(feature_name: str) -> tuple[str, tuple[str]]:
@@ -151,13 +149,13 @@ def _build_primitive_ic_query(feature_name: str) -> tuple[str, tuple[str]]:
 
 
 def test_renaissance_primitive_evaluation() -> None:
-    """Skeleton: verify query structure for all 91 Renaissance primitives.
+    """Skeleton: verify query structure for all 89 Renaissance primitives.
 
     Does not run the IC engine. Confirms every primitive name produces a
     well-formed, parameterized feature_ic_scores query referencing the columns
     the eventual gate (IC Sharpe > 0 AND p < 0.05, corpus-level BH-FDR) needs.
     """
-    assert len(RENAISSANCE_PRIMITIVE_NAMES) == 91
+    assert len(RENAISSANCE_PRIMITIVE_NAMES) == 89
 
     for feature_name in RENAISSANCE_PRIMITIVE_NAMES:
         query, params = _build_primitive_ic_query(feature_name)

@@ -1,10 +1,12 @@
 """Integration test: feature_vectors schema validation (Phase 142.5 Plan 00).
 
-GREEN as of migration 206_add_renaissance_primitives.sql (Plan 06). Verifies
-the reconciled Renaissance Primitives inventory (142.5-PLAN-OUTLINE.md):
+GREEN as of migration 206_add_renaissance_primitives.sql (Plan 06); updated
+for migration 211 (2026-07-09), which dropped new_high_flag/new_low_flag as
+redundant with dist_from_high/dist_from_low. Verifies the reconciled
+Renaissance Primitives inventory (142.5-PLAN-OUTLINE.md):
 
-    61 baseline FeatureVector columns + 91 new Renaissance primitive columns
-    == 152 total feature_vectors columns.
+    61 baseline FeatureVector columns + 89 Renaissance primitive columns
+    == 150 total feature_vectors columns.
 
 No missing columns, no silent count drift. This test enumerates every expected
 column name explicitly rather than deriving it from src.intelligence.schemas.FeatureVector
@@ -195,15 +197,13 @@ RENAISSANCE_COLUMNS: frozenset[str] = frozenset(
         "yang_zhang_vol_velocity",
         "vol_velocity_z",
         "intraday_noise_ratio",
-        # Breakout Distance (14) — Plan 05
+        # Breakout Distance (12) — Plan 05
         "dist_from_high_fast",
         "dist_from_high_slow",
         "dist_from_low_fast",
         "dist_from_low_slow",
         "range_pct_fast",
         "range_pct_slow",
-        "new_high_flag",
-        "new_low_flag",
         "stoch_k_fast",
         "stoch_k_slow",
         "price_percentile_fast",
@@ -224,19 +224,19 @@ RENAISSANCE_COLUMNS: frozenset[str] = frozenset(
 
 assert len(BASELINE_COLUMNS) == 61, f"Expected 61 baseline columns, got {len(BASELINE_COLUMNS)}"
 assert (
-    len(RENAISSANCE_COLUMNS) == 91
-), f"Expected 91 Renaissance columns, got {len(RENAISSANCE_COLUMNS)}"
+    len(RENAISSANCE_COLUMNS) == 89
+), f"Expected 89 Renaissance columns, got {len(RENAISSANCE_COLUMNS)}"
 assert not (BASELINE_COLUMNS & RENAISSANCE_COLUMNS), "Baseline/Renaissance column name collision"
 
 EXPECTED_COLUMNS: frozenset[str] = BASELINE_COLUMNS | RENAISSANCE_COLUMNS
-assert len(EXPECTED_COLUMNS) == 152, f"Expected 152 total columns, got {len(EXPECTED_COLUMNS)}"
+assert len(EXPECTED_COLUMNS) == 150, f"Expected 150 total columns, got {len(EXPECTED_COLUMNS)}"
 
 
 @pytest.mark.asyncio
 async def test_renaissance_columns_exist() -> None:
-    """feature_vectors must have all 152 expected columns (61 baseline + 91 new).
+    """feature_vectors must have all 150 expected columns (61 baseline + 89 Renaissance).
 
-    GREEN as of migration 206_add_renaissance_primitives.sql. Queries
+    GREEN as of migration 211_drop_redundant_breakout_flags.sql. Queries
     information_schema.columns directly rather than trusting ORM/dataclass state
     — silent wrong answers (a column silently missing) are worse than a loud
     assertion failure here.
@@ -258,25 +258,25 @@ async def test_renaissance_columns_exist() -> None:
     )
 
     # Structural/key columns (symbol, tf, bar_ts, pipeline_version, regime,
-    # regime_label_source, feature_factory_version) are additional to the 152
-    # feature columns — only assert the feature-column subset totals 152, not
+    # regime_label_source, feature_factory_version) are additional to the 150
+    # feature columns — only assert the feature-column subset totals 150, not
     # the raw information_schema row count for the whole table.
     feature_columns_present = actual_columns & EXPECTED_COLUMNS
-    assert len(feature_columns_present) == 152, (
-        f"Expected exactly 152 feature_vectors feature columns, found "
+    assert len(feature_columns_present) == 150, (
+        f"Expected exactly 150 feature_vectors feature columns, found "
         f"{len(feature_columns_present)}. Missing: {sorted(EXPECTED_COLUMNS - actual_columns)}"
     )
 
 
 @pytest.mark.asyncio
 async def test_feature_registry_row_count_matches_gate() -> None:
-    """feature_registry must have exactly 152 rows, matching
+    """feature_registry must have exactly 150 rows, matching
     feature_registry_service._REGISTRY_ROW_COUNT (the startup alignment gate).
 
-    GREEN as of migration 206_add_renaissance_primitives.sql, which seeds the
-    91 new rows (77 non-breakout + 14 breakout) on top of migration 172's 61
-    baseline rows. Without this, FeatureRegistryService.load() raises
-    RuntimeError at daemon startup (antigravity H2/H3).
+    GREEN as of migration 211_drop_redundant_breakout_flags.sql, which removed
+    the new_high_flag/new_low_flag rows (redundant with dist_from_high/
+    dist_from_low) seeded by migration 206. Without this, FeatureRegistryService.load()
+    raises RuntimeError at daemon startup (antigravity H2/H3).
     """
     from src.intelligence.feature_registry_service import _REGISTRY_ROW_COUNT
 
@@ -286,7 +286,7 @@ async def test_feature_registry_row_count_matches_gate() -> None:
     finally:
         await conn.close()
 
-    assert count == _REGISTRY_ROW_COUNT == 152, (
+    assert count == _REGISTRY_ROW_COUNT == 150, (
         f"feature_registry has {count} rows; expected {_REGISTRY_ROW_COUNT} "
-        "(_REGISTRY_ROW_COUNT). Run migration 206_add_renaissance_primitives.sql."
+        "(_REGISTRY_ROW_COUNT). Run migration 211_drop_redundant_breakout_flags.sql."
     )

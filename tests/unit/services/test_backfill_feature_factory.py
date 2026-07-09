@@ -285,8 +285,6 @@ def _make_zero_vector() -> FeatureVector:
         dist_from_low_slow=0.0,
         range_pct_fast=0.0,
         range_pct_slow=0.0,
-        new_high_flag=0.0,
-        new_low_flag=0.0,
         stoch_k_fast=0.5,
         stoch_k_slow=0.5,
         price_percentile_fast=0.5,
@@ -433,8 +431,10 @@ def test_vector_to_params_regime_label_source() -> None:
 
 
 def test_vector_to_params_all_features_present() -> None:
-    """All FeatureVector fields must appear in the INSERT params tuple (161 total
-    after migration 206, 2026-07-08 persistence-wiring fix)."""
+    """All FeatureVector fields must appear in the INSERT params tuple (159 total
+    after migration 211, 2026-07-09 -- 161 after migration 206's 2026-07-08
+    persistence-wiring fix, then -2 for the redundant new_high_flag/new_low_flag
+    removal)."""
     fv = _make_zero_vector()
     ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
     params = _vector_to_params(
@@ -445,8 +445,8 @@ def test_vector_to_params_all_features_present() -> None:
         regime=None,
         fv=fv,
     )
-    # 1 content-key + 8 structural + 152 feature floats = 161 total
-    assert len(params) == 161, f"Expected 161 params, got {len(params)}"
+    # 1 content-key + 8 structural + 150 feature floats = 159 total
+    assert len(params) == 159, f"Expected 159 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:

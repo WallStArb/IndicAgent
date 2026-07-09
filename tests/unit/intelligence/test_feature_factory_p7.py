@@ -419,10 +419,11 @@ def test_hmm_duration_increments():
 
 
 def test_feature_vector_domain_complete():
-    """61 baseline + 18 Plan 01 + 22 Plan 02 + 14 Plan 05 + 21 Plan 03 + 8 Plan 04
-    + 8 Plan 05.5 Renaissance primitives = 152 (final total, all plans landed)."""
+    """61 baseline + 18 Plan 01 + 22 Plan 02 + 12 Plan 05 + 21 Plan 03 + 8 Plan 04
+    + 8 Plan 05.5 Renaissance primitives = 150 (new_high_flag/new_low_flag removed
+    2026-07-09 as redundant with dist_from_high/dist_from_low, migration 211)."""
     fv_fields = {f.name for f in dataclasses.fields(FeatureVector)}
-    assert len(FEATURE_VECTOR_DOMAIN) == 152
+    assert len(FEATURE_VECTOR_DOMAIN) == 150
     assert set(FEATURE_VECTOR_DOMAIN.keys()) == fv_fields
 
 
@@ -432,10 +433,22 @@ def test_feature_vector_domain_complete():
 
 
 def test_vector_to_params_length():
+    """Row width must match FEATURE_VECTOR_INSERT_SQL's placeholder count exactly.
+
+    Deriving the expectation from the SQL contract (rather than a hardcoded
+    number) is deliberate: this is the test that should have caught the
+    2026-07-08 91-column silent-NULL persistence bug, and didn't, because it
+    hardcoded 70 and was never updated when migration 206 widened the contract.
+    """
+    from src.intelligence.features.feature_vector_persistence import (
+        FEATURE_VECTOR_INSERT_SQL_PSYCOPG2,
+    )
+
     cfg = _make_cfg()
     cache = FeatureCache()
     bars = _bars(50)
     ts = datetime(2026, 1, 7, 14, 0, tzinfo=UTC)
     fv = FeatureFactory.compute(bars, "SPY", "1m", cache, cfg)
     row = _vector_to_params("SPY", "1m", ts, "v3.0.0", None, fv)
-    assert len(row) == 70, f"Expected 70, got {len(row)}"
+    expected = FEATURE_VECTOR_INSERT_SQL_PSYCOPG2.count("%s")
+    assert len(row) == expected, f"Expected {expected}, got {len(row)}"

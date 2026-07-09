@@ -25,20 +25,23 @@ Transition logging:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
 import structlog
 
+from src.intelligence.schemas import FeatureVector
+
 _logger = structlog.get_logger()
 
-_REGISTRY_ROW_COUNT = 152  # 61 + 18 P01 + 22 P02 + 14 P05 + 21 P03 + 8 P04 + 8 P05.5 (final)
-# Individual Phase 142.5 plans (03, 04) were authored assuming a lower base
-# count than what had actually merged by the time each one executed, since
-# plans landed out of their nominal order -- see git history on this line for
-# the intermediate counts each plan reconciled against. 152 is the final,
-# reconciled total once every plan (00-06 + 05.5) landed.
+# Derived, not hardcoded: a fixed count (152, then 150 after the
+# new_high_flag/new_low_flag removal 2026-07-09) is exactly the class of bug
+# feature_vector_persistence.py's own docstring warns about -- a number that
+# silently drifts out of sync with FeatureVector the next time a field is
+# added or removed. Deriving it here makes drift structurally impossible.
+_REGISTRY_ROW_COUNT = len(dataclasses.fields(FeatureVector))
 
 _LOAD_QUERY = """
     SELECT feature_name, group_name, tier, status,

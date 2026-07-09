@@ -148,8 +148,6 @@ def _make_sentinel_record():
         dist_from_low_slow=57.04,
         range_pct_fast=57.05,
         range_pct_slow=57.06,
-        new_high_flag=57.07,
-        new_low_flag=57.08,
         stoch_k_fast=57.09,
         stoch_k_slow=57.10,
         price_percentile_fast=57.11,
@@ -212,15 +210,17 @@ def _make_sentinel_record():
     )
 
 
-def test_params_length_is_161():
-    """_record_to_insert_params must return exactly 161 elements (post migration 206,
-    2026-07-08 persistence-wiring fix — see feature_vector_persistence.py docstring)."""
+def test_params_length_is_159():
+    """_record_to_insert_params must return exactly 159 elements (161 post migration
+    206's 2026-07-08 persistence-wiring fix, then 159 after migration 211 dropped
+    the redundant new_high_flag/new_low_flag columns 2026-07-09 — see
+    feature_vector_persistence.py docstring)."""
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 161, f"Expected 161, got {len(params)}"
+    assert len(params) == 159, f"Expected 159, got {len(params)}"
 
 
 def test_feature_vector_id_at_index_0():
@@ -402,23 +402,29 @@ def test_hour_of_day_sin_at_index_88():
     assert params[88] == pytest.approx(56.01), f"$89 (hour_of_day_sin) wrong: {params[88]}"
 
 
-def test_parkinson_vol_z_at_index_145():
-    """params[145] ($146) must be parkinson_vol_z sentinel value 59.01."""
+def test_parkinson_vol_z_at_index_143():
+    """params[143] ($144) must be parkinson_vol_z sentinel value 59.01.
+
+    Index shifted from 145 (post migration 206) after migration 211 dropped
+    new_high_flag/new_low_flag, both of which sit earlier in field order.
+    """
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert params[145] == pytest.approx(59.01), f"$146 (parkinson_vol_z) wrong: {params[145]}"
+    assert params[143] == pytest.approx(59.01), f"$144 (parkinson_vol_z) wrong: {params[143]}"
 
 
-def test_vol_skew_product_at_index_160_is_last_element():
-    """params[160] ($161) must be vol_skew_product sentinel value 60.08 -- the
-    final column, confirming the full 91-column extension lands correctly."""
+def test_vol_skew_product_at_index_158_is_last_element():
+    """params[158] ($159) must be vol_skew_product sentinel value 60.08 -- the
+    final column. Index shifted from 160 after migration 211 dropped
+    new_high_flag/new_low_flag.
+    """
     from services.feature_vector_writer import _record_to_insert_params
 
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 161
-    assert params[160] == pytest.approx(60.08), f"$161 (vol_skew_product) wrong: {params[160]}"
+    assert len(params) == 159
+    assert params[158] == pytest.approx(60.08), f"$159 (vol_skew_product) wrong: {params[158]}"
