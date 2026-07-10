@@ -87,90 +87,121 @@ def _scale_stride(lookahead_bars: int, subsample_min_stride: int) -> int:
     return max(subsample_min_stride, lookahead_bars)
 
 
-_CS_CHUNK_TS = 20_000  # ANY(...) batch size; mirrors ic_engine.py's cs_chunk_ts OOM-avoidance shape
+_RETURN_COLS = tuple(f"return_{scale}" for scale in _SCALES)
+_COMPLETE_COLS = tuple(f"complete_{scale}" for scale in _SCALES)
 
 
-async def _fetch_cell_arrays(
+async def _fetch_tf_dataset(
     conn: asyncpg.Connection,
-    feature_name: str,
-    parents: list[str],
     tf: str,
-    regime_label: str,
-    lookahead_bars: int,
+    feature_names: list[str],
+    parent_cols: list[str],
     training_window_end,
-    subsample_min_stride: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
-    """Stream (feature, parent_1, parent_2, return) rows across all symbols for one
-    (feature, tf, regime_label, lookahead) cross-sectional cell, restricted to the
-    bars that actually belong to regime_label, then subsampling positionally within
-    each symbol's row block and pooling across symbols.
+) -> dict[str, dict[str, np.ndarray]]:
+    """Stream every (feature, parent, return, regime) column needed by ANY cell for
+    this `tf` in ONE full scan of that tf's feature_vectors partition, keyed by
+    symbol. Replaces the old per-cell `_fetch_cell_arrays()`, which re-scanned the
+    same partition once per (feature, tf, regime, lookahead) cell -- 864 redundant
+    scans total, the ~80-hour bug this rewrite fixes (see module docstring's
+    pilot-scoped-approximation note and todo 037's Task 3 v2 fix).
 
-    Two-step shape copied from services/ic_engine.py's _compute_cross_sectional_tf()
-    (lines ~1202-1253): Step A pre-fetches the bar timestamps belonging to
-    (tf, regime_label) from market_regimes; Step B filters feature_vectors down to
-    that timestamp list via `bar_ts = ANY(...)`, chunked at _CS_CHUNK_TS timestamps
-    per query to avoid an oversized query for large regimes (ic_engine.py's own
-    cs_chunk_ts OOM-avoidance rationale, at pilot scale).
+    No NULL filter and no regime filter in this SQL, unlike the old per-cell query:
+    both are cell-specific (different features have independent NULL patterns; each
+    cell wants a different regime_label), so they move to `_slice_cell()` below,
+    which slices this per-tf dataset down to one cell's rows in memory. The only
+    filters here are the ones every cell for this tf shares: tf itself and the
+    global `training_window_end` cutoff.
 
-    Named server-side cursor + itersize batching -- the same OOM-avoidance shape as
-    migrations 183/209/212 (see CLAUDE.md "ProcessPoolExecutor workers are compute-
-    only" gotcha and its three prior sibling fixes). This cell can be up to ~1.5M
-    raw rows before subsampling.
+    Named server-side cursor + prefetch=5000 -- same OOM-avoidance shape as
+    migrations 183/209/212 (see CLAUDE.md's "ProcessPoolExecutor workers are
+    compute-only" gotcha family). ~25M rows for tf='5m' must never be materialized
+    via one giant asyncpg `fetch()` list; this streams and buckets by symbol
+    instead, one tf fetched (and released) at a time.
     """
-    parent_1, parent_2 = parents[0], parents[1]
-    stride = _scale_stride(lookahead_bars, subsample_min_stride)
-    complete_col = f"complete_{_lookahead_to_scale(lookahead_bars)}"
-    return_col = f"return_{_lookahead_to_scale(lookahead_bars)}"
-
-    # Step A: regime timestamp membership (mirrors ic_engine.py's Step 1).
-    ts_rows = await conn.fetch(
-        "SELECT ts FROM market_regimes "
-        "WHERE asset_class = 'equity' AND tf = $1 AND regime_label = $2 AND ts <= $3 "
-        "ORDER BY ts",
-        tf,
-        regime_label,
-        training_window_end,
-    )
-    ts_list = [r["ts"] for r in ts_rows]
-    if not ts_list:
-        return np.array([]), np.array([]), np.array([]), 0
-
-    # Step B: feature/return rows restricted to that timestamp list (mirrors
-    # ic_engine.py's Step 2 chunk_sql, chunked via bar_ts = ANY($2::timestamptz[])).
+    select_cols = ", ".join(f"fv.{col} AS {col}" for col in [*feature_names, *parent_cols])
+    float_cols = [*feature_names, *parent_cols, *_RETURN_COLS]
     sql = f"""
-        SELECT fv.symbol, fv.bar_ts, fv.{feature_name} AS x,
-               fv.{parent_1} AS z1, fv.{parent_2} AS z2,
-               fr.{return_col} AS y
+        SELECT fv.symbol, mr.regime_label,
+               {select_cols},
+               fr.{", fr.".join(_RETURN_COLS)},
+               fr.{", fr.".join(_COMPLETE_COLS)}
         FROM feature_vectors fv
         INNER JOIN forward_returns fr
             ON fr.symbol = fv.symbol AND fr.tf = fv.tf AND fr.bar_ts = fv.bar_ts
             AND fr.return_type = 'executable_open_to_open'
-        WHERE fv.tf = $1 AND fv.bar_ts = ANY($2::timestamptz[]) AND fr.{complete_col} = true
-          AND fv.{feature_name} IS NOT NULL AND fv.{parent_1} IS NOT NULL AND fv.{parent_2} IS NOT NULL
+        INNER JOIN market_regimes mr
+            ON mr.tf = fv.tf AND mr.ts = fv.bar_ts AND mr.asset_class = 'equity'
+        WHERE fv.tf = $1 AND fv.bar_ts <= $2
         ORDER BY fv.symbol, fv.bar_ts
     """
-    x_by_symbol: dict[str, list[float]] = {}
-    z1_by_symbol: dict[str, list[float]] = {}
-    z2_by_symbol: dict[str, list[float]] = {}
-    y_by_symbol: dict[str, list[float]] = {}
+    raw_by_symbol: dict[str, dict[str, list]] = {}
 
     async with conn.transaction():
-        for chunk_start in range(0, len(ts_list), _CS_CHUNK_TS):
-            ts_chunk = ts_list[chunk_start : chunk_start + _CS_CHUNK_TS]
-            async for record in conn.cursor(sql, tf, ts_chunk, prefetch=5000):
-                sym = record["symbol"]
-                x_by_symbol.setdefault(sym, []).append(record["x"])
-                z1_by_symbol.setdefault(sym, []).append(record["z1"])
-                z2_by_symbol.setdefault(sym, []).append(record["z2"])
-                y_by_symbol.setdefault(sym, []).append(record["y"])
+        async for record in conn.cursor(sql, tf, training_window_end, prefetch=5000):
+            sym_cols = raw_by_symbol.setdefault(record["symbol"], {})
+            sym_cols.setdefault("regime_label", []).append(record["regime_label"])
+            for col in float_cols:
+                sym_cols.setdefault(col, []).append(record[col])
+            for col in _COMPLETE_COLS:
+                sym_cols.setdefault(col, []).append(record[col])
+
+    dataset: dict[str, dict[str, np.ndarray]] = {}
+    for sym, cols in raw_by_symbol.items():
+        arrays: dict[str, np.ndarray] = {
+            "regime_label": np.asarray(cols["regime_label"], dtype=object)
+        }
+        for col in float_cols:
+            arrays[col] = np.array(
+                [np.nan if v is None else v for v in cols[col]], dtype=np.float64
+            )
+        for col in _COMPLETE_COLS:
+            arrays[col] = np.asarray(cols[col], dtype=bool)
+        dataset[sym] = arrays
+    return dataset
+
+
+def _slice_cell(
+    dataset: dict[str, dict[str, np.ndarray]],
+    feature_name: str,
+    parent_1: str,
+    parent_2: str,
+    regime_label: str,
+    lookahead_bars: int,
+    subsample_min_stride: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """Pure, DB-free slice of one (feature, regime, lookahead) cell out of an
+    already-fetched per-tf `dataset` (see `_fetch_tf_dataset()`), pooled across
+    symbols. No DB/Kafka dependency -- same constraint as ic_math.py's module
+    docstring.
+
+    Per symbol: build a boolean mask (regime match & feature/parent non-null &
+    that scale's completeness flag), take `np.nonzero(mask)[0]` to get the ordered
+    row-position subset the OLD per-cell SQL WHERE clause would have selected, then
+    apply the exact same positional stride subsampling (`idx[::stride]`) to that
+    already-filtered, order-preserved sequence -- NOT to the raw unfiltered rows.
+    """
+    scale = _lookahead_to_scale(lookahead_bars)
+    stride = _scale_stride(lookahead_bars, subsample_min_stride)
+    return_col = f"return_{scale}"
+    complete_col = f"complete_{scale}"
 
     x_parts, z1_parts, z2_parts, y_parts = [], [], [], []
-    for sym in x_by_symbol:
-        idx = np.arange(0, len(x_by_symbol[sym]), stride)
-        x_parts.append(np.asarray(x_by_symbol[sym])[idx])
-        z1_parts.append(np.asarray(z1_by_symbol[sym])[idx])
-        z2_parts.append(np.asarray(z2_by_symbol[sym])[idx])
-        y_parts.append(np.asarray(y_by_symbol[sym])[idx])
+    for arrays in dataset.values():
+        mask = (
+            (arrays["regime_label"] == regime_label)
+            & ~np.isnan(arrays[feature_name])
+            & ~np.isnan(arrays[parent_1])
+            & ~np.isnan(arrays[parent_2])
+            & arrays[complete_col]
+        )
+        idx = np.nonzero(mask)[0]
+        sub_idx = idx[::stride]
+        if sub_idx.size == 0:
+            continue
+        x_parts.append(arrays[feature_name][sub_idx])
+        z1_parts.append(arrays[parent_1][sub_idx])
+        z2_parts.append(arrays[parent_2][sub_idx])
+        y_parts.append(arrays[return_col][sub_idx])
 
     if not x_parts:
         return np.array([]), np.array([]), np.array([]), 0
@@ -258,44 +289,74 @@ async def main() -> int:
                 )
                 return 0
 
-            results = []
+            # A single global training_window_end is a verified fact of the live
+            # 864-cell cohort (see module docstring / task-3-v2-brief.md), not an
+            # assumption -- fail loudly rather than silently pick one value if that
+            # ever stops being true.
+            distinct_window_ends = {cell["training_window_end"] for cell in cells}
+            if len(distinct_window_ends) != 1:
+                raise RuntimeError(
+                    f"Expected a single global training_window_end across all "
+                    f"{len(cells)} cells, found {len(distinct_window_ends)}: "
+                    f"{sorted(distinct_window_ends)}"
+                )
+            training_window_end = next(iter(distinct_window_ends))
+
+            # Dedup the parent-atomic column set once (e.g. volume_z is a parent of
+            # 5 of the 8 features) so _fetch_tf_dataset() fetches each column once
+            # per tf, not once per feature.
+            parent_cols = sorted({p for parents in parents_by_feature.values() for p in parents})
+
+            cells_by_tf: dict[str, list[dict]] = {}
             for cell in cells:
-                fname = cell["feature_name"]
-                parents = parents_by_feature[fname]
+                cells_by_tf.setdefault(cell["tf"], []).append(cell)
+
+            results = []
+            for tf, tf_cells in cells_by_tf.items():
                 try:
-                    x, controls, y, n = await _fetch_cell_arrays(
-                        conn,
-                        fname,
-                        parents,
-                        cell["tf"],
-                        cell["regime"],
-                        cell["lookahead_bars"],
-                        cell["training_window_end"],
-                        subsample_min_stride,
+                    dataset = await _fetch_tf_dataset(
+                        conn, tf, feature_names, parent_cols, training_window_end
                     )
                 except Exception as error:  # CLAUDE.md: exception variable name is `error`
-                    print(
-                        f"  SKIP {fname}/{cell['tf']}/{cell['regime']}/{cell['lookahead_bars']}: {error}"
-                    )
+                    print(f"  SKIP tf={tf}: {error}")
                     continue
 
-                if n < 10:
-                    continue
-                partial_ic, p_value, n_used = partial_spearman_ic(
-                    x, y, controls, condition_max=condition_max
-                )
-                results.append(
-                    {
-                        "feature_name": fname,
-                        "tf": cell["tf"],
-                        "regime": cell["regime"],
-                        "lookahead_bars": cell["lookahead_bars"],
-                        "training_window_end": cell["training_window_end"],
-                        "partial_ic": partial_ic,
-                        "partial_ic_p_value": p_value,
-                        "partial_ic_n": n_used,
-                    }
-                )
+                for cell in tf_cells:
+                    fname = cell["feature_name"]
+                    parent_1, parent_2 = parents_by_feature[fname]
+                    try:
+                        x, controls, y, n = _slice_cell(
+                            dataset,
+                            fname,
+                            parent_1,
+                            parent_2,
+                            cell["regime"],
+                            cell["lookahead_bars"],
+                            subsample_min_stride,
+                        )
+                    except Exception as error:  # CLAUDE.md: exception variable name is `error`
+                        print(
+                            f"  SKIP {fname}/{tf}/{cell['regime']}/{cell['lookahead_bars']}: {error}"
+                        )
+                        continue
+
+                    if n < 10:
+                        continue
+                    partial_ic, p_value, n_used = partial_spearman_ic(
+                        x, y, controls, condition_max=condition_max
+                    )
+                    results.append(
+                        {
+                            "feature_name": fname,
+                            "tf": tf,
+                            "regime": cell["regime"],
+                            "lookahead_bars": cell["lookahead_bars"],
+                            "training_window_end": cell["training_window_end"],
+                            "partial_ic": partial_ic,
+                            "partial_ic_p_value": p_value,
+                            "partial_ic_n": n_used,
+                        }
+                    )
 
             valid = [r for r in results if not np.isnan(r["partial_ic_p_value"])]
             if valid:
