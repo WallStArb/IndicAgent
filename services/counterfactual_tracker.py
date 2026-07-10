@@ -20,8 +20,9 @@ CORRECTNESS INVARIANTS:
   closed_ic_decay, in strict priority order (stop checked before target on a same-bar
   both-hit).
 - The bar-path scan and the ATR/geometry fill happen in ONE streaming named-cursor sweep per
-  (symbol, tf) cell (review H2/M2/M4) -- no per-frame round-trip, no feature_vectors ATR read
-  (that column doesn't exist; ATR is computed from market_data_ohlcv, review H2).
+  (symbol, tf) cell (review H2/M2/M4) -- no per-frame round-trip, and no read of the
+  feature-vector corpus's normalized ATR derivatives (a price-unit ATR column doesn't exist
+  there; ATR is computed here from market_data_ohlcv, review H2).
 - ProcessPoolExecutor workers return list[dict] only; the serial write happens in the main
   process, flushed per-symbol as each worker result arrives (never one aggregate write over
   all symbols -- anti-OOM, DAG invariant #3).
@@ -41,12 +42,38 @@ Usage:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import argparse
+import asyncio
+import sys
+from collections import deque
+from collections.abc import Iterable, Sequence
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, NamedTuple
 
+import asyncpg
 import numpy as np
+import psycopg2
+import psycopg2.extras
+import structlog
 from scipy.stats import bootstrap
+
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from services._batch_utils import cfg as _cfg
+from services._batch_utils import connect_db_from_url
+from services._batch_utils import load_apr_dict_async as _load_apr
+from services.alpha_frame_writer import compute_frame_geometry
+from src.config.settings import Settings
+from src.core.agent.base_batch import BaseBatch
+from src.observability.corpus_manifest import CorpusManifest
+from src.observability.metrics import COUNTERFACTUAL_TRACKER_IC_ROW_AGE_SECONDS
+from src.observability.otel import OTelInitError, init_otel_providers
+
+_logger = structlog.get_logger(__name__)
 
 
 class Bar(NamedTuple):
@@ -192,3 +219,496 @@ def frame_gate_passes(
         ci_upper = float("inf")
 
     return bool(ci_lower > 0), ci_lower, ci_upper
+
+
+# ---------------------------------------------------------------------------
+# Worker (pure compute -- opens a read-only connection, never a write connection;
+# DAG invariant #3, T-142B-06)
+# ---------------------------------------------------------------------------
+
+# Bounded per-cell fetch (never more rows than this cell's open-frame count) -- safe to
+# buffer client-side with a regular (non-named) cursor.
+_OPEN_FRAMES_SQL = """
+    SELECT frame_id, bar_ts, direction, max_hold_bars, stop_atr_mult, regime
+    FROM alpha_frames
+    WHERE symbol = %s AND tf = %s AND status = 'open' AND frame_variant = 'primary'
+    ORDER BY bar_ts ASC
+"""
+
+# Most-recent alpha_ensemble_ic row per regime for this (symbol, tf) -- read regardless of
+# age (D-08); a handful of rows (one per regime), safe to buffer client-side.
+_IC_CI_LOWER_SQL = """
+    SELECT DISTINCT ON (regime) regime, ic_ci_lower, scored_at
+    FROM alpha_ensemble_ic
+    WHERE symbol = %s AND tf = %s
+    ORDER BY regime, scored_at DESC
+"""
+
+# Trailing history to seed the rolling price-unit ATR window "as of" the earliest open
+# frame's bar_ts (review H2 -- computed from market_data_ohlcv, never a feature-vector
+# derivative). +1 row so the oldest row in the window has a prior close for its true range.
+_ATR_SEED_SQL = """
+    SELECT open, high, low, close
+    FROM market_data_ohlcv
+    WHERE symbol = %s AND timeframe = %s AND timestamp <= %s
+    ORDER BY timestamp DESC
+    LIMIT %s
+"""
+
+# Forward bar-path scan (review H2/M2/M4: ONE streaming pass per (symbol, tf) cell, not one
+# cursor per frame). Bar-count-scoped (review L3c): no wall-clock WHERE-range arithmetic --
+# the Python loop below terminates once every open frame in this cell has been activated
+# and resolved (or exhausted its own max_hold_bars window), a bar-count-driven condition,
+# not a calendar-date one. Sessions/gaps on intraday TFs make timestamp-range math wrong.
+_BAR_SCAN_SQL = """
+    SELECT timestamp, open, high, low, close
+    FROM market_data_ohlcv
+    WHERE symbol = %s AND timeframe = %s AND timestamp > %s
+    ORDER BY timestamp ASC
+"""
+
+
+def _true_range(high: float, low: float, prev_close: float | None) -> float:
+    """Wilder/SMA-style true range for one bar. No prior close (series start) falls back
+    to the simple high-low range."""
+    if prev_close is None:
+        return high - low
+    return max(high - low, abs(high - prev_close), abs(low - prev_close))
+
+
+def _compute_excursion(
+    direction: str, entry_price: float, stop_price: float, bars: Sequence[Bar]
+) -> tuple[float, float]:
+    """Direction-aware MFE/MAE in R units (same risk denominator as compute_frame_pnl_r) over
+    the bars actually observed before the frame closed. Favorable excursion is up for long,
+    down for short."""
+    risk = abs(entry_price - stop_price)
+    if direction == "long":
+        mfe = max((bar.high - entry_price) / risk for bar in bars)
+        mae = min((bar.low - entry_price) / risk for bar in bars)
+    else:
+        mfe = max((entry_price - bar.low) / risk for bar in bars)
+        mae = min((entry_price - bar.high) / risk for bar in bars)
+    return mfe, mae
+
+
+def _finalize_frame(state: dict[str, Any], now: datetime) -> dict[str, Any] | None:
+    """Score one active frame's accumulated bar window via determine_exit. Returns None
+    (nothing to write) if the frame is still open -- never fabricates a close (review L3b)."""
+    frame = state["frame"]
+    direction = state["direction"]
+    exit_result = determine_exit(
+        direction,
+        state["bars"],
+        state["stop_price"],
+        state["target_price"],
+        frame["max_hold_bars"],
+        state["ic_ci_lower"],
+    )
+    if exit_result is None:
+        return None
+
+    pnl_r = compute_frame_pnl_r(
+        direction, state["entry_price"], state["stop_price"], exit_result.exit_price
+    )
+    mfe, mae = _compute_excursion(
+        direction, state["entry_price"], state["stop_price"], state["bars"][: exit_result.bars]
+    )
+    return {
+        "frame_id": frame["frame_id"],
+        "bar_ts": frame["bar_ts"],
+        "entry_price": state["entry_price"],
+        "stop_price": state["stop_price"],
+        "target_price": state["target_price"],
+        "r_multiple": state["r_multiple"],
+        "status": exit_result.status,
+        "counterfactual_pnl_r": pnl_r,
+        "counterfactual_mfe": mfe,
+        "counterfactual_mae": mae,
+        "counterfactual_bars": exit_result.bars,
+        "exit_reason": exit_result.status,
+        "closed_at": now,
+        "measured_at": now,
+        # Observability-only fields, not part of the UPDATE column set (main process reads
+        # these to instrument IC-row staleness, D-10; never written to alpha_frames).
+        "symbol": frame["symbol"],
+        "tf": frame["tf"],
+        "regime": frame["regime"],
+        "ic_scored_at": state["ic_scored_at"],
+    }
+
+
+def _scan_symbol_tf(
+    conn: Any,
+    symbol: str,
+    tf: str,
+    atr_period: int,
+    target_r_multiple: float,
+    itersize: int,
+) -> list[dict[str, Any]]:
+    """ONE streaming named-cursor sweep over market_data_ohlcv for this (symbol, tf) cell,
+    filling geometry (T+1 entry + causal price-unit ATR) and scoring the exit for every open
+    frame in the cell -- never a per-frame round-trip (review H2/M2/M4)."""
+    conn.commit()  # clear any stale transaction before the bounded fetches below
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(_OPEN_FRAMES_SQL, (symbol, tf))
+        open_frames = cur.fetchall()
+    if not open_frames:
+        return []
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(_IC_CI_LOWER_SQL, (symbol, tf))
+        ic_by_regime = {
+            row["regime"]: (row["ic_ci_lower"], row["scored_at"]) for row in cur.fetchall()
+        }
+
+    min_bar_ts = open_frames[0]["bar_ts"]
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(_ATR_SEED_SQL, (symbol, tf, min_bar_ts, atr_period + 1))
+        seed_bars = list(reversed(cur.fetchall()))  # DESC fetch -> chronological order
+
+    tr_window: deque[float] = deque(maxlen=atr_period)
+    last_close: float | None = None
+    for seed_bar in seed_bars:
+        tr_window.append(_true_range(float(seed_bar["high"]), float(seed_bar["low"]), last_close))
+        last_close = float(seed_bar["close"])
+
+    active: dict[str, dict[str, Any]] = {}
+    frame_idx = 0
+    now = datetime.now(UTC)
+    results: list[dict[str, Any]] = []
+
+    conn.commit()  # precondition for declaring a named (server-side) cursor
+    cursor_name = f"cf_scan_{symbol}_{tf}"
+    with conn.cursor(name=cursor_name, cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.itersize = itersize
+        cur.execute(_BAR_SCAN_SQL, (symbol, tf, min_bar_ts))
+
+        for bar_row in cur:
+            bar = Bar(
+                open=float(bar_row["open"]),
+                high=float(bar_row["high"]),
+                low=float(bar_row["low"]),
+                close=float(bar_row["close"]),
+            )
+            bar_ts = bar_row["timestamp"]
+
+            # Activate every frame whose T+1 entry is exactly this bar (the first bar with
+            # timestamp > frame.bar_ts). tr_window at this point reflects only bars <=
+            # frame.bar_ts (it is rolled forward with the CURRENT bar at the bottom of this
+            # loop, after activation) -- the causal, no-lookahead ATR (review H2).
+            while frame_idx < len(open_frames) and open_frames[frame_idx]["bar_ts"] < bar_ts:
+                frame = open_frames[frame_idx]
+                frame_idx += 1
+                if len(tr_window) < atr_period:
+                    # Series start -- insufficient trailing history for this frame's ATR.
+                    # Leave it open this run rather than fabricating a geometry (Claude's
+                    # Discretion, CONTEXT.md).
+                    continue
+                atr = sum(tr_window) / len(tr_window)
+                direction = frame["direction"]
+                entry_price = bar.open
+                stop_price, target_price, r_multiple = compute_frame_geometry(
+                    direction, entry_price, atr, float(frame["stop_atr_mult"]), target_r_multiple
+                )
+                ic_ci_lower, ic_scored_at = ic_by_regime.get(frame["regime"], (None, None))
+                active[frame["frame_id"]] = {
+                    "frame": {**frame, "symbol": symbol, "tf": tf},
+                    "entry_price": entry_price,
+                    "stop_price": stop_price,
+                    "target_price": target_price,
+                    "r_multiple": r_multiple,
+                    "direction": direction,
+                    "bars": [],
+                    "ic_ci_lower": ic_ci_lower,
+                    "ic_scored_at": ic_scored_at,
+                }
+
+            # Feed this bar to every currently active frame's observation window.
+            for frame_id in list(active.keys()):
+                state = active[frame_id]
+                state["bars"].append(bar)
+                if len(state["bars"]) >= state["frame"]["max_hold_bars"]:
+                    result = _finalize_frame(state, now)
+                    if result is not None:
+                        results.append(result)
+                    del active[frame_id]
+
+            # Roll the ATR window forward with this bar (AFTER activation -- see comment
+            # above: tr_window must reflect only bars <= frame.bar_ts at activation time).
+            tr_window.append(_true_range(bar.high, bar.low, last_close))
+            last_close = bar.close
+
+            # Bar-count-scoped early exit (review L3c): every open frame in this cell has
+            # either been activated-and-resolved or was skipped for insufficient trailing
+            # history -- nothing left to scan for. Avoids reading the rest of the corpus's
+            # history for a cell whose frames are all already closed.
+            if frame_idx >= len(open_frames) and not active:
+                break
+
+    # Stream exhausted (or early-break) with some frames still active -- finalize with
+    # whatever was observed; determine_exit returns None (still open) if nothing triggered,
+    # never a fabricated close (review L3b).
+    for state in active.values():
+        result = _finalize_frame(state, now)
+        if result is not None:
+            results.append(result)
+
+    return results
+
+
+def _run_counterfactual_worker(args: tuple) -> dict[str, Any]:
+    """ProcessPoolExecutor worker -- runs in subprocess. Opens ONE read-only connection for
+    this symbol and, for each of its tfs, does exactly ONE streaming pass over
+    market_data_ohlcv evaluating ALL the cell's open frames (never one cursor per frame,
+    review M4). Returns list[dict] rows only -- NEVER opens a write connection and performs
+    no batch-persistence call of any kind (DAG invariant #3, T-142B-06).
+
+    Args:
+        args: (symbol, tfs, dsn, atr_period, target_r_multiple, itersize)
+
+    Returns:
+        dict with keys: symbol (str), rows (list[dict]), errors (list[str]) -- one entry per
+        tf that failed to fetch/compute; a partial per-tf failure does not discard the
+        symbol's other tfs.
+    """
+    symbol, tfs, dsn, atr_period, target_r_multiple, itersize = args
+    rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+
+    try:
+        conn = connect_db_from_url(dsn)
+    except Exception as error:
+        return {"symbol": symbol, "rows": rows, "errors": [f"{symbol}: connection failed: {error}"]}
+
+    try:
+        for tf in tfs:
+            # Connection-staleness check + reconnect before each per-symbol unit of work
+            # (mirrors infrastructure_run_historical_pipeline.py's precedent).
+            try:
+                conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor).execute("SELECT 1")
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                conn = connect_db_from_url(dsn)
+            try:
+                rows.extend(
+                    _scan_symbol_tf(conn, symbol, tf, atr_period, target_r_multiple, itersize)
+                )
+            except Exception as error:
+                errors.append(f"{symbol}/{tf}: {error}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                continue
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    return {"symbol": symbol, "rows": rows, "errors": errors}
+
+
+# ---------------------------------------------------------------------------
+# CounterfactualTracker
+# ---------------------------------------------------------------------------
+
+
+class CounterfactualTracker(BaseBatch):
+    """Batch compute service: fills alpha_frames geometry and closes each frame via the
+    direction-aware exit state machine (FRAME-02/03), then (in --evaluate-gate mode)
+    evaluates the FRAME-04 day-clustered block-bootstrap exit gate."""
+
+    job_name = "counterfactual-tracker"
+    compute_version = "1.0.0"
+
+    # Keys/order MUST match _row_to_update_tuple's tuple construction exactly.
+    _UPDATE_KEYS: tuple[str, ...] = (
+        "frame_id",
+        "bar_ts",
+        "entry_price",
+        "stop_price",
+        "target_price",
+        "r_multiple",
+        "status",
+        "counterfactual_pnl_r",
+        "counterfactual_mfe",
+        "counterfactual_mae",
+        "counterfactual_bars",
+        "exit_reason",
+        "closed_at",
+        "measured_at",
+    )
+
+    # WHERE frame_id = $1 AND bar_ts = $2: the composite (frame_id, bar_ts) PK from
+    # migration 214 (review M3). status = 'open' makes every UPDATE an immutability guard --
+    # a re-run never re-closes an already-closed frame.
+    _UPDATE_SQL = """
+        UPDATE alpha_frames
+        SET entry_price = $3,
+            stop_price = $4,
+            target_price = $5,
+            r_multiple = $6,
+            status = $7,
+            counterfactual_pnl_r = $8,
+            counterfactual_mfe = $9,
+            counterfactual_mae = $10,
+            counterfactual_bars = $11,
+            exit_reason = $12,
+            closed_at = $13,
+            measured_at = $14
+        WHERE frame_id = $1 AND bar_ts = $2 AND status = 'open'
+    """
+
+    def __init__(self, db_dsn: str, backfill: bool = False) -> None:
+        super().__init__(db_dsn)
+        self.backfill = backfill
+
+    def _row_to_update_tuple(self, row: dict[str, Any]) -> tuple[Any, ...]:
+        return tuple(row[key] for key in self._UPDATE_KEYS)
+
+    def _instrument_ic_staleness(self, rows: list[dict[str, Any]]) -> None:
+        """D-10: make the IC-decay trigger's row age observable. Never freshness-gates the
+        read itself (D-08) -- this only sets a point gauge from data workers already
+        returned, main-process-side (workers stay metric-free, DAG invariant #3)."""
+        now = datetime.now(UTC)
+        seen: set[tuple[Any, Any, Any]] = set()
+        for row in rows:
+            key = (row.get("symbol"), row.get("tf"), row.get("regime"))
+            scored_at = row.get("ic_scored_at")
+            if key in seen or scored_at is None:
+                continue
+            seen.add(key)
+            age_seconds = (now - scored_at).total_seconds()
+            COUNTERFACTUAL_TRACKER_IC_ROW_AGE_SECONDS.set(
+                age_seconds, {"symbol": key[0], "tf": key[1], "regime": key[2]}
+            )
+
+    async def _flush_worker_results(
+        self, pool: asyncpg.Pool, results_iter: Iterable[list[dict[str, Any]]]
+    ) -> int:
+        """Per-symbol incremental flush (anti-OOM write-side twin of the read-side named-
+        cursor fix, T-142B-08). Consumes an ITERABLE of per-symbol row-lists and, for EACH
+        batch as it arrives, does exactly ONE serial async batch UPDATE then releases the
+        connection -- NEVER accumulates all symbols' rows into one aggregate write (the
+        client-side unbounded-accumulation OOM shape that crashed production twice)."""
+        total_written = 0
+        for symbol_rows in results_iter:
+            if not symbol_rows:
+                continue
+            tuples = [self._row_to_update_tuple(row) for row in symbol_rows]
+            async with pool.acquire() as wconn:
+                await wconn.executemany(self._UPDATE_SQL, tuples)
+            total_written += len(tuples)
+        return total_written
+
+    async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
+        manifest = CorpusManifest("counterfactual_tracker", CorpusManifest.DEFAULT_MANIFEST_DIR)
+        try:
+            await self._execute_inner(pool, manifest)
+        except Exception as error:
+            manifest.add_error(str(error))
+            try:
+                manifest.write()
+            except Exception:
+                pass
+            raise
+
+    async def _execute_inner(self, pool: asyncpg.Pool, manifest: CorpusManifest) -> None:
+        async with pool.acquire() as conn:
+            cfg = await _load_apr(conn, extra_like_patterns=["infra.counterfactual_tracker.%"])
+            atr_period = _cfg(cfg, "alpha.frame.atr_period", 14)
+            target_r_multiple = _cfg(cfg, "alpha.frame.target_r_multiple", 2.0)
+            itersize = _cfg(cfg, "infra.counterfactual_tracker.itersize", 5000)
+            n_workers = _cfg(cfg, "infra.counterfactual_tracker.workers", 12)
+
+            partitions = await conn.fetch(
+                "SELECT DISTINCT symbol, tf FROM alpha_frames "
+                "WHERE status = 'open' AND frame_variant = 'primary' ORDER BY symbol, tf"
+            )
+
+        symbol_to_tfs: dict[str, list[str]] = {}
+        for part in partitions:
+            symbol_to_tfs.setdefault(part["symbol"], []).append(part["tf"])
+
+        self.logger.info(
+            "counterfactual_tracker.config_loaded",
+            atr_period=atr_period,
+            target_r_multiple=target_r_multiple,
+            itersize=itersize,
+            n_workers=n_workers,
+            n_symbols=len(symbol_to_tfs),
+            backfill=self.backfill,
+        )
+        manifest.set_inputs(backfill=self.backfill, n_symbols=len(symbol_to_tfs))
+
+        if not symbol_to_tfs:
+            self.logger.info("counterfactual_tracker.no_open_frames")
+            manifest.mark_success()
+            manifest.write()
+            return
+
+        worker_args = [
+            (symbol, tfs, self._db_dsn, atr_period, target_r_multiple, itersize)
+            for symbol, tfs in symbol_to_tfs.items()
+        ]
+        worker_errors: list[str] = []
+
+        def _row_lists() -> Iterable[list[dict[str, Any]]]:
+            with ProcessPoolExecutor(max_workers=n_workers) as exe:
+                for result in exe.map(_run_counterfactual_worker, worker_args, chunksize=1):
+                    worker_errors.extend(result.get("errors", []))
+                    rows = result.get("rows", [])
+                    self._instrument_ic_staleness(rows)
+                    yield rows
+
+        total_written = await self._flush_worker_results(pool, _row_lists())
+
+        if worker_errors:
+            self.logger.error(
+                "counterfactual_tracker.worker_errors",
+                n_failed=len(worker_errors),
+                n_symbols=len(worker_args),
+                errors=worker_errors[:10],
+            )
+
+        manifest.add_output(table_name="alpha_frames", rows_total=total_written)
+        manifest.mark_success()
+        manifest_path = manifest.write()
+        self.logger.info(
+            "counterfactual_tracker.complete",
+            total_written=total_written,
+            manifest_path=str(manifest_path),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Counterfactual Tracker -- closes alpha_frames via FRAME-02/03 (D-05)"
+    )
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help=(
+            "Process the full existing open-frame backlog in one pass (D-05). Uses the same "
+            "open-frame scoping as nightly-incremental -- the write path is identical."
+        ),
+    )
+    args = parser.parse_args()
+
+    try:
+        init_otel_providers("indicagent-counterfactual-tracker")
+    except OTelInitError as error:
+        _logger.warning("counterfactual_tracker.otel_init_failed", error=str(error))
+
+    settings = Settings()
+    db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    asyncio.run(CounterfactualTracker(db_dsn=db_dsn, backfill=args.backfill).run())

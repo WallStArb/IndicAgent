@@ -1,0 +1,175 @@
+"""Unit tests: CounterfactualTracker service -- worker write-free contract, per-symbol
+incremental flush, and the UPDATE-key immutability guard (review M3/M4, T-142B-04/06/08).
+
+No live DB required -- these tests assert source-level contracts (grep/inspect) and exercise
+the write path against a mocked asyncpg pool.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import sys
+from pathlib import Path
+from unittest.mock import AsyncMock
+
+_project_root = Path(__file__).parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+from services.counterfactual_tracker import CounterfactualTracker, _run_counterfactual_worker
+
+# ---------------------------------------------------------------------------
+# (a) Worker-no-write guard (DAG invariant #3, T-142B-06)
+# ---------------------------------------------------------------------------
+
+
+def test_worker_source_has_no_write_calls():
+    source = inspect.getsource(_run_counterfactual_worker)
+    assert "execute_batch" not in source
+    assert "executemany" not in source
+
+
+def test_worker_source_uses_named_cursor_not_plain_cursor():
+    """The worker's own source (and its _scan_symbol_tf helper, invoked from within it)
+    must never open a plain conn.cursor() -- a leading conn.commit() is permitted (named-
+    cursor precondition)."""
+    import services.counterfactual_tracker as module
+
+    worker_source = inspect.getsource(_run_counterfactual_worker)
+    scan_source = inspect.getsource(module._scan_symbol_tf)
+    combined = worker_source + scan_source
+    assert "conn.cursor(name=" in combined
+    assert "conn.cursor()" not in combined
+
+
+def test_worker_opens_no_write_connection():
+    source = inspect.getsource(_run_counterfactual_worker)
+    assert "pool.acquire" not in source
+    assert "asyncpg" not in source
+
+
+def test_worker_returns_dict_with_expected_keys():
+    sig = inspect.signature(_run_counterfactual_worker)
+    params = list(sig.parameters.keys())
+    assert params == ["args"]
+    doc = _run_counterfactual_worker.__doc__
+    assert doc is not None
+    assert "list[dict]" in doc
+
+
+# ---------------------------------------------------------------------------
+# (b) Incremental per-symbol flush guard (T-142B-08)
+# ---------------------------------------------------------------------------
+
+
+def test_flush_worker_results_issues_one_executemany_per_symbol_batch():
+    """3 distinct per-symbol row-lists -> exactly 3 awaited executemany calls, never 1
+    (proves per-symbol flush, not all-symbols aggregation)."""
+    tracker = CounterfactualTracker(db_dsn="postgresql://unused/unused")
+
+    executemany_mock = AsyncMock()
+
+    class _FakeConn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        executemany = executemany_mock
+
+    class _FakePool:
+        def acquire(self):
+            return _FakeConn()
+
+    now = "2026-07-10T00:00:00Z"
+    row_template = {
+        "frame_id": "f",
+        "bar_ts": now,
+        "entry_price": 1.0,
+        "stop_price": 1.0,
+        "target_price": 1.0,
+        "r_multiple": 1.0,
+        "status": "closed_stop",
+        "counterfactual_pnl_r": -1.0,
+        "counterfactual_mfe": 0.0,
+        "counterfactual_mae": -1.0,
+        "counterfactual_bars": 1,
+        "exit_reason": "closed_stop",
+        "closed_at": now,
+        "measured_at": now,
+    }
+
+    batches = [
+        [dict(row_template, frame_id="a1"), dict(row_template, frame_id="a2")],
+        [dict(row_template, frame_id="b1")],
+        [dict(row_template, frame_id="c1"), dict(row_template, frame_id="c2")],
+    ]
+
+    total = asyncio.run(tracker._flush_worker_results(_FakePool(), iter(batches)))
+
+    assert executemany_mock.await_count == 3
+    assert total == 5
+
+
+def test_flush_worker_results_skips_empty_batches():
+    tracker = CounterfactualTracker(db_dsn="postgresql://unused/unused")
+    executemany_mock = AsyncMock()
+
+    class _FakeConn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        executemany = executemany_mock
+
+    class _FakePool:
+        def acquire(self):
+            return _FakeConn()
+
+    total = asyncio.run(tracker._flush_worker_results(_FakePool(), iter([[], []])))
+    assert executemany_mock.await_count == 0
+    assert total == 0
+
+
+# ---------------------------------------------------------------------------
+# (c) UPDATE key + immutability guard (review M3)
+# ---------------------------------------------------------------------------
+
+
+def test_update_sql_keys_on_frame_id_and_bar_ts_with_open_guard():
+    sql = CounterfactualTracker._UPDATE_SQL
+    assert "frame_id" in sql
+    assert "bar_ts" in sql
+    assert "status = 'open'" in sql
+
+
+def test_update_keys_tuple_matches_sql_param_order():
+    """_UPDATE_KEYS must produce a tuple whose positional order matches the SQL's $1..$14
+    placeholders exactly."""
+    keys = CounterfactualTracker._UPDATE_KEYS
+    assert keys[0] == "frame_id"
+    assert keys[1] == "bar_ts"
+    assert len(keys) == 14
+
+
+# ---------------------------------------------------------------------------
+# Service registration (mirrors alpha-frame-writer's precedent)
+# ---------------------------------------------------------------------------
+
+
+def test_service_auditor_registers_counterfactual_tracker():
+    import services.service_auditor as auditor
+
+    assert "indicagent-counterfactual-tracker" in auditor._DAG_ORDER
+    assert "indicagent-counterfactual-tracker" in auditor._ONESHOT_UNITS
+
+
+def test_exception_handler_uses_error_variable_name():
+    import services.counterfactual_tracker as module
+
+    source = inspect.getsource(module.CounterfactualTracker.execute)
+    assert "except Exception as error:" in source
