@@ -981,7 +981,7 @@ Plans:
 
 ---
 
-### Phase 142B: Frame Simulation + Counterfactual Tracking 📋 PLANNED
+### Phase 142B: Frame Simulation + Counterfactual Tracking ✅ COMPLETE (2026-07-10)
 
 **Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_frames` table + `alpha.frame.*` APR keys + `corpus_run_id`/`weight_epoch` provenance columns (canonical-simulator binding rule). No fill-calibrated cost model (`alpha.cost.*`) — real fill data (slippage, commission) does not exist until v4.0 execution. The externally-calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) do exist now and are applied as a net-of-cost reporting column per the note below — not a gate change, and not the v4.0 fill-based model.
 
