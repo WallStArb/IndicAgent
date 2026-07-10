@@ -1457,6 +1457,8 @@ Each single-TF case predictor lands at exactly feature grain, one value per (sym
 
 **Goal:** Expand the atomic feature set (~60 new candidates, full priority-tiered list in todo 014 — corrected 2026-07-01, ROADMAP previously cited a phantom "todo 003" that doesn't exist in the tree), screen through IC machinery, promote survivors. Build a Theory-Motivated Interaction Layer of ≤50 curated compound features — not a combinatorial factory. Gated on Feature Registry (todo 008, COMPLETE).
 
+**Evidence base (2026-07-10):** todo 037's pilot ran the partial-IC test this phase's interaction-layer premise depends on — 8 already-live hand-picked interaction primitives measured for incremental IC after controlling for parent atomics. Result: 192/864 cells (22.2%) passed BH-FDR, broad-based across all 8 features. This confirms the atomic feature set is not IC-saturated and interaction effects are real — supporting evidence for building this phase's curated layer, though this phase's own ≤50-feature/theory-motivated design (vs. todo 019's rejected ~30K-candidate combinatorial approach) was already independently justified on BH-FDR statistical-power grounds before this result existed. See `docs/research/intel-feature-interaction-factory.md` and `.planning/todos/completed/037-interaction-primitives-pilot-ic-test.md` for full detail.
+
 **Note (updated 2026-07-03):** the interaction terms this phase validates are one of two
 constituent sources for `docs/research/intel-10-confluence-detection-persistence-layer.md` v3
 ("Confluence — a Governed Predictor Family," rewritten 2026-07-03; the other source is

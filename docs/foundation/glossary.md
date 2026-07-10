@@ -1135,8 +1135,14 @@ independently evaluated.
 **Current implementations:**
 - Hand-authored composites in `FeatureFactory` (e.g., `informed_flow` combining OFI and
   volume signals; `garch_ratio` combining realized vs implied vol)
-- Planned: Interaction Factory (todo 019) -- systematic pairwise generation of all
-  primitive combinations (products, ratios, rolling correlations), screened by IC engine
+- 8 already-live interaction primitives (`vol_body_product`, `price_vol_corr_fast`, etc.)
+  empirically confirmed (todo 037, 2026-07-10) to carry genuine incremental IC beyond
+  their parent atomics -- 22.2% of tested cells passed
+- Planned: Phase 150's curated Theory-Motivated Interaction Layer (≤50 features, each with
+  a stated finance-theory hypothesis) -- NOT the systematic pairwise combinatorial generator
+  once scoped as "Interaction Factory" (todo 019, deferred/superseded -- ROADMAP.md's Phase
+  150 rejected the ~30K-candidate combinatorial approach on BH-FDR power grounds, a decision
+  independent of todo 037's result)
 
 **In v2.x:** I5-I7 plugin stack performed a form of feature synthesis, combining I1-I4
 measurements into pattern-level scores (ICC). Distinction: v2.x synthesis was
