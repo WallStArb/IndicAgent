@@ -1213,3 +1213,27 @@ COUNTERFACTUAL_TRACKER_IC_ROW_AGE_SECONDS = _meter.create_gauge(
         "ideal). Labels: symbol, tf, regime."
     ),
 )
+
+# ---------------------------------------------------------------------------
+# Phase 143 Plan 03: ic_engine post-run lifecycle hook (LIFECYCLE-03/04/05)
+# ---------------------------------------------------------------------------
+
+ALPHA_DECAY_CELLS_FLAGGED = counter(
+    "alpha_decay_cells_flagged",
+    "Count of (feature, tf, regime) cells this run whose material-fail condition "
+    "(standing_weight x |ic_ci_lower| > alpha.decay.materiality_threshold, AND failed) "
+    "was true. Incremented per material-fail cell by ic_engine's post-run lifecycle hook.",
+)
+ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL = counter(
+    "alpha_decay_ensemble_rebuild_total",
+    "Count of real feature_registry transitions (active->shadow_only demotion, "
+    "shadow_only->active promotion) written by ic_engine's post-run lifecycle hook. "
+    "Zero on a regime-shift hold or idempotency short-circuit.",
+)
+IC_ENGINE_LAST_RUN_AGE_DAYS = point_gauge(
+    "ic_engine_last_run_age_days",
+    "Days since the prior successful ic_engine run's completion, set once per run by the "
+    "post-run lifecycle hook. In-run diagnostic only (Fable N6) -- detects a too-long gap "
+    "retroactively at the start of the NEXT run, not while the gap is ongoing. 0 when no "
+    "prior run is found (first run / missing manifest, no alert fires in that case).",
+)

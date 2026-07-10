@@ -164,3 +164,20 @@ class TestEligibilityRequiresWalkForward:
         from services.ensemble_trainer import EnsembleTrainer
 
         assert "_ELIGIBILITY_WHERE" in inspect.getsource(EnsembleTrainer._process_stratum)
+
+
+class TestFeatureStatusAtEvalFilter:
+    """Regression lock (LIFECYCLE-02, Phase 143 Plan 03): the feature-IC selection
+    query in _process_stratum must keep filtering WHERE feature_status_at_eval =
+    'active', excluding candidate and shadow_only periods where IC data was gathered
+    but the feature was not (or no longer) actively governed. This is already-correct
+    Phase 139 code -- this test exists purely to fail loudly if a future edit silently
+    drops the filter, since ic_engine's Plan 03 post-run lifecycle hook now depends on
+    this filter to make feature status changes (demotion/promotion) actually take
+    effect on the next ensemble_trainer run."""
+
+    def test_stratum_ic_fetch_filters_feature_status_at_eval_active(self) -> None:
+        from services.ensemble_trainer import EnsembleTrainer
+
+        source = inspect.getsource(EnsembleTrainer._process_stratum)
+        assert "feature_status_at_eval = 'active'" in source

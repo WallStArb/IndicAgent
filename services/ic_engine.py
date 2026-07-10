@@ -50,6 +50,7 @@ import argparse
 import dataclasses
 import sys
 import time
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -90,11 +91,14 @@ from src.intelligence.statistics.ic_math import (
     _vectorized_ic,
 )
 from src.observability.metrics import (
+    ALPHA_DECAY_CELLS_FLAGGED,
+    ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL,
     EFFECTIVE_N_GAUGE,
     FEATURE_IC_PASSING_WALKFORWARD_TOTAL,
     FEATURES_SURVIVING_FDR_GAUGE,
     IC_ENGINE_CELLS_COMPLETED_TOTAL,
     IC_ENGINE_CELLS_SKIPPED_TOTAL,
+    IC_ENGINE_LAST_RUN_AGE_DAYS,
     IC_ENGINE_RUN_LATENCY_SECONDS,
     IC_SCORE_GAUGE,
     IC_SHARPE_GAUGE,
@@ -289,6 +293,24 @@ class ICEngineConfig:
     cs_chunk_ts: int
     symbol_fetch_chunk_rows: int
     n_workers: int
+    # Phase 143 Plan 03: post-run lifecycle hook (LIFECYCLE-03/04/05) thresholds.
+    # Defaulted (matching the APR defaults from_apr() falls back to) rather than
+    # required -- from_apr() always binds these explicitly in production; the
+    # defaults exist so pre-existing direct ICEngineConfig(...) construction sites
+    # (e.g. tests/unit/test_hac_ic_sharpe.py, which predates this plan and only
+    # exercises the original 18 fields) don't break on this dataclass's field-count
+    # growth (Rule 1 fix -- caught by the full tests/unit/ suite run).
+    decay_materiality_threshold: float = 0.005
+    decay_regime_shift_fraction: float = 0.60
+    decay_recovery_min_observations: int = 2000
+    decay_recovery_min_passes: int = 2
+    meta_fdr_min_fraction: float = 0.50
+    ic_staleness_alert_days: int = 5
+    # Fable N4: pins the standing-weight JOIN to the APR champion weight_version --
+    # the SAME key ensemble_trainer defaults to absent a CLI --weight-version override.
+    # NEVER resolved by `ORDER BY computed_at DESC LIMIT 1` (would silently leak a
+    # challenger epoch's weights into the materiality gate the moment E1/E2 A/B ships).
+    ensemble_weight_version: str = "v1"
 
     @property
     def lookaheads(self) -> dict[str, int]:
@@ -335,6 +357,24 @@ class ICEngineConfig:
             ),
             # Worker pool size (override via --workers CLI flag).
             n_workers=int(cfg.get_sync("infra.ic_engine.workers", 1)),
+            # Phase 143 Plan 03: post-run lifecycle hook (LIFECYCLE-03/04/05).
+            # Reused APR keys (migration 161/172) -- not new, so demotion and the
+            # ensemble's own inclusion gate share one threshold and can't drift apart.
+            decay_materiality_threshold=float(
+                cfg.get_sync("alpha.decay.materiality_threshold", 0.005)
+            ),
+            decay_regime_shift_fraction=float(
+                cfg.get_sync("alpha.decay.regime_shift_fraction", 0.60)
+            ),
+            decay_recovery_min_observations=int(
+                cfg.get_sync("alpha.decay.recovery_min_observations", 2000)
+            ),
+            decay_recovery_min_passes=int(cfg.get_sync("alpha.decay.recovery_min_passes", 2)),
+            meta_fdr_min_fraction=float(cfg.get_sync("alpha.ensemble.meta_fdr_min_fraction", 0.50)),
+            # New key (migration 219).
+            ic_staleness_alert_days=int(cfg.get_sync("alpha.ic.staleness_alert_days", 5)),
+            # Fable N4 -- same key ensemble_trainer defaults to absent a CLI override.
+            ensemble_weight_version=str(cfg.get_sync("alpha.ensemble.weight_version", "v1")),
         )
 
 
@@ -1803,6 +1843,314 @@ def _run_ic_worker(args: tuple) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Post-run lifecycle hook (Phase 143 Plan 03: LIFECYCLE-03/04/05)
+#
+# Closes the loop opened by feature_registry's status column: features that lose IC
+# demote to shadow_only, recovered ones promote back through the same evidence bar,
+# and a regime dislocation is never misread as mass decay. Writes one gate-evaluation
+# fact to integrity_monitor per run (observability only -- feature_transition_log stays
+# the sole authoritative transition record) and the IC staleness gauge.
+#
+# Sync psycopg2 throughout -- ic_engine.py is a plain argparse script (no class, no
+# BaseBatch, no async/await anywhere). Guarded so a hook failure logs loudly but never
+# corrupts the already-committed IC results (the hook runs after the primary write is
+# durable).
+# ---------------------------------------------------------------------------
+
+
+def _get_prior_ic_engine_completion(
+    write_conn: Any,
+    manifest: CorpusManifest,
+    training_window_end: Any,
+) -> datetime | None:
+    """Prior successful ic_engine run's completion timestamp, for LIFECYCLE-05 staleness.
+
+    Tries the on-disk CorpusManifest history first -- the manifest FILE for step_name
+    "ic_engine" still holds the PRIOR run's data at this point, because this run's own
+    manifest.write() call happens later in main(), after the lifecycle hook returns.
+    Falls back to MAX(training_window_end) in feature_ic_scores strictly BEFORE this
+    run's training_window_end (a plain MAX would just return this run's own
+    already-committed training_window_end) when no prior manifest exists. Returns None
+    if neither source yields a timestamp -- the documented first-run fallback.
+    """
+    try:
+        prior = CorpusManifest.read(manifest.manifest_dir, manifest.step_name)
+        ts_str = prior.get("timestamp")
+        if ts_str:
+            ts = datetime.fromisoformat(ts_str)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            return ts
+    except FileNotFoundError:
+        pass
+    except Exception as error:
+        _logger.warning("ic_engine.lifecycle_hook_manifest_read_failed", error=str(error))
+
+    with write_conn.cursor() as cur:
+        cur.execute(
+            "SELECT max(training_window_end) FROM feature_ic_scores WHERE training_window_end < %s",
+            (training_window_end,),
+        )
+        row = cur.fetchone()
+        if row and row[0] is not None:
+            return row[0]
+    return None
+
+
+def _run_lifecycle_hook(
+    write_conn: Any,
+    registry_svc: FeatureRegistryService,
+    config: ICEngineConfig,
+    training_window_end: Any,
+    manifest: CorpusManifest,
+) -> None:
+    """Post-run lifecycle hook: aggregates this run's per-cell IC to a deterministic
+    feature-level demote/promote decision, holds all weights on regime shift, and
+    emits the IC staleness gauge. Idempotent on training_window_end.
+
+    See ic_engine's module docstring reference and 143-03-PLAN.md for the full
+    demotion/promotion/hold specification (Fable N3/N4/N5 fixes included below).
+    """
+    log = _logger
+
+    # Step 0: idempotency short-circuit -- a rerun for a training_window_end that
+    # already has a gate-evaluation fact is a no-op (Plan 02's optimistic from_status
+    # lock additionally makes individual transitions rerun-safe).
+    with write_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT 1 FROM integrity_monitor
+            WHERE monitor_type = 'ic_lifecycle'
+              AND training_window_end = %s
+              AND metric_name IN ('decay_cells_flagged', 'regime_shift_fraction')
+            LIMIT 1
+            """,
+            (training_window_end,),
+        )
+        already_ran = cur.fetchone() is not None
+    if already_ran:
+        log.info(
+            "ic_engine.lifecycle_hook_already_ran",
+            training_window_end=str(training_window_end),
+        )
+        return
+
+    # Step 1: load this run's per-cell IC facts, pinned to ONE lookahead (Fable N3) so
+    # each (feature_name, tf, regime) triple yields exactly one row -- never 4 -- and
+    # standing weight is read at the APR champion weight_version (Fable N4), never the
+    # most-recent-by-computed_at row (which could silently be a challenger epoch).
+    with write_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT fis.feature_name, fis.tf, fis.regime, fis.ic_ci_lower, fis.passes_fdr,
+                   fis.reliable, fis.n_independent, fis.feature_status_at_eval,
+                   fis.ic_sharpe_hac, COALESCE(ew.weight, 0.0) AS standing_weight
+            FROM feature_ic_scores fis
+            LEFT JOIN ensemble_weights ew
+                   ON ew.symbol = 'UNIVERSE'
+                  AND ew.tf = fis.tf
+                  AND ew.regime = fis.regime
+                  AND ew.feature_name = fis.feature_name
+                  AND ew.weight_version = %s
+            WHERE fis.symbol = 'POOLED'
+              AND fis.is_pooled = true
+              AND fis.regime != '_pooled'
+              AND fis.training_window_end = %s
+              AND fis.lookahead_bars = %s
+            """,
+            (config.ensemble_weight_version, training_window_end, config.lookahead_mid),
+        )
+        cols = [d[0] for d in cur.description]
+        cell_rows = [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
+
+    # Fable N5: zero-cell guard. A per-symbol-only run or a run with the equity model
+    # disabled yields zero POOLED cells for this training_window_end -- every fraction
+    # below would be a division by zero. Log and return WITHOUT writing an
+    # integrity_monitor fact: a fact here would incorrectly mark this training_window_end
+    # as "already evaluated" for a later run against the same window that DOES have cells.
+    if not cell_rows:
+        log.info(
+            "ic_engine.lifecycle_hook_no_cells",
+            training_window_end=str(training_window_end),
+        )
+        return
+
+    # Step 2: per-cell material-fail flag.
+    material_fail_count = 0
+    for cell in cell_rows:
+        ic_ci_lower = cell["ic_ci_lower"]
+        failed = (ic_ci_lower is not None and ic_ci_lower <= 0) or (not cell["passes_fdr"])
+        material = failed and (
+            cell["standing_weight"] * abs(ic_ci_lower or 0.0) > config.decay_materiality_threshold
+        )
+        cell["_failed"] = failed
+        cell["_material_fail"] = material
+        if material:
+            material_fail_count += 1
+            ALPHA_DECAY_CELLS_FLAGGED.add(
+                1,
+                {
+                    "feature_name": cell["feature_name"],
+                    "tf": cell["tf"],
+                    "regime": cell["regime"],
+                },
+            )
+
+    # Step 3: REGIME-SHIFT GUARD FIRST -- evaluated over cells with
+    # feature_status_at_eval='active' only. If >= decay_regime_shift_fraction of those
+    # cells failed simultaneously, hold ALL weights (zero transitions) rather than
+    # misread a market dislocation as mass feature decay (T-143-06).
+    active_cells = [c for c in cell_rows if c["feature_status_at_eval"] == "active"]
+    if active_cells:
+        failed_active_count = sum(1 for c in active_cells if c["_failed"])
+        regime_shift_fraction = failed_active_count / len(active_cells)
+        if regime_shift_fraction >= config.decay_regime_shift_fraction:
+            log.warning(
+                "ic_engine.regime_shift_hold",
+                fraction=regime_shift_fraction,
+                threshold=config.decay_regime_shift_fraction,
+                training_window_end=str(training_window_end),
+            )
+            with write_conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO integrity_monitor
+                        (monitor_type, subject, metric_name, metric_value,
+                         threshold_value, passed, training_window_end)
+                    VALUES ('ic_lifecycle', NULL, 'regime_shift_fraction', %s, %s, false, %s)
+                    ON CONFLICT (monitor_type, training_window_end, metric_name,
+                                 COALESCE(subject, ''), evaluated_at) DO NOTHING
+                    """,
+                    (
+                        regime_shift_fraction,
+                        config.decay_regime_shift_fraction,
+                        training_window_end,
+                    ),
+                )
+            write_conn.commit()
+            return
+
+    # Step 4: per-feature aggregation (GROUP BY feature_name) -- demotion/promotion.
+    cells_by_feature: dict[str, list[dict]] = defaultdict(list)
+    for cell in cell_rows:
+        cells_by_feature[cell["feature_name"]].append(cell)
+
+    demotion_fraction_floor = 1.0 - config.meta_fdr_min_fraction
+    registry_status_by_feature = {
+        f["feature_name"]: f["status"] for f in registry_svc.get_all_features()
+    }
+
+    for feature_name, cells in cells_by_feature.items():
+        status = registry_status_by_feature.get(feature_name)
+
+        if status == "active":
+            active_feature_cells = [c for c in cells if c["feature_status_at_eval"] == "active"]
+            if not active_feature_cells:
+                continue
+            material_fail_cells = [c for c in active_feature_cells if c["_material_fail"]]
+            demote_fraction = len(material_fail_cells) / len(active_feature_cells)
+            if demote_fraction >= demotion_fraction_floor:
+                # Representative aggregates for the ic_* audit fields (worst cell by
+                # ic_ci_lower, its own ic_sharpe_hac, summed n_independent).
+                worst_cell = min(
+                    active_feature_cells,
+                    key=lambda c: c["ic_ci_lower"] if c["ic_ci_lower"] is not None else 0.0,
+                )
+                ic_n = sum(c["n_independent"] for c in active_feature_cells)
+                transitioned = registry_svc.record_transition_sync(
+                    write_conn,
+                    feature_name,
+                    "active",
+                    "shadow_only",
+                    "ic_demotion",
+                    ic_value=worst_cell["ic_ci_lower"],
+                    ic_sharpe=worst_cell["ic_sharpe_hac"],
+                    ic_n=ic_n,
+                )
+                if transitioned:
+                    ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": feature_name})
+
+        elif status == "shadow_only":
+            passes_fdr_count = sum(1 for c in cells if c["passes_fdr"])
+            pass_fraction = passes_fdr_count / len(cells)
+            passed = pass_fraction >= config.meta_fdr_min_fraction
+            new_observations = sum(c["n_independent"] for c in cells)
+            registry_svc.advance_shadow_counters_sync(
+                write_conn, feature_name, passed, new_observations
+            )
+            if registry_svc.is_promotion_eligible(
+                feature_name,
+                config.decay_recovery_min_observations,
+                config.decay_recovery_min_passes,
+            ):
+                # Promotion is the status flip alone -- ic_engine NEVER writes
+                # ensemble_weights (sole-writer invariant, T-143-12); the next ic_engine
+                # run stamps feature_status_at_eval='active' and the next
+                # ensemble_trainer run naturally recomputes the weight from current IC.
+                transitioned = registry_svc.record_transition_sync(
+                    write_conn,
+                    feature_name,
+                    "shadow_only",
+                    "active",
+                    "ic_promotion",
+                )
+                if transitioned:
+                    ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": feature_name})
+
+    # Step 5: one integrity_monitor gate-evaluation fact per (non-hold) run.
+    with write_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO integrity_monitor
+                (monitor_type, subject, metric_name, metric_value,
+                 threshold_value, passed, training_window_end)
+            VALUES ('ic_lifecycle', NULL, 'decay_cells_flagged', %s, %s, true, %s)
+            ON CONFLICT (monitor_type, training_window_end, metric_name,
+                         COALESCE(subject, ''), evaluated_at) DO NOTHING
+            """,
+            (
+                float(material_fail_count),
+                config.decay_materiality_threshold,
+                training_window_end,
+            ),
+        )
+    write_conn.commit()
+
+    # Step 6: IC staleness gauge (LIFECYCLE-05). In-run diagnostic only (Fable N6) --
+    # evaluated at the start of the NEXT run, not while a gap is ongoing.
+    prior_completion = _get_prior_ic_engine_completion(write_conn, manifest, training_window_end)
+    age_days, alert = _evaluate_staleness(
+        prior_completion, datetime.now(UTC), config.ic_staleness_alert_days
+    )
+    IC_ENGINE_LAST_RUN_AGE_DAYS.set(age_days)
+    if alert:
+        log.warning(
+            "ic_engine.stale",
+            age_days=age_days,
+            threshold=config.ic_staleness_alert_days,
+        )
+
+
+def _evaluate_staleness(
+    prior_completion: datetime | None,
+    now: datetime,
+    staleness_alert_days: int,
+) -> tuple[int, bool]:
+    """Pure staleness decision (LIFECYCLE-05): (age_days, alert_should_fire).
+
+    age_days = 0 and alert=False when prior_completion is None (first run / missing
+    manifest -- the documented fallback, never an alert). Otherwise age_days is the
+    integer day difference and alert fires when age_days exceeds staleness_alert_days.
+    """
+    if prior_completion is None:
+        return 0, False
+    if prior_completion.tzinfo is None:
+        prior_completion = prior_completion.replace(tzinfo=UTC)
+    age_days = (now - prior_completion).days
+    return age_days, age_days > staleness_alert_days
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -2173,6 +2521,28 @@ def main() -> None:
                 training_window_end=training_window_end,
             )
 
+            # ----------------------------------------------------------
+            # Post-run lifecycle hook (Phase 143 Plan 03: LIFECYCLE-03/04/05).
+            # Runs after the primary write above is durable. Mirrors
+            # _persist_corpus_results' pattern -- main() holds no write connection
+            # of its own, so the hook opens, uses, and closes its own connection
+            # for this one call. Guarded: a hook failure logs loudly but must
+            # never abort the run or discard the already-committed IC results.
+            # ----------------------------------------------------------
+            lifecycle_conn = _connect_db(settings)
+            try:
+                _run_lifecycle_hook(
+                    lifecycle_conn,
+                    registry_svc,
+                    config,
+                    training_window_end,
+                    manifest,
+                )
+            except Exception as error:
+                _logger.error("ic_engine.lifecycle_hook_failed", error=str(error))
+            finally:
+                lifecycle_conn.close()
+
             elapsed = time.monotonic() - t0
             IC_ENGINE_RUN_LATENCY_SECONDS.record(elapsed)
 
@@ -2207,8 +2577,6 @@ def main() -> None:
                     "ic_sharpe",
                     "ic_sharpe_n_windows",
                     "regime_label_source",
-                    "is_decaying",
-                    "decay_detected_at",
                 ],
             )
 
