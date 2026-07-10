@@ -687,6 +687,117 @@ class CounterfactualTracker(BaseBatch):
 
 
 # ---------------------------------------------------------------------------
+# FRAME-04 gate evaluation (--evaluate-gate CLI mode)
+# ---------------------------------------------------------------------------
+
+
+def evaluate_frame_gate(
+    rows: Iterable[dict[str, Any]],
+    min_n: int,
+    bootstrap_max_n: int,
+    bootstrap_batch: int,
+) -> list[dict[str, Any]]:
+    """Pure grouping/aggregation core for the FRAME-04 in-sample exit gate.
+
+    Takes an in-memory iterable of dicts with keys tf, regime, cluster_id, pnl_r -- pnl_r is
+    the GROSS realized counterfactual_pnl_r (D-01); this function applies no adjustment to
+    it whatsoever. Groups by (tf, regime), passing each cell's per-frame calendar-date
+    cluster_id straight into frame_gate_passes unmodified (day-clustered, review H4), and
+    respects the min_n frame-count sufficiency floor via that same call.
+
+    Returns one verdict dict per (tf, regime) cell: tf, regime, n_frames, n_clusters,
+    ci_lower, ci_upper, passes.
+    """
+    groups: dict[tuple[Any, Any], dict[str, list[Any]]] = {}
+    for row in rows:
+        key = (row["tf"], row["regime"])
+        bucket = groups.setdefault(key, {"pnl_r": [], "cluster_id": []})
+        bucket["pnl_r"].append(row["pnl_r"])
+        bucket["cluster_id"].append(row["cluster_id"])
+
+    verdicts: list[dict[str, Any]] = []
+    for (tf, regime), bucket in groups.items():
+        passes, ci_lower, ci_upper = frame_gate_passes(
+            bucket["pnl_r"], bucket["cluster_id"], min_n, bootstrap_max_n, bootstrap_batch
+        )
+        verdicts.append(
+            {
+                "tf": tf,
+                "regime": regime,
+                "n_frames": len(bucket["pnl_r"]),
+                "n_clusters": len(set(bucket["cluster_id"])),
+                "ci_lower": ci_lower,
+                "ci_upper": ci_upper,
+                "passes": passes,
+            }
+        )
+    return verdicts
+
+
+# In-sample only (bar_ts < oos_start); frame_variant='primary' (the sole variant this phase
+# writes); status != 'open' (closed frames only -- an open frame has no counterfactual_pnl_r
+# to gate on). bar_ts::date is the per-frame calendar-day cluster_id (review H4).
+_GATE_QUERY_SQL = """
+    SELECT tf, regime, bar_ts::date AS cluster_id, counterfactual_pnl_r AS pnl_r
+    FROM alpha_frames
+    WHERE frame_variant = 'primary'
+      AND status != 'open'
+      AND bar_ts < $1
+      AND counterfactual_pnl_r IS NOT NULL
+"""
+
+
+async def _run_evaluate_gate(db_dsn: str) -> None:
+    """--evaluate-gate CLI mode: a distinct read-only reporting branch, not a third service
+    (keeps ROADMAP's 2-service scope). No D-06 job_completed_total emission -- this performs
+    no persistence, unlike CounterfactualTracker.execute()."""
+    conn = await asyncpg.connect(db_dsn)
+    try:
+        apr_rows = await conn.fetch(
+            "SELECT config_key, config_value FROM config_state WHERE config_key LIKE ANY($1::text[])",
+            ["alpha.scoring.%"],
+        )
+        apr_cfg = {row["config_key"]: row["config_value"] for row in apr_rows}
+        min_n = _cfg(apr_cfg, "alpha.scoring.min_strategy_n", 30)
+        bootstrap_max_n = _cfg(apr_cfg, "alpha.scoring.bootstrap_max_n", 5000)
+        bootstrap_batch = _cfg(apr_cfg, "alpha.scoring.bootstrap_batch", 1000)
+
+        oos_start = await conn.fetchval(
+            "SELECT config_value::timestamptz FROM config_state "
+            "WHERE config_key = 'alpha.validation.oos_start'"
+        )
+        if oos_start is None:
+            raise RuntimeError(
+                "counterfactual_tracker --evaluate-gate FAILED: alpha.validation.oos_start "
+                "is not set in config_state -- a missing OOS boundary would silently exclude "
+                "every row from the gate (bar_ts < NULL never matches)."
+            )
+
+        gate_rows = await conn.fetch(_GATE_QUERY_SQL, oos_start)
+    finally:
+        await conn.close()
+
+    verdicts = evaluate_frame_gate(
+        [dict(row) for row in gate_rows], min_n, bootstrap_max_n, bootstrap_batch
+    )
+
+    manifest = CorpusManifest("counterfactual_tracker_gate", CorpusManifest.DEFAULT_MANIFEST_DIR)
+    manifest.set_inputs(n_cells=len(verdicts), oos_start=str(oos_start))
+    for verdict in verdicts:
+        _logger.info("counterfactual_tracker.gate_verdict", **verdict)
+    n_passing = sum(1 for verdict in verdicts if verdict["passes"])
+    manifest.add_output(table_name="alpha_frames_gate_verdicts", rows_total=len(verdicts))
+    manifest.mark_success()
+    manifest.write()
+    _logger.info(
+        "counterfactual_tracker.gate_summary",
+        n_cells=len(verdicts),
+        n_passing=n_passing,
+        n_failing=len(verdicts) - n_passing,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
 
@@ -702,6 +813,16 @@ if __name__ == "__main__":
             "open-frame scoping as nightly-incremental -- the write path is identical."
         ),
     )
+    parser.add_argument(
+        "--evaluate-gate",
+        action="store_true",
+        help=(
+            "Evaluate the FRAME-04 in-sample exit gate (bar_ts < alpha.validation.oos_start, "
+            "frame_variant='primary') per (tf, regime) via the day-clustered block-bootstrap "
+            "core, on GROSS counterfactual_pnl_r (D-01). Read-only -- writes no alpha_frames "
+            "rows."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -711,4 +832,8 @@ if __name__ == "__main__":
 
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    asyncio.run(CounterfactualTracker(db_dsn=db_dsn, backfill=args.backfill).run())
+
+    if args.evaluate_gate:
+        asyncio.run(_run_evaluate_gate(db_dsn))
+    else:
+        asyncio.run(CounterfactualTracker(db_dsn=db_dsn, backfill=args.backfill).run())

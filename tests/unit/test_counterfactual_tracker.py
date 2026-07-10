@@ -17,7 +17,11 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.counterfactual_tracker import CounterfactualTracker, _run_counterfactual_worker
+from services.counterfactual_tracker import (
+    CounterfactualTracker,
+    _run_counterfactual_worker,
+    evaluate_frame_gate,
+)
 
 # ---------------------------------------------------------------------------
 # (a) Worker-no-write guard (DAG invariant #3, T-142B-06)
@@ -173,3 +177,51 @@ def test_exception_handler_uses_error_variable_name():
 
     source = inspect.getsource(module.CounterfactualTracker.execute)
     assert "except Exception as error:" in source
+
+
+# ---------------------------------------------------------------------------
+# FRAME-04 gate evaluation helper (Task 3, --evaluate-gate)
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_frame_gate_groups_by_tf_and_regime():
+    rows = [
+        {"tf": "5m", "regime": "trending_up", "cluster_id": "2026-01-01", "pnl_r": 0.5},
+        {"tf": "5m", "regime": "trending_up", "cluster_id": "2026-01-01", "pnl_r": 0.6},
+        {"tf": "5m", "regime": "ranging", "cluster_id": "2026-01-01", "pnl_r": -0.2},
+        {"tf": "1h", "regime": "trending_up", "cluster_id": "2026-01-01", "pnl_r": 0.3},
+    ]
+    verdicts = evaluate_frame_gate(rows, min_n=1, bootstrap_max_n=5000, bootstrap_batch=1000)
+    cells = {(v["tf"], v["regime"]) for v in verdicts}
+    assert cells == {("5m", "trending_up"), ("5m", "ranging"), ("1h", "trending_up")}
+
+
+def test_evaluate_frame_gate_passes_calendar_date_cluster_ids():
+    """Frames on the same calendar day must land in the same cluster (day-clustered, review
+    H4) -- proven by asserting a below-min_n cell short-circuits per-cell independently of
+    another cell's larger N."""
+    rows = [
+        {"tf": "5m", "regime": "trending_up", "cluster_id": f"2026-01-{d:02d}", "pnl_r": 0.1}
+        for d in range(1, 3)
+    ] + [
+        {"tf": "1h", "regime": "trending_up", "cluster_id": f"2026-02-{d:02d}", "pnl_r": 0.1}
+        for d in range(1, 40)
+    ]
+    verdicts = evaluate_frame_gate(rows, min_n=30, bootstrap_max_n=5000, bootstrap_batch=1000)
+    by_cell = {(v["tf"], v["regime"]): v for v in verdicts}
+    assert by_cell[("5m", "trending_up")]["passes"] is False  # below min_n floor (N=2 < 30)
+    assert by_cell[("1h", "trending_up")]["n_clusters"] == 39
+
+
+def test_evaluate_frame_gate_helper_has_no_cost_subtraction():
+    """Gross-only gate (D-01) -- the helper never mentions 'cost', proving no adjustment is
+    applied inside it."""
+    source = inspect.getsource(evaluate_frame_gate)
+    assert "cost" not in source.lower()
+
+
+def test_evaluate_gate_cli_flag_present():
+    source = inspect.getsource(sys.modules["services.counterfactual_tracker"])
+    assert "--evaluate-gate" in source
+    assert "alpha.validation.oos_start" in source
+    assert "frame_variant = 'primary'" in source
