@@ -1,5 +1,20 @@
 # infrastructure_run_historical_pipeline.py silently completes despite mass symbol skip on IBKR disconnect
 
+**Resolved 2026-07-10:** implemented all 4 action items in `infrastructure_run_historical_pipeline.py`.
+Before each symbol's qualify attempt, the fetch loop now checks `provider.is_connected()` and calls
+`provider.connect()` (not just `db_conn` reconnect) if the socket dropped. Both an IBKR-reconnect
+failure and a qualify failure now increment `fetch_errors` (previously qualify failures weren't
+counted at all — a silent hole in the existing `[rca_analysis F5]` exit-code gate that only tripped
+on fetch-stage exceptions) and append to a new `skipped_symbols` list. The final summary prints
+`N/M symbols skipped outright ... : [symbols]` and the run exits non-zero whenever any symbol was
+skipped, so `backfill_retry_loop.sh`'s "Backfill complete." grep can no longer see a silent partial
+run as success. Also wired `JOB_COMPLETED_TOTAL{job="historical-backfill", status=success|partial}`
+(D-06) so this is visible in Grafana without reading logs — action item 4. No new unit test: the
+reconnect logic lives inside `_run_fetch_stage()`, a closure nested in `main()` with no live IBKR/DB
+handles to mock at the unit level — the existing test file (12 tests) only covers the pure Stage-1
+helper functions (`aggregate_bars_from_1m`, `fetch_bars`/`store_bars`, `detect_gaps`) for the same
+reason; extracting the closure to make it testable was judged out of scope for this fix.
+
 **Found:** 2026-07-03, during the 22-symbol ETF universe expansion backfill (client-id 41, task bgrd6ohrg).
 
 **What happened:** ~5 hours into a `--fetch-only --symbols <22 symbols> --timeframes 1d,1h,15m,5m` run,

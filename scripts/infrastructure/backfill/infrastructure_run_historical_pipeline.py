@@ -47,7 +47,7 @@ from src.core.bar_normalizer import (
 )
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
-from src.observability.metrics import flush_and_shutdown_metrics
+from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import IBKRProvider, ibkr
 
@@ -1017,7 +1017,7 @@ def main() -> None:
         db_conn.close()
         return
 
-    async def _run_fetch_stage() -> tuple[int, int]:
+    async def _run_fetch_stage() -> tuple[int, int, list[str]]:
         nonlocal db_conn
         provider = IBKRProvider(
             host=settings.ib_host,
@@ -1026,7 +1026,7 @@ def main() -> None:
         )
         if not await provider.connect():
             print("Cannot connect to TWS — aborting fetch stage")
-            return -1, 0
+            return -1, 0, []
 
         end_dt = datetime.now(tz=UTC)
         total_bars = 0
@@ -1036,6 +1036,10 @@ def main() -> None:
         # fired. Tracked here so the caller can propagate a nonzero exit code instead
         # of silently declaring success with real holes.
         fetch_errors = 0
+        # [todo 051] Symbols skipped outright (IBKR reconnect or qualify failure) —
+        # tracked separately from fetch_errors so the final summary can name them,
+        # not just count them.
+        skipped_symbols: list[str] = []
         fetch_tfs = [tf for tf in timeframes if tf in tf_fetch_config]
         print(f"  Fetching TFs: {fetch_tfs}")
         print()
@@ -1051,9 +1055,27 @@ def main() -> None:
                         pass
                     db_conn = connect_db(settings)
                 try:
+                    # [todo 051] qualify_instrument swallows IBKR socket-disconnect
+                    # exceptions and returns False the same as a genuine "contract not
+                    # found" — from here that's indistinguishable. is_connected() is the
+                    # actual disconnect signal: reconnect on it before treating the
+                    # symbol as unqualifiable, instead of silently skipping every
+                    # remaining symbol for the rest of the run (previously only db_conn
+                    # was reconnected — the IBKR socket never was).
+                    if not provider.is_connected():
+                        print("  IBKR connection lost — reconnecting...")
+                        if not await provider.connect():
+                            print(f"  {instrument.symbol}: skipped (IBKR reconnect failed)")
+                            fetch_errors += 1
+                            skipped_symbols.append(instrument.symbol)
+                            await asyncio.sleep(2)
+                            continue
+                        print("  IBKR reconnected.")
                     qualified = await provider.qualify_instrument(instrument)
                     if not qualified:
                         print(f"  {instrument.symbol}: skipped (qualify failed)")
+                        fetch_errors += 1
+                        skipped_symbols.append(instrument.symbol)
                         continue
 
                     # Per-contract mode for futures: fetch each contract in roll chain
@@ -1295,14 +1317,21 @@ def main() -> None:
                 await asyncio.sleep(2)  # IBKR pacing between instruments
         finally:
             await provider.disconnect()
-        return total_bars, fetch_errors
+        return total_bars, fetch_errors, skipped_symbols
 
-    total_bars, fetch_errors = asyncio.run(_run_fetch_stage())
+    total_bars, fetch_errors, skipped_symbols = asyncio.run(_run_fetch_stage())
     if total_bars == -1:
         db_conn.close()
         return
 
+    n_requested = len(contracts)
+    n_skipped = len(skipped_symbols)
     print(f"\nStage 1 complete: {total_bars:,} total bars stored, {fetch_errors} fetch error(s)\n")
+    if skipped_symbols:
+        print(
+            f"{n_skipped}/{n_requested} symbols skipped outright "
+            f"(IBKR reconnect or qualify failure): {skipped_symbols}\n"
+        )
     # [rca_analysis 2026-07-05, F5] Don't silently print "Backfill complete." when
     # real fetch errors occurred — that string is exactly what backfill_retry_loop.sh
     # greps for to decide the run was clean. A nonzero exit here makes the retry loop
@@ -1313,9 +1342,12 @@ def main() -> None:
             f"Backfill FINISHED WITH {fetch_errors} FETCH ERROR(S) — "
             "not declaring complete. See error lines above."
         )
+        JOB_COMPLETED_TOTAL.add(1, {"job": "historical-backfill", "status": "partial"})
         db_conn.close()
+        flush_and_shutdown_metrics()
         sys.exit(1)
 
+    JOB_COMPLETED_TOTAL.add(1, {"job": "historical-backfill", "status": "success"})
     db_conn.close()
     flush_and_shutdown_metrics()
     print("\nBackfill complete.")
