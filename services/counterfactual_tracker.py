@@ -66,7 +66,7 @@ sys.path.insert(0, str(project_root))
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import connect_db_from_url
 from services._batch_utils import load_apr_dict_async as _load_apr
-from services.alpha_frame_writer import compute_frame_geometry
+from services.alpha_frame_writer import FrameConfig, compute_frame_geometry
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.observability.corpus_manifest import CorpusManifest
@@ -74,6 +74,11 @@ from src.observability.metrics import COUNTERFACTUAL_TRACKER_IC_ROW_AGE_SECONDS
 from src.observability.otel import OTelInitError, init_otel_providers
 
 _logger = structlog.get_logger(__name__)
+
+# Matches migration 215's alpha.scoring.bootstrap_random_state seed default -- kept as one
+# named constant instead of a literal repeated across frame_gate_passes/evaluate_frame_gate/
+# _run_evaluate_gate's APR fallback, so the three can't silently drift apart.
+_DEFAULT_BOOTSTRAP_RANDOM_STATE = 42
 
 
 class Bar(NamedTuple):
@@ -168,7 +173,7 @@ def frame_gate_passes(
     min_n: int,
     bootstrap_max_n: int,
     bootstrap_batch: int,
-    bootstrap_random_state: int = 42,
+    bootstrap_random_state: int = _DEFAULT_BOOTSTRAP_RANDOM_STATE,
 ) -> tuple[bool, float, float]:
     """FRAME-04 day-clustered block-bootstrap exit gate (review H4).
 
@@ -352,7 +357,7 @@ def _scan_symbol_tf(
     atr_period: int,
     default_target_r_multiple: float,
     itersize: int,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], int]:
     """ONE streaming named-cursor sweep over market_data_ohlcv for this (symbol, tf) cell,
     filling geometry (T+1 entry + causal price-unit ATR) and scoring the exit for every open
     frame in the cell -- never a per-frame round-trip (review H2/M2/M4).
@@ -360,13 +365,18 @@ def _scan_symbol_tf(
     `default_target_r_multiple` is a fallback for legacy rows written before migration 215
     (NULL target_r_multiple). Every frame normally carries its own target_r_multiple snapshot
     (code-review CR-02) so a mid-run APR recalibration cannot desync it from the
-    gross_expected_r/net_expected_r diagnostics AlphaFrameWriter computed at creation time."""
+    gross_expected_r/net_expected_r diagnostics AlphaFrameWriter computed at creation time.
+
+    Returns (results, degenerate_atr_skip_count) -- the skip count is an in-loop counter, not
+    a per-occurrence log call: this runs inside a ProcessPoolExecutor subprocess (workers log
+    only, per ic_engine.py's convention) over a potentially large bar stream, so visibility is
+    an aggregate the caller reports once, not a log line per degenerate frame."""
     conn.commit()  # clear any stale transaction before the bounded fetches below
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(_OPEN_FRAMES_SQL, (symbol, tf))
         open_frames = cur.fetchall()
     if not open_frames:
-        return []
+        return [], 0
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(_IC_CI_LOWER_SQL, (symbol, tf))
@@ -389,6 +399,7 @@ def _scan_symbol_tf(
     frame_idx = 0
     now = datetime.now(UTC)
     results: list[dict[str, Any]] = []
+    degenerate_atr_skip_count = 0
 
     conn.commit()  # precondition for declaring a named (server-side) cursor
     cursor_name = f"cf_scan_{symbol}_{tf}"
@@ -433,17 +444,12 @@ def _scan_symbol_tf(
                         float(frame["stop_atr_mult"]),
                         frame_target_r_multiple,
                     )
-                except ValueError as error:
-                    # Degenerate stop distance (zero ATR on stale/forward-filled bars, or a
-                    # zero stop_atr_mult) -- skip this frame, leave it open, do NOT let one
-                    # bad bar abort the rest of this cell's scan (code-review CR-01).
-                    _logger.warning(
-                        "counterfactual_tracker.degenerate_atr_skip",
-                        symbol=symbol,
-                        tf=tf,
-                        frame_id=frame["frame_id"],
-                        error=str(error),
-                    )
+                except ValueError:
+                    # Degenerate stop distance (zero ATR on stale/forward-filled bars) --
+                    # skip this frame, leave it open, do NOT let one bad bar abort the rest
+                    # of this cell's scan (code-review CR-01). Counted, reported once by the
+                    # caller -- not logged per-occurrence (this runs in a worker subprocess).
+                    degenerate_atr_skip_count += 1
                     continue
                 ic_ci_lower, ic_scored_at = ic_by_regime.get(frame["regime"], (None, None))
                 active[frame["frame_id"]] = {
@@ -488,7 +494,7 @@ def _scan_symbol_tf(
         if result is not None:
             results.append(result)
 
-    return results
+    return results, degenerate_atr_skip_count
 
 
 def _run_counterfactual_worker(args: tuple) -> dict[str, Any]:
@@ -499,16 +505,19 @@ def _run_counterfactual_worker(args: tuple) -> dict[str, Any]:
     no batch-persistence call of any kind (DAG invariant #3, T-142B-06).
 
     Args:
-        args: (symbol, tfs, dsn, atr_period, target_r_multiple, itersize)
+        args: (symbol, tfs, dsn, atr_period, default_target_r_multiple, itersize)
 
     Returns:
         dict with keys: symbol (str), rows (list[dict]), errors (list[str]) -- one entry per
         tf that failed to fetch/compute; a partial per-tf failure does not discard the
-        symbol's other tfs.
+        symbol's other tfs -- and degenerate_atr_skip_count (int), summed across this
+        symbol's tfs. Workers log only (no OTel tracer in a subprocess, ic_engine.py's
+        convention); the main process aggregates and reports this count once.
     """
-    symbol, tfs, dsn, atr_period, target_r_multiple, itersize = args
+    symbol, tfs, dsn, atr_period, default_target_r_multiple, itersize = args
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
+    degenerate_atr_skip_count = 0
 
     try:
         conn = connect_db_from_url(dsn)
@@ -529,9 +538,11 @@ def _run_counterfactual_worker(args: tuple) -> dict[str, Any]:
                     pass
                 conn = connect_db_from_url(dsn)
             try:
-                rows.extend(
-                    _scan_symbol_tf(conn, symbol, tf, atr_period, target_r_multiple, itersize)
+                tf_rows, tf_skip_count = _scan_symbol_tf(
+                    conn, symbol, tf, atr_period, default_target_r_multiple, itersize
                 )
+                rows.extend(tf_rows)
+                degenerate_atr_skip_count += tf_skip_count
             except Exception as error:
                 errors.append(f"{symbol}/{tf}: {error}")
                 try:
@@ -545,7 +556,12 @@ def _run_counterfactual_worker(args: tuple) -> dict[str, Any]:
         except Exception:
             pass
 
-    return {"symbol": symbol, "rows": rows, "errors": errors}
+    return {
+        "symbol": symbol,
+        "rows": rows,
+        "errors": errors,
+        "degenerate_atr_skip_count": degenerate_atr_skip_count,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -656,8 +672,11 @@ class CounterfactualTracker(BaseBatch):
     async def _execute_inner(self, pool: asyncpg.Pool, manifest: CorpusManifest) -> None:
         async with pool.acquire() as conn:
             cfg = await _load_apr(conn, extra_like_patterns=["infra.counterfactual_tracker.%"])
-            atr_period = _cfg(cfg, "alpha.frame.atr_period", 14)
-            target_r_multiple = _cfg(cfg, "alpha.frame.target_r_multiple", 2.0)
+            # Reuses AlphaFrameWriter's own APR-binding (same default literals, one source of
+            # truth) instead of re-declaring alpha.frame.atr_period/target_r_multiple inline.
+            frame_config = FrameConfig.from_apr(cfg)
+            atr_period = frame_config.atr_period
+            default_target_r_multiple = frame_config.target_r_multiple
             itersize = _cfg(cfg, "infra.counterfactual_tracker.itersize", 5000)
             n_workers = _cfg(cfg, "infra.counterfactual_tracker.workers", 12)
 
@@ -673,7 +692,7 @@ class CounterfactualTracker(BaseBatch):
         self.logger.info(
             "counterfactual_tracker.config_loaded",
             atr_period=atr_period,
-            target_r_multiple=target_r_multiple,
+            default_target_r_multiple=default_target_r_multiple,
             itersize=itersize,
             n_workers=n_workers,
             n_symbols=len(symbol_to_tfs),
@@ -688,15 +707,18 @@ class CounterfactualTracker(BaseBatch):
             return
 
         worker_args = [
-            (symbol, tfs, self._db_dsn, atr_period, target_r_multiple, itersize)
+            (symbol, tfs, self._db_dsn, atr_period, default_target_r_multiple, itersize)
             for symbol, tfs in symbol_to_tfs.items()
         ]
         worker_errors: list[str] = []
+        total_degenerate_atr_skips = 0
 
         def _row_lists() -> Iterable[list[dict[str, Any]]]:
+            nonlocal total_degenerate_atr_skips
             with ProcessPoolExecutor(max_workers=n_workers) as exe:
                 for result in exe.map(_run_counterfactual_worker, worker_args, chunksize=1):
                     worker_errors.extend(result.get("errors", []))
+                    total_degenerate_atr_skips += result.get("degenerate_atr_skip_count", 0)
                     rows = result.get("rows", [])
                     self._instrument_ic_staleness(rows)
                     yield rows
@@ -709,6 +731,15 @@ class CounterfactualTracker(BaseBatch):
                 n_failed=len(worker_errors),
                 n_symbols=len(worker_args),
                 errors=worker_errors[:10],
+            )
+
+        if total_degenerate_atr_skips:
+            # CR-01: aggregate count of frames skipped for a degenerate (zero) ATR on
+            # stale/forward-filled bars -- reported once here, not per-occurrence in the
+            # worker subprocess.
+            self.logger.warning(
+                "counterfactual_tracker.degenerate_atr_skip",
+                total_skipped=total_degenerate_atr_skips,
             )
 
         manifest.add_output(table_name="alpha_frames", rows_total=total_written)
@@ -731,7 +762,7 @@ def evaluate_frame_gate(
     min_n: int,
     bootstrap_max_n: int,
     bootstrap_batch: int,
-    bootstrap_random_state: int = 42,
+    bootstrap_random_state: int = _DEFAULT_BOOTSTRAP_RANDOM_STATE,
 ) -> list[dict[str, Any]]:
     """Pure grouping/aggregation core for the FRAME-04 in-sample exit gate.
 
@@ -802,7 +833,9 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
         min_n = _cfg(apr_cfg, "alpha.scoring.min_strategy_n", 30)
         bootstrap_max_n = _cfg(apr_cfg, "alpha.scoring.bootstrap_max_n", 5000)
         bootstrap_batch = _cfg(apr_cfg, "alpha.scoring.bootstrap_batch", 1000)
-        bootstrap_random_state = _cfg(apr_cfg, "alpha.scoring.bootstrap_random_state", 42)
+        bootstrap_random_state = _cfg(
+            apr_cfg, "alpha.scoring.bootstrap_random_state", _DEFAULT_BOOTSTRAP_RANDOM_STATE
+        )
 
         oos_start = await conn.fetchval(
             "SELECT config_value::timestamptz FROM config_state "

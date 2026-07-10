@@ -73,31 +73,34 @@ def compute_frame_geometry(
 
     `atr` is a caller-supplied price-unit value — this function never reads a table.
 
-    Raises ValueError if atr or stop_atr_mult is non-positive (stale/forward-filled bars or a
-    misconfigured APR key both collapse the stop distance to zero, which would otherwise raise
-    an unguarded ZeroDivisionError on r_multiple — code-review CR-01). Callers must catch this
-    and skip the frame rather than let it propagate out of a batch scan.
+    Raises ValueError if atr is non-positive (stale/forward-filled bars collapse the stop
+    distance to zero, which would otherwise raise an unguarded ZeroDivisionError on r_multiple
+    — code-review CR-01). Callers must catch this and skip the frame rather than let it
+    propagate out of a batch scan. `stop_atr_mult` is a single global APR value shared by every
+    frame in a run, so it is validated once, eagerly, at config-load time in
+    `FrameConfig.from_apr` rather than rediscovered here per-frame.
 
-    Returns (stop_price, target_price, r_multiple).
+    Returns (stop_price, target_price, r_multiple). r_multiple is always exactly
+    `target_r_multiple` by construction (target_price is defined as
+    `entry ± target_r_multiple * stop_distance`, so the realized ratio is the input ratio) —
+    returned directly rather than recomputed via division, which also avoids a needless
+    float round-trip through the same value.
     """
-    if atr <= 0 or stop_atr_mult <= 0:
+    if atr <= 0:
         raise ValueError(
-            f"compute_frame_geometry: non-positive stop distance "
-            f"(atr={atr}, stop_atr_mult={stop_atr_mult}) — cannot derive a stop/target"
+            f"compute_frame_geometry: non-positive atr ({atr}) — cannot derive a stop/target"
         )
     if direction == "long":
         stop_price = entry_price - stop_atr_mult * atr
         stop_distance = entry_price - stop_price
         target_price = entry_price + target_r_multiple * stop_distance
-        r_multiple = (target_price - entry_price) / (entry_price - stop_price)
     elif direction == "short":
         stop_price = entry_price + stop_atr_mult * atr
         stop_distance = stop_price - entry_price
         target_price = entry_price - target_r_multiple * stop_distance
-        r_multiple = (entry_price - target_price) / (stop_price - entry_price)
     else:
         raise ValueError(f"compute_frame_geometry: unknown direction {direction!r}")
-    return stop_price, target_price, r_multiple
+    return stop_price, target_price, target_r_multiple
 
 
 def compute_expected_r_snapshot(
@@ -135,8 +138,14 @@ class FrameConfig:
 
     @classmethod
     def from_apr(cls, cfg_dict: dict[str, Any]) -> FrameConfig:
+        stop_atr_mult = _cfg(cfg_dict, "alpha.frame.stop_atr_mult", 1.5)
+        if stop_atr_mult <= 0:
+            # A misconfigured global APR value would otherwise collapse every frame this run
+            # writes to zero-width geometry (stop == entry == target) with no error — validated
+            # once here, eagerly, rather than rediscovered per-frame deep in a batch scan.
+            raise ValueError(f"alpha.frame.stop_atr_mult must be positive, got {stop_atr_mult}")
         return cls(
-            stop_atr_mult=_cfg(cfg_dict, "alpha.frame.stop_atr_mult", 1.5),
+            stop_atr_mult=stop_atr_mult,
             target_r_multiple=_cfg(cfg_dict, "alpha.frame.target_r_multiple", 2.0),
             atr_period=_cfg(cfg_dict, "alpha.frame.atr_period", 14),
         )
@@ -289,6 +298,12 @@ class AlphaFrameWriter(BaseBatch):
         """
         written = 0
         chunk: list[tuple] = []
+        # IN-01/WR-02: distinguish "cost known to be zero" / "hold key legitimately seeded"
+        # from "data never populated" / "un-seeded regime label" without a per-row log call —
+        # this loop runs over the full alpha_events backlog on --backfill (potentially millions
+        # of rows), so visibility is an aggregate count per partition, not a log line per row.
+        missing_cost_hurdle_count = 0
+        missing_hold_keys: set[str] = set()
 
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -297,16 +312,7 @@ class AlphaFrameWriter(BaseBatch):
                     direction = row["direction"]
                     alpha_score = float(row["alpha_score"])
                     if row["cost_hurdle"] is None:
-                        # IN-01: distinguish "cost known to be zero" from "cost data never
-                        # populated" -- both currently collapse to 0.0, this makes the miss
-                        # visible for corpus-quality auditing without changing gate behavior
-                        # (cost_r/net_expected_r are reporting-only per D-01/D-02).
-                        self.logger.warning(
-                            "alpha_frame_writer.cost_hurdle_missing",
-                            symbol=symbol,
-                            tf=tf,
-                            event_id=row["event_id"],
-                        )
+                        missing_cost_hurdle_count += 1
                     cost_r = float(row["cost_hurdle"]) if row["cost_hurdle"] is not None else 0.0
 
                     gross_expected_r, net_expected_r = compute_expected_r_snapshot(
@@ -315,17 +321,7 @@ class AlphaFrameWriter(BaseBatch):
 
                     hold_key = f"alpha.frame.hold_max_bars.{regime}.{tf}"
                     if hold_key not in cfg:
-                        # WR-02: a None/unexpected regime label or an un-seeded new regime
-                        # formats to a hold_key that will never exist among the 36 seeded
-                        # alpha.frame.hold_max_bars.<regime>.<tf> keys, silently falling back
-                        # to _DEFAULT_HOLD_MAX_BARS with no visibility. Instrument it instead
-                        # of letting it look identical to a legitimately-seeded 60-bar hold.
-                        self.logger.warning(
-                            "alpha_frame_writer.hold_max_bars_key_missing",
-                            hold_key=hold_key,
-                            regime=regime,
-                            tf=tf,
-                        )
+                        missing_hold_keys.add(hold_key)
                     max_hold_bars = int(_cfg(cfg, hold_key, _DEFAULT_HOLD_MAX_BARS))
 
                     frame_id = BaseBatch.content_key(row["event_id"], str(row["bar_ts"]), "primary")  # fmt: skip
@@ -366,6 +362,21 @@ class AlphaFrameWriter(BaseBatch):
                         await wconn.executemany(self._INSERT_SQL, chunk)
                     written += len(chunk)
                     chunk.clear()
+
+        if missing_cost_hurdle_count:
+            self.logger.warning(
+                "alpha_frame_writer.cost_hurdle_missing",
+                symbol=symbol,
+                tf=tf,
+                count=missing_cost_hurdle_count,
+            )
+        if missing_hold_keys:
+            self.logger.warning(
+                "alpha_frame_writer.hold_max_bars_key_missing",
+                symbol=symbol,
+                tf=tf,
+                hold_keys=sorted(missing_hold_keys),
+            )
 
         return written
 
