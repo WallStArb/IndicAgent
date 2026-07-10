@@ -257,6 +257,22 @@ FAIL) — both fixed. Pooled cross-sectional measurement (`is_pooled` rows) is a
 documented, deliberately-deferred gap (todo 046), not a blocker — EIC-04/EIC-05 both
 function on a per-symbol basis. This is the primary OOS gate for Phase 144.
 
+**Phase 142B complete (2026-07-10) — Frame Simulation + Counterfactual Tracking:**
+`alpha_frames` hypertable (migrations 214+215) + `AlphaFrameWriter` (writes hypothetical
+stop/target/hold positions from `alpha_events`, snapshotting `stop_atr_mult`/
+`target_r_multiple`/`cost_r` at creation time so later APR recalibration can never
+silently desync the expected-R diagnostics from realized outcomes) + `CounterfactualTracker`
+(direction-aware four-trigger exit state machine, single streaming sweep per (symbol, tf),
+FRAME-04 day-clustered block-bootstrap exit gate with a seeded RNG for reproducible
+verdicts). `docs/plans/SHADOW-REVIEW.md` — the frozen Phase 147 live-promotion criteria —
+committed before any counterfactual data exists. Code review found 2 blockers (an unguarded
+zero-ATR division that would abort and silently discard an entire scan's results;
+`target_r_multiple` not snapshotted, risking the same historical-drift class of bug already
+fixed for `cost_r`) plus 5 minor findings — all 7 fixed and verified in code, not just
+claimed. `alpha_frames` has 0 rows as of completion — running the writer/tracker against the
+historical corpus and evaluating the FRAME-04 gate is explicitly out of this phase's scope
+(Phase 147 / ops-run territory). This is the secondary OOS gate for Phase 147.
+
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
@@ -351,4 +367,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-05 (Core Value endgame clarified: personal live trading)*
+*Last updated: 2026-07-10 (Phase 142B complete: alpha_frames + AlphaFrameWriter + CounterfactualTracker)*
