@@ -45,9 +45,25 @@ _REGISTRY_ROW_COUNT = len(dataclasses.fields(FeatureVector))
 
 _LOAD_QUERY = """
     SELECT feature_name, group_name, tier, status,
-           min_ic_sharpe, min_ic_n, fdr_required, fdr_alpha
+           min_ic_sharpe, min_ic_n, fdr_required, fdr_alpha,
+           consecutive_shadow_passes, observations_since_demotion
     FROM feature_registry
 """
+
+# Automated transition reasons (ic_engine / ensemble_trainer). Only these may
+# ever be passed to record_transition_sync — 'operator_override' targeting
+# 'deprecated' is the only legitimate path to that status.
+_AUTOMATED_REASONS = frozenset({"ic_promotion", "ic_demotion"})
+
+
+class _TransitionNoOp(Exception):
+    """Internal sentinel: optimistic lock missed (rowcount == 0).
+
+    Raised inside record_transition_sync's `with conn:` block to force a
+    rollback of the UPDATE without inserting a transition-log row, then
+    caught by the caller to return False. Never escapes the method.
+    """
+
 
 _APR_SHARPE_DEFAULT_KEY = "alpha.feature_registry.min_ic_sharpe_default"
 _APR_SHARPE_DEFAULT_FALLBACK = 0.5
@@ -319,6 +335,206 @@ class FeatureRegistryService:
                 ic_n=ic_n,
             )
         )
+
+    # ------------------------------------------------------------------
+    # Synchronous lifecycle routing (ic_engine post-run hook — Plan 03)
+    # ------------------------------------------------------------------
+
+    def record_transition_sync(
+        self,
+        conn: Any,
+        feature_name: str,
+        from_status: str,
+        to_status: str,
+        reason: str,
+        ic_value: float | None = None,
+        ic_sharpe: float | None = None,
+        ic_n: int | None = None,
+    ) -> bool:
+        """Blocking, transactional, optimistic-locked lifecycle transition.
+
+        Mirrors _write_transition_record's two-statement body (INSERT
+        feature_transition_log + UPDATE feature_registry.status) but uses a
+        psycopg2 cursor and `with conn:` transaction semantics so it is
+        callable from ic_engine's sync, no-event-loop context.
+
+        The UPDATE carries `WHERE status = %s` (from_status) as an optimistic
+        lock: if zero rows match (feature already transitioned by a prior or
+        concurrent run), the whole transaction — including the log INSERT —
+        rolls back and this method returns False. A rerun against an
+        already-transitioned feature is therefore a safe no-op, never a
+        duplicate transition or orphan log row.
+
+        Demotion counter reset (Fable review N1, HIGH): whenever
+        to_status == 'shadow_only' (any active -> shadow_only demotion), the
+        SAME UPDATE also resets consecutive_shadow_passes and
+        observations_since_demotion to 0. Without this, a feature that
+        previously satisfied the recovery floors, got promoted, and later
+        decays again would re-promote after a single passing run on its
+        second shadow period instead of re-earning the full evidence bar —
+        the exact oscillation lifecycle routing exists to prevent.
+
+        Automated transitions (reason in {'ic_promotion', 'ic_demotion'}) may
+        never target 'deprecated' — deprecated is operator-only. Raises
+        ValueError before any write if violated.
+
+        On a successful commit, mutates self._features[feature_name] so a
+        subsequent is_promotion_eligible read within the same process sees
+        fresh state immediately, never stale data.
+
+        Returns True if the transition was applied, False on optimistic-lock
+        no-op. Re-raises any other exception after the transaction rolls back.
+        """
+        if to_status == "deprecated" and reason in _AUTOMATED_REASONS:
+            raise ValueError(
+                "automated transitions may not target deprecated; " "deprecated is operator-only"
+            )
+
+        reset_counters = to_status == "shadow_only"
+        if reset_counters:
+            update_sql = (
+                "UPDATE feature_registry "
+                "SET status = %s, consecutive_shadow_passes = 0, "
+                "observations_since_demotion = 0 "
+                "WHERE feature_name = %s AND status = %s"
+            )
+        else:
+            update_sql = (
+                "UPDATE feature_registry SET status = %s " "WHERE feature_name = %s AND status = %s"
+            )
+
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(update_sql, (to_status, feature_name, from_status))
+                    if cur.rowcount == 0:
+                        raise _TransitionNoOp()
+                    cur.execute(
+                        """
+                        INSERT INTO feature_transition_log
+                            (feature_name, from_status, to_status,
+                             trigger_reason, ic_value, ic_sharpe, ic_n)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            feature_name,
+                            from_status,
+                            to_status,
+                            reason,
+                            ic_value,
+                            ic_sharpe,
+                            ic_n,
+                        ),
+                    )
+        except _TransitionNoOp:
+            _logger.info(
+                "feature_registry_service.transition_noop_sync",
+                feature_name=feature_name,
+                from_status=from_status,
+                to_status=to_status,
+                reason=reason,
+            )
+            return False
+        except Exception as error:
+            _logger.error(
+                "feature_registry_service.transition_write_error_sync",
+                feature_name=feature_name,
+                from_status=from_status,
+                to_status=to_status,
+                error=str(error),
+            )
+            raise
+
+        feature = self._features.get(feature_name)
+        if feature is not None:
+            feature["status"] = to_status
+            if reset_counters:
+                feature["consecutive_shadow_passes"] = 0
+                feature["observations_since_demotion"] = 0
+        _logger.info(
+            "feature_registry_service.transition_recorded_sync",
+            feature_name=feature_name,
+            from_status=from_status,
+            to_status=to_status,
+            reason=reason,
+        )
+        return True
+
+    def advance_shadow_counters_sync(
+        self,
+        conn: Any,
+        feature_name: str,
+        passed: bool,
+        new_observations: int,
+    ) -> None:
+        """Advance a shadow_only feature's recovery counters after a corpus run.
+
+        The ONLY counter mutation path outside record_transition_sync's reset —
+        there is no fail-counter for active features; demotion is decided by
+        ic_engine's per-run materiality check (Plan 03), not by any registry
+        counter.
+
+        In one `with conn:` transaction: increments consecutive_shadow_passes
+        if passed else resets it to 0, and always adds new_observations to
+        observations_since_demotion. Mutates the in-memory cache to match on
+        commit.
+        """
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE feature_registry
+                    SET consecutive_shadow_passes = CASE
+                            WHEN %s THEN consecutive_shadow_passes + 1
+                            ELSE 0
+                        END,
+                        observations_since_demotion =
+                            observations_since_demotion + %s
+                    WHERE feature_name = %s
+                    """,
+                    (passed, new_observations, feature_name),
+                )
+
+        feature = self._features.get(feature_name)
+        if feature is not None:
+            if passed:
+                feature["consecutive_shadow_passes"] = (
+                    feature.get("consecutive_shadow_passes", 0) + 1
+                )
+            else:
+                feature["consecutive_shadow_passes"] = 0
+            feature["observations_since_demotion"] = (
+                feature.get("observations_since_demotion", 0) + new_observations
+            )
+        _logger.info(
+            "feature_registry_service.shadow_counters_advanced_sync",
+            feature_name=feature_name,
+            passed=passed,
+            new_observations=new_observations,
+        )
+
+    def is_promotion_eligible(
+        self,
+        feature_name: str,
+        recovery_min_observations: int,
+        recovery_min_passes: int,
+    ) -> bool:
+        """Evidence-only shadow_only -> active promotion predicate.
+
+        True iff consecutive_shadow_passes >= recovery_min_passes AND
+        observations_since_demotion >= recovery_min_observations, read from
+        the in-memory cache. Both floors are caller-supplied (APR-sourced via
+        ConfigService.get_sync in ic_engine) — never hard-coded here. No
+        calendar/date input is consulted; recovery is evidence-only.
+
+        Returns False for an unknown feature_name.
+        """
+        feature = self._features.get(feature_name)
+        if feature is None:
+            return False
+        passes = feature.get("consecutive_shadow_passes", 0)
+        observations = feature.get("observations_since_demotion", 0)
+        return passes >= recovery_min_passes and observations >= recovery_min_observations
 
 
 # ---------------------------------------------------------------------------
