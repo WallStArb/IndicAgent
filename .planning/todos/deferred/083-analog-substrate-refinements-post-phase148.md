@@ -1,5 +1,8 @@
 # 083 — Analog substrate refinements: ensemble-of-metrics retrieval, conformal coverage
 
+**Status (moved to deferred/, 2026-07-10):** Hard-blocked on Phase 148 (AnalogEngine embedding substrate) shipping, per the todo's own gate. Revive once Phase 148 ships.
+
+
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §4 (L1a-2, L1a-3).
 `intel-analog-engine.md` already covers retrieval design, definedness rules, OOD monitoring, and
 correctly defers IC-weighted re-ranking — these are additions on top, not replacements.

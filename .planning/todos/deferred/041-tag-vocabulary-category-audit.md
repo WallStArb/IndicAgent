@@ -1,5 +1,8 @@
 # Audit the 6-category tag_vocabulary taxonomy before building the calibrator against it
 
+**Status (moved to deferred/, 2026-07-10):** Batched into Phase 144's ic_engine re-run (see docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md) -- not a standalone item. Revive when Phase 144 is planned.
+
+
 **Found:** 2026-07-01, while walking through `regime_group`/`instrument_tags` design in
 conversation. `docs/foundation/glossary.md` already defines all 6 `tag_vocabulary.category`
 values (`exposure`, `sensitivity`, `factor_regime`, `cycle_position`, `signal_role`,

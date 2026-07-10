@@ -1,5 +1,8 @@
 # 074 — OHLCV microstructure proxy family (liquidity/friction, dual-use with cost kernel)
 
+**Status (moved to deferred/, 2026-07-10):** New FeatureFactory feature-family build meant for the v3.15 corpus-rerun batch / Phase 150's remit, not a standalone build. Revive alongside that batch or Phase 150 planning.
+
+
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §3 (L1-2),
 executive summary item 4.
 **Priority:** high — genuinely orthogonal information family (none of the 152 live features

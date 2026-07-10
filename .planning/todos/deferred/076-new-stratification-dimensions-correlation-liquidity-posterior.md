@@ -1,5 +1,8 @@
 # 076 — New/refined stratification dimensions: correlation regime, liquidity regime, posterior-weighted IC
 
+**Status (moved to deferred/, 2026-07-10):** Hard gate stated in the todo itself: Phase 144 (`regime_group` dispatcher) must ship first. Revive when Phase 144 is planned.
+
+
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §5 (L2-1, L2-2, L2-3).
 **Priority:** medium-high; these are new candidate `StratificationDimension` entries for the
 v3.15/`regime-multi-regime-layer.md` unification, entering through the same substitution-test +

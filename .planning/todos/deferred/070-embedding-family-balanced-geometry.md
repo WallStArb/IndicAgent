@@ -1,5 +1,8 @@
 # 070 — Family-balanced embedding geometry (decide before Phase 148 locks `embedding_version=1`)
 
+**Status (moved to deferred/, 2026-07-10):** Gate: Phase 148 (AnalogEngine embedding substrate) hasn't started. This is a pre-registration decision, not standalone code work -- revive as part of Phase 148's ANALOG-01 calibration study, before embedding_version=1 locks.
+
+
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §4 (L1a-1),
 executive summary item 7.
 **Priority:** high — free if decided now, expensive (full re-embed) if caught after the fact.

@@ -1,5 +1,8 @@
 # 082 — Additional simulation/validation lenses (post-142B)
 
+**Status (moved to deferred/, 2026-07-10):** Hard-blocked on `alpha_frames` actually holding data -- same gate as todo 078 (Phase 142B's machinery shipped 2026-07-10 but the backfill hasn't run, 0 rows as of 2026-07-10). Revive once alpha_frames has accumulated real closed frames.
+
+
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §10 (L7-1, L7-2, L7-4).
 142B's frame design and SHADOW-REVIEW pre-commitment are kept-by-design, untouched — these are
 additional read-only lenses over what 142B produces.

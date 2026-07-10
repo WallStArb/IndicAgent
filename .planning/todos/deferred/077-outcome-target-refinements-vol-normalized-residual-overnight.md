@@ -1,5 +1,8 @@
 # 077 — Outcome-target refinements: vol-normalized, residual (beta-hedged), overnight/intraday decomposition
 
+**Status (moved to deferred/, 2026-07-10):** Measurement-time transforms meant for the v3.15 corpus-rerun batch window, not standalone. Revive alongside that batch.
+
+
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §6 (L3-1, L3-2,
 L3-4). All are measurement-time transforms — joins computed inside the measurement layer, never
 new columns in the canonical `forward_returns` fact table, so Invariant 1 and the one-writer

@@ -2,7 +2,7 @@
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §7 (L4-4). Split out
 of todo 071, which originally covered both L4-2 (empirical null calibration, now investigated —
-see todo 089 and `docs/research/measurement-ic-engine.md`'s Measurement Gaps table) and this item
+see todo 091 and `docs/research/measurement-ic-engine.md`'s Measurement Gaps table) and this item
 (L4-4, unrelated scope, still fully open). Todo 071 is closed and moved to
 `.planning/todos/completed/`; this todo carries its remaining scope forward standalone.
 

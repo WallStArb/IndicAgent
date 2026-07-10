@@ -17,14 +17,14 @@ This todo covered two unrelated scopes. Both are now accounted for separately:
   keys" outcome this todo originally anticipated. Durable record:
   `docs/research/measurement-ic-engine.md`'s Measurement Gaps table (new L4-2 row, dated
   2026-07-09). Follow-up work (bootstrap reopening decision, full-corpus confirmation run) is now
-  its own todo: `.planning/todos/pending/089-fisher-z-ci-empirical-null-miscalibration.md`. The
-  `alpha.ic.bootstrap_*` APR keys were **not** deleted — see todo 089 for why.
+  its own todo: `.planning/todos/pending/091-fisher-z-ci-empirical-null-miscalibration.md`. The
+  `alpha.ic.bootstrap_*` APR keys were **not** deleted — see todo 091 for why.
 - **L4-4 (IC hit-rate × magnitude decomposition) — untouched, re-filed standalone.** See
   `.planning/todos/pending/090-ic-decomposition-hit-rate-magnitude.md`.
 
 Nothing remains open on this file; it is closed and archived here for history.
 
-## L4-2 — Empirical null calibration via circular-shift permutation (original scope, now see todo 089)
+## L4-2 — Empirical null calibration via circular-shift permutation (original scope, now see todo 091)
 
 The analytic inference chain (stride subsampling → Spearman → Fisher-z CI → HAC Sharpe) rests on
 assumptions (post-stride independence, Fisher-z normality at these Ns) never validated end-to-end

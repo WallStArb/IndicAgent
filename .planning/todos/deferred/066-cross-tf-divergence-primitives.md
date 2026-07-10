@@ -9,6 +9,9 @@
 **Gate:** Phase 142.5 complete (OPEN) — deferred OUT of 142.5 by explicit scope decision
 ---
 
+
+**Status (moved to deferred/, 2026-07-10):** New FeatureFactory columns meant to land in the v3.15/Phase 144 corpus-rerun batch (rides with todos 073/074/075 per the source doc's own sequencing note: batching conditioning/feature changes into one ic_engine re-run rather than burning rerun cycles piecemeal). Revive alongside that batch.
+
 # 066 — Cross-Timeframe Divergence Primitives
 
 **Priority: Medium — completes the Renaissance primitive basket**

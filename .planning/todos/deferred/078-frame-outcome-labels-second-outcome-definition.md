@@ -1,5 +1,8 @@
 # 078 — Frame-outcome labels as a second outcome definition (post-142B)
 
+**Status (moved to deferred/, 2026-07-10):** Hard-blocked on `alpha_frames` actually holding data -- Phase 142B shipped the writer/tracker machinery (2026-07-10) but the backfill run hasn't executed yet (0 rows as of 2026-07-10). Revive once alpha_frames has accumulated real closed frames.
+
+
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §6 (L3-3).
 **Priority:** medium — diagnostic gold once available, but explicitly not a reason to touch
 142B's frozen design now.

@@ -9,6 +9,9 @@
 **Gate:** P0-P3 have no gate; P4a/P4b require empirical IC proof first
 ---
 
+
+**Status (moved to deferred/, 2026-07-10):** Batched into Phase 144's ic_engine re-run (see docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md) -- not a standalone item. Revive when Phase 144 is planned. **P3 (empirical threshold calibration for vix/breadth cuts) split back out to its own standalone todo, `.planning/todos/pending/092-equity-regime-model-threshold-calibration.md`** -- the 2026-07-09 finding below flags it as a live-path suspect now, not general hygiene that can wait for Phase 144.
+
 # 026 — HMM Regime Audit & Optimization
 
 **Plan:** `docs/plans/2026-06-28-hmm-regime-audit-optimization.md`

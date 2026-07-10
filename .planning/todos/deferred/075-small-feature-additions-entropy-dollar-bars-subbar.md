@@ -1,5 +1,8 @@
 # 075 — Small feature additions: permutation entropy, dollar-bar pilot, sub-bar path summaries
 
+**Status (moved to deferred/, 2026-07-10):** Bundle with todos 066/073/074 -- meant for the v3.15 corpus-rerun batch, not standalone. Revive alongside that batch.
+
+
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §2-3 (L0-1, L0-2,
 L1-4). Note: the `ret_div_*` cross-TF divergences L0-2 mentions "building in the same pass" are
 **already tracked as todo 066** — don't duplicate, just ride the same cross-TF-read

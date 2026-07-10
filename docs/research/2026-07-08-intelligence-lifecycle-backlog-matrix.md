@@ -33,16 +33,21 @@ earlier version of this doc did) wrongly implied you must pick one before the ot
 
 ### Todos (run directly, no phase workflow needed)
 
-| Idea | Effort | Risk | Reward | Note |
-|---|---|---|---|---|
-| `alpha_frames` backfill (Phase 142B follow-through) | S | Low | High | Phase 142B shipped `AlphaFrameWriter`/`CounterfactualTracker` complete 2026-07-10, but `alpha_frames` still has **0 rows** — the writer has never actually been run. Sequence: `AlphaFrameWriter --backfill` → `CounterfactualTracker --backfill` → `--evaluate-gate`. Does not need a corpus rebuild (upstream chain already correct). Unblocked, not gated on anything — this is the concrete next step toward Phase 147's `alpha_frames` OOS accumulation requirement. |
-| EM-CAL: empirical threshold calibration (todo 065) | S | Low | High | From the Stage 4 Emission review. Current `alpha.quant.threshold.{tf}` seeds (1.5/1.2/1.0/0.8) are admitted guesses. Explicitly deferred 2026-07-08 pending "rebuild completes and EIC-04 re-measured on complete data" — both conditions satisfied 2026-07-09 (rebuild done, EIC-04 PASS). Unblocked; full design already worked out (scope, architecture, statistical method) but not yet planned/executed. |
+**Single source of truth for todo-level prioritization is `.planning/todos/PRIORITIES.md`** —
+not this table. That file ranks every actionable `pending/` todo (P0-P3) across the whole repo,
+not just intelligence-lifecycle scope, and is the one place that ranking gets maintained.
+Reorg'd 2026-07-10 specifically to stop this matrix and the todo system from independently
+re-deriving the same priority judgment and silently drifting out of sync — see its own reorg
+note for what moved. Top of its P0/P1 tiers as of 2026-07-10: todo 093 (`alpha_frames` backfill,
+filed from this table's former entry — it had been tracked only as a matrix bullet, not a real
+todo), todo 065 (EM-CAL), todo 091 (Fisher-z CI miscalibration), todo 092 (regime-model
+threshold calibration, split out of todo 026's P3).
 
 ### Phases (each needs its own `/gsd-discuss-phase` cycle)
 
 | Idea | Effort | Risk | Reward | Note |
 |---|---|---|---|---|
-| Phase 144: Cross-Sectional Regime Model (`regime_group`) | L | Med | High | PLANNED. **Foundational** — Cross-Group Lead-Lag IC and Phase 148 (AnalogEngine) both need clean peer groups this phase produces; cheaper to absorb this dependency now than retrofit later. Ready for `/gsd-discuss-phase`. Batches in todo 026 P2b/P2c/P3, todo 041 (tag taxonomy audit), and `intel-12-stratification-dimension.md`'s first substitution test — plan as one unit, not four. Also the more direct lever on the sparse-IC problem (see EIC-04 result below): re-stratifying may recover signal currently smeared across weak regime buckets. **Now the only un-started HIGH-tier phase in this table** — Phase 143 shipped 2026-07-10, see "Recently shipped." |
+| Phase 144: Cross-Sectional Regime Model (`regime_group`) | L | Med | High | PLANNED. **Foundational** — Cross-Group Lead-Lag IC and Phase 148 (AnalogEngine) both need clean peer groups this phase produces; cheaper to absorb this dependency now than retrofit later. Ready for `/gsd-discuss-phase`. Batches in todo 026 P1b/P2a/P2b/P2c, todo 041 (tag taxonomy audit), and `intel-12-stratification-dimension.md`'s first substitution test — plan as one unit, not four. (026's P3 was split back out to standalone todo 092, 2026-07-10 — fresh evidence flags it as a live-path IC suspect, not batch-hygiene that can wait for this phase.) Also the more direct lever on the sparse-IC problem (see EIC-04 result below): re-stratifying may recover signal currently smeared across weak regime buckets. **Now the only un-started HIGH-tier phase in this table** — Phase 143 shipped 2026-07-10, see "Recently shipped." |
 
 **Recently shipped (context, not action items):** HMM Numba JIT (40x speedup, Phase B/141 P2) ·
 Phase 142A Ensemble IC Measurement (`alpha_ensemble_ic` schema + `EnsembleICEngine`, complete

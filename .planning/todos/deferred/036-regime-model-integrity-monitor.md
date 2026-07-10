@@ -9,6 +9,9 @@
 **Gate:** Phase 149A (`indicagent-integrity-monitor` service + shared BaseMonitor infra) shipped
 ---
 
+
+**Status (moved to deferred/, 2026-07-10):** Depends on the IntegrityMonitor shared infra (Phase 151), which has not shipped yet -- nothing to reuse until then. Revive once Phase 151 ships.
+
 # 036 — Regime Model Integrity Monitor (gap in IntegrityMonitor coverage)
 
 ## Problem
