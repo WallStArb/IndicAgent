@@ -258,6 +258,12 @@ def compute_walk_forward_stable(
 # EIC-02: IC decay curve -> hold_max_bars calibration (review finding #6)
 # ---------------------------------------------------------------------------
 
+# Significance + sufficiency + stability gate (review finding #6, MANDATORY; extended
+# 2026-07-09 to add walk_forward_stable — see ensemble_trainer.py's CORRECTNESS
+# INVARIANTS docstring for why cross-sectional significance alone is not a sufficient
+# bar). Mirrors EIC-04's own phase-gate query (ops_ensemble_ic_gate.py, `_GATE_SQL`).
+_QUALIFYING_FLAGS = ("passes_fdr", "reliable", "walk_forward_stable")
+
 
 def _select_hold_bars_from_decay(
     cells: list[dict[str, Any]],
@@ -266,11 +272,10 @@ def _select_hold_bars_from_decay(
 ) -> int | None:
     """Pure function: select hold_bars from one (symbol, tf, regime) group's IC decay curve.
 
-    Significance + sufficiency gate (review finding #6, MANDATORY): a cell must have
-    BOTH passes_fdr=true AND reliable=true to participate in the decay walk. A cell that
-    failed BH-FDR is statistically indistinguishable from noise; a cell that is not
-    reliable passed FDR on insufficient N (n_valid < min_reliable_n) and its ic_sharpe is
-    unstable. Either condition alone is insufficient to gate on -- both must hold.
+    A cell must satisfy every flag in _QUALIFYING_FLAGS to participate in the decay
+    walk: passes_fdr=true (not statistically indistinguishable from noise), reliable=true
+    (not passing FDR on insufficient N with an unstable ic_sharpe), and
+    walk_forward_stable=true (reproduces out-of-sample across folds, EIC-03/D-142A-R1).
 
     After filtering, walks the qualifying cells in canonical scale order
     [fast, mid, slow, extended]. At the first scale where ic_sharpe is not None and
@@ -288,7 +293,7 @@ def _select_hold_bars_from_decay(
     interpret this as "no qualifying signal; skip calibration, leave the prior APR
     value in place" rather than defaulting to any hold_bars value.
     """
-    qualifying = [c for c in cells if c.get("passes_fdr") is True and c.get("reliable") is True]
+    qualifying = [c for c in cells if all(c.get(flag) is True for flag in _QUALIFYING_FLAGS)]
     if not qualifying:
         return None
 
@@ -1078,13 +1083,14 @@ class EnsembleICEngine(BaseBatch):
             n_qualifying = len(qualifying_hold_bars)
             median_hold_bars = int(np.median(qualifying_hold_bars))
             key = f"alpha.frame.hold_max_bars.{regime}.{tf}"
+            qualifying_flags_desc = " AND ".join(f"{flag}=true" for flag in _QUALIFYING_FLAGS)
             await config_service.set(
                 key,
                 str(median_hold_bars),
                 changed_by="ensemble-ic-engine",
                 reason=(
                     "calibrated from IC decay curve (EIC-02); median across "
-                    f"{n_qualifying} qualifying (passes_fdr=true AND reliable=true) "
+                    f"{n_qualifying} qualifying ({qualifying_flags_desc}) "
                     f"symbols; decay_threshold={config.decay_threshold}"
                 ),
             )

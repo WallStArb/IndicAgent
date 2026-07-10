@@ -5,8 +5,11 @@ Pure functions only — no DB imports, no Kafka imports.
 
 Input rows must already be filtered to:
     WHERE is_pooled = false AND ic_ci_lower > 0 AND passes_fdr = true
-      AND reliable = true AND ic_sharpe IS NOT NULL
-for one (symbol, tf, regime) stratum.
+      AND reliable = true AND ic_sharpe IS NOT NULL AND passes_walkforward = true
+for one (symbol, tf, regime) stratum. (passes_walkforward added 2026-07-09 —
+cross-sectional significance alone does not distinguish real signal from the tail
+of expected false discoveries BH-FDR budgets for; see ensemble_trainer.py's
+_process_stratum, the caller that enforces this filter before rows reach here.)
 
 Lookahead disambiguation (Pitfall 1 from RESEARCH.md):
     For each feature_name, keep the single row with the highest quality_weight.

@@ -11,7 +11,10 @@ mandatory significance + sufficiency gate (review finding #6):
   indistinguishable from noise -- must never set a load-bearing hold_bars).
 - reliable=false cells are ALSO EXCLUDED even if passes_fdr=true (passed FDR
   on insufficient N; ic_sharpe is unstable at low N).
-- If every cell in the group is unqualified (fails one or both gates), the
+- walk_forward_stable=false cells are ALSO EXCLUDED even if passes_fdr=true and
+  reliable=true (passed cross-sectional significance but did not reproduce
+  out-of-sample across folds -- added 2026-07-09 to match EIC-04's own gate).
+- If every cell in the group is unqualified (fails any of the three gates), the
   function returns None -- signal to the caller to skip calibration for this
   (symbol, tf, regime) and leave the prior APR value untouched.
 
@@ -32,12 +35,19 @@ from services.ensemble_ic_engine import _select_hold_bars_from_decay
 _SCALE_TO_BARS = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
 
 
-def _cell(lookahead: str, ic_sharpe, passes_fdr: bool = True, reliable: bool = True) -> dict:
+def _cell(
+    lookahead: str,
+    ic_sharpe,
+    passes_fdr: bool = True,
+    reliable: bool = True,
+    walk_forward_stable: bool = True,
+) -> dict:
     return {
         "lookahead": lookahead,
         "ic_sharpe": ic_sharpe,
         "passes_fdr": passes_fdr,
         "reliable": reliable,
+        "walk_forward_stable": walk_forward_stable,
     }
 
 
@@ -106,6 +116,23 @@ def test_unreliable_cell_excluded_despite_passing_fdr_low_n_case():
         _cell("mid", 0.4, passes_fdr=True, reliable=True),
         _cell("slow", 0.05, passes_fdr=True, reliable=True),
         _cell("extended", -0.1, passes_fdr=True, reliable=True),
+    ]
+    result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
+    assert result == 5
+
+
+def test_unstable_cell_excluded_despite_passing_fdr_and_reliable():
+    """walk_forward_stable=false cell with ic_sharpe=0.9, passes_fdr=true, reliable=true
+    is ALSO EXCLUDED (2026-07-09 extension of review finding #6 -- cross-sectional
+    significance does not guarantee the effect reproduces out-of-sample across folds;
+    this brings EIC-02's gate back in sync with EIC-04's own phase-gate query, which
+    already required all three conditions).
+    """
+    cells = [
+        _cell("fast", 0.9, passes_fdr=True, reliable=True, walk_forward_stable=False),  # excluded
+        _cell("mid", 0.4, passes_fdr=True, reliable=True, walk_forward_stable=True),
+        _cell("slow", 0.05, passes_fdr=True, reliable=True, walk_forward_stable=True),
+        _cell("extended", -0.1, passes_fdr=True, reliable=True, walk_forward_stable=True),
     ]
     result = _select_hold_bars_from_decay(cells, decay_threshold=0.1, scale_to_bars=_SCALE_TO_BARS)
     assert result == 5

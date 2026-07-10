@@ -5,6 +5,7 @@ Tests the data-shaping logic and class contract. No live DB — asyncpg pool is 
 
 from __future__ import annotations
 
+import inspect
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -123,3 +124,43 @@ class TestAssertPrerequisitesManifestGate:
         manifest.write()
 
         await _assert_prerequisites(conn, manifest_dir=tmp_path)
+
+
+class TestEligibilityRequiresWalkForward:
+    """Regression guard (2026-07-09): a fresh corpus measurement showed the top of the
+    IC leaderboard concentrated in regime-conditional cells with wf_fold_count=0 --
+    CI+FDR significance alone does not distinguish real signal from the tail of
+    expected false discoveries BH-FDR budgets for. Every query that defines which
+    feature_ic_scores rows are eligible to feed the ensemble must also require
+    passes_walkforward = true, not just ic_ci_lower/passes_fdr/reliable/ic_sharpe_hac.
+    The condition now lives once in _ELIGIBILITY_WHERE/_ELIGIBILITY_BASE_WHERE (module
+    constants), interpolated into all four call sites -- these tests check (a) the
+    constants themselves carry the condition and (b) every site still references one of
+    them, so a future edit can't silently drop the requirement at a single call site.
+    SQL-text inspection, no live DB required -- mirrors the _source() pattern in
+    TestUpsertSQL (test_ensemble_weight_epoch.py)."""
+
+    def test_eligibility_constants_require_walkforward(self) -> None:
+        from services.ensemble_trainer import _ELIGIBILITY_BASE_WHERE, _ELIGIBILITY_WHERE
+
+        assert "passes_walkforward = true" in _ELIGIBILITY_BASE_WHERE
+        assert "passes_walkforward = true" in _ELIGIBILITY_WHERE
+
+    def test_startup_gate_uses_eligibility_constant(self) -> None:
+        from services.ensemble_trainer import _assert_prerequisites
+
+        assert "_ELIGIBILITY_WHERE" in inspect.getsource(_assert_prerequisites)
+
+    def test_strata_enumeration_and_meta_fdr_denominator_use_eligibility_constants(self) -> None:
+        """_execute_inner contains two eligibility-defining queries: the meta-FDR
+        denominator (pre-FDR base) and the strata enumeration (full, post-FDR)."""
+        from services.ensemble_trainer import EnsembleTrainer
+
+        source = inspect.getsource(EnsembleTrainer._execute_inner)
+        assert "_ELIGIBILITY_BASE_WHERE" in source
+        assert "_ELIGIBILITY_WHERE" in source
+
+    def test_stratum_ic_fetch_uses_eligibility_constant(self) -> None:
+        from services.ensemble_trainer import EnsembleTrainer
+
+        assert "_ELIGIBILITY_WHERE" in inspect.getsource(EnsembleTrainer._process_stratum)

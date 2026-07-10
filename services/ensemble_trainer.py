@@ -2,7 +2,8 @@
 """Ensemble Trainer — oneshot that derives IC-weighted ensemble weights and scores ensemble alpha.
 
 Reads cross-sectional IC scores (symbol='POOLED', is_pooled=true, regime != '_pooled',
-ic_ci_lower > 0, passes_fdr=true, reliable=true), applies Ledoit-Wolf cluster deflation, and writes:
+ic_ci_lower > 0, passes_fdr=true, reliable=true, passes_walkforward=true), applies Ledoit-Wolf
+cluster deflation, and writes:
   - ensemble_weights: one row per (tf, regime, weight_version, feature_name), symbol='UNIVERSE'
   - ensemble_alpha:   one row per (symbol, tf, bar_ts, weight_version) via vectorized matmul
 
@@ -13,7 +14,13 @@ well above the gate. One universe-level model is also statistically superior to 
 per-symbol models.
 
 CORRECTNESS INVARIANTS:
-- Only cross-sectional, statistically significant rows feed the ensemble (no cross-regime leakage).
+- Only cross-sectional, statistically significant, walk-forward-confirmed rows feed the ensemble
+  (no cross-regime leakage). "Statistically significant" (CI+FDR) alone is not a sufficient bar —
+  it does not distinguish real signal from the tail of expected false discoveries that BH-FDR
+  budgets for; passes_walkforward=true requires the same effect to reproduce out-of-sample across
+  independent time folds. Added 2026-07-09 after a fresh corpus measurement showed the top of the
+  IC leaderboard concentrated in regime-conditional cells with wf_fold_count=0 (never evaluated
+  out-of-sample) and IC magnitudes (0.15-0.42) implausible for real univariate equity signal.
 - feature_vectors query includes WHERE regime = stratum_regime — no cross-regime scoring.
 - Scoring uses X @ signed_weights (matmul, no per-bar Python loop).
 - LW cluster deflation (cluster_deflate_weights) runs after derive_weights.
@@ -71,6 +78,23 @@ from src.observability.metrics import (
 from src.observability.otel import OTelInitError, init_otel_providers
 
 _logger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Ensemble eligibility criterion — single definition, four call sites below.
+#
+# Cross-sectional significance (ic_ci_lower/passes_fdr) is not a sufficient bar on
+# its own: it does not distinguish real signal from the tail of expected false
+# discoveries BH-FDR budgets for. passes_walkforward requires the same effect to
+# reproduce out-of-sample across independent time folds. reliable/ic_sharpe_hac
+# guard against low-N instability. All four conditions must hold together.
+# ---------------------------------------------------------------------------
+_ELIGIBILITY_BASE_WHERE = (
+    "symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'"
+    " AND ic_ci_lower > 0"
+    " AND reliable = true AND ic_sharpe_hac IS NOT NULL"
+    " AND passes_walkforward = true"
+)
+_ELIGIBILITY_WHERE = _ELIGIBILITY_BASE_WHERE + " AND passes_fdr = true"
 
 # ---------------------------------------------------------------------------
 # APR compile-time binding
@@ -278,8 +302,8 @@ def _meta_eligible(
 
     Denominator (fdr_pass_rate) is restricted to cross-sectional cells that pass all
     ensemble eligibility filters (symbol='POOLED', is_pooled=true, regime != '_pooled',
-    ic_ci_lower > 0, reliable=true, ic_sharpe_hac IS NOT NULL) — the same population
-    consumed by _process_stratum.
+    ic_ci_lower > 0, reliable=true, ic_sharpe_hac IS NOT NULL, passes_walkforward=true) —
+    the same population consumed by _process_stratum.
     """
     result: dict[str, set[str]] = {}
     for r in fdr_pass_rows:
@@ -337,17 +361,12 @@ async def _assert_prerequisites(
 ) -> None:
     """Two startup gates plus a manifest check. Raise RuntimeError to prevent a
     silent empty OR silently-partial run."""
-    n_ic = await conn.fetchval(
-        "SELECT count(*) FROM feature_ic_scores"
-        " WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'"
-        " AND ic_ci_lower > 0 AND passes_fdr = true"
-        " AND reliable = true AND ic_sharpe_hac IS NOT NULL"
-    )
+    n_ic = await conn.fetchval(f"SELECT count(*) FROM feature_ic_scores WHERE {_ELIGIBILITY_WHERE}")
     if not n_ic:
         raise RuntimeError(
             "EnsembleTrainer startup gate FAILED: no cross-sectional feature_ic_scores rows "
             "(symbol='POOLED', is_pooled=true, regime != '_pooled', ic_ci_lower > 0, "
-            "passes_fdr=true, reliable=true). "
+            "passes_fdr=true, reliable=true, passes_walkforward=true). "
             "Run ic_engine.py first."
         )
 
@@ -500,20 +519,15 @@ class EnsembleTrainer(BaseBatch):
             # pooling pass rates across all 4 timeframes would silently veto features that
             # are genuinely strong at one horizon but weak at another. See _meta_eligible
             # docstring. Denominator mirrors _process_stratum's WHERE clause exactly — cells
-            # that fail the significance gate or have NULL ic_sharpe_hac are never consumed
-            # by the ensemble, so including them would artificially deflate every feature's
-            # pass-rate.
-            fdr_pass_rows = await conn.fetch("""
+            # that fail the significance gate, have NULL ic_sharpe_hac, or never had
+            # out-of-sample walk-forward confirmation are never consumed by the ensemble, so
+            # including them would artificially deflate every feature's pass-rate.
+            fdr_pass_rows = await conn.fetch(f"""
                 SELECT feature_name, tf,
                        SUM(CASE WHEN passes_fdr THEN 1 ELSE 0 END)::float / COUNT(*) AS fdr_pass_rate,
                        COUNT(*) AS n_cells
                 FROM feature_ic_scores
-                WHERE symbol = 'POOLED'
-                  AND is_pooled = true
-                  AND regime != '_pooled'
-                  AND ic_ci_lower > 0
-                  AND reliable = true
-                  AND ic_sharpe_hac IS NOT NULL
+                WHERE {_ELIGIBILITY_BASE_WHERE}
                 GROUP BY feature_name, tf
                 """)
             meta_eligible_by_tf = _meta_eligible(
@@ -547,12 +561,10 @@ class EnsembleTrainer(BaseBatch):
                 )
 
             # --- Enumerate strata ---
-            strata_rows = await conn.fetch("""
+            strata_rows = await conn.fetch(f"""
                 SELECT DISTINCT tf, regime
                 FROM feature_ic_scores
-                WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'
-                  AND ic_ci_lower > 0 AND passes_fdr = true
-                  AND reliable = true AND ic_sharpe_hac IS NOT NULL
+                WHERE {_ELIGIBILITY_WHERE}
                   AND regime IS NOT NULL
                 ORDER BY tf, regime
                 """)
@@ -621,10 +633,8 @@ class EnsembleTrainer(BaseBatch):
             SELECT feature_name, ic_sharpe_hac, ic_shrunk, shrinkage_weight,
                    ic_ci_lower, ic_ci_upper, ic_sign, lookahead_bars, training_window_end
             FROM feature_ic_scores
-            WHERE symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'
+            WHERE {_ELIGIBILITY_WHERE}
               AND tf = $1 AND regime = $2
-              AND ic_ci_lower > 0 AND passes_fdr = true
-              AND reliable = true AND ic_sharpe_hac IS NOT NULL
               AND feature_status_at_eval = 'active'
               {ic_shrunk_not_null_clause}
             """,

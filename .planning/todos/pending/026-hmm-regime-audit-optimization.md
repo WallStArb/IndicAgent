@@ -144,3 +144,67 @@ pre-registered as the rates challenger with a defined build trigger. See
 falsifiers. Caveat carried forward from that doc: the Step 1/Step 2 magnitudes above are stale
 (synthetic-bar filter fix `26efb75b`, 142.5's 91 new primitives, full-depth backfill) - the
 widened per-regime_group Step 1 must re-run on the fresh corpus before any demotion executes.
+
+---
+
+**2026-07-09 finding — the P4a leak is real but confirmed NOT in the current measurement
+path; the actual live-path suspects are different.**
+
+Prompted by a fresh corpus IC leaderboard review (first trustworthy measurement since the
+2026-07-08 91-column persistence bug fix): the top of `feature_ic_scores` by |IC| was
+dominated by regime-conditional cells (`high_bear`, `mid_bull`, etc.) at IC 0.15-0.42,
+concentrated in volatility/range features (`range_pct_*`, `true_range_pct`, `hv_ratio`) and
+calendar features (`month_sin`, `week_of_month_sin`). Investigated as a possible confirmation
+of this todo's P4a leak (`regime_writer.py:507-519` fits `StandardScaler` and `GaussianHMM` on
+the FULL symbol/tf history before its causal alpha-pass decode — confirmed still true, code
+unchanged, comment at line 550 says so explicitly: *"Model is fit on full series; this is
+diagnostic only — does not gate write"* — that comment undersells it, the same full-history
+fit also produces the actual regime labels, not just the held-out LL diagnostic).
+
+**But: `feature_ic_scores` has ZERO rows with `regime_scope = 'symbol_hmm'` in the fresh
+corpus.** `ic_engine.py`'s `alpha.regime.equity_model_enabled` APR toggle (default `true`) is
+live, which routes every IC measurement through `market_regimes` (the cross-sectional
+VIX×breadth model, `equity_regime_model.py`) instead of `feature_vectors.regime` (the
+per-symbol HMM this todo is about). **The P4a leak exists in code but is not contaminating
+any currently-produced IC number** — it would only become live again if
+`equity_model_enabled` were ever flipped to `false`. This is worth stating plainly: the
+2026-07-07 fallback decision (demote per-symbol HMM to shadow) is *already in effect by
+default* via this toggle, independent of whatever P4a eventually decides. Downgrade this
+todo's urgency accordingly — it remains correct to keep it GATED, but it is no longer a
+plausible explanation for anything currently showing up in `feature_ic_scores`.
+
+**Checked the cross-sectional model (`equity_regime_model.py`) for the equivalent leak —
+clean.** P1a's VIX-proxy fix (`_compute_vix_pct_rank`) is a genuinely causal bisect-based
+expanding rank (each position ranked only against strictly prior values, insert happens after
+rank is read). The 200MA breadth signal (`_compute_breadth_fraction`) uses
+`pandas.rolling(window, min_periods=window)`, also causal. No look-ahead found in either
+signal's construction.
+
+**Two more likely explanations for the extreme regime-conditional IC values, neither of
+which implicates this todo's code:**
+
+1. **FDR-tail concentration (most likely, no bug required).** BH-FDR controls the *expected
+   proportion* of false discoveries among rejected hypotheses, not their identity. At
+   `fdr_alpha=0.05` across 972 corpus-wide-qualifying cells, ~48 are expected false
+   discoveries by construction — and a spurious cell only survives both the CI-gate and FDR
+   correction by landing in the extreme tail, which is exactly where it will then show up on
+   any "top IC" leaderboard. We counted exactly 48 qualifying cells with `|ic_value| > 0.15`.
+   This is survivorship bias inherent to the leaderboard framing, not a data pipeline defect.
+2. **P3 (still open, this todo, table above) — `equity_regime_model.py`'s cut points
+   (`vix_low_pct`/`vix_high_pct`=0.33/0.67, `breadth_bear`/`breadth_bull`=0.40/0.60) are
+   still the original guessed `[initial_estimate]` defaults, never empirically recalibrated.**
+   Arbitrary cut points don't inject look-ahead bias, but they can produce regime buckets
+   that don't correspond to behaviorally distinct states, adding noise that (combined with
+   #1) plausibly concentrates at the tail. P3 remains open and ungated — worth prioritizing
+   given it's now a live-path suspect, not just a general-hygiene item.
+
+**Action taken same session (not gated on this todo, applies regardless of root cause):**
+tightened `ensemble_trainer.py`'s three eligibility queries and `ensemble_ic_engine.py`'s
+EIC-02 hold_max_bars decay-walk gate to additionally require `passes_walkforward=true` /
+`walk_forward_stable=true` — previously both allowed cross-sectionally-significant-but-never-
+out-of-sample-confirmed cells through (36% of the 972 qualifying rows had `passes_walkforward
+= false`, some with `wf_fold_count = 0`, and EIC-02 had silently fallen out of sync with
+EIC-04's own gate, which already required `walk_forward_stable=true`). This directly reduces
+exposure to explanation #1 regardless of whether it or something else is the true cause. See
+commit for the code change; `ensemble_ic_engine.py` was re-run same-session to refresh the 16
+`alpha.frame.hold_max_bars.*` keys calibrated under the old (weaker) gate.
