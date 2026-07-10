@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.50.0
+Version: 5.51.0
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
 
@@ -120,6 +120,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **Executable returns only (Invariant 1)**: IC measurement MUST use `forward_returns.return_type = 'executable_open_to_open'`. The correct formula is `ln(open[T+N+1] / open[T+1])` — market-on-open entry, market-on-open exit. Theoretical `ln(close[T+N] / close[T])` captures overnight gaps that cannot be traded and overstates IC. All `forward_returns` queries in `ic_engine.py` must filter `WHERE return_type = 'executable_open_to_open'`.
 - **Parallel dicts → dataclass**: 3+ `dict[str, X]` attributes keyed by same ID → consolidate into `dict[str, MyState]` with `_state(key)` factory. Pattern: `SignalTracker._signal_states`.
 - **ProcessPoolExecutor workers are compute-only**: workers must return serializable results (rows, dicts) to the main process. All DB writes go through a single serial connection in main. Never open a write connection or call execute_batch/conn.commit() for writes from a worker subprocess — concurrent writers on the same TimescaleDB hypertable cause index-page deadlocks. (Fixed in regime_writer; pattern applies to all batch services: ic_engine, backfill_feature_factory, etc.)
+- **Never log per-row inside a loop over the full corpus** (millions of rows on `--backfill`): a `logger.warning()` per occurrence floods the log file and adds real per-row overhead on a hot path. Accumulate a local counter and report once per partition/run instead — same shape whether the loop runs in-process or inside a `ProcessPoolExecutor` worker (worker accumulates and returns the count; main process sums and logs once). Pattern: `ic_engine.py`'s `n_skipped`. (Fixed in alpha_frame_writer.py/counterfactual_tracker.py, Phase 142B code review.)
 - **`KafkaProducerClient.publish()` kwarg is `msg=`** — not `value=`. Wrong kwarg silently fails at flush.
 - **`BaseGroupCoordinator` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
 - **AI agents MUST use `self._llm_generate(context, ...)`** — never call `self._llm.generate()` directly.
