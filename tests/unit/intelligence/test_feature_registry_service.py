@@ -237,3 +237,421 @@ class TestRecordTransitionIsSync:
         from src.intelligence.feature_registry_service import FeatureRegistryService
 
         assert inspect.iscoroutinefunction(FeatureRegistryService._write_transition_record)
+
+
+# ---------------------------------------------------------------------------
+# Fake psycopg2-style connection/cursor for record_transition_sync tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeCursor:
+    """Records executed statements; rowcount is scripted per-connection."""
+
+    def __init__(self, conn: _FakeConn) -> None:
+        self._conn = conn
+        self.rowcount: int | None = None
+
+    def __enter__(self) -> _FakeCursor:
+        return self
+
+    def __exit__(self, *exc_info: object) -> bool:
+        return False
+
+    def execute(self, sql: str, params: tuple | None = None) -> None:
+        stmt_index = len(self._conn.executed)
+        self._conn.executed.append((" ".join(sql.split()), params))
+        if sql.strip().upper().startswith("UPDATE"):
+            self.rowcount = self._conn.update_rowcount
+        else:
+            self.rowcount = 1
+        if self._conn.raise_on_statement_index == stmt_index:
+            raise RuntimeError("simulated mid-transaction failure")
+
+
+class _FakeConn:
+    """Mirrors psycopg2 `with conn:` transaction semantics: commits on clean
+    exit, rolls back and re-raises on exception. No real DB touched."""
+
+    def __init__(
+        self,
+        update_rowcount: int = 1,
+        raise_on_statement_index: int | None = None,
+    ) -> None:
+        self.executed: list[tuple[str, tuple | None]] = []
+        self.update_rowcount = update_rowcount
+        self.raise_on_statement_index = raise_on_statement_index
+        self.committed = False
+        self.rolled_back = False
+
+    def cursor(self) -> _FakeCursor:
+        return _FakeCursor(self)
+
+    def __enter__(self) -> _FakeConn:
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> bool:
+        if exc_type is None:
+            self.committed = True
+        else:
+            self.rolled_back = True
+        return False  # never swallow — mirrors psycopg2 propagation
+
+
+def _feature_row(
+    feature_name: str = "momentum_z_fast",
+    status: str = "active",
+    consecutive_shadow_passes: int = 0,
+    observations_since_demotion: int = 0,
+) -> dict:
+    return {
+        "feature_name": feature_name,
+        "group_name": "momentum",
+        "tier": "0_atomic",
+        "status": status,
+        "min_ic_sharpe": None,
+        "min_ic_n": 100,
+        "fdr_required": True,
+        "fdr_alpha": 0.05,
+        "consecutive_shadow_passes": consecutive_shadow_passes,
+        "observations_since_demotion": observations_since_demotion,
+    }
+
+
+class TestRecordTransitionSync:
+    def test_transactional_insert_and_update_commit(self):
+        row = _feature_row(status="active")
+        svc = _load_service_from_rows([row])
+        conn = _FakeConn(update_rowcount=1)
+
+        result = svc.record_transition_sync(
+            conn,
+            "momentum_z_fast",
+            from_status="active",
+            to_status="shadow_only",
+            reason="ic_demotion",
+        )
+
+        assert result is True
+        assert conn.committed is True
+        assert conn.rolled_back is False
+        # UPDATE then INSERT, in that order, in ONE transaction.
+        assert len(conn.executed) == 2
+        assert conn.executed[0][0].upper().startswith("UPDATE FEATURE_REGISTRY")
+        assert conn.executed[1][0].upper().startswith("INSERT INTO FEATURE_TRANSITION_LOG")
+
+    def test_rollback_on_mid_transaction_error(self):
+        row = _feature_row(status="active")
+        svc = _load_service_from_rows([row])
+        # Raise on the second execute() call (index 1, the INSERT).
+        conn = _FakeConn(update_rowcount=1, raise_on_statement_index=1)
+
+        with pytest.raises(RuntimeError, match="simulated mid-transaction failure"):
+            svc.record_transition_sync(
+                conn,
+                "momentum_z_fast",
+                from_status="active",
+                to_status="shadow_only",
+                reason="ic_demotion",
+            )
+
+        assert conn.rolled_back is True
+        assert conn.committed is False
+        # Cache must NOT reflect the failed transition.
+        assert svc.get_status("momentum_z_fast") == "active"
+
+    def test_optimistic_lock_noop_on_rowcount_zero(self):
+        row = _feature_row(status="active")
+        svc = _load_service_from_rows([row])
+        # Simulate feature already transitioned by a concurrent/prior write:
+        # the UPDATE's WHERE status = from_status matches zero rows.
+        conn = _FakeConn(update_rowcount=0)
+
+        result = svc.record_transition_sync(
+            conn,
+            "momentum_z_fast",
+            from_status="active",
+            to_status="shadow_only",
+            reason="ic_demotion",
+        )
+
+        assert result is False
+        # No orphan transition-log row: only the UPDATE executed, not the INSERT.
+        assert len(conn.executed) == 1
+        assert conn.rolled_back is True
+        assert conn.committed is False
+        # DB (cache) left untouched.
+        assert svc.get_status("momentum_z_fast") == "active"
+
+    def test_rejects_automated_transition_to_deprecated(self):
+        row = _feature_row(status="shadow_only")
+        svc = _load_service_from_rows([row])
+        conn = _FakeConn()
+
+        with pytest.raises(ValueError, match="operator-only"):
+            svc.record_transition_sync(
+                conn,
+                "momentum_z_fast",
+                from_status="shadow_only",
+                to_status="deprecated",
+                reason="ic_demotion",
+            )
+
+        # Zero writes attempted before the guard raises.
+        assert conn.executed == []
+
+    def test_operator_override_to_deprecated_is_allowed(self):
+        row = _feature_row(status="shadow_only")
+        svc = _load_service_from_rows([row])
+        conn = _FakeConn(update_rowcount=1)
+
+        result = svc.record_transition_sync(
+            conn,
+            "momentum_z_fast",
+            from_status="shadow_only",
+            to_status="deprecated",
+            reason="operator_override",
+        )
+
+        assert result is True
+        assert svc.get_status("momentum_z_fast") == "deprecated"
+
+    def test_cache_coherency_after_commit(self):
+        row = _feature_row(status="shadow_only")
+        svc = _load_service_from_rows([row])
+        conn = _FakeConn(update_rowcount=1)
+
+        svc.record_transition_sync(
+            conn,
+            "momentum_z_fast",
+            from_status="shadow_only",
+            to_status="active",
+            reason="ic_promotion",
+        )
+
+        # Same-invocation read sees fresh state immediately, not stale.
+        assert svc._features["momentum_z_fast"]["status"] == "active"
+        assert svc.get_status("momentum_z_fast") == "active"
+
+    def test_counter_reset_on_second_demotion(self):
+        # Feature already satisfied the recovery floors from a PRIOR shadow
+        # period (consecutive_shadow_passes=2, observations_since_demotion=5000)
+        # and was promoted back to active. It now decays a second time.
+        row = _feature_row(
+            status="active",
+            consecutive_shadow_passes=2,
+            observations_since_demotion=5000,
+        )
+        svc = _load_service_from_rows([row])
+        conn = _FakeConn(update_rowcount=1)
+
+        result = svc.record_transition_sync(
+            conn,
+            "momentum_z_fast",
+            from_status="active",
+            to_status="shadow_only",
+            reason="ic_demotion",
+        )
+
+        assert result is True
+        # Reset happened in the DB write (the UPDATE statement itself).
+        update_sql = conn.executed[0][0]
+        assert "consecutive_shadow_passes = 0" in update_sql
+        assert "observations_since_demotion = 0" in update_sql
+        # Reset happened in the cache too.
+        feature = svc._features["momentum_z_fast"]
+        assert feature["consecutive_shadow_passes"] == 0
+        assert feature["observations_since_demotion"] == 0
+
+    def test_counter_reset_rolled_back_with_rest_of_transaction(self):
+        row = _feature_row(
+            status="active",
+            consecutive_shadow_passes=2,
+            observations_since_demotion=5000,
+        )
+        svc = _load_service_from_rows([row])
+        # Fail on the INSERT (index 1) — the whole transaction, including the
+        # counter reset issued in the UPDATE, must roll back together.
+        conn = _FakeConn(update_rowcount=1, raise_on_statement_index=1)
+
+        with pytest.raises(RuntimeError):
+            svc.record_transition_sync(
+                conn,
+                "momentum_z_fast",
+                from_status="active",
+                to_status="shadow_only",
+                reason="ic_demotion",
+            )
+
+        assert conn.rolled_back is True
+        feature = svc._features["momentum_z_fast"]
+        assert feature["status"] == "active"
+        # Cache retains pre-transition counters since nothing committed.
+        assert feature["consecutive_shadow_passes"] == 2
+        assert feature["observations_since_demotion"] == 5000
+
+    def test_active_to_active_style_update_does_not_touch_counters(self):
+        # Promotion (shadow_only -> active) must NOT reset/touch the counters —
+        # only demotion into shadow_only does.
+        row = _feature_row(
+            status="shadow_only",
+            consecutive_shadow_passes=2,
+            observations_since_demotion=2000,
+        )
+        svc = _load_service_from_rows([row])
+        conn = _FakeConn(update_rowcount=1)
+
+        svc.record_transition_sync(
+            conn,
+            "momentum_z_fast",
+            from_status="shadow_only",
+            to_status="active",
+            reason="ic_promotion",
+        )
+
+        update_sql = conn.executed[0][0]
+        assert "consecutive_shadow_passes" not in update_sql
+        assert "observations_since_demotion" not in update_sql
+        feature = svc._features["momentum_z_fast"]
+        assert feature["consecutive_shadow_passes"] == 2
+        assert feature["observations_since_demotion"] == 2000
+
+
+class TestAdvanceShadowCountersSync:
+    def test_passing_run_increments_passes_and_adds_observations(self):
+        row = _feature_row(
+            status="shadow_only",
+            consecutive_shadow_passes=1,
+            observations_since_demotion=500,
+        )
+        svc = _load_service_from_rows([row])
+        conn = _FakeConn(update_rowcount=1)
+
+        svc.advance_shadow_counters_sync(conn, "momentum_z_fast", passed=True, new_observations=300)
+
+        assert conn.committed is True
+        feature = svc._features["momentum_z_fast"]
+        assert feature["consecutive_shadow_passes"] == 2
+        assert feature["observations_since_demotion"] == 800
+
+    def test_failing_run_resets_passes_but_still_adds_observations(self):
+        row = _feature_row(
+            status="shadow_only",
+            consecutive_shadow_passes=3,
+            observations_since_demotion=500,
+        )
+        svc = _load_service_from_rows([row])
+        conn = _FakeConn(update_rowcount=1)
+
+        svc.advance_shadow_counters_sync(
+            conn, "momentum_z_fast", passed=False, new_observations=300
+        )
+
+        feature = svc._features["momentum_z_fast"]
+        assert feature["consecutive_shadow_passes"] == 0
+        assert feature["observations_since_demotion"] == 800
+
+    def test_is_one_transaction(self):
+        row = _feature_row(status="shadow_only")
+        svc = _load_service_from_rows([row])
+        conn = _FakeConn(update_rowcount=1)
+
+        svc.advance_shadow_counters_sync(conn, "momentum_z_fast", passed=True, new_observations=100)
+
+        assert len(conn.executed) == 1
+        assert conn.committed is True
+
+
+class TestIsPromotionEligible:
+    def test_true_when_both_floors_met(self):
+        row = _feature_row(
+            status="shadow_only",
+            consecutive_shadow_passes=2,
+            observations_since_demotion=2000,
+        )
+        svc = _load_service_from_rows([row])
+        assert (
+            svc.is_promotion_eligible(
+                "momentum_z_fast",
+                recovery_min_observations=2000,
+                recovery_min_passes=2,
+            )
+            is True
+        )
+
+    def test_false_when_passes_unmet(self):
+        row = _feature_row(
+            status="shadow_only",
+            consecutive_shadow_passes=1,
+            observations_since_demotion=2000,
+        )
+        svc = _load_service_from_rows([row])
+        assert (
+            svc.is_promotion_eligible(
+                "momentum_z_fast",
+                recovery_min_observations=2000,
+                recovery_min_passes=2,
+            )
+            is False
+        )
+
+    def test_false_when_observations_unmet(self):
+        row = _feature_row(
+            status="shadow_only",
+            consecutive_shadow_passes=2,
+            observations_since_demotion=1999,
+        )
+        svc = _load_service_from_rows([row])
+        assert (
+            svc.is_promotion_eligible(
+                "momentum_z_fast",
+                recovery_min_observations=2000,
+                recovery_min_passes=2,
+            )
+            is False
+        )
+
+    def test_false_when_neither_met(self):
+        row = _feature_row(
+            status="shadow_only",
+            consecutive_shadow_passes=0,
+            observations_since_demotion=0,
+        )
+        svc = _load_service_from_rows([row])
+        assert (
+            svc.is_promotion_eligible(
+                "momentum_z_fast",
+                recovery_min_observations=2000,
+                recovery_min_passes=2,
+            )
+            is False
+        )
+
+    def test_reads_floors_from_passed_arguments_not_hardcoded(self):
+        # A feature that would fail against the APR defaults (2 / 2000) but
+        # passes against a caller-supplied looser floor — proves the floors
+        # are NOT hard-coded 2 / 2000 inside the method.
+        row = _feature_row(
+            status="shadow_only",
+            consecutive_shadow_passes=1,
+            observations_since_demotion=500,
+        )
+        svc = _load_service_from_rows([row])
+        assert (
+            svc.is_promotion_eligible(
+                "momentum_z_fast",
+                recovery_min_observations=500,
+                recovery_min_passes=1,
+            )
+            is True
+        )
+
+    def test_false_for_unknown_feature(self):
+        svc = _load_service_from_rows([_feature_row()])
+        assert (
+            svc.is_promotion_eligible(
+                "ghost_feature",
+                recovery_min_observations=2000,
+                recovery_min_passes=2,
+            )
+            is False
+        )
