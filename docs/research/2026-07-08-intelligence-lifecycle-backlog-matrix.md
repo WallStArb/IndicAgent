@@ -33,7 +33,6 @@ earlier version of this doc did) wrongly implied you must pick one before the ot
 
 | Idea | Effort | Risk | Reward | Note |
 |---|---|---|---|---|
-| Interaction Primitives pilot (todo 037) | S | Low | High/cost | Measures ~20-30 hand-picked interaction primitives already specified in `renaissance-primitives-ohlcv.md` against real IC — settles whether atomic features are IC-saturated before anyone builds the full 30K-candidate Interaction Factory. Gate (clean corpus) satisfied 2026-07-09. Gatekeeper for Phase 150's interaction layer — run before, not alongside. **Top-priority todo: cheapest, most decisive.** |
 | EM-CAL: empirical threshold calibration (todo 065) | S | Low | High | From the Stage 4 Emission review. Current `alpha.quant.threshold.{tf}` seeds (1.5/1.2/1.0/0.8) are admitted guesses. Explicitly deferred 2026-07-08 pending "rebuild completes and EIC-04 re-measured on complete data" — both conditions satisfied 2026-07-09 (rebuild done, EIC-04 PASS 2.21%). Unblocked, easy to overlook since the todo file itself hasn't been touched since 07-08. |
 
 ### Phases (each needs its own `/gsd-discuss-phase` cycle)
@@ -62,7 +61,10 @@ re-run (2026-07-09):** FAILed at the stale 0.60 threshold (35/1585 = 2.21% quali
 genuine-but-sparse signal via p-value histogram, not data starvation), then the threshold itself
 was recalibrated to 0.02 `[rca_analysis]` and re-verified PASS — Phase 142B is now unblocked on
 this gate · todo 067 (ic_engine write_conn idle-timeout) — closed 2026-07-09, confirmed fixed by
-the first clean end-to-end rebuild · todo 088 (`hold_max_bars` fallback bug) — fixed and
+the first clean end-to-end rebuild · **Todo 037 pilot (2026-07-10):** PASS -- 22.2% (192/864)
+of interaction-primitive cells carried genuine incremental IC after controlling for parent
+atomics, broad-based across all 8 features (6.5%-30.6% pass rate each) -- triggers Phase 150
+planning · todo 088 (`hold_max_bars` fallback bug) — fixed and
 re-calibrated 2026-07-09, 16/36 regime×tf cells now genuinely calibrated (remaining 20 correctly
 retain the `[initial_estimate]` seed pending 1h/1d decay-curve evidence).
 
