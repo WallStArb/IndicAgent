@@ -63,3 +63,42 @@ def test_unknown_direction_raises():
     except ValueError:
         raised = True
     assert raised
+
+
+def test_zero_atr_raises_value_error_not_zero_division_error():
+    """Code-review CR-01: a zero causal ATR (stale/forward-filled bars) must raise a catchable
+    ValueError, not an uncaught ZeroDivisionError that would abort the caller's entire scan."""
+    try:
+        compute_frame_geometry(
+            "long", entry_price=100.0, atr=0.0, stop_atr_mult=1.5, target_r_multiple=2.0
+        )
+        raised = None
+    except ValueError as error:
+        raised = error
+    except ZeroDivisionError:
+        raised = None
+    assert raised is not None, "expected ValueError, got no exception or ZeroDivisionError"
+
+
+def test_zero_stop_atr_mult_raises_value_error():
+    """Code-review CR-01: a zero stop_atr_mult (e.g. misconfigured APR key) collapses the stop
+    distance to zero identically to a zero ATR — same guard must catch it."""
+    try:
+        compute_frame_geometry(
+            "short", entry_price=100.0, atr=2.0, stop_atr_mult=0.0, target_r_multiple=2.0
+        )
+        raised = False
+    except ValueError:
+        raised = True
+    assert raised
+
+
+def test_negative_atr_raises_value_error():
+    try:
+        compute_frame_geometry(
+            "long", entry_price=100.0, atr=-1.0, stop_atr_mult=1.5, target_r_multiple=2.0
+        )
+        raised = False
+    except ValueError:
+        raised = True
+    assert raised

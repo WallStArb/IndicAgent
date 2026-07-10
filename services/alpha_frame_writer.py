@@ -73,8 +73,18 @@ def compute_frame_geometry(
 
     `atr` is a caller-supplied price-unit value — this function never reads a table.
 
+    Raises ValueError if atr or stop_atr_mult is non-positive (stale/forward-filled bars or a
+    misconfigured APR key both collapse the stop distance to zero, which would otherwise raise
+    an unguarded ZeroDivisionError on r_multiple — code-review CR-01). Callers must catch this
+    and skip the frame rather than let it propagate out of a batch scan.
+
     Returns (stop_price, target_price, r_multiple).
     """
+    if atr <= 0 or stop_atr_mult <= 0:
+        raise ValueError(
+            f"compute_frame_geometry: non-positive stop distance "
+            f"(atr={atr}, stop_atr_mult={stop_atr_mult}) — cannot derive a stop/target"
+        )
     if direction == "long":
         stop_price = entry_price - stop_atr_mult * atr
         stop_distance = entry_price - stop_price
@@ -159,14 +169,14 @@ class AlphaFrameWriter(BaseBatch):
             frame_id, event_id, bar_ts, symbol, tf, regime, direction, frame_variant,
             alpha_score, alpha_ci_lower, alpha_ci_upper,
             gross_expected_r, cost_r, net_expected_r,
-            max_hold_bars, stop_atr_mult, status,
+            max_hold_bars, stop_atr_mult, target_r_multiple, status,
             corpus_run_id, weight_epoch
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8,
             $9, $10, $11,
             $12, $13, $14,
-            $15, $16, $17,
-            $18, $19
+            $15, $16, $17, $18,
+            $19, $20
         )
         ON CONFLICT (event_id, bar_ts, frame_variant) DO NOTHING
     """
@@ -286,6 +296,17 @@ class AlphaFrameWriter(BaseBatch):
                     regime = row["regime"]
                     direction = row["direction"]
                     alpha_score = float(row["alpha_score"])
+                    if row["cost_hurdle"] is None:
+                        # IN-01: distinguish "cost known to be zero" from "cost data never
+                        # populated" -- both currently collapse to 0.0, this makes the miss
+                        # visible for corpus-quality auditing without changing gate behavior
+                        # (cost_r/net_expected_r are reporting-only per D-01/D-02).
+                        self.logger.warning(
+                            "alpha_frame_writer.cost_hurdle_missing",
+                            symbol=symbol,
+                            tf=tf,
+                            event_id=row["event_id"],
+                        )
                     cost_r = float(row["cost_hurdle"]) if row["cost_hurdle"] is not None else 0.0
 
                     gross_expected_r, net_expected_r = compute_expected_r_snapshot(
@@ -293,6 +314,18 @@ class AlphaFrameWriter(BaseBatch):
                     )
 
                     hold_key = f"alpha.frame.hold_max_bars.{regime}.{tf}"
+                    if hold_key not in cfg:
+                        # WR-02: a None/unexpected regime label or an un-seeded new regime
+                        # formats to a hold_key that will never exist among the 36 seeded
+                        # alpha.frame.hold_max_bars.<regime>.<tf> keys, silently falling back
+                        # to _DEFAULT_HOLD_MAX_BARS with no visibility. Instrument it instead
+                        # of letting it look identical to a legitimately-seeded 60-bar hold.
+                        self.logger.warning(
+                            "alpha_frame_writer.hold_max_bars_key_missing",
+                            hold_key=hold_key,
+                            regime=regime,
+                            tf=tf,
+                        )
                     max_hold_bars = int(_cfg(cfg, hold_key, _DEFAULT_HOLD_MAX_BARS))
 
                     frame_id = BaseBatch.content_key(row["event_id"], str(row["bar_ts"]), "primary")  # fmt: skip
@@ -315,6 +348,7 @@ class AlphaFrameWriter(BaseBatch):
                             net_expected_r,
                             max_hold_bars,
                             frame_config.stop_atr_mult,
+                            frame_config.target_r_multiple,
                             "open",
                             corpus_run_id,
                             row["weight_version"],

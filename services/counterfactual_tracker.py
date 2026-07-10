@@ -168,6 +168,7 @@ def frame_gate_passes(
     min_n: int,
     bootstrap_max_n: int,
     bootstrap_batch: int,
+    bootstrap_random_state: int = 42,
 ) -> tuple[bool, float, float]:
     """FRAME-04 day-clustered block-bootstrap exit gate (review H4).
 
@@ -184,6 +185,11 @@ def frame_gate_passes(
     Returns (False, nan, nan) when len(pnl_r_values) < min_n (the alpha.scoring.
     min_strategy_n frame-count sufficiency floor) or when fewer than 2 day-clusters exist
     (a bootstrap CI cannot be formed from <2 blocks).
+
+    bootstrap_random_state seeds scipy's BCa resampling (alpha.scoring.bootstrap_random_state
+    APR key, default 42) so the frozen SHADOW-REVIEW.md "no post-hoc gate renegotiation" verdict
+    is reproducible across identical re-runs (code-review WR-01) -- changing this key invalidates
+    any prior gate verdict for cells that used the BCa path (len(cluster_means) <= bootstrap_max_n).
     """
     if len(pnl_r_values) < min_n:
         return False, float("nan"), float("nan")
@@ -206,6 +212,7 @@ def frame_gate_passes(
             alternative="greater",
             method="BCa",
             batch=bootstrap_batch,
+            random_state=np.random.default_rng(bootstrap_random_state),
         )
         ci_lower = float(result.confidence_interval.low)
         ci_upper = float(result.confidence_interval.high)
@@ -229,7 +236,7 @@ def frame_gate_passes(
 # Bounded per-cell fetch (never more rows than this cell's open-frame count) -- safe to
 # buffer client-side with a regular (non-named) cursor.
 _OPEN_FRAMES_SQL = """
-    SELECT frame_id, bar_ts, direction, max_hold_bars, stop_atr_mult, regime
+    SELECT frame_id, bar_ts, direction, max_hold_bars, stop_atr_mult, target_r_multiple, regime
     FROM alpha_frames
     WHERE symbol = %s AND tf = %s AND status = 'open' AND frame_variant = 'primary'
     ORDER BY bar_ts ASC
@@ -343,12 +350,17 @@ def _scan_symbol_tf(
     symbol: str,
     tf: str,
     atr_period: int,
-    target_r_multiple: float,
+    default_target_r_multiple: float,
     itersize: int,
 ) -> list[dict[str, Any]]:
     """ONE streaming named-cursor sweep over market_data_ohlcv for this (symbol, tf) cell,
     filling geometry (T+1 entry + causal price-unit ATR) and scoring the exit for every open
-    frame in the cell -- never a per-frame round-trip (review H2/M2/M4)."""
+    frame in the cell -- never a per-frame round-trip (review H2/M2/M4).
+
+    `default_target_r_multiple` is a fallback for legacy rows written before migration 215
+    (NULL target_r_multiple). Every frame normally carries its own target_r_multiple snapshot
+    (code-review CR-02) so a mid-run APR recalibration cannot desync it from the
+    gross_expected_r/net_expected_r diagnostics AlphaFrameWriter computed at creation time."""
     conn.commit()  # clear any stale transaction before the bounded fetches below
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(_OPEN_FRAMES_SQL, (symbol, tf))
@@ -408,9 +420,31 @@ def _scan_symbol_tf(
                 atr = sum(tr_window) / len(tr_window)
                 direction = frame["direction"]
                 entry_price = bar.open
-                stop_price, target_price, r_multiple = compute_frame_geometry(
-                    direction, entry_price, atr, float(frame["stop_atr_mult"]), target_r_multiple
+                frame_target_r_multiple = (
+                    float(frame["target_r_multiple"])
+                    if frame["target_r_multiple"] is not None
+                    else default_target_r_multiple
                 )
+                try:
+                    stop_price, target_price, r_multiple = compute_frame_geometry(
+                        direction,
+                        entry_price,
+                        atr,
+                        float(frame["stop_atr_mult"]),
+                        frame_target_r_multiple,
+                    )
+                except ValueError as error:
+                    # Degenerate stop distance (zero ATR on stale/forward-filled bars, or a
+                    # zero stop_atr_mult) -- skip this frame, leave it open, do NOT let one
+                    # bad bar abort the rest of this cell's scan (code-review CR-01).
+                    _logger.warning(
+                        "counterfactual_tracker.degenerate_atr_skip",
+                        symbol=symbol,
+                        tf=tf,
+                        frame_id=frame["frame_id"],
+                        error=str(error),
+                    )
+                    continue
                 ic_ci_lower, ic_scored_at = ic_by_regime.get(frame["regime"], (None, None))
                 active[frame["frame_id"]] = {
                     "frame": {**frame, "symbol": symbol, "tf": tf},
@@ -486,7 +520,8 @@ def _run_counterfactual_worker(args: tuple) -> dict[str, Any]:
             # Connection-staleness check + reconnect before each per-symbol unit of work
             # (mirrors infrastructure_run_historical_pipeline.py's precedent).
             try:
-                conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor).execute("SELECT 1")
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as probe_cur:
+                    probe_cur.execute("SELECT 1")
             except Exception:
                 try:
                     conn.close()
@@ -696,6 +731,7 @@ def evaluate_frame_gate(
     min_n: int,
     bootstrap_max_n: int,
     bootstrap_batch: int,
+    bootstrap_random_state: int = 42,
 ) -> list[dict[str, Any]]:
     """Pure grouping/aggregation core for the FRAME-04 in-sample exit gate.
 
@@ -718,7 +754,12 @@ def evaluate_frame_gate(
     verdicts: list[dict[str, Any]] = []
     for (tf, regime), bucket in groups.items():
         passes, ci_lower, ci_upper = frame_gate_passes(
-            bucket["pnl_r"], bucket["cluster_id"], min_n, bootstrap_max_n, bootstrap_batch
+            bucket["pnl_r"],
+            bucket["cluster_id"],
+            min_n,
+            bootstrap_max_n,
+            bootstrap_batch,
+            bootstrap_random_state,
         )
         verdicts.append(
             {
@@ -761,6 +802,7 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
         min_n = _cfg(apr_cfg, "alpha.scoring.min_strategy_n", 30)
         bootstrap_max_n = _cfg(apr_cfg, "alpha.scoring.bootstrap_max_n", 5000)
         bootstrap_batch = _cfg(apr_cfg, "alpha.scoring.bootstrap_batch", 1000)
+        bootstrap_random_state = _cfg(apr_cfg, "alpha.scoring.bootstrap_random_state", 42)
 
         oos_start = await conn.fetchval(
             "SELECT config_value::timestamptz FROM config_state "
@@ -778,7 +820,11 @@ async def _run_evaluate_gate(db_dsn: str) -> None:
         await conn.close()
 
     verdicts = evaluate_frame_gate(
-        [dict(row) for row in gate_rows], min_n, bootstrap_max_n, bootstrap_batch
+        [dict(row) for row in gate_rows],
+        min_n,
+        bootstrap_max_n,
+        bootstrap_batch,
+        bootstrap_random_state,
     )
 
     manifest = CorpusManifest("counterfactual_tracker_gate", CorpusManifest.DEFAULT_MANIFEST_DIR)

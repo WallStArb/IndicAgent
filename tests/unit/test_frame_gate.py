@@ -97,6 +97,35 @@ def test_day_clustering_yields_wider_stricter_ci_than_naive_per_frame():
     assert ci_lower_clustered < ci_lower_naive
 
 
+def test_bootstrap_random_state_makes_ci_lower_reproducible():
+    """Code-review WR-01: the frozen SHADOW-REVIEW.md 'no post-hoc gate renegotiation' verdict
+    must be reproducible across identical re-runs. Two calls with the same seed on identical
+    input (BCa path, a borderline-variance sample where entropy would otherwise matter) must
+    return the exact same ci_lower."""
+    rng = np.random.default_rng(99)
+    pnl = [float(0.05 + rng.normal(0, 0.2)) for _ in range(60)]
+    clusters = [f"day_{i}" for i in range(60)]
+
+    _, ci_lower_a, _ = frame_gate_passes(
+        pnl,
+        clusters,
+        min_n=30,
+        bootstrap_max_n=5000,
+        bootstrap_batch=1000,
+        bootstrap_random_state=42,
+    )
+    _, ci_lower_b, _ = frame_gate_passes(
+        pnl,
+        clusters,
+        min_n=30,
+        bootstrap_max_n=5000,
+        bootstrap_batch=1000,
+        bootstrap_random_state=42,
+    )
+
+    assert ci_lower_a == ci_lower_b
+
+
 def test_analytic_clt_path_used_above_bootstrap_max_n():
     """When day-cluster count exceeds bootstrap_max_n, the analytic CLT lower bound is
     used instead of BCa (BCa's jackknife is infeasible at high cluster counts, review H4).

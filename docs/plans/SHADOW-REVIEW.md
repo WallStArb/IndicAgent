@@ -58,6 +58,11 @@ max_peak_to_trough_decline_R / peak_cumulative_R_at_trough < 0.25
 The base is explicitly the **peak cumulative R** at the point of maximum decline — not an
 unspecified percentage of account equity, capital, or any other base.
 
+**Edge case (resolved before any shadow data exists — code-review WR-03, not a post-hoc
+renegotiation):** if `peak_cumulative_R_at_trough <= 0` at the point of maximum decline,
+criterion 4 **fails outright** — an undefined or non-positive base cannot certify a bounded
+drawdown, independent of the ratio's numeric value.
+
 ### 5. No IC-Sharpe cliff
 
 EnsembleICEngine IC Sharpe over the trailing 20 trading days of the shadow period must be at
@@ -69,6 +74,11 @@ last_20d_IC_Sharpe / full_period_IC_Sharpe >= 0.5
 
 This is the numeric definition of "no cliff" — a cliff is any last-20-day IC Sharpe below half
 the full-period value.
+
+**Edge case (resolved before any shadow data exists — code-review WR-03, not a post-hoc
+renegotiation):** if `full_period_IC_Sharpe <= 0`, criterion 5 **fails outright** regardless of
+the ratio — a non-positive full-period Sharpe is disqualifying on its own, and a ratio of two
+non-positive or sign-mismatched Sharpes is not a meaningful "no cliff" measurement.
 
 ## Gross vs. net cost basis (D-01)
 
