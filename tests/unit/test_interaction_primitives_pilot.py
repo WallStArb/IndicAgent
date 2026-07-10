@@ -20,7 +20,9 @@ sys.path.insert(0, str(_project_root))
 sys.path.insert(0, str(_project_root / "scripts" / "ops" / "alpha"))
 
 from ops_interaction_primitives_pilot import (
+    _COMPLETE_COLS,
     _LOOKAHEAD_TO_SCALE_CACHE,
+    _flush_symbol_buffers,
     _lookahead_to_scale,
     _scale_stride,
     _slice_cell,
@@ -248,6 +250,134 @@ def test_slice_cell_pools_across_symbols():
         assert list(y) == [0.1, 0.2, 0.3]
     finally:
         _LOOKAHEAD_TO_SCALE_CACHE.clear()
+
+
+def test_flush_symbol_buffers_clears_raw_by_symbol_and_appends_chunks():
+    float_cols = ["feat", "p1"]
+    raw_by_symbol: dict[str, dict[str, list]] = {
+        "AAA": {
+            "regime_label": ["bull", "bear"],
+            "feat": [1.0, None],
+            "p1": [10.0, 20.0],
+            **{col: [True, False] for col in _COMPLETE_COLS},
+        }
+    }
+    chunk_arrays_by_symbol: dict[str, dict[str, list]] = {}
+
+    _flush_symbol_buffers(raw_by_symbol, chunk_arrays_by_symbol, float_cols)
+
+    # raw_by_symbol must be cleared in place (bounded-memory contract).
+    assert raw_by_symbol == {}
+    chunks = chunk_arrays_by_symbol["AAA"]
+    assert len(chunks["regime_label"]) == 1
+    assert list(chunks["regime_label"][0]) == ["bull", "bear"]
+    assert chunks["regime_label"][0].dtype == object
+    assert np.array_equal(chunks["feat"][0], np.array([1.0, np.nan]), equal_nan=True)
+    assert chunks["feat"][0].dtype == np.float64
+    assert list(chunks["p1"][0]) == [10.0, 20.0]
+    for col in _COMPLETE_COLS:
+        assert list(chunks[col][0]) == [True, False]
+        assert chunks[col][0].dtype == bool
+
+
+def _naive_unchunked_dataset(
+    raw_rows_by_symbol: dict[str, dict[str, list]], float_cols: list[str]
+) -> dict[str, dict[str, np.ndarray]]:
+    """Reference implementation: the OLD one-shot conversion (no chunking) this
+    test proves the new chunked path is byte-for-byte equivalent to."""
+    dataset: dict[str, dict[str, np.ndarray]] = {}
+    for sym, cols in raw_rows_by_symbol.items():
+        arrays: dict[str, np.ndarray] = {
+            "regime_label": np.asarray(cols["regime_label"], dtype=object)
+        }
+        for col in float_cols:
+            arrays[col] = np.array(
+                [np.nan if v is None else v for v in cols[col]], dtype=np.float64
+            )
+        for col in _COMPLETE_COLS:
+            arrays[col] = np.asarray(cols[col], dtype=bool)
+        dataset[sym] = arrays
+    return dataset
+
+
+def test_flush_symbol_buffers_chunked_matches_unchunked_reference():
+    """The correctness bar from task-3-v3-brief.md: build a synthetic raw row
+    stream (a few symbols, enough rows to force at least 3 flushes with a small
+    flush_rows), run it through the chunked path (periodic _flush_symbol_buffers
+    calls + final concatenate), and assert the result exactly matches a naively
+    one-shot-converted (unchunked) reference built from the same synthetic input.
+    Symbols' rows arrive in contiguous runs (matching the real SQL's
+    `ORDER BY fv.symbol, fv.bar_ts`), so a symbol's rows may straddle a flush
+    boundary -- exercised below by AAA (7 rows) crossing flush_rows=5."""
+    float_cols = ["feat", "p1"]
+    n_aaa, n_bbb, n_ccc = 7, 4, 6  # totals chosen so symbols straddle flush boundaries
+    all_rows: list[tuple[str, dict]] = []
+    for sym, n in [("AAA", n_aaa), ("BBB", n_bbb), ("CCC", n_ccc)]:
+        for i in range(n):
+            all_rows.append(
+                (
+                    sym,
+                    {
+                        "regime_label": "bull" if i % 2 == 0 else "bear",
+                        "feat": None if i == 1 else float(i),
+                        "p1": float(i) * 10,
+                        **{col: i != 2 for col in _COMPLETE_COLS},
+                    },
+                )
+            )
+
+    flush_rows = 5
+    raw_by_symbol: dict[str, dict[str, list]] = {}
+    chunk_arrays_by_symbol: dict[str, dict[str, list]] = {}
+    reference_raw: dict[str, dict[str, list]] = {}
+    rows_since_flush = 0
+    n_flushes = 0
+
+    for sym, record in all_rows:
+        sym_cols = raw_by_symbol.setdefault(sym, {})
+        sym_cols.setdefault("regime_label", []).append(record["regime_label"])
+        for col in float_cols:
+            sym_cols.setdefault(col, []).append(record[col])
+        for col in _COMPLETE_COLS:
+            sym_cols.setdefault(col, []).append(record[col])
+
+        ref_cols = reference_raw.setdefault(sym, {})
+        ref_cols.setdefault("regime_label", []).append(record["regime_label"])
+        for col in float_cols:
+            ref_cols.setdefault(col, []).append(record[col])
+        for col in _COMPLETE_COLS:
+            ref_cols.setdefault(col, []).append(record[col])
+
+        rows_since_flush += 1
+        if rows_since_flush >= flush_rows:
+            _flush_symbol_buffers(raw_by_symbol, chunk_arrays_by_symbol, float_cols)
+            rows_since_flush = 0
+            n_flushes += 1
+
+    _flush_symbol_buffers(raw_by_symbol, chunk_arrays_by_symbol, float_cols)
+    n_flushes += 1
+
+    assert n_flushes >= 3, "test must force at least 3 flushes per the brief's correctness bar"
+    assert raw_by_symbol == {}
+
+    chunked_dataset: dict[str, dict[str, np.ndarray]] = {}
+    for sym, chunks in chunk_arrays_by_symbol.items():
+        chunked_dataset[sym] = {col: np.concatenate(arrs) for col, arrs in chunks.items()}
+
+    reference_dataset = _naive_unchunked_dataset(reference_raw, float_cols)
+
+    assert set(chunked_dataset.keys()) == set(reference_dataset.keys()) == {"AAA", "BBB", "CCC"}
+    for sym in reference_dataset:
+        for col in ["regime_label", "feat", "p1", *_COMPLETE_COLS]:
+            chunked_col = chunked_dataset[sym][col]
+            reference_col = reference_dataset[sym][col]
+            assert chunked_col.dtype == reference_col.dtype, f"{sym}/{col} dtype mismatch"
+            if col == "feat":
+                assert np.array_equal(
+                    chunked_col, reference_col, equal_nan=True
+                ), f"{sym}/{col} values mismatch"
+            else:
+                assert np.array_equal(chunked_col, reference_col), f"{sym}/{col} values mismatch"
 
 
 def test_slice_cell_returns_empty_sentinel_when_no_rows_match():

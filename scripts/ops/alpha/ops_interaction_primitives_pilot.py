@@ -91,12 +91,42 @@ _RETURN_COLS = tuple(f"return_{scale}" for scale in _SCALES)
 _COMPLETE_COLS = tuple(f"complete_{scale}" for scale in _SCALES)
 
 
+def _flush_symbol_buffers(
+    raw_by_symbol: dict[str, dict[str, list]],
+    chunk_arrays_by_symbol: dict[str, dict[str, list[np.ndarray]]],
+    float_cols: list[str],
+) -> None:
+    """Convert whatever's currently buffered per symbol into numpy chunk-arrays,
+    appended to chunk_arrays_by_symbol, then clear raw_by_symbol in place. Pure/
+    DB-free -- the only inputs are already-fetched Python values, no DB/Kafka
+    dependency.
+
+    Correctness note: the SQL's `ORDER BY fv.symbol, fv.bar_ts` guarantees a
+    symbol's rows arrive in one contiguous run (never interleaved with another
+    symbol's rows reappearing later), so a symbol's data may be split across 2+
+    flush events but always in increasing bar_ts order -- appending each flush's
+    per-symbol chunk-array (in flush order) and concatenating at the end preserves
+    that order exactly, matching what a single one-shot conversion would produce.
+    """
+    for sym, cols in raw_by_symbol.items():
+        chunks = chunk_arrays_by_symbol.setdefault(sym, {})
+        chunks.setdefault("regime_label", []).append(np.asarray(cols["regime_label"], dtype=object))
+        for col in float_cols:
+            chunks.setdefault(col, []).append(
+                np.array([np.nan if v is None else v for v in cols[col]], dtype=np.float64)
+            )
+        for col in _COMPLETE_COLS:
+            chunks.setdefault(col, []).append(np.asarray(cols[col], dtype=bool))
+    raw_by_symbol.clear()
+
+
 async def _fetch_tf_dataset(
     conn: asyncpg.Connection,
     tf: str,
     feature_names: list[str],
     parent_cols: list[str],
     training_window_end,
+    flush_rows: int = 500_000,
 ) -> dict[str, dict[str, np.ndarray]]:
     """Stream every (feature, parent, return, regime) column needed by ANY cell for
     this `tf` in ONE full scan of that tf's feature_vectors partition, keyed by
@@ -117,6 +147,20 @@ async def _fetch_tf_dataset(
     compute-only" gotcha family). ~25M rows for tf='5m' must never be materialized
     via one giant asyncpg `fetch()` list; this streams and buckets by symbol
     instead, one tf fetched (and released) at a time.
+
+    Bounded-memory chunked accumulation (Task 3 v3 fix): the earlier version of
+    this function accumulated every row of the tf's partition into unbounded
+    Python-object lists (`raw_by_symbol`) before a one-shot numpy conversion at the
+    end -- for tf='5m' (25.35M rows) this drove system MemAvailable to ~1.4GB and
+    swap-out to ~98MB/s within 7 minutes (see task-3-v3-brief.md). Every
+    `flush_rows` rows (a running counter across the whole tf, not per-symbol),
+    `_flush_symbol_buffers()` converts whatever's buffered to numpy chunk-arrays
+    and clears `raw_by_symbol`, bounding peak Python-list memory regardless of
+    total tf row count. The final per-symbol arrays are built by concatenating
+    each symbol's chunk-array list after the loop (plus one final flush for any
+    remainder) -- identical to what a single one-shot conversion would have
+    produced, just never holding more than `flush_rows` rows of Python objects at
+    once.
     """
     select_cols = ", ".join(f"fv.{col} AS {col}" for col in [*feature_names, *parent_cols])
     float_cols = [*feature_names, *parent_cols, *_RETURN_COLS]
@@ -135,6 +179,8 @@ async def _fetch_tf_dataset(
         ORDER BY fv.symbol, fv.bar_ts
     """
     raw_by_symbol: dict[str, dict[str, list]] = {}
+    chunk_arrays_by_symbol: dict[str, dict[str, list[np.ndarray]]] = {}
+    rows_since_flush = 0
 
     async with conn.transaction():
         async for record in conn.cursor(sql, tf, training_window_end, prefetch=5000):
@@ -145,18 +191,16 @@ async def _fetch_tf_dataset(
             for col in _COMPLETE_COLS:
                 sym_cols.setdefault(col, []).append(record[col])
 
+            rows_since_flush += 1
+            if rows_since_flush >= flush_rows:
+                _flush_symbol_buffers(raw_by_symbol, chunk_arrays_by_symbol, float_cols)
+                rows_since_flush = 0
+
+    _flush_symbol_buffers(raw_by_symbol, chunk_arrays_by_symbol, float_cols)
+
     dataset: dict[str, dict[str, np.ndarray]] = {}
-    for sym, cols in raw_by_symbol.items():
-        arrays: dict[str, np.ndarray] = {
-            "regime_label": np.asarray(cols["regime_label"], dtype=object)
-        }
-        for col in float_cols:
-            arrays[col] = np.array(
-                [np.nan if v is None else v for v in cols[col]], dtype=np.float64
-            )
-        for col in _COMPLETE_COLS:
-            arrays[col] = np.asarray(cols[col], dtype=bool)
-        dataset[sym] = arrays
+    for sym, chunks in chunk_arrays_by_symbol.items():
+        dataset[sym] = {col: np.concatenate(arrs) for col, arrs in chunks.items()}
     return dataset
 
 
@@ -270,6 +314,15 @@ async def main() -> int:
                 return 0
             partial_fdr_alpha = float(partial_fdr_alpha_raw)
 
+            fetch_flush_rows_raw = await conn.fetchval(
+                "SELECT config_value FROM config_state WHERE config_key = "
+                "'infra.interaction_primitives_pilot.fetch_flush_rows'"
+            )
+            # Memory-safety tuning knob, not a correctness gate (unlike the two
+            # hard-FAIL checks above for migration 214's keys) -- a sane fallback
+            # if the row is ever missing is fine.
+            fetch_flush_rows = int(fetch_flush_rows_raw) if fetch_flush_rows_raw else 500_000
+
             features = await _load_interaction_features(conn)
             if not features:
                 print(
@@ -315,7 +368,12 @@ async def main() -> int:
             for tf, tf_cells in cells_by_tf.items():
                 try:
                     dataset = await _fetch_tf_dataset(
-                        conn, tf, feature_names, parent_cols, training_window_end
+                        conn,
+                        tf,
+                        feature_names,
+                        parent_cols,
+                        training_window_end,
+                        flush_rows=fetch_flush_rows,
                     )
                 except Exception as error:  # CLAUDE.md: exception variable name is `error`
                     print(f"  SKIP tf={tf}: {error}")
