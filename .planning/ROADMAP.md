@@ -1214,10 +1214,10 @@ later if/when Phase 151 lands, not a blocking dependency now.
 `docs/analysis/feature-decay-queries.sql`; Superset dashboard deferred until the routed system
 has operated ≥ 30 days.
 
-**Plans:** 3 plans (planned 2026-07-05):
+**Plans:** 2/3 plans executed
 
-- [ ] 143-01-PLAN.md — Wave 1: LIFECYCLE-00 HMM regime label validation (P2b occupation gate, P2c hmm_churn, APR keys)
-- [ ] 143-02-PLAN.md — Wave 2: LIFECYCLE-01 registry amendments (lifecycle columns, sync record_transition_sync + evidence-only promotion, drop dead decay columns)
+- [x] 143-01-PLAN.md — Wave 1: LIFECYCLE-00 HMM regime label validation (P2b occupation gate, P2c hmm_churn, APR keys)
+- [x] 143-02-PLAN.md — Wave 2: LIFECYCLE-01 registry amendments (lifecycle columns, sync record_transition_sync + evidence-only promotion, drop dead decay columns)
 - [ ] 143-03-PLAN.md — Wave 3: LIFECYCLE-02/03/04/05/06 ic_engine post-run hook (demote/promote, regime-shift guard, staleness gauge, integrity_monitor, decay diagnostics SQL)
 
 ---
