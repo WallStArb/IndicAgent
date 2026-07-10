@@ -1,3 +1,7 @@
+# [todo 044] Tempo 3.0 removed the top-level `compactor:` block (app.Config no longer
+# has that field) — compaction/retention for monolithic single-binary deployments like
+# this one is now handled internally by the live-store component, no config needed.
+# `backend_scheduler`/`backend_worker` replace it only in microservices-mode Tempo.
 server:
   http_listen_port: 3200
   log_level: info
@@ -19,9 +23,5 @@ storage:
     wal:
       path: /var/tempo/wal
 
-compactor:
-  compaction:
-    block_retention: 168h
-
-usage_report:
-  reporting_enabled: false
+reporting:
+  enabled: false

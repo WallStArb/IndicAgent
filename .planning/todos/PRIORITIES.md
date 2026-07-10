@@ -33,9 +33,11 @@ real value, not urgent. P3 = hygiene/docs/process, opportunistic.
 | Todo | Gap |
 |---|---|
 | [091](pending/091-fisher-z-ci-empirical-null-miscalibration.md) | Fisher-z analytic CI empirically miscalibrated — 38% SUSPECT rate across strata; this is the exact mechanism behind every BH-FDR/EIC-04 gate in the stack |
-| [051](pending/051-backfill-silent-skip-on-ibkr-disconnect.md) | Backfill script silently completes despite mass symbol skip on IBKR disconnect — no reconnect-to-IBKR path |
-| [061](pending/061-feature-vector-pipeline-ddl-in-hot-path.md) | `feature_vector_pipeline` does DDL in its hot path — violates DAG Invariant 2/3 (compute must never own schema mutation) |
-| [044](pending/044-tempo-crashloop-config-schema.md) | `indicagent-tempo` container permanently crash-looping on stale config schema |
+
+**Closed 2026-07-10** (moved to `completed/`, see each file's resolution note): 051 (backfill
+IBKR-disconnect silent skip), 061 (`feature_vector_pipeline` DDL in hot path), 044 (`indicagent-tempo`
+crash-loop). 091 is now the sole remaining P0 — it needs its own dedicated confirmation-run pass
+(see the todo for scope), not a quick fix.
 
 ## P1 — High value, quick, fully unblocked
 
