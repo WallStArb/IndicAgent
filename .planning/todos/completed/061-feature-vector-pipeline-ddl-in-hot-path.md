@@ -8,6 +8,16 @@
 **Risk:** low
 ---
 
+**Resolved 2026-07-10:** relocated the DDL into `production/migrations/220_instruments_notify_trigger.sql`
+(applied to the live DB — identical SQL to the removed runtime call, so this is a relocation, not new
+behavior). `DatabaseManager.ensure_instruments_trigger()` replaced with a read-only
+`instruments_trigger_exists()` check (`SELECT 1 FROM pg_trigger WHERE ...`). `FeatureVectorPipeline._setup()`
+now calls that check and raises `RuntimeError` (fail loudly) if the trigger is missing, instead of
+installing it — `LISTEN instruments` succeeds even with no trigger present (it just silently never
+fires), so this closes the exact "silent wrong answer" gap the todo called out, not just the DAG-invariant
+one. Updated the two doc-comment references in `tests/integration/test_instrument_registry.py`
+(no code there called the old method). Full unit suite for both changed files green (18 passed).
+
 # 061 — Move `ensure_instruments_trigger()` DDL out of FeatureVectorPipeline hot path
 
 Surfaced during the 2026-07-05 CLAUDE.md audit (Fable review). `FeatureVectorPipeline._setup()`

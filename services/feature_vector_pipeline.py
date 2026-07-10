@@ -242,7 +242,17 @@ class FeatureVectorPipeline(BaseDaemon):
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
-        await self._db.ensure_instruments_trigger()
+        # [todo 061] The trigger is schema bootstrap (migration 220), not a runtime
+        # concern — a compute daemon must never own schema mutation (DAG Invariants
+        # 2/3). LISTEN succeeds even with no trigger installed (it just never fires),
+        # which would silently degrade cache staleness instead of erroring — check and
+        # fail loudly instead, per "silent wrong answers are worse than loud crashes."
+        if not await self._db.instruments_trigger_exists():
+            raise RuntimeError(
+                "instruments pg_notify trigger (trg_instruments_notify) is missing — "
+                "apply production/migrations/220_instruments_notify_trigger.sql before "
+                "starting FeatureVectorPipeline"
+            )
         listener_task = self._cache_mgr.start_instruments_listener()
         self._background_tasks.add(listener_task)
         listener_task.add_done_callback(self._background_tasks.discard)

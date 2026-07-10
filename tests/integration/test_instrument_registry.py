@@ -3,7 +3,7 @@
 Verifies:
 1. get_active_contracts() returns instruments from a live DB
 2. Required symbols (SPY, USDJPY, EURUSD) are present
-3. The pg_notify trigger was auto-installed by ensure_instruments_trigger()
+3. The pg_notify trigger was installed by migration 220
 
 Run: pytest tests/integration/ -m integration
 """
@@ -38,8 +38,11 @@ def test_all_required_symbols_present():
 async def test_trigger_installed():
     """The trg_instruments_notify trigger is installed on the instruments table.
 
-    This verifies ensure_instruments_trigger() ran successfully at service startup.
-    Query information_schema.triggers directly rather than relying on service state.
+    This verifies migration 220 was applied. FeatureVectorPipeline checks this at
+    startup (DatabaseManager.instruments_trigger_exists()) and fails loudly if missing
+    rather than installing it itself (DAG Invariants 2/3 — compute never owns schema
+    mutation). Query information_schema.triggers directly rather than relying on
+    service state.
     """
     settings = get_settings()
     conn = await asyncpg.connect(settings.database_url)
@@ -51,7 +54,7 @@ async def test_trigger_installed():
         names = {row["trigger_name"] for row in trigger_names}
         assert "trg_instruments_notify" in names, (
             f"trg_instruments_notify trigger not found. Installed triggers: {names}. "
-            "Run ensure_instruments_trigger() or restart the intelligence-pipeline service."
+            "Apply production/migrations/220_instruments_notify_trigger.sql."
         )
     finally:
         await conn.close()

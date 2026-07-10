@@ -146,23 +146,17 @@ class DatabaseManager:
         logger.info("Upserted instruments", count=len(params))
         return len(params)
 
-    async def ensure_instruments_trigger(self) -> None:
-        """Idempotently install the pg_notify trigger on the instruments table.
+    async def instruments_trigger_exists(self) -> bool:
+        """Check whether the instruments pg_notify trigger is installed.
 
-        Uses CREATE OR REPLACE - safe to call on every startup. Eliminates the
-        need to manually apply scripts/infrastructure/setup/infrastructure_add_instruments_trigger.sql
-        on fresh deployments or after DB restores.
+        Read-only — the trigger itself is schema bootstrap, installed via migration
+        220 (`production/migrations/220_instruments_notify_trigger.sql`), not created
+        here. Compute daemons (e.g. FeatureVectorPipeline) call this at startup and
+        fail loudly if it returns False rather than silently degrading to a listener
+        that will never receive a notification (DAG Invariants 2/3).
         """
-        sql = """
-        CREATE OR REPLACE FUNCTION notify_instrument_change()
-        RETURNS TRIGGER LANGUAGE plpgsql AS $$
-        BEGIN
-            PERFORM pg_notify('instruments', COALESCE(NEW.symbol, OLD.symbol));
-            RETURN COALESCE(NEW, OLD);
-        END;
-        $$;
-        CREATE OR REPLACE TRIGGER trg_instruments_notify
-        AFTER INSERT OR UPDATE OR DELETE ON instruments
-        FOR EACH ROW EXECUTE FUNCTION notify_instrument_change();
-        """
-        await self.execute_command(sql)
+        row = await self.fetchrow(
+            "SELECT 1 FROM pg_trigger WHERE tgname = 'trg_instruments_notify' "
+            "AND tgrelid = 'instruments'::regclass"
+        )
+        return row is not None
