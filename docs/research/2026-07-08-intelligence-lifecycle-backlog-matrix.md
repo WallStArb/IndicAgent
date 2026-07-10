@@ -10,13 +10,15 @@ the idea doc's own claim — Med/unproven means "plausible, untested") · **Foun
 cheaper to do now than to retrofit once other things build on top of it — bumps priority
 independent of raw effort/risk/reward.
 
-**Operational context (updated 2026-07-09):** the 6th corpus rebuild attempt completed
-end-to-end for the first time (all 8 steps, `feature_ic_scores` 920,649 rows, `alpha_events`
-12,258,206 rows, 0 rejected) — see project memory's "Corpus pipeline state" for full detail. This
-is the first trustworthy full-universe measurement since the 2026-07-08 91-column persistence
-bug fix. The E1/E2 A/B judgment and EIC-04 re-run (both listed HIGH below as of 07-08) have since
-run against this fresh corpus and are DONE — see "Recently shipped." Every item below that was
-previously "blocked on the rebuild finishing" is now unblocked and re-ordered accordingly.
+**Operational context (updated 2026-07-10):** Phase 142B (`alpha_frames` schema +
+`AlphaFrameWriter` + `CounterfactualTracker`) and Phase 143 (Feature Lifecycle Routing, merged
+with 149B) both shipped COMPLETE 2026-07-10 — see "Recently shipped." Todo 037 (Interaction
+Primitives Pilot) also completed 2026-07-10, PASS verdict — see "Recently shipped" and
+`docs/research/intel-feature-interaction-factory.md`. **`alpha_frames` still has 0 rows** —
+Phase 142B shipped the writer/tracker machinery but the actual backfill run has not been
+executed; this is the standing concrete next step (see HIGH tier Todos below), not gated on
+anything. The 6th corpus rebuild (2026-07-09, `feature_ic_scores` 920,649 rows, `alpha_events`
+12,258,206 rows) remains the trustworthy full-universe measurement base for everything here.
 
 ---
 
@@ -33,14 +35,14 @@ earlier version of this doc did) wrongly implied you must pick one before the ot
 
 | Idea | Effort | Risk | Reward | Note |
 |---|---|---|---|---|
-| EM-CAL: empirical threshold calibration (todo 065) | S | Low | High | From the Stage 4 Emission review. Current `alpha.quant.threshold.{tf}` seeds (1.5/1.2/1.0/0.8) are admitted guesses. Explicitly deferred 2026-07-08 pending "rebuild completes and EIC-04 re-measured on complete data" — both conditions satisfied 2026-07-09 (rebuild done, EIC-04 PASS 2.21%). Unblocked, easy to overlook since the todo file itself hasn't been touched since 07-08. |
+| `alpha_frames` backfill (Phase 142B follow-through) | S | Low | High | Phase 142B shipped `AlphaFrameWriter`/`CounterfactualTracker` complete 2026-07-10, but `alpha_frames` still has **0 rows** — the writer has never actually been run. Sequence: `AlphaFrameWriter --backfill` → `CounterfactualTracker --backfill` → `--evaluate-gate`. Does not need a corpus rebuild (upstream chain already correct). Unblocked, not gated on anything — this is the concrete next step toward Phase 147's `alpha_frames` OOS accumulation requirement. |
+| EM-CAL: empirical threshold calibration (todo 065) | S | Low | High | From the Stage 4 Emission review. Current `alpha.quant.threshold.{tf}` seeds (1.5/1.2/1.0/0.8) are admitted guesses. Explicitly deferred 2026-07-08 pending "rebuild completes and EIC-04 re-measured on complete data" — both conditions satisfied 2026-07-09 (rebuild done, EIC-04 PASS). Unblocked; full design already worked out (scope, architecture, statistical method) but not yet planned/executed. |
 
 ### Phases (each needs its own `/gsd-discuss-phase` cycle)
 
 | Idea | Effort | Risk | Reward | Note |
 |---|---|---|---|---|
-| Phase 144: Cross-Sectional Regime Model (`regime_group`) | L | Med | High | PLANNED. **Foundational** — Cross-Group Lead-Lag IC and Phase 148 (AnalogEngine) both need clean peer groups this phase produces; cheaper to absorb this dependency now than retrofit later, so it's prioritized above 143 despite equal effort/reward. Ready for `/gsd-discuss-phase`. Batches in todo 026 P2b/P2c/P3, todo 041 (tag taxonomy audit), and `intel-12-stratification-dimension.md`'s first substitution test — plan as one unit, not four. Also the more direct lever on the sparse-IC problem (see EIC-04 result below): re-stratifying may recover signal currently smeared across weak regime buckets. |
-| Phase 143: Feature Lifecycle Routing | L (3 plans) | Low | High | PLANNED, depends only on Phase 141 (complete) — independently startable today, no dependency on anything else in this table, can run in parallel with Phase 144 (separate discuss-phase cycle, no shared resource). |
+| Phase 144: Cross-Sectional Regime Model (`regime_group`) | L | Med | High | PLANNED. **Foundational** — Cross-Group Lead-Lag IC and Phase 148 (AnalogEngine) both need clean peer groups this phase produces; cheaper to absorb this dependency now than retrofit later. Ready for `/gsd-discuss-phase`. Batches in todo 026 P2b/P2c/P3, todo 041 (tag taxonomy audit), and `intel-12-stratification-dimension.md`'s first substitution test — plan as one unit, not four. Also the more direct lever on the sparse-IC problem (see EIC-04 result below): re-stratifying may recover signal currently smeared across weak regime buckets. **Now the only un-started HIGH-tier phase in this table** — Phase 143 shipped 2026-07-10, see "Recently shipped." |
 
 **Recently shipped (context, not action items):** HMM Numba JIT (40x speedup, Phase B/141 P2) ·
 Phase 142A Ensemble IC Measurement (`alpha_ensemble_ic` schema + `EnsembleICEngine`, complete
@@ -63,10 +65,18 @@ was recalibrated to 0.02 `[rca_analysis]` and re-verified PASS — Phase 142B is
 this gate · todo 067 (ic_engine write_conn idle-timeout) — closed 2026-07-09, confirmed fixed by
 the first clean end-to-end rebuild · **Todo 037 pilot (2026-07-10):** PASS -- 22.2% (192/864)
 of interaction-primitive cells carried genuine incremental IC after controlling for parent
-atomics, broad-based across all 8 features (6.5%-30.6% pass rate each) -- triggers Phase 150
-planning · todo 088 (`hold_max_bars` fallback bug) — fixed and
-re-calibrated 2026-07-09, 16/36 regime×tf cells now genuinely calibrated (remaining 20 correctly
-retain the `[initial_estimate]` seed pending 1h/1d decay-curve evidence).
+atomics, broad-based across all 8 features (6.5%-30.6% pass rate each) -- clears Phase 150's
+evidence gate (does NOT revive the deferred combinatorial todo 019 design — Phase 150's own
+curated ≤50-feature approach was independently justified on BH-FDR power grounds, see
+`docs/research/intel-feature-interaction-factory.md`) · todo 088 (`hold_max_bars` fallback bug) —
+fixed and re-calibrated 2026-07-09, 16/36 regime×tf cells now genuinely calibrated (remaining 20
+correctly retain the `[initial_estimate]` seed pending 1h/1d decay-curve evidence) · **Phase
+142B (2026-07-10):** `alpha_frames` schema + `AlphaFrameWriter` + `CounterfactualTracker` +
+frozen `SHADOW-REVIEW.md` promotion criteria shipped, 2/2 plans verified — machinery only,
+`alpha_frames` itself still has 0 rows, see the backfill todo above · **Phase 143 (2026-07-10):**
+Feature Lifecycle Routing (merged with 149B) shipped, 3/3 plans verified — evidence-based
+`feature_registry` promotion/demotion state machine, `ic_engine` post-run lifecycle hook,
+`integrity_monitor` table + diagnostics SQL.
 
 ---
 
@@ -78,14 +88,14 @@ retain the `[initial_estimate]` seed pending 1h/1d decay-curve evidence).
 | HMM regime audit — remaining P2b/P2c/P3 (todo 026) | S-M | Low-Med | Med | Batched into Phase 144's `ic_engine` re-run, not a standalone item. P0/P1a/P1b already shipped. Remaining: P2b (degenerate-model occupation-fraction gate), P2c (`hmm_churn` feature column), P3 (empirical threshold calibration for vix/breadth cuts). The heavier HMM-variant question (IOHMM/Hamilton/factor-augmented, see LOW tier) was resolved separately via the 2026-07-07 fallback pre-commitment — these three items are refinement, not a redesign. |
 | Cross-Group Lead-Lag IC (`docs/research/cross-group-lead-lag-ic.md`) | M | Med | Med, unproven | Reuses existing `ic_engine` machinery. 6 candidate pairs identified (rates→precious metals cleanest). Real open risk: multiple pairs × lags × TFs needs the same BH-FDR discipline as cross-sectional IC. Gated on Phase 144 (needs clean peer groups on both sides of the join). |
 | Phase 145: Empirical Instrument Tag Calibrator | L-XL | Med | High, latent | PLANNED. Evidence-gated into the Phase 144 batch: joins only if todo 041's audit shows tag calibration is load-bearing for group routing, not merely descriptive; otherwise trails independently (no hard dependency on Phase 148-150). |
-| Phase 150: Feature Primitives Expansion + Theory-Motivated Interaction Layer | XL | Med | Med, uncertain | **Not the same scope as Phase 142.5** (which already shipped 91 OHLCV primitives, complete). This phase is the remaining ~60 candidates from todo 014 plus a capped (≤50) Theory-Motivated Interaction Layer — each interaction needs a stated finance-theory hypothesis, separate BH-FDR pool from atomics. Gated on the Interaction Primitives pilot (todo 037, HIGH tier) clearing first. Also the feeder for `intel-10` Confluence's gate 1 once ≥1 interaction term clears IC/OOS. |
+| Phase 150: Feature Primitives Expansion + Theory-Motivated Interaction Layer | XL | Med | Med-High, evidence-backed | **Not the same scope as Phase 142.5** (which already shipped 89 primitives, complete). This phase is the remaining ~60 candidates from todo 014 plus a capped (≤50) Theory-Motivated Interaction Layer — each interaction needs a stated finance-theory hypothesis, separate BH-FDR pool from atomics. **Evidence gate cleared 2026-07-10** (todo 037 PASS, see "Recently shipped") — ready for `/gsd-discuss-phase`, no longer blocked. Also the feeder for `intel-10` Confluence's gate 1 once ≥1 interaction term clears IC/OOS. |
 | Volatility / Dispersion / Volume regime | S each | Low | Med-High, unproven | Consolidated under `intel-12-stratification-dimension.md`'s governance gate (structural-redundancy pre-filter → orthogonality study → substitution test) — the first substitution test runs as part of Phase 144's batch, not as independent triage per row. |
 | `market_data_ohlcv` active-bars view (todo 035) | S | Low | Med | **Foundational.** 4 duplicated filters = correctness-drift risk; cheaper to fix before a 5th call site appears. |
 | Zero-IC feature refinement (todo 033) | M | Low | Med | Fine either way — finds signal or confirms retirement. |
 | Cross-sectional rank features (todo 013a) | M | Low | Med | Minor schema debt, not a signal question. |
 | Phase 146: I7 Alpha Scorer Transition | L | Med | Med, conditional | PLANNED, conditional gate on Phase 141 CORPUS-07 (maps I7 plugins to `feature_vectors` dimensions). Default path is retirement-only, not conversion — most plugins are expected to be fully captured already. Not near-term actionable; CORPUS-07 hasn't been evaluated. |
-| Phase 147: Alpha Scoring System + v2.x Retirement Gate | L | Med | High, eventual | PLANNED. Depends on Phase 146 complete + Phase 142A OOS data (exists but EIC-04 currently FAIL) + Phase 142B accumulating ≥60 trading days of closed `alpha_frames` (142B hasn't started — 0/2 plans). Real long-run value, multiple un-started phases deep — don't let it compete with 143/144 for near-term attention despite the eventual payoff. |
-| IntegrityMonitor (Phase 151 + 152, `intel-14-integrity-monitor.md`) | XL | Low | High long-run, low now | Schedulable opportunistically any time after Phase 141 (complete) — Phase 151 depends only on `feature_vectors`; Phase 152 depends on Phase 142A (done) plus, for its E2B gate, Phase 142B's `alpha_frames` (not yet built). Insurance, not a fix — don't let it jump ahead of 143/144/147, which carry present-tense value. |
+| Phase 147: Alpha Scoring System + v2.x Retirement Gate | L | Med | High, eventual | PLANNED. Depends on Phase 146 complete + Phase 142A OOS data (exists, EIC-04 now PASS) + Phase 142B accumulating ≥60 trading days of closed `alpha_frames` (142B's writer/tracker machinery shipped 2026-07-10, but `alpha_frames` has 0 rows — the backfill run hasn't been executed yet, see HIGH tier Todos). Real long-run value, but still gated on that backfill running and 60 trading days actually accumulating after — don't let it compete with 144 for near-term attention despite the eventual payoff. |
+| IntegrityMonitor (Phase 151 + 152, `intel-14-integrity-monitor.md`) | XL | Low | High long-run, low now | Schedulable opportunistically any time after Phase 141 (complete) — Phase 151 depends only on `feature_vectors`; Phase 152 depends on Phase 142A (done) plus, for its E2B gate, Phase 142B's `alpha_frames` (schema + writer shipped 2026-07-10, still 0 rows pending the backfill run). Insurance, not a fix — don't let it jump ahead of 144/147, which carry present-tense value. |
 
 ---
 
