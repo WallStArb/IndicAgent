@@ -152,6 +152,11 @@ None - no external service configuration required.
 - No stubs: every code path in `AlphaFrameWriter` is fully wired (no hardcoded empty return
   values, no placeholder text, no unconnected data source).
 
+## Self-Check: PASSED
+
+All created files verified present on disk; all four task/summary commit hashes
+(`9198be07`, `8c326f79`, `4fcdbca9`, `60bb27c3`) verified present in `git log --oneline --all`.
+
 ---
 *Phase: 142B-frame-simulation-counterfactual-tracking*
 *Completed: 2026-07-10*
