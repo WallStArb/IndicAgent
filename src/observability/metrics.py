@@ -1197,3 +1197,19 @@ ALPHA_PUBLISHER_REJECTIONS_TOTAL = _meter.create_up_down_counter(
         "Labels: symbol, tf, rejection_reason"
     ),
 )
+
+# Phase 142B: CounterfactualTracker IC-decay trigger staleness (D-08/D-10). The IC-decay
+# exit trigger reads the most-recent alpha_ensemble_ic row for a frame's (symbol, tf, regime)
+# regardless of its age -- no freshness gate blocks the read (D-08), and no recurring
+# ensemble_ic_engine cadence exists yet (D-09, follow-on todo 089). This point gauge makes
+# that staleness observable instead of silent, per this project's "instrument everything"
+# principle (D-10).
+COUNTERFACTUAL_TRACKER_IC_ROW_AGE_SECONDS = _meter.create_gauge(
+    "counterfactual_tracker_ic_row_age_seconds",
+    description=(
+        "Age in seconds (now - scored_at) of the most-recent alpha_ensemble_ic row consumed "
+        "by CounterfactualTracker's IC-decay exit trigger. Never freshness-gated (D-08); a "
+        "stale read degrades gracefully (the early IC-decay exit simply fires later than "
+        "ideal). Labels: symbol, tf, regime."
+    ),
+)
