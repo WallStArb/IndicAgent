@@ -1023,7 +1023,7 @@ Exit triggers in priority order: (1) stop hit (`low <= stop_price`); (2) target 
 
 **Services to build:** `AlphaFrameWriter` (`BaseBatch`), `CounterfactualTracker` (`BaseBatch`).
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -1032,7 +1032,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 142B-02-PLAN.md — Wave 2: CounterfactualTracker (FRAME-02/03 state machine, named-cursor scan) + FRAME-04 bootstrap gate + IC-staleness instrumentation
+- [x] 142B-02-PLAN.md — Wave 2: CounterfactualTracker (FRAME-02/03 state machine, named-cursor scan) + FRAME-04 bootstrap gate + IC-staleness instrumentation
 
 ---
 
