@@ -38,10 +38,12 @@ UNION ALL
 SELECT 'market_regimes',    count(*) FROM market_regimes
 UNION ALL
 SELECT 'alpha_ensemble_ic', count(*) FROM alpha_ensemble_ic
+UNION ALL
+SELECT 'alpha_frames',      count(*) FROM alpha_frames
 ORDER BY table_name;"
 
 echo
-read -r -p "Truncate all nine tables and re-seed backfill_status? This cannot be undone. [y/N] " confirm
+read -r -p "Truncate all ten tables and re-seed backfill_status? This cannot be undone. [y/N] " confirm
 if [[ "${confirm,,}" != "y" ]]; then
     echo "Aborted."
     exit 0
@@ -50,6 +52,10 @@ fi
 echo
 echo "Truncating..."
 
+# alpha_frames has no FK to alpha_events (Phase 142B review M1 -- an FK would either block
+# this TRUNCATE or CASCADE-wipe frames); truncate it explicitly alongside alpha_events so a
+# corpus rebuild never leaves stale frames pointing at a wiped alpha_events generation.
+psql -c "TRUNCATE alpha_frames;"      && echo "  - alpha_frames: done"
 psql -c "TRUNCATE alpha_ensemble_ic;" && echo "  - alpha_ensemble_ic: done"
 psql -c "TRUNCATE alpha_events;"      && echo "  - alpha_events: done"
 psql -c "TRUNCATE ensemble_alpha;"    && echo "  - ensemble_alpha: done"
@@ -93,6 +99,8 @@ UNION ALL
 SELECT 'market_regimes',    count(*) FROM market_regimes
 UNION ALL
 SELECT 'alpha_ensemble_ic', count(*) FROM alpha_ensemble_ic
+UNION ALL
+SELECT 'alpha_frames',      count(*) FROM alpha_frames
 ORDER BY table_name;"
 
 echo
