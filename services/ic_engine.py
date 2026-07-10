@@ -294,17 +294,23 @@ class ICEngineConfig:
     symbol_fetch_chunk_rows: int
     n_workers: int
     # Phase 143 Plan 03: post-run lifecycle hook (LIFECYCLE-03/04/05) thresholds.
-    decay_materiality_threshold: float
-    decay_regime_shift_fraction: float
-    decay_recovery_min_observations: int
-    decay_recovery_min_passes: int
-    meta_fdr_min_fraction: float
-    ic_staleness_alert_days: int
+    # Defaulted (matching the APR defaults from_apr() falls back to) rather than
+    # required -- from_apr() always binds these explicitly in production; the
+    # defaults exist so pre-existing direct ICEngineConfig(...) construction sites
+    # (e.g. tests/unit/test_hac_ic_sharpe.py, which predates this plan and only
+    # exercises the original 18 fields) don't break on this dataclass's field-count
+    # growth (Rule 1 fix -- caught by the full tests/unit/ suite run).
+    decay_materiality_threshold: float = 0.005
+    decay_regime_shift_fraction: float = 0.60
+    decay_recovery_min_observations: int = 2000
+    decay_recovery_min_passes: int = 2
+    meta_fdr_min_fraction: float = 0.50
+    ic_staleness_alert_days: int = 5
     # Fable N4: pins the standing-weight JOIN to the APR champion weight_version --
     # the SAME key ensemble_trainer defaults to absent a CLI --weight-version override.
     # NEVER resolved by `ORDER BY computed_at DESC LIMIT 1` (would silently leak a
     # challenger epoch's weights into the materiality gate the moment E1/E2 A/B ships).
-    ensemble_weight_version: str
+    ensemble_weight_version: str = "v1"
 
     @property
     def lookaheads(self) -> dict[str, int]:
