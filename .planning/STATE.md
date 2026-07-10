@@ -2,15 +2,14 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: ready_to_plan
-last_updated: 2026-07-10T12:17:09.819Z
+status: Phase 143 complete
+last_updated: "2026-07-10T13:47:45.805Z"
 progress:
-  total_phases: 9
-  completed_phases: 5
+  total_phases: 11
+  completed_phases: 6
   total_plans: 24
-  completed_plans: 22
-  percent: 56
-stopped_at: Phase 142B complete (2/2), pushed to origin/main — Phase 143 already in progress in a separate concurrent session
+  completed_plans: 24
+  percent: 55
 ---
 
 # Project State
@@ -26,9 +25,11 @@ See: .planning/PROJECT.md
 
 **Phase 142B (frame simulation) is now COMPLETE (2026-07-10, 2/2 plans executed and verified), pushed to `origin/main` (`5024bb88`).** `alpha_frames` hypertable (migrations 214+215) + `AlphaFrameWriter` + `CounterfactualTracker` built; code review found 2 blockers (unguarded zero-ATR division that would abort and discard an entire scan; `target_r_multiple` not snapshotted, risking the same historical-drift class of bug already fixed for `cost_r`) plus 5 minor findings — all 7 fixed and independently verified in code (commit `fa4208ef`), followed by a `/simplify` cleanup pass (commit `059d4a75`). `docs/plans/SHADOW-REVIEW.md` (frozen Phase 147 promotion criteria) committed, gaining two edge-case clauses during the fix pass. `alpha_frames` has 0 rows — the actual backfill run (`AlphaFrameWriter --backfill` → `CounterfactualTracker --backfill` → `--evaluate-gate`) does NOT require a corpus rebuild (feature_vectors/alpha_events/ensemble_weights are already correct and untouched by this phase) and is the recommended next actionable step whenever convenient — not gated on Phase 147 or on Phase 143. Full detail: [Phase 142B code review and fixes](project_phase142b_code_review_fixes.md).
 
-Separately: Phase 142B.1 machinery is complete (verified 2026-07-04) but the E1/E2 A/B judgment (`ops_ensemble_weight_compare.py`) still hasn't been run — it flags a winner's-curse caveat on every WIN verdict (commit `ac9e7f25`, todo 069) since OQ7's peer-group-for-shrinkage question is still genuinely unresolved. Phase 144 (Cross-Sectional Regime Model) is unblocked for `/gsd-discuss-phase` — its HMM weak-separation fallback decision was made 2026-07-08 (see `docs/research/fable-2026-07-07-phase144-conditioning-decision.md`), though its own evidence needs re-measuring against the current corpus. A large backlog of Renaissance-refinement proposals (todos 068-085) was filed 2026-07-08 from a full layer-by-layer Fable review — none urgent. Test-debt cleanup landed 2026-07-09: 22 pre-existing `tests/unit/` failures reduced to 1 (already-tracked todo-086 false positive).
+Separately: Phase 142B.1 machinery is complete (verified 2026-07-04); the E1/E2 A/B judgment (`ops_ensemble_weight_compare.py`) ran 2026-07-09 — E2 rejected (20/20 strata LOSS), E1 (shrunk-IC) remains champion by default. Phase 144 (Cross-Sectional Regime Model) is unblocked for `/gsd-discuss-phase` — its HMM weak-separation fallback decision was made 2026-07-08 (see `docs/research/fable-2026-07-07-phase144-conditioning-decision.md`), though its own evidence needs re-measuring against the current corpus. A large backlog of Renaissance-refinement proposals (todos 068-085) was filed 2026-07-08 from a full layer-by-layer Fable review — none urgent. Test-debt cleanup landed 2026-07-09: 22 pre-existing `tests/unit/` failures reduced to 1 (already-tracked todo-086 false positive).
 
-**Next actions, in order:** (1) Phase 143 (Feature Lifecycle Routing, merged with 149B) is the next unstarted phase in ROADMAP.md order — `/gsd-discuss-phase 143` to start; (2) separately, run the E1/E2 A/B judgment (`ops_ensemble_weight_compare.py`) whenever convenient — not blocking anything; (3) todo 026 flags two candidate (non-bug) explanations for the corpus's remaining regime-conditional IC tail worth a look eventually: FDR-tail concentration (expected, not actionable) and P3's still-uncalibrated `equity_regime_model.py` cut points (`vix_low_pct`/`vix_high_pct`/`breadth_bear`/`breadth_bull`, still guessed defaults, never empirically fit) — the latter is a real, bounded, currently-open todo worth prioritizing.
+**Phase 143 (Feature Lifecycle Routing, merged with 149B) is now COMPLETE (2026-07-10, 3/3 plans executed and verified), commit `69ca7db7`.** `feature_registry`'s existing `candidate → active → shadow_only → deprecated` state machine amended (not replaced): evidence-based `shadow_only → active` promotion via `record_transition_sync` (≥2 consecutive passing runs AND ≥2000 new observations, no calendar cooldown; no `pre_shadow_weight` column — promotion restores weight via the status flip alone, `ensemble_trainer.py` recomputes from scratch every run), automated demotion redirected to `shadow_only` only (`deprecated` is operator-only). `ic_engine.main()` gained a post-run lifecycle hook: materiality-gated demotion, regime-shift guard (holds all weights instead of mass-zeroing on simultaneous multi-cell failure), IC staleness gauge, new `integrity_monitor` table for gate-evaluation facts. Migrations renumbered 202-205 → 216-219 mid-session (other phases had advanced the tip to 215 while 143 sat planned). One genuine regression surfaced by the full-suite gate and fixed same-session: 7 new `ICEngineConfig` fields broke an unrelated pre-existing test; fixed by defaulting to APR fallback values (commit `b47595b9`). Full `tests/unit/` suite green (5695 passed; only the pre-existing unrelated `test_no_smooth_or_backward_in_factory` failure remains).
+
+**Next actions, in order:** (1) `alpha_frames` backfill (`AlphaFrameWriter --backfill` → `CounterfactualTracker --backfill` → `--evaluate-gate`) — recommended since Phase 142B, still not run, needed before Phase 147's Gate 2 can start accumulating OOS data; not gated on anything. (2) Phase 146 (I7 Alpha Scorer Transition) is the next unstarted phase in v3.1's own sequence — conditional on Phase 141's CORPUS-07 evaluation (already done), default path is retirement-only per its own scope note; `/gsd-discuss-phase 146` to start. (3) Phase 147 additionally needs ≥60 trading days of closed `alpha_frames` accumulating before its Gate 2 can evaluate — cannot start meaningfully until the backfill in (1) runs and time passes. (4) todo 026 flags two candidate (non-bug) explanations for the corpus's remaining regime-conditional IC tail worth a look eventually: FDR-tail concentration (expected, not actionable) and P3's still-uncalibrated `equity_regime_model.py` cut points (`vix_low_pct`/`vix_high_pct`/`breadth_bear`/`breadth_bull`, still guessed defaults, never empirically fit) — the latter is a real, bounded, currently-open todo worth prioritizing.
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
 
 ## v3.1 Current Status
@@ -57,9 +58,15 @@ Separately: Phase 142B.1 machinery is complete (verified 2026-07-04) but the E1/
 
 **Regime-label validation (corrected 2026-07-01):** HMM regime model (`regime_writer.py`) fits on the full corpus before its causal decode — possible look-ahead bias in regime-stratified IC. Tracked in `.planning/todos/pending/026-hmm-regime-audit-optimization.md` (P4a section) — not an unconditional blocker; 026's own decision gate requires empirical proof of harm (baseline-separation query on `feature_ic_scores`) before any fix is warranted.
 
-**Phase 142A — Ensemble IC Measurement:** ✅ COMPLETE 2026-07-02 (2/2 plans) — `alpha_ensemble_ic` schema + `EnsembleICEngine` + `hold_max_bars` decay-curve calibration + EIC-04 gate + EIC-05 diagnosis script. Code review found 2 BLOCKER + 3 WARNING findings, all fixed except WR-02 (pooled cross-sectional measurement gap, captured as todo 046 — not a blocker, EIC-04/EIC-05 both function per-symbol). Verified: 10/10 must-haves. **Machinery complete ≠ gate passage: EIC-04 verdict is FAIL as of 2026-07-03** (0/50 qualifying cells at 0.60 threshold; EIC-05 diagnosis = data starvation, concentrated in the single populated `5m`/`high_bear` cell). **Phase 142B does not begin until a re-run shows PASS or an operator override is recorded with reasoning** (see ROADMAP.md Phase 142A section verdict log).
+**Phase 142A — Ensemble IC Measurement:** ✅ COMPLETE 2026-07-02 (2/2 plans) — `alpha_ensemble_ic` schema + `EnsembleICEngine` + `hold_max_bars` decay-curve calibration + EIC-04 gate + EIC-05 diagnosis script. Code review found 2 BLOCKER + 3 WARNING findings, all fixed except WR-02 (pooled cross-sectional measurement gap, captured as todo 046 — not a blocker, EIC-04/EIC-05 both function per-symbol). Verified: 10/10 must-haves. **EIC-04 verdict history: FAIL as of 2026-07-03 (0/50 qualifying cells at 0.60 threshold) → threshold recalibrated to 0.02 `[rca_analysis]` → PASS as of 2026-07-09 (35/1585=2.21%) → superseded 2026-07-10 by an eligibility-gate bug fix, current verdict PASS 54/1425=3.79%** — see "Current focus" above and [Corpus pipeline state](project_corpus_pipeline_state.md) for the live number, don't treat this line as current.
 
-**Phase 142B.1 — Ensemble Weighting Methodology:** ✅ COMPLETE 2026-07-04 (5/5 plans, verified). Built E1 (shrunk-IC inputs via `ops_ic_shrinkage.py`) and E2 (mean-variance `Σ⁻¹·IC` combination) weighting variants plus `ops_ensemble_weight_compare.py` (D-10 win-decision gate: `challenger.ic_ci_lower > champion.ic_ci_upper AND challenger.walk_forward_stable`, per-stratum, D-14 regime-caveat tagged). CR-01/CR-02 blocker findings (weight_version scoping gaps) fixed same session (`d8b98cfb`). **Deliberately does not run the actual A/B judgment or promote a winner** — verification confirms this is expected end-of-phase state, not a gap; E2 (`mean_variance`) has not been promoted to live `weight_method`. Follow-on noted in ROADMAP but not yet a todo: seed `concept-governance-registries.md`'s four-table Concept Registry MVP from the E1-E4 `weight_version` rows.
+**Phase 142B.1 — Ensemble Weighting Methodology:** ✅ COMPLETE 2026-07-04 (5/5 plans, verified). Built E1 (shrunk-IC inputs via `ops_ic_shrinkage.py`) and E2 (mean-variance `Σ⁻¹·IC` combination) weighting variants plus `ops_ensemble_weight_compare.py` (D-10 win-decision gate: `challenger.ic_ci_lower > champion.ic_ci_upper AND challenger.walk_forward_stable`, per-stratum, D-14 regime-caveat tagged). CR-01/CR-02 blocker findings (weight_version scoping gaps) fixed same session (`d8b98cfb`). A/B judgment ran 2026-07-09: E2 rejected (20/20 strata LOSS), E1 remains champion by default.
+
+**Phase 142.5 — Renaissance Primitives:** ✅ COMPLETE 2026-07-07 (8/8 plans) — 89 new primitives added to Feature Factory (2 later found redundant and dropped via migration 211, net 89 not 91), `FeatureVector` grown to 150 fields.
+
+**Phase 142B — Frame Simulation + Counterfactual Tracking:** ✅ COMPLETE 2026-07-10 (2/2 plans, verified) — `alpha_frames` hypertable + `AlphaFrameWriter` + `CounterfactualTracker` + frozen `SHADOW-REVIEW.md`. See "Current focus" above for code review/fix detail.
+
+**Phase 143 — Feature Lifecycle Routing (merged with 149B):** ✅ COMPLETE 2026-07-10 (3/3 plans, verified) — `feature_registry` evidence-based promotion/demotion + `ic_engine` post-run lifecycle hook + `integrity_monitor` table. See "Current focus" above for full detail.
 
 ## v3.0 Phase Summary (SHIPPED 2026-06-25)
 
@@ -75,20 +82,19 @@ Separately: Phase 142B.1 machinery is complete (verified 2026-07-04) but the E1/
 | Phase | Name | Status |
 |-------|------|--------|
 | 140.5 | Corpus Foundations + Feature Governance | COMPLETE (5/5 plans, 2026-06-26; 27/29 verification truths) |
-| 141 | Corpus Quality Gate + IC Validation | COMPLETE (3/3 plans, 2026-06-29) — gate FAIL: 5m=0 features (pre-Phase-A baseline, see below) |
+| 141 | Corpus Quality Gate + IC Validation | COMPLETE (3/3 plans, 2026-06-29) — gate FAIL: 5m=0 features (pre-Phase-A baseline, superseded — see Phase A/B rows below and [Corpus pipeline state](project_corpus_pipeline_state.md)) |
 | 141.1 | Measurement and Decision Integrity Foundation | COMPLETE (4/4 plans, 2026-07-02) |
-| 142A | Ensemble IC Measurement | COMPLETE (2/2 plans, 2026-07-02) — infra shipped, code review blockers fixed; **EIC-04 gate verdict FAIL as of 2026-07-03** (data starvation, re-run pending) |
-| 142B.1 | Ensemble Weighting Methodology | COMPLETE (5/5 plans, verified 2026-07-04) — E1/E2 machinery + A/B judge script built; actual A/B run + promotion not yet performed |
-| 142.5 | Renaissance Primitives | COMPLETE (8/8 plans, 2026-07-07) — 91 new primitives implemented in Feature Factory (61 baseline + 91 = 152 total fields); migration 206 applied live to `indicagent` DB (152 feature_vectors columns, 152 feature_registry rows, 54 APR keys), verified idempotent; corpus backfill to populate these fields in existing rows deferred to next corpus run. Replanned 2026-07-06 from cross-AI review (142.5-REVIEWS.md): added Plan 05.5 to implement the 8 price-volume interaction primitives Plan 06 was already creating schema/APR for; fixed cold-start crash, feature_registry seeding, and registry row-count sync gaps |
+| 142A | Ensemble IC Measurement | COMPLETE (2/2 plans, 2026-07-02) — infra shipped, code review blockers fixed; EIC-04 verdict history superseded multiple times, current verdict PASS 54/1425=3.79% as of 2026-07-10 — see [Corpus pipeline state](project_corpus_pipeline_state.md), don't treat this line as current |
+| 142B.1 | Ensemble Weighting Methodology | COMPLETE (5/5 plans, verified 2026-07-04) — E1/E2 machinery + A/B judge script built; A/B judgment ran 2026-07-09, E2 rejected (20/20 strata LOSS), E1 remains champion by default |
+| 142.5 | Renaissance Primitives | COMPLETE (8/8 plans, 2026-07-07) — 89 new primitives implemented in Feature Factory (61 baseline + 89 = 150 total fields, not 91/152 — 2 later found redundant and dropped via migration 211); migration 206 applied live to `indicagent` DB, verified idempotent. Replanned 2026-07-06 from cross-AI review (142.5-REVIEWS.md): added Plan 05.5 to implement the 8 price-volume interaction primitives Plan 06 was already creating schema/APR for; fixed cold-start crash, feature_registry seeding, and registry row-count sync gaps |
 | 142B | Frame Simulation + Counterfactual Tracking | COMPLETE (2/2 plans, verified 2026-07-10), pushed `5024bb88` — `alpha_frames` schema + `AlphaFrameWriter` + `CounterfactualTracker`; 2 code-review blockers + 5 minor findings fixed (`fa4208ef`), `/simplify` pass (`059d4a75`); `alpha_frames` has 0 rows, backfill run recommended next (no corpus rebuild needed) |
+| 143 | Feature Lifecycle Routing (merged with 149B) | COMPLETE (3/3 plans, verified 2026-07-10), commit `69ca7db7` — `feature_registry` evidence-based promotion/demotion + `ic_engine` post-run lifecycle hook + `integrity_monitor` table; one regression caught by full-suite gate and fixed same session (`b47595b9`) |
 
-**4th corpus rebuild IN PROGRESS as of 2026-07-08** (started 2026-07-07 17:00) — will supersede
-the Phase B row counts above once complete (`feature_vectors` already at 36.7M rows mid-rebuild,
-up from 10.08M, from the ETF expansion + Phase 142.5 primitives landing for the first time).
-Live status and step-by-step detail: `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md`
-("Operational context") — don't duplicate row counts here, that doc and
-`logs/corpus_pipeline/full_run_20260707_170028.log` are the source of truth until this rebuild
-finishes and this section gets its own update.
+**Corpus is on its 6th rebuild as of 2026-07-09, completed clean end-to-end** (all 8 steps,
+first time in 6 attempts) — supersedes the "4th rebuild in progress" note this table previously
+carried. Current row counts, the 2026-07-10 eligibility-gate fix, and every downstream measurement
+number live in [Corpus pipeline state](project_corpus_pipeline_state.md) — that file is the single
+source of truth; don't duplicate counts here.
 
 **SUPERSEDED — pre-Phase-A/pre-3rd-rebuild baseline, do not cite as current:** the row counts and IC gate
 results below are from the 2026-06-29 corpus run, before Phase A's ic_engine methodology fixes and before
