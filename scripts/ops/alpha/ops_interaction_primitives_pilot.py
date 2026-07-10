@@ -28,6 +28,11 @@ Decision rule (todo 037): genuine incremental IC (passes_partial_fdr=true) for a
 meaningful fraction of the 8-feature cohort -> trigger to plan the full Interaction
 Factory. Near-zero -> shelve Interaction Factory outright.
 
+Exit code: 0 on a clean, full-cohort run. 1 if any precondition failed (missing
+config/registry rows) or if any timeframe's fetch failed and had to be skipped --
+in the latter case the printed pass fraction covers only the successfully-fetched
+timeframes, not the full cohort, so a caller must not treat it as the final answer.
+
 Usage:
     python scripts/ops/alpha/ops_interaction_primitives_pilot.py
 """
@@ -47,18 +52,93 @@ from src.config.settings import Settings
 from src.intelligence.statistics.ic_math import apply_bh_fdr, partial_spearman_ic
 
 _SCALES = ("fast", "mid", "slow", "extended")
+_LOOKAHEAD_DEFAULTS = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
+_LOOKAHEAD_KEYS = tuple(f"alpha.ic.lookahead.{scale}" for scale in _SCALES)
+_CONFIG_KEYS = (
+    "alpha.ic.subsample_min_stride",
+    "alpha.ic.partial_control_condition_max",
+    "alpha.ic.partial_fdr_alpha",
+    "infra.interaction_primitives_pilot.fetch_flush_rows",
+    *_LOOKAHEAD_KEYS,
+)
+
+_RETURN_COLS = tuple(f"return_{scale}" for scale in _SCALES)
+_COMPLETE_COLS = tuple(f"complete_{scale}" for scale in _SCALES)
+
+
+def _fail(msg: str) -> int:
+    print(f"## Todo 037 Interaction Primitives Pilot\n\nFAILED: {msg}")
+    return 1
+
+
+async def _load_config(conn: asyncpg.Connection) -> dict[str, str]:
+    """One round trip for every APR key this script needs, instead of one
+    fetchval() per key -- 8 sequential single-key round trips collapsed to 1."""
+    rows = await conn.fetch(
+        "SELECT config_key, config_value FROM config_state WHERE config_key = ANY($1::text[])",
+        list(_CONFIG_KEYS),
+    )
+    return {r["config_key"]: r["config_value"] for r in rows}
+
+
+def _build_lookahead_map(config: dict[str, str]) -> dict[int, str]:
+    """lookahead_bars -> scale name, from the loaded APR config. Raises loudly on a
+    collision (two lookahead.* keys misconfigured to resolve to the same
+    lookahead_bars value) rather than silently letting the second overwrite the
+    first in the map -- every cell with that lookahead_bars value would otherwise be
+    sliced against the wrong scale's return_{scale}/complete_{scale} columns with no
+    error."""
+    lookahead_scale_map: dict[int, str] = {}
+    for scale in _SCALES:
+        val = config.get(f"alpha.ic.lookahead.{scale}")
+        lookahead_bars = int(val) if val is not None else _LOOKAHEAD_DEFAULTS[scale]
+        if lookahead_bars in lookahead_scale_map:
+            raise ValueError(
+                f"alpha.ic.lookahead.{scale}={lookahead_bars} collides with scale "
+                f"{lookahead_scale_map[lookahead_bars]!r}, already mapped to that same "
+                "lookahead_bars value -- two lookahead APR keys must not resolve to the "
+                "same lookahead_bars."
+            )
+        lookahead_scale_map[lookahead_bars] = scale
+    return lookahead_scale_map
+
+
+def _lookahead_to_scale(lookahead_bars: int, lookahead_scale_map: dict[int, str]) -> str:
+    if lookahead_bars not in lookahead_scale_map:
+        raise KeyError(
+            f"lookahead_bars={lookahead_bars} not in the loaded APR lookahead map -- "
+            "call _build_lookahead_map() before any cell processing."
+        )
+    return lookahead_scale_map[lookahead_bars]
 
 
 async def _load_interaction_features(conn: asyncpg.Connection) -> list[dict]:
-    """tier='1_interaction' rows from feature_registry with their parent atomics."""
+    """tier='1_interaction' rows from feature_registry with their parent atomics.
+
+    Validated here, once, before any per-tf work starts: every Renaissance
+    interaction primitive has exactly 2 parent atomics (the partial_spearman_ic
+    call below assumes and unpacks exactly 2). Failing loudly here rather than via
+    an implicit tuple-unpack deep in the per-cell loop means a future registry row
+    with a different arity can never silently corrupt or crash a partially-completed
+    run -- it fails before any DB fetch or measurement work begins.
+    """
     rows = await conn.fetch(
         "SELECT feature_name, parent_features FROM feature_registry "
         "WHERE tier = '1_interaction' AND status = 'active' "
         "ORDER BY feature_name"
     )
-    return [
-        {"feature_name": r["feature_name"], "parents": list(r["parent_features"])} for r in rows
-    ]
+    features = []
+    for r in rows:
+        parents = list(r["parent_features"])
+        if len(parents) != 2:
+            raise ValueError(
+                f"feature_registry row {r['feature_name']!r} has {len(parents)} "
+                f"parent_features ({parents!r}) -- partial_spearman_ic's 2-control shape "
+                "assumes exactly 2 parent atomics per interaction primitive. Update this "
+                "script's cell-processing logic if that invariant ever changes."
+            )
+        features.append({"feature_name": r["feature_name"], "parents": parents})
+    return features
 
 
 async def _load_pooled_cells(conn: asyncpg.Connection, feature_names: list[str]) -> list[dict]:
@@ -85,10 +165,6 @@ async def _load_pooled_cells(conn: asyncpg.Connection, feature_names: list[str])
 
 def _scale_stride(lookahead_bars: int, subsample_min_stride: int) -> int:
     return max(subsample_min_stride, lookahead_bars)
-
-
-_RETURN_COLS = tuple(f"return_{scale}" for scale in _SCALES)
-_COMPLETE_COLS = tuple(f"complete_{scale}" for scale in _SCALES)
 
 
 def _flush_symbol_buffers(
@@ -160,7 +236,12 @@ async def _fetch_tf_dataset(
     each symbol's chunk-array list after the loop (plus one final flush for any
     remainder) -- identical to what a single one-shot conversion would have
     produced, just never holding more than `flush_rows` rows of Python objects at
-    once.
+    once. Note: this bounds only the transient accumulation buffer, not the final
+    concatenated per-symbol arrays themselves (~4.3GB resident for tf='5m') -- a
+    future tf/symbol/column-count increase would still raise that resident ceiling
+    with no APR knob to mitigate it; accepted as a known scope limit for this
+    one-shot pilot rather than a full query-level chunking rewrite (see migration
+    215's own comments).
     """
     select_cols = ", ".join(f"fv.{col} AS {col}" for col in [*feature_names, *parent_cols])
     float_cols = [*feature_names, *parent_cols, *_RETURN_COLS]
@@ -204,39 +285,72 @@ async def _fetch_tf_dataset(
     return dataset
 
 
+def _compute_not_null_mask(
+    dataset: dict[str, dict[str, np.ndarray]],
+    feature_name: str,
+    parent_1: str,
+    parent_2: str,
+) -> dict[str, np.ndarray]:
+    """Per-symbol non-null mask for (feature, parent_1, parent_2) -- fixed for a
+    given feature across every regime/lookahead cell that shares it (up to 36 cells:
+    9 regimes x 4 lookahead scales), so this is computed once per (tf, feature) pair
+    in main() and reused across all of that feature's cells, instead of _slice_cell
+    recomputing the same isnan() passes over the full per-symbol tf arrays on every
+    single cell call."""
+    return {
+        sym: (
+            ~np.isnan(arrays[feature_name])
+            & ~np.isnan(arrays[parent_1])
+            & ~np.isnan(arrays[parent_2])
+        )
+        for sym, arrays in dataset.items()
+    }
+
+
 def _slice_cell(
     dataset: dict[str, dict[str, np.ndarray]],
+    not_null_by_symbol: dict[str, np.ndarray],
     feature_name: str,
     parent_1: str,
     parent_2: str,
     regime_label: str,
     lookahead_bars: int,
     subsample_min_stride: int,
+    lookahead_scale_map: dict[int, str],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     """Pure, DB-free slice of one (feature, regime, lookahead) cell out of an
     already-fetched per-tf `dataset` (see `_fetch_tf_dataset()`), pooled across
     symbols. No DB/Kafka dependency -- same constraint as ic_math.py's module
     docstring.
 
-    Per symbol: build a boolean mask (regime match & feature/parent non-null &
-    that scale's completeness flag), take `np.nonzero(mask)[0]` to get the ordered
-    row-position subset the OLD per-cell SQL WHERE clause would have selected, then
-    apply the exact same positional stride subsampling (`idx[::stride]`) to that
-    already-filtered, order-preserved sequence -- NOT to the raw unfiltered rows.
+    Per symbol: build a boolean mask (precomputed feature/parent non-null &
+    regime match & that scale's completeness flag & that scale's return-column
+    non-null), take `np.nonzero(mask)[0]` to get the ordered row-position subset
+    the OLD per-cell SQL WHERE clause would have selected, then apply the exact
+    same positional stride subsampling (`idx[::stride]`) to that already-filtered,
+    order-preserved sequence -- NOT to the raw unfiltered rows.
+
+    The return-column non-null check matters independently of `complete_col`:
+    `complete_{scale}` (see services/forward_return_writer.py) only guarantees
+    `open_{scale} IS NOT NULL` (+ same-session-date for intraday); `return_{scale}`
+    is separately NULL whenever `open_entry <= 0 OR open_{scale} <= 0` -- a
+    non-positive-price edge case `complete_{scale}` does not cover. Without this
+    check, such a row's NaN would flow into partial_spearman_ic's rankdata(y),
+    which does not raise on NaN -- it silently ranks it, corrupting the partial
+    correlation with no error.
     """
-    scale = _lookahead_to_scale(lookahead_bars)
+    scale = _lookahead_to_scale(lookahead_bars, lookahead_scale_map)
     stride = _scale_stride(lookahead_bars, subsample_min_stride)
     return_col = f"return_{scale}"
     complete_col = f"complete_{scale}"
 
     x_parts, z1_parts, z2_parts, y_parts = [], [], [], []
-    for arrays in dataset.values():
+    for sym, arrays in dataset.items():
         mask = (
-            (arrays["regime_label"] == regime_label)
-            & ~np.isnan(arrays[feature_name])
-            & ~np.isnan(arrays[parent_1])
-            & ~np.isnan(arrays[parent_2])
+            not_null_by_symbol[sym]
+            & (arrays["regime_label"] == regime_label)
             & arrays[complete_col]
+            & ~np.isnan(arrays[return_col])
         )
         idx = np.nonzero(mask)[0]
         sub_idx = idx[::stride]
@@ -255,69 +369,80 @@ def _slice_cell(
     return x, controls, y, len(x)
 
 
-_LOOKAHEAD_TO_SCALE_CACHE: dict[int, str] = {}
-
-
-def _lookahead_to_scale(lookahead_bars: int) -> str:
-    """Map a lookahead_bars int back to its scale name (fast/mid/slow/extended) via
-    the cached APR values loaded once in main(). Populated by _init_lookahead_map()."""
-    if lookahead_bars not in _LOOKAHEAD_TO_SCALE_CACHE:
-        raise KeyError(
-            f"lookahead_bars={lookahead_bars} not in the loaded APR lookahead map -- "
-            "call _init_lookahead_map() before any cell processing."
+def _process_cell(
+    dataset: dict[str, dict[str, np.ndarray]],
+    not_null_by_symbol: dict[str, np.ndarray],
+    cell: dict,
+    parent_1: str,
+    parent_2: str,
+    subsample_min_stride: int,
+    condition_max: float,
+    lookahead_scale_map: dict[int, str],
+) -> dict | None:
+    """One cell's full slice-and-measure step, isolated behind its own try/except so
+    that any single cell's failure (including from partial_spearman_ic itself, not
+    just _slice_cell) skips only that cell -- never the whole run. Persistence in
+    main() happens only after every tf/cell has been processed, so an unguarded
+    exception here would otherwise discard every already-computed result."""
+    fname = cell["feature_name"]
+    try:
+        x, controls, y, n = _slice_cell(
+            dataset,
+            not_null_by_symbol,
+            fname,
+            parent_1,
+            parent_2,
+            cell["regime"],
+            cell["lookahead_bars"],
+            subsample_min_stride,
+            lookahead_scale_map,
         )
-    return _LOOKAHEAD_TO_SCALE_CACHE[lookahead_bars]
-
-
-async def _init_lookahead_map(conn: asyncpg.Connection) -> None:
-    for scale in _SCALES:
-        val = await conn.fetchval(
-            "SELECT config_value FROM config_state WHERE config_key = $1",
-            f"alpha.ic.lookahead.{scale}",
+        if n < 10:
+            return None
+        partial_ic, p_value, n_used = partial_spearman_ic(
+            x, y, controls, condition_max=condition_max
         )
-        default = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}[scale]
-        _LOOKAHEAD_TO_SCALE_CACHE[int(val) if val is not None else default] = scale
+    except Exception as error:  # CLAUDE.md: exception variable name is `error`
+        print(f"  SKIP {fname}/{cell['tf']}/{cell['regime']}/{cell['lookahead_bars']}: {error}")
+        return None
+    return {
+        "feature_name": fname,
+        "tf": cell["tf"],
+        "regime": cell["regime"],
+        "lookahead_bars": cell["lookahead_bars"],
+        "training_window_end": cell["training_window_end"],
+        "partial_ic": partial_ic,
+        "partial_ic_p_value": p_value,
+        "partial_ic_n": n_used,
+    }
 
 
 async def main() -> int:
     settings = Settings()
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     pool = await asyncpg.create_pool(dsn=dsn)
+    skipped_tfs: list[str] = []
     try:
         async with pool.acquire() as conn:
-            await _init_lookahead_map(conn)
+            config = await _load_config(conn)
+            lookahead_scale_map = _build_lookahead_map(config)
 
-            subsample_min_stride_raw = await conn.fetchval(
-                "SELECT config_value FROM config_state WHERE config_key = 'alpha.ic.subsample_min_stride'"
-            )
+            subsample_min_stride_raw = config.get("alpha.ic.subsample_min_stride")
             subsample_min_stride = int(subsample_min_stride_raw) if subsample_min_stride_raw else 5
 
-            condition_max_raw = await conn.fetchval(
-                "SELECT config_value FROM config_state WHERE config_key = 'alpha.ic.partial_control_condition_max'"
-            )
+            condition_max_raw = config.get("alpha.ic.partial_control_condition_max")
             if condition_max_raw is None:
-                print(
-                    "## Todo 037 Interaction Primitives Pilot\n\nFAILED: "
+                return _fail(
                     "alpha.ic.partial_control_condition_max missing -- run migration 214 first."
                 )
-                return 0
             condition_max = float(condition_max_raw)
 
-            partial_fdr_alpha_raw = await conn.fetchval(
-                "SELECT config_value FROM config_state WHERE config_key = 'alpha.ic.partial_fdr_alpha'"
-            )
+            partial_fdr_alpha_raw = config.get("alpha.ic.partial_fdr_alpha")
             if partial_fdr_alpha_raw is None:
-                print(
-                    "## Todo 037 Interaction Primitives Pilot\n\nFAILED: "
-                    "alpha.ic.partial_fdr_alpha missing -- run migration 214 first."
-                )
-                return 0
+                return _fail("alpha.ic.partial_fdr_alpha missing -- run migration 214 first.")
             partial_fdr_alpha = float(partial_fdr_alpha_raw)
 
-            fetch_flush_rows_raw = await conn.fetchval(
-                "SELECT config_value FROM config_state WHERE config_key = "
-                "'infra.interaction_primitives_pilot.fetch_flush_rows'"
-            )
+            fetch_flush_rows_raw = config.get("infra.interaction_primitives_pilot.fetch_flush_rows")
             # Memory-safety tuning knob, not a correctness gate (unlike the two
             # hard-FAIL checks above for migration 214's keys) -- a sane fallback
             # if the row is ever missing is fine.
@@ -325,22 +450,17 @@ async def main() -> int:
 
             features = await _load_interaction_features(conn)
             if not features:
-                print(
-                    "## Todo 037 Interaction Primitives Pilot\n\nFAILED: no "
-                    "tier='1_interaction' rows found in feature_registry."
-                )
-                return 0
+                return _fail("no tier='1_interaction' rows found in feature_registry.")
             feature_names = [f["feature_name"] for f in features]
             parents_by_feature = {f["feature_name"]: f["parents"] for f in features}
 
             cells = await _load_pooled_cells(conn, feature_names)
             if not cells:
-                print(
-                    "## Todo 037 Interaction Primitives Pilot\n\nFAILED: no reliable "
-                    "cross-sectional (symbol='POOLED', regime != '_pooled') feature_ic_scores "
-                    "rows found for the interaction-primitive cohort -- run ic_engine.py first."
+                return _fail(
+                    "no reliable cross-sectional (symbol='POOLED', regime != '_pooled') "
+                    "feature_ic_scores rows found for the interaction-primitive cohort -- "
+                    "run ic_engine.py first."
                 )
-                return 0
 
             # A single global training_window_end is a verified fact of the live
             # 864-cell cohort (see module docstring / task-3-v2-brief.md), not an
@@ -377,44 +497,29 @@ async def main() -> int:
                     )
                 except Exception as error:  # CLAUDE.md: exception variable name is `error`
                     print(f"  SKIP tf={tf}: {error}")
+                    skipped_tfs.append(tf)
                     continue
 
+                cells_by_feature: dict[str, list[dict]] = {}
                 for cell in tf_cells:
-                    fname = cell["feature_name"]
+                    cells_by_feature.setdefault(cell["feature_name"], []).append(cell)
+
+                for fname, feature_cells in cells_by_feature.items():
                     parent_1, parent_2 = parents_by_feature[fname]
-                    try:
-                        x, controls, y, n = _slice_cell(
+                    not_null_by_symbol = _compute_not_null_mask(dataset, fname, parent_1, parent_2)
+                    for cell in feature_cells:
+                        result = _process_cell(
                             dataset,
-                            fname,
+                            not_null_by_symbol,
+                            cell,
                             parent_1,
                             parent_2,
-                            cell["regime"],
-                            cell["lookahead_bars"],
                             subsample_min_stride,
+                            condition_max,
+                            lookahead_scale_map,
                         )
-                    except Exception as error:  # CLAUDE.md: exception variable name is `error`
-                        print(
-                            f"  SKIP {fname}/{tf}/{cell['regime']}/{cell['lookahead_bars']}: {error}"
-                        )
-                        continue
-
-                    if n < 10:
-                        continue
-                    partial_ic, p_value, n_used = partial_spearman_ic(
-                        x, y, controls, condition_max=condition_max
-                    )
-                    results.append(
-                        {
-                            "feature_name": fname,
-                            "tf": tf,
-                            "regime": cell["regime"],
-                            "lookahead_bars": cell["lookahead_bars"],
-                            "training_window_end": cell["training_window_end"],
-                            "partial_ic": partial_ic,
-                            "partial_ic_p_value": p_value,
-                            "partial_ic_n": n_used,
-                        }
-                    )
+                        if result is not None:
+                            results.append(result)
 
             valid = [r for r in results if not np.isnan(r["partial_ic_p_value"])]
             if valid:
@@ -425,23 +530,27 @@ async def main() -> int:
                     r["partial_ic_p_corrected"] = float(p_corr)
 
             async with conn.transaction():
-                for r in results:
-                    await conn.execute(
-                        "UPDATE feature_ic_scores SET partial_ic = $1, partial_ic_p_value = $2, "
-                        "partial_ic_n = $3, passes_partial_fdr = $4 "
-                        "WHERE feature_name = $5 AND tf = $6 AND lookahead_bars = $7 "
-                        "AND training_window_end = $8 AND symbol = 'POOLED' "
-                        "AND is_pooled = true AND regime = $9",
-                        r["partial_ic"],
-                        r["partial_ic_p_value"],
-                        r["partial_ic_n"],
-                        r.get("passes_partial_fdr"),
-                        r["feature_name"],
-                        r["tf"],
-                        r["lookahead_bars"],
-                        r["training_window_end"],
-                        r["regime"],
-                    )
+                await conn.executemany(
+                    "UPDATE feature_ic_scores SET partial_ic = $1, partial_ic_p_value = $2, "
+                    "partial_ic_n = $3, passes_partial_fdr = $4 "
+                    "WHERE feature_name = $5 AND tf = $6 AND lookahead_bars = $7 "
+                    "AND training_window_end = $8 AND symbol = 'POOLED' "
+                    "AND is_pooled = true AND regime = $9",
+                    [
+                        (
+                            r["partial_ic"],
+                            r["partial_ic_p_value"],
+                            r["partial_ic_n"],
+                            r.get("passes_partial_fdr"),
+                            r["feature_name"],
+                            r["tf"],
+                            r["lookahead_bars"],
+                            r["training_window_end"],
+                            r["regime"],
+                        )
+                        for r in results
+                    ],
+                )
 
         n_measured = len(results)
         n_valid = len(valid)
@@ -450,6 +559,15 @@ async def main() -> int:
 
         print("## Todo 037 Interaction Primitives Pilot")
         print()
+        if skipped_tfs:
+            print(
+                f"WARNING: {len(skipped_tfs)} timeframe(s) skipped due to fetch failure: "
+                f"{sorted(skipped_tfs)} -- the results below cover only the successfully-"
+                "fetched timeframes and do NOT represent the full cohort. Do not treat the "
+                "pass fraction below as the todo 037 decision-gate answer until this is "
+                "re-run clean."
+            )
+            print()
         print(f"Cells measured: {n_measured} (numerically valid: {n_valid})")
         print(
             f"Cells passing partial-IC BH-FDR (alpha={partial_fdr_alpha}): {n_pass}/{n_valid} ({frac_pass:.1%})"
@@ -471,7 +589,7 @@ async def main() -> int:
         print(f"-> Observed: {frac_pass:.1%} of numerically valid cells pass.")
     finally:
         await pool.close()
-    return 0
+    return 1 if skipped_tfs else 0
 
 
 if __name__ == "__main__":

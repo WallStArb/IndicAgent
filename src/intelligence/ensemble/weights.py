@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from src.intelligence.statistics.ic_math import check_condition_number
+
 
 def derive_weights(
     ic_sharpes: np.ndarray,
@@ -196,8 +198,8 @@ def mean_variance_weights(
         cond: the computed condition number, always returned (even on gate failure)
             so callers can log the fallback reason.
     """
-    cond = float(np.linalg.cond(cov_matrix))
-    if not np.isfinite(cond) or cond > condition_max:
+    cond_ok, cond = check_condition_number(cov_matrix, condition_max)
+    if not cond_ok:
         return None, cond
 
     # solve(), not explicit inv() — standard numerical-linear-algebra practice,

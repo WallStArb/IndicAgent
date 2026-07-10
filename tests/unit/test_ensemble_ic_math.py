@@ -27,6 +27,7 @@ from src.intelligence.statistics.ic_math import (
     _p_values_from_ic,
     _vectorized_ic,
     apply_bh_fdr,
+    check_condition_number,
     fisher_z_difference_p,
     partial_spearman_ic,
 )
@@ -102,6 +103,41 @@ def test_p_values_from_ic_in_unit_interval():
         ic_vector = np.array([ic_val])
         p = _p_values_from_ic(ic_vector, n=1000)
         assert 0.0 <= float(p[0]) <= 1.0, f"p-value out of [0,1] for ic={ic_val}: {p[0]}"
+
+
+def test_p_values_from_ic_explicit_df_overrides_default():
+    """Passing df= must actually change the computed p-value relative to the
+    default (n-2) -- proves the parameter is wired through, not silently ignored,
+    and that omitting it still reproduces the original n-2 behavior exactly."""
+    ic_vector = np.array([0.3])
+    n = 100
+    p_default = float(_p_values_from_ic(ic_vector, n)[0])
+    p_explicit_same = float(_p_values_from_ic(ic_vector, n, df=n - 2)[0])
+    p_explicit_smaller_df = float(_p_values_from_ic(ic_vector, n, df=n - 5)[0])
+    assert abs(p_default - p_explicit_same) < 1e-12  # df=None matches default n-2
+    assert p_explicit_smaller_df != p_default  # a different df must change the result
+
+
+# ---------------------------------------------------------------------------
+# check_condition_number (shared gate: mean_variance_weights + partial_spearman_ic)
+# ---------------------------------------------------------------------------
+
+
+def test_check_condition_number_well_conditioned_matrix_passes():
+    rng = np.random.default_rng(1)
+    matrix = rng.normal(size=(100, 3))
+    is_ok, cond = check_condition_number(matrix, condition_max=1000.0)
+    assert is_ok is True
+    assert np.isfinite(cond)
+
+
+def test_check_condition_number_ill_conditioned_matrix_fails():
+    rng = np.random.default_rng(1)
+    col = rng.normal(size=100)
+    matrix = np.column_stack([col, col + rng.normal(scale=1e-10, size=100)])
+    is_ok, cond = check_condition_number(matrix, condition_max=1000.0)
+    assert is_ok is False
+    assert cond > 1000.0
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +352,58 @@ def test_partial_spearman_ic_insufficient_n_returns_nan():
     assert np.isnan(partial_ic)
     assert np.isnan(p_value)
     assert n_used == n
+
+
+def test_partial_spearman_ic_degenerate_residual_returns_nan_not_fake_significance():
+    """When BOTH x and y are exact linear functions of the controls (zero residual
+    variance left for either after OLS), the partial correlation is a 0/0 division
+    -- mathematically undefined -- and must return NaN, not the numerically-
+    convenient-but-wrong (0.0, 1.0) sentinel a prior version of this function
+    returned for this same degenerate case (which callers filtering on
+    np.isnan(p_value) would have silently miscounted as a real, non-significant
+    measured cell instead of excluding it as unmeasurable)."""
+    rng = np.random.default_rng(5)
+    n = 200
+    z1 = rng.normal(size=n)
+    z2 = rng.normal(size=n)
+    x = z1.copy()  # x IS one control -- zero residual variance after OLS
+    y = z2.copy()  # y IS the other control -- likewise zero residual variance
+    controls = np.column_stack([z1, z2])
+    partial_ic, p_value, n_used = partial_spearman_ic(x, y, controls, condition_max=1000.0)
+    assert np.isnan(partial_ic)
+    assert np.isnan(p_value)
+    assert n_used == n
+
+
+def test_partial_spearman_ic_p_value_matches_manual_df_formula():
+    """Deterministic check that p_value uses df = n - k - 2, not n - 2 or some other
+    off-by-k value. The existing shared-variance test's `p_value > 1e-6` assertion
+    is too loose to catch a df-only regression (partial_ic itself doesn't depend on
+    df, so a df miscalculation wouldn't move it and a p-value floor this loose
+    would still pass) -- this test instead recomputes the expected p-value directly
+    from the same t-approximation with a hand-verified df and compares exactly."""
+    from scipy.stats import t as _t_dist
+
+    rng = np.random.default_rng(21)
+    n = 300
+    k = 2
+    z1 = rng.normal(size=n)
+    z2 = rng.normal(size=n)
+    s = rng.normal(size=n)
+    x = z1 + z2 + 0.4 * s + rng.normal(scale=0.05, size=n)
+    y = z1 - z2 + 0.4 * s + rng.normal(scale=0.05, size=n)
+    controls = np.column_stack([z1, z2])
+
+    partial_ic, p_value, n_used = partial_spearman_ic(x, y, controls, condition_max=1000.0)
+    assert n_used == n
+
+    expected_df = n - k - 2
+    expected_t = partial_ic * np.sqrt(expected_df / max(1 - partial_ic**2, 1e-10))
+    expected_p = 2.0 * (1.0 - _t_dist.cdf(abs(expected_t), df=expected_df))
+    assert abs(p_value - expected_p) < 1e-9, (
+        f"p_value={p_value} does not match the expected df={expected_df} formula "
+        f"result={expected_p} -- possible df miscalculation (e.g. off-by-k)"
+    )
 
 
 def test_partial_spearman_ic_ill_conditioned_controls_returns_nan():

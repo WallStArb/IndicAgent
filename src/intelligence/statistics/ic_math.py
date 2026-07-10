@@ -149,13 +149,20 @@ def _nan_to_none(v: float) -> float | None:
     return None if np.isnan(v) else float(v)
 
 
-def _p_values_from_ic(ic_vector: np.ndarray, n: int) -> np.ndarray:
+def _p_values_from_ic(ic_vector: np.ndarray, n: int, df: int | None = None) -> np.ndarray:
     """Two-tailed p-values from IC via t-approximation.
 
-    t = ic * sqrt((n-2) / max(1 - ic^2, 1e-10)), df = n-2.
+    t = ic * sqrt(df / max(1 - ic^2, 1e-10)).
+
+    df defaults to n-2 (the plain-correlation case). Pass an explicit df to account
+    for additional parameters fit via OLS before this correlation was computed (e.g.
+    partial_spearman_ic's df = n - k - 2 for k control variables) rather than
+    hand-rolling this same t-approximation a second time with a different df.
     """
-    t_stat = ic_vector * np.sqrt((n - 2) / np.maximum(1 - ic_vector**2, 1e-10))
-    return 2.0 * (1.0 - t_dist.cdf(np.abs(t_stat), df=n - 2))
+    if df is None:
+        df = n - 2
+    t_stat = ic_vector * np.sqrt(df / np.maximum(1 - ic_vector**2, 1e-10))
+    return 2.0 * (1.0 - t_dist.cdf(np.abs(t_stat), df=df))
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +231,27 @@ def apply_bh_fdr(p_values: list[float], alpha: float) -> tuple[np.ndarray, np.nd
 
 
 # ---------------------------------------------------------------------------
+# Shared condition-number gate for any Sigma^-1/lstsq solve on an estimated matrix
+# ---------------------------------------------------------------------------
+
+
+def check_condition_number(matrix: np.ndarray, condition_max: float) -> tuple[bool, float]:
+    """Ill-conditioning gate shared by every linear solve against an estimated
+    (not population) matrix in this codebase: mean_variance_weights()'s Sigma^-1 .
+    ic_shrunk combination and partial_spearman_ic()'s rank-OLS residualization both
+    need the identical "is this solve numerically trustworthy" check before trusting
+    a result computed against noisy, estimated data -- previously duplicated
+    independently at both call sites.
+
+    Returns (is_ok, cond): cond (2-norm, np.linalg.cond default) is always returned,
+    even on gate failure, so callers can log the fallback reason; is_ok is False
+    when cond is non-finite or exceeds condition_max.
+    """
+    cond = float(np.linalg.cond(matrix))
+    return (np.isfinite(cond) and cond <= condition_max), cond
+
+
+# ---------------------------------------------------------------------------
 # Partial (residual) Spearman IC -- todo 037 interaction primitives pilot
 # ---------------------------------------------------------------------------
 
@@ -238,25 +266,33 @@ def partial_spearman_ic(
 
     Residual method: rank-transform x, y, and each control column; regress (centered)
     ranks_x and ranks_y on (centered) ranks_controls via OLS; the partial IC is the
-    Pearson correlation of the two residual vectors. Equivalent to the classic
-    single-control partial-correlation formula and generalizes cleanly to k>1
-    controls -- every Renaissance interaction primitive has exactly 2 parent atomics
-    (feature_registry.parent_features), so k=2 is the pilot's actual shape.
+    Pearson correlation of the two residual vectors (via _vectorized_ic, the same
+    Pearson-on-ranks primitive used everywhere else in this module). Equivalent to
+    the classic single-control partial-correlation formula and generalizes cleanly
+    to k>1 controls -- every Renaissance interaction primitive has exactly 2 parent
+    atomics (feature_registry.parent_features), so k=2 is the pilot's actual shape.
 
     Working with centered ranks (intercept-free regression) improves numerical
-    stability without changing the mathematical result.
+    stability without changing the mathematical result. Both residual regressions
+    share one design matrix (ranks_controls_c), so they're solved in a single
+    np.linalg.lstsq call against both right-hand sides at once rather than two
+    independent factorizations of the same matrix.
 
-    p-value uses the same t-approximation as _p_values_from_ic, with degrees of
-    freedom reduced by k (one parameter fit per control): df = n - k - 2.
+    p-value uses the same t-approximation as _p_values_from_ic (shared, not
+    reimplemented), with degrees of freedom reduced by k (one parameter fit per
+    control): df = n - k - 2.
 
-    Guards against multicollinear control sets the same way ops_ensemble_weight_
-    compare.py's mean-variance path guards mv_condition_max -- an ill-conditioned
-    design matrix produces numerically unstable residuals, not a genuine partial
-    correlation, so this returns NaN rather than a garbage number.
+    Guards against multicollinear control sets via the same check_condition_number()
+    gate mean_variance_weights() uses -- an ill-conditioned design matrix produces
+    numerically unstable residuals, not a genuine partial correlation, so this
+    returns NaN rather than a garbage number.
 
-    Returns (partial_ic, p_value, n) as (nan, nan, n) when n is too small for the
-    adjusted df (n < k + 4), or when the control design matrix's condition number
-    exceeds condition_max (see alpha.ic.partial_control_condition_max).
+    Returns (partial_ic, p_value, n) as (nan, nan, n) when: n is too small for the
+    adjusted df (n < k + 4); the control design matrix's condition number exceeds
+    condition_max (see alpha.ic.partial_control_condition_max); or the residual
+    vectors are degenerate (near-zero variance after removing the controls' shared
+    variance -- no real correlation left to measure, same "unmeasurable" class as
+    the other two guards, not a genuine 0.0 partial IC with p=1.0).
     """
     n = len(x)
     if controls.ndim == 1:
@@ -274,25 +310,25 @@ def partial_spearman_ic(
     ranks_y_c = ranks_y - ranks_y.mean()
     ranks_controls_c = ranks_controls - ranks_controls.mean(axis=0)
 
-    cond = np.linalg.cond(ranks_controls_c)
-    if not np.isfinite(cond) or cond > condition_max:
+    cond_ok, _cond = check_condition_number(ranks_controls_c, condition_max)
+    if not cond_ok:
         return float("nan"), float("nan"), n
 
-    coef_x, _, _, _ = np.linalg.lstsq(ranks_controls_c, ranks_x_c, rcond=None)
-    coef_y, _, _, _ = np.linalg.lstsq(ranks_controls_c, ranks_y_c, rcond=None)
-    resid_x = ranks_x_c - ranks_controls_c @ coef_x
-    resid_y = ranks_y_c - ranks_controls_c @ coef_y
+    coefs, _, _, _ = np.linalg.lstsq(
+        ranks_controls_c, np.column_stack([ranks_x_c, ranks_y_c]), rcond=None
+    )
+    resid_x = ranks_x_c - ranks_controls_c @ coefs[:, 0]
+    resid_y = ranks_y_c - ranks_controls_c @ coefs[:, 1]
 
     denom = np.sqrt((resid_x**2).sum() * (resid_y**2).sum())
     if denom < 1e-10:
-        return 0.0, 1.0, n
-    partial_ic = float((resid_x * resid_y).sum() / denom)
+        return float("nan"), float("nan"), n
+    partial_ic = float(_vectorized_ic(resid_x.reshape(-1, 1), resid_y)[0])
 
     df = n - k - 2
     if df < 1:
         return partial_ic, float("nan"), n
-    t_stat = partial_ic * np.sqrt(df / max(1 - partial_ic**2, 1e-10))
-    p_value = float(2.0 * (1.0 - t_dist.cdf(abs(t_stat), df=df)))
+    p_value = float(_p_values_from_ic(np.array([partial_ic]), n, df=df)[0])
     return partial_ic, p_value, n
 
 

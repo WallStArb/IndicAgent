@@ -1,7 +1,7 @@
 """Unit tests: pure-logic helpers in ops_interaction_primitives_pilot.py.
 
-No DB, no Kafka -- these test the stride/lookahead-mapping logic and, as of the
-Task 3 v2 fetch-layer rewrite, `_slice_cell()`'s pure in-memory slicing. The
+No DB, no Kafka -- these test the stride/lookahead-mapping logic, `_slice_cell()`'s
+pure in-memory slicing, and `_process_cell()`'s per-cell error isolation. The
 script's DB-facing functions (_load_interaction_features, _load_pooled_cells,
 _fetch_tf_dataset, main) are integration-tested manually per the plan's Task 3
 Step 3 dry-run, not unit-tested here, matching this codebase's existing convention
@@ -21,9 +21,11 @@ sys.path.insert(0, str(_project_root / "scripts" / "ops" / "alpha"))
 
 from ops_interaction_primitives_pilot import (
     _COMPLETE_COLS,
-    _LOOKAHEAD_TO_SCALE_CACHE,
+    _build_lookahead_map,
+    _compute_not_null_mask,
     _flush_symbol_buffers,
     _lookahead_to_scale,
+    _process_cell,
     _scale_stride,
     _slice_cell,
 )
@@ -52,6 +54,9 @@ def _dataset(symbol_cols: dict[str, dict[str, list]]) -> dict[str, dict[str, np.
     return dataset
 
 
+_FAST_MAP = {1: "fast"}
+
+
 def test_scale_stride_uses_floor_when_lookahead_below_min():
     assert _scale_stride(lookahead_bars=1, subsample_min_stride=5) == 5
 
@@ -60,27 +65,64 @@ def test_scale_stride_uses_lookahead_when_above_min():
     assert _scale_stride(lookahead_bars=60, subsample_min_stride=5) == 60
 
 
-def test_lookahead_to_scale_raises_before_init():
-    _LOOKAHEAD_TO_SCALE_CACHE.clear()
+def test_lookahead_to_scale_raises_for_unmapped_value():
     try:
-        _lookahead_to_scale(999)
+        _lookahead_to_scale(999, {1: "fast"})
         raise AssertionError("expected KeyError for unmapped lookahead_bars")
     except KeyError:
         pass
 
 
-def test_lookahead_to_scale_resolves_after_populated():
-    _LOOKAHEAD_TO_SCALE_CACHE.clear()
-    _LOOKAHEAD_TO_SCALE_CACHE[1] = "fast"
-    _LOOKAHEAD_TO_SCALE_CACHE[60] = "extended"
-    assert _lookahead_to_scale(1) == "fast"
-    assert _lookahead_to_scale(60) == "extended"
-    _LOOKAHEAD_TO_SCALE_CACHE.clear()
+def test_lookahead_to_scale_resolves_from_explicit_map():
+    lookahead_scale_map = {1: "fast", 60: "extended"}
+    assert _lookahead_to_scale(1, lookahead_scale_map) == "fast"
+    assert _lookahead_to_scale(60, lookahead_scale_map) == "extended"
+
+
+def test_build_lookahead_map_uses_defaults_when_config_empty():
+    lookahead_scale_map = _build_lookahead_map({})
+    assert lookahead_scale_map == {1: "fast", 5: "mid", 20: "slow", 60: "extended"}
+
+
+def test_build_lookahead_map_honors_configured_overrides():
+    config = {"alpha.ic.lookahead.fast": "2", "alpha.ic.lookahead.mid": "10"}
+    lookahead_scale_map = _build_lookahead_map(config)
+    assert lookahead_scale_map[2] == "fast"
+    assert lookahead_scale_map[10] == "mid"
+    assert lookahead_scale_map[20] == "slow"  # unconfigured -> default
+    assert lookahead_scale_map[60] == "extended"
+
+
+def test_build_lookahead_map_raises_on_collision():
+    """Two lookahead.* keys misconfigured to the same lookahead_bars value must fail
+    loudly -- a silent dict-overwrite would corrupt every cell with that value by
+    slicing it against the wrong scale's return_{scale}/complete_{scale} columns."""
+    config = {"alpha.ic.lookahead.fast": "5", "alpha.ic.lookahead.mid": "5"}
+    try:
+        _build_lookahead_map(config)
+        raise AssertionError("expected ValueError for colliding lookahead_bars values")
+    except ValueError:
+        pass
+
+
+def test_compute_not_null_mask_flags_any_of_feature_or_parents_null():
+    dataset = _dataset(
+        {
+            "AAA": {
+                "regime_label": ["bull", "bull", "bull", "bull"],
+                "feat": [1.0, None, 3.0, 4.0],
+                "p1": [10.0, 20.0, None, 40.0],
+                "p2": [100.0, 200.0, 300.0, 400.0],
+                "return_fast": [0.1, 0.2, 0.3, 0.4],
+                "complete_fast": [True, True, True, True],
+            }
+        }
+    )
+    mask = _compute_not_null_mask(dataset, "feat", "p1", "p2")
+    assert list(mask["AAA"]) == [True, False, False, True]
 
 
 def test_slice_cell_filters_by_regime_label():
-    _LOOKAHEAD_TO_SCALE_CACHE.clear()
-    _LOOKAHEAD_TO_SCALE_CACHE[1] = "fast"
     dataset = _dataset(
         {
             "AAA": {
@@ -93,30 +135,28 @@ def test_slice_cell_filters_by_regime_label():
             }
         }
     )
-    try:
-        x, controls, y, n = _slice_cell(
-            dataset,
-            "feat",
-            "p1",
-            "p2",
-            regime_label="bull",
-            lookahead_bars=1,
-            subsample_min_stride=1,
-        )
-        assert n == 2
-        assert list(x) == [1.0, 3.0]
-        assert list(controls[:, 0]) == [10.0, 30.0]
-        assert list(controls[:, 1]) == [100.0, 300.0]
-        assert list(y) == [0.1, 0.3]
-    finally:
-        _LOOKAHEAD_TO_SCALE_CACHE.clear()
+    not_null = _compute_not_null_mask(dataset, "feat", "p1", "p2")
+    x, controls, y, n = _slice_cell(
+        dataset,
+        not_null,
+        "feat",
+        "p1",
+        "p2",
+        regime_label="bull",
+        lookahead_bars=1,
+        subsample_min_stride=1,
+        lookahead_scale_map=_FAST_MAP,
+    )
+    assert n == 2
+    assert list(x) == [1.0, 3.0]
+    assert list(controls[:, 0]) == [10.0, 30.0]
+    assert list(controls[:, 1]) == [100.0, 300.0]
+    assert list(y) == [0.1, 0.3]
 
 
 def test_slice_cell_null_masking_is_independent_per_feature():
     """Two "features" (featA, featB) with non-overlapping NaN patterns share one
     dataset -- slicing one must not be contaminated by the other's NaN positions."""
-    _LOOKAHEAD_TO_SCALE_CACHE.clear()
-    _LOOKAHEAD_TO_SCALE_CACHE[1] = "fast"
     dataset = _dataset(
         {
             "AAA": {
@@ -130,28 +170,25 @@ def test_slice_cell_null_masking_is_independent_per_feature():
             }
         }
     )
-    try:
-        x_a, _controls_a, _y_a, n_a = _slice_cell(
-            dataset, "featA", "p1", "p2", "bull", lookahead_bars=1, subsample_min_stride=1
-        )
-        x_b, _controls_b, _y_b, n_b = _slice_cell(
-            dataset, "featB", "p1", "p2", "bull", lookahead_bars=1, subsample_min_stride=1
-        )
-        # featA excludes row 1 (its own NaN); featB has no NaN at row 1 so it must
-        # still be present there -- proves featB's mask wasn't polluted by featA's.
-        assert n_a == 3
-        assert list(x_a) == [1.0, 3.0, 4.0]
-        # featB excludes row 2 (its own NaN); featA has no NaN at row 2 so it must
-        # still be present there -- proves featA's mask wasn't polluted by featB's.
-        assert n_b == 3
-        assert list(x_b) == [10.0, 20.0, 40.0]
-    finally:
-        _LOOKAHEAD_TO_SCALE_CACHE.clear()
+    not_null_a = _compute_not_null_mask(dataset, "featA", "p1", "p2")
+    not_null_b = _compute_not_null_mask(dataset, "featB", "p1", "p2")
+    x_a, _controls_a, _y_a, n_a = _slice_cell(
+        dataset, not_null_a, "featA", "p1", "p2", "bull", 1, 1, _FAST_MAP
+    )
+    x_b, _controls_b, _y_b, n_b = _slice_cell(
+        dataset, not_null_b, "featB", "p1", "p2", "bull", 1, 1, _FAST_MAP
+    )
+    # featA excludes row 1 (its own NaN); featB has no NaN at row 1 so it must
+    # still be present there -- proves featB's mask wasn't polluted by featA's.
+    assert n_a == 3
+    assert list(x_a) == [1.0, 3.0, 4.0]
+    # featB excludes row 2 (its own NaN); featA has no NaN at row 2 so it must
+    # still be present there -- proves featA's mask wasn't polluted by featB's.
+    assert n_b == 3
+    assert list(x_b) == [10.0, 20.0, 40.0]
 
 
 def test_slice_cell_excludes_incomplete_rows():
-    _LOOKAHEAD_TO_SCALE_CACHE.clear()
-    _LOOKAHEAD_TO_SCALE_CACHE[1] = "fast"
     dataset = _dataset(
         {
             "AAA": {
@@ -164,14 +201,36 @@ def test_slice_cell_excludes_incomplete_rows():
             }
         }
     )
-    try:
-        x, _controls, _y, n = _slice_cell(
-            dataset, "feat", "p1", "p2", "bull", lookahead_bars=1, subsample_min_stride=1
-        )
-        assert n == 2
-        assert list(x) == [1.0, 3.0]
-    finally:
-        _LOOKAHEAD_TO_SCALE_CACHE.clear()
+    not_null = _compute_not_null_mask(dataset, "feat", "p1", "p2")
+    x, _controls, _y, n = _slice_cell(
+        dataset, not_null, "feat", "p1", "p2", "bull", 1, 1, _FAST_MAP
+    )
+    assert n == 2
+    assert list(x) == [1.0, 3.0]
+
+
+def test_slice_cell_excludes_rows_with_null_return_even_when_complete_is_true():
+    """complete_{scale} only guarantees open_{scale} IS NOT NULL; return_{scale} can
+    independently be NULL (open_entry<=0 or open_{scale}<=0). A row with a NULL
+    return must never reach partial_spearman_ic's rankdata(y) -- that function does
+    not raise on NaN, it silently ranks it, corrupting the partial correlation."""
+    dataset = _dataset(
+        {
+            "AAA": {
+                "regime_label": ["bull", "bull", "bull"],
+                "feat": [1.0, 2.0, 3.0],
+                "p1": [10.0, 20.0, 30.0],
+                "p2": [100.0, 200.0, 300.0],
+                "return_fast": [0.1, None, 0.3],
+                "complete_fast": [True, True, True],
+            }
+        }
+    )
+    not_null = _compute_not_null_mask(dataset, "feat", "p1", "p2")
+    x, _controls, y, n = _slice_cell(dataset, not_null, "feat", "p1", "p2", "bull", 1, 1, _FAST_MAP)
+    assert n == 2
+    assert list(x) == [1.0, 3.0]
+    assert not np.isnan(y).any()
 
 
 def test_slice_cell_stride_applies_to_post_filter_index_not_raw_rows():
@@ -179,8 +238,6 @@ def test_slice_cell_stride_applies_to_post_filter_index_not_raw_rows():
     (matching the OLD design, which received an already-SQL-filtered row list per
     symbol) -- not to the raw unfiltered row sequence, which would select different
     (wrong) rows whenever any row fails the regime/NULL/completeness filter."""
-    _LOOKAHEAD_TO_SCALE_CACHE.clear()
-    _LOOKAHEAD_TO_SCALE_CACHE[1] = "fast"
     n_rows = 10
     regimes = ["bull", "bear", "bull", "bull", "bear", "bull", "bull", "bull", "bear", "bull"]
     dataset = _dataset(
@@ -195,31 +252,30 @@ def test_slice_cell_stride_applies_to_post_filter_index_not_raw_rows():
             }
         }
     )
-    try:
-        # Reference (old-design) computation: filter first, in order, then stride.
-        filtered_idx = [i for i, r in enumerate(regimes) if r == "bull"]
-        stride = 3
-        expected_idx = filtered_idx[::stride]
-        assert expected_idx == [0, 5, 9]  # sanity-check the hand-derived expectation
+    not_null = _compute_not_null_mask(dataset, "feat", "p1", "p2")
 
-        x, _controls, _y, n = _slice_cell(
-            dataset,
-            "feat",
-            "p1",
-            "p2",
-            regime_label="bull",
-            lookahead_bars=1,
-            subsample_min_stride=stride,
-        )
-        assert n == len(expected_idx)
-        assert list(x) == [float(i) for i in expected_idx]
-    finally:
-        _LOOKAHEAD_TO_SCALE_CACHE.clear()
+    # Reference (old-design) computation: filter first, in order, then stride.
+    filtered_idx = [i for i, r in enumerate(regimes) if r == "bull"]
+    stride = 3
+    expected_idx = filtered_idx[::stride]
+    assert expected_idx == [0, 5, 9]  # sanity-check the hand-derived expectation
+
+    x, _controls, _y, n = _slice_cell(
+        dataset,
+        not_null,
+        "feat",
+        "p1",
+        "p2",
+        regime_label="bull",
+        lookahead_bars=1,
+        subsample_min_stride=stride,
+        lookahead_scale_map=_FAST_MAP,
+    )
+    assert n == len(expected_idx)
+    assert list(x) == [float(i) for i in expected_idx]
 
 
 def test_slice_cell_pools_across_symbols():
-    _LOOKAHEAD_TO_SCALE_CACHE.clear()
-    _LOOKAHEAD_TO_SCALE_CACHE[1] = "fast"
     dataset = _dataset(
         {
             "AAA": {
@@ -240,16 +296,132 @@ def test_slice_cell_pools_across_symbols():
             },
         }
     )
-    try:
-        x, controls, y, n = _slice_cell(
-            dataset, "feat", "p1", "p2", "bull", lookahead_bars=1, subsample_min_stride=1
-        )
-        assert n == 3
-        assert list(x) == [1.0, 2.0, 3.0]
-        assert list(controls[:, 0]) == [10.0, 20.0, 30.0]
-        assert list(y) == [0.1, 0.2, 0.3]
-    finally:
-        _LOOKAHEAD_TO_SCALE_CACHE.clear()
+    not_null = _compute_not_null_mask(dataset, "feat", "p1", "p2")
+    x, controls, y, n = _slice_cell(dataset, not_null, "feat", "p1", "p2", "bull", 1, 1, _FAST_MAP)
+    assert n == 3
+    assert list(x) == [1.0, 2.0, 3.0]
+    assert list(controls[:, 0]) == [10.0, 20.0, 30.0]
+    assert list(y) == [0.1, 0.2, 0.3]
+
+
+def test_slice_cell_returns_empty_sentinel_when_no_rows_match():
+    dataset = _dataset(
+        {
+            "AAA": {
+                "regime_label": ["bear", "bear"],
+                "feat": [1.0, 2.0],
+                "p1": [10.0, 20.0],
+                "p2": [100.0, 200.0],
+                "return_fast": [0.1, 0.2],
+                "complete_fast": [True, True],
+            }
+        }
+    )
+    not_null = _compute_not_null_mask(dataset, "feat", "p1", "p2")
+    x, controls, y, n = _slice_cell(dataset, not_null, "feat", "p1", "p2", "bull", 1, 1, _FAST_MAP)
+    assert n == 0
+    assert x.size == 0
+    assert controls.size == 0
+    assert y.size == 0
+
+
+def _sample_cell(**overrides) -> dict:
+    cell = {
+        "feature_name": "feat",
+        "tf": "5m",
+        "regime": "bull",
+        "lookahead_bars": 1,
+        "training_window_end": "2026-01-01",
+    }
+    cell.update(overrides)
+    return cell
+
+
+def _large_dataset(n: int = 200, seed: int = 0) -> dict[str, dict[str, np.ndarray]]:
+    rng = np.random.default_rng(seed)
+    z1 = rng.normal(size=n)
+    z2 = rng.normal(size=n)
+    feat = z1 + z2 + rng.normal(scale=0.1, size=n)
+    y = z1 - 0.5 * z2 + rng.normal(scale=0.1, size=n)
+    return _dataset(
+        {
+            "AAA": {
+                "regime_label": ["bull"] * n,
+                "feat": list(feat),
+                "p1": list(z1),
+                "p2": list(z2),
+                "return_fast": list(y),
+                "complete_fast": [True] * n,
+            }
+        }
+    )
+
+
+def test_process_cell_returns_measurement_dict_on_success():
+    dataset = _large_dataset()
+    not_null = _compute_not_null_mask(dataset, "feat", "p1", "p2")
+    result = _process_cell(
+        dataset,
+        not_null,
+        _sample_cell(),
+        "p1",
+        "p2",
+        subsample_min_stride=1,
+        condition_max=1000.0,
+        lookahead_scale_map=_FAST_MAP,
+    )
+    assert result is not None
+    assert result["feature_name"] == "feat"
+    assert result["tf"] == "5m"
+    assert not np.isnan(result["partial_ic"])
+    assert result["partial_ic_n"] > 0
+
+
+def test_process_cell_returns_none_when_n_below_floor():
+    dataset = _dataset(
+        {
+            "AAA": {
+                "regime_label": ["bull"] * 3,
+                "feat": [1.0, 2.0, 3.0],
+                "p1": [1.0, 2.0, 3.0],
+                "p2": [1.0, 2.0, 3.0],
+                "return_fast": [0.1, 0.2, 0.3],
+                "complete_fast": [True, True, True],
+            }
+        }
+    )
+    not_null = _compute_not_null_mask(dataset, "feat", "p1", "p2")
+    result = _process_cell(
+        dataset,
+        not_null,
+        _sample_cell(),
+        "p1",
+        "p2",
+        subsample_min_stride=1,
+        condition_max=1000.0,
+        lookahead_scale_map=_FAST_MAP,
+    )
+    assert result is None  # n=3 < the n<10 floor
+
+
+def test_process_cell_isolates_exception_and_returns_none():
+    """An exception inside slicing/measurement (here: a lookahead_bars value not in
+    the map) must be caught and skip only this cell, not propagate -- propagating
+    would crash the whole run and discard every already-computed result, since
+    persistence happens only after all tf/cells are processed."""
+    dataset = _large_dataset()
+    not_null = _compute_not_null_mask(dataset, "feat", "p1", "p2")
+    result = _process_cell(
+        dataset,
+        not_null,
+        _sample_cell(lookahead_bars=999),  # not in _FAST_MAP -> KeyError inside _slice_cell
+        "p1",
+        "p2",
+        subsample_min_stride=1,
+        condition_max=1000.0,
+        lookahead_scale_map=_FAST_MAP,
+    )
+    assert result is None
 
 
 def test_flush_symbol_buffers_clears_raw_by_symbol_and_appends_chunks():
@@ -378,30 +550,3 @@ def test_flush_symbol_buffers_chunked_matches_unchunked_reference():
                 ), f"{sym}/{col} values mismatch"
             else:
                 assert np.array_equal(chunked_col, reference_col), f"{sym}/{col} values mismatch"
-
-
-def test_slice_cell_returns_empty_sentinel_when_no_rows_match():
-    _LOOKAHEAD_TO_SCALE_CACHE.clear()
-    _LOOKAHEAD_TO_SCALE_CACHE[1] = "fast"
-    dataset = _dataset(
-        {
-            "AAA": {
-                "regime_label": ["bear", "bear"],
-                "feat": [1.0, 2.0],
-                "p1": [10.0, 20.0],
-                "p2": [100.0, 200.0],
-                "return_fast": [0.1, 0.2],
-                "complete_fast": [True, True],
-            }
-        }
-    )
-    try:
-        x, controls, y, n = _slice_cell(
-            dataset, "feat", "p1", "p2", "bull", lookahead_bars=1, subsample_min_stride=1
-        )
-        assert n == 0
-        assert x.size == 0
-        assert controls.size == 0
-        assert y.size == 0
-    finally:
-        _LOOKAHEAD_TO_SCALE_CACHE.clear()
