@@ -224,6 +224,79 @@ def apply_bh_fdr(p_values: list[float], alpha: float) -> tuple[np.ndarray, np.nd
 
 
 # ---------------------------------------------------------------------------
+# Partial (residual) Spearman IC -- todo 037 interaction primitives pilot
+# ---------------------------------------------------------------------------
+
+
+def partial_spearman_ic(
+    x: np.ndarray,
+    y: np.ndarray,
+    controls: np.ndarray,
+    condition_max: float,
+) -> tuple[float, float, int]:
+    """Partial Spearman IC of x vs y, controlling for one or more control variables.
+
+    Residual method: rank-transform x, y, and each control column; regress (centered)
+    ranks_x and ranks_y on (centered) ranks_controls via OLS; the partial IC is the
+    Pearson correlation of the two residual vectors. Equivalent to the classic
+    single-control partial-correlation formula and generalizes cleanly to k>1
+    controls -- every Renaissance interaction primitive has exactly 2 parent atomics
+    (feature_registry.parent_features), so k=2 is the pilot's actual shape.
+
+    Working with centered ranks (intercept-free regression) improves numerical
+    stability without changing the mathematical result.
+
+    p-value uses the same t-approximation as _p_values_from_ic, with degrees of
+    freedom reduced by k (one parameter fit per control): df = n - k - 2.
+
+    Guards against multicollinear control sets the same way ops_ensemble_weight_
+    compare.py's mean-variance path guards mv_condition_max -- an ill-conditioned
+    design matrix produces numerically unstable residuals, not a genuine partial
+    correlation, so this returns NaN rather than a garbage number.
+
+    Returns (partial_ic, p_value, n) as (nan, nan, n) when n is too small for the
+    adjusted df (n < k + 4), or when the control design matrix's condition number
+    exceeds condition_max (see alpha.ic.partial_control_condition_max).
+    """
+    n = len(x)
+    if controls.ndim == 1:
+        controls = controls.reshape(-1, 1)
+    k = controls.shape[1]
+    if n < k + 4:
+        return float("nan"), float("nan"), n
+
+    ranks_x = rankdata(x)
+    ranks_y = rankdata(y)
+    ranks_controls = rankdata(controls, axis=0)
+
+    # Center the data for numerical stability (removes need for explicit intercept)
+    ranks_x_c = ranks_x - ranks_x.mean()
+    ranks_y_c = ranks_y - ranks_y.mean()
+    ranks_controls_c = ranks_controls - ranks_controls.mean(axis=0)
+
+    cond = np.linalg.cond(ranks_controls_c)
+    if not np.isfinite(cond) or cond > condition_max:
+        return float("nan"), float("nan"), n
+
+    coef_x, _, _, _ = np.linalg.lstsq(ranks_controls_c, ranks_x_c, rcond=None)
+    coef_y, _, _, _ = np.linalg.lstsq(ranks_controls_c, ranks_y_c, rcond=None)
+    resid_x = ranks_x_c - ranks_controls_c @ coef_x
+    resid_y = ranks_y_c - ranks_controls_c @ coef_y
+
+    denom = np.sqrt((resid_x**2).sum() * (resid_y**2).sum())
+    if denom < 1e-10:
+        return 0.0, 1.0, n
+    partial_ic = float((resid_x * resid_y).sum() / denom)
+
+    df = n - k - 2
+    if df < 1:
+        return partial_ic, float("nan"), n
+    t_stat = partial_ic * np.sqrt(df / max(1 - partial_ic**2, 1e-10))
+    p_value = float(2.0 * (1.0 - t_dist.cdf(abs(t_stat), df=df)))
+    return partial_ic, p_value, n
+
+
+# ---------------------------------------------------------------------------
 # IC Sharpe computation
 # ---------------------------------------------------------------------------
 

@@ -28,6 +28,7 @@ from src.intelligence.statistics.ic_math import (
     _vectorized_ic,
     apply_bh_fdr,
     fisher_z_difference_p,
+    partial_spearman_ic,
 )
 
 
@@ -246,3 +247,88 @@ def test_circular_shift_null_handles_length_one():
     Y = np.array([42.0])
     shifted = _circular_shift_null(Y, rng)
     assert np.array_equal(shifted, Y)
+
+
+def test_partial_spearman_ic_removes_fully_shared_variance():
+    """x and y are correlated ONLY through a shared control z -- naive IC should be
+    high, partial IC controlling for z should collapse to ~0."""
+    rng = np.random.default_rng(42)
+    n = 2000
+    z = rng.normal(size=n)
+    x = z + rng.normal(scale=0.1, size=n)
+    y = z + rng.normal(scale=0.1, size=n)
+
+    naive_ic, _ = spearmanr(x, y)
+    assert naive_ic > 0.8  # sanity: strong naive correlation via shared z
+
+    partial_ic, p_value, n_used = partial_spearman_ic(x, y, z.reshape(-1, 1), condition_max=1000.0)
+    assert n_used == n
+    # Effect size, not the p-value, is the correctness check: at n=2000 even a truly
+    # near-zero residual correlation will occasionally cross p<0.05 by chance (the
+    # ordinary 5% Type-I rate) -- asserting "not significant" here would be flaky by
+    # construction, not a real regression signal. abs(partial_ic) < 0.1 is what proves
+    # the shared-variance-only signal was actually removed.
+    assert abs(partial_ic) < 0.1  # shared-variance-only signal removed
+    assert p_value > 1e-6  # sanity: not an overwhelmingly strong residual correlation
+
+
+def test_partial_spearman_ic_preserves_genuine_incremental_signal():
+    """x and y share BOTH a common control z AND an independent signal s -- partial IC
+    controlling for z alone should still detect the s-driven correlation."""
+    rng = np.random.default_rng(7)
+    n = 2000
+    z = rng.normal(size=n)
+    s = rng.normal(size=n)
+    x = z + 0.8 * s + rng.normal(scale=0.1, size=n)
+    y = z + 0.8 * s + rng.normal(scale=0.1, size=n)
+
+    partial_ic, p_value, n_used = partial_spearman_ic(x, y, z.reshape(-1, 1), condition_max=1000.0)
+    assert partial_ic > 0.5  # incremental signal from s survives controlling for z
+    assert p_value < 0.001
+
+
+def test_partial_spearman_ic_two_controls():
+    """Exactly the shape every Renaissance interaction primitive has: 2 parent atomics.
+    x is a genuine product-interaction of z1, z2 plus real incremental signal s;
+    y shares only s incrementally beyond z1/z2."""
+    rng = np.random.default_rng(11)
+    n = 3000
+    z1 = rng.normal(size=n)
+    z2 = rng.normal(size=n)
+    s = rng.normal(size=n)
+    x = z1 + z2 + 0.6 * s + rng.normal(scale=0.1, size=n)
+    y = z1 - 0.5 * z2 + 0.6 * s + rng.normal(scale=0.1, size=n)
+
+    controls = np.column_stack([z1, z2])
+    partial_ic, p_value, n_used = partial_spearman_ic(x, y, controls, condition_max=1000.0)
+    assert n_used == n
+    assert partial_ic > 0.3
+    assert p_value < 0.01
+
+
+def test_partial_spearman_ic_insufficient_n_returns_nan():
+    rng = np.random.default_rng(1)
+    n = 4  # k=1 control -> needs n >= k+4=5
+    x = rng.normal(size=n)
+    y = rng.normal(size=n)
+    z = rng.normal(size=n)
+    partial_ic, p_value, n_used = partial_spearman_ic(x, y, z.reshape(-1, 1), condition_max=1000.0)
+    assert np.isnan(partial_ic)
+    assert np.isnan(p_value)
+    assert n_used == n
+
+
+def test_partial_spearman_ic_ill_conditioned_controls_returns_nan():
+    """Two near-duplicate control columns -> design matrix condition number blows up ->
+    must return NaN rather than a numerically unstable partial correlation."""
+    rng = np.random.default_rng(3)
+    n = 500
+    z1 = rng.normal(size=n)
+    z2 = z1 + rng.normal(scale=1e-8, size=n)  # near-duplicate of z1
+    x = rng.normal(size=n)
+    y = rng.normal(size=n)
+    controls = np.column_stack([z1, z2])
+    partial_ic, p_value, n_used = partial_spearman_ic(x, y, controls, condition_max=1000.0)
+    assert np.isnan(partial_ic)
+    assert np.isnan(p_value)
+    assert n_used == n

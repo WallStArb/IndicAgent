@@ -10,37 +10,63 @@ the idea doc's own claim — Med/unproven means "plausible, untested") · **Foun
 cheaper to do now than to retrofit once other things build on top of it — bumps priority
 independent of raw effort/risk/reward.
 
-**Operational context:** a 4th corpus rebuild is in progress as of this writing (started
-2026-07-07 17:00, step 4/7 ic_engine). It carries `feature_vectors` from 10.1M to 36.7M rows —
-the Phase 142.5 Renaissance primitives (91 new, 152 total) and the ETF universe expansion
-(58→80 symbols) both landing in the corpus for the first time. `feature_ic_scores`,
-`alpha_ensemble_ic`, and `alpha_events` are all empty until steps 4-7 finish. Several HIGH-tier
-items below are sequenced behind this rebuild completing.
+**Operational context (updated 2026-07-09):** the 6th corpus rebuild attempt completed
+end-to-end for the first time (all 8 steps, `feature_ic_scores` 920,649 rows, `alpha_events`
+12,258,206 rows, 0 rejected) — see project memory's "Corpus pipeline state" for full detail. This
+is the first trustworthy full-universe measurement since the 2026-07-08 91-column persistence
+bug fix. The E1/E2 A/B judgment and EIC-04 re-run (both listed HIGH below as of 07-08) have since
+run against this fresh corpus and are DONE — see "Recently shipped." Every item below that was
+previously "blocked on the rebuild finishing" is now unblocked and re-ordered accordingly.
 
 ---
 
 ## HIGH — do first
 
+**Todos and Phases are two different execution tracks, not one ranked queue.** A todo is a
+single-session, run-it-now technical action — no formal workflow required. A phase goes through
+the full `/gsd-discuss-phase → plan-phase → execute-phase → verify` pipeline and is a
+multi-session commitment. They don't compete for the same "next slot": a todo can run today
+while a phase's discussion is separately kicked off today. Ranking them on one list (as an
+earlier version of this doc did) wrongly implied you must pick one before the other.
+
+### Todos (run directly, no phase workflow needed)
+
 | Idea | Effort | Risk | Reward | Note |
 |---|---|---|---|---|
-| Run the E1/E2 A/B judgment (`ops_ensemble_weight_compare.py`) | S | Low | High | Phase 142B.1 (COMPLETE 2026-07-04) built the E1 shrunk-IC and E2 mean-variance weighting variants plus the win-decision gate script, but deliberately did not run the actual judgment or promote a winner. That run is the standing next action — cheap, doesn't need the current rebuild to finish. |
-| Re-run EIC-04 | — | — | High | Last run FAILED 2026-07-03 (0/50 qualifying cells at 0.60 threshold; EIC-05 diagnosis = data starvation, concentrated in one `5m`/`high_bear` cell). Blocked on the current corpus rebuild finishing — the whole point of re-running is to check whether the larger universe + Renaissance primitives fix the starvation. Phase 142B does not begin until this shows PASS or an operator override is recorded. |
-| Interaction Primitives pilot (todo 037) | S | Low | High/cost | Measures ~20-30 hand-picked interaction primitives already specified in `renaissance-primitives-ohlcv.md` against real IC — settles whether atomic features are IC-saturated before anyone builds the full 30K-candidate Interaction Factory. Gate (Phase B corpus re-run) is satisfied; runnable once the current rebuild's `feature_ic_scores` exist. Gatekeeper for Phase 150's interaction layer — run before, not alongside. |
-| Phase 143: Feature Lifecycle Routing | L (3 plans) | Low | High | PLANNED, depends only on Phase 141 (complete) — independently startable today, not blocked on anything else in this table. |
-| Phase 144: Cross-Sectional Regime Model (`regime_group`) | L | Med | High | PLANNED. **Unblocked 2026-07-07** — the HMM weak-separation fallback decision is pre-committed (demote to shadow per weak regime_group, stratify on cross-sectional + volatility_pct; rates gets a pre-registered challenger). Ready for `/gsd-discuss-phase`. Batched into one `ic_engine` re-run with todo 026 P2b/P2c/P3, todo 041 (tag taxonomy audit), and `intel-12-stratification-dimension.md`'s first substitution test — plan as one unit, not four. **Foundational** — Cross-Group Lead-Lag IC and Phase 148 (AnalogEngine) both need clean peer groups this phase produces. |
-| EM-CAL: empirical threshold calibration (todo 065) | S | Low | High | New 2026-07-08, from the Stage 4 Emission review. Current `alpha.quant.threshold.{tf}` seeds (1.5/1.2/1.0/0.8) are admitted guesses. Needs the current rebuild's fresh `feature_ic_scores`/`alpha_ensemble_ic` to calibrate against — don't run it against data mid-replacement. |
+| EM-CAL: empirical threshold calibration (todo 065) | S | Low | High | From the Stage 4 Emission review. Current `alpha.quant.threshold.{tf}` seeds (1.5/1.2/1.0/0.8) are admitted guesses. Explicitly deferred 2026-07-08 pending "rebuild completes and EIC-04 re-measured on complete data" — both conditions satisfied 2026-07-09 (rebuild done, EIC-04 PASS 2.21%). Unblocked, easy to overlook since the todo file itself hasn't been touched since 07-08. |
+
+### Phases (each needs its own `/gsd-discuss-phase` cycle)
+
+| Idea | Effort | Risk | Reward | Note |
+|---|---|---|---|---|
+| Phase 144: Cross-Sectional Regime Model (`regime_group`) | L | Med | High | PLANNED. **Foundational** — Cross-Group Lead-Lag IC and Phase 148 (AnalogEngine) both need clean peer groups this phase produces; cheaper to absorb this dependency now than retrofit later, so it's prioritized above 143 despite equal effort/reward. Ready for `/gsd-discuss-phase`. Batches in todo 026 P2b/P2c/P3, todo 041 (tag taxonomy audit), and `intel-12-stratification-dimension.md`'s first substitution test — plan as one unit, not four. Also the more direct lever on the sparse-IC problem (see EIC-04 result below): re-stratifying may recover signal currently smeared across weak regime buckets. |
+| Phase 143: Feature Lifecycle Routing | L (3 plans) | Low | High | PLANNED, depends only on Phase 141 (complete) — independently startable today, no dependency on anything else in this table, can run in parallel with Phase 144 (separate discuss-phase cycle, no shared resource). |
 
 **Recently shipped (context, not action items):** HMM Numba JIT (40x speedup, Phase B/141 P2) ·
 Phase 142A Ensemble IC Measurement (`alpha_ensemble_ic` schema + `EnsembleICEngine`, complete
 2026-07-02, 10/10 verified) · Phase 142B.1 (E1/E2 variants + gate script, complete 2026-07-04) ·
-Phase 142.5 Renaissance Primitives (91 new primitives, 152 total, complete 2026-07-07) · todo 030
-cost-hurdle calibration (closed 2026-07-02) · todo 034 HMM walk-forward diagnostic (closed) ·
-Canonical Simulator binding rule (no client builds its own counterfactual/replay path — routes
-through `alpha_frames` + Invariant 1, enforced by pre-commit Check 9) · One Model, One Book
-(`docs/foundation/principles.md` — one forecast per (symbol, tf, bar), binding on every row in
-this table) · ETF Universe Expansion 58→80 (migrations 188/190, full backfill complete
-2026-07-04 — removed as its own phase, `regime_group` routing for the new symbols is Phase 144's
-job).
+Phase 142.5 Renaissance Primitives (91 new primitives, 152 total, complete 2026-07-07; note two
+of these, `new_high_flag`/`new_low_flag`, were later found mathematically redundant with
+`dist_from_high`/`dist_from_low` and removed via migration 211 — 89 primitives, 150 columns as
+of 2026-07-09) · todo 030 cost-hurdle calibration (closed 2026-07-02) · todo 034 HMM
+walk-forward diagnostic (closed) · Canonical Simulator binding rule (no client builds its own
+counterfactual/replay path — routes through `alpha_frames` + Invariant 1, enforced by pre-commit
+Check 9) · One Model, One Book (`docs/foundation/principles.md` — one forecast per (symbol, tf,
+bar), binding on every row in this table) · ETF Universe Expansion 58→80 (migrations 188/190,
+full backfill complete 2026-07-04 — removed as its own phase, `regime_group` routing for the new
+symbols is Phase 144's job) · **E1/E2 A/B judgment (2026-07-09):** ran against the fresh corpus,
+E2 (mean-variance) LOSS in 20/20 strata (caveat: 16/20 fell back to `cluster_deflate_weights`,
+not a clean E2 test); E1 (shrunk-IC) remains champion by default, nothing promoted · **EIC-04
+re-run (2026-07-09):** FAILed at the stale 0.60 threshold (35/1585 = 2.21% qualifying, confirmed
+genuine-but-sparse signal via p-value histogram, not data starvation), then the threshold itself
+was recalibrated to 0.02 `[rca_analysis]` and re-verified PASS — Phase 142B is now unblocked on
+this gate · todo 067 (ic_engine write_conn idle-timeout) — closed 2026-07-09, confirmed fixed by
+the first clean end-to-end rebuild · **Todo 037 pilot (2026-07-10):** PASS -- 22.2% (192/864)
+of interaction-primitive cells carried genuine incremental IC after controlling for parent
+atomics, broad-based across all 8 features (6.5%-30.6% pass rate each) -- triggers Phase 150
+planning · todo 088 (`hold_max_bars` fallback bug) — fixed and
+re-calibrated 2026-07-09, 16/36 regime×tf cells now genuinely calibrated (remaining 20 correctly
+retain the `[initial_estimate]` seed pending 1h/1d decay-curve evidence).
 
 ---
 
