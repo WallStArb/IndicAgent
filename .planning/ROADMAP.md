@@ -1023,12 +1023,12 @@ Exit triggers in priority order: (1) stop hit (`low <= stop_price`); (2) target 
 
 **Services to build:** `AlphaFrameWriter` (`BaseBatch`), `CounterfactualTracker` (`BaseBatch`).
 
-**Plans:** 2 plans (Wave 1: AlphaFrameWriter + SHADOW-REVIEW.md pre-commitment; Wave 2: CounterfactualTracker + state machine + gate evaluation)
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 142B-01-PLAN.md — Wave 1: migration 214 (alpha_frames + APR seeds) + AlphaFrameWriter (FRAME-01) + SHADOW-REVIEW.md pre-commitment
+- [x] 142B-01-PLAN.md — Wave 1: migration 214 (alpha_frames + APR seeds) + AlphaFrameWriter (FRAME-01) + SHADOW-REVIEW.md pre-commitment
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
