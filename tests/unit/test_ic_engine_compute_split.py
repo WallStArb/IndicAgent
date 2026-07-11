@@ -37,6 +37,7 @@ def test_compute_symbol_tf_return_keys():
         "config",
         "tracer",
         "run_ts",
+        "rng",
         "feature_status_map",
         "mr_dict",
     ]

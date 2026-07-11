@@ -2,14 +2,23 @@
 """IC Engine -- Spearman IC measurement substrate for v3.0 AlphaEngine.
 
 Computes Information Coefficient (IC) per feature x symbol x TF x regime x lookahead,
-with Fisher z-transform confidence intervals, BH-FDR multiple-testing correction,
+with a circular block bootstrap confidence interval, BH-FDR multiple-testing correction,
 60-bar-embargo walk-forward validation, IC Sharpe, and idempotent upsert into
 feature_ic_scores.
 
 CORRECTNESS INVARIANTS:
-- CI uses Fisher z-transform (exact asymptotic, O(p)). Replaces circular block bootstrap
-  which had a pre-ranking bug (resampling global ranks instead of re-ranking within sample)
-  and was redundant at our sample sizes (n > 500 everywhere; CLT fully converged).
+- CI uses a circular block bootstrap (`_circular_block_bootstrap_ic`,
+  src/intelligence/statistics/ic_math.py; Component A / todo 091, Phase 143.1-01).
+  Replaces the Fisher z-transform CI this file used from 2026-06-26 to 2026-07-11: the
+  2026-07-09 empirical-null diagnostic (`ops_ic_null_calibration.py`) found Fisher-z's
+  asymptotic SE assumption empirically miscalibrated on this corpus (38% SUSPECT rate,
+  11/29 evaluated cells across 4/8 (tf, is_pooled) strata) -- the analytic CLT-converged
+  claim did not hold at this corpus's actual autocorrelation/regime structure. The
+  bootstrap re-ranks the resampled subset every iteration (the pre-ranking bug that
+  caused THIS function's own prior 2026-06-26 removal is fixed, not reintroduced --
+  see ic_math.py's docstring). `services/ensemble_ic_engine.py` and
+  `scripts/ops/corpus/ops_oos_holdout_eval.py` intentionally stay on Fisher-z this
+  phase (stated scope boundary, 143.1-CONTEXT.md resolved item 3).
 - Walk-forward has a 60-bar purge/embargo between training-fold end and test-fold start.
   60 bars = max(lookaheads) for the [1,5,20,60] set. Prevents overlapping forward-return
   labels from leaking across the fold boundary (lookahead bias).
@@ -48,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import sys
 import time
 from collections import defaultdict
@@ -83,9 +93,9 @@ from src.core.service_utils import setup_service_logging
 from src.intelligence.feature_registry_service import FeatureRegistryService
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.statistics.ic_math import (
+    _circular_block_bootstrap_ic,
     _compute_ic_rolling_metrics,
     _expand,
-    _fisher_z_ci,
     _nan_to_none,
     _p_values_from_ic,
     _vectorized_ic,
@@ -311,6 +321,17 @@ class ICEngineConfig:
     # NEVER resolved by `ORDER BY computed_at DESC LIMIT 1` (would silently leak a
     # challenger epoch's weights into the materiality gate the moment E1/E2 A/B ships).
     ensemble_weight_version: str = "v1"
+    # Phase 143.1-01 (Component A, todo 091): circular block bootstrap CI params.
+    # Migrations 161/165/177 seeded these keys long before this plan gave them a
+    # reader -- migration 222 strips the [deprecated] description prefix in the
+    # same commit as this rewiring. Defaulted (not required) for the same reason
+    # as the Phase 143 fields above: pre-existing direct ICEngineConfig(...)
+    # construction sites (test_hac_ic_sharpe.py) must not break on field-count growth.
+    bootstrap_resamples: int = 2000
+    bootstrap_seed: int = 42
+    bootstrap_block_size: dict[str, int] = dataclasses.field(
+        default_factory=lambda: {"5m": 78, "15m": 26, "1h": 10, "1d": 10}
+    )
 
     @property
     def lookaheads(self) -> dict[str, int]:
@@ -375,6 +396,18 @@ class ICEngineConfig:
             ic_staleness_alert_days=int(cfg.get_sync("alpha.ic.staleness_alert_days", 5)),
             # Fable N4 -- same key ensemble_trainer defaults to absent a CLI override.
             ensemble_weight_version=str(cfg.get_sync("alpha.ensemble.weight_version", "v1")),
+            # Circular block bootstrap CI (migrations 161/165/177; reactivated migration 222).
+            bootstrap_resamples=int(cfg.get_sync("alpha.ic.bootstrap_resamples", 2000)),
+            bootstrap_seed=int(cfg.get_sync("alpha.ic.bootstrap_seed", 42)),
+            bootstrap_block_size={
+                tf: int(cfg.get_sync(f"alpha.ic.bootstrap_block_size.{tf}", default))
+                for tf, default in (
+                    ("5m", 78),
+                    ("15m", 26),
+                    ("1h", 10),
+                    ("1d", 10),
+                )
+            },
         )
 
 
@@ -462,6 +495,31 @@ def _cluster_features(X_nd: np.ndarray, cluster_max_corr: float) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# Bootstrap CI worker-safe RNG derivation (Component A, todo 091)
+# ---------------------------------------------------------------------------
+
+
+def _derive_worker_rng_seed(cell_key: str, bootstrap_seed: int) -> int:
+    """Deterministic per-cell RNG seed for the circular block bootstrap CI.
+
+    Uses hashlib (not Python's built-in hash()) to avoid PYTHONHASHSEED
+    randomization, which is per-process and would make seeds non-reproducible
+    across ic_engine invocations even with a fixed bootstrap_seed APR key.
+    Restores the removed `_derive_worker_rng_seed(symbol, bootstrap_seed)` pattern
+    (git show c6f5056b^:services/ic_engine.py), generalized from "symbol" to any
+    cell-identifying string so both the per-symbol ProcessPoolExecutor path
+    (_compute_symbol_tf, keyed by symbol) and the single-process cross-sectional
+    path (_compute_cross_sectional_tf, keyed by f"{tf}:{regime_label}") get their
+    own deterministic, reproducible, collision-resistant seed without any DB write
+    or shared RNG state (ProcessPoolExecutor workers are compute-only, CLAUDE.md).
+
+    Derived as bootstrap_seed + MD5(cell_key)[:8] % 2**31.
+    """
+    cell_hash = int(hashlib.md5(cell_key.encode()).hexdigest()[:8], 16)
+    return bootstrap_seed + cell_hash % (2**31)
+
+
+# ---------------------------------------------------------------------------
 # Main compute loop for a single (symbol, tf)
 # ---------------------------------------------------------------------------
 
@@ -481,10 +539,17 @@ def _compute_symbol_tf(
     config: ICEngineConfig,
     tracer: Any,
     run_ts: datetime,
+    rng: np.random.Generator,
     feature_status_map: dict[str, str] | None = None,
     mr_dict: dict | None = None,
 ) -> tuple[list[dict], list[dict], dict[str, Any]]:
     """Compute IC for all (regime, lookahead) cells for one (symbol, tf).
+
+    rng: worker-safe circular block bootstrap RNG (Component A, todo 091), derived
+    deterministically per-symbol via _derive_worker_rng_seed() and shared/advanced
+    across every (regime, scale) cell and the daily context-features loop within
+    this one (symbol, tf) call -- never re-seeded per-cell, matching the removed
+    reference implementation's per-worker (not per-cell) RNG scope.
 
     No DB writes — returns (pooled_rows, regime_rows, stats_dict). Writes happen
     serially in main process via _write_ic_results AFTER corpus-level BH-FDR
@@ -752,6 +817,7 @@ def _compute_symbol_tf(
                     n_skipped += len(_FEATURE_NAMES)
                     continue
 
+                X_raw_scale = X_sub_nd[valid_mask]  # RAW (unranked) -- bootstrap CI needs this
                 ranks_X_scale = rankdata(X_sub_nd, axis=0)[valid_mask]
                 Y_scale = returns_scale[valid_mask]
                 ranks_Y = rankdata(Y_scale)
@@ -767,9 +833,16 @@ def _compute_symbol_tf(
                 p_full = _expand(p_vector_nd, non_degenerate_mask, n_features)
 
                 # -------------------------------------------------------
-                # Fisher z-transform CI
+                # Circular block bootstrap CI (Component A, todo 091 -- replaces
+                # _fisher_z_ci, empirically miscalibrated per the 2026-07-09 diagnostic)
                 # -------------------------------------------------------
-                ci_lower_nd, ci_upper_nd = _fisher_z_ci(ic_vector_nd, n_valid)
+                ci_lower_nd, ci_upper_nd = _circular_block_bootstrap_ic(
+                    X_raw_scale,
+                    Y_scale,
+                    config.bootstrap_block_size[tf],
+                    config.bootstrap_resamples,
+                    rng,
+                )
 
                 ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
                 ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)
@@ -1006,7 +1079,17 @@ def _compute_symbol_tf(
                 ic_val = _nan_to_none(float(ic_vec[0]))
                 p_val = float(_p_values_from_ic(ic_vec, n_valid)[0])
 
-                ci_lower_arr, ci_upper_arr = _fisher_z_ci(ic_vec, n_valid)
+                # Circular block bootstrap CI (Component A, todo 091). x_daily/y_daily
+                # are already RAW (unranked) -- the bootstrap re-ranks internally per
+                # iteration, so pass them directly rather than the pre-ranked arrays
+                # used for the point estimate above.
+                ci_lower_arr, ci_upper_arr = _circular_block_bootstrap_ic(
+                    x_daily,
+                    y_daily,
+                    config.bootstrap_block_size[tf],
+                    config.bootstrap_resamples,
+                    rng,
+                )
                 ci_lower = float(ci_lower_arr[0])
                 ci_upper = float(ci_upper_arr[0])
                 passes_ci = ci_lower > 0.0
@@ -1190,6 +1273,7 @@ def _compute_cross_sectional_tf(
     config: ICEngineConfig,
     tracer: Any,
     run_ts: datetime,
+    rng: np.random.Generator,
     feature_status_map: dict[str, str] | None = None,
 ) -> tuple[list[dict], dict[str, Any]]:
     """Compute cross-sectional IC for one (tf, regime_label) cell.
@@ -1203,6 +1287,12 @@ def _compute_cross_sectional_tf(
 
     The result is stored with symbol=_CROSS_SECTIONAL_SYMBOL ('POOLED'), is_pooled=True,
     regime=regime_label (actual label, not '_pooled' sentinel).
+
+    rng: worker-safe circular block bootstrap RNG (Component A, todo 091) -- this pass
+    runs single-process (not ProcessPoolExecutor), so the caller derives one seed via
+    _derive_worker_rng_seed() and shares/advances it across every (tf, regime_label)
+    cell in the cross-sectional loop, same reuse-not-reseed convention as the per-symbol
+    worker path.
 
     Returns dict with n_committed, n_skipped, all_results.
     """
@@ -1405,6 +1495,7 @@ def _compute_cross_sectional_tf(
             n_skipped += len(_FEATURE_NAMES)
             continue
 
+        X_raw_scale = X_sub_nd[valid_mask]  # RAW (unranked) -- bootstrap CI needs this
         ranks_X_scale = rankdata(X_sub_nd, axis=0)[valid_mask]
         Y_scale = returns_scale[valid_mask]
         ranks_Y = rankdata(Y_scale)
@@ -1415,7 +1506,16 @@ def _compute_cross_sectional_tf(
         ic_full = _expand(ic_vector_nd, non_degenerate_mask, n_features)
         p_full = _expand(p_vector_nd, non_degenerate_mask, n_features)
 
-        ci_lower_nd, ci_upper_nd = _fisher_z_ci(ic_vector_nd, n_valid)
+        # Circular block bootstrap CI (Component A, todo 091 -- replaces _fisher_z_ci,
+        # empirically miscalibrated per the 2026-07-09 diagnostic). This is the CI that
+        # actually gates ensemble eligibility (symbol='POOLED' rows only).
+        ci_lower_nd, ci_upper_nd = _circular_block_bootstrap_ic(
+            X_raw_scale,
+            Y_scale,
+            config.bootstrap_block_size[tf],
+            config.bootstrap_resamples,
+            rng,
+        )
         ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
         ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)
         passes_ci_full = np.where(non_degenerate_mask, ci_lower_full > 0.0, False)
@@ -1768,6 +1868,13 @@ def _run_ic_worker(args: tuple) -> dict:
     # frozenset supports O(1) `in` lookups identically to set; no conversion needed.
     existing_keys = existing_keys_frozen
 
+    # Circular block bootstrap CI (Component A, todo 091): ONE deterministic RNG per
+    # symbol, derived from bootstrap_seed, shared/advanced across every tf/regime/scale
+    # cell this worker computes for this symbol (never re-seeded per-cell -- matches the
+    # removed reference implementation's per-worker RNG scope). No DB write from the
+    # worker (ProcessPoolExecutor workers are compute-only, CLAUDE.md).
+    rng = np.random.default_rng(seed=_derive_worker_rng_seed(symbol, config.bootstrap_seed))
+
     conn = None
     all_results: list[dict] = []
     pooled_rows: list[dict] = []
@@ -1794,6 +1901,7 @@ def _run_ic_worker(args: tuple) -> dict:
                     config=config,
                     tracer=noop_tracer,
                     run_ts=run_ts,
+                    rng=rng,
                     feature_status_map=feature_status_map,
                     mr_dict=mr_dict_by_tf.get(tf) if mr_dict_by_tf else None,
                 )
@@ -2427,6 +2535,13 @@ def main() -> None:
 
             if equity_model_enabled:
                 _logger.info("ic_engine.starting_cross_sectional_pass")
+                # Circular block bootstrap CI (Component A, todo 091): ONE deterministic
+                # RNG for the whole cross-sectional pass, shared/advanced across every
+                # (tf, regime_label) cell -- same reuse-not-reseed convention as the
+                # per-symbol worker path. This is the CI that gates ensemble eligibility.
+                cs_rng = np.random.default_rng(
+                    seed=_derive_worker_rng_seed("cross_sectional", config.bootstrap_seed)
+                )
                 cs_conn = _connect_db(settings)
                 try:
                     with cs_conn.cursor() as cur:
@@ -2457,6 +2572,7 @@ def main() -> None:
                                 config=config,
                                 tracer=tracer,
                                 run_ts=run_ts,
+                                rng=cs_rng,
                                 feature_status_map=feature_status_map,
                             )
                             # Accumulate with offset into corpus_cs_rows.
