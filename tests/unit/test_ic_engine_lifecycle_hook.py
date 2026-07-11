@@ -75,6 +75,8 @@ class _FakeLifecycleCursor:
                 "tf",
                 "regime",
                 "ic_ci_lower",
+                "ic_ci_upper",
+                "ic_sign",
                 "passes_fdr",
                 "reliable",
                 "n_independent",
@@ -210,12 +212,16 @@ def _cell(
     training_window_end=_T1,
     lookahead_bars: int = 5,
     reliable: bool = True,
+    ic_ci_upper: float | None = None,
+    ic_sign: int = 1,
 ) -> dict:
     return {
         "feature_name": feature_name,
         "tf": tf,
         "regime": regime,
         "ic_ci_lower": ic_ci_lower,
+        "ic_ci_upper": ic_ci_upper,
+        "ic_sign": ic_sign,
         "passes_fdr": passes_fdr,
         "reliable": reliable,
         "n_independent": n_independent,
@@ -253,6 +259,7 @@ def _make_config(**overrides) -> ICEngineConfig:
         meta_fdr_min_fraction=0.50,
         ic_staleness_alert_days=5,
         ensemble_weight_version="v1",
+        sign_symmetric=False,
     )
     defaults.update(overrides)
     return ICEngineConfig(**defaults)
@@ -693,6 +700,186 @@ def test_one_integrity_monitor_fact_per_normal_run(tmp_path):
 
     assert len(conn.integrity_inserts) == 1
     assert conn.committed is True
+
+
+# ---------------------------------------------------------------------------
+# Sign-aware demote predicate (Component E, todo 094, BLOCKER 1): closes the
+# third sign-asymmetric gate. Contrarians (ic_sign=-1) must not be auto-demoted
+# just because their persistently-negative ic_ci_lower sits below zero -- that
+# is expected and correct for a real contrarian signal, not a failure.
+# ---------------------------------------------------------------------------
+
+
+def test_sign_symmetric_significant_contrarian_not_demoted(tmp_path):
+    """sign_symmetric=True: a significant contrarian (ic_sign=-1, ic_ci_upper<0,
+    passes_fdr=true) with non-zero standing_weight must NOT be flagged failed/material
+    -- this is the exact self-reverting failure mode BLOCKER 1 identified (every
+    contrarian would otherwise be re-demoted one cycle after Component E lands)."""
+    config = _make_config(
+        meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99, sign_symmetric=True
+    )
+    cells = [
+        _cell(
+            "featC",
+            "5m",
+            f"regime_{i}",
+            ic_ci_lower=-0.30,  # persistently negative -- would fail the OLD unconditional gate
+            ic_ci_upper=-0.05,  # significant CI entirely below zero on its own side
+            ic_sign=-1,
+            passes_fdr=True,
+            n_independent=1000,
+            status="active",
+        )
+        for i in range(10)
+    ]
+    ew = [
+        {
+            "tf": "5m",
+            "regime": f"regime_{i}",
+            "feature_name": "featC",
+            "weight_version": "v1",
+            "weight": 0.5,
+        }
+        for i in range(10)
+    ]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
+    registry = _FakeRegistryService({"featC": {"status": "active"}})
+
+    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+
+    assert (
+        registry.transition_calls == []
+    ), "A significant contrarian must not be demoted under sign_symmetric=True"
+
+
+def test_sign_symmetric_ci_straddling_contrarian_is_demoted(tmp_path):
+    """sign_symmetric=True: a contrarian whose CI straddles zero (ic_ci_upper >= 0,
+    i.e. NOT significant on its own side) IS flagged failed/material and demoted --
+    the sign-aware gate still catches genuinely non-significant contrarians."""
+    config = _make_config(
+        meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99, sign_symmetric=True
+    )
+    # 6/10 straddling (failed) + 4/10 significant (not failed) -- 60% material-fail
+    # meets the 50% demote floor without tripping the 99% regime-shift guard.
+    cells = []
+    for i in range(10):
+        straddling = i < 6
+        cells.append(
+            _cell(
+                "featC",
+                "5m",
+                f"regime_{i}",
+                ic_ci_lower=-0.10,
+                ic_ci_upper=0.02 if straddling else -0.05,  # straddles zero vs. significant
+                ic_sign=-1,
+                passes_fdr=not straddling,
+                n_independent=1000,
+                status="active",
+            )
+        )
+    ew = [
+        {
+            "tf": "5m",
+            "regime": f"regime_{i}",
+            "feature_name": "featC",
+            "weight_version": "v1",
+            "weight": 0.5,
+        }
+        for i in range(10)
+    ]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
+    registry = _FakeRegistryService({"featC": {"status": "active"}})
+
+    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+
+    assert len(registry.transition_calls) == 1
+    assert registry.transition_calls[0][:4] == ("featC", "active", "shadow_only", "ic_demotion")
+
+
+def test_sign_symmetric_positive_cell_still_demoted(tmp_path):
+    """sign_symmetric=True: a positive cell (ic_sign=1, ic_ci_lower<=0) is still
+    flagged failed/material -- the positive side of the predicate is unchanged by
+    the flag, only the contrarian branch is new."""
+    config = _make_config(
+        meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99, sign_symmetric=True
+    )
+    # 6/10 failing + 4/10 passing -- 60% material-fail meets the 50% demote floor
+    # without tripping the 99% regime-shift guard.
+    cells = []
+    for i in range(10):
+        failing = i < 6
+        cells.append(
+            _cell(
+                "featA",
+                "5m",
+                f"regime_{i}",
+                ic_ci_lower=-0.02 if failing else 0.03,
+                ic_ci_upper=0.10 if failing else 0.15,
+                ic_sign=1,
+                passes_fdr=not failing,
+                n_independent=1000,
+                status="active",
+            )
+        )
+    ew = [
+        {
+            "tf": "5m",
+            "regime": f"regime_{i}",
+            "feature_name": "featA",
+            "weight_version": "v1",
+            "weight": 0.5,
+        }
+        for i in range(10)
+    ]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
+    registry = _FakeRegistryService({"featA": {"status": "active"}})
+
+    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+
+    assert len(registry.transition_calls) == 1
+    assert registry.transition_calls[0][:4] == ("featA", "active", "shadow_only", "ic_demotion")
+
+
+def test_sign_symmetric_off_positive_cell_decision_is_byte_identical(tmp_path):
+    """Equivalence property: with sign_symmetric=False (the default), the
+    failed/material decision for a positive cell is byte-identical to
+    test_demotion_triggers_on_materially_failing_active_feature's outcome above --
+    same cell shape, same result, flag OFF reproduces the pre-Component-E hook."""
+    config = _make_config(
+        meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99, sign_symmetric=False
+    )
+    cells = []
+    for i in range(10):
+        failing = i < 6
+        cells.append(
+            _cell(
+                "featA",
+                "5m",
+                f"regime_{i}",
+                ic_ci_lower=-0.02 if failing else 0.03,
+                passes_fdr=not failing,
+                n_independent=1000,
+                status="active",
+            )
+        )
+    ew = [
+        {
+            "tf": "5m",
+            "regime": f"regime_{i}",
+            "feature_name": "featA",
+            "weight_version": "v1",
+            "weight": 0.5,
+        }
+        for i in range(10)
+    ]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
+    registry = _FakeRegistryService({"featA": {"status": "active"}})
+
+    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+
+    assert len(registry.transition_calls) == 1
+    call = registry.transition_calls[0]
+    assert call[:4] == ("featA", "active", "shadow_only", "ic_demotion")
 
 
 # ---------------------------------------------------------------------------

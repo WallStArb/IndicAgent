@@ -2,8 +2,11 @@
 """Ensemble Trainer — oneshot that derives IC-weighted ensemble weights and scores ensemble alpha.
 
 Reads cross-sectional IC scores (symbol='POOLED', is_pooled=true, regime != '_pooled',
-ic_ci_lower > 0, passes_fdr=true, reliable=true, passes_walkforward=true), applies Ledoit-Wolf
-cluster deflation, and writes:
+passes_fdr=true, reliable=true, passes_walkforward=true, plus a significance clause that
+is flag-gated on alpha.ensemble.sign_symmetric -- Component E, todo 094: `ic_ci_lower > 0`
+when the flag is off (long-only, byte-identical to the pre-Component-E champion), or
+`(ic_sign=1 AND ic_ci_lower>0) OR (ic_sign=-1 AND ic_ci_upper<0)` when the flag is on --
+see `_eligibility_where()`), applies Ledoit-Wolf cluster deflation, and writes:
   - ensemble_weights: one row per (tf, regime, weight_version, feature_name), symbol='UNIVERSE'
   - ensemble_alpha:   one row per (symbol, tf, bar_ts, weight_version) via vectorized matmul
 
@@ -80,21 +83,46 @@ from src.observability.otel import OTelInitError, init_otel_providers
 _logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Ensemble eligibility criterion — single definition, four call sites below.
+# Ensemble eligibility criterion — single builder, four call sites below.
 #
 # Cross-sectional significance (ic_ci_lower/passes_fdr) is not a sufficient bar on
 # its own: it does not distinguish real signal from the tail of expected false
 # discoveries BH-FDR budgets for. passes_walkforward requires the same effect to
 # reproduce out-of-sample across independent time folds. reliable/ic_sharpe_hac
 # guard against low-N instability. All four conditions must hold together.
+#
+# alpha.ensemble.sign_symmetric (Component E, todo 094) is the champion/challenger
+# behavior switch: when False, the significance clause is `ic_ci_lower > 0`
+# (byte-identical to the pre-Component-E champion — this predicate can NEVER be
+# satisfied by a negative-IC feature, since a negative point estimate's CI lower
+# bound is always <= the point estimate). When True, a contrarian feature
+# (ic_sign=-1) becomes eligible whenever its CI sits entirely below zero on its own
+# side (ic_ci_upper < 0) — the sign-symmetric equivalent of "significant, not just
+# not indistinguishable from noise."
 # ---------------------------------------------------------------------------
-_ELIGIBILITY_BASE_WHERE = (
-    "symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'"
-    " AND ic_ci_lower > 0"
-    " AND reliable = true AND ic_sharpe_hac IS NOT NULL"
-    " AND passes_walkforward = true"
-)
-_ELIGIBILITY_WHERE = _ELIGIBILITY_BASE_WHERE + " AND passes_fdr = true"
+
+
+def _eligibility_where(sign_symmetric: bool) -> tuple[str, str]:
+    """Build (base, full) eligibility WHERE clauses for feature_ic_scores.
+
+    sign_symmetric=False reproduces the exact pre-Component-E predicate string
+    (equivalence property, tested). sign_symmetric=True adds the sign-aware
+    contrarian branch without changing the positive-side clause at all.
+    """
+    if sign_symmetric:
+        significance_clause = (
+            "((ic_sign = 1 AND ic_ci_lower > 0) OR (ic_sign = -1 AND ic_ci_upper < 0))"
+        )
+    else:
+        significance_clause = "ic_ci_lower > 0"
+    base_where = (
+        "symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'"
+        f" AND {significance_clause}"
+        " AND reliable = true AND ic_sharpe_hac IS NOT NULL"
+        " AND passes_walkforward = true"
+    )
+    return base_where, base_where + " AND passes_fdr = true"
+
 
 # ---------------------------------------------------------------------------
 # APR compile-time binding
@@ -123,6 +151,7 @@ class EnsembleConfig:
     ic_input: str
     weight_method: str
     mv_condition_max: float
+    sign_symmetric: bool
 
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> EnsembleConfig:
@@ -142,6 +171,7 @@ class EnsembleConfig:
             ic_input=_cfg(cfg, "alpha.ensemble.ic_input", "ic_sharpe_hac"),
             weight_method=_cfg(cfg, "alpha.ensemble.weight_method", "ic_proportional"),
             mv_condition_max=_cfg(cfg, "alpha.ensemble.mv_condition_max", 1000.0),
+            sign_symmetric=bool(_cfg(cfg, "alpha.ensemble.sign_symmetric", False)),
         )
 
 
@@ -200,6 +230,7 @@ def resolve_stratum_weights(
     cov_matrix: np.ndarray,
     corr_matrix: np.ndarray,
     ic_shrunk: np.ndarray,
+    ic_signs: np.ndarray,
     max_feature_weight: float,
     max_cluster_corr: float,
     max_cluster_weight: float,
@@ -220,14 +251,25 @@ def resolve_stratum_weights(
         to the wrong path.
     aged_quality_weights:
         Staleness-decayed IC-Sharpe-derived quality weights, the raw input to derive_weights()
-        for the ic_proportional path (and the ic_proportional fallback path).
+        for the ic_proportional path (and the ic_proportional fallback path). Already
+        positive-magnitude convention (Component E's sign-aware compute_quality_weight).
     cov_matrix, corr_matrix:
         The Ledoit-Wolf shrunk covariance and its derived correlation matrix, already computed
         by compute_shrinkage_covariance(X) every run regardless of weight_method.
     ic_shrunk:
         Per-feature IC vector already selected for this stratum (aliased consistently with
         E1's alpha.ensemble.ic_input resolution -- the same array select_features_per_stratum
-        used as 'ic_sharpe'), fed to mean_variance_weights() as its ic_shrunk argument.
+        used as 'ic_sharpe'), fed to mean_variance_weights() UNCHANGED as its ic_shrunk
+        argument -- never pre-multiplied by ic_signs (BLOCKER 3: the mathematically correct
+        combination signs the OUTPUT of Sigma^-1.mu, not the input mu itself; see ic_signs).
+    ic_signs:
+        Per-feature full-sample IC sign (+1/-1), shape matching ic_shrunk. Applied to the
+        OUTPUT of mean_variance_weights() (`ic_signs * mv_raw`) before derive_weights, converting
+        the natural unconstrained-MV solution (which may carry negative entries for features
+        that get combination-shorted, independent of their own sign) into the positive-magnitude
+        convention derive_weights' `> 0` filter expects -- mirrors how aged_quality_weights is
+        already positive-convention for the ic_proportional path. NOT used by the ic_proportional
+        branch (aged_quality_weights is pre-signed via compute_quality_weight already).
     max_feature_weight, max_cluster_corr, max_cluster_weight, mv_condition_max:
         APR-backed thresholds (EnsembleConfig fields) passed through unchanged.
 
@@ -235,7 +277,9 @@ def resolve_stratum_weights(
     -------
     StratumWeightResult
         raw_weights: pre-cap/pre-deflation diagnostic weight vector (stored as the
-            'raw_weight' column regardless of method).
+            'raw_weight' column regardless of method). For the mean_variance success path
+            this is the UNSIGNED mv_raw output (the pure Sigma^-1.ic_shrunk solve) -- the
+            sign is applied only on the path into derive_weights, not stored back here.
         weights: final post-cap weight vector used for scoring.
         method_used: 'ic_proportional' | 'mean_variance' | 'mean_variance_fallback'.
         condition_number: the covariance condition number when the mean_variance path was
@@ -249,15 +293,20 @@ def resolve_stratum_weights(
         return StratumWeightResult(raw_weights, weights, "ic_proportional", None)
 
     if weight_method == "mean_variance":
+        # ic_shrunk passed UNCHANGED (BLOCKER 3): Sigma^-1.(s.mu) != s.(Sigma^-1.mu) once a
+        # contrarian is correlated with other selected features -- pre-signing the INPUT is
+        # mathematically wrong. The mv_raw solve stays sign-naive; sign is applied to its
+        # OUTPUT below, once, before derive_weights.
         mv_raw, cond = mean_variance_weights(cov_matrix, ic_shrunk, mv_condition_max)
         if mv_raw is not None:
             # Success path (D-08): reuse derive_weights' per-feature cap + filter logic
-            # on the raw MV output, unchanged from the ic_proportional path. Cap/sign are
-            # NOT folded into mean_variance_weights() itself -- they run here, identically
-            # to how they run on aged_quality_weights for the ic_proportional path.
+            # on the SIGNED MV output, unchanged in spirit from the ic_proportional path
+            # (whose aged_quality_weights input is already positive-convention). Cap/sign
+            # are NOT folded into mean_variance_weights() itself -- they run here.
             # cluster_deflate_weights is deliberately SKIPPED: Sigma^-1.IC already
             # decorrelates continuously, so binary cluster capping would double-penalize.
-            weights = derive_weights(mv_raw, max_feature_weight)
+            mv_raw_signed = ic_signs * mv_raw
+            weights = derive_weights(mv_raw_signed, max_feature_weight)
             return StratumWeightResult(mv_raw, weights, "mean_variance", cond)
         # Ill-conditioned Sigma (Pitfall 3): fall back to the proven cluster-deflation
         # path rather than emitting extreme offsetting weights from an unreliable Sigma^-1
@@ -284,6 +333,16 @@ def _effective_weight_version(cli_weight_version: str | None, apr_default: str) 
     return cli_weight_version if cli_weight_version else apr_default
 
 
+def _effective_sign_symmetric(cli_sign_symmetric: bool | None, apr_default: bool) -> bool:
+    """Resolve the champion/challenger behavior switch: CLI override takes precedence
+    over the APR default (mirrors `_effective_weight_version`).
+
+    `None` means "no CLI override given" (argparse.BooleanOptionalAction default) —
+    distinct from an explicit `False`, which must still override the APR default.
+    """
+    return cli_sign_symmetric if cli_sign_symmetric is not None else apr_default
+
+
 def _meta_eligible(
     fdr_pass_rows: list[dict], min_fraction: float, min_cells: int
 ) -> dict[str, set[str]]:
@@ -302,8 +361,9 @@ def _meta_eligible(
 
     Denominator (fdr_pass_rate) is restricted to cross-sectional cells that pass all
     ensemble eligibility filters (symbol='POOLED', is_pooled=true, regime != '_pooled',
-    ic_ci_lower > 0, reliable=true, ic_sharpe_hac IS NOT NULL, passes_walkforward=true) —
-    the same population consumed by _process_stratum.
+    reliable=true, ic_sharpe_hac IS NOT NULL, passes_walkforward=true, plus the
+    flag-gated significance clause -- see `_eligibility_where()`) — the same population
+    consumed by _process_stratum.
     """
     result: dict[str, set[str]] = {}
     for r in fdr_pass_rows:
@@ -357,15 +417,22 @@ async def _get_feature_columns(conn: asyncpg.Connection) -> list[str]:
 
 async def _assert_prerequisites(
     conn: asyncpg.Connection,
+    sign_symmetric: bool,
     manifest_dir: Path = CorpusManifest.DEFAULT_MANIFEST_DIR,
 ) -> None:
     """Two startup gates plus a manifest check. Raise RuntimeError to prevent a
     silent empty OR silently-partial run."""
-    n_ic = await conn.fetchval(f"SELECT count(*) FROM feature_ic_scores WHERE {_ELIGIBILITY_WHERE}")
+    _, eligibility_where = _eligibility_where(sign_symmetric)
+    n_ic = await conn.fetchval(f"SELECT count(*) FROM feature_ic_scores WHERE {eligibility_where}")
     if not n_ic:
+        significance_desc = (
+            "(ic_sign=1 AND ic_ci_lower>0) OR (ic_sign=-1 AND ic_ci_upper<0)"
+            if sign_symmetric
+            else "ic_ci_lower > 0"
+        )
         raise RuntimeError(
             "EnsembleTrainer startup gate FAILED: no cross-sectional feature_ic_scores rows "
-            "(symbol='POOLED', is_pooled=true, regime != '_pooled', ic_ci_lower > 0, "
+            f"(symbol='POOLED', is_pooled=true, regime != '_pooled', {significance_desc}, "
             "passes_fdr=true, reliable=true, passes_walkforward=true). "
             "Run ic_engine.py first."
         )
@@ -404,9 +471,15 @@ class EnsembleTrainer(BaseBatch):
     job_name = "ensemble-trainer"
     compute_version = "1.0.0"
 
-    def __init__(self, db_dsn: str, weight_version_override: str | None = None) -> None:
+    def __init__(
+        self,
+        db_dsn: str,
+        weight_version_override: str | None = None,
+        sign_symmetric_override: bool | None = None,
+    ) -> None:
         super().__init__(db_dsn=db_dsn)
         self._weight_version_override = weight_version_override
+        self._sign_symmetric_override = sign_symmetric_override
 
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         """Run the full ensemble weight derivation and alpha scoring pipeline."""
@@ -434,6 +507,9 @@ class EnsembleTrainer(BaseBatch):
                 weight_version=_effective_weight_version(
                     self._weight_version_override, config.weight_version
                 ),
+                sign_symmetric=_effective_sign_symmetric(
+                    self._sign_symmetric_override, config.sign_symmetric
+                ),
             )
 
             self.logger.info(
@@ -446,6 +522,7 @@ class EnsembleTrainer(BaseBatch):
                 max_cluster_weight=config.max_cluster_weight,
                 meta_fdr_min_fraction=config.meta_fdr_min_fraction,
                 sharpe_floor=config.sharpe_floor,
+                sign_symmetric=config.sign_symmetric,
             )
             manifest.set_inputs(weight_version=config.weight_version)
             # Scope the manifest FILE by weight_version too, not just its recorded
@@ -455,8 +532,14 @@ class EnsembleTrainer(BaseBatch):
             # run's readers (ensemble_ic_engine.py, alpha_publisher.py) depend on.
             manifest.scope_suffix = config.weight_version
 
+            # Eligibility WHERE clauses, built once per run from the effective
+            # sign_symmetric flag (Component E, todo 094) -- reused by the startup
+            # gate, the meta-FDR denominator, the strata enumeration, and the
+            # per-stratum IC fetch below.
+            eligibility_base_where, eligibility_where = _eligibility_where(config.sign_symmetric)
+
             # --- Startup gates ---
-            await _assert_prerequisites(conn)
+            await _assert_prerequisites(conn, config.sign_symmetric)
 
             # --- Feature registry alignment gate ---
             # Use get_all_features() — NOT get_active_features() — for alignment gate.
@@ -527,7 +610,7 @@ class EnsembleTrainer(BaseBatch):
                        SUM(CASE WHEN passes_fdr THEN 1 ELSE 0 END)::float / COUNT(*) AS fdr_pass_rate,
                        COUNT(*) AS n_cells
                 FROM feature_ic_scores
-                WHERE {_ELIGIBILITY_BASE_WHERE}
+                WHERE {eligibility_base_where}
                 GROUP BY feature_name, tf
                 """)
             meta_eligible_by_tf = _meta_eligible(
@@ -564,7 +647,7 @@ class EnsembleTrainer(BaseBatch):
             strata_rows = await conn.fetch(f"""
                 SELECT DISTINCT tf, regime
                 FROM feature_ic_scores
-                WHERE {_ELIGIBILITY_WHERE}
+                WHERE {eligibility_where}
                   AND regime IS NOT NULL
                 ORDER BY tf, regime
                 """)
@@ -623,6 +706,7 @@ class EnsembleTrainer(BaseBatch):
         ic_shrunk_not_null_clause = (
             "AND ic_shrunk IS NOT NULL" if ic_input_column == "ic_shrunk" else ""
         )
+        _, eligibility_where = _eligibility_where(config.sign_symmetric)
 
         # Step 1: Load cross-sectional IC scores for this stratum (symbol='POOLED')
         # feature_status_at_eval = 'active' ensures we only train on IC scores from
@@ -633,7 +717,7 @@ class EnsembleTrainer(BaseBatch):
             SELECT feature_name, ic_sharpe_hac, ic_shrunk, shrinkage_weight,
                    ic_ci_lower, ic_ci_upper, ic_sign, lookahead_bars, training_window_end
             FROM feature_ic_scores
-            WHERE {_ELIGIBILITY_WHERE}
+            WHERE {eligibility_where}
               AND tf = $1 AND regime = $2
               AND feature_status_at_eval = 'active'
               {ic_shrunk_not_null_clause}
@@ -780,13 +864,16 @@ class EnsembleTrainer(BaseBatch):
         # (Sigma^-1.ic_shrunk, condition-number gated, cluster deflation skipped on
         # success). ic_sharpes is the ic_input-resolved per-feature IC vector already
         # selected for this stratum (E1, D-05) -- the same array select_features_per_stratum
-        # used as "ic_sharpe".
+        # used as "ic_sharpe". ic_signs is threaded through for the E2 output-sign fix
+        # (BLOCKER 3, Component E) -- the mean_variance branch signs mv_raw's OUTPUT,
+        # never ic_sharpes/ic_shrunk's input.
         weight_result = resolve_stratum_weights(
             config.weight_method,
             aged_quality_weights,
             cov_matrix,
             corr_matrix,
             ic_sharpes,
+            ic_signs,
             config.max_feature_weight,
             config.max_cluster_corr,
             config.max_cluster_weight,
@@ -948,6 +1035,17 @@ if __name__ == "__main__":
             "after IC changes produces fresh weights instead of silently keeping stale ones"
         ),
     )
+    parser.add_argument(
+        "--sign-symmetric",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Champion/challenger behavior switch (Component E, todo 094); overrides "
+            "alpha.ensemble.sign_symmetric. Omit to use the APR default (false = "
+            "pre-Component-E long-only-eligible champion); pass --sign-symmetric or "
+            "--no-sign-symmetric to force either behavior for this run"
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -957,4 +1055,10 @@ if __name__ == "__main__":
 
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    asyncio.run(EnsembleTrainer(db_dsn=db_dsn, weight_version_override=args.weight_version).run())
+    asyncio.run(
+        EnsembleTrainer(
+            db_dsn=db_dsn,
+            weight_version_override=args.weight_version,
+            sign_symmetric_override=args.sign_symmetric,
+        ).run()
+    )

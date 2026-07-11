@@ -96,7 +96,7 @@ class TestAssertPrerequisitesManifestGate:
         conn.fetchval.return_value = 5
 
         with pytest.raises(RuntimeError, match="No manifest found for prerequisite step"):
-            await _assert_prerequisites(conn, manifest_dir=tmp_path)
+            await _assert_prerequisites(conn, sign_symmetric=False, manifest_dir=tmp_path)
 
     @pytest.mark.asyncio
     async def test_raises_when_ic_engine_manifest_status_is_not_success(self, tmp_path):
@@ -110,7 +110,7 @@ class TestAssertPrerequisitesManifestGate:
         manifest.write()
 
         with pytest.raises(RuntimeError, match="status='failed'"):
-            await _assert_prerequisites(conn, manifest_dir=tmp_path)
+            await _assert_prerequisites(conn, sign_symmetric=False, manifest_dir=tmp_path)
 
     @pytest.mark.asyncio
     async def test_passes_when_ic_engine_manifest_succeeded(self, tmp_path):
@@ -123,7 +123,22 @@ class TestAssertPrerequisitesManifestGate:
         manifest.mark_success()
         manifest.write()
 
-        await _assert_prerequisites(conn, manifest_dir=tmp_path)
+        await _assert_prerequisites(conn, sign_symmetric=False, manifest_dir=tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_passes_with_sign_symmetric_true(self, tmp_path):
+        """sign_symmetric=True must not break the startup gate -- it only changes
+        which SQL WHERE clause is evaluated, not the gate's control flow."""
+        from services.ensemble_trainer import _assert_prerequisites
+        from src.observability.corpus_manifest import CorpusManifest
+
+        conn = AsyncMock()
+        conn.fetchval.return_value = 5
+        manifest = CorpusManifest("ic_engine", tmp_path)
+        manifest.mark_success()
+        manifest.write()
+
+        await _assert_prerequisites(conn, sign_symmetric=True, manifest_dir=tmp_path)
 
 
 class TestEligibilityRequiresWalkForward:
@@ -133,37 +148,89 @@ class TestEligibilityRequiresWalkForward:
     expected false discoveries BH-FDR budgets for. Every query that defines which
     feature_ic_scores rows are eligible to feed the ensemble must also require
     passes_walkforward = true, not just ic_ci_lower/passes_fdr/reliable/ic_sharpe_hac.
-    The condition now lives once in _ELIGIBILITY_WHERE/_ELIGIBILITY_BASE_WHERE (module
-    constants), interpolated into all four call sites -- these tests check (a) the
-    constants themselves carry the condition and (b) every site still references one of
-    them, so a future edit can't silently drop the requirement at a single call site.
-    SQL-text inspection, no live DB required -- mirrors the _source() pattern in
-    TestUpsertSQL (test_ensemble_weight_epoch.py)."""
+    The condition lives once in `_eligibility_where()` (a builder, not a module
+    constant, as of Component E / todo 094 -- the significance clause is now
+    flag-gated on alpha.ensemble.sign_symmetric), interpolated into all four call
+    sites -- these tests check (a) the builder's output carries the condition for
+    both flag values and (b) every site still calls the builder, so a future edit
+    can't silently drop the requirement at a single call site. SQL-text inspection,
+    no live DB required -- mirrors the _source() pattern in TestUpsertSQL
+    (test_ensemble_weight_epoch.py)."""
 
-    def test_eligibility_constants_require_walkforward(self) -> None:
-        from services.ensemble_trainer import _ELIGIBILITY_BASE_WHERE, _ELIGIBILITY_WHERE
+    def test_eligibility_builder_requires_walkforward_both_flag_values(self) -> None:
+        from services.ensemble_trainer import _eligibility_where
 
-        assert "passes_walkforward = true" in _ELIGIBILITY_BASE_WHERE
-        assert "passes_walkforward = true" in _ELIGIBILITY_WHERE
+        for sign_symmetric in (False, True):
+            base_where, full_where = _eligibility_where(sign_symmetric)
+            assert "passes_walkforward = true" in base_where
+            assert "passes_walkforward = true" in full_where
 
-    def test_startup_gate_uses_eligibility_constant(self) -> None:
+    def test_startup_gate_uses_eligibility_builder(self) -> None:
         from services.ensemble_trainer import _assert_prerequisites
 
-        assert "_ELIGIBILITY_WHERE" in inspect.getsource(_assert_prerequisites)
+        assert "_eligibility_where" in inspect.getsource(_assert_prerequisites)
 
-    def test_strata_enumeration_and_meta_fdr_denominator_use_eligibility_constants(self) -> None:
+    def test_strata_enumeration_and_meta_fdr_denominator_use_eligibility_builder(self) -> None:
         """_execute_inner contains two eligibility-defining queries: the meta-FDR
         denominator (pre-FDR base) and the strata enumeration (full, post-FDR)."""
         from services.ensemble_trainer import EnsembleTrainer
 
         source = inspect.getsource(EnsembleTrainer._execute_inner)
-        assert "_ELIGIBILITY_BASE_WHERE" in source
-        assert "_ELIGIBILITY_WHERE" in source
+        assert "_eligibility_where" in source
+        assert "eligibility_base_where" in source
+        assert "eligibility_where" in source
 
-    def test_stratum_ic_fetch_uses_eligibility_constant(self) -> None:
+    def test_stratum_ic_fetch_uses_eligibility_builder(self) -> None:
         from services.ensemble_trainer import EnsembleTrainer
 
-        assert "_ELIGIBILITY_WHERE" in inspect.getsource(EnsembleTrainer._process_stratum)
+        assert "_eligibility_where" in inspect.getsource(EnsembleTrainer._process_stratum)
+
+
+class TestSignSymmetricEligibility:
+    """Component E (todo 094): alpha.ensemble.sign_symmetric is the champion/challenger
+    behavior switch. sign_symmetric=False must reproduce the pre-Component-E predicate
+    string byte-for-byte (equivalence property); sign_symmetric=True must admit
+    contrarian (ic_sign=-1) rows via a CI-on-their-own-side clause without changing the
+    positive-side clause at all."""
+
+    _OLD_BASE_WHERE = (
+        "symbol = 'POOLED' AND is_pooled = true AND regime != '_pooled'"
+        " AND ic_ci_lower > 0"
+        " AND reliable = true AND ic_sharpe_hac IS NOT NULL"
+        " AND passes_walkforward = true"
+    )
+
+    def test_flag_off_is_byte_identical_to_pre_component_e_predicate(self) -> None:
+        from services.ensemble_trainer import _eligibility_where
+
+        base_where, full_where = _eligibility_where(sign_symmetric=False)
+        assert base_where == self._OLD_BASE_WHERE
+        assert full_where == self._OLD_BASE_WHERE + " AND passes_fdr = true"
+
+    def test_flag_on_admits_negative_sign_via_ci_upper(self) -> None:
+        from services.ensemble_trainer import _eligibility_where
+
+        base_where, _ = _eligibility_where(sign_symmetric=True)
+        assert "(ic_sign = 1 AND ic_ci_lower > 0)" in base_where
+        assert "(ic_sign = -1 AND ic_ci_upper < 0)" in base_where
+
+    def test_flag_on_positive_side_clause_unchanged(self) -> None:
+        """ic_sign=1 rows must be admitted by the SAME condition (ic_ci_lower > 0)
+        whether the flag is on or off -- only the OR-branch for contrarians is new."""
+        from services.ensemble_trainer import _eligibility_where
+
+        base_off, _ = _eligibility_where(sign_symmetric=False)
+        base_on, _ = _eligibility_where(sign_symmetric=True)
+        assert "ic_ci_lower > 0" in base_off
+        assert "ic_ci_lower > 0" in base_on
+
+    def test_effective_sign_symmetric_cli_override_precedence(self) -> None:
+        from services.ensemble_trainer import _effective_sign_symmetric
+
+        assert _effective_sign_symmetric(True, False) is True
+        assert _effective_sign_symmetric(False, True) is False
+        assert _effective_sign_symmetric(None, True) is True
+        assert _effective_sign_symmetric(None, False) is False
 
 
 class TestFeatureStatusAtEvalFilter:

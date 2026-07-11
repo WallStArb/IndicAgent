@@ -333,6 +333,12 @@ class ICEngineConfig:
     bootstrap_block_size: dict[str, int] = dataclasses.field(
         default_factory=lambda: {"5m": 78, "15m": 26, "1h": 10, "1d": 10}
     )
+    # Phase 143.1-04 (Component E, todo 094): champion/challenger behavior switch shared
+    # with ensemble_trainer.py's alpha.ensemble.sign_symmetric. Gates ONLY the
+    # _run_lifecycle_hook demote/material/worst_cell predicates below -- defaulted to the
+    # APR fallback (false) so direct-constructor test sites (test_hac_ic_sharpe.py
+    # precedent, commit b47595b9) do not break on this dataclass's field-count growth.
+    sign_symmetric: bool = False
 
     @property
     def lookaheads(self) -> dict[str, int]:
@@ -409,6 +415,10 @@ class ICEngineConfig:
                     ("1d", 10),
                 )
             },
+            # Phase 143.1-04 (Component E, todo 094). Same APR key ensemble_trainer.py
+            # reads -- one flag, two consumers, so the champion/challenger switch can't
+            # drift between eligibility and the lifecycle hook's demote predicate.
+            sign_symmetric=bool(cfg.get_sync("alpha.ensemble.sign_symmetric", False)),
         )
 
 
@@ -518,6 +528,38 @@ def _derive_worker_rng_seed(cell_key: str, bootstrap_seed: int) -> int:
     """
     cell_hash = int(hashlib.md5(cell_key.encode()).hexdigest()[:8], 16)
     return bootstrap_seed + cell_hash % (2**31)
+
+
+def _sign_consistent_wf_pass_count(fold_ic_arr: np.ndarray, ic_vector_nd: np.ndarray) -> np.ndarray:
+    """Count walk-forward folds whose IC sign matches the feature's full-sample sign.
+
+    Component E (todo 094) fix: the pre-existing criterion `(fold_ic_arr > 0).sum(...)`
+    is sign-asymmetric -- it can never be satisfied by a persistently-negative
+    (contrarian, ic_sign=-1) feature no matter how stable its folds are, which is
+    exactly the mechanism that silently excludes 100% of negative-IC features from
+    `passes_walkforward` and therefore from ensemble eligibility (`_ELIGIBILITY_BASE_WHERE`
+    requires `passes_walkforward = true`).
+
+    Equivalence-preserving for ic_sign=1 features: `np.sign(ic_vector_nd)` is `+1`, so
+    `fold_ic_arr * sign_nd` is a no-op and this reduces byte-for-byte to the old
+    `(fold_ic_arr > 0)` criterion. For ic_sign=-1 features, a fold now "passes" when its
+    sign matches the feature's OWN full-sample sign (both negative), not when the raw
+    fold IC happens to be positive.
+
+    Unconditional (no APR flag) -- this is a measurement-layer fix, not a policy switch;
+    see 143.1-04-PLAN.md objective for why walk-forward must stay unconditional while
+    `alpha.ensemble.sign_symmetric` gates only the downstream eligibility/weighting/
+    lifecycle policy layer.
+
+    Args:
+        fold_ic_arr: Shape [n_folds, n_nd] -- per-fold IC point estimates.
+        ic_vector_nd: Shape [n_nd] -- full-sample IC point estimate per feature.
+
+    Returns:
+        wf_pass_count_nd: Shape [n_nd] int array -- folds passing per feature.
+    """
+    sign_nd = np.sign(ic_vector_nd)
+    return ((fold_ic_arr * sign_nd[None, :]) > 0).sum(axis=0)
 
 
 # ---------------------------------------------------------------------------
@@ -884,7 +926,7 @@ def _compute_symbol_tf(
                 wf_fold_count = len(fold_ics_list)
                 if wf_fold_count > 0:
                     fold_ic_arr = np.array(fold_ics_list)  # [n_folds, n_nd]
-                    wf_pass_count_nd = (fold_ic_arr > 0).sum(axis=0)
+                    wf_pass_count_nd = _sign_consistent_wf_pass_count(fold_ic_arr, ic_vector_nd)
                     passes_wf_nd = wf_pass_count_nd == walk_forward_folds
                 else:
                     wf_pass_count_nd = np.zeros(len(ic_vector_nd), dtype=int)
@@ -1097,6 +1139,13 @@ def _compute_symbol_tf(
 
                 # Walk-forward with scale-specific embargo (P3 fix: was cf_embargo_bars=max lookahead).
                 # Fixed-origin expanding window: train_end grows monotonically, test windows in order.
+                # Sign-consistent fold-pass criterion (Component E, todo 094): a fold "passes" when
+                # its IC sign matches the feature's own full-sample sign, not when the raw fold IC
+                # happens to be positive -- equivalence-preserving for ic_val > 0 (full_sign=+1 is a
+                # no-op) and the fix that lets a persistently-negative daily context feature walk-
+                # forward-confirm. Scalar mirror of _sign_consistent_wf_pass_count's array logic
+                # (no ic_sign_nd array exists in this scalar-per-feature loop).
+                full_sign = 1.0 if (ic_val is not None and ic_val > 0) else -1.0
                 cf_embargo_bars = lookahead_bars
                 wf_fold_count = 0
                 wf_pass_count = 0
@@ -1121,7 +1170,7 @@ def _compute_symbol_tf(
                         ry_fold = rankdata(y_daily[test_start:test_end])
                         fold_ic = float(_vectorized_ic(rx_fold, ry_fold)[0])
                         folds_counted += 1
-                        if fold_ic > 0:
+                        if fold_ic * full_sign > 0:
                             folds_passed += 1
                 wf_fold_count = folds_counted
                 wf_pass_count = folds_passed
@@ -1584,7 +1633,7 @@ def _compute_cross_sectional_tf(
         wf_fold_count = len(fold_ics_list)
         if wf_fold_count > 0:
             fold_ic_arr = np.array(fold_ics_list)
-            wf_pass_count_nd = (fold_ic_arr > 0).sum(axis=0)
+            wf_pass_count_nd = _sign_consistent_wf_pass_count(fold_ic_arr, ic_vector_nd)
             passes_wf_nd = wf_pass_count_nd == walk_forward_folds
         else:
             wf_pass_count_nd = np.zeros(len(ic_vector_nd), dtype=int)
@@ -2091,7 +2140,8 @@ def _run_lifecycle_hook(
     with write_conn.cursor() as cur:
         cur.execute(
             """
-            SELECT fis.feature_name, fis.tf, fis.regime, fis.ic_ci_lower, fis.passes_fdr,
+            SELECT fis.feature_name, fis.tf, fis.regime, fis.ic_ci_lower, fis.ic_ci_upper,
+                   fis.ic_sign, fis.passes_fdr,
                    fis.reliable, fis.n_independent, fis.feature_status_at_eval,
                    fis.ic_sharpe_hac, COALESCE(ew.weight, 0.0) AS standing_weight
             FROM feature_ic_scores fis
@@ -2125,15 +2175,44 @@ def _run_lifecycle_hook(
         return
 
     # Step 2: per-cell material-fail flag.
+    #
+    # Sign-aware (Component E, todo 094 -- BLOCKER 1, closes the third sign-asymmetric
+    # gate): under config.sign_symmetric, a cell only "fails" if its CI on its OWN side
+    # includes zero, or it fails FDR. The old unconditional `ic_ci_lower <= 0` predicate
+    # is sign-asymmetric -- it is unconditionally true for every contrarian (ic_sign=-1),
+    # since a systematically negative point estimate's CI lower bound always sits below
+    # zero, silently re-demoting every contrarian one lifecycle cycle after Component E's
+    # eligibility/weighting fix lands them in the ensemble. Flag OFF reproduces today's
+    # exact predicate (equivalence property, tested).
     material_fail_count = 0
     for cell in cell_rows:
         ic_ci_lower = cell["ic_ci_lower"]
-        failed = (ic_ci_lower is not None and ic_ci_lower <= 0) or (not cell["passes_fdr"])
+        ic_ci_upper = cell["ic_ci_upper"]
+        ic_sign = cell["ic_sign"]
+        if config.sign_symmetric:
+            failed = (
+                (ic_sign == 1 and ic_ci_lower is not None and ic_ci_lower <= 0)
+                or (ic_sign == -1 and ic_ci_upper is not None and ic_ci_upper >= 0)
+                or (not cell["passes_fdr"])
+            )
+            nearest_bound = ic_ci_lower if ic_sign == 1 else ic_ci_upper
+            # Signed margin from zero on the cell's OWN side: ic_sign * nearest_bound.
+            # For ic_sign=1 this is ic_ci_lower unchanged; for ic_sign=-1 it flips
+            # ic_ci_upper (always <= 0 for a real contrarian estimate) to a positive
+            # "how far below zero" measure -- the smallest value is always the worst
+            # cell on its own side, letting one min() rank mixed-sign cells for the
+            # same feature consistently (used by the worst_cell audit pick below).
+            signed_margin = (ic_sign * nearest_bound) if nearest_bound is not None else None
+        else:
+            failed = (ic_ci_lower is not None and ic_ci_lower <= 0) or (not cell["passes_fdr"])
+            nearest_bound = ic_ci_lower
+            signed_margin = ic_ci_lower
         material = failed and (
-            cell["standing_weight"] * abs(ic_ci_lower or 0.0) > config.decay_materiality_threshold
+            cell["standing_weight"] * abs(nearest_bound or 0.0) > config.decay_materiality_threshold
         )
         cell["_failed"] = failed
         cell["_material_fail"] = material
+        cell["_signed_margin"] = signed_margin
         if material:
             material_fail_count += 1
             ALPHA_DECAY_CELLS_FLAGGED.add(
@@ -2201,18 +2280,35 @@ def _run_lifecycle_hook(
             if demote_fraction >= demotion_fraction_floor:
                 # Representative aggregates for the ic_* audit fields (worst cell by
                 # ic_ci_lower, its own ic_sharpe_hac, summed n_independent).
+                #
+                # Sign-aware under the flag: `_signed_margin` (set in Step 2) is
+                # ic_ci_lower for ic_sign=1 and -ic_ci_upper for ic_sign=-1 -- the
+                # smallest value is always the worst cell on ITS OWN side, so one min()
+                # correctly ranks a feature's mixed-sign cells (e.g. contrarian in one
+                # regime, positive in another) without picking a positive feature's
+                # cell using a contrarian's raw ic_ci_lower (which is meaningless for
+                # a negative-full-sample-sign estimate). Flag OFF: `_signed_margin` ==
+                # `ic_ci_lower` unconditionally (equivalence property, tested).
                 worst_cell = min(
                     active_feature_cells,
-                    key=lambda c: c["ic_ci_lower"] if c["ic_ci_lower"] is not None else 0.0,
+                    key=lambda c: c["_signed_margin"] if c["_signed_margin"] is not None else 0.0,
                 )
                 ic_n = sum(c["n_independent"] for c in active_feature_cells)
+                # Sign-aware audit value: report ic_ci_upper (not ic_ci_lower) for a
+                # contrarian worst_cell under the flag -- ic_ci_lower on a persistently
+                # negative estimate is not the bound that determined "worst" here.
+                worst_cell_ic_value = (
+                    worst_cell["ic_ci_upper"]
+                    if config.sign_symmetric and worst_cell["ic_sign"] == -1
+                    else worst_cell["ic_ci_lower"]
+                )
                 transitioned = registry_svc.record_transition_sync(
                     write_conn,
                     feature_name,
                     "active",
                     "shadow_only",
                     "ic_demotion",
-                    ic_value=worst_cell["ic_ci_lower"],
+                    ic_value=worst_cell_ic_value,
                     ic_sharpe=worst_cell["ic_sharpe_hac"],
                     ic_n=ic_n,
                 )
