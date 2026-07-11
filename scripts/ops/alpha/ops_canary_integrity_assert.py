@@ -65,13 +65,17 @@ _LATEST_VINTAGE_SQL = "SELECT MAX(training_window_end) FROM feature_ic_scores"
 _CANARY_ROWS_SQL = """
     SELECT
         s.feature_name, s.symbol, s.tf, s.regime, s.is_pooled,
-        s.ic_ci_lower, s.ic_ci_upper, s.passes_fdr,
+        s.ic_ci_lower, s.ic_ci_upper, s.passes_fdr, s.cumulative_e_value,
         r.control_expectation
     FROM feature_ic_scores s
     JOIN feature_registry r ON r.feature_name = s.feature_name
     WHERE r.is_control = true
       AND s.training_window_end = $1
 """
+
+# e-value pilot scope (Component C, todo 079, Phase 143.1 Plan 06): tf=5m only, matching
+# services/ic_engine.py's _e_value_pilot_active gate.
+_E_VALUE_PILOT_TFS = frozenset({"5m"})
 
 
 class CanaryIntegrityViolation(RuntimeError):
@@ -192,6 +196,85 @@ def evaluate(
     return report
 
 
+class EValueDecayViolation(RuntimeError):
+    """Raised when a negative-control canary's cumulative e-value crosses the
+    promotion threshold -- proves the e-value kernel (Component C, todo 079) is
+    mis-specified, accumulating false evidence for a feature known to carry no
+    real signal."""
+
+
+def evaluate_e_value_decay(
+    rows: list[dict[str, Any]],
+    fdr_alpha: float = _FDR_ALPHA_DEFAULT,
+) -> dict[str, Any]:
+    """Self-verification of the e-value pilot (Component C, todo 079) against
+    Component D's canaries: the negative-control (noise/dead) canaries'
+    cumulative e-value must decay toward zero across corpus reruns, never
+    crossing the promotion threshold (1/alpha) -- if it does, the e-value
+    kernel itself is broken (would let genuine noise "earn" promotion).
+
+    Pure evaluation function -- no IO, fully unit-testable without a DB.
+
+    Scope: only rows within the e-value pilot's tf scope (5m, matching
+    services/ic_engine.py's _e_value_pilot_active) AND with a non-NULL
+    cumulative_e_value are evaluated -- everything else (other timeframes, or
+    rows from before any corpus rerun has populated the column) is silently
+    excluded from n_rows_evaluated, not treated as a violation. Unlike
+    evaluate()'s base canary integrity check, an empty result (no e-value
+    coverage yet) is NOT a hard-halt condition here: the e-value pilot's
+    column only starts populating after Plan 07's corpus rerun actually
+    exercises services/ic_engine.py's tf=5m cross-sectional path, and this
+    self-verification must not fail before that has ever happened.
+
+    The acausal-placebo positive control's cumulative e-value crossing the
+    promotion threshold is the EXPECTED healthy behavior (it should grow --
+    see 143.1-06-PLAN.md interfaces) and is reported (positive_control_crossed_
+    promotion) but never raises.
+
+    Raises EValueDecayViolation naming every offending negative-control canary
+    + stratum if any crosses the promotion threshold.
+    """
+    promotion_threshold = 1.0 / fdr_alpha
+
+    scoped_rows = [
+        row
+        for row in rows
+        if row["tf"] in _E_VALUE_PILOT_TFS and row["cumulative_e_value"] is not None
+    ]
+
+    negative_control_violations: list[dict[str, Any]] = []
+    positive_control_crossed = False
+
+    for row in scoped_rows:
+        crossed = row["cumulative_e_value"] > promotion_threshold
+        if row["control_expectation"] == "negative_control":
+            if crossed:
+                negative_control_violations.append(row)
+        elif row["control_expectation"] == "positive_control":
+            positive_control_crossed = positive_control_crossed or crossed
+
+    report = {
+        "n_rows_evaluated": len(scoped_rows),
+        "negative_control_violations": negative_control_violations,
+        "positive_control_crossed_promotion": positive_control_crossed,
+        "promotion_threshold": promotion_threshold,
+    }
+
+    if negative_control_violations:
+        offenders = ", ".join(
+            f"{r['feature_name']}@{r['symbol']}/{r['tf']}/{r['regime']}"
+            f" (e={r['cumulative_e_value']:.3f})"
+            for r in negative_control_violations
+        )
+        raise EValueDecayViolation(
+            f"negative-control canary cumulative e-value crossed the promotion "
+            f"threshold ({promotion_threshold:.1f}) -- the e-value kernel is "
+            f"accumulating false evidence for a known-noise feature: {offenders}"
+        )
+
+    return report
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -240,9 +323,21 @@ async def main() -> int:
             f"/{report['per_symbol_negative_cells']} cells "
             f"(bound={report['per_symbol_binomial_bound']})"
         )
+
+        # e-value pilot self-verification (Component C, todo 079): not a hard-halt
+        # when there's no coverage yet (Plan 07's corpus rerun hasn't run this cell)
+        # -- only raises if a negative-control canary's cumulative e-value has
+        # actually crossed the promotion threshold.
+        e_value_report = evaluate_e_value_decay(rows, fdr_alpha=args.fdr_alpha)
+        print(
+            f"\ne-value pilot (tf=5m): {e_value_report['n_rows_evaluated']} canary "
+            f"cells with coverage; positive-control crossed promotion="
+            f"{e_value_report['positive_control_crossed_promotion']}"
+        )
+
         print("\nPASS -- canary integrity gate cleared.")
         return 0
-    except CanaryIntegrityViolation as violation:
+    except (CanaryIntegrityViolation, EValueDecayViolation) as violation:
         print(f"\nFATAL: canary integrity violation -- {violation}", file=sys.stderr)
         return 1
     finally:
