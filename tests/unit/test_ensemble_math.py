@@ -11,7 +11,10 @@ import pytest
 
 from src.intelligence.ensemble.alpha_score import compute_alpha_score
 from src.intelligence.ensemble.covariance import compute_shrinkage_covariance
-from src.intelligence.ensemble.feature_selector import select_features_per_stratum
+from src.intelligence.ensemble.feature_selector import (
+    compute_quality_weight,
+    select_features_per_stratum,
+)
 from src.intelligence.ensemble.weights import (
     cluster_deflate_weights,
     derive_weights,
@@ -196,6 +199,67 @@ class TestComputeShrinkageCovariance:
         X = np.random.default_rng(7).standard_normal((50, 4))
         cov, _ = compute_shrinkage_covariance(X)
         np.testing.assert_allclose(cov, cov.T, atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# compute_quality_weight tests (Component E, todo 094 -- sign-aware)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeQualityWeight:
+    def test_equivalence_ic_sign_positive_matches_old_formula(self) -> None:
+        """ic_sign=1: byte-for-byte equal to the old ic_ci_lower * max(sharpe_floor,
+        ic_sharpe) formula -- ic_ci_upper is not consulted on the positive side."""
+        ic_ci_lower, ic_ci_upper, ic_sharpe, sharpe_floor = 0.02, 0.15, 0.8, 0.05
+        qw = compute_quality_weight(
+            ic_ci_lower, ic_ci_upper, ic_sharpe, ic_sign=1, sharpe_floor=sharpe_floor
+        )
+        old_formula = ic_ci_lower * max(sharpe_floor, ic_sharpe)
+        assert qw == pytest.approx(old_formula)
+
+    def test_negative_ic_feature_yields_positive_magnitude_quality_weight(self) -> None:
+        """ic_sign=-1: a genuinely significant contrarian (ic_ci_upper < 0, positive
+        window Sharpe on its own side after sign-flip) yields a POSITIVE quality
+        weight -- not zero, not negative -- so it can compete for ensemble weight on
+        equal footing with positive-IC features."""
+        # ic_ci_upper = -0.12 (significant contrarian CI, entirely below zero).
+        # ic_sharpe = -0.9 (a genuinely negative-full-sample-sign feature's own-side
+        # Sharpe is negative in the raw column; ic_sign flips it to +0.9).
+        qw = compute_quality_weight(
+            ic_ci_lower=-0.20, ic_ci_upper=-0.12, ic_sharpe=-0.9, ic_sign=-1, sharpe_floor=0.05
+        )
+        expected = (-1 * -0.12) * max(0.05, -1 * -0.9)  # (0.12) * max(0.05, 0.9) = 0.108
+        assert qw == pytest.approx(expected)
+        assert qw > 0.0
+
+    def test_decay_signature_row_not_up_weighted_by_naive_abs(self) -> None:
+        """A decay-signature row: positive full-sample IC (ic_sign=1) but a NEGATIVE
+        window ic_sharpe (the effect decayed within the measurement window). The
+        sign-aware formula must NOT up-weight this via abs(ic_sharpe) -- for ic_sign=1
+        the formula is unchanged from the old one, so a negative ic_sharpe is floored
+        at sharpe_floor exactly as before (no special-casing, no abs)."""
+        ic_ci_lower, ic_sharpe, sharpe_floor = 0.03, -0.4, 0.05
+        qw = compute_quality_weight(
+            ic_ci_lower=ic_ci_lower,
+            ic_ci_upper=0.20,
+            ic_sharpe=ic_sharpe,
+            ic_sign=1,
+            sharpe_floor=sharpe_floor,
+        )
+        # max(0.05, -0.4) == 0.05 -- floored, NOT abs(-0.4) == 0.4.
+        expected = ic_ci_lower * sharpe_floor
+        assert qw == pytest.approx(expected)
+        naive_abs_result = ic_ci_lower * max(sharpe_floor, abs(ic_sharpe))
+        assert qw != pytest.approx(naive_abs_result)
+
+    def test_zero_full_sample_sign_row_never_reaches_this_function_in_production(self) -> None:
+        """Defensive: ic_sign is always +/-1 for rows that pass the eligibility WHERE
+        (ic_sign IS derived from a nonzero point estimate at write time); this test
+        just documents that +1/-1 are the only two values the formula is exercised
+        with in production, not a claim about ic_sign=0 behavior."""
+        for sign in (1, -1):
+            qw = compute_quality_weight(0.05, -0.05, 0.5, ic_sign=sign, sharpe_floor=0.05)
+            assert isinstance(qw, float)
 
 
 # ---------------------------------------------------------------------------
