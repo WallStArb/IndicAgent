@@ -333,6 +333,12 @@ class ICEngineConfig:
     bootstrap_block_size: dict[str, int] = dataclasses.field(
         default_factory=lambda: {"5m": 78, "15m": 26, "1h": 10, "1d": 10}
     )
+    # Phase 143.1-04 (Component E, todo 094): champion/challenger behavior switch shared
+    # with ensemble_trainer.py's alpha.ensemble.sign_symmetric. Gates ONLY the
+    # _run_lifecycle_hook demote/material/worst_cell predicates below -- defaulted to the
+    # APR fallback (false) so direct-constructor test sites (test_hac_ic_sharpe.py
+    # precedent, commit b47595b9) do not break on this dataclass's field-count growth.
+    sign_symmetric: bool = False
 
     @property
     def lookaheads(self) -> dict[str, int]:
@@ -409,6 +415,10 @@ class ICEngineConfig:
                     ("1d", 10),
                 )
             },
+            # Phase 143.1-04 (Component E, todo 094). Same APR key ensemble_trainer.py
+            # reads -- one flag, two consumers, so the champion/challenger switch can't
+            # drift between eligibility and the lifecycle hook's demote predicate.
+            sign_symmetric=bool(cfg.get_sync("alpha.ensemble.sign_symmetric", False)),
         )
 
 
@@ -2130,7 +2140,8 @@ def _run_lifecycle_hook(
     with write_conn.cursor() as cur:
         cur.execute(
             """
-            SELECT fis.feature_name, fis.tf, fis.regime, fis.ic_ci_lower, fis.passes_fdr,
+            SELECT fis.feature_name, fis.tf, fis.regime, fis.ic_ci_lower, fis.ic_ci_upper,
+                   fis.ic_sign, fis.passes_fdr,
                    fis.reliable, fis.n_independent, fis.feature_status_at_eval,
                    fis.ic_sharpe_hac, COALESCE(ew.weight, 0.0) AS standing_weight
             FROM feature_ic_scores fis
@@ -2164,15 +2175,44 @@ def _run_lifecycle_hook(
         return
 
     # Step 2: per-cell material-fail flag.
+    #
+    # Sign-aware (Component E, todo 094 -- BLOCKER 1, closes the third sign-asymmetric
+    # gate): under config.sign_symmetric, a cell only "fails" if its CI on its OWN side
+    # includes zero, or it fails FDR. The old unconditional `ic_ci_lower <= 0` predicate
+    # is sign-asymmetric -- it is unconditionally true for every contrarian (ic_sign=-1),
+    # since a systematically negative point estimate's CI lower bound always sits below
+    # zero, silently re-demoting every contrarian one lifecycle cycle after Component E's
+    # eligibility/weighting fix lands them in the ensemble. Flag OFF reproduces today's
+    # exact predicate (equivalence property, tested).
     material_fail_count = 0
     for cell in cell_rows:
         ic_ci_lower = cell["ic_ci_lower"]
-        failed = (ic_ci_lower is not None and ic_ci_lower <= 0) or (not cell["passes_fdr"])
+        ic_ci_upper = cell["ic_ci_upper"]
+        ic_sign = cell["ic_sign"]
+        if config.sign_symmetric:
+            failed = (
+                (ic_sign == 1 and ic_ci_lower is not None and ic_ci_lower <= 0)
+                or (ic_sign == -1 and ic_ci_upper is not None and ic_ci_upper >= 0)
+                or (not cell["passes_fdr"])
+            )
+            nearest_bound = ic_ci_lower if ic_sign == 1 else ic_ci_upper
+            # Signed margin from zero on the cell's OWN side: ic_sign * nearest_bound.
+            # For ic_sign=1 this is ic_ci_lower unchanged; for ic_sign=-1 it flips
+            # ic_ci_upper (always <= 0 for a real contrarian estimate) to a positive
+            # "how far below zero" measure -- the smallest value is always the worst
+            # cell on its own side, letting one min() rank mixed-sign cells for the
+            # same feature consistently (used by the worst_cell audit pick below).
+            signed_margin = (ic_sign * nearest_bound) if nearest_bound is not None else None
+        else:
+            failed = (ic_ci_lower is not None and ic_ci_lower <= 0) or (not cell["passes_fdr"])
+            nearest_bound = ic_ci_lower
+            signed_margin = ic_ci_lower
         material = failed and (
-            cell["standing_weight"] * abs(ic_ci_lower or 0.0) > config.decay_materiality_threshold
+            cell["standing_weight"] * abs(nearest_bound or 0.0) > config.decay_materiality_threshold
         )
         cell["_failed"] = failed
         cell["_material_fail"] = material
+        cell["_signed_margin"] = signed_margin
         if material:
             material_fail_count += 1
             ALPHA_DECAY_CELLS_FLAGGED.add(
@@ -2240,18 +2280,35 @@ def _run_lifecycle_hook(
             if demote_fraction >= demotion_fraction_floor:
                 # Representative aggregates for the ic_* audit fields (worst cell by
                 # ic_ci_lower, its own ic_sharpe_hac, summed n_independent).
+                #
+                # Sign-aware under the flag: `_signed_margin` (set in Step 2) is
+                # ic_ci_lower for ic_sign=1 and -ic_ci_upper for ic_sign=-1 -- the
+                # smallest value is always the worst cell on ITS OWN side, so one min()
+                # correctly ranks a feature's mixed-sign cells (e.g. contrarian in one
+                # regime, positive in another) without picking a positive feature's
+                # cell using a contrarian's raw ic_ci_lower (which is meaningless for
+                # a negative-full-sample-sign estimate). Flag OFF: `_signed_margin` ==
+                # `ic_ci_lower` unconditionally (equivalence property, tested).
                 worst_cell = min(
                     active_feature_cells,
-                    key=lambda c: c["ic_ci_lower"] if c["ic_ci_lower"] is not None else 0.0,
+                    key=lambda c: c["_signed_margin"] if c["_signed_margin"] is not None else 0.0,
                 )
                 ic_n = sum(c["n_independent"] for c in active_feature_cells)
+                # Sign-aware audit value: report ic_ci_upper (not ic_ci_lower) for a
+                # contrarian worst_cell under the flag -- ic_ci_lower on a persistently
+                # negative estimate is not the bound that determined "worst" here.
+                worst_cell_ic_value = (
+                    worst_cell["ic_ci_upper"]
+                    if config.sign_symmetric and worst_cell["ic_sign"] == -1
+                    else worst_cell["ic_ci_lower"]
+                )
                 transitioned = registry_svc.record_transition_sync(
                     write_conn,
                     feature_name,
                     "active",
                     "shadow_only",
                     "ic_demotion",
-                    ic_value=worst_cell["ic_ci_lower"],
+                    ic_value=worst_cell_ic_value,
                     ic_sharpe=worst_cell["ic_sharpe_hac"],
                     ic_n=ic_n,
                 )
