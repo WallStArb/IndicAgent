@@ -101,6 +101,7 @@ from src.intelligence.statistics.ic_math import (
     _vectorized_ic,
     magnitude_conditional_ic,
     sign_hit_rate,
+    update_cumulative_e_value,
     vol_normalized_return,
 )
 from src.observability.metrics import (
@@ -162,6 +163,25 @@ _CROSS_SECTIONAL_SYMBOL = "POOLED"
 # Diagnostic-only column; changing this does not affect any eligibility gate.
 _MAGNITUDE_IC_PERCENTILE = 75.0
 
+# Anytime-valid e-value pilot scope (Component C, todo 079): 5m ONLY this phase, not a
+# full rollout -- genuinely new statistical machinery for the codebase, source doc
+# explicitly cautions to pilot on one tf first (docs/research/
+# fable-2026-07-07-renaissance-layer-refinements.md §L4-1). Deliberately a hardcoded
+# scope constant, not an APR key -- this pilot's own scope decision, not a tunable
+# parameter (widening to all TFs is a future-phase code change, not a config flip).
+_E_VALUE_PILOT_TFS: frozenset[str] = frozenset({"5m"})
+
+
+def _e_value_pilot_active(tf: str) -> bool:
+    """True only for tf values in the e-value pilot's scope this phase (5m only).
+
+    Pure predicate -- guards the e-process read/update/persist block inside
+    _compute_cross_sectional_tf so every other timeframe's cumulative_e_value
+    column stays NULL/untouched, exactly as the pilot's scope requires.
+    """
+    return tf in _E_VALUE_PILOT_TFS
+
+
 # vix_z, flight_quality, yield_slope_z are daily-cadence features stored in context_features.
 # IC computation uses one observation per calendar day, not one per bar.
 # Measuring IC from feature_vectors would inflate IC via artificial autocorrelation
@@ -197,7 +217,7 @@ _INSERT_BODY = """
         bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, passes_walkforward,
         ic_sharpe, ic_sharpe_hac, ic_sharpe_n_windows, ic_sortino, ic_win_rate,
         regime_label_source, computed_at, cluster_id, feature_status_at_eval, regime_scope,
-        sign_hit_rate, magnitude_conditional_ic
+        sign_hit_rate, magnitude_conditional_ic, cumulative_e_value
     )
     VALUES (
         %(feature_name)s, %(vector_domain)s, %(symbol)s, %(tf)s, %(regime)s,
@@ -208,7 +228,7 @@ _INSERT_BODY = """
         %(ic_sharpe)s, %(ic_sharpe_hac)s, %(ic_sharpe_n_windows)s, %(ic_sortino)s, %(ic_win_rate)s,
         %(regime_label_source)s, %(computed_at)s, %(cluster_id)s,
         %(feature_status_at_eval)s, %(regime_scope)s,
-        %(sign_hit_rate)s, %(magnitude_conditional_ic)s
+        %(sign_hit_rate)s, %(magnitude_conditional_ic)s, %(cumulative_e_value)s
     )
 """
 _POOLED_INSERT_SQL = (
@@ -1036,6 +1056,10 @@ def _compute_symbol_tf(
                             "regime_scope": _resolve_regime_scope(is_pooled, cross_sectional),
                             "sign_hit_rate": _nan_to_none(sign_hit_rate_full[feat_idx]),
                             "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[feat_idx]),
+                            # e-value pilot (Component C, todo 079) is scoped to
+                            # _compute_cross_sectional_tf's tf=5m POOLED cells only --
+                            # this per-symbol path never computes it.
+                            "cumulative_e_value": None,
                         }
                     )
 
@@ -1261,6 +1285,10 @@ def _compute_symbol_tf(
                         "regime_scope": "pooled",
                         "sign_hit_rate": sign_hit_rate_val,
                         "magnitude_conditional_ic": magnitude_ic_val,
+                        # e-value pilot (Component C, todo 079) is scoped to
+                        # _compute_cross_sectional_tf's tf=5m POOLED cells only --
+                        # this daily-context-feature path never computes it.
+                        "cumulative_e_value": None,
                     }
                 )
 
@@ -1451,6 +1479,38 @@ def _compute_cross_sectional_tf(
             n_cells=len(all_cells_for_regime),
         )
         return [], {"n_committed": 0, "n_skipped": len(all_cells_for_regime)}
+
+    # e-value pilot (Component C, todo 079): tf=5m POOLED cross-sectional cells ONLY
+    # (_e_value_pilot_active gate) -- fetch this cell's prior cumulative_e_value per
+    # (feature_name, lookahead_bars), one batched query per (tf, regime_label) call
+    # rather than per-feature, so evidence compounds across corpus reruns instead of
+    # resetting each build. DISTINCT ON picks the most recent PRIOR training_window_end
+    # (strictly before this run's) per cell -- a feature/lookahead pair with no prior
+    # row (first-ever look) is absent from the dict and defaults to the neutral prior
+    # of 1.0 at the per-feature lookup site below.
+    prior_e_values: dict[tuple[str, int], float] = {}
+    if _e_value_pilot_active(tf):
+        with conn.cursor() as e_val_cur:
+            e_val_cur.execute(
+                """
+                SELECT DISTINCT ON (feature_name, lookahead_bars)
+                    feature_name, lookahead_bars, cumulative_e_value
+                FROM feature_ic_scores
+                WHERE symbol = %(symbol)s AND tf = %(tf)s AND regime = %(regime_label)s
+                  AND is_pooled = true AND training_window_end < %(training_window_end)s
+                ORDER BY feature_name, lookahead_bars, training_window_end DESC
+                """,
+                {
+                    "symbol": _CROSS_SECTIONAL_SYMBOL,
+                    "tf": tf,
+                    "regime_label": regime_label,
+                    "training_window_end": training_window_end,
+                },
+            )
+            for _feat_name, _lookahead, _cumulative in e_val_cur.fetchall():
+                if _cumulative is not None:
+                    prior_e_values[(_feat_name, _lookahead)] = float(_cumulative)
+        conn.commit()
 
     feature_cols = ", ".join(f'"fv"."{f}"' for f in _FEATURE_NAMES)
     return_cols = ", ".join(f'"fr".return_{s}' for s in _SCALES)
@@ -1710,6 +1770,22 @@ def _compute_cross_sectional_tf(
 
             ic_val = ic_full[feat_idx]
             p_val = p_full[feat_idx]
+            ic_sign_val = None if np.isnan(ic_val) else (1 if ic_val > 0 else -1)
+
+            # e-value pilot (Component C, todo 079): tf=5m POOLED cross-sectional
+            # cells ONLY. Reads this cell's prior cumulative e-value (prior_e_values,
+            # fetched once above; defaults to the neutral prior 1.0 on first look) and
+            # multiplies in this run's e-value factor -- evidence compounds across
+            # corpus reruns instead of resetting each build.
+            cumulative_e_value = (
+                update_cumulative_e_value(
+                    prior_e_values.get((feat_name, lookahead_bars), 1.0),
+                    ic_sign_val,
+                )
+                if _e_value_pilot_active(tf)
+                else None
+            )
+
             all_results.append(
                 {
                     "feature_name": feat_name,
@@ -1723,7 +1799,7 @@ def _compute_cross_sectional_tf(
                     "n_independent": int(n_valid),
                     "reliable": bool(n_valid >= min_reliable_n),
                     "ic_value": _nan_to_none(ic_val),
-                    "ic_sign": (None if np.isnan(ic_val) else (1 if ic_val > 0 else -1)),
+                    "ic_sign": ic_sign_val,
                     "p_value": _nan_to_none(p_val),
                     "ic_ci_lower": _nan_to_none(ci_lower_full[feat_idx]),
                     "ic_ci_upper": _nan_to_none(ci_upper_full[feat_idx]),
@@ -1749,6 +1825,7 @@ def _compute_cross_sectional_tf(
                     "regime_scope": "cross_sectional",
                     "sign_hit_rate": _nan_to_none(sign_hit_rate_full[feat_idx]),
                     "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[feat_idx]),
+                    "cumulative_e_value": cumulative_e_value,
                 }
             )
 
@@ -2877,6 +2954,7 @@ def main() -> None:
                     "ic_sharpe",
                     "ic_sharpe_n_windows",
                     "regime_label_source",
+                    "cumulative_e_value",
                 ],
             )
 
