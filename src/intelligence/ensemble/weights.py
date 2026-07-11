@@ -26,16 +26,35 @@ from src.intelligence.statistics.ic_math import check_condition_number
 
 
 def derive_weights(
-    ic_sharpes: np.ndarray,
+    weight_inputs: np.ndarray,
     max_weight: float,
 ) -> np.ndarray:
-    """Derive normalized feature weights from IC Sharpe values with a per-feature cap.
+    """Derive normalized feature weights from positive-magnitude-convention per-feature
+    weight inputs, with a per-feature cap.
+
+    NOTE (Component E, todo 094): despite the historical parameter name `ic_sharpes`
+    (renamed to `weight_inputs` here), this function is NOT always fed a raw IC Sharpe
+    array. Callers are responsible for arriving at a POSITIVE-MAGNITUDE-CONVENTION input
+    before calling this function -- i.e. "this feature deserves weight" must already be
+    encoded as a positive value, and sign/direction is applied separately downstream
+    (`signed_weights = weights * ic_signs` at score time). Two call sites, two different
+    positive-convention inputs:
+      - ic_proportional path: `aged_quality_weights` from compute_quality_weight(), which
+        is already sign-aware (ic_sign * nearest_ci_bound * ...) so contrarians arrive
+        here already flipped positive.
+      - mean_variance path (E2): `ic_signs * mv_raw` -- the OUTPUT of the unconstrained
+        Sigma^-1.ic_shrunk solve, signed by each feature's own ic_sign AFTER the solve
+        (never before -- see resolve_stratum_weights' BLOCKER 3 note), which similarly
+        converts genuinely-contributing features (whether contrarian or not) to positive.
 
     Parameters
     ----------
-    ic_sharpes:
-        Array of IC Sharpe values, one per feature. Non-finite values and values <= 0
-        are treated as zero (features with non-positive IC Sharpe are excluded).
+    weight_inputs:
+        Array of positive-magnitude-convention per-feature weight inputs (see above).
+        Non-finite values and values <= 0 are treated as zero and excluded -- this is a
+        real (not stale) filter: a value near/at or below zero means the caller's own
+        sign-aware framing already judged this feature not worth weighting in this run,
+        not that the function itself discriminates on a raw signed IC Sharpe.
     max_weight:
         Per-feature weight cap. Loaded from APR key alpha.ensemble.max_feature_weight.
         Excess weight is redistributed proportionally to uncapped features via iterative
@@ -45,14 +64,14 @@ def derive_weights(
     -------
     np.ndarray
         Normalized weight vector summing to 1.0 (within floating-point tolerance).
-        Returns a zero vector of the same shape if no feature has a positive IC Sharpe.
+        Returns a zero vector of the same shape if no feature has a positive weight input.
     """
-    # Zero out non-finite and non-positive IC Sharpe values
-    w = np.where(np.isfinite(ic_sharpes) & (ic_sharpes > 0), ic_sharpes, 0.0)
+    # Zero out non-finite and non-positive weight inputs (already sign-resolved by caller).
+    w = np.where(np.isfinite(weight_inputs) & (weight_inputs > 0), weight_inputs, 0.0)
 
     total = float(w.sum())
     if total < 1e-10:
-        return np.zeros_like(ic_sharpes, dtype=float)
+        return np.zeros_like(weight_inputs, dtype=float)
 
     # Normalize to sum 1
     w = w / total
@@ -77,7 +96,7 @@ def derive_weights(
     # Final renorm for floating-point safety
     s = float(w.sum())
     if s < 1e-10:
-        return np.zeros_like(ic_sharpes, dtype=float)
+        return np.zeros_like(weight_inputs, dtype=float)
     return w / s
 
 

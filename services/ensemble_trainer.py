@@ -2,8 +2,11 @@
 """Ensemble Trainer — oneshot that derives IC-weighted ensemble weights and scores ensemble alpha.
 
 Reads cross-sectional IC scores (symbol='POOLED', is_pooled=true, regime != '_pooled',
-ic_ci_lower > 0, passes_fdr=true, reliable=true, passes_walkforward=true), applies Ledoit-Wolf
-cluster deflation, and writes:
+passes_fdr=true, reliable=true, passes_walkforward=true, plus a significance clause that
+is flag-gated on alpha.ensemble.sign_symmetric -- Component E, todo 094: `ic_ci_lower > 0`
+when the flag is off (long-only, byte-identical to the pre-Component-E champion), or
+`(ic_sign=1 AND ic_ci_lower>0) OR (ic_sign=-1 AND ic_ci_upper<0)` when the flag is on --
+see `_eligibility_where()`), applies Ledoit-Wolf cluster deflation, and writes:
   - ensemble_weights: one row per (tf, regime, weight_version, feature_name), symbol='UNIVERSE'
   - ensemble_alpha:   one row per (symbol, tf, bar_ts, weight_version) via vectorized matmul
 
@@ -227,6 +230,7 @@ def resolve_stratum_weights(
     cov_matrix: np.ndarray,
     corr_matrix: np.ndarray,
     ic_shrunk: np.ndarray,
+    ic_signs: np.ndarray,
     max_feature_weight: float,
     max_cluster_corr: float,
     max_cluster_weight: float,
@@ -247,14 +251,25 @@ def resolve_stratum_weights(
         to the wrong path.
     aged_quality_weights:
         Staleness-decayed IC-Sharpe-derived quality weights, the raw input to derive_weights()
-        for the ic_proportional path (and the ic_proportional fallback path).
+        for the ic_proportional path (and the ic_proportional fallback path). Already
+        positive-magnitude convention (Component E's sign-aware compute_quality_weight).
     cov_matrix, corr_matrix:
         The Ledoit-Wolf shrunk covariance and its derived correlation matrix, already computed
         by compute_shrinkage_covariance(X) every run regardless of weight_method.
     ic_shrunk:
         Per-feature IC vector already selected for this stratum (aliased consistently with
         E1's alpha.ensemble.ic_input resolution -- the same array select_features_per_stratum
-        used as 'ic_sharpe'), fed to mean_variance_weights() as its ic_shrunk argument.
+        used as 'ic_sharpe'), fed to mean_variance_weights() UNCHANGED as its ic_shrunk
+        argument -- never pre-multiplied by ic_signs (BLOCKER 3: the mathematically correct
+        combination signs the OUTPUT of Sigma^-1.mu, not the input mu itself; see ic_signs).
+    ic_signs:
+        Per-feature full-sample IC sign (+1/-1), shape matching ic_shrunk. Applied to the
+        OUTPUT of mean_variance_weights() (`ic_signs * mv_raw`) before derive_weights, converting
+        the natural unconstrained-MV solution (which may carry negative entries for features
+        that get combination-shorted, independent of their own sign) into the positive-magnitude
+        convention derive_weights' `> 0` filter expects -- mirrors how aged_quality_weights is
+        already positive-convention for the ic_proportional path. NOT used by the ic_proportional
+        branch (aged_quality_weights is pre-signed via compute_quality_weight already).
     max_feature_weight, max_cluster_corr, max_cluster_weight, mv_condition_max:
         APR-backed thresholds (EnsembleConfig fields) passed through unchanged.
 
@@ -262,7 +277,9 @@ def resolve_stratum_weights(
     -------
     StratumWeightResult
         raw_weights: pre-cap/pre-deflation diagnostic weight vector (stored as the
-            'raw_weight' column regardless of method).
+            'raw_weight' column regardless of method). For the mean_variance success path
+            this is the UNSIGNED mv_raw output (the pure Sigma^-1.ic_shrunk solve) -- the
+            sign is applied only on the path into derive_weights, not stored back here.
         weights: final post-cap weight vector used for scoring.
         method_used: 'ic_proportional' | 'mean_variance' | 'mean_variance_fallback'.
         condition_number: the covariance condition number when the mean_variance path was
@@ -276,15 +293,20 @@ def resolve_stratum_weights(
         return StratumWeightResult(raw_weights, weights, "ic_proportional", None)
 
     if weight_method == "mean_variance":
+        # ic_shrunk passed UNCHANGED (BLOCKER 3): Sigma^-1.(s.mu) != s.(Sigma^-1.mu) once a
+        # contrarian is correlated with other selected features -- pre-signing the INPUT is
+        # mathematically wrong. The mv_raw solve stays sign-naive; sign is applied to its
+        # OUTPUT below, once, before derive_weights.
         mv_raw, cond = mean_variance_weights(cov_matrix, ic_shrunk, mv_condition_max)
         if mv_raw is not None:
             # Success path (D-08): reuse derive_weights' per-feature cap + filter logic
-            # on the raw MV output, unchanged from the ic_proportional path. Cap/sign are
-            # NOT folded into mean_variance_weights() itself -- they run here, identically
-            # to how they run on aged_quality_weights for the ic_proportional path.
+            # on the SIGNED MV output, unchanged in spirit from the ic_proportional path
+            # (whose aged_quality_weights input is already positive-convention). Cap/sign
+            # are NOT folded into mean_variance_weights() itself -- they run here.
             # cluster_deflate_weights is deliberately SKIPPED: Sigma^-1.IC already
             # decorrelates continuously, so binary cluster capping would double-penalize.
-            weights = derive_weights(mv_raw, max_feature_weight)
+            mv_raw_signed = ic_signs * mv_raw
+            weights = derive_weights(mv_raw_signed, max_feature_weight)
             return StratumWeightResult(mv_raw, weights, "mean_variance", cond)
         # Ill-conditioned Sigma (Pitfall 3): fall back to the proven cluster-deflation
         # path rather than emitting extreme offsetting weights from an unreliable Sigma^-1
@@ -339,8 +361,9 @@ def _meta_eligible(
 
     Denominator (fdr_pass_rate) is restricted to cross-sectional cells that pass all
     ensemble eligibility filters (symbol='POOLED', is_pooled=true, regime != '_pooled',
-    ic_ci_lower > 0, reliable=true, ic_sharpe_hac IS NOT NULL, passes_walkforward=true) —
-    the same population consumed by _process_stratum.
+    reliable=true, ic_sharpe_hac IS NOT NULL, passes_walkforward=true, plus the
+    flag-gated significance clause -- see `_eligibility_where()`) — the same population
+    consumed by _process_stratum.
     """
     result: dict[str, set[str]] = {}
     for r in fdr_pass_rows:
@@ -841,13 +864,16 @@ class EnsembleTrainer(BaseBatch):
         # (Sigma^-1.ic_shrunk, condition-number gated, cluster deflation skipped on
         # success). ic_sharpes is the ic_input-resolved per-feature IC vector already
         # selected for this stratum (E1, D-05) -- the same array select_features_per_stratum
-        # used as "ic_sharpe".
+        # used as "ic_sharpe". ic_signs is threaded through for the E2 output-sign fix
+        # (BLOCKER 3, Component E) -- the mean_variance branch signs mv_raw's OUTPUT,
+        # never ic_sharpes/ic_shrunk's input.
         weight_result = resolve_stratum_weights(
             config.weight_method,
             aged_quality_weights,
             cov_matrix,
             corr_matrix,
             ic_sharpes,
+            ic_signs,
             config.max_feature_weight,
             config.max_cluster_corr,
             config.max_cluster_weight,

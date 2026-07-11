@@ -63,9 +63,10 @@ class TestResolveStratumWeightsBranchSelection:
         is NEVER called on the success path (D-08: Sigma^-1.IC already decorrelates
         continuously; binary cluster capping would double-penalize)."""
         cov, corr, ic_shrunk, aged = _well_conditioned_inputs()
+        ic_signs = np.ones_like(ic_shrunk)
         with patch("services.ensemble_trainer.cluster_deflate_weights") as mock_deflate:
             result = resolve_stratum_weights(
-                "mean_variance", aged, cov, corr, ic_shrunk, 0.20, 0.80, 0.40, 1000.0
+                "mean_variance", aged, cov, corr, ic_shrunk, ic_signs, 0.20, 0.80, 0.40, 1000.0
             )
         assert result.method_used == "mean_variance"
         assert result.condition_number is not None
@@ -79,16 +80,17 @@ class TestResolveStratumWeightsBranchSelection:
         ic_proportional method uses (RESEARCH.md Pitfall 3 hard fallback requirement).
         This test fails if the fallback branch were removed (regression guard)."""
         cov, corr, ic_shrunk, aged = _ill_conditioned_inputs()
+        ic_signs = np.ones_like(ic_shrunk)
 
         result = resolve_stratum_weights(
-            "mean_variance", aged, cov, corr, ic_shrunk, 0.20, 0.80, 0.40, 1000.0
+            "mean_variance", aged, cov, corr, ic_shrunk, ic_signs, 0.20, 0.80, 0.40, 1000.0
         )
         assert result.method_used == "mean_variance_fallback"
         assert result.condition_number is not None
         assert result.condition_number > 1000.0
 
         expected = resolve_stratum_weights(
-            "ic_proportional", aged, cov, corr, ic_shrunk, 0.20, 0.80, 0.40, 1000.0
+            "ic_proportional", aged, cov, corr, ic_shrunk, ic_signs, 0.20, 0.80, 0.40, 1000.0
         )
         np.testing.assert_allclose(result.weights, expected.weights)
         np.testing.assert_allclose(result.raw_weights, expected.raw_weights)
@@ -97,12 +99,13 @@ class TestResolveStratumWeightsBranchSelection:
         """Default method routes through derive_weights -> cluster_deflate_weights,
         calling the real cluster_deflate_weights exactly once (v1 path unchanged)."""
         cov, corr, ic_shrunk, aged = _well_conditioned_inputs()
+        ic_signs = np.ones_like(ic_shrunk)
         with patch(
             "services.ensemble_trainer.cluster_deflate_weights",
             wraps=cluster_deflate_weights,
         ) as mock_deflate:
             result = resolve_stratum_weights(
-                "ic_proportional", aged, cov, corr, ic_shrunk, 0.20, 0.80, 0.40, 1000.0
+                "ic_proportional", aged, cov, corr, ic_shrunk, ic_signs, 0.20, 0.80, 0.40, 1000.0
             )
         assert result.method_used == "ic_proportional"
         assert result.condition_number is None
@@ -112,9 +115,10 @@ class TestResolveStratumWeightsBranchSelection:
         """Fail loud on an unrecognized weight_method -- never silently default to the
         wrong path (regression guard)."""
         cov, corr, ic_shrunk, aged = _well_conditioned_inputs()
+        ic_signs = np.ones_like(ic_shrunk)
         with pytest.raises(ValueError, match="Unknown alpha.ensemble.weight_method value"):
             resolve_stratum_weights(
-                "not_a_real_method", aged, cov, corr, ic_shrunk, 0.20, 0.80, 0.40, 1000.0
+                "not_a_real_method", aged, cov, corr, ic_shrunk, ic_signs, 0.20, 0.80, 0.40, 1000.0
             )
 
     def test_cap_applied_after_mean_variance(self) -> None:
@@ -128,6 +132,7 @@ class TestResolveStratumWeightsBranchSelection:
         cov = np.diag([1.0, 10.0, 10.0, 10.0, 10.0, 10.0])
         corr = np.eye(6)
         ic_shrunk = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        ic_signs = np.ones(6)
         aged = np.ones(6)
         max_weight = 0.20
 
@@ -136,10 +141,93 @@ class TestResolveStratumWeightsBranchSelection:
         assert raw[0] > max_weight  # precondition: raw output is genuinely uncapped
 
         result = resolve_stratum_weights(
-            "mean_variance", aged, cov, corr, ic_shrunk, max_weight, 0.80, 0.40, 1000.0
+            "mean_variance", aged, cov, corr, ic_shrunk, ic_signs, max_weight, 0.80, 0.40, 1000.0
         )
         assert result.method_used == "mean_variance"
         assert float(result.weights.max()) <= max_weight + 1e-9
+
+
+# ---------------------------------------------------------------------------
+# E2 sign-path correctness (Component E, todo 094, BLOCKER 3): the mathematically
+# correct combination signs the OUTPUT of Sigma^-1.mu, not the input mu itself --
+# Sigma^-1.(s.mu) != s.(Sigma^-1.mu) once a contrarian is non-trivially correlated
+# with another selected feature (the sign matrix and Sigma^-1 do not commute off
+# the diagonal).
+# ---------------------------------------------------------------------------
+
+
+class TestE2SignPathCorrectness:
+    def _correlated_contrarian_inputs(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """2 features, |corr|=0.7 (non-trivial), feature 1 is a contrarian (ic_sign=-1)
+        with a smaller-magnitude signed IC than feature 0's positive IC -- chosen so the
+        wrong input-signed formula flips feature 1 negative (re-zeroed by derive_weights'
+        >0 filter) while the correct output-signed formula keeps it positive."""
+        cov = np.array([[1.0, 0.7], [0.7, 1.0]])
+        ic_shrunk = np.array([0.8, -0.3])  # signed: feature0 positive, feature1 contrarian
+        ic_signs = np.array([1.0, -1.0])
+        return cov, ic_shrunk, ic_signs
+
+    def test_input_signed_and_output_signed_formulas_diverge(self) -> None:
+        """Discriminator: the WRONG formula Sigma^-1.(s.mu) and the CORRECT formula
+        s.(Sigma^-1.mu) must produce genuinely different vectors on a correlated
+        contrarian input -- if they matched, this test (and BLOCKER 3) would be moot."""
+        cov, ic_shrunk, ic_signs = self._correlated_contrarian_inputs()
+
+        # WRONG: sign applied to the INPUT before the solve.
+        wrong_raw, _ = mean_variance_weights(cov, ic_signs * ic_shrunk, condition_max=1000.0)
+        # CORRECT: sign applied to the OUTPUT of the unmodified solve.
+        mv_raw, _ = mean_variance_weights(cov, ic_shrunk, condition_max=1000.0)
+        correct_signed = ic_signs * mv_raw
+
+        assert wrong_raw is not None
+        assert mv_raw is not None
+        assert not np.allclose(wrong_raw, correct_signed), (
+            "Input-signed and output-signed formulas must diverge on a correlated "
+            "contrarian input -- Sigma^-1 and the sign matrix do not commute off-diagonal."
+        )
+        # The wrong formula re-zeros the contrarian (negative entry survives into
+        # derive_weights' >0 filter); the correct formula does not.
+        assert wrong_raw[1] < 0.0, "wrong (input-signed) formula flips the contrarian negative"
+        assert correct_signed[1] > 0.0, "correct (output-signed) formula keeps contrarian positive"
+
+    def test_resolve_stratum_weights_matches_output_signed_not_input_signed(self) -> None:
+        """resolve_stratum_weights' actual implementation must match the CORRECT
+        output-signed result and the contrarian must survive into the final weights
+        (nonzero weight), not be silently re-zeroed by the wrong input-signed path."""
+        cov, ic_shrunk, ic_signs = self._correlated_contrarian_inputs()
+        corr = cov.copy()  # already a correlation matrix here (unit diagonal)
+        aged_quality_weights = np.array([0.8, 0.3])  # positive-convention, unused on success path
+
+        result = resolve_stratum_weights(
+            "mean_variance",
+            aged_quality_weights,
+            cov,
+            corr,
+            ic_shrunk,
+            ic_signs,
+            0.90,  # max_feature_weight -- generous, not the thing under test here
+            0.80,
+            0.40,
+            1000.0,
+        )
+        assert result.method_used == "mean_variance"
+        # The contrarian (index 1) must have survived into the final weight vector.
+        assert result.weights[1] > 0.0, (
+            "Contrarian feature was re-zeroed -- resolve_stratum_weights is using the "
+            "wrong input-signed formula (BLOCKER 3 regression)"
+        )
+
+    def test_equivalence_all_positive_signs_output_signing_is_a_no_op(self) -> None:
+        """When every ic_sign is +1, ic_signs * mv_raw == mv_raw exactly -- the E2 path
+        is byte-for-byte unchanged from its pre-Component-E behavior for the all-positive
+        (pre-Component-E champion) case."""
+        cov = np.array([[1.0, 0.3], [0.3, 1.0]])
+        ic_shrunk = np.array([0.6, 0.4])
+        ic_signs = np.ones_like(ic_shrunk)
+
+        mv_raw, _ = mean_variance_weights(cov, ic_shrunk, condition_max=1000.0)
+        assert mv_raw is not None
+        np.testing.assert_array_equal(ic_signs * mv_raw, mv_raw)
 
 
 # ---------------------------------------------------------------------------
