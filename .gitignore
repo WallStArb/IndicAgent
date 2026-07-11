@@ -265,11 +265,6 @@ test-results/
 .gemini/
 .mcp.json
 
-# Archive directory - never commit archived/deprecated code (docs/*/archive/ are versioned
-# design history, not code archives, and must NOT match this - scoped precisely, not "archive/")
-src/intelligence/archive/
-scripts/infrastructure/archive/
-
 # Intelligence framework cache and temporary files
 src/intelligence/.cache/
 *.intelligence_cache

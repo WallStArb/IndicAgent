@@ -33,17 +33,29 @@ real value, not urgent. P3 = hygiene/docs/process, opportunistic.
 | Todo | Gap |
 |---|---|
 | [091](pending/091-fisher-z-ci-empirical-null-miscalibration.md) | Fisher-z analytic CI empirically miscalibrated — 38% SUSPECT rate across strata; this is the exact mechanism behind every BH-FDR/EIC-04 gate in the stack |
+| [094](pending/094-alpha-events-long-short-imbalance.md) | **Root cause corrected 2026-07-11** (Fable review, verified against live DB): not a floor-formula issue — two sign-asymmetric gates (`ic_ci_lower > 0` eligibility filter, `fold_ic > 0` walk-forward criterion) exclude 100% of contrarian features before weighting ever runs. Confirmed: 1,527 eligible rows, zero at `ic_sign=-1`. Requires a full `ic_engine` re-run + eligibility/quality-weight/E2-sign-path redesign, not a small patch — effort raised M-L. Full strategy: `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`. |
 
 **Closed 2026-07-10** (moved to `completed/`, see each file's resolution note): 051 (backfill
 IBKR-disconnect silent skip), 061 (`feature_vector_pipeline` DDL in hot path), 044 (`indicagent-tempo`
-crash-loop). 091 is now the sole remaining P0 — it needs its own dedicated confirmation-run pass
-(see the todo for scope), not a quick fix.
+crash-loop).
+
+**Explicit sequencing decision (2026-07-10, project owner confirmed; reaffirmed 2026-07-11 after
+094's root cause was corrected — see `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`
+for the full rationale):** 093 (`alpha_frames` backfill, in progress) → **091** → **094** (now
+including its E2 sign-path fix and a mandatory shadow-mode validation before promotion) → re-run
+the E1-vs-E2 A/B judgment (the prior 20/20 result was all-long vs all-long, doesn't carry forward)
+→ 096 (can run in parallel, read-only) → 088 (deliberately last). Rationale: 091 and 094 both read
+`ic_ci_lower`/`ic_ci_upper` directly, and 094 independently requires a full `ic_engine` re-run — 
+sequencing 091 first means one corpus re-run serves both fixes instead of two. Do not reorder
+without re-confirming with the project owner.
 
 ## P1 — High value, quick, fully unblocked
 
 | Todo | Why now |
 |---|---|
 | [093](pending/093-alpha-frames-backfill.md) | `alpha_frames` backfill — Phase 142B's writer/tracker shipped but the table still has 0 rows; the standing concrete next step, not gated on anything |
+| [096](pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md) | Check whether frame `max_hold_bars` is commensurate with the `lookahead_bars` each feature's IC was actually selected at — could independently explain todo 093's 77%-timeout pattern; read-only, can run in parallel with everything else |
+| [095](pending/095-migrations-directory-split-collision.md) | `db/migrations/` vs `production/migrations/` — 3 docs claim the former is canonical, reality is the opposite (213 files vs 3, latter stale 34+ days); confirmed migration-number collisions (120/121); fresh `infrastructure_db_setup.sh` run likely fails on a raw pg_dump snapshot colliding with 213 already-applied incremental migrations |
 | [068](pending/068-canary-predictors-integrity-check.md) | Cheapest integrity purchase available — negative-control predictors, zero new services, gate: none |
 | [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09 |
 | [072](pending/072-crowding-proxy-regression.md) | Alpha overlap with public-factor signals — runs against data that exists today, no dependency |
@@ -51,6 +63,7 @@ crash-loop). 091 is now the sole remaining P0 — it needs its own dedicated con
 | [079](pending/079-anytime-valid-e-values-corpus-reruns.md) | Anytime-valid inference pilot (one tf) — new statistical primitive, deliberately staged small |
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |
 | [090](pending/090-ic-decomposition-hit-rate-magnitude.md) | Hit-rate × magnitude decomposition — cheap diagnostic columns, no gate change |
+| [097](pending/097-vol-normalized-return-target-pooled-ic.md) | Vol-normalized return target for POOLED-strata IC — split from todo 077's L3-1, 2026-07-11; folded into Phase 143.1 (Component F) as an explicit A/B, not a silent swap |
 | [092](pending/092-equity-regime-model-threshold-calibration.md) | Empirical threshold calibration for regime-model vix/breadth cuts — flagged 2026-07-09 as a live-path suspect behind the extreme regime-conditional IC values on the current leaderboard |
 | [058](pending/058-concept-registry-mvp-seed-ensemble-strategy.md) | Concept registry MVP — build trigger already fired (Phase 142B.1 complete) |
 | [054](pending/054-shadow-alpha-events-monitoring.md) | Shadow alpha_events monitoring — prevents delayed detection of feature decay/threshold bugs |

@@ -1224,6 +1224,99 @@ has operated ≥ 30 days.
 
 ---
 
+### Phase 143.1: Measurement and Eligibility Integrity (INSERTED)
+
+**Goal:** Fix two confirmed defects in the alpha measurement/scoring chain before Phase 144's
+evidence is re-measured on top of it, batching in three cheap, already-specced diagnostics plus
+one cheap, already-specced measurement improvement (Component F, added 2026-07-11) into the same
+corpus re-run per the project's own batching doctrine (`docs/research/
+fable-2026-07-07-renaissance-layer-refinements.md` §12: "the v3.15 batched rerun is the natural
+landing window for everything measurement-shaped... running them piecemeal burns rerun cycles").
+Full design worked out via a completed `superpowers:brainstorming` session (2026-07-11) and an
+independent Fable architectural review verified against the live DB — see
+`docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md` for the sequencing rationale
+this phase implements.
+
+**Component A — Fisher-z CI bootstrap fix (todo 091, P0).** The analytic Fisher-z CI used by
+every downstream gate (BH-FDR, EIC-04, walk-forward) is empirically miscalibrated — a 66-cell
+circular-shift permutation diagnostic found 38% SUSPECT (`docs/plans/
+2026-07-09-ic-null-calibration-design.md`). Fix: implement circular block bootstrap correctly in
+`src/intelligence/statistics/ic_math.py` (the old bootstrap had a documented pre-ranking bug —
+resampled pre-ranked values instead of raw observations re-ranked per-sample; reuse the correct
+pattern already proven in `_circular_shift_null`). Full corpus-wide replacement of `_fisher_z_ci`
+as production CI — not targeted/boundary-only (targeting via the CI suspected of being wrong to
+decide which cells get bootstrap treatment is circular; decided explicitly during brainstorming).
+Gives the dead `alpha.ic.bootstrap_seed`/`bootstrap_resamples`/`bootstrap_block_size.*` APR keys
+their first real reader. Staged validation: new implementation must agree with the existing
+66-cell diagnostic's empirical null before any corpus-wide run.
+
+**Component B — IC decomposition columns (todo 090).** `sign_hit_rate` and magnitude-conditional
+IC as new `feature_ic_scores` diagnostic columns (no gate change). Source: refinements doc §L4-4.
+
+**Component C — Anytime-valid e-values pilot (todo 079, tf=5m only).** Per-cell e-process
+(likelihood-ratio e-value on IC sign) persisted across corpus reruns — evidence compounds instead
+of resetting each run. Source: refinements doc §L4-1. Self-verification requires Component D.
+
+**Component D — Canary predictors (todo 068, folded in as Component C's dependency).** 5-10
+`feature_registry` rows flagged `is_control=true` (pure-noise RNG columns, one acausal
+lookahead-leakage placebo, one degenerate/constant column) + one orchestrator assertion: any
+control feature clearing `ic_ci_lower > 0 AND passes_fdr` fails the corpus run loudly.
+
+**Component E — Sign-symmetric ensemble eligibility redesign (todo 094, P0, root cause confirmed
+2026-07-11 and independently verified against the live DB).** `alpha_events` is 99.99% long-only
+(11.81M long vs 1,479 short) because two sign-asymmetric gates — `ic_ci_lower > 0` in
+`services/ensemble_trainer.py`'s `_ELIGIBILITY_BASE_WHERE`, and a `fold_ic > 0` walk-forward
+criterion in `services/ic_engine.py` — exclude 100% of contrarian (negative-IC) features before
+they ever reach ensemble weighting. Verified: 1,527 eligible rows, zero at `ic_sign=-1`. The
+existing `ic_signs` sign-correction mechanism in `compute_alpha_score()` has never fired — dead
+code. Fix: redesign eligibility and walk-forward criteria to be sign-aware (`ic_sign * IC` framing
+throughout), redesign `feature_selector.py`'s `compute_quality_weight()` to preserve magnitude on
+the negative side without a naive `abs()` (an earlier `abs()`-based fix was reviewed and rejected
+— it would misapply magnitude weighting to a different population and up-weight decayed signals
+in the wrong direction), and fix a latent bug where `mean_variance_weights()` (the E2 path) would
+silently re-exclude contrarian features downstream even after the main eligibility fix. Requires
+mandatory shadow-mode validation (new `weight_version`, parallel scoring, frames + FRAME-04
+evaluation) before promotion — this changes champion scoring behavior for what will become the
+owner's live trading capital. Requires re-running the E1-vs-E2 A/B judgment afterward (the prior
+20/20 E1-win result was all-long vs all-long, doesn't carry forward to a sign-symmetric universe).
+
+**Component F — Vol-normalized return target for POOLED-strata IC (todo 097, split from todo
+077's L3-1, added 2026-07-11).** `return_x / trailing_sigma(symbol)` as an alternative to raw
+return for POOLED-strata measurement, where raw-return ranks are currently dominated by whichever
+symbols happen to be running hot on a given bar — a real bias against the ensemble's exclusively-
+POOLED training population (`ensemble_trainer.py:317,430,469,540`). Cheap (join + divide inside
+`ic_engine`'s existing corpus load, no migration), unblocked today, rides the same corpus re-run
+A and E already require. **Validated as an explicit A/B, not a silent swap:** re-run POOLED
+strata with both raw and vol-normalized targets and compare qualifying-feature rankings directly
+— three simultaneous changes to the same `ic_ci_lower`/`ic_ci_upper` numbers (Fisher-z CI,
+sign-symmetric eligibility, and now the return target itself) would confound attribution if any
+landed as a silent replacement rather than a measured comparison. If rankings are materially
+identical to the raw-return baseline, retire the transform rather than keeping it on the strength
+of theory alone.
+
+**Why these six components share one phase:** Components A, E, and F all read or directly affect
+`ic_ci_lower`/`ic_ci_upper` and each independently requires a full `ic_engine` corpus re-run —
+sequencing them together means engineering effort (and re-run wall-clock) is spent once. Contrast
+with todo 073 (cross-sectional relative-value feature family) and todo 077's remaining L3-2/L3-4
+scope, which need new schema/DAG steps or a separate phase's outputs (Phase 145's betas) and
+correctly stay deferred toward the larger v3.15/Phase 150 batch instead of folding in here.
+
+**Requirements:** TBD — run `/gsd-plan-phase 143.1` to break into concrete plans.
+**Depends on:** Phase 143 (complete). Soft dependency on todo 093 (`alpha_frames` backfill)
+being far enough along to provide a pre-fix baseline for comparison — not a hard blocker.
+**Blocks:** Phase 144 — its own evidence needs re-measuring against a corpus produced by this
+phase's corrected measurement pipeline.
+**Source todos** (reference, don't duplicate): `.planning/todos/pending/091-fisher-z-ci-empirical-
+null-miscalibration.md`, `094-alpha-events-long-short-imbalance.md`,
+`090-ic-decomposition-hit-rate-magnitude.md`, `079-anytime-valid-e-values-corpus-reruns.md`,
+`068-canary-predictors-integrity-check.md`, `097-vol-normalized-return-target-pooled-ic.md`.
+Related, not gated on this phase:
+`096-frame-hold-horizon-vs-feature-lookahead-mismatch.md` (read-only, can run in parallel).
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 143.1 to break down)
+
 ### Phase 146: I7 Alpha Scorer Transition 📋 PLANNED (Conditional on CORPUS-07)
 
 **Conditional gate:** Phase 146 does not begin until Phase 141 CORPUS-07 is complete and evaluated. CORPUS-07 maps each I7 plugin to its constituent `feature_vectors` dimensions and determines whether the plugin introduces information not captured in the 54 atomic features. If CORPUS-07 shows ≥ 80% of plugins are fully captured (no marginal IC beyond existing features), Phase 146 scope collapses to retirement-only — no conversion infrastructure is built. Only build the alpha-scorer conversion layer if CORPUS-07 reveals material uncaptured information that justifies the added complexity.
@@ -1318,6 +1411,16 @@ is built on top of them. Per `docs/research/intel-case-substrate.md`: *"this
 substrate must not be built on strata suspected of being wrong — retrieval hard-filters on
 regime labels, and re-embedding after the fact is prohibitively expensive."* This is a hard
 prerequisite for Phase 148, not a parallel hardening track.
+
+**New hard prerequisite, added 2026-07-11: Phase 143.1 (Measurement and Eligibility Integrity)
+must complete first.** Phase 144's evidence (regime-conditional IC separation, per todo 026's
+Step 1 gate below) needs to be re-measured against a corpus produced by a corrected measurement
+pipeline — Phase 143.1 fixes a confirmed Fisher-z CI miscalibration and a confirmed sign-symmetry
+bug that excludes all contrarian features from ensemble eligibility, both of which directly
+affect the `ic_ci_lower`/`ic_ci_upper` values any regime-separation analysis here would read.
+This is a *separate, earlier* `ic_engine` re-run from the one described immediately below for
+Phase 144's own batch — not the same pass. See Phase 143.1's entry and
+`docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md` for detail.
 
 **Batched into one `ic_engine` re-run** (topdown D5): Phase 144 (`regime_group`) + todo 026
 P2b/P2c/P3 (remaining HMM regime audit items) + todo 041 (tag exposure-vs-sensitivity taxonomy

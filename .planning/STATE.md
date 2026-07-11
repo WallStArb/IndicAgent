@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: Phase 143 complete
-last_updated: "2026-07-10T13:47:45.805Z"
+last_updated: "2026-07-11T11:42:46.263Z"
 progress:
-  total_phases: 11
+  total_phases: 10
   completed_phases: 6
   total_plans: 24
   completed_plans: 24
-  percent: 55
+  percent: 60
 ---
 
 # Project State
@@ -142,3 +142,4 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 - 2026-07-04: Deep-dive on EIC-04's FAIL verdict found the "data starvation, expect it to resolve with accumulation" framing (ROADMAP.md Phase 142A verdict log, 2026-07-03) was only partly right — see the 2026-07-04 correction entry in that same log for the full breakdown. Summary: 15m is at its old depth ceiling (fixed by the in-progress 20yr backfill, not by waiting); 1h/1d were simply never trained despite already-qualifying features (an unexercised pipeline path — `ensemble_trainer.py` manifest shows only one run ever, 2026-07-01, 5m/15m only); the one well-powered cell we do have (`POOLED`/5m/`high_bear`) is a genuine null, not underpowered; and the gate script itself unweighted-averages `POOLED` with 49 per-symbol cells. Full remediation plan (backfill to 20yr for all 80 active equity instruments, including 22 never-before-processed symbols, then full corpus re-run, then re-run EIC-04/EIC-05, then the still-unexecuted 142B.1 E1/E2 judgment run) is at `/home/bg/.claude/plans/should-we-back-fill-nested-peacock.md` — in progress as of this update, and now the critical path for unblocking Phase 142B.
 - 2026-07-02: `.planning/research/2026-07-02-v3-topdown-architecture.md` proposes a `StratificationDimension` contract to unify the two live regime systems (per-symbol HMM `regime_writer.py`, cross-sectional `equity_regime_model.py`) as part of a new milestone "v3.15 Conditioning & Identity Foundation," sequenced between v3.1 and v3.2 (AnalogEngine). Explicitly does NOT block or change Phase 142B.1's E1→E2→E3→E4 order — E1/E2 only consume existing regime labels as an opaque stratification key. No code changes intended before that milestone is actually planned.
 - Phase 142.5 inserted after Phase 142B.1: Renaissance Primitives - Add ~83 foundational primitives to Feature Factory. Planned 2026-07-06 with 7 plans (00-06). Corpus backfill and IC evaluation deferred to next corpus run (before 142B execution). Verification found 8 price-volume interaction primitives that Plan 06 creates schema for but no plan implements — left as-is per user decision. **Correction (2026-07-06, same day): "left as-is per user decision" was wrong — no CONTEXT.md/discuss-phase happened for this phase, so there was no user decision; this was an unresolved plan-checker BLOCKER. Two independent cross-AI reviews (142.5-REVIEWS.md) and a re-run plan-checker confirmed the gap and it was fixed via a targeted replan: new Plan 05.5 implements all 8 interaction primitives end-to-end. Also fixed in the same replan: a cold-start crash in Plans 01-04 (`_cold_start_vector()` never updated for their new fields), `feature_registry` never seeded with the new rows, `_REGISTRY_ROW_COUNT` stuck at 126, migration misnumbered 177 (now 206, avoiding collision with Phase 143's already-planned 202-205), and undocumented scope gaps (Open-to-Close Split, month_sin/cos — now implemented; Cross-TF Divergences — explicitly deferred, todo 066). Final reconciled count: 91 new primitives, 152 total fields (61 baseline + 91), across 8 plans (00-06 + 05.5). Plan-checker re-verified: 0 blockers.**
+- Phase 143.1 inserted after Phase 143: Measurement and Eligibility Integrity - Fisher-z CI bootstrap fix + IC decomposition + e-values pilot + canary predictors + sign-symmetric ensemble eligibility redesign; hard prerequisite for Phase 144 (URGENT)

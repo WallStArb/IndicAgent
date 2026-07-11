@@ -41,7 +41,8 @@ from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# frame_id namespace — deterministic uuid5 generation (per migrate_signal_ledger.py)
+# frame_id namespace — deterministic uuid5 generation (see git history for the
+# original signal_ledger migration that established this convention, Phase 130)
 # ---------------------------------------------------------------------------
 
 _FRAME_ID_NS = uuid.NAMESPACE_DNS
