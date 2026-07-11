@@ -1301,7 +1301,7 @@ with todo 073 (cross-sectional relative-value feature family) and todo 077's rem
 scope, which need new schema/DAG steps or a separate phase's outputs (Phase 145's betas) and
 correctly stay deferred toward the larger v3.15/Phase 150 batch instead of folding in here.
 
-**Requirements:** TBD — run `/gsd-plan-phase 143.1` to break into concrete plans.
+**Requirements:** A (Fisher-z->bootstrap CI), B (IC decomposition columns), C (e-values pilot, 5m), D (canary predictors), E (sign-symmetric eligibility), F (vol-normalized POOLED target) — used as pseudo-IDs (no REQUIREMENTS.md in this project). Coverage: A->01/07, B->05/07, C->06/07, D->02/07, E->04/08, F->03/07.
 **Depends on:** Phase 143 (complete). Soft dependency on todo 093 (`alpha_frames` backfill)
 being far enough along to provide a pre-fix baseline for comparison — not a hard blocker.
 **Blocks:** Phase 144 — its own evidence needs re-measuring against a corpus produced by this
@@ -1312,10 +1312,17 @@ null-miscalibration.md`, `094-alpha-events-long-short-imbalance.md`,
 `068-canary-predictors-integrity-check.md`, `097-vol-normalized-return-target-pooled-ic.md`.
 Related, not gated on this phase:
 `096-frame-hold-horizon-vs-feature-lookahead-mismatch.md` (read-only, can run in parallel).
-**Plans:** 0 plans
+**Plans:** 8 plans in 7 waves
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 143.1 to break down)
+- [ ] 143.1-01-PLAN.md — Component A: Fisher-z→circular-block-bootstrap CI (ic_math + 3 ic_engine call sites, APR reactivation, staged-validation gate) [Wave 1]
+- [ ] 143.1-02-PLAN.md — Component D: canary predictors (real FeatureVector fields, migration, loud integrity assertion) [Wave 1]
+- [ ] 143.1-03-PLAN.md — Component F: vol-normalized POOLED return target, explicit A/B [Wave 2]
+- [ ] 143.1-04-PLAN.md — Component E: sign-symmetric eligibility (3 walk-forward blocks incl. cross-sectional, Gate 1, quality weight, E2 sign-path) [Wave 3]
+- [ ] 143.1-05-PLAN.md — Component B: IC decomposition columns (sign_hit_rate, magnitude-conditional IC) [Wave 4]
+- [ ] 143.1-06-PLAN.md — Component C: anytime-valid e-values pilot, 5m only [Wave 5]
+- [ ] 143.1-07-PLAN.md — Single full-pipeline corpus re-run from Step 1 + A/B/C/D/F validation [Wave 6]
+- [ ] 143.1-08-PLAN.md — Component E shadow-mode validation + E1-vs-E2 A/B re-run [Wave 7]
 
 ### Phase 146: I7 Alpha Scorer Transition 📋 PLANNED (Conditional on CORPUS-07)
 
