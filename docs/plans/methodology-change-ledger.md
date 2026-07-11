@@ -259,3 +259,52 @@ last month's weights is a silent methodology choice too.
   expectation-aware/false-halt-aware design was decided from first principles (BH-FDR's
   known false-discovery budget) and locked in 143.1-CONTEXT.md/RESEARCH.md before this
   plan's own execution began.
+
+### E8 — 2026-07-11: Vol-normalized POOLED-strata IC target A/B design pre-committed before the full-corpus verdict (Component F, todo 097, Phase 143.1-03)
+- **Observed first:** nothing definitive at full-corpus scale — this entry records the A/B
+  DESIGN and a bounded diagnostic-sample preview, not the corpus-wide verdict. The
+  ensemble trains exclusively on `symbol='POOLED'` strata (`ensemble_trainer.py` lines
+  317, 430-431, 469, 540); raw-return IC ranks on POOLED are dominated by whichever
+  symbols are running hot on a given bar — a real, previously unmeasured bias against the
+  population the ensemble actually trains on.
+- **Changed:** added `vol_normalized_return()` (`src/intelligence/statistics/ic_math.py`)
+  — `return_x / true_range_pct`, epsilon-guarded matching `_ret_vol_ratio()`'s `eps=1e-10`
+  convention — and `_cross_sectional_vol_normalized_target()`
+  (`services/ic_engine.py`, co-located with `_compute_cross_sectional_tf`), reachable
+  from the exact `X_sub`/`valid_mask`/`returns_scale` arrays that function already
+  assembles. `true_range_pct` (already loaded in the existing `chunk_sql` query, raw
+  non-z-scored) is the sigma proxy — NOT `atr_z` (already z-scored, unusable as a
+  denominator) and NOT a new rolling-window computation (no existing column; RESEARCH.md
+  Assumption A1). **Neither function is called from the production hot path** — the
+  production return target (`return_fast/mid/slow/extended`) is unchanged in this plan.
+  Added `scripts/ops/alpha/ops_vol_normalized_target_ab.py`: a read-only, exit-code-always-0
+  diagnostic that recomputes POOLED IC with the vol-normalized target for a bounded sample
+  of `(tf, regime)` strata (`--max-regimes-per-tf`, default 2) and reports rank correlation
+  + qualifying-feature set-difference against the raw-return baseline already stored in
+  `feature_ic_scores`, per `(tf, regime, lookahead_bars)` cell.
+- **Locked validation contract (per 143.1-CONTEXT.md, restated here for the record):**
+  this is an EXPLICIT A/B, never a silent production-target swap. If vol-normalized
+  rankings are materially identical to raw, retire the transform rather than keep it on
+  theory alone. **Result-recording location:** the DEFINITIVE full-corpus verdict is
+  recorded in Plan 07, after Component E's corpus-wide re-run rebuilds `feature_ic_scores`
+  under the corrected pipeline — Plan 07 re-invokes this same script with `--all-regimes`
+  and appends the full-corpus numbers as an addendum to THIS entry (not a new entry,
+  per this ledger's "same commit as the change" convention extended to a staged
+  multi-plan change already locked at design time).
+- **Bounded diagnostic-sample preview (run live against the current corpus this session,
+  `--tf 1d --max-regimes-per-tf 1`, `tf=1d/high_bear`, NOT the full-corpus verdict — a
+  functional smoke-test of the script, not evidence for the retire/keep decision):**
+  4 lookahead strata evaluated, median rank correlation 0.4477 (range 0.36-0.65),
+  raw-only-qualifying=47, vol-only-qualifying=70, both=29 across the 4 strata. This
+  preview is NOT cited as the Component F verdict — one `(tf, regime)` cell out of
+  4 tfs x 9 cross-sectional regimes is not a representative sample, and the vol-normalized
+  side's "qualifying" flag uses this script's own per-stratum BH-FDR family (deliberately
+  simplified vs. production's corpus-level family and bootstrap CI, documented in the
+  script's own module docstring) — it is recorded here only to confirm the script runs
+  correctly end-to-end against live data before Plan 07 depends on it.
+- **Pre-registered?** Yes — the clean pattern (same shape as E4/E5/E7). The A/B design
+  (what "qualifying" means on each side, the retire-if-identical decision rule, the
+  result-recording location) was locked in 143.1-CONTEXT.md before this plan's execution
+  began, before any vol-normalized IC value existed anywhere. The one preview number
+  above was run after the design was locked and is explicitly labeled non-authoritative
+  in this same entry, not presented as if it were the verdict.
