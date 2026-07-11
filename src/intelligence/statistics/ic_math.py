@@ -555,6 +555,95 @@ def magnitude_conditional_ic(
 
 
 # ---------------------------------------------------------------------------
+# Anytime-valid e-values on IC sign (Component C, todo 079, Phase 143.1 Plan 06)
+# ---------------------------------------------------------------------------
+
+# Fixed alternative-hypothesis probability for the IC-sign likelihood-ratio
+# e-value: H0 (sign is a fair coin, P(matches tested direction)=0.5 -- reruns
+# are pure noise) vs H1 (P(matches)=p_alt, a persistently directional feature).
+# [conventional] statistical concept definition, not an APR key -- this pilot's
+# threat model (143.1-06-PLAN.md, T-143.1-06-V5) explicitly disposes "no new
+# APR keys or external input." 0.75 is a moderate, conservative assumed effect
+# size: large enough to accumulate promotion-grade evidence within a bounded
+# number of corpus reruns, not so large it approaches a degenerate weight.
+_E_VALUE_P_ALT = 0.75
+
+
+def ic_sign_e_value_factor(ic_sign: int, p_alt: float = _E_VALUE_P_ALT) -> float:
+    """Likelihood-ratio e-value factor for one run's IC-sign observation, testing
+    the POSITIVE direction (sign matches == ic_sign > 0).
+
+    This is Wald's SPRT likelihood ratio for a single Bernoulli trial: LR =
+    P_H1(x) / P_H0(x). A likelihood ratio against a fixed simple alternative is
+    itself a nonnegative e-variable under H0 by construction -- E_H0[LR] = 1
+    exactly (P_H0(x)=0.5 for both outcomes, so E_H0[LR] = 0.5*(p_alt/0.5) +
+    0.5*((1-p_alt)/0.5) = p_alt + (1-p_alt) = 1). Multiplying independent
+    per-run e-value factors together therefore preserves E_H0[cumulative]<=1
+    at every step (a nonnegative martingale under H0), which by Ville's
+    inequality gives P(sup_t cumulative_t >= 1/alpha) <= alpha -- anytime-valid
+    Type-I error control across an unbounded number of corpus reruns, unlike a
+    classical p-value that must be recomputed fresh (and re-corrected) each run.
+
+    Args:
+        ic_sign: +1 (positive IC this run) or -1 (negative IC this run). Pass
+            the RAW observed sign for a promotion test (testing "is this
+            feature's IC persistently positive"); pass the negated sign to
+            test the opposite (persistently negative) direction with the same
+            function -- the demotion/promotion symmetry lives in
+            update_cumulative_e_value's threshold comparison, not here.
+        p_alt: Fixed alternative-hypothesis matching probability. See module
+            docstring for why 0.75 and why not an APR key.
+
+    Returns:
+        e-value factor > 0: (p_alt / 0.5) when ic_sign matches the tested
+        (positive) direction, ((1 - p_alt) / 0.5) when it doesn't.
+    """
+    matches_positive = ic_sign > 0
+    return (p_alt / 0.5) if matches_positive else ((1.0 - p_alt) / 0.5)
+
+
+def update_cumulative_e_value(
+    prior_cumulative: float,
+    ic_sign: int | None,
+    p_alt: float = _E_VALUE_P_ALT,
+) -> float:
+    """Multiplicative anytime-valid update: cumulative_e_t = cumulative_e_{t-1}
+    * e_t -- evidence compounds across corpus reruns instead of resetting each
+    build (hardens the Concept Registry's "no re-roll on same corpus build"
+    invariant into "no free re-roll on ANY build," todo 079).
+
+    prior_cumulative=1.0 represents the neutral starting point (no evidence
+    yet, i.e. the first-ever look at this cell) -- callers pass 1.0 when no
+    prior feature_ic_scores row exists for this cell.
+
+    ic_sign=None (a degenerate/unmeasurable cell this run -- e.g. zero-variance
+    feature, insufficient n) contributes NO evidence: the cumulative value is
+    returned unchanged rather than penalized as if it were a genuine null
+    observation. A missing measurement is not the same as evidence of no
+    signal.
+
+    Promotion/demotion symmetry (todo 079): callers compare the returned value
+    against reciprocal thresholds -- cumulative > 1/alpha promotes (strong
+    evidence FOR the tested direction); cumulative < alpha demotes (equally
+    strong evidence AGAINST it). Both thresholds derive from the same single
+    e-value process; no second process or column is needed.
+
+    Args:
+        prior_cumulative: The cumulative e-value from the immediately prior
+            corpus run for this exact cell (same feature_name, symbol, tf,
+            regime, lookahead_bars), or 1.0 if this is the first look.
+        ic_sign: This run's observed IC sign (+1/-1), or None if unmeasurable.
+        p_alt: Forwarded to ic_sign_e_value_factor.
+
+    Returns:
+        The new cumulative e-value. Deterministic given fixed inputs.
+    """
+    if ic_sign is None:
+        return prior_cumulative
+    return prior_cumulative * ic_sign_e_value_factor(ic_sign, p_alt)
+
+
+# ---------------------------------------------------------------------------
 # IC Sharpe computation
 # ---------------------------------------------------------------------------
 

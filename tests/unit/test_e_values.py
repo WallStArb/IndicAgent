@@ -143,23 +143,38 @@ class TestUpdateCumulativeEValue:
         # decays toward zero a.s., so the median final cumulative should be small.
         assert np.median(final_cumulatives) < 1.0
 
-    def test_e_value_expectation_le_one_under_null(self):
-        """The defining property of a valid e-value: E[e] <= 1 under H0 (fair
-        coin, i.e. no genuine directional signal -- reruns are noise). This
-        construction is an exact martingale under p=0.5 (E[factor]=1 exactly),
-        verified empirically across many simulated null sequences."""
-        rng = np.random.default_rng(7)
-        n_runs = 20
-        n_sims = 20000
-        cumulatives = np.ones(n_sims)
+    def test_e_value_expectation_le_one_under_null_exact(self):
+        """The defining property of a valid e-value: E_H0[e] <= 1 under the null
+        (fair coin, i.e. no genuine directional signal -- reruns are noise).
+        Verified exactly (closed-form): a likelihood ratio against a fixed
+        alternative has E_H0[LR]=1 by construction (0.5*(p_alt/0.5) +
+        0.5*((1-p_alt)/0.5) = p_alt + (1-p_alt) = 1), not merely bounded above
+        by 1. Deterministic, not Monte Carlo -- the multiplicative cumulative
+        process is heavy-tailed (variance grows geometrically with n_runs), so a
+        sample-mean check over compounded reruns would need an infeasible
+        number of simulations to converge tightly; the single-step expectation
+        is exact and requires none.
+        """
         pos_factor = ic_sign_e_value_factor(1)
         neg_factor = ic_sign_e_value_factor(-1)
-        for _ in range(n_runs):
-            signs = rng.random(n_sims) < 0.5
-            factors = np.where(signs, pos_factor, neg_factor)
-            cumulatives *= factors
-        assert cumulatives.mean() == pytest.approx(1.0, abs=0.05)
-        assert np.all(cumulatives >= 0.0)
+        expected_under_fair_coin = 0.5 * pos_factor + 0.5 * neg_factor
+        assert expected_under_fair_coin == pytest.approx(1.0)
+        assert expected_under_fair_coin <= 1.0 + 1e-9
+
+    def test_e_value_single_step_mean_matches_theory_under_synthetic_null(self):
+        """Empirical corroboration of the exact result above on a synthetic null
+        (fair-coin IC-sign draws): the single-step (not compounded) sample mean
+        of the e-value factor converges tightly to 1.0 -- bounded variance
+        (0.25) makes this check statistically sound at a modest sample size,
+        unlike compounding across many reruns."""
+        rng = np.random.default_rng(7)
+        n_sims = 20000
+        pos_factor = ic_sign_e_value_factor(1)
+        neg_factor = ic_sign_e_value_factor(-1)
+        signs = rng.random(n_sims) < 0.5
+        factors = np.where(signs, pos_factor, neg_factor)
+        assert factors.mean() == pytest.approx(1.0, abs=0.02)
+        assert np.all(factors >= 0.0)
 
 
 # ---------------------------------------------------------------------------
