@@ -493,6 +493,7 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         intraday_noise_window=int(cfg.get_sync("feature.intraday_noise.window", 20)),
         price_vol_corr_fast=int(cfg.get_sync("feature.price_vol_corr.fast", 10)),
         price_vol_corr_slow=int(cfg.get_sync("feature.price_vol_corr.slow", 30)),
+        canary_rng_seed=int(cfg.get_sync("alpha.ic.canary_rng_seed", 90042)),
     )
 
 

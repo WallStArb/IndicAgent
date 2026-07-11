@@ -215,3 +215,47 @@ last month's weights is a silent methodology choice too.
   re-benchmarked here. If a future corpus-wide re-run measures wall-clock materially
   above this budget, that is itself a signal worth investigating (worker starvation,
   DB contention, or an undercounted tail) before accepting the result.
+
+### E7 — 2026-07-11: Canary integrity gate quantitative rule pre-committed before first exercise (Component D, todo 068, Phase 143.1-02)
+- **Observed first:** nothing — `ops_canary_integrity_assert.py` has never been run
+  against a real corpus. Migration 223 seeded the 5 canary/control `feature_registry`
+  rows the same session this entry is written; no `feature_ic_scores` rows exist for
+  them yet (Plan 07's corpus-wide re-run is separately blocked, see todo 099 / E6).
+  This entry is written before any result exists, per this project's pre-commitment
+  convention for gate-affecting decisions.
+- **Changed:** `scripts/ops/alpha/ops_canary_integrity_assert.py` added and wired into
+  `scripts/ops/corpus/ops_corpus_pipeline_run.sh` immediately after Step 5 (ic_engine).
+  The rule is **expectation-aware and false-halt-aware**, not a literal "any stratum
+  clears -> halt" (which would fire on expected BH-FDR noise a meaningful fraction of
+  runs — Fable review SHOULD-FIX 6, BH-FDR at alpha=0.05 admits ~5% false discoveries
+  by design):
+  - **HARD-halt, unconditionally:** any negative-control canary
+    (`canary_noise_gaussian`/`canary_noise_uniform`/`canary_constant`/
+    `canary_near_constant`) clearing `ic_ci_lower>0 AND passes_fdr` in the **POOLED**
+    family (`symbol='POOLED' AND is_pooled=true`) — the only family
+    `_ELIGIBILITY_BASE_WHERE` (`services/ensemble_trainer.py`) ever reads, so a POOLED
+    clear means a broken pipeline is one config flip from weighting a control feature
+    into the live ensemble.
+  - **HARD-halt, unconditionally:** the acausal-placebo positive control
+    (`canary_acausal_placebo`) NOT clearing that same gate in POOLED — proves the
+    pipeline fails to detect a deliberate look-ahead leak, which means it cannot be
+    trusted to detect a real one either.
+  - **NOT a hard-halt:** a single per-symbol (non-POOLED) negative-control clear.
+    Instead, per-symbol negative-control clears are counted and compared against a
+    **pre-committed Binomial tail bound**: the smallest `k` such that
+    `P(Binomial(n_cells, p=0.05) > k) <= 0.01`, where `n_cells` is the number of
+    (canary, symbol) negative-control cells evaluated that run, `p=0.05` matches the
+    project's standard BH-FDR alpha (the false-clear rate BH-FDR itself admits by
+    design), and `tail_alpha=0.01` bounds the probability this gate hard-fails on
+    expected statistical noise alone. Only exceeding `k` hard-fails.
+  - **No canary rows for the vintage at all** is also a hard-halt (a silent pass here
+    would be worse than a loud failure — it would mean the corpus run had zero canary
+    coverage and this gate validated nothing).
+- **Both `fdr_alpha` (0.05) and `tail_alpha` (0.01) are CLI-overridable** but these are
+  the pre-committed defaults this entry locks in — a future change to either requires
+  its own ledger entry, not a silent flag change on a live run.
+- **Pre-registered?** Yes — the clean pattern (same shape as E4/E5). No canary
+  `feature_ic_scores` result exists yet to have influenced this rule; the
+  expectation-aware/false-halt-aware design was decided from first principles (BH-FDR's
+  known false-discovery budget) and locked in 143.1-CONTEXT.md/RESEARCH.md before this
+  plan's own execution began.

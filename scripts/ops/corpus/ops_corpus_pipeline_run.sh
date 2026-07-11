@@ -122,6 +122,42 @@ check_regime_consistency() {
     echo
 }
 
+check_canary_integrity() {
+    # Skip once resuming from a step past ic_shrinkage (6) or later -- mirrors
+    # check_regime_consistency's pattern: if we're that far into a resumed run,
+    # ic_engine (5, this check's dependency) already completed in a prior
+    # invocation and this gate already evaluated its output then.
+    if (( FROM_STEP > 6 )); then
+        return 0
+    fi
+
+    echo
+    echo "======================================"
+    echo " Canary Integrity Gate (Component D, todo 068, Phase 143.1-02)"
+    echo " Expectation-aware, false-halt-aware assertion over the 5 canary/"
+    echo " control predictors (feature_registry.is_control=true rows)"
+    echo " $(date)"
+    echo "======================================"
+
+    if ! "$PYTHON" scripts/ops/alpha/ops_canary_integrity_assert.py; then
+        echo
+        echo "  FATAL: canary integrity gate failed -- see output above."
+        echo "  This means either a negative-control canary cleared the IC"
+        echo "  significance gate in the POOLED stratum (broken measurement"
+        echo "  pipeline -- one config flip from weighting a control feature"
+        echo "  into the live ensemble), the acausal-placebo positive control"
+        echo "  failed to clear it (pipeline cannot detect genuine look-ahead"
+        echo "  leakage), or per-symbol false clears exceeded the"
+        echo "  pre-committed Binomial tail bound."
+        echo
+        echo "  Pipeline halted. Do not proceed to ic_shrinkage/ensemble_trainer"
+        echo "  with unverified measurement integrity."
+        echo
+        exit 1
+    fi
+    echo
+}
+
 run_step() {
     local step=$1
     local name=$2
@@ -292,6 +328,10 @@ run_step 5 "ic_engine" \
     "$PYTHON" services/ic_engine.py \
     "${SPACE_SYMBOLS[@]}" \
     --training-window-end "$TRAINING_WINDOW_END"
+
+# Canary integrity gate — abort if a control feature proves the measurement
+# pipeline is broken (see check_canary_integrity() for the full rule).
+check_canary_integrity
 
 # Step 6 — IC Shrinkage (E1): shrink feature_ic_scores IC estimates toward a
 # leave-one-out peer-group prior; the out-of-fold acceptance gate flips

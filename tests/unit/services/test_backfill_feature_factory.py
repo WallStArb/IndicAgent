@@ -446,7 +446,7 @@ def test_vector_to_params_all_features_present() -> None:
         fv=fv,
     )
     # 1 content-key + 8 structural + 150 feature floats = 159 total
-    assert len(params) == 159, f"Expected 159 params, got {len(params)}"
+    assert len(params) == 164, f"Expected 164 params, got {len(params)}"
 
 
 def test_vector_to_params_symbol_tf_ts() -> None:

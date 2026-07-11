@@ -220,7 +220,7 @@ def test_params_length_is_159():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 159, f"Expected 159, got {len(params)}"
+    assert len(params) == 164, f"Expected 164, got {len(params)}"
 
 
 def test_feature_vector_id_at_index_0():
@@ -426,5 +426,5 @@ def test_vol_skew_product_at_index_158_is_last_element():
     record = _make_sentinel_record()
     params = _record_to_insert_params(record)
 
-    assert len(params) == 159
+    assert len(params) == 164
     assert params[158] == pytest.approx(60.08), f"$159 (vol_skew_product) wrong: {params[158]}"
