@@ -1,5 +1,8 @@
-"""Shared IC (Information Coefficient) math -- Fisher z-transform CI, vectorized Spearman
-IC, HAC-corrected rolling Sharpe, and p-values.
+"""Shared IC (Information Coefficient) math -- circular block bootstrap CI (production,
+Component A / todo 091), the superseded Fisher z-transform CI (kept for
+services/ensemble_ic_engine.py and scripts/ops/corpus/ops_oos_holdout_eval.py, which
+stay on it this phase -- see 143.1-CONTEXT.md resolved item 3), vectorized Spearman IC,
+HAC-corrected rolling Sharpe, and p-values.
 
 Extracted from services/ic_engine.py (todo 048, 2026-07-02): services/ensemble_ic_engine.py
 and scripts/ops/corpus/ops_oos_holdout_eval.py were each importing these same
@@ -16,6 +19,7 @@ so this module has no dependency back on either concrete config dataclass.
 
 from __future__ import annotations
 
+import math
 from typing import Protocol
 
 import numpy as np
@@ -116,6 +120,82 @@ def _circular_shift_null(
         return Y.copy()
     offset = int(rng.integers(1, n))
     return np.roll(Y, offset)
+
+
+# ---------------------------------------------------------------------------
+# Circular block bootstrap CI for IC vectors (production CI, todo 091 / Component A)
+# ---------------------------------------------------------------------------
+
+
+def _circular_block_bootstrap_ic(
+    X_raw: np.ndarray,
+    Y_raw: np.ndarray,
+    block_size: int,
+    n_boot: int,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Circular block bootstrap for IC confidence intervals -- the production CI,
+    restoring the function removed in commit c6f5056b with its pre-ranking bug fixed.
+
+    Replaces `_fisher_z_ci` as the production CI at ic_engine.py's 3 call sites: the
+    2026-07-09 empirical-null diagnostic (`ops_ic_null_calibration.py`) found the
+    Fisher-z analytic CI empirically miscalibrated (38% SUSPECT rate, 11/29 evaluated
+    cells across 4/8 (tf, is_pooled) strata) -- the asymptotic SE assumption does not
+    hold at this corpus's actual autocorrelation/regime structure. `_fisher_z_ci`
+    itself is left unchanged for its remaining callers (services/ensemble_ic_engine.py,
+    scripts/ops/corpus/ops_oos_holdout_eval.py) -- a stated, not silent, scope boundary
+    for this phase (143.1-CONTEXT.md resolved item 3).
+
+    CRITICAL correctness requirement (the exact bug that caused the original 2026-06-26
+    removal): inputs are RAW, UNRANKED paired observations, not pre-ranked values.
+    Spearman IC is defined on ranks *within the sample being correlated* -- reusing
+    global ranks computed once outside the bootstrap loop and indexing into them with a
+    non-contiguous resampled block silently narrows the resulting CI (the resampled
+    subset's local rank order differs from its rank order in the full series). This
+    function re-ranks the resampled subset EVERY iteration via `rankdata` before calling
+    `_vectorized_ic` -- that re-rank is the fix, not a cosmetic rename.
+
+    Circular-wrap block index construction (`starts = rng.integers(0, n, n_blocks);
+    idx = (starts[:, None] + offsets).ravel()[:n] % n`) is unchanged from the removed
+    version -- blocks may wrap past the end of the series (`% n`), eliminating boundary
+    discontinuities at the series edges (D-15). This mechanic was never the bug; only
+    the missing re-rank step was.
+
+    Per-iteration allocation (`for b in range(n_boot): ...`), NOT a single
+    `(n_boot, n_blocks, block_size)` broadcast: at production scale (n ~ 469K,
+    block_size=10) the broadcast form allocates ~7.5 GB per ProcessPoolExecutor worker,
+    OOM-killing the process under parallel execution. This loop form allocates
+    ~3.75 MB per iteration.
+
+    Args:
+        X_raw: Shape [n_obs, n_features] -- RAW (unranked) feature matrix.
+        Y_raw: Shape [n_obs] -- RAW (unranked) return vector.
+        block_size: Number of consecutive observations per bootstrap block. From APR:
+            alpha.ic.bootstrap_block_size.{tf}.
+        n_boot: Number of bootstrap replicates. From APR: alpha.ic.bootstrap_resamples.
+        rng: numpy random Generator, seeded deterministically per (symbol/cell, run)
+            for reproducibility across ic_engine invocations -- never an unseeded or
+            module-global Generator (ProcessPoolExecutor workers must derive their own
+            seed; see services/ic_engine.py's _derive_worker_rng_seed()).
+
+    Returns:
+        (ci_lower, ci_upper): Each shape [n_features]; 95% CI via percentile method.
+    """
+    n, p = X_raw.shape
+    n_blocks = math.ceil(n / block_size)
+    boot_ics = np.zeros((n_boot, p))
+    offsets = np.arange(block_size)
+
+    for b in range(n_boot):
+        starts = rng.integers(0, n, size=n_blocks)
+        idx = (starts[:, None] + offsets).ravel()[:n] % n
+        ranks_X_boot = rankdata(X_raw[idx], axis=0)
+        ranks_Y_boot = rankdata(Y_raw[idx])
+        boot_ics[b] = _vectorized_ic(ranks_X_boot, ranks_Y_boot)
+
+    ci_lower = np.percentile(boot_ics, 2.5, axis=0)
+    ci_upper = np.percentile(boot_ics, 97.5, axis=0)
+    return ci_lower, ci_upper
 
 
 def compute_ic_vectorized(X: np.ndarray, y: np.ndarray) -> np.ndarray:
