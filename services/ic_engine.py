@@ -99,6 +99,8 @@ from src.intelligence.statistics.ic_math import (
     _nan_to_none,
     _p_values_from_ic,
     _vectorized_ic,
+    magnitude_conditional_ic,
+    sign_hit_rate,
     vol_normalized_return,
 )
 from src.observability.metrics import (
@@ -153,6 +155,13 @@ _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 # feature_ic_scores.symbol is NOT NULL, so we use a string sentinel.
 _CROSS_SECTIONAL_SYMBOL = "POOLED"
 
+# Magnitude-conditional IC percentile threshold (Component B, todo 090): defines
+# "large |prediction|" as the top quartile by |X| per feature. [conventional]
+# statistical concept definition (a quartile cutoff), not a tunable APR weight --
+# same APR-exempt class as the "5" in momentum_z_5 (CLAUDE.md APR-exempt list).
+# Diagnostic-only column; changing this does not affect any eligibility gate.
+_MAGNITUDE_IC_PERCENTILE = 75.0
+
 # vix_z, flight_quality, yield_slope_z are daily-cadence features stored in context_features.
 # IC computation uses one observation per calendar day, not one per bar.
 # Measuring IC from feature_vectors would inflate IC via artificial autocorrelation
@@ -187,7 +196,8 @@ _INSERT_BODY = """
         ic_value, ic_sign, p_value, ic_ci_lower, ic_ci_upper, passes_ci_gate,
         bh_adjusted_p, passes_fdr, wf_fold_count, wf_pass_count, passes_walkforward,
         ic_sharpe, ic_sharpe_hac, ic_sharpe_n_windows, ic_sortino, ic_win_rate,
-        regime_label_source, computed_at, cluster_id, feature_status_at_eval, regime_scope
+        regime_label_source, computed_at, cluster_id, feature_status_at_eval, regime_scope,
+        sign_hit_rate, magnitude_conditional_ic
     )
     VALUES (
         %(feature_name)s, %(vector_domain)s, %(symbol)s, %(tf)s, %(regime)s,
@@ -197,7 +207,8 @@ _INSERT_BODY = """
         %(passes_fdr)s, %(wf_fold_count)s, %(wf_pass_count)s, %(passes_walkforward)s,
         %(ic_sharpe)s, %(ic_sharpe_hac)s, %(ic_sharpe_n_windows)s, %(ic_sortino)s, %(ic_win_rate)s,
         %(regime_label_source)s, %(computed_at)s, %(cluster_id)s,
-        %(feature_status_at_eval)s, %(regime_scope)s
+        %(feature_status_at_eval)s, %(regime_scope)s,
+        %(sign_hit_rate)s, %(magnitude_conditional_ic)s
     )
 """
 _POOLED_INSERT_SQL = (
@@ -958,6 +969,19 @@ def _compute_symbol_tf(
                 )
 
                 # -------------------------------------------------------
+                # IC decomposition: sign_hit_rate + magnitude-conditional IC
+                # (Component B, todo 090). Diagnostic-only columns, no gate impact.
+                # Reuses X_raw_scale/Y_scale already assembled above for the
+                # bootstrap CI -- no additional query or array materialization.
+                # -------------------------------------------------------
+                sign_hit_rate_nd = sign_hit_rate(X_raw_scale, Y_scale)
+                magnitude_ic_nd = magnitude_conditional_ic(
+                    X_raw_scale, Y_scale, _MAGNITUDE_IC_PERCENTILE
+                )
+                sign_hit_rate_full = _expand(sign_hit_rate_nd, non_degenerate_mask, n_features)
+                magnitude_ic_full = _expand(magnitude_ic_nd, non_degenerate_mask, n_features)
+
+                # -------------------------------------------------------
                 # Collect results -- BH-FDR is applied after all regimes/scales
                 # using representative-only selection per cluster.
                 # -------------------------------------------------------
@@ -1010,6 +1034,8 @@ def _compute_symbol_tf(
                                 else "unknown"
                             ),
                             "regime_scope": _resolve_regime_scope(is_pooled, cross_sectional),
+                            "sign_hit_rate": _nan_to_none(sign_hit_rate_full[feat_idx]),
+                            "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[feat_idx]),
                         }
                     )
 
@@ -1187,6 +1213,15 @@ def _compute_symbol_tf(
                 ic_win_rate_val = None
                 ic_sharpe_n_windows = 0
 
+                # IC decomposition: sign_hit_rate + magnitude-conditional IC (Component
+                # B, todo 090). Single-feature scalar path -- x_daily/y_daily are the
+                # same RAW (unranked) arrays already assembled for the bootstrap CI
+                # above, n_features=1 so no _expand needed.
+                sign_hit_rate_val = _nan_to_none(float(sign_hit_rate(x_daily, y_daily)[0]))
+                magnitude_ic_val = _nan_to_none(
+                    float(magnitude_conditional_ic(x_daily, y_daily, _MAGNITUDE_IC_PERCENTILE)[0])
+                )
+
                 all_results.append(
                     {
                         "feature_name": cf_name,
@@ -1224,6 +1259,8 @@ def _compute_symbol_tf(
                             else "unknown"
                         ),
                         "regime_scope": "pooled",
+                        "sign_hit_rate": sign_hit_rate_val,
+                        "magnitude_conditional_ic": magnitude_ic_val,
                     }
                 )
 
@@ -1657,6 +1694,14 @@ def _compute_cross_sectional_tf(
             )
         )
 
+        # IC decomposition: sign_hit_rate + magnitude-conditional IC (Component B,
+        # todo 090). Diagnostic-only columns, no gate impact. Reuses X_raw_scale/
+        # Y_scale already assembled above for the bootstrap CI.
+        sign_hit_rate_nd = sign_hit_rate(X_raw_scale, Y_scale)
+        magnitude_ic_nd = magnitude_conditional_ic(X_raw_scale, Y_scale, _MAGNITUDE_IC_PERCENTILE)
+        sign_hit_rate_full = _expand(sign_hit_rate_nd, non_degenerate_mask, n_features)
+        magnitude_ic_full = _expand(magnitude_ic_nd, non_degenerate_mask, n_features)
+
         for feat_idx, feat_name in enumerate(_FEATURE_NAMES):
             cell_key = (feat_name, _CROSS_SECTIONAL_SYMBOL, tf, regime_label, lookahead_bars, True)
             if cell_key in existing_keys:
@@ -1702,6 +1747,8 @@ def _compute_cross_sectional_tf(
                         else "unknown"
                     ),
                     "regime_scope": "cross_sectional",
+                    "sign_hit_rate": _nan_to_none(sign_hit_rate_full[feat_idx]),
+                    "magnitude_conditional_ic": _nan_to_none(magnitude_ic_full[feat_idx]),
                 }
             )
 
