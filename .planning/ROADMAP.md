@@ -1312,7 +1312,7 @@ null-miscalibration.md`, `094-alpha-events-long-short-imbalance.md`,
 `068-canary-predictors-integrity-check.md`, `097-vol-normalized-return-target-pooled-ic.md`.
 Related, not gated on this phase:
 `096-frame-hold-horizon-vs-feature-lookahead-mismatch.md` (read-only, can run in parallel).
-**Plans:** 5/8 plans executed
+**Plans:** 6/8 plans executed
 
 Plans:
 - [x] 143.1-01-PLAN.md — Component A: Fisher-z→circular-block-bootstrap CI (ic_math + 3 ic_engine call sites, APR reactivation, staged-validation gate) [Wave 1]
@@ -1320,7 +1320,7 @@ Plans:
 - [x] 143.1-03-PLAN.md — Component F: vol-normalized POOLED return target, explicit A/B [Wave 2]
 - [x] 143.1-04-PLAN.md — Component E: sign-symmetric eligibility (3 walk-forward blocks incl. cross-sectional, Gate 1, quality weight, E2 sign-path) [Wave 3]
 - [x] 143.1-05-PLAN.md — Component B: IC decomposition columns (sign_hit_rate, magnitude-conditional IC) [Wave 4]
-- [ ] 143.1-06-PLAN.md — Component C: anytime-valid e-values pilot, 5m only [Wave 5]
+- [x] 143.1-06-PLAN.md — Component C: anytime-valid e-values pilot, 5m only [Wave 5]
 - [ ] 143.1-07-PLAN.md — Single full-pipeline corpus re-run from Step 1 + A/B/C/D/F validation [Wave 6]
 - [ ] 143.1-08-PLAN.md — Component E shadow-mode validation + E1-vs-E2 A/B re-run [Wave 7]
 
