@@ -1233,8 +1233,10 @@ class FeatureVector:
       Realized Variance / Volatility (14, Phase 142.5 Plan 03): realized_var_ratio_fast/slow, range_to_close, true_range_pct, vol_of_vol, high_low_corr, variance_ratio_fast/slow, vol_asymmetry_z, bb_pct_b_fast/slow, hv_z_fast/slow, hv_ratio
       Alternative Volatility Estimators (3, Phase 142.5 Plan 04): parkinson_vol_z, garman_klass_vol_z, yang_zhang_vol_z
       Volatility Dynamics (5, Phase 142.5 Plan 04): parkinson/garman_klass/yang_zhang_vol_velocity, vol_velocity_z, intraday_noise_ratio
+      Canary / Control Predictors (5, Phase 143.1 Plan 02, todo 068): canary_noise_gaussian, canary_noise_uniform, canary_constant, canary_near_constant, canary_acausal_placebo
       Cross-sectional (3, nullable): momentum/volume/volatility rank z-scores
-      Total: 144 (141 required + 3 optional)
+      Total: 155 (147 required + 8 optional [3 cross-sectional + 5 canary, defaulted for
+      cold-start/construction-site blast-radius reasons -- see Canary field comments])
     """
 
     # Momentum (7 total: 5 original + 2 new scale-named)
@@ -1447,6 +1449,33 @@ class FeatureVector:
     up_vol_body_diff: float  # up_vol_ratio_fast - body_ratio, approx bounded [-1,1] (no APR)
     ret_vol_ratio_fast: float  # ret_lag_fast / atr_z, unbounded symmetric around 0 (no APR)
     vol_skew_product: float  # ret_skew_z * volume_z, unbounded symmetric around 0 (no APR)
+    # Canary / Control Predictors (5, Phase 143.1 Plan 02, todo 068) — genuine
+    # FeatureVector fields (not measurement-time-only diagnostics), so
+    # feature_registry's row-count/name-set alignment gates stay satisfied.
+    # is_control=true rows, status='candidate' (never promoted) in feature_registry
+    # -- second line of defense beyond is_control. Negative controls (noise,
+    # constant, near-constant) must never clear an IC significance gate; the
+    # acausal placebo positive control must clear one spectacularly, proving
+    # this pipeline can detect look-ahead leakage. See ops_canary_integrity_assert.py.
+    # Defaulted (unlike the rest of this dataclass) purely to avoid a blast
+    # radius across every pre-existing hardcoded FeatureVector(...) test
+    # constructor in the suite -- every real compute path (compute()/
+    # compute_batch()/_cold_start_vector()) always supplies an explicit value.
+    canary_noise_gaussian: float = (
+        0.0  # seeded N(0,1) (APR: alpha.ic.canary_rng_seed), negative control
+    )
+    canary_noise_uniform: float = (
+        0.0  # seeded Uniform[0,1), independent sub-seed of same APR key, negative control
+    )
+    canary_constant: float = (
+        1.0  # fixed literal (no APR -- definitional degenerate-input control), negative control
+    )
+    canary_near_constant: float = (
+        1.0  # literal + tiny deterministic epsilon noise, negative control
+    )
+    canary_acausal_placebo: float = (
+        0.0  # existing feature deliberately paired against a forward-shifted return window (look-ahead leak), positive control
+    )
     # Cross-sectional (3, nullable — populated by Phase 139 enrichment pass)
     momentum_rank_z: float | None = None  # cross-sectional momentum rank z-score
     volume_rank_z: float | None = None  # cross-sectional volume rank z-score

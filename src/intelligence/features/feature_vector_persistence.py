@@ -28,6 +28,12 @@ exactly 1{dist_from_high <= eps}), violating the Feature Factory's own
 zero-redundancy design contract. The column count derives automatically from
 _RENAISSANCE_PRIMITIVE_FIELD_NAMES; no other hardcoded count needed updating.
 
+2026-07-11: extended to 164 columns (migration 223, Phase 143.1 Plan 02, todo
+068). 5 canary/control predictor fields added to FeatureVector -- same
+derive-by-name discipline as _RENAISSANCE_PRIMITIVE_FIELD_NAMES applied via a
+new _CANARY_FIELD_NAMES slice, appended immediately after it, so this file
+cannot silently go stale the way it did in the 2026-07-08 incident above.
+
 Ring 1: imports FeatureVector from src.intelligence.schemas.
 Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 """
@@ -69,6 +75,19 @@ _RENAISSANCE_PRIMITIVE_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_
     + 1
 ]
 
+# The 5 canary/control predictor fields (Phase 143.1 Plan 02, todo 068; migration
+# 223) are a second contiguous, same-order slice immediately following the
+# Renaissance primitives and immediately preceding the 3 nullable cross-sectional
+# fields -- same derive-don't-hand-type discipline as _RENAISSANCE_PRIMITIVE_FIELD_NAMES,
+# for the exact same reason (module docstring): a hand-typed list is how 91/152
+# fields went silently unpersisted for an entire corpus rebuild.
+_CANARY_FIELD_NAMES: tuple[str, ...] = _ALL_FEATURE_VECTOR_FIELD_NAMES[
+    _ALL_FEATURE_VECTOR_FIELD_NAMES.index(
+        "canary_noise_gaussian"
+    ) : _ALL_FEATURE_VECTOR_FIELD_NAMES.index("canary_acausal_placebo")
+    + 1
+]
+
 
 def _compute_bar_close_ts(bar_ts: datetime, tf: str) -> datetime:
     """Compute bar close timestamp from bar open timestamp and timeframe.
@@ -103,11 +122,12 @@ def validate_feature_vector(vector: FeatureVector) -> list[str]:
 
 # ── Canonical INSERT SQL ──────────────────────────────────────────────────────
 
-# 159 columns (as of 2026-07-09): $1 content-key, $2-$8 structural, $9-$62
+# 164 columns (as of 2026-07-11): $1 content-key, $2-$8 structural, $9-$62
 # original feature floats, $63-$70 migration-159 additions, $71-$159
 # migration-206 Renaissance primitives (2026-07-08 fix, then reduced from 91
-# to 89 primitives 2026-07-09, see module docstring).
-# Column order is binding — matches migration 159/206 column definition order.
+# to 89 primitives 2026-07-09), $160-$164 migration-223 canary/control
+# predictors (see module docstring).
+# Column order is binding — matches migration 159/206/223 column definition order.
 # ON CONFLICT DO NOTHING: idempotent replay; duplicate bars are skipped silently.
 FEATURE_VECTOR_INSERT_SQL = f"""
 INSERT INTO feature_vectors (
@@ -129,7 +149,8 @@ INSERT INTO feature_vectors (
     bar_close_ts,
     momentum_z_slow, momentum_reversal_z, quarter_position, days_to_month_end,
     momentum_rank_z, volume_rank_z, volatility_rank_z,
-    {", ".join(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)}
+    {", ".join(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)},
+    {", ".join(_CANARY_FIELD_NAMES)}
 )
 VALUES (
     $1,
@@ -150,7 +171,16 @@ VALUES (
     $63,
     $64, $65, $66, $67,
     $68, $69, $70,
-    {", ".join(f"${i}" for i in range(71, 71 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)))}
+    {", ".join(f"${i}" for i in range(71, 71 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)))},
+    {
+    ", ".join(
+        f"${i}"
+        for i in range(
+            71 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES),
+            71 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES) + len(_CANARY_FIELD_NAMES),
+        )
+    )
+}
 )
 ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 """
@@ -160,7 +190,7 @@ ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 # Total column count is derived, not hardcoded, so it can't drift out of sync
 # with _RENAISSANCE_PRIMITIVE_FIELD_NAMES the way a fixed number could.
 # Descending replacement order prevents $1 matching inside $10, $11, etc.
-_TOTAL_COLUMNS = 70 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES)
+_TOTAL_COLUMNS = 70 + len(_RENAISSANCE_PRIMITIVE_FIELD_NAMES) + len(_CANARY_FIELD_NAMES)
 _pg2 = FEATURE_VECTOR_INSERT_SQL
 for i in range(_TOTAL_COLUMNS, 0, -1):
     _pg2 = _pg2.replace(f"${i}", "%s")
@@ -205,21 +235,23 @@ def feature_vector_to_insert_params(
     regime_label_source: str,
     vector: FeatureVector,
 ) -> tuple:
-    """Serialize a FeatureVector to the canonical 159-element INSERT tuple.
+    """Serialize a FeatureVector to the canonical 164-element INSERT tuple.
 
     Column order matches FEATURE_VECTOR_INSERT_SQL exactly:
-      $1:       feature_vector_id (content-key UUID)
-      $2-$8:    structural (symbol, tf, bar_ts, pipeline_version,
-                feature_factory_version, regime, regime_label_source)
-      $9-$62:   54 feature floats in FeatureVector field order
-      $63:      bar_close_ts (computed from bar_ts + TF duration)
-      $64-$67:  4 new computed features (momentum_z_slow, momentum_reversal_z,
-                quarter_position, days_to_month_end)
-      $68-$70:  3 cross-sectional Optional features (None until Phase 139)
-      $71-$159: 89 Renaissance primitives (migration 206, Phase 142.5; 91
-                originally, 2 removed 2026-07-09 as redundant) in
-                dataclasses.fields(FeatureVector) order — wired 2026-07-08,
-                see module docstring for the gap this closes
+      $1:        feature_vector_id (content-key UUID)
+      $2-$8:     structural (symbol, tf, bar_ts, pipeline_version,
+                 feature_factory_version, regime, regime_label_source)
+      $9-$62:    54 feature floats in FeatureVector field order
+      $63:       bar_close_ts (computed from bar_ts + TF duration)
+      $64-$67:   4 new computed features (momentum_z_slow, momentum_reversal_z,
+                 quarter_position, days_to_month_end)
+      $68-$70:   3 cross-sectional Optional features (None until Phase 139)
+      $71-$159:  89 Renaissance primitives (migration 206, Phase 142.5; 91
+                 originally, 2 removed 2026-07-09 as redundant) in
+                 dataclasses.fields(FeatureVector) order — wired 2026-07-08,
+                 see module docstring for the gap this closes
+      $160-$164: 5 canary/control predictors (migration 223, Phase 143.1
+                 Plan 02, todo 068) in dataclasses.fields(FeatureVector) order
 
     Args:
         symbol: Instrument symbol (e.g. 'SPY').
@@ -236,7 +268,7 @@ def feature_vector_to_insert_params(
         vector: Fully-populated FeatureVector from FeatureFactory.compute().
 
     Returns:
-        159-element tuple for use with asyncpg executemany() or psycopg2
+        164-element tuple for use with asyncpg executemany() or psycopg2
         execute_batch(). Compatible with both drivers — asyncpg and psycopg2
         handle uuid.UUID and datetime natively.
 
@@ -351,4 +383,8 @@ def feature_vector_to_insert_params(
         # order) rather than hand-typed, so this segment can't silently drift
         # out of sync with the dataclass again.
         *(getattr(vector, name) for name in _RENAISSANCE_PRIMITIVE_FIELD_NAMES),
+        # Canary / Control Predictors (migration 223, Phase 143.1 Plan 02,
+        # todo 068) — same derive-by-name discipline as the Renaissance
+        # primitives above, appended immediately after them.
+        *(getattr(vector, name) for name in _CANARY_FIELD_NAMES),
     )

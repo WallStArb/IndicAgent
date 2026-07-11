@@ -547,6 +547,7 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.intraday_noise.window", 20),
         ("feature.price_vol_corr.fast", 10),
         ("feature.price_vol_corr.slow", 30),
+        ("alpha.ic.canary_rng_seed", 90042),
     )
 
     async def _prewarm_threshold_config(self) -> None:
@@ -662,6 +663,7 @@ class FeatureVectorPipeline(BaseDaemon):
             intraday_noise_window=_int("feature.intraday_noise.window", 20),
             price_vol_corr_fast=_int("feature.price_vol_corr.fast", 10),
             price_vol_corr_slow=_int("feature.price_vol_corr.slow", 30),
+            canary_rng_seed=_int("alpha.ic.canary_rng_seed", 90042),
         )
 
         self.logger.info(

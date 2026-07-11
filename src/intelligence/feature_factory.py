@@ -224,6 +224,12 @@ FEATURE_VECTOR_DOMAIN: dict[str, str] = {
     "up_vol_body_diff": "quant",
     "ret_vol_ratio_fast": "quant",
     "vol_skew_product": "quant",
+    # Canary / Control Predictors (Phase 143.1 Plan 02, todo 068)
+    "canary_noise_gaussian": "control",
+    "canary_noise_uniform": "control",
+    "canary_constant": "control",
+    "canary_near_constant": "control",
+    "canary_acausal_placebo": "control",
     # Cross-sectional (nullable — populated by Phase 139)
     "momentum_rank_z": "quant",
     "volume_rank_z": "quant",
@@ -439,6 +445,15 @@ class FeatureFactoryConfig:
     # Renaissance Primitives — Price-Volume Interactions (Phase 142.5 Plan 05.5)
     price_vol_corr_fast: int  # feature.price_vol_corr.fast
     price_vol_corr_slow: int  # feature.price_vol_corr.slow
+    # Canary / Control Predictors (Phase 143.1 Plan 02, todo 068). Seed for
+    # both noise canaries (Gaussian and Uniform draw independent sub-seeds
+    # from this one base seed -- see _canary_sub_seed). Defaulted (unlike
+    # every other field in this dataclass) so the ~6 pre-existing direct
+    # FeatureFactoryConfig(...) construction sites across the test suite and
+    # services/*.py don't all require updating in this plan; the 2 real
+    # production entrypoints (backfill_feature_factory.py,
+    # feature_vector_pipeline.py) explicitly wire this from ConfigService.
+    canary_rng_seed: int = 90042  # alpha.ic.canary_rng_seed [initial_estimate]
 
 
 # ---------------------------------------------------------------------------
@@ -1467,6 +1482,74 @@ def _ret_vol_ratio(ret_lag: float, atr_z: float, eps: float = 1e-10) -> float:
     if abs(atr_z) < eps:
         return 0.0
     return ret_lag / atr_z
+
+
+# ---------------------------------------------------------------------------
+# Canary / Control Predictor primitive functions (Phase 143.1 Plan 02, todo 068)
+# ---------------------------------------------------------------------------
+# Genuine FeatureVector fields (not measurement-time-only diagnostics) so
+# feature_registry's row-count/name-set alignment gates stay satisfied
+# (FeatureRegistryService.load() enforces len(rows) == len(FeatureVector
+# fields) plus exact name-set equality). Negative controls (noise, constant,
+# near-constant) must never clear an IC significance gate; the acausal
+# placebo (positive control) must clear one spectacularly, proving this
+# pipeline can detect look-ahead leakage when it is actually present.
+# scripts/ops/alpha/ops_canary_integrity_assert.py is the loud,
+# expectation-aware assertion that enforces this at corpus-run time.
+
+_CANARY_CONSTANT_VALUE: float = 1.0
+_CANARY_NEAR_CONSTANT_EPSILON: float = 1e-6
+
+
+def _canary_sub_seed(bar_ts: datetime, base_seed: int, offset: int) -> int:
+    """Deterministic per-bar sub-seed derived from bar_ts + the APR base seed
+    + a per-canary offset. Pure arithmetic (no Python hash()) so the value is
+    stable across processes/interpreter versions -- required for
+    ProcessPoolExecutor workers and for the "same bar inputs + seed -> same
+    value" determinism contract. Different offsets give independently
+    seeded, distributionally-distinct draws from one shared APR base seed
+    (never reusing one generator/seed for two different canaries).
+    """
+    ts_int = int(bar_ts.timestamp() * 1000)
+    return (base_seed * 1_000_003 + ts_int * 97 + offset) % (2**32)
+
+
+def _canary_noise_gaussian(bar_ts: datetime, base_seed: int) -> float:
+    """Pure Gaussian noise, N(0, 1) (offset=0). Negative control: must never
+    carry IC."""
+    rng = np.random.default_rng(_canary_sub_seed(bar_ts, base_seed, offset=0))
+    return float(rng.standard_normal())
+
+
+def _canary_noise_uniform(bar_ts: datetime, base_seed: int) -> float:
+    """Pure Uniform[0, 1) noise (offset=1), independently seeded from the
+    Gaussian canary. Two distributionally-distinct RNG sources both agreeing
+    they are null is stronger pipeline-integrity evidence than one alone."""
+    rng = np.random.default_rng(_canary_sub_seed(bar_ts, base_seed, offset=1))
+    return float(rng.uniform(0.0, 1.0))
+
+
+def _canary_near_constant(bar_ts: datetime, base_seed: int) -> float:
+    """_CANARY_CONSTANT_VALUE plus tiny deterministic epsilon noise
+    (offset=2) -- verifies degenerate near-zero-variance input handling
+    without being bit-identical to the pure constant canary."""
+    rng = np.random.default_rng(_canary_sub_seed(bar_ts, base_seed, offset=2))
+    return _CANARY_CONSTANT_VALUE + _CANARY_NEAR_CONSTANT_EPSILON * float(rng.standard_normal())
+
+
+def _canary_acausal_placebo(closes: np.ndarray, i: int, eps: float = 1e-10) -> float:
+    """Deliberate look-ahead leak (positive control): pairs bar i with the
+    return realized from bars i+1 -> i+2 (i.e. 2 bars in the future relative
+    to i) -- the exact ret_lag_1 shape, forward-shifted instead of
+    backward-shifted. Must clear the IC significance gate spectacularly:
+    proves this pipeline can detect contamination when it is genuinely
+    present. Falls back to 0.0 when the future bars don't exist yet (end of
+    the batch series, or the live single-bar compute() path, which by
+    definition has no future data -- see FeatureFactory.compute() docstring).
+    """
+    if i + 2 >= len(closes) or closes[i + 1] <= eps:
+        return 0.0
+    return float(math.log(closes[i + 2] / closes[i + 1]))
 
 
 # ---------------------------------------------------------------------------
@@ -3128,6 +3211,11 @@ def _build_feature_vector(
     up_vol_body_diff: float,
     ret_vol_ratio_fast: float,
     vol_skew_product: float,
+    canary_noise_gaussian: float = 0.0,
+    canary_noise_uniform: float = 0.0,
+    canary_constant: float = _CANARY_CONSTANT_VALUE,
+    canary_near_constant: float = _CANARY_CONSTANT_VALUE,
+    canary_acausal_placebo: float = 0.0,
 ) -> FeatureVector:
     return FeatureVector(
         momentum_z_fast=_guard(momentum_z_fast),
@@ -3277,6 +3365,11 @@ def _build_feature_vector(
         up_vol_body_diff=_guard(up_vol_body_diff, 0.0),
         ret_vol_ratio_fast=_guard(ret_vol_ratio_fast, 0.0),
         vol_skew_product=_guard(vol_skew_product, 0.0),
+        canary_noise_gaussian=_guard(canary_noise_gaussian, 0.0),
+        canary_noise_uniform=_guard(canary_noise_uniform, 0.0),
+        canary_constant=_guard(canary_constant, _CANARY_CONSTANT_VALUE),
+        canary_near_constant=_guard(canary_near_constant, _CANARY_CONSTANT_VALUE),
+        canary_acausal_placebo=_guard(canary_acausal_placebo, 0.0),
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,
@@ -3416,6 +3509,17 @@ class FeatureFactory:
         vol_skew_product_val = _product(ret_skew_z_val, volume_z_val)
         price_vol_corr_fast_val = _series_last(s.price_vol_corr_fast, 0.0)
         price_vol_corr_slow_val = _series_last(s.price_vol_corr_slow, 0.0)
+
+        # Canary / Control Predictors (Phase 143.1 Plan 02). The acausal
+        # placebo has no future data in this live single-bar path by
+        # definition (closes only holds history up to and including the
+        # current bar) -- _canary_acausal_placebo() naturally returns 0.0
+        # here since i+2 is always out of bounds; the genuine forward-shifted
+        # leak is only exercisable in compute_batch() (full-history backfill).
+        canary_noise_gaussian_val = _canary_noise_gaussian(bar_ts, config.canary_rng_seed)
+        canary_noise_uniform_val = _canary_noise_uniform(bar_ts, config.canary_rng_seed)
+        canary_near_constant_val = _canary_near_constant(bar_ts, config.canary_rng_seed)
+        canary_acausal_placebo_val = _canary_acausal_placebo(closes, len(closes) - 1)
 
         return _build_feature_vector(
             momentum_z_fast=_series_last(s.momentum_z_fast, 0.0),
@@ -3586,6 +3690,11 @@ class FeatureFactory:
             up_vol_body_diff=up_vol_body_diff_val,
             ret_vol_ratio_fast=ret_vol_ratio_fast_val,
             vol_skew_product=vol_skew_product_val,
+            canary_noise_gaussian=canary_noise_gaussian_val,
+            canary_noise_uniform=canary_noise_uniform_val,
+            canary_constant=_CANARY_CONSTANT_VALUE,
+            canary_near_constant=canary_near_constant_val,
+            canary_acausal_placebo=canary_acausal_placebo_val,
         )
 
     @staticmethod
@@ -3967,6 +4076,16 @@ class FeatureFactory:
                 float(s.price_vol_corr_slow[i]) if i < len(s.price_vol_corr_slow) else 0.0
             )
 
+            # Canary / Control Predictors (Phase 143.1 Plan 02). Unlike the
+            # live compute() path, `closes` here is the full-history array
+            # passed by the caller (backfill), so the acausal placebo can
+            # genuinely reference bars i+1/i+2 -- the deliberate look-ahead
+            # leak this canary exists to calibrate.
+            canary_noise_gaussian_val = _canary_noise_gaussian(bar_ts, config.canary_rng_seed)
+            canary_noise_uniform_val = _canary_noise_uniform(bar_ts, config.canary_rng_seed)
+            canary_near_constant_val = _canary_near_constant(bar_ts, config.canary_rng_seed)
+            canary_acausal_placebo_val = _canary_acausal_placebo(closes, i)
+
             # Build FeatureVector
             fv = _build_feature_vector(
                 momentum_z_fast=momentum_z_fast_val,
@@ -4116,6 +4235,11 @@ class FeatureFactory:
                 up_vol_body_diff=up_vol_body_diff_val,
                 ret_vol_ratio_fast=ret_vol_ratio_fast_val,
                 vol_skew_product=vol_skew_product_val,
+                canary_noise_gaussian=canary_noise_gaussian_val,
+                canary_noise_uniform=canary_noise_uniform_val,
+                canary_constant=_CANARY_CONSTANT_VALUE,
+                canary_near_constant=canary_near_constant_val,
+                canary_acausal_placebo=canary_acausal_placebo_val,
             )
 
             results.append((bar_ts, fv))
@@ -4287,6 +4411,11 @@ def _cold_start_vector(cache: FeatureCache, tf: str) -> FeatureVector:
         up_vol_body_diff=0.0,
         ret_vol_ratio_fast=0.0,
         vol_skew_product=0.0,
+        canary_noise_gaussian=0.0,
+        canary_noise_uniform=0.0,
+        canary_constant=_CANARY_CONSTANT_VALUE,
+        canary_near_constant=_CANARY_CONSTANT_VALUE,
+        canary_acausal_placebo=0.0,
         momentum_rank_z=None,
         volume_rank_z=None,
         volatility_rank_z=None,
