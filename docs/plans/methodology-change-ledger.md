@@ -308,3 +308,63 @@ last month's weights is a silent methodology choice too.
   began, before any vol-normalized IC value existed anywhere. The one preview number
   above was run after the design was locked and is explicitly labeled non-authoritative
   in this same entry, not presented as if it were the verdict.
+
+### E9 — 2026-07-11: Sign-symmetric ensemble eligibility redesign, code-level (Component E, todo 094, Phase 143.1-04)
+- **Observed first:** a live-DB audit (143.1-CONTEXT.md, resolved before this plan's
+  execution) found `alpha_events` 99.99% long-only (11.81M long vs. 1,479 short rows) —
+  the eligible `feature_ic_scores` population is 1,527 rows, ZERO at `ic_sign=-1`. Root
+  cause: three independent sign-asymmetric gates each unconditionally exclude every
+  negative-IC (contrarian) feature by construction, not by measurement: (1) the
+  walk-forward fold-pass criterion `(fold_ic_arr > 0)` — a persistently-negative feature's
+  folds can never satisfy `>0` regardless of stability; (2) `ensemble_trainer.py`'s
+  `_ELIGIBILITY_BASE_WHERE` requiring `ic_ci_lower > 0` — a negative point estimate's CI
+  lower bound is always below the estimate itself, so this can never pass for a
+  contrarian; (3) `services/ic_engine.py`'s post-run `_run_lifecycle_hook` (landed by
+  Phase 143, discovered mid-plan — not in the original CONTEXT.md/RESEARCH.md read range)
+  — its `failed = ic_ci_lower <= 0` predicate would silently re-demote every contrarian
+  one lifecycle cycle after gates (1)/(2) were fixed, self-reverting the whole change with
+  no error anywhere. The E2 mean-variance weighting path also had a locked-but-wrong
+  formula (`mean_variance_weights(cov, ic_signs * ic_shrunk, ...)` — signs the INPUT to
+  Sigma^-1, not the output; mathematically incorrect once a contrarian is correlated with
+  another selected feature — Fable review BLOCKER 3).
+- **Changed (143.1-04-PLAN.md, all four gates in one plan):** (1) `services/ic_engine.py`
+  — sign-consistent walk-forward criterion (`_sign_consistent_wf_pass_count`, new shared
+  helper) in all three fold-pass blocks, UNCONDITIONAL (equivalence-preserving for
+  ic_sign=1, no APR flag — measurement stays one canonical corpus for both champion and
+  challenger). (2) New APR key `alpha.ensemble.sign_symmetric` (boolean, default false,
+  migration 224) — the real champion/challenger behavior switch (`weight_version` alone
+  was proven vacuous for this purpose, Fable BLOCKER 2: it does not appear in any
+  eligibility/weight-derivation predicate, so two weight_version tags with the flag
+  unset would train byte-identical weights). `ensemble_trainer.py`'s
+  `_ELIGIBILITY_BASE_WHERE`/`_ELIGIBILITY_WHERE` module constants replaced with an
+  `_eligibility_where(sign_symmetric)` builder: flag off is byte-identical to the old
+  predicate string (tested); flag on adds `(ic_sign=-1 AND ic_ci_upper<0)`. (3)
+  `feature_selector.py`'s `compute_quality_weight` made sign-aware:
+  `(ic_sign * nearest_ci_bound) * max(sharpe_floor, ic_sign * ic_sharpe)` — reduces
+  byte-for-byte to the old formula for ic_sign=1, preserves positive-magnitude weight on
+  the negative side via sign framing (not naive `abs()`, which would misapply the
+  sharpe_floor comparison and up-weight decay-signature rows). (4) E2 sign-path fixed
+  per BLOCKER 3: `resolve_stratum_weights` now signs the OUTPUT of
+  `mean_variance_weights(cov, ic_shrunk, ...)` (`ic_signs * mv_raw`), never the input —
+  `mean_variance_weights()` itself is called with `ic_shrunk` unchanged. (5)
+  `_run_lifecycle_hook`'s `failed`/`material`/`worst_cell` predicates made sign-aware
+  under the SAME `alpha.ensemble.sign_symmetric` flag (closing gate 3 above) — a
+  contrarian only "fails" if its CI on its own side includes zero, or it fails FDR.
+  Every flag-gated predicate is byte-identical to its pre-Component-E form when the flag
+  is off (equivalence property, unit-tested at every gate). Commits: sign-consistent
+  walk-forward (`9c028ac3`), APR flag + eligibility + quality weight (`a74740e0`), E2
+  sign-path + docstring cleanup (`e90471f8`), lifecycle hook (`78fedc3b`).
+- **NOT yet executed:** this entry records the CODE-LEVEL redesign only. The corpus
+  re-run (regenerating `feature_ic_scores` under the sign-consistent walk-forward
+  criterion), the flag-ON challenger training run, and the flag-OFF-vs-flag-ON
+  shadow-mode validation required before promotion (any change to `alpha.ensemble.
+  sign_symmetric`'s default) are Plan 07/08's responsibility per 143.1-04-PLAN.md's own
+  scope boundary — this plan's `<threat_model>` and objective are explicit that shadow
+  validation is mandatory before promotion since this changes champion scoring behavior
+  for what becomes the owner's live trading capital.
+- **Pre-registered?** Yes — the clean pattern (same shape as E4/E5/E7/E8). The flag
+  design (a real behavior switch, not the vacuous `weight_version`-only approach; the
+  equivalence-preserving unconditional walk-forward fix; the three-gate scope including
+  the mid-plan-discovered lifecycle hook) was locked via Fable review (BLOCKER 1/2/3,
+  MINOR findings) before this plan's own execution began, before any sign-symmetric
+  `feature_ic_scores` or `ensemble_weights` row existed under the new criterion.
