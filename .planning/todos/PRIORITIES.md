@@ -40,13 +40,17 @@ IBKR-disconnect silent skip), 061 (`feature_vector_pipeline` DDL in hot path), 0
 crash-loop).
 
 **Explicit sequencing decision (2026-07-10, project owner confirmed; reaffirmed 2026-07-11 after
-094's root cause was corrected — see `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`
-for the full rationale):** 093 (`alpha_frames` backfill, in progress) → **091** → **094** (now
+094's root cause was corrected, and again 2026-07-11 to insert 097 — see
+`docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md` for the full rationale):** 093
+(`alpha_frames` backfill, in progress) → **091** → **097** (vol-normalized return target, split
+from todo 077's L3-1, validated as an explicit A/B against the raw-return baseline) → **094** (now
 including its E2 sign-path fix and a mandatory shadow-mode validation before promotion) → re-run
 the E1-vs-E2 A/B judgment (the prior 20/20 result was all-long vs all-long, doesn't carry forward)
-→ 096 (can run in parallel, read-only) → 088 (deliberately last). Rationale: 091 and 094 both read
-`ic_ci_lower`/`ic_ci_upper` directly, and 094 independently requires a full `ic_engine` re-run — 
-sequencing 091 first means one corpus re-run serves both fixes instead of two. Do not reorder
+→ 096 (can run in parallel, read-only) → 088 (deliberately last). Rationale: 091, 097, and 094 all
+read or directly affect `ic_ci_lower`/`ic_ci_upper`, and 094 independently requires a full
+`ic_engine` re-run — sequencing 091 and 097 first means one corpus re-run serves all three fixes
+instead of splitting across multiple, and 094's eligibility redesign runs against the
+already-corrected CI and return-target measurement rather than the old one. Do not reorder
 without re-confirming with the project owner.
 
 ## P1 — High value, quick, fully unblocked
