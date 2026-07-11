@@ -415,3 +415,170 @@ class TestFeatureFactoryIntegration:
         assert fv.canary_acausal_placebo == 0.0
         # No crash, and no missing field -- full dataclass construction succeeded.
         assert len(dataclasses.fields(fv)) == 155
+
+
+# ---------------------------------------------------------------------------
+# Task 3: ops_canary_integrity_assert.py -- expectation-aware, false-halt-aware
+# corpus-run integrity assertion. Pure evaluate() function, synthetic rows,
+# no DB required.
+# ---------------------------------------------------------------------------
+
+
+def _row(
+    feature_name: str,
+    symbol: str,
+    control_expectation: str,
+    ic_ci_lower: float | None,
+    passes_fdr: bool,
+    is_pooled: bool = True,
+    tf: str = "5m",
+    regime: str = "trending_up",
+    ic_ci_upper: float = 0.05,
+) -> dict:
+    return {
+        "feature_name": feature_name,
+        "symbol": symbol,
+        "tf": tf,
+        "regime": regime,
+        "is_pooled": is_pooled,
+        "ic_ci_lower": ic_ci_lower,
+        "ic_ci_upper": ic_ci_upper,
+        "passes_fdr": passes_fdr,
+        "control_expectation": control_expectation,
+    }
+
+
+class TestCanaryIntegrityAssertion:
+    def test_pooled_negative_control_clear_is_a_failure(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import (
+            CanaryIntegrityViolation,
+            evaluate,
+        )
+
+        rows = [
+            _row("canary_noise_gaussian", "POOLED", "negative_control", 0.02, True),
+            _row("canary_acausal_placebo", "POOLED", "positive_control", 0.30, True),
+        ]
+        with pytest.raises(CanaryIntegrityViolation, match="POOLED negative-control"):
+            evaluate(rows)
+
+    def test_placebo_fails_to_clear_is_a_failure(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import (
+            CanaryIntegrityViolation,
+            evaluate,
+        )
+
+        rows = [
+            _row("canary_noise_gaussian", "POOLED", "negative_control", -0.01, False),
+            # Positive control does NOT clear (ic_ci_lower <= 0) -- the failure mode.
+            _row("canary_acausal_placebo", "POOLED", "positive_control", -0.002, False),
+        ]
+        with pytest.raises(CanaryIntegrityViolation, match="did NOT clear"):
+            evaluate(rows)
+
+    def test_single_per_symbol_clear_within_bound_is_not_a_hard_fail(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import evaluate
+
+        rows = [
+            _row("canary_acausal_placebo", "POOLED", "positive_control", 0.30, True),
+            # Healthy POOLED negative controls.
+            _row("canary_noise_gaussian", "POOLED", "negative_control", -0.01, False),
+            # A large per-symbol population of negative-control cells with exactly
+            # ONE clear -- well within the Binomial bound at alpha=0.05 for n=100.
+            *[
+                _row(
+                    "canary_noise_gaussian",
+                    f"SYM{i}",
+                    "negative_control",
+                    -0.01,
+                    False,
+                    is_pooled=False,
+                )
+                for i in range(99)
+            ],
+            _row(
+                "canary_noise_gaussian",
+                "SYM99",
+                "negative_control",
+                0.02,
+                True,
+                is_pooled=False,
+            ),
+        ]
+        report = evaluate(rows)
+        assert report["per_symbol_negative_clears"] == 1
+        assert not report["per_symbol_bound_exceeded"]
+
+    def test_healthy_case_returns_success(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import evaluate
+
+        rows = [
+            _row("canary_acausal_placebo", "POOLED", "positive_control", 0.30, True),
+            _row("canary_noise_gaussian", "POOLED", "negative_control", -0.01, False),
+            _row("canary_noise_uniform", "POOLED", "negative_control", -0.02, False),
+            _row("canary_constant", "POOLED", "negative_control", None, False),
+            _row("canary_near_constant", "POOLED", "negative_control", -0.005, False),
+            *[
+                _row(
+                    "canary_noise_gaussian",
+                    f"SYM{i}",
+                    "negative_control",
+                    -0.01,
+                    False,
+                    is_pooled=False,
+                )
+                for i in range(20)
+            ],
+        ]
+        report = evaluate(rows)
+        assert report["pooled_violations"] == []
+        assert report["placebo_pooled_cleared"] is True
+        assert report["per_symbol_negative_clears"] == 0
+        assert not report["per_symbol_bound_exceeded"]
+
+    def test_excessive_per_symbol_clears_exceeding_bound_is_a_failure(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import (
+            CanaryIntegrityViolation,
+            evaluate,
+        )
+
+        rows = [
+            _row("canary_acausal_placebo", "POOLED", "positive_control", 0.30, True),
+            _row("canary_noise_gaussian", "POOLED", "negative_control", -0.01, False),
+            # 20 per-symbol cells, ALL clearing -- wildly exceeds any reasonable
+            # Binomial bound at p=0.05.
+            *[
+                _row(
+                    "canary_noise_gaussian",
+                    f"SYM{i}",
+                    "negative_control",
+                    0.02,
+                    True,
+                    is_pooled=False,
+                )
+                for i in range(20)
+            ],
+        ]
+        with pytest.raises(CanaryIntegrityViolation, match="Binomial tail bound"):
+            evaluate(rows)
+
+    def test_no_rows_at_all_is_a_failure(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import (
+            CanaryIntegrityViolation,
+            evaluate,
+        )
+
+        with pytest.raises(CanaryIntegrityViolation, match="no canary coverage"):
+            evaluate([])
+
+    def test_binomial_tail_bound_grows_with_more_cells(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import _binomial_tail_bound
+
+        small = _binomial_tail_bound(n_cells=10, p=0.05, tail_alpha=0.01)
+        large = _binomial_tail_bound(n_cells=1000, p=0.05, tail_alpha=0.01)
+        assert large > small
+
+    def test_binomial_tail_bound_zero_cells(self) -> None:
+        from scripts.ops.alpha.ops_canary_integrity_assert import _binomial_tail_bound
+
+        assert _binomial_tail_bound(n_cells=0, p=0.05, tail_alpha=0.01) == 0
