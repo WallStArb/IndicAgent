@@ -198,6 +198,53 @@ def _circular_block_bootstrap_ic(
     return ci_lower, ci_upper
 
 
+def vol_normalized_return(
+    return_x: np.ndarray, true_range_pct: np.ndarray, eps: float = 1e-10
+) -> np.ndarray:
+    """Vol-normalized return target: return_x / true_range_pct, epsilon-guarded.
+
+    Component F (todo 097, Phase 143.1-03): an alternative POOLED-strata IC target
+    that normalizes the raw forward-return array by `true_range_pct` -- already
+    loaded in `ic_engine.py`'s `_compute_cross_sectional_tf` query (raw,
+    non-z-scored). Deliberately NOT `atr_z` (already z-scored, unusable as a
+    sigma-scale denominator) and NOT a new rolling-window vol computation (no
+    existing column; would require new SQL window-function work per
+    143.1-CONTEXT.md/RESEARCH.md resolved item 8 / Assumption A1).
+
+    Epsilon guard matches `src/intelligence/feature_factory.py`'s `_ret_vol_ratio()`
+    convention (eps=1e-10 default, returns 0.0 rather than inf/nan on a
+    near-zero denominator) -- vectorized across the whole array instead of
+    guarding one scalar at a time.
+
+    This is a measurement-time diagnostic helper only -- it does not replace the
+    production return target (`return_fast/mid/slow/extended` stay raw in
+    `forward_returns`/`feature_ic_scores`). See
+    `scripts/ops/alpha/ops_vol_normalized_target_ab.py` for the explicit A/B this
+    feeds; per the locked validation contract (143.1-CONTEXT.md Component F), this
+    is never a silent production swap -- retire the transform if vol-normalized
+    rankings are materially identical to the raw-return baseline.
+
+    Args:
+        return_x: Shape [n_obs] -- raw forward return array (any `_SCALES` column,
+            e.g. `returns_scale` in `_compute_cross_sectional_tf`).
+        true_range_pct: Shape [n_obs] -- raw (non-z-scored) `true_range_pct` column,
+            already present in `ic_engine.py`'s `X_raw`/`X_sub` at
+            `_FEATURE_NAMES.index("true_range_pct")`, sliced to the same rows as
+            `return_x` (e.g. via the same `valid_mask`).
+        eps: Epsilon guard threshold, matching `_ret_vol_ratio`'s default.
+
+    Returns:
+        Shape [n_obs] -- `return_x / true_range_pct`, with 0.0 wherever
+        `abs(true_range_pct) < eps`.
+    """
+    return_x = np.asarray(return_x, dtype=np.float64)
+    true_range_pct = np.asarray(true_range_pct, dtype=np.float64)
+    guard = np.abs(true_range_pct) >= eps
+    out = np.zeros_like(return_x, dtype=np.float64)
+    out[guard] = return_x[guard] / true_range_pct[guard]
+    return out
+
+
 def compute_ic_vectorized(X: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Compute vectorized Spearman IC between each column of X and y.
 
