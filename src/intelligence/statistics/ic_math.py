@@ -20,6 +20,7 @@ so this module has no dependency back on either concrete config dataclass.
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Protocol
 
 import numpy as np
@@ -457,6 +458,100 @@ def partial_spearman_ic(
         return partial_ic, float("nan"), n
     p_value = float(_p_values_from_ic(np.array([partial_ic]), n, df=df)[0])
     return partial_ic, p_value, n
+
+
+# ---------------------------------------------------------------------------
+# IC decomposition: directional accuracy vs magnitude alignment
+# (Component B, todo 090, Phase 143.1 Plan 05)
+# ---------------------------------------------------------------------------
+
+
+def sign_hit_rate(X_raw: np.ndarray, y_raw: np.ndarray) -> np.ndarray:
+    """Directional-accuracy component of IC decomposition: fraction of bars where
+    sign(prediction) == sign(realized return), per feature.
+
+    Complements magnitude_conditional_ic to distinguish "gets the direction right"
+    from "gets the magnitude right when it matters" -- sharpens Phase 143's decay
+    monitors by decomposing a single IC value into these two components. Diagnostic
+    only, no eligibility/gate predicate reads this column.
+
+    NaN-safe via np.sign's own zero-maps-to-zero convention: a bar where the
+    prediction or the realized return is exactly zero has an undefined sign, so it
+    is excluded from both the numerator and the denominator (not scored as either a
+    hit or a miss). A feature with zero valid (nonzero-sign) observations returns
+    NaN for that column rather than a spurious 0/0-as-0.0.
+
+    Args:
+        X_raw: Shape [n_obs, n_features] -- raw (unranked) feature/prediction values.
+        y_raw: Shape [n_obs] -- raw (unranked) realized return values.
+
+    Returns:
+        Shape [n_features] -- sign_hit_rate in [0, 1] per feature; NaN where a
+        feature has zero valid (nonzero-sign) observations.
+    """
+    sign_x = np.sign(X_raw)
+    sign_y = np.sign(y_raw)[:, None]
+    valid = (sign_x != 0) & (sign_y != 0) & np.isfinite(sign_x) & np.isfinite(sign_y)
+    match = (sign_x == sign_y) & valid
+    n_valid = valid.sum(axis=0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(n_valid > 0, match.sum(axis=0) / np.maximum(n_valid, 1), np.nan)
+
+
+def magnitude_conditional_ic(
+    X_raw: np.ndarray,
+    y_raw: np.ndarray,
+    percentile: float,
+) -> np.ndarray:
+    """Magnitude-alignment component of IC decomposition: IC recomputed over the
+    subset of bars where |prediction| is above a percentile threshold, per feature.
+
+    Reuses _vectorized_ic on the re-ranked subset -- never re-derives Spearman via
+    scipy.stats.spearmanr (RESEARCH Don't Hand-Roll). Matches the bootstrap's
+    re-rank discipline (_circular_block_bootstrap_ic): Spearman IC is defined on
+    ranks *within the sample being correlated*, so the subset is re-ranked from
+    scratch rather than reusing global ranks computed on the full sample.
+
+    percentile is a per-feature threshold (np.percentile(|X|, percentile, axis=0)
+    computed independently per column) -- a feature with a different scale/
+    distribution gets its own magnitude cutoff rather than a shared absolute value.
+
+    Per-feature Python loop (not vectorized across features): each feature's
+    magnitude-subset mask differs, so the subset size/composition can't be
+    expressed as one shared boolean mask across columns. This loop runs once per
+    feature per (tf, regime, scale) cell (~150 iterations), not per observation --
+    not the "never log per-row in a corpus loop" pattern this codebase forbids.
+
+    Args:
+        X_raw: Shape [n_obs, n_features] -- raw (unranked) feature/prediction values.
+        y_raw: Shape [n_obs] -- raw (unranked) realized return values.
+        percentile: Selects the top (100 - percentile)% of bars by |X| per feature
+            (e.g. percentile=75.0 selects the top quartile by magnitude).
+
+    Returns:
+        Shape [n_features] -- magnitude-conditional IC per feature; NaN where the
+        thresholded subset has fewer than 2 observations, is degenerate (zero
+        variance in either X or y within the subset), or the input is NaN-only.
+    """
+    n_features = X_raw.shape[1]
+    out = np.full(n_features, np.nan)
+    abs_X = np.abs(X_raw)
+    with np.errstate(invalid="ignore"), warnings.catch_warnings():
+        # All-NaN columns are a legitimate degenerate case handled by the mask.sum()<2
+        # guard below, not a bug -- suppress numpy's "All-NaN slice encountered"
+        # RuntimeWarning rather than letting it leak into corpus-run logs.
+        warnings.filterwarnings("ignore", message="All-NaN slice encountered")
+        thresholds = np.nanpercentile(abs_X, percentile, axis=0)
+    for j in range(n_features):
+        col_x = X_raw[:, j]
+        col_valid = np.isfinite(col_x) & np.isfinite(y_raw)
+        mask = col_valid & (abs_X[:, j] >= thresholds[j])
+        if mask.sum() < 2:
+            continue
+        rx = rankdata(col_x[mask]).reshape(-1, 1)
+        ry = rankdata(y_raw[mask])
+        out[j] = _vectorized_ic(rx, ry)[0]
+    return out
 
 
 # ---------------------------------------------------------------------------
