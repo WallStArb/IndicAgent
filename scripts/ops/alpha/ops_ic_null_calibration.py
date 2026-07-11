@@ -62,6 +62,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
@@ -175,6 +176,13 @@ def _parse_args() -> argparse.Namespace:
         "benchmark. 'bootstrap' evaluates _circular_block_bootstrap_ic (Component A, "
         "todo 091, Phase 143.1-01) -- the staged-validation gate this script exists to "
         "run BEFORE any corpus-wide re-run uses it.",
+    )
+    parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="Skip the full diagnostic; instead time _circular_block_bootstrap_ic on one "
+        "representative per-symbol cell and one POOLED cell at the live APR resample/"
+        "block-size values (Task 4, Phase 143.1-01 corpus-scale runtime budget).",
     )
     return parser.parse_args()
 
@@ -301,6 +309,65 @@ def _evaluate_cell(
     }
 
 
+async def _run_benchmark(
+    pool: asyncpg.Pool,
+    vintage,
+    bootstrap_resamples: int,
+    bootstrap_block_size_by_tf: dict[str, int],
+    bootstrap_seed: int,
+    subsample_min_stride: int,
+) -> int:
+    """Task 4: time _circular_block_bootstrap_ic on one representative per-symbol cell
+    and one POOLED cell at the live APR params, tf=5m (largest N and largest
+    bootstrap_block_size of the 4 timeframes -- the conservative/worst-case pick for a
+    runtime budget). Bounded, small-N timing only; does not spawn a corpus run.
+
+    Applies the SAME stride subsampling production ic_engine.py / _evaluate_cell apply
+    before calling the bootstrap (stride = max(subsample_min_stride, lookahead_bars)) --
+    the bootstrap never runs on the raw unstrided series in production."""
+    bootstrap_rng = np.random.default_rng(bootstrap_seed)
+    block_size = bootstrap_block_size_by_tf.get("5m", 78)
+
+    print(f"# Task 4 runtime benchmark (vintage: {vintage})\n")
+    print(
+        f"tf=5m, bootstrap_resamples={bootstrap_resamples}, block_size={block_size}, "
+        f"seed={bootstrap_seed} (live APR values)\n"
+    )
+
+    for label, is_pooled in (("per-symbol", False), ("POOLED", True)):
+        rows = await pool.fetch(_BOUNDARY_CELLS_SQL, "5m", is_pooled, vintage, 1)
+        if not rows:
+            print(f"WARNING: no tf=5m is_pooled={is_pooled} cell available for benchmark")
+            continue
+        cell = dict(rows[0])
+        x_raw, y_raw, complete_raw = await _fetch_cell_series(pool, cell, "fast")
+
+        stride = max(subsample_min_stride, cell["lookahead_bars"])
+        sub_idx = np.arange(0, len(x_raw), stride)
+        x_sub = x_raw[sub_idx]
+        y_sub = y_raw[sub_idx]
+        complete_sub = complete_raw[sub_idx]
+
+        valid_mask = complete_sub & np.isfinite(y_sub) & np.isfinite(x_sub)
+        x_valid = x_sub[valid_mask].reshape(-1, 1)
+        y_valid = y_sub[valid_mask]
+        n_valid = len(y_valid)
+
+        start = time.perf_counter()
+        _circular_block_bootstrap_ic(
+            x_valid, y_valid, block_size, bootstrap_resamples, bootstrap_rng
+        )
+        elapsed = time.perf_counter() - start
+
+        print(
+            f"- {label} cell ({cell['feature_name']}/{cell['symbol']}, "
+            f"n_raw={len(x_raw)}, stride={stride}, n_valid={n_valid}): {elapsed:.3f}s"
+        )
+
+    print("\n---\nRuntime budget decision is recorded in docs/plans/methodology-change-ledger.md.")
+    return 0
+
+
 async def main() -> int:
     args = _parse_args()
     settings = Settings()
@@ -333,6 +400,16 @@ async def main() -> int:
             tf: await _load_config_int(pool, f"alpha.ic.bootstrap_block_size.{tf}", default)
             for tf, default in _BOOTSTRAP_BLOCK_SIZE_DEFAULTS.items()
         }
+
+        if args.benchmark:
+            return await _run_benchmark(
+                pool,
+                vintage,
+                bootstrap_resamples,
+                bootstrap_block_size_by_tf,
+                bootstrap_seed,
+                subsample_min_stride,
+            )
 
         print(f"# L4-2 Null Calibration Report (vintage: {vintage})\n")
         print(

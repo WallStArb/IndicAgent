@@ -181,3 +181,37 @@ last month's weights is a silent methodology choice too.
   mechanically correct implementation of the method the codebase already committed to
   building (todo 091 was filed, scoped, and locked in CONTEXT.md before this plan's own
   execution began), not a result-chasing redesign of the gate's pass/fail logic.
+- **Runtime budget (Task 4, SHOULD-FIX 4, measured 2026-07-11 at the live/unchanged APR
+  values — `bootstrap_resamples=2000`, `bootstrap_seed=42`,
+  `bootstrap_block_size.{5m,15m,1h,1d}=78/26/10/10`; Task 3's block-size robustness sweep
+  was diagnostic-only and never wrote to `config_state`, confirmed by direct query before
+  benchmarking, so Task 3's calibration result above applies unchanged at these params —
+  no re-run of Task 3 needed):** `_circular_block_bootstrap_ic` cost is driven almost
+  entirely by `n` (post-stride valid-observation count), not by `block_size` — cost is
+  effectively per-`(symbol-or-POOLED, regime, tf, lookahead)` group, since one call
+  vectorizes the CI across all ~150 features in that group simultaneously (`X_raw` shape
+  `[n_obs, n_features]`), confirmed by cross-checking `feature_ic_scores` row counts
+  against `count(DISTINCT (symbol, regime, lookahead_bars))` (row count = group count ×
+  150 features, exactly, at every `(tf, is_pooled)` stratum). Timed
+  `_circular_block_bootstrap_ic` directly on synthetic arrays sized to the corpus's actual
+  `n_independent` distribution (isolates the bootstrap's own cost from
+  `ops_ic_null_calibration.py`'s unrelated multi-table asyncpg fetch, which is NOT
+  representative of production — `ic_engine.py` already holds the data in memory when it
+  calls the bootstrap): per-call time scales slightly superlinearly in `n` (empirical
+  exponent ≈1.1-1.15, consistent with `rankdata`'s O(n log n) cost inside the per-iteration
+  loop) — e.g. tf=5m POOLED avg `n≈56,559` → 17.6s/call; tf=5m POOLED max observed
+  `n≈1,489,473` (single outlier cell) → 687s/call; tf=5m per-symbol avg `n≈4,170` →
+  1.1s/call. Summing per-call time × group count across all 8 `(tf, is_pooled)` strata
+  at their AVERAGE group size (6,219 total groups corpus-wide) gives **≈11,875s (≈3.3hr)
+  single-worker serial time**; `ic_engine.py` already parallelizes via
+  `ProcessPoolExecutor` at `infra.ic_engine.workers=12`, giving **≈990s (≈16.5min)
+  parallel wall-clock** under even load. **PRE-COMMITTED ACCEPTABLE RUNTIME BUDGET: 60
+  minutes wall-clock** at 12 workers for the bootstrap-CI portion of a corpus-wide
+  re-run — roughly 3.6x the ≈16.5min central estimate, sized to absorb load-imbalance risk
+  from the heavy right tail of large POOLED cells (the single largest observed 5m POOLED
+  cell alone costs 687s = over 11 minutes) landing disproportionately on one worker. This
+  budget is additive to `ic_engine.py`'s pre-existing non-CI per-cell cost (fetch/join/
+  feature-completeness work), which is unchanged by this component and not
+  re-benchmarked here. If a future corpus-wide re-run measures wall-clock materially
+  above this budget, that is itself a signal worth investigating (worker starvation,
+  DB contention, or an undercounted tail) before accepting the result.
