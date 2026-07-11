@@ -116,3 +116,68 @@ last month's weights is a silent methodology choice too.
   candidate analysis (§4) explicitly rejected the more elaborate alternatives (variant
   shrinkage, hierarchical pooling) as unsupported by current evidence (only 2-3 variants
   exist) rather than reaching for complexity to look more rigorous.
+
+### E6 — 2026-07-11: Fisher-z CI replaced with circular block bootstrap CI (Component A, todo 091, Phase 143.1-01)
+- **Observed first:** the 2026-07-09 empirical-null diagnostic (`ops_ic_null_calibration.py`,
+  todo 071/L4-2) found `_fisher_z_ci`'s analytic asymptotic CI empirically miscalibrated on
+  this corpus: 38% SUSPECT rate (11/29 evaluated cells, `se_ratio > 1.2`), spanning 4/8
+  `(tf, is_pooled)` strata — not confined to `1d`/thin-N corners. `_fisher_z_ci` gates
+  BH-FDR pass/fail, walk-forward validation, and the EIC-04 hard gate (currently PASS at
+  54/1425 = 3.79%, itself calibrated assuming this CI machinery is trustworthy).
+- **PRE-COMMITTED PASS THRESHOLD (recorded BEFORE the bootstrap re-run below):** the staged
+  gate PASSES iff `<= 2` SUSPECT cells out of the 66-72 evaluated AND no single
+  `(tf, is_pooled)` stratum has more than 1 SUSPECT cell (SUSPECT = the diagnostic's existing
+  `se_ratio > 1.2` flag, unchanged). This is the numeric bound Plan 07's corpus-wide re-run
+  is gated on — it must not be relaxed after seeing the bootstrap's actual SUSPECT count.
+- **Changed:** restored `_circular_block_bootstrap_ic` (`src/intelligence/statistics/ic_math.py`,
+  removed in commit `c6f5056b`, 2026-06-26) with its pre-ranking bug fixed — inputs are now
+  RAW unranked paired observations, re-ranked inside the bootstrap loop every iteration via
+  `rankdata`, instead of resampling already-globally-ranked values (the exact defect the
+  2026-07-09 diagnostic proved exists). Rewired all 3 `_fisher_z_ci` call sites in
+  `services/ic_engine.py` (`_compute_symbol_tf`'s regime block, the daily context-features
+  loop, `_compute_cross_sectional_tf` — the one that gates ensemble eligibility) to the
+  bootstrap, with a genuine signature change (raw arrays, not point-estimate + N) at each
+  site. Migration 222 reactivated the 6 `alpha.ic.bootstrap_*` APR keys (migrations
+  161/165/177), dead since the 2026-06-26 removal.
+- **Scope boundary (explicit, not an oversight):** `services/ensemble_ic_engine.py`'s EIC-04
+  gate CI computation (~line 778) and `scripts/ops/corpus/ops_oos_holdout_eval.py` (~line 213)
+  intentionally STAY ON `_fisher_z_ci` this phase — deferred per 143.1-CONTEXT.md resolved
+  item 3 / RESEARCH.md Open Question 1. `_fisher_z_ci` itself is not deleted; it remains the
+  production CI for those two call sites.
+- **Staged-validation result (measured AFTER the threshold above was committed):**
+  `ops_ic_null_calibration.py --ci-method bootstrap` on the SAME 66-cell stratified
+  sample (29 evaluated, 37 skipped -- identical to the Fisher-z baseline run, confirming
+  no sampling drift between the two comparisons): **6/29 (20.7%) SUSPECT at
+  `--n-permutations 200`** (matching the original diagnostic's default), down from
+  11/29 (37.9%) under Fisher-z -- a real, substantial improvement. Stratum breakdown:
+  `tf=5m,is_pooled=false`: 3 SUSPECT; `tf=15m,is_pooled=false`: 1; `tf=1d,is_pooled=false`:
+  1; `tf=1d,is_pooled=true`: 1.
+  **VERDICT: GATE NOT CLEARED.** 6 > 2 (total bound), and `tf=5m,is_pooled=false` has 3 > 1
+  (per-stratum bound). Re-running at `--n-permutations 1000` (5x more null-permutation
+  precision) did not clear it either (8/29 SUSPECT, `tf=5m` worsening to 4) -- ruling out
+  small-sample noise in the null benchmark as the cause. A follow-up robustness check
+  varying `bootstrap_block_size` for the 5m stratum from 78 (APR default, ~1 trading day)
+  up to 780 (~10 trading days) produced an IDENTICAL 4/7 SUSPECT count for 5m at every
+  block size tested, with `se_ratio` for the flagged cells flat-to-worsening as block size
+  grew -- ruling out "block too short to capture autocorrelation" as the cause too. The
+  residual is concentrated in autocorrelation/momentum-family features
+  (`ret_autocorr_1`/VNQ, `ctf_momentum`/XHB+IBB, `month_sin`/EFA) at `tf=5m` specifically.
+  Full investigation captured as `.planning/todos/pending/099-bootstrap-ci-staged-validation-gate-not-cleared-5m-residual.md`.
+  **Per this entry's own pre-committed rule: Plan 07's corpus-wide re-run remains BLOCKED**
+  pending either (a) resolution of the 5m residual, or (b) an explicit, separately-recorded
+  project-owner decision to accept the residual risk and proceed anyway. The corrected
+  bootstrap CODE (Tasks 1-2 of Phase 143.1-01) ships regardless -- it is unconditionally
+  correct relative to what it replaced (fixes a proven pre-ranking bug, cuts the SUSPECT
+  rate nearly in half) even though it does not fully clear this phase's own strict bar.
+- **Downstream exposure, explicitly not re-litigated here:** whether EIC-04's prior PASS
+  verdict (54/1425 = 3.79%, Phase 142A/143) should be reconsidered now that its upstream CI
+  machinery is proven miscalibrated under Fisher-z is deferred to the project owner — this
+  entry records the fact, not a re-adjudication of that gate decision (per 143.1-CONTEXT.md's
+  explicit deferral and RESEARCH.md's Pitfall 7 framing).
+- **Pre-registered?** Yes for the pass threshold (recorded before the bootstrap diagnostic
+  was ever run against this corpus — see timestamp ordering in this same commit). The
+  decision to replace Fisher-z with a bootstrap at all was made from a diagnostic result
+  (the 38% SUSPECT finding), not blind — but the fix itself (re-rank per iteration) is the
+  mechanically correct implementation of the method the codebase already committed to
+  building (todo 091 was filed, scoped, and locked in CONTEXT.md before this plan's own
+  execution began), not a result-chasing redesign of the gate's pass/fail logic.

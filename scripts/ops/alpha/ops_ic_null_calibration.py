@@ -35,14 +35,26 @@ same-named local variable `n_independent = len(sub_idx)` computed BEFORE that ma
 but it is used only for an internal early-exit threshold check and is never written
 to the DB -- comparing against it here would be comparing the wrong quantity.
 
-This report is diagnostic; remediation (delete the dead `alpha.ic.bootstrap_*` APR
-keys, or reopen circular block bootstrap) is a follow-up decision recorded in
-`docs/research/measurement-ic-engine.md`, not made by this script. Exit code is
+This report is diagnostic; remediation is a follow-up decision recorded in
+docs/plans/methodology-change-ledger.md, not made by this script. Exit code is
 always 0 -- informational, not a gate.
+
+Phase 143.1-01 (Component A, todo 091) added --ci-method bootstrap: evaluates the SAME
+stratified 66-72 cell sample, but derives the "implied SE" column from
+`_circular_block_bootstrap_ic` (the corrected, re-rank-per-iteration bootstrap that is now
+production in services/ic_engine.py) instead of the Fisher-z analytic formula
+(SE = 1/sqrt(n-3)). The bootstrap CI (raw IC-space percentile interval) is converted to an
+implied SE via the same arctanh z-transform the empirical-null benchmark already uses
+(z_upper - z_lower) / (2 * 1.959964), so the existing se_ratio / SUSPECT (se_ratio > 1.2)
+comparison logic is unchanged -- only the numerator source of "what the CI machinery claims
+the SE is" changes. This is the staged-validation gate that must pass (see the
+methodology-change-ledger's Component A entry for the pre-committed numeric bound) before
+any corpus-wide re-run computes feature_ic_scores CIs via the bootstrap.
 
 Usage:
     python scripts/ops/alpha/ops_ic_null_calibration.py
     python scripts/ops/alpha/ops_ic_null_calibration.py --n-permutations 500 --seed 7
+    python scripts/ops/alpha/ops_ic_null_calibration.py --ci-method bootstrap
 """
 
 from __future__ import annotations
@@ -59,7 +71,11 @@ import numpy as np
 from scipy.stats import rankdata, shapiro
 
 from src.config.settings import Settings
-from src.intelligence.statistics.ic_math import _circular_shift_null, _vectorized_ic
+from src.intelligence.statistics.ic_math import (
+    _circular_block_bootstrap_ic,
+    _circular_shift_null,
+    _vectorized_ic,
+)
 
 _TFS = ("5m", "15m", "1h", "1d")
 _N_BOUNDARY_CELLS = 5
@@ -68,6 +84,11 @@ _N_STRONG_CELLS = 2
 _N_PERMUTATIONS_DEFAULT = 200
 _SE_RATIO_SUSPECT_THRESHOLD_DEFAULT = 1.2
 _SHAPIRO_ALPHA = 0.05
+_Z95 = 1.959963985  # norm.ppf(0.975) -- matches ic_math._Z95, duplicated to avoid
+# importing a private module-level constant across files for one arithmetic use
+_BOOTSTRAP_BLOCK_SIZE_DEFAULTS = {"5m": 78, "15m": 26, "1h": 10, "1d": 10}
+_BOOTSTRAP_RESAMPLES_DEFAULT = 2000
+_BOOTSTRAP_SEED_DEFAULT = 42
 
 _LATEST_VINTAGE_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
 
@@ -146,6 +167,15 @@ def _parse_args() -> argparse.Namespace:
         "--se-ratio-suspect-threshold", type=float, default=_SE_RATIO_SUSPECT_THRESHOLD_DEFAULT
     )
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--ci-method",
+        choices=("fisher_z", "bootstrap"),
+        default="fisher_z",
+        help="Which CI machinery's implied SE to compare against the empirical-null "
+        "benchmark. 'bootstrap' evaluates _circular_block_bootstrap_ic (Component A, "
+        "todo 091, Phase 143.1-01) -- the staged-validation gate this script exists to "
+        "run BEFORE any corpus-wide re-run uses it.",
+    )
     return parser.parse_args()
 
 
@@ -199,7 +229,23 @@ def _evaluate_cell(
     stored_n_independent: int,
     n_permutations: int,
     rng: np.random.Generator,
+    ci_method: str = "fisher_z",
+    bootstrap_block_size: int = 10,
+    bootstrap_resamples: int = _BOOTSTRAP_RESAMPLES_DEFAULT,
+    bootstrap_rng: np.random.Generator | None = None,
 ) -> dict | None:
+    """Evaluate one cell's empirical null vs. the CI machinery's implied SE.
+
+    ci_method='fisher_z' (default, unchanged behavior): implied SE is the analytic
+    Fisher-z formula (1/sqrt(n-3)).
+
+    ci_method='bootstrap' (Component A, todo 091, Phase 143.1-01 staged-validation
+    gate): implied SE is derived from `_circular_block_bootstrap_ic`'s percentile CI,
+    converted to a z-space SE via the same arctanh transform the empirical-null
+    benchmark already uses -- (z_upper - z_lower) / (2 * Z95) -- so the se_ratio /
+    SUSPECT (se_ratio > 1.2) comparison logic downstream is unchanged; only the
+    "what does the CI machinery claim the SE is" numerator source changes.
+    """
     n_raw = len(x_raw)
     sub_idx = np.arange(0, n_raw, stride)
 
@@ -226,7 +272,22 @@ def _evaluate_cell(
 
     z_null = np.arctanh(np.clip(ic_null, -1 + 1e-10, 1 - 1e-10))
     empirical_se = float(np.std(z_null, ddof=1))
-    analytic_se = 1.0 / np.sqrt(n_valid - 3)
+
+    if ci_method == "bootstrap":
+        assert bootstrap_rng is not None, "bootstrap_rng required for ci_method='bootstrap'"
+        ci_lower_arr, ci_upper_arr = _circular_block_bootstrap_ic(
+            x_valid.reshape(-1, 1),
+            y_valid,
+            bootstrap_block_size,
+            bootstrap_resamples,
+            bootstrap_rng,
+        )
+        z_lower = np.arctanh(np.clip(ci_lower_arr[0], -1 + 1e-10, 1 - 1e-10))
+        z_upper = np.arctanh(np.clip(ci_upper_arr[0], -1 + 1e-10, 1 - 1e-10))
+        analytic_se = float((z_upper - z_lower) / (2.0 * _Z95))
+    else:
+        analytic_se = 1.0 / np.sqrt(n_valid - 3)
+
     se_ratio = empirical_se / analytic_se
     shapiro_stat, shapiro_p = shapiro(z_null)
 
@@ -259,19 +320,45 @@ async def main() -> int:
         bars_to_scale = {bars: scale for scale, bars in lookaheads.items()}
         subsample_min_stride = await _load_config_int(pool, "alpha.ic.subsample_min_stride", 5)
 
+        # Component A (todo 091): APR-backed bootstrap params, loaded regardless of
+        # --ci-method so a bootstrap run always reads the SAME values production
+        # (services/ic_engine.py) would use -- never hardcoded, never re-derived here.
+        bootstrap_resamples = await _load_config_int(
+            pool, "alpha.ic.bootstrap_resamples", _BOOTSTRAP_RESAMPLES_DEFAULT
+        )
+        bootstrap_seed = await _load_config_int(
+            pool, "alpha.ic.bootstrap_seed", _BOOTSTRAP_SEED_DEFAULT
+        )
+        bootstrap_block_size_by_tf = {
+            tf: await _load_config_int(pool, f"alpha.ic.bootstrap_block_size.{tf}", default)
+            for tf, default in _BOOTSTRAP_BLOCK_SIZE_DEFAULTS.items()
+        }
+
         print(f"# L4-2 Null Calibration Report (vintage: {vintage})\n")
         print(
             f"n_permutations={args.n_permutations}, seed={args.seed}, "
-            f"se_ratio_suspect_threshold={args.se_ratio_suspect_threshold}\n"
+            f"se_ratio_suspect_threshold={args.se_ratio_suspect_threshold}, "
+            f"ci_method={args.ci_method}\n"
         )
+        if args.ci_method == "bootstrap":
+            print(
+                f"bootstrap_resamples={bootstrap_resamples}, bootstrap_seed={bootstrap_seed}, "
+                f"bootstrap_block_size={bootstrap_block_size_by_tf} "
+                "(loaded from APR -- same values production ic_engine.py uses)\n"
+            )
 
         cells = await _sample_cells(pool, vintage)
         print(f"Sampled {len(cells)} cells.\n")
 
         rng = np.random.default_rng(args.seed)
+        # Independent RNG stream for the bootstrap CI itself -- kept separate from the
+        # null-permutation rng above so bootstrap draws never perturb the (unchanged)
+        # empirical-null benchmark's own reproducibility.
+        bootstrap_rng = np.random.default_rng(bootstrap_seed)
+        se_col_label = "bootstrap_se" if args.ci_method == "bootstrap" else "analytic_se"
         print(
-            "| feature | symbol | tf | regime | lookahead | n_valid | observed_ic | "
-            "analytic_se | empirical_se | se_ratio | shapiro_p | flag |"
+            f"| feature | symbol | tf | regime | lookahead | n_valid | observed_ic | "
+            f"{se_col_label} | empirical_se | se_ratio | shapiro_p | flag |"
         )
         print("|---|---|---|---|---|---|---|---|---|---|---|---|")
 
@@ -295,6 +382,10 @@ async def main() -> int:
                 cell["n_independent"],
                 args.n_permutations,
                 rng,
+                ci_method=args.ci_method,
+                bootstrap_block_size=bootstrap_block_size_by_tf.get(cell["tf"], 10),
+                bootstrap_resamples=bootstrap_resamples,
+                bootstrap_rng=bootstrap_rng,
             )
             if result is None:
                 n_skipped += 1
@@ -320,11 +411,12 @@ async def main() -> int:
             f"Evaluated: {n_evaluated}, skipped (mismatch/insufficient N): {n_skipped}, "
             f"SUSPECT: {n_suspect}\n"
         )
+        method_label = "Circular block bootstrap" if args.ci_method == "bootstrap" else "Fisher-z"
         if n_suspect == 0:
-            print("**Verdict: Fisher-z CI calibration confirmed across all sampled cells.**")
+            print(f"**Verdict: {method_label} CI calibration confirmed across all sampled cells.**")
         else:
             print(
-                "**Verdict: SUSPECT cells found -- analytic CI may be too narrow. "
+                f"**Verdict: SUSPECT cells found -- {method_label} CI may be too narrow. "
                 "Stratum breakdown:**"
             )
             for (tf, is_pooled), count in sorted(suspect_by_stratum.items()):
