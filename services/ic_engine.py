@@ -520,6 +520,38 @@ def _derive_worker_rng_seed(cell_key: str, bootstrap_seed: int) -> int:
     return bootstrap_seed + cell_hash % (2**31)
 
 
+def _sign_consistent_wf_pass_count(fold_ic_arr: np.ndarray, ic_vector_nd: np.ndarray) -> np.ndarray:
+    """Count walk-forward folds whose IC sign matches the feature's full-sample sign.
+
+    Component E (todo 094) fix: the pre-existing criterion `(fold_ic_arr > 0).sum(...)`
+    is sign-asymmetric -- it can never be satisfied by a persistently-negative
+    (contrarian, ic_sign=-1) feature no matter how stable its folds are, which is
+    exactly the mechanism that silently excludes 100% of negative-IC features from
+    `passes_walkforward` and therefore from ensemble eligibility (`_ELIGIBILITY_BASE_WHERE`
+    requires `passes_walkforward = true`).
+
+    Equivalence-preserving for ic_sign=1 features: `np.sign(ic_vector_nd)` is `+1`, so
+    `fold_ic_arr * sign_nd` is a no-op and this reduces byte-for-byte to the old
+    `(fold_ic_arr > 0)` criterion. For ic_sign=-1 features, a fold now "passes" when its
+    sign matches the feature's OWN full-sample sign (both negative), not when the raw
+    fold IC happens to be positive.
+
+    Unconditional (no APR flag) -- this is a measurement-layer fix, not a policy switch;
+    see 143.1-04-PLAN.md objective for why walk-forward must stay unconditional while
+    `alpha.ensemble.sign_symmetric` gates only the downstream eligibility/weighting/
+    lifecycle policy layer.
+
+    Args:
+        fold_ic_arr: Shape [n_folds, n_nd] -- per-fold IC point estimates.
+        ic_vector_nd: Shape [n_nd] -- full-sample IC point estimate per feature.
+
+    Returns:
+        wf_pass_count_nd: Shape [n_nd] int array -- folds passing per feature.
+    """
+    sign_nd = np.sign(ic_vector_nd)
+    return ((fold_ic_arr * sign_nd[None, :]) > 0).sum(axis=0)
+
+
 # ---------------------------------------------------------------------------
 # Main compute loop for a single (symbol, tf)
 # ---------------------------------------------------------------------------
@@ -884,7 +916,7 @@ def _compute_symbol_tf(
                 wf_fold_count = len(fold_ics_list)
                 if wf_fold_count > 0:
                     fold_ic_arr = np.array(fold_ics_list)  # [n_folds, n_nd]
-                    wf_pass_count_nd = (fold_ic_arr > 0).sum(axis=0)
+                    wf_pass_count_nd = _sign_consistent_wf_pass_count(fold_ic_arr, ic_vector_nd)
                     passes_wf_nd = wf_pass_count_nd == walk_forward_folds
                 else:
                     wf_pass_count_nd = np.zeros(len(ic_vector_nd), dtype=int)
@@ -1097,6 +1129,13 @@ def _compute_symbol_tf(
 
                 # Walk-forward with scale-specific embargo (P3 fix: was cf_embargo_bars=max lookahead).
                 # Fixed-origin expanding window: train_end grows monotonically, test windows in order.
+                # Sign-consistent fold-pass criterion (Component E, todo 094): a fold "passes" when
+                # its IC sign matches the feature's own full-sample sign, not when the raw fold IC
+                # happens to be positive -- equivalence-preserving for ic_val > 0 (full_sign=+1 is a
+                # no-op) and the fix that lets a persistently-negative daily context feature walk-
+                # forward-confirm. Scalar mirror of _sign_consistent_wf_pass_count's array logic
+                # (no ic_sign_nd array exists in this scalar-per-feature loop).
+                full_sign = 1.0 if (ic_val is not None and ic_val > 0) else -1.0
                 cf_embargo_bars = lookahead_bars
                 wf_fold_count = 0
                 wf_pass_count = 0
@@ -1121,7 +1160,7 @@ def _compute_symbol_tf(
                         ry_fold = rankdata(y_daily[test_start:test_end])
                         fold_ic = float(_vectorized_ic(rx_fold, ry_fold)[0])
                         folds_counted += 1
-                        if fold_ic > 0:
+                        if fold_ic * full_sign > 0:
                             folds_passed += 1
                 wf_fold_count = folds_counted
                 wf_pass_count = folds_passed
@@ -1584,7 +1623,7 @@ def _compute_cross_sectional_tf(
         wf_fold_count = len(fold_ics_list)
         if wf_fold_count > 0:
             fold_ic_arr = np.array(fold_ics_list)
-            wf_pass_count_nd = (fold_ic_arr > 0).sum(axis=0)
+            wf_pass_count_nd = _sign_consistent_wf_pass_count(fold_ic_arr, ic_vector_nd)
             passes_wf_nd = wf_pass_count_nd == walk_forward_folds
         else:
             wf_pass_count_nd = np.zeros(len(ic_vector_nd), dtype=int)
