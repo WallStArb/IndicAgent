@@ -99,6 +99,7 @@ from src.intelligence.statistics.ic_math import (
     _nan_to_none,
     _p_values_from_ic,
     _vectorized_ic,
+    vol_normalized_return,
 )
 from src.observability.metrics import (
     ALPHA_DECAY_CELLS_FLAGGED,
@@ -1262,6 +1263,46 @@ def _compute_symbol_tf(
 # ---------------------------------------------------------------------------
 # Cross-sectional IC computation (equity_model_enabled=True)
 # ---------------------------------------------------------------------------
+
+
+def _cross_sectional_vol_normalized_target(
+    X_sub: np.ndarray, valid_mask: np.ndarray, returns_scale: np.ndarray
+) -> np.ndarray:
+    """Vol-normalized POOLED-strata return target (Component F, todo 097).
+
+    Produces the vol-normalized return array from arrays already assembled inside
+    `_compute_cross_sectional_tf`'s per-scale loop -- `X_sub` (raw, unranked,
+    all-feature array fetched by the existing `chunk_sql` query, no new SELECT),
+    `valid_mask` (the same completeness/finite-value mask gating the production
+    `X_raw_scale`/`Y_scale` arrays), and `returns_scale` (the raw forward-return
+    column for this scale, sourced from the same `fr.return_type =
+    'executable_open_to_open'`-filtered query -- Invariant 1 untouched, no new
+    query, no new join).
+
+    NOT called from `_compute_cross_sectional_tf`'s production path -- this is
+    reachable/importable measurement-time diagnostic scaffolding for
+    `scripts/ops/alpha/ops_vol_normalized_target_ab.py`'s explicit A/B (Component F's
+    locked validation contract: never a silent production-target swap; retire the
+    transform if vol-normalized rankings are materially identical to raw). Callable
+    directly from inside `_compute_cross_sectional_tf` too, at the same point
+    `X_raw_scale`/`Y_scale` are sliced (both already index with the identical
+    `valid_mask`), if a future decision promotes this to production.
+
+    Args:
+        X_sub: Shape [n_independent, n_features] -- ALL features (not just
+            non-degenerate), pre-`valid_mask`, for this scale's stride subsample.
+        valid_mask: Shape [n_independent] -- completeness & finite-return mask,
+            identical to the one gating `X_raw_scale`/`Y_scale` in the caller.
+        returns_scale: Shape [n_independent] -- raw forward-return column for this
+            scale, pre-`valid_mask`.
+
+    Returns:
+        Shape [n_valid] -- vol-normalized target aligned 1:1 with `Y_scale`.
+    """
+    tr_idx = _FEATURE_NAMES.index("true_range_pct")
+    true_range_pct_scale = X_sub[valid_mask, tr_idx]
+    Y_scale = returns_scale[valid_mask]
+    return vol_normalized_return(Y_scale, true_range_pct_scale)
 
 
 def _compute_cross_sectional_tf(

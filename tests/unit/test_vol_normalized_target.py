@@ -95,3 +95,37 @@ def test_operates_on_arrays_shaped_like_ic_engine_cross_sectional_load() -> None
 
     assert result.shape == (n_valid,)
     assert np.all(np.isfinite(result))
+
+
+def test_cross_sectional_wiring_helper_reachable_and_correct() -> None:
+    # Component F's Task 1 wiring requirement: _compute_cross_sectional_tf must be
+    # ABLE to produce the vol-normalized target array from true_range_pct already in
+    # X_raw/X_sub and the existing return arrays -- no new query, no new join. This
+    # exercises services.ic_engine._cross_sectional_vol_normalized_target, the
+    # module-level helper co-located with _compute_cross_sectional_tf that takes the
+    # exact same in-scope arrays (X_sub, valid_mask, returns_scale) that function
+    # already assembles from its existing chunk_sql fetch.
+    from services.ic_engine import _FEATURE_NAMES, _cross_sectional_vol_normalized_target
+
+    n_independent = 200
+    n_features = len(_FEATURE_NAMES)
+    rng = np.random.default_rng(11)
+
+    X_sub = rng.normal(0, 1, size=(n_independent, n_features)).astype(np.float32)
+    tr_idx = _FEATURE_NAMES.index("true_range_pct")
+    # Ensure true_range_pct column is strictly positive and away from the eps guard,
+    # like real true_range_pct values (a percentage, always >= 0 in practice).
+    X_sub[:, tr_idx] = rng.uniform(0.001, 0.05, size=n_independent).astype(np.float32)
+
+    valid_mask = np.ones(n_independent, dtype=bool)
+    valid_mask[::7] = False  # simulate some incomplete/non-finite rows excluded
+    returns_scale = rng.normal(0, 0.02, size=n_independent).astype(np.float64)
+
+    result = _cross_sectional_vol_normalized_target(X_sub, valid_mask, returns_scale)
+
+    n_valid = int(valid_mask.sum())
+    assert result.shape == (n_valid,)
+    assert np.all(np.isfinite(result))
+
+    expected = returns_scale[valid_mask] / X_sub[valid_mask, tr_idx].astype(np.float64)
+    assert np.allclose(result, expected, rtol=1e-5)
