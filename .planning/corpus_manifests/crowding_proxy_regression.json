@@ -1,0 +1,27 @@
+{
+  "step_name": "crowding_proxy_regression",
+  "step_version": "1.0",
+  "timestamp": "2026-07-12T15:48:13.226792+00:00",
+  "status": "success",
+  "inputs": {
+    "min_obs": 30
+  },
+  "outputs": {
+    "crowding_proxy_regression_report": {
+      "table": "crowding_proxy_regression_report",
+      "rows_total": 18,
+      "columns_written": [
+        "tf",
+        "regime",
+        "weight_epoch",
+        "n_obs",
+        "r_squared"
+      ],
+      "strata_fitted": 16,
+      "strata_skipped": 2,
+      "max_r_squared": 0.2674404577186814
+    }
+  },
+  "errors": [],
+  "warnings": []
+}

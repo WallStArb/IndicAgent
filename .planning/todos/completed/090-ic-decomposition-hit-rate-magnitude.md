@@ -17,3 +17,10 @@ opposite profiles and decay differently (magnitude alignment usually dies first 
 crowds). Report both as diagnostic columns (no gate change): `sign_hit_rate` and
 IC-conditional-on-large-`|prediction|`. Cheap kernel additions; sharpens Phase 143's decay
 monitors for free.
+
+## Resolution (2026-07-12)
+
+Shipped as Phase 143.1-05 (Component B): `sign_hit_rate` and `magnitude_conditional_ic` kernels
+added and wired into `ic_engine.py`'s write path (`services/ic_engine.py:102-103,220,231,997-
+1058`), persisted as columns on `feature_ic_scores`. Confirmed live in code — nothing left on
+this todo.
