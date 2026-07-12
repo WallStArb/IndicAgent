@@ -1429,10 +1429,11 @@ This is a *separate, earlier* `ic_engine` re-run from the one described immediat
 Phase 144's own batch — not the same pass. See Phase 143.1's entry and
 `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md` for detail.
 
-**Batched into one `ic_engine` re-run** (topdown D5): Phase 144 (`regime_group`) + todo 026
-P2b/P2c/P3 (remaining HMM regime audit items) + todo 041 (tag exposure-vs-sensitivity taxonomy
-audit — gates commodity/fx group enablement) + `docs/research/intel-12-stratification-dimension.md`'s
-first substitution test. Phase 145 (Empirical Instrument Tag Calibrator) joins evidence-gated:
+**Batched into one `ic_engine` re-run** (topdown D5): Phase 144 (`regime_group`) + todo 026 P3
+(empirical vix/breadth threshold calibration — P2b/P2c already shipped 2026-07-06 via Phase 143
+Plan 01/LIFECYCLE-00, and P3 itself was split out to standalone todo 092 on 2026-07-09; verified
+2026-07-12) + todo 041 (tag exposure-vs-sensitivity taxonomy audit — gates commodity/fx group
+enablement) + `docs/research/intel-12-stratification-dimension.md`'s first substitution test. Phase 145 (Empirical Instrument Tag Calibrator) joins evidence-gated:
 if todo 041's audit shows tag calibration is load-bearing for group routing (not merely
 descriptive), pull it into this batch; otherwise it trails independently (its own Depends-on
 already states no dependency on Phase 148-150).
