@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """Equity Regime Model — oneshot that populates market_regimes with cross-sectional labels.
 
+DEPRECATED (Phase 144, 2026-07-12): superseded by services/cross_sectional_regime_model.py,
+the generic multi-group dispatcher (equity/rates/commodity/fx via APR key
+alpha.regime.groups). This file is retained ONLY as an emergency single-group rollback
+path — the corpus pipeline's step-4 slot (scripts/ops/corpus/ops_corpus_pipeline_run.sh)
+now runs cross_sectional_regime_model.py instead. No functional changes were made to
+this file as part of that migration; it still writes market_regimes.asset_class='equity'
+rows exactly as before and can be re-wired into the pipeline manually if the new
+dispatcher needs to be rolled back.
+
 Computes one cross-sectional equity regime label per (asset_class='equity', tf, ts) from:
   - VIX proxy: SPY realized-vol z-score percentile rank over full corpus history
   - Breadth signal: fraction of equity ETFs (instrument_tags eq_* or intl_*) with close > 200MA
