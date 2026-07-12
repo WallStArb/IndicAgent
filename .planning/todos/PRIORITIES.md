@@ -39,7 +39,10 @@ real value, not urgent. P3 = hygiene/docs/process, opportunistic.
 **Closed 2026-07-10** (moved to `completed/`, see each file's resolution note): 051 (backfill
 IBKR-disconnect silent skip), 061 (`feature_vector_pipeline` DDL in hot path), 044 (`indicagent-tempo`
 crash-loop). **Closed 2026-07-12**: 098 (stale idea-doc refresh, both items done via parallel
-Fable review).
+Fable review), 095 (migrations directory collision, fixed in a concurrent session, commit
+`fc5f2691`), 093 (`alpha_frames` backfill + FRAME-04 gate evaluated — gate FAILS 16/17 cells on
+current pre-143.1-fix data, recorded as the baseline Phase 143.1-08's shadow comparison diffs
+against).
 
 **Explicit sequencing decision (2026-07-10, project owner confirmed; reaffirmed 2026-07-11 after
 094's root cause was corrected, and again 2026-07-11 to insert 097 — see
@@ -59,9 +62,7 @@ without re-confirming with the project owner.
 
 | Todo | Why now |
 |---|---|
-| [093](pending/093-alpha-frames-backfill.md) | **Backfill+scoring done as of 2026-07-12** (11.8M frames, 2.64M scored, verified live via psql) — the one remaining step, `CounterfactualTracker --evaluate-gate`'s FRAME-04 verdict, was explicitly deferred at 142B ship time and still hasn't been run; it's read-only and safe to run any time, independent of the in-flight 143.1-07 corpus re-run |
 | [096](pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md) | Check whether frame `max_hold_bars` is commensurate with the `lookahead_bars` each feature's IC was actually selected at — could independently explain todo 093's 77%-timeout pattern; read-only, can run in parallel with everything else |
-| [095](pending/095-migrations-directory-split-collision.md) | `db/migrations/` vs `production/migrations/` — 3 docs claim the former is canonical, reality is the opposite (213 files vs 3, latter stale 34+ days); confirmed migration-number collisions (120/121); fresh `infrastructure_db_setup.sh` run likely fails on a raw pg_dump snapshot colliding with 213 already-applied incremental migrations |
 | [068](pending/068-canary-predictors-integrity-check.md) | Cheapest integrity purchase available — negative-control predictors, zero new services, gate: none |
 | [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09 |
 | [072](pending/072-crowding-proxy-regression.md) | Alpha overlap with public-factor signals — runs against data that exists today, no dependency |
@@ -79,6 +80,7 @@ without re-confirming with the project owner.
 
 | Todo | What |
 |---|---|
+| [101](pending/101-migration-duplicate-number-sweep.md) | Filed 2026-07-12 (found while resolving todo 095) — `production/migrations/` has 13 duplicate-number groups (001, 031, 038, 050-052, 064, 138, 152, 168, 178, 214-215), not just the one 095 knew about. Finding + recommended approach only; deliberately not executed same-session given live-DB rename risk. |
 | [005](pending/005-ic-regime-transition-purge.md) | Purge regime-transition label noise from IC measurement |
 | [033](pending/033-zero-ic-feature-refinement.md) | Refine remaining zero-IC features (rerun gate now cleared) |
 | [038](pending/038-cross-sectional-collinearity-diagnostic.md) | Cross-sectional feature collinearity diagnostic vs IC |
