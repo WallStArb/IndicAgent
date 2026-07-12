@@ -58,6 +58,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import hashlib
+import json
 import sys
 import time
 from collections import defaultdict
@@ -203,6 +204,67 @@ def _resolve_regime_scope(is_pooled: bool, cross_sectional: bool) -> str:
     if cross_sectional:
         return "cross_sectional"
     return "symbol_hmm"
+
+
+# ---------------------------------------------------------------------------
+# Symbol -> regime group routing (Phase 144 Plan 05)
+# ---------------------------------------------------------------------------
+
+
+class AmbiguousRegimeGroupError(ValueError):
+    """Raised when a symbol's tags match more than one enabled regime group.
+
+    Regime groups must partition the universe: a symbol occupies exactly one
+    discrete regime state at a time, so tag_filter overlap across groups is a
+    config authoring error, not something to resolve silently by JSON array
+    order. Fix by tightening tag_filter prefixes or the instrument_tags data
+    so the overlap is removed, then restart.
+    """
+
+
+def _build_symbol_regime_class(
+    tags_by_symbol: dict[str, set[str]],
+    group_configs: list[dict],
+) -> dict[str, str]:
+    """Map each symbol to its regime group name from the groups APR config.
+
+    A symbol matches a group if any of its instrument_tags starts with any
+    prefix in the group's tag_filter (trailing * stripped). Enabled groups'
+    tag_filters must be mutually exclusive over the resolved universe -- if a
+    symbol matches more than one group, this raises AmbiguousRegimeGroupError
+    rather than silently picking the first match, since group order in the
+    APR JSON is not a meaningful ranking and must never be load-bearing.
+
+    Symbols with no matching enabled group are OMITTED from the returned
+    dict -- they get no regime_group and are excluded from regime-stratified
+    IC (the pooled IC pass still covers them; no data is dropped, only the
+    regime-conditional cut). This was previously a silent default to
+    'equity', which mislabeled non-equity instruments (bonds, gold, bitcoin
+    ETFs) under the SPY-vol x equity-breadth regime whenever their true
+    group was absent or disabled. Silent mislabeling is worse than an
+    explicit gap -- see the caller's loud startup log of unrouted symbols.
+    """
+    prefixes_by_group: list[tuple[str, list[str]]] = [
+        (g["name"], [p.rstrip("*") for p in g.get("tag_filter", [])])
+        for g in group_configs
+        if g.get("enabled", True)
+    ]
+    result: dict[str, str] = {}
+    for symbol, tags in tags_by_symbol.items():
+        matches = [
+            group_name
+            for group_name, prefixes in prefixes_by_group
+            if any(any(t.startswith(pfx) for t in tags) for pfx in prefixes)
+        ]
+        if len(matches) > 1:
+            raise AmbiguousRegimeGroupError(
+                f"Symbol {symbol!r} matches multiple enabled regime groups "
+                f"{matches} -- tag_filter patterns must be mutually exclusive. "
+                f"Tags: {sorted(tags)}"
+            )
+        if matches:
+            result[symbol] = matches[0]
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +432,15 @@ class ICEngineConfig:
     # APR fallback (false) so direct-constructor test sites (test_hac_ic_sharpe.py
     # precedent, commit b47595b9) do not break on this dataclass's field-count growth.
     sign_symmetric: bool = False
+    # Phase 144 Plan 05: regime_group routing. Raw JSON string (or already-parsed
+    # list[dict] normalized to a JSON string here -- see from_apr()) of the
+    # alpha.regime.groups APR config -- passed to
+    # services.cross_sectional_regime_model._parse_group_configs() in main() to
+    # derive enabled_groups. Defaulted for the same reason as every other
+    # post-143 field: pre-existing direct ICEngineConfig(...) construction sites
+    # (test_hac_ic_sharpe.py, test_ic_engine_lifecycle_hook.py) must not break on
+    # this dataclass's field-count growth.
+    regime_groups_json: str = "[]"
 
     @property
     def lookaheads(self) -> dict[str, int]:
@@ -384,6 +455,20 @@ class ICEngineConfig:
     @classmethod
     def from_apr(cls, cfg: Any) -> ICEngineConfig:
         """Load all IC engine APR parameters from ConfigService in one pass."""
+        # Phase 144 Plan 05: alpha.regime.groups is a JSON-typed APR key -- once
+        # cached, ConfigService._parse_value() has ALREADY called json.loads() on
+        # it, so cfg.get_sync() returns an already-parsed list[dict], not a raw
+        # string. Normalize here: json.dumps() a parsed list back to a string (so
+        # ICEngineConfig stays a flat, picklable dataclass of primitives); pass a
+        # raw string straight through unchanged. NEVER str() a list[dict] -- Python's
+        # repr uses single quotes and True/False, which is not valid JSON and breaks
+        # the json.loads() call inside _parse_group_configs() downstream.
+        _raw_regime_groups = cfg.get_sync("alpha.regime.groups", "[]")
+        regime_groups_json = (
+            _raw_regime_groups
+            if isinstance(_raw_regime_groups, str)
+            else json.dumps(_raw_regime_groups)
+        )
         return cls(
             min_observations=int(cfg.get_sync("alpha.ic.min_observations", 500)),
             fdr_alpha=float(cfg.get_sync("alpha.ic.fdr_alpha", 0.05)),
@@ -450,6 +535,7 @@ class ICEngineConfig:
             # reads -- one flag, two consumers, so the champion/challenger switch can't
             # drift between eligibility and the lifecycle hook's demote predicate.
             sign_symmetric=bool(cfg.get_sync("alpha.ensemble.sign_symmetric", False)),
+            regime_groups_json=regime_groups_json,
         )
 
 
@@ -459,14 +545,18 @@ class ICEngineConfig:
 
 
 def _assert_prerequisites(
-    conn: Any, tfs: list[str] | None = None, equity_model_enabled: bool = True
+    conn: Any,
+    tfs: list[str] | None = None,
+    equity_model_enabled: bool = True,
+    group_configs: list[dict] | None = None,
 ) -> None:
-    """Crash-loud startup gates. Three (or four) explicit RuntimeError raises.
+    """Crash-loud startup gates. Three (or more) explicit RuntimeError raises.
 
     A run that 'succeeds' with empty feature_ic_scores is a data-integrity
     failure. These gates prevent it by failing loud before any compute.
 
-    When equity_model_enabled=True, also verifies market_regimes has rows for each TF.
+    When equity_model_enabled=True (i.e. bool(enabled_groups)), also verifies
+    market_regimes has rows for each (regime_group, tf) pair in group_configs.
     """
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM feature_vectors")
@@ -495,20 +585,26 @@ def _assert_prerequisites(
             "Run services/forward_return_writer.py first."
         )
 
-    # market_regimes prerequisite: required when equity_model_enabled=True
-    if equity_model_enabled and tfs:
-        for tf in tfs:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT count(*) FROM market_regimes WHERE asset_class='equity' AND tf=%s",
-                    (tf,),
-                )
-                n_mr = cur.fetchone()[0]
-            if n_mr == 0:
-                raise RuntimeError(
-                    f"IC Engine startup gate FAILED: market_regimes empty for tf={tf}. "
-                    "Run services/equity_regime_model.py first."
-                )
+    # market_regimes prerequisite: required when equity_model_enabled=True, checked
+    # per (regime_group, tf) for every enabled group -- not just 'equity'.
+    if equity_model_enabled and tfs and group_configs:
+        for group in group_configs:
+            if not group.get("enabled", True):
+                continue
+            group_name = group["name"]
+            for tf in tfs:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT count(*) FROM market_regimes WHERE regime_group=%s AND tf=%s",
+                        (group_name, tf),
+                    )
+                    n_mr = cur.fetchone()[0]
+                if n_mr == 0:
+                    raise RuntimeError(
+                        f"IC Engine startup gate FAILED: market_regimes empty for "
+                        f"regime_group={group_name} tf={tf}. "
+                        "Run services/cross_sectional_regime_model.py first."
+                    )
 
 
 # ---------------------------------------------------------------------------
@@ -1455,6 +1551,8 @@ def _compute_cross_sectional_tf(
     conn: Any,
     tf: str,
     regime_label: str,
+    regime_group: str,
+    symbol_list: list[str],
     training_window_end: Any,
     existing_keys: frozenset[tuple],
     config: ICEngineConfig,
@@ -1463,23 +1561,36 @@ def _compute_cross_sectional_tf(
     rng: np.random.Generator,
     feature_status_map: dict[str, str] | None = None,
 ) -> tuple[list[dict], dict[str, Any]]:
-    """Compute cross-sectional IC for one (tf, regime_label) cell.
+    """Compute cross-sectional IC for one (regime_group, tf, regime_label) cell.
 
-    Fetches feature_vectors JOIN market_regimes JOIN forward_returns for ALL 58 equity
-    ETFs pooled into a single observation set. Computes Spearman IC across all symbols
-    simultaneously — each (bar_ts, symbol) pair is an independent observation.
+    Fetches feature_vectors JOIN forward_returns for ALL symbols in symbol_list
+    (regime_group's own peer symbols, resolved by the caller from
+    symbol_regime_class) pooled into a single observation set. Computes Spearman
+    IC across all peer symbols simultaneously -- each (bar_ts, symbol) pair is an
+    independent observation.
+
+    symbol_list is THE contamination fix (Phase 144 D-01): before this, every
+    symbol in the corpus (fi_* bonds, GLD/SLV/VNQ, IBIT) was pooled into every
+    cross-sectional cell regardless of regime_group, because chunk_sql had no
+    symbol filter at all -- only a bar_ts filter derived from a market_regimes
+    timestamp prefetch that was itself hardcoded to the (now-renamed, migration
+    229) equity-only asset class column.
 
     No DB writes — returns (all_results, stats_dict). Writes happen serially in main
     process via _write_cross_sectional_results.
 
     The result is stored with symbol=_CROSS_SECTIONAL_SYMBOL ('POOLED'), is_pooled=True,
-    regime=regime_label (actual label, not '_pooled' sentinel).
+    regime=regime_label (actual label, not '_pooled' sentinel). regime_group is NOT
+    persisted on the result row -- feature_ic_scores has no regime_group column;
+    group identity stays implicit in regime_label string uniqueness across enabled
+    groups (see cross_sectional_regime_model.py's _assign_labels docstring for the
+    label-vocabulary-uniqueness invariant this relies on).
 
     rng: worker-safe circular block bootstrap RNG (Component A, todo 091) -- this pass
     runs single-process (not ProcessPoolExecutor), so the caller derives one seed via
-    _derive_worker_rng_seed() and shares/advances it across every (tf, regime_label)
-    cell in the cross-sectional loop, same reuse-not-reseed convention as the per-symbol
-    worker path.
+    _derive_worker_rng_seed() and shares/advances it across every (regime_group, tf,
+    regime_label) cell in the cross-sectional loop, same reuse-not-reseed convention
+    as the per-symbol worker path.
 
     Returns dict with n_committed, n_skipped, all_results.
     """
@@ -1556,13 +1667,14 @@ def _compute_cross_sectional_tf(
         ts_cur.execute(
             """
             SELECT ts FROM market_regimes
-            WHERE asset_class = 'equity'
+            WHERE regime_group = %(regime_group)s
               AND tf = %(tf)s
               AND regime_label = %(regime_label)s
               AND ts <= %(training_window_end)s
             ORDER BY ts
             """,
             {
+                "regime_group": regime_group,
                 "tf": tf,
                 "regime_label": regime_label,
                 "training_window_end": training_window_end,
@@ -1588,6 +1700,9 @@ def _compute_cross_sectional_tf(
     # feature_vectors.bar_ts is TF-bucket-aligned, so bar_ts = ANY(ts_chunk) is
     # equivalent to time_bucket(interval, bar_ts) = ANY(ts_chunk) and uses the index.
     # Rule 3 auto-fix: blocking PostgreSQL backend OOM on 3-way JOIN.
+    # symbol = ANY(%(symbol_list)s): THE contamination fix (Phase 144 D-01) -- without
+    # this filter every symbol in the corpus (not just this regime_group's peers) was
+    # pooled into this cell, since ts_chunk alone doesn't scope by symbol.
     chunk_sql = f"""
         SELECT fv.bar_ts, {feature_cols}, {return_cols}, {complete_cols}
         FROM feature_vectors fv
@@ -1598,6 +1713,7 @@ def _compute_cross_sectional_tf(
             AND fr.return_type = 'executable_open_to_open'
         WHERE fv.tf = %(tf)s
           AND fv.bar_ts = ANY(%(ts_chunk)s)
+          AND fv.symbol = ANY(%(symbol_list)s)
         ORDER BY fv.bar_ts
     """
 
@@ -1620,7 +1736,7 @@ def _compute_cross_sectional_tf(
         with conn.cursor() as chunk_cur:
             chunk_cur.execute(
                 chunk_sql,
-                {"tf": tf, "ts_chunk": ts_chunk},
+                {"tf": tf, "ts_chunk": ts_chunk, "symbol_list": symbol_list},
             )
             batch = chunk_cur.fetchall()
         conn.commit()
@@ -2089,7 +2205,10 @@ def _run_ic_worker(args: tuple) -> dict:
 
     Args:
         args: (symbol, tfs, dsn, training_window_end, existing_keys_frozen,
-               config, run_ts, feature_status_map, mr_dict_by_tf)
+               config, run_ts, feature_status_map, mr_dict_by_tf) -- mr_dict_by_tf
+               is already scoped to THIS symbol's own regime_group (Phase 144 Plan
+               05: mr_dicts_by_group.get(symbol_regime_class.get(symbol)) in main()),
+               never another group's labels.
 
     Returns:
         dict with keys: symbol, pooled_rows (list), regime_rows (list),
@@ -2583,7 +2702,8 @@ def main() -> None:
         action="store_true",
         default=False,
         help="Skip per-symbol pass and run only the cross-sectional (POOLED) IC pass. "
-        "Requires equity_model_enabled=true. Use when per-symbol rows already exist.",
+        "Requires at least one enabled group in alpha.regime.groups. Use when "
+        "per-symbol rows already exist.",
     )
     args = parser.parse_args()
 
@@ -2613,13 +2733,62 @@ def main() -> None:
             # ----------------------------------------------------------
             _cfg_svc = _load_config_service(conn)
             config = ICEngineConfig.from_apr(_cfg_svc)
-            equity_model_enabled: bool = config.equity_model_enabled
-            _logger.info("ic_engine.equity_model_enabled", value=equity_model_enabled)
+
+            # ----------------------------------------------------------
+            # Phase 144 Plan 05: regime_group routing. equity_model_enabled is
+            # retired as a standalone APR kill-switch (alpha.regime.equity_model_enabled)
+            # in favor of bool(enabled_groups) -- a project-wide grep confirmed
+            # ic_engine.py is the sole runtime consumer of the old flag (see
+            # 144-05-SUMMARY.md for the grep evidence). The local variable name
+            # is kept for minimal diff against the rest of this function; its
+            # SOURCE now derives entirely from alpha.regime.groups.
+            # ----------------------------------------------------------
+            from services.cross_sectional_regime_model import _parse_group_configs
+
+            group_configs: list[dict] = _parse_group_configs(config.regime_groups_json)
+            enabled_groups = [g for g in group_configs if g.get("enabled", True)]
+            equity_model_enabled: bool = bool(enabled_groups)
+            _logger.info(
+                "ic_engine.groups_loaded",
+                n_groups=len(enabled_groups),
+                group_names=[g["name"] for g in enabled_groups],
+            )
+
+            with conn.cursor() as cur:
+                cur.execute("SELECT symbol, array_agg(tag) FROM instrument_tags GROUP BY symbol")
+                tags_by_symbol: dict[str, set[str]] = {
+                    row[0]: set(row[1]) for row in cur.fetchall()
+                }
+            symbol_regime_class: dict[str, str] = _build_symbol_regime_class(
+                tags_by_symbol, enabled_groups
+            )
+            unrouted_symbols = sorted(set(tags_by_symbol) - set(symbol_regime_class))
+            _logger.info(
+                "ic_engine.routing_built",
+                n_symbols=len(symbol_regime_class),
+                by_group={
+                    g: sum(1 for v in symbol_regime_class.values() if v == g)
+                    for g in {v for v in symbol_regime_class.values()}
+                },
+            )
+            if unrouted_symbols:
+                _logger.warning(
+                    "ic_engine.unrouted_symbols",
+                    n_unrouted=len(unrouted_symbols),
+                    symbols=unrouted_symbols,
+                    note="excluded from regime-stratified IC this run (no matching "
+                    "enabled regime_group); pooled IC pass still covers them",
+                )
 
             # ----------------------------------------------------------
             # Startup crash-loud gates (market_regimes gate included when enabled)
             # ----------------------------------------------------------
-            _assert_prerequisites(conn, tfs=args.tf, equity_model_enabled=equity_model_enabled)
+            _assert_prerequisites(
+                conn,
+                tfs=args.tf,
+                equity_model_enabled=equity_model_enabled,
+                group_configs=enabled_groups,
+            )
 
             # ----------------------------------------------------------
             # Feature registry alignment gate
@@ -2711,23 +2880,31 @@ def main() -> None:
             n_workers = args.workers if args.workers is not None else config.n_workers
 
             # ----------------------------------------------------------
-            # Load market_regimes {ts -> regime_label} per TF (for equity model)
+            # Load market_regimes {ts -> regime_label} per (regime_group, tf).
             # Pre-materialized here so workers receive a plain dict (picklable).
+            # mr_dicts_by_group: {group_name -> {tf -> {ts -> label}}} -- each
+            # worker receives only ITS symbol's own group's dict (see worker_args
+            # below), never another group's labels.
             # ----------------------------------------------------------
-            mr_dict_by_tf: dict[str, dict] = {}
+            mr_dicts_by_group: dict[str, dict[str, dict]] = {}
             if equity_model_enabled:
-                for tf in tfs:
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            "SELECT ts, regime_label FROM market_regimes WHERE asset_class='equity' AND tf=%s",
-                            (tf,),
+                for group in enabled_groups:
+                    group_name = group["name"]
+                    mr_dicts_by_group[group_name] = {}
+                    for tf in tfs:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "SELECT ts, regime_label FROM market_regimes "
+                                "WHERE regime_group=%s AND tf=%s",
+                                (group_name, tf),
+                            )
+                            mr_dicts_by_group[group_name][tf] = {r[0]: r[1] for r in cur.fetchall()}
+                        _logger.info(
+                            "ic_engine.mr_loaded",
+                            regime_group=group_name,
+                            tf=tf,
+                            n_rows=len(mr_dicts_by_group[group_name][tf]),
                         )
-                        mr_dict_by_tf[tf] = {r[0]: r[1] for r in cur.fetchall()}
-                    _logger.info(
-                        "ic_engine.mr_loaded",
-                        tf=tf,
-                        n_rows=len(mr_dict_by_tf[tf]),
-                    )
 
             # ----------------------------------------------------------
             # Build worker args -- workers open their own read connections;
@@ -2761,7 +2938,11 @@ def main() -> None:
                         config,
                         run_ts,
                         feature_status_map,
-                        mr_dict_by_tf if equity_model_enabled else None,
+                        (
+                            mr_dicts_by_group.get(symbol_regime_class.get(symbol))
+                            if enabled_groups
+                            else None
+                        ),
                     )
                     for symbol in symbols
                 ]
@@ -2808,10 +2989,11 @@ def main() -> None:
                         )
 
             # ----------------------------------------------------------
-            # Cross-sectional IC pass (equity_model_enabled=True only)
-            # Runs in main process after per-symbol workers complete.
-            # Each cell: all 58 equity ETFs pooled per (tf, regime_label).
-            # Max 4 TFs * 9 regime labels = 36 compute cells (in practice fewer).
+            # Cross-sectional IC pass (equity_model_enabled=True only, i.e.
+            # bool(enabled_groups)). Runs in main process after per-symbol workers
+            # complete. Each enabled regime_group is pooled INDEPENDENTLY -- only
+            # that group's own peer symbols (symbol_list, Phase 144 D-01 fix) --
+            # one cell per (regime_group, tf, regime_label).
             # ----------------------------------------------------------
             corpus_cs_rows: list[dict] = []
             corpus_cs_pvals_flat: list[float] = []
@@ -2821,22 +3003,20 @@ def main() -> None:
                 _logger.info("ic_engine.starting_cross_sectional_pass")
                 # Circular block bootstrap CI (Component A, todo 091): ONE deterministic
                 # RNG for the whole cross-sectional pass, shared/advanced across every
-                # (tf, regime_label) cell -- same reuse-not-reseed convention as the
-                # per-symbol worker path. This is the CI that gates ensemble eligibility.
+                # (regime_group, tf, regime_label) cell -- same reuse-not-reseed
+                # convention as the per-symbol worker path. This is the CI that gates
+                # ensemble eligibility.
                 cs_rng = np.random.default_rng(
                     seed=_derive_worker_rng_seed("cross_sectional", config.bootstrap_seed)
                 )
+                symbols_by_group: dict[str, list[str]] = {}
+                for sym in symbols:
+                    g = symbol_regime_class.get(sym)
+                    if g is not None:
+                        symbols_by_group.setdefault(g, []).append(sym)
+
                 cs_conn = _connect_db(settings)
                 try:
-                    with cs_conn.cursor() as cur:
-                        cur.execute(
-                            "SELECT DISTINCT regime_label FROM market_regimes "
-                            "WHERE asset_class='equity' AND tf=%s ORDER BY regime_label",
-                            (tfs[0],),
-                        )
-                        cs_regimes = [r[0] for r in cur.fetchall()]
-                    # Commit to exit idle-in-transaction state before the expensive queries
-                    cs_conn.commit()
                     # Tune session for the large cross-sectional join:
                     # disable parallel workers (they contend for shared memory segments)
                     # and raise work_mem to reduce disk spill on the 54M-row hash join
@@ -2845,33 +3025,57 @@ def main() -> None:
                         cur.execute("SET work_mem = '256MB'")
                     cs_conn.commit()
 
-                    for tf in tfs:
-                        for regime_label in cs_regimes:
-                            cs_rows, cs_stats = _compute_cross_sectional_tf(
-                                conn=cs_conn,
-                                tf=tf,
-                                regime_label=regime_label,
-                                training_window_end=training_window_end,
-                                existing_keys=existing_keys_frozen,
-                                config=config,
-                                tracer=tracer,
-                                run_ts=run_ts,
-                                rng=cs_rng,
-                                feature_status_map=feature_status_map,
-                            )
-                            # Accumulate with offset into corpus_cs_rows.
-                            offset = len(corpus_cs_rows)
-                            for idx in cs_stats.get("pval_result_idxs", []):
-                                corpus_cs_pval_result_idxs.append(offset + idx)
-                            corpus_cs_pvals_flat.extend(cs_stats.get("pvals_flat", []))
-                            corpus_cs_rows.extend(cs_rows)
-                            total_skipped += cs_stats.get("n_skipped", 0)
+                    for group in enabled_groups:
+                        group_name = group["name"]
+                        group_symbols = symbols_by_group.get(group_name, [])
+                        if not group_symbols:
                             _logger.info(
-                                "ic_engine.cross_sectional_computed",
-                                tf=tf,
-                                regime=regime_label,
-                                n_rows=len(cs_rows),
+                                "ic_engine.cross_sectional_group_skipped",
+                                regime_group=group_name,
+                                reason="no peer symbols in this run's symbol set",
                             )
+                            continue
+
+                        with cs_conn.cursor() as cur:
+                            cur.execute(
+                                "SELECT DISTINCT regime_label FROM market_regimes "
+                                "WHERE regime_group=%s AND tf=%s ORDER BY regime_label",
+                                (group_name, tfs[0]),
+                            )
+                            cs_regimes = [r[0] for r in cur.fetchall()]
+                        # Commit to exit idle-in-transaction state before the expensive queries
+                        cs_conn.commit()
+
+                        for tf in tfs:
+                            for regime_label in cs_regimes:
+                                cs_rows, cs_stats = _compute_cross_sectional_tf(
+                                    conn=cs_conn,
+                                    tf=tf,
+                                    regime_label=regime_label,
+                                    regime_group=group_name,
+                                    symbol_list=group_symbols,
+                                    training_window_end=training_window_end,
+                                    existing_keys=existing_keys_frozen,
+                                    config=config,
+                                    tracer=tracer,
+                                    run_ts=run_ts,
+                                    rng=cs_rng,
+                                    feature_status_map=feature_status_map,
+                                )
+                                # Accumulate with offset into corpus_cs_rows.
+                                offset = len(corpus_cs_rows)
+                                for idx in cs_stats.get("pval_result_idxs", []):
+                                    corpus_cs_pval_result_idxs.append(offset + idx)
+                                corpus_cs_pvals_flat.extend(cs_stats.get("pvals_flat", []))
+                                corpus_cs_rows.extend(cs_rows)
+                                total_skipped += cs_stats.get("n_skipped", 0)
+                                _logger.info(
+                                    "ic_engine.cross_sectional_computed",
+                                    regime_group=group_name,
+                                    tf=tf,
+                                    regime=regime_label,
+                                    n_rows=len(cs_rows),
+                                )
                 finally:
                     cs_conn.close()
 
