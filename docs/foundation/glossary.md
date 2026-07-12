@@ -95,6 +95,23 @@ A discrete conditioning-state label that partitions bars into groups expected to
 
 ---
 
+### `regime_group`
+
+A classification LABEL ON A SECURITY (which peer group it belongs to), not a regime itself. Analogous to `asset_class` but finer-grained and regime-signal-specific: TLT's `asset_class` is "equity" (its data-model type) but its `regime_group` is "rates" (the peer set relevant to its regime signal). Static per symbol — resolved once from `instrument_tags` via `tag_filter`, not recomputed per bar. Each group declares a `tag_filter` (resolves peer symbols at startup), a `signal_type` (`breadth_vol`, `curve_credit`, `commodity_momentum_ts`, `fx_dollar_carry`), and a `params_prefix` (APR namespace for that signal's thresholds). Defined in APR key `alpha.regime.groups`.
+
+Contrast with `regime_label` — the actual STATE (e.g. `steep_tight`), one row per (`regime_group`, `tf`, `ts`), computed once for the whole peer group and joined onto every member's feature vector at query time (never materialized into `feature_vectors`).
+
+Contrast with `feature_vectors.regime` — the per-symbol **idiosyncratic regime** (HMM trend label, see `regime` entry above), self-computed from that symbol's own price history, independent of `regime_group` entirely. `regime_group` instead names the peer set that feeds one **systematic regime** signal (also see `regime` entry above) — it answers "who counts as this market" so a group's cross-sectional composite (breadth×vol for equity, curve×credit for rates) can be computed at all.
+
+Single-membership by design (`AmbiguousRegimeGroupError` — a symbol matching more than one enabled group fails loud) — scoped to defining the peer-set denominator for computing one group's aggregate signal. Does not attempt to capture instruments with genuine multi-group sensitivity (e.g. convertible bond ETFs, `PFF`-style preferreds, REIT-adjacent yield plays sensitive to both `equity` and `rates`) — that is a separate, deliberately deferred job (multi-label join driven by `instrument_tags.sensitivity`-category weights, todo 040/041), not this one.
+
+**Banned:** (none)
+**Status:** active
+
+**Code surface:** `market_regimes.regime_group` column (migration 229, renamed from `asset_class`), `alpha.regime.groups` APR key, `src/intelligence/regime_signals/` signal modules.
+
+---
+
 ### `conditioning layer` (aka `regime detection layer`)
 
 The layer in the quant stack that detects market states and enables downstream processes to condition predictions on those states. **Internal project name** — emphasizes the stratification purpose (conditioning IC on regime). Takes primitive features (OHLCV-derived signals) as input, outputs categorical labels stamped onto each bar. Enables IC stratification, regime-conditioned ensemble weights, and case retrieval filtering.
