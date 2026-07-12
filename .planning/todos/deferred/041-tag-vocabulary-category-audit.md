@@ -1,6 +1,13 @@
 # Audit the 6-category tag_vocabulary taxonomy before building the calibrator against it
 
-**Status (moved to deferred/, 2026-07-10):** Batched into Phase 144's ic_engine re-run (see docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md) -- not a standalone item. Revive when Phase 144 is planned.
+**Status (updated 2026-07-12):** Phase 144 was planned and executed (`144-CONTEXT.md` D-04) and
+explicitly did NOT fold this in -- confirmed not blocking, since Phase 144's commodity/fx
+`regime_group`s ship `enabled: false` regardless, so the `eq_*`/`commodity_energy_*` collision
+this todo addresses (OIH/XLE) cannot fire yet. Still unscheduled: no phase or todo currently
+owns "enable the commodity/fx regime_group entries," and this todo is the gate for that action
+whenever it happens -- flipping `enabled: true` on either group without resolving this first
+will raise `AmbiguousRegimeGroupError` at the next `ic_engine` run. Revive when commodity/fx
+enablement is actually proposed, not on any fixed schedule.
 
 
 **Found:** 2026-07-01, while walking through `regime_group`/`instrument_tags` design in
@@ -68,5 +75,7 @@ audit should happen before or alongside Phase 148 planning, not after.
    it's already documented.
 
 **Blocked on:** nothing — this is a review/reasoning task, not gated on any other phase. Should
-be sequenced before Phase 148 (Instrument Tag Calibrator) commits engineering effort to
-validating all 6 categories as if they're equally well-formed.
+be sequenced before Phase 145 (renumbered from 148; Empirical Instrument Tag Calibrator)
+commits engineering effort to validating all 6 categories as if they're equally well-formed,
+and before commodity/fx `regime_group` entries are ever flipped `enabled: true` in Phase 144's
+`alpha.regime.groups` (see updated Status note above).
