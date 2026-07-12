@@ -48,6 +48,16 @@ the same regression wearing two different tag names.
 cleanly onto standard factor-model practice (loadings vs. measured betas) and hold up under
 scrutiny.
 
+**Sector granularity does not exist today (verified 2026-07-12, live DB).** Of 80 active
+`asset_class='equity'` instruments, exactly one sector-adjacent tag exists in
+`instrument_tags`: `sector_rotation`, assigned to 11 symbols — a flat "this is a sector-rotation
+ETF" flag, not a `sector_tech`/`sector_energy`/... taxonomy. Any future ask for finer-than-
+equity/rates `regime_group`s (e.g. GICS-sector-level cross-sectional regimes) is blocked on this
+audit producing real sector tags first, not just on todo 041's existing OIH/XLE collision fix —
+worth noting alongside `signal_role`/`cycle_position`/`macro_driver` as a fourth concrete
+scoping question for whoever picks this up: does the audit's action list also need "seed a real
+sector taxonomy," or does that stay a separate follow-on?
+
 ## Why this matters now, not later
 
 Todo 040 (Instrument Tag Calibrator, promoted to Phase 148) is about to build empirical
