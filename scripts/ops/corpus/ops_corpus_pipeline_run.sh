@@ -315,13 +315,17 @@ run_step 3 "forward_return_writer" \
     "${SPACE_SYMBOLS[@]}" \
     --training-window-end "$TRAINING_WINDOW_END"
 
-# Step 4 — Equity Regime Model (market_data_ohlcv → market_regimes, cross-sectional
-# VIX×breadth labels). Independent of feature_vectors/regime_writer — reads raw bars
-# only — but must land before ic_engine, whose startup gate FAILs immediately if
-# market_regimes is empty and alpha.regime.equity_model_enabled=true. No --symbols
-# arg: always computes across the full active-instrument universe per TF.
-run_step 4 "equity_regime_model" \
-    "$PYTHON" services/equity_regime_model.py
+# Step 4 — Cross-Sectional Regime Model (market_data_ohlcv → market_regimes, one
+# cross-sectional regime label per enabled alpha.regime.groups entry — equity via
+# breadth_vol, rates via curve_credit; commodity/fx ship disabled). Generalizes the
+# prior equity-only equity_regime_model.py (Phase 144 — see
+# services/equity_regime_model.py's deprecation header for the rollback path).
+# Independent of feature_vectors/regime_writer — reads raw bars only — but must land
+# before ic_engine, whose startup gate FAILs immediately if market_regimes is empty
+# and alpha.regime.equity_model_enabled=true. No --symbols arg: always computes
+# across the full active-instrument universe per TF.
+run_step 4 "cross_sectional_regime_model" \
+    "$PYTHON" services/cross_sectional_regime_model.py
 
 # Step 5 — IC Engine (feature_vectors + forward_returns → feature_ic_scores)
 run_step 5 "ic_engine" \
