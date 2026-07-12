@@ -1,0 +1,100 @@
+# src/intelligence/regime_signals/commodity_momentum_ts.py
+"""commodity_momentum_ts — Commodity cross-sectional regime signal.
+
+Computes two aligned series from a peer group of commodity ETFs:
+  1. momentum_z_median  — cross-sectional median of per-symbol rolling log-return z-scores
+  2. ts_proxy_median    — cross-sectional median of momentum slope acceleration (d^2 price/dt^2
+                          z-score), an ETF-based proxy for contango/backwardation direction
+
+Labels: up_primary / up_secondary / down_secondary / down_primary (4 states, composed
+from Section 7's direction x primary/secondary rank scale — not an invented term).
+4 labels (not 9) because commodity peer groups have 4-8 instruments — 9 would produce
+sparse buckets with unreliable IC stratification.
+
+Shared across commodity_energy, commodity_metals, commodity_agri groups.
+params_prefix differs per group; APR key momentum_window and primary_threshold are read
+from the group-specific namespace.
+
+Label-vocabulary non-overlap invariant (Pitfall 4, feature_ic_scores has no regime_group
+column — group identity is implicit in regime_label string uniqueness): this module's tier
+strings (up_primary/up_secondary/down_secondary/down_primary x contango/neutral/backwardation)
+MUST NOT collide with equity's (low/mid/high x bear/neutral/bull) or rates' (steep/flat/inverted
+x wide/tight) label sets. Do not rename these tiers to match another group's vocabulary.
+
+This module ships with its regime_group enabled: false (todo 041 gates enablement) —
+built now for registry completeness per CONTEXT.md Claude's Discretion.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+PROB_KEYS: tuple[str, str] = ("momentum_z", "ts_proxy")
+
+
+def compute(
+    ref_bars: dict[str, pd.DataFrame],
+    params: dict[str, Any],
+) -> tuple[pd.Series, pd.Series] | None:
+    """Return (momentum_z_median, ts_proxy_median) series indexed by timestamp.
+
+    Both series have NaN for the first momentum_window bars (warmup).
+    Returns None if ref_bars is empty.
+    """
+    if not ref_bars:
+        return None
+
+    window: int = int(params["momentum_window"])
+
+    momentum_cols = []
+    ts_proxy_cols = []
+
+    for symbol, df in ref_bars.items():
+        closes = df["close"].values.astype(float)
+        log_ret = np.log(closes[1:] / closes[:-1])
+        log_ret = np.concatenate([[np.nan], log_ret])
+
+        # rolling z-score of log returns
+        s = pd.Series(log_ret, index=df["timestamp"])
+        roll_mean = s.rolling(window, min_periods=window).mean()
+        roll_std = s.rolling(window, min_periods=window).std()
+        z = (s - roll_mean) / roll_std.replace(0, np.nan)
+        momentum_cols.append(z)
+
+        # term structure proxy: slope acceleration (2nd derivative of price)
+        price_s = pd.Series(closes, index=df["timestamp"])
+        slope = price_s.diff()
+        accel = slope.diff()
+        accel_roll_std = accel.rolling(window, min_periods=window).std()
+        accel_z = accel / accel_roll_std.replace(0, np.nan)
+        ts_proxy_cols.append(accel_z)
+
+    idx = list(ref_bars.values())[0]["timestamp"]
+    momentum_df = pd.concat(momentum_cols, axis=1)
+    ts_proxy_df = pd.concat(ts_proxy_cols, axis=1)
+
+    return (
+        momentum_df.median(axis=1).set_axis(idx),
+        ts_proxy_df.median(axis=1).set_axis(idx),
+    )
+
+
+def build_tiers(
+    params: dict[str, Any],
+) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+    """Return threshold lists for _assign_labels.
+
+    Tier 1 (momentum): up_primary | up_secondary | down_secondary | down_primary
+    Tier 2 (ts_proxy): contango | neutral | backwardation
+
+    See module docstring — this vocabulary is deliberately non-overlapping with the
+    equity (low/mid/high x bear/neutral/bull) and rates (steep/flat/inverted x wide/tight)
+    tier vocabularies.
+    """
+    primary = float(params["primary_threshold"])
+    tiers1 = [("up_primary", primary), ("up_secondary", 0.0), ("down_secondary", -primary)]
+    tiers2 = [("contango", 0.25), ("neutral", -0.25)]
+    return tiers1, tiers2
