@@ -31,20 +31,23 @@ sequenced after, see Deferred).
   + curve_credit; commodity/fx modules ship present but `enabled: false`),
   `services/cross_sectional_regime_model.py` dispatcher, `services/ic_engine.py` routing
   (`_build_symbol_regime_class`, `AmbiguousRegimeGroupError`, per-group `mr_dicts_by_group`).
-- **D-02:** Todo 026 P2b (degenerate-model occupation-fraction gate) and P2c (`hmm_churn`
-  column) were investigated as candidates to bundle in (ROADMAP's v3.15 intro batches them with
-  this phase) — **verified already shipped 2026-07-06 via Phase 143 Plan 01 (LIFECYCLE-00)**:
-  `feature_vectors.hmm_churn` column live (migration 201), `feature.hmm.min_state_occupation`
-  and `feature.hmm.churn_window` APR keys live (migration 200), `_compute_hmm_churn()` in
-  `regime_writer.py:347`. Nothing to bundle. Corrected the stale "NOT DONE" status in
+- **D-02 [informational]:** Todo 026 P2b (degenerate-model occupation-fraction gate) and P2c
+  (`hmm_churn` column) were investigated as candidates to bundle in (ROADMAP's v3.15 intro
+  batches them with this phase) — **verified already shipped 2026-07-06 via Phase 143 Plan 01
+  (LIFECYCLE-00)**: `feature_vectors.hmm_churn` column live (migration 201),
+  `feature.hmm.min_state_occupation` and `feature.hmm.churn_window` APR keys live (migration
+  200), `_compute_hmm_churn()` in `regime_writer.py:347`. Nothing to bundle — no plan task
+  should reference this as work to do. Corrected the stale "NOT DONE" status in
   `.planning/todos/deferred/026-hmm-regime-audit-optimization.md` and the stale ROADMAP.md
   v3.15 batching paragraph during this discussion (both said P2b/P2c were still open).
-- **D-03:** Todo 026's remaining item (P3, empirical vix/breadth threshold calibration) is
-  already split into standalone `.planning/todos/pending/092-equity-regime-model-threshold-calibration.md`
-  — stays separate, not folded into this phase's plan.
-- **D-04:** Todo 041 (tag exposure-vs-sensitivity taxonomy audit) gates commodity/fx group
-  *enablement* only (those groups ship `enabled: false` regardless) — does not block or need to
-  be folded into this phase's plan.
+- **D-03 [informational]:** Todo 026's remaining item (P3, empirical vix/breadth threshold
+  calibration) is already split into standalone
+  `.planning/todos/pending/092-equity-regime-model-threshold-calibration.md` — stays separate,
+  not folded into this phase's plan. No plan task should reference this as work to do.
+- **D-04 [informational]:** Todo 041 (tag exposure-vs-sensitivity taxonomy audit) gates
+  commodity/fx group *enablement* only (those groups ship `enabled: false` regardless) — does
+  not block or need to be folded into this phase's plan. No plan task should reference this as
+  work to do (Plan 03's objective note citing it as context is fine; it is not a task deliverable).
 
 ### Acceptance gate: this phase includes the empirical re-measurement
 - **D-05:** Phase 144 is not "done" at code-complete. Its own verification includes running the
