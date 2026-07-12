@@ -38,7 +38,7 @@ ECL vectors like `threshold.global.min_ctf_score` and `threshold.global.min_regi
 ## Infrastructure
 
 Four tables, one service. All live. Zero new infrastructure required to use this system.
-<!-- src: db/migrations/109_config_foundation.sql -->
+<!-- src: production/migrations/109_config_foundation.sql -->
 
 ### Table Schemas
 

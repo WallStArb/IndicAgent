@@ -8,7 +8,7 @@
 
 ## 1. Purpose
 
-Data contracts for the 3-table Signal Ledger Architecture (SLA), introduced in Phase 128. Verified against `db/migrations/137_3table_schema.sql`.
+Data contracts for the 3-table Signal Ledger Architecture (SLA), introduced in Phase 128. Verified against `production/migrations/137_3table_schema.sql`.
 
 **Who reads this:** Engineers writing queries against signal data, building ML training pipelines, or implementing signal writers. Start here before touching any signal table.
 
@@ -25,7 +25,7 @@ signal_events (hypertable)     — one row per I7 plugin fire
 ```
 
 **signal_ledger_full** — join view across all three tables. Phase 128 backward-compat surface. Renamed to `signal_ledger` in Phase 129 when the legacy monolith is dropped.
-<!-- src: db/migrations/137_3table_schema.sql -->
+<!-- src: production/migrations/137_3table_schema.sql -->
 
 ---
 
@@ -34,7 +34,7 @@ signal_events (hypertable)     — one row per I7 plugin fire
 ### signal_events (hypertable)
 
 Detection layer. Written once at I7 fire time, never updated.
-<!-- src: db/migrations/137_3table_schema.sql — signal_events DDL -->
+<!-- src: production/migrations/137_3table_schema.sql — signal_events DDL -->
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -72,7 +72,7 @@ Detection layer. Written once at I7 fire time, never updated.
 ### trade_frames
 
 Hypothesis layer. One row per `entry_type` per signal fire. ML trains on `counterfactual_pnl_r`.
-<!-- src: db/migrations/137_3table_schema.sql — trade_frames DDL -->
+<!-- src: production/migrations/137_3table_schema.sql — trade_frames DDL -->
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -102,7 +102,7 @@ Hypothesis layer. One row per `entry_type` per signal fire. ML trains on `counte
 ### trade_executions
 
 Execution layer. One row per live trade. Most frames have zero rows here.
-<!-- src: db/migrations/137_3table_schema.sql — trade_executions DDL -->
+<!-- src: production/migrations/137_3table_schema.sql — trade_executions DDL -->
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -125,7 +125,7 @@ Execution layer. One row per live trade. Most frames have zero rows here.
 ### signal_ledger_full (view)
 
 Backward-compat join view across all three tables. `signal_computed_at` is `COALESCE`d in the view — callers need not apply it.
-<!-- src: db/migrations/137_3table_schema.sql — signal_ledger_full view -->
+<!-- src: production/migrations/137_3table_schema.sql — signal_ledger_full view -->
 
 ```sql
 -- Query pattern
@@ -180,4 +180,4 @@ WHERE symbol = 'ES' ORDER BY ts DESC LIMIT 100;
 - `docs/signals/signal-trade-separation-ADR.md` — design rationale for 3-table split
 - `docs/signals/signals-confidence-patterns.md` — `raw_confidence` integrity requirements
 - `docs/signals/signals-lifecycle.md` — status transition rules
-- `db/migrations/137_3table_schema.sql` — canonical DDL source
+- `production/migrations/137_3table_schema.sql` — canonical DDL source

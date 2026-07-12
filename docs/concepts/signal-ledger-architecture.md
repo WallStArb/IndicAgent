@@ -51,7 +51,7 @@ One row per live execution. Most trade frames have zero rows here. `actual_pnl_r
 The counterfactual is measured at the `entry_type` level, not at the signal level. A signal with `at_close` and `at_pullback` frames may have `counterfactual_pnl_r = +1.2R` for the `at_close` frame and `counterfactual_pnl_r = +2.8R` for the `at_pullback` frame — because the pullback never triggered and then the target was hit anyway. These are different hypotheses from the same signal event.
 
 If counterfactual were on `signal_events`, it would have to be the aggregate across entry types, losing the ability to learn which entry type adds the most value. The frame-level granularity is required for ML to optimize entry selection.
-<!-- src: db/migrations/137_3table_schema.sql -->
+<!-- src: production/migrations/137_3table_schema.sql -->
 
 ---
 
@@ -113,7 +113,7 @@ CONSTRAINT fk_trade_frames_signal
 ```
 
 This denormalization is a TimescaleDB requirement, not a design choice. `signal_ts` is always equal to the `signal_events.ts` it references.
-<!-- src: db/migrations/137_3table_schema.sql -->
+<!-- src: production/migrations/137_3table_schema.sql -->
 
 ### The Join View Is the Query Surface
 

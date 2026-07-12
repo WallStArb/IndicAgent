@@ -63,7 +63,7 @@ ML training query
 | `zone_friction_score` | `float8 \| NULL` | Zone friction at emit time. Higher = more structural resistance at the signal's zone. | `NULL` = no zone data at emit time. |
 | `context_features` | `jsonb \| NULL` | Full `capture_signal_features()` output — the ML feature matrix including exhaustion state, AVWAP proximity, macro context, and all other extrinsic signals not promoted to top-level columns. | `NULL` only on very early cold-start bars before pipeline warms. |
 
-<!-- src: db/migrations/137_3table_schema.sql — signal_events DDL -->
+<!-- src: production/migrations/137_3table_schema.sql — signal_events DDL -->
 
 ### HMM Regime Gate — Not a Vector, a Status
 

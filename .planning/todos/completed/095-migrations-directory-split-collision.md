@@ -1,5 +1,6 @@
 ---
 **Created:** 2026-07-10
+**Completed:** 2026-07-12
 **Area:** infrastructure
 **Type:** correctness
 **Priority:** P1 (real fresh-install risk, not just doc drift)
@@ -8,6 +9,40 @@
 that has been silently wrong for over a month
 **Risk:** low to fix (once the right direction is chosen); the current state is what carries risk
 ---
+
+## Resolution (2026-07-12)
+
+Fixed per the recommended plan below, with one scope adjustment:
+
+1. **Docs corrected** — `naming-system.md` §11, `naming-conventions.md`, `development/setup.md`
+   now state `production/migrations/` is the sole canonical home. Also found and fixed the same
+   `db/migrations/` mislabeling in 6 more docs (`signal-ledger-architecture.md`,
+   `extrinsic-confidence-layer.md`, `adaptive-parameter-registry.md`, `signals-schema.md`,
+   `signals-ecl.md`, `signals-foundation.md`, `operations-database.md`) — their `src:` provenance
+   comments pointed at `db/migrations/NNN_*.sql` for files that actually live in
+   `production/migrations/NNN_*.sql` under the same number. `docs/plans/archive/*.md` and the
+   `.planning/phases/142.5-*` plan files were left untouched — they're historical records
+   describing a past mistake and its fix accurately, not a live wrong convention.
+2. **`db/migrations/` resolved, not just deleted** — verified before deleting (per this project's
+   "verify then delete, don't flag" convention): `001_baseline.sql` was confirmed abandoned/never
+   applied (production/migrations already independently built the schema from 001 onward) and
+   removed. `120_instrument_tag_vocabulary.sql` and `121_instrument_tag_vocabulary_v2.sql` were
+   confirmed genuinely applied (their tables — `instrument_tags`, `tag_vocabulary` — exist live,
+   with no duplicate content anywhere in `production/migrations/`), so they were renamed/moved
+   into `production/migrations/` as `227_instrument_tag_vocabulary.sql` and
+   `228_instrument_tag_vocabulary_v2.sql` rather than deleted, preserving real applied history.
+   The now-empty `db/migrations/` directory was removed.
+3. **`infrastructure_db_setup.sh` fixed** — dropped the `db/migrations/` glob entirely; also
+   fixed the sort key while in there (`sort -t/ -k1,1` was comparing only the common path prefix
+   across two directories, not actually sorting by migration number — moot now with one
+   directory, but was a latent bug).
+4. **Scope adjustment on the `001` duplicate:** confirming both `001_*` files and renumbering one,
+   as originally scoped, uncovered that `production/migrations/` actually has **13** duplicate-
+   number groups (001, 031, 038, 050, 051, 052, 064, 138, 152, 168, 178, 214, 215 — several with
+   3 files), not just the one this todo knew about. Renumbering already-applied migrations at
+   that scale is a materially different risk profile than todo 095's original 3-doc-correction
+   scope — deliberately NOT attempted inline. Filed as its own scoped follow-up:
+   [todo 101](../pending/101-migration-duplicate-number-sweep.md).
 
 # 095 — `db/migrations/` vs `production/migrations/` split: stale docs, real number collisions,
 likely-broken fresh install

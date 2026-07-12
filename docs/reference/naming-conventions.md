@@ -229,8 +229,7 @@ Given concept `signal_tracker`:
 
 | Location | Purpose | Rule |
 |----------|---------|------|
-| `db/migrations/NNN_description.sql` | Canonical migrations Phase 104+ | Sequential, applied once, never modified |
-| `production/migrations/` | Legacy migrations 001–103 | Frozen — no new files |
+| `production/migrations/NNN_description.sql` | Canonical migrations, all phases | Sequential, applied once, never modified |
 | `tools/<concept>_<verb>.py` | Permanent operational utilities | Only if run repeatedly; one-offs deleted on completion |
 | `scripts/<layer>/<concept>.py` | Operational scripts by layer | Organized: `ops/`, `infrastructure/`, `debug/` |
 

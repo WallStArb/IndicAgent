@@ -19,8 +19,7 @@ echo "Using DATABASE_URL=$DB_URL"
 shopt -s nullglob
 mapfile -t MIGS < <(ls -1 \
   "$PROJECT_ROOT/production/migrations"/[0-9][0-9][0-9]_*.sql \
-  "$PROJECT_ROOT/db/migrations"/[0-9][0-9][0-9]_*.sql \
-  | sort -t/ -k1,1)
+  | sort)
 shopt -u nullglob
 
 if [[ ${#MIGS[@]} -eq 0 ]]; then

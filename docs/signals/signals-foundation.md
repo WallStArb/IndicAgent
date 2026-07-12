@@ -45,14 +45,14 @@ FOREIGN KEY (signal_id, signal_ts) REFERENCES signal_events (signal_id, ts)
 ```
 
 `signal_ts` always equals the `signal_events.ts` it references.
-<!-- src: db/migrations/137_3table_schema.sql -->
+<!-- src: production/migrations/137_3table_schema.sql -->
 
 ### Join view
 
 `signal_ledger_full` joins all three tables and is the canonical read surface. Direct table queries are permitted only when the query is strictly within one semantic layer (e.g., counting `signal_events` fires by plugin). Mixed-layer queries always go through the view.
 
 The legacy `signal_ledger` monolith is read-only (migration 138) and will be dropped in Phase 130. Until then, `signal_ledger_full` is the correct query surface.
-<!-- src: db/migrations/138_signal_ledger_readonly.sql -->
+<!-- src: production/migrations/138_signal_ledger_readonly.sql -->
 
 ### was_selected and is_shadow
 
@@ -121,7 +121,7 @@ Missing `entry_zone_low` or `entry_zone_high` in the trade framer output routes 
 
 ### signal_events (detection layer, immutable after emit)
 
-<!-- src: db/migrations/137_3table_schema.sql -->
+<!-- src: production/migrations/137_3table_schema.sql -->
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -157,7 +157,7 @@ Missing `entry_zone_low` or `entry_zone_high` in the trade framer output routes 
 
 ### trade_frames (hypothesis layer, one per entry_type per signal)
 
-<!-- src: db/migrations/137_3table_schema.sql -->
+<!-- src: production/migrations/137_3table_schema.sql -->
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -185,7 +185,7 @@ Missing `entry_zone_low` or `entry_zone_high` in the trade framer output routes 
 
 ### trade_executions (execution layer, one per live trade)
 
-<!-- src: db/migrations/137_3table_schema.sql -->
+<!-- src: production/migrations/137_3table_schema.sql -->
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -206,7 +206,7 @@ Missing `entry_zone_low` or `entry_zone_high` in the trade framer output routes 
 
 ### signal_ledger_full (canonical join view)
 
-<!-- src: db/migrations/137_3table_schema.sql -->
+<!-- src: production/migrations/137_3table_schema.sql -->
 
 `signal_ledger_full` is a LEFT JOIN across all three tables on `(signal_id, ts)`. It exposes legacy column aliases for backward compatibility: `timestamp` (→ `ts`), `timeframe` (→ `tf`), `stop_loss` (→ `stop_price`), `exit_at` (→ `exited_at`).
 
@@ -432,14 +432,14 @@ Target candidates are gathered by `_collect_target_candidates()` and filtered th
 
 ### Adding a new field to trade_frames
 
-1. Write a migration: `db/migrations/NNN_add_trade_frame_field.sql`.
+1. Write a migration: `production/migrations/NNN_add_trade_frame_field.sql`.
 2. Update the `TradeFrame` dataclass in the relevant persistence module.
 3. Update `SignalWriter` to populate the field at write time.
 4. If the field is relevant for ML training, verify the training query in `signal_metrics_compute_agent.py` selects it.
 
 ### Adding a new field to trade_executions
 
-1. Write a migration: `db/migrations/NNN_add_execution_field.sql`.
+1. Write a migration: `production/migrations/NNN_add_execution_field.sql`.
 2. Update `_EXECUTION_INSERT_SQL` in `signal_ledger_repository.py`.
 3. Update the `Execution` dataclass in `lifecycle_tracker.py` if the field flows through the transition object.
 4. Update `_transition_to_lifecycle()` in `signal_tracker_compute_agent.py` to populate the field.
@@ -505,6 +505,6 @@ WHERE expires_at IS NULL
 - `docs/signals/signals-lifecycle.md` — full signal state machine and transition logic
 - `docs/signals/signals-operations.md` — operating and debugging the lifecycle services
 - `docs/intelligence/intelligence-foundation.md` — I7 signal generation and aggregator logic
-- `db/migrations/137_3table_schema.sql` — complete DDL for all three tables and signal_ledger_full view
+- `production/migrations/137_3table_schema.sql` — complete DDL for all three tables and signal_ledger_full view
 - `src/intelligence/trading/signal_schema.py` — `SIGNAL_SCHEMA_VERSION`, `make_signal_from_frame()`, `REQUIRED_SIGNAL_FIELDS`
 - `src/intelligence/pipeline/signal_processor.py` — `was_selected`, `is_shadow` stamping logic

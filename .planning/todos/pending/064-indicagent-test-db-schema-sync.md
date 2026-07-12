@@ -45,9 +45,11 @@ file in its own scope) rather than fixing the underlying gap.
 `indicagent_test` (`for f in production/migrations/*.sql; do psql -U postgres
 -d indicagent_test -f "$f"; done`, matching the existing `docs/reference/
 cheatsheet.md` idiom for `indicagent`) and add this as a documented setup
-step (or CI step) so it stays in sync going forward. Verify no destructive
-side effects from replaying legacy `db/migrations/001/120/121` first if those
-are prerequisites.
+step (or CI step) so it stays in sync going forward. (Note 2026-07-12, todo
+095: `db/migrations/` no longer exists — its two live files were renumbered
+into `production/migrations/` as 227/228, so a single directory's migrations
+now covers the full history; no separate legacy-directory replay step
+needed.)
 
 **Option B:** Audit every file in `tests/integration/` for the same latent
 failure mode and standardize on the `test_pipeline_flow.py`-style explicit

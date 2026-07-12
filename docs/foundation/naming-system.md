@@ -559,12 +559,11 @@ An `archive/` subdirectory signals uncertainty about whether work is truly finis
 
 | Location | Rule |
 |----------|------|
-| `db/migrations/NNN_description.sql` | Canonical home for all migrations Phase 104+. Numbered sequentially. Applied once; never modified after apply. |
-| `production/migrations/` | Legacy home, frozen. Migrations 001–103 live here. No new files. |
+| `production/migrations/NNN_description.sql` | Canonical home for all migrations. Numbered sequentially. Applied once; never modified after apply. |
 
-One canonical home. The split exists because `db/migrations/` was established in Phase 104 as the correct Ring 3 location. `production/migrations/` is preserved for history only.
+A Phase 104 attempt to consolidate onto a separate `db/migrations/` directory was never completed — `production/migrations/` kept receiving new files the entire time and remains the sole actively-applied directory. The abandoned `db/migrations/` directory was removed 2026-07-12 (todo 095); its two genuinely-applied files were renumbered into `production/migrations/` (227, 228), and its stale pre-092 baseline snapshot was deleted since `production/migrations/` already independently carries that history.
 
-**Naming:** `NNN_description.sql` where `NNN` is globally unique across both directories. Duplicate numbers are a violation — they are the artifact of parallel development without coordination and must be resolved.
+**Naming:** `NNN_description.sql` where `NNN` is globally unique. Duplicate numbers are a violation — they are the artifact of parallel development without coordination and must be resolved.
 
 ### Operational Tools — `tools/`
 

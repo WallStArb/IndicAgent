@@ -64,7 +64,7 @@ PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "<query>"
 
 ## Migrations
 
-Migrations live in `db/migrations/` and are numbered sequentially.
+Migrations live in `production/migrations/` and are numbered sequentially.
 
 ### Apply all migrations (first-time setup)
 

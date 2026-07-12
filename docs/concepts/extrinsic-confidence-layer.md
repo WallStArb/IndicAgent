@@ -114,7 +114,7 @@ The gate remains, but it is now *auditable*. This is the correct architecture fo
 - ML feature importance analysis can isolate them without parsing JSONB
 - The `ctf_confirmed` boolean is the clearest categorical feature for regime-specific attribution
 - Dashboard and analytics queries can filter on them without JSONB extraction
-<!-- src: signal_events table — signal_events DDL in db/migrations/137_3table_schema.sql -->
+<!-- src: signal_events table — signal_events DDL in production/migrations/137_3table_schema.sql -->
 
 ---
 
