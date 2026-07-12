@@ -11,14 +11,19 @@ orphan invisible to the todo system (found while reconciling that matrix against
 
 ## What's open
 
-Phase 142B shipped `AlphaFrameWriter`/`CounterfactualTracker` complete 2026-07-10, but
-`alpha_frames` still has **0 rows** — the writer has never actually been run.
+Phase 142B shipped `AlphaFrameWriter`/`CounterfactualTracker` complete 2026-07-10.
+
+**Update 2026-07-12:** steps 1-2 are done — verified live via psql: `alpha_frames` has
+11,813,874 rows, 2,639,074 with `counterfactual_pnl_r` populated (closed/scored frames).
 
 Sequence:
-1. `AlphaFrameWriter --backfill`
-2. `CounterfactualTracker --backfill`
-3. `CounterfactualTracker --evaluate-gate`
+1. ~~`AlphaFrameWriter --backfill`~~ — done
+2. ~~`CounterfactualTracker --backfill`~~ — done
+3. `CounterfactualTracker --evaluate-gate` — **still open.** Per 142B-02-SUMMARY.md's
+   `<post_execution>` note, the FRAME-04 verdict was explicitly deferred at ship time and has
+   never been run. It's a read-only CLI branch (no writes, no D-06 emission) — safe to run
+   independent of the in-flight 143.1-07 corpus re-run.
 
 This is the concrete next step toward Phase 147's `alpha_frames` OOS-accumulation requirement,
 and unblocks todos 078/082 (frame-outcome labels, additional simulation/validation lenses —
-both currently in `deferred/` pending real closed frames existing).
+both currently in `deferred/` pending real closed frames existing, which now exist).

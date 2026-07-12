@@ -32,12 +32,14 @@ real value, not urgent. P3 = hygiene/docs/process, opportunistic.
 
 | Todo | Gap |
 |---|---|
-| [091](pending/091-fisher-z-ci-empirical-null-miscalibration.md) | Fisher-z analytic CI empirically miscalibrated — 38% SUSPECT rate across strata; this is the exact mechanism behind every BH-FDR/EIC-04 gate in the stack |
-| [094](pending/094-alpha-events-long-short-imbalance.md) | **Root cause corrected 2026-07-11** (Fable review, verified against live DB): not a floor-formula issue — two sign-asymmetric gates (`ic_ci_lower > 0` eligibility filter, `fold_ic > 0` walk-forward criterion) exclude 100% of contrarian features before weighting ever runs. Confirmed: 1,527 eligible rows, zero at `ic_sign=-1`. Requires a full `ic_engine` re-run + eligibility/quality-weight/E2-sign-path redesign, not a small patch — effort raised M-L. Full strategy: `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`. |
+| [091](pending/091-fisher-z-ci-empirical-null-miscalibration.md) | Fisher-z analytic CI empirically miscalibrated — 38% SUSPECT rate across strata; this is the exact mechanism behind every BH-FDR/EIC-04 gate in the stack. Bootstrap fix shipped (143.1-01); corpus-wide re-run in flight (143.1-07) as of 2026-07-12 to exercise it against fresh data. |
+| [094](pending/094-alpha-events-long-short-imbalance.md) | **Root cause corrected 2026-07-11** (Fable review, verified against live DB): not a floor-formula issue — two sign-asymmetric gates (`ic_ci_lower > 0` eligibility filter, `fold_ic > 0` walk-forward criterion) exclude 100% of contrarian features before weighting ever runs. Confirmed: 1,527 eligible rows, zero at `ic_sign=-1`. Requires a full `ic_engine` re-run + eligibility/quality-weight/E2-sign-path redesign, not a small patch — effort raised M-L. Full strategy: `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`. Sign-symmetric redesign shipped (143.1-04); mandatory shadow-mode champion/challenger validation (143.1-08) still pending, blocked on 143.1-07's corpus re-run. |
+| [099](pending/099-bootstrap-ci-staged-validation-gate-not-cleared-5m-residual.md) | Downgraded P1→P2 2026-07-11 (ledger E10): the bootstrap CI staged-validation gate's 6 SUSPECT cells traced to 5 diagnostic-only (`is_pooled=false`) breaches + 1 capital-relevant cell that independently clears its own bound — no longer blocks Plan 07. Underlying statistical question (why 5m autocorrelation/momentum features resist both Fisher-z and block-bootstrap) remains open as non-blocking follow-up. |
 
 **Closed 2026-07-10** (moved to `completed/`, see each file's resolution note): 051 (backfill
 IBKR-disconnect silent skip), 061 (`feature_vector_pipeline` DDL in hot path), 044 (`indicagent-tempo`
-crash-loop).
+crash-loop). **Closed 2026-07-12**: 098 (stale idea-doc refresh, both items done via parallel
+Fable review).
 
 **Explicit sequencing decision (2026-07-10, project owner confirmed; reaffirmed 2026-07-11 after
 094's root cause was corrected, and again 2026-07-11 to insert 097 — see
@@ -57,7 +59,7 @@ without re-confirming with the project owner.
 
 | Todo | Why now |
 |---|---|
-| [093](pending/093-alpha-frames-backfill.md) | `alpha_frames` backfill — Phase 142B's writer/tracker shipped but the table still has 0 rows; the standing concrete next step, not gated on anything |
+| [093](pending/093-alpha-frames-backfill.md) | **Backfill+scoring done as of 2026-07-12** (11.8M frames, 2.64M scored, verified live via psql) — the one remaining step, `CounterfactualTracker --evaluate-gate`'s FRAME-04 verdict, was explicitly deferred at 142B ship time and still hasn't been run; it's read-only and safe to run any time, independent of the in-flight 143.1-07 corpus re-run |
 | [096](pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md) | Check whether frame `max_hold_bars` is commensurate with the `lookahead_bars` each feature's IC was actually selected at — could independently explain todo 093's 77%-timeout pattern; read-only, can run in parallel with everything else |
 | [095](pending/095-migrations-directory-split-collision.md) | `db/migrations/` vs `production/migrations/` — 3 docs claim the former is canonical, reality is the opposite (213 files vs 3, latter stale 34+ days); confirmed migration-number collisions (120/121); fresh `infrastructure_db_setup.sh` run likely fails on a raw pg_dump snapshot colliding with 213 already-applied incremental migrations |
 | [068](pending/068-canary-predictors-integrity-check.md) | Cheapest integrity purchase available — negative-control predictors, zero new services, gate: none |
@@ -109,6 +111,7 @@ without re-confirming with the project owner.
 | [063](pending/063-roadmap-altdata01-two-shape-update.md) | ROADMAP Phase 154 doc-sync (15 min) |
 | [085](pending/085-adversarial-review-cadence.md) | Adopt adversarial review as a recurring practice (process, not code) |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
+| [100](pending/100-staged-validation-gate-should-split-bound-by-is-pooled.md) | Filed 2026-07-11 (ledger E10) — future staged-validation gates of this shape should pre-commit separate SUSPECT bounds for capital-relevant vs diagnostic-only strata, not one pooled total. Design fix for next time, not urgent (E10 already resolved the one live incident manually). |
 
 ---
 
