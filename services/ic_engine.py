@@ -605,7 +605,7 @@ _EMPTY_SYMBOL_RESULT: tuple = (
 
 
 def _compute_symbol_tf(
-    conn: Any,
+    dsn: str,
     symbol: str,
     tf: str,
     training_window_end: Any,
@@ -630,6 +630,15 @@ def _compute_symbol_tf(
     is applied (P2 fix). rows have bh_adjusted_p=None/passes_fdr=None for
     non-representatives; pvals_flat + pval_result_idxs returned for FDR pass.
 
+    dsn: connection string, not a live connection. This function opens two
+    short-lived connections internally (one for the feature/forward-return
+    fetch, one later for the context-features fetch) rather than holding a
+    single connection across the clustering/bootstrap compute loop between
+    them (todo 102, 2026-07-12: that loop routinely runs long enough to
+    exceed postgres's idle_session_timeout, and a connection left idle across
+    it gets killed server-side before ever being used again — the corpus
+    re-run was silently writing zero rows as a result).
+
     feature_status_map: dict mapping feature_name → status from feature_registry.
     If provided, each IC score row receives feature_status_at_eval from this map.
     Defaults to 'unknown' for any feature not found in the map.
@@ -651,6 +660,11 @@ def _compute_symbol_tf(
     n_features = len(_FEATURE_NAMES)
 
     with _observed_span("ic_engine.compute_symbol_tf", tracer, symbol=symbol, tf=tf):
+        # Short-lived fetch connection -- opened here, closed as soon as the
+        # feature/forward-return fetch below completes (see dsn note in the
+        # docstring). It must not stay open across the clustering/bootstrap loop
+        # that follows.
+        conn = connect_db_from_url(dsn)
         # Server-side cursor requires no active transaction -- commit any open
         # transaction first (a no-op read-only boundary clear, not a data write;
         # matches regime_writer.py's _compute_symbol_tf and ensemble_ic_engine.py's
@@ -705,6 +719,7 @@ def _compute_symbol_tf(
                 X_chunks.append(np.array(buf_X, dtype=np.float32))
 
         if not bar_ts_list:
+            conn.close()
             _logger.info("ic_engine.no_feature_vectors", symbol=symbol, tf=tf)
             return _EMPTY_SYMBOL_RESULT
 
@@ -735,6 +750,7 @@ def _compute_symbol_tf(
             fr_rows = cur.fetchall()
 
         if not fr_rows:
+            conn.close()
             _logger.info("ic_engine.no_forward_returns", symbol=symbol, tf=tf)
             return _EMPTY_SYMBOL_RESULT
 
@@ -744,6 +760,7 @@ def _compute_symbol_tf(
         # Align feature matrix to forward_returns rows (exact bar_ts match)
         aligned_idx = [i for i, ts in enumerate(bar_ts_arr) if ts in fr_ts]
         if not aligned_idx:
+            conn.close()
             _logger.info("ic_engine.no_alignment", symbol=symbol, tf=tf)
             return _EMPTY_SYMBOL_RESULT
 
@@ -765,6 +782,12 @@ def _compute_symbol_tf(
                 returns_mat[i, j] = row[1 + j] if row[1 + j] is not None else np.nan
                 complete_mat[i, j] = bool(row[1 + n_scales + j])
         del fr_ts  # returns_mat/complete_mat are sufficient; dict no longer needed
+
+        # Fetch phase is done -- close this connection now rather than holding it
+        # idle across the clustering/bootstrap loop below (todo 102 fix; see dsn
+        # note in the docstring). A fresh connection is opened later, right before
+        # the context-features loop that actually needs one.
+        conn.close()
 
         # Regime source: market_regimes (cross-sectional) or feature_vectors.regime (per-symbol).
         # When mr_dict is provided, map each aligned bar_ts to its cross-sectional regime.
@@ -1077,6 +1100,11 @@ def _compute_symbol_tf(
         min_obs_daily = config.min_obs_daily
         n_scales = len(_SCALES)
 
+        # Fresh short-lived connection for the context-features loop below --
+        # opened here (not carried over from the fetch phase above) so it was
+        # never idle across the clustering/bootstrap loop that just ran.
+        conn = connect_db_from_url(dsn)
+
         return_cols_cf = ", ".join(f"fr.return_{s}" for s in _SCALES)
         complete_cols_cf = ", ".join(f"fr.complete_{s}" for s in _SCALES)
         cf_sql_tmpl = f"""
@@ -1291,6 +1319,10 @@ def _compute_symbol_tf(
                         "cumulative_e_value": None,
                     }
                 )
+
+        # Context-features loop is done -- this connection is not touched again
+        # for the rest of this function (BH-FDR/clustering below is pure compute).
+        conn.close()
 
         # ------------------------------------------------------------------
         # BH-FDR correction -- representative-only per (regime, lookahead, cluster)
@@ -2047,9 +2079,13 @@ def _persist_corpus_results(
 def _run_ic_worker(args: tuple) -> dict:
     """Worker function for ProcessPoolExecutor -- runs in subprocess.
 
-    Each worker processes one symbol x all TFs with its own DB connection.
-    No OTel tracer -- workers log only. No DB writes -- returns rows for
-    serial write in main process after corpus-level BH-FDR (P2 fix).
+    Each worker processes one symbol x all TFs. No single connection is held
+    across a whole symbol/tf -- _compute_symbol_tf opens and closes its own
+    short-lived connections per fetch phase (todo 102 fix: a connection held
+    idle across the clustering/bootstrap compute loop was getting killed by
+    postgres's idle_session_timeout before ever being used again). No OTel
+    tracer -- workers log only. No DB writes -- returns rows for serial write
+    in main process after corpus-level BH-FDR (P2 fix).
 
     Args:
         args: (symbol, tfs, dsn, training_window_end, existing_keys_frozen,
@@ -2089,7 +2125,6 @@ def _run_ic_worker(args: tuple) -> dict:
     # worker (ProcessPoolExecutor workers are compute-only, CLAUDE.md).
     rng = np.random.default_rng(seed=_derive_worker_rng_seed(symbol, config.bootstrap_seed))
 
-    conn = None
     all_results: list[dict] = []
     pooled_rows: list[dict] = []
     regime_rows: list[dict] = []
@@ -2101,13 +2136,10 @@ def _run_ic_worker(args: tuple) -> dict:
     error_msg = None
 
     try:
-        # Use the DSN passed from the main process rather than re-instantiating Settings(),
-        # which re-reads env vars and would diverge if the subprocess environment differs.
-        conn = connect_db_from_url(dsn)
         for tf in tfs:
             try:
                 tf_pooled, tf_regime, stats = _compute_symbol_tf(
-                    conn=conn,
+                    dsn=dsn,
                     symbol=symbol,
                     tf=tf,
                     training_window_end=training_window_end,
@@ -2135,22 +2167,13 @@ def _run_ic_worker(args: tuple) -> dict:
                     tf=tf,
                     error=str(error),
                 )
-                # Rollback the aborted transaction so subsequent TFs can proceed.
-                # psycopg2 leaves connections in aborted state after any exception;
-                # without rollback all remaining TFs silently fail with InFailedSqlTransaction.
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
+                # No shared connection to roll back -- _compute_symbol_tf opens and
+                # closes its own short-lived connections per fetch phase, so a
+                # failure inside it cannot leave a stale transaction on some
+                # connection this loop still holds across TF iterations.
     except Exception as error:
         error_msg = str(error)
         worker_log.error("ic_engine.worker_failed", symbol=symbol, error=error_msg)
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
     return {
         "symbol": symbol,

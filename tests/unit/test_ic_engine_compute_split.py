@@ -29,7 +29,7 @@ def test_compute_symbol_tf_return_keys():
     sig = inspect.signature(_compute_symbol_tf)
     params = list(sig.parameters.keys())
     expected_params = [
-        "conn",
+        "dsn",
         "symbol",
         "tf",
         "training_window_end",
