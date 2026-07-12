@@ -1,5 +1,6 @@
 ---
 **Created:** 2026-07-06
+**Completed:** 2026-07-12
 **Area:** planning
 **Type:** doc_sync
 **Priority:** P3
@@ -7,6 +8,18 @@
 **Benefit:** ROADMAP Phase 154 ALTDATA-01 stops specifying a schema shape its source doc has since rejected
 **Risk:** low
 ---
+
+## Resolution (2026-07-12)
+
+ALTDATA-01 rewritten to the two-shape design (bar-cadence sibling tables joined by `ic_engine`
+on the bar key; sub-bar-cadence sources extending the `context_features` long/narrow pattern),
+plus the per-source APR gate keys and "N counts update events, not rows" principle from the
+source doc's Key Risk section. Also updated ALTDATA-04 (fundamentals) in the same pass — it
+still described the now-rejected "longer accumulation period" framing right next to this fix,
+which the source doc's 2026-07-06 revision replaced with "measured cross-sectionally only, never
+per-symbol time-series" (20 years of quarters is ~80 independent per-symbol observations, which
+no gate calibration fixes). Left uncorrected in the original scope, but fixing it in the same
+pass avoided leaving an internal contradiction in the same ROADMAP section.
 
 # 063 — Update ROADMAP Phase 154 ALTDATA-01 to the two-shape alt-data design
 

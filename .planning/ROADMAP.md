@@ -1620,12 +1620,15 @@ routing for these symbols is Phase 144's job, unaffected by this removal.
 
 **Goal:** Add new IC-measurable signal sources to the vector-agnostic architecture. Each vector enters at weight=0, earns weight through IC measurement independently, and never blends with price IC until independently validated. Recommended order: Flows first (highest signal/infra delta ratio), then Kalshi as regime conditioning, then Fundamentals.
 
-**Depends on:** `alt_feature_vectors` table + IC engine capable of joining it (Phase 138 pattern). No dependency on Phase 145. Each vector gated on its own IC validation before any ensemble weight is assigned.
+**Depends on:** per-source ingestion tables + IC engine capable of joining them (two-shape design below; Phase 138 join pattern). No dependency on Phase 145. Each vector gated on its own IC validation before any ensemble weight is assigned.
 
 **Requirements:**
 
-**ALTDATA-01 — `alt_feature_vectors` table:**
-Keyed on `(symbol, ts, data_source)`. IC engine joins both `feature_vectors` and `alt_feature_vectors`. Separate IC gate per data source — never blend alt-data IC with price IC until independently validated. Shorter history than price is expected; the IC gate min_observations applies per data source independently.
+**ALTDATA-01 — Two-shape ingestion, chosen by cadence (updated 2026-07-12, todo 063; supersedes the original single `alt_feature_vectors` table design, rejected by the 2026-07-06 Fable review of `docs/research/data-alt-data-sources.md` — a single grab-bag table has no honest primary key across bar-cadence and event-cadence sources):**
+1. **Bar-cadence sources (flows):** dense sibling table per source family, keyed `(symbol, tf, bar_ts)` — e.g. `flow_vectors` — written by its own dedicated `BaseWriter` (one writer per table, DAG invariant 3), joined by `ic_engine` on the bar key exactly as `forward_returns` is today.
+2. **Sub-bar-cadence sources (fundamentals snapshots, Kalshi snapshots, materialized qualitative scores):** extend the live `context_features` pattern — long/narrow `(feature_date, feature_name, symbol)` key, `source` check constraint extended, effective-date contract (`published_at`/`received_at` → materialized `effective_ts` = first bar open strictly after both) enforced at write. Event-driven sources keep an immutable raw event table upstream as audit trail; the narrow table is the measurement surface.
+
+Separate IC gate per data source — never blend alt-data IC with price IC until independently validated. **N counts update events, not rows** (quarters for fundamentals, resolution cycles for Kalshi, bars only for genuinely bar-cadence flows) — fill-forwarded rows are not independent observations. Per-source APR gate keys follow the `alpha.ic.min_obs_daily_features` precedent: `alpha.ic.min_obs.flows`, `alpha.ic.min_obs.kalshi`, `alpha.ic.min_obs.fundamental`, `alpha.ic.min_obs.news`. Sources whose per-symbol event count can never clear a sane gate (fundamentals; likely news) are measured **cross-sectionally only**, against the existing POOLED-strata pipeline.
 
 **ALTDATA-02 — V2 Flows (first):**
 Options net delta, dark pool %. Same cadence as price, lowest infra delta. Direct IC measurement at 5m/15m TF. Priority: highest among alt-data sources.
@@ -1634,7 +1637,7 @@ Options net delta, dark pool %. Same cadence as price, lowest infra delta. Direc
 Prediction market event probabilities. Not return prediction — stratifies existing price IC by macro event probability. Treat as a filter/modifier on regime labels, not a standalone predictor.
 
 **ALTDATA-04 — V8 Fundamentals (later):**
-EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join. History is typically shorter than price (5K rows vs 20K minimum). Separate IC gate with longer accumulation period before ensemble weight is assigned.
+EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-reported values keyed on public release timestamp (never fiscal period end — vendor restatements are routine and using period-end would train on data that did not exist at the bar). **Measured cross-sectionally only, never per-symbol time-series** (updated 2026-07-12, todo 063): 20 years of quarters is ~80 independent observations per symbol — no gate calibration rescues that. Barra-style cross-sectional rank IC across the 80-symbol universe per report season, using the existing POOLED-strata machinery `ensemble_trainer` already trains on.
 
 **Plans:** TBD per vector — plan each vector as its own sub-phase when infra prerequisites are clear.
 
