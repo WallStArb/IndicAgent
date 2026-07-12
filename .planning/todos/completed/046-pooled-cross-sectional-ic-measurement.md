@@ -1,10 +1,21 @@
 ---
 title: EnsembleICEngine never produces a pooled cross-sectional (symbol='POOLED') row
-status: pending
+status: resolved
 discovered_by: phase-142A (code review, WR-02)
 discovered: 2026-07-02
 resolves_phase: null
+resolved: 2026-07-12 (housekeeping audit — this file sat in completed/ with status:pending and no
+  resolution note; verified against live code, correctly placed, just undocumented)
 ---
+
+## Resolution (2026-07-12)
+
+Option 1 from "Suggested approach" below shipped: `services/ensemble_ic_engine.py` now has a
+`_POOLED_SYMBOL = "POOLED"` sentinel with a dedicated dispatch task per invocation
+(`symbol_to_tfs[_POOLED_SYMBOL] = all distinct tfs`), producing real `symbol='POOLED'`,
+`is_pooled=true` rows — confirmed live via grep (`_POOLED_SYMBOL`, `_POOLED_WORKER_FETCH_SQL`).
+Migration 195's CHECK constraint, `_calibrate_hold_max_bars`'s `is_pooled` exclusion, and
+EIC-05's Section 2 diagnosis are all exercised on real data now, not dead code.
 
 ## What
 

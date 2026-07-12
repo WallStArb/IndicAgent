@@ -1,8 +1,18 @@
 # Idea Catalog — Full-Tree Index
 
-**Version:** 1.2
+**Version:** 1.3
 **Status:** current
-**Last Updated:** 2026-07-11 (see audit note below; 2026-07-07 audit note follows for history)
+**Last Updated:** 2026-07-12 (see audit note below; earlier audit notes follow for history)
+**2026-07-12 audit:** housekeeping/consolidation pass. Archived 4 docs (see Archived section) and
+corrected the `docs/plans/` table's HMM/GARCH/Kalman migration row (status was blank, work is
+actually complete). Separately, ROADMAP.md turned out to have 6 dead-path citations across 3
+docs still using pre-2026-07-07-rename `.planning/research/...` paths, plus 5 more using other
+stale filenames (`canonical-simulator.md`, `controlled-vocabulary.md`, `intel-10-...`,
+`intel-14-integrity-monitor.md`, `i6-confluence-expansion.md`) — all fixed in ROADMAP.md directly;
+none of those required touching this catalog. First pass over-archived two docs
+(`fable-2026-07-01-v3-architecture-review.md`, `fable-2026-07-03-roadmap-reconciliation.md`) as
+apparently-orphaned before discovering ROADMAP.md's dead-path citations to them — restored, see
+Archived section note for the full account.
 **2026-07-07 audit:** catalog had drifted from the real `docs/ideas/` directory
 since 2026-07-03 — two independent rename waves, 930cdebd and fc067a2b, left ~9 links pointing at
 pre-rename filenames, and ~50 rows pointed at docs already physically archived with no catalog
@@ -108,8 +118,7 @@ of what was removed and why. These three are what's actually still live.
 |---|---|---|
 | [2026-06-20: v3.0 Ground-Up Architecture](../plans/2026-06-20-alphaengine-architecture.md) | Approved design | The v3.0 rebuild's foundational architecture doc |
 | [2026-06-25: v3.0 Alpha Lifecycle Schema](../plans/2026-06-25-v30-alpha-lifecycle-schema.md) | APPROVED | Referenced by Phases 142A/142B/147 (renumbered 2026-07-04) |
-| [2026-06-19: HMM/GARCH/Kalman APR Migration](../plans/2026-06-19-hmm-garch-kalman-apr-migration.md) | — | APR migration plan for HMM/GARCH/Kalman params |
-| [2026-06-26: Renaissance Optimization Roadmap](../plans/2026-06-26-renaissance-optimization-roadmap.md) | SUPERSEDED 2026-06-27 | Historical only |
+| [2026-06-19: HMM/GARCH/Kalman APR Migration](../plans/2026-06-19-hmm-garch-kalman-apr-migration.md) | Complete — migration 153 live; `feature.hmm.*` keys read in `src/intelligence/services/hmm_trainer.py` | APR migration plan for HMM/GARCH/Kalman params (2026-07-12: status corrected, was blank; doc's own checklist was never updated but the work shipped) |
 | [2026-06-26: Salvageable AI & Intelligence Concepts from v2.x](../plans/2026-06-26-salvageable-ai-concepts.md) | EXTRACTED | What survived the v2.x → v3.0 transition |
 | [2026-06-27: ETF Universe Expansion](../plans/2026-06-27-etf-universe-expansion.md) | Complete — applied 2026-07-01 | 58→80 instruments live (migrations 188/190); DB-verified 80 active instruments |
 | [2026-06-28: HMM Regime Audit & Optimization](../plans/2026-06-28-hmm-regime-audit-optimization.md) | — | Companion to todo 026 |
@@ -117,9 +126,6 @@ of what was removed and why. These three are what's actually still live.
 | [2026-06-30: AlphaEngine V1 — Methodology Hypotheses](../plans/2026-06-30-alphaengine-methodology-hypotheses.md) | Active | Three hypotheses requiring empirical validation |
 | [2026-06-30: AlphaEngine V1 — Execution Plan](../plans/2026-06-30-alphaengine-v1-execution-plan.md) | Phase A/B COMPLETE; superseded by later phases | Tracked Phase A/B execution only; Phase 142A/142B/143/143.1 have since shipped — see ROADMAP.md for current state |
 | [2026-07-01: Cross-Sectional Regime Model Implementation](../plans/2026-07-01-cross-sectional-regime-model.md) | — | Implementation plan for the `market_regimes` cross-sectional system |
-| [2026-07-09: IC Null Calibration — Design](../plans/2026-07-09-ic-null-calibration-design.md) | Design — pending implementation | Todo 071/L4-2: does the analytic Fisher-z CI correctly describe the IC null distribution? |
-| [2026-07-09: IC Null Calibration — Implementation Plan](../plans/2026-07-09-ic-null-calibration-plan.md) | Implementation plan | Circular-shift permutation test build plan for the design doc above |
-| [2026-07-09: Interaction Primitives Partial-IC Pilot — Implementation Plan](../plans/2026-07-09-interaction-primitives-partial-ic-pilot-plan.md) | Executed 2026-07-10, PASS | Todo 037's partial-correlation pilot; result feeds the Interaction Factory row above |
 | [2026-07-11: IC Quality & Sign-Symmetry Strategy](../plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md) | Strategy — sequencing agreed, fixes not yet implemented | Synthesizes todos 091/093/094/096/088 sequencing; full design for Phase 143.1 |
 | [SHADOW-REVIEW: Phase 147 Live Promotion Criteria](../plans/SHADOW-REVIEW.md) | FROZEN | Numerically-evaluable live-promotion gate criteria, committed before any shadow data exists |
 | [Methodology Change Ledger](../plans/methodology-change-ledger.md) | STANDING, append-only | Every methodology change, forever — read before trusting any historical IC number |
@@ -129,6 +135,26 @@ of what was removed and why. These three are what's actually still live.
 
 ## Archived (pointer only — do not list rows here, browse directly)
 
+- **Archived 2026-07-12** (housekeeping pass, verified against this catalog's own status
+  columns before moving — not just an inference pass): `docs/plans/archive/2026-06-26-renaissance-optimization-roadmap.md`
+  (already self-labeled SUPERSEDED) · `docs/plans/archive/2026-07-09-ic-null-calibration-design.md`
+  + `2026-07-09-ic-null-calibration-plan.md` (diagnostic executed, closed via
+  `.planning/todos/completed/071-measurement-diagnostics-null-calibration-ic-decomposition.md`,
+  follow-up now lives as todo 091) · `docs/plans/archive/2026-07-09-interaction-primitives-partial-ic-pilot-plan.md`
+  (already labeled Executed/PASS in this table). Explicitly evaluated and **kept live, not
+  archived**, despite looking superficially similar: `2026-06-20-alphaengine-architecture.md`
+  (still the cited foundational architecture doc, not superseded), `fable-2026-07-03-canonical-simulator-review.md` /
+  `fable-2026-07-03-intel10-11-review.md` / `fable-2026-07-04-concept-registry-cluster-review.md`
+  (this catalog's References section deliberately keeps all 9 dated Fable reviews live as a
+  citable audit trail — archiving any of the 9 individually would break that), `data-alt-data-sources.md`
+  (adopted-and-kept status, same pattern as `ETF Universe Expansion` above), and
+  `fable-2026-07-01-v3-architecture-review.md` / `fable-2026-07-03-roadmap-reconciliation.md`
+  (a first pass nearly archived these two as orphaned — absent from this catalog's own
+  References list — but ROADMAP.md turned out to cite both substantively, 5 times total, via
+  dead pre-2026-07-07-rename paths that a plain filename grep for the *current* name doesn't
+  catch; restored, and ROADMAP.md's paths fixed instead, in the same session), and
+  `platform-security-classification-hierarchy.md` (legitimate future idea gated on
+  individual-equities onboarding, not dead).
 - `docs/research/archive/` — superseded idea docs, including `intel-10-v2-confluence-persistence.md`,
   `intel-11-dual-system-discrete-vs-portfolio.md`, and the pre-consolidation AnalogEngine/
   IntegrityMonitor/StratificationDimension doc sets that fed intel-12/13/14.

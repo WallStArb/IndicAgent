@@ -26,10 +26,10 @@
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
 - 🔄 **v3.1 IC Empirical Proof + Counterfactual Scoring** — Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 (12.47M alpha_events); Phase 141 COMPLETE 2026-06-29; Phase A COMPLETE 2026-06-30 (ic_engine methodology fixes + Renaissance IC gate redesign); Phase B (corpus re-run on corrected engine) COMPLETE 2026-07-01 (3rd rebuild: feature_vectors 10.08M, feature_ic_scores 254,126, qualifying features 5m=37/15m=28/1h=15/1d=28); Phase 141.1 COMPLETE 2026-07-02 (measurement/decision integrity foundation — OOS enforcement, weight-epoch fix, regime_scope schema fix, cost-hurdle calibration); Phase 142A COMPLETE 2026-07-02 (ensemble IC proof: `alpha_ensemble_ic` schema + EnsembleICEngine + hold_max_bars calibration + EIC-04 gate + EIC-05 diagnosis); Phase 142B.1 COMPLETE 2026-07-04 (E1/E2 ensemble weighting variants; E2 rejected 2026-07-09 A/B judgment, E1 remains champion); Phase 142.5 COMPLETE 2026-07-07 (89 Renaissance primitives, 150-field FeatureVector); Phase 142B COMPLETE 2026-07-10 (`alpha_frames` schema + AlphaFrameWriter + CounterfactualTracker + SHADOW-REVIEW.md pre-commitment; single primary frame counterfactual validation; no cost model, no UX); Phase 143 COMPLETE 2026-07-10 (Feature Lifecycle Routing, merged with 149B — evidence-based feature_registry promotion/demotion + ic_engine post-run lifecycle hook + integrity_monitor) — see `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
-- 📋 **v3.15 Conditioning & Identity Foundation** — **Phases 144, 145** (moved into this milestone 2026-07-03 — see `.planning/research/2026-07-03-roadmap-reconciliation.md` F1; previously miscategorized under "v3.3 Foundational Hardening," physically *after* Phases 148-150 despite being their hard prerequisite). Unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 144 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; idea doc: `docs/research/intel-12-stratification-dimension.md`; originally proposed 2026-07-02 in `.planning/research/2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8. **Hard prerequisite for Phase 148** (intel-13: CaseSubstrate's retrieval hard-filters on regime labels; building the embedding substrate on known-suspect strata bakes the bias into stored vectors — see Phase 148's Depends-on below). Explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key. Batches together in one `ic_engine` re-run per topdown D5: Phase 144 + todo 026 P2b/P2c/P3 + todo 041 (tag taxonomy) + intel-12's first substitution test. Build trigger: todo 026's Step 1 regime-IC separation gate — **already run 2026-07-02, result asset-class-dependent** (SPY separates cleanly, TLT doesn't) — the pre-committed fallback for weak-separation asset classes (topdown Open Q4) needs an operator call at this milestone's planning, before the substitution test runs.
+- 📋 **v3.15 Conditioning & Identity Foundation** — **Phases 144, 145** (moved into this milestone 2026-07-03 — see `docs/research/fable-2026-07-03-roadmap-reconciliation.md` F1; previously miscategorized under "v3.3 Foundational Hardening," physically *after* Phases 148-150 despite being their hard prerequisite). Unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 144 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; idea doc: `docs/research/regime-multi-regime-layer.md`; originally proposed 2026-07-02 in `docs/research/fable-2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8. **Hard prerequisite for Phase 148** (intel-13: CaseSubstrate's retrieval hard-filters on regime labels; building the embedding substrate on known-suspect strata bakes the bias into stored vectors — see Phase 148's Depends-on below). Explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key. Batches together in one `ic_engine` re-run per topdown D5: Phase 144 + todo 026 P2b/P2c/P3 + todo 041 (tag taxonomy) + intel-12's first substitution test. Build trigger: todo 026's Step 1 regime-IC separation gate — **already run 2026-07-02, result asset-class-dependent** (SPY separates cleanly, TLT doesn't) — the pre-committed fallback for weak-separation asset classes (topdown Open Q4) needs an operator call at this milestone's planning, before the substitution test runs.
 - 📋 **v3.2 Signal Diversification — CaseSubstrate + Feature Expansion** — Phases 148-150 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI AND v3.15 complete for Phase 148; Renaissance: more diverse weak signals, not stronger strong ones. **Framing correction complete** (was pending, closed 2026-07-09) — the milestone goal text and Phase 149 no longer describe this as an "independent System 2"; both were rewritten against `docs/research/intel-case-substrate.md` per todo 055, and the concept itself was renamed from "AnalogEngine" to "CaseSubstrate" the same day — "analog" collided with this codebase's dense signal-processing vocabulary, see `docs/foundation/naming-system.md`'s plain-role-noun table)
-- 📋 **v4.0 Execution Layer** — Phases TBD (planned; hard-gated on v3.2 complete (Phase 154 is independently-gated, not blocking — ETF Universe Expansion removed as a phase 2026-07-04, already done — see below) + `alpha_events` schema frozen; consumes alpha_events, never modifies signal weights)
-- 📋 **v4.1 IC Governance + Drift Monitoring** — Phases 151, 152 (**149B corrected 2026-07-03 — no longer a standalone phase; merged into Phase 143**, see Phase 143's header). Regime-conditioned distribution drift + ensemble health gates; replaces DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; see `docs/research/intel-14-integrity-monitor.md` (current design, supersedes `docs/plans/2026-06-27-health-guardian-design.md`). Per topdown D12, **Phases 151 and 152 are schedulable opportunistically any time after Phase 141** — the "v4.1" label is thematic grouping, not a sequencing gate. Phase 151 depends only on `feature_vectors` (exists today); Phase 152 depends on Phase 142A's `alpha_ensemble_ic` (exists, populated — though see the EIC-04 verdict log in Phase 142A's section before treating 142A as fully proven). Do not let either jump ahead of Phase 142B/143 or 147, which carry present-tense value the backlog matrix rates higher.
+- 📋 **v4.0 Execution Layer** — **Phases 155-158** (numbered 2026-07-12 from a production-readiness review, was "Phases TBD"; **restructured same day** to split out Portfolio State as its own foundational phase after catching a gap — this milestone's own design is portfolio-level, not per-security, and had no persisted entity for portfolio state to live in: 155 Portfolio State Foundation, 156 Position Sizing & Risk Management, 157 Live Execution Layer + broker resilience, 158 Cost Calibration Feedback Loop + Execution Scoring) (planned; hard-gated on v3.2 complete (Phase 154 is independently-gated, not blocking — ETF Universe Expansion removed as a phase 2026-07-04, already done — see below) + `alpha_events` schema frozen; consumes alpha_events, never modifies signal weights)
+- 📋 **v4.1 IC Governance + Drift Monitoring** — Phases 151, 152 (**149B corrected 2026-07-03 — no longer a standalone phase; merged into Phase 143**, see Phase 143's header). Regime-conditioned distribution drift + ensemble health gates; replaces DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; see `docs/research/measurement-governance-monitor.md` (current design, supersedes `docs/plans/archive/2026-06-27-health-guardian-design.md`). Per topdown D12, **Phases 151 and 152 are schedulable opportunistically any time after Phase 141** — the "v4.1" label is thematic grouping, not a sequencing gate. Phase 151 depends only on `feature_vectors` (exists today); Phase 152 depends on Phase 142A's `alpha_ensemble_ic` (exists, populated — though see the EIC-04 verdict log in Phase 142A's section before treating 142A as fully proven). Do not let either jump ahead of Phase 142B/143 or 147, which carry present-tense value the backlog matrix rates higher.
 
 ## Phases
 
@@ -240,12 +240,12 @@ Design doc: `docs/plans/archive/2026-03-30-signal-writer-agent.md` (historical �
 
 - [x] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 11 plans, shadow-only — COMPLETE 2026-04-11
 
-Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
+Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md` — **doc not found** (checked 2026-07-12; Phase 56 is complete, historical drift only)
 
 - [x] **Phase 65: Gradient Audit** — 25+ binary fields converted, 8-function gradient_utils.py, CI scanner gate, 5/5 plans — COMPLETE 2026-04-24. Note: swing_amplitude_expanding companion (swing_amplitude_intensity) not implemented — minor gap, non-blocking.
 - [x] **Phase 64: I6 Confluence Expansion** — COMPLETE 2026-05-14. 5 new I6 cross-TF plugins (momentum divergence, S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) + MacroComputeAgent (yield curve + FTQ) + full pipeline integration. 03C USD strength deferred (low priority; YC+FTQ providing macro context).
 
-Design doc: `docs/research/i6-confluence-expansion.md`
+Design doc: `docs/research/archive/i6-confluence-expansion.md` (archived; superseded by `docs/research/intel-confluence-detection-persistence-layer.md` for the current design)
 
 - [x] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService with Skeptic, Correlation, and Volume agents. 16/16 truths verified, 43/43 tests passing — COMPLETE 2026-04-24. Operational gates pending: live service deploy + 30-day statistical validation (~May 25).
 
@@ -268,14 +268,14 @@ Plans:
 - [x] **Phase 68: Pipeline Hardening & Institutional Foundation** — Complete 2026-04-23
 
 Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings wiring, numeric label, long bias, confidence boost pre-calibration), BaseWriterAgent + 5 writer migrations + write-path reliability (offset commit, DLQ, bounded buffer), end-to-end bar_id trace, full confidence attribution vector, TRUNCATE signal_ledger clean slate, symbol-keyed aggregate tables (6 tables).
-Design doc: `docs/plans/2026-04-11-pipeline-hardening-design.md`
+Design doc: `docs/plans/archive/2026-04-11-pipeline-hardening-design.md`
 
 - [x] **Phase 67: Observability, Alerting & Automation** ← COMPLETE 2026-04-23 (2/2 plans)
 
 ✅ AlertingAgent (Plan 01) — centralized Kafka-to-Telegram/Discord dispatcher
 ✅ Webhook removal (Plan 02) — service_auditor migrated to _send_alert(), SRP restored
 Grafana alert rules (Telegram/Discord), `market_data_gaps` table + `bar_auditor_agent` write path, roll automation in `service_auditor_agent`, 4 code fixes (bootstrap retry, cache seeding, webhook dispatcher, crash counter), 3 dashboard rebuilds.
-Design doc: `docs/plans/2026-04-12-observability-automation-design.md`
+Design doc: `docs/plans/archive/2026-04-12-observability-automation-design.md`
 
 </details>
 
@@ -287,19 +287,19 @@ Design doc: `docs/plans/2026-04-12-observability-automation-design.md`
 - [x] **Phase 69: Writer Agent Renaissance Refactor** — COMPLETE 2026-04-23
 
 Shared consume loop in BaseWriterAgent, _create_consumer() helper, 5 Prometheus metrics, critical overflow alerts + backpressure, FeatureSnapshotWriterAgent migrated from BaseAgent to BaseWriterAgent. 3 writers removed duplicated _run(). 146 tests pass.
-**Design doc:** `docs/plans/2026-04-13-basewriter-renaissance-refactor-design.md`
+**Design doc:** `docs/plans/archive/2026-04-13-basewriter-renaissance-refactor-design.md`
 **Planning:** `.planning/phases/069-writer-renaissance-refactor/`
 
 - [x] **Phase 71: BaseAgent Infrastructure Alignment** — COMPLETE 2026-04-14
 
 Settings singleton in BaseAgent, auto init_tracing(), vestigial logging removal, default _report_consumer_lag(), LLMWriterService migrated to BaseWriterAgent.
-**Design doc:** `docs/plans/2026-04-14-base-agent-infrastructure-alignment-design.md`
+**Design doc:** `docs/plans/archive/2026-04-14-base-agent-infrastructure-alignment-design.md`
 **Planning:** `.planning/phases/071-base-agent-infrastructure-alignment/`
 
 - [x] **Phase 72: Signal Transform Log** — COMPLETE 2026-04-25
 
 Phase 1 dual-write infrastructure: signal_transform_log hypertable, transform_graduation table, TransformRecorder batch writer, graduation.py validation module, GraduationComputeAgent + GraduationWriterAgent services, Kafka topics, and recorder calls wired into all 9 transforms (6 math + 3 swarm). Existing confidence-mutation behavior unchanged; log is write-only and graduation runs in shadow.
-**Design spec:** `docs/plans/2026-04-24-signal-transform-log-design.md`
+**Design spec:** `docs/plans/archive/2026-04-24-signal-transform-log-design.md`
 **Planning:** `.planning/phases/072-signal-transform-log-unified-alpha-modifier-architecture-add/`
 
 - [x] **Phase 73: AI LLM Layer B+ Architecture Refactor** — COMPLETE 2026-04-29 (7/7 plans shipped)
@@ -335,13 +335,13 @@ LightGBM scoring layer (MLScorerMultiplierAgent, shadow_only=True), nightly MLTr
 - [x] **Phase 77: OTel Observability Unification** — COMPLETE 2026-04-29 (4/4 plans)
 
 Replace 24 per-process HTTP metrics servers + manual service registries with OTel Collector stack. One OTLP push pipeline, dynamic systemd service discovery, Alertmanager declarative rules, hot-path distributed tracing activation. Zero manual config maintenance.
-Design doc: `docs/plans/2026-04-28-otel-observability-unification-design.md`
+Design doc: `docs/plans/archive/2026-04-28-otel-observability-unification-design.md`
 **Planning:** `.planning/phases/077-otel-observability-unified/`
 
 - [x] **Phase 79: Signal Quality Fix — Zone Width + Entry Price** — COMPLETE 2026-05-03
 
 Fix zero-width signal zones (entry==stop==target) caused by plugins building signal dicts manually instead of using `make_signal_from_frame()`. Add `signal_schema_version` (tracks `SIGNAL_SCHEMA_VERSION` constant, currently 'v2') and `entry_type` columns to signal_ledger. Add co-fire tracking (`co_fire_count`/`co_fire_partners`). Migrate all 36 I7 plugins to `make_signal_from_frame()`. Add signal quality metrics. Pre-v1 signals ('v0') are contaminated — ML training queries MUST filter `WHERE signal_schema_version >= 'v1'`.
-Design spec: `docs/plans/2026-05-03-phase-79-signal-quality-fix-design.md`
+Design spec: `docs/plans/archive/2026-05-03-phase-79-signal-quality-fix-design.md`
 **Planning:** `.planning/phases/079-signal-quality-fix/`
 
 **Success Criteria (Phases 69+71+72+73+75+76+77):**
@@ -584,7 +584,7 @@ Plans:
 
 **Sequencing note:** Independent of Phase 133 (corpus rebuild). Can run in parallel or after 133 — no shared schema dependencies. Should run before any dashboard or API work that needs filter dropdowns.
 
-**Design doc:** `docs/research/controlled-vocabulary.md`
+**Design doc:** `docs/research/platform-controlled-vocabulary.md`
 
 **Plans:** TBD (plan-phase to produce)
 
@@ -599,8 +599,8 @@ Plans:
 
 **Sequencing note:** Runs before Phase 133. W2-W6 are code changes deployed together; W1 (replay) and Migration 130 Statement 3 are operational steps run after deploy.
 
-**Design doc:** `docs/plans/2026-06-18-post-reboot-repair-design.md`
-**Review:** `docs/plans/135-REVIEWS.md` (cross-AI review: Codex + Ollama)
+**Design doc:** `docs/plans/archive/2026-06-18-post-reboot-repair-design.md`
+**Review:** `docs/plans/135-REVIEWS.md` (cross-AI review: Codex + Ollama) — **doc not found** (checked 2026-07-12; Phase 135 itself is deferred indefinitely per STATE.md, so this is low-priority historical drift, not fixed)
 
 **Plans:** 6 plans in 4 waves
 
@@ -639,13 +639,13 @@ Full details: `.planning/milestones/v3.0-ROADMAP.md`
 <details>
 <summary>📋 v3.0a Signal Integrity — IntegrityMonitor (Phases 151, 149B, 152) — PLANNED</summary>
 
-- [ ] **Phase 151: DistributionDriftMonitor** — Regime-conditioned KS + chi-squared + signed Wasserstein on all 54 features; adaptive penalties (APR-scaled by Wasserstein magnitude); piggybacked recovery; `indicagent-integrity-monitor` service skeleton — design current in `docs/research/intel-14-integrity-monitor.md` (kept from `docs/plans/2026-06-27-health-guardian-design.md` unchanged)
-- [ ] **Phase 149B: feature lifecycle routing, merged with Phase 143** — Evidence-based shadow governance routed through `feature_registry`/Concept Registry, not new `feature_ic_scores` columns; weight restored on promotion via status flip + `ensemble_trainer`'s next recompute, not a `pre_shadow_weight` column (dropped 2026-07-06, see Phase 143's LIFECYCLE-01 correction) — see `docs/research/intel-14-integrity-monitor.md` (supersedes `docs/plans/2026-06-27-health-guardian-design.md`'s `ICLifecycleMonitor`, which conflicted with D3)
-- [ ] **Phase 152: EnsembleHealthMonitor** — 3-gate AND logic (E1: IC Sharpe, E2: regime-conditioned conviction stability, E3: non-shadow coverage); halt/reduce via APR keys; requires Phase 142A (`alpha_ensemble_ic`, complete) — design superseded by `docs/research/intel-14-integrity-monitor.md` (E2B/E2C restored, CUSUM added, `alpha_events` schema gap found — E2B needs Phase 142B's `alpha_frames`). No monitor code exists; the prior `[x]`/"completed 2026-07-02" was stray, corrected 2026-07-02 (found during intel-14 Fable audit)
+- [ ] **Phase 151: DistributionDriftMonitor** — Regime-conditioned KS + chi-squared + signed Wasserstein on all 54 features; adaptive penalties (APR-scaled by Wasserstein magnitude); piggybacked recovery; `indicagent-integrity-monitor` service skeleton — design current in `docs/research/measurement-governance-monitor.md` (kept from `docs/plans/archive/2026-06-27-health-guardian-design.md` unchanged)
+- [ ] **Phase 149B: feature lifecycle routing, merged with Phase 143** — Evidence-based shadow governance routed through `feature_registry`/Concept Registry, not new `feature_ic_scores` columns; weight restored on promotion via status flip + `ensemble_trainer`'s next recompute, not a `pre_shadow_weight` column (dropped 2026-07-06, see Phase 143's LIFECYCLE-01 correction) — see `docs/research/measurement-governance-monitor.md` (supersedes `docs/plans/archive/2026-06-27-health-guardian-design.md`'s `ICLifecycleMonitor`, which conflicted with D3)
+- [ ] **Phase 152: EnsembleHealthMonitor** — 3-gate AND logic (E1: IC Sharpe, E2: regime-conditioned conviction stability, E3: non-shadow coverage); halt/reduce via APR keys; requires Phase 142A (`alpha_ensemble_ic`, complete) — design superseded by `docs/research/measurement-governance-monitor.md` (E2B/E2C restored, CUSUM added, `alpha_events` schema gap found — E2B needs Phase 142B's `alpha_frames`). No monitor code exists; the prior `[x]`/"completed 2026-07-02" was stray, corrected 2026-07-02 (found during intel-14 Fable audit)
 
 **Dependencies:** Phase 142A (`alpha_ensemble_ic` table exists) for Phase 152 only; Phase 151 and the Phase 149B item (merged into Phase 143, see above) are independent
 
-**Spec:** `docs/plans/2026-06-27-health-guardian-design.md` — replaces three prior idea docs
+**Spec:** `docs/plans/archive/2026-06-27-health-guardian-design.md` — replaces three prior idea docs
 
 </details>
 
@@ -836,7 +836,7 @@ Plans:
 
 ### Phase 141: Corpus Quality Gate + IC Validation + HMM JIT ✅ COMPLETE 2026-06-29
 
-**Plan:** `docs/plans/2026-06-28-validity-fixes-and-phase-141.md` (Tasks 1-10)
+**Plan:** `docs/plans/2026-06-28-validity-fixes-and-phase-141.md` (Tasks 1-10) — **doc not found** (checked 2026-07-12; Phase 141 is complete, so this is historical drift only)
 **Obstacle map:** `docs/plans/2026-06-28-renaissance-obstacle-map.md`
 
 **Goal:** Fix two validity threats in the corpus, rerun affected pipeline steps, validate IC on the clean corpus, and ship HMM Numba JIT (40x speedup needed before primitives expansion).
@@ -884,7 +884,7 @@ Every (symbol, tf, regime) cell that produces an IC score must meet `n_independe
 
 ### Phase 141.1: Measurement and Decision Integrity Foundation ✅ COMPLETE 2026-07-02
 
-**Goal:** Make everything that feeds ensemble IC measurement — and any future decision/action layer built on top of it — causal, provenance-tracked, and honestly calibrated, before Phase 142A measures OOS ensemble IC on top of it. Full rationale and verification: `.planning/research/2026-07-02-v3-bottomup-audit.md` (Fable 5) §5.3-5.6, cross-checked against the live codebase 2026-07-02.
+**Goal:** Make everything that feeds ensemble IC measurement — and any future decision/action layer built on top of it — causal, provenance-tracked, and honestly calibrated, before Phase 142A measures OOS ensemble IC on top of it. Full rationale and verification: `docs/research/fable-2026-07-02-v3-bottomup-audit.md` (Fable 5) §5.3-5.6, cross-checked against the live codebase 2026-07-02.
 
 1. **OOS holdout enforcement.** `alpha.validation.oos_start` has zero readers anywhere in `src/`/`services/`/`scripts/` today — the corpus orchestrator derives `TRAINING_WINDOW_END` as bare `SELECT MAX(bar_ts) FROM feature_vectors`, no holdout at all. Implement: `TRAINING_WINDOW_END = min(MAX(bar_ts), alpha.validation.oos_start)`, plus a separate, rare, pre-committed OOS evaluation step. This is the single most important rigor gap found — proving "ensemble IC > 0" without it would be a hollow gate.
 2. **Weight-epoch / silent-retrain fix.** `ensemble_weights` and `ensemble_alpha` both use `ON CONFLICT ... DO NOTHING` keyed partly on a static APR `weight_version='v1'`. Re-running the trainer after IC scores change silently keeps the stale weights — no error, no warning. Fix via real per-run epoch identity (minimal version: derive/increment `weight_version` per run rather than a static APR string; full `corpus_runs`/`run_id` lineage threading is a separable follow-on hardening item, not required here).
@@ -989,7 +989,7 @@ Plans:
 
 **Depends on:** Phase 142A complete — **EIC-04 gate must show PASS** (see verdict log in the Phase 142A section above). **Both dependencies now satisfied, reconfirmed 2026-07-10 on the corrected eligibility gate** (see [Corpus pipeline state](project_corpus_pipeline_state.md) memory for full detail — don't duplicate the numbers here): EIC-04 PASSes (**54/1425 = 3.79%**, superseding the 2026-07-09 35/1585=2.21% figure after `ensemble_trainer.py`/`ensemble_ic_engine.py`'s eligibility gates were found missing a `passes_walkforward`/`walk_forward_stable` requirement and fixed — see the 2026-07-09/10 verdict log entry above) against a threshold recalibrated 0.60→0.02 `[rca_analysis]`, since 0.60 was an untested guess incompatible with rigorous correction at the corpus's true ~516K-hypothesis BH-FDR scale — not a data problem, confirmed via p-value histogram showing genuine, modest signal. `hold_max_bars` APR keys are calibrated from the EIC-02 decay curve for every (regime, tf) cell with qualifying per-symbol evidence — **11/36 cells genuinely walk-forward-confirmed** as of 2026-07-10 (down from a pre-fix 16/36 that included cells computed from zero-fold evidence); the remaining 25 cells correctly retain the `[initial_estimate]` seed because no walk-forward-confirmed decay curve exists there, not because anything is broken. **Phase 142B is no longer blocked.**
 
-**Also carries (added 2026-07-03, canonical-simulator v2 requirements — see `docs/research/canonical-simulator.md`):**
+**Also carries (added 2026-07-03, canonical-simulator v2 requirements — see `docs/research/platform-canonical-simulator.md`):**
 
 - `alpha_frames`'s P1 migration adds `corpus_run_id`/`weight_epoch` provenance columns — every counterfactual claim must attribute the machinery that produced it (the binding rule's provenance clause).
 - **Decide gross vs. net-of-cost SHADOW-REVIEW criteria before that document is committed** (see below) — this cannot be revisited post-launch per the phase's own no-post-hoc-negotiation rule. The externally-calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) exist now; applying them as a net-of-cost *reporting column* alongside the gross criteria is cheap and closes canonical-simulator's cost-kernel gap as this phase's natural second consumer.
@@ -1038,7 +1038,7 @@ Plans:
 
 ### Phase 142B.1: Ensemble Weighting Methodology ✅ COMPLETE (2026-07-04)
 
-**Goal:** Replace `ensemble_trainer.py`'s IC-proportional weighting with better-validated alternatives, judged by Phase 142A's `EnsembleICEngine` on OOS data. Full rationale: `.planning/research/2026-07-01-v3-architecture-review.md` §2, §6.
+**Goal:** Replace `ensemble_trainer.py`'s IC-proportional weighting with better-validated alternatives, judged by Phase 142A's `EnsembleICEngine` on OOS data. Full rationale: `docs/research/fable-2026-07-01-v3-architecture-review.md` §2, §6.
 
 - **E1 — shrunk-IC inputs.** Rides on todo 029's `ic_shrunk` column; consume it instead of raw `ic_sharpe_hac`. Do first — corrects decisions being made today and gives every later variant a de-noised baseline.
 - **E2 — mean-variance combination.** `w ∝ Σ⁻¹·IC` using the Ledoit-Wolf covariance `ensemble_trainer.py` already computes but currently only uses for a binary correlation-cluster cap. Textbook Grinold-Kahn combination; gate on covariance condition number.
@@ -1117,7 +1117,7 @@ total FeatureVector columns** (61 baseline + 89), `feature_registry` at 150 rows
 
 ### Phase 143: Feature Lifecycle Routing (merged with Phase 149B) ✅ COMPLETE (2026-07-10)
 
-**Rewritten 2026-07-03 against `docs/research/intel-14-integrity-monitor.md`** (Fable-reviewed
+**Rewritten 2026-07-03 against `docs/research/measurement-governance-monitor.md`** (Fable-reviewed
 2026-07-02). The previous version of this phase specced a standalone `is_decaying` state
 machine writing directly to `feature_ic_scores`, a separate `feature_deprecations` table, a
 daily-scan `AlphaDecayMonitor` daemon, and cooldown-gated recovery — all four were superseded by
@@ -1334,7 +1334,7 @@ Plans:
 
 **Depends on:** Phase 141 CORPUS-07 evaluated (see Conditional gate above). No dependency on Phase 143.
 
-**Design doc:** `docs/plans/2026-06-20-i7-alpha-scorer-transition.md` (canonical — read before planning)
+**Design doc:** `docs/plans/2026-06-20-i7-alpha-scorer-transition.md` — **broken link, doc does not exist** (checked 2026-07-12, not in `docs/plans/` or its archive). Closest existing artifact: `.planning/todos/completed/016-i7-alpha-scorer-transition.md`. Whoever plans Phase 146 needs to either locate/reconstruct this doc or confirm todo 016 already covers the design.
 
 **Requirements:**
 
@@ -1405,7 +1405,7 @@ Executes only when Gate 1 + Gate 2 both pass AND `i7_conversion_complete = 1`. R
 
 ## v3.15 Conditioning & Identity Foundation (Phases 144, 145)
 
-**Added as its own milestone 2026-07-03** (`.planning/research/2026-07-03-roadmap-reconciliation.md`
+**Added as its own milestone 2026-07-03** (`docs/research/fable-2026-07-03-roadmap-reconciliation.md`
 F1) — previously existed only as a milestone-list bullet with "Phases TBD" while its actual
 phases (144, and 145 once evidence names it load-bearing) sat physically after Phases 148-150 in
 the old "v3.3" section, contradicting the milestone bullet's own stated reason for existing.
@@ -1433,7 +1433,7 @@ Phase 144's own batch — not the same pass. See Phase 143.1's entry and
 (empirical vix/breadth threshold calibration — P2b/P2c already shipped 2026-07-06 via Phase 143
 Plan 01/LIFECYCLE-00, and P3 itself was split out to standalone todo 092 on 2026-07-09; verified
 2026-07-12) + todo 041 (tag exposure-vs-sensitivity taxonomy audit — gates commodity/fx group
-enablement) + `docs/research/intel-12-stratification-dimension.md`'s first substitution test. Phase 145 (Empirical Instrument Tag Calibrator) joins evidence-gated:
+enablement) + `docs/research/regime-multi-regime-layer.md`'s first substitution test. Phase 145 (Empirical Instrument Tag Calibrator) joins evidence-gated:
 if todo 041's audit shows tag calibration is load-bearing for group routing (not merely
 descriptive), pull it into this batch; otherwise it trails independently (its own Depends-on
 already states no dependency on Phase 148-150).
@@ -1452,9 +1452,9 @@ reasoning and falsifiers: `docs/research/fable-2026-07-07-phase144-conditioning-
 
 ### Phase 144: Cross-Sectional Regime Model (`regime_group`) 📋 PLANNED
 
-**Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules). Migration 189. Full design: `docs/plans/2026-07-01-cross-sectional-regime-model.md`.
+**Goal:** Replace `market_regimes.asset_class` with `regime_group` — a named peer group with a pluggable regime signal (breadth_vol for equity, curve_credit for rates, commodity/fx signal modules ship disabled). Migration 229 (plan doc's literal "189" is stale). Full design: `docs/plans/2026-07-01-cross-sectional-regime-model.md`.
 
-**Status per 2026-07-01 architecture review** (`.planning/research/2026-07-01-v3-architecture-review.md` §4): confirmed live today, not a future risk — corpus symbols (all `fi_*` bonds + GLD/SLV/VNQ, plus IBIT) are excluded from equity breadth by `equity_regime_model.py`'s own filter yet get equity regime labels in IC stratification and ensemble scoring. This phase fixes the `fi_*` bonds via the rates group. Decisions made (first-principles, not re-opened for user input):
+**Status per 2026-07-01 architecture review** (`docs/research/fable-2026-07-01-v3-architecture-review.md` §4): confirmed live today, not a future risk — corpus symbols (all `fi_*` bonds + GLD/SLV/VNQ, plus IBIT) are excluded from equity breadth by `equity_regime_model.py`'s own filter yet get equity regime labels in IC stratification and ensemble scoring. This phase fixes the `fi_*` bonds via the rates group. Decisions made (first-principles, not re-opened for user input):
 
 - **Unrouted-until-group-enabled symbols (GLD/SLV/VNQ, IBIT):** exclude from regime-stratified IC with loud startup logging of unrouted symbols, NOT the plan's original silent default-to-equity (fixed in the plan doc's `_build_symbol_regime_class` — omits unmatched symbols, raises `AmbiguousRegimeGroupError` on multi-match, never defaults to `"equity"`). Pooled IC still covers them; no data lost. "Silent wrong answers are worse than loud crashes."
 - **Crypto lumped into the `fx` group (2026-07-07 decision):** IBIT's `tag_filter` match is `fx` (`docs/plans/2026-07-01-cross-sectional-regime-model.md` fx group now matches `["fx_*", "crypto"]`), not a standalone `crypto` group — N=1 crypto instrument doesn't support its own regime signal module, and both are macro-liquidity-driven, single-symbol-per-exposure assets. IBIT stays unrouted in practice until `fx` is enabled (same blocker as commodity, below); revisit the grouping if the crypto sleeve grows past N=1.
@@ -1462,6 +1462,14 @@ reasoning and falsifiers: `docs/research/fable-2026-07-07-phase144-conditioning-
 - Job-1 peer-set purity (OIH/XLE staying in equity breadth despite commodity sensitivity tags) is NOT a blocker — defensible by convention (equity sector funds), revisit only if Phase 145 tag calibration shows material contamination.
 
 **Sequencing:** land Phase 142A's ensemble-IC baseline first (pre-regime_group equity-only strata), then batch this phase with todo 026 P1-P3 into one ic_engine re-run — empirical pre/post comparison over blind trust that the new strata help.
+
+**Plans:** 3/6 plans executed
+- [x] 144-01-PLAN.md — Wave 1: migration 229 (asset_class→regime_group + APR seed) + glossary entry
+- [x] 144-02-PLAN.md — Wave 1: breadth_vol (causal-rank port) + curve_credit signal modules + _tf_window helper
+- [x] 144-03-PLAN.md — Wave 1: commodity_momentum_ts + fx_dollar_carry signal modules (ship disabled)
+- [ ] 144-04-PLAN.md — Wave 2: REGISTRY + cross_sectional_regime_model.py dispatcher + equity deprecation + pipeline step-4 swap
+- [ ] 144-05-PLAN.md — Wave 3: ic_engine.py regime_group routing + cross-sectional peer-scoping contamination fix
+- [ ] 144-06-PLAN.md — Wave 4 (gated on external 143.1-07 corpus rebuild): D-05 empirical TLT-vs-rates separation acceptance gate
 
 ---
 
@@ -1571,7 +1579,7 @@ Each single-TF case predictor lands at exactly feature grain, one value per (sym
 **Evidence base (2026-07-10):** todo 037's pilot ran the partial-IC test this phase's interaction-layer premise depends on — 8 already-live hand-picked interaction primitives measured for incremental IC after controlling for parent atomics. Result: 192/864 cells (22.2%) passed BH-FDR, broad-based across all 8 features. This confirms the atomic feature set is not IC-saturated and interaction effects are real — supporting evidence for building this phase's curated layer, though this phase's own ≤50-feature/theory-motivated design (vs. todo 019's rejected ~30K-candidate combinatorial approach) was already independently justified on BH-FDR statistical-power grounds before this result existed. See `docs/research/intel-feature-interaction-factory.md` and `.planning/todos/completed/037-interaction-primitives-pilot-ic-test.md` for full detail.
 
 **Note (updated 2026-07-03):** the interaction terms this phase validates are one of two
-constituent sources for `docs/research/intel-10-confluence-detection-persistence-layer.md` v3
+constituent sources for `docs/research/intel-confluence-detection-persistence-layer.md` v3
 ("Confluence — a Governed Predictor Family," rewritten 2026-07-03; the other source is
 `intel-13`'s case predictors, formerly "Phase 149's case matches" — see todo 055 for why
 Phase 149 itself needs rewriting). Once ≥1 interaction term clears this phase's IC/OOS gates,
@@ -1602,7 +1610,7 @@ Phase 140's collinearity clustering is global. Extend to regime-conditioned clus
 
 ## Deferred / Independently-Gated (Phase 154)
 
-**Corrected 2026-07-03** (`.planning/research/2026-07-03-roadmap-reconciliation.md` F1) — this
+**Corrected 2026-07-03** (`docs/research/fable-2026-07-03-roadmap-reconciliation.md` F1) — this
 section was "v3.3 Foundational Hardening," and under the pre-2026-07-04 numbering held the
 phases now called 144 (Cross-Sectional Regime Model) and 145 (Tag Calibrator). Those two moved
 to the **v3.15 Conditioning & Identity Foundation** section (before v3.2, above) since they are
@@ -1644,20 +1652,70 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-r
 
 ---
 
-## v4.0 Execution Layer (Phases TBD)
+## v4.0 Execution Layer (Phases 155-158)
 
 **Milestone Goal:** Consume `alpha_events` from the intelligence engine and execute live trades through IBKR. Position sizing, risk management, fill model, slippage feedback, and P&L accounting. Strict architectural boundary: the execution layer is a consumer of `alpha_events` — it does not modify, re-score, or re-weight signals. Signal quality improvements belong in the intelligence engine (v3.x).
 
-**Hard prerequisite:** v3.3 complete. Intelligence engine OOS-validated (`ic_ci_lower > 0` at 95% CI, stable across regimes). `alpha_events` schema frozen — no breaking changes after v4.0 begins.
+**Hard prerequisite:** v3.2 complete (**corrected 2026-07-12** — this line previously read "v3.3 complete," a stale reference to a milestone that no longer exists; v3.3's phases were reabsorbed into v3.15 on 2026-07-03, see that section's own note. The milestone list above has always said v3.2). Intelligence engine OOS-validated (`ic_ci_lower > 0` at 95% CI, stable across regimes) — concretely, Phase 147's retirement gate (EIC-04 + FRAME-04) must PASS on the corrected 143.1 corpus, not the pre-fix baseline (FRAME-04 currently fails 16/17 cells on pre-fix data — that number is not yet meaningful). `alpha_events` schema frozen — no breaking changes after v4.0 begins.
 
 **Input contract:** `alpha_events` (direction, alpha_score, ci_lower, ci_upper, regime, tf, bar_ts). The execution layer treats this as an opaque signal — it sizes, routes, and tracks fills. It does not touch feature weights or IC scores.
 
-**Planned scope (not yet phased):**
+**Numbered 2026-07-12** (was "Phases TBD" — this milestone's design was already detailed in prose below; converting to real phases per a production-readiness review). **Restructured same day** to split "Portfolio Construction & Risk Management" into two phases after a review caught a real architectural gap: this milestone's own design (Portfolio Kelly, aggregate VaR, correlation-aware sizing, a portfolio-level kill switch) is fundamentally a **portfolio-level** concern, not a per-security one — none of it is computable from any single symbol's `alpha_score`. Every other stateful concept in this system that multiple consumers need (regime, feature lifecycle, config) gets its own persisted, single-writer entity — `market_regimes`, `feature_registry`, `config_state`. The portfolio's own current state (open positions, aggregate exposure, correlation-cluster concentration, capital utilization, drawdown-to-date) had no such home; it was about to be computed inline inside a sizing function instead, which would have silently violated this project's own "one model, one book" principle (`docs/foundation/principles.md`) — that principle names the goal but never had an architectural home until now. Four phases, sequenced: 155 (Portfolio State — the entity) → 156 (Position Sizing & Risk — the first consumer) → 157 (execution, needs 156's position sizes) → 158 (cost calibration, needs 157's real fills to regress against).
 
-- **Portfolio construction:** Portfolio Kelly using Ledoit-Wolf covariance on realized daily returns (NOT the EnsembleBuilder covariance). This distinction is load-bearing: EnsembleBuilder's LW covariance is estimated in feature-IC space to decorrelate ensemble feature weights. Portfolio Kelly requires covariance in return space — estimated from realized daily returns per symbol. These are different matrices applied to different vectors; conflating them produces wrong position sizes with no error signal. A separate `ReturnCovarianceEstimator` service applies LW shrinkage to the realized daily return matrix (reusing the same LW machinery as EnsembleBuilder, but on a different input). `weights ∝ Sigma_return^-1 × mu` where `mu` is the vector of `net_expected_r` per open position. Single-instrument Kelly (`kelly_fraction × E[R]_net / garch_vol`) applied independently to correlated positions overstates diversification — 58 equity ETFs all load on common SPY/sector factors, and independent sizing treats them as uncorrelated when they are not. Portfolio Kelly accounts for this by allocating less to positions that move together. Minimum position notional filter. Max portfolio VaR ceiling (95% historical simulation).
-- **Risk management:** Portfolio VaR ceiling (95% historical simulation), per-symbol drawdown limits, regime-conditioned position caps.
-- **Execution layer:** IBKR market order routing at T+1 open. Fill model: `expected_fill = open × (1 + slippage)`. No-fill handler (timeout → cancel + log). `trade_executions` table for actual fills.
-- **Cost calibration feedback loop:** `ActualSlippageWriter` (daily oneshot) regresses realized slippage vs expected per (symbol, TF, time_of_day). Updates `alpha.cost.slippage_r` APR key. Closes the loop against the v3-side cost artifacts: the calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) and the shared cost kernel + net-of-cost reporting (Phase 142B, canonical-simulator binding rule) — this is where fill-calibrated costs finally replace the externally-calibrated estimates.
-- **Execution scoring:** Compare `actual_pnl_r` vs `counterfactual_pnl_r`. Execution quality measured independently of signal quality — keeps the two layers honest.
+### Phase 155: Portfolio State Foundation 📋 PLANNED
 
-**Note:** Emission thresholds (`alpha_score` floor where `E[R]_net > cost`) are set here, not in the intelligence engine. The intelligence engine emits all signals above a statistical significance gate; the execution layer decides what to act on based on net expected value after costs.
+**Goal:** Establish "the portfolio" as a first-class, persisted, single-writer entity — not math recomputed inline wherever it's needed. Every downstream consumer (sizing, execution, health monitoring, future risk dashboards) reads this instead of re-deriving it.
+
+**Depends on:** v3.2 complete (milestone hard prerequisite above); `alpha_events` schema frozen.
+
+**Design:**
+- `PortfolioStateWriter` (or similar — name per `docs/foundation/naming-system.md`'s role-noun conventions once this gets planned) is the sole writer to a `portfolio_state` table, updated on every fill (from Phase 157 once it exists) and on a regular tick otherwise (open positions don't change every bar, but unrealized P&L and correlation exposure do). Matches this project's existing DAG invariant pattern (`market_regimes`, `feature_registry`): one writer, many readers, compute ≠ persistence.
+- **State this entity must carry:** open positions (symbol, size, entry, unrealized P&L, entry regime label); aggregate exposure by correlation cluster (reuses whatever comes out of todo 072/076's crowding and correlation-regime work — a portfolio that's already concentrated in one correlation cluster needs to know that before sizing the next position in it, not after); capital utilization; realized drawdown-to-date; a rolling realized-return series per symbol (the input to Phase 156's covariance estimation, computed here since it's portfolio state, not a sizing-time calculation).
+- **Why this has to exist before Phase 156, not be inlined into it:** Phase 152's EnsembleHealthMonitor should gate on portfolio-level health (aggregate drawdown, concentration), not just per-ensemble IC health — it needs a `portfolio_state` to read, the same way it reads `alpha_ensemble_ic`. A kill switch that only sees per-symbol signals cannot detect "we're fine on every individual position but the whole book is one correlated bet" — that is precisely a portfolio-state fact, not a per-security one.
+- **Forward-compatibility note (2026-07-12, project-owner direction):** portfolio-level *strategies* (not just risk/sizing overlays on independently-generated per-security signals — e.g. relative-value/pairs construction, cross-sectional long-short books, regime-conditioned portfolio tilts) are an anticipated future direction beyond this milestone's initial scope, not yet designed. `portfolio_state` should be scoped generally enough to be the substrate such strategies would eventually read (the whole book's positions, exposures, and correlation structure in one place) rather than narrowly as "inputs to a risk-management formula." Do not let Phase 156's specific Kelly/VaR consumer narrow this entity's schema prematurely — no new phase is warranted yet, there's no concrete design to phase.
+
+**Plans:** TBD at `/gsd-plan-phase 155` — likely `portfolio_state` schema/migration, `PortfolioStateWriter`, the realized-return series computation, wiring into Phase 152's health gates once both exist.
+
+### Phase 156: Position Sizing & Risk Management 📋 PLANNED
+
+**Goal:** Size positions across the live `alpha_events` book using Portfolio Kelly, reading `portfolio_state` rather than recomputing exposure inline, and enforce the risk ceilings that keep a measurement-layer mistake from becoming a capital loss.
+
+**Depends on:** Phase 155 (`portfolio_state` must exist and be populated).
+
+**Design:**
+- Portfolio Kelly using Ledoit-Wolf covariance on the realized daily return series `portfolio_state` maintains (NOT the EnsembleBuilder covariance). This distinction is load-bearing: EnsembleBuilder's LW covariance is estimated in feature-IC space to decorrelate ensemble feature weights. Portfolio Kelly requires covariance in return space. These are different matrices applied to different vectors; conflating them produces wrong position sizes with no error signal. A separate `ReturnCovarianceEstimator` applies LW shrinkage to `portfolio_state`'s return matrix (reusing the same LW machinery as EnsembleBuilder, but on a different input). `weights ∝ Sigma_return^-1 × mu` where `mu` is the vector of `net_expected_r` per open position.
+- Single-instrument Kelly (`kelly_fraction × E[R]_net / garch_vol`) applied independently to correlated positions overstates diversification — 58+ equity ETFs all load on common SPY/sector factors, and independent sizing treats them as uncorrelated when they are not. Portfolio Kelly, reading `portfolio_state`'s current correlation-cluster exposure, allocates less to positions that move together *and already have exposure sitting in the book* — a check that's impossible without Phase 155's persisted state. Use **fractional Kelly** (APR-configurable fraction, not full Kelly) — full Kelly is not robust to model uncertainty in the estimated edge, and this system's edge estimates carry real estimation error (see the 143.1 corpus-wide measurement bugs found and fixed this milestone).
+- Minimum position notional filter. Max portfolio VaR ceiling (95% historical simulation, computed against `portfolio_state`). Per-symbol drawdown limits. Regime-conditioned position caps (tighter sizing in regimes where `market_regimes`/HMM labels show historically higher realized vol or lower hit rate).
+- **Kill switch, designed here even though it triggers via Phase 152's EnsembleHealthMonitor once that lands:** a hard daily-loss circuit breaker (reads `portfolio_state`'s drawdown-to-date) and an anomaly-triggered halt (e.g., realized slippage or drawdown blowing through its calibrated distribution) must exist before any live order routing in Phase 157 — this is not optional infrastructure for a system trading real personal capital.
+
+**Plans:** TBD at `/gsd-plan-phase 156` — likely `ReturnCovarianceEstimator` service, Kelly sizing module, VaR/drawdown/regime-cap risk gates reading `portfolio_state`, kill-switch/circuit-breaker mechanism.
+
+### Phase 157: Live Execution Layer 📋 PLANNED
+
+**Goal:** Route sized positions to IBKR and record real fills, with the connection resilience a system trading unattended actually needs.
+
+**Depends on:** Phase 156 (needs real position sizes to route).
+
+**Design:**
+- IBKR market order routing at T+1 open. Fill model: `expected_fill = open × (1 + slippage)`. No-fill handler (timeout → cancel + log). `trade_executions` table for actual fills — feeds Phase 155's `PortfolioStateWriter` on every fill.
+- **Broker connection resilience (added 2026-07-12 — not in the original prose, and there is no existing concept doc for this at all):** reconnect/resume logic that survives IBC's known 11:59pm nightly auto-restart (already documented as killing in-flight `ib_insync` connections during historical backfills — same failure mode will hit live order sessions unless explicitly handled) and general connection-loss recovery (partial-fill handling across a dropped/reconnected session, idempotent order-state reconciliation on reconnect so a retry can't double-submit). `src/providers/ibkr.py` is the sole `ib_insync` boundary per CLAUDE.md — this resilience layer belongs there, not duplicated per consumer.
+- Single point of failure today: this is the first phase in the whole system where a connectivity gap has a direct capital consequence (a missed exit, not just a stale measurement) — design and test the reconnect path before any live capital flows through it, not after an incident.
+
+**Plans:** TBD at `/gsd-plan-phase 157` — likely order routing service, fill/no-fill handling, `trade_executions` writer feeding `portfolio_state`, IBKR reconnect/resilience layer.
+
+### Phase 158: Cost Calibration Feedback Loop + Execution Scoring 📋 PLANNED
+
+**Goal:** Close the loop between predicted and realized execution cost, and keep signal quality and execution quality measured independently so neither can hide behind the other.
+
+**Depends on:** Phase 157 (needs real fills to regress against).
+
+**Design:**
+- `ActualSlippageWriter` (daily oneshot) regresses realized slippage vs. expected per (symbol, TF, time_of_day). Updates `alpha.cost.slippage_r` APR key. Closes the loop against the v3-side cost artifacts: the calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) and the shared cost kernel + net-of-cost reporting (Phase 142B, canonical-simulator binding rule) — this is where fill-calibrated costs finally replace the externally-calibrated estimates.
+- Execution scoring: compare `actual_pnl_r` vs. `counterfactual_pnl_r`. Execution quality measured independently of signal quality — a bad fill shouldn't be blamed on the signal, and a bad signal shouldn't be hidden by a lucky fill.
+- Emission thresholds (`alpha_score` floor where `E[R]_net > cost`) are set here, not in the intelligence engine. The intelligence engine emits all signals above a statistical significance gate; this phase decides what to act on based on net expected value after real, calibrated costs.
+
+**Plans:** TBD at `/gsd-plan-phase 158` — likely `ActualSlippageWriter`, execution-vs-counterfactual scoring view, emission-threshold APR wiring.
+
+---
+
+**Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 151/152 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 147, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 147's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 151/152 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 151/152's decay/health monitoring or (b) expanding discovery (Phase 150/CaseSubstrate) based on what that gate actually says. Phase 156's kill-switch design above still correctly notes its dependency on Phase 152 eventually existing — that dependency is real, it's just not a reason to build 152 before Phase 147 resolves.

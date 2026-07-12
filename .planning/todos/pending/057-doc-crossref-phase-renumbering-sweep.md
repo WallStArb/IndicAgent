@@ -23,16 +23,34 @@ order (v3.15 conditioning phases moved before v3.2's AnalogEngine, since nothing
 2026-07-01 version in a full rewrite 2026-07-08; current phase numbers throughout).
 
 **Still stale — grep confirmed references to old numbers, not yet fixed:**
-- `docs/research/edge-source-thesis.md`
-- `docs/research/cross-group-lead-lag-ic.md`
-- `docs/research/canonical-simulator.md`
-- `docs/research/phase142-redesign-musk5step-audit.md` (likely just historical, check before editing)
-- `docs/research/intel-10-confluence-detection-persistence-layer.md` (v3)
-- `docs/research/comomentum-crowding-metric.md`
-- `docs/research/intel-13-analog-engine.md`
-- `docs/research/intel-12-stratification-dimension.md`
-- `docs/research/intel-14-integrity-monitor.md`
+- `docs/research/data-edge-source-thesis.md` (renamed from `edge-source-thesis.md`)
+- `docs/research/cross-group-lead-lag-ic.md` — **archived since this todo was filed** (now
+  `docs/research/archive/cross-group-lead-lag-ic.md` per `catalog.md`'s Archived section); skip
+  unless it gets un-archived
+- `docs/research/platform-canonical-simulator.md` (renamed from `canonical-simulator.md`;
+  ROADMAP.md's own citation to this file was separately fixed 2026-07-12, this todo's phase-number
+  sweep inside the doc's prose is still outstanding)
+- `docs/research/phase142-redesign-musk5step-audit.md` — **gone entirely, not just archived**
+  (checked 2026-07-12: absent from both `docs/research/` and `docs/research/archive/` despite
+  `catalog.md`'s Archived section claiming it was moved there — that claim itself is stale); skip
+- `docs/research/intel-confluence-detection-persistence-layer.md` (v3) (renamed from
+  `intel-10-confluence-detection-persistence-layer.md`)
+- `docs/research/comomentum-crowding-metric.md` — **archived since this todo was filed** (old
+  Cluster 1, per `catalog.md`'s Archived section); skip unless it gets un-archived
+- `docs/research/intel-case-substrate.md` (renamed from `intel-13-analog-engine.md`, then again
+  from AnalogEngine to CaseSubstrate per `catalog.md`)
+- `docs/research/regime-multi-regime-layer.md` (renamed from `intel-12-stratification-dimension.md`;
+  ROADMAP.md's own citations to this file were separately fixed 2026-07-12, prose sweep still
+  outstanding)
+- `docs/research/measurement-governance-monitor.md` (renamed from `intel-14-integrity-monitor.md`;
+  ROADMAP.md's own citations to this file were separately fixed 2026-07-12, prose sweep still
+  outstanding)
 - `docs/research/concept-governance-registries.md`
+
+**Note (2026-07-12 housekeeping audit):** of the original 10 files, 3 have since been archived
+outright (skip) and the rest have been renamed at least once since this todo was filed — list
+corrected above so the eventual sweep targets real, current filenames. The underlying phase-number
+staleness inside each doc's prose is unchanged by this correction; still needs the actual sweep.
 
 **Action:** for each file above, grep for `Phase 151|148|144|145|146|147|149A|150|152|149` (bare
 `143.5` too) and apply the mapping table. Do NOT blind-sed — these are free-form prose, not

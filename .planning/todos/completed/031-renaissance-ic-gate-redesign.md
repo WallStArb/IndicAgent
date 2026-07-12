@@ -3,11 +3,35 @@ id: "031"
 title: "Renaissance IC gate redesign — continuous weighting replaces binary Sharpe gate"
 priority: P0
 phase: A
-status: pending
+status: partial
 created: 2026-06-30
+resolved: 2026-07-12 (housekeeping audit — this file sat in completed/ with status:pending and
+  no resolution note since 2026-06-30; verified against live code below)
 ---
 
 # Renaissance IC Gate Redesign
+
+## Resolution (2026-07-12)
+
+**Shipped:** the continuous `quality_weight = ic_ci_lower * max(sharpe_floor, ic_sharpe_hac)`
+formula and `alpha.ensemble.sharpe_floor` (live, 0.05) — confirmed in
+`services/ensemble_trainer.py:148,168,738`.
+
+**NOT shipped:** the other half of this design — "`passes_walkforward` becomes a weight DECAY
+factor, not a binary gate" — never happened. `services/ensemble_trainer.py:122` still has a hard
+`AND passes_walkforward = true` in the eligibility WHERE clause, exactly the binary gate this
+todo set out to remove. `alpha.ensemble.wf_consistency_factor` (0.5) exists live in
+`config_state` — the APR key was seeded but nothing in `src/`/`services/` reads it; it's a dead
+config value. Net effect: features with 2/3 walk-forward folds passing are still hard-excluded
+today, not down-weighted — this todo's stated goal ("A feature where wf_pass_count=2/3... is NOT
+excluded") is not true of the live system.
+
+**Not reopening as a separate todo** — `.planning/todos/pending/094-alpha-events-long-short-imbalance.md`
+already touches this exact WHERE clause (lines 69/94 quote the same `passes_walkforward = true`
+gate) as part of its sign-symmetric eligibility redesign, which is already P0 and next in the
+active sequencing chain. Whoever executes 094 should pick up this undone half in the same pass —
+wire `wf_consistency_factor` in as the decay multiplier this todo specified — rather than opening
+a third todo that edits the same eligibility clause independently.
 
 ## Problem
 

@@ -14,6 +14,11 @@ groups won't consume it.
 
 ## L2-1 — Realized-correlation regime (co-movement structure, not vol level)
 
+**Cross-reference (2026-07-12, housekeeping audit):** `.planning/todos/pending/038-cross-sectional-collinearity-diagnostic.md`
+computes a related rolling cross-sectional correlation/co-movement structure over the same
+universe for a different end-use (collinearity-risk diagnostic vs. this stratification
+dimension). Not a duplicate, but check it before building either.
+
 Cross-sectional mean pairwise correlation of universe returns (rolling window, expanding
 percentile rank). VIX×breadth measures fear level and participation; average pairwise
 correlation measures whether the universe is *one trade or many* — precisely the condition under

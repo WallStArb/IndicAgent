@@ -1,4 +1,9 @@
-# 006 — Asset-Class Regime Model for IC Stratification
+# 011 — Asset-Class Regime Model for IC Stratification
+
+**Numbering note (2026-07-12):** this file's heading previously read "# 006" from before a
+renumbering pass that never updated the inline copy — normalized to 011 (the filename /
+completed-folder key). Unrelated to `pending/011-alpha-events-is-shadow-column.md`, which
+happens to share the same number.
 
 **Priority: PROMOTED — now Phase 140.5 P4. Elevated from "medium/future" to pre-Phase 141 prerequisite after Jim Simons lens review: per-symbol HMM labels are incomparable across symbols; IC stratification cannot pool observations without cross-sectional regime labels. See ROADMAP.md Phase 140.5 P4 for full design.**
 

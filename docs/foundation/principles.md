@@ -1,8 +1,8 @@
 # Renaissance Principles
 
-**Version:** 3.1
+**Version:** 3.2
 **Status:** current
-**Last Updated:** 2026-07-03
+**Last Updated:** 2026-07-12
 
 ## Why These Principles
 
@@ -25,6 +25,7 @@ The principles below follow directly from that.
 - **Never drop data that could contain signal.** Storage is the cheapest thing we own. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered.
 - **Edge is discovered, not designed.** The researcher's job is to produce candidate features across orthogonal domains — not to define what combinations constitute a tradeable edge. The IC engine arbitrates what predicts. The ensemble discovers confluence. Any layer that requires a human to define which feature combinations matter is a researcher bias encoded in architecture. Renaissance found thousands of features with IC 0.02-0.06 each and let the ensemble combine them — no individual feature was the insight. The aggregate was.
 - **One model, one book.** One forecast per (symbol, tf, bar) is the end state. CaseSubstrate scores, confluence predictors, ensemble scores — all are *inputs* to one combined forecast, never parallel forecasts with separate consumers. Research tracks may shadow-measure independently, but nothing goes live as a second book; discrete events and portfolio positions ultimately settle into the same accounting. Every new forecasting proposal must state at creation how it feeds the single forecast and the single P&L — "we'll integrate it later" is the failure mode this principle exists to block. Medallion's under-appreciated property was the opposite of proliferation: a single integrated model, everything competing inside one framework. (Promoted 2026-07-03 from `docs/research/intel-11-dual-system-discrete-vs-portfolio.md`, per `.planning/research/2026-07-03-intel10-11-fable-review.md` R3.)
+- **Adversarial review is a cadence, not a one-off event.** Promotion machinery (BH-FDR, walk-forward, canary predictors) is symmetric on evidence, but proposal flow is all-positive — people and models propose predictors and designs; nobody's standing job is arguing for their death. Per corpus epoch, run a red-team pass: for each top-weighted predictor (or newly-shipped measurement mechanism), produce (a) the strongest available argument its IC/result is an artifact (leakage, session mask, synthetic bars, selection pressure, crowding, an estimator bias), and (b) a concrete cheap test that would kill it. File the tests as todos; run the cheap ones immediately. This project's own track record is the evidence for adopting it: three real, corpus-wide bugs (the EIC-04 eligibility gate miscount, the alpha_events long-short imbalance, and the ic_sharpe stride/window-density bias) were all found by exactly this posture — refusing to accept a "confirmed" result at face value — not by building more. (Promoted 2026-07-12 from `.planning/todos/pending/085-adversarial-review-cadence.md`, sourced from `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §11 G-3.)
 
 ## Design Decision Frame
 

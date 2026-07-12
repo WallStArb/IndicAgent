@@ -35,3 +35,16 @@ not a correctness emergency. Worth doing before Phase 142B's frame simulation le
 these hold_max_bars values for real position-sizing/hold decisions, since silently mixing
 confirmed and censored values in a median make in the meantime is optimistic (assumes censored
 values skew toward the confirmed-decay behavior rather than understating true persistence).
+
+**Sequencing note (2026-07-12, corrected same day):** this todo was briefly merged into
+`.planning/todos/pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md` on the
+assumption that both are the same underlying issue — **that was wrong and has been reverted.**
+This todo is a locked, project-owner-confirmed step in its own right: `.planning/todos/PRIORITIES.md`'s
+explicit sequencing decision ("Do not reorder without re-confirming with the project owner")
+and multiple frozen phase artifacts (`.planning/phases/143.1-.../143.1-CONTEXT.md`,
+`143.1-RESEARCH.md`, `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`) all treat
+096 and 088 as **distinct, separately sequenced** items — 096 runs read-only/in-parallel, 088
+runs deliberately **last**, specifically because "calibrating against a possibly-mismatched
+horizon (096)... would produce a well-tuned wrong number" (143.1-CONTEXT.md). Merging them would
+have silently collapsed a locked sequencing decision without re-confirming it — exactly what
+that guardrail exists to prevent. Keep this todo standalone.

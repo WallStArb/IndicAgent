@@ -23,6 +23,12 @@ data).
 **Risk:** low to fix correctly once designed; high if shipped without shadow-mode validation,
 since it changes eligibility membership, quality-weight computation, and the champion score
 distribution simultaneously.
+**Scope note (2026-07-12, housekeeping audit):** while redesigning the eligibility WHERE clause
+here, also pick up the undone half of `.planning/todos/completed/031-renaissance-ic-gate-redesign.md`
+— that design specified `passes_walkforward` should become a continuous weight-decay factor
+(`alpha.ensemble.wf_consistency_factor`, already seeded live at 0.5 but unused by any code) rather
+than the hard `AND passes_walkforward = true` binary gate this file's own lines 69/94 quote. Same
+clause, same PR, don't split it into a fourth eligibility-editing pass.
 ---
 
 # 094 — `alpha_events`/`alpha_frames` are 99.99% long: two sign-asymmetric gates exclude every

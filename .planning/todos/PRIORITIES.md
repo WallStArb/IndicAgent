@@ -32,9 +32,11 @@ real value, not urgent. P3 = hygiene/docs/process, opportunistic.
 
 | Todo | Gap |
 |---|---|
-| [091](pending/091-fisher-z-ci-empirical-null-miscalibration.md) | Fisher-z analytic CI empirically miscalibrated — 38% SUSPECT rate across strata; this is the exact mechanism behind every BH-FDR/EIC-04 gate in the stack. Bootstrap fix shipped (143.1-01); corpus-wide re-run in flight (143.1-07) as of 2026-07-12 to exercise it against fresh data. |
-| [094](pending/094-alpha-events-long-short-imbalance.md) | **Root cause corrected 2026-07-11** (Fable review, verified against live DB): not a floor-formula issue — two sign-asymmetric gates (`ic_ci_lower > 0` eligibility filter, `fold_ic > 0` walk-forward criterion) exclude 100% of contrarian features before weighting ever runs. Confirmed: 1,527 eligible rows, zero at `ic_sign=-1`. Requires a full `ic_engine` re-run + eligibility/quality-weight/E2-sign-path redesign, not a small patch — effort raised M-L. Full strategy: `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`. Sign-symmetric redesign shipped (143.1-04); mandatory shadow-mode champion/challenger validation (143.1-08) still pending, blocked on 143.1-07's corpus re-run. |
+| [091](pending/091-fisher-z-ci-empirical-null-miscalibration.md) | Fisher-z analytic CI empirically miscalibrated — 38% SUSPECT rate across strata; this is the exact mechanism behind every BH-FDR/EIC-04 gate in the stack. Bootstrap fix shipped (143.1-01); corpus-wide re-run (143.1-07) has been running since 2026-07-12T04:46 UTC but is **stalled writing zero rows** — see [102](pending/102-ic-engine-idle-session-timeout-writes-zero-rows.md). |
+| [094](pending/094-alpha-events-long-short-imbalance.md) | **Root cause corrected 2026-07-11** (Fable review, verified against live DB): not a floor-formula issue — two sign-asymmetric gates (`ic_ci_lower > 0` eligibility filter, `fold_ic > 0` walk-forward criterion) exclude 100% of contrarian features before weighting ever runs. Confirmed: 1,527 eligible rows, zero at `ic_sign=-1`. Requires a full `ic_engine` re-run + eligibility/quality-weight/E2-sign-path redesign, not a small patch — effort raised M-L. Full strategy: `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`. Sign-symmetric redesign shipped (143.1-04); mandatory shadow-mode champion/challenger validation (143.1-08) still pending, blocked on 143.1-07's corpus re-run (itself blocked on 102). |
 | [099](pending/099-bootstrap-ci-staged-validation-gate-not-cleared-5m-residual.md) | Downgraded P1→P2 2026-07-11 (ledger E10): the bootstrap CI staged-validation gate's 6 SUSPECT cells traced to 5 diagnostic-only (`is_pooled=false`) breaches + 1 capital-relevant cell that independently clears its own bound — no longer blocks Plan 07. Underlying statistical question (why 5m autocorrelation/momentum features resist both Fisher-z and block-bootstrap) remains open as non-blocking follow-up. |
+| [102](pending/102-ic-engine-idle-session-timeout-writes-zero-rows.md) | Filed 2026-07-12: 143.1-01's bootstrap CI raised per-cell compute cost enough that postgres's 15min `idle_session_timeout` was killing the held read connection mid-compute on every symbol — two full re-run attempts produced **zero rows**. **Root cause fixed 2026-07-12**: `_compute_symbol_tf` now takes a `dsn` and opens short-lived connections per fetch phase instead of holding one idle across the clustering/bootstrap loop (`_run_ic_worker`'s shared per-tf connection removed to match); unit tests updated and green. Old run + orphaned workers killed, corpus re-run restarted 12:52 UTC with the fix — verifying it now survives past the old failure point before closing this out. |
+| [096](pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md) | **Escalated back to P0 2026-07-12** (third pass on the same investigation — v1 found a raw mismatch, v2 corrected the attribution, v3 quantitatively confirmed it): Monte Carlo against the real `_compute_ic_rolling_metrics` (synthetic data, fixed non-decaying true rho) shows `ic_sharpe` mechanically deflates by `sqrt(window_size_ratio)` across strides — 2.0-3.6x lower at slow/extended vs. fast lookaheads for the identical true signal, matching the theoretical prediction almost exactly. `_select_hold_bars_from_decay` (EIC-02) uses this same biased `ic_sharpe` against a fixed `decay_threshold=0.1`, systematically truncating `hold_max_bars` short corpus-wide — plausibly the real mechanism behind todo 093's 77%-timeout FRAME-04 failure. Fix is scoped (widen `sharpe_window_size` to a subsampled-point target instead of raw-bar/stride) but touches a function shared by `ic_engine.py` and `ensemble_ic_engine.py` and requires a full corpus recalibration after — flagged for explicit sign-off, not yet implemented. Reproduce: `python scripts/analysis/ic_sharpe_stride_bias_check.py`. |
 
 **Closed 2026-07-10** (moved to `completed/`, see each file's resolution note): 051 (backfill
 IBKR-disconnect silent skip), 061 (`feature_vector_pipeline` DDL in hot path), 044 (`indicagent-tempo`
@@ -42,7 +44,12 @@ crash-loop). **Closed 2026-07-12**: 098 (stale idea-doc refresh, both items done
 Fable review), 095 (migrations directory collision, fixed in a concurrent session, commit
 `fc5f2691`), 093 (`alpha_frames` backfill + FRAME-04 gate evaluated — gate FAILS 16/17 cells on
 current pre-143.1-fix data, recorded as the baseline Phase 143.1-08's shadow comparison diffs
-against).
+against), 090 (IC decomposition hit-rate × magnitude — confirmed already shipped as 143.1-05,
+live in `ic_engine.py`, nothing left to do), 072 (crowding proxy regression — built
+`scripts/analysis/crowding_proxy_regression.py`, first run against the live pre-143.1-fix
+`alpha_frames` backfill: max R²=0.2674 at 1d/mid_bull, 0.003-0.09 at the primary 5m/15m strata —
+no crowding alarm yet; standing diagnostic, re-run each future corpus epoch, see
+`docs/analysis/crowding-proxy-report.md`).
 
 **Explicit sequencing decision (2026-07-10, project owner confirmed; reaffirmed 2026-07-11 after
 094's root cause was corrected, and again 2026-07-11 to insert 097 — see
@@ -51,7 +58,12 @@ against).
 from todo 077's L3-1, validated as an explicit A/B against the raw-return baseline) → **094** (now
 including its E2 sign-path fix and a mandatory shadow-mode validation before promotion) → re-run
 the E1-vs-E2 A/B judgment (the prior 20/20 result was all-long vs all-long, doesn't carry forward)
-→ 096 (can run in parallel, read-only) → 088 (deliberately last). Rationale: 091, 097, and 094 all
+→ 096 (three passes 2026-07-12: found a mismatch, corrected the attribution, then quantitatively
+CONFIRMED a `sharpe_window_size`/stride estimator bias in `_compute_ic_rolling_metrics` that
+under-measures long-horizon signals — see todo file. Fix touches `ic_engine.py` +
+`ensemble_ic_engine.py` and needs a full corpus recalibration, so it now belongs in this same
+sequencing conversation rather than running fully independent of 088) → 088 (deliberately last,
+now informed by 096's finding). Rationale: 091, 097, and 094 all
 read or directly affect `ic_ci_lower`/`ic_ci_upper`, and 094 independently requires a full
 `ic_engine` re-run — sequencing 091 and 097 first means one corpus re-run serves all three fixes
 instead of splitting across multiple, and 094's eligibility redesign runs against the
@@ -62,14 +74,10 @@ without re-confirming with the project owner.
 
 | Todo | Why now |
 |---|---|
-| [096](pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md) | Check whether frame `max_hold_bars` is commensurate with the `lookahead_bars` each feature's IC was actually selected at — could independently explain todo 093's 77%-timeout pattern; read-only, can run in parallel with everything else |
-| [068](pending/068-canary-predictors-integrity-check.md) | Cheapest integrity purchase available — negative-control predictors, zero new services, gate: none |
 | [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09 |
-| [072](pending/072-crowding-proxy-regression.md) | Alpha overlap with public-factor signals — runs against data that exists today, no dependency |
 | [084](pending/084-ablation-protocol-ensemble-degradation.md) | Pre-committed ablation protocol — buildable now against existing tables, no new schema |
 | [079](pending/079-anytime-valid-e-values-corpus-reruns.md) | Anytime-valid inference pilot (one tf) — new statistical primitive, deliberately staged small |
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |
-| [090](pending/090-ic-decomposition-hit-rate-magnitude.md) | Hit-rate × magnitude decomposition — cheap diagnostic columns, no gate change |
 | [097](pending/097-vol-normalized-return-target-pooled-ic.md) | Vol-normalized return target for POOLED-strata IC — split from todo 077's L3-1, 2026-07-11; folded into Phase 143.1 (Component F) as an explicit A/B, not a silent swap |
 | [092](pending/092-equity-regime-model-threshold-calibration.md) | Empirical threshold calibration for regime-model vix/breadth cuts — flagged 2026-07-09 as a live-path suspect behind the extreme regime-conditional IC values on the current leaderboard |
 | [058](pending/058-concept-registry-mvp-seed-ensemble-strategy.md) | Concept registry MVP — build trigger already fired (Phase 142B.1 complete) |
@@ -81,16 +89,17 @@ without re-confirming with the project owner.
 | Todo | What |
 |---|---|
 | [101](pending/101-migration-duplicate-number-sweep.md) | Filed 2026-07-12 (found while resolving todo 095) — `production/migrations/` has 13 duplicate-number groups (001, 031, 038, 050-052, 064, 138, 152, 168, 178, 214-215), not just the one 095 knew about. Finding + recommended approach only; deliberately not executed same-session given live-DB rename risk. |
+| [103](pending/103-momentum-apr-keys-inert-prewarm-mismatch.md) | Filed 2026-07-12 (found while scoping todo 072) — `feature.momentum.window_fast/mid/slow` APR keys are silently inert (prewarm list loads nonexistent `_short`/`_long` keys instead); `volatility_rank_z`/`momentum_rank_z`/`volume_rank_z` are unimplemented (always NULL). Not fixed — touches live hot-path pipeline code, out of scope for the session that found it. |
 | [005](pending/005-ic-regime-transition-purge.md) | Purge regime-transition label noise from IC measurement |
 | [033](pending/033-zero-ic-feature-refinement.md) | Refine remaining zero-IC features (rerun gate now cleared) |
 | [038](pending/038-cross-sectional-collinearity-diagnostic.md) | Cross-sectional feature collinearity diagnostic vs IC |
 | [039](pending/039-tag-stratified-ic-population-check.md) | Population-count check before tag-stratified cross-sectional IC |
 | [081](pending/081-emission-meta-labeling-and-conviction-cross-ref.md) | Emission meta-labeling gate — check overlap with 065/EM-HYST before building |
 | [086](pending/086-hmm-test-coverage-gaps.md) | HMM regime-writer test coverage gaps (occupation gate, smooth-check false positive) |
-| [088](pending/088-hold-max-bars-censoring-not-tracked.md) | `hold_max_bars` calibration doesn't distinguish confirmed decay from censored data |
+| [088](pending/088-hold-max-bars-censoring-not-tracked.md) | `hold_max_bars` calibration doesn't distinguish confirmed decay from censored data. **Note (2026-07-12): briefly and incorrectly merged into 096 same day, then reverted** — 088 and 096 are locked as separately-sequenced steps (093→091→097→094→A/B re-run→096→088) per PRIORITIES.md's own "do not reorder" decision and multiple frozen phase artifacts; see 088's file for the full correction. |
 | [089](pending/089-ensemble-ic-engine-recurring-cadence.md) | No recurring `ensemble_ic_engine` schedule exists — IC-decay trigger input can go stale |
 | [087](pending/087-shared-chunked-cursor-helper.md) | Shared chunked-cursor-to-numpy helper — now a 4th hand-rolled copy exists (today's pilot-script fix) |
-| [012](pending/012-structural-compliance.md) | APR compliance sweep — promote batch scripts to proper `BaseBatch` classes |
+| [009](pending/009-service-utils-ic-engine-cleanup.md) | Phase B infra cleanup batch — APR compliance sweep, `BaseBatch` promotion, naming vocab, shared-utility DRY fixes, `ic_engine.py` pure-function extraction (merged 012 + 032 here 2026-07-12, all three were gated on the same sprint) |
 | [029](pending/029-feature-scoring-beyond-ic.md) | Feature scoring beyond IC (near-term derived metrics) |
 | [050](pending/050-ibkr-apr-migration.md) | Migrate `ibkr.py` hardcoded constants to APR |
 | [052](pending/052-adversarial-data-error-hunt.md) | Adversarial data-error hunt batch job |
@@ -103,17 +112,12 @@ without re-confirming with the project owner.
 | Todo | What |
 |---|---|
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | Phase 146/147 gate definitions stale — needs an operator call (archive vs delete v2.x) before those phases are planned |
-| [057](pending/057-doc-crossref-phase-renumbering-sweep.md) | 10 idea docs still reference pre-2026-07-04 phase numbers |
-| [009](pending/009-service-utils-ic-engine-cleanup.md) | `service_utils`/`ic_engine` shared-code cleanup |
-| [032](pending/032-ic-engine-pure-function-refactor.md) | `ic_engine.py` pure-function refactor |
+| [057](pending/057-doc-crossref-phase-renumbering-sweep.md) | 10 idea docs still reference pre-2026-07-04 phase numbers (file list corrected 2026-07-12 — 3 of the 10 have since been archived/deleted, rest renamed at least once) |
 | [035](pending/035-market-ohlcv-active-bars-view.md) | `market_data_ohlcv` active-bars filter belongs at one boundary, not 4 call sites |
 | [064](pending/064-indicagent-test-db-schema-sync.md) | Test DB schema sync — unblocks integration tests needing a live-migrated schema |
 | [059](pending/059-review-aegisagent-tradeagent-for-trade-construction-reuse.md) | Review AegisAgent/TradeAgent for v4.0 trade-construction reuse |
 | [060](pending/060-review-cluster2-legacy-intelligence-backlog.md) | Review legacy intelligence backlog docs — salvage or clear |
-| [063](pending/063-roadmap-altdata01-two-shape-update.md) | ROADMAP Phase 154 doc-sync (15 min) |
-| [085](pending/085-adversarial-review-cadence.md) | Adopt adversarial review as a recurring practice (process, not code) |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
-| [100](pending/100-staged-validation-gate-should-split-bound-by-is-pooled.md) | Filed 2026-07-11 (ledger E10) — future staged-validation gates of this shape should pre-commit separate SUSPECT bounds for capital-relevant vs diagnostic-only strata, not one pooled total. Design fix for next time, not urgent (E10 already resolved the one live incident manually). |
 
 ---
 

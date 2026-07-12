@@ -9,7 +9,11 @@
 **Gate:** alpha_events shipped (OPEN) — must be built as part of Phase 142
 ---
 
-# 011 — Shadow Alpha Events Monitoring Protocol
+# 054 — Shadow Alpha Events Monitoring Protocol
+
+**Numbering note (2026-07-12):** this file's heading previously read "# 011" from an earlier
+renumbering pass that never updated the inline copy — normalized to 054 (the filename /
+pending-folder key), matching the pattern todo 009 already documented for itself.
 
 **Priority: High — must exist before Phase 142 ships; shadow mode without monitoring is a log sink.**
 **Gate: Must be built as part of Phase 142, not deferred to Phase 143.**

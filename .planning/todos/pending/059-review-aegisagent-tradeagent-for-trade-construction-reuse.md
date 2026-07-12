@@ -11,6 +11,11 @@
 
 # 059 — Review AegisAgent + TradeAgent for Trade Construction Layer reuse
 
+**Cross-reference (2026-07-12, housekeeping audit):** `.planning/todos/pending/060-review-cluster2-legacy-intelligence-backlog.md`
+is the same shape of task (re-read old vision/backlog docs, salvage vs. archive), same effort
+class, same low urgency, different content domain. Not a merge candidate — different domains —
+but consider running both as one "legacy docs review" session rather than two separate sittings.
+
 ## Problem
 
 `docs/research/vision-01-aegisagent.md` (independent risk management: position sizing, portfolio-level
