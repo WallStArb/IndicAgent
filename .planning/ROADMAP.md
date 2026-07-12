@@ -1463,13 +1463,19 @@ reasoning and falsifiers: `docs/research/fable-2026-07-07-phase144-conditioning-
 
 **Sequencing:** land Phase 142A's ensemble-IC baseline first (pre-regime_group equity-only strata), then batch this phase with todo 026 P1-P3 into one ic_engine re-run — empirical pre/post comparison over blind trust that the new strata help.
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete (2026-07-12) — code-complete, but **phase NOT closed**: D-05's own
+acceptance criterion (empirical TLT-vs-rates separation gate) is `BLOCKED-ON-143.1-07`, the
+unrelated in-flight corpus rebuild (todo 102). `144-06` shipped the gate script
+(`scripts/analysis/phase144_regime_separation_gate.py`) and its precondition check correctly
+detected the block via a live query rather than assuming — no measurement ran, no falsifier
+verdict (keep/demote/challenger) recorded yet. Re-run the script once 143.1-07 completes; no
+further code changes needed. Header stays 📋 PLANNED until that verdict lands.
 - [x] 144-01-PLAN.md — Wave 1: migration 229 (asset_class→regime_group + APR seed) + glossary entry
 - [x] 144-02-PLAN.md — Wave 1: breadth_vol (causal-rank port) + curve_credit signal modules + _tf_window helper
 - [x] 144-03-PLAN.md — Wave 1: commodity_momentum_ts + fx_dollar_carry signal modules (ship disabled)
 - [x] 144-04-PLAN.md — Wave 2: REGISTRY + cross_sectional_regime_model.py dispatcher + equity deprecation + pipeline step-4 swap
 - [x] 144-05-PLAN.md — Wave 3: ic_engine.py regime_group routing + cross-sectional peer-scoping contamination fix
-- [ ] 144-06-PLAN.md — Wave 4 (gated on external 143.1-07 corpus rebuild): D-05 empirical TLT-vs-rates separation acceptance gate
+- [x] 144-06-PLAN.md — Wave 4: acceptance-gate script shipped, correctly BLOCKED-ON-143.1-07 (external precondition, see above)
 
 ---
 
