@@ -7,7 +7,40 @@ v3 rewritten 2026-07-03 against the post-142A predictor architecture (see Proven
 side system)
 **Milestone:** future — sequenced after Phase 150 (Interaction Primitives) and `intel-13`'s
 analog predictors (formerly Phase 148-149), and gated on the calibration prerequisite below
-**Last Updated:** 2026-07-03
+**Last Updated:** 2026-07-12 (full Fable re-verification against Phase 143's executed lifecycle
+mechanics, todo 098 item 2 - see 2026-07-12 note below)
+**2026-07-11 note:** fixed two broken filename references in the Bibliography (`intel-13`/`intel-15`
+prefixes were dropped in a since-run rename sweep) and flagged gate 6's `bootstrap_ci_lower > 0`
+form as inheriting Phase 143.1's sign-asymmetric gate finding. Spot-checked against live schema:
+`concept_*` tables still unbuilt (doc's claim holds) and `feature_registry`'s `shadow_only`/
+`deprecated` enum values confirmed real. A full re-verification against Phase 143's executed
+lifecycle mechanics (per todo 098) is still owed — this pass was budget-constrained, not that.
+**2026-07-12 note (todo 098 item 2 - the full re-verification the 2026-07-11 note left owed, now
+done):** verified against `src/intelligence/feature_registry_service.py`
+(`record_transition_sync`, `advance_shadow_counters_sync`, `is_promotion_eligible`),
+`services/ic_engine.py`'s `_run_lifecycle_hook`, and migrations 216/218/224. Four corrections
+applied in place: (1) the shadow→active promotion bar - the previously cited
+`n >= 100 AND bootstrap_ci_lower > 0` bar is the archived v2.x `shadow_registry` bar (dead since
+2026-07-02); the live mechanic is Phase 143's counter-based recovery
+(`alpha.decay.recovery_min_passes` = 2 consecutive passing runs AND
+`alpha.decay.recovery_min_observations` = 2000 independent observations, counters reset to zero
+on every re-demotion). (2) Gate 6's sign-asymmetry caveat updated: the sign-symmetric predicate
+has since shipped inside the lifecycle hook behind the `alpha.ensemble.sign_symmetric` APR flag
+(migration 224, currently `false`), so the corrected form of the bar is now known, not pending.
+(3) Automated retire retracted - Phase 143 makes `deprecated` operator-only
+(`record_transition_sync` raises ValueError on any automated transition targeting it); the Decay
+section now also inherits the materiality gate and regime-shift guard the executed hook actually
+applies. (4) Governance table-name typo fixed (`concept_domains` → `concept_gate`) plus a pointer
+to `concept_gate_stack` as the home of the ordered gate 1-6 stack. Confirmed accurate as written:
+`active → shadow_only` demotion via `record_transition_sync` with an optimistic
+`WHERE status = from_status` lock; evidence-only transitions with no cooldown clocks;
+`decaying`/`retired` as narrative labels only (real states are
+`candidate`/`active`/`shadow_only`/`deprecated`, migration 172); no `pre_shadow_weight` column
+(promotion is the status flip alone, ensemble_trainer recomputes weights from scratch, migration
+216). Phase 143's `feature_transition_log` (sole authoritative record) + `integrity_monitor`
+(observability-only gate facts, migration 218) split is the shipped realization of this doc's
+immutable `validation_record` at feature grain; at confluence grain the analog is
+`concept_transition_log` + `integrity_monitor`.
 **Tags:** confluence, ic, calibration, analog-engine, shrinkage, shadow-mode, renaissance,
 concept-registry, predictor
 
@@ -111,10 +144,32 @@ like units to like.
    discovery and gates 1-5 run strictly pre-boundary; a confluence touches `active` only after its
    OOS window confirms the shrunk estimate within its own claimed distribution.
 
+   **Caveat added 2026-07-11, updated 2026-07-12:** Phase 143.1 found that `ic_ci_lower > 0`/
+   `fold_ic > 0`-style gates are sign-asymmetric — they silently exclude every contrarian
+   (short-favoring) candidate before weighting, which is why `alpha_events` is currently 99.99%
+   long-only. The corrected form has since shipped in `ic_engine`'s lifecycle hook (143.1
+   Component E, todo 094): under the `alpha.ensemble.sign_symmetric` APR flag (migration 224,
+   currently `false`, flips after 143.1's A/B), a cell fails only when the CI on its OWN claimed
+   side includes zero (`ic_ci_lower <= 0` for `ic_sign = 1`, `ic_ci_upper >= 0` for
+   `ic_sign = -1`). This gate's bar should be written that way from day one: "bootstrap CI on the
+   claimed direction's side excludes zero," not `bootstrap_ci_lower > 0` unconditionally. A
+   confluence whose `condition` already encodes a directional bias may keep an asymmetric bar,
+   but that is then a stated per-confluence choice, never an inherited default.
+
 A confluence passing 1-5 enters **shadow**: it fires and persists occurrences live, outcomes are
-tracked, nothing downstream consumes it. Promotion to `active` is earned by shadow-mode proof —
-the same `n >= 100 AND bootstrap_ci_lower > 0` bar as everything else in this codebase, applied to
-its live shadow occurrences. **The system never trusts its own backtest as final evidence.**
+tracked, nothing downstream consumes it. Promotion to `active` is earned by shadow-mode proof.
+**Corrected 2026-07-12:** this doc previously cited `n >= 100 AND bootstrap_ci_lower > 0` as
+"the same bar as everything else in this codebase" - that bar belongs to the archived v2.x
+`shadow_registry` (confirmed dead 2026-07-02) and is not the live mechanic. The live lifecycle's
+promotion bar is Phase 143's counter-based recovery (`is_promotion_eligible` in
+`src/intelligence/feature_registry_service.py`): `consecutive_shadow_passes >=
+alpha.decay.recovery_min_passes` (2) AND `observations_since_demotion >=
+alpha.decay.recovery_min_observations` (2000), evidence-only, no calendar clock, both counters
+reset to zero on every re-demotion so a second decay cycle re-earns the full bar. A
+confluence-grain promotion bar should take that shape - consecutive passing evaluations plus an
+independent-observation floor counted at confluence effective-N - with the two floors as
+`concept_gate` fields, and any CI bound stated sign-symmetrically per the gate 6 caveat above.
+**The system never trusts its own backtest as final evidence.**
 
 ## The Statistical Object
 
@@ -148,8 +203,11 @@ as a `concept_gate` field, not a new mechanism.
 
 **This deferral was already correct in v2 and Fable review confirmed it stays exactly as
 written.** Implement the lifecycle in [Concept Registry](platform-unified-concept-registry.md)'s four-table MVP shape
-(`concept_registry`/`concept_domains`/`concept_transition_log`/`concept_annotation`), not as bespoke
-confluence tables. `decaying` maps onto the registry's status enum as a transition pattern
+(`concept_registry`/`concept_gate`/`concept_transition_log`/`concept_annotation`), not as bespoke
+confluence tables. The registry doc's 2026-07-06 domain-vetting pass added `concept_gate_stack`
+(a fifth table, built only when a domain with an ordered gate sequence is actually seeded) as the
+home for this doc's gates 1-6; scalar floors like the calibration sample floor stay
+`concept_gate` fields. `decaying` maps onto the registry's status enum as a transition pattern
 (`active → shadow_only` re-entry), not a new status — see that doc's mapping note. `retired` maps
 onto `deprecated`. Per the topdown review (D9), the registry's MVP is built as a follow-on seeded
 from Phase 142B.1's `ensemble_strategy` outputs (topdown Open Q6's backfill path — 142B.1 itself
@@ -170,10 +228,25 @@ publication. Design for it:
 
 - Rolling calibration check per confluence on its own live occurrences: when realized outcomes
   drift outside the claimed distribution (CUSUM or rolling Brier degradation past an APR-keyed
-  bound), auto-demote `active → decaying` (weight-consumers stop reading it), then `→ retired` if
-  it fails re-qualification. Symmetric: a `decaying` confluence whose live outcomes recover
-  re-promotes by the same evidence bar. No cooldown clocks, no human sign-off — evidence in, state
-  out (Phase 143's semantics — the merged lifecycle phase, formerly 149B — one level up).
+  bound), auto-demote `active → decaying` (weight-consumers stop reading it). Symmetric: a
+  `decaying` confluence whose live outcomes recover re-promotes by the same evidence bar. No
+  cooldown clocks, no human sign-off — evidence in, state out (Phase 143's executed semantics,
+  one level up). **Corrected/extended 2026-07-12** against `ic_engine`'s executed
+  `_run_lifecycle_hook`, three rules this section previously missed or got wrong:
+  - **No automated retire.** Phase 143 makes `deprecated` operator-only:
+    `record_transition_sync` raises ValueError on any automated transition targeting it. This
+    section's earlier "then `→ retired` if it fails re-qualification" is retracted - a confluence
+    that fails re-qualification parks in `shadow_only` indefinitely (its history intact, per the
+    never-delete rule below); `retired` (= `deprecated`) is an operator decision, never automatic.
+  - **Materiality gate on demotion.** In the executed hook a failing cell only counts toward
+    demotion when it is capital-relevant: `standing_weight * |nearest CI bound| >
+    alpha.decay.materiality_threshold` (0.005). Confluence-grain decay inherits the same gate so
+    a near-zero-weight confluence's noise never churns lifecycle state.
+  - **Regime-shift guard.** If >= `alpha.decay.regime_shift_fraction` (0.60) of active cells fail
+    the same run simultaneously, the executed hook holds ALL transitions for that run rather than
+    misread a market dislocation as mass feature decay. Per-confluence CUSUM/Brier monitoring
+    needs the same population-level circuit breaker; without it, one dislocation demotes the
+    whole confluence family at once.
 - Retired confluences and their full occurrence history are **never deleted** — they are training
   data about how edges die, and candidate re-entrants if their regime returns.
 
@@ -202,7 +275,9 @@ publication. Design for it:
 - **`feature-scoring-beyond-ic.md` §0b/0c** — hard prerequisite of gate 1 (see above), not just a
   shared upgrade path
 - **Todo 030** — cost-hurdle floor for gate 5
-- **Phase 143 (merged lifecycle phase, formerly 149B)** — lifecycle/demotion machinery, reused at confluence grain via Concept Registry
+- **Phase 143 (merged lifecycle phase, formerly 149B)** — lifecycle/demotion machinery, reused at
+  confluence grain via Concept Registry. Shipped 2026-07-10 (`record_transition_sync`,
+  `ic_engine` post-run lifecycle hook, `integrity_monitor`); this dependency is now met
 - **The emission-layer live daemon** — scope once, system-wide, the first time anything is worth
   firing live; not a confluence-specific build item
 
@@ -223,9 +298,11 @@ publication. Design for it:
 - `docs/research/multi-engine-regime-architecture.md` — Partial IC validation protocol (gate 1's direct
   ancestor)
 - `docs/research/intel-04-confluence-patterns.md` — pre-v3.0 confluence concept (I6, plugin-based)
-- `docs/research/intel-13-analog-engine.md` — return-distribution primitive, definedness rules, analog
-  point-in-time discipline (all inherited verbatim, not restated)
-- `docs/research/intel-15-measurement-engine.md` — the shared kernel gate 1 lives in
+- `docs/research/intel-case-substrate.md` (formerly `intel-13-analog-engine.md`, renamed with the
+  AnalogEngine→CaseSubstrate rename, `1d41f1da`) — return-distribution primitive, definedness
+  rules, analog point-in-time discipline (all inherited verbatim, not restated)
+- `docs/research/measurement-ic-engine.md` (formerly `intel-15-measurement-engine.md`) — the shared
+  kernel gate 1 lives in
 - `docs/research/platform-unified-concept-registry.md` — lifecycle MVP, `baseline_metric` shrinkage,
   `decaying`-as-transition mapping
 - `docs/plans/2026-06-29-feature-scoring-beyond-ic.md` §0b/0c — hard prerequisite of gate 1

@@ -1,18 +1,28 @@
 # Canonical Simulator — One Counterfactual Ledger, One Cost Kernel, One Run Identity
 
-**Version:** 2.0
+**Version:** 2.1
 **Status:** draft — v1.0 (2026-07-01, "One Replay Engine") rewritten 2026-07-03 against the
 shipped Phase 141.1/142A state and the 142B design; the engine proposal did not survive review,
-the binding invariant did
-**Priority:** critical — this is still the highest-leverage infrastructure investment in the
-tree; the rewrite changed the mechanism, not the stakes. This codebase has already had one real
-look-ahead incident (HMM full-history fit) and one documented near-miss (rolling-correlation
-causality). The binding rule below is what stands between those two and a third — now with
-automated enforcement (pre-commit Check 9 blocks new parallel claim/event/frame tables), which
-makes it cheaper to hold the line than v1's engine would have been, not less urgent to hold.
+the binding invariant did. v2.1 (2026-07-12) reconciles against the executed Phase 142B.
+**Priority:** high (was critical) — the binding rule's main enforcement surface has now shipped:
+Phase 142B (2026-07-10) built the frames ledger with provenance columns, and pre-commit Check 9
+blocks new parallel claim/event/frame tables (verified live in `.git/hooks/pre-commit:403`).
+This codebase has already had one real look-ahead incident (HMM full-history fit) and one
+documented near-miss (rolling-correlation causality); the rule remains what stands between those
+two and a third, but the remaining work is promotion + a triggered kernel build, not
+infrastructure.
 **Milestone:** the one build item (a cost kernel) is triggered by its second consumer, not
 scheduled standalone — see below
-**Last Updated:** 2026-07-03
+**Last Updated:** 2026-07-12 (Fable re-review against executed Phase 142B)
+**2026-07-12 note:** Phase 142B executed 2026-07-10 (SHADOW-REVIEW frozen `4fcdbca9`, migration
+214 `9198be07`, review fixes `fa4208ef`, pushed `5024bb88`). Open Questions 2 and 3 are settled
+— both in the direction this doc argued — and are marked so below. The seam table, cost-kernel,
+and provenance sections are updated to shipped reality. One drift flagged (cost `reporting
+column` landed via publisher-snapshot copy-through, not a kernel — see cost kernel section). As
+of 2026-07-12 the ledger holds 11.81M frames (2.64M scored, backfill in progress). Caveat
+inherited from Phase 143.1: `alpha_events` is 99.99% long-only (sign-asymmetric eligibility
+gates, todo 094), so the frames ledger currently measures an effectively long-only book; any
+SHADOW-REVIEW gate evaluation before todo 094 lands inherits that composition.
 **Tags:** simulator, replay, point-in-time, look-ahead, validation, renaissance, cost-kernel,
 alpha-frames, corpus-run
 
@@ -38,7 +48,7 @@ not an engine. It is three shared facts plus one binding rule.
 |---|---|---|
 | **Causal construction** — features, labels, embeddings computed only from data ≤ T | Per-producer laws: Feature Factory's causal transforms; `_causal_decode` forward-filter in `regime_writer`; causal expanding rank in `equity_regime_model`; `intel-13`'s embedding serialization law (point-in-time only, provably) | Enforced per producer — this is a property of how a fact is *computed*, and a generic read API cannot substitute for it |
 | **Frozen evaluation window** — IC/weights/events computed only through a pre-committed boundary | `training_window_end` threaded through every `ic_engine.py` query, now clamped by `LEAST(MAX(bar_ts), alpha.validation.oos_start)` (`ic_engine.py:39-44, :1700`) | **Shipped, Phase 141.1** |
-| **Frozen claim + outcome backfill** — a counterfactual result is frozen at emission time, scored only against later bars | Phase 142B's `alpha_frames` design: FRAME-01 freezes geometry off the emitted event; FRAME-02's forward scan reads only bars *after* the frame opens | Planned (142B), design already correct |
+| **Frozen claim + outcome backfill** — a counterfactual result is frozen at emission time, scored only against later bars | `alpha_frames` (migrations 214+215) + `AlphaFrameWriter` + `CounterfactualTracker`: FRAME-01 freezes the claim off the emitted event; geometry fills at the T+1 bar open and the forward scan reads only bars *after* the frame opens (`services/counterfactual_tracker.py`) | **Shipped, Phase 142B (2026-07-10)** |
 
 No client in the system iterates bar-by-bar needing "what was knowable at T" reconstructed
 generically. `ic_engine` runs set-based windowed queries. FRAME-02 needs only future bars
@@ -56,36 +66,47 @@ provenance. Point-in-time correctness is enforced where facts are constructed (c
 where windows are frozen (the 141.1 clamp) — never re-derived per client.*
 
 This is this doc's real payload, in the same style as `one model, one book`
-(`docs/foundation/principles.md`). It is not yet promoted to that file — see Open Questions for
-when. It already governs how new proposals should be read: the decile-spread frame variant
-(`intel-15`'s Cross-Sectional Rank IC addendum) and the shadow portfolio
-(`trade-construction-layer.md`) both route through `alpha_frames`, not a new ledger — this is the
-rule already working, not a future aspiration.
+(`docs/foundation/principles.md`). It is not yet promoted to that file — the "after 142B"
+precondition has now arrived, see Open Questions. It already governs in practice: the
+decile-spread frame variant (`intel-15`'s Cross-Sectional Rank IC addendum) and the shadow
+portfolio (`trade-construction-layer.md`) both route through `alpha_frames` as `frame_variant`s,
+not a new ledger; pre-commit Check 9 enforces the no-new-tables clause mechanically; and
+migration 214's provenance columns satisfy the corpus-run/weight-epoch clause on every row.
 
 ## The One Build Item: a Cost Kernel
 
 Cost logic today lives at the emission-time hurdle in `alpha_publisher` (per-event, calibrated —
-todo 030 closed in Phase 141.1). Three coming consumers need the *same* definition of "what does
-a round trip cost at this tf/spread regime," applied differently:
+todo 030 closed in Phase 141.1). This doc's v2.0 predicted 142B's shadow-period reporting could
+be the kernel's first consumer. **Drift, flagged plainly: 142B shipped the cost reporting
+column without a kernel.** `alpha_frames.cost_r` is a copy-through of `alpha_events.cost_hurdle`
+— the snapshot `alpha_publisher` stamps at publish time — combined in the pure function
+`compute_expected_r_snapshot()` inside `services/alpha_frame_writer.py` (`net_expected_r =
+gross_expected_r - cost_r`). No `src/intelligence/costs.py` exists. This is defensible, not a
+violation: the copy-through means the frame consumes the *same* cost fact the publisher already
+computed (one definition, frozen per-row, immune to later recalibration drift — migration 214's
+`cost_r` column comment makes this explicit), rather than a second live derivation.
 
-1. Phase 142B's frames (currently no cost model — a defensible gap for the binary FRAME-04 gate,
-   but SHADOW-REVIEW's Sharpe/drawdown criteria on gross P&L will read optimistic; see Open
-   Questions).
-2. The decile-spread frame variant — cost-hurdle applied per leg.
-3. Trade-construction's rebalance rule — trade only ranking changes that clear a per-trade cost
+The kernel extraction is therefore still pending, and its trigger stands at the original count.
+Remaining consumers needing a *fresh* cost computation (not a copy-through):
+
+1. The decile-spread frame variant — cost-hurdle applied per leg.
+2. Trade-construction's rebalance rule — trade only ranking changes that clear a per-trade cost
    floor.
 
-This is an `ic_math.py`-shaped extraction: a pure-function cost module (`src/intelligence/costs.py`
-or a `statistics/` sibling), APR-fed from the calibrated `alpha.quant.cost_hurdle.*` keys, zero
-I/O. **Build it when the second consumer arrives** (the decile-spread variant or 142B's
-shadow-period reporting, whichever lands first) — not standalone, not now.
+This remains an `ic_math.py`-shaped extraction: a pure-function cost module
+(`src/intelligence/costs.py` or a `statistics/` sibling), APR-fed from the calibrated
+`alpha.quant.cost_hurdle.*` keys, zero I/O. **Build it when the first of these two arrives** —
+not standalone, not now.
 
 ## Provenance
 
 "Every claim ties to a CorpusManifest identity" is the Corpus Run concept (run_id threaded
-through manifests and output tables), which Phase 141.1's weight-epoch fix partly delivered. The
-remaining requirement: `alpha_frames` should carry a `corpus_run_id`/`weight_epoch` column at its
-142B P1 migration — cheap now, a provenance hole forever if skipped (see Open Questions).
+through manifests and output tables), which Phase 141.1's weight-epoch fix partly delivered.
+The `alpha_frames` requirement shipped: migration 214 (`9198be07`) added both `corpus_run_id`
+(pinned once per `AlphaFrameWriter` invocation) and `weight_epoch` (copy-through of
+`alpha_events.weight_version`), citing this doc's Open Question 3 in its header. Deliberately
+no FK to `alpha_events` (review M1): the events hypertable is TRUNCATEd on every corpus
+rebuild, so provenance is carried by these columns and the truncate script covers both tables.
 
 ## What Is Deleted From v1.0, and Why
 
@@ -113,20 +134,25 @@ returns.
 
 ## Open Questions
 
-1. **Does the binding rule get promoted to `principles.md` now, or after 142B?** Leaning after:
-   unlike one-model-one-book (which constrains proposals being written this month), the frames
-   ledger doesn't exist yet — binding clients to an unbuilt table is weaker than binding them to
-   a proven one. Promote early instead if Phase 145-147 planning starts before 142B executes; the
-   rule is exactly what stops AnalogEngine-era backtesting ideas (e.g. todo 017's non-parametric
-   hypothesis backtester) from growing their own counterfactual paths.
-2. **142B shadow-period reporting: gross or net of cost?** SHADOW-REVIEW's Sharpe/drawdown
-   criteria on gross counterfactual P&L will read optimistic given most events sit in the
-   cost-marginal band todo 030's calibration found. Applying the calibrated cost keys as a
-   *reporting column* (not a gate change — the pre-commitment stands) during 142B is cheap and
-   would make the cost kernel's first consumer arrive inside 142B itself. Needs a call before
-   SHADOW-REVIEW.md is committed, since criteria are frozen at launch.
-3. **Does `alpha_frames` get a `corpus_run_id`/`weight_epoch` column at 142B's P1 migration?**
-   Costs one column now vs. a provenance hole forever. Should be raised at 142B planning.
+1. **Does the binding rule get promoted to `principles.md`?** Still open, but the v2.0 lean
+   ("after 142B, once the ledger is proven") has had its precondition arrive: `alpha_frames`
+   exists, is populated (11.81M frames as of 2026-07-12), and Check 9 enforces the no-new-tables
+   clause mechanically. Promotion is now unblocked and should happen at the next
+   `principles.md` touch; the rule is exactly what stops AnalogEngine-era backtesting ideas
+   (e.g. todo 017's non-parametric hypothesis backtester) from growing their own counterfactual
+   paths.
+2. **SETTLED (Phase 142B, 2026-07-10) — gross, with a mandatory net reporting column.**
+   `docs/plans/SHADOW-REVIEW.md` (frozen `4fcdbca9`, finalized `fa4208ef`) resolved this
+   exactly as v2.0 recommended: D-01 evaluates all five gate criteria on GROSS
+   `counterfactual_pnl_r` (gating on the unvalidated cost calibration would conflate "does the
+   frame capture IC as P&L" with "is our cost estimate right"); D-02 mandates `net_expected_r`
+   as a REPORTING-ONLY column alongside every gross metric, citing this doc's "gross reads
+   optimistic" flag by name. Note the mechanism drift recorded in the cost kernel section:
+   the reporting column consumes the publisher's per-event snapshot, not a new kernel.
+3. **SETTLED (Phase 142B, 2026-07-10) — yes, both columns.** Migration 214 (`9198be07`) added
+   `corpus_run_id` and `weight_epoch` to `alpha_frames` at the P1 migration, citing this doc's
+   Open Question 3 in its deviation notes. See Provenance section for the copy-through
+   semantics and the deliberate no-FK decision.
 
 ## References
 
@@ -147,3 +173,9 @@ returns.
 - `src/observability/corpus_manifest.py` — provenance identity
 - `services/ic_engine.py` :39-44, :854, :1700 — training-window/OOS clamp as shipped (141.1)
 - ROADMAP.md — Phase 142B spec (FRAME-01..04, SHADOW-REVIEW pre-commitment)
+- `docs/plans/SHADOW-REVIEW.md` — frozen Phase 147 promotion criteria (D-01 gross gate, D-02
+  net reporting column) — settles Open Question 2
+- `production/migrations/214_alpha_frames_schema.sql` — shipped frames DDL + provenance columns
+  — settles Open Question 3
+- `services/alpha_frame_writer.py` / `services/counterfactual_tracker.py` — the shipped ledger
+  writers (Phase 142B, commits `9198be07`/`fa4208ef`/`059d4a75`)

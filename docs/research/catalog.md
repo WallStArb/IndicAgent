@@ -1,8 +1,9 @@
 # Idea Catalog — Full-Tree Index
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** current
-**Last Updated:** 2026-07-07 (audit: catalog had drifted from the real `docs/ideas/` directory
+**Last Updated:** 2026-07-11 (see audit note below; 2026-07-07 audit note follows for history)
+**2026-07-07 audit:** catalog had drifted from the real `docs/ideas/` directory
 since 2026-07-03 — two independent rename waves, 930cdebd and fc067a2b, left ~9 links pointing at
 pre-rename filenames, and ~50 rows pointed at docs already physically archived with no catalog
 update. Both classes fixed this pass; see the Archived section below for what was removed and why.
@@ -11,6 +12,16 @@ stale pre-correction copy of content already deliberately archived 2026-07-02 (`
 already restored into `measurement-governance-monitor.md`; it reappeared wholesale in a later,
 unrelated commit (`917b40e1`) and was carried forward by the rename sweep without anyone noticing
 it was dead weight.)
+
+**2026-07-11 audit:** caught the catalog drifting again, four days after the last pass. Fixed:
+(1) the AnalogEngine row still linked `intel-analog-engine.md`, deleted when that doc was renamed
+to CaseSubstrate (`1d41f1da`) — link and title corrected; (2) the Interaction Factory row still
+said "blocked on pilot test (037)" — the doc itself was rewritten 2026-07-10 when the pilot
+cleared, row brought into sync; (3) five `docs/plans/` docs created 2026-07-09 through 2026-07-11
+were never added to the plans table; (4) ETF Universe Expansion and the AlphaEngine V1 Execution
+Plan rows both described stale in-progress states for work that finished weeks ago; (5) the
+References footer still pointed at pre-2026-07-07 `.planning/research/` paths and was missing
+the 2026-07-09 winner's-curse peer-group review.
 
 **2026-07-07:** `docs/ideas/` renamed to `docs/research/` (all live docs already Fable-reviewed,
 moved to a persistent location outside GSD's periodic `.planning/` cleanup cycle); the 9
@@ -42,19 +53,19 @@ assertion) as of 2026-07-08. Read this first for "what's next," not this catalog
 
 | Doc | Status / Priority | Fable-reviewed | One-line |
 |---|---|---|---|
-| [Confluence — a Governed Predictor Family](intel-confluence-detection-persistence-layer.md) | draft, high | ✅ (v3, 2026-07-03) | Confluences as governed predictors, not a second system; gates 1-6, mandatory shrinkage |
+| [Confluence — a Governed Predictor Family](intel-confluence-detection-persistence-layer.md) | draft, high | ✅ (v3, 2026-07-12) | Confluences as governed predictors, not a second system; gates 1-6, mandatory shrinkage; re-verified against Phase 143's executed lifecycle mechanics (promotion bar, sign-symmetry, decay gates corrected) |
 | [StratificationDimension — Multi-Regime Layer](regime-multi-regime-layer.md) | draft, high | ✅ (2026-07-06) | Unifies per-symbol HMM + cross-sectional regime systems; core proposal confirmed, updated against Phase 143's LIFECYCLE-00 hardening |
-| [AnalogEngine](intel-analog-engine.md) | draft, high | ✅ | Non-parametric K-NN retrieval as a predictor family; Score Object deleted, return-distribution primitive kept |
+| [CaseSubstrate](intel-case-substrate.md) (renamed from AnalogEngine, `1d41f1da`) | draft, high | ✅ | Non-parametric K-NN retrieval as a predictor family; Score Object deleted, return-distribution primitive kept |
 | [IntegrityMonitor — Drift, Decay, Ensemble Health](measurement-governance-monitor.md) | draft, high | ✅ (2026-07-06) | Reconciled cluster doc; 7 stale passages found/fixed against executed Phase 143 (pre_shadow_weight was dead, registry amendments, staleness design, schema) |
 | [MeasurementEngine — IC Kernel Unification](measurement-ic-engine.md) | answered | ✅ (2026-07-06) | Kernel-unification question resolved by existing `ic_math.py`; unfixed config drift between `ic_engine.py`/`ensemble_ic_engine.py` flagged |
 | [AlphaEmitter — Stage 4 Emission Mechanisms](measurement-alpha-emission.md) | idea, not planned | ✅ (2026-07-07) | Threshold-crossing is structurally fine; real gaps are uncalibrated thresholds (EM-CAL), stratum-constant CI gate, weight-staleness blindness; gate stack as the swappable unit, three rejections recorded |
 | [Unified Concept Registry](platform-unified-concept-registry.md) | design complete, not built | ✅ (4 passes, 2026-07-06) | Cross-tier lifecycle governance unifying feature + intelligence tiers; adversarial stress-test survived (event-sourcing/graph-DB/full-separation alternatives rejected); MVP build trigger fired (todo 058), zero `concept_*` tables exist yet |
 | [Governance & Registries](concept-governance-registries.md) | — | ✅ (2026-07-06) | Umbrella framework for three registry types: Parameter (APR), Lifecycle (Concept Registry), Vocabulary (Tag + Controlled); links to canonical docs |
 | [Edge Source Thesis](data-edge-source-thesis.md) | draft, high | | T1-T4 falsifiable theses on where edge comes from; standing doc, revisit per thesis |
-| [Canonical Simulator](platform-canonical-simulator.md) | draft, **critical** | ✅ (v2, 2026-07-03) | One counterfactual ledger + cost kernel + run identity, not a replay engine; enforced via pre-commit Check 9 |
+| [Canonical Simulator](platform-canonical-simulator.md) | draft, high | ✅ (v2.1, 2026-07-12) | One counterfactual ledger + cost kernel + run identity, not a replay engine; enforced via pre-commit Check 9; both open questions settled against shipped Phase 142B, priority downgraded critical→high |
 | [Trade Construction Layer](trade-construction-layer.md) | draft, high | | Forecast → position; v4.0 concern, gated on the T3 falsification result |
 | [Instrument Tag Calibrator](data-instrument-tag-calibrator.md) | draft, high | ✅ (2026-07-06) | Todo 040/Phase 145 (renumbered 2026-07-04); found and fixed a missing FDR correction (~1,600 simultaneous tests/run) and a worked example violating the live weight CHECK |
-| [Interaction Factory](intel-feature-interaction-factory.md) | idea, blocked on prerequisites | | Candidate-generation strategy for pairwise feature interactions; blocked on pilot test (037), primitives expansion, and feature demotion (015) |
+| [Interaction Factory](intel-feature-interaction-factory.md) | historical/reference — superseded as an active spec | | Todo 037's pilot (2026-07-10, PASS 22.2%) cleared this doc's evidence trigger, but Phase 150 independently rejected the combinatorial mechanism on BH-FDR power grounds and built a curated theory-motivated layer instead; kept for context, not an implementation target |
 | [Controlled Vocabulary](platform-controlled-vocabulary.md) | idea, unscheduled | ✅ (2026-07-06) | Ready to build whenever prioritized; staging order was inverted (would've built against archived tables first) — fixed |
 
 ---
@@ -100,12 +111,17 @@ of what was removed and why. These three are what's actually still live.
 | [2026-06-19: HMM/GARCH/Kalman APR Migration](../plans/2026-06-19-hmm-garch-kalman-apr-migration.md) | — | APR migration plan for HMM/GARCH/Kalman params |
 | [2026-06-26: Renaissance Optimization Roadmap](../plans/2026-06-26-renaissance-optimization-roadmap.md) | SUPERSEDED 2026-06-27 | Historical only |
 | [2026-06-26: Salvageable AI & Intelligence Concepts from v2.x](../plans/2026-06-26-salvageable-ai-concepts.md) | EXTRACTED | What survived the v2.x → v3.0 transition |
-| [2026-06-27: ETF Universe Expansion](../plans/2026-06-27-etf-universe-expansion.md) | in progress | 58→80 instrument expansion; backfill currently running (see session state) |
+| [2026-06-27: ETF Universe Expansion](../plans/2026-06-27-etf-universe-expansion.md) | Complete — applied 2026-07-01 | 58→80 instruments live (migrations 188/190); DB-verified 80 active instruments |
 | [2026-06-28: HMM Regime Audit & Optimization](../plans/2026-06-28-hmm-regime-audit-optimization.md) | — | Companion to todo 026 |
 | [2026-06-28: Renaissance Obstacle Map v3.1+](../plans/2026-06-28-renaissance-obstacle-map.md) | Planned, unblocked after V1 corpus rerun | Obstacle map for the v3.1+ path |
 | [2026-06-30: AlphaEngine V1 — Methodology Hypotheses](../plans/2026-06-30-alphaengine-methodology-hypotheses.md) | Active | Three hypotheses requiring empirical validation |
-| [2026-06-30: AlphaEngine V1 — Execution Plan](../plans/2026-06-30-alphaengine-v1-execution-plan.md) | Phase A COMPLETE, Phase B next | The concrete work-plan tracking Phase A/B execution |
+| [2026-06-30: AlphaEngine V1 — Execution Plan](../plans/2026-06-30-alphaengine-v1-execution-plan.md) | Phase A/B COMPLETE; superseded by later phases | Tracked Phase A/B execution only; Phase 142A/142B/143/143.1 have since shipped — see ROADMAP.md for current state |
 | [2026-07-01: Cross-Sectional Regime Model Implementation](../plans/2026-07-01-cross-sectional-regime-model.md) | — | Implementation plan for the `market_regimes` cross-sectional system |
+| [2026-07-09: IC Null Calibration — Design](../plans/2026-07-09-ic-null-calibration-design.md) | Design — pending implementation | Todo 071/L4-2: does the analytic Fisher-z CI correctly describe the IC null distribution? |
+| [2026-07-09: IC Null Calibration — Implementation Plan](../plans/2026-07-09-ic-null-calibration-plan.md) | Implementation plan | Circular-shift permutation test build plan for the design doc above |
+| [2026-07-09: Interaction Primitives Partial-IC Pilot — Implementation Plan](../plans/2026-07-09-interaction-primitives-partial-ic-pilot-plan.md) | Executed 2026-07-10, PASS | Todo 037's partial-correlation pilot; result feeds the Interaction Factory row above |
+| [2026-07-11: IC Quality & Sign-Symmetry Strategy](../plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md) | Strategy — sequencing agreed, fixes not yet implemented | Synthesizes todos 091/093/094/096/088 sequencing; full design for Phase 143.1 |
+| [SHADOW-REVIEW: Phase 147 Live Promotion Criteria](../plans/SHADOW-REVIEW.md) | FROZEN | Numerically-evaluable live-promotion gate criteria, committed before any shadow data exists |
 | [Methodology Change Ledger](../plans/methodology-change-ledger.md) | STANDING, append-only | Every methodology change, forever — read before trusting any historical IC number |
 | [OOS Evaluation Protocol](../plans/OOS-EVAL-PROTOCOL.md) | — | Pre-commit OOS evaluation protocol |
 
@@ -168,8 +184,12 @@ of what was removed and why. These three are what's actually still live.
 
 ## References
 
-- `.planning/research/2026-07-02-v3-topdown-architecture.md`, `2026-07-02-v3-bottomup-audit.md`,
-  `2026-07-03-intel10-11-fable-review.md`, `2026-07-03-canonical-simulator-fable-review.md`
-  (when complete) — the Fable review passes this catalog's "Fable-reviewed" column tracks
+- `docs/research/fable-2026-07-02-v3-topdown-architecture.md`, `fable-2026-07-02-v3-bottomup-audit.md`,
+  `fable-2026-07-03-intel10-11-review.md`, `fable-2026-07-03-canonical-simulator-review.md`,
+  `fable-2026-07-04-concept-registry-cluster-review.md`, `fable-2026-07-06-end-to-end-architecture-review.md`,
+  `fable-2026-07-07-phase144-conditioning-decision.md`, `fable-2026-07-07-renaissance-layer-refinements.md`,
+  `fable-2026-07-09-ensemble-winners-curse-peer-group.md` — the Fable review passes this catalog's
+  "Fable-reviewed" column tracks (paths corrected 2026-07-11: these moved from `.planning/research/`
+  into `docs/research/` on 2026-07-07 and this section still pointed at the old location)
 - `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md` — the priority triage for
   Cluster 1; this catalog is navigation, that doc is sequencing
