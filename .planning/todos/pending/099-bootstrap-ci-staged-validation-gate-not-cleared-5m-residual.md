@@ -1,9 +1,27 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-07-11
+updated: 2026-07-11
 source: Phase 143.1-01 (Component A, todo 091) staged-validation gate
 ---
+
+# Bootstrap CI staged-validation gate did not clear the pre-committed bound (5m residual + price_vol_corr_slow/1d)
+
+**Update 2026-07-11 (ledger E10): no longer blocking.** A project-owner-directed
+disaggregation traced all 6 SUSPECT cells to the literal eligibility predicate used by
+`ensemble_trainer.py`/`ic_engine.py`'s lifecycle hook (`symbol='POOLED' AND
+is_pooled=true AND regime != '_pooled'`). 5/6 are `is_pooled=false` — diagnostic-only,
+cannot reach a capital-allocation decision. Exactly one, `price_vol_corr_slow`/POOLED/
+1d/mid_bull (se_ratio=1.461), matches the predicate and is capital-relevant; it
+independently satisfies the gate's own per-stratum bound. Decision: proceed with Plan
+07's corpus-wide re-run, with a targeted post-run check on that one cell (see E10's
+"Mitigation" section) rather than continuing to block indefinitely. This todo's
+underlying statistical question (below) remains open as non-blocking follow-up work.
+Priority downgraded P1→P2 accordingly. `price_vol_corr_slow` added to the affected-
+feature list — it fits the same root-cause mechanism (rolling-window correlation
+statistics are serially autocorrelated by construction, same as `ret_autocorr_1`/
+`ctf_momentum`).
 
 # Bootstrap CI staged-validation gate did not clear the pre-committed bound (5m residual)
 

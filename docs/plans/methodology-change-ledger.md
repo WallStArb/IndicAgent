@@ -368,3 +368,83 @@ last month's weights is a silent methodology choice too.
   the mid-plan-discovered lifecycle hook) was locked via Fable review (BLOCKER 1/2/3,
   MINOR findings) before this plan's own execution began, before any sign-symmetric
   `feature_ic_scores` or `ensemble_weights` row existed under the new criterion.
+
+### E10 — 2026-07-11: Project-owner risk-acceptance decision on the E6 staged-validation gate, disaggregated by capital-relevance (Phase 143.1-07)
+
+- **Observed first:** E6 recorded the bootstrap CI staged-validation gate as NOT CLEARED
+  (6/29 SUSPECT vs. a pre-committed `<=2` total / `<=1` per-stratum bound), blocking Plan
+  07's corpus-wide re-run per E6's own pre-committed consequence. Before accepting or
+  rejecting that block, this entry traces each of the 6 SUSPECT cells to whether it can
+  actually reach a capital-allocation decision, rather than treating the gate's aggregate
+  total-bound breach as an undifferentiated risk.
+- **Verified by code (not assumed):** the two consumers of `feature_ic_scores` that drive
+  live capital allocation — `ensemble_trainer.py`'s eligibility query
+  (`services/ensemble_trainer.py:119,363,435`) and Phase 143's `ic_engine.py` post-run
+  lifecycle hook (`_run_lifecycle_hook`, `services/ic_engine.py:2264-2285`) — both filter
+  to the byte-identical predicate: `symbol='POOLED' AND is_pooled=true AND regime !=
+  '_pooled'`. No other code path reads `feature_ic_scores` for a promotion, demotion, or
+  weight-assignment decision.
+- **Disaggregated re-run result** (`ops_ic_null_calibration.py --ci-method bootstrap`,
+  same seed=42, reproduced identically to E6's numbers — 29 evaluated, 6 SUSPECT):
+
+  | feature | symbol | tf | regime | se_ratio | matches eligibility predicate? |
+  |---|---|---|---|---|---|
+  | ret_autocorr_1 | VNQ | 5m | low_bull | 1.889 | No — `is_pooled=false` |
+  | month_sin | EFA | 5m | low_bull | 1.210 | No — `is_pooled=false` |
+  | ctf_momentum | XHB | 5m | low_bull | 1.235 | No — `is_pooled=false` |
+  | range_pct_slow | EWY | 15m | mid_bull | 1.342 | No — `is_pooled=false` |
+  | hurst | BIL | 1d | low_bull | 1.704 | No — `is_pooled=false` |
+  | **price_vol_corr_slow** | **POOLED** | **1d** | **mid_bull** | **1.461** | **Yes** |
+
+  5 of 6 SUSPECT cells are `is_pooled=false` (per-symbol) rows — mechanically excluded
+  from both capital-allocation consumers by the `symbol='POOLED' AND is_pooled=true`
+  clause. They inflate the gate's total-bound count but cannot reach a weight or
+  lifecycle-status decision. **Exactly one cell, `price_vol_corr_slow`/POOLED/1d/mid_bull,
+  matches the eligibility predicate** and is the sole reason this gate's breach has any
+  capital-relevant consequence. Standing alone, it satisfies the gate's own per-stratum
+  bound (`<=1` for `tf=1d,is_pooled=true`) at the boundary — the total-bound breach (6>2)
+  is driven entirely by the 5 diagnostic-only cells.
+- **Root cause remains structural, not noise** (per E6's own two negative controls: 5x
+  permutation count and 10x block size both failed to clear the gate, ruling out sampling
+  noise and under-blocking). `price_vol_corr_slow` fits the same mechanism as the named
+  5m cluster: a rolling-window correlation statistic is itself serially autocorrelated by
+  construction (adjacent windows overlap), the same property that defeats circular block
+  bootstrap variance estimation for `ret_autocorr_1`/`ctf_momentum`.
+- **Live-state check on the one relevant cell:** `feature_registry.status` for
+  `price_vol_corr_slow` is `active` (global, not tf/regime-scoped — this table has no
+  per-tf column). `ensemble_weights` currently has **zero rows** for
+  `(price_vol_corr_slow, tf=1d, regime=mid_bull)` under any `weight_version` — this
+  feature is not currently contributing weight at this cell, so the concrete risk is a
+  **new** admission under a possibly-overconfident CI, not a pre-existing one being
+  perpetuated.
+- **DECISION (project-owner directed, this session): PROCEED with Plan 07's full
+  corpus-wide re-run.** The gate's total-bound was specified without disaggregating
+  capital-relevant (`symbol='POOLED', is_pooled=true`) from diagnostic-only
+  (`is_pooled=false`) strata; 5/6 of the measured breach is diagnostic-only, and the one
+  cell that is capital-relevant is a single, named, bounded exposure that independently
+  satisfies its own stratum's tolerance. This is not a blanket "accept unknown risk" —
+  it is accepting a specifically identified, mechanically isolated residual after tracing
+  it to the exact decision path it could affect.
+- **Mitigation (cheap, targeted, does not require new statistical machinery):** after
+  Plan 07's re-run, explicitly check whether `price_vol_corr_slow` newly clears
+  `ic_ci_lower > 0` at `tf=1d, regime=mid_bull` (i.e., newly appears in
+  `ensemble_weights` or newly avoids lifecycle demotion at that cell) where it did not
+  before. If so, treat that admission as flagged pending manual scrutiny (e.g.
+  cross-check against the still-live `_fisher_z_ci` value at that one cell) before
+  trusting it in a live weight, rather than accepting it silently on the strength of a
+  CI method already known to be too narrow for this specific cell.
+- **Not resolved by this decision:** todo 099's underlying statistical question (a
+  proper long-memory/serial-dependence-aware CI method for autocorrelation/momentum/
+  rolling-correlation-family features) remains open, now explicitly non-blocking —
+  scope narrowed and re-filed. A separate process-improvement todo is filed against the
+  gate design itself: a total-bound that pools `is_pooled=true` and `is_pooled=false`
+  cells conflates two different risk classes and should be split in any future
+  staged-validation gate of this shape.
+- **Pre-registered?** No — this is a post-hoc risk-acceptance decision on an
+  already-measured gate result, by definition (E6's own text: "accepting a failed
+  gate's result is itself a methodology change requiring its own entry"). What IS
+  pre-committed here, for any future incident of this shape: the disaggregation method
+  (trace each flagged cell to the literal predicate used by every downstream
+  capital-allocation consumer, don't reason about the aggregate) and the mitigation
+  pattern (name the exact cell, check its concrete outcome post-run, don't leave it
+  silent).
