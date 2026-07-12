@@ -93,3 +93,13 @@ None - no external service configuration required. The migration itself is not a
 ---
 *Phase: 144-cross-sectional-regime-model-regime-group-planned*
 *Completed: 2026-07-12*
+
+## Self-Check: PASSED
+
+- FOUND: production/migrations/229_regime_group.sql
+- FOUND: docs/foundation/glossary.md (regime_group entry, 5 mentions, single heading)
+- FOUND: commit 9025855f (Task 1)
+- FOUND: commit 10e8aad6 (Task 2)
+- Verified: `RENAME COLUMN asset_class TO regime_group` matches exactly once
+- Verified: no `Migration 189` string present
+- Verified: internal header comment is exactly `-- Migration 229: regime_group`
