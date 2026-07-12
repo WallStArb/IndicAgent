@@ -1463,11 +1463,11 @@ reasoning and falsifiers: `docs/research/fable-2026-07-07-phase144-conditioning-
 
 **Sequencing:** land Phase 142A's ensemble-IC baseline first (pre-regime_group equity-only strata), then batch this phase with todo 026 P1-P3 into one ic_engine re-run — empirical pre/post comparison over blind trust that the new strata help.
 
-**Plans:** 3/6 plans executed
+**Plans:** 4/6 plans executed
 - [x] 144-01-PLAN.md — Wave 1: migration 229 (asset_class→regime_group + APR seed) + glossary entry
 - [x] 144-02-PLAN.md — Wave 1: breadth_vol (causal-rank port) + curve_credit signal modules + _tf_window helper
 - [x] 144-03-PLAN.md — Wave 1: commodity_momentum_ts + fx_dollar_carry signal modules (ship disabled)
-- [ ] 144-04-PLAN.md — Wave 2: REGISTRY + cross_sectional_regime_model.py dispatcher + equity deprecation + pipeline step-4 swap
+- [x] 144-04-PLAN.md — Wave 2: REGISTRY + cross_sectional_regime_model.py dispatcher + equity deprecation + pipeline step-4 swap
 - [ ] 144-05-PLAN.md — Wave 3: ic_engine.py regime_group routing + cross-sectional peer-scoping contamination fix
 - [ ] 144-06-PLAN.md — Wave 4 (gated on external 143.1-07 corpus rebuild): D-05 empirical TLT-vs-rates separation acceptance gate
 
