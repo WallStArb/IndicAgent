@@ -58,6 +58,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import hashlib
+import json
 import sys
 import time
 from collections import defaultdict
@@ -203,6 +204,67 @@ def _resolve_regime_scope(is_pooled: bool, cross_sectional: bool) -> str:
     if cross_sectional:
         return "cross_sectional"
     return "symbol_hmm"
+
+
+# ---------------------------------------------------------------------------
+# Symbol -> regime group routing (Phase 144 Plan 05)
+# ---------------------------------------------------------------------------
+
+
+class AmbiguousRegimeGroupError(ValueError):
+    """Raised when a symbol's tags match more than one enabled regime group.
+
+    Regime groups must partition the universe: a symbol occupies exactly one
+    discrete regime state at a time, so tag_filter overlap across groups is a
+    config authoring error, not something to resolve silently by JSON array
+    order. Fix by tightening tag_filter prefixes or the instrument_tags data
+    so the overlap is removed, then restart.
+    """
+
+
+def _build_symbol_regime_class(
+    tags_by_symbol: dict[str, set[str]],
+    group_configs: list[dict],
+) -> dict[str, str]:
+    """Map each symbol to its regime group name from the groups APR config.
+
+    A symbol matches a group if any of its instrument_tags starts with any
+    prefix in the group's tag_filter (trailing * stripped). Enabled groups'
+    tag_filters must be mutually exclusive over the resolved universe -- if a
+    symbol matches more than one group, this raises AmbiguousRegimeGroupError
+    rather than silently picking the first match, since group order in the
+    APR JSON is not a meaningful ranking and must never be load-bearing.
+
+    Symbols with no matching enabled group are OMITTED from the returned
+    dict -- they get no regime_group and are excluded from regime-stratified
+    IC (the pooled IC pass still covers them; no data is dropped, only the
+    regime-conditional cut). This was previously a silent default to
+    'equity', which mislabeled non-equity instruments (bonds, gold, bitcoin
+    ETFs) under the SPY-vol x equity-breadth regime whenever their true
+    group was absent or disabled. Silent mislabeling is worse than an
+    explicit gap -- see the caller's loud startup log of unrouted symbols.
+    """
+    prefixes_by_group: list[tuple[str, list[str]]] = [
+        (g["name"], [p.rstrip("*") for p in g.get("tag_filter", [])])
+        for g in group_configs
+        if g.get("enabled", True)
+    ]
+    result: dict[str, str] = {}
+    for symbol, tags in tags_by_symbol.items():
+        matches = [
+            group_name
+            for group_name, prefixes in prefixes_by_group
+            if any(any(t.startswith(pfx) for t in tags) for pfx in prefixes)
+        ]
+        if len(matches) > 1:
+            raise AmbiguousRegimeGroupError(
+                f"Symbol {symbol!r} matches multiple enabled regime groups "
+                f"{matches} -- tag_filter patterns must be mutually exclusive. "
+                f"Tags: {sorted(tags)}"
+            )
+        if matches:
+            result[symbol] = matches[0]
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +432,15 @@ class ICEngineConfig:
     # APR fallback (false) so direct-constructor test sites (test_hac_ic_sharpe.py
     # precedent, commit b47595b9) do not break on this dataclass's field-count growth.
     sign_symmetric: bool = False
+    # Phase 144 Plan 05: regime_group routing. Raw JSON string (or already-parsed
+    # list[dict] normalized to a JSON string here -- see from_apr()) of the
+    # alpha.regime.groups APR config -- passed to
+    # services.cross_sectional_regime_model._parse_group_configs() in main() to
+    # derive enabled_groups. Defaulted for the same reason as every other
+    # post-143 field: pre-existing direct ICEngineConfig(...) construction sites
+    # (test_hac_ic_sharpe.py, test_ic_engine_lifecycle_hook.py) must not break on
+    # this dataclass's field-count growth.
+    regime_groups_json: str = "[]"
 
     @property
     def lookaheads(self) -> dict[str, int]:
@@ -384,6 +455,20 @@ class ICEngineConfig:
     @classmethod
     def from_apr(cls, cfg: Any) -> ICEngineConfig:
         """Load all IC engine APR parameters from ConfigService in one pass."""
+        # Phase 144 Plan 05: alpha.regime.groups is a JSON-typed APR key -- once
+        # cached, ConfigService._parse_value() has ALREADY called json.loads() on
+        # it, so cfg.get_sync() returns an already-parsed list[dict], not a raw
+        # string. Normalize here: json.dumps() a parsed list back to a string (so
+        # ICEngineConfig stays a flat, picklable dataclass of primitives); pass a
+        # raw string straight through unchanged. NEVER str() a list[dict] -- Python's
+        # repr uses single quotes and True/False, which is not valid JSON and breaks
+        # the json.loads() call inside _parse_group_configs() downstream.
+        _raw_regime_groups = cfg.get_sync("alpha.regime.groups", "[]")
+        regime_groups_json = (
+            _raw_regime_groups
+            if isinstance(_raw_regime_groups, str)
+            else json.dumps(_raw_regime_groups)
+        )
         return cls(
             min_observations=int(cfg.get_sync("alpha.ic.min_observations", 500)),
             fdr_alpha=float(cfg.get_sync("alpha.ic.fdr_alpha", 0.05)),
@@ -450,6 +535,7 @@ class ICEngineConfig:
             # reads -- one flag, two consumers, so the champion/challenger switch can't
             # drift between eligibility and the lifecycle hook's demote predicate.
             sign_symmetric=bool(cfg.get_sync("alpha.ensemble.sign_symmetric", False)),
+            regime_groups_json=regime_groups_json,
         )
 
 
