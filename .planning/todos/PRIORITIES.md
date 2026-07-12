@@ -118,6 +118,7 @@ without re-confirming with the project owner.
 | [059](pending/059-review-aegisagent-tradeagent-for-trade-construction-reuse.md) | Review AegisAgent/TradeAgent for v4.0 trade-construction reuse |
 | [060](pending/060-review-cluster2-legacy-intelligence-backlog.md) | Review legacy intelligence backlog docs — salvage or clear |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
+| [105](pending/105-concept-registry-regime-model-domain-seed.md) | Seed Concept Registry's `regime_model` domain from Phase 144's `regime_group` evidence (governance upgrade, sequenced behind todo 058) |
 
 ---
 
