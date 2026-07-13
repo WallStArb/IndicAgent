@@ -1099,6 +1099,19 @@ IC_ENGINE_RUN_LATENCY_SECONDS = _meter.create_histogram(
     description="Full IC Engine run duration",
     unit="s",
 )
+IC_ENGINE_SYMBOLS_COMPLETED_TOTAL = _meter.create_counter(
+    "ic_engine_symbols_completed_total",
+    description=(
+        "Symbols with all TFs computed this run, whether freshly computed or "
+        "resumed from an on-disk checkpoint; label source in {fresh, checkpoint}. "
+        "Real progress signal -- unlike grepping logs.ic_engine.log, this does not "
+        "get confused by pool.map's submission-order result buffering."
+    ),
+)
+IC_ENGINE_RUN_SYMBOLS_TOTAL = _meter.create_gauge(
+    "ic_engine_run_symbols_total",
+    description="Total symbols in this run -- denominator for symbols_completed_total progress.",
+)
 FEATURE_IC_PASSING_FDR_TOTAL = _meter.create_gauge(
     "feature_ic_passing_fdr_total",
     description="Count of features passing BH-FDR gate per (symbol, tf)",

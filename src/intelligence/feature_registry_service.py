@@ -66,7 +66,9 @@ class _TransitionNoOp(Exception):
 
 
 _APR_SHARPE_DEFAULT_KEY = "alpha.feature_registry.min_ic_sharpe_default"
-_APR_SHARPE_DEFAULT_FALLBACK = 0.5
+# Todo 096: rescaled 0.5 -> 0.25 (migration 230) to match the new fixed w=100
+# subsampled ic_sharpe window -- see migration 230's header for the full rationale.
+_APR_SHARPE_DEFAULT_FALLBACK = 0.25
 
 
 class FeatureRegistryService:

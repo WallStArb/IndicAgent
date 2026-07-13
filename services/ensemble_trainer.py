@@ -165,7 +165,7 @@ class EnsembleConfig:
             max_cluster_weight=_cfg(cfg, "alpha.ensemble.max_cluster_weight", 0.40),
             meta_fdr_min_fraction=_cfg(cfg, "alpha.ensemble.meta_fdr_min_fraction", 0.50),
             meta_fdr_min_cells=_cfg(cfg, "alpha.ensemble.meta_fdr_min_cells", 3),
-            sharpe_floor=_cfg(cfg, "alpha.ensemble.sharpe_floor", 0.05),
+            sharpe_floor=_cfg(cfg, "alpha.ensemble.sharpe_floor", 0.025),
             weight_half_life_days=_cfg(cfg, "alpha.ensemble.weight_half_life_days", 30.0),
             weight_stale_max_days=_cfg(cfg, "alpha.ensemble.weight_stale_max_days", 90),
             ic_input=_cfg(cfg, "alpha.ensemble.ic_input", "ic_sharpe_hac"),

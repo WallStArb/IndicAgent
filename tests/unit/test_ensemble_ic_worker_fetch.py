@@ -27,6 +27,7 @@ def _make_config(**overrides) -> EnsembleICConfig:
         fdr_alpha=0.05,
         walk_forward_folds=3,
         sharpe_window_size=2000,
+        sharpe_window_size_subsampled=100,
         sharpe_min_windows=30,
         subsample_min_stride=1,
         min_reliable_n=5,

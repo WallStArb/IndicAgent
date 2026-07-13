@@ -142,6 +142,7 @@ def test_rolling_metrics_returns_five_tuple():
         fdr_alpha=0.05,
         walk_forward_folds=3,
         sharpe_window_size=50,
+        sharpe_window_size_subsampled=50,
         sharpe_min_windows=3,
         subsample_min_stride=5,
         min_reliable_n=100,

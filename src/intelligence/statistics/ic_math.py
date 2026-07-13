@@ -40,9 +40,19 @@ def _arctanh_clip(x: np.ndarray | float) -> np.ndarray | float:
 
 class SharpeWindowConfig(Protocol):
     """Duck-typed shape _compute_ic_rolling_metrics needs from a frozen IC config
-    dataclass. Both ICEngineConfig and EnsembleICConfig satisfy this structurally."""
+    dataclass. Both ICEngineConfig and EnsembleICConfig satisfy this structurally.
 
-    sharpe_window_size: int
+    sharpe_window_size_subsampled (todo 096, APR key
+    alpha.ic.sharpe_window_size_subsampled): fixed window size expressed directly in
+    SUBSAMPLED bars. Deliberately NOT derived from a raw-bar constant divided by
+    stride (the old alpha.ic.sharpe_window_size semantics, now deprecated) -- that
+    let each window's data density collapse as stride grew, mechanically deflating
+    ic_sharpe at longer lookaheads by ~sqrt(window_size_ratio) with zero real signal
+    decay. See scripts/analysis/ic_sharpe_stride_bias_check.py for the Monte Carlo
+    proof and .planning/todos/pending/096-*.md for the full writeup.
+    """
+
+    sharpe_window_size_subsampled: int
     sharpe_min_windows: int
     hac_max_lag: int
 
@@ -712,16 +722,16 @@ def _compute_ic_rolling_metrics(
     IC win rate   = fraction of windows where IC > 0                          [stability]
 
     Args:
-        stride: Subsampling stride used to create X_sub/returns_sub. sharpe_window_size
-                from APR is in RAW bars, so we divide by stride to get subsampled bars.
+        stride: Subsampling stride used to create X_sub/returns_sub. No longer used
+                for window sizing (todo 096) -- kept for call-site compatibility and
+                as context for callers/logging. Window size is a fixed subsampled-bar
+                target (config.sharpe_window_size_subsampled), so per-window
+                statistical power is comparable across every lookahead scale.
 
     Returns: (sharpe_arr, sharpe_hac_arr, sortino_arr, win_rate_arr, n_windows)
     """
-    # sharpe_window_size is in RAW bars; convert to SUBSAMPLED bars via floor division.
-    # Precision loss: e.g., 1999 raw bars with stride=10 → 199 subsampled bars (10% loss from 200).
-    # Floor division ensures we never exceed available subsampled data.
-    sharpe_window_size_raw = config.sharpe_window_size
-    sharpe_window_size = max(1, sharpe_window_size_raw // stride)
+    del stride  # no longer load-bearing for window sizing -- see docstring above
+    sharpe_window_size = max(1, config.sharpe_window_size_subsampled)
     sharpe_min_windows = config.sharpe_min_windows
 
     nan_result = np.full(n_total_features, np.nan)

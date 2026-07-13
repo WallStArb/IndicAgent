@@ -21,6 +21,7 @@ _FULL_CFG_DICT = {
     "alpha.ic.fdr_alpha": "0.05",
     "alpha.ic.walk_forward_folds": "3",
     "alpha.ic.sharpe_window_size": "2000",
+    "alpha.ic.sharpe_window_size_subsampled": "100",
     "alpha.ic.sharpe_min_windows": "30",
     "alpha.ic.subsample_min_stride": "5",
     "alpha.ic.min_reliable_n": "100",
@@ -54,6 +55,7 @@ def test_from_apr_binds_all_keys():
     assert cfg.fdr_alpha == 0.05
     assert cfg.walk_forward_folds == 3
     assert cfg.sharpe_window_size == 2000
+    assert cfg.sharpe_window_size_subsampled == 100
     assert cfg.sharpe_min_windows == 30
     assert cfg.subsample_min_stride == 5
     assert cfg.min_reliable_n == 100
@@ -68,11 +70,12 @@ def test_from_apr_applies_defaults_when_keys_missing():
     """Missing keys fall back to documented APR defaults, not a KeyError."""
     cfg = EnsembleICConfig.from_apr({})
 
-    assert cfg.decay_threshold == 0.1
+    assert cfg.decay_threshold == 0.05  # todo 096: rescaled 0.1 -> 0.05, migration 230
     assert cfg.min_qualifying_fraction == 0.60
     assert cfg.wf_stability_ratio == 3.0
     assert cfg.gate_lookahead == "fast"
     assert cfg.wf_stability_metric == "ic_ratio"
+    assert cfg.sharpe_window_size_subsampled == 100
 
 
 def test_config_is_frozen_dataclass():

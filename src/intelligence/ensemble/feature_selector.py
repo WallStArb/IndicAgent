@@ -60,7 +60,7 @@ def compute_quality_weight(
 
     Ensures features with a significant CI (on their own side) but near-zero
     |Sharpe| still receive a small positive weight (aggregate many weak signals,
-    not just strong ones). APR key: alpha.ensemble.sharpe_floor (default 0.05).
+    not just strong ones). APR key: alpha.ensemble.sharpe_floor (default 0.025, rescaled from 0.05 by todo 096/migration 230).
     """
     nearest_ci_bound = float(ic_ci_lower) if ic_sign == 1 else float(ic_ci_upper)
     signed_sharpe = ic_sign * float(ic_sharpe)
@@ -82,7 +82,8 @@ def select_features_per_stratum(
     sharpe_floor:
         Floor applied to the sign-adjusted ic_sharpe before multiplying by the
         sign-adjusted nearest CI bound in the quality_weight formula. APR key:
-        alpha.ensemble.sharpe_floor (default 0.05). Ensures features with a
+        alpha.ensemble.sharpe_floor (default 0.025, rescaled from 0.05 by todo 096/
+        migration 230). Ensures features with a
         significant CI (on their own side) but near-zero |Sharpe| still get a small
         weight.
 

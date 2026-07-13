@@ -146,10 +146,11 @@ class EnsembleICConfig:
     """Frozen config snapshot bound once at startup from APR.
 
     Reuses the shared ICEngineConfig-style keys (fdr_alpha, walk_forward_folds,
-    sharpe_window_size, sharpe_min_windows, subsample_min_stride, min_reliable_n,
-    hac_max_lag, lookahead_fast/mid/slow/extended, n_workers) plus the
-    EnsembleIC-specific keys seeded by migration 195. Frozen + picklable so workers
-    receive it directly via ProcessPoolExecutor without re-loading from DB.
+    sharpe_window_size, sharpe_window_size_subsampled, sharpe_min_windows,
+    subsample_min_stride, min_reliable_n, hac_max_lag, lookahead_fast/mid/slow/
+    extended, n_workers) plus the EnsembleIC-specific keys seeded by migration 195.
+    Frozen + picklable so workers receive it directly via ProcessPoolExecutor
+    without re-loading from DB.
     """
 
     # Shared IC-engine-style keys
@@ -173,6 +174,12 @@ class EnsembleICConfig:
     gate_lookahead: str
     wf_stability_metric: str
     min_obs_per_regime: int
+    # Todo 096: fixed window size in SUBSAMPLED bars for _compute_ic_rolling_metrics
+    # (ic_math.py) -- see ICEngineConfig's field of the same name in ic_engine.py for
+    # the full rationale. sharpe_window_size (raw bars) is now vestigial here too.
+    # Defaulted so pre-existing direct EnsembleICConfig(...) construction sites
+    # (test_ensemble_ic_worker_fetch.py) don't break on this dataclass's field growth.
+    sharpe_window_size_subsampled: int = 100
 
     @property
     def lookaheads(self) -> dict[str, int]:
@@ -191,6 +198,7 @@ class EnsembleICConfig:
             fdr_alpha=_cfg(cfg, "alpha.ic.fdr_alpha", 0.05),
             walk_forward_folds=_cfg(cfg, "alpha.ic.walk_forward_folds", 3),
             sharpe_window_size=_cfg(cfg, "alpha.ic.sharpe_window_size", 2000),
+            sharpe_window_size_subsampled=_cfg(cfg, "alpha.ic.sharpe_window_size_subsampled", 100),
             sharpe_min_windows=_cfg(cfg, "alpha.ic.sharpe_min_windows", 30),
             subsample_min_stride=_cfg(cfg, "alpha.ic.subsample_min_stride", 5),
             min_reliable_n=_cfg(cfg, "alpha.ic.min_reliable_n", 100),
@@ -203,7 +211,7 @@ class EnsembleICConfig:
             pooled_fetch_itersize=_cfg(
                 cfg, "infra.ensemble_ic_engine.pooled_fetch_itersize", 50_000
             ),
-            decay_threshold=_cfg(cfg, "alpha.ensemble_ic.decay_threshold", 0.1),
+            decay_threshold=_cfg(cfg, "alpha.ensemble_ic.decay_threshold", 0.05),
             min_qualifying_fraction=_cfg(cfg, "alpha.ensemble_ic.min_qualifying_fraction", 0.60),
             wf_stability_ratio=_cfg(cfg, "alpha.ensemble_ic.wf_stability_ratio", 3.0),
             gate_lookahead=_cfg(cfg, "alpha.ensemble_ic.gate_lookahead", "fast"),
@@ -226,9 +234,10 @@ def compute_walk_forward_stable(
     MAGNITUDE, NOT per-fold IC Sharpe.
 
     ROADMAP EIC-03 says 'IC Sharpe ratio', but a reliable per-fold Sharpe needs
-    sharpe_min_windows(30) * sharpe_window_size(2000) = 60,000 bars inside ONE fold's
-    test slice -- orders of magnitude above per-cell per-fold N (each fold test slice
-    is gated at min_reliable_n=100). ic_engine.py's own walk-forward gate (lines
+    sharpe_min_windows(30) * sharpe_window_size_subsampled(100) = 3,000 SUBSAMPLED
+    bars inside ONE fold's test slice (raw-bar equivalent scales with stride, todo
+    096) -- orders of magnitude above per-cell per-fold N (each fold test slice is
+    gated at min_reliable_n=100). ic_engine.py's own walk-forward gate (lines
     969-973) likewise uses fold IC scalars, not fold Sharpe. Metric is swappable via
     alpha.ensemble_ic.wf_stability_metric; add an 'ic_sharpe_ratio' branch here if a
     future cell N ever supports it. See CONTEXT.md D-142A-R1.

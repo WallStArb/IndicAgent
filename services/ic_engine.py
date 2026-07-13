@@ -59,10 +59,12 @@ import argparse
 import dataclasses
 import hashlib
 import json
+import pickle
+import subprocess
 import sys
 import time
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -115,6 +117,8 @@ from src.observability.metrics import (
     IC_ENGINE_CELLS_SKIPPED_TOTAL,
     IC_ENGINE_LAST_RUN_AGE_DAYS,
     IC_ENGINE_RUN_LATENCY_SECONDS,
+    IC_ENGINE_RUN_SYMBOLS_TOTAL,
+    IC_ENGINE_SYMBOLS_COMPLETED_TOTAL,
     IC_SCORE_GAUGE,
     IC_SHARPE_GAUGE,
     IC_SORTINO_GAUGE,
@@ -441,6 +445,18 @@ class ICEngineConfig:
     # (test_hac_ic_sharpe.py, test_ic_engine_lifecycle_hook.py) must not break on
     # this dataclass's field-count growth.
     regime_groups_json: str = "[]"
+    # Todo 096: fixed window size in SUBSAMPLED bars for _compute_ic_rolling_metrics
+    # (ic_math.py), replacing the old sharpe_window_size (raw bars // stride)
+    # semantics, which let per-window statistical power collapse at longer
+    # lookaheads and mechanically deflated ic_sharpe with zero real signal decay.
+    # New APR key (alpha.ic.sharpe_window_size_subsampled, migration 230) rather
+    # than a redefinition of sharpe_window_size -- avoids silent code/config
+    # rollback skew and preserves the old key's raw-bar provenance in
+    # config_history. sharpe_window_size itself is now vestigial (no longer read
+    # by ic_math.py) but kept bound below for APR provenance continuity; do not
+    # wire it into any new logic. Defaulted for the same reason as every other
+    # post-143 field.
+    sharpe_window_size_subsampled: int = 100
 
     @property
     def lookaheads(self) -> dict[str, int]:
@@ -474,6 +490,9 @@ class ICEngineConfig:
             fdr_alpha=float(cfg.get_sync("alpha.ic.fdr_alpha", 0.05)),
             walk_forward_folds=int(cfg.get_sync("alpha.ic.walk_forward_folds", 3)),
             sharpe_window_size=int(cfg.get_sync("alpha.ic.sharpe_window_size", 2000)),
+            sharpe_window_size_subsampled=int(
+                cfg.get_sync("alpha.ic.sharpe_window_size_subsampled", 100)
+            ),
             sharpe_min_windows=int(cfg.get_sync("alpha.ic.sharpe_min_windows", 10)),
             subsample_min_stride=int(cfg.get_sync("alpha.ic.subsample_min_stride", 5)),
             min_reliable_n=int(cfg.get_sync("alpha.ic.min_reliable_n", 100)),
@@ -1350,11 +1369,16 @@ def _compute_symbol_tf(
                 wf_pass_count = folds_passed
                 passes_wf = folds_counted > 0 and folds_passed == folds_counted
 
-                # IC Sharpe — expected NaN for daily data.
-                # sharpe_window_size (APR default 2000) is calibrated for intraday bars.
-                # With ~1000-2995 daily observations, n // sharpe_window_size < sharpe_min_windows
-                # and _compute_ic_rolling_metrics returns NaN. This is documented expected behavior:
-                # daily-cadence features do not have enough history to fill the intraday Sharpe window.
+                # IC Sharpe — daily-data behavior changed under todo 096's fix.
+                # Previously NaN: sharpe_window_size (raw bars, APR default 2000) was
+                # calibrated for intraday bars, so n // (2000 // stride) < sharpe_min_windows
+                # for ~1000-2995 daily observations. Now that window size is a fixed
+                # SUBSAMPLED-bar target (alpha.ic.sharpe_window_size_subsampled, default
+                # 100) rather than derived from a raw-bar constant, daily data with
+                # >= sharpe_min_windows * 100 observations clears the gate and produces a
+                # real (not NaN) daily ic_sharpe. This is intentional -- the old NaN was an
+                # artifact of the raw-bar/stride formula, not a genuine data-insufficiency
+                # signal for daily cadence.
                 ic_sharpe_val = None
                 ic_sharpe_hac_val = None
                 ic_sortino_val = None
@@ -2087,6 +2111,90 @@ def _write_ic_results(
         n_committed += len(regime_rows)
     conn.commit()
     return n_committed
+
+
+def _git_head_short() -> str:
+    """Short git HEAD SHA, used to key checkpoint directories.
+
+    A checkpoint computed under one commit is not safe to blindly reuse under
+    another -- 2026-07-12 found a corpus rerun computing 5h of results against
+    stale routing logic while a concurrent session merged Phase 144's
+    regime_group fix underneath it. Keying checkpoints to HEAD means a code
+    change automatically invalidates old checkpoints (they simply won't be
+    found under the new directory) instead of silently being replayed.
+    """
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=Path(__file__).resolve().parent.parent,
+        ).stdout.strip()
+    except Exception:
+        return "unknown"
+
+
+def _checkpoint_dir(training_window_end: Any, git_head: str) -> Path:
+    safe_ts = str(training_window_end).replace(":", "").replace(" ", "T").replace("+", "_")
+    return Path("logs/ic_engine_checkpoints") / f"{safe_ts}_{git_head}"
+
+
+def _load_checkpoint(checkpoint_dir: Path, symbol: str) -> dict | None:
+    """Load a symbol's checkpointed raw worker result, if present and readable."""
+    path = checkpoint_dir / f"{symbol}.pkl"
+    if not path.exists():
+        return None
+    try:
+        with path.open("rb") as f:
+            return pickle.load(f)
+    except Exception as error:
+        _logger.warning("ic_engine.checkpoint_load_failed", symbol=symbol, error=str(error))
+        return None
+
+
+def _save_checkpoint(checkpoint_dir: Path, symbol: str, result: dict) -> None:
+    """Persist one symbol's raw worker result so a restart can skip recompute.
+
+    This is NOT the statistical write -- feature_ic_scores still gets written
+    exactly once, corpus-wide, by _write_ic_results after BH-FDR runs on the
+    full set. This only makes the expensive per-symbol COMPUTE phase resumable.
+    Write-then-rename for atomicity (a killed process mid-write must not leave
+    a corrupt .pkl that a later run would fail to load).
+    """
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    path = checkpoint_dir / f"{symbol}.pkl"
+    tmp_path = path.with_suffix(".pkl.tmp")
+    with tmp_path.open("wb") as f:
+        pickle.dump(result, f)
+    tmp_path.rename(path)
+
+
+def _accumulate_worker_result(
+    result: dict,
+    corpus_all_results: list[dict],
+    corpus_pooled_rows: list[dict],
+    corpus_regime_rows: list[dict],
+    corpus_pvals_flat: list[float],
+    corpus_pval_result_idxs: list[int],
+    per_symbol_results: list[tuple[str, list[dict]]],
+) -> int:
+    """Accumulate one symbol's worker result into the corpus-level accumulators.
+
+    Shared by the fresh-compute path (as_completed loop) and the checkpoint-resume
+    path so pval-index offsetting stays correct regardless of which path a symbol
+    came from -- BH-FDR only needs pvals_flat/pval_result_idxs mutually consistent,
+    not accumulated in any particular symbol order. Returns n_skipped for that symbol.
+    """
+    offset = len(corpus_all_results)
+    for idx in result.get("pval_result_idxs", []):
+        corpus_pval_result_idxs.append(offset + idx)
+    corpus_pvals_flat.extend(result.get("pvals_flat", []))
+    corpus_pooled_rows.extend(result["pooled_rows"])
+    corpus_regime_rows.extend(result["regime_rows"])
+    corpus_all_results.extend(result["all_results"])
+    per_symbol_results.append((result["symbol"], result["all_results"]))
+    return result["n_skipped"]
 
 
 def _write_cross_sectional_results(
@@ -2878,6 +2986,18 @@ def main() -> None:
 
             # APR already bound in config above; derive n_workers from config or CLI override.
             n_workers = args.workers if args.workers is not None else config.n_workers
+            if args.workers is not None and args.workers != config.n_workers:
+                # 2026-07-12: a silent --workers 4 override against an APR default of 8
+                # (and a plan-benchmarked 12) produced a ~40x runtime blowout that took
+                # hours of profiling to attribute to worker count vs. algorithm cost.
+                # Loud, not silent -- "silent wrong answers are worse than loud crashes"
+                # applies to performance-invalidating config drift too, not just data bugs.
+                _logger.warning(
+                    "ic_engine.workers_override",
+                    cli_workers=args.workers,
+                    apr_workers=config.n_workers,
+                    note="explicit --workers overrides infra.ic_engine.workers APR value",
+                )
 
             # ----------------------------------------------------------
             # Load market_regimes {ts -> regime_label} per (regime_group, tf).
@@ -2922,12 +3042,48 @@ def main() -> None:
             corpus_pvals_flat: list[float] = []
             corpus_pval_result_idxs: list[int] = []
             per_symbol_results: list[tuple[str, list[dict]]] = []
+            checkpoint_dir: Path | None = None
 
             if args.cross_sectional_only:
                 _logger.info("ic_engine.skipping_per_symbol_pass", reason="--cross-sectional-only")
                 conn.close()
                 conn = None
             else:
+                # ----------------------------------------------------------
+                # Checkpoint resume: skip recompute for symbols already checkpointed
+                # under this exact git commit (see _git_head_short docstring -- a
+                # checkpoint from a different commit is never reused). Compute-phase
+                # resumability only; feature_ic_scores is still written exactly once,
+                # corpus-wide, after BH-FDR below.
+                # ----------------------------------------------------------
+                git_head = _git_head_short()
+                checkpoint_dir = _checkpoint_dir(training_window_end, git_head)
+                n_resumed = 0
+                symbols_to_compute: list[str] = []
+                for symbol in symbols:
+                    checkpointed = _load_checkpoint(checkpoint_dir, symbol)
+                    if checkpointed is not None and not checkpointed.get("error"):
+                        total_skipped += _accumulate_worker_result(
+                            checkpointed,
+                            corpus_all_results,
+                            corpus_pooled_rows,
+                            corpus_regime_rows,
+                            corpus_pvals_flat,
+                            corpus_pval_result_idxs,
+                            per_symbol_results,
+                        )
+                        n_resumed += 1
+                        IC_ENGINE_SYMBOLS_COMPLETED_TOTAL.add(1, {"source": "checkpoint"})
+                    else:
+                        symbols_to_compute.append(symbol)
+                if n_resumed:
+                    _logger.info(
+                        "ic_engine.checkpoint_resumed",
+                        n_resumed=n_resumed,
+                        n_remaining=len(symbols_to_compute),
+                        checkpoint_dir=str(checkpoint_dir),
+                    )
+
                 worker_args = [
                     (
                         symbol,
@@ -2944,49 +3100,65 @@ def main() -> None:
                             else None
                         ),
                     )
-                    for symbol in symbols
+                    for symbol in symbols_to_compute
                 ]
 
+                IC_ENGINE_RUN_SYMBOLS_TOTAL.set(len(symbols))
                 _logger.info(
                     "ic_engine.starting_parallel",
                     n_symbols=len(symbols),
+                    n_to_compute=len(symbols_to_compute),
                     n_workers=n_workers,
                 )
                 conn.close()
                 conn = None  # prevent double-close in finally
 
                 # ----------------------------------------------------------
-                # Main compute loop (ProcessPoolExecutor)
-                # Buffer all worker results; BH-FDR applied once after all
-                # workers complete (corpus-level FDR, P2 fix).
+                # Main compute loop (ProcessPoolExecutor). as_completed (not
+                # pool.map) so progress reflects real completion order, not
+                # submission order -- pool.map buffers a fast worker's result
+                # behind a slower earlier-submitted one, which on 2026-07-12
+                # made 5 already-finished symbols invisible for ~2 hours behind
+                # one slow one. Each result is checkpointed immediately so a
+                # kill/restart only redoes symbols not yet reported here.
+                # Buffer all results; BH-FDR applied once after all workers
+                # complete (corpus-level FDR, P2 fix).
                 # ----------------------------------------------------------
-                with ProcessPoolExecutor(max_workers=n_workers) as pool:
-                    for result in pool.map(_run_ic_worker, worker_args, chunksize=1):
-                        symbol = result["symbol"]
-                        if result["error"]:
-                            _logger.error(
-                                "ic_engine.symbol_failed",
-                                symbol=symbol,
-                                error=result["error"],
+                n_done = n_resumed
+                if worker_args:
+                    with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                        futures = {pool.submit(_run_ic_worker, wa): wa[0] for wa in worker_args}
+                        for future in as_completed(futures):
+                            result = future.result()
+                            symbol = result["symbol"]
+                            if result["error"]:
+                                _logger.error(
+                                    "ic_engine.symbol_failed",
+                                    symbol=symbol,
+                                    error=result["error"],
+                                )
+                                status = "failure"
+                                exit_code = 1
+                            else:
+                                _save_checkpoint(checkpoint_dir, symbol, result)
+                            total_skipped += _accumulate_worker_result(
+                                result,
+                                corpus_all_results,
+                                corpus_pooled_rows,
+                                corpus_regime_rows,
+                                corpus_pvals_flat,
+                                corpus_pval_result_idxs,
+                                per_symbol_results,
                             )
-                            status = "failure"
-                            exit_code = 1
-                        total_skipped += result["n_skipped"]
-                        # Accumulate with offset into corpus_all_results.
-                        offset = len(corpus_all_results)
-                        for idx in result.get("pval_result_idxs", []):
-                            corpus_pval_result_idxs.append(offset + idx)
-                        corpus_pvals_flat.extend(result.get("pvals_flat", []))
-                        corpus_pooled_rows.extend(result["pooled_rows"])
-                        corpus_regime_rows.extend(result["regime_rows"])
-                        corpus_all_results.extend(result["all_results"])
-                        per_symbol_results.append((symbol, result["all_results"]))
-                        _logger.info(
-                            "ic_engine.symbol_computed",
-                            symbol=symbol,
-                            n_rows=len(result["all_results"]),
-                            n_skipped=result["n_skipped"],
-                        )
+                            n_done += 1
+                            IC_ENGINE_SYMBOLS_COMPLETED_TOTAL.add(1, {"source": "fresh"})
+                            _logger.info(
+                                "ic_engine.symbol_computed",
+                                symbol=symbol,
+                                n_rows=len(result["all_results"]),
+                                n_skipped=result["n_skipped"],
+                                progress=f"{n_done}/{len(symbols)}",
+                            )
 
             # ----------------------------------------------------------
             # Cross-sectional IC pass (equity_model_enabled=True only, i.e.
@@ -3189,6 +3361,17 @@ def main() -> None:
             manifest.mark_success()
             manifest_path = manifest.write()
             _logger.info("ic_engine.manifest_written", path=str(manifest_path))
+
+            # Checkpoints are compute-phase resumability aids only, not an audit
+            # trail -- once the corpus-wide write+lifecycle hook above are durable,
+            # a fully successful run has no further use for them. Only clean up on
+            # a clean run (status == "success"): if any symbol failed, leave the
+            # successful symbols' checkpoints in place so a retry can skip them.
+            if checkpoint_dir is not None and status == "success" and checkpoint_dir.exists():
+                for f in checkpoint_dir.glob("*.pkl"):
+                    f.unlink()
+                checkpoint_dir.rmdir()
+                _logger.info("ic_engine.checkpoints_cleaned", checkpoint_dir=str(checkpoint_dir))
 
             _logger.info(
                 "ic_engine.run_complete",

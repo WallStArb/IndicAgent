@@ -140,10 +140,69 @@ run still not complete.**
   "no failures so far" — real measured output is flowing. Next check: full completion (process
   exits, rows land) or a failure recurrence.
 
+## Status as of 2026-07-12T20:39 UTC: killed a second time — stale code, not a new failure, plus a real perf finding and a resumability fix
+
+The connection-lifecycle fix above is confirmed correct and stays fixed. What follows is a
+**separate** event on top of it.
+
+**Runtime reality check.** Filtering `logs/ic_engine.log` to only this run's lines (after
+12:52:48 UTC) showed **10 symbols in 5 hours**, not the 20 an earlier unfiltered grep suggested
+(that count leaked in 2 dead prior attempts' log lines). 10/80 in 5h projects to **~40 hours
+total** —40x over `143.1-07-CORPUS-RERUN.md`'s own pre-committed 60-minute budget (central
+estimate 16.5min at `workers=12`). `py-spy dump` on a live worker (5/5 samples) confirmed the
+time is genuinely spent in `_circular_block_bootstrap_ic`'s per-iteration `rankdata`/`argsort`
+(`ic_math.py:193`) — **this is correct, deliberate code** (the docstring explains a vectorized
+broadcast form was rejected for 7.5GB/worker OOM risk), not a bug. The 60-minute budget simply
+never accounted for full production scale (150+ features × ~40 (tf,regime) cells/symbol × 2000
+resamples). **`143.1-CONTEXT.md`'s E6 runtime-budget entry should be corrected to reflect this
+real-world number** so a future reader doesn't trust the 16.5min estimate.
+
+Separately, `free -h` showed this box has only **29GB RAM** with 17GB in swap. The 4 running
+workers were confirmed NOT thrashing (99.7% sustained CPU, not iowait-bound) but only ~8.8GB was
+available — **`workers=12` (the plan's benchmark) would not have fit**; `infra.ic_engine.workers`'s
+existing APR value of `8` is the real safe ceiling on this machine, not 12. The run had been
+launched with an explicit `--workers 4` CLI override that silently bypassed the APR default —
+now fixed (see below).
+
+**Then, before any restart: found a concurrent Claude Code session had spent that same ~5h
+window autonomously executing all of Phase 144 (`regime_group` cross-sectional model) via git
+worktrees, merged straight to `main`** — including migration 229
+(`market_regimes.asset_class`→`regime_group`) and an `ic_engine.py` rewrite fixing a confirmed
+cross-sectional pooling contamination bug (144-05b). This run's process had loaded the
+pre-Phase-144 code into memory hours before any of that landed, so its progress was stale
+regardless of the perf question above. Full detail:
+[Phase 144 status](../../../.claude/projects/-home-bg-dev-indicagent/memory/project_v315_phase144_status.md)
+(memory) and 144-06-SUMMARY / `ROADMAP.md`.
+
+**Action taken:** killed PID 3152282 + `kill -9`'d 5 orphaned forkserver workers (`pool.map`
+doesn't propagate SIGTERM to forked children). Applied migration 229 (was merged in code but
+never actually run against the live DB — `market_regimes` had no `regime_group` column).
+Confirmed `ops_corpus_pipeline_run.sh` step 4 is now `cross_sectional_regime_model` (the
+concurrent session updated the script too); `market_regimes` only had stale `equity` rows (max
+ts 2026-07-07) and zero `rates` rows, so **the correct restart point is `--from-step 4`**, not
+step 5 (`ic_engine` alone).
+
+**Also shipped to `services/ic_engine.py` + `src/observability/metrics.py` this same session**
+(uncommitted, full `tests/unit/` green): per-symbol checkpointing keyed to git HEAD short-SHA
+(`_save_checkpoint`/`_load_checkpoint`, `logs/ic_engine_checkpoints/<training_window_end>_<sha>/`)
+so a kill/restart only recomputes symbols not yet checkpointed under the *current* commit — a
+code change (like Phase 144 landing) automatically invalidates old checkpoints rather than
+risking a silent stale replay; `pool.map`→`pool.submit`+`as_completed` (fixes the submission-order
+visibility problem documented in the 14:49 UTC status entry above); a loud warning when
+`--workers` overrides the APR value; `IC_ENGINE_SYMBOLS_COMPLETED_TOTAL`/`IC_ENGINE_RUN_SYMBOLS_TOTAL`
+metrics for real progress instead of log-grepping.
+
+**Not yet done:** relaunch (`ops_corpus_pipeline_run.sh --from-step 4`, `--workers 8`) — waiting
+on a machine reboot first (17GB swap, user-initiated). Once relaunched and fully green, close
+this todo out; also re-run `scripts/analysis/phase144_regime_separation_gate.py` (144's D-05
+gate, currently `BLOCKED-ON-143.1-07`) once `feature_ic_scores` is fresh.
+
 ## References
 
 - `logs/ic_engine.log`, `docker logs timescaledb`
 - `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-01-PLAN.md`
   (the bootstrap CI change that raised per-cell compute cost)
 - `.planning/phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-07-CORPUS-RERUN.md`
-  (the plan this run is executing)
+  (the plan this run is executing; its E6 runtime-budget estimate needs correcting per above)
+- `.planning/phases/144-cross-sectional-regime-model-regime-group-planned/144-06-SUMMARY.md`
+  (D-05 gate, `BLOCKED-ON-143.1-07`)

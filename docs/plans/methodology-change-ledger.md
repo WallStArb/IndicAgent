@@ -215,6 +215,21 @@ last month's weights is a silent methodology choice too.
   re-benchmarked here. If a future corpus-wide re-run measures wall-clock materially
   above this budget, that is itself a signal worth investigating (worker starvation,
   DB contention, or an undercounted tail) before accepting the result.
+- **Addendum (2026-07-12): the budget was materially wrong, investigated per the note
+  above.** The 143.1-07 corpus-wide re-run (`--workers 4`, not the 12 this estimate
+  assumed) measured **~10 symbols/5h**, projecting **~40h total** — roughly 40x this
+  entry's 60-minute budget, not the ~3x a worker-count-only explanation (4 vs. 12) would
+  predict. `py-spy dump` (5/5 samples) confirmed time is genuinely spent inside
+  `_circular_block_bootstrap_ic`'s `rankdata`/`argsort` — i.e. the code is doing exactly
+  what this entry designed it to do, not a regression. Root cause of the estimate's own
+  error: it summed per-call cost at each stratum's *average* group size, but per-call
+  cost scales superlinearly in `n` (empirical exponent ≈1.1-1.15, noted above) and real
+  corpus cost is dominated by the heavy right tail of large POOLED cells (this entry's
+  own example: the largest observed 5m POOLED cell alone costs 687s) landing
+  disproportionately given only 4 (not 12) concurrent workers to spread that tail across.
+  **Do not cite the ≈16.5min central estimate or the 60-minute budget as reliable going
+  forward** — full detail and the resulting checkpointing/resumability fix in
+  `.planning/todos/pending/102-ic-engine-idle-session-timeout-writes-zero-rows.md`.
 
 ### E7 — 2026-07-11: Canary integrity gate quantitative rule pre-committed before first exercise (Component D, todo 068, Phase 143.1-02)
 - **Observed first:** nothing — `ops_canary_integrity_assert.py` has never been run
