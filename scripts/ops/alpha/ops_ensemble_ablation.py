@@ -136,3 +136,51 @@ def weight_mass_fraction(signed_weights: np.ndarray, group_names: list[str], fam
         return 0.0
     mask = np.array([g == family for g in group_names], dtype=bool)
     return float(abs_w[mask].sum()) / total
+
+
+# ---------------------------------------------------------------------------
+# Cross-symbol pooling (pure) -- alpha_ensemble_ic POOLED convention
+# ---------------------------------------------------------------------------
+
+
+def apply_complete_gate(returns: np.ndarray, complete: np.ndarray) -> np.ndarray:
+    """Censor incomplete forward returns BEFORE pooling: a return participates only
+    when complete_<scale> is true AND the value is finite (services/ic_engine.py
+    lines 1848-1850). Returns a copy with NaN at censored positions; NaN is then
+    skipped by pool_means_by_bar, so a censored per-symbol return can never leak
+    into a pooled cross-symbol mean.
+    """
+    out = np.asarray(returns, dtype=np.float64).copy()
+    out[~np.asarray(complete, dtype=bool)] = np.nan
+    return out
+
+
+def pool_means_by_bar(bar_idx: np.ndarray, n_bars: int, values: np.ndarray) -> np.ndarray:
+    """Cross-symbol mean per bar: the alpha_ensemble_ic POOLED aggregation grain
+    (group by bar_ts within a fixed (tf, regime) stratum, average across symbols
+    BEFORE any IC math -- ensemble_ic_engine._aggregate_pooled_series / RESEARCH
+    Pitfall 5). Vectorized via bincount instead of reusing _aggregate_pooled_series
+    directly because each stratum pools 12 arms over the same bar grouping and the
+    dict-per-row oracle would rebuild row dicts per arm; equivalence with the
+    oracle is pinned by test_pool_means_by_bar_matches_aggregate_pooled_series so
+    the two implementations cannot silently diverge.
+
+    Args:
+        bar_idx: [n_rows] int array mapping each (symbol, bar) row to its bar's
+            index in time-sorted unique-bar order (np.unique(..., return_inverse)).
+        n_bars: number of distinct bars (len of np.unique's first output).
+        values: [n_rows] float array; NaN entries are skipped (missing member,
+            not a zero observation).
+
+    Returns:
+        [n_bars] float64 array of per-bar means; NaN where a bar has zero finite
+        members (unmeasurable, never a silent 0.0).
+    """
+    values = np.asarray(values, dtype=np.float64)
+    finite = np.isfinite(values)
+    sums = np.bincount(bar_idx[finite], weights=values[finite], minlength=n_bars)
+    counts = np.bincount(bar_idx[finite], minlength=n_bars)
+    out = np.full(n_bars, np.nan)
+    has_members = counts > 0
+    out[has_members] = sums[has_members] / counts[has_members]
+    return out

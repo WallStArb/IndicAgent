@@ -78,3 +78,114 @@ def test_weight_mass_fraction_zero_total_returns_zero():
 
 def test_baseline_arm_sentinel_is_not_a_plausible_group_name():
     assert _BASELINE_ARM == "__baseline__"
+
+
+# ---------------------------------------------------------------------------
+# Task 2: pooling kernel
+# ---------------------------------------------------------------------------
+
+
+def test_apply_complete_gate_nans_incomplete_and_copies():
+    """ic_engine convention (lines 1848-1850): a return is usable only when
+    complete AND finite. Gate applied pre-pooling; input untouched."""
+    from ops_ensemble_ablation import apply_complete_gate
+
+    returns = np.array([0.01, 0.02, np.nan, 0.04])
+    complete = np.array([True, False, True, True])
+    gated = apply_complete_gate(returns, complete)
+    assert np.isfinite(gated[0]) and gated[0] == 0.01
+    assert np.isnan(gated[1])  # complete=False censored even though value present
+    assert np.isnan(gated[2])  # already NaN stays NaN
+    assert gated[3] == 0.04
+    assert returns[1] == 0.02  # input not mutated
+
+
+def test_pool_means_by_bar_matches_aggregate_pooled_series():
+    """Equivalence oracle: our vectorized pooling must produce the exact same
+    cross-symbol means as ensemble_ic_engine._aggregate_pooled_series (the
+    alpha_ensemble_ic POOLED convention, Pitfall 5: group before averaging),
+    including None/NaN-skipping semantics. Two symbols, three bars, one missing
+    value and one bar with a single member."""
+    from datetime import UTC, datetime
+
+    from ops_ensemble_ablation import pool_means_by_bar
+
+    from services.ensemble_ic_engine import _aggregate_pooled_series
+
+    t1 = datetime(2026, 1, 5, 14, 30, tzinfo=UTC)
+    t2 = datetime(2026, 1, 5, 14, 35, tzinfo=UTC)
+    t3 = datetime(2026, 1, 5, 14, 40, tzinfo=UTC)
+    oracle_rows = [
+        {
+            "bar_ts": t1,
+            "regime_label": "low_bull",
+            "alpha_score": 1.0,
+            "return_fast": 0.01,
+            "return_mid": None,
+            "return_slow": None,
+            "return_extended": None,
+        },
+        {
+            "bar_ts": t1,
+            "regime_label": "low_bull",
+            "alpha_score": 3.0,
+            "return_fast": 0.03,
+            "return_mid": None,
+            "return_slow": None,
+            "return_extended": None,
+        },
+        {
+            "bar_ts": t2,
+            "regime_label": "low_bull",
+            "alpha_score": 5.0,
+            "return_fast": None,
+            "return_mid": None,
+            "return_slow": None,
+            "return_extended": None,
+        },
+        {
+            "bar_ts": t3,
+            "regime_label": "low_bull",
+            "alpha_score": 2.0,
+            "return_fast": 0.02,
+            "return_mid": None,
+            "return_slow": None,
+            "return_extended": None,
+        },
+        {
+            "bar_ts": t3,
+            "regime_label": "low_bull",
+            "alpha_score": 4.0,
+            "return_fast": 0.06,
+            "return_mid": None,
+            "return_slow": None,
+            "return_extended": None,
+        },
+    ]
+    oracle = _aggregate_pooled_series(oracle_rows, "5m")  # sorted by bar_ts
+
+    bar_ts_arr = np.array([t1, t1, t2, t3, t3], dtype=object)
+    unique_ts, bar_idx = np.unique(bar_ts_arr, return_inverse=True)
+    alpha = np.array([1.0, 3.0, 5.0, 2.0, 4.0])
+    ret_fast = np.array([0.01, 0.03, np.nan, 0.02, 0.06])
+
+    pooled_alpha = pool_means_by_bar(bar_idx, len(unique_ts), alpha)
+    pooled_fast = pool_means_by_bar(bar_idx, len(unique_ts), ret_fast)
+
+    assert list(unique_ts) == [r["bar_ts"] for r in oracle]
+    np.testing.assert_allclose(pooled_alpha, [r["alpha_score"] for r in oracle])
+    # oracle returns None for the all-missing bar; ours returns NaN
+    oracle_fast = [np.nan if r["return_fast"] is None else r["return_fast"] for r in oracle]
+    np.testing.assert_allclose(pooled_fast, oracle_fast)
+
+
+def test_pool_means_by_bar_all_nan_bar_is_nan_not_zero():
+    """A bar with zero finite members must pool to NaN (unmeasurable), never a
+    silent 0.0 -- 0.0 would enter downstream rank correlations as fake data."""
+    from ops_ensemble_ablation import pool_means_by_bar
+
+    bar_idx = np.array([0, 0, 1])
+    values = np.array([np.nan, np.nan, 5.0])
+    pooled = pool_means_by_bar(bar_idx, 2, values)
+    assert np.isnan(pooled[0])
+    assert pooled[1] == 5.0
