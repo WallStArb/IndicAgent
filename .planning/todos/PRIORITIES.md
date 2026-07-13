@@ -66,7 +66,6 @@ without re-confirming with the project owner.
 | [068](pending/068-canary-predictors-integrity-check.md) | Cheapest integrity purchase available — negative-control predictors, zero new services, gate: none |
 | [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09 |
 | [072](pending/072-crowding-proxy-regression.md) | Alpha overlap with public-factor signals — runs against data that exists today, no dependency |
-| [084](pending/084-ablation-protocol-ensemble-degradation.md) | Pre-committed ablation protocol — buildable now against existing tables, no new schema |
 | [079](pending/079-anytime-valid-e-values-corpus-reruns.md) | Anytime-valid inference pilot (one tf) — new statistical primitive, deliberately staged small |
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |
 | [090](pending/090-ic-decomposition-hit-rate-magnitude.md) | Hit-rate × magnitude decomposition — cheap diagnostic columns, no gate change |
