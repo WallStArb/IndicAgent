@@ -576,7 +576,7 @@ Plans:
 </details>
 
 <details>
-<summary>♻️ Phase 135: Controlled Vocabulary System — SUPERSEDED by Phase 142B.3 (2026-07-13)</summary>
+<summary>♻️ Phase 135: Controlled Vocabulary System — SUPERSEDED by Phase 160 (2026-07-13)</summary>
 
 **Closure note (2026-07-13):** this phase was scoped in the pre-v3.0 phase-numbering era (the
 100-136 block — every other member is `[x] Complete` or `CANCELLED`; this was the one silent
@@ -584,7 +584,7 @@ exception) and got orphaned when the codebase moved to v3.0 around it: never exe
 formally closed. A stray note once claimed it was "deferred indefinitely per STATE.md" — checked,
 STATE.md contains zero mentions of Phase 135, that citation was itself stale. Its design doc
 stayed current through the v3.0+ governance-framework rewrites even though this phase entry
-didn't. **See Phase 142B.3** for the live version of this work, now under a number in the current
+didn't. **See Phase 160** for the live version of this work, now under a number in the current
 sequence. Original content preserved below for history.
 
 **Goal:** A central, reusable vocabulary and taxonomy registry — the APR equivalent for symbolic codes. Three DB tables (`controlled_vocabulary`, `vocabulary_group`, `vocabulary_group_member`), one `VocabularyService`, one `/api/vocabulary/{namespace}` endpoint. Any domain registers its enum vocabulary into a namespace; any consumer reads it without hardcoding. First consumer: dashboard signal filter dropdowns.
@@ -1075,9 +1075,9 @@ after, which is what's happening). **Next step once 142B.1 completes:** a small 
 seeding `concept-governance-registries.md`'s four-table MVP from 142B.1's E1-E4 `weight_version`
 rows, before any `confluence`/`regime_model` domain needs it (those are still further out — see
 v3.15 and intel-10 v3). Not doing this promptly is how "deferred" becomes "deferred indefinitely."
-**Registered 2026-07-13 as Phase 142B.2 below.**
+**Registered 2026-07-13 as Phase 159 below** (standalone number -- this work is triggered by 142B.1 completing, not a sub-phase of it; placed here for reading context).
 
-### Phase 142B.2: Concept Registry MVP 📋 PLANNED
+### Phase 159: Concept Registry MVP 📋 PLANNED
 
 **Goal:** Build the four-table evidence-gated lifecycle registry (`concept_registry` /
 `concept_gate` / `concept_transition_log` / `concept_annotation`) and seed `domain='ensemble_strategy'`
@@ -1103,10 +1103,10 @@ it jump ahead of Phase 144/147.
   `.planning/todos/pending/112-concept-registry.md`, `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md`
   (MEDIUM tier — Effort M, Risk Low, Reward Low-now/Med-long-run).
 
-**Plans:** TBD at `/gsd-plan-phase 142B.2` — the implementation plan already written can likely
+**Plans:** TBD at `/gsd-plan-phase 159` — the implementation plan already written can likely
 seed this directly rather than re-deriving task breakdown from scratch.
 
-### Phase 142B.3: Controlled Vocabulary System 📋 PLANNED
+### Phase 160: Controlled Vocabulary System 📋 PLANNED
 
 **Goal:** A central, reusable vocabulary and taxonomy registry — the APR equivalent for symbolic
 codes. Three DB tables (`controlled_vocabulary`, `vocabulary_group`, `vocabulary_group_member`),
@@ -1124,7 +1124,7 @@ phase carries that live design forward under a number in the current sequence. S
 own entry for the closure note.
 
 **Depends on:** None — Phase 134 (PG ENUM types) shipped 2026-06-18, the only prerequisite either
-phase ever named. Opportunistic, same treatment as Phase 142B.2 above — ranks below it (see
+phase ever named. Opportunistic, same treatment as Phase 159 above — ranks below it (see
 matrix: no incident has yet demonstrated the cost of not having this, unlike Concept Registry's
 F1 near-miss).
 
@@ -1137,7 +1137,7 @@ F1 near-miss).
 - Priority context: `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md` (MEDIUM
   tier — Effort M, Risk Low, Reward Low).
 
-**Plans:** TBD at `/gsd-plan-phase 142B.3`.
+**Plans:** TBD at `/gsd-plan-phase 160`.
 
 ### Phase 142.5: Renaissance Primitives ✅ COMPLETE (8/8 plans, 2026-07-07) (INSERTED)
 

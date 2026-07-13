@@ -5,9 +5,9 @@ filed: 2026-07-13
 source: doc-organization session — Controlled Vocabulary had zero todo tracking it at all
 ---
 
-**Registered as ROADMAP Phase 142B.3** (2026-07-13, supersedes orphaned Phase 135) — see
+**Registered as ROADMAP Phase 160** (2026-07-13, supersedes orphaned Phase 135) — see
 `.planning/ROADMAP.md` for the live phase entry. This todo stays as prioritization context;
-`/gsd-discuss-phase 142B.3` is the next step, not yet run.
+`/gsd-discuss-phase 160` is the next step, not yet run.
 
 # Controlled Vocabulary
 
