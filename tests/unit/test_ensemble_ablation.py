@@ -425,3 +425,189 @@ def test_prepare_stratum_arrays_trainer_conventions():
     assert gated["mid"][1] == 0.05
     assert np.isnan(gated["extended"][1])  # complete_extended=False censored
     assert stored[0] == 0.7 and np.isnan(stored[1])
+
+
+from ops_ensemble_ablation import (
+    _FLAG_ABSENT,
+    _FLAG_BASELINE_UNMEASURABLE,
+    _FLAG_CONTROL_BREACH,
+    _FLAG_DEGENERATE,
+    AblationConfig,
+    AttributionRow,
+    apply_delta_fdr,
+    compute_stratum_attribution,
+)
+
+# ---------------------------------------------------------------------------
+# Task 5: attribution assembly
+# ---------------------------------------------------------------------------
+
+_TEST_CONFIG = AblationConfig(
+    subsample_min_stride=1,
+    min_reliable_n=50,
+    fdr_alpha=0.05,
+    lookahead_fast=1,
+    lookahead_mid=1,
+    lookahead_slow=1,
+    lookahead_extended=1,
+)
+
+
+def _one_symbol_panel(n_bars: int = 400):
+    """Single-symbol panel (pooling is identity): 2 features, feature 0
+    ('momentum') is a perfect rank predictor of returns, feature 1 ('volume') is
+    seeded noise. bar_idx = arange since one row per bar."""
+    rng = np.random.default_rng(7)
+    returns = rng.normal(size=n_bars)
+    predictor = returns.copy()  # rank-identical to returns
+    noise = rng.normal(size=n_bars)
+    X = np.column_stack([predictor, noise]).astype(np.float32)
+    bar_idx = np.arange(n_bars)
+    pooled_returns = {s: returns.astype(np.float64) for s in ("fast", "mid", "slow", "extended")}
+    return X, bar_idx, n_bars, pooled_returns
+
+
+def test_attribution_zeroing_predictive_family_drops_ic():
+    X, bar_idx, n_bars, pooled_returns = _one_symbol_panel()
+    rows = compute_stratum_attribution(
+        tf="5m",
+        regime="low_bull",
+        families=["momentum", "volume", "control"],
+        group_names=["momentum", "volume"],
+        signed_weights=np.array([1.0, 0.05]),
+        X=X,
+        bar_idx=bar_idx,
+        n_bars=n_bars,
+        pooled_returns_by_scale=pooled_returns,
+        config=_TEST_CONFIG,
+    )
+    fast = {r.family: r for r in rows if r.scale == "fast"}
+    baseline = fast["__baseline__"]
+    assert baseline.ic_baseline is not None and baseline.ic_baseline > 0.9
+    momentum = fast["momentum"]
+    # removing the predictive family must reduce IC: positive marginal contribution
+    assert momentum.delta_ic is not None and momentum.delta_ic > 0.5
+    assert momentum.ic_ablated is not None and momentum.ic_ablated < 0.3
+    assert momentum.diff_p is not None
+    # noise family removal barely moves IC
+    volume = fast["volume"]
+    assert volume.delta_ic is not None and abs(volume.delta_ic) < 0.1
+    # both arms measured on the identical bar set
+    assert momentum.n_obs == baseline.n_obs == volume.n_obs
+
+
+def test_attribution_absent_family_is_flagged_not_computed():
+    X, bar_idx, n_bars, pooled_returns = _one_symbol_panel()
+    rows = compute_stratum_attribution(
+        tf="5m",
+        regime="low_bull",
+        families=["momentum", "volume", "control"],
+        group_names=["momentum", "volume"],
+        signed_weights=np.array([1.0, 0.05]),
+        X=X,
+        bar_idx=bar_idx,
+        n_bars=n_bars,
+        pooled_returns_by_scale=pooled_returns,
+        config=_TEST_CONFIG,
+    )
+    control = [r for r in rows if r.family == "control" and r.scale == "fast"][0]
+    assert control.flag == _FLAG_ABSENT
+    assert control.n_features_zeroed == 0
+    assert control.delta_ic is None and control.ic_ablated is None
+
+
+def test_attribution_control_family_with_weight_is_governance_breach():
+    X, bar_idx, n_bars, pooled_returns = _one_symbol_panel()
+    rows = compute_stratum_attribution(
+        tf="5m",
+        regime="low_bull",
+        families=["momentum", "control"],
+        group_names=["momentum", "control"],  # canary somehow carries weight
+        signed_weights=np.array([1.0, 0.05]),
+        X=X,
+        bar_idx=bar_idx,
+        n_bars=n_bars,
+        pooled_returns_by_scale=pooled_returns,
+        config=_TEST_CONFIG,
+    )
+    control = [r for r in rows if r.family == "control" and r.scale == "fast"][0]
+    assert control.flag == _FLAG_CONTROL_BREACH
+    assert control.n_features_zeroed == 1
+    assert control.delta_ic is not None  # still measured: near-zero delta expected
+
+
+def test_attribution_sole_family_zeroed_is_degenerate_not_zero_ic():
+    X, bar_idx, n_bars, pooled_returns = _one_symbol_panel()
+    rows = compute_stratum_attribution(
+        tf="5m",
+        regime="low_bull",
+        families=["momentum"],
+        group_names=["momentum", "momentum"],
+        signed_weights=np.array([1.0, 0.05]),
+        X=X,
+        bar_idx=bar_idx,
+        n_bars=n_bars,
+        pooled_returns_by_scale=pooled_returns,
+        config=_TEST_CONFIG,
+    )
+    momentum = [r for r in rows if r.family == "momentum" and r.scale == "fast"][0]
+    assert momentum.flag == _FLAG_DEGENERATE
+    assert momentum.ic_ablated is None and momentum.delta_ic is None
+
+
+def test_attribution_unmeasurable_baseline_short_circuits_scale():
+    """min_reliable_n above the bar count: baseline unmeasurable -> exactly one
+    row per scale (the flagged baseline row), no family rows computed against a
+    nonexistent baseline."""
+    X, bar_idx, n_bars, pooled_returns = _one_symbol_panel(n_bars=30)
+    rows = compute_stratum_attribution(
+        tf="5m",
+        regime="low_bull",
+        families=["momentum", "volume"],
+        group_names=["momentum", "volume"],
+        signed_weights=np.array([1.0, 0.05]),
+        X=X,
+        bar_idx=bar_idx,
+        n_bars=n_bars,
+        pooled_returns_by_scale=pooled_returns,
+        config=_TEST_CONFIG,
+    )
+    fast_rows = [r for r in rows if r.scale == "fast"]
+    assert len(fast_rows) == 1
+    assert fast_rows[0].family == "__baseline__"
+    assert fast_rows[0].flag == _FLAG_BASELINE_UNMEASURABLE
+
+
+def test_apply_delta_fdr_one_corpus_wide_pass():
+    """One multipletests family across ALL delta p-values (project convention);
+    rows without a diff_p (baseline/absent/degenerate) stay None."""
+    base = dict(
+        tf="5m",
+        regime="low_bull",
+        scale="fast",
+        n_features_zeroed=1,
+        weight_mass_zeroed=0.5,
+        n_obs=200,
+        ic_baseline=0.5,
+        ci_lower=0.4,
+        ci_upper=0.6,
+        ic_ablated=0.1,
+        delta_ic=0.4,
+        bh_adjusted_p=None,
+        delta_passes_fdr=None,
+        flag="",
+    )
+    rows = [
+        AttributionRow(family="momentum", diff_p=0.001, **base),
+        AttributionRow(family="volume", diff_p=0.90, **base),
+        AttributionRow(family="__baseline__", diff_p=None, **base),
+    ]
+    corrected = apply_delta_fdr(rows, fdr_alpha=0.05)
+    assert corrected[0].delta_passes_fdr is True
+    assert corrected[0].bh_adjusted_p is not None
+    assert corrected[1].delta_passes_fdr is False
+    assert corrected[2].bh_adjusted_p is None and corrected[2].delta_passes_fdr is None
+
+
+def test_apply_delta_fdr_empty_is_noop():
+    assert apply_delta_fdr([], fdr_alpha=0.05) == []

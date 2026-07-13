@@ -78,7 +78,9 @@ from services.ensemble_ic_engine import _SCALE_RETURN_COLUMNS, _SCALES
 from src.intelligence.statistics.ic_math import (
     _fisher_z_ci,
     _nan_to_none,
+    apply_bh_fdr,
     compute_ic_vectorized,
+    fisher_z_difference_p,
 )
 
 # Sentinel arm name for the all-families baseline. Dunder-wrapped so it can never
@@ -474,3 +476,241 @@ def prepare_stratum_arrays(
         [float(r["stored_alpha"]) if r["stored_alpha"] is not None else np.nan for r in fv_rows]
     )
     return bar_ts_arr, X, gated_returns_by_scale, stored_alpha
+
+
+# ---------------------------------------------------------------------------
+# Attribution assembly (pure)
+# ---------------------------------------------------------------------------
+
+_FLAG_ABSENT = "family absent from this stratum"
+_FLAG_DEGENERATE = (
+    "DEGENERATE (ablated composite near-constant; family was effectively the whole model)"
+)
+_FLAG_BASELINE_UNMEASURABLE = (
+    "BASELINE UNMEASURABLE (insufficient N after stride/completeness gates)"
+)
+_FLAG_CONTROL_BREACH = (
+    "CONTROL FAMILY CARRIES WEIGHT (governance breach: canaries must never be " "ensemble-eligible)"
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class AttributionRow:
+    """One line of the marginal-attribution table: one (stratum, scale, arm).
+
+    family == _BASELINE_ARM rows describe the all-families baseline (ic_ablated/
+    delta_ic/diff_p are None there). delta_ic = ic_baseline - ic_ablated: positive
+    means removing the family REDUCED OOS IC, i.e. the family was contributing.
+    ci_lower/ci_upper describe the arm this row measures (baseline row -> baseline
+    CI; family row -> ablated-arm CI).
+    """
+
+    tf: str
+    regime: str
+    scale: str
+    family: str
+    n_features_zeroed: int
+    weight_mass_zeroed: float
+    n_obs: int
+    ic_baseline: float | None
+    ci_lower: float | None
+    ci_upper: float | None
+    ic_ablated: float | None
+    delta_ic: float | None
+    diff_p: float | None
+    bh_adjusted_p: float | None
+    delta_passes_fdr: bool | None
+    flag: str
+
+
+def compute_stratum_attribution(
+    tf: str,
+    regime: str,
+    families: list[str],
+    group_names: list[str],
+    signed_weights: np.ndarray,
+    X: np.ndarray,
+    bar_idx: np.ndarray,
+    n_bars: int,
+    pooled_returns_by_scale: dict[str, np.ndarray],
+    config: AblationConfig,
+) -> list[AttributionRow]:
+    """Leave-one-family-out attribution for one (tf, regime) stratum.
+
+    Every arm -- the baseline and each family's zeroed variant -- goes through the
+    identical sequence: X @ arm_weights (the trainer's scoring matmul, line 963),
+    pool_means_by_bar (cross-symbol mean per bar), compute_arm_ic (stride
+    subsample, gates, Spearman IC, Fisher-z CI). Pooled arm scores are computed
+    ONCE per arm (pooling is scale-independent); the per-scale loop only re-runs
+    the subsample + measurement step against that scale's gated returns.
+
+    A family with zero weighted features in this stratum yields a _FLAG_ABSENT
+    row per scale (delta None) -- 'control' landing here on every stratum is the
+    EXPECTED outcome and doubles as the eligibility-filter check. A control family
+    that DOES carry weight is measured normally but flagged _FLAG_CONTROL_BREACH.
+    diff_p uses fisher_z_difference_p, which is conservative (over-estimates p)
+    under the positive dependence of two arms measured on the same bars -- the
+    safe direction for a postmortem attribution.
+    """
+    rows: list[AttributionRow] = []
+
+    pooled_by_arm: dict[str, np.ndarray] = {
+        _BASELINE_ARM: pool_means_by_bar(bar_idx, n_bars, X @ signed_weights)
+    }
+    family_n_features: dict[str, int] = {}
+    family_mass: dict[str, float] = {}
+    for family in families:
+        n_features = sum(1 for g in group_names if g == family)
+        family_n_features[family] = n_features
+        family_mass[family] = weight_mass_fraction(signed_weights, group_names, family)
+        if n_features > 0:
+            ablated_weights = zero_family(signed_weights, group_names, family)
+            pooled_by_arm[family] = pool_means_by_bar(bar_idx, n_bars, X @ ablated_weights)
+
+    for scale in _SCALES:
+        stride = max(config.subsample_min_stride, config.lookaheads[scale])
+        pooled_returns = pooled_returns_by_scale[scale]
+        baseline = compute_arm_ic(
+            pooled_by_arm[_BASELINE_ARM], pooled_returns, stride, config.min_reliable_n
+        )
+        if baseline is None:
+            rows.append(
+                AttributionRow(
+                    tf=tf,
+                    regime=regime,
+                    scale=scale,
+                    family=_BASELINE_ARM,
+                    n_features_zeroed=0,
+                    weight_mass_zeroed=0.0,
+                    n_obs=0,
+                    ic_baseline=None,
+                    ci_lower=None,
+                    ci_upper=None,
+                    ic_ablated=None,
+                    delta_ic=None,
+                    diff_p=None,
+                    bh_adjusted_p=None,
+                    delta_passes_fdr=None,
+                    flag=_FLAG_BASELINE_UNMEASURABLE,
+                )
+            )
+            continue
+
+        rows.append(
+            AttributionRow(
+                tf=tf,
+                regime=regime,
+                scale=scale,
+                family=_BASELINE_ARM,
+                n_features_zeroed=0,
+                weight_mass_zeroed=0.0,
+                n_obs=baseline.n,
+                ic_baseline=baseline.ic,
+                ci_lower=baseline.ci_lower,
+                ci_upper=baseline.ci_upper,
+                ic_ablated=None,
+                delta_ic=None,
+                diff_p=None,
+                bh_adjusted_p=None,
+                delta_passes_fdr=None,
+                flag="",
+            )
+        )
+
+        for family in families:
+            n_features = family_n_features[family]
+            is_control_breach = family == _CONTROL_FAMILY and n_features > 0
+            if n_features == 0:
+                rows.append(
+                    AttributionRow(
+                        tf=tf,
+                        regime=regime,
+                        scale=scale,
+                        family=family,
+                        n_features_zeroed=0,
+                        weight_mass_zeroed=0.0,
+                        n_obs=baseline.n,
+                        ic_baseline=baseline.ic,
+                        ci_lower=None,
+                        ci_upper=None,
+                        ic_ablated=None,
+                        delta_ic=None,
+                        diff_p=None,
+                        bh_adjusted_p=None,
+                        delta_passes_fdr=None,
+                        flag=_FLAG_ABSENT,
+                    )
+                )
+                continue
+
+            ablated = compute_arm_ic(
+                pooled_by_arm[family], pooled_returns, stride, config.min_reliable_n
+            )
+            if ablated is None:
+                rows.append(
+                    AttributionRow(
+                        tf=tf,
+                        regime=regime,
+                        scale=scale,
+                        family=family,
+                        n_features_zeroed=n_features,
+                        weight_mass_zeroed=family_mass[family],
+                        n_obs=baseline.n,
+                        ic_baseline=baseline.ic,
+                        ci_lower=None,
+                        ci_upper=None,
+                        ic_ablated=None,
+                        delta_ic=None,
+                        diff_p=None,
+                        bh_adjusted_p=None,
+                        delta_passes_fdr=None,
+                        flag=_FLAG_DEGENERATE,
+                    )
+                )
+                continue
+
+            delta_ic = baseline.ic - ablated.ic
+            diff_p = fisher_z_difference_p(baseline.ic, baseline.n, ablated.ic, ablated.n)
+            rows.append(
+                AttributionRow(
+                    tf=tf,
+                    regime=regime,
+                    scale=scale,
+                    family=family,
+                    n_features_zeroed=n_features,
+                    weight_mass_zeroed=family_mass[family],
+                    n_obs=ablated.n,
+                    ic_baseline=baseline.ic,
+                    ci_lower=ablated.ci_lower,
+                    ci_upper=ablated.ci_upper,
+                    ic_ablated=ablated.ic,
+                    delta_ic=delta_ic,
+                    diff_p=None if np.isnan(diff_p) else float(diff_p),
+                    bh_adjusted_p=None,
+                    delta_passes_fdr=None,
+                    flag=_FLAG_CONTROL_BREACH if is_control_breach else "",
+                )
+            )
+    return rows
+
+
+def apply_delta_fdr(rows: list[AttributionRow], fdr_alpha: float) -> list[AttributionRow]:
+    """One corpus-wide BH-FDR pass across every delta p-value (the project's
+    one-multipletests-call-per-family convention, via ic_math.apply_bh_fdr).
+    Informational, not a gate: the report prints bh_adjusted_p/delta_passes_fdr so
+    an operator can distinguish real family deaths from multiplicity noise across
+    ~strata x scales x families comparisons. Rows without a diff_p (baseline,
+    absent, degenerate) pass through unchanged.
+    """
+    indexed_p = [(i, r.diff_p) for i, r in enumerate(rows) if r.diff_p is not None]
+    if not indexed_p:
+        return list(rows)
+    reject, p_corrected = apply_bh_fdr([p for _, p in indexed_p], fdr_alpha)
+    out = list(rows)
+    for flat_idx, (row_idx, _) in enumerate(indexed_p):
+        out[row_idx] = dataclasses.replace(
+            out[row_idx],
+            bh_adjusted_p=float(p_corrected[flat_idx]),
+            delta_passes_fdr=bool(reject[flat_idx]),
+        )
+    return out
