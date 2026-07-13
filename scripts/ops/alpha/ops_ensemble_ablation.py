@@ -68,13 +68,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
+import asyncio
 import dataclasses
 from typing import Any
 
+import asyncpg
 import numpy as np
 
 from services._batch_utils import cfg as _cfg
+from services._batch_utils import load_apr_dict_async as _load_apr
 from services.ensemble_ic_engine import _SCALE_RETURN_COLUMNS, _SCALES
+from src.config.settings import Settings
 from src.intelligence.statistics.ic_math import (
     _fisher_z_ci,
     _nan_to_none,
@@ -942,3 +946,228 @@ def record_manifest(
     else:
         manifest.mark_success()
     return manifest.write()
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint (all DB I/O lives here; kernels above are pure)
+# ---------------------------------------------------------------------------
+
+
+def _abort(message: str, manifest_dir: Path, weight_version: str, oos_start: Any) -> int:
+    """Loud diagnostic abort: print a FAILED header, record a failed manifest,
+    return 0 (exit code always 0 -- EIC-05 convention; the FAILURE signal is the
+    printed banner + manifest status, not the exit code)."""
+    print(f"## Ensemble Ablation Report\n\nFAILED: {message}")
+    try:
+        record_manifest(
+            manifest_dir=manifest_dir,
+            weight_version=weight_version,
+            oos_start=oos_start,
+            families=[],
+            rows=[],
+            replication=[],
+            error=message,
+        )
+    except Exception as error:
+        print(f"(manifest write also failed: {error})")
+    return 0
+
+
+async def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Leave-one-family-out ensemble ablation report (todo 084)"
+    )
+    parser.add_argument(
+        "--weight-version",
+        default=None,
+        help=(
+            "Weight variant to ablate; defaults to the champion "
+            "(alpha.ensemble.weight_version APR value)"
+        ),
+    )
+    parser.add_argument(
+        "--reconstruction-tol",
+        type=float,
+        default=_DEFAULT_RECONSTRUCTION_TOL,
+        help=(
+            "Max |recomputed - stored| / std(stored) before flagging REPLICATION "
+            f"MISMATCH (default {_DEFAULT_RECONSTRUCTION_TOL}; see module constant "
+            "comment for provenance)"
+        ),
+    )
+    parser.add_argument(
+        "--manifest-dir",
+        type=Path,
+        default=CorpusManifest.DEFAULT_MANIFEST_DIR,
+        help="Corpus manifest directory (default: the pipeline-shared location)",
+    )
+    args = parser.parse_args()
+
+    settings = Settings()
+    dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    pool = await asyncpg.create_pool(dsn=dsn)
+    try:
+        async with pool.acquire() as conn:
+            apr_cfg = await _load_apr(conn)
+            config = AblationConfig.from_apr(apr_cfg)
+            weight_version = (
+                args.weight_version
+                if args.weight_version
+                else _cfg(apr_cfg, "alpha.ensemble.weight_version", "v1")
+            )
+
+            # OOS boundary: crash-loud read (ensemble_ic_engine CR-01 pattern) --
+            # a missing oos_start must never silently measure the full corpus.
+            try:
+                oos_start = await conn.fetchval(
+                    "SELECT config_value::timestamptz FROM config_state "
+                    "WHERE config_key = 'alpha.validation.oos_start'"
+                )
+            except (asyncpg.DataError, asyncpg.InvalidTextRepresentationError) as error:
+                return _abort(
+                    f"alpha.validation.oos_start is not a valid timestamp: {error}",
+                    args.manifest_dir,
+                    weight_version,
+                    None,
+                )
+            if oos_start is None:
+                return _abort(
+                    "alpha.validation.oos_start is not set in config_state; an OOS "
+                    "ablation without a boundary would silently include training data.",
+                    args.manifest_dir,
+                    weight_version,
+                    None,
+                )
+
+            # Trust gate on the weight source: nonzero ensemble_weights rows are
+            # not evidence the trainer run that wrote them finished
+            # (CorpusManifest.ensure_success_for closes exactly this gap).
+            try:
+                CorpusManifest.ensure_success_for(
+                    args.manifest_dir,
+                    "ensemble_trainer",
+                    scope_suffix=weight_version,
+                    weight_version=weight_version,
+                )
+            except RuntimeError as error:
+                return _abort(
+                    f"ensemble_trainer prerequisite not satisfied: {error}",
+                    args.manifest_dir,
+                    weight_version,
+                    oos_start,
+                )
+
+            family_rows = await conn.fetch(_FAMILIES_SQL)
+            families = [r["group_name"] for r in family_rows]
+            strata = await conn.fetch(_STRATA_SQL, weight_version)
+            if not strata:
+                return _abort(
+                    f"no ensemble_weights strata for weight_version={weight_version!r}",
+                    args.manifest_dir,
+                    weight_version,
+                    oos_start,
+                )
+
+            all_rows: list[AttributionRow] = []
+            replication: list[ReplicationRecord] = []
+            for stratum in strata:
+                tf, regime = stratum["tf"], stratum["regime"]
+                weight_recs = await conn.fetch(_WEIGHTS_SQL, weight_version, tf, regime)
+                if not weight_recs:
+                    continue
+                feature_names = [r["feature_name"] for r in weight_recs]
+                group_names = [r["group_name"] for r in weight_recs]
+                signed_weights = signed_weights_from_rows(
+                    np.array([float(r["weight"]) for r in weight_recs]),
+                    np.array([float(r["ic_sharpe"]) for r in weight_recs]),
+                )
+
+                fv_rows = await conn.fetch(
+                    build_stratum_fetch_sql(feature_names),
+                    tf,
+                    regime,
+                    weight_version,
+                    oos_start,
+                )
+                if len(fv_rows) < 2:
+                    replication.append(
+                        ReplicationRecord(
+                            tf=tf,
+                            regime=regime,
+                            n_bars=len(fv_rows),
+                            n_compared=0,
+                            norm_max_diff=None,
+                            ok=True,
+                        )
+                    )
+                    continue
+
+                bar_ts_arr, X, gated_returns, stored_alpha = prepare_stratum_arrays(
+                    fv_rows, feature_names
+                )
+                unique_ts, bar_idx = np.unique(bar_ts_arr, return_inverse=True)
+                n_bars = len(unique_ts)
+
+                baseline_scores = X @ signed_weights
+                n_compared, norm_max_diff, ok = reconstruction_check(
+                    baseline_scores, stored_alpha, args.reconstruction_tol
+                )
+                replication.append(
+                    ReplicationRecord(
+                        tf=tf,
+                        regime=regime,
+                        n_bars=len(fv_rows),
+                        n_compared=n_compared,
+                        norm_max_diff=norm_max_diff,
+                        ok=ok,
+                    )
+                )
+
+                pooled_returns_by_scale = {
+                    scale: pool_means_by_bar(bar_idx, n_bars, gated_returns[scale])
+                    for scale in _SCALES
+                }
+                all_rows.extend(
+                    compute_stratum_attribution(
+                        tf=tf,
+                        regime=regime,
+                        families=families,
+                        group_names=group_names,
+                        signed_weights=signed_weights,
+                        X=X,
+                        bar_idx=bar_idx,
+                        n_bars=n_bars,
+                        pooled_returns_by_scale=pooled_returns_by_scale,
+                        config=config,
+                    )
+                )
+
+        all_rows = apply_delta_fdr(all_rows, config.fdr_alpha)
+        report_lines = render_report(
+            weight_version=weight_version,
+            oos_start=oos_start,
+            families=families,
+            rows=all_rows,
+            replication=replication,
+            config=config,
+            reconstruction_tol=args.reconstruction_tol,
+        )
+        print("\n".join(report_lines))
+        manifest_path = record_manifest(
+            manifest_dir=args.manifest_dir,
+            weight_version=weight_version,
+            oos_start=oos_start,
+            families=families,
+            rows=all_rows,
+            replication=replication,
+        )
+        print(f"\nmanifest: {manifest_path}")
+        return 0
+    finally:
+        await pool.close()
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))
