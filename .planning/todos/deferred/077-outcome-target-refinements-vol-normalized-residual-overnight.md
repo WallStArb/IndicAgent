@@ -19,7 +19,7 @@ on); low-medium for L3-4 (diagnostic).
 ## L3-2 — Residual (beta-hedged) return target
 
 `return_x(symbol) - beta * return_x(SPY)`, beta from Phase 145's Instrument Tag Calibrator
-(`data-instrument-tag-calibrator.md`, already committed to producing measured, FDR-corrected
+(`stratification-instrument-tag-calibrator.md`, already committed to producing measured, FDR-corrected
 factor betas). This is the outcome definition T3 actually requires: a cross-sectional edge is a
 claim about *idiosyncratic* mispricing, and measuring candidate features (todo 073) against raw
 returns lets market-timing leak into what looks like relative-value IC. Verdict: features whose

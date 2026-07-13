@@ -279,7 +279,7 @@ cleaner statistical interpretation than the raw null-rate monitor.
 ## 5. L2 Conditioning / Stratification
 
 The unification contract, candidate list (8 percentile-rank dims, E1-E4, `ood_distance`), and
-the demote-to-shadow fallback are settled (`regime-multi-regime-layer.md`,
+the demote-to-shadow fallback are settled (`stratification-dimension-unification.md`,
 `fable-2026-07-07-phase144-conditioning-decision.md`); the substitution-test + orthogonality
 gate is the entry door for anything below. Two new candidate dimensions and one methodological
 refinement:
@@ -354,7 +354,7 @@ pooled IC the whole system keys on is currently vol-biased.
 
 `return_x(symbol) - beta * return_x(SPY)`, beta from Phase 145's Instrument Tag Calibrator -
 which is already committed to producing measured, FDR-corrected factor betas
-(`data-instrument-tag-calibrator.md`). This is the outcome definition T3 actually requires: a
+(`stratification-instrument-tag-calibrator.md`). This is the outcome definition T3 actually requires: a
 cross-sectional edge is a claim about *idiosyncratic* mispricing, and measuring candidate
 features against raw returns lets market-timing leak into what looks like relative-value IC.
 The attribution-honesty gate in `trade-construction-layer.md` (spread P&L must not be a static

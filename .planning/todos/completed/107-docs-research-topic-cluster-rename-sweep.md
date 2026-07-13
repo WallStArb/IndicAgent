@@ -1,11 +1,33 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-07-12
+completed: 2026-07-13
 source: Phase 144 execution session — user request to unify docs related specifically to
   stratification/classification (security types, asset classes, attributes, regimes) under a
   consistent topic-clustered naming scheme
 ---
+
+## Completed 2026-07-13
+
+All 3 files renamed via `git mv` exactly per the mapping below (`regime-multi-regime-layer.md`
+→ `stratification-dimension-unification.md`, `platform-security-classification-hierarchy.md`
+→ `stratification-security-classification-hierarchy.md`, `data-instrument-tag-calibrator.md`
+→ `stratification-instrument-tag-calibrator.md`). Repo-wide grep-and-sed sweep fixed every
+cross-reference (14 + 6 + 8 hits across `docs/`, `.planning/ROADMAP.md`, phase context docs, and
+sibling todos); verified zero remaining hits on any old filename outside this file itself.
+
+**Extended beyond the original rename-only scope, same session:** the user separately asked
+whether a unified umbrella doc existed for this cluster (analogous to
+`concept-governance-registries.md`) — it didn't. Created
+`docs/research/stratification-governance-registries.md` as a thin index (component table +
+status + "why this stays thin" + relationship to Concept Governance Registries), added a
+pointer from `concept-governance-registries.md`'s Related Docs, and added a catalog.md row.
+Also added a short "prior art" note to `stratification-dimension-unification.md`'s Contract
+section citing the archived I1-I7 `PatternPlugin`/`validate_tier()` tier-registration pattern as
+validated precedent for the `StratificationDimension` `Protocol` shape — `concept-governance-
+registries.md` had independently made the same connection when it considered and rejected
+migrating `shadow_registry` in wholesale.
 
 # Rename the stratification/classification doc cluster to a unified `stratification-*` prefix
 

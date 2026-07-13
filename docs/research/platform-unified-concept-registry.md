@@ -133,7 +133,7 @@ Unified Concept Registry (this doc)
 └── Type 3: Vocabulary registries (static taxonomy) - context, separate infrastructure
     ├── Tag Vocabulary (live, tables: tag_vocabulary, instrument_tags, instrument_annotations)
     ├── Controlled Vocabulary (to build, design at docs/research/platform-controlled-vocabulary.md)
-    └── Security Classification (future, design at docs/research/platform-security-classification-hierarchy.md)
+    └── Security Classification (future, design at docs/research/stratification-security-classification-hierarchy.md)
 ```
 
 **What's actually unified:** Unified Concept Registry (Type 2) is the single-schema system that governs multiple research domains across BOTH feature and intelligence tiers. APR and the vocabularies are related by governance philosophy only - they have separate tables, separate services, and separate purposes.
@@ -148,9 +148,9 @@ Unified Concept Registry (this doc)
 - **Concept Registry** - generalized lifecycle governance for all research domains _(to build; absorbs Feature Registry only, for now)_. **This is the unified piece** - one schema, one service (`ConceptRegistryService`), many domains partitioned by the `domain` column.
 
 **Type 3 - Vocabulary** (static taxonomy): codes/labels with metadata, no lifecycle states. Separate infrastructure per registry.
-- **Tag Vocabulary** - 6 categories, 71 tags, 410 instrument assignments (live-verified 2026-07-04; the "301 tags" figure previously stated here matched neither table). Tables: `tag_vocabulary`, `instrument_tags`, `instrument_annotations`. **Boundary with the calibrator (2026-07-06):** `docs/research/data-instrument-tag-calibrator.md` makes tag *assignments* evidence-gated (p-value, sample_n, expiry, half-life decay), which superficially looks like Type 2 lifecycle. It is not: per the concepts-vs-facts boundary above, a measured `(symbol, tag)` beta is a fact, recomputed each calibration run - the same resolution as `ensemble_strategy`'s per-stratum champions (F2). The *measurement contracts* on `tag_vocabulary` (`factor_series`, `measurement_type`, thresholds) are the recipe half and stay Type 3 vocabulary rows. Tags do not become a Concept Registry domain; the two designs share discipline, not tables.
+- **Tag Vocabulary** - 6 categories, 71 tags, 410 instrument assignments (live-verified 2026-07-04; the "301 tags" figure previously stated here matched neither table). Tables: `tag_vocabulary`, `instrument_tags`, `instrument_annotations`. **Boundary with the calibrator (2026-07-06):** `docs/research/stratification-instrument-tag-calibrator.md` makes tag *assignments* evidence-gated (p-value, sample_n, expiry, half-life decay), which superficially looks like Type 2 lifecycle. It is not: per the concepts-vs-facts boundary above, a measured `(symbol, tag)` beta is a fact, recomputed each calibration run - the same resolution as `ensemble_strategy`'s per-stratum champions (F2). The *measurement contracts* on `tag_vocabulary` (`factor_series`, `measurement_type`, thresholds) are the recipe half and stay Type 3 vocabulary rows. Tags do not become a Concept Registry domain; the two designs share discipline, not tables.
 - **Controlled Vocabulary** - domain enums _(to build; design at `docs/research/platform-controlled-vocabulary.md`)_
-- **Security Classification** - hierarchical instrument classification: strict external schemes (GICS) as new effective-dated tables, soft custom taxonomies via `tag_vocabulary.parent_tag` _(future, unscheduled, gated on individual-equities onboarding; design at `docs/research/platform-security-classification-hierarchy.md` - a Type 3 sibling by taxonomy, deliberately not a shared implementation with the other two)_
+- **Security Classification** - hierarchical instrument classification: strict external schemes (GICS) as new effective-dated tables, soft custom taxonomies via `tag_vocabulary.parent_tag` _(future, unscheduled, gated on individual-equities onboarding; design at `docs/research/stratification-security-classification-hierarchy.md` - a Type 3 sibling by taxonomy, deliberately not a shared implementation with the other two)_
 
 ---
 
@@ -162,7 +162,7 @@ Type 2/3 registries only - APR (Type 1) is the origin analogy for this whole fam
 |---|---|---|---|---|
 | Feature Registry | `feature_registry`, `feature_transition_log` | 61 features | IC Sharpe + FDR | Governance only - no knowledge layer; gate params conflated in registry row; migrates to Concept Registry |
 | Shadow Registry | `shadow_registry`, `shadow_transition_log` | 36 components | EV[R] bootstrap CI | Legacy, not migrating - see Registry Taxonomy above |
-| Tag Vocabulary | `tag_vocabulary`, `instrument_tags`, `instrument_annotations` | 71 tags / 410 assignments | Human curation (falsification engine designed but unbuilt: `data-instrument-tag-calibrator.md`) | Stays Type 3 - see Registry Taxonomy boundary note |
+| Tag Vocabulary | `tag_vocabulary`, `instrument_tags`, `instrument_annotations` | 71 tags / 410 assignments | Human curation (falsification engine designed but unbuilt: `stratification-instrument-tag-calibrator.md`) | Stays Type 3 - see Registry Taxonomy boundary note |
 
 ---
 
@@ -382,7 +382,7 @@ CREATE TABLE concept_registry (
         -- this list because it is retired, not pending - see Domains below.)
         -- 'regime_model' in particular must NOT be added before its row-grain question (one
         -- row per dimension vs. per (dimension, regime_group) - see
-        -- docs/research/regime-multi-regime-layer.md) is decided at v3.15 planning; adding it
+        -- docs/research/stratification-dimension-unification.md) is decided at v3.15 planning; adding it
         -- earlier bakes in a grain that may be wrong.
         CHECK (domain IN ('feature', 'ensemble_strategy')),
     name              TEXT    NOT NULL,
@@ -843,7 +843,7 @@ overstates independent evidence for this domain specifically. HMM regime states 
 autocorrelated by construction and additionally smoothed (`min_hold_bars`, live in
 `regime_writer.py`) - consecutive bars in the same state are close to the *opposite* of
 independent observations. No power analysis exists for this domain in any current doc (checked
-todo 026 and `docs/research/regime-multi-regime-layer.md`). At build time, recalibrate the floor from
+todo 026 and `docs/research/stratification-dimension-unification.md`). At build time, recalibrate the floor from
 the number of regime *transitions* observed in the held-out window (a proxy for independent
 state-visits), not raw bar count - this is new statistical work, not a doc fix.
 
@@ -894,7 +894,7 @@ against yet.
 **Trigger:** blocked on two things, both already flagged elsewhere in this doc and not resolved
 here - Phase 144 shipping `regime_group` (needed for TLT's own clean cross-sectional comparison
 and for any non-equity asset class's substitution test), and the v3.15 row-grain decision (below).
-Unlike `ic_method`, this domain's gate mechanism is *not* speculative - `docs/research/regime-multi-regime-layer.md`
+Unlike `ic_method`, this domain's gate mechanism is *not* speculative - `docs/research/stratification-dimension-unification.md`
 already fully specs a three-stage cascade, live in that doc's "Governance" section, ported here:
 
 1. **Structural redundancy pre-filter** (free - no query). If a candidate dimension already
@@ -923,7 +923,7 @@ gate-stack shape - exactly the "wait until the pattern is proven twice" bar this
 reuse principle sets before extracting a shared mechanism, now met.
 
 **Row-grain - both candidate shapes, fully specced, decision deferred to v3.15:**
-`docs/research/regime-multi-regime-layer.md` already found the concrete problem this creates: todo
+`docs/research/stratification-dimension-unification.md` already found the concrete problem this creates: todo
 026's Step 1 showed the incumbent HMM dimension is live-quality for equities and deficient for
 rates - the *same* dimension needs a different status for different asset classes
 simultaneously, which a single `concept_registry` row per dimension cannot represent. Two options,
@@ -937,7 +937,7 @@ both viable, neither chosen here:
   effect (this doc's own Step 1 finding). Would need a satellite fact table (analogous to how
   `ensemble_strategy` keeps its per-stratum champion in `ensemble_weights`, not `concept_registry`)
   to carry per-`regime_group` legitimacy outside the audit trail - but per that same
-  `regime-multi-regime-layer.md` doc's own reasoning, a dimension's per-asset-class legitimacy is
+  `stratification-dimension-unification.md` doc's own reasoning, a dimension's per-asset-class legitimacy is
   itself worth an immutable transition log, not just an operational fact, which is a weaker fit for
   the ensemble_strategy resolution's pattern.
 - **Option B - one row per (dimension, regime_group).** No new column needed - encode the grain in
@@ -951,7 +951,7 @@ both viable, neither chosen here:
   scarce thing this whole system exists to provide.
 
 **Recommendation, not a decision:** Option B fits this domain's actual empirical shape better  - 
-`regime-multi-regime-layer.md`'s own provisional lean agrees - but per the user's explicit
+`stratification-dimension-unification.md`'s own provisional lean agrees - but per the user's explicit
 instruction, this is left for real ratification at v3.15 planning, not settled by assertion here.
 Whichever is picked, the schema is a known quantity: Option A needs a new satellite fact table
 (not yet designed, since it is not the recommended path); Option B needs zero new columns, only

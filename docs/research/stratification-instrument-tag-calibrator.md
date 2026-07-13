@@ -365,7 +365,7 @@ instrument class; not a generalization of the existing regime-conditioning mecha
 
 ## Forward reference: hierarchical tags and basket factor series (2026-07-04)
 
-`docs/research/platform-security-classification-hierarchy.md` *(filename corrected 2026-07-06,
+`docs/research/stratification-security-classification-hierarchy.md` *(filename corrected 2026-07-06,
 Fable 5 - the `platform-09-` prefix never existed on disk)* (individual-equities
 classification design, unscheduled) touches this system in two ways, neither changing
 anything built or planned here today:
@@ -402,7 +402,7 @@ Reviewed as a design for an unbuilt system - the question is whether the propose
 falsification engine actually delivers on the doc's own Simons critique, not whether it
 matches live code. Cross-checked against `services/ic_engine.py`,
 `src/intelligence/statistics/ic_math.py`, and
-`docs/research/platform-security-classification-hierarchy.md`.
+`docs/research/stratification-security-classification-hierarchy.md`.
 
 **Verdict: right diagnosis, right layering, under-delivered engine - fixable in place.**
 The problem statement ("beliefs with no measurement procedure") is exactly right, the

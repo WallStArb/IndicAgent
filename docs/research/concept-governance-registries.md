@@ -62,7 +62,7 @@ Two related systems:
 
 **Purpose:** Empirically-derived instrument tags (risk_on, rate_sensitive, defensive, etc.)
 
-- **Canonical doc:** `docs/research/data-instrument-tag-calibrator.md`
+- **Canonical doc:** `docs/research/stratification-instrument-tag-calibrator.md`
 - **Status:** Draft design
 - **Coverage:** 71 tags / 410 instrument assignments
 - **Primitives:** 8 measurable betas (equity, rate, gold, credit, dollar, vol, oil, china) + information-theoretic measures (lead_lag, regime_mi, asymmetric betas, hurst, autocorrelation, vol_of_vol, skewness, beta_stability)
@@ -121,9 +121,10 @@ Two related systems:
 
 ## Related Docs
 
+- **Sibling umbrella (stratification/classification cluster):** `docs/research/stratification-governance-registries.md` — StratificationDimension, Security Classification Hierarchy, Instrument Tag Calibrator. Different question (what state/kind an instrument or market is in, vs. what values are tuned or what artifacts earned promotion), one real seam via Concept Registry's `regime_model`/`hmm_variant` domains.
 - **Renaissance framing:** `docs/foundation/principles.md` — institutional-grade research discipline
 - **APR detail:** `docs/foundation/adaptive-parameter-registry.md` — full spec, namespace convention, access patterns
 - **Concept Registry detail:** `docs/research/platform-unified-concept-registry.md` — Renaissance safeguards, Domains table, invariants
-- **Tag Vocabulary detail:** `docs/research/data-instrument-tag-calibrator.md` — factor primitives, derivability, Simons critique
+- **Tag Vocabulary detail:** `docs/research/stratification-instrument-tag-calibrator.md` — factor primitives, derivability, Simons critique
 - **Controlled Vocabulary detail:** `docs/research/platform-controlled-vocabulary.md` — namespace list, groupings, enum enforcement
 - **Roadmap context:** `docs/research/roadmap-scope-map.md` §2 (Governance / Concept Lifecycle)

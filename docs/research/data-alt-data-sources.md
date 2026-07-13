@@ -116,7 +116,7 @@ Prediction market probabilities. Already bounded [0,1] and update continuously. 
 2. **Regime conditioning** - Kalshi probability defines a regime stratum; compute IC per stratum separately. "Momentum IC in low-Fed-risk regimes vs. high-Fed-risk regimes" is a testable stratification that price-only features cannot provide. Arguably more powerful than direct IC use.
 
 *(Fable's revision, 2026-07-06:)* use 2 now has a designated architectural home this doc
-predates: the `StratificationDimension` contract (`docs/research/regime-multi-regime-layer.md`,
+predates: the `StratificationDimension` contract (`docs/research/stratification-dimension-unification.md`,
 v3.15 Phases 144-145). A Kalshi probability bucket is precisely a new conditioning dimension -
 it should be implemented as a `StratificationDimension`, not as bespoke stratification logic
 inside `ic_engine`. This also sharpens the sequencing: Kalshi-as-conditioning should wait for
@@ -234,6 +234,6 @@ when the existing corpus is mined out, and it is not yet.
 - `docs/research/archive/vision-06-flowagent.md` - FlowAgent vision (flows ingestion)
 - `docs/research/archive/vision-07-fundagent.md` - FundAgent vision (fundamentals ingestion)
 - `docs/research/archive/ai-10-qualitative-intelligence-layer.md` - qualitative layer design
-- `docs/research/regime-multi-regime-layer.md` - `StratificationDimension` contract (home for Kalshi-as-conditioning)
+- `docs/research/stratification-dimension-unification.md` - `StratificationDimension` contract (home for Kalshi-as-conditioning)
 - `docs/research/data-edge-source-thesis.md` - counterparty/edge framing that any new data source must answer to
 - `.planning/ROADMAP.md` § Phase 154 "Alternative Data Vectors" - where this idea now lives as a phase (ALTDATA-01 pending update to the two-shape design above)

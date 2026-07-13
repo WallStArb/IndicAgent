@@ -56,7 +56,7 @@ just this doc's argument. Eight findings drifted and carry dated inline correcti
    for this doc's thesis. Added to the consumer list.
 8. **Filename provenance:** this file was renamed from `intel-12-stratification-dimension.md`
    in the docs/ideas renaming sweep; ROADMAP (line ~1869), `intel-analog-engine.md`, the
-   backlog matrix, and `platform-security-classification-hierarchy.md` still reference the old
+   backlog matrix, and `stratification-security-classification-hierarchy.md` still reference the old
    name. "intel-12" in sibling docs means this file.
 
 Verdict after re-verification: the core proposal is still warranted as scoped, and the evidence
@@ -145,6 +145,18 @@ machinery:
 
 Promotion state (shadow/live, per `regime_group`; see Governance) lives in `concept_registry`,
 not on the provider.
+
+**Prior art note (added 2026-07-13):** this "one `Protocol`, many competing providers, hard-
+validated registration" shape is not a new pattern for this codebase — it is structurally the
+same as the archived v2.x I1-I7 plugin system's `PatternPlugin` protocol + tier list
+(`register_plugins.py`'s `validate_tier()` hard-crashes on a missing/misregistered plugin).
+That system was archived because it had no live v3.0 consumer, not because the registration
+pattern itself failed — worth treating as validated internal prior art for "one interface, many
+pluggable providers, promoted by evidence" rather than designing this contract from a blank
+slate. See `docs/research/concept-governance-registries.md`'s Type 2 section, which made the
+same connection independently when it considered (and correctly rejected) migrating the old
+`shadow_registry` gate in wholesale — it kept the gate *mechanism* (bootstrap CI evidence
+threshold) while leaving the dead plugin *domain* itself unmigrated.
 
 **Canonical vocabulary (glossary additions needed):**
 - *Conditioning Layer* — the layer as a whole

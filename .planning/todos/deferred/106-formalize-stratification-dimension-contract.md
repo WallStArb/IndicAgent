@@ -9,7 +9,7 @@ source: Phase 144 execution session — user follow-up after regime_group shippe
 
 ## Why now
 
-`docs/research/regime-multi-regime-layer.md` ("StratificationDimension — A Unified Conditioning
+`docs/research/stratification-dimension-unification.md` ("StratificationDimension — A Unified Conditioning
 Layer") proposes unifying the codebase's regime/stratification providers — today two live,
 unrelated systems (per-symbol HMM in `regime_writer.py`, cross-sectional in
 `equity_regime_model.py`/Phase 144's `cross_sectional_regime_model.py`) plus a backlog of ~12
@@ -21,7 +21,7 @@ empirical gate still blocked on the unrelated 143.1-07 corpus rebuild, see todo 
 
 This todo is explicitly NOT "go build the `StratificationDimension` interface." It's the
 design-formalization step: once Phase 144's D-05 verdict lands (proving or disproving the
-regime_group mechanism empirically), revisit `regime-multi-regime-layer.md` with that evidence
+regime_group mechanism empirically), revisit `stratification-dimension-unification.md` with that evidence
 in hand and decide whether/how to formalize the contract — write the actual `Protocol`/ABC,
 decide the `concept_registry` row-grain question (already flagged as open in
 `platform-unified-concept-registry.md`'s Domain Vetting section and in Phase 144's own
@@ -38,7 +38,7 @@ are worth planning next. Idea/design work, not code.
 
 ## References
 
-- `docs/research/regime-multi-regime-layer.md` (the proposal itself — read in full at revival
+- `docs/research/stratification-dimension-unification.md` (the proposal itself — read in full at revival
   time, it has an 8-point 2026-07-06 re-verification pass worth re-checking for further drift)
 - `.planning/phases/144-cross-sectional-regime-model-regime-group-planned/144-06-SUMMARY.md`
   (Phase 144's actual D-05 outcome, whenever it lands)

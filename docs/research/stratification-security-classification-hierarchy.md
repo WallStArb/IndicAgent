@@ -66,7 +66,7 @@ A mechanism-of-action assignment is our own claim: uncertain, legitimately multi
 (a company can be 40% oncology / 20% cardiovascular by pipeline), and testable against
 market data. The first is a fact to sync; the second is a hypothesis to calibrate - which
 is exactly the epistemic model `instrument_tags` + the TagAuditor
-(`docs/research/data-instrument-tag-calibrator.md`) were built around: "tags are hypotheses; the
+(`docs/research/stratification-instrument-tag-calibrator.md`) were built around: "tags are hypotheses; the
 system tests hypotheses, not stores beliefs."
 
 Forcing both through one membership table means either a `weight` column that is
@@ -254,7 +254,7 @@ the symbol's GICS industry basket, so the tag must prove *incremental* co-moveme
 what the sub-industry already explains). A custom classification tag thereby becomes a
 falsifiable hypothesis with an expiry path, like every other tag - which is precisely
 what an authoritative GICS row could never be, and why the two layers must not share a
-table. Forward-referenced in `docs/research/data-instrument-tag-calibrator.md`.
+table. Forward-referenced in `docs/research/stratification-instrument-tag-calibrator.md`.
 
 **Look-ahead asymmetry, stated once** *(added 2026-07-06, Fable 5)*: Layer 1 buys
 point-in-time correctness with effective dating; Layer 2's live membership table has only
@@ -358,7 +358,7 @@ the other's build.
 ## Consumers (what this is actually for)
 
 1. **Stratification** - `gics_sector` / `gics_industry` become `StratificationDimension`
-   providers (intel-12, now `docs/research/regime-multi-regime-layer.md`): `grain='per_symbol'`,
+   providers (intel-12, now `docs/research/stratification-dimension-unification.md`): `grain='per_symbol'`,
    `causality_basis='deterministic'` (as-of joins on effective-dated membership), labels
    scheme-qualified per intel-12's label-identity invariant (`gics:35`, never bare `35`).
    Whether industry-level stratification earns its cells is decided by that doc's
@@ -437,7 +437,7 @@ the other's build.
    with "high AI exposure" the way one flat sub-industry bucket would.
    *(Reviewed 2026-07-06, Fable 5 - placement confirmed, two refinements.)* First, a wording
    fix: `measurement_type` is not "existing" - it is a calibrator-designed column
-   (`data-instrument-tag-calibrator.md`, schema section), unbuilt live (verified via psql
+   (`stratification-instrument-tag-calibrator.md`, schema section), unbuilt live (verified via psql
    2026-07-06: `tag_vocabulary` carries `tag`/`category`/`description` only). Item 8
    therefore depends on the calibrator's Phase 1 migration shipping first, worth stating.
    Second, the real strain this item puts on the two-model split, named and resolved: a

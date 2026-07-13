@@ -64,17 +64,18 @@ assertion) as of 2026-07-08. Read this first for "what's next," not this catalog
 | Doc | Status / Priority | Fable-reviewed | One-line |
 |---|---|---|---|
 | [Confluence — a Governed Predictor Family](intel-confluence-detection-persistence-layer.md) | draft, high | ✅ (v3, 2026-07-12) | Confluences as governed predictors, not a second system; gates 1-6, mandatory shrinkage; re-verified against Phase 143's executed lifecycle mechanics (promotion bar, sign-symmetry, decay gates corrected) |
-| [StratificationDimension — Multi-Regime Layer](regime-multi-regime-layer.md) | draft, high | ✅ (2026-07-06) | Unifies per-symbol HMM + cross-sectional regime systems; core proposal confirmed, updated against Phase 143's LIFECYCLE-00 hardening |
+| [StratificationDimension — Multi-Regime Layer](stratification-dimension-unification.md) | draft, high | ✅ (2026-07-06) | Unifies per-symbol HMM + cross-sectional regime systems; core proposal confirmed, updated against Phase 143's LIFECYCLE-00 hardening |
 | [CaseSubstrate](intel-case-substrate.md) (renamed from AnalogEngine, `1d41f1da`) | draft, high | ✅ | Non-parametric K-NN retrieval as a predictor family; Score Object deleted, return-distribution primitive kept |
 | [IntegrityMonitor — Drift, Decay, Ensemble Health](measurement-governance-monitor.md) | draft, high | ✅ (2026-07-06) | Reconciled cluster doc; 7 stale passages found/fixed against executed Phase 143 (pre_shadow_weight was dead, registry amendments, staleness design, schema) |
 | [MeasurementEngine — IC Kernel Unification](measurement-ic-engine.md) | answered | ✅ (2026-07-06) | Kernel-unification question resolved by existing `ic_math.py`; unfixed config drift between `ic_engine.py`/`ensemble_ic_engine.py` flagged |
 | [AlphaEmitter — Stage 4 Emission Mechanisms](measurement-alpha-emission.md) | idea, not planned | ✅ (2026-07-07) | Threshold-crossing is structurally fine; real gaps are uncalibrated thresholds (EM-CAL), stratum-constant CI gate, weight-staleness blindness; gate stack as the swappable unit, three rejections recorded |
 | [Unified Concept Registry](platform-unified-concept-registry.md) | design complete, not built | ✅ (4 passes, 2026-07-06) | Cross-tier lifecycle governance unifying feature + intelligence tiers; adversarial stress-test survived (event-sourcing/graph-DB/full-separation alternatives rejected); MVP build trigger fired (todo 058), zero `concept_*` tables exist yet |
 | [Governance & Registries](concept-governance-registries.md) | — | ✅ (2026-07-06) | Umbrella framework for three registry types: Parameter (APR), Lifecycle (Concept Registry), Vocabulary (Tag + Controlled); links to canonical docs |
+| [Stratification & Classification Registries](stratification-governance-registries.md) | — | | Sibling umbrella to Governance & Registries, scoped to "what state/kind an instrument or market is in": StratificationDimension, Security Classification Hierarchy, Instrument Tag Calibrator |
 | [Edge Source Thesis](data-edge-source-thesis.md) | draft, high | | T1-T4 falsifiable theses on where edge comes from; standing doc, revisit per thesis |
 | [Canonical Simulator](platform-canonical-simulator.md) | draft, high | ✅ (v2.1, 2026-07-12) | One counterfactual ledger + cost kernel + run identity, not a replay engine; enforced via pre-commit Check 9; both open questions settled against shipped Phase 142B, priority downgraded critical→high |
 | [Trade Construction Layer](trade-construction-layer.md) | draft, high | | Forecast → position; v4.0 concern, gated on the T3 falsification result |
-| [Instrument Tag Calibrator](data-instrument-tag-calibrator.md) | draft, high | ✅ (2026-07-06) | Todo 040/Phase 145 (renumbered 2026-07-04); found and fixed a missing FDR correction (~1,600 simultaneous tests/run) and a worked example violating the live weight CHECK |
+| [Instrument Tag Calibrator](stratification-instrument-tag-calibrator.md) | draft, high | ✅ (2026-07-06) | Todo 040/Phase 145 (renumbered 2026-07-04); found and fixed a missing FDR correction (~1,600 simultaneous tests/run) and a worked example violating the live weight CHECK |
 | [Interaction Factory](intel-feature-interaction-factory.md) | historical/reference — superseded as an active spec | | Todo 037's pilot (2026-07-10, PASS 22.2%) cleared this doc's evidence trigger, but Phase 150 independently rejected the combinatorial mechanism on BH-FDR power grounds and built a curated theory-motivated layer instead; kept for context, not an implementation target |
 | [Controlled Vocabulary](platform-controlled-vocabulary.md) | idea, unscheduled | ✅ (2026-07-06) | Ready to build whenever prioritized; staging order was inverted (would've built against archived tables first) — fixed |
 
@@ -106,7 +107,7 @@ of what was removed and why. These three are what's actually still live.
 
 | Doc | Status / Priority | Fable-reviewed | One-line |
 |---|---|---|---|
-| [Security Classification Hierarchy](platform-security-classification-hierarchy.md) | draft, medium (build gated on individual-equities onboarding) | ✅ (2026-07-06) | GICS-style strict layer (3 new effective-dated tables) + custom soft taxonomies as `tag_vocabulary.parent_tag`; two epistemic models, deliberately not one tree; redesigned consumer item 6, fixed a silent point-in-time corruption risk |
+| [Security Classification Hierarchy](stratification-security-classification-hierarchy.md) | draft, medium (build gated on individual-equities onboarding) | ✅ (2026-07-06) | GICS-style strict layer (3 new effective-dated tables) + custom soft taxonomies as `tag_vocabulary.parent_tag`; two epistemic models, deliberately not one tree; redesigned consumer item 6, fixed a silent point-in-time corruption risk |
 | [Renaissance Primitives — OHLCV Expansion](signal-renaissance-primitives-ohlcv.md) | idea, not planned | | OHLCV-derived primitives for Signal Processing Layer (499+ raw signals approach) |
 | [AlphaEngine — Alternative Data Extension](data-alt-data-sources.md) | adopted as Phase 154 | ✅ (2026-07-06) | Extending AlphaEngine to alt-data sources; original table architecture rejected and redesigned around the live `context_features` precedent |
 
@@ -153,7 +154,7 @@ of what was removed and why. These three are what's actually still live.
   References list — but ROADMAP.md turned out to cite both substantively, 5 times total, via
   dead pre-2026-07-07-rename paths that a plain filename grep for the *current* name doesn't
   catch; restored, and ROADMAP.md's paths fixed instead, in the same session), and
-  `platform-security-classification-hierarchy.md` (legitimate future idea gated on
+  `stratification-security-classification-hierarchy.md` (legitimate future idea gated on
   individual-equities onboarding, not dead).
 - `docs/research/archive/` — superseded idea docs, including `intel-10-v2-confluence-persistence.md`,
   `intel-11-dual-system-discrete-vs-portfolio.md`, and the pre-consolidation AnalogEngine/

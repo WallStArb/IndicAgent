@@ -5,7 +5,7 @@
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §5 (L2-1, L2-2, L2-3).
 **Priority:** medium-high; these are new candidate `StratificationDimension` entries for the
-v3.15/`regime-multi-regime-layer.md` unification, entering through the same substitution-test +
+v3.15/`stratification-dimension-unification.md` unification, entering through the same substitution-test +
 orthogonality gate as every other candidate — not a bespoke build.
 **Gate:** Phase 144 (`regime_group` dispatcher) must ship first; L2-3 additionally sequenced
 behind Phase 144's widened Step 1 verdicts (see

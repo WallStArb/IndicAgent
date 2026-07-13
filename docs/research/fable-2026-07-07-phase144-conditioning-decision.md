@@ -5,7 +5,7 @@
 **What this is:** the operator decision the ROADMAP v3.15 build trigger requires before
 intel-12's substitution test runs - a SHADOW-REVIEW-style pre-commitment of the fallback
 mechanism for asset classes where the per-symbol HMM shows weak or inverted IC separation
-(topdown Open Q4; `docs/research/regime-multi-regime-layer.md` Open Question 1). TLT is the
+(topdown Open Q4; `docs/research/stratification-dimension-unification.md` Open Question 1). TLT is the
 evidence case. Decided against the pre-142.5 corpus, deliberately before the in-flight corpus
 rerun produces new numbers that could bias the choice.
 
@@ -90,7 +90,7 @@ dedicated mechanism costs a build plus permanent audit surface on a model family
 production instance still has open audit items (P1b, P2a, P4a).
 
 **3.6 (b) generalizes into the rule v3.15 exists to build.** Under the per-`regime_group`
-promotion model in `regime-multi-regime-layer.md` §Governance, a dimension live for `equity`
+promotion model in `stratification-dimension-unification.md` §Governance, a dimension live for `equity`
 and shadow for `rates` is a normal state. Choosing (b) as the fallback means the fallback *is*
 the governance rule's output, not a special case bolted alongside it. Choosing (a) or (c) as
 the default would pre-empt the substitution-test machinery before it exists.
@@ -166,7 +166,7 @@ ship `enabled: false`, so 041 batches into the same v3.15 re-run without blockin
 Three inputs Phase 144 planning must carry:
 
 1. **Pre-register the rates comparison and the widened Step 1 protocol into todo 026 now**,
-   per `regime-multi-regime-layer.md` Open Questions 2 and 4: TLT vs the `rates` group label,
+   per `stratification-dimension-unification.md` Open Questions 2 and 4: TLT vs the `rates` group label,
    same per-symbol query shape as SPY's Step 2(c); one most-liquid representative per enabled
    regime_group; todo 026's existing bands; per-class verdict table, never a global verdict.
    Committing the queries and thresholds before Phase 144 makes them runnable costs nothing.
@@ -185,7 +185,7 @@ Three inputs Phase 144 planning must carry:
 - **todo 026:** decision note appended pointing here, plus the caveat that the 2026-07-02
   Step 1/Step 2 magnitudes are stale (synthetic-bar fix + 142.5 feature set + depth backfill)
   and the widened Step 1 must re-run on the fresh corpus before any demotion executes.
-- **`docs/research/regime-multi-regime-layer.md` Open Question 1:** its recommendation is hereby
+- **`docs/research/stratification-dimension-unification.md` Open Question 1:** its recommendation is hereby
   ratified as written (it recommended (b) with (c) as queued challenger). No edit made in this
   session; fold a "ratified 2026-07-07" pointer in during the v3.15 planning pass that already
   owns that doc.

@@ -109,7 +109,7 @@ sequenced after, see Deferred).
 - `.planning/ROADMAP.md` — "v3.15 Conditioning & Identity Foundation" section (Phases 144, 145)
   and the "### Phase 144" subsection for the already-made routing decisions (unrouted-symbol
   policy, crypto-into-fx, commodity/fx enablement blocker).
-- `docs/research/regime-multi-regime-layer.md` — broader `StratificationDimension` governance
+- `docs/research/stratification-dimension-unification.md` — broader `StratificationDimension` governance
   vision this phase is a concrete instance of; §Governance line on per-`regime_group` promotion
   state; line 452 confirms P2b/P2c shipped (used to verify D-02).
 

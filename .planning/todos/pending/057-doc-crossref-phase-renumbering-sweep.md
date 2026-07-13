@@ -39,7 +39,7 @@ order (v3.15 conditioning phases moved before v3.2's AnalogEngine, since nothing
   Cluster 1, per `catalog.md`'s Archived section); skip unless it gets un-archived
 - `docs/research/intel-case-substrate.md` (renamed from `intel-13-analog-engine.md`, then again
   from AnalogEngine to CaseSubstrate per `catalog.md`)
-- `docs/research/regime-multi-regime-layer.md` (renamed from `intel-12-stratification-dimension.md`;
+- `docs/research/stratification-dimension-unification.md` (renamed from `intel-12-stratification-dimension.md`;
   ROADMAP.md's own citations to this file were separately fixed 2026-07-12, prose sweep still
   outstanding)
 - `docs/research/measurement-governance-monitor.md` (renamed from `intel-14-integrity-monitor.md`;

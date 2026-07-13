@@ -25,7 +25,7 @@ limitation in the enforcement design was simply wrong. Changes in this pass:
    `market_regimes.regime_label`, not `market_regimes.regime` (verified via psql 2026-07-06;
    9 labels live, matching this doc's list). Fixed in place everywhere it appeared.
 4. **Stale cross-reference fixed:** `platform-09-security-classification-hierarchy.md` does
-   not exist; the live file is `platform-security-classification-hierarchy.md` (verified via
+   not exist; the live file is `stratification-security-classification-hierarchy.md` (verified via
    `ls docs/research/` 2026-07-06). The `-09-` was a numbering scheme that never landed.
 5. **`session_type` demoted:** it appears only in archived v2.x tables
    (`intelligence_features`, `ml_signal_training` - checked via information_schema
@@ -270,7 +270,7 @@ full design pass: classification is instrument-scoped reference data whose load-
 is *membership* (effective-dated, exclusive-per-scheme assignment of securities to nodes), a
 concern this platform-wide, migration-seeded, instrument-agnostic metadata registry is the
 wrong shape for. Design lives at
-`docs/research/platform-security-classification-hierarchy.md` *(filename corrected 2026-07-06,
+`docs/research/stratification-security-classification-hierarchy.md` *(filename corrected 2026-07-06,
 Fable 5 - the previous `platform-09-` prefix never existed on disk; that doc was itself
 reviewed and revised 2026-07-06 and the decoupling conclusion still holds)*; the two systems
 remain fully decoupled, with no shared build gate.

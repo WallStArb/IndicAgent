@@ -61,7 +61,7 @@ the facts under it, because Phase 142B.1 completed 2026-07-04 between this doc's
    per-bar Spearman *across the universe* (T3 falsification mode) remains unbuilt; see the
    inline marker in the Addendum.
 6. **Stale cross-references** (docs/ideas reorganization since 2026-07-03):
-   `intel-12-stratification-dimension.md` → `regime-multi-regime-layer.md`;
+   `intel-12-stratification-dimension.md` → `stratification-dimension-unification.md`;
    `intel-13-analog-engine.md` → `intel-analog-engine.md`;
    `edge-source-thesis.md` → `data-edge-source-thesis.md`;
    `intel-11-dual-system-discrete-vs-portfolio.md` → `docs/research/archive/`. The "What Intel-12
@@ -433,7 +433,7 @@ Genuinely open: measurement-methodology research this doc's scope touches but ca
 - `docs/research/intel-12-stratification-dimension.md`, `docs/research/intel-13-analog-engine.md` —
   both build on "the Measurement Engine" arriving as designed; both need their references
   corrected per the section above when next touched *(Fable 5 review, 2026-07-06: since renamed
-  to `regime-multi-regime-layer.md` and `intel-analog-engine.md` respectively; the section's
+  to `stratification-dimension-unification.md` and `intel-analog-engine.md` respectively; the section's
   substance still applies to the renamed docs. Likewise `edge-source-thesis.md` in the Addendum
   is now `data-edge-source-thesis.md`, and `intel-11-dual-system-discrete-vs-portfolio.md` is
   in `docs/research/archive/`)*

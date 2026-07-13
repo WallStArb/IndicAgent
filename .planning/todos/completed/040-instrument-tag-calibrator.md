@@ -5,7 +5,7 @@
 core factors, nightly `TagAuditor` batch), TAG-02 (regime-conditioned Phase 2 extension), TAG-03
 (discovery gate retiring human-assertable tags). Phase 145 is 📋 PLANNED, not yet executed, but
 the "idea → phase" step this todo tracked is complete. See ROADMAP.md's v3.15 section and
-`docs/research/data-instrument-tag-calibrator.md` (Fable-reviewed 2026-07-06) for current status
+`docs/research/stratification-instrument-tag-calibrator.md` (Fable-reviewed 2026-07-06) for current status
 and implementation detail — don't re-derive from this file. Moved to `completed/` since the
 promotion (not the build) was this todo's actual scope.
 
