@@ -718,6 +718,85 @@ def test_render_report_control_breach_escalates():
     assert "GOVERNANCE BREACH" in text
 
 
+def test_render_report_marks_untrusted_strata_per_cell():
+    """The per-(tf, regime) [UNTRUSTED: replication mismatch] header suffix must
+    fire only for strata whose ReplicationRecord.ok is False, and must not leak
+    onto unrelated strata. The base fixture's mismatched ReplicationRecord is
+    tf='1d', regime='high_bear'; its AttributionRows all sit at tf='5m',
+    regime='low_bull', so this branch is otherwise never exercised. Add rows at
+    the mismatched stratum (reusing the fixture's replication list unmodified)
+    and check both directions of the marker."""
+    rows, replication = _fixture_rows_and_replication()
+    mismatched_baseline = dataclasses.replace(rows[0], tf="1d", regime="high_bear")
+    mismatched_family = dataclasses.replace(rows[1], tf="1d", regime="high_bear")
+    lines = render_report(
+        weight_version="run_x",
+        oos_start="ts",
+        families=["control", "momentum"],
+        rows=[*rows, mismatched_baseline, mismatched_family],
+        replication=replication,
+        config=_TEST_CONFIG,
+        reconstruction_tol=0.01,
+    )
+    header_lines = [line for line in lines if line.startswith("#### ")]
+    untrusted_header = next(line for line in header_lines if line.startswith("#### 1d / high_bear"))
+    trusted_header = next(line for line in header_lines if line.startswith("#### 5m / low_bull"))
+    assert "[UNTRUSTED: replication mismatch]" in untrusted_header
+    assert "[UNTRUSTED: replication mismatch]" not in trusted_header
+
+
+def test_render_report_control_breach_without_significance_omits_suspect():
+    """GOVERNANCE BREACH (control carries weight at all) and ABLATION MECHANISM
+    SUSPECT (that breach is also FDR-significant) are independently gated. A
+    control-breach row whose diff_p is large (non-significant after
+    apply_delta_fdr) must still trip the governance breach line but must NOT
+    trip the mechanism-suspect line."""
+    base = dict(
+        tf="5m",
+        regime="low_bull",
+        scale="fast",
+        n_obs=200,
+        ic_baseline=0.30,
+        ci_lower=0.1,
+        ci_upper=0.5,
+        weight_mass_zeroed=0.0,
+        bh_adjusted_p=None,
+        delta_passes_fdr=None,
+    )
+    baseline_row = AttributionRow(
+        family="__baseline__",
+        n_features_zeroed=0,
+        ic_ablated=None,
+        delta_ic=None,
+        diff_p=None,
+        flag="",
+        **base,
+    )
+    control_breach_row = AttributionRow(
+        family="control",
+        n_features_zeroed=1,
+        ic_ablated=0.29,
+        delta_ic=0.01,
+        diff_p=0.90,
+        flag=_FLAG_CONTROL_BREACH,
+        **base,
+    )
+    rows = apply_delta_fdr([baseline_row, control_breach_row], fdr_alpha=0.05)
+    assert rows[1].delta_passes_fdr is False  # sanity: the fixture is genuinely non-significant
+    lines = render_report(
+        weight_version="run_x",
+        oos_start="ts",
+        families=["control"],
+        rows=rows,
+        replication=[],
+        config=_TEST_CONFIG,
+        reconstruction_tol=0.01,
+    )
+    text = "\n".join(lines)
+    assert "GOVERNANCE BREACH" in text
+    assert "ABLATION MECHANISM SUSPECT" not in text
+
+
 def test_record_manifest_success_shape(tmp_path):
     rows, replication = _fixture_rows_and_replication()
     path = record_manifest(

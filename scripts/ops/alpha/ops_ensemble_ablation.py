@@ -935,7 +935,7 @@ def record_manifest(
     )
     if n_control_weighted:
         manifest.add_warning(
-            f"GOVERNANCE BREACH: control family carries weight in " f"{n_control_weighted} strata"
+            f"GOVERNANCE BREACH: control family carries weight in {n_control_weighted} strata"
         )
     if error is not None:
         manifest.add_error(error)
