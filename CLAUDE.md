@@ -15,14 +15,21 @@ Version: 5.51.0
 ## Done-Coding SOP
 
 ```
-1. code-simplifier agent   # clean up changed code (invoke automatically)
-2. /review                 # peer code review
-3. pytest tests/unit/ -q   # must be green
+1. /simplify                # clean up changed code (invoke automatically)
+2. /review                  # peer code review
+3. pytest tests/unit/ -q    # must be green
 4. commit on feature branch
 5. git checkout main && git merge --ff-only <branch>
 6. git branch -d <branch> && git worktree prune
 7. git push origin main
 ```
+
+**GSD-orchestrated phases (`/gsd-execute-phase`) enforce step 1 automatically** via a
+`code_simplifier_gate` in `execute-phase.md` (added 2026-07-13 after Phases 142B, 143.1, and
+144 all landed on `main` with this step silently skipped — GSD's own workflow never called it;
+CLAUDE.md's SOP text only reached the loop when a human-driven session ran it manually). For
+any work NOT driven through `/gsd-execute-phase`, still invoke `/simplify` manually before
+`/review`.
 
 **Commands:** `.venv/bin/pytest tests/unit/ -v` · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · `docs/reference/cheatsheet.md` for full reference.
 
