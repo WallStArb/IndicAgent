@@ -92,6 +92,36 @@ stamped vectors (`docs/research/archive/multi-engine-regime-architecture.md`, E1
 contract. Each is bespoke: its own writer, its own promotion story (or none), its own
 correctness argument.
 
+**Three more named candidates (folded in from todo 076, 2026-07-13 — gate: Phase 144 shipped,
+code-complete; practically still follows the same corpus-run checkpoint as the formalization
+work below):**
+- **Correlation regime** — cross-sectional mean pairwise correlation of universe returns
+  (rolling window, expanding percentile rank). Measures whether the universe is "one trade or
+  many," distinct from vol level (VIX×breadth) — the documented precursor of momentum crashes.
+  Sharpest pre-registered prediction: cross-sectional features (todo 073) show materially lower
+  IC in the top correlation decile. Computable from the same series
+  `equity_regime_model.py._fetch_spy_bars` already generalizes from. Cross-reference: todo 038
+  computes a related rolling correlation structure for a different end-use (collinearity
+  diagnostic, not a conditioning axis) — not a duplicate, but check before building either.
+- **Liquidity regime** — expanding percentile rank of universe median dollar volume per bar.
+  Distinct axis from vol and correlation; directly tests the small-scale immediacy-provision
+  thesis (T1), whose falsification condition is "edge concentrates in less-liquid conditions."
+- **Posterior-weighted IC (soft stratification, a variance-reduction refinement, not a new
+  dimension)** — `feature_vectors` already stores full HMM posteriors (`hmm_prob_*`,
+  `hmm_entropy`). Hard-label stratification throws boundary observations into one cell at full
+  weight; a fractional-membership IC (each observation contributes to each stratum weighted by
+  its posterior) uses the same data with strictly more information, shrinking cell-estimate
+  variance exactly where labels are least certain. A weighted-rank variant inside `ic_math.py`,
+  measurable on the existing corpus with zero schema change and zero new parameters.
+
+**Formalization revival note (folded in from todo 106, 2026-07-13):** once Phase 144's D-05
+verdict lands (currently blocked on the 143.1-07 corpus re-run), revisit this doc with that
+evidence in hand and decide whether/how to write the actual `Protocol`/ABC as real code, settle
+the `concept_registry` row-grain question (already fully specced as Option A/B in
+`concept-unified-registry.md`'s Domain Vetting section — this is a ratification, not new design
+work), and scope which of the candidates above are worth planning next. Design/decision work,
+not a build task.
+
 **The proposal:** name the concept — a *stratification dimension* — unify it behind one
 provider contract, and make "which conditioning is true" an empirical, mechanical question
 answered by the same measurement machinery that already governs features. This is not a new

@@ -687,3 +687,39 @@ design time and expensive to retrofit); F5's OOS confirmation gate in the same p
 discovery is now day-one behavior. F7's stability-driven half-life is Phase 1.5. Phase 2
 (regime conditioning) unchanged in intent, but gated on F1 by construction and on F6.3's
 per-stratum sample gate.
+
+## Open question: is the live 6-category `tag_vocabulary` taxonomy itself sound? (folded in from todo 041, 2026-07-13)
+
+Before this calibrator builds empirical validation machinery *against* the 6 live
+`tag_vocabulary.category` values (`exposure`, `sensitivity`, `factor_regime`, `cycle_position`,
+`signal_role`, `macro_driver` — all precisely defined in `docs/foundation/glossary.md`), a real
+scrutiny pass (not just glossary-consistency checking) surfaced three concrete problems and one
+gap, not yet resolved:
+
+1. **`signal_role` is a relational fact miscast as a unary attribute.** Live example: `SDOG`
+   tagged `spread_leg` with evidence "VYM/SDOG broad vs sector-equal-weight yield spread." That
+   tag only means anything in relation to `VYM` — not a property of `SDOG` alone. Likely wants
+   its own table describing instrument *pairs*, or shouldn't be a persisted classification at
+   all (a parameter on whichever analysis needs the spread, not a tag).
+2. **`cycle_position`'s provisional status contradicts its `active` marking.** The glossary
+   itself says these are "static institutional priors... never empirically validated... superseded
+   by HMM regime conditioning in Phase 2" (see "On `cycle_position`" above) — a hardcoded belief
+   standing in for a measurement this project's own principles (empirical over theoretical,
+   segment by regime) say should replace it, yet it's marked `active` as if a stable peer of the
+   empirically-measured categories.
+3. **`macro_driver` may be redundant with `sensitivity`, not independent.** Both are described as
+   "empirically measured via beta regression" against a proxy — same procedure, two names. Needs
+   verification that e.g. `oil_price` (`macro_driver`) and `oil_beta` (`sensitivity`) aren't the
+   same regression under different tags before this calibrator builds separate machinery for
+   both.
+4. **Sector granularity does not exist today** (verified live DB, 2026-07-12): of 80 active
+   equity instruments, exactly one sector-adjacent tag exists (`sector_rotation`, 11 symbols) — a
+   flat flag, not a GICS-sector-level taxonomy. Any future ask for finer-than-equity/rates
+   `regime_group`s is blocked on this producing real sector tags first.
+
+`exposure` and `sensitivity` are solid, map cleanly onto standard factor-model practice (loadings
+vs. measured betas), and don't need re-litigating. Resolve the four items above before or
+alongside this calibrator's Phase 1 build — building the empirical machinery first bakes any
+confusion here into a real system rather than fixing it beforehand. Whatever this resolves to,
+update `docs/foundation/glossary.md` to match — the glossary isn't immutable; a category that
+fails scrutiny should be corrected there, not preserved because it's already documented.

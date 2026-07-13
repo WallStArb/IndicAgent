@@ -3,12 +3,12 @@
 **Found:** 2026-07-01, from a question about whether rolling PCA / eigenvector variance
 monitoring should gate the HMM inputs.
 
-**Cross-reference (2026-07-12, housekeeping audit):** `.planning/todos/deferred/076-new-stratification-dimensions-correlation-liquidity-posterior.md`'s
-L2-1 (realized-correlation regime, a candidate `StratificationDimension`) computes a related
-rolling cross-sectional correlation/co-movement structure over the same universe, for a different
-end-use (stratification dimension vs. this todo's collinearity-risk diagnostic). Not a duplicate
-— different purposes — but whoever builds either should check the other first for a shareable
-underlying correlation-matrix computation.
+**Cross-reference (2026-07-12, housekeeping audit; todo 076 folded into `docs/research/
+stratification-dimension-unification.md` 2026-07-13, link updated):** that doc's "Correlation
+regime" candidate dimension computes a related rolling cross-sectional correlation/co-movement
+structure over the same universe, for a different end-use (stratification dimension vs. this
+todo's collinearity-risk diagnostic). Not a duplicate — different purposes — but whoever builds
+either should check the other first for a shareable underlying correlation-matrix computation.
 
 ## Renaissance-grade reasoning
 

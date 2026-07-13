@@ -891,6 +891,15 @@ against yet.
 
 #### regime_model
 
+**Seeding sequence (folded in from todo 105, 2026-07-13):** this domain is seeded *after* the
+Concept Registry MVP itself ships (`ensemble_strategy` is domain #1) - `alpha.regime.groups[].enabled`
+today is an ungoverned flat APR boolean where this domain would instead carry a status enum with
+an evidence-backed transition log, and Phase 144's own D-05 acceptance gate produces exactly the
+promotion/demotion evidence `concept_transition_log` exists to store permanently and queryably
+(as shipped, that verdict lands only in a SUMMARY.md and a todo file). Not urgent - no live
+consumer reads `regime_model` lifecycle state today; this is a governance/auditability upgrade,
+not a correctness fix.
+
 **Trigger:** blocked on two things, both already flagged elsewhere in this doc and not resolved
 here - Phase 144 shipping `regime_group` (needed for TLT's own clean cross-sectional comparison
 and for any non-equity asset class's substitution test), and the v3.15 row-grain decision (below).

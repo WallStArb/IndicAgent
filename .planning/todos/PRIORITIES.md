@@ -127,21 +127,19 @@ without re-confirming with the project owner.
 | [059](pending/059-review-aegisagent-tradeagent-for-trade-construction-reuse.md) | Review AegisAgent/TradeAgent for v4.0 trade-construction reuse |
 | [060](pending/060-review-cluster2-legacy-intelligence-backlog.md) | Review legacy intelligence backlog docs — salvage or clear |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
-| [105](pending/105-concept-registry-regime-model-domain-seed.md) | Seed Concept Registry's `regime_model` domain from Phase 144's `regime_group` evidence (governance upgrade, sequenced behind todo 058) |
 
 ---
 
-## Index todos (2026-07-13)
-
-Three systems previously had their tracking scattered across `pending/`/`deferred/` with no
-single entry point (Concept Registry: 058+105; Controlled Vocabulary: nothing at all — a real
-gap, found this pass; Stratification/Classification: 106+076+041). Each now has a pointer todo
-listing its real sub-items with their actual priorities/gates preserved — not merged, not
-duplicated. Check these first when picking up work in these areas:
-
-- [110 — Concept Registry index](pending/110-concept-registry-index.md)
-- [111 — Controlled Vocabulary index](pending/111-controlled-vocabulary-index.md)
-- [112 — Stratification & Classification index](pending/112-stratification-classification-index.md)
+**Concept Registry / Controlled Vocabulary / Stratification cluster (2026-07-13):** four
+deferred/speculative sub-items (105, 106, 076, 041) previously tracked as standalone todos were
+folded directly into their canonical design docs instead — `concept-unified-registry.md`
+(regime_model domain seeding sequence), `stratification-dimension-unification.md` (new candidate
+dimensions + formalization revival note), `stratification-instrument-tag-calibrator.md` (tag
+taxonomy open question). These were forward-looking notes on ideas already fully described in
+their own docs, not standalone actionable work — the doc's own "not yet built"/"open question"
+sections are the right home for that, not a parallel todo file. Only [058](pending/058-concept-registry-mvp-seed-ensemble-strategy.md)
+(the Concept Registry MVP build, P1, unblocked) remains as an actual standalone todo in this
+cluster.
 
 ---
 
