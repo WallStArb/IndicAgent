@@ -120,7 +120,7 @@ without re-confirming with the project owner.
 
 | Todo | What |
 |---|---|
-| [056](pending/056-phase146-147-v2x-retirement-stale.md) | Phase 146/147 gate definitions stale — needs an operator call (archive vs delete v2.x) before those phases are planned |
+| [056](pending/056-phase146-147-v2x-retirement-stale.md) | Phase 147/148 gate definitions stale (filename kept as-is, renumbered again 2026-07-13) — needs an operator call (archive vs delete v2.x) before those phases are planned |
 | [057](pending/057-doc-crossref-phase-renumbering-sweep.md) | 10 idea docs still reference pre-2026-07-04 phase numbers (file list corrected 2026-07-12 — 3 of the 10 have since been archived/deleted, rest renamed at least once) |
 | [035](pending/035-market-ohlcv-active-bars-view.md) | `market_data_ohlcv` active-bars filter belongs at one boundary, not 4 call sites |
 | [064](pending/064-indicagent-test-db-schema-sync.md) | Test DB schema sync — unblocks integration tests needing a live-migrated schema |
@@ -142,7 +142,7 @@ in their own docs, not standalone actionable work.
 
 - [112 — Concept Registry](pending/112-concept-registry.md) — self-contained scope (P1, unblocked); [058](completed/058-concept-registry-mvp-seed-ensemble-strategy.md) closed 2026-07-13, kept as frozen historical record only
 - [110 — Controlled Vocabulary](pending/110-controlled-vocabulary.md) — previously had zero todo tracking it at all
-- [111 — Stratification & Classification](deferred/111-stratification-classification.md) — gated on Phase 144's D-05 verdict
+- [111 — Stratification & Classification](pending/111-stratification-classification.md) — moved out of `deferred/` 2026-07-13 (its own frontmatter already said `status: pending`, directory placement was the mismatch); registered as ROADMAP Phase 145, gated on Phase 144's D-05 verdict
 
 ---
 

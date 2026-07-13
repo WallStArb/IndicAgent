@@ -64,3 +64,49 @@ misses per file.
 source; a stale phase number here is confusing on read, not a silent-wrong-build risk the way a
 stale ROADMAP.md phase number would be. Do opportunistically, or in one batch next time any of
 these docs is touched for other reasons.
+
+---
+
+**Second renumbering round, 2026-07-13:** StratificationDimension Formalization was inserted as
+integer Phase 145 (after briefly landing as 145.1, then 144.1 — see ROADMAP.md's Phase 145 entry
+for that intermediate history), cascading every phase number 145 and above up by one, including
+the previously-fixed-number IntegrityMonitor cluster (151/152 → 152/153, absorbed cleanly since
+153 was free — the old ETF Universe Expansion phase number, retired 2026-07-04 per the table
+above). The mapping (old → new, this round only):
+
+| Old | New | Phase |
+|---|---|---|
+| 144.1 | 145 | StratificationDimension Formalization (new) |
+| 145 | 146 | Empirical Instrument Tag Calibrator |
+| 146 | 147 | I7 Alpha Scorer Transition |
+| 147 | 148 | Alpha Scoring System + v2.x Retirement Gate |
+| 148 | 149 | CaseSubstrate — Embedding + Retrieval Foundation |
+| 149 | 150 | CaseSubstrate — Case Predictors + Measurement Integration |
+| 150 | 151 | Feature Primitives Expansion + Theory-Motivated Interaction Layer |
+| 151 | 152 | DistributionDriftMonitor |
+| 152 | 153 | EnsembleHealthMonitor |
+| 154 | 155 | Alternative Data Vectors |
+| 155 | 156 | Portfolio State Foundation |
+| 156 | 157 | Position Sizing & Risk Management |
+| 157 | 158 | Live Execution Layer |
+| 158 | 159 | Cost Calibration Feedback Loop + Execution Scoring |
+| 159 | 160 | Concept Registry MVP |
+| 160 | 161 | Controlled Vocabulary System |
+
+**Already fixed this round:** `ROADMAP.md` (full pass, including the milestone-summary bullets
+and the v3.0a IntegrityMonitor details block — a second location for 151/152 this round's sweep
+had to discover, since it lives outside the narrative `### Phase N` sections the first round's
+script targeted), `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md`,
+`.planning/todos/PRIORITIES.md`, `.planning/todos/pending/111-stratification-classification.md`,
+`.planning/todos/pending/056-phase146-147-v2x-retirement-stale.md` (filename kept as-is per the
+first round's own precedent of not renaming files, just updating prose and noting the mismatch).
+
+**Not yet fixed this round — same low-urgency/opportunistic treatment as the first round's list
+above, now folded into one combined backlog:** every file in the original "Still stale" list
+above (unchanged by this round, since none of those docs mention 145-160 in the affected range
+except where already noted) plus any `pending/`/`deferred/` todo referencing old 145-152 that
+wasn't already touched — spot-checked but not exhaustively swept: 077, 036, 019, 070, 097, 060,
+104, 083, 026, 033, 074, 073. `completed/` todos and `docs/plans/archive/`/`docs/research/archive/`
+docs are deliberately excluded from both rounds — frozen historical record, not live
+cross-references; renumbering their embedded phase numbers would misrepresent what those numbers
+meant at the time they were written.
