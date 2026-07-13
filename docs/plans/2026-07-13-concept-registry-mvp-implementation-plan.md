@@ -1747,11 +1747,19 @@ git commit -m "docs(concept-registry): record MVP build, invariant-6 ensemble_st
 
 ---
 
-### Task 7: Final verification, close todo 058, merge
+### Task 7: Final verification, close todo 112, merge
+
+**Note (2026-07-13, added after this plan was written):** todo 058 (this plan's original
+tracking item) was already moved to `.planning/todos/completed/` — not because this build
+shipped, but because it duplicated [112](../../.planning/todos/pending/112-concept-registry.md)
+as a second standalone P1 entry for the same scope. 112 is now the live tracking item; when this
+plan actually executes, close 112, not 058 (058 stays exactly as-is, a frozen historical record).
 
 **Files:**
-- Move: `.planning/todos/pending/058-concept-registry-mvp-seed-ensemble-strategy.md` -> `.planning/todos/completed/058-concept-registry-mvp-seed-ensemble-strategy.md`
-- Modify: `.planning/todos/PRIORITIES.md` (remove/strike the 058 entry, matching how other completed todos are handled there)
+- Modify: `.planning/todos/pending/112-concept-registry.md` — move to `.planning/todos/completed/`
+  once the build actually ships
+- Modify: `.planning/todos/PRIORITIES.md` (remove/strike the 112 entry, matching how other
+  completed todos are handled there)
 
 **Interfaces:**
 - Consumes: everything above.
@@ -1781,18 +1789,20 @@ Expected: green, same pass count as `main` plus the new tests (the pre-existing 
 
 Run the code-simplifier agent over the changed files, then `/review`. Apply any fixes as additional commits on this branch and re-run Step 2.
 
-- [ ] **Step 4: Close todo 058**
+- [ ] **Step 4: Close todo 112**
+
+058 is already closed (see the note at the top of this task) — nothing to do with it here.
 
 ```bash
 cd /home/bg/dev/indicagent
-git mv .planning/todos/pending/058-concept-registry-mvp-seed-ensemble-strategy.md \
-       .planning/todos/completed/058-concept-registry-mvp-seed-ensemble-strategy.md
+git mv .planning/todos/pending/112-concept-registry.md \
+       .planning/todos/completed/112-concept-registry.md
 ```
-Then open `.planning/todos/PRIORITIES.md`, find the 058 line, and remove it (match the file's existing convention for completed items). Also grep for gated references per the close-referenced-concept-docs rule:
+Then open `.planning/todos/PRIORITIES.md`, find the 112 line, and remove it (match the file's existing convention for completed items). Also grep for gated references per the close-referenced-concept-docs rule:
 ```bash
-grep -rn "todo 058\|todo-058" docs/foundation docs/research docs/intelligence .planning/todos/pending
+grep -rn "todo 112\|todo-112" docs/foundation docs/research docs/intelligence .planning/todos/pending
 ```
-Task 6 already updated the two registry docs; if this grep surfaces any OTHER doc stating 058 as pending/unbuilt, update its status wording in place (state the corrected fact plainly, no review-narrative annotation).
+Task 6 already updated the two registry docs; if this grep surfaces any OTHER doc stating 112 as pending/unbuilt, update its status wording in place (state the corrected fact plainly, no review-narrative annotation).
 
 ```bash
 git status --short

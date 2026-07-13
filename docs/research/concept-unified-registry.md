@@ -255,11 +255,12 @@ already planned and Renaissance-reviewed), and the only upstream dependency is P
 completing - a phase already in flight, not a speculative future capability. `ensemble_strategy`
 may reach the build trigger before `alpha_pattern` does.
 
-**Trigger fired (2026-07-04):** Phase 142B.1 is complete. Tracked at
-`.planning/todos/pending/058-concept-registry-mvp-seed-ensemble-strategy.md` - do not let this
-drift; the 2026-07-04 cluster review (F1) found the trigger had fired with no work item tracking
-it, which is exactly the "notebook nobody reads" failure mode this registry exists to prevent,
-now happening to the registry itself. `ensemble_weights` holds only `weight_version='v1'` as of
+**Trigger fired (2026-07-04):** Phase 142B.1 is complete. Originally tracked at todo 058, now at
+`.planning/todos/pending/112-concept-registry.md` (058 closed 2026-07-13 as a duplicate, kept as
+frozen historical record) - do not let this drift; the 2026-07-04 cluster review (F1) found the
+trigger had fired with no work item tracking it, which is exactly the "notebook nobody reads"
+failure mode this registry exists to prevent, now happening to the registry itself.
+`ensemble_weights` holds only `weight_version='v1'` as of
 this date - E1/E2 shipped as code paths (`shrinkage.py`, `mean_variance_weights()`), not as rows;
 E3/E4 have theses but no eval mechanism yet (F7). Seeding also surfaced two open design questions
 that must be resolved before the first migration, not after (F2, F3 below).
@@ -1258,8 +1259,9 @@ What was already right and left unchanged: `trigger_reason` in `concept_transiti
 
 Defer until a second domain has real candidates ready to govern - no longer assumed to be `alpha_pattern` by default; see item 20 above. `ensemble_strategy` (Phase 142B.1) is the more concrete near-term candidate and the lower-risk one to build the MVP against first. Build the Minimal Viable Version informed by whichever domain actually gets there first.
 
-**Status update (2026-07-04):** Phase 142B.1 is complete - the build trigger has fired. Tracked at
-`.planning/todos/pending/058-concept-registry-mvp-seed-ensemble-strategy.md`; do not let this defer
+**Status update (2026-07-04):** Phase 142B.1 is complete - the build trigger has fired. Originally
+tracked at todo 058, now at `.planning/todos/pending/112-concept-registry.md` (058 closed
+2026-07-13 as a duplicate, kept as frozen historical record); do not let this defer
 indefinitely (2026-07-04 cluster review, F1).
 
 ---
