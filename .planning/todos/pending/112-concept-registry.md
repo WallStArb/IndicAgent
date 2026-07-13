@@ -15,13 +15,28 @@ Canonical design doc: `docs/research/concept-unified-registry.md`.
 `concept_*` tables exist. Feature Registry (separate live sibling system) already implements the
 same lifecycle pattern for `domain='feature'` — 61 rows.
 
-## Current actionable work
+## Scope
 
-[058 — Build the Concept Registry MVP and seed `ensemble_strategy`](058-concept-registry-mvp-seed-ensemble-strategy.md)
-— P1, unblocked (build trigger fired 2026-07-04). Deliberately deferred behind P0
-measurement-integrity work as of 2026-07-13 (see PRIORITIES.md); implementation plan already
-written and saved (`docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`),
-execution not started.
+Build the four-table MVP (`concept_registry` / `concept_gate` / `concept_transition_log` incl. a
+`corpus_build_ref` column / `concept_annotation`), then seed `domain='ensemble_strategy'` from
+Phase 142B.1's outcomes: `ic_proportional` as the `active` incumbent (genesis transition row),
+E1 (shrunk-IC) and E2 (mean-variance) as evaluated-mechanism `candidate` rows, E3/E4 as
+thesis-only `candidate` rows. Beyond the schema and seed data, four design decisions ship with
+it: (1) name `ops_ensemble_weight_compare.py`'s win-decision gate as the sole deterministic
+status-flipper (invariant 1); (2) `baseline_metric` stores the mean of `min_promotion_consecutive`
+evaluations, not the final one, as a winner's-curse guard; (3) per-stratum status resolution —
+`status` governs recipe validity, per-stratum champion stays a fact in `ensemble_weights`,
+`redundancy_group` displacement disabled for this domain; (4) document the domain's invariant-6
+exception (human-authored candidates, OOS A/B as the live-evidence substitute). Explicitly not in
+scope: migrating `feature_registry` in (blocked on Phase 143's LIFECYCLE-01 amendments landing
+against it first).
+
+Full task-by-task breakdown already written: [058](058-concept-registry-mvp-seed-ensemble-strategy.md)
+and `docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`.
+
+**Status:** P1, unblocked (build trigger fired 2026-07-04). Deliberately deferred behind P0
+measurement-integrity work as of 2026-07-13 (see PRIORITIES.md); plan written, execution not
+started.
 
 ## Not yet a tracked item
 
