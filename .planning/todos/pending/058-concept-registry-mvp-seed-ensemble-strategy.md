@@ -8,6 +8,14 @@
 **Gate:** none — build trigger already fired (Phase 142B.1 complete 2026-07-04)
 ---
 
+**Superseded for current scope (2026-07-13): [112 — Concept Registry](112-concept-registry.md) is
+now the live scope description.** This file's content below is frozen historical record — the
+original 2026-07-04 scope decisions and their F1-F8 rationale, preserved exactly for the 14
+existing citations across the codebase that reference it by number. Not maintained going forward.
+For current scope, read 112. For step-by-step execution, read
+`docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md` — that document, not this
+one, is the actual task-by-task spec.
+
 # 058 — Build the Concept Registry MVP and seed it from Phase 142B.1's ensemble-strategy outcomes
 
 From the 2026-07-04 cluster review of `docs/research/concept-governance-registries.md` and its
