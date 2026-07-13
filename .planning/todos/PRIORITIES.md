@@ -75,7 +75,6 @@ without re-confirming with the project owner.
 | Todo | Why now |
 |---|---|
 | [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09 |
-| [084](pending/084-ablation-protocol-ensemble-degradation.md) | Pre-committed ablation protocol — buildable now against existing tables, no new schema |
 | [079](pending/079-anytime-valid-e-values-corpus-reruns.md) | Anytime-valid inference pilot (one tf) — new statistical primitive, deliberately staged small |
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |
 | [097](pending/097-vol-normalized-return-target-pooled-ic.md) | Vol-normalized return target for POOLED-strata IC — split from todo 077's L3-1, 2026-07-11; folded into Phase 143.1 (Component F) as an explicit A/B, not a silent swap |
