@@ -89,7 +89,7 @@ from observability.corpus_manifest import CorpusManifest
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import connect_db_from_url
+from services._batch_utils import Float32ChunkAccumulator, connect_db_from_url
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
@@ -806,32 +806,29 @@ def _compute_symbol_tf(
         # 2026-07-09 per-symbol ProcessPoolExecutor OOM: QQQ/5m alone (392K rows x
         # 150 features) measured at 4.3 GB peak RSS materialising bar_ts_list/
         # regime_list/X_list before conversion; with 12 workers concurrently in their
-        # 5m pass that's 50+ GB against a 29 GB box. Chunked server-side fetch
-        # (same shape as _compute_cross_sectional_tf's X_chunks/np.vstack pattern,
-        # and ensemble_ic_engine.py's pooled_fetch_itersize fix for the analogous
-        # bug in that module) measured at ~700 MB peak for the same symbol.
+        # 5m pass that's 50+ GB against a 29 GB box. Chunked server-side fetch (now
+        # sharing Float32ChunkAccumulator, todo 087, with _compute_cross_sectional_tf's
+        # own OOM fix below; ensemble_ic_engine.py's pooled_fetch_itersize fix reduces
+        # via a generator instead and doesn't share this accumulator shape) measured
+        # at ~700 MB peak for the same symbol.
         #
         # Only the wide feature matrix (150 columns) needs chunked conversion --
         # bar_ts/regime are one scalar per row and stay cheap (tens of MB at most)
         # as plain flat lists even at 400K+ rows, so they're appended directly with
-        # no threshold/flush bookkeeping.
+        # no threshold/flush bookkeeping. Float32ChunkAccumulator (todo 087) owns the
+        # buffer-to-array bookkeeping shared with _compute_cross_sectional_tf's own
+        # OOM fix below; the streaming-cursor mechanics stay here.
         fetch_chunk_rows = config.symbol_fetch_chunk_rows
         bar_ts_list: list = []
         regime_list: list = []
-        X_chunks: list[np.ndarray] = []
-        buf_X: list = []
+        acc = Float32ChunkAccumulator(flush_at=fetch_chunk_rows)
         with conn.cursor(name=f"fv_{symbol}_{tf}") as cur:
             cur.itersize = fetch_chunk_rows
             cur.execute(fv_sql, (symbol, tf, training_window_end))
             for r in cur:
                 bar_ts_list.append(r[0])
                 regime_list.append(r[1])
-                buf_X.append(r[2:])
-                if len(buf_X) >= fetch_chunk_rows:
-                    X_chunks.append(np.array(buf_X, dtype=np.float32))
-                    buf_X = []
-            if buf_X:
-                X_chunks.append(np.array(buf_X, dtype=np.float32))
+                acc.append_row(r[2:])
 
         if not bar_ts_list:
             conn.close()
@@ -845,8 +842,7 @@ def _compute_symbol_tf(
         del regime_list
         # float32: see the analogous cross-sectional comment in
         # _compute_cross_sectional_tf -- rank-based IC doesn't need float64 raw values.
-        X_raw = np.vstack(X_chunks)
-        del X_chunks
+        X_raw = acc.finalize()
 
         # ------------------------------------------------------------------
         # Load forward returns aligned by bar_ts
@@ -1742,7 +1738,11 @@ def _compute_cross_sectional_tf(
     """
 
     n_scales = len(_SCALES)
-    X_chunks: list[np.ndarray] = []
+    # Float32ChunkAccumulator (todo 087) owns the buffer-to-array bookkeeping shared
+    # with _compute_symbol_tf's own OOM fix above; the ts_chunk re-execution mechanics
+    # and the ret/cmp matrices (different dtypes, NULL-substitution logic -- not the
+    # same shape as X) stay here.
+    X_acc = Float32ChunkAccumulator()
     ret_chunks: list[np.ndarray] = []
     cmp_chunks: list[np.ndarray] = []
 
@@ -1775,9 +1775,7 @@ def _compute_cross_sectional_tf(
         # per-scale subsample copy below -- the direct fix for the 2026-07-08 OOM
         # incidents, where the largest cross-sectional cell (5m/low_bull, ~9.4M rows
         # x 152 features after the 80-symbol ETF expansion) peaked at 20GB+ RSS.
-        X_chunks.append(
-            np.array([[r[i + 1] for i in range(n_features)] for r in batch], dtype=np.float32)
-        )
+        X_acc.append_chunk([[r[i + 1] for i in range(n_features)] for r in batch])
         ret_chunk = np.full((n_batch, n_scales), np.nan)
         cmp_chunk = np.zeros((n_batch, n_scales), dtype=bool)
         for i, row in enumerate(batch):
@@ -1788,7 +1786,8 @@ def _compute_cross_sectional_tf(
         ret_chunks.append(ret_chunk)
         cmp_chunks.append(cmp_chunk)
 
-    if not X_chunks:
+    X_raw = X_acc.finalize()
+    if X_raw is None:
         _logger.info(
             "ic_engine.cross_sectional_no_data",
             tf=tf,
@@ -1796,8 +1795,6 @@ def _compute_cross_sectional_tf(
         )
         return [], {"n_committed": 0, "n_skipped": 0}
 
-    X_raw = np.vstack(X_chunks)
-    del X_chunks
     returns_mat = np.vstack(ret_chunks)
     del ret_chunks
     complete_mat = np.vstack(cmp_chunks)

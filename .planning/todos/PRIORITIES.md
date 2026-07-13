@@ -49,7 +49,11 @@ live in `ic_engine.py`, nothing left to do), 072 (crowding proxy regression — 
 `scripts/analysis/crowding_proxy_regression.py`, first run against the live pre-143.1-fix
 `alpha_frames` backfill: max R²=0.2674 at 1d/mid_bull, 0.003-0.09 at the primary 5m/15m strata —
 no crowding alarm yet; standing diagnostic, re-run each future corpus epoch, see
-`docs/analysis/crowding-proxy-report.md`).
+`docs/analysis/crowding-proxy-report.md`). **Closed 2026-07-13**: 109 (Fisher-z CI bracket clamp
+moved into `ic_math.py`, folded into `_fisher_z_ci` itself), 087 (shared
+`Float32ChunkAccumulator` built in `services/_batch_utils.py`, wired into `_compute_symbol_tf` +
+`_compute_cross_sectional_tf`; `ensemble_ic_engine.py`'s pooled fetch correctly left out — it
+reduces via a generator, not the same materialize-a-matrix shape).
 
 **Explicit sequencing decision (2026-07-10, project owner confirmed; reaffirmed 2026-07-11 after
 094's root cause was corrected, and again 2026-07-11 to insert 097 — see
@@ -98,7 +102,6 @@ without re-confirming with the project owner.
 | [086](pending/086-hmm-test-coverage-gaps.md) | HMM regime-writer test coverage gaps (occupation gate, smooth-check false positive) |
 | [088](pending/088-hold-max-bars-censoring-not-tracked.md) | `hold_max_bars` calibration doesn't distinguish confirmed decay from censored data. **Note (2026-07-12): briefly and incorrectly merged into 096 same day, then reverted** — 088 and 096 are locked as separately-sequenced steps (093→091→097→094→A/B re-run→096→088) per PRIORITIES.md's own "do not reorder" decision and multiple frozen phase artifacts; see 088's file for the full correction. |
 | [089](pending/089-ensemble-ic-engine-recurring-cadence.md) | No recurring `ensemble_ic_engine` schedule exists — IC-decay trigger input can go stale |
-| [087](pending/087-shared-chunked-cursor-helper.md) | Shared chunked-cursor-to-numpy helper — now a 4th hand-rolled copy exists (today's pilot-script fix) |
 | [009](pending/009-service-utils-ic-engine-cleanup.md) | Phase B infra cleanup batch — APR compliance sweep, `BaseBatch` promotion, naming vocab, shared-utility DRY fixes, `ic_engine.py` pure-function extraction (merged 012 + 032 here 2026-07-12, all three were gated on the same sprint) |
 | [029](pending/029-feature-scoring-beyond-ic.md) | Feature scoring beyond IC (near-term derived metrics) |
 | [050](pending/050-ibkr-apr-migration.md) | Migrate `ibkr.py` hardcoded constants to APR |

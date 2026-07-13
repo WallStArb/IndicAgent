@@ -7,6 +7,7 @@ import csv
 import io
 from typing import Any
 
+import numpy as np
 import psycopg2
 import structlog
 
@@ -130,3 +131,51 @@ def cfg(cfg_dict: dict[str, Any], key: str, default: Any) -> Any:
     """Cast a raw config_value to default's type, or return default if unset."""
     val = cfg_dict.get(key)
     return type(default)(val) if val is not None else default
+
+
+class Float32ChunkAccumulator:
+    """Buffers rows into vstack-ready float32 chunks, freeing each chunk's Python-list
+    intermediate as soon as it's converted (todo 087).
+
+    Shared 'accumulate rows -> np.array chunk -> vstack once at the end, discarding
+    intermediates' idiom behind ic_engine.py's per-symbol OOM fix (`_compute_symbol_tf`,
+    a named server-side cursor streaming rows one at a time) and its cross-sectional
+    OOM fix (`_compute_cross_sectional_tf`, a plain cursor re-executed per explicit
+    timestamp chunk, fetching a whole batch per query). The query/cursor/pagination
+    mechanics genuinely differ between those two callers and are left entirely to
+    them; this owns only the buffer-to-float32-array bookkeeping both duplicated.
+
+    Two append modes, matching the two callers' shapes:
+    - append_row(): one row at a time, auto-flushed into a chunk every `flush_at` rows
+      (the streaming-cursor shape).
+    - append_chunk(): one pre-fetched batch at a time, converted to a chunk immediately
+      (the re-executed-per-query-chunk shape). Ignores an empty batch.
+    """
+
+    def __init__(self, flush_at: int | None = None) -> None:
+        self._flush_at = flush_at
+        self._chunks: list[np.ndarray] = []
+        self._buf: list = []
+
+    def append_row(self, row: Any) -> None:
+        self._buf.append(row)
+        if self._flush_at is not None and len(self._buf) >= self._flush_at:
+            self._flush_buf()
+
+    def append_chunk(self, rows: Any) -> None:
+        if len(rows):
+            self._chunks.append(np.array(rows, dtype=np.float32))
+
+    def _flush_buf(self) -> None:
+        if self._buf:
+            self._chunks.append(np.array(self._buf, dtype=np.float32))
+            self._buf = []
+
+    def finalize(self) -> np.ndarray | None:
+        """vstack every chunk and free them; None if nothing was ever appended."""
+        self._flush_buf()
+        if not self._chunks:
+            return None
+        result = np.vstack(self._chunks)
+        self._chunks = []
+        return result

@@ -12,13 +12,19 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import numpy as np
 import pytest
 
 _project_root = Path(__file__).parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services._batch_utils import cfg, connect_db_from_url, load_apr_dict_async
+from services._batch_utils import (
+    Float32ChunkAccumulator,
+    cfg,
+    connect_db_from_url,
+    load_apr_dict_async,
+)
 
 
 class TestCfg:
@@ -107,3 +113,53 @@ class TestConnectDbFromUrl:
             mock_connect.assert_called_once_with("postgresql://fake")
             assert result is mock_conn
             assert mock_conn.autocommit is False
+
+
+class TestFloat32ChunkAccumulator:
+    """todo 087: shared 'buffer rows -> float32 chunk -> vstack once' idiom behind
+    ic_engine.py's per-symbol (row-by-row, threshold-flushed) and cross-sectional
+    (whole-batch-per-query-chunk) OOM-mitigation fetch loops."""
+
+    def test_finalize_with_no_rows_returns_none(self) -> None:
+        acc = Float32ChunkAccumulator(flush_at=2)
+        assert acc.finalize() is None
+
+    def test_append_row_flushes_at_threshold(self) -> None:
+        acc = Float32ChunkAccumulator(flush_at=2)
+        acc.append_row([1.0, 2.0])
+        acc.append_row([3.0, 4.0])
+        acc.append_row([5.0, 6.0])
+
+        result = acc.finalize()
+
+        assert result.dtype == np.float32
+        np.testing.assert_array_equal(result, [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+
+    def test_append_row_flushes_remainder_on_finalize(self) -> None:
+        acc = Float32ChunkAccumulator(flush_at=10)
+        acc.append_row([1.0, 2.0])
+
+        result = acc.finalize()
+
+        np.testing.assert_array_equal(result, [[1.0, 2.0]])
+
+    def test_append_chunk_appends_whole_batch_immediately(self) -> None:
+        acc = Float32ChunkAccumulator()
+        acc.append_chunk([[1.0, 2.0], [3.0, 4.0]])
+        acc.append_chunk([[5.0, 6.0]])
+
+        result = acc.finalize()
+
+        assert result.dtype == np.float32
+        np.testing.assert_array_equal(result, [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+
+    def test_append_chunk_ignores_empty_batch(self) -> None:
+        acc = Float32ChunkAccumulator()
+        acc.append_chunk([])
+        assert acc.finalize() is None
+
+    def test_finalize_frees_internal_chunk_list(self) -> None:
+        acc = Float32ChunkAccumulator()
+        acc.append_chunk([[1.0, 2.0]])
+        acc.finalize()
+        assert acc._chunks == []
