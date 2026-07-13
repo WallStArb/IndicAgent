@@ -8,6 +8,8 @@
 **Gate:** none — build trigger already fired (Phase 142B.1 complete 2026-07-04)
 ---
 
+**Tracked under:** [110 — Concept Registry index](110-concept-registry-index.md)
+
 # 058 — Build the Concept Registry MVP and seed it from Phase 142B.1's ensemble-strategy outcomes
 
 From the 2026-07-04 cluster review of `docs/research/concept-governance-registries.md` and its

@@ -1,3 +1,5 @@
+**Tracked under:** [112 — Stratification & Classification index](../pending/112-stratification-classification-index.md)
+
 # 076 — New/refined stratification dimensions: correlation regime, liquidity regime, posterior-weighted IC
 
 **Status (moved to deferred/, 2026-07-10):** Hard gate stated in the todo itself: Phase 144 (`regime_group` dispatcher) must ship first. Revive when Phase 144 is planned.

@@ -6,6 +6,8 @@ source: Phase 144 execution session — user question on Concept Registry / Secu
   Classification Hierarchy overlap with regime_group
 ---
 
+**Tracked under:** [110 — Concept Registry index](110-concept-registry-index.md)
+
 # Seed Concept Registry's `regime_model` domain from Phase 144's `regime_group` evidence
 
 ## Finding

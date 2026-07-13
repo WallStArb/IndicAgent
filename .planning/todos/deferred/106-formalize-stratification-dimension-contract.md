@@ -5,6 +5,8 @@ filed: 2026-07-12
 source: Phase 144 execution session — user follow-up after regime_group shipped
 ---
 
+**Tracked under:** [112 — Stratification & Classification index](../pending/112-stratification-classification-index.md)
+
 # Formalize the `StratificationDimension` provider contract (design-only, not a build)
 
 ## Why now

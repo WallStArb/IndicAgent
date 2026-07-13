@@ -1,3 +1,5 @@
+**Tracked under:** [112 — Stratification & Classification index](../pending/112-stratification-classification-index.md)
+
 # Audit the 6-category tag_vocabulary taxonomy before building the calibrator against it
 
 **Status (updated 2026-07-12):** Phase 144 was planned and executed (`144-CONTEXT.md` D-04) and

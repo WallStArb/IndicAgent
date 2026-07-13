@@ -131,5 +131,19 @@ without re-confirming with the project owner.
 
 ---
 
+## Index todos (2026-07-13)
+
+Three systems previously had their tracking scattered across `pending/`/`deferred/` with no
+single entry point (Concept Registry: 058+105; Controlled Vocabulary: nothing at all — a real
+gap, found this pass; Stratification/Classification: 106+076+041). Each now has a pointer todo
+listing its real sub-items with their actual priorities/gates preserved — not merged, not
+duplicated. Check these first when picking up work in these areas:
+
+- [110 — Concept Registry index](pending/110-concept-registry-index.md)
+- [111 — Controlled Vocabulary index](pending/111-controlled-vocabulary-index.md)
+- [112 — Stratification & Classification index](pending/112-stratification-classification-index.md)
+
+---
+
 **Not in this list:** anything in `deferred/` (phase-gated or corpus-rerun-batched) or
 `completed/` (done). Check those folders directly for that work.
