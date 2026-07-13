@@ -173,7 +173,7 @@ returns.
 - `src/observability/corpus_manifest.py` — provenance identity
 - `services/ic_engine.py` :39-44, :854, :1700 — training-window/OOS clamp as shipped (141.1)
 - ROADMAP.md — Phase 142B spec (FRAME-01..04, SHADOW-REVIEW pre-commitment)
-- `docs/plans/SHADOW-REVIEW.md` — frozen Phase 147 promotion criteria (D-01 gross gate, D-02
+- `docs/plans/SHADOW-REVIEW.md` — frozen Phase 148 promotion criteria (D-01 gross gate, D-02
   net reporting column) — settles Open Question 2
 - `production/migrations/214_alpha_frames_schema.sql` — shipped frames DDL + provenance columns
   — settles Open Question 3

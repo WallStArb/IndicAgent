@@ -3,8 +3,8 @@
 **Version:** 1.0
 **Status:** draft — rearchitected from a 10-doc cluster with real internal conflicts and dropped
 substance, for independent iteration
-**Priority:** high (Phase 151/143 (merged lifecycle phase)/152; live-safety gate as system nears real capital)
-**Milestone:** proposed v4.1 IC Governance + Drift Monitoring (Phases 151, 143 (merged lifecycle phase), 152 — renumbered 2026-07-04, originally 149A/149B/150) — per
+**Priority:** high (Phase 152/143 (merged lifecycle phase)/153; live-safety gate as system nears real capital)
+**Milestone:** proposed v4.1 IC Governance + Drift Monitoring (Phases 152, 143 (merged lifecycle phase), 153 — originally 149A/149B/150, see D12 below) — per
 topdown doc D12, should be unhooked from "v4.1" framing and scheduled opportunistically once
 its table dependencies exist, not held for a milestone boundary
 **Last Updated:** 2026-07-06 (Fable 5 re-verification pass against locked Phase 143 plans + live schema; previously 2026-07-02)
@@ -304,13 +304,13 @@ verified against `143-03-PLAN.md` and the `143-REVIEWS.md` independent review):*
   daemon, no Kafka subscription, transitions via `FeatureRegistryService.record_transition_sync`,
   one `integrity_monitor` gate-evaluation fact per run, `feature_transition_log` authoritative.
 - **Staleness alerting did NOT land as described above.** The piggyback-on-drift-monitor idea
-  was unbuildable at Phase 143 time (DistributionDriftMonitor is Phase 151, unbuilt), so the
+  was unbuildable at Phase 143 time (DistributionDriftMonitor is Phase 152, unbuilt), so the
   plan ships an in-run `ic_engine_last_run_age_days` gauge + alert inside the hook itself -
   and the review (finding N6, accepted limitation) documents plainly that an in-run gauge of
   a oneshot batch process cannot detect the failure mode staleness alerting exists for: if
   ic_engine stops running entirely, nothing sets the gauge. The true absence alert is a
   Prometheus expression over the D-06 `job_completed_total` samples ic_engine already emits,
-  deferred out of Phase 143. When Phase 151 builds DistributionDriftMonitor, the 4h-cycle
+  deferred out of Phase 143. When Phase 152 builds DistributionDriftMonitor, the 4h-cycle
   piggyback above is still a reasonable third home, but treat the Prometheus absence alert as
   the primary fix, not this doc's piggyback.
 - **The demotion trigger this doc never specified is now pinned:** an active feature demotes
@@ -370,7 +370,7 @@ written. Same class of assumed-schema error the E2 section below already correct
 
 This is a real, previously-working mechanism that got dropped without a stated reason during
 consolidation. *(Fable's revision)* Verdict rather than another open flag: **build it with
-Phase 152, alert-only until it earns halt authority** - see Open Question 1 for the full
+Phase 153, alert-only until it earns halt authority** - see Open Question 1 for the full
 reasoning. Two explicit decisions from the source doc carry forward with it: **no automatic
 re-baselining** after an alert (human investigation before reset; auto-reset masks recurring
 degradation), and per-key arming at `alpha.drift.cusum_min_outcomes` (default 20) baseline
@@ -410,7 +410,7 @@ source docs were written against an assumed schema. Live `alpha_events` (Phase 1
 [0,1] conviction; they must be re-derived from `alpha_score`'s empirical distribution (e.g.
 percentile-based collapse checks) before they gate anything. E2B reads closed `alpha_frames`
 rows and is buildable only once enough closed frames exist per (symbol, tf); it is the
-last-arriving gate within Phase 152, not a blocker for the others. The three questions the
+last-arriving gate within Phase 153, not a blocker for the others. The three questions the
 gates ask are unchanged; the columns they ask them of are not. *(Re-verified against live
 schema 2026-07-06, Fable 5: still accurate - `alpha_events` has `alpha_score`, no
 `conviction`, no `outcome_r`; `alpha_frames` does not exist yet, Phase 142B remains blocked
@@ -469,7 +469,7 @@ threshold, pass/fail), not a second copy of the state change. Everything recorde
 metric_name, COALESCE(subject,'')). The `monitor_type` discriminator and one-table shape
 survive as designed above, but "kept as specced in health-guardian-design.md" is no longer
 true: the shared recovery-state and halt-state columns are NOT in the 204 shape. Phases
-151/152 must add whatever recovery/halt columns their monitors need as additive migrations
+152/153 must add whatever recovery/halt columns their monitors need as additive migrations
 against this minimal base - do not assume they exist. The idempotency UNIQUE key, which no
 version of this doc specified, came out of the cross-AI review and is load-bearing for hook
 rerun safety.)*
@@ -490,11 +490,11 @@ transition-log `note` column replaces it.
 
 ## Sequencing
 
-Per topdown decision D12: Phase 151 (distribution drift, originally 149A) and Phase 143
+Per topdown decision D12: Phase 152 (distribution drift, originally 149A) and Phase 143
 (feature lifecycle routing, merged from the then-separate 149B) depend
 only on tables that already exist (`feature_vectors`, `feature_ic_scores`, `feature_registry`)
 and should not wait for a "v4.1" milestone boundary — they're startable independently today.
-Phase 152 (ensemble health, originally 150) is the one genuinely gated dependency, requiring
+Phase 153 (ensemble health, originally 150) is the one genuinely gated dependency, requiring
 `alpha_ensemble_ic` from Phase 142A, which is now complete — so it is unblocked as of this doc's
 writing.
 
@@ -505,7 +505,7 @@ read as "the registry may already be mid-build by the time this phase lands" (OQ
 applies as the build-time routing check).
 
 Recommended build order, correcting the original three-phase split:
-1. **Phase 151 (originally 149A) — DistributionDriftMonitor**, as specced, no changes needed beyond what's above.
+1. **Phase 152 (originally 149A) — DistributionDriftMonitor**, as specced, no changes needed beyond what's above.
 2. **Phase 143 (feature lifecycle routing, merged from the then-separate 149B)** *(Fable's revision)*:
    one build, not two. ic_engine's post-run hook detects promotion/demotion trigger conditions
    and writes transitions through `feature_registry` (or `concept_registry` if D9's build
@@ -521,7 +521,7 @@ Recommended build order, correcting the original three-phase split:
    the plans disagree - `pre_shadow_weight`, the fail counter, the `note` column, the staleness
    home, the `integrity_monitor` column set - the plans are authoritative; the corrections
    above mark each divergence.)*
-3. **Phase 152 (originally 150) — EnsembleHealthMonitor**, with E2B/E2C restored (re-based on the live schema:
+3. **Phase 153 (originally 150) — EnsembleHealthMonitor**, with E2B/E2C restored (re-based on the live schema:
    `alpha_score`, `alpha_frames`; see E2 section) and CUSUM built alert-only per Open
    Question 1. Within the phase, E2B lands last; it needs closed `alpha_frames` rows that
    only start accumulating once Phase 142B ships.
@@ -532,13 +532,13 @@ Recommended build order, correcting the original three-phase split:
 
 1. **CUSUM for ensemble IC — build now or explicitly defer?** *(Fable's revision - resolved
    with a recommendation rather than left open, since the grounds exist.)* **Build it with
-   Phase 152, alert-only, staged authority.** Reasoning: (a) the mechanism is proven, it ran
+   Phase 153, alert-only, staged authority.** Reasoning: (a) the mechanism is proven, it ran
    in v2.x on per-signal pnl_r; (b) it is nearly free at build time, the accumulator runs over
    the same `alpha_ensemble_ic` rows E1 already fetches, so it is a small pure function, not a
    new data path; (c) the real gate is data, not code: each key needs
    `alpha.drift.cusum_min_outcomes = 20` baseline measurements, and `alpha_ensemble_ic` accrues
    one per corpus run per (symbol, tf, regime, lookahead), so most keys will arm months after
-   Phase 152 ships regardless of when the code is written. Deferring the build gains nothing;
+   Phase 153 ships regardless of when the code is written. Deferring the build gains nothing;
    building it now means it self-arms per key as history accumulates. Authority is staged and
    falsifiable: alerts only (no halt) until its first real alerts have been human-reviewed for
    precision; grant halt authority per the same operator-confirmed path every other gate uses.
@@ -546,7 +546,7 @@ Recommended build order, correcting the original three-phase split:
    no-automatic-re-baselining rule.
 2. **Does regime-conditioning in `DistributionDriftMonitor` get rebuilt once intel-12 ships, or
    is the current inline majority-regime query fine to keep as a special case?** Leaning toward
-   "migrate once intel-12's contract exists, not worth blocking Phase 151 (originally 149A) on it
+   "migrate once intel-12's contract exists, not worth blocking Phase 152 (originally 149A) on it
    now" — but that's a sequencing call, not a technical one.
 3. **Timing of the feature_registry → concept_registry migration relative to Phase 143 (merged
    from the then-separate 149B).** **Status (2026-07-04):** D9's build trigger has fired
@@ -596,7 +596,8 @@ Recommended build order, correcting the original three-phase split:
   invariant 1 (only a deterministic, narrowly-scoped code path flips status) shapes the
   transition-writer position above.
 - `.planning/research/2026-07-02-v3-topdown-architecture.md` — D3 (lifecycle state out of
-  measurement tables), D9 (Concept Registry MVP), D12 (149A/149B/150, renumbered 2026-07-04 to 151/143 (merged)/152, unhooked from v4.1 framing)
+  measurement tables), D9 (Concept Registry MVP), D12 (149A/149B/150, now Phases 152/143 (merged)/153,
+  unhooked from v4.1 framing)
 - `.planning/ROADMAP.md` Phase 143 (Feature Vector Lifecycle + Alpha Decay Infrastructure),
   the phase the then-separate 149B was merged into (executed 2026-07-03); source of the
   regime-shift guard, the new-evidence recovery floor, LIFECYCLE-00, and IC staleness alerting

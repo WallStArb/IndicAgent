@@ -12,14 +12,14 @@
 # 019 — Interaction Factory
 
 **Status:** Evidence gate fired (todo 037 PASSED, 2026-07-10) but remains correctly deferred —
-Phase 150 (`ROADMAP.md`) already rejected this todo's specific combinatorial mechanism on an
+Phase 151 (`ROADMAP.md`) already rejected this todo's specific combinatorial mechanism on an
 independent ground (BH-FDR loses meaningful power at ~30K simultaneous candidates, a problem
 orthogonal to whether the atomics are IC-saturated) and committed instead to a curated ≤50-
 feature Theory-Motivated Interaction Layer. 037's PASS confirms interaction effects are real
-and worth pursuing (validating Phase 150's direction), but does not revive this todo's
-specific full-generator design — that would require separately revisiting Phase 150's own
+and worth pursuing (validating Phase 151's direction), but does not revive this todo's
+specific full-generator design — that would require separately revisiting Phase 151's own
 BH-FDR-power rejection, not just re-citing 037.
-**Priority:** Deferred (superseded in practice by Phase 150's implementation choice; would
+**Priority:** Deferred (superseded in practice by Phase 151's implementation choice; would
 need a deliberate future decision to re-open)
 **Depends on:** 008-feature-registry (metadata required, implemented), primitives expansion
 landed (89 Renaissance primitives live, 2026-07-09), IC engine stable on full 80-symbol
@@ -28,7 +28,7 @@ corpus, **037 pilot showing real incremental IC on hand-picked interactions — 
 `.planning/todos/completed/037-interaction-primitives-pilot-ic-test.md`**
 **Concept doc:** `docs/research/intel-feature-interaction-factory.md` (refreshed 2026-07-01 —
 reframed from a service to a candidate-generation strategy, added the evidence-based trigger,
-fixed statistical gaps; updated 2026-07-10 to record the trigger firing and the Phase 150
+fixed statistical gaps; updated 2026-07-10 to record the trigger firing and the Phase 151
 tension above)
 
 ## What

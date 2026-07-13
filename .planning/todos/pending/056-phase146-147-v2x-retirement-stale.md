@@ -1,11 +1,8 @@
 # Phase 147 gate dangles on unrun work; Phase 148's v2.x retirement half describes retiring an already-dead system
 
-**Renumbered 2026-07-04:** phases 143-152 were renumbered into logical dependency order. What
-this todo originally called "Phase 143.5" is now **Phase 147** (I7 Alpha Scorer Transition);
-"Phase 144" (Alpha Scoring System + v2.x Retirement Gate) is now **Phase 148**. Body below
-updated to match; original finding and scope unchanged. **Renumbered again 2026-07-13:** cascaded
-up by one more (146→147, 147→148) to make room for StratificationDimension Formalization's
-insertion as integer Phase 145 — see ROADMAP.md's Phase 145 entry for that history.
+**Filename says "146/147"; current numbers are 147/148** (I7 Alpha Scorer Transition / Alpha
+Scoring System + v2.x Retirement Gate) — filename kept as-is per this repo's no-rename
+convention, body below uses current numbers throughout.
 
 **Found:** 2026-07-03, via ROADMAP reconciliation pass (`.planning/research/2026-07-03-roadmap-reconciliation.md`, finding F3).
 

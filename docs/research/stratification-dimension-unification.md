@@ -16,7 +16,7 @@ touched. The core premise (two live regime systems, per-symbol HMM in `feature_v
 plus the 9-label `{low/mid/high}_{bull/neutral/bear}` cross-sectional model in
 `market_regimes.regime_label`, no shared contract) re-verified accurate, as is the todo 026
 empirical-state section (numbers match the todo as of today) and the AnalogEngine sequencing
-claim, which is now *stronger* than this doc states: ROADMAP Phase 148's Depends-on line
+claim, which is now *stronger* than this doc states: ROADMAP Phase 149's Depends-on line
 hard-codes "v3.15 complete" as of 2026-07-03, so the dependency is an encoded roadmap edge, not
 just this doc's argument. Eight findings drifted and carry dated inline corrections below:
 
@@ -499,7 +499,7 @@ P2a (multi-seed restarts) if pulled in. Note the resulting division of labor is 
 conflict: Phase 143 hardened the incumbent provider's *internals*; this milestone still owns
 the *contract* and the cross-dimension governance.
 
-Per decision D6, this absorbs Phase 145 (calibrator, renumbered 2026-07-04 — originally 148) and dissolves the standalone v3.3
+Per decision D6, this absorbs Phase 146 (Instrument Tag Calibrator) and dissolves the standalone v3.3
 milestone — "a milestone whose scope is TBD and whose contents all belong earlier is a
 numbering artifact, not a plan."
 
@@ -614,7 +614,9 @@ Recommendations below are proposals for ratification, not decisions.
   parallel system to candidate list
 - [Concept Governance Registries](concept-governance-registries.md) — the three-registry taxonomy (`domain='regime_model'`
   is a Concept Registry domain, same governance shape as `feature` and `ensemble_strategy`)
-- ROADMAP.md — v3.15 milestone section (Phases 144, 145, formalized 2026-07-03) and Phase 148's
+- ROADMAP.md — v3.15 milestone section (milestone formalized 2026-07-03 as Phases 144, 145;
+  this doc's own formalization work became integer Phase 145 on 2026-07-13, shifting the
+  Tag Calibrator to Phase 146 — v3.15 is now Phases 144, 145, 146) and Phase 149's
   Depends-on line ("v3.15 complete"), which encodes this doc's AnalogEngine sequencing claim as
   a hard roadmap edge *(pointer updated 2026-07-06, Fable 5; the previous "`.planning/STATE.md`
   line 114" reference no longer points at relevant content after STATE.md edits)*

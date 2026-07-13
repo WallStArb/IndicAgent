@@ -92,7 +92,7 @@ away a real, asset-class-dependent effect.** SPY's per-symbol HMM labels work re
 don't separate IC at all. This is a materially different finding than "labels are borderline
 deficient in general" — it's "label quality is asset-class-dependent." **Fix the query before
 reusing it: run per-symbol, never pre-pooled across symbols with potentially different regime
-dynamics, and widen past SPY+TLT to at least one member of every `regime_group` (once Phase 151
+dynamics, and widen past SPY+TLT to at least one member of every `regime_group` (once Phase 152
 ships) before generalizing.**
 
 **Root-cause implication:** TLT's failure mode doesn't obviously look like parameter
@@ -118,7 +118,7 @@ table) — done for SPY only: cross-sectional range (0.0457) vs per-symbol HMM r
 the same SPY/5m/1h slice, a 1.4x wider separation for cross-sectional, not the 2.2x an earlier
 same-day pooled-and-TLT-contaminated comparison suggested. Directionally consistent with (but
 not proof of) parameter bias mattering for SPY specifically; TLT needs its own clean
-same-symbol-only comparison once Phase 151 gives it a valid cross-sectional group (`rates`) to
+same-symbol-only comparison once Phase 152 gives it a valid cross-sectional group (`rates`) to
 compare against — comparing TLT's HMM to the *equity* cross-sectional label would repeat the
 same contamination error found above.
 

@@ -103,7 +103,7 @@ superiority.
 ## Breadth Is the Binding Constraint (added 2026-07-01, Simons-lens review)
 
 Whatever thesis survives, the arithmetic above it is fixed: IR ≈ IC × √(effective breadth).
-This universe has effective breadth ~8-15 (58 correlated ETFs; Phase 152's 79 barely moves it —
+This universe has effective breadth ~8-15 (58 correlated ETFs; the completed ETF Universe Expansion's 79 barely moves it —
 more sector funds are more of the same bets). At IC ≈ 0.03 and breadth 10, there is almost
 nothing to harvest; at breadth 300, the *same IC* is a business. Medallion's expansion to
 higher frequency and thousands of instruments was this arithmetic, not bigger edges. The

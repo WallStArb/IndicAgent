@@ -120,8 +120,7 @@ without re-confirming with the project owner.
 
 | Todo | What |
 |---|---|
-| [056](pending/056-phase146-147-v2x-retirement-stale.md) | Phase 147/148 gate definitions stale (filename kept as-is, renumbered again 2026-07-13) — needs an operator call (archive vs delete v2.x) before those phases are planned |
-| [057](pending/057-doc-crossref-phase-renumbering-sweep.md) | 10 idea docs still reference pre-2026-07-04 phase numbers (file list corrected 2026-07-12 — 3 of the 10 have since been archived/deleted, rest renamed at least once) |
+| [056](pending/056-phase146-147-v2x-retirement-stale.md) | Phase 147/148 gate definitions stale (filename kept as-is) — needs an operator call (archive vs delete v2.x) before those phases are planned |
 | [035](pending/035-market-ohlcv-active-bars-view.md) | `market_data_ohlcv` active-bars filter belongs at one boundary, not 4 call sites |
 | [064](pending/064-indicagent-test-db-schema-sync.md) | Test DB schema sync — unblocks integration tests needing a live-migrated schema |
 | [059](pending/059-review-aegisagent-tradeagent-for-trade-construction-reuse.md) | Review AegisAgent/TradeAgent for v4.0 trade-construction reuse |

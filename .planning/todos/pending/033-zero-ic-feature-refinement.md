@@ -5,7 +5,7 @@
 
 ## Features
 
-**Correction (2026-07-01):** `momentum_rank_z`, `volume_rank_z`, `volatility_rank_z` are NOT zero-IC — verified live in the DB, they are `NULL` for every row. They have never been computed. **Cross-reference updated 2026-07-12:** the todo that implements them was originally 013, deleted 2026-07-09 when merged into `.planning/todos/deferred/073-cross-sectional-relative-value-feature-family.md` (now batched into the v3.15/Phase 150 corpus-rerun window, not standalone). These 3 should be removed from this todo's scope entirely until 073 ships and produces actual values to measure. Re-add them here only if IC comes back at/near zero on real (non-null) data.
+**Correction (2026-07-01):** `momentum_rank_z`, `volume_rank_z`, `volatility_rank_z` are NOT zero-IC — verified live in the DB, they are `NULL` for every row. They have never been computed. **Cross-reference updated 2026-07-12:** the todo that implements them was originally 013, deleted 2026-07-09 when merged into `.planning/todos/deferred/073-cross-sectional-relative-value-feature-family.md` (now batched into the v3.15/Phase 151 corpus-rerun window, not standalone). These 3 should be removed from this todo's scope entirely until 073 ships and produces actual values to measure. Re-add them here only if IC comes back at/near zero on real (non-null) data.
 
 **Remaining 4 features actually measured as zero-IC:** poc_dist_atr, va_position, sr_support_dist, sr_resist_dist
 

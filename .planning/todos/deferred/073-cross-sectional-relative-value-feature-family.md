@@ -1,6 +1,6 @@
 # 073 — Cross-sectional relative-value feature family (finish the ghost columns properly)
 
-**Status (moved to deferred/, 2026-07-10):** New FeatureFactory feature-family build meant for the v3.15 corpus-rerun batch / Phase 150's remit, not a standalone build -- the source doc explicitly warns against running these piecemeal. Revive alongside that batch or Phase 150 planning.
+**Status (moved to deferred/, 2026-07-10):** New FeatureFactory feature-family build meant for the v3.15 corpus-rerun batch / Phase 151's remit, not a standalone build -- the source doc explicitly warns against running these piecemeal. Revive alongside that batch or Phase 151 planning.
 
 
 **Merged 2026-07-08:** this exact finding was independently discovered twice — first as todo

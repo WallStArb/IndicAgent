@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-07-12
+closed: 2026-07-12
 source: monitoring the 143.1-07 corpus re-run (PID 3027216, started 2026-07-12T04:46 UTC)
 ---
 

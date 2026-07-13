@@ -5,7 +5,7 @@ filed: 2026-07-12
 source: user-observed pattern, discussed and stress-tested 2026-07-12
 ---
 
-# Get a Fable rigor pass on the quarterly-seasonality/OPEX idea before it goes anywhere near Phase 150
+# Get a Fable rigor pass on the quarterly-seasonality/OPEX idea before it goes anywhere near Phase 151
 
 **Concept doc:** `docs/ideas/signal-quarterly-seasonality-opex-risk-off.md` — this todo is the
 review-gating step; do not build anything from this idea before that doc has been through
@@ -29,7 +29,7 @@ evidence of anything and should not be cited.
 A Fable pass on the concept doc's five open questions (primitive design, OPEX-specific test
 precision, statistical power given quad-witching's 4x/year frequency, which testing
 methodology applies — the todo-037 interaction-pilot pattern vs. SHADOW-REVIEW's day-clustered
-bootstrap — and whether this belongs inside Phase 150's existing scope or needs separate
+bootstrap — and whether this belongs inside Phase 151's existing scope or needs separate
 treatment). Concept doc has the full context; don't re-derive it here.
 
 ## Gate

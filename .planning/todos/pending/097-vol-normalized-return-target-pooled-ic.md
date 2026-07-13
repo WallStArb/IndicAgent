@@ -31,11 +31,11 @@ re-run, and adding this as a third simultaneous change to the same `ic_ci_lower`
 numbers would confound attribution if swapped in silently. Running it as an explicit before/after
 comparison (not a blind replacement) keeps each of the three changes separately diagnosable.
 
-## Why this rides Phase 143.1 rather than waiting for the v3.15/Phase 150 batch
+## Why this rides Phase 143.1 rather than waiting for the v3.15/Phase 151 batch
 
 Components A and E both already require a full `ic_engine` corpus re-run — this transform reads
 from the exact same corpus load, at zero incremental schema/DAG cost, so bundling it in spends
 that re-run once rather than burning a second cycle for a change that's ready today. Contrast
 with todo 073 (cross-sectional relative-value feature family) and todo 077's L3-2/L3-4, which
-need new schema/DAG steps or a separate phase's outputs (Phase 145's betas) and correctly stay in
-the larger v3.15/Phase 150 batch instead.
+need new schema/DAG steps or a separate phase's outputs (Phase 146's betas) and correctly stay in
+the larger v3.15/Phase 151 batch instead.

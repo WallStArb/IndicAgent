@@ -1,13 +1,13 @@
 # 083 — Analog substrate refinements: ensemble-of-metrics retrieval, conformal coverage
 
-**Status (moved to deferred/, 2026-07-10):** Hard-blocked on Phase 148 (AnalogEngine embedding substrate) shipping, per the todo's own gate. Revive once Phase 148 ships.
+**Status (moved to deferred/, 2026-07-10):** Hard-blocked on Phase 149 (AnalogEngine embedding substrate) shipping, per the todo's own gate. Revive once Phase 149 ships. (Filename says "phase148" — kept as-is per this repo's no-rename convention.)
 
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §4 (L1a-2, L1a-3).
 `intel-analog-engine.md` already covers retrieval design, definedness rules, OOD monitoring, and
 correctly defers IC-weighted re-ranking — these are additions on top, not replacements.
 **Priority:** medium; genuinely additive but only relevant once the substrate exists.
-**Gate:** hard-blocked on Phase 148 (AnalogEngine embedding substrate) shipping. See also todo
+**Gate:** hard-blocked on Phase 149 (AnalogEngine embedding substrate) shipping. See also todo
 154 (family-balanced embedding geometry), which must land first since it changes the substrate
 these ideas build on.
 
