@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: Phase 143 complete
-last_updated: "2026-07-12T18:11:12.656Z"
+status: Phase 143.1 in progress (Wave 6/7, corpus re-run running)
+last_updated: "2026-07-13T15:30:00.000Z"
 progress:
   total_phases: 10
   completed_phases: 6
@@ -19,7 +19,10 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
-**Current focus (updated 2026-07-10):** Phase 142.5 (Renaissance Primitives) COMPLETE (8/8 plans, 2026-07-07; 89 primitives/150 total `FeatureVector` columns). The 6th corpus rebuild (2026-07-09) completed clean end-to-end — full history of the 5 prior failed attempts and the 2 blockers hit mid-run in ROADMAP.md's Phase 142A EIC-04 Verdict Log and [Corpus pipeline state](project_corpus_pipeline_state.md).
+
+**Current focus (updated 2026-07-13):** Phase 143.1 (Measurement and Eligibility Integrity) is 6/8 plans complete; Wave 6 (143.1-07, the full-pipeline corpus re-run) is **in progress**, running since 2026-07-13T13:13:58 UTC, ~9/80 symbols as of 15:19 UTC, projected complete ~2026-07-14T10:00 UTC plus ~1-1.5h for steps 6-8. This run also carries todo-096's `ic_sharpe` stride-bias estimator fix (migration 230, commit `d06ac60d`) and closes out todo 102 (idle-session-timeout connection-lifecycle bug, triple-confirmed fixed). Wave 7 (143.1-08, shadow-mode validation + E1-vs-E2 A/B re-run) and Phase 144's D-05 acceptance gate are both `BLOCKED-ON-143.1-07` and unblock together once this run finishes. Same-day, unrelated to this run: todo 084 (ensemble degradation ablation protocol) and todo 087 (`Float32ChunkAccumulator`) both shipped and closed; GSD's `execute-phase` workflow gained a `code_simplifier_gate` (root-cause fix — Phases 142B, 143.1, and 144 had all landed without a `/simplify` pass since GSD's own automation never called it, only manual sessions did); todo 058 (Concept Registry MVP) has a complete implementation plan saved but execution was deliberately deferred behind this P0 work, stays a `pending/` todo, not promoted to a ROADMAP phase.
+
+**Previously (updated 2026-07-10):** Phase 142.5 (Renaissance Primitives) COMPLETE (8/8 plans, 2026-07-07; 89 primitives/150 total `FeatureVector` columns). The 6th corpus rebuild (2026-07-09) completed clean end-to-end — full history of the 5 prior failed attempts and the 2 blockers hit mid-run in ROADMAP.md's Phase 142A EIC-04 Verdict Log and [Corpus pipeline state](project_corpus_pipeline_state.md).
 
 **2026-07-09/10 (this session): a Renaissance-council-style rigor audit of the corpus's own measurement machinery found and fixed a real eligibility-gate bug, then closed the loop on live data.** `ensemble_trainer.py`'s 3 eligibility queries and `ensemble_ic_engine.py`'s EIC-02 `hold_max_bars` gate required cross-sectional significance (`ic_ci_lower>0, passes_fdr=true, reliable=true`) but never `passes_walkforward=true`/`walk_forward_stable=true` — 36% of "qualifying" `feature_ic_scores` rows had never been confirmed out-of-sample, and EIC-02 had drifted out of sync with EIC-04's own (correctly gated) query. Fixed, commit `3c1b2649` (shared `_ELIGIBILITY_WHERE`/`_QUALIFYING_FLAGS` constants so the criterion can't drift a third time). Separately traced and ruled out `regime_writer.py`'s per-symbol HMM look-ahead leak as the cause — real in code, confirmed not live (`equity_model_enabled=true` routes measurement through the cross-sectional model instead; see todo 026). Regenerated the full downstream chain under the corrected gate: `ensemble_trainer` → `alpha_publisher` (`ensemble_weights` 251→193, `ensemble_alpha` 33.2M→32.9M, `alpha_events` 12.26M→11.81M) → `EnsembleICEngine` re-measured; reverted 6 `hold_max_bars` cells across 2 rounds that were stale from intermediate not-fully-fixed states (final: 11/36 genuinely walk-forward-confirmed, 25/36 correctly on `[initial_estimate]`). **EIC-04 PASS, 54/1425 = 3.79% qualifying** (supersedes 2026-07-09's 35/1585=2.21% — first verdict computed against a fully mutually-consistent corpus). Full detail: ROADMAP.md Phase 142A EIC-04 Verdict Log, 2026-07-09/10 entry.
 

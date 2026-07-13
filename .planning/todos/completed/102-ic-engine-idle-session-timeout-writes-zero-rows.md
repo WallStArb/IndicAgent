@@ -197,6 +197,30 @@ on a machine reboot first (17GB swap, user-initiated). Once relaunched and fully
 this todo out; also re-run `scripts/analysis/phase144_regime_separation_gate.py` (144's D-05
 gate, currently `BLOCKED-ON-143.1-07`) once `feature_ic_scores` is fresh.
 
+## Status as of 2026-07-13: CLOSED — connection-lifecycle fix confirmed a third time, run in progress under corrected estimator
+
+No reboot occurred; `ops_corpus_pipeline_run.sh --from-step 4` was relaunched directly the same
+day (todo-096's estimator fix landed first, commit `d06ac60d`, so this relaunch also picks that
+up). Step 4 (`cross_sectional_regime_model`) completed clean; step 5 (`ic_engine`) has been
+running since 2026-07-13T13:13:58 UTC with zero connection/idle-timeout failures — the third
+consecutive clean run under the option-c fix (short-lived per-phase connections), now considered
+fully confirmed, not just "likely working."
+
+Worker count was briefly bumped 8→10 mid-restart on a misread of a transient memory snapshot,
+then reverted back to 8 within the hour after a real (but unrelated, step-4-clustering-caused)
+memory spike was mistaken for a consequence of the bump — see `config_history` for both entries.
+Confirmed via the process's own startup log (`n_workers: 8`), not just the APR value, that the
+revert took effect correctly (no ConfigService caching issue). At 9/80 symbols by 15:19 UTC
+(~15.5 min/symbol, matching the pre-fix run's rate almost exactly, as expected since the
+estimator fix touches Sharpe-window sizing, not the bootstrap CI cost that dominates runtime),
+full corpus completion is projected ~10:00 UTC 2026-07-14, plus ~1-1.5h for steps 6-8.
+
+Closing this out: the idle-session-timeout bug this todo was filed for is fixed and
+triple-confirmed. The runtime/perf finding, the Phase-144-collision incident, and the
+checkpointing/`pool.submit`/metrics work that came out of chasing this bug are all shipped
+(commit `d06ac60d`) — see [[project_corpus_pipeline_state]] (memory) for the full narrative,
+not duplicated here further.
+
 ## References
 
 - `logs/ic_engine.log`, `docker logs timescaledb`

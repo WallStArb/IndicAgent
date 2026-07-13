@@ -13,6 +13,22 @@
 From the 2026-07-04 cluster review of `docs/research/concept-governance-registries.md` and its
 consumers (`.planning/research/2026-07-04-concept-registry-cluster-fable-review.md`, F1/F2/F3/F7/F8).
 
+## Status as of 2026-07-13: plan written, execution deliberately deferred; stays a todo, not a ROADMAP phase
+
+A full task-by-task implementation plan was written and saved at
+`docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md` (migrations 231/232 still
+free as of this writing). A worktree was briefly opened to execute it, then redirected to todo
+084 instead (ensemble ablation protocol, since shipped and closed) on the reasoning that the P0
+measurement-integrity work (096/091/094, the corpus re-run) is the actual highest-leverage use of
+time right now, and 058 is P1 governance/bookkeeping for a domain (`ensemble_strategy`) with zero
+live consumers yet. Nothing is lost by the delay — the plan stays valid indefinitely, and the
+worktree cost nothing to redirect.
+
+**Not promoted to ROADMAP.md.** This fits PRIORITIES.md's own scope definition for `pending/`
+todos exactly: a single self-contained, "1-2 session" deliverable, not a multi-plan phase needing
+GSD's roadmap/wave/STATE.md machinery. The plan itself was deliberately written in
+`superpowers:writing-plans` format for this reason, not GSD's `PLAN.md` format.
+
 ## Why this is P1, not deferred
 
 Phase 142B.1 (Ensemble Weighting Methodology) completed 2026-07-04, firing the hub doc's own
