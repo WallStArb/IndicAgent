@@ -97,21 +97,18 @@ _DAILY_ALPHA_SQL = """
 """
 
 
+def _records_to_df(rows: list) -> pd.DataFrame:
+    """asyncpg Records -> DataFrame, preserving column order; empty frame if no rows."""
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows, columns=list(rows[0].keys()))
+
+
 async def _fetch_frames(pool: asyncpg.Pool) -> tuple[pd.DataFrame, pd.DataFrame]:
     async with pool.acquire() as conn:
         factor_rows = await conn.fetch(_DAILY_FACTORS_SQL)
         alpha_rows = await conn.fetch(_DAILY_ALPHA_SQL)
-    factors = (
-        pd.DataFrame(factor_rows, columns=list(factor_rows[0].keys()))
-        if factor_rows
-        else pd.DataFrame()
-    )
-    alpha = (
-        pd.DataFrame(alpha_rows, columns=list(alpha_rows[0].keys()))
-        if alpha_rows
-        else pd.DataFrame()
-    )
-    return factors, alpha
+    return _records_to_df(factor_rows), _records_to_df(alpha_rows)
 
 
 def _align_no_lookahead(factors: pd.DataFrame, alpha: pd.DataFrame) -> pd.DataFrame:
@@ -253,16 +250,11 @@ async def main_async(min_obs: int, report_path: Path) -> None:
             rows_total=len(results),
             columns_written=["tf", "regime", "weight_epoch", "n_obs", "r_squared"],
         )
-        manifest.data["outputs"]["crowding_proxy_regression_report"]["strata_fitted"] = len(
-            ok_results
-        )
-        manifest.data["outputs"]["crowding_proxy_regression_report"]["strata_skipped"] = len(
-            results
-        ) - len(ok_results)
+        report_out = manifest.data["outputs"]["crowding_proxy_regression_report"]
+        report_out["strata_fitted"] = len(ok_results)
+        report_out["strata_skipped"] = len(results) - len(ok_results)
         if ok_results:
-            manifest.data["outputs"]["crowding_proxy_regression_report"]["max_r_squared"] = max(
-                r["r_squared"] for r in ok_results
-            )
+            report_out["max_r_squared"] = max(r["r_squared"] for r in ok_results)
         manifest.mark_success()
         manifest.write()
 
