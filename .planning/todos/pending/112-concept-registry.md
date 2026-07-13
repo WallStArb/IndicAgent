@@ -6,6 +6,10 @@ source: doc-organization session — consolidating Concept Registry's entry poin
   Controlled Vocabulary (110) and Stratification & Classification (111)
 ---
 
+**Registered as ROADMAP Phase 142B.2** (2026-07-13) — see `.planning/ROADMAP.md` for the live
+phase entry with full Goal/Depends-on/Design detail. This todo stays as prioritization context;
+`/gsd-discuss-phase 142B.2` is the next step, not yet run.
+
 # Concept Registry
 
 Single todo for this system (Type 2 of `docs/research/concept-governance-registries.md`).

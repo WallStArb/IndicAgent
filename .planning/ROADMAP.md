@@ -576,7 +576,16 @@ Plans:
 </details>
 
 <details>
-<summary>📋 Phase 135: Controlled Vocabulary System — PLANNED</summary>
+<summary>♻️ Phase 135: Controlled Vocabulary System — SUPERSEDED by Phase 142B.3 (2026-07-13)</summary>
+
+**Closure note (2026-07-13):** this phase was scoped in the pre-v3.0 phase-numbering era (the
+100-136 block — every other member is `[x] Complete` or `CANCELLED`; this was the one silent
+exception) and got orphaned when the codebase moved to v3.0 around it: never executed, never
+formally closed. A stray note once claimed it was "deferred indefinitely per STATE.md" — checked,
+STATE.md contains zero mentions of Phase 135, that citation was itself stale. Its design doc
+stayed current through the v3.0+ governance-framework rewrites even though this phase entry
+didn't. **See Phase 142B.3** for the live version of this work, now under a number in the current
+sequence. Original content preserved below for history.
 
 **Goal:** A central, reusable vocabulary and taxonomy registry — the APR equivalent for symbolic codes. Three DB tables (`controlled_vocabulary`, `vocabulary_group`, `vocabulary_group_member`), one `VocabularyService`, one `/api/vocabulary/{namespace}` endpoint. Any domain registers its enum vocabulary into a namespace; any consumer reads it without hardcoding. First consumer: dashboard signal filter dropdowns.
 
@@ -600,7 +609,7 @@ Plans:
 **Sequencing note:** Runs before Phase 133. W2-W6 are code changes deployed together; W1 (replay) and Migration 130 Statement 3 are operational steps run after deploy.
 
 **Design doc:** `docs/plans/archive/2026-06-18-post-reboot-repair-design.md`
-**Review:** `docs/plans/135-REVIEWS.md` (cross-AI review: Codex + Ollama) — **doc not found** (checked 2026-07-12; Phase 135 itself is deferred indefinitely per STATE.md, so this is low-priority historical drift, not fixed)
+**Review:** `docs/plans/135-REVIEWS.md` (cross-AI review: Codex + Ollama) — **doc not found** (checked 2026-07-12; this filename's "135" is unrelated to the actual Phase 135 entry above, likely a leftover from an old numbering scheme; low-priority historical drift, not fixed. Corrected 2026-07-13: the earlier version of this note incorrectly claimed "Phase 135 itself is deferred indefinitely per STATE.md" — STATE.md contains no mention of Phase 135; see Phase 135's own entry for its real, now-resolved status)
 
 **Plans:** 6 plans in 4 waves
 
@@ -1066,6 +1075,69 @@ after, which is what's happening). **Next step once 142B.1 completes:** a small 
 seeding `concept-governance-registries.md`'s four-table MVP from 142B.1's E1-E4 `weight_version`
 rows, before any `confluence`/`regime_model` domain needs it (those are still further out — see
 v3.15 and intel-10 v3). Not doing this promptly is how "deferred" becomes "deferred indefinitely."
+**Registered 2026-07-13 as Phase 142B.2 below.**
+
+### Phase 142B.2: Concept Registry MVP 📋 PLANNED
+
+**Goal:** Build the four-table evidence-gated lifecycle registry (`concept_registry` /
+`concept_gate` / `concept_transition_log` / `concept_annotation`) and seed `domain='ensemble_strategy'`
+from Phase 142B.1's outcomes — the concrete answer to "why don't we use this strategy/feature/model
+anymore," queryable ten years from now instead of living in Slack or memory.
+
+**Depends on:** None — build trigger already fired 2026-07-04 (Phase 142B.1 complete, above).
+Registered here 2026-07-13 for prioritization visibility; not yet planned via `/gsd-discuss-phase`.
+Sits immediately after its own trigger phase; does not block or get blocked by anything in the
+143-150 critical path — schedule opportunistically, same treatment as Phase 151/152, do not let
+it jump ahead of Phase 144/147.
+
+**Design:**
+- Full task-by-task implementation plan already written: `docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`.
+- Seed `ic_proportional` as the `active` incumbent, E1 (shrunk-IC)/E2 (mean-variance) as
+  evaluated-mechanism `candidate` rows, E3/E4 as thesis-only `candidate` rows.
+- Names `ops_ensemble_weight_compare.py`'s win-decision gate as the sole deterministic
+  status-flipper (invariant 1); `baseline_metric` stores the mean of `min_promotion_consecutive`
+  evaluations as a winner's-curse guard; per-stratum status resolved as recipe-validity (status)
+  vs. deployment-as-fact (`ensemble_weights`), `redundancy_group` displacement disabled for this
+  domain.
+- Canonical doc: `docs/research/concept-unified-registry.md`. Priority context:
+  `.planning/todos/pending/112-concept-registry.md`, `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md`
+  (MEDIUM tier — Effort M, Risk Low, Reward Low-now/Med-long-run).
+
+**Plans:** TBD at `/gsd-plan-phase 142B.2` — the implementation plan already written can likely
+seed this directly rather than re-deriving task breakdown from scratch.
+
+### Phase 142B.3: Controlled Vocabulary System 📋 PLANNED
+
+**Goal:** A central, reusable vocabulary and taxonomy registry — the APR equivalent for symbolic
+codes. Three DB tables (`controlled_vocabulary`, `vocabulary_group`, `vocabulary_group_member`),
+one `VocabularyService`. Any domain registers its enum vocabulary into a namespace; any consumer
+reads it without hardcoding (`signal_outcome`, `entry_type`, `regime_hmm`,
+`regime_cross_sectional`, `tier`, `timeframe`, `asset_class`, `session_type`, and more).
+
+**Supersedes Phase 135** (2026-07-13) — Phase 135 was scoped in the pre-v3.0 phase-numbering era
+(the 100-136 block, all other members of which are `[x] Complete` or `CANCELLED`) and was
+silently orphaned when the codebase moved to v3.0 around it: never executed, never formally
+closed, its own "deferred indefinitely per STATE.md" note doesn't resolve against any actual
+STATE.md content. Its design doc stayed current through the v3.0+ governance-framework rewrites
+(now `docs/research/concept-controlled-vocabulary.md`) even though the phase entry didn't — this
+phase carries that live design forward under a number in the current sequence. See Phase 135's
+own entry for the closure note.
+
+**Depends on:** None — Phase 134 (PG ENUM types) shipped 2026-06-18, the only prerequisite either
+phase ever named. Opportunistic, same treatment as Phase 142B.2 above — ranks below it (see
+matrix: no incident has yet demonstrated the cost of not having this, unlike Concept Registry's
+F1 near-miss).
+
+**Design:**
+- Canonical doc: `docs/research/concept-controlled-vocabulary.md`. First consumer: dashboard
+  signal filter dropdowns (per Phase 135's original scope, unchanged).
+- Open question, not resolved here: whether `tag_vocabulary` (live, 71 tags, migrations 227/228)
+  should be generalized/subsumed by this system or genuinely needs to stay separate — see
+  `.planning/todos/pending/110-controlled-vocabulary.md`.
+- Priority context: `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md` (MEDIUM
+  tier — Effort M, Risk Low, Reward Low).
+
+**Plans:** TBD at `/gsd-plan-phase 142B.3`.
 
 ### Phase 142.5: Renaissance Primitives ✅ COMPLETE (8/8 plans, 2026-07-07) (INSERTED)
 
@@ -1497,6 +1569,29 @@ Initially PK is `(symbol, tag)`. Phase 2 extends to `(symbol, tag, regime)` — 
 Tags that are fully computable from the factor vector (all 8 OLS betas) must not exist as permanent human assertions. They are query-time threshold applications on the `instrument_tags` empirical table. Human-only tags (`definitional`, `classification`) remain — but must be annotated as measurement_type='definitional' with owner.
 
 **Plans:** 3 plans (Wave 1: TagAuditor batch service + OLS pipeline; Wave 2: DB migration + expiry mechanics; Wave 3: regime conditioning Phase 2 design)
+
+### Phase 145.1: StratificationDimension Formalization 📋 PLANNED
+
+**Goal:** Write the actual `Protocol`/ABC for the `StratificationDimension` provider contract as
+real code, ratify the `concept_registry` row-grain decision (Option A: one row per dimension, vs.
+Option B: one row per `(dimension, regime_group)` — both fully specced in
+`concept-unified-registry.md`'s Domain Vetting section), and scope which candidate dimensions
+(correlation regime, liquidity regime, posterior-weighted soft stratification) are worth planning
+next. The natural conclusion of this v3.15 milestone, registered directly after its trigger phase.
+
+**Depends on:** Phase 144's D-05 empirical verdict — currently `BLOCKED-ON-143.1-07` (the corpus
+re-run in progress as of 2026-07-13). Do not plan this phase before that verdict lands; per
+`stratification-dimension-unification.md`'s own stated build gate, this decision should be
+informed by whether `regime_group` actually worked empirically, not planned blind ahead of it.
+
+**Design:**
+- Canonical doc: `docs/research/stratification-dimension-unification.md` ("Formalization revival
+  note"). Umbrella: `docs/research/stratification-governance-registries.md`.
+- Priority context: `.planning/todos/deferred/111-stratification-classification.md`,
+  `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md` (not independently
+  scoreable yet — same gate every regime-candidate row on that page already respects).
+
+**Plans:** TBD at `/gsd-plan-phase 145.1` — not before Phase 144's D-05 verdict lands.
 
 ---
 

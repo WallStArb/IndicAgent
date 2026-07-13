@@ -6,6 +6,10 @@ source: doc-organization session — consolidating 106/076/041 (all folded into 
   2026-07-13) into one tracked item per user request
 ---
 
+**Registered as ROADMAP Phase 145.1** (2026-07-13) — see `.planning/ROADMAP.md` for the live phase
+entry. Blocked on Phase 144's D-05 verdict; `/gsd-discuss-phase 145.1` should not run before that
+lands.
+
 # Stratification & Classification Registries
 
 Single todo for this cluster. Umbrella doc: `docs/research/stratification-governance-registries.md`.
