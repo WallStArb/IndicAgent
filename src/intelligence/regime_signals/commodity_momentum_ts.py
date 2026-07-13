@@ -49,8 +49,8 @@ def compute(
 
     window: int = int(params["momentum_window"])
 
-    momentum_cols = []
-    ts_proxy_cols = []
+    momentum_cols: list[pd.Series] = []
+    ts_proxy_cols: list[pd.Series] = []
 
     for symbol, df in ref_bars.items():
         closes = df["close"].values.astype(float)
@@ -72,7 +72,7 @@ def compute(
         accel_z = accel / accel_roll_std.replace(0, np.nan)
         ts_proxy_cols.append(accel_z)
 
-    idx = list(ref_bars.values())[0]["timestamp"]
+    idx = next(iter(ref_bars.values()))["timestamp"]
     momentum_df = pd.concat(momentum_cols, axis=1)
     ts_proxy_df = pd.concat(ts_proxy_cols, axis=1)
 
