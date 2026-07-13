@@ -15,7 +15,7 @@ Concept Governance Registries is the overarching framework that unifies all runt
 | Type | What it governs | Canonical doc | Status |
 |------|-----------------|--------------|--------|
 | **Type 1 — Parameter** | Tunable numeric values (thresholds, weights, periods, preferences) | [APR](../foundation/adaptive-parameter-registry.md) | ✅ Live (425 params, 13 namespaces) |
-| **Type 2 — Lifecycle** | Evidence-gated research artifacts (features, ensemble strategies, HMM variants, alpha patterns) | [Concept Registry](platform-unified-concept-registry.md) | ⏳ Design complete, MVP build trigger fired 2026-07-04 (todo 058), not built; zero `concept_*` tables exist. Feature Registry (a separate sibling system, not part of Concept Registry) is live with 61 rows |
+| **Type 2 — Lifecycle** | Evidence-gated research artifacts (features, ensemble strategies, HMM variants, alpha patterns) | [Concept Registry](concept-unified-registry.md) | ⏳ Design complete, MVP build trigger fired 2026-07-04 (todo 058), not built; zero `concept_*` tables exist. Feature Registry (a separate sibling system, not part of Concept Registry) is live with 61 rows |
 | **Type 3 — Vocabulary** | Static taxonomies (tags, domain enums, controlled vocabularies) | See below | ⏳ Design complete, build pending |
 
 ---
@@ -40,7 +40,7 @@ Concept Governance Registries is the overarching framework that unifies all runt
 
 **Purpose:** Evidence-gated promotion/demotion of research artifacts.
 
-- **Canonical doc:** `docs/research/platform-unified-concept-registry.md`
+- **Canonical doc:** `docs/research/concept-unified-registry.md`
 - **Status:** Feature Registry (separate sibling system) live (61 features); Concept Registry design complete, MVP build trigger fired 2026-07-04 (todo 058), not built
 - **Domains seeded at build time (only domains with real candidates as of 2026-07-06):** `feature`, `ensemble_strategy`. The rest (`hmm_variant`, `ic_method`, `regime_model`, `alpha_pattern`, `confluence`) are anticipated shapes, added by migration only once each has real candidates; see the canonical doc's Domains table for per-domain status
 - **Infrastructure:** Four-table MVP (`concept_registry`, `concept_gate`, `concept_transition_log`, `concept_annotation`) + `ConceptRegistryService`
@@ -71,7 +71,7 @@ Two related systems:
 
 **Purpose:** Domain enums and code vocabularies (signal_outcome, entry_type, regime labels, timeframes, etc.)
 
-- **Canonical doc:** `docs/research/platform-controlled-vocabulary.md`
+- **Canonical doc:** `docs/research/concept-controlled-vocabulary.md`
 - **Status:** Design complete, build unscheduled
 - **Coverage:** 10+ namespaces across signal_outcome, entry_type, regime_hmm, regime_cross_sectional, tier, timeframe, asset_class, session_type
 - **Infrastructure:** Three tables (`controlled_vocabulary`, `vocabulary_group`, `vocabulary_group_member`) + `VocabularyService`
@@ -124,7 +124,7 @@ Two related systems:
 - **Sibling umbrella (stratification/classification cluster):** `docs/research/stratification-governance-registries.md` — StratificationDimension, Security Classification Hierarchy, Instrument Tag Calibrator. Different question (what state/kind an instrument or market is in, vs. what values are tuned or what artifacts earned promotion), one real seam via Concept Registry's `regime_model`/`hmm_variant` domains.
 - **Renaissance framing:** `docs/foundation/principles.md` — institutional-grade research discipline
 - **APR detail:** `docs/foundation/adaptive-parameter-registry.md` — full spec, namespace convention, access patterns
-- **Concept Registry detail:** `docs/research/platform-unified-concept-registry.md` — Renaissance safeguards, Domains table, invariants
+- **Concept Registry detail:** `docs/research/concept-unified-registry.md` — Renaissance safeguards, Domains table, invariants
 - **Tag Vocabulary detail:** `docs/research/stratification-instrument-tag-calibrator.md` — factor primitives, derivability, Simons critique
-- **Controlled Vocabulary detail:** `docs/research/platform-controlled-vocabulary.md` — namespace list, groupings, enum enforcement
+- **Controlled Vocabulary detail:** `docs/research/concept-controlled-vocabulary.md` — namespace list, groupings, enum enforcement
 - **Roadmap context:** `docs/research/roadmap-scope-map.md` §2 (Governance / Concept Lifecycle)

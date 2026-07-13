@@ -46,7 +46,7 @@ Status assignments (judgment call, recorded): per the F2 resolution, `status` = 
 - `tests/unit/test_concept_registry_service.py` - pure-logic + SQL-constant + FakeConn tests (create)
 - `scripts/ops/alpha/ops_ensemble_weight_compare.py` - new CLI args + `_registry_outcome()` helper + service call (modify)
 - `tests/unit/test_ensemble_weight_compare.py` - tests for `_registry_outcome()` (modify)
-- `docs/research/platform-unified-concept-registry.md` - invariant-6 exception paragraph + status line (modify)
+- `docs/research/concept-unified-registry.md` - invariant-6 exception paragraph + status line (modify)
 - `docs/research/concept-governance-registries.md` - status table updates (modify)
 - `.planning/todos/pending/109-migrate-feature-domain-into-concept-registry.md` - follow-on todo (create)
 - `.planning/todos/completed/058-concept-registry-mvp-seed-ensemble-strategy.md` - moved from pending at the end (move)
@@ -82,7 +82,7 @@ Create `production/migrations/231_concept_registry_mvp.sql` with exactly this co
 ```sql
 -- Migration 231: Concept Registry MVP - four-table schema + APR gate keys (todo 058)
 --
--- Builds the Minimal Viable Version from docs/research/platform-unified-concept-registry.md:
+-- Builds the Minimal Viable Version from docs/research/concept-unified-registry.md:
 -- concept_registry / concept_gate / concept_transition_log / concept_annotation. Deliberately
 -- NOT created (reference architecture only, per the canonical doc's "do not build the
 -- ten-table version" and cluster-review F7): concept_gate_template, concept_gate_stack,
@@ -370,7 +370,7 @@ Create `production/migrations/232_concept_registry_seed_ensemble_strategy.sql` w
 -- would for an AI-sourced concept. The OOS A/B judged by EnsembleICEngine on live corpus
 -- runs (per-stratum, non-overlapping-CI win rule, walk-forward-stable veto, BH-FDR
 -- corrected, via ops_ensemble_weight_compare.py) is this domain's evidentiary substitute
--- for a live shadow period. Documented in docs/research/platform-unified-concept-registry.md
+-- for a live shadow period. Documented in docs/research/concept-unified-registry.md
 -- Invariant 6, same pattern as the domain='feature' exception.
 --
 -- gate rows: gate_eval_method='oos_holdout' (the Domains table's "OOS, via EnsembleICEngine");
@@ -751,7 +751,7 @@ Create `src/intelligence/concept_registry_service.py`:
 ```python
 """ConceptRegistryService - Concept Registry lifecycle governance (todo 058).
 
-Invariant 1 (canonical doc, docs/research/platform-unified-concept-registry.md):
+Invariant 1 (canonical doc, docs/research/concept-unified-registry.md):
 proposal and decision are different roles, structurally. The ONLY code path that
 flips concept_registry.status for domain='ensemble_strategy' is
 record_comparison_outcome() below, called by ops_ensemble_weight_compare.py's
@@ -1549,7 +1549,7 @@ from src.intelligence.concept_registry_service import (
                             "this OOS A/B on live corpus runs is the domain's "
                             "documented evidentiary substitute for a live shadow "
                             "period (docs/research/"
-                            "platform-unified-concept-registry.md, Invariant 6)."
+                            "concept-unified-registry.md, Invariant 6)."
                         ),
                     )
                 except ConceptNotFoundError as error:
@@ -1603,7 +1603,7 @@ git commit -m "feat(concept-registry): wire win-decision gate to ConceptRegistry
 ### Task 6: Documentation sync + follow-on todo for domain='feature'
 
 **Files:**
-- Modify: `docs/research/platform-unified-concept-registry.md`
+- Modify: `docs/research/concept-unified-registry.md`
 - Modify: `docs/research/concept-governance-registries.md`
 - Create: `.planning/todos/pending/109-migrate-feature-domain-into-concept-registry.md`
 
@@ -1613,7 +1613,7 @@ git commit -m "feat(concept-registry): wire win-decision gate to ConceptRegistry
 
 - [ ] **Step 1: Record the invariant-6 exception for ensemble_strategy (todo 058 item 6)**
 
-In `docs/research/platform-unified-concept-registry.md`, find Invariant 6's closing sentence (exact text):
+In `docs/research/concept-unified-registry.md`, find Invariant 6's closing sentence (exact text):
 
 ```
 Any domain claiming this exception must document why its gate already provides the evidence live observation would add, not merely assert it; proposer-driven domains (`confluence` especially, once real) do not get it by default.
@@ -1726,7 +1726,7 @@ concept_registry, so the migration is now a plain fold-in.
 
 ## References
 
-- docs/research/platform-unified-concept-registry.md (Invariants 8/9; the
+- docs/research/concept-unified-registry.md (Invariants 8/9; the
   FeatureRegistryService CAS critique is already implemented in
   ConceptRegistryService - reuse it)
 - docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md (todo 058)
@@ -1739,7 +1739,7 @@ concept_registry, so the migration is now a plain fold-in.
 ```bash
 cd /home/bg/dev/indicagent
 git status --short
-git add docs/research/platform-unified-concept-registry.md \
+git add docs/research/concept-unified-registry.md \
         docs/research/concept-governance-registries.md \
         .planning/todos/pending/109-migrate-feature-domain-into-concept-registry.md
 git commit -m "docs(concept-registry): record MVP build, invariant-6 ensemble_strategy exception, file feature-domain follow-on (todo 058)"

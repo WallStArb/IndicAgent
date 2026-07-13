@@ -39,7 +39,7 @@ for healthcare names). Nothing in the platform models a multi-level classificati
   (`commodity`, `international`, `fixed_income`, ...) - one level, not GICS, no hierarchy.
 - `tag_vocabulary` / `instrument_tags` (live: 71 tags, 410 assignments, all `source='human'`,
   verified 2026-07-04) is flat, soft, weighted, multi-membership - by design.
-- `controlled_vocabulary` (`docs/research/platform-controlled-vocabulary.md`, unbuilt) is flat,
+- `controlled_vocabulary` (`docs/research/concept-controlled-vocabulary.md`, unbuilt) is flat,
   platform-wide symbolic-code metadata with deliberately zero relationship to instruments.
 
 A prior pass proposed adding `parent_code` to `controlled_vocabulary`. This doc replaces
@@ -288,7 +288,7 @@ from that doc in this same change).
   relationship. Classification is instrument *reference data* with vendor sync and
   effective dating. Same word ("vocabulary-ish"), different object.
 - Couples equity classification to an unbuilt, indefinitely-deferred system - the exact
-  mistake [Concept Registry](platform-unified-concept-registry.md) already retracted once (the `concept_domain`
+  mistake [Concept Registry](concept-unified-registry.md) already retracted once (the `concept_domain`
   namespace coupling: two deferred systems gating each other's build).
 - CV has no effective dating, and adding it would distort the contract for every flat
   namespace (`signal_outcome` does not need `valid_from`).

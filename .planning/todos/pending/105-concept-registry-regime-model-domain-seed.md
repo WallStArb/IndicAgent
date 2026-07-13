@@ -11,7 +11,7 @@ source: Phase 144 execution session — user question on Concept Registry / Secu
 ## Finding
 
 Phase 144 (`regime_group`) ships two things that are exactly the shape
-`docs/research/platform-unified-concept-registry.md`'s `regime_model` domain is designed to
+`docs/research/concept-unified-registry.md`'s `regime_model` domain is designed to
 govern, but Concept Registry itself doesn't exist yet (only its MVP build is tracked, todo 058,
 seeded with `ensemble_strategy` as domain #1 — `regime_model` is vetted in that doc's Domain
 Vetting section but explicitly not seeded into the live `domain` CHECK):
@@ -43,7 +43,7 @@ Vetting section but explicitly not seeded into the live `domain` CHECK):
 
 ## References
 
-- `docs/research/platform-unified-concept-registry.md` (Domain Vetting section — `regime_model`
+- `docs/research/concept-unified-registry.md` (Domain Vetting section — `regime_model`
   already fully specced: gate shape, effective-N floor, schema fit)
 - `.planning/todos/pending/058-concept-registry-mvp-seed-ensemble-strategy.md` (prerequisite —
   builds the 4-table MVP this todo would extend)

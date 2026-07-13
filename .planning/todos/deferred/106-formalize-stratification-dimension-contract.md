@@ -24,7 +24,7 @@ design-formalization step: once Phase 144's D-05 verdict lands (proving or dispr
 regime_group mechanism empirically), revisit `stratification-dimension-unification.md` with that evidence
 in hand and decide whether/how to formalize the contract — write the actual `Protocol`/ABC,
 decide the `concept_registry` row-grain question (already flagged as open in
-`platform-unified-concept-registry.md`'s Domain Vetting section and in Phase 144's own
+`concept-unified-registry.md`'s Domain Vetting section and in Phase 144's own
 CONTEXT.md Deferred section), and scope which of the ~12 backlog candidates (todo 076 et al.)
 are worth planning next. Idea/design work, not code.
 

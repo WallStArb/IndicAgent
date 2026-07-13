@@ -132,7 +132,7 @@ Unified Concept Registry (this doc)
 │
 └── Type 3: Vocabulary registries (static taxonomy) - context, separate infrastructure
     ├── Tag Vocabulary (live, tables: tag_vocabulary, instrument_tags, instrument_annotations)
-    ├── Controlled Vocabulary (to build, design at docs/research/platform-controlled-vocabulary.md)
+    ├── Controlled Vocabulary (to build, design at docs/research/concept-controlled-vocabulary.md)
     └── Security Classification (future, design at docs/research/stratification-security-classification-hierarchy.md)
 ```
 
@@ -149,7 +149,7 @@ Unified Concept Registry (this doc)
 
 **Type 3 - Vocabulary** (static taxonomy): codes/labels with metadata, no lifecycle states. Separate infrastructure per registry.
 - **Tag Vocabulary** - 6 categories, 71 tags, 410 instrument assignments (live-verified 2026-07-04; the "301 tags" figure previously stated here matched neither table). Tables: `tag_vocabulary`, `instrument_tags`, `instrument_annotations`. **Boundary with the calibrator (2026-07-06):** `docs/research/stratification-instrument-tag-calibrator.md` makes tag *assignments* evidence-gated (p-value, sample_n, expiry, half-life decay), which superficially looks like Type 2 lifecycle. It is not: per the concepts-vs-facts boundary above, a measured `(symbol, tag)` beta is a fact, recomputed each calibration run - the same resolution as `ensemble_strategy`'s per-stratum champions (F2). The *measurement contracts* on `tag_vocabulary` (`factor_series`, `measurement_type`, thresholds) are the recipe half and stay Type 3 vocabulary rows. Tags do not become a Concept Registry domain; the two designs share discipline, not tables.
-- **Controlled Vocabulary** - domain enums _(to build; design at `docs/research/platform-controlled-vocabulary.md`)_
+- **Controlled Vocabulary** - domain enums _(to build; design at `docs/research/concept-controlled-vocabulary.md`)_
 - **Security Classification** - hierarchical instrument classification: strict external schemes (GICS) as new effective-dated tables, soft custom taxonomies via `tag_vocabulary.parent_tag` _(future, unscheduled, gated on individual-equities onboarding; design at `docs/research/stratification-security-classification-hierarchy.md` - a Type 3 sibling by taxonomy, deliberately not a shared implementation with the other two)_
 
 ---
@@ -168,7 +168,7 @@ Type 2/3 registries only - APR (Type 1) is the origin analogy for this whole fam
 
 ## Controlled Vocabulary (Type 3)
 
-Full design at `docs/research/platform-controlled-vocabulary.md`. Three tables:
+Full design at `docs/research/concept-controlled-vocabulary.md`. Three tables:
 
 ```
 controlled_vocabulary      - one row per valid code per namespace

@@ -28,7 +28,7 @@ This is the sibling umbrella to [Concept Governance Registries](concept-governan
 
 ## Relationship to Concept Governance Registries
 
-Independent umbrellas, one real seam: once `StratificationDimension` providers exist as competing, evidence-gated entities, their promotion state (shadow/live per `regime_group`) is meant to live in Concept Registry's `regime_model`/`hmm_variant` domains (see `platform-unified-concept-registry.md`'s Domains table), not on the provider itself. So this cluster defines *what a stratum is*; Concept Registry governs *whether a given provider of strata has earned adoption*. Todo 105 (seed Concept Registry's `regime_model` domain) is the connective-tissue work item, sequenced behind todo 058.
+Independent umbrellas, one real seam: once `StratificationDimension` providers exist as competing, evidence-gated entities, their promotion state (shadow/live per `regime_group`) is meant to live in Concept Registry's `regime_model`/`hmm_variant` domains (see `concept-unified-registry.md`'s Domains table), not on the provider itself. So this cluster defines *what a stratum is*; Concept Registry governs *whether a given provider of strata has earned adoption*. Todo 105 (seed Concept Registry's `regime_model` domain) is the connective-tissue work item, sequenced behind todo 058.
 
 **Prior art already applied here:** `StratificationDimension`'s `Protocol` design explicitly cites the archived v2.x I1-I7 plugin system's tier-registration pattern (`PatternPlugin` + `validate_tier()`) as validated internal precedent for "one interface, many pluggable, evidence-promoted providers" — see that doc's Contract section.
 

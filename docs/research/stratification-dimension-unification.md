@@ -63,7 +63,7 @@ Verdict after re-verification: the core proposal is still warranted as scoped, a
 has moved *toward* it (formalized milestone, encoded AnalogEngine dependency edge, a third
 producer-side hardening landing through a phase that had to special-case the incumbent, a fourth
 consumer reading labels through yet another bespoke path, and `regime_model` now fully vetted -
-gate shape, row grain options, effective-N floor - in `platform-unified-concept-registry.md`'s
+gate shape, row grain options, effective-N floor - in `concept-unified-registry.md`'s
 2026-07-06 Domain Vetting pass, unseeded until it has real candidates). Build timing unchanged:
 nothing here should be built before v3.15 planning.
 
@@ -588,7 +588,7 @@ Recommendations below are proposals for ratification, not decisions.
   Depends-on line ("v3.15 complete"), which encodes this doc's AnalogEngine sequencing claim as
   a hard roadmap edge *(pointer updated 2026-07-06, Fable 5; the previous "`.planning/STATE.md`
   line 114" reference no longer points at relevant content after STATE.md edits)*
-- `platform-unified-concept-registry.md` § Domain Vetting (2026-07-06 third pass) — the
+- `concept-unified-registry.md` § Domain Vetting (2026-07-06 third pass) — the
   governance target this doc leans on has advanced: `regime_model` is now fully vetted there
   (three-stage gate cascade matching this doc's gates 0-2, both row-grain options specced per
   the F2 mechanism note above, effective-N floor), deliberately *not* seeded into the live

@@ -8,7 +8,7 @@
   not at a sibling ANALOG-08 that no longer exists in that form. ANALOG-02's standalone
   `embedding_feature_registry` table replaced with one `concept_registry` row per
   `embedding_version` (D9), with the domain-naming question (F5.3, `embedding_spec` vs. widened
-  `feature`) deferred to v3.2 planning per `platform-unified-concept-registry.md`. ANALOG-04's
+  `feature`) deferred to v3.2 planning per `concept-unified-registry.md`. ANALOG-04's
   APR keys corrected to the doc's `analog.retrieval.max_distance = 0.25` /
   `analog.ood.alert_rate_threshold = 0.20` and the one-fact-three-consumers / no-feedback-into-
   `retrieve()` constraints added. ANALOG-03/05 verified accurate as written, left alone.
