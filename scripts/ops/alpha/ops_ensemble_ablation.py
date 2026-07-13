@@ -82,6 +82,7 @@ from src.intelligence.statistics.ic_math import (
     compute_ic_vectorized,
     fisher_z_difference_p,
 )
+from src.observability.corpus_manifest import CorpusManifest
 
 # Sentinel arm name for the all-families baseline. Dunder-wrapped so it can never
 # collide with a real feature_registry.group_name (snake_case identifiers).
@@ -714,3 +715,230 @@ def apply_delta_fdr(rows: list[AttributionRow], fdr_alpha: float) -> list[Attrib
             delta_passes_fdr=bool(reject[flat_idx]),
         )
     return out
+
+
+# ---------------------------------------------------------------------------
+# Report rendering + manifest recording
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class ReplicationRecord:
+    """Per-stratum baseline reconstruction check result (see reconstruction_check)."""
+
+    tf: str
+    regime: str
+    n_bars: int
+    n_compared: int
+    norm_max_diff: float | None
+    ok: bool
+
+
+def _fmt(value: Any, digits: int = 4) -> str:
+    """Uniform markdown cell formatting: '-' for None, fixed digits for floats."""
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        return f"{value:.{digits}f}"
+    return str(value)
+
+
+def render_report(
+    weight_version: str,
+    oos_start: Any,
+    families: list[str],
+    rows: list[AttributionRow],
+    replication: list[ReplicationRecord],
+    config: AblationConfig,
+    reconstruction_tol: float,
+) -> list[str]:
+    """Render the full markdown report as a list of lines (caller prints).
+
+    Sections: header/config, replication check, per-(tf, regime, scale)
+    attribution tables (families sorted by delta_ic descending -- biggest marginal
+    contributors first), per-family cross-strata summary, control-family verdict.
+    This report is diagnostic; remediation decisions are human/operator (EIC-05
+    convention).
+    """
+    lines: list[str] = []
+    lines.append("## Ensemble Ablation Report (todo 084, leave-one-family-out)")
+    lines.append("")
+    lines.append(f"- weight_version: `{weight_version}`")
+    lines.append(f"- OOS window: `bar_ts >= {oos_start}` (alpha.validation.oos_start)")
+    lines.append(f"- families swept: {', '.join(families)}")
+    lines.append(
+        f"- gates: min_reliable_n={config.min_reliable_n}, "
+        f"subsample_min_stride={config.subsample_min_stride}, "
+        f"fdr_alpha={config.fdr_alpha}, reconstruction_tol={reconstruction_tol}"
+    )
+    lines.append(
+        "- delta_ic = ic_baseline - ic_ablated: positive means removing the family "
+        "REDUCED OOS IC (the family was contributing). diff_p is conservative under "
+        "the arms' positive dependence; bh_p is one corpus-wide BH-FDR pass."
+    )
+
+    # --- Section 1: replication check ---------------------------------------
+    lines.append("")
+    lines.append("### Section 1: Baseline replication check (recomputed vs stored ensemble_alpha)")
+    lines.append("")
+    mismatches = [r for r in replication if not r.ok]
+    if mismatches:
+        lines.append(
+            "> **REPLICATION MISMATCH** in "
+            f"{len(mismatches)}/{len(replication)} strata: the recomputed baseline "
+            "does not match stored ensemble_alpha.alpha_score. Weights/regime labels "
+            "have likely drifted since ensemble_trainer ran (or the ablation's "
+            "replication is buggy). Attribution for flagged strata is UNTRUSTWORTHY; "
+            "re-run ensemble_trainer for this weight_version, then re-run this report."
+        )
+        lines.append("")
+    lines.append("| tf | regime | n_bars | n_compared | norm_max_diff | verdict |")
+    lines.append("|---|---|---|---|---|---|")
+    for r in replication:
+        verdict = "ok" if r.ok else "REPLICATION MISMATCH"
+        if r.n_compared == 0:
+            verdict = "skipped (no stored overlap)"
+        lines.append(
+            f"| {r.tf} | {r.regime} | {r.n_bars} | {r.n_compared} | "
+            f"{_fmt(r.norm_max_diff, 6)} | {verdict} |"
+        )
+
+    # --- Section 2: per-stratum attribution ---------------------------------
+    lines.append("")
+    lines.append("### Section 2: Marginal attribution per (tf, regime, scale)")
+    untrusted = {(r.tf, r.regime) for r in mismatches}
+    strata = sorted({(r.tf, r.regime, r.scale) for r in rows})
+    for tf, regime, scale in strata:
+        cell_rows = [r for r in rows if (r.tf, r.regime, r.scale) == (tf, regime, scale)]
+        baseline_rows = [r for r in cell_rows if r.family == _BASELINE_ARM]
+        header_suffix = " [UNTRUSTED: replication mismatch]" if (tf, regime) in untrusted else ""
+        lines.append("")
+        lines.append(f"#### {tf} / {regime} / {scale}{header_suffix}")
+        lines.append("")
+        if baseline_rows and baseline_rows[0].flag == _FLAG_BASELINE_UNMEASURABLE:
+            lines.append(f"> {_FLAG_BASELINE_UNMEASURABLE}")
+            continue
+        family_rows = sorted(
+            (r for r in cell_rows if r.family != _BASELINE_ARM),
+            key=lambda r: (r.delta_ic is None, -(r.delta_ic or 0.0)),
+        )
+        b = baseline_rows[0]
+        lines.append(
+            f"baseline: ic={_fmt(b.ic_baseline)} "
+            f"[{_fmt(b.ci_lower)}, {_fmt(b.ci_upper)}], n={b.n_obs}"
+        )
+        lines.append("")
+        lines.append(
+            "| family | n_feat | weight_mass | ic_ablated | delta_ic | diff_p | bh_p "
+            "| sig | flag |"
+        )
+        lines.append("|---|---|---|---|---|---|---|---|---|")
+        for r in family_rows:
+            lines.append(
+                f"| {r.family} | {r.n_features_zeroed} | {_fmt(r.weight_mass_zeroed)} "
+                f"| {_fmt(r.ic_ablated)} | {_fmt(r.delta_ic)} | {_fmt(r.diff_p, 6)} "
+                f"| {_fmt(r.bh_adjusted_p, 6)} | {_fmt(r.delta_passes_fdr)} | {r.flag} |"
+            )
+
+    # --- Section 3: per-family cross-strata summary --------------------------
+    lines.append("")
+    lines.append("### Section 3: Per-family summary across all measurable strata")
+    lines.append("")
+    lines.append(
+        "| family | strata present | mean delta_ic | max delta_ic | fdr-significant cells |"
+    )
+    lines.append("|---|---|---|---|---|")
+    for family in families:
+        f_rows = [r for r in rows if r.family == family and r.delta_ic is not None]
+        n_sig = sum(1 for r in f_rows if r.delta_passes_fdr)
+        mean_d = float(np.mean([r.delta_ic for r in f_rows])) if f_rows else None
+        max_d = float(np.max([r.delta_ic for r in f_rows])) if f_rows else None
+        lines.append(f"| {family} | {len(f_rows)} | {_fmt(mean_d)} | {_fmt(max_d)} | {n_sig} |")
+
+    # --- Section 4: control-family verdict -----------------------------------
+    lines.append("")
+    lines.append("### Section 4: Control (canary) family verdict")
+    lines.append("")
+    control_weighted = [r for r in rows if r.family == _CONTROL_FAMILY and r.n_features_zeroed > 0]
+    if not control_weighted:
+        lines.append(
+            "control family absent from all strata (expected: "
+            "feature_status_at_eval='active' excludes canaries from eligibility). "
+            "The absent-family no-op doubles as the ablation-mechanism sanity check."
+        )
+    else:
+        lines.append(
+            f"> **GOVERNANCE BREACH**: control family carries weight in "
+            f"{len(control_weighted)} (stratum, scale) cells -- canaries must never "
+            "be ensemble-eligible. Investigate ensemble_trainer eligibility before "
+            "trusting any other row of this report."
+        )
+        sig_control = [r for r in control_weighted if r.delta_passes_fdr]
+        if sig_control:
+            lines.append(
+                f"> **ABLATION MECHANISM SUSPECT**: zeroing control moved IC with "
+                f"FDR significance in {len(sig_control)} cells -- a canary family "
+                "cannot carry real marginal IC; suspect the ablation code, not the model."
+            )
+
+    lines.append("")
+    lines.append("---")
+    lines.append("This report is diagnostic; remediation decisions are human/operator.")
+    return lines
+
+
+def record_manifest(
+    manifest_dir: Path,
+    weight_version: str,
+    oos_start: Any,
+    families: list[str],
+    rows: list[AttributionRow],
+    replication: list[ReplicationRecord],
+    error: str | None = None,
+) -> Path:
+    """Write the CorpusManifest run record -- the todo's 'results go in the run
+    manifest' target. step_name 'ensemble_ablation', scope_suffix=weight_version
+    (the ensemble_trainer pattern: champion + challenger runs coexist and must not
+    stomp each other's manifest file). Replication mismatches and control-family
+    breaches become manifest warnings (status 'partial'); a hard failure becomes a
+    manifest error (status 'failed'). Nothing downstream gates on this manifest
+    today; it is the durable, machine-readable record a future epoch-over-epoch
+    comparison can diff.
+    """
+    manifest = CorpusManifest("ensemble_ablation", manifest_dir)
+    manifest.scope_suffix = weight_version
+    manifest.set_inputs(
+        weight_version=weight_version,
+        oos_start=str(oos_start),
+        families=families,
+        n_strata=len({(r.tf, r.regime) for r in rows}),
+    )
+    if rows:
+        rows_by_tf: dict[str, int] = {}
+        for r in rows:
+            rows_by_tf[r.tf] = rows_by_tf.get(r.tf, 0) + 1
+        manifest.add_output(
+            table_name="ensemble_ablation_attribution",
+            rows_total=len(rows),
+            rows_by_tf=rows_by_tf,
+        )
+    for r in replication:
+        if not r.ok:
+            manifest.add_warning(
+                f"REPLICATION MISMATCH {r.tf}/{r.regime}: norm_max_diff="
+                f"{r.norm_max_diff} over {r.n_compared} bars"
+            )
+    n_control_weighted = len(
+        {(r.tf, r.regime) for r in rows if r.family == _CONTROL_FAMILY and r.n_features_zeroed > 0}
+    )
+    if n_control_weighted:
+        manifest.add_warning(
+            f"GOVERNANCE BREACH: control family carries weight in " f"{n_control_weighted} strata"
+        )
+    if error is not None:
+        manifest.add_error(error)
+    else:
+        manifest.mark_success()
+    return manifest.write()

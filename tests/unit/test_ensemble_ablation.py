@@ -10,6 +10,7 @@ handling, and the SQL invariants (executable returns filter, OOS >= boundary).
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -611,3 +612,160 @@ def test_apply_delta_fdr_one_corpus_wide_pass():
 
 def test_apply_delta_fdr_empty_is_noop():
     assert apply_delta_fdr([], fdr_alpha=0.05) == []
+
+
+import json
+
+from ops_ensemble_ablation import ReplicationRecord, record_manifest, render_report
+
+# ---------------------------------------------------------------------------
+# Task 6: report + manifest
+# ---------------------------------------------------------------------------
+
+
+def _fixture_rows_and_replication():
+    base = dict(
+        tf="5m",
+        regime="low_bull",
+        scale="fast",
+        n_obs=200,
+        ci_lower=0.1,
+        ci_upper=0.5,
+        bh_adjusted_p=None,
+        delta_passes_fdr=None,
+    )
+    rows = [
+        AttributionRow(
+            family="__baseline__",
+            n_features_zeroed=0,
+            weight_mass_zeroed=0.0,
+            ic_baseline=0.30,
+            ic_ablated=None,
+            delta_ic=None,
+            diff_p=None,
+            flag="",
+            **base,
+        ),
+        AttributionRow(
+            family="momentum",
+            n_features_zeroed=4,
+            weight_mass_zeroed=0.6,
+            ic_baseline=0.30,
+            ic_ablated=0.05,
+            delta_ic=0.25,
+            diff_p=0.001,
+            flag="",
+            **base,
+        ),
+        AttributionRow(
+            family="control",
+            n_features_zeroed=0,
+            weight_mass_zeroed=0.0,
+            ic_baseline=0.30,
+            ic_ablated=None,
+            delta_ic=None,
+            diff_p=None,
+            flag=_FLAG_ABSENT,
+            **base,
+        ),
+    ]
+    rows = apply_delta_fdr(rows, fdr_alpha=0.05)
+    replication = [
+        ReplicationRecord(
+            tf="5m", regime="low_bull", n_bars=5000, n_compared=5000, norm_max_diff=0.0002, ok=True
+        ),
+        ReplicationRecord(
+            tf="1d", regime="high_bear", n_bars=120, n_compared=120, norm_max_diff=0.9, ok=False
+        ),
+    ]
+    return rows, replication
+
+
+def test_render_report_contains_required_sections_and_flags():
+    rows, replication = _fixture_rows_and_replication()
+    lines = render_report(
+        weight_version="run_x",
+        oos_start="2025-12-24T05:15:00Z",
+        families=["control", "momentum"],
+        rows=rows,
+        replication=replication,
+        config=_TEST_CONFIG,
+        reconstruction_tol=0.01,
+    )
+    text = "\n".join(lines)
+    assert "run_x" in text and "2025-12-24T05:15:00Z" in text
+    assert "REPLICATION MISMATCH" in text  # the 1d/high_bear failure, loud
+    assert "momentum" in text and "0.25" in text  # the attribution delta
+    assert "control family absent from all strata" in text
+    assert "diagnostic" in text  # remediation-is-human footer
+
+
+def test_render_report_control_breach_escalates():
+    rows, replication = _fixture_rows_and_replication()
+    breach = dataclasses.replace(
+        rows[1], family="control", n_features_zeroed=1, flag=_FLAG_CONTROL_BREACH
+    )
+    lines = render_report(
+        weight_version="run_x",
+        oos_start="ts",
+        families=["control", "momentum"],
+        rows=[*rows, breach],
+        replication=replication,
+        config=_TEST_CONFIG,
+        reconstruction_tol=0.01,
+    )
+    text = "\n".join(lines)
+    assert "GOVERNANCE BREACH" in text
+
+
+def test_record_manifest_success_shape(tmp_path):
+    rows, replication = _fixture_rows_and_replication()
+    path = record_manifest(
+        manifest_dir=tmp_path,
+        weight_version="run_x",
+        oos_start="ts",
+        families=["control", "momentum"],
+        rows=rows,
+        replication=replication,
+    )
+    assert path.name == "ensemble_ablation__run_x.json"  # scope_suffix pattern
+    data = json.loads(path.read_text())
+    # replication mismatch recorded as a warning -> status 'partial', not 'success'
+    assert data["status"] == "partial"
+    assert data["inputs"]["weight_version"] == "run_x"
+    assert data["outputs"]["ensemble_ablation_attribution"]["rows_total"] == len(rows)
+    assert any("REPLICATION MISMATCH" in w for w in data["warnings"])
+
+
+def test_record_manifest_clean_run_is_success(tmp_path):
+    rows, _ = _fixture_rows_and_replication()
+    replication = [
+        ReplicationRecord(
+            tf="5m", regime="low_bull", n_bars=10, n_compared=10, norm_max_diff=0.0, ok=True
+        )
+    ]
+    path = record_manifest(
+        manifest_dir=tmp_path,
+        weight_version="run_y",
+        oos_start="ts",
+        families=["momentum"],
+        rows=rows,
+        replication=replication,
+    )
+    data = json.loads(path.read_text())
+    assert data["status"] == "success"
+
+
+def test_record_manifest_error_run_is_failed(tmp_path):
+    path = record_manifest(
+        manifest_dir=tmp_path,
+        weight_version="run_z",
+        oos_start="ts",
+        families=[],
+        rows=[],
+        replication=[],
+        error="boom",
+    )
+    data = json.loads(path.read_text())
+    assert data["status"] == "failed"
+    assert "boom" in data["errors"]
