@@ -130,16 +130,19 @@ without re-confirming with the project owner.
 
 ---
 
-**Concept Registry / Controlled Vocabulary / Stratification cluster (2026-07-13):** four
-deferred/speculative sub-items (105, 106, 076, 041) previously tracked as standalone todos were
-folded directly into their canonical design docs instead — `concept-unified-registry.md`
+**Concept Registry / Controlled Vocabulary / Stratification cluster (2026-07-13):** consolidated
+to exactly 3 top-level todos, one per system, each intended to become a full GSD phase next —
+the prior scatter (058, 105, 106, 076, 041 as separate standalone items) was the actual clutter,
+not a virtue. Deferred/speculative sub-item content (105, 106, 076, 041) was folded directly into
+the relevant canonical design doc rather than kept as separate files — `concept-unified-registry.md`
 (regime_model domain seeding sequence), `stratification-dimension-unification.md` (new candidate
 dimensions + formalization revival note), `stratification-instrument-tag-calibrator.md` (tag
-taxonomy open question). These were forward-looking notes on ideas already fully described in
-their own docs, not standalone actionable work — the doc's own "not yet built"/"open question"
-sections are the right home for that, not a parallel todo file. Only [058](pending/058-concept-registry-mvp-seed-ensemble-strategy.md)
-(the Concept Registry MVP build, P1, unblocked) remains as an actual standalone todo in this
-cluster.
+taxonomy open question) — since those were forward-looking notes on ideas already fully described
+in their own docs, not standalone actionable work.
+
+- [112 — Concept Registry](pending/112-concept-registry.md) — points to [058](pending/058-concept-registry-mvp-seed-ensemble-strategy.md) as the current concrete, actionable work (P1, unblocked)
+- [110 — Controlled Vocabulary](pending/110-controlled-vocabulary.md) — previously had zero todo tracking it at all
+- [111 — Stratification & Classification](deferred/111-stratification-classification.md) — gated on Phase 144's D-05 verdict
 
 ---
 
