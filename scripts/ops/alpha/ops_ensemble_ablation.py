@@ -101,6 +101,15 @@ _DEGENERATE_STD = 1e-12
 # outside the APR src/services mandate (EIC-05 fallback-constant precedent).
 _DEFAULT_RECONSTRUCTION_TOL = 0.01
 
+# Tolerance for the CI-bracket boundary check in _clamp_ci_to_ic: how far
+# _fisher_z_ci's raw output may fall outside [ci_lower, ci_upper] <=> ic before
+# it is treated as float64 tanh/arctanh saturation noise (observed magnitude
+# ~8e-11 at IC=+-1.0) rather than a genuine bug in _fisher_z_ci. 1e-6 sits many
+# orders above that observed noise floor and many orders below any real
+# statistical discrepancy -- a numerical-noise guard, not a tunable (APR-exempt,
+# same reasoning as _DEGENERATE_STD above).
+_CI_BOUNDARY_TOL = 1e-6
+
 
 # ---------------------------------------------------------------------------
 # Weight-vector kernels (pure)
@@ -209,6 +218,43 @@ class ArmIC:
     n: int
 
 
+def _clamp_ci_to_ic(
+    ci_lower: float, ci_upper: float, ic: float, tol: float = _CI_BOUNDARY_TOL
+) -> tuple[float, float]:
+    """Clamp a Fisher-z CI bracket so it encompasses the point estimate, but only
+    when the pre-clamp violation is genuine float64 boundary noise.
+
+    _fisher_z_ci's tanh/arctanh round-trip can land ci_upper a few 1e-11 below (or
+    ci_lower a few 1e-11 above) the point estimate at the +-1.0 saturation
+    boundary -- expected numerical noise, not a statistical error. This function
+    absorbs only that: if ci_lower exceeds ic, or ic exceeds ci_upper, by more
+    than `tol`, it raises loudly instead of silently swallowing the discrepancy,
+    because a violation that large means _fisher_z_ci produced an invalid bracket
+    (e.g. a sign error) -- a real bug that must not be masked as a "numerical
+    precision safeguard" ("silent wrong answers are worse than loud crashes").
+
+    Raises:
+        ValueError: if either bound is violated by more than `tol`.
+    """
+    lower_violation = ci_lower - ic
+    upper_violation = ic - ci_upper
+    if lower_violation > tol:
+        raise ValueError(
+            f"_fisher_z_ci produced ci_lower={ci_lower!r} > ic={ic!r} by "
+            f"{lower_violation!r}, exceeding tolerance {tol!r} -- this is larger "
+            "than float64 boundary noise and indicates a real bug upstream, not "
+            "a numerical-precision artifact."
+        )
+    if upper_violation > tol:
+        raise ValueError(
+            f"_fisher_z_ci produced ci_upper={ci_upper!r} < ic={ic!r} by "
+            f"{upper_violation!r}, exceeding tolerance {tol!r} -- this is larger "
+            "than float64 boundary noise and indicates a real bug upstream, not "
+            "a numerical-precision artifact."
+        )
+    return float(np.clip(ci_lower, -1.0, ic)), float(np.clip(ci_upper, ic, 1.0))
+
+
 def compute_arm_ic(
     pooled_alpha: np.ndarray,
     pooled_returns: np.ndarray,
@@ -222,7 +268,9 @@ def compute_arm_ic(
     the only between-arm difference is the alpha series itself (identical-code-path
     invariant). Mirrors ensemble_ic_engine's per-cell sequence: stride subsample
     (independence of overlapping forward returns) -> finite-pair mask ->
-    min_reliable_n gate -> compute_ic_vectorized -> _fisher_z_ci.
+    min_reliable_n gate -> compute_ic_vectorized -> _fisher_z_ci -> _clamp_ci_to_ic
+    (bounds the CI to the point estimate, raising loudly on a non-noise-scale
+    violation rather than silently masking it).
 
     Returns None when the cell is unmeasurable: fewer than min_reliable_n valid
     pairs after subsampling, or a degenerate (near-constant) alpha series --
@@ -246,9 +294,7 @@ def compute_arm_ic(
     ic_val = float(ic_vector[0])
     ci_lower_val = float(ci_lower_arr[0])
     ci_upper_val = float(ci_upper_arr[0])
-    # Clamp CI to [-1, 1] and ensure it encompasses the point estimate (numerical precision safeguard)
-    ci_lower_val = np.clip(ci_lower_val, -1.0, ic_val)
-    ci_upper_val = np.clip(ci_upper_val, ic_val, 1.0)
+    ci_lower_val, ci_upper_val = _clamp_ci_to_ic(ci_lower_val, ci_upper_val, ic_val)
     return ArmIC(
         ic=ic_val,
         ci_lower=_nan_to_none(ci_lower_val),
