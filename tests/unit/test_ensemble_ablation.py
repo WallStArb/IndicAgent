@@ -17,7 +17,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
@@ -37,7 +36,6 @@ from ops_ensemble_ablation import (
     AblationConfig,
     AttributionRow,
     ReplicationRecord,
-    _clamp_ci_to_ic,
     apply_complete_gate,
     apply_delta_fdr,
     build_stratum_fetch_sql,
@@ -233,23 +231,6 @@ def test_compute_arm_ic_perfect_rank_alignment():
     # CI machinery present, never a bare correlation (project rule)
     assert arm.ci_lower is not None and arm.ci_upper is not None
     assert arm.ci_lower <= arm.ic <= arm.ci_upper
-
-
-def test_clamp_ci_to_ic_absorbs_boundary_noise_silently():
-    """Float64 tanh/arctanh round-trip noise (e.g. the ~8e-11 case observed at
-    IC=1.0 in _monotone_series(300)) is within tolerance -- clamps silently,
-    same behavior as the pre-fix inline np.clip."""
-    lower, upper = _clamp_ci_to_ic(ci_lower=0.5, ci_upper=0.9 - 1e-11, ic=0.9)
-    assert lower == 0.5
-    assert upper == 0.9
-
-
-def test_clamp_ci_to_ic_raises_on_material_violation():
-    """A violation far larger than float64 noise (e.g. a sign error in
-    _fisher_z_ci) must raise loudly, not silently clamp into a tight, misleading
-    range around ic -- 'silent wrong answers are worse than loud crashes'."""
-    with pytest.raises(ValueError, match="ci_upper"):
-        _clamp_ci_to_ic(ci_lower=0.1, ci_upper=0.5, ic=0.9)
 
 
 def test_compute_arm_ic_stride_subsamples_before_gating():

@@ -30,12 +30,68 @@ from statsmodels.stats.multitest import multipletests
 
 _Z95 = 1.959963985  # norm.ppf(0.975) — 95% two-tailed critical value
 
+# Tolerance for the CI-bracket boundary check in _clamp_ci_to_ic: how far a Fisher-z
+# CI bound may fall outside [ci_lower, ci_upper] <=> ic before it is treated as
+# float64 tanh/arctanh boundary noise (observed magnitude ~8e-11 at IC=+-1.0) rather
+# than a genuine bug. 1e-6 sits many orders above that observed noise floor and many
+# orders below any real statistical discrepancy -- a numerical-noise guard, not a
+# tunable (APR-exempt, same reasoning as compute_ic_vectorized's degenerate-std guard).
+_CI_BOUNDARY_TOL = 1e-6
+
 
 def _arctanh_clip(x: np.ndarray | float) -> np.ndarray | float:
     """Fisher z-transform with the standard epsilon clip against +/-1 (arctanh is
     undefined exactly at +/-1). Shared by every Fisher-z-based function in this module.
     """
     return np.arctanh(np.clip(x, -1 + 1e-10, 1 - 1e-10))
+
+
+def _clamp_ci_to_ic(
+    ci_lower: np.ndarray | float,
+    ci_upper: np.ndarray | float,
+    ic: np.ndarray | float,
+    tol: float = _CI_BOUNDARY_TOL,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Clamp a Fisher-z CI bracket so it encompasses its point estimate, but only
+    when the pre-clamp violation is genuine float64 boundary noise.
+
+    _fisher_z_ci's tanh/arctanh round-trip can land ci_upper a few 1e-11 below (or
+    ci_lower a few 1e-11 above) the point estimate at the +-1.0 saturation boundary
+    -- expected numerical noise, not a statistical error. This function absorbs only
+    that: if any element's ci_lower exceeds ic, or ic exceeds ci_upper, by more than
+    `tol`, it raises loudly instead of silently swallowing the discrepancy, because a
+    violation that large means _fisher_z_ci produced an invalid bracket (e.g. a sign
+    error) -- a real bug that must not be masked as a "numerical precision safeguard"
+    ("silent wrong answers are worse than loud crashes").
+
+    Elementwise over arrays (or scalars); every caller of _fisher_z_ci gets this
+    check for free rather than reimplementing it per call site.
+
+    Raises:
+        ValueError: if either bound is violated by more than `tol` anywhere.
+    """
+    ci_lower = np.asarray(ci_lower, dtype=np.float64)
+    ci_upper = np.asarray(ci_upper, dtype=np.float64)
+    ic = np.asarray(ic, dtype=np.float64)
+    lower_violation = ci_lower - ic
+    upper_violation = ic - ci_upper
+    max_lower = np.nanmax(lower_violation) if lower_violation.size else -np.inf
+    max_upper = np.nanmax(upper_violation) if upper_violation.size else -np.inf
+    if max_lower > tol:
+        raise ValueError(
+            f"_fisher_z_ci produced ci_lower > ic by {max_lower!r} (worst element), "
+            f"exceeding tolerance {tol!r} -- this is larger than float64 boundary "
+            "noise and indicates a real bug upstream, not a numerical-precision "
+            "artifact."
+        )
+    if max_upper > tol:
+        raise ValueError(
+            f"_fisher_z_ci produced ci_upper < ic by {max_upper!r} (worst element), "
+            f"exceeding tolerance {tol!r} -- this is larger than float64 boundary "
+            "noise and indicates a real bug upstream, not a numerical-precision "
+            "artifact."
+        )
+    return np.clip(ci_lower, -1.0, ic), np.clip(ci_upper, ic, 1.0)
 
 
 class SharpeWindowConfig(Protocol):
@@ -77,13 +133,20 @@ def _fisher_z_ci(
 
     Returns NaN arrays when n < 4 (arctanh undefined); upstream min_reliable_n gate
     already excludes these, but defensive here.
+
+    The returned bracket is always clamped to encompass ic_vector via
+    _clamp_ci_to_ic (raises loudly if a bound is invalid by more than float64
+    boundary noise) -- every caller gets this guard automatically instead of each
+    reimplementing it (todo 109).
     """
     if n < 4:
         nan = np.full_like(ic_vector, np.nan, dtype=float)
         return nan, nan.copy()
     z = _arctanh_clip(ic_vector)
     se = 1.0 / np.sqrt(n - 3)
-    return np.tanh(z - _Z95 * se), np.tanh(z + _Z95 * se)
+    ci_lower = np.tanh(z - _Z95 * se)
+    ci_upper = np.tanh(z + _Z95 * se)
+    return _clamp_ci_to_ic(ci_lower, ci_upper, ic_vector)
 
 
 # ---------------------------------------------------------------------------

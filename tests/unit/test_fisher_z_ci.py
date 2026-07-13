@@ -17,12 +17,13 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from src.intelligence.statistics.ic_math import _fisher_z_ci
+from src.intelligence.statistics.ic_math import _clamp_ci_to_ic, _fisher_z_ci
 
 
 def test_ci_width_shrinks_with_n():
@@ -96,3 +97,42 @@ def test_ci_bounds_ordered():
     assert np.all(
         ci_lower < ci_upper
     ), f"ci_lower not strictly less than ci_upper: {list(zip(ci_lower, ci_upper))}"
+
+
+def test_ci_bracket_always_encompasses_ic_at_boundary():
+    """todo 109: _fisher_z_ci's own tanh/arctanh round-trip can otherwise leave
+    ci_upper a few 1e-11 below (or ci_lower above) the point estimate right at the
+    +-1.0 saturation boundary. _fisher_z_ci must clamp this itself so every caller
+    (ensemble_ic_engine.py, ops_oos_holdout_eval.py, ops_ensemble_ablation.py) gets
+    a self-consistent bracket without reimplementing the guard."""
+    ic = np.array([-1.0, -0.999, 0.999, 1.0])
+    ci_lower, ci_upper = _fisher_z_ci(ic, n=300)
+
+    assert np.all(ci_lower <= ic), f"ci_lower exceeds ic: {list(zip(ci_lower, ic))}"
+    assert np.all(ci_upper >= ic), f"ci_upper below ic: {list(zip(ci_upper, ic))}"
+
+
+def test_clamp_ci_to_ic_absorbs_boundary_noise_silently():
+    """Float64 tanh/arctanh round-trip noise (e.g. the ~8e-11 case observed at
+    IC=1.0) is within tolerance -- clamps silently rather than raising."""
+    lower, upper = _clamp_ci_to_ic(ci_lower=0.5, ci_upper=0.9 - 1e-11, ic=0.9)
+    assert lower == 0.5
+    assert upper == 0.9
+
+
+def test_clamp_ci_to_ic_raises_on_material_violation():
+    """A violation far larger than float64 noise (e.g. a sign error upstream) must
+    raise loudly, not silently clamp into a tight, misleading range around ic --
+    'silent wrong answers are worse than loud crashes.'"""
+    with pytest.raises(ValueError, match="ci_upper"):
+        _clamp_ci_to_ic(ci_lower=0.1, ci_upper=0.5, ic=0.9)
+
+
+def test_clamp_ci_to_ic_vectorized_raises_on_any_element_violation():
+    """The vectorized form (as _fisher_z_ci calls it) must catch a violation in
+    any single element of a multi-feature batch, not just a scalar call."""
+    ci_lower = np.array([0.1, 0.2, 0.1])
+    ci_upper = np.array([0.5, 0.9, 0.5])
+    ic = np.array([0.3, 0.85, 0.9])
+    with pytest.raises(ValueError, match="ci_upper"):
+        _clamp_ci_to_ic(ci_lower, ci_upper, ic)
