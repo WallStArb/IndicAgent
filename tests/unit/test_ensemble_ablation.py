@@ -302,3 +302,126 @@ def test_reconstruction_check_no_stored_overlap_is_skipped_not_failed():
     recomputed = np.array([1.0, 2.0])
     stored = np.array([np.nan, np.nan])
     assert reconstruction_check(recomputed, stored, tol=0.01) == (0, None, True)
+
+
+# ---------------------------------------------------------------------------
+# Task 4: SQL invariants + config + panel preparation
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_sql_statistical_invariants():
+    """The three non-negotiable measurement invariants, pinned as SQL text so a
+    refactor cannot silently drop them: executable returns filter, OOS >= boundary,
+    complete_* columns fetched for gating. Plus weight_version scoping on the
+    stored-baseline join (never blend another variant's alpha into the check)."""
+    from ops_ensemble_ablation import build_stratum_fetch_sql
+
+    sql = build_stratum_fetch_sql(["momentum_z_fast", "obv_z"])
+    assert "return_type = 'executable_open_to_open'" in sql
+    assert "fv.bar_ts >= $4" in sql
+    for scale in ("fast", "mid", "slow", "extended"):
+        assert f"fr.return_{scale}" in sql
+        assert f"fr.complete_{scale}" in sql
+    assert 'fv."momentum_z_fast"' in sql and 'fv."obv_z"' in sql
+    assert "ea.weight_version = $3" in sql
+    # trainer's exact stratum join: market_regimes on (asset_class, tf, ts)
+    assert "mr.asset_class = 'equity'" in sql
+    assert "ORDER BY fv.bar_ts, fv.symbol" in sql
+
+
+def test_weights_and_strata_sql_scope_to_universe_and_version():
+    from ops_ensemble_ablation import _FAMILIES_SQL, _STRATA_SQL, _WEIGHTS_SQL
+
+    assert "symbol = 'UNIVERSE'" in _STRATA_SQL
+    assert "weight_version = $1" in _STRATA_SQL
+    assert "ew.symbol = 'UNIVERSE'" in _WEIGHTS_SQL
+    assert "ew.weight_version = $1" in _WEIGHTS_SQL
+    assert "freg.group_name" in _WEIGHTS_SQL
+    assert "group_name" in _FAMILIES_SQL
+
+
+def test_ablation_config_from_apr_defaults_match_engines():
+    """Fallback defaults must be byte-identical to EnsembleICConfig.from_apr's --
+    a divergent fallback would silently measure with different gates on a DB
+    missing a key."""
+    from ops_ensemble_ablation import AblationConfig
+
+    config = AblationConfig.from_apr({})
+    assert config.subsample_min_stride == 5
+    assert config.min_reliable_n == 100
+    assert config.fdr_alpha == 0.05
+    assert config.lookaheads == {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
+
+
+def test_ablation_config_from_apr_reads_keys():
+    from ops_ensemble_ablation import AblationConfig
+
+    config = AblationConfig.from_apr(
+        {
+            "alpha.ic.subsample_min_stride": 7,
+            "alpha.ic.min_reliable_n": 150,
+            "alpha.ic.fdr_alpha": 0.10,
+            "alpha.ic.lookahead.fast": 2,
+            "alpha.ic.lookahead.mid": 10,
+            "alpha.ic.lookahead.slow": 40,
+            "alpha.ic.lookahead.extended": 120,
+        }
+    )
+    assert config.subsample_min_stride == 7
+    assert config.min_reliable_n == 150
+    assert config.fdr_alpha == 0.10
+    assert config.lookaheads == {"fast": 2, "mid": 10, "slow": 40, "extended": 120}
+
+
+def test_prepare_stratum_arrays_trainer_conventions():
+    """X follows ensemble_trainer.py lines 823-826 exactly: NULL -> 0.0, float32.
+    Returns are complete-gated per row; stored alpha NaN where the LEFT JOIN
+    found no ensemble_alpha row."""
+    from datetime import UTC, datetime
+
+    from ops_ensemble_ablation import prepare_stratum_arrays
+
+    t1 = datetime(2026, 1, 5, 14, 30, tzinfo=UTC)
+    t2 = datetime(2026, 1, 5, 14, 35, tzinfo=UTC)
+    rows = [
+        {
+            "symbol": "SPY",
+            "bar_ts": t1,
+            "f_a": 1.5,
+            "f_b": None,
+            "return_fast": 0.01,
+            "return_mid": 0.02,
+            "return_slow": 0.03,
+            "return_extended": 0.04,
+            "complete_fast": True,
+            "complete_mid": False,
+            "complete_slow": True,
+            "complete_extended": True,
+            "stored_alpha": 0.7,
+        },
+        {
+            "symbol": "TLT",
+            "bar_ts": t2,
+            "f_a": -0.5,
+            "f_b": 2.0,
+            "return_fast": None,
+            "return_mid": 0.05,
+            "return_slow": None,
+            "return_extended": 0.06,
+            "complete_fast": True,
+            "complete_mid": True,
+            "complete_slow": True,
+            "complete_extended": False,
+            "stored_alpha": None,
+        },
+    ]
+    bar_ts_arr, X, gated, stored = prepare_stratum_arrays(rows, ["f_a", "f_b"])
+    assert X.dtype == np.float32
+    np.testing.assert_allclose(X, [[1.5, 0.0], [-0.5, 2.0]])
+    assert list(bar_ts_arr) == [t1, t2]
+    assert gated["fast"][0] == 0.01
+    assert np.isnan(gated["mid"][0])  # complete_mid=False censored
+    assert np.isnan(gated["fast"][1])  # NULL return
+    assert gated["mid"][1] == 0.05
+    assert np.isnan(gated["extended"][1])  # complete_extended=False censored
+    assert stored[0] == 0.7 and np.isnan(stored[1])

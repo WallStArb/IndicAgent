@@ -69,9 +69,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 import dataclasses
+from typing import Any
 
 import numpy as np
 
+from services._batch_utils import cfg as _cfg
+from services.ensemble_ic_engine import _SCALE_RETURN_COLUMNS, _SCALES
 from src.intelligence.statistics.ic_math import (
     _fisher_z_ci,
     _nan_to_none,
@@ -329,3 +332,145 @@ def reconstruction_check(
     denom = max(float(np.std(stored_masked)), 1e-12)
     norm_max_diff = max_abs_diff / denom
     return n_compared, norm_max_diff, norm_max_diff <= tol
+
+
+# ---------------------------------------------------------------------------
+# SQL + config binding + panel preparation
+# ---------------------------------------------------------------------------
+
+# Strata = the trainer's own output grain: (tf, regime) per weight_version, all
+# rows symbol='UNIVERSE' (universe-level weights; 100% of live rows carry this).
+_STRATA_SQL = """
+    SELECT DISTINCT tf, regime
+    FROM ensemble_weights
+    WHERE weight_version = $1 AND symbol = 'UNIVERSE'
+    ORDER BY tf, regime
+"""
+
+# Per-stratum weight vector joined to feature_registry for the family label.
+# The trainer's registry-alignment gate guarantees every feature_name has exactly
+# one feature_registry row, so this join can never drop a weighted feature.
+_WEIGHTS_SQL = """
+    SELECT ew.feature_name, ew.weight, ew.ic_sharpe, ew.lookahead_bars,
+           freg.group_name
+    FROM ensemble_weights ew
+    JOIN feature_registry freg ON freg.feature_name = ew.feature_name
+    WHERE ew.weight_version = $1 AND ew.symbol = 'UNIVERSE'
+      AND ew.tf = $2 AND ew.regime = $3
+    ORDER BY ew.feature_name
+"""
+
+# Sweep families from the registry at runtime (11 live values as of 2026-07-13),
+# never a hardcoded list -- includes 'control' by design (see module docstring).
+_FAMILIES_SQL = "SELECT DISTINCT group_name FROM feature_registry ORDER BY group_name"
+
+
+def build_stratum_fetch_sql(feature_names: list[str]) -> str:
+    """OOS panel fetch for one (tf, regime) stratum.
+
+    Placeholders: $1=tf, $2=regime_label, $3=weight_version, $4=oos_start.
+    - feature_vectors JOIN market_regimes: the trainer's exact stratum join
+      (ensemble_trainer.py lines 792-799) -- feature_vectors.regime holds
+      per-symbol HMM labels; the cross-sectional stratum label lives in
+      market_regimes (asset_class='equity', tf, ts=bar_ts).
+    - JOIN forward_returns with the executable filter (Invariant 1) plus the four
+      return_* AND complete_* columns for pre-pooling completeness gating.
+    - LEFT JOIN ensemble_alpha scoped to this weight_version: stored baseline for
+      the replication check only (LEFT: missing stored rows are a skipped check,
+      not lost measurement bars).
+    - fv.bar_ts >= $4: the OOS boundary, >= per ops_oos_holdout_eval._oos_mask,
+      exactly complementary to the training side's bar_ts < oos_start.
+    - ORDER BY fv.bar_ts, fv.symbol: the trainer's scoring order.
+    feature_names come from ensemble_weights/information-schema-governed registry
+    rows, not user input (same trust argument as the trainer's col_list f-string).
+    """
+    col_list = ", ".join(f'fv."{c}"' for c in feature_names)
+    return_cols = ", ".join(f"fr.{_SCALE_RETURN_COLUMNS[s]}" for s in _SCALES)
+    complete_cols = ", ".join(f"fr.complete_{s}" for s in _SCALES)
+    return f"""
+        SELECT fv.symbol, fv.bar_ts, {col_list}, {return_cols}, {complete_cols},
+               ea.alpha_score AS stored_alpha
+        FROM feature_vectors fv
+        JOIN market_regimes mr
+          ON mr.asset_class = 'equity' AND mr.tf = fv.tf AND mr.ts = fv.bar_ts
+        JOIN forward_returns fr
+          ON fr.symbol = fv.symbol AND fr.tf = fv.tf AND fr.bar_ts = fv.bar_ts
+          AND fr.return_type = 'executable_open_to_open'
+        LEFT JOIN ensemble_alpha ea
+          ON ea.symbol = fv.symbol AND ea.tf = fv.tf AND ea.bar_ts = fv.bar_ts
+          AND ea.weight_version = $3
+        WHERE fv.tf = $1 AND mr.regime_label = $2 AND fv.bar_ts >= $4
+        ORDER BY fv.bar_ts, fv.symbol
+    """
+
+
+@dataclasses.dataclass(frozen=True)
+class AblationConfig:
+    """Frozen APR snapshot bound once at startup (compile-time binding, the
+    EnsembleICConfig pattern). Fallback defaults are byte-identical to
+    EnsembleICConfig.from_apr's for the shared keys -- a divergent fallback would
+    silently measure with different gates on a DB missing a key. No new APR keys:
+    every threshold here already exists under alpha.ic.*.
+    """
+
+    subsample_min_stride: int
+    min_reliable_n: int
+    fdr_alpha: float
+    lookahead_fast: int
+    lookahead_mid: int
+    lookahead_slow: int
+    lookahead_extended: int
+
+    @property
+    def lookaheads(self) -> dict[str, int]:
+        return {
+            "fast": self.lookahead_fast,
+            "mid": self.lookahead_mid,
+            "slow": self.lookahead_slow,
+            "extended": self.lookahead_extended,
+        }
+
+    @classmethod
+    def from_apr(cls, cfg: dict[str, Any]) -> AblationConfig:
+        return cls(
+            subsample_min_stride=_cfg(cfg, "alpha.ic.subsample_min_stride", 5),
+            min_reliable_n=_cfg(cfg, "alpha.ic.min_reliable_n", 100),
+            fdr_alpha=_cfg(cfg, "alpha.ic.fdr_alpha", 0.05),
+            lookahead_fast=_cfg(cfg, "alpha.ic.lookahead.fast", 1),
+            lookahead_mid=_cfg(cfg, "alpha.ic.lookahead.mid", 5),
+            lookahead_slow=_cfg(cfg, "alpha.ic.lookahead.slow", 20),
+            lookahead_extended=_cfg(cfg, "alpha.ic.lookahead.extended", 60),
+        )
+
+
+def prepare_stratum_arrays(
+    fv_rows: list[Any], feature_names: list[str]
+) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray], np.ndarray]:
+    """Convert fetched panel rows (asyncpg Records or dicts) into scoring arrays.
+
+    X replicates ensemble_trainer.py lines 823-826 exactly: NULL -> 0.0, float32
+    (the reconstruction check depends on matching the trainer's dtype path).
+    Returns are complete-gated per row via apply_complete_gate. stored_alpha is
+    NaN where the LEFT JOIN found no ensemble_alpha row.
+
+    Returns:
+        (bar_ts_arr [n_rows] object, X [n_rows, n_features] float32,
+         gated_returns_by_scale {scale: [n_rows] float64}, stored_alpha [n_rows]).
+    """
+    bar_ts_arr = np.array([r["bar_ts"] for r in fv_rows], dtype=object)
+    X = np.array(
+        [[float(r[c]) if r[c] is not None else 0.0 for c in feature_names] for r in fv_rows],
+        dtype=np.float32,
+    )
+    gated_returns_by_scale: dict[str, np.ndarray] = {}
+    for scale in _SCALES:
+        return_col = _SCALE_RETURN_COLUMNS[scale]
+        raw = np.array(
+            [float(r[return_col]) if r[return_col] is not None else np.nan for r in fv_rows]
+        )
+        complete = np.array([bool(r[f"complete_{scale}"]) for r in fv_rows])
+        gated_returns_by_scale[scale] = apply_complete_gate(raw, complete)
+    stored_alpha = np.array(
+        [float(r["stored_alpha"]) if r["stored_alpha"] is not None else np.nan for r in fv_rows]
+    )
+    return bar_ts_arr, X, gated_returns_by_scale, stored_alpha
