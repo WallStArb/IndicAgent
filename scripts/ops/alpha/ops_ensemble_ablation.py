@@ -141,14 +141,22 @@ def signed_weights_from_rows(weights: np.ndarray, ic_sharpes: np.ndarray) -> np.
     return np.asarray(weights, dtype=np.float64) * signs
 
 
+def _family_mask(group_names: list[str], family: str) -> np.ndarray:
+    """Boolean membership mask: which weight-vector entries belong to `family`.
+    Single shared home for the group_names == family comparison so
+    zero_family/weight_mass_fraction/compute_stratum_attribution's family-loop
+    setup cannot silently drift into three different mask idioms.
+    """
+    return np.asarray(group_names) == family
+
+
 def zero_family(signed_weights: np.ndarray, group_names: list[str], family: str) -> np.ndarray:
     """Return a COPY of signed_weights with every entry belonging to `family`
     zeroed -- the leave-one-family-out arm. Copy semantics are load-bearing: arms
     must never mutate the shared baseline vector.
     """
     out = signed_weights.copy()
-    mask = np.array([g == family for g in group_names], dtype=bool)
-    out[mask] = 0.0
+    out[_family_mask(group_names, family)] = 0.0
     return out
 
 
@@ -161,8 +169,7 @@ def weight_mass_fraction(signed_weights: np.ndarray, group_names: list[str], fam
     total = float(abs_w.sum())
     if total < 1e-12:
         return 0.0
-    mask = np.array([g == family for g in group_names], dtype=bool)
-    return float(abs_w[mask].sum()) / total
+    return float(abs_w[_family_mask(group_names, family)].sum()) / total
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +365,7 @@ _STRATA_SQL = """
 # The trainer's registry-alignment gate guarantees every feature_name has exactly
 # one feature_registry row, so this join can never drop a weighted feature.
 _WEIGHTS_SQL = """
-    SELECT ew.feature_name, ew.weight, ew.ic_sharpe, ew.lookahead_bars,
-           freg.group_name
+    SELECT ew.feature_name, ew.weight, ew.ic_sharpe, freg.group_name
     FROM ensemble_weights ew
     JOIN feature_registry freg ON freg.feature_name = ew.feature_name
     WHERE ew.weight_version = $1 AND ew.symbol = 'UNIVERSE'
@@ -499,7 +505,7 @@ _FLAG_CONTROL_BREACH = (
 )
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class AttributionRow:
     """One line of the marginal-attribution table: one (stratum, scale, arm).
 
@@ -507,25 +513,28 @@ class AttributionRow:
     delta_ic/diff_p are None there). delta_ic = ic_baseline - ic_ablated: positive
     means removing the family REDUCED OOS IC, i.e. the family was contributing.
     ci_lower/ci_upper describe the arm this row measures (baseline row -> baseline
-    CI; family row -> ablated-arm CI).
+    CI; family row -> ablated-arm CI). Every field beyond the four identity fields
+    (tf/regime/scale/family) defaults to its "unset" value so each construction
+    site states only what it actually knows -- the baseline-unmeasurable/absent/
+    degenerate branches never had those fields populated in the first place.
     """
 
     tf: str
     regime: str
     scale: str
     family: str
-    n_features_zeroed: int
-    weight_mass_zeroed: float
-    n_obs: int
-    ic_baseline: float | None
-    ci_lower: float | None
-    ci_upper: float | None
-    ic_ablated: float | None
-    delta_ic: float | None
-    diff_p: float | None
-    bh_adjusted_p: float | None
-    delta_passes_fdr: bool | None
-    flag: str
+    n_features_zeroed: int = 0
+    weight_mass_zeroed: float = 0.0
+    n_obs: int = 0
+    ic_baseline: float | None = None
+    ci_lower: float | None = None
+    ci_upper: float | None = None
+    ic_ablated: float | None = None
+    delta_ic: float | None = None
+    diff_p: float | None = None
+    bh_adjusted_p: float | None = None
+    delta_passes_fdr: bool | None = None
+    flag: str = ""
 
 
 def compute_stratum_attribution(
@@ -539,6 +548,7 @@ def compute_stratum_attribution(
     n_bars: int,
     pooled_returns_by_scale: dict[str, np.ndarray],
     config: AblationConfig,
+    baseline_scores: np.ndarray | None = None,
 ) -> list[AttributionRow]:
     """Leave-one-family-out attribution for one (tf, regime) stratum.
 
@@ -549,26 +559,40 @@ def compute_stratum_attribution(
     ONCE per arm (pooling is scale-independent); the per-scale loop only re-runs
     the subsample + measurement step against that scale's gated returns.
 
+    baseline_scores: precomputed X @ signed_weights, when the caller already has
+    it (main() computes this for the reconstruction check and passes it here to
+    avoid a redundant matmul over the full OOS panel); computed internally when
+    omitted, e.g. by unit tests that don't exercise the reconstruction check.
+
     A family with zero weighted features in this stratum yields a _FLAG_ABSENT
     row per scale (delta None) -- 'control' landing here on every stratum is the
     EXPECTED outcome and doubles as the eligibility-filter check. A control family
-    that DOES carry weight is measured normally but flagged _FLAG_CONTROL_BREACH.
+    that DOES carry weight is measured normally but flagged _FLAG_CONTROL_BREACH
+    (the single source of truth render_report/record_manifest read, rather than
+    each re-deriving "family == control and weighted" independently).
     diff_p uses fisher_z_difference_p, which is conservative (over-estimates p)
     under the positive dependence of two arms measured on the same bars -- the
     safe direction for a postmortem attribution.
     """
     rows: list[AttributionRow] = []
+    if baseline_scores is None:
+        baseline_scores = X @ signed_weights
 
     pooled_by_arm: dict[str, np.ndarray] = {
-        _BASELINE_ARM: pool_means_by_bar(bar_idx, n_bars, X @ signed_weights)
+        _BASELINE_ARM: pool_means_by_bar(bar_idx, n_bars, baseline_scores)
     }
+    abs_weights = np.abs(signed_weights)
+    total_mass = float(abs_weights.sum())
     family_n_features: dict[str, int] = {}
     family_mass: dict[str, float] = {}
     for family in families:
-        n_features = sum(1 for g in group_names if g == family)
+        mask = _family_mask(group_names, family)
+        n_features = int(mask.sum())
         family_n_features[family] = n_features
-        family_mass[family] = weight_mass_fraction(signed_weights, group_names, family)
         if n_features > 0:
+            family_mass[family] = (
+                float(abs_weights[mask].sum()) / total_mass if total_mass >= 1e-12 else 0.0
+            )
             ablated_weights = zero_family(signed_weights, group_names, family)
             pooled_by_arm[family] = pool_means_by_bar(bar_idx, n_bars, X @ ablated_weights)
 
@@ -585,17 +609,6 @@ def compute_stratum_attribution(
                     regime=regime,
                     scale=scale,
                     family=_BASELINE_ARM,
-                    n_features_zeroed=0,
-                    weight_mass_zeroed=0.0,
-                    n_obs=0,
-                    ic_baseline=None,
-                    ci_lower=None,
-                    ci_upper=None,
-                    ic_ablated=None,
-                    delta_ic=None,
-                    diff_p=None,
-                    bh_adjusted_p=None,
-                    delta_passes_fdr=None,
                     flag=_FLAG_BASELINE_UNMEASURABLE,
                 )
             )
@@ -607,18 +620,10 @@ def compute_stratum_attribution(
                 regime=regime,
                 scale=scale,
                 family=_BASELINE_ARM,
-                n_features_zeroed=0,
-                weight_mass_zeroed=0.0,
                 n_obs=baseline.n,
                 ic_baseline=baseline.ic,
                 ci_lower=baseline.ci_lower,
                 ci_upper=baseline.ci_upper,
-                ic_ablated=None,
-                delta_ic=None,
-                diff_p=None,
-                bh_adjusted_p=None,
-                delta_passes_fdr=None,
-                flag="",
             )
         )
 
@@ -632,17 +637,8 @@ def compute_stratum_attribution(
                         regime=regime,
                         scale=scale,
                         family=family,
-                        n_features_zeroed=0,
-                        weight_mass_zeroed=0.0,
                         n_obs=baseline.n,
                         ic_baseline=baseline.ic,
-                        ci_lower=None,
-                        ci_upper=None,
-                        ic_ablated=None,
-                        delta_ic=None,
-                        diff_p=None,
-                        bh_adjusted_p=None,
-                        delta_passes_fdr=None,
                         flag=_FLAG_ABSENT,
                     )
                 )
@@ -662,13 +658,6 @@ def compute_stratum_attribution(
                         weight_mass_zeroed=family_mass[family],
                         n_obs=baseline.n,
                         ic_baseline=baseline.ic,
-                        ci_lower=None,
-                        ci_upper=None,
-                        ic_ablated=None,
-                        delta_ic=None,
-                        diff_p=None,
-                        bh_adjusted_p=None,
-                        delta_passes_fdr=None,
                         flag=_FLAG_DEGENERATE,
                     )
                 )
@@ -691,8 +680,6 @@ def compute_stratum_attribution(
                     ic_ablated=ablated.ic,
                     delta_ic=delta_ic,
                     diff_p=None if np.isnan(diff_p) else float(diff_p),
-                    bh_adjusted_p=None,
-                    delta_passes_fdr=None,
                     flag=_FLAG_CONTROL_BREACH if is_control_breach else "",
                 )
             )
@@ -865,7 +852,7 @@ def render_report(
     lines.append("")
     lines.append("### Section 4: Control (canary) family verdict")
     lines.append("")
-    control_weighted = [r for r in rows if r.family == _CONTROL_FAMILY and r.n_features_zeroed > 0]
+    control_weighted = [r for r in rows if r.flag == _FLAG_CONTROL_BREACH]
     if not control_weighted:
         lines.append(
             "control family absent from all strata (expected: "
@@ -934,9 +921,7 @@ def record_manifest(
                 f"REPLICATION MISMATCH {r.tf}/{r.regime}: norm_max_diff="
                 f"{r.norm_max_diff} over {r.n_compared} bars"
             )
-    n_control_weighted = len(
-        {(r.tf, r.regime) for r in rows if r.family == _CONTROL_FAMILY and r.n_features_zeroed > 0}
-    )
+    n_control_weighted = len({(r.tf, r.regime) for r in rows if r.flag == _FLAG_CONTROL_BREACH})
     if n_control_weighted:
         manifest.add_warning(
             f"GOVERNANCE BREACH: control family carries weight in {n_control_weighted} strata"
@@ -1141,6 +1126,7 @@ async def main() -> int:
                         n_bars=n_bars,
                         pooled_returns_by_scale=pooled_returns_by_scale,
                         config=config,
+                        baseline_scores=baseline_scores,
                     )
                 )
 

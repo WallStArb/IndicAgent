@@ -11,7 +11,9 @@ handling, and the SQL invariants (executable returns filter, OOS >= boundary).
 from __future__ import annotations
 
 import dataclasses
+import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +30,24 @@ if str(_scripts_alpha_dir) not in sys.path:
 from ops_ensemble_ablation import (
     _BASELINE_ARM,
     _CONTROL_FAMILY,
+    _FLAG_ABSENT,
+    _FLAG_BASELINE_UNMEASURABLE,
+    _FLAG_CONTROL_BREACH,
+    _FLAG_DEGENERATE,
+    AblationConfig,
+    AttributionRow,
+    ReplicationRecord,
+    _clamp_ci_to_ic,
+    apply_complete_gate,
+    apply_delta_fdr,
+    build_stratum_fetch_sql,
+    compute_arm_ic,
+    compute_stratum_attribution,
+    pool_means_by_bar,
+    prepare_stratum_arrays,
+    reconstruction_check,
+    record_manifest,
+    render_report,
     signed_weights_from_rows,
     weight_mass_fraction,
     zero_family,
@@ -90,8 +110,6 @@ def test_baseline_arm_sentinel_is_not_a_plausible_group_name():
 def test_apply_complete_gate_nans_incomplete_and_copies():
     """ic_engine convention (lines 1848-1850): a return is usable only when
     complete AND finite. Gate applied pre-pooling; input untouched."""
-    from ops_ensemble_ablation import apply_complete_gate
-
     returns = np.array([0.01, 0.02, np.nan, 0.04])
     complete = np.array([True, False, True, True])
     gated = apply_complete_gate(returns, complete)
@@ -107,11 +125,13 @@ def test_pool_means_by_bar_matches_aggregate_pooled_series():
     cross-symbol means as ensemble_ic_engine._aggregate_pooled_series (the
     alpha_ensemble_ic POOLED convention, Pitfall 5: group before averaging),
     including None/NaN-skipping semantics. Two symbols, three bars, one missing
-    value and one bar with a single member."""
-    from datetime import UTC, datetime
+    value and one bar with a single member.
 
-    from ops_ensemble_ablation import pool_means_by_bar
-
+    services.ensemble_ic_engine pulls in a heavy transitive import surface
+    (asyncpg, psycopg2, scipy, statsmodels) that the rest of this file's tests
+    don't need at collection time, so this one import stays function-local
+    rather than moving to the module-level block above.
+    """
     from services.ensemble_ic_engine import _aggregate_pooled_series
 
     t1 = datetime(2026, 1, 5, 14, 30, tzinfo=UTC)
@@ -184,8 +204,6 @@ def test_pool_means_by_bar_matches_aggregate_pooled_series():
 def test_pool_means_by_bar_all_nan_bar_is_nan_not_zero():
     """A bar with zero finite members must pool to NaN (unmeasurable), never a
     silent 0.0 -- 0.0 would enter downstream rank correlations as fake data."""
-    from ops_ensemble_ablation import pool_means_by_bar
-
     bar_idx = np.array([0, 0, 1])
     values = np.array([np.nan, np.nan, 5.0])
     pooled = pool_means_by_bar(bar_idx, 2, values)
@@ -207,8 +225,6 @@ def _monotone_series(n: int) -> tuple[np.ndarray, np.ndarray]:
 
 
 def test_compute_arm_ic_perfect_rank_alignment():
-    from ops_ensemble_ablation import compute_arm_ic
-
     alpha, returns = _monotone_series(300)
     arm = compute_arm_ic(alpha, returns, stride=1, min_reliable_n=100)
     assert arm is not None
@@ -223,8 +239,6 @@ def test_clamp_ci_to_ic_absorbs_boundary_noise_silently():
     """Float64 tanh/arctanh round-trip noise (e.g. the ~8e-11 case observed at
     IC=1.0 in _monotone_series(300)) is within tolerance -- clamps silently,
     same behavior as the pre-fix inline np.clip."""
-    from ops_ensemble_ablation import _clamp_ci_to_ic
-
     lower, upper = _clamp_ci_to_ic(ci_lower=0.5, ci_upper=0.9 - 1e-11, ic=0.9)
     assert lower == 0.5
     assert upper == 0.9
@@ -234,8 +248,6 @@ def test_clamp_ci_to_ic_raises_on_material_violation():
     """A violation far larger than float64 noise (e.g. a sign error in
     _fisher_z_ci) must raise loudly, not silently clamp into a tight, misleading
     range around ic -- 'silent wrong answers are worse than loud crashes'."""
-    from ops_ensemble_ablation import _clamp_ci_to_ic
-
     with pytest.raises(ValueError, match="ci_upper"):
         _clamp_ci_to_ic(ci_lower=0.1, ci_upper=0.5, ic=0.9)
 
@@ -244,15 +256,11 @@ def test_compute_arm_ic_stride_subsamples_before_gating():
     """stride = max(subsample_min_stride, lookahead_bars) applied to the pooled
     series (ensemble_ic_engine lines 770-773): 300 bars at stride 60 -> 5 obs,
     below min_reliable_n -> None, even though the raw series was long enough."""
-    from ops_ensemble_ablation import compute_arm_ic
-
     alpha, returns = _monotone_series(300)
     assert compute_arm_ic(alpha, returns, stride=60, min_reliable_n=100) is None
 
 
 def test_compute_arm_ic_nan_pairs_excluded_from_n():
-    from ops_ensemble_ablation import compute_arm_ic
-
     alpha, returns = _monotone_series(300)
     returns = returns.copy()
     returns[:150] = np.nan
@@ -265,8 +273,6 @@ def test_compute_arm_ic_degenerate_series_is_none_not_zero():
     """Zeroing the only weighted family makes the composite constant; Spearman on a
     constant is UNDEFINED. Must return None (rendered DEGENERATE), never IC=0.0 --
     an IC of 0.0 would fake 'family removal made the model exactly neutral'."""
-    from ops_ensemble_ablation import compute_arm_ic
-
     returns = np.linspace(-1.0, 1.0, 300)
     constant_alpha = np.zeros(300)
     assert compute_arm_ic(constant_alpha, returns, stride=1, min_reliable_n=100) is None
@@ -276,8 +282,6 @@ def test_compute_arm_ic_identical_code_path_for_identical_inputs():
     """The zero-delta property the control family relies on: an arm whose weights
     equal the baseline's must produce the bit-identical ArmIC (same function, same
     inputs). Guards against any future baseline-only shortcut."""
-    from ops_ensemble_ablation import compute_arm_ic
-
     alpha, returns = _monotone_series(300)
     a = compute_arm_ic(alpha, returns, stride=3, min_reliable_n=50)
     b = compute_arm_ic(alpha.copy(), returns.copy(), stride=3, min_reliable_n=50)
@@ -285,8 +289,6 @@ def test_compute_arm_ic_identical_code_path_for_identical_inputs():
 
 
 def test_reconstruction_check_pass_and_mismatch():
-    from ops_ensemble_ablation import reconstruction_check
-
     stored = np.array([1.0, 2.0, 3.0, 4.0])
     n, diff, ok = reconstruction_check(stored.copy(), stored, tol=0.01)
     assert (n, diff, ok) == (4, 0.0, True)
@@ -298,8 +300,6 @@ def test_reconstruction_check_pass_and_mismatch():
 def test_reconstruction_check_no_stored_overlap_is_skipped_not_failed():
     """Stored ensemble_alpha may not cover OOS bars (e.g. trainer ran before those
     bars existed): zero overlap is SKIPPED (ok=True, diff None), not a mismatch."""
-    from ops_ensemble_ablation import reconstruction_check
-
     recomputed = np.array([1.0, 2.0])
     stored = np.array([np.nan, np.nan])
     assert reconstruction_check(recomputed, stored, tol=0.01) == (0, None, True)
@@ -315,8 +315,6 @@ def test_fetch_sql_statistical_invariants():
     refactor cannot silently drop them: executable returns filter, OOS >= boundary,
     complete_* columns fetched for gating. Plus weight_version scoping on the
     stored-baseline join (never blend another variant's alpha into the check)."""
-    from ops_ensemble_ablation import build_stratum_fetch_sql
-
     sql = build_stratum_fetch_sql(["momentum_z_fast", "obv_z"])
     assert "return_type = 'executable_open_to_open'" in sql
     assert "fv.bar_ts >= $4" in sql
@@ -345,8 +343,6 @@ def test_ablation_config_from_apr_defaults_match_engines():
     """Fallback defaults must be byte-identical to EnsembleICConfig.from_apr's --
     a divergent fallback would silently measure with different gates on a DB
     missing a key."""
-    from ops_ensemble_ablation import AblationConfig
-
     config = AblationConfig.from_apr({})
     assert config.subsample_min_stride == 5
     assert config.min_reliable_n == 100
@@ -355,8 +351,6 @@ def test_ablation_config_from_apr_defaults_match_engines():
 
 
 def test_ablation_config_from_apr_reads_keys():
-    from ops_ensemble_ablation import AblationConfig
-
     config = AblationConfig.from_apr(
         {
             "alpha.ic.subsample_min_stride": 7,
@@ -378,10 +372,6 @@ def test_prepare_stratum_arrays_trainer_conventions():
     """X follows ensemble_trainer.py lines 823-826 exactly: NULL -> 0.0, float32.
     Returns are complete-gated per row; stored alpha NaN where the LEFT JOIN
     found no ensemble_alpha row."""
-    from datetime import UTC, datetime
-
-    from ops_ensemble_ablation import prepare_stratum_arrays
-
     t1 = datetime(2026, 1, 5, 14, 30, tzinfo=UTC)
     t2 = datetime(2026, 1, 5, 14, 35, tzinfo=UTC)
     rows = [
@@ -427,17 +417,6 @@ def test_prepare_stratum_arrays_trainer_conventions():
     assert np.isnan(gated["extended"][1])  # complete_extended=False censored
     assert stored[0] == 0.7 and np.isnan(stored[1])
 
-
-from ops_ensemble_ablation import (
-    _FLAG_ABSENT,
-    _FLAG_BASELINE_UNMEASURABLE,
-    _FLAG_CONTROL_BREACH,
-    _FLAG_DEGENERATE,
-    AblationConfig,
-    AttributionRow,
-    apply_delta_fdr,
-    compute_stratum_attribution,
-)
 
 # ---------------------------------------------------------------------------
 # Task 5: attribution assembly
@@ -594,9 +573,6 @@ def test_apply_delta_fdr_one_corpus_wide_pass():
         ci_upper=0.6,
         ic_ablated=0.1,
         delta_ic=0.4,
-        bh_adjusted_p=None,
-        delta_passes_fdr=None,
-        flag="",
     )
     rows = [
         AttributionRow(family="momentum", diff_p=0.001, **base),
@@ -614,38 +590,15 @@ def test_apply_delta_fdr_empty_is_noop():
     assert apply_delta_fdr([], fdr_alpha=0.05) == []
 
 
-import json
-
-from ops_ensemble_ablation import ReplicationRecord, record_manifest, render_report
-
 # ---------------------------------------------------------------------------
 # Task 6: report + manifest
 # ---------------------------------------------------------------------------
 
 
 def _fixture_rows_and_replication():
-    base = dict(
-        tf="5m",
-        regime="low_bull",
-        scale="fast",
-        n_obs=200,
-        ci_lower=0.1,
-        ci_upper=0.5,
-        bh_adjusted_p=None,
-        delta_passes_fdr=None,
-    )
+    base = dict(tf="5m", regime="low_bull", scale="fast", n_obs=200, ci_lower=0.1, ci_upper=0.5)
     rows = [
-        AttributionRow(
-            family="__baseline__",
-            n_features_zeroed=0,
-            weight_mass_zeroed=0.0,
-            ic_baseline=0.30,
-            ic_ablated=None,
-            delta_ic=None,
-            diff_p=None,
-            flag="",
-            **base,
-        ),
+        AttributionRow(family="__baseline__", ic_baseline=0.30, **base),
         AttributionRow(
             family="momentum",
             n_features_zeroed=4,
@@ -654,20 +607,9 @@ def _fixture_rows_and_replication():
             ic_ablated=0.05,
             delta_ic=0.25,
             diff_p=0.001,
-            flag="",
             **base,
         ),
-        AttributionRow(
-            family="control",
-            n_features_zeroed=0,
-            weight_mass_zeroed=0.0,
-            ic_baseline=0.30,
-            ic_ablated=None,
-            delta_ic=None,
-            diff_p=None,
-            flag=_FLAG_ABSENT,
-            **base,
-        ),
+        AttributionRow(family="control", ic_baseline=0.30, flag=_FLAG_ABSENT, **base),
     ]
     rows = apply_delta_fdr(rows, fdr_alpha=0.05)
     replication = [
@@ -759,19 +701,8 @@ def test_render_report_control_breach_without_significance_omits_suspect():
         ic_baseline=0.30,
         ci_lower=0.1,
         ci_upper=0.5,
-        weight_mass_zeroed=0.0,
-        bh_adjusted_p=None,
-        delta_passes_fdr=None,
     )
-    baseline_row = AttributionRow(
-        family="__baseline__",
-        n_features_zeroed=0,
-        ic_ablated=None,
-        delta_ic=None,
-        diff_p=None,
-        flag="",
-        **base,
-    )
+    baseline_row = AttributionRow(family="__baseline__", **base)
     control_breach_row = AttributionRow(
         family="control",
         n_features_zeroed=1,
