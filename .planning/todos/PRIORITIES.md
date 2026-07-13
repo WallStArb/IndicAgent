@@ -55,11 +55,12 @@ moved into `ic_math.py`, folded into `_fisher_z_ci` itself), 087 (shared
 reduces via a generator, not the same materialize-a-matrix shape), 102 (idle-session-timeout
 connection-lifecycle bug, triple-confirmed fixed across 3 separate run attempts), 084 (ensemble
 degradation ablation protocol — leave-one-family-out script, tests, report renderer, and CLI
-wiring all shipped and merged to `main`). **058 (Concept Registry MVP) deliberately deferred, not
-closed** — implementation plan written and saved (`docs/plans/2026-07-13-concept-registry-mvp-
-implementation-plan.md`), execution set aside in favor of the P0 measurement-integrity work above;
-stays P1 in `pending/`, ready whenever it's next in line. Not promoted to ROADMAP.md — it's
-single-session-scoped per this file's own definition, not phase-scoped.
+wiring all shipped and merged to `main`). **058 (Concept Registry MVP) closed 2026-07-13** —
+moved to `completed/`, not because the work is built (it isn't — zero `concept_*` tables exist),
+but because it duplicated [112](pending/112-concept-registry.md) as a second standalone P1 entry
+for the same scope. 112 is now the sole live tracking item; 058 stays as frozen historical record
+for its 14 existing citations. Implementation plan remains valid and unexecuted
+(`docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`).
 
 **Explicit sequencing decision (2026-07-10, project owner confirmed; reaffirmed 2026-07-11 after
 094's root cause was corrected, and again 2026-07-11 to insert 097 — see
@@ -89,7 +90,6 @@ without re-confirming with the project owner.
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |
 | [097](pending/097-vol-normalized-return-target-pooled-ic.md) | Vol-normalized return target for POOLED-strata IC — split from todo 077's L3-1, 2026-07-11; folded into Phase 143.1 (Component F) as an explicit A/B, not a silent swap |
 | [092](pending/092-equity-regime-model-threshold-calibration.md) | Empirical threshold calibration for regime-model vix/breadth cuts — flagged 2026-07-09 as a live-path suspect behind the extreme regime-conditional IC values on the current leaderboard |
-| [058](pending/058-concept-registry-mvp-seed-ensemble-strategy.md) | Concept registry MVP — build trigger already fired (Phase 142B.1 complete) |
 | [054](pending/054-shadow-alpha-events-monitoring.md) | Shadow alpha_events monitoring — prevents delayed detection of feature decay/threshold bugs |
 | [011](pending/011-alpha-events-is-shadow-column.md) | `is_shadow` column — promotion gate can't be retroactively softened once this lands |
 
@@ -140,7 +140,7 @@ dimensions + formalization revival note), `stratification-instrument-tag-calibra
 taxonomy open question) — since those were forward-looking notes on ideas already fully described
 in their own docs, not standalone actionable work.
 
-- [112 — Concept Registry](pending/112-concept-registry.md) — points to [058](pending/058-concept-registry-mvp-seed-ensemble-strategy.md) as the current concrete, actionable work (P1, unblocked)
+- [112 — Concept Registry](pending/112-concept-registry.md) — self-contained scope (P1, unblocked); [058](completed/058-concept-registry-mvp-seed-ensemble-strategy.md) closed 2026-07-13, kept as frozen historical record only
 - [110 — Controlled Vocabulary](pending/110-controlled-vocabulary.md) — previously had zero todo tracking it at all
 - [111 — Stratification & Classification](deferred/111-stratification-classification.md) — gated on Phase 144's D-05 verdict
 

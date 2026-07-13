@@ -31,8 +31,10 @@ exception (human-authored candidates, OOS A/B as the live-evidence substitute). 
 scope: migrating `feature_registry` in (blocked on Phase 143's LIFECYCLE-01 amendments landing
 against it first).
 
-Full task-by-task breakdown already written: [058](058-concept-registry-mvp-seed-ensemble-strategy.md)
-and `docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`.
+Full task-by-task breakdown already written: `docs/plans/2026-07-13-concept-registry-mvp-
+implementation-plan.md` (the actual execution spec). [058](../completed/058-concept-registry-mvp-seed-ensemble-strategy.md)
+is the original 2026-07-04 scope todo this section summarizes — closed 2026-07-13 as a
+duplicate, kept only as frozen historical record for its existing citations.
 
 **Status:** P1, unblocked (build trigger fired 2026-07-04). Deliberately deferred behind P0
 measurement-integrity work as of 2026-07-13 (see PRIORITIES.md); plan written, execution not
