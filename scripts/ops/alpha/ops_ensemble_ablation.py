@@ -68,7 +68,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
+import dataclasses
+
 import numpy as np
+
+from src.intelligence.statistics.ic_math import (
+    _fisher_z_ci,
+    _nan_to_none,
+    compute_ic_vectorized,
+)
 
 # Sentinel arm name for the all-families baseline. Dunder-wrapped so it can never
 # collide with a real feature_registry.group_name (snake_case identifiers).
@@ -184,3 +192,94 @@ def pool_means_by_bar(bar_idx: np.ndarray, n_bars: int, values: np.ndarray) -> n
     has_members = counts > 0
     out[has_members] = sums[has_members] / counts[has_members]
     return out
+
+
+# ---------------------------------------------------------------------------
+# Arm IC measurement + reconstruction check (pure)
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class ArmIC:
+    """One arm's measured IC on one (stratum, scale) cell."""
+
+    ic: float
+    ci_lower: float | None
+    ci_upper: float | None
+    n: int
+
+
+def compute_arm_ic(
+    pooled_alpha: np.ndarray,
+    pooled_returns: np.ndarray,
+    stride: int,
+    min_reliable_n: int,
+) -> ArmIC | None:
+    """Measure one arm's Spearman IC with Fisher-z CI on a pooled per-bar series.
+
+    THE shared measurement path: baseline and every ablated arm go through this
+    exact function with the exact same pooled_returns/stride/min_reliable_n, so
+    the only between-arm difference is the alpha series itself (identical-code-path
+    invariant). Mirrors ensemble_ic_engine's per-cell sequence: stride subsample
+    (independence of overlapping forward returns) -> finite-pair mask ->
+    min_reliable_n gate -> compute_ic_vectorized -> _fisher_z_ci.
+
+    Returns None when the cell is unmeasurable: fewer than min_reliable_n valid
+    pairs after subsampling, or a degenerate (near-constant) alpha series --
+    Spearman is undefined on a constant, and reporting 0.0 would be a silent wrong
+    answer (e.g. zeroing the only weighted family must read DEGENERATE, not
+    "exactly neutral").
+    """
+    sub_idx = np.arange(0, len(pooled_alpha), stride)
+    alpha_sub = np.asarray(pooled_alpha, dtype=np.float64)[sub_idx]
+    returns_sub = np.asarray(pooled_returns, dtype=np.float64)[sub_idx]
+    valid = np.isfinite(alpha_sub) & np.isfinite(returns_sub)
+    n_valid = int(valid.sum())
+    if n_valid < min_reliable_n:
+        return None
+    alpha_valid = alpha_sub[valid]
+    returns_valid = returns_sub[valid]
+    if float(np.std(alpha_valid)) < _DEGENERATE_STD:
+        return None
+    ic_vector = compute_ic_vectorized(alpha_valid.reshape(-1, 1), returns_valid)
+    ci_lower_arr, ci_upper_arr = _fisher_z_ci(ic_vector, n_valid)
+    ic_val = float(ic_vector[0])
+    ci_lower_val = float(ci_lower_arr[0])
+    ci_upper_val = float(ci_upper_arr[0])
+    # Clamp CI to [-1, 1] and ensure it encompasses the point estimate (numerical precision safeguard)
+    ci_lower_val = np.clip(ci_lower_val, -1.0, ic_val)
+    ci_upper_val = np.clip(ci_upper_val, ic_val, 1.0)
+    return ArmIC(
+        ic=ic_val,
+        ci_lower=_nan_to_none(ci_lower_val),
+        ci_upper=_nan_to_none(ci_upper_val),
+        n=n_valid,
+    )
+
+
+def reconstruction_check(
+    recomputed: np.ndarray, stored: np.ndarray, tol: float
+) -> tuple[int, float | None, bool]:
+    """Verify the recomputed baseline against stored ensemble_alpha.alpha_score.
+
+    Compares only bars where a stored score exists (stored is NaN where the LEFT
+    JOIN found no row). Normalization: max |recomputed - stored| / std(stored) --
+    scale-free, robust to near-zero individual scores where a relative tolerance
+    would explode. Zero overlap returns (0, None, True): SKIPPED, not a failure
+    (the trainer may simply predate those OOS bars).
+
+    A False here means the trainer's inputs drifted since it ran (re-run
+    ensemble_trainer before trusting attribution) or this script's replication of
+    the scoring formula is wrong -- either way the stratum's deltas are
+    untrustworthy and the report must say so loudly.
+    """
+    mask = np.isfinite(np.asarray(stored, dtype=np.float64))
+    n_compared = int(mask.sum())
+    if n_compared == 0:
+        return 0, None, True
+    stored_masked = np.asarray(stored, dtype=np.float64)[mask]
+    recomputed_masked = np.asarray(recomputed, dtype=np.float64)[mask]
+    max_abs_diff = float(np.max(np.abs(recomputed_masked - stored_masked)))
+    denom = max(float(np.std(stored_masked)), 1e-12)
+    norm_max_diff = max_abs_diff / denom
+    return n_compared, norm_max_diff, norm_max_diff <= tol

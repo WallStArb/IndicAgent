@@ -189,3 +189,94 @@ def test_pool_means_by_bar_all_nan_bar_is_nan_not_zero():
     pooled = pool_means_by_bar(bar_idx, 2, values)
     assert np.isnan(pooled[0])
     assert pooled[1] == 5.0
+
+
+# ---------------------------------------------------------------------------
+# Task 3: arm IC measurement + reconstruction check
+# ---------------------------------------------------------------------------
+
+
+def _monotone_series(n: int) -> tuple[np.ndarray, np.ndarray]:
+    """Perfectly rank-aligned alpha/returns pair: Spearman IC exactly 1.0."""
+    rng = np.random.default_rng(42)
+    alpha = np.sort(rng.normal(size=n))
+    returns = np.sort(rng.normal(size=n))
+    return alpha, returns
+
+
+def test_compute_arm_ic_perfect_rank_alignment():
+    from ops_ensemble_ablation import compute_arm_ic
+
+    alpha, returns = _monotone_series(300)
+    arm = compute_arm_ic(alpha, returns, stride=1, min_reliable_n=100)
+    assert arm is not None
+    assert arm.n == 300
+    assert arm.ic == 1.0
+    # CI machinery present, never a bare correlation (project rule)
+    assert arm.ci_lower is not None and arm.ci_upper is not None
+    assert arm.ci_lower <= arm.ic <= arm.ci_upper
+
+
+def test_compute_arm_ic_stride_subsamples_before_gating():
+    """stride = max(subsample_min_stride, lookahead_bars) applied to the pooled
+    series (ensemble_ic_engine lines 770-773): 300 bars at stride 60 -> 5 obs,
+    below min_reliable_n -> None, even though the raw series was long enough."""
+    from ops_ensemble_ablation import compute_arm_ic
+
+    alpha, returns = _monotone_series(300)
+    assert compute_arm_ic(alpha, returns, stride=60, min_reliable_n=100) is None
+
+
+def test_compute_arm_ic_nan_pairs_excluded_from_n():
+    from ops_ensemble_ablation import compute_arm_ic
+
+    alpha, returns = _monotone_series(300)
+    returns = returns.copy()
+    returns[:150] = np.nan
+    arm = compute_arm_ic(alpha, returns, stride=1, min_reliable_n=100)
+    assert arm is not None
+    assert arm.n == 150
+
+
+def test_compute_arm_ic_degenerate_series_is_none_not_zero():
+    """Zeroing the only weighted family makes the composite constant; Spearman on a
+    constant is UNDEFINED. Must return None (rendered DEGENERATE), never IC=0.0 --
+    an IC of 0.0 would fake 'family removal made the model exactly neutral'."""
+    from ops_ensemble_ablation import compute_arm_ic
+
+    returns = np.linspace(-1.0, 1.0, 300)
+    constant_alpha = np.zeros(300)
+    assert compute_arm_ic(constant_alpha, returns, stride=1, min_reliable_n=100) is None
+
+
+def test_compute_arm_ic_identical_code_path_for_identical_inputs():
+    """The zero-delta property the control family relies on: an arm whose weights
+    equal the baseline's must produce the bit-identical ArmIC (same function, same
+    inputs). Guards against any future baseline-only shortcut."""
+    from ops_ensemble_ablation import compute_arm_ic
+
+    alpha, returns = _monotone_series(300)
+    a = compute_arm_ic(alpha, returns, stride=3, min_reliable_n=50)
+    b = compute_arm_ic(alpha.copy(), returns.copy(), stride=3, min_reliable_n=50)
+    assert a == b
+
+
+def test_reconstruction_check_pass_and_mismatch():
+    from ops_ensemble_ablation import reconstruction_check
+
+    stored = np.array([1.0, 2.0, 3.0, 4.0])
+    n, diff, ok = reconstruction_check(stored.copy(), stored, tol=0.01)
+    assert (n, diff, ok) == (4, 0.0, True)
+    off = stored + np.array([0.0, 0.0, 0.0, 1.0])  # 1.0 abs diff vs std ~1.118
+    n, diff, ok = reconstruction_check(off, stored, tol=0.01)
+    assert n == 4 and diff is not None and diff > 0.01 and ok is False
+
+
+def test_reconstruction_check_no_stored_overlap_is_skipped_not_failed():
+    """Stored ensemble_alpha may not cover OOS bars (e.g. trainer ran before those
+    bars existed): zero overlap is SKIPPED (ok=True, diff None), not a mismatch."""
+    from ops_ensemble_ablation import reconstruction_check
+
+    recomputed = np.array([1.0, 2.0])
+    stored = np.array([np.nan, np.nan])
+    assert reconstruction_check(recomputed, stored, tol=0.01) == (0, None, True)
