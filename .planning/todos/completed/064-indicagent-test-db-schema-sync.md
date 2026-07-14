@@ -11,6 +11,13 @@
 
 # 064 — `indicagent_test` database has no schema (pre-existing, widespread)
 
+**Superseded 2026-07-14 — merged into [119](../pending/119-migration-schema-drift-ci-check.md).**
+This todo's Option A (replay all migrations against `indicagent_test`, keep it synced) is 119's
+prerequisite infrastructure, not a separate task: the Phase 160 migration-drift incident showed
+that a schema-sync check has to exist anyway, and doing it as one integration test fixes both
+gaps at once. This file stays as frozen historical record for its context and citations; 119 is
+the sole live tracking item going forward.
+
 **Priority: Low — workaround exists, but affects the whole `tests/integration/` suite**
 
 ## Context
