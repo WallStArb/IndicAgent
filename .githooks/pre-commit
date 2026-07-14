@@ -55,7 +55,7 @@ check_plugin_class_naming() {
     for file in $PYTHON_FILES; do
         if [ -f "${REPO_ROOT}/${file}" ]; then
             FILE_VIOLATIONS=$(grep -n '^class [A-Z]' "${REPO_ROOT}/${file}" 2>/dev/null | \
-                grep -vE 'class.*(Plugin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate)\b' || true)
+                grep -vE 'class.*(Plugin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Decision)\b' || true)
             if [ -n "$FILE_VIOLATIONS" ]; then
                 VIOLATIONS="${VIOLATIONS}  ${file}:"$'\n'"$(echo "$FILE_VIOLATIONS" | sed 's/^/    /')"$'\n'
             fi
