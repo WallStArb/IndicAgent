@@ -159,8 +159,7 @@ without re-confirming with the project owner.
 | [097](pending/097-vol-normalized-return-target-pooled-ic.md) | Vol-normalized return target for POOLED-strata IC — split from todo 077's L3-1, 2026-07-11; folded into Phase 143.1 (Component F) as an explicit A/B, not a silent swap |
 | [092](pending/092-equity-regime-model-threshold-calibration.md) | Empirical threshold calibration for regime-model vix/breadth cuts — flagged 2026-07-09 as a live-path suspect behind the extreme regime-conditional IC values on the current leaderboard |
 | [054](pending/054-shadow-alpha-events-monitoring.md) | Shadow alpha_events monitoring — prevents delayed detection of feature decay/threshold bugs |
-| [011](pending/011-alpha-events-is-shadow-column.md) | `is_shadow` column — promotion gate can't be retroactively softened once this lands |
-| [112](pending/112-concept-registry.md) | Concept Registry MVP — design complete (4 review passes), plan already written (`docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`), build trigger fired 2026-07-04. **Registered as ROADMAP Phase 159.** Deliberately deferred behind P0 measurement-integrity work, not blocked on anything else. |
+| [011](pending/011-alpha-events-is-shadow_column.md) | `is_shadow` column — promotion gate can't be retroactively softened once this lands |
 
 ## P2 — Real value, not urgent
 
@@ -211,7 +210,6 @@ dimensions + formalization revival note), `stratification-instrument-tag-calibra
 taxonomy open question) — since those were forward-looking notes on ideas already fully described
 in their own docs, not standalone actionable work.
 
-- [112 — Concept Registry](pending/112-concept-registry.md) — self-contained scope (P1, unblocked); [058](completed/058-concept-registry-mvp-seed-ensemble-strategy.md) closed 2026-07-13, kept as frozen historical record only
 - [110 — Controlled Vocabulary](pending/110-controlled-vocabulary.md) — previously had zero todo tracking it at all
 - [111 — Stratification & Classification](pending/111-stratification-classification.md) — moved out of `deferred/` 2026-07-13 (its own frontmatter already said `status: pending`, directory placement was the mismatch); registered as ROADMAP Phase 145, gated on Phase 144's D-05 verdict
 
