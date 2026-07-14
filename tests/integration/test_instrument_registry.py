@@ -2,7 +2,7 @@
 
 Verifies:
 1. get_active_contracts() returns instruments from a live DB
-2. Required symbols (SPY, USDJPY, EURUSD) are present
+2. Required equity symbols (SPY) are present
 3. The pg_notify trigger was installed by migration 220
 
 Run: pytest tests/integration/ -m integration
@@ -26,12 +26,14 @@ def test_get_active_contracts_returns_nonzero():
 
 
 def test_all_required_symbols_present():
-    """Required equity and FX symbols are present in active contracts."""
+    """Required equity symbols are present in active contracts.
+
+    FX pairs (EURUSD/GBPUSD/USDCHF/USDJPY) are intentionally is_active=false in
+    production - FX is not currently traded - so they are not asserted here.
+    """
     settings = get_settings()
     symbols = {c.symbol for c in get_active_contracts(settings)}
     assert "SPY" in symbols, f"SPY not found in active contracts: {symbols}"
-    assert "USDJPY" in symbols, f"USDJPY not found in active contracts: {symbols}"
-    assert "EURUSD" in symbols, f"EURUSD not found in active contracts: {symbols}"
 
 
 @pytest.mark.asyncio
