@@ -19,6 +19,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="v2.x Signal Ledger Architecture, archived, no live consumer (CLAUDE.md)")
 async def test_is_backfill_roundtrip():
     """Test that is_backfill=True signal persists correctly and is excluded from ML filter."""
 

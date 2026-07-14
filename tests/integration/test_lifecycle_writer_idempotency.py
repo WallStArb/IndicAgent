@@ -17,6 +17,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="v2.x Signal Ledger Architecture, archived, no live consumer (CLAUDE.md)")
 async def test_lifecycle_writer_idempotency_counter():
     """Test that second EXIT write is idempotent (no-op) and increments counter."""
 

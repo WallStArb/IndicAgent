@@ -19,6 +19,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="v2.x Signal Ledger Architecture, archived, no live consumer (CLAUDE.md)")
 async def test_market_entry_completeness():
     """Test that activated signals get complete market entry outcomes after replay."""
 

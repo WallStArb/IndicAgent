@@ -20,6 +20,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="v2.x Signal Ledger Architecture, archived, no live consumer (CLAUDE.md)")
 async def test_all_signals_resolved():
     """North star test: seed signals + OHLCV, run replay, assert all resolved.
 

@@ -17,6 +17,7 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="v2.x Signal Ledger Architecture, archived, no live consumer (CLAUDE.md)")
 async def test_graduation_loop_promotes_skeptic_end_to_end() -> None:
     """Insert 100 lineage + ledger rows with positive correlation → promote to live.
 
