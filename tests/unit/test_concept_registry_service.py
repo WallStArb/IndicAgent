@@ -183,3 +183,221 @@ def test_won_requires_eval_metric():
             eval_n=3000.0,
             corpus_build_ref="run_A",
         )
+
+
+# ---------------------------------------------------------------------------
+# Transactional apply (Task 4): SQL-constant regression tests + FakeConn flows.
+# The effective pytest-asyncio mode in this environment is strict despite
+# pytest.ini's addopts listing --asyncio-mode=auto (matches the established
+# convention in tests/unit/test_base_batch_jsonb.py), so each async test is
+# explicitly marked @pytest.mark.asyncio.
+# ---------------------------------------------------------------------------
+
+from src.intelligence.concept_registry_service import (
+    _CAS_PROMOTE_SQL,
+    _GATE_CACHE_UPDATE_SQL,
+    _GATE_PROMOTE_UPDATE_SQL,
+    _LOAD_CONCEPT_SQL,
+    _TRANSITION_INSERT_SQL,
+    ConceptNotFoundError,
+    ConceptRegistryService,
+)
+
+
+class _FakeTransaction:
+    def __init__(self, conn):
+        self._conn = conn
+
+    async def __aenter__(self):
+        self._conn.tx_entered += 1
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if exc_type is not None:
+            self._conn.tx_rolled_back += 1
+        return False
+
+
+class _FakeConn:
+    """Minimal asyncpg-shaped stub: canned fetchrow row, recorded execute calls."""
+
+    def __init__(self, row, cas_result="UPDATE 1"):
+        self.row = row
+        self.cas_result = cas_result
+        self.executed: list[tuple[str, tuple]] = []
+        self.tx_entered = 0
+        self.tx_rolled_back = 0
+
+    def transaction(self):
+        return _FakeTransaction(self)
+
+    async def fetchrow(self, sql, *args):
+        return self.row
+
+    async def execute(self, sql, *args):
+        self.executed.append((sql, args))
+        if sql is _CAS_PROMOTE_SQL:
+            return self.cas_result
+        return "UPDATE 1"
+
+
+def _row(**overrides):
+    base = dict(
+        concept_id="11111111-1111-1111-1111-111111111111",
+        status="candidate",
+        promotion_consecutive=1,
+        promotion_eval_metrics=[0.02],
+        last_eval_corpus_build_ref="run_A",
+        last_eval_n=3000.0,
+        min_promotion_consecutive=None,
+        min_new_observations=None,
+        min_gate_n=None,
+    )
+    base.update(overrides)
+    return base
+
+
+_DEFAULTS = dict(
+    default_min_promotion_consecutive=2,
+    default_min_new_observations=2000.0,
+    default_min_gate_n=1000.0,
+)
+
+
+def test_cas_promote_sql_has_optimistic_lock():
+    """Invariant 9: the status UPDATE must carry AND status = <from> so a racing or
+    stale evaluator can never log a transition whose from_status never matched."""
+    assert "AND status = " in _CAS_PROMOTE_SQL
+    assert "UPDATE concept_registry" in _CAS_PROMOTE_SQL
+
+
+def test_transition_insert_sql_carries_corpus_build_ref():
+    """F3: every automated transition records the corpus build that produced it."""
+    assert "corpus_build_ref" in _TRANSITION_INSERT_SQL
+    assert "concept_transition_log" in _TRANSITION_INSERT_SQL
+
+
+def test_load_sql_joins_gate():
+    assert "concept_gate" in _LOAD_CONCEPT_SQL
+    assert "concept_registry" in _LOAD_CONCEPT_SQL
+
+
+def test_gate_update_sqls_touch_cache_columns():
+    for sql in (_GATE_CACHE_UPDATE_SQL, _GATE_PROMOTE_UPDATE_SQL):
+        assert "last_eval_corpus_build_ref" in sql
+        assert "promotion_consecutive" in sql
+    assert "baseline_metric" in _GATE_PROMOTE_UPDATE_SQL
+
+
+@pytest.mark.asyncio
+async def test_unknown_concept_raises():
+    service = ConceptRegistryService()
+    conn = _FakeConn(row=None)
+    with pytest.raises(ConceptNotFoundError):
+        await service.record_comparison_outcome(
+            conn,
+            domain="ensemble_strategy",
+            name="nope",
+            won=True,
+            eval_metric=0.05,
+            eval_n=6000.0,
+            corpus_build_ref="run_B",
+            **_DEFAULTS,
+        )
+
+
+@pytest.mark.asyncio
+async def test_blocked_decision_writes_nothing():
+    service = ConceptRegistryService()
+    conn = _FakeConn(row=_row())
+    decision = await service.record_comparison_outcome(
+        conn,
+        domain="ensemble_strategy",
+        name="e1_shrunk_ic",
+        won=True,
+        eval_metric=0.05,
+        eval_n=6000.0,
+        corpus_build_ref="run_A",  # same corpus
+        **_DEFAULTS,
+    )
+    assert decision.action == "blocked_same_corpus"
+    assert conn.executed == []
+
+
+@pytest.mark.asyncio
+async def test_promotion_flow_is_cas_plus_transition_plus_gate_in_one_tx():
+    service = ConceptRegistryService()
+    conn = _FakeConn(row=_row())
+    decision = await service.record_comparison_outcome(
+        conn,
+        domain="ensemble_strategy",
+        name="e1_shrunk_ic",
+        won=True,
+        eval_metric=0.06,
+        eval_n=6000.0,
+        corpus_build_ref="run_B",
+        **_DEFAULTS,
+    )
+    assert decision.action == "promote"
+    assert decision.baseline_metric == pytest.approx(0.04)
+    executed_sqls = [sql for sql, _ in conn.executed]
+    assert executed_sqls == [_CAS_PROMOTE_SQL, _TRANSITION_INSERT_SQL, _GATE_PROMOTE_UPDATE_SQL]
+    assert conn.tx_entered == 1
+
+
+@pytest.mark.asyncio
+async def test_promotion_cas_race_returns_blocked_status_race():
+    """CAS matched zero rows (status changed under us): abort, no transition row."""
+    service = ConceptRegistryService()
+    conn = _FakeConn(row=_row(), cas_result="UPDATE 0")
+    decision = await service.record_comparison_outcome(
+        conn,
+        domain="ensemble_strategy",
+        name="e1_shrunk_ic",
+        won=True,
+        eval_metric=0.06,
+        eval_n=6000.0,
+        corpus_build_ref="run_B",
+        **_DEFAULTS,
+    )
+    assert decision.action == "blocked_status_race"
+    executed_sqls = [sql for sql, _ in conn.executed]
+    assert _TRANSITION_INSERT_SQL not in executed_sqls
+
+
+@pytest.mark.asyncio
+async def test_record_loss_updates_gate_cache_only():
+    service = ConceptRegistryService()
+    conn = _FakeConn(row=_row())
+    decision = await service.record_comparison_outcome(
+        conn,
+        domain="ensemble_strategy",
+        name="e2_mean_variance",
+        won=False,
+        eval_metric=None,
+        eval_n=6000.0,
+        corpus_build_ref="run_B",
+        **_DEFAULTS,
+    )
+    assert decision.action == "record_loss"
+    executed_sqls = [sql for sql, _ in conn.executed]
+    assert executed_sqls == [_GATE_CACHE_UPDATE_SQL]
+
+
+@pytest.mark.asyncio
+async def test_gate_row_overrides_beat_apr_defaults():
+    """A non-NULL concept_gate.min_promotion_consecutive overrides the APR default:
+    with override 3, the second consecutive win records but does not promote."""
+    service = ConceptRegistryService()
+    conn = _FakeConn(row=_row(min_promotion_consecutive=3))
+    decision = await service.record_comparison_outcome(
+        conn,
+        domain="ensemble_strategy",
+        name="e1_shrunk_ic",
+        won=True,
+        eval_metric=0.06,
+        eval_n=6000.0,
+        corpus_build_ref="run_B",
+        **_DEFAULTS,
+    )
+    assert decision.action == "record_win"
