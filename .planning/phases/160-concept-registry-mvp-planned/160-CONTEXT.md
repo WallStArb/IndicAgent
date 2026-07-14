@@ -143,10 +143,13 @@ not be re-litigated.
 ### Integration Points
 - `ops_ensemble_weight_compare.py` — Task 5's wiring target; becomes the sole deterministic
   status-flipper for `domain='ensemble_strategy'` (invariant 1).
-- `concept_registry` schema's `domain` CHECK constraint already includes `'feature'`,
-  `'hmm_variant'`, `'ic_method'`, `'regime_model'`, `'confluence'` per the canonical doc's MVP
-  sketch — this phase seeds none of those, only `'ensemble_strategy'`. Confirmed live: zero
-  `concept_*` tables exist yet (checked via `\dt` during this discussion).
+- `concept_registry` schema's `domain` CHECK constraint as shipped in migration 232 is only
+  `('feature','ensemble_strategy')` — NOT the fuller `'hmm_variant'` / `'ic_method'` /
+  `'regime_model'` / `'confluence'` set the canonical doc's MVP sketch enumerates. Each of those
+  future domains will need its own CHECK-constraint migration before it can be seeded. This
+  phase seeds only `'ensemble_strategy'`; the `'feature'` value is permitted by the CHECK but
+  zero feature rows are seeded here. Confirmed live at discussion time: zero `concept_*` tables
+  existed yet (checked via `\dt`).
 
 </code_context>
 
