@@ -891,7 +891,7 @@ rows, before any `confluence`/`regime_model` domain needs it (those are still fu
 v3.15 and intel-10 v3). Not doing this promptly is how "deferred" becomes "deferred indefinitely."
 **Registered 2026-07-13 as Phase 160 below** (standalone number -- this work is triggered by 142B.1 completing, not a sub-phase of it; placed here for reading context).
 
-### Phase 160: Concept Registry MVP 📋 PLANNED
+### Phase 160: Concept Registry MVP ✅ COMPLETE 2026-07-14
 
 **Goal:** Build the four-table evidence-gated lifecycle registry (`concept_registry` /
 `concept_gate` / `concept_transition_log` / `concept_annotation`) and seed `domain='ensemble_strategy'`
@@ -899,10 +899,9 @@ from Phase 142B.1's outcomes — the concrete answer to "why don't we use this s
 anymore," queryable ten years from now instead of living in Slack or memory.
 
 **Depends on:** None — build trigger already fired 2026-07-04 (Phase 142B.1 complete, above).
-Registered here 2026-07-13 for prioritization visibility; not yet planned via `/gsd-discuss-phase`.
 Sits immediately after its own trigger phase; does not block or get blocked by anything in the
-143-151 critical path — schedule opportunistically, same treatment as Phase 152/153, do not let
-it jump ahead of Phase 144/148.
+143-151 critical path — scheduled opportunistically, same treatment as Phase 152/153, did not
+jump ahead of Phase 144/148.
 
 **Design:**
 - Full task-by-task implementation plan already written: `docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`.
@@ -918,10 +917,17 @@ it jump ahead of Phase 144/148.
   (MEDIUM tier — Effort M, Risk Low, Reward Low-now/Med-long-run).
 
 **Plans:** 4 plans in 3 waves (planned 2026-07-14 from `docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`):
-- [ ] 160-01-PLAN.md — migrations 232 (schema + APR gate keys) + 233 (seed domain='ensemble_strategy') [wave 1]
-- [ ] 160-02-PLAN.md — ConceptRegistryService pure decision core + transactional CAS apply [wave 1]
-- [ ] 160-03-PLAN.md — wire ops_ensemble_weight_compare.py win-decision gate to the service (invariant 1) [wave 2]
-- [ ] 160-04-PLAN.md — design-doc sync, file domain='feature' follow-on todo, close todo 112, merge [wave 3]
+- [x] 160-01-PLAN.md — migrations 233 (schema + APR gate keys) + 234 (seed domain='ensemble_strategy') [wave 1] ✅ COMPLETE
+- [x] 160-02-PLAN.md — ConceptRegistryService pure decision core + transactional CAS apply [wave 1] ✅ COMPLETE
+- [x] 160-03-PLAN.md — wire ops_ensemble_weight_compare.py win-decision gate to the service (invariant 1) [wave 2] ✅ COMPLETE
+- [x] 160-04-PLAN.md — design-doc sync, file domain='feature' follow-on todo, close todo 112, merge [wave 2] ✅ COMPLETE
+
+**Execution Summary:**
+- Wave 1 (migrations + service): Migration 233 built 4-table MVP schema (concept_registry/gate/transition_log/annotation) with APR gate keys; Migration 234 seeded ensemble_strategy domain with 5 E-variants (ic_proportional as active incumbent, E1-E4 as candidates). ConceptRegistryService implemented transactional CAS promotion with pure comparison-decision core.
+- Wave 2 (API + dashboard): ops_ensemble_weight_compare.py wired to ConceptRegistryService enforcing invariant 1 (sole deterministic status-flipper for ensemble_strategy domain). Documentation synchronized, invariant-6 ensemble_strategy exception recorded, todo 112 closed.
+- All 40 unit tests pass (20 ensemble_weight_compare + 20 concept_registry_service).
+- Backward compatibility maintained (report-only path byte-identical).
+- Todo 118 filed for pre-live-use empirical validation (D-02 scope plus H-1/L-2/L-3/L-4 automation hardening).
 
 ### Phase 161: Controlled Vocabulary System 📋 PLANNED
 

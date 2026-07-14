@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: Phase 160 Concept Registry MVP in progress (Wave 2/2, plan 160-03 COMPLETE)
-last_updated: "2026-07-14T17:50:00.000Z"
+status: Phase 160 Concept Registry MVP COMPLETE (2026-07-14)
+last_updated: "2026-07-14T18:30:00.000Z"
 progress:
   total_phases: 12
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 40
-  completed_plans: 33
-  percent: 53
+  completed_plans: 37
+  percent: 70
 ---
 
 # Project State
@@ -92,6 +92,7 @@ Separately: Phase 142B.1 machinery is complete (verified 2026-07-04); the E1/E2 
 | 142.5 | Renaissance Primitives | COMPLETE (8/8 plans, 2026-07-07) — 89 new primitives implemented in Feature Factory (61 baseline + 89 = 150 total fields, not 91/152 — 2 later found redundant and dropped via migration 211); migration 206 applied live to `indicagent` DB, verified idempotent. Replanned 2026-07-06 from cross-AI review (142.5-REVIEWS.md): added Plan 05.5 to implement the 8 price-volume interaction primitives Plan 06 was already creating schema/APR for; fixed cold-start crash, feature_registry seeding, and registry row-count sync gaps |
 | 142B | Frame Simulation + Counterfactual Tracking | COMPLETE (2/2 plans, verified 2026-07-10), pushed `5024bb88` — `alpha_frames` schema + `AlphaFrameWriter` + `CounterfactualTracker`; 2 code-review blockers + 5 minor findings fixed (`fa4208ef`), `/simplify` pass (`059d4a75`); `alpha_frames` has 0 rows, backfill run recommended next (no corpus rebuild needed) |
 | 143 | Feature Lifecycle Routing (merged with 149B) | COMPLETE (3/3 plans, verified 2026-07-10), commit `69ca7db7` — `feature_registry` evidence-based promotion/demotion + `ic_engine` post-run lifecycle hook + `integrity_monitor` table; one regression caught by full-suite gate and fixed same session (`b47595b9`) |
+| 160 | Concept Registry MVP | COMPLETE (4/4 plans, verified 2026-07-14) — Migration 233 (4-table schema: concept_registry/gate/transition_log/annotation) + Migration 234 (ensemble_strategy seed, 5 variants) + ConceptRegistryService (transactional CAS promotion) + ConceptRegistryAPI (invariant 1 enforcement via `ops_ensemble_weight_compare.py`) + ConceptRegistryDashboard (documentation sync, invariant-6 exception recorded, todo 112 closed) |
 
 **Corpus is on its 6th rebuild as of 2026-07-09, completed clean end-to-end** (all 8 steps,
 first time in 6 attempts) — supersedes the "4th rebuild in progress" note this table previously
