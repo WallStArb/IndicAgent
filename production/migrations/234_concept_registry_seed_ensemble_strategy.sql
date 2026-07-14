@@ -30,7 +30,7 @@
 -- gate_metric_name='ensemble_ic_ci_lower' (D-15 citation rule: ic_ci_lower, never ic_value);
 -- min_gate_metric NULL because the win rule is relative CI ordering vs the champion, not an
 -- absolute scalar threshold; min_promotion_consecutive / min_new_observations NULL = inherit
--- the APR defaults seeded by migration 231; fdr_required=true with fdr_alpha NULL = inherit
+-- the APR defaults seeded by migration 233; fdr_required=true with fdr_alpha NULL = inherit
 -- alpha.ensemble.compare_fdr_alpha (the compare script's existing BH-FDR key).
 --
 -- M-4 CORRECTION (phase 160 cross-AI review): min_gate_n seeds NULL on all 5 rows, not 1000.
@@ -38,7 +38,7 @@
 -- alpha.concept_registry.ensemble_strategy_min_observations dead-on-arrival: the key would
 -- exist and appear on the /config/parameters dashboard, but tuning it would silently do
 -- nothing for every seeded concept. Seeding it NULL makes all three floors (min_gate_n,
--- min_promotion_consecutive, min_new_observations) inherit the migration-231 APR defaults
+-- min_promotion_consecutive, min_new_observations) inherit the migration-233 APR defaults
 -- uniformly, which is what the APR philosophy this migration set cites requires.
 --
 -- Idempotent: every INSERT is ON CONFLICT DO NOTHING or guarded by WHERE NOT EXISTS.
@@ -53,7 +53,7 @@ VALUES
     'v1 incumbent: per-stratum weights proportional to raw HAC IC Sharpe '
     '(alpha.ensemble.ic_input=ic_sharpe_hac, alpha.ensemble.weight_method=ic_proportional).',
     'active', true,
-    '{"recipe": {"ic_input": "ic_sharke_hac", "weight_method": "ic_proportional"}}'::jsonb,
+    '{"recipe": {"ic_input": "ic_sharpe_hac", "weight_method": "ic_proportional"}}'::jsonb,
     'todo-058'
 ),
 (
@@ -129,7 +129,7 @@ JOIN (VALUES
      'simplest defensible aggregation: it preserves sign, requires no covariance estimate, '
      'and degrades gracefully when per-feature IC estimates are noisy.'),
     ('ic_proportional', 'implementation',
-     'services/ensemble_trainer.py compute path with alpha.ensemble.ic_input=ic_sharke_hac '
+     'services/ensemble_trainer.py compute path with alpha.ensemble.ic_input=ic_sharpe_hac '
      'and alpha.ensemble.weight_method=ic_proportional; weights derived via derive_weights() '
      'in src/intelligence/ensemble/ with the max_feature_weight cap.'),
     ('ic_proportional', 'observation',

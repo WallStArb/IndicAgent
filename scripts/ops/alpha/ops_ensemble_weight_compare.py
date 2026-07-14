@@ -205,123 +205,6 @@ def _registry_outcome(rows: list[dict]) -> tuple[bool, float | None, float, int,
     )
 
 
-async def _record_registry_outcome(
-    conn,
-    args,
-    won: bool,
-    eval_metric: float | None,
-    eval_n: float,
-    win_strata_count: int,
-    win_only_n: float,
-    corpus_build_ref: str,
-    strata: list,
-) -> int:
-    """Record comparison outcome to concept registry and write annotations.
-
-    Returns 0 on success, non-zero on failure.
-    """
-    # L-4: validate champion concept existence before any write
-    if args.champion_concept:
-        champion_exists = await conn.fetchval(
-            "SELECT COUNT(*) FROM concept_registry "
-            "WHERE domain = 'ensemble_strategy' AND name = $1",
-            args.champion_concept,
-        )
-        if champion_exists == 0:
-            print()
-            print(f"REGISTRY: FAILED - unknown champion concept '{args.champion_concept}'")
-            return 1
-
-    apr_keys = [
-        "alpha.concept_registry.ensemble_strategy_min_promotion_consecutive",
-        "alpha.concept_registry.ensemble_strategy_min_new_observations",
-        "alpha.concept_registry.ensemble_strategy_min_observations",
-    ]
-    placeholders = ", ".join(f"${i + 1}" for i in range(len(apr_keys)))
-    apr_rows = await conn.fetch(
-        f"SELECT config_key, config_value FROM config_state "
-        f"WHERE config_key IN ({placeholders})",
-        *apr_keys,
-    )
-    apr = {r["config_key"]: r["config_value"] for r in apr_rows}
-    if len(apr) != 3:
-        print()
-        print(
-            "REGISTRY: FAILED - alpha.concept_registry.* gate keys missing "
-            "from config_state; apply migration 231 before recording."
-        )
-        return 1
-
-    service = ConceptRegistryService()
-    try:
-        decision = await service.record_comparison_outcome(
-            conn,
-            domain="ensemble_strategy",
-            name=args.challenger_concept,
-            won=won,
-            eval_metric=eval_metric,
-            eval_n=eval_n,
-            corpus_build_ref=corpus_build_ref,
-            default_min_promotion_consecutive=int(
-                apr["alpha.concept_registry.ensemble_strategy_min_promotion_consecutive"]
-            ),
-            default_min_new_observations=float(
-                apr["alpha.concept_registry.ensemble_strategy_min_new_observations"]
-            ),
-            default_min_gate_n=float(
-                apr["alpha.concept_registry.ensemble_strategy_min_observations"]
-            ),
-            notes=(
-                f"A/B vs champion "
-                f"{args.champion_concept or args.champion} "
-                f"(weight_versions {args.challenger} vs {args.champion}). "
-                f"invariant 6; win_strata={win_strata_count} "
-                f"win_only_n={win_only_n} total_strata={len(strata)} "
-                f"gate_n={eval_n}. "
-                "Invariant-6 exception applies: human-authored candidate; "
-                "this OOS A/B on live corpus runs is the domain's "
-                "documented evidentiary substitute for a live shadow "
-                "period (docs/research/"
-                "concept-unified-registry.md, Invariant 6)."
-            ),
-        )
-    except ConceptNotFoundError as error:
-        print()
-        print(f"REGISTRY: FAILED - {error}")
-        return 1
-
-    # M-6: append-only concept_annotation for every recording action
-    if decision.action in ("record_win", "record_loss", "promote"):
-        concept_id = await conn.fetchval(
-            "SELECT concept_id FROM concept_registry "
-            "WHERE domain = 'ensemble_strategy' AND name = $1",
-            args.challenger_concept,
-        )
-        annotation_content = (
-            f"action={decision.action} won={won} "
-            f"eval_metric={eval_metric} eval_n={eval_n} "
-            f"win_strata_count={win_strata_count} "
-            f"corpus_build_ref={corpus_build_ref}"
-        )
-        await conn.execute(
-            "INSERT INTO concept_annotation "
-            "(concept_id, annotation_type, content, source, valid_from) "
-            "VALUES ($1, 'eval_outcome', $2, 'empirical', $3)",
-            concept_id,
-            annotation_content,
-            datetime.now(UTC),
-        )
-
-    print()
-    print(
-        f"REGISTRY: concept={args.challenger_concept} won={won} "
-        f"eval_metric={eval_metric} eval_n={eval_n} "
-        f"corpus_build_ref={corpus_build_ref} -> action={decision.action}"
-        + (f" baseline_metric={decision.baseline_metric}" if decision.action == "promote" else "")
-    )
-    return 0
-
-
 async def main() -> int:
     import argparse
 
@@ -590,7 +473,7 @@ async def main() -> int:
                     print()
                     print(
                         "REGISTRY: FAILED - alpha.concept_registry.* gate keys missing "
-                        "from config_state; apply migration 231 before recording."
+                        "from config_state; apply migration 233 before recording."
                     )
                     return 0
 
@@ -650,7 +533,7 @@ async def main() -> int:
                     await conn.execute(
                         "INSERT INTO concept_annotation "
                         "(concept_id, annotation_type, content, source, valid_from) "
-                        "VALUES ($1, 'eval_outcome', $2, 'empirical', $3)",
+                        "VALUES ($1, 'observation', $2, 'empirical', $3)",
                         concept_id,
                         annotation_content,
                         datetime.now(UTC),
