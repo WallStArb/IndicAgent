@@ -124,10 +124,10 @@ class AlphaPublisher(BaseBatch):
             regime, alpha_score, alpha_ci_lower, alpha_ci_upper,
             effective_n, n_features_active,
             emission_threshold, direction,
-            top_features, emitted_at, cost_hurdle
+            top_features, emitted_at, cost_hurdle, is_shadow
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15, $16, $17
+            $11, $12, $13, $14, $15, $16, $17, $18
         )
         ON CONFLICT (event_id, bar_ts) DO NOTHING
     """
@@ -146,6 +146,9 @@ class AlphaPublisher(BaseBatch):
                 cfg, "alpha.ensemble.weight_version", "v1"
             )
             top_features_count = _cfg(cfg, "alpha.ensemble.top_features_count", 10)
+            # todo 011: one-way live-promotion switch. True until an operator flips it
+            # at Phase 144 after the shadow record passes all promotion-gate criteria.
+            is_shadow = _cfg(cfg, "alpha.publisher.is_shadow", True)
 
             self.logger.info(
                 "alpha_publisher.config_loaded",
@@ -154,6 +157,7 @@ class AlphaPublisher(BaseBatch):
                 top_features_count=top_features_count,
                 topic=topic,
                 skip_kafka=self.skip_kafka,
+                is_shadow=is_shadow,
             )
             manifest.set_inputs(
                 ensemble_version=self.ensemble_version,
@@ -362,6 +366,7 @@ class AlphaPublisher(BaseBatch):
                                 top_features,
                                 now,
                                 cost_hurdle,
+                                is_shadow,
                             )
                         )
                         if len(_chunk) >= self._CHUNK_SIZE:
@@ -390,6 +395,7 @@ class AlphaPublisher(BaseBatch):
                                 "direction": direction,
                                 "top_features": top_features,
                                 "cost_hurdle": cost_hurdle,
+                                "is_shadow": is_shadow,
                             }
                         )
 
@@ -432,6 +438,7 @@ class AlphaPublisher(BaseBatch):
                                     e["top_features"],
                                     now,
                                     e["cost_hurdle"],
+                                    e["is_shadow"],
                                 )
                                 for e in pending_events
                             ],
@@ -453,6 +460,7 @@ class AlphaPublisher(BaseBatch):
                         "top_features": e["top_features"],
                         "direction": e["direction"],
                         "emitted_at": format_iso_ts(now),
+                        "is_shadow": e["is_shadow"],
                     }
                     await self._producer.publish(topic, msg=payload)
             finally:

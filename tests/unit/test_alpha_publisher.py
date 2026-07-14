@@ -195,10 +195,12 @@ async def _run_emitter_with_single_row(
     top_features_count: str = "10",
     threshold_5m: str = "1.5",
     cursor_yields_row: bool = True,
+    is_shadow: str | None = None,
 ) -> tuple[AsyncMock, AsyncMock]:
     """Helper: run AlphaPublisher.execute() with one alpha row and return (mock_producer, mock_conn).
 
     cursor_yields_row=False simulates SQL filtering the row out (all gates are SQL-level).
+    is_shadow=None omits the key entirely, exercising the APR-absent default path.
     """
     emitter = _make_emitter()
 
@@ -211,6 +213,8 @@ async def _run_emitter_with_single_row(
     full_cfg["alpha.ensemble.weight_version"] = weight_version
     full_cfg["alpha.ensemble.top_features_count"] = top_features_count
     full_cfg["alpha.quant.threshold.5m"] = threshold_5m
+    if is_shadow is not None:
+        full_cfg["alpha.publisher.is_shadow"] = is_shadow
 
     final_cfg_rows: list[MagicMock] = []
     for k, v in full_cfg.items():
@@ -430,6 +434,101 @@ class TestTopFeaturesCount:
         assert (
             len(payload["top_features"]) == 3
         ), f"Expected exactly 3 top_features, got {len(payload['top_features'])}"
+
+
+class TestIsShadow:
+    """todo 011: alpha_events.is_shadow is a one-way live-promotion switch. Defaults
+    True (shadow) when the APR key is absent or stores the string 'true'; only an
+    explicit 'false' flips it. Regression coverage for the bool-string-cast bug
+    fixed in services/_batch_utils.py::cfg() alongside this wiring."""
+
+    @pytest.mark.asyncio
+    async def test_defaults_true_when_apr_key_absent(self) -> None:
+        row = _make_alpha_row(
+            alpha_score=2.0, alpha_ci_lower=0.5, alpha_ci_upper=3.5, effective_n=4.0
+        )
+        mock_producer, _ = await _run_emitter_with_single_row(row, threshold_5m="1.0")
+        payload = mock_producer.publish.call_args.kwargs["msg"]
+        assert payload["is_shadow"] is True
+
+    @pytest.mark.asyncio
+    async def test_true_string_stamps_true(self) -> None:
+        row = _make_alpha_row(
+            alpha_score=2.0, alpha_ci_lower=0.5, alpha_ci_upper=3.5, effective_n=4.0
+        )
+        mock_producer, _ = await _run_emitter_with_single_row(
+            row, threshold_5m="1.0", is_shadow="true"
+        )
+        payload = mock_producer.publish.call_args.kwargs["msg"]
+        assert payload["is_shadow"] is True
+
+    @pytest.mark.asyncio
+    async def test_false_string_stamps_false(self) -> None:
+        """The promotion case: operator flips the APR key to 'false' at Phase 144.
+        Guards against bool("false") == True silently defeating the switch."""
+        row = _make_alpha_row(
+            alpha_score=2.0, alpha_ci_lower=0.5, alpha_ci_upper=3.5, effective_n=4.0
+        )
+        mock_producer, _ = await _run_emitter_with_single_row(
+            row, threshold_5m="1.0", is_shadow="false"
+        )
+        payload = mock_producer.publish.call_args.kwargs["msg"]
+        assert payload["is_shadow"] is False
+
+    @pytest.mark.asyncio
+    async def test_is_shadow_in_db_insert_tuple(self) -> None:
+        """skip_kafka path writes straight to executemany; is_shadow must reach the
+        DB tuple too, not just the Kafka payload."""
+        row = _make_alpha_row(
+            alpha_score=2.0, alpha_ci_lower=0.5, alpha_ci_upper=3.5, effective_n=4.0
+        )
+        emitter = _make_emitter()
+        emitter.skip_kafka = True
+
+        full_cfg = dict(_DEFAULT_CFG)
+        full_cfg["alpha.quant.threshold.5m"] = "1.0"
+        full_cfg["alpha.publisher.is_shadow"] = "false"
+        cfg_rows = []
+        for k, v in full_cfg.items():
+            r = MagicMock()
+            r.__getitem__ = lambda self, key, _k=k, _v=v: _k if key == "config_key" else _v  # type: ignore[misc]
+            cfg_rows.append(r)
+        weight_rows = _build_weights_cache_rows()
+
+        async def _mock_cursor(*args, **kwargs):
+            yield row
+
+        mock_transaction = MagicMock()
+        mock_transaction.__aenter__ = AsyncMock(return_value=None)
+        mock_transaction.__aexit__ = AsyncMock(return_value=False)
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(side_effect=[cfg_rows, weight_rows])
+        mock_conn.fetchval = AsyncMock(return_value=1)
+        mock_conn.transaction = MagicMock(return_value=mock_transaction)
+        mock_conn.cursor = MagicMock(return_value=_mock_cursor())
+        # AsyncMock.call_args holds a reference, not a snapshot -- the real code
+        # clears _chunk immediately after this call, so capture a copy on the way in.
+        captured_rows: list[tuple] = []
+
+        async def _capture_executemany(_sql: str, rows: list[tuple]) -> None:
+            captured_rows.extend(rows)
+
+        mock_conn.executemany = AsyncMock(side_effect=_capture_executemany)
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn),
+                __aexit__=AsyncMock(return_value=False),
+            )
+        )
+
+        with patch("services.alpha_publisher.CorpusManifest", return_value=MagicMock()):
+            await emitter.execute(mock_pool)
+
+        mock_conn.executemany.assert_called_once()
+        assert captured_rows[0][-1] is False, "is_shadow must be the last INSERT tuple element"
 
 
 class TestWeightVersionFullReplace:

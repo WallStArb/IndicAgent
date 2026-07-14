@@ -128,9 +128,20 @@ async def load_apr_dict_async(conn: Any, extra_like_patterns: list[str] | None =
 
 
 def cfg(cfg_dict: dict[str, Any], key: str, default: Any) -> Any:
-    """Cast a raw config_value to default's type, or return default if unset."""
+    """Cast a raw config_value to default's type, or return default if unset.
+
+    bool is special-cased: config_value is always TEXT (e.g. "false"), and
+    `bool("false")` is True in Python since any non-empty string is truthy --
+    `type(default)(val)` would silently invert every falsy bool APR flag. Parsed
+    via the same `str(val).lower() == "true"` idiom ic_engine.py's ConfigService
+    path already uses for `alpha.regime.equity_model_enabled`.
+    """
     val = cfg_dict.get(key)
-    return type(default)(val) if val is not None else default
+    if val is None:
+        return default
+    if isinstance(default, bool):
+        return str(val).strip().lower() == "true"
+    return type(default)(val)
 
 
 class Float32ChunkAccumulator:

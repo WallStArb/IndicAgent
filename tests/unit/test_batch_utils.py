@@ -58,6 +58,28 @@ class TestCfg:
         assert result == 12
         assert isinstance(result, int)
 
+    def test_bool_false_string_parses_to_false(self) -> None:
+        """Regression: bool("false") is True in Python (non-empty string is truthy).
+        A naive type(default)(val) cast would silently invert every falsy bool APR
+        flag -- found live in alpha.ensemble.sign_symmetric (stored 'false', read as
+        True) while wiring alpha.publisher.is_shadow (todo 011)."""
+        cfg_dict = {"alpha.ensemble.sign_symmetric": "false"}
+        result = cfg(cfg_dict, "alpha.ensemble.sign_symmetric", False)
+        assert result is False
+
+    def test_bool_true_string_parses_to_true(self) -> None:
+        cfg_dict = {"alpha.publisher.is_shadow": "true"}
+        result = cfg(cfg_dict, "alpha.publisher.is_shadow", True)
+        assert result is True
+
+    def test_bool_default_used_when_key_absent(self) -> None:
+        assert cfg({}, "alpha.publisher.is_shadow", True) is True
+        assert cfg({}, "alpha.ensemble.sign_symmetric", False) is False
+
+    def test_bool_case_and_whitespace_insensitive(self) -> None:
+        assert cfg({"k": " True "}, "k", False) is True
+        assert cfg({"k": "FALSE"}, "k", True) is False
+
 
 class TestLoadAprDictAsync:
     @pytest.mark.asyncio

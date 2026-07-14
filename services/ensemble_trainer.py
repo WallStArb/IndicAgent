@@ -171,7 +171,7 @@ class EnsembleConfig:
             ic_input=_cfg(cfg, "alpha.ensemble.ic_input", "ic_sharpe_hac"),
             weight_method=_cfg(cfg, "alpha.ensemble.weight_method", "ic_proportional"),
             mv_condition_max=_cfg(cfg, "alpha.ensemble.mv_condition_max", 1000.0),
-            sign_symmetric=bool(_cfg(cfg, "alpha.ensemble.sign_symmetric", False)),
+            sign_symmetric=_cfg(cfg, "alpha.ensemble.sign_symmetric", False),
         )
 
 
