@@ -31,6 +31,7 @@ from ops_ensemble_weight_compare import (
     _evaluate_win_rule,
     _final_verdict,
     _regime_caveat,
+    _registry_outcome,
     _winners_curse_flag,
 )
 
@@ -195,3 +196,43 @@ def test_bh_fdr_passes_multi_stratum_win():
 
     for i in range(4):
         assert _final_verdict(win=True, bh_reject=bool(reject[i])) == "WIN"
+
+
+# ---------------------------------------------------------------------------
+# _registry_outcome (todo 058: invariant-1 wiring to ConceptRegistryService)
+# ---------------------------------------------------------------------------
+
+
+def test_registry_outcome_win_metric_is_mean_ci_lower_over_win_strata_only():
+    """D-15 citation rule: the recorded metric is ic_ci_lower (never ic_value), and
+    only WIN strata contribute to it - a WIN-FDR-VETO stratum is not a promotable
+    win and must not inflate the recorded evidence."""
+    rows = [
+        {"verdict": "WIN", "ic_ci_lower": 0.04, "n_independent": 1000.0},
+        {"verdict": "WIN", "ic_ci_lower": 0.02, "n_independent": 2000.0},
+        {"verdict": "WIN-FDR-VETO", "ic_ci_lower": 0.90, "n_independent": 500.0},
+        {"verdict": "LOSS", "ic_ci_lower": -0.01, "n_independent": 1500.0},
+    ]
+    won, eval_metric, eval_n = _registry_outcome(rows)
+    assert won is True
+    assert eval_metric == 0.03  # mean(0.04, 0.02); the 0.90 veto stratum excluded
+    assert eval_n == 5000.0  # n_independent summed over ALL compared strata
+
+
+def test_registry_outcome_no_win_strata():
+    rows = [
+        {"verdict": "LOSS", "ic_ci_lower": -0.01, "n_independent": 1500.0},
+        {"verdict": "WIN-FDR-VETO", "ic_ci_lower": 0.05, "n_independent": 500.0},
+        {"verdict": "HOLD", "ic_ci_lower": None, "n_independent": None},
+    ]
+    won, eval_metric, eval_n = _registry_outcome(rows)
+    assert won is False
+    assert eval_metric is None
+    assert eval_n == 2000.0  # None n_independent skipped, not treated as 0-vs-crash
+
+
+def test_registry_outcome_empty():
+    won, eval_metric, eval_n = _registry_outcome([])
+    assert won is False
+    assert eval_metric is None
+    assert eval_n == 0.0

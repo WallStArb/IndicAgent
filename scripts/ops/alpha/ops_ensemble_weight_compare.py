@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import math
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
@@ -48,6 +49,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import asyncpg
 
 from src.config.settings import Settings
+from src.intelligence.concept_registry_service import (
+    ConceptNotFoundError,
+    ConceptRegistryService,
+)
 from src.intelligence.statistics.ic_math import apply_bh_fdr, fisher_z_difference_p
 
 # D-14: aggregate-across-regime sentinel already used by feature_ic_scores.regime (see
@@ -159,6 +164,25 @@ def _final_verdict(win: bool, bh_reject: bool | None) -> str:
     return "WIN" if bh_reject else "WIN-FDR-VETO"
 
 
+def _registry_outcome(rows: list[dict]) -> tuple[bool, float | None, float]:
+    """Pure helper: reduce per-stratum verdicts to one registry-recordable outcome.
+
+    won = any stratum verdict is WIN (F2: recipe validity is earned by winning
+    anywhere; per-stratum champions stay facts in ensemble_weights).
+    eval_metric = mean challenger ic_ci_lower over WIN strata only (D-15 citation
+    rule: ic_ci_lower, never ic_value; a WIN-FDR-VETO stratum is not a promotable
+    win and contributes nothing). eval_n = challenger n_independent summed over ALL
+    compared strata (the evidence mass this comparison consumed, win or lose).
+    """
+    win_ci_lowers = [
+        r["ic_ci_lower"] for r in rows if r["verdict"] == "WIN" and r["ic_ci_lower"] is not None
+    ]
+    eval_n = float(sum(r["n_independent"] for r in rows if r["n_independent"] is not None))
+    if not win_ci_lowers:
+        return False, None, eval_n
+    return True, float(sum(win_ci_lowers) / len(win_ci_lowers)), eval_n
+
+
 async def main() -> int:
     import argparse
 
@@ -166,6 +190,30 @@ async def main() -> int:
     parser.add_argument("--champion", required=True, help="Champion weight_version (e.g. v1)")
     parser.add_argument(
         "--challenger", required=True, help="Challenger weight_version (e.g. v1_shrunk)"
+    )
+    parser.add_argument(
+        "--challenger-concept",
+        default=None,
+        help=(
+            "concept_registry name (domain=ensemble_strategy) for the challenger "
+            "recipe, e.g. e2_mean_variance. weight_version is a data-scoping epoch "
+            "tag (migration 224) and cannot identify the recipe, so it is stated "
+            "explicitly here. Omit to run report-only (no registry write)."
+        ),
+    )
+    parser.add_argument(
+        "--champion-concept",
+        default=None,
+        help="concept_registry name for the champion recipe (informational, for the transition notes).",
+    )
+    parser.add_argument(
+        "--corpus-build-ref",
+        default=None,
+        help=(
+            "Corpus build identity for invariant 2's re-evaluation guard. Defaults "
+            "to the challenger weight_version (the WEIGHT_EPOCH is the corpus-build "
+            "identity, derived from TRAINING_WINDOW_END)."
+        ),
     )
     args = parser.parse_args()
 
@@ -353,6 +401,140 @@ async def main() -> int:
             "champion's IC is cited in any downstream evidence chain (cost hurdle, Kelly, "
             "promotion claims)."
         )
+
+        if args.challenger_concept:
+            outcome_rows = [
+                {
+                    "verdict": (
+                        "HOLD"
+                        if stratum_data[key]["win"] is None
+                        else _final_verdict(
+                            stratum_data[key]["win"], stratum_data[key]["bh_reject"]
+                        )
+                    ),
+                    "ic_ci_lower": challenger_by_stratum[key]["ic_ci_lower"],
+                    "n_independent": challenger_by_stratum[key]["n_independent"],
+                }
+                for key in strata
+            ]
+            won, eval_metric, eval_n = _registry_outcome(outcome_rows)
+            corpus_build_ref = args.corpus_build_ref or args.challenger
+
+            # M-2: compute win_strata_count and win_only_n for auditability
+            win_strata_count = sum(1 for r in outcome_rows if r["verdict"] == "WIN")
+            win_only_n = float(
+                sum(
+                    r["n_independent"]
+                    for r in outcome_rows
+                    if r["verdict"] == "WIN" and r["n_independent"] is not None
+                )
+            )
+
+            async with pool.acquire() as conn:
+                # L-4: validate champion concept existence before any write
+                if args.champion_concept:
+                    champion_exists = await conn.fetchval(
+                        "SELECT COUNT(*) FROM concept_registry "
+                        "WHERE domain = 'ensemble_strategy' AND name = $1",
+                        args.champion_concept,
+                    )
+                    if champion_exists == 0:
+                        print()
+                        print(
+                            f"REGISTRY: FAILED - unknown champion concept '{args.champion_concept}'"
+                        )
+                        return 0
+
+                apr_rows = await conn.fetch(
+                    "SELECT config_key, config_value FROM config_state "
+                    "WHERE config_key IN ("
+                    "'alpha.concept_registry.ensemble_strategy_min_promotion_consecutive',"
+                    "'alpha.concept_registry.ensemble_strategy_min_new_observations',"
+                    "'alpha.concept_registry.ensemble_strategy_min_observations')"
+                )
+                apr = {r["config_key"]: r["config_value"] for r in apr_rows}
+                if len(apr) != 3:
+                    print()
+                    print(
+                        "REGISTRY: FAILED - alpha.concept_registry.* gate keys missing "
+                        "from config_state; apply migration 231 before recording."
+                    )
+                    return 0
+
+                service = ConceptRegistryService()
+                try:
+                    decision = await service.record_comparison_outcome(
+                        conn,
+                        domain="ensemble_strategy",
+                        name=args.challenger_concept,
+                        won=won,
+                        eval_metric=eval_metric,
+                        eval_n=eval_n,
+                        corpus_build_ref=corpus_build_ref,
+                        default_min_promotion_consecutive=int(
+                            apr[
+                                "alpha.concept_registry."
+                                "ensemble_strategy_min_promotion_consecutive"
+                            ]
+                        ),
+                        default_min_new_observations=float(
+                            apr["alpha.concept_registry." "ensemble_strategy_min_new_observations"]
+                        ),
+                        default_min_gate_n=float(
+                            apr["alpha.concept_registry." "ensemble_strategy_min_observations"]
+                        ),
+                        notes=(
+                            f"A/B vs champion "
+                            f"{args.champion_concept or args.champion} "
+                            f"(weight_versions {args.champion} vs {args.challenger}). "
+                            f"invariant 6; win_strata={win_strata_count} "
+                            f"win_only_n={win_only_n} total_strata={len(strata)} "
+                            f"gate_n={eval_n}. "
+                            "Invariant-6 exception applies: human-authored candidate; "
+                            "this OOS A/B on live corpus runs is the domain's "
+                            "documented evidentiary substitute for a live shadow "
+                            "period (docs/research/"
+                            "concept-unified-registry.md, Invariant 6)."
+                        ),
+                    )
+                except ConceptNotFoundError as error:
+                    print()
+                    print(f"REGISTRY: FAILED - {error}")
+                    return 0
+
+                # M-6: append-only concept_annotation for every recording action
+                if decision.action in ("record_win", "record_loss", "promote"):
+                    concept_id = await conn.fetchval(
+                        "SELECT concept_id FROM concept_registry "
+                        "WHERE domain = 'ensemble_strategy' AND name = $1",
+                        args.challenger_concept,
+                    )
+                    annotation_content = (
+                        f"action={decision.action} won={won} "
+                        f"eval_metric={eval_metric} eval_n={eval_n} "
+                        f"win_strata_count={win_strata_count} "
+                        f"corpus_build_ref={corpus_build_ref}"
+                    )
+                    await conn.execute(
+                        "INSERT INTO concept_annotation "
+                        "(concept_id, annotation_type, content, source, valid_from) "
+                        "VALUES ($1, 'eval_outcome', $2, 'empirical', $3)",
+                        concept_id,
+                        annotation_content,
+                        datetime.now(UTC),
+                    )
+
+            print()
+            print(
+                f"REGISTRY: concept={args.challenger_concept} won={won} "
+                f"eval_metric={eval_metric} eval_n={eval_n} "
+                f"corpus_build_ref={corpus_build_ref} -> action={decision.action}"
+                + (
+                    f" baseline_metric={decision.baseline_metric}"
+                    if decision.action == "promote"
+                    else ""
+                )
+            )
 
         return 0
     finally:
