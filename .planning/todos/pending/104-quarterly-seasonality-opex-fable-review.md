@@ -5,7 +5,14 @@ filed: 2026-07-12
 source: user-observed pattern, discussed and stress-tested 2026-07-12
 ---
 
-# Get a Fable rigor pass on the quarterly-seasonality/OPEX idea before it goes anywhere near Phase 151
+# Get a Fable rigor pass on the quarterly-seasonality/OPEX idea before it enters Phase 151
+
+**Scope decision (2026-07-13):** folded into Phase 151 (not a separate phase) — see
+`.planning/ROADMAP.md` Phase 151's "Calendar/seasonality candidates" block for the resulting
+atomic (`month-of-quarter` sin/cos or `is_opex_day`) and interaction (`quarter_position ×
+<atomic>`) candidates, plus the episode-clustering methodology gap this idea surfaced. This
+todo's open question 5 ("belongs inside Phase 151 or needs separate treatment") is resolved:
+inside.
 
 **Concept doc:** `docs/ideas/signal-quarterly-seasonality-opex-risk-off.md` — this todo is the
 review-gating step; do not build anything from this idea before that doc has been through

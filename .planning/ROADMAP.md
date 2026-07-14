@@ -26,10 +26,81 @@
 - ⏸️ **v2.8 AI Platform — Part 2** — Phases 096-099, 101-103 (unblocked; deprioritized until v3.0 validated)
 - ✅ **v3.0 Intelligence Vectors — AlphaEngine** — Phases 137-140 (SHIPPED 2026-06-25; Feature Factory + IC Engine + Ensemble + Alpha Emission + IC Engine Correctness; full corpus run underway)
 - 🔄 **v3.1 IC Empirical Proof + Counterfactual Scoring** — Phase 140.5 COMPLETE 2026-06-26; corpus pipeline COMPLETE 2026-06-28 (12.47M alpha_events); Phase 141 COMPLETE 2026-06-29; Phase A COMPLETE 2026-06-30 (ic_engine methodology fixes + Renaissance IC gate redesign); Phase B (corpus re-run on corrected engine) COMPLETE 2026-07-01 (3rd rebuild: feature_vectors 10.08M, feature_ic_scores 254,126, qualifying features 5m=37/15m=28/1h=15/1d=28); Phase 141.1 COMPLETE 2026-07-02 (measurement/decision integrity foundation — OOS enforcement, weight-epoch fix, regime_scope schema fix, cost-hurdle calibration); Phase 142A COMPLETE 2026-07-02 (ensemble IC proof: `alpha_ensemble_ic` schema + EnsembleICEngine + hold_max_bars calibration + EIC-04 gate + EIC-05 diagnosis); Phase 142B.1 COMPLETE 2026-07-04 (E1/E2 ensemble weighting variants; E2 rejected 2026-07-09 A/B judgment, E1 remains champion); Phase 142.5 COMPLETE 2026-07-07 (89 Renaissance primitives, 150-field FeatureVector); Phase 142B COMPLETE 2026-07-10 (`alpha_frames` schema + AlphaFrameWriter + CounterfactualTracker + SHADOW-REVIEW.md pre-commitment; single primary frame counterfactual validation; no cost model, no UX); Phase 143 COMPLETE 2026-07-10 (Feature Lifecycle Routing, merged with 149B — evidence-based feature_registry promotion/demotion + ic_engine post-run lifecycle hook + integrity_monitor) — see `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
-- 📋 **v3.15 Conditioning & Identity Foundation** — **Phases 144, 145, 146** (moved into this milestone 2026-07-03 — see `docs/research/fable-2026-07-03-roadmap-reconciliation.md` F1; previously miscategorized under "v3.3 Foundational Hardening," physically *after* Phases 149-151 despite being their hard prerequisite). Unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 144 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; idea doc: `docs/research/stratification-dimension-unification.md`; originally proposed 2026-07-02 in `docs/research/fable-2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8. **Hard prerequisite for Phase 149** (intel-13: CaseSubstrate's retrieval hard-filters on regime labels; building the embedding substrate on known-suspect strata bakes the bias into stored vectors — see Phase 149's Depends-on below). Explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key. Batches together in one `ic_engine` re-run per topdown D5: Phase 144 + todo 026 P2b/P2c/P3 + todo 041 (tag taxonomy) + intel-12's first substitution test. Build trigger: todo 026's Step 1 regime-IC separation gate — **already run 2026-07-02, result asset-class-dependent** (SPY separates cleanly, TLT doesn't) — the pre-committed fallback for weak-separation asset classes (topdown Open Q4) needs an operator call at this milestone's planning, before the substitution test runs.
-- 📋 **v3.2 Signal Diversification — CaseSubstrate + Feature Expansion** — Phases 149-151 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI AND v3.15 complete for Phase 149; Renaissance: more diverse weak signals, not stronger strong ones. **Framing correction complete** (was pending, closed 2026-07-09) — the milestone goal text and Phase 150 no longer describe this as an "independent System 2"; both were rewritten against `docs/research/intel-case-substrate.md` per todo 055, and the concept itself was renamed from "AnalogEngine" to "CaseSubstrate" the same day — "analog" collided with this codebase's dense signal-processing vocabulary, see `docs/foundation/naming-system.md`'s plain-role-noun table)
+- 📋 **v3.15 Conditioning & Identity Foundation** — **Phases 144, 145, 146** (moved into this milestone 2026-07-03 — see `docs/research/fable-2026-07-03-roadmap-reconciliation.md` F1; previously miscategorized under "v3.3 Foundational Hardening," physically *after* Phases 149-151 despite being their hard prerequisite). Unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 144 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; idea doc: `docs/research/stratification-dimension-unification.md`; originally proposed 2026-07-02 in `docs/research/fable-2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8. **Hard prerequisite for Phase 149** (intel-13: PrecedentEngine's retrieval hard-filters on regime labels; building the embedding substrate on known-suspect strata bakes the bias into stored vectors — see Phase 149's Depends-on below). Explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key. Batches together in one `ic_engine` re-run per topdown D5: Phase 144 + todo 026 P2b/P2c/P3 + todo 041 (tag taxonomy) + intel-12's first substitution test. Build trigger: todo 026's Step 1 regime-IC separation gate — **already run 2026-07-02, result asset-class-dependent** (SPY separates cleanly, TLT doesn't) — the pre-committed fallback for weak-separation asset classes (topdown Open Q4) needs an operator call at this milestone's planning, before the substitution test runs.
+- 📋 **v3.2 Signal Diversification — PrecedentEngine + Feature Expansion** — Phases 149-151 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI AND v3.15 complete for Phase 149; Renaissance: more diverse weak signals, not stronger strong ones. **Framing correction complete** (was pending, closed 2026-07-09) — the milestone goal text and Phase 150 no longer describe this as an "independent System 2"; both were rewritten against `docs/research/intel-precedent-engine.md` per todo 055, and the concept itself was renamed from "AnalogEngine" to "PrecedentEngine" the same day — "analog" collided with this codebase's dense signal-processing vocabulary, see `docs/foundation/naming-system.md`'s plain-role-noun table)
 - 📋 **v4.0 Execution Layer** — **Phases 156-159** (numbered 2026-07-12 from a production-readiness review, was "Phases TBD"; **restructured same day** to split out Portfolio State as its own foundational phase after catching a gap — this milestone's own design is portfolio-level, not per-security, and had no persisted entity for portfolio state to live in: 156 Portfolio State Foundation, 157 Position Sizing & Risk Management, 158 Live Execution Layer + broker resilience, 159 Cost Calibration Feedback Loop + Execution Scoring) (planned; hard-gated on v3.2 complete (Phase 155 is independently-gated, not blocking — ETF Universe Expansion removed as a phase 2026-07-04, already done — see below) + `alpha_events` schema frozen; consumes alpha_events, never modifies signal weights)
 - 📋 **v4.1 IC Governance + Drift Monitoring** — Phases 152, 153 (**149B corrected 2026-07-03 — no longer a standalone phase; merged into Phase 143**, see Phase 143's header). Regime-conditioned distribution drift + ensemble health gates; replaces DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; see `docs/research/measurement-governance-monitor.md` (current design, supersedes `docs/plans/archive/2026-06-27-health-guardian-design.md`). Per topdown D12, **Phases 152 and 153 are schedulable opportunistically any time after Phase 141** — the "v4.1" label is thematic grouping, not a sequencing gate. Phase 152 depends only on `feature_vectors` (exists today); Phase 153 depends on Phase 142A's `alpha_ensemble_ic` (exists, populated — though see the EIC-04 verdict log in Phase 142A's section before treating 142A as fully proven). Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher.
+
+## Planned Phases — Priority Order
+
+**Value ranking lives in one place, not two:**
+`docs/research/intelligence-lifecycle-backlog-matrix.md` scores every planned phase
+on Effort/Risk/Reward (plus a "Foundational" flag that jumps the queue regardless of raw
+reward) — that table, not this list, is the source of truth for *which phase matters more*.
+This section only adds the other axis: *which phases are actually eligible to start right now*,
+by cross-referencing that matrix against live blocker status. Phase numbers stay stable IDs
+either way — re-sort this list freely; never renumber a phase to reflect priority.
+
+**Don't conflate readiness with value** (a mistake caught and reverted while drafting this
+section, 2026-07-13): being unblocked makes a phase eligible, not important. Concept Registry
+(160) has zero dependencies but the matrix rates it "Reward: Low now, Med long-run" — it doesn't
+outrank Phase 144 just because it can start today. PrecedentEngine (149/150) stays the matrix's
+own LOW tier / XL effort / High risk / Speculative reward even after its OOS gates pass — "gates
+passed" removes a blocker, it doesn't promote the idea to HIGH value.
+
+**Right now (2026-07-13), combining both axes:**
+
+1. **Phase 143.1** — *in progress* (143.1-07 re-run, ETA ~2026-07-14). Not in the matrix (it's a
+   measurement-integrity fix, not a discretionary idea) but everything below either inherits its
+   corrected evidence or is blocked on it directly.
+2. **Phase 144 (`regime_group`)** — matrix's only HIGH-tier phase, marked **Foundational**
+   (Cross-Group Lead-Lag IC and PrecedentEngine both need the peer groups it produces). Code
+   complete (6/6 plans); blocked only on 143.1's verdict script, not on further design work.
+3. **MEDIUM tier, in the matrix's own reward order** — tag taxonomy audit and HMM regime
+   remainder (both batch into Phase 144, travel with it) → **Phase 148** (Reward: "High,
+   eventual" — the actual OOS retirement gate, currently failing FRAME-04 16/17 cells pre-fix,
+   re-evaluate after 143.1) → **Phase 146** (Reward: "High, latent," evidence-gated into 144's
+   batch) → **Phase 151** (Reward: "Med-High, evidence-backed" — evidence gate already cleared,
+   genuinely ready for `/gsd-discuss-phase`, not blocked on 143.1 at all) → Cross-Group Lead-Lag
+   IC (gated on 144) → `market_data_ohlcv` active-bars view (todo 035, S-effort, Foundational) →
+   **Phase 160 Concept Registry** (Low now/Med long-run — real but not urgent) → **Phase 145**
+   (not scoreable yet, blocked on 144's verdict) → **Phase 147** (Med, conditional on an
+   unevaluated CORPUS-07 gate — not near-term actionable) → **Phase 161 Controlled Vocabulary**
+   (Low reward, behind Concept Registry) → **Phases 152-153 IntegrityMonitor** (High long-run,
+   low now — insurance; explicitly must not jump ahead of 144/148).
+4. **LOW tier — correctly parked:** **Phase 149-150 PrecedentEngine** (Speculative/XL/High-risk —
+   needs its own cheap pilot step before any full build, regardless of what Phase 148's gates
+   say) and **Phase 155 Alternative Data Vectors** (Med reward, "not actionable — no data source
+   chosen"), alongside non-phase LOW items (session/skew/factor regime variants, HMM variant
+   redesigns).
+5. **Phases 156-159 (v4.0 Execution Layer) — not in the matrix at all** (numbered 2026-07-12,
+   after the matrix's 2026-07-08 writing date). Gap, not a verdict: file a todo to get these
+   scored rather than assuming their hard v3.2 dependency gate also means low value — those are
+   different questions.
+
+**Musk 5-Step + Renaissance framing (2026-07-13)** — applying CLAUDE.md's mandated design lens
+explicitly to this list, in order (full parallel pass for `pending/`/`deferred/` todos:
+`.planning/todos/PRIORITIES.md`):
+- **1. Requirements less dumb:** Phase 151 already went through this — its ≤50-cap,
+  theory-motivated-hypothesis design was chosen specifically *over* the combinatorial
+  Interaction Factory (deferred todo 019) because ~30K ungated candidates fails BH-FDR power
+  at any threshold. That's the Renaissance "empirical over theoretical" test applied at design
+  time, not bolted on after.
+- **2. Delete:** deferred todo 019 (Interaction Factory) and deferred todo 021 (AnalogEngine,
+  closed 2026-07-13 as a Phase 149/150 duplicate) are the phase-adjacent deletions this pass
+  found — both were superseded designs still sitting open instead of closed. No live phase
+  itself is a delete candidate today; all planned phases trace to either a proof gate (147/148)
+  or a named dependent (144→145/149).
+- **3. Simplify:** Phase 151's own ≤50-interaction cap *is* the simplify step already applied —
+  worth naming explicitly since it's easy to mistake for a scope limitation rather than a
+  deliberate rejection of a larger, statistically-invalid design.
+- **4. Accelerate:** the priority list above (143.1 → 144 → 148 → ...) already is this step —
+  don't re-derive it; this framing pass doesn't change the ordering, it explains *why* 149-150
+  correctly isn't at the top despite being the most narratively exciting phase (Renaissance:
+  reward is scored against evidence, not the idea's own ambition).
+- **5. Automate:** not yet applicable at the phase level — nothing here is a proven-manual,
+  repeated process yet. Revisit once Phase 148's gate-evaluation scripts (SCORE-02/03) have run
+  enough times to show what's worth automating versus what still needs a human call.
 
 ## Phases
 
@@ -843,7 +914,7 @@ it jump ahead of Phase 144/148.
   vs. deployment-as-fact (`ensemble_weights`), `redundancy_group` displacement disabled for this
   domain.
 - Canonical doc: `docs/research/concept-unified-registry.md`. Priority context:
-  `.planning/todos/pending/112-concept-registry.md`, `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md`
+  `.planning/todos/pending/112-concept-registry.md`, `docs/research/intelligence-lifecycle-backlog-matrix.md`
   (MEDIUM tier — Effort M, Risk Low, Reward Low-now/Med-long-run).
 
 **Plans:** TBD at `/gsd-plan-phase 160` — the implementation plan already written can likely
@@ -877,7 +948,7 @@ F1 near-miss).
 - Open question, not resolved here: whether `tag_vocabulary` (live, 71 tags, migrations 227/228)
   should be generalized/subsumed by this system or genuinely needs to stay separate — see
   `.planning/todos/pending/110-controlled-vocabulary.md`.
-- Priority context: `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md` (MEDIUM
+- Priority context: `docs/research/intelligence-lifecycle-backlog-matrix.md` (MEDIUM
   tier — Effort M, Risk Low, Reward Low).
 
 **Plans:** TBD at `/gsd-plan-phase 161`.
@@ -1226,8 +1297,8 @@ phases (144, and 146 once evidence names it load-bearing) sat physically after P
 the old "v3.3" section, contradicting the milestone bullet's own stated reason for existing.
 
 **Milestone Goal:** Unify the two live regime systems (per-symbol HMM `regime_writer.py`,
-cross-sectional `equity_regime_model.py`) behind clean peer-group routing before CaseSubstrate
-is built on top of them. Per `docs/research/intel-case-substrate.md`: *"this
+cross-sectional `equity_regime_model.py`) behind clean peer-group routing before PrecedentEngine
+is built on top of them. Per `docs/research/intel-precedent-engine.md`: *"this
 substrate must not be built on strata suspected of being wrong — retrieval hard-filters on
 regime labels, and re-embedding after the fact is prohibitively expensive."* This is a hard
 prerequisite for Phase 149, not a parallel hardening track.
@@ -1310,7 +1381,7 @@ informed by whether `regime_group` actually worked empirically, not planned blin
 - Canonical doc: `docs/research/stratification-dimension-unification.md` ("Formalization revival
   note"). Umbrella: `docs/research/stratification-governance-registries.md`.
 - Priority context: `.planning/todos/pending/111-stratification-classification.md`,
-  `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md` (not independently
+  `docs/research/intelligence-lifecycle-backlog-matrix.md` (not independently
   scoreable yet — same gate every regime-candidate row on that page already respects).
 
 **Plans:** TBD at `/gsd-plan-phase 145` — not before Phase 144's D-05 verdict lands.
@@ -1338,18 +1409,18 @@ Tags that are fully computable from the factor vector (all 8 OLS betas) must not
 
 ---
 
-## v3.2 CaseSubstrate + Feature Expansion (Phases 149-151)
+## v3.2 PrecedentEngine + Feature Expansion (Phases 149-151)
 
 **Milestone Goal (framing corrected 2026-07-03; phase requirement bodies rewritten 2026-07-09, todo 055):** Build the
-CaseSubstrate and its case predictor family — a second *evidence source*, not a second
-*system* (`docs/research/intel-case-substrate.md`; the prior "independent complement"/"System 2"
+PrecedentEngine and its precedent predictor family — a second *evidence source*, not a second
+*system* (`docs/research/intel-precedent-engine.md`; the prior "independent complement"/"System 2"
 framing here violated the one-model-one-book invariant now in `docs/foundation/principles.md`).
-Expand the feature set with new primitives and compound interactions. Phases 149-150 (CaseSubstrate
+Expand the feature set with new primitives and compound interactions. Phases 149-150 (PrecedentEngine
 substrate + scoring) are strictly sequential — each gated on the prior — **and both depend on
 v3.15 completing first** (Phase 149's Depends-on, below). Phase 151 (primitives + interaction
 layer) is a feature-engineering track with no real dependency on 146/147 (see Phase 151
-sequencing note) and may run in parallel with, or before, the CaseSubstrate phases, subject only
-to its own todo-037 pilot gate. Per the 2026-07-08 backlog matrix (`docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md`),
+sequencing note) and may run in parallel with, or before, the PrecedentEngine phases, subject only
+to its own todo-037 pilot gate. Per the 2026-07-08 backlog matrix (`docs/research/intelligence-lifecycle-backlog-matrix.md`),
 146 is nearer-term than 148: 146 is evidence-gated into Phase 144's batched `ic_engine` re-run,
 while 148 sits behind Phase 147 completing plus Phase 142B accumulating 60 days of closed
 `alpha_frames` — several phases deeper.
@@ -1358,30 +1429,30 @@ while 148 sits behind Phase 147 completing plus Phase 142B accumulating 60 days 
 
 ---
 
-### Phase 149: CaseSubstrate — Embedding + Retrieval Foundation 📋 PLANNED
+### Phase 149: PrecedentEngine — Embedding + Retrieval Foundation 📋 PLANNED
 
 **Goal:** Build the non-parametric retrieval substrate. Embed bar states into pgvector HNSW index. Validate retrieval quality before committing to a dimension and building the full corpus. "Have we seen a bar like this before, and what happened next?"
 
-**Depends on:** **v3.15 complete** (Phase 144 `regime_group` live + todo 026 P2b/P2c/P3 resolved) — added 2026-07-03, intel-13's hard prerequisite: retrieval hard-filters on regime labels and re-embedding after the fact is prohibitively expensive. Plus Phase 142A OOS validation showing `ic_ci_lower > 0` at p < 0.05 (see EIC-04 verdict log in Phase 142A's section — not yet passing as of 2026-07-03). CASE-01..05 read `feature_vectors` only — no dependency on `alpha_events`, `alpha_frames`, or v2.x retirement.
+**Depends on:** **v3.15 complete** (Phase 144 `regime_group` live + todo 026 P2b/P2c/P3 resolved) — added 2026-07-03, intel-13's hard prerequisite: retrieval hard-filters on regime labels and re-embedding after the fact is prohibitively expensive. Plus Phase 142A OOS validation showing `ic_ci_lower > 0` at p < 0.05 (see EIC-04 verdict log in Phase 142A's section — not yet passing as of 2026-07-03). PRECEDENT-01..05 read `feature_vectors` only — no dependency on `alpha_events`, `alpha_frames`, or v2.x retirement.
 
 **Requirements:**
 
-**CASE-01 — Embedding dimension calibration (one-way door):**
-Before committing to an embedding dimension, run a calibration study: embed 6 months of `feature_vectors` bars at three candidate dimensions (64, 128, 256) using variance-normalized features (z-score per feature, L2-normalize). Measure retrieval quality: recall@10, mean reciprocal rank, case distance distribution on known-outcome bars. Pick the winning dimension. Lock `embedding_version = 1`. This step happens BEFORE any full historical embedding run — changing the dimension after is prohibitively expensive.
+**PRECEDENT-01 — Embedding dimension calibration (one-way door):**
+Before committing to an embedding dimension, run a calibration study: embed 6 months of `feature_vectors` bars at three candidate dimensions (64, 128, 256) using variance-normalized features (z-score per feature, L2-normalize). Measure retrieval quality: recall@10, mean reciprocal rank, precedent distance distribution on known-outcome bars. Pick the winning dimension. Lock `embedding_version = 1`. This step happens BEFORE any full historical embedding run — changing the dimension after is prohibitively expensive.
 
-**Why not IC-weighted at index time:** IC weights update weekly from the IC engine. Baking them into the HNSW index would require a full re-embedding of the historical corpus (O(N×D)) on every IC recalibration cycle, coupling index freshness to IC engine cadence. The substrate's answer is `candidate_k` oversampling: the retrieval primitive accepts a generous candidate set (default 200) so a future consumer can re-rank to its final K itself, keeping the index simple and any weights always current. IC-weighted re-ranking itself is a deferred capability, not a requirement of this milestone; per `docs/research/intel-case-substrate.md` Open Question 5, it is not built until plain-cosine case predictors have demonstrated IC on their own and re-ranking can be shown to measurably improve it. Keep the embedding stable; nothing in Phases 149-150 encodes IC into vectors or retrieval.
+**Why not IC-weighted at index time:** IC weights update weekly from the IC engine. Baking them into the HNSW index would require a full re-embedding of the historical corpus (O(N×D)) on every IC recalibration cycle, coupling index freshness to IC engine cadence. The substrate's answer is `candidate_k` oversampling: the retrieval primitive accepts a generous candidate set (default 200) so a future consumer can re-rank to its final K itself, keeping the index simple and any weights always current. IC-weighted re-ranking itself is a deferred capability, not a requirement of this milestone; per `docs/research/intel-precedent-engine.md` Open Question 5, it is not built until plain-cosine precedent predictors have demonstrated IC on their own and re-ranking can be shown to measurably improve it. Keep the embedding stable; nothing in Phases 149-150 encodes IC into vectors or retrieval.
 
-**CASE-02 — Embedding serialization contract (variance-normalized):**
-For each bar: (1) per-feature rolling z-score, point-in-time trailing window, no lookahead; (2) L2-normalize the result. No IC-weight multiplication at index time (see CASE-01's deferral). Regime and session applied as hard retrieval filters (not encoded in vector); filter labels resolve as `(dimension, label)` pairs per intel-12's label-identity invariant, never a bare label. Stable feature ordering is part of the versioned embedding recipe, the `(feature set, normalization, ordering)` triple, registered as one `concept_registry` row per `embedding_version` (D9; no standalone `embedding_feature_registry` table). The registry domain for embedding recipes gets named at v3.2 planning, `embedding_spec` or a widened `feature` reading, per the anticipated-domain note in `docs/research/concept-unified-registry.md`. `embedding_version` bump on any change to the triple invalidates all stored vectors and forbids cross-version comparison; treat as a database migration (re-embed vs. grow-forward policy is intel-case-substrate Open Question 6). **Dependency note (2026-07-01 review):** "regime applied as a hard retrieval filter" means CaseSubstrate's retrieval quality directly inherits any bias in the regime labels themselves — same open question as Phase 143's LIFECYCLE-04 (see todo 034/026). If that validation finds the per-symbol HMM labels are empirically fine, no action needed here; if it finds material bias, CASE-02's regime filter should wait for the corrected labels rather than hard-filtering on known-biased strata — a "have we seen a bar like this before" retrieval is especially sensitive to a wrong stratification since it can silently retrieve cases from the wrong regime bucket.
+**PRECEDENT-02 — Embedding serialization contract (variance-normalized):**
+For each bar: (1) per-feature rolling z-score, point-in-time trailing window, no lookahead; (2) L2-normalize the result. No IC-weight multiplication at index time (see PRECEDENT-01's deferral). Regime and session applied as hard retrieval filters (not encoded in vector); filter labels resolve as `(dimension, label)` pairs per intel-12's label-identity invariant, never a bare label. Stable feature ordering is part of the versioned embedding recipe, the `(feature set, normalization, ordering)` triple, registered as one `concept_registry` row per `embedding_version` (D9; no standalone `embedding_feature_registry` table). The registry domain for embedding recipes gets named at v3.2 planning, `embedding_spec` or a widened `feature` reading, per the anticipated-domain note in `docs/research/concept-unified-registry.md`. `embedding_version` bump on any change to the triple invalidates all stored vectors and forbids cross-version comparison; treat as a database migration (re-embed vs. grow-forward policy is intel-precedent-engine Open Question 6). **Dependency note (2026-07-01 review):** "regime applied as a hard retrieval filter" means PrecedentEngine's retrieval quality directly inherits any bias in the regime labels themselves — same open question as Phase 143's LIFECYCLE-04 (see todo 034/026). If that validation finds the per-symbol HMM labels are empirically fine, no action needed here; if it finds material bias, PRECEDENT-02's regime filter should wait for the corrected labels rather than hard-filtering on known-biased strata — a "have we seen a bar like this before" retrieval is especially sensitive to a wrong stratification since it can silently retrieve precedents from the wrong regime bucket.
 
-**CASE-03 — bar-embedder (oneshot, nightly):**
+**PRECEDENT-03 — bar-embedder (oneshot, nightly):**
 Reads `feature_vectors`. Writes to `embeddings` table (entity_type='bar'). Processes in chronological order; skips bars already embedded at current `embedding_version`. HNSW index built/updated after batch.
 
-**CASE-04 — OOD monitor (first-class output):**
-Rolling rate and severity of null/near-null retrievals across queries; nearest-neighbor distance recorded even on null results. A rising OOD rate is a regime-break early warning, often firing before a parametric regime classifier catches the same break; surface it, never hide it. The per-bar nearest-neighbor distance is one fact with three consumers: the `case_nn_dist` predictor column (Phase 150), intel-12's `ood_distance` candidate stratification dimension, and this monitor's threshold aggregate. The monitor measures and surfaces, never acts; a consumer decides whether to shrink conviction, widen an interval, or alert research. DAG constraint carried from intel-12: the distance may condition anything downstream but must never feed back into `retrieve()`'s own filter set (retrieval conditioning on its own output is a cycle). APR keys: `case.retrieval.max_distance = 0.25` and `case.ood.alert_rate_threshold = 0.20` [both initial_estimate placeholders, calibrate from the distance distribution on the first real corpus window].
+**PRECEDENT-04 — OOD monitor (first-class output):**
+Rolling rate and severity of null/near-null retrievals across queries; nearest-neighbor distance recorded even on null results. A rising OOD rate is a regime-break early warning, often firing before a parametric regime classifier catches the same break; surface it, never hide it. The per-bar nearest-neighbor distance is one fact with three consumers: the `precedent_nn_dist` predictor column (Phase 150), intel-12's `ood_distance` candidate stratification dimension, and this monitor's threshold aggregate. The monitor measures and surfaces, never acts; a consumer decides whether to shrink conviction, widen an interval, or alert research. DAG constraint carried from intel-12: the distance may condition anything downstream but must never feed back into `retrieve()`'s own filter set (retrieval conditioning on its own output is a cycle). APR keys: `precedent.retrieval.max_distance = 0.25` and `precedent.ood.alert_rate_threshold = 0.20` [both initial_estimate placeholders, calibrate from the distance distribution on the first real corpus window].
 
-**CASE-05 — Null result contract:**
-Empty retrieval (`[]`) when no cases within `max_distance`. This is a named, surfaced event — not a fallback to nearest-available. CaseSubstrate must never silently return the nearest bar when it is out-of-distribution. OOD is information.
+**PRECEDENT-05 — Null result contract:**
+Empty retrieval (`[]`) when no precedents within `max_distance`. This is a named, surfaced event — not a fallback to nearest-available. PrecedentEngine must never silently return the nearest bar when it is out-of-distribution. OOD is information.
 
 **CASE-RESEARCH-01 — Hypothesis backtester script (todo 017):**
 Thin research utility built on top of the retrieval primitive. Accepts an arbitrary query feature vector, runs K-NN against `embeddings`, reads empirical outcome distributions from `forward_returns`. Answers "Is this edge real?" with zero new infrastructure. Ships as `scripts/analysis/case_backtest.py` alongside the retrieval primitive in Wave 4 (gated backlog entry: `.planning/todos/deferred/017-non-parametric-hypothesis-backtester.md`).
@@ -1390,42 +1461,44 @@ Thin research utility built on top of the retrieval primitive. Accepts an arbitr
 
 ---
 
-### Phase 150: CaseSubstrate — Case Predictors + Measurement Integration 📋 PLANNED
+### Phase 150: PrecedentEngine — Case Predictors + Measurement Integration 📋 PLANNED
 
-**Goal:** Turn retrieval into measured predictors. Compute the shared return-distribution primitive and the case predictor family from retrieved neighbor sets in a nightly batch, register each output as an ordinary predictor in the shared IC machinery, and let the existing ensemble weight the survivors. One measurement engine, one ensemble, one book (D4, `docs/research/intel-case-substrate.md`): case outputs are a second evidence source entering the same pipeline as every parametric feature, not a second system.
+**Goal:** Turn retrieval into measured predictors. Compute the shared return-distribution primitive and the precedent predictor family from retrieved neighbor sets in a nightly batch, register each output as an ordinary predictor in the shared IC machinery, and let the existing ensemble weight the survivors. One measurement engine, one ensemble, one book (D4, `docs/research/intel-precedent-engine.md`): precedent outputs are a second evidence source entering the same pipeline as every parametric feature, not a second system.
 
 **Depends on:** Phase 149 (embedding substrate live, HNSW populated).
 
-**Key deletion (D4):** the pre-rescope design's parallel measurement stack (`feature_ic_stats`, `similarity_pairs`, `score_cache`, Score Objects, the composite combiner, the `case-enricher` daemon) does not exist in this phase. IC measurement is the shared machinery (`ic_engine` today; the D1 Measurement Engine / `predictor_ic_scores` unification when it lands), redundancy control is the ensemble's existing Ledoit-Wolf cluster deflation, weighting is `ensemble_trainer`. The only new state is the case predictor columns (storage grain per CASE-08) plus their registry rows; nothing here writes to `alpha_events`.
+**Key deletion (D4):** the pre-rescope design's parallel measurement stack (`feature_ic_stats`, `similarity_pairs`, `score_cache`, Score Objects, the composite combiner, the `case-enricher` daemon) does not exist in this phase. IC measurement is the shared machinery (`ic_engine` today; the D1 Measurement Engine / `predictor_ic_scores` unification when it lands), redundancy control is the ensemble's existing Ledoit-Wolf cluster deflation, weighting is `ensemble_trainer`. The only new state is the precedent predictor columns (storage grain per PRECEDENT-08) plus their registry rows; nothing here writes to `alpha_events`.
 
 **Requirements:**
 
-**CASE-06 — Case Finder wrapper (`_find_cases`):**
-Thin wrapper exposing the substrate's `retrieve()` as `_find_cases(k, scope, regime)` on `BaseAIWorker`; the single retrieval entry point every consumer uses (this phase's nightly batch, and later the LLM swarm's episodic memory). No consumer queries pgvector directly. Warm-tier use is read-only over pre-computed state, never a live pgvector query at inference latency.
+**PRECEDENT-06 — Precedent Finder wrapper (`_find_precedents`):**
+Thin wrapper exposing the substrate's `retrieve()` as `_find_precedents(k, scope, regime)` on `BaseAIWorker`; the single retrieval entry point every consumer uses (this phase's nightly batch, and later the LLM swarm's episodic memory). No consumer queries pgvector directly. Warm-tier use is read-only over pre-computed state, never a live pgvector query at inference latency.
 
-**CASE-07 — Return-distribution primitive (computed once per horizon per query):**
-Before any scalar is derived, the K retrieved cases produce a full empirical distribution of forward returns at each canonical gradient horizon, joined from the existing `forward_returns` (`return_type = 'executable_open_to_open'`; `forward_return_writer` remains the sole writer of that fact, no second outcomes table). Percentiles, moments, skew/kurtosis, scenario probabilities, and a shape label (`tight_unimodal`, `bimodal`, `fat_left_tail`, `flat`, `null`). A bare mean hides whether it comes from a tight consensus or a coin flip between two very different outcomes; every derived score in CASE-08 reads from this distribution. Units are canonical executable open-to-open log returns; the original design's ATR-normalized R-multiples died with v2.x.
+**PRECEDENT-07 — Return-distribution primitive (computed once per horizon per query):**
+Before any scalar is derived, the K retrieved precedents produce a full empirical distribution of forward returns at each canonical gradient horizon, joined from the existing `forward_returns` (`return_type = 'executable_open_to_open'`; `forward_return_writer` remains the sole writer of that fact, no second outcomes table). Percentiles, moments, skew/kurtosis, scenario probabilities, and a shape label (`tight_unimodal`, `bimodal`, `fat_left_tail`, `flat`, `null`). A bare mean hides whether it comes from a tight consensus or a coin flip between two very different outcomes; every derived score in PRECEDENT-08 reads from this distribution. Units are canonical executable open-to-open log returns; the original design's ATR-normalized R-multiples died with v2.x.
 
-**CASE-08 — Nightly case-predictor batch (`BaseBatch` oneshot):**
-For each bar with a valid retrieval, computes the single-TF sub-scores as ordinary predictor columns: `case_expected_r` (distance-weighted mean forward return), `case_hit_rate` (distance-weighted directional hit rate), `case_ret_dispersion` / `sharpe_horizon`, `case_nn_dist`; plus the conviction envelope as sibling columns (`case_count`, `mean_distance`, `regime_purity`, `distribution_shape`, `case_novelty`) and the horizon-profile character label (`flat`/`mean_revert`/`scalp`/`structural`/`mixed`). Load-bearing rules: (1) definedness is NULL, never zero, on a null retrieval or when `case_count` < `case.scoring.min_case_count` (default 10, placeholder); imputing 0.0 silently poisons IC downstream, so record per-predictor coverage and let the existing min-obs gates handle the sparsity. (2) `regime_purity` caps conviction (LOW below a purity floor); it is never a score multiplier. (3) The distance-weighting kernel (inverse-distance, Gaussian, or rank-based) is a build-time decision (intel-case-substrate Open Question 7): pick one, measure calibration, revisit. (4) Storage grain is a schema decision at planning (Open Question 1): columns on `feature_vectors` vs. a sibling `case_scores` table keyed `(symbol, tf, bar_ts, embedding_version)`; intel-case-substrate leans sibling-table for version hygiene. (5) Out of scope by sequencing discipline: cross-TF `alignment_z`/`coherence` (different grain, and defined over first-order case predictors that must demonstrate IC first) and IC-weighted candidate re-ranking (CASE-01's deferral, Open Question 5).
+**PRECEDENT-08 — Nightly precedent-predictor batch (`BaseBatch` oneshot):**
+For each bar with a valid retrieval, computes the single-TF sub-scores as ordinary predictor columns: `precedent_expected_r` (distance-weighted mean forward return), `precedent_hit_rate` (distance-weighted directional hit rate), `precedent_ret_dispersion` / `sharpe_horizon`, `precedent_nn_dist`; plus the conviction envelope as sibling columns (`precedent_count`, `mean_distance`, `regime_purity`, `distribution_shape`, `precedent_novelty`) and the horizon-profile character label (`flat`/`mean_revert`/`scalp`/`structural`/`mixed`). Load-bearing rules: (1) definedness is NULL, never zero, on a null retrieval or when `precedent_count` < `precedent.scoring.min_precedent_count` (default 10, placeholder); imputing 0.0 silently poisons IC downstream, so record per-predictor coverage and let the existing min-obs gates handle the sparsity. (2) `regime_purity` caps conviction (LOW below a purity floor); it is never a score multiplier. (3) The distance-weighting kernel (inverse-distance, Gaussian, or rank-based) is a build-time decision (intel-precedent-engine Open Question 7): pick one, measure calibration, revisit. (4) Storage grain is a schema decision at planning (Open Question 1): columns on `feature_vectors` vs. a sibling `precedent_scores` table keyed `(symbol, tf, bar_ts, embedding_version)`; intel-precedent-engine leans sibling-table for version hygiene. (5) Out of scope by sequencing discipline: cross-TF `alignment_z`/`coherence` (different grain, and defined over first-order precedent predictors that must demonstrate IC first) and IC-weighted candidate re-ranking (PRECEDENT-01's deferral, Open Question 5).
 
-**CASE-09 — Predictor registration + ensemble entry:**
-Each single-TF case predictor lands at exactly feature grain, one value per (symbol, tf, bar_ts), and is registered as an ordinary predictor (a `concept_registry` row per D1/D9) into the same IC machinery that measures every parametric feature. No case-specific IC factory and no case-specific correlation service: the ensemble's existing Ledoit-Wolf `|corr|` cluster deflation already provides redundancy control at the predictor grain, and a third redundancy implementation is precisely the failure mode D4 exists to avoid. Survivors are weighted by `ensemble_trainer` alongside everything else; one combiner, not two. Measurement caveat: case IC is conditional on being in-distribution (the predictor only exists on bars that had cases), a legitimate conditionality that must never be read as unconditional IC; stratifying case predictors by `ood_distance` is near-degenerate by construction.
+**PRECEDENT-09 — Predictor registration + ensemble entry:**
+Each single-TF precedent predictor lands at exactly feature grain, one value per (symbol, tf, bar_ts), and is registered as an ordinary predictor (a `concept_registry` row per D1/D9) into the same IC machinery that measures every parametric feature. No precedent-specific IC factory and no precedent-specific correlation service: the ensemble's existing Ledoit-Wolf `|corr|` cluster deflation already provides redundancy control at the predictor grain, and a third redundancy implementation is precisely the failure mode D4 exists to avoid. Survivors are weighted by `ensemble_trainer` alongside everything else; one combiner, not two. Measurement caveat: precedent IC is conditional on being in-distribution (the predictor only exists on bars that had precedents), a legitimate conditionality that must never be read as unconditional IC; stratifying precedent predictors by `ood_distance` is near-degenerate by construction.
 
-**Plans:** 3 plans (Wave 1: Case Finder wrapper + return-distribution primitive; Wave 2: nightly case-predictor batch + storage-grain decision; Wave 3: predictor registration + ensemble integration)
+**Plans:** 3 plans (Wave 1: Precedent Finder wrapper + return-distribution primitive; Wave 2: nightly precedent-predictor batch + storage-grain decision; Wave 3: predictor registration + ensemble integration)
 
 ---
 
 ### Phase 151: Feature Primitives Expansion + Theory-Motivated Interaction Layer 📋 PLANNED
 
-**Goal:** Expand the atomic feature set (~60 new candidates, full priority-tiered list in todo 014 — corrected 2026-07-01, ROADMAP previously cited a phantom "todo 003" that doesn't exist in the tree), screen through IC machinery, promote survivors. Build a Theory-Motivated Interaction Layer of ≤50 curated compound features — not a combinatorial factory. Gated on Feature Registry (todo 008, COMPLETE).
+**Goal:** Expand the atomic feature set, screen through IC machinery, promote survivors. Build a Theory-Motivated Interaction Layer of ≤50 curated compound features — not a combinatorial factory. Gated on Feature Registry (todo 008, COMPLETE).
+
+**Note on atomic scope (corrected 2026-07-13):** todo 014's original ~60-candidate priority-tiered list already shipped via Phase 142.5 (91 primitives, migration 206) — it is `completed/`, not a live source list. Phase 151's remaining atomic-expansion scope is (a) todo 066 (cross-TF divergence: `ret_div_1m_5m`/`ret_div_5m_1h`/`ret_div_1h_1d`, deliberately deferred out of 142.5) and (b) the calendar/seasonality candidates below, from todo 104.
 
 **Evidence base (2026-07-10):** todo 037's pilot ran the partial-IC test this phase's interaction-layer premise depends on — 8 already-live hand-picked interaction primitives measured for incremental IC after controlling for parent atomics. Result: 192/864 cells (22.2%) passed BH-FDR, broad-based across all 8 features. This confirms the atomic feature set is not IC-saturated and interaction effects are real — supporting evidence for building this phase's curated layer, though this phase's own ≤50-feature/theory-motivated design (vs. todo 019's rejected ~30K-candidate combinatorial approach) was already independently justified on BH-FDR statistical-power grounds before this result existed. See `docs/research/intel-feature-interaction-factory.md` and `.planning/todos/completed/037-interaction-primitives-pilot-ic-test.md` for full detail.
 
 **Note (updated 2026-07-03):** the interaction terms this phase validates are one of two
 constituent sources for `docs/research/intel-confluence-detection-persistence-layer.md` v3
 ("Confluence — a Governed Predictor Family," rewritten 2026-07-03; the other source is
-`intel-13`'s case predictors, formerly "Phase 149's case matches" — see todo 055 for why
+`intel-13`'s precedent predictors, formerly "Phase 149's case matches" — see todo 055 for why
 Phase 149 itself needs rewriting). Once ≥1 interaction term clears this phase's IC/OOS gates,
 confluence's gate 1 (marginal lift over the calibrated additive null) becomes runnable against
 it — gated itself on `feature-scoring-beyond-ic.md` §0b/0c landing first (intel-10 v3's hard
@@ -1440,10 +1513,15 @@ prerequisite, not just a nice-to-have).
 
 - Cap: ≤50 compound interactions defined before any IC measurement begins.
 - Every interaction must have a one-sentence finance-theory hypothesis (example: "momentum_z_fast × low_vol_regime — momentum carries more strongly in calm regimes; Frazzini & Pedersen 2014").
-- Candidate sources: momentum × volatility regime, volume × trend direction, cross-asset divergence × regime transition, breakout × volume confirmation, mean-reversion × regime label, carry × term structure.
+- Candidate sources: momentum × volatility regime, volume × trend direction, cross-asset divergence × regime transition, breakout × volume confirmation, mean-reversion × regime label, carry × term structure, `quarter_position` × existing atomic (calendar/OPEX seasonality — see below, todo 104).
 - Each compound is a single operation: product, ratio, or conditional. No multi-step compositions — that is a model, not a feature.
 - Separate BH-FDR pool from atomics (50 tests at FDR=0.05 has well-understood power vs 30K tests).
 - Feature Registry entry required at registration: `tier='1_interaction'`, `parent_features=[]`, hypothesis text in `formula_short`. Auto-deprecation if IC gate not passed within `alpha.feature_registry.demotion_periods` IC runs.
+
+**Calendar/seasonality candidates (folded in from todo 104, 2026-07-13 — Fable rigor pass still required before build, see todo file):**
+- **Atomic candidates:** a genuinely new period-3 "month-of-quarter" sin/cos primitive (analogous to `month_sin`, no such period currently exists in the calendar primitive set), and/or a theory-motivated `is_opex_day` flag (deterministic from `dow`+`week_of_month`, already confirmed computable with zero new data — must be a generic calendar flag, not fit to specific turning points; see todo 104's explicit anti-pattern warning).
+- **Interaction candidate:** `quarter_position × <existing atomic>`, theses: dealer gamma-hedging unwind ahead of quarterly (quad-witching) OPEX; quarter-end window dressing; earnings-season estimate-revision drift. Reuses todo 037's already-validated partial-IC methodology, zero new measurement code.
+- **Open methodology gap this phase must resolve before testing these specifically:** quad-witching happens 4x/year (~60-80 independent episodes total, fewer once regime-split) — naive per-bar N inflates significance by the same mechanism `SHADOW-REVIEW.md`'s day/episode-clustered bootstrap exists to prevent (confirmed empirically: an ad hoc same-session check treated 18,694 correlated rows as independent against a true cluster count of 54, inflating a t-stat ~18.6x). Standard `ic_engine` BH-FDR does not currently apply episode-level clustering to `feature_vectors`-level atomic/interaction features (only `SHADOW-REVIEW.md` does, and only for `alpha_frames` P&L). Resolve whether these low-episode-count candidates need that same clustered-bootstrap treatment before they can run through the standard IC gate, or accept them at reduced power — decide once, applies to any future rare-event calendar candidate too.
 
 **Regime-conditioned cluster membership (extension of Phase 140 P2):**
 Phase 140's collinearity clustering is global. Extend to regime-conditioned clusters: one cluster membership table per HMM state. Features uncorrelated in trending may be 0.8 correlated in ranging — global clustering misses this. APR key: `alpha.ensemble.cluster_regime_conditioned = true` [planned].
@@ -1562,4 +1640,4 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-r
 
 ---
 
-**Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 152/153 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 148's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 152/153 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 152/153's decay/health monitoring or (b) expanding discovery (Phase 151/CaseSubstrate) based on what that gate actually says. Phase 157's kill-switch design above still correctly notes its dependency on Phase 153 eventually existing — that dependency is real, it's just not a reason to build 153 before Phase 148 resolves.
+**Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 152/153 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 148's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 152/153 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 152/153's decay/health monitoring or (b) expanding discovery (Phase 151/PrecedentEngine) based on what that gate actually says. Phase 157's kill-switch design above still correctly notes its dependency on Phase 153 eventually existing — that dependency is real, it's just not a reason to build 153 before Phase 148 resolves.

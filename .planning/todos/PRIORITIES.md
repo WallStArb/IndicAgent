@@ -16,12 +16,80 @@ single sub-scope (P3, empirical threshold calibration) split back out as standal
 fresh evidence flags it as a live-path IC suspect now, unlike the rest of 026's batched scope.
 
 **This file is now the single source of truth for todo-level prioritization** — the
-intelligence-lifecycle priority matrix (`docs/research/2026-07-08-intelligence-lifecycle-
-backlog-matrix.md`) previously kept its own separate "Todos" ranking table for the same
+intelligence-lifecycle priority matrix (`docs/research/intelligence-lifecycle-backlog-matrix.md`)
+previously kept its own separate "Todos" ranking table for the same
 `pending/` items; that table is now collapsed to a pointer here to eliminate the two-places-
 that-can-silently-disagree risk. Its former top entry, `alpha_frames` backfill, was a matrix-
 only bullet with no corresponding todo file — filed as todo 093 in this same pass so it isn't
 invisible to this list.
+
+## Musk 5-Step + Renaissance framing pass (2026-07-13)
+
+CLAUDE.md names both as this project's design north star; this file hadn't actually been run
+through either lens before now. Applying Musk's mandate **in order** — make requirements less
+dumb → delete → simplify → accelerate → automate — plus Renaissance's "empirical over
+theoretical" and "earn promotion through proof" against everything in `pending/`/`deferred/`.
+Concrete outcomes below; re-run this lens on new todos before filing, not just retroactively.
+
+**Step 1 — Make requirements less dumb (question the stated premise before scoring it):**
+- Todo [020](deferred/020-context-features-cluster.md) claimed to be gated on "007 (tf-agnostic
+  table design) and IC engine live" — both have been true for a while. `context_features` exists
+  live today with 8,985 rows; the gate note was stale, not the requirement itself. Corrected in
+  place rather than left to silently block a re-read forever.
+- General rule this surfaced: a "Gate:" line written once at filing time rots. Anything sitting
+  in `deferred/` for more than ~2 weeks should have its gate re-checked against live state before
+  being cited as still-blocked, not trusted at face value.
+
+**Step 2 — Delete (not defer — actually remove, per Musk's "if you're not adding ~10% back,
+you're not deleting enough"):**
+- Todo [021](completed/021-analog-engine.md) (AnalogEngine) — closed. Duplicate tracking: its
+  own header already called its architecture superseded, and ROADMAP.md's Phase 149/150 now
+  carries a fuller, current, actively-maintained design for the same build. Two trackers for one
+  build is the exact failure mode this project already caught once for Concept Registry
+  (todo 058 vs. 112) — same fix applied here.
+- Todo [032](pending/032-ic-engine-pure-function-refactor.md) — already merged into 009
+  (2026-07-12, pre-dates this pass), correctly resolved, not re-litigated.
+- **Candidate for actual deletion, not just low-priority parking:** [059](pending/059-review-aegisagent-tradeagent-for-trade-construction-reuse.md)
+  + [060](pending/060-review-cluster2-legacy-intelligence-backlog.md) are both "read old docs,
+  decide salvage-vs-archive" tasks — cheap (2-4h combined), already cross-referenced as the same
+  shape of work in 059's own text. Renaissance's "never drop data that could contain signal"
+  applies to measured data, not stale vision docs — there's no principled reason to keep carrying
+  two open todos whose entire job is deciding what to delete. Run both in one sitting; whatever
+  doesn't get salvaged gets archived same-session, not re-deferred.
+
+**Step 3 — Simplify (reduce scope of what survives, don't build infrastructure for unproven
+ideas):**
+- Todo [080](pending/080-ensemble-combination-e-candidates-queue.md) lists 4 untested weighting
+  mechanisms (posterior blending, HRP-lite, Bayesian averaging, trailing-IC) as one queue.
+  Renaissance's "earn promotion through proof": test the single most-promising candidate
+  (posterior blending, per its own existing note) through the existing A/B judge before building
+  scaffolding for the other three — don't design a general "E-candidate framework" for ideas that
+  haven't earned it yet.
+- Todo [052](pending/052-adversarial-data-error-hunt.md) — keep, but scope to the specific data
+  classes already suspected of error, not an open-ended hunt; "instrument everything" doesn't
+  mean "audit everything indefinitely."
+
+**Step 4 — Accelerate (only the true critical path, decided last per Musk's ordering — don't
+speed up work that steps 1-3 haven't already justified):**
+- **Phase 143.1** (corpus re-run, in progress) is the actual bottleneck — todos 091/094/096/097
+  all inherit from it and nothing scored above should compete with it for attention.
+- Once it clears: todo 065 (EM-CAL, both prerequisite gates already cleared), todo 092 (regime
+  threshold calibration, flagged as a live-path IC suspect), and todo 054 (shadow alpha_events
+  monitoring — direct application of the Renaissance "shadow mode first" principle by name) are
+  the fastest real wins, not busywork.
+
+**Step 5 — Automate (last, and only for what's proven, per Musk — premature automation on an
+unproven process just hides the manual step instead of removing it):**
+- The gate-staleness problem Step 1 found is itself automatable: a future todo (not filed yet —
+  low urgency, this pass already did the one-time correction manually) could cross-check every
+  `deferred/` item's stated "Gate:" against live DB/code state on a schedule, rather than relying
+  on someone manually re-reading it during a priority pass like this one.
+- Do not automate ranking itself (this file's P0-P3 tiers) — that is a judgment call this project
+  has explicitly reserved for the project owner (see the P0 section's "do not reorder without
+  re-confirming" sequencing decision below); automating it would remove the human judgment step
+  Renaissance's own "earn promotion through proof" gate depends on.
+
+---
 
 **Tiers:** P0 = fix soon, real gap/bug surfaced. P1 = high value, quick, fully unblocked. P2 =
 real value, not urgent. P3 = hygiene/docs/process, opportunistic.
@@ -92,6 +160,7 @@ without re-confirming with the project owner.
 | [092](pending/092-equity-regime-model-threshold-calibration.md) | Empirical threshold calibration for regime-model vix/breadth cuts — flagged 2026-07-09 as a live-path suspect behind the extreme regime-conditional IC values on the current leaderboard |
 | [054](pending/054-shadow-alpha-events-monitoring.md) | Shadow alpha_events monitoring — prevents delayed detection of feature decay/threshold bugs |
 | [011](pending/011-alpha-events-is-shadow-column.md) | `is_shadow` column — promotion gate can't be retroactively softened once this lands |
+| [112](pending/112-concept-registry.md) | Concept Registry MVP — design complete (4 review passes), plan already written (`docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`), build trigger fired 2026-07-04. **Registered as ROADMAP Phase 159.** Deliberately deferred behind P0 measurement-integrity work, not blocked on anything else. |
 
 ## P2 — Real value, not urgent
 
@@ -126,6 +195,9 @@ without re-confirming with the project owner.
 | [059](pending/059-review-aegisagent-tradeagent-for-trade-construction-reuse.md) | Review AegisAgent/TradeAgent for v4.0 trade-construction reuse |
 | [060](pending/060-review-cluster2-legacy-intelligence-backlog.md) | Review legacy intelligence backlog docs — salvage or clear |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
+| [110](pending/110-controlled-vocabulary.md) | Controlled Vocabulary — design complete, previously untracked by any todo. No dependency blocks it. **Registered as ROADMAP Phase 160** (supersedes orphaned Phase 135). |
+| [111](pending/111-stratification-classification.md) | Stratification & Classification Registries — StratificationDimension formalization revival blocked on Phase 144's D-05 verdict (currently `BLOCKED-ON-143.1-07`). **Registered as ROADMAP Phase 145.** |
+| [104](pending/104-quarterly-seasonality-opex-fable-review.md) | Fable rigor pass on the quarterly-seasonality/OPEX idea (`docs/ideas/signal-quarterly-seasonality-opex-risk-off.md`) before it's considered for Phase 151's scope — review-gating step, not itself a phase. |
 
 ---
 

@@ -11,6 +11,7 @@ Version: 5.51.0
 **Glossary:** Every domain term has exactly one definition. Check before naming new concepts; glossary wins over existing code on collision. Full spec: `docs/foundation/glossary.md`.
 **Doc locations:** `docs/foundation/` canonical home. `docs/` root is index only.
 **Gotchas:** `docs/reference/gotchas.md` — rare pitfalls moved out of per-turn context.
+**Planning system:** `.planning/PLANNING-SYSTEM.md` — how IDEAS.md → docs/ideas/ → docs/plans/ → todos/pending/ → ROADMAP.md → phases/ flow into each other. Current phase/progress: `.planning/STATE.md`. Todo prioritization (single source of truth for `pending/`): `.planning/todos/PRIORITIES.md`.
 
 ## Done-Coding SOP
 
