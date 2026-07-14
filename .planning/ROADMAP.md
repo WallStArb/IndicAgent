@@ -917,8 +917,11 @@ it jump ahead of Phase 144/148.
   `.planning/todos/pending/112-concept-registry.md`, `docs/research/intelligence-lifecycle-backlog-matrix.md`
   (MEDIUM tier — Effort M, Risk Low, Reward Low-now/Med-long-run).
 
-**Plans:** TBD at `/gsd-plan-phase 160` — the implementation plan already written can likely
-seed this directly rather than re-deriving task breakdown from scratch.
+**Plans:** 4 plans in 3 waves (planned 2026-07-14 from `docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`):
+- [ ] 160-01-PLAN.md — migrations 232 (schema + APR gate keys) + 233 (seed domain='ensemble_strategy') [wave 1]
+- [ ] 160-02-PLAN.md — ConceptRegistryService pure decision core + transactional CAS apply [wave 1]
+- [ ] 160-03-PLAN.md — wire ops_ensemble_weight_compare.py win-decision gate to the service (invariant 1) [wave 2]
+- [ ] 160-04-PLAN.md — design-doc sync, file domain='feature' follow-on todo, close todo 112, merge [wave 3]
 
 ### Phase 161: Controlled Vocabulary System 📋 PLANNED
 
