@@ -74,7 +74,7 @@ A time-stamped, scored trade hypothesis with a defined entry, direction, and exi
 
 ### `regime`
 
-A discrete conditioning-state label that partitions bars into groups expected to behave differently downstream (IC stratification, ensemble weights, case retrieval). Produced by Stage 1 (Stratification) of the AlphaEngine internal layers — see that entry. Two coexisting mechanisms fill this contract today, each with its own sanctioned vocabulary (see `MEMORY.md` "Dual Regime System"):
+A discrete conditioning-state label that partitions bars into groups expected to behave differently downstream (IC stratification, ensemble weights, precedent retrieval). Produced by Stage 1 (Stratification) of the AlphaEngine internal layers — see that entry. Two coexisting mechanisms fill this contract today, each with its own sanctioned vocabulary (see `MEMORY.md` "Dual Regime System"):
 
 - **Idiosyncratic regime** (aka **symbol regime**) — per-symbol `GaussianHMM` state (5 labels: `trending_down`, `transition_down`, `ranging`, `transition_up`, `trending_up`), fit per (symbol, timeframe) from log-return/vol-of-vol/relative-volume observations. Stored in `feature_vectors.regime`. "Idiosyncratic" is the standard factor-model term for a security-specific, non-market-wide component — parallels how `sensitivity`/`factor_regime` also operate at security scope.
 - **Systematic regime** (aka **market regime**) — cross-sectional VIX×breadth state (9 labels: `{low/mid/high}_{bull/neutral/bear}`), one label per timeframe shared across the whole universe. Stored in `market_regimes`. "Systematic" is the standard factor-model term for the common, market-wide component every instrument shares exposure to.
@@ -114,7 +114,7 @@ Single-membership by design (`AmbiguousRegimeGroupError` — a symbol matching m
 
 ### `conditioning layer` (aka `regime detection layer`)
 
-The layer in the quant stack that detects market states and enables downstream processes to condition predictions on those states. **Internal project name** — emphasizes the stratification purpose (conditioning IC on regime). Takes primitive features (OHLCV-derived signals) as input, outputs categorical labels stamped onto each bar. Enables IC stratification, regime-conditioned ensemble weights, and case retrieval filtering.
+The layer in the quant stack that detects market states and enables downstream processes to condition predictions on those states. **Internal project name** — emphasizes the stratification purpose (conditioning IC on regime). Takes primitive features (OHLCV-derived signals) as input, outputs categorical labels stamped onto each bar. Enables IC stratification, regime-conditioned ensemble weights, and precedent retrieval filtering.
 
 **Industry-standard term:** `market state classification` — use that term for external communications, papers, and cross-system discussions. `conditioning layer` is used internally when emphasizing the statistical function (conditional prediction).
 
@@ -141,7 +141,7 @@ Industry-standard term for the layer that detects and classifies market conditio
 
 **Internal name:** `conditioning layer` — used internally when emphasizing the statistical function (conditional prediction via stratified IC). See dedicated entry.
 
-**Purpose:** Enable downstream processes to condition predictions on market context. Classification produces discrete labels per (symbol, tf, bar) that stratify IC measurements, ensemble weights, and case retrieval.
+**Purpose:** Enable downstream processes to condition predictions on market context. Classification produces discrete labels per (symbol, tf, bar) that stratify IC measurements, ensemble weights, and precedent retrieval.
 
 **Industry standard:** Quant systems universally stratify by market state — high/low vol, trending/mean-reverting, risk-on/risk-off. The classifier mechanism varies (HMM, threshold rules, ML, change-point detection) but the function is standard: context-aware prediction.
 
@@ -318,6 +318,19 @@ A quantity directly computable from market data with no derivation from other pr
 
 **Banned:** (none)
 **Status:** active
+
+---
+
+### `calendar primitive`
+
+A tier-0 atomic feature computed as a deterministic, stateless, O(1) function of the bar timestamp alone - no OHLCV input, no cross-bar state, no external event data. Cyclical calendar primitives ship as `_sin`/`_cos` pairs (the pair spans every phase of the cycle's first harmonic, so no turning point is assumed); linear ones as `[0, 1]` fractions with the `_position` suffix. The atomic calendar set encodes coordinates on natural calendar cycles (day, week, month, quarter, year, session); it never encodes event conjunctions or fitted boundaries - those are tier-1 interaction features with a stated hypothesis. Full doctrine: `docs/research/signal-temporal-atomic-primitives.md`.
+
+**Not:** the tag-system sense of `primitive` above (known naming collision, unresolved - see that entry); not any feature merely correlated with time; not `above_wk_vwap` (price-dependent and stateful, grouped `calendar` in `feature_registry` for legacy reasons only, see todo 116).
+
+**Banned:** temporal coordinate primitive, temporal primitive, time feature, seasonality feature
+**Status:** active
+
+**Code surface:** `feature_registry` rows with `tier='0_atomic'` and `group_name='calendar'`; calendar helpers in `src/intelligence/feature_factory.py`.
 
 ---
 
@@ -634,7 +647,7 @@ The v3.0 prediction engine: FeatureFactory → IC Engine → Ensemble → alpha 
 
 Runs entirely in the cold batch layer (weekly IC Engine, nightly Ensemble Builder, nightly Alpha Emitter). FeatureFactory runs in-process on the hot path, writing to `feature_vectors` as a DB sink only.
 
-**Distinction from CaseSubstrate:** AlphaEngine is parametric (Spearman correlation across all observations on pre-specified features). CaseSubstrate is non-parametric (k-NN retrieval of similar historical bar states). CaseSubstrate is not a second AlphaEngine — its case-derived predictors register into and are weighted by this same engine, per the `CaseSubstrate` entry below. Gated: CaseSubstrate does not start until AlphaEngine demonstrates IC > 0 with p < 0.05.
+**Distinction from PrecedentEngine:** AlphaEngine is parametric (Spearman correlation across all observations on pre-specified features). PrecedentEngine is non-parametric (k-NN retrieval of similar historical bar states). PrecedentEngine is not a second AlphaEngine — its precedent-derived predictors register into and are weighted by this same engine, per the `PrecedentEngine` entry below. Gated: PrecedentEngine does not start until AlphaEngine demonstrates IC > 0 with p < 0.05.
 
 **Not:** an enrichment annotator on `signal_events`. AlphaEngine replaces the I5-I7 plugin stack as the primary alpha source. It does not annotate the old signal architecture — it supersedes it.
 
@@ -735,21 +748,35 @@ Emitter component is one mechanism fulfilling it.
 
 ---
 
-### `CaseSubstrate`
+### `PrecedentEngine`
 
-The non-parametric pgvector retrieval substrate (v3.0). Embeds `FeatureVector` states as L2-normalized vectors in pgvector. Finds K nearest historical neighbors via HNSW index (cosine similarity). Returns what price did after each retrieved case at the canonical gradient horizons (fast/mid/slow/extended), joined from the existing `forward_returns` table. The null result ("no close cases exist") is a first-class output and drives the OOD monitor.
+The non-parametric pgvector retrieval substrate (v3.0). Embeds `FeatureVector` states as L2-normalized vectors in pgvector. Finds K nearest historical neighbors via HNSW index (cosine similarity). Returns what price did after each retrieved precedent at the canonical gradient horizons (fast/mid/slow/extended), joined from the existing `forward_returns` table. The null result ("no close precedents exist") is a first-class output and drives the OOD monitor.
 
-A nightly `BaseBatch` job turns retrieved neighbor sets into ordinary predictor columns (`case_expected_r`, `case_hit_rate`, `case_ret_dispersion`, `case_nn_dist`, plus a conviction envelope and horizon-profile label) — there is no separate scoring/combiner system; this replaced the pre-rescope design's standalone Scoring Engine.
+A nightly `BaseBatch` job turns retrieved neighbor sets into ordinary predictor columns (`precedent_expected_r`, `precedent_hit_rate`, `precedent_ret_dispersion`, `precedent_nn_dist`, plus a conviction envelope and horizon-profile label) — there is no separate scoring/combiner system; this replaced the pre-rescope design's standalone Scoring Engine.
 
-**Distinction from AlphaEngine — read this carefully, it was wrong before 2026-07-09:** CaseSubstrate is non-parametric (retrieves historical instances via k-NN); AlphaEngine is parametric (measures Spearman correlation on pre-specified features). But CaseSubstrate is **not** a second, independent system — its case-derived predictors register into and are measured/weighted by AlphaEngine's own IC machinery and ensemble, exactly like any parametric feature (D4 rescope, `docs/foundation/principles.md`'s "one model, one book" invariant). CaseSubstrate is a second *evidence source* feeding the one book, not a second book. An earlier version of this entry said "both are independent and additive" — that was a real error, since corrected; do not repeat it.
+**Distinction from AlphaEngine — read this carefully, it was wrong before 2026-07-09:** PrecedentEngine is non-parametric (retrieves historical instances via k-NN); AlphaEngine is parametric (measures Spearman correlation on pre-specified features). But PrecedentEngine is **not** a second, independent system — its precedent-derived predictors register into and are measured/weighted by AlphaEngine's own IC machinery and ensemble, exactly like any parametric feature (D4 rescope, `docs/foundation/principles.md`'s "one model, one book" invariant). PrecedentEngine is a second *evidence source* feeding the one book, not a second book. An earlier version of this entry said "both are independent and additive" — that was a real error, since corrected; do not repeat it.
 
-**Plain role noun** — `naming-system.md` plain_role_nouns. Services prefixed `case-` (e.g. `indicagent-case-bar-embedder`). APR namespace: `case.*`.
+**Plain role noun** — `naming-system.md` plain_role_nouns. Services prefixed `precedent-` (e.g. `indicagent-precedent-bar-embedder`). APR namespace: `precedent.*`.
 
 **Status:** design (pre-implementation, v3.0) — gated behind v3.15 (Phase 144/145) completing; retrieval hard-filters on regime labels, so the regime-model unification must land first.
 
-**Canonical doc:** `docs/research/intel-case-substrate.md` (the current, correct design — the D4 rescope). `docs/plans/archive/2026-06-20-analogengine-design.md` is the original pre-rescope design doc, superseded, kept for history only.
+**Canonical doc:** `docs/research/intel-precedent-engine.md` (the current, correct design — the D4 rescope). `docs/plans/archive/2026-06-20-analogengine-design.md` is the original pre-rescope design doc, superseded, kept for history only.
 
-**Formerly called:** "AnalogEngine" (renamed 2026-07-09 — "analog" collided with the electronics/signal-processing sense of the word in a codebase already dense with that vocabulary; "case" is the case-based-reasoning term of art and carries no such collision, see `naming-system.md` §1 Whiteboard Test). Before that: "VIL" / "Vector Intelligence Layer" (internal shorthand still acceptable in code comments).
+**Formerly called:** "CaseSubstrate" (renamed 2026-07-13 — "Substrate" was a generic materials/infra metaphor that didn't itself pass the Whiteboard Test; "Precedent" states the question the system answers in plain English and avoids collisions "Pattern"/"History" alternatives would have hit). Before that: "AnalogEngine" (renamed 2026-07-09 — "analog" collided with the electronics/signal-processing sense of the word in a codebase already dense with that vocabulary, see `naming-system.md` §1 Whiteboard Test). Before that: "VIL" / "Vector Intelligence Layer" (internal shorthand still acceptable in code comments).
+
+---
+
+### `MeasurementEngine`
+
+**Status: a resolved question, not a pending build — correcting an earlier draft of this entry that called it "proposed, not built."** `intel-12` (`stratification-dimension-unification.md`) and `intel-13` (`intel-precedent-engine.md`) both build on "the Measurement Engine" as a settled arrival without either one defining it. It sounds like an unbuilt future concept; it is actually the *name for a question that was asked and answered* in `docs/research/measurement-ic-engine.md`, whose own header states **"D1's fallback is the landed state"** — not "D1 is pending."
+
+**The question `MeasurementEngine` names:** should feature-level measurement (`ic_engine.py`), ensemble-level measurement (`ensemble_ic_engine.py`), and any future precedent-level measurement merge into *one* service/table, rather than staying separate? D1 (`.planning/research/2026-07-02-v3-topdown-architecture.md`) proposed this. The answer, re-verified twice (2026-07-03, 2026-07-06): **no — kernel-sharing is the permanent design, not an interim one.** `ic_math.py` already holds the shared stats primitives (Fisher-z/bootstrap CI, vectorized Spearman IC, HAC-corrected Sharpe); the two services stay separate on purpose (their walk-forward fold-stability gates deliberately differ per D-142A-R1 — that's divergence by decision, not drift waiting to be fixed). Full service/table unification remains available if a new argument justifies it, but nothing is currently driving toward it.
+
+**Naming implication:** `ICEngine` is correctly named for what it does today — it computes IC (Information Coefficient, Spearman correlation), specifically, not a generalized measurement abstraction. `IC` is genuine, whiteboard-testable quant vocabulary (Grinold & Kahn), not a placeholder. Do not rename it to `MeasurementEngine`, and do not build a `MeasurementEngine` class on the strength of the name being used loosely elsewhere — the doc that would justify it already said no.
+
+**Relationship to `predictive measurement` (below) — related but not the same question, and the two docs that define them never cross-reference each other.** `predictive measurement` is a real, built, named *slot* in the AlphaEngine Functional Layer Vocabulary — one stage of the Layer 1 pipeline, implemented today by `ic_engine.py`. Its own definition is already generic over *method* (IC is one of several it can hold); it recurs a second time at ensemble grain (Phase 142A's EIC, `ensemble_ic_engine.py` → `alpha_ensemble_ic`, measuring whether the ensemble's own combined `alpha_score` predicts returns) — same slot, same operation, different input and pipeline position, not a second slot needing its own name (see todo 114). `MeasurementEngine` is neither of these — it's the now-answered question of whether the *services implementing* recurrences of this slot should be one thing instead of several.
+
+**Canonical doc:** `docs/research/measurement-ic-engine.md`. See also `predictive measurement` below (AlphaEngine Functional Layer Vocabulary).
 
 ---
 
@@ -1207,6 +1234,12 @@ of the feature-return relationship.
 **Not:** a synonym for IC. IC is one predictive measurement method; the slot can hold
 others. Say "the predictive measurement layer" when the statement applies regardless
 of which method is used.
+
+**Gap found 2026-07-13 (`MeasurementEngine` entry above):** this slot is scoped to
+feature-level IC only. Ensemble-level measurement (Phase 142A's EIC, `ensemble_ic_engine.py`
+-> `alpha_ensemble_ic`) does the same functional job one level up -- "does this predictor
+predict returns" -- but has no named slot in this vocabulary at all. Not filed as a todo yet;
+flag here so the gap isn't silently lost.
 
 ---
 

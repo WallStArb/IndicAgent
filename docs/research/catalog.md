@@ -25,7 +25,7 @@ it was dead weight.)
 
 **2026-07-11 audit:** caught the catalog drifting again, four days after the last pass. Fixed:
 (1) the AnalogEngine row still linked `intel-analog-engine.md`, deleted when that doc was renamed
-to CaseSubstrate (`1d41f1da`) — link and title corrected; (2) the Interaction Factory row still
+to PrecedentEngine (`1d41f1da`) — link and title corrected; (2) the Interaction Factory row still
 said "blocked on pilot test (037)" — the doc itself was rewritten 2026-07-10 when the pilot
 cleared, row brought into sync; (3) five `docs/plans/` docs created 2026-07-09 through 2026-07-11
 were never added to the plans table; (4) ETF Universe Expansion and the AlphaEngine V1 Execution
@@ -57,15 +57,15 @@ navigation depth; that doc is the one-page product-management view.
 ## Cluster 1 — v3.0 Intelligence Lifecycle (the active build surface)
 
 **Master priority doc for this whole cluster:**
-[2026-07-08 Intelligence Lifecycle Backlog Matrix](2026-07-08-intelligence-lifecycle-backlog-matrix.md)
+[Intelligence Lifecycle Backlog Matrix](intelligence-lifecycle-backlog-matrix.md)
 — HIGH/MEDIUM/LOW triage across everything below, refreshed against real code/DB state (not
-assertion) as of 2026-07-08. Read this first for "what's next," not this catalog.
+assertion), last rewritten 2026-07-08. Read this first for "what's next," not this catalog.
 
 | Doc | Status / Priority | Fable-reviewed | One-line |
 |---|---|---|---|
 | [Confluence — a Governed Predictor Family](intel-confluence-detection-persistence-layer.md) | draft, high | ✅ (v3, 2026-07-12) | Confluences as governed predictors, not a second system; gates 1-6, mandatory shrinkage; re-verified against Phase 143's executed lifecycle mechanics (promotion bar, sign-symmetry, decay gates corrected) |
 | [StratificationDimension — Multi-Regime Layer](stratification-dimension-unification.md) | draft, high | ✅ (2026-07-06) | Unifies per-symbol HMM + cross-sectional regime systems; core proposal confirmed, updated against Phase 143's LIFECYCLE-00 hardening |
-| [CaseSubstrate](intel-case-substrate.md) (renamed from AnalogEngine, `1d41f1da`) | draft, high | ✅ | Non-parametric K-NN retrieval as a predictor family; Score Object deleted, return-distribution primitive kept |
+| [PrecedentEngine](intel-precedent-engine.md) (renamed from AnalogEngine, `1d41f1da`) | draft, high | ✅ | Non-parametric K-NN retrieval as a predictor family; Score Object deleted, return-distribution primitive kept |
 | [IntegrityMonitor — Drift, Decay, Ensemble Health](measurement-governance-monitor.md) | draft, high | ✅ (2026-07-06) | Reconciled cluster doc; 7 stale passages found/fixed against executed Phase 143 (pre_shadow_weight was dead, registry amendments, staleness design, schema) |
 | [MeasurementEngine — IC Kernel Unification](measurement-ic-engine.md) | answered | ✅ (2026-07-06) | Kernel-unification question resolved by existing `ic_math.py`; unfixed config drift between `ic_engine.py`/`ensemble_ic_engine.py` flagged |
 | [AlphaEmitter — Stage 4 Emission Mechanisms](measurement-alpha-emission.md) | idea, not planned | ✅ (2026-07-07) | Threshold-crossing is structurally fine; real gaps are uncalibrated thresholds (EM-CAL), stratum-constant CI gate, weight-staleness blindness; gate stack as the swappable unit, three rejections recorded |
@@ -108,7 +108,8 @@ of what was removed and why. These three are what's actually still live.
 | Doc | Status / Priority | Fable-reviewed | One-line |
 |---|---|---|---|
 | [Security Classification Hierarchy](stratification-security-classification-hierarchy.md) | draft, medium (build gated on individual-equities onboarding) | ✅ (2026-07-06) | GICS-style strict layer (3 new effective-dated tables) + custom soft taxonomies as `tag_vocabulary.parent_tag`; two epistemic models, deliberately not one tree; redesigned consumer item 6, fixed a silent point-in-time corruption risk |
-| [Renaissance Primitives — OHLCV Expansion](signal-renaissance-primitives-ohlcv.md) | idea, not planned | | OHLCV-derived primitives for Signal Processing Layer (499+ raw signals approach) |
+| [Renaissance Primitives — OHLCV Expansion](signal-renaissance-primitives-ohlcv.md) | idea, not planned | | OHLCV-derived primitives for Signal Processing Layer (499+ raw signals approach); its Temporal Coordinate Primitives section now points to the doc below |
+| [Calendar Primitives](signal-temporal-atomic-primitives.md) | adopted into Phase 151 | ✅ (2026-07-13) | Calendar-primitive doctrine (coordinates-vs-flags tier placement), 22→21-primitive inventory, 3 new atomic candidates (`quarter_cycle`, `tdom`, `minute_of_hour`), `opex_flag`/`quad_witching_flag` tier-1 split, OPEX/quarterly-seasonality test design; closes todo 104 |
 | [AlphaEngine — Alternative Data Extension](data-alt-data-sources.md) | adopted as Phase 154 | ✅ (2026-07-06) | Extending AlphaEngine to alt-data sources; original table architecture rejected and redesigned around the live `context_features` precedent |
 
 ---
@@ -218,5 +219,5 @@ of what was removed and why. These three are what's actually still live.
   `fable-2026-07-09-ensemble-winners-curse-peer-group.md` — the Fable review passes this catalog's
   "Fable-reviewed" column tracks (paths corrected 2026-07-11: these moved from `.planning/research/`
   into `docs/research/` on 2026-07-07 and this section still pointed at the old location)
-- `docs/research/2026-07-08-intelligence-lifecycle-backlog-matrix.md` — the priority triage for
+- `docs/research/intelligence-lifecycle-backlog-matrix.md` — the priority triage for
   Cluster 1; this catalog is navigation, that doc is sequencing

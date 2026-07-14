@@ -172,7 +172,7 @@ Some Ring 2 daemons are the concept itself — no category suffix adds precision
 | `AlphaSwarm` | IS the swarm — the swarm is the architectural concept |
 | `NarrativeSwarm` | Same pattern — group coordinator IS the swarm |
 | `AlphaEngine` | IS the system — the IC measurement + ensemble alpha generation system, the entirety of Layer 1 (Prediction), v3.0 |
-| `CaseSubstrate` | IS the substrate — the pgvector k-NN historical-retrieval layer that produces case-derived predictors as inputs to AlphaEngine's shared IC/ensemble machinery. Not a second system (D4 rescope, `docs/research/intel-case-substrate.md`) — never call it "System 2" or "independent." Formerly `AnalogEngine`, renamed 2026-07-09: "analog" collided with the electronics sense of the word given this codebase's dense signal-processing vocabulary (see naming-system.md §1 Whiteboard Test); "case" is the term of art from case-based reasoning and carries no such collision. |
+| `PrecedentEngine` | IS the retrieval engine — the pgvector k-NN historical-retrieval layer that produces precedent-derived predictors as inputs to AlphaEngine's shared IC/ensemble machinery. Not a second system (D4 rescope, `docs/research/intel-precedent-engine.md`) — never call it "System 2" or "independent." Renamed twice: `AnalogEngine` → `CaseSubstrate` (2026-07-09) — "analog" collided with the electronics sense of the word given this codebase's dense signal-processing vocabulary (see naming-system.md §1 Whiteboard Test). `CaseSubstrate` → `PrecedentEngine` (2026-07-13) — "Substrate" was a generic materials/infra metaphor that didn't itself pass the Whiteboard Test (a quant reading it cold wouldn't know it's a k-NN retrieval index); "Precedent" is plain English that states the question the system answers ("has this happened before, what followed") without requiring case-based-reasoning domain knowledge, and avoids two collisions "Pattern"/"History" alternatives would have hit (existing I5 Pattern Recognition tier; existing historical-backfill pipeline vocabulary). |
 
 New plain role nouns require explicit addition to this table. The anti-creep rule applies.
 
@@ -201,7 +201,7 @@ taxonomy:
     no_base_prefix: true
   runtime_processes:
     suffixes: [Provider, Merger, Aggregator, Analyzer, Writer, Tracker, Auditor, Monitor, Orchestrator, Trainer, Publisher]
-    plain_role_nouns: [IntelligencePipeline, AlphaSwarm, NarrativeSwarm, AlphaEngine, CaseSubstrate, ICEngine]
+    plain_role_nouns: [IntelligencePipeline, AlphaSwarm, NarrativeSwarm, AlphaEngine, PrecedentEngine, ICEngine]
     rings: [2]
     inherits: BaseDaemon
   infrastructure_bases:
@@ -439,6 +439,21 @@ A quantity that is structurally a magnitude tier (a continuous score threshold-b
 Only terms from the tables above may appear as scale qualifiers in column names, APR keys, and variable names. Numbers in names are valid **only** when the number defines the statistical concept — `momentum_z_5` means "5-bar z-score"; changing it to 7 bars produces a different statistic, not a recalibrated version of the same one. When the number is a tunable calibration parameter, use a gradient term instead: `return_fast` column + `alpha.ic.lookahead.fast = 1` APR key. See CLAUDE.md §APR for the full pattern.
 
 **Prohibited:** inventing terms outside these tables (`near`, `ultra`, `short`, `long`). `tight`/`wide` are permitted *only* within the Credit spread state domain-specific scale above — never as a generic magnitude qualifier elsewhere (use `low`/`high` for any non-credit magnitude tiering). If a new gradient term is genuinely needed — generic or domain-specific — update this table first; this section is the single source of truth.
+
+---
+
+### 7a. Calendar Primitive Naming
+
+Calendar primitives (glossary: `calendar primitive`) use a fixed form vocabulary - one of four shapes, no exceptions:
+
+| Form | Convention | Example |
+|------|-----------|---------|
+| Cyclical coordinate | `<cycle>_sin` + `<cycle>_cos`, always shipped as a pair | `quarter_cycle_sin`, `quarter_cycle_cos` |
+| Linear position | `<cycle>_position`, bounded [0, 1] | `month_position`, `quarter_position` |
+| Session membership | `in_<session>` | `in_ny_session`, `in_overlap` |
+| Event flag | `<event>_flag`, permitted at `tier='1_interaction'` only, never `0_atomic` | `opex_flag`, `quad_witching_flag` |
+
+The cycle name states the period in words, never numbers (`quarter_cycle`, not `cycle_63`), the same number-free rule Section 7 applies to gradient columns. Event flags are prohibited at tier 0 by the calendar-primitive doctrine (`docs/research/signal-temporal-atomic-primitives.md`): coordinates span cycles, flags select points, and point selection is a hypothesis that must be declared at tier 1.
 
 ---
 
