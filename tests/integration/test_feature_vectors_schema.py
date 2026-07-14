@@ -270,13 +270,15 @@ async def test_renaissance_columns_exist() -> None:
 
 @pytest.mark.asyncio
 async def test_feature_registry_row_count_matches_gate() -> None:
-    """feature_registry must have exactly 150 rows, matching
-    feature_registry_service._REGISTRY_ROW_COUNT (the startup alignment gate).
+    """feature_registry's row count must match feature_registry_service._REGISTRY_ROW_COUNT
+    (the startup alignment gate), which is derived as len(dataclasses.fields(FeatureVector))
+    and so grows whenever a field is added - not asserted against a fixed number here, since
+    hardcoding one just guarantees this test goes stale again at the next field addition
+    (confirmed 2026-07-14: the count had drifted from an earlier 150 to today's 155 with no
+    corresponding test update).
 
-    GREEN as of migration 211_drop_redundant_breakout_flags.sql, which removed
-    the new_high_flag/new_low_flag rows (redundant with dist_from_high/
-    dist_from_low) seeded by migration 206. Without this, FeatureRegistryService.load()
-    raises RuntimeError at daemon startup (antigravity H2/H3).
+    Without this, FeatureRegistryService.load() raises RuntimeError at daemon startup
+    (antigravity H2/H3).
     """
     from src.intelligence.feature_registry_service import _REGISTRY_ROW_COUNT
 
@@ -286,7 +288,7 @@ async def test_feature_registry_row_count_matches_gate() -> None:
     finally:
         await conn.close()
 
-    assert count == _REGISTRY_ROW_COUNT == 150, (
+    assert count == _REGISTRY_ROW_COUNT, (
         f"feature_registry has {count} rows; expected {_REGISTRY_ROW_COUNT} "
-        "(_REGISTRY_ROW_COUNT). Run migration 211_drop_redundant_breakout_flags.sql."
+        "(_REGISTRY_ROW_COUNT, derived from FeatureVector's field count)."
     )
