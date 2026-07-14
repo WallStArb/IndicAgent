@@ -15,7 +15,7 @@ Concept Governance Registries is the overarching framework that unifies all runt
 | Type | What it governs | Canonical doc | Status |
 |------|-----------------|--------------|--------|
 | **Type 1 — Parameter** | Tunable numeric values (thresholds, weights, periods, preferences) | [APR](../foundation/adaptive-parameter-registry.md) | ✅ Live (425 params, 13 namespaces) |
-| **Type 2 — Lifecycle** | Evidence-gated research artifacts (features, ensemble strategies, HMM variants, alpha patterns) | [Concept Registry](concept-unified-registry.md) | ⏳ Design complete, MVP build trigger fired 2026-07-04 (todo 058), not built; zero `concept_*` tables exist. Feature Registry (a separate sibling system, not part of Concept Registry) is live with 61 rows |
+| **Type 2 — Lifecycle** | Evidence-gated research artifacts (features, ensemble strategies, HMM variants, alpha patterns) | [Concept Registry](concept-unified-registry.md) | ✅ MVP live 2026-07-13 (todo 058, migrations 231/232): four tables + `ConceptRegistryService`, `ensemble_strategy` seeded (5 concepts). `feature` domain not yet migrated (todo 118). Feature Registry (a separate sibling system, not part of Concept Registry) is live with 61 rows |
 | **Type 3 — Vocabulary** | Static taxonomies (tags, domain enums, controlled vocabularies) | See below | ⏳ Design complete, build pending |
 
 ---
@@ -41,7 +41,7 @@ Concept Governance Registries is the overarching framework that unifies all runt
 **Purpose:** Evidence-gated promotion/demotion of research artifacts.
 
 - **Canonical doc:** `docs/research/concept-unified-registry.md`
-- **Status:** Feature Registry (separate sibling system) live (61 features); Concept Registry design complete, MVP build trigger fired 2026-07-04 (todo 058), not built
+- **Status:** Feature Registry (separate sibling system) live (61 features); Concept Registry MVP live 2026-07-13 (todo 058, migrations 231/232), `ensemble_strategy` seeded; `feature` migration pending (todo 118)
 - **Domains seeded at build time (only domains with real candidates as of 2026-07-06):** `feature`, `ensemble_strategy`. The rest (`hmm_variant`, `ic_method`, `regime_model`, `alpha_pattern`, `confluence`) are anticipated shapes, added by migration only once each has real candidates; see the canonical doc's Domains table for per-domain status
 - **Infrastructure:** Four-table MVP (`concept_registry`, `concept_gate`, `concept_transition_log`, `concept_annotation`) + `ConceptRegistryService`
 - **Lifecycle:** `candidate → shadow_only → active → deprecated` with statistical gates (p < 0.05, minimum observation floors stated against effective N, not raw bar count)
@@ -113,7 +113,7 @@ Two related systems:
 |-----------|--------|---------|--------|
 | APR | 4 live | `ConfigService` | ✅ Shipped |
 | Feature Registry (separate sibling system, not part of Concept Registry) | 1 live | Integrated in `ensemble_trainer.py` | ✅ Shipped (61 rows) |
-| Concept Registry (full Type 2) | 4 designed (`concept_registry`, `concept_gate`, `concept_transition_log`, `concept_annotation`) | `ConceptRegistryService` (designed) | ⏳ Build trigger fired 2026-07-04 (todo 058), not started |
+| Concept Registry (full Type 2) | 4 live (`concept_registry`, `concept_gate`, `concept_transition_log`, `concept_annotation`) | `ConceptRegistryService` (live, `src/intelligence/concept_registry_service.py`) | ✅ MVP shipped 2026-07-13 (todo 058, migrations 231/232); `ensemble_strategy` seeded, `feature` migration pending (todo 118) |
 | Tag Vocabulary | 3 designed | `TagCalibratorService` (designed) | ⏳ Build pending |
 | Controlled Vocabulary | 3 designed | `VocabularyService` (designed) | ⏳ Build pending |
 
