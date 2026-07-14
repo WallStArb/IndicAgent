@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: Phase 143.1 in progress (Wave 6/7, corpus re-run running)
-last_updated: "2026-07-14T14:43:07.273Z"
+status: Phase 160 Concept Registry MVP in progress (Wave 2/2, plan 160-03 COMPLETE)
+last_updated: "2026-07-14T17:50:00.000Z"
 progress:
-  total_phases: 11
+  total_phases: 12
   completed_phases: 6
-  total_plans: 36
-  completed_plans: 31
-  percent: 55
+  total_plans: 40
+  completed_plans: 33
+  percent: 53
 ---
 
 # Project State
