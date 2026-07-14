@@ -123,14 +123,14 @@ def test_compute_final_multiplier_weighted_average() -> None:
 
 
 def test_no_regression_on_existing_swarm_tests() -> None:
-    """Pre-existing test_alpha_swarm_agent.py must keep passing."""
+    """Pre-existing test_alpha_swarm.py must keep passing."""
     result = subprocess.run(
         [
             sys.executable,
             "-m",
             "pytest",
             "-x",
-            "tests/unit/service_tests/test_alpha_swarm_agent.py",
+            "tests/unit/services/test_alpha_swarm.py",
         ],
         capture_output=True,
         text=True,
