@@ -655,16 +655,23 @@ async def fetch_regime_series(conn: asyncpg.Connection, tf: str) -> list[asyncpg
     return await conn.fetch(_REGIME_SERIES_SQL, PROB_KEYS[0], PROB_KEYS[1], tf)
 
 
-def load_equity_tiers(cfg: Any) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+async def load_equity_tiers(cfg: Any) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
     """Tier cut points for the equity group, via the exact production function --
     never retyped, so this can't silently drift from what cross_sectional_regime_model.py
-    actually applies. Params match breadth_vol.py's own defaults/APR keys.
+    actually applies. APR namespace is 'alpha.equity_regime' -- the equity group's
+    params_prefix in cross_sectional_regime_model.py's group config (migration 229 renamed
+    this from the pre-Phase-144 'alpha.regime.*' shape; confirmed live in config_state).
+
+    Uses ConfigService.get() (async, DB-backed on cache miss), not get_sync() -- get_sync()
+    only reads an already-warmed in-memory cache and silently returns the default on a cold
+    cache, which would defeat the point of reading live APR values here. This script is
+    async top-to-bottom with no hot-path constraint that would justify get_sync().
     """
     params = {
-        "vix_low_pct": cfg.get_sync("alpha.regime.equity.vix_low_pct", 0.33),
-        "vix_high_pct": cfg.get_sync("alpha.regime.equity.vix_high_pct", 0.67),
-        "breadth_bear": cfg.get_sync("alpha.regime.equity.breadth_bear", 0.40),
-        "breadth_bull": cfg.get_sync("alpha.regime.equity.breadth_bull", 0.60),
+        "vix_low_pct": await cfg.get("alpha.equity_regime.vix_low_pct", 0.33),
+        "vix_high_pct": await cfg.get("alpha.equity_regime.vix_high_pct", 0.67),
+        "breadth_bear": await cfg.get("alpha.equity_regime.breadth_bear", 0.40),
+        "breadth_bull": await cfg.get("alpha.equity_regime.breadth_bull", 0.60),
     }
     return build_tiers(params)
 ```
@@ -957,7 +964,9 @@ git commit -m "feat(analysis): add stratified sample allocation and feature_vect
 - Produces: `def score_sampled_bars(sampled_rows: list[dict], adjacency_by_ts: dict, weights_by_regime: dict[str, dict[str, float]]) -> tuple[np.ndarray, int]`
   (returns `(effect_sizes, n_untrained_neighbor_bars)` — the pure orchestration core, DB-free
   and directly testable with synthetic fixtures);
-  `async def run_diagnostic(conn: asyncpg.Connection, weight_version: str) -> list[CellVerdict]`
+  `async def run_diagnostic(conn: asyncpg.Connection, cfg: Any, weight_version: str) -> list[CellVerdict]`
+  (`cfg` is an initialized `ConfigService` -- caller-owned, matching how `conn` is already
+  caller-owned, rather than `run_diagnostic` constructing its own DB-backed service internally)
   (thin async wrapper calling the fetch layer then `score_sampled_bars` then `compute_cell_verdict`
   per tf).
 
@@ -1067,8 +1076,13 @@ def score_sampled_bars(
     return np.array(effect_sizes, dtype=float), n_untrained
 
 
-async def run_diagnostic(conn: asyncpg.Connection, weight_version: str) -> list[CellVerdict]:
+async def run_diagnostic(
+    conn: asyncpg.Connection, cfg: Any, weight_version: str
+) -> list[CellVerdict]:
     """Full pipeline for REGIME_GROUP, one CellVerdict per tf in TFS.
+
+    cfg is a caller-owned, already-initialized ConfigService (see load_equity_tiers'
+    docstring for why this uses cfg.get(), not cfg.get_sync()).
 
     Two passes, deliberately: allocate_sample_sizes needs every tf's boundary-adjacent
     count up front to share the ~50k sample budget proportionally (Task 7) -- calling it
@@ -1076,11 +1090,7 @@ async def run_diagnostic(conn: asyncpg.Connection, weight_version: str) -> list[
     hard_cap (up to 4x hard_cap total), defeating the cross-tf sharing the budget exists
     for.
     """
-    from src.config.settings import Settings
-    from src.core.config_service import ConfigService
-
-    cfg = ConfigService(Settings())
-    tiers1, tiers2 = load_equity_tiers(cfg)
+    tiers1, tiers2 = await load_equity_tiers(cfg)
 
     # Pass 1: fetch each tf's regime series and classify boundary adjacency.
     per_tf: dict[str, dict] = {}
@@ -1228,8 +1238,8 @@ def main() -> None:
     import argparse
     import asyncio
 
+    from src.config.config_service import ConfigService
     from src.config.settings import Settings
-    from src.core.config_service import ConfigService
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--weight-version", default=None, help="Overrides alpha.ensemble.weight_version.")
@@ -1237,13 +1247,17 @@ def main() -> None:
 
     async def _run() -> None:
         settings = Settings()
-        cfg = ConfigService(settings)
-        weight_version = args.weight_version or cfg.get_sync("alpha.ensemble.weight_version", "v1")
+        cfg = ConfigService(database_url=settings.database_url)
+        await cfg.initialize()
         conn = await asyncpg.connect(settings.database_url)
         try:
-            verdicts = await run_diagnostic(conn, weight_version)
+            weight_version = args.weight_version or await cfg.get(
+                "alpha.ensemble.weight_version", "v1"
+            )
+            verdicts = await run_diagnostic(conn, cfg, weight_version)
         finally:
             await conn.close()
+            await cfg.close()
         print(format_verdict_table(verdicts))
 
     asyncio.run(_run())
