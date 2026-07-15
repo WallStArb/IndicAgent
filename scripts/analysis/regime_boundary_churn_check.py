@@ -22,8 +22,16 @@ from __future__ import annotations
 
 import math
 import random
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+# Makes `services.*`/`src.*` resolvable when run as a standalone script (python
+# scripts/analysis/regime_boundary_churn_check.py) rather than only under pytest, where
+# tests/conftest.py already does this. Relative to __file__, not a hardcoded absolute path,
+# so it resolves correctly from any worktree.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import asyncpg  # noqa: E402
 import numpy as np
