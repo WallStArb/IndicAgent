@@ -824,17 +824,22 @@ from scripts.analysis.regime_boundary_churn_check import _SIGNED_WEIGHTS_SQL, _C
 
 async def main():
     conn = await asyncpg.connect('postgresql://postgres:postgres@localhost:5432/indicagent')
-    r1 = await conn.fetch(_SIGNED_WEIGHTS_SQL, '5m', 'v1')
-    r2 = await conn.fetch(_CLEAN_NOISE_FLOOR_SQL, '5m', 'v1')
+    r1 = await conn.fetch(_SIGNED_WEIGHTS_SQL, '5m', 'run_2025122405150000')
+    r2 = await conn.fetch(_CLEAN_NOISE_FLOOR_SQL, '5m', 'run_2025122405150000')
     print('signed_weights rows:', len(r1), 'noise_floor rows:', len(r2))
     await conn.close()
 
 asyncio.run(main())
 "
 ```
-Expected: prints two counts, no error. (Counts may be 0 if `weight_version='v1'` isn't the
-live one — check `alpha.ensemble.weight_version` via `ConfigService` if so; 0 rows is not a
-failure of this step, an exception is.)
+Expected: prints two counts, no error. `'run_2025122405150000'` is the live
+`alpha.ensemble.weight_version` as of 2026-07-15 (verify with
+`PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT config_value FROM
+config_state WHERE config_key = 'alpha.ensemble.weight_version';"` if it may have changed).
+**0 rows for both is expected right now**, not a bug: `ensemble_weights`/`ensemble_alpha` are
+currently empty because the in-flight corpus pipeline hasn't reached its `ensemble_trainer`/
+`alpha_publisher` steps yet for this epoch. Only an exception (SQL error) is a failure of this
+step — a clean 0-row result confirms the query is valid against the live schema.
 
 - [ ] **Step 6: Commit**
 
