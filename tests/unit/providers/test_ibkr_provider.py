@@ -102,7 +102,28 @@ class TestFetchHistoricalBars:
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_no_data(self, provider, mock_ib):
-        mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=[])
+        """A bare empty return (no matching reqId in _no_data_req_ids) is treated as
+        an AMBIGUOUS result, not a confirmed no-data signal -- it falls through to
+        the real 65s/130s exponential-backoff retry path (see F3 2026-07-05 /
+        test_two_consecutive_no_data_chunks_aborts_backfill's comment below for the
+        full mechanics). A plain `[]` mock here previously made this "returns empty"
+        test spend ~195s in real asyncio.sleep() before its assertion ever ran.
+        Registering the reqId in _no_data_req_ids simulates the confirmed-no-data
+        signal so the fast path fires instead, matching how the codebase's other
+        no-data tests are already written.
+        """
+        from ib_insync import BarDataList
+
+        ibkr_module._no_data_req_ids.clear()
+        req_id = 90200
+
+        async def fake_req(*args, **kwargs):
+            ibkr_module._no_data_req_ids.add(req_id)
+            bars = BarDataList()
+            bars.reqId = req_id
+            return bars
+
+        mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=fake_req)
         provider._ib = mock_ib
         provider._qualified_contracts["ESH6"] = MagicMock()
         bars = await provider.fetch_historical_bars(
@@ -112,11 +133,21 @@ class TestFetchHistoricalBars:
             datetime(2026, 2, 2, tzinfo=UTC),
         )
         assert bars == []
+        ibkr_module._no_data_req_ids.clear()
 
     @pytest.mark.asyncio
     async def test_single_no_data_chunk_does_not_abort_backfill(self, provider, mock_ib):
         """A single confirmed Error 162 chunk must not truncate the walk (todo 049):
         it can be a transient pacing/permission hiccup, not proof of a pre-listing date.
+
+        The confirmed-no-data fast path only fires when the returned result's own
+        .reqId matches an entry in _no_data_req_ids -- a bare `[]` (no .reqId
+        attribute, getattr(..., "reqId", None) is always None) never matches,
+        which silently falls through to the AMBIGUOUS-result retry path (real
+        65s/130s asyncio.sleep() backoff) instead of the fast no-data break this
+        test means to exercise. Previously passed anyway (retry attempt 2 happens
+        to return real_bar, satisfying the assertions) but only after ~65s of real
+        sleep, and without ever actually exercising todo 049's fast-path logic.
         """
         ibkr_module._no_data_req_ids.clear()
         real_bar = MagicMock()
@@ -131,10 +162,15 @@ class TestFetchHistoricalBars:
         calls = {"n": 0}
 
         async def fake_req(*args, **kwargs):
+            from ib_insync import BarDataList
+
             calls["n"] += 1
             if calls["n"] == 1:
-                ibkr_module._no_data_req_ids.add(90000 + calls["n"])
-                return []
+                req_id = 90000 + calls["n"]
+                ibkr_module._no_data_req_ids.add(req_id)
+                no_data = BarDataList()
+                no_data.reqId = req_id
+                return no_data
             return [real_bar]
 
         mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=fake_req)

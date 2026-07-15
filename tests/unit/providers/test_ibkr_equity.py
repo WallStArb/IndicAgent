@@ -61,7 +61,13 @@ class TestIBKRUseRTH:
         provider._qualified_contracts = {"SPY": mock_contract}
 
         with patch.object(provider, "_ib", create=True) as mock_ib:
-            mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=[])
+            # A falsy return_value=[] is NOT "success" to _fetch_historical_bars_impl --
+            # it's ambiguous (no confirmed no-data reqId), so it falls through to a real
+            # 65s/130s exponential-backoff retry before giving up. These tests only
+            # assert on the useRTH kwarg passed to reqHistoricalDataAsync (already
+            # exception-tolerant below), so a truthy stub result is enough to take the
+            # immediate-success path and skip the retry sleeps entirely.
+            mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=[MagicMock()])
             start = datetime(2026, 3, 1, tzinfo=UTC)
             end = datetime(2026, 3, 2, tzinfo=UTC)
             try:
@@ -87,7 +93,13 @@ class TestIBKRUseRTH:
         provider._qualified_contracts = {"ES": mock_contract}
 
         with patch.object(provider, "_ib", create=True) as mock_ib:
-            mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=[])
+            # A falsy return_value=[] is NOT "success" to _fetch_historical_bars_impl --
+            # it's ambiguous (no confirmed no-data reqId), so it falls through to a real
+            # 65s/130s exponential-backoff retry before giving up. These tests only
+            # assert on the useRTH kwarg passed to reqHistoricalDataAsync (already
+            # exception-tolerant below), so a truthy stub result is enough to take the
+            # immediate-success path and skip the retry sleeps entirely.
+            mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=[MagicMock()])
             start = datetime(2026, 3, 1, tzinfo=UTC)
             end = datetime(2026, 3, 2, tzinfo=UTC)
             try:
