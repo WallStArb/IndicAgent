@@ -97,3 +97,83 @@ def test_score_bar_treats_missing_and_non_finite_as_zero():
     score = score_bar(feature_values, feature_names, signed_weights)
     expected = 0.0 * 0.6 + -1.0 * 0.4 + 0.0 * -0.5
     assert abs(score - expected) < 1e-9
+
+
+from scripts.analysis.regime_boundary_churn_check import compute_cell_verdict
+
+
+def test_verdict_passes_when_both_criteria_met():
+    verdict = compute_cell_verdict(
+        regime_group="equity",
+        tf="5m",
+        n_boundary_adjacent_timestamps=600,
+        n_total_timestamps=10_000,  # 6% >= 5% gate
+        effect_sizes=np.array([0.30, 0.32, 0.35, 0.40]),  # median 0.335
+        clean_noise_floor=0.20,  # 0.335 >= 1.5 * 0.20 = 0.30
+        n_untrained_neighbor_bars=5,
+        n_scored_bars=595,
+    )
+    assert verdict.boundary_adjacent_fraction == 0.06
+    assert verdict.criterion_1_pass is True
+    assert verdict.criterion_2_pass is True
+    assert verdict.overall_pass is True
+
+
+def test_verdict_fails_on_low_boundary_fraction():
+    verdict = compute_cell_verdict(
+        regime_group="equity",
+        tf="1d",
+        n_boundary_adjacent_timestamps=10,
+        n_total_timestamps=10_000,  # 0.1% < 5% gate
+        effect_sizes=np.array([0.50, 0.55]),
+        clean_noise_floor=0.10,
+        n_untrained_neighbor_bars=0,
+        n_scored_bars=10,
+    )
+    assert verdict.criterion_1_pass is False
+    assert verdict.overall_pass is False
+
+
+def test_verdict_fails_when_effect_indistinguishable_from_noise():
+    verdict = compute_cell_verdict(
+        regime_group="equity",
+        tf="1h",
+        n_boundary_adjacent_timestamps=600,
+        n_total_timestamps=10_000,
+        effect_sizes=np.array([0.10, 0.11, 0.12]),  # median 0.11
+        clean_noise_floor=0.20,  # 0.11 < 1.5 * 0.20 = 0.30
+        n_untrained_neighbor_bars=0,
+        n_scored_bars=600,
+    )
+    assert verdict.criterion_1_pass is True
+    assert verdict.criterion_2_pass is False
+    assert verdict.overall_pass is False
+
+
+def test_verdict_handles_zero_noise_floor_without_dividing_by_zero():
+    verdict = compute_cell_verdict(
+        regime_group="equity",
+        tf="1h",
+        n_boundary_adjacent_timestamps=600,
+        n_total_timestamps=10_000,
+        effect_sizes=np.array([0.10]),
+        clean_noise_floor=0.0,
+        n_untrained_neighbor_bars=0,
+        n_scored_bars=600,
+    )
+    assert verdict.criterion_2_pass is False
+
+
+def test_verdict_handles_no_boundary_adjacent_timestamps():
+    verdict = compute_cell_verdict(
+        regime_group="equity",
+        tf="1d",
+        n_boundary_adjacent_timestamps=0,
+        n_total_timestamps=10_000,
+        effect_sizes=np.array([]),
+        clean_noise_floor=0.10,
+        n_untrained_neighbor_bars=0,
+        n_scored_bars=0,
+    )
+    assert verdict.median_effect_size == 0.0
+    assert verdict.overall_pass is False

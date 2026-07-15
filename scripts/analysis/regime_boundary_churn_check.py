@@ -180,3 +180,46 @@ def score_bar(
         dtype=float,
     )
     return float(np.dot(x, signed_weights))
+
+
+def compute_cell_verdict(
+    regime_group: str,
+    tf: str,
+    n_boundary_adjacent_timestamps: int,
+    n_total_timestamps: int,
+    effect_sizes: np.ndarray,
+    clean_noise_floor: float,
+    n_untrained_neighbor_bars: int,
+    n_scored_bars: int,
+) -> CellVerdict:
+    """Apply the pre-committed decision gate to one (regime_group, tf) cell.
+
+    Both criteria required for overall_pass -- see module docstring / design doc for the
+    rationale (materiality of exposure, materiality of effect size vs a noise floor that
+    excludes the churn effect itself).
+    """
+    boundary_adjacent_fraction = (
+        n_boundary_adjacent_timestamps / n_total_timestamps if n_total_timestamps > 0 else 0.0
+    )
+    median_effect_size = float(np.median(effect_sizes)) if len(effect_sizes) > 0 else 0.0
+
+    criterion_1_pass = boundary_adjacent_fraction >= BOUNDARY_ADJACENT_FRACTION_GATE
+    criterion_2_pass = (
+        clean_noise_floor > 0
+        and median_effect_size >= EFFECT_SIZE_MULTIPLIER_GATE * clean_noise_floor
+    )
+
+    return CellVerdict(
+        regime_group=regime_group,
+        tf=tf,
+        boundary_adjacent_fraction=boundary_adjacent_fraction,
+        n_boundary_adjacent_timestamps=n_boundary_adjacent_timestamps,
+        n_total_timestamps=n_total_timestamps,
+        median_effect_size=median_effect_size,
+        clean_noise_floor=clean_noise_floor,
+        n_untrained_neighbor_bars=n_untrained_neighbor_bars,
+        n_scored_bars=n_scored_bars,
+        criterion_1_pass=criterion_1_pass,
+        criterion_2_pass=criterion_2_pass,
+        overall_pass=criterion_1_pass and criterion_2_pass,
+    )
