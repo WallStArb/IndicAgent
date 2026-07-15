@@ -206,6 +206,9 @@ class CellVerdict:
     n_total_timestamps: int
     median_effect_size: float
     clean_noise_floor: float
+    # Counts (bar, neighbor-regime) pairs skipped for lacking trained weights, not distinct
+    # bars -- a corner-case bar with 3 neighbor regimes, none trained, contributes 3 here.
+    # Informational only; does not feed either gate criterion.
     n_untrained_neighbor_bars: int
     n_scored_bars: int
     criterion_1_pass: bool

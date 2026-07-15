@@ -395,3 +395,63 @@ def test_score_sampled_bars_excludes_bars_with_untrained_actual_regime_too():
     effect_sizes, n_untrained = score_sampled_bars(sampled_rows, adjacency_by_ts, weights_by_regime)
     assert len(effect_sizes) == 0
     assert n_untrained == 1
+
+
+from scripts.analysis.regime_boundary_churn_check import run_diagnostic
+
+
+class _FakeConfigServiceForDiagnostic:
+    async def get(self, key, default):
+        return default
+
+
+class _FakeConnForRunDiagnostic:
+    """Routes conn.fetch()/fetchrow() by inspecting the SQL text -- exercises
+    run_diagnostic's real control flow end-to-end without a live database.
+    Regression guard for exactly the class of bug already caught in Task 6:
+    fetch_signed_weights_by_regime's signature drifting out from under run_diagnostic's
+    call site (argument count/order changed, tuple return unpacked wrong, etc.) would
+    raise here instead of only being caught by a manual live-DB smoke test.
+    """
+
+    def __init__(self):
+        self.fetch_calls: list[str] = []
+
+    async def fetch(self, sql, *args):
+        self.fetch_calls.append(sql)
+        if "regime_prob_vector" in sql:
+            # Only tf='5m' (3rd positional arg) gets synthetic rows; other tfs get none
+            # so run_diagnostic's `if len(series) < 2: continue` skips them (Task 8's own
+            # early-exit path, exercised for free).
+            if args[2] == "5m":
+                return [
+                    {"ts": "t1", "regime_label": "mid_neutral", "sig1": 0.50, "sig2": 0.50},
+                    {"ts": "t2", "regime_label": "mid_neutral", "sig1": 0.50, "sig2": 0.50},
+                ]
+            return []
+        if "ensemble_weights" in sql:
+            return []  # no trained regimes -- matches the current live DB state
+        if "ensemble_alpha" in sql:
+            return []
+        raise AssertionError(f"unexpected SQL in fake conn.fetch: {sql[:80]}")
+
+    async def fetchrow(self, sql, *args):
+        raise AssertionError(
+            "fetchrow should not be called: no boundary-adjacent bars in this fixture"
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_diagnostic_completes_and_returns_one_verdict_per_tf_with_data():
+    conn = _FakeConnForRunDiagnostic()
+    cfg = _FakeConfigServiceForDiagnostic()
+    verdicts = await run_diagnostic(conn, cfg, "run_x")
+    assert len(verdicts) == 1  # only '5m' had >= 2 regime rows
+    v = verdicts[0]
+    assert v.tf == "5m"
+    assert v.n_total_timestamps == 2
+    # sig1=sig2=0.50 for both rows -- far from every tier boundary, so no boundary-adjacent
+    # timestamps and both gate criteria correctly fail (matches the shape of a real run
+    # against the current live DB, where ensemble_weights/ensemble_alpha are also empty).
+    assert v.n_boundary_adjacent_timestamps == 0
+    assert v.overall_pass is False
