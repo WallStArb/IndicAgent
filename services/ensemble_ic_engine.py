@@ -516,7 +516,7 @@ _WORKER_FETCH_SQL = """
       ON fr.symbol = ea.symbol AND fr.tf = ea.tf AND fr.bar_ts = ea.bar_ts
       AND fr.return_type = 'executable_open_to_open'
     JOIN market_regimes mr
-      ON mr.asset_class = 'equity' AND mr.tf = ea.tf AND mr.ts = ea.bar_ts
+      ON mr.regime_group = 'equity' AND mr.tf = ea.tf AND mr.ts = ea.bar_ts
     WHERE ea.symbol = %s AND ea.tf = %s AND ea.weight_version = %s AND ea.bar_ts < %s
     ORDER BY ea.bar_ts
 """
@@ -530,7 +530,7 @@ _WORKER_FETCH_SQL = """
 # per-symbol rows are then reduced by the pure function _aggregate_pooled_series below
 # BEFORE any IC math runs -- RESEARCH.md Pitfall 5 requires grouping by
 # (tf, regime, bar_ts) and averaging across symbols first, never averaging first and
-# labeling second. market_regimes is asset_class-scoped (not per-symbol), so every
+# labeling second. market_regimes is regime_group-scoped (not per-symbol), so every
 # symbol at a given (tf, bar_ts) shares exactly one regime_label by construction --
 # grouping by (regime_label, bar_ts) within a fixed tf is therefore equivalent to
 # grouping by the full (tf, regime, bar_ts) triple.
@@ -542,7 +542,7 @@ _POOLED_WORKER_FETCH_SQL = """
       ON fr.symbol = ea.symbol AND fr.tf = ea.tf AND fr.bar_ts = ea.bar_ts
       AND fr.return_type = 'executable_open_to_open'
     JOIN market_regimes mr
-      ON mr.asset_class = 'equity' AND mr.tf = ea.tf AND mr.ts = ea.bar_ts
+      ON mr.regime_group = 'equity' AND mr.tf = ea.tf AND mr.ts = ea.bar_ts
     WHERE ea.tf = %s AND ea.weight_version = %s AND ea.bar_ts < %s
     ORDER BY ea.bar_ts
 """

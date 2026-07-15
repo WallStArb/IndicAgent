@@ -786,7 +786,10 @@ class EnsembleTrainer(BaseBatch):
 
         # Fetch feature matrix for all symbols in this cross-sectional regime.
         # feature_vectors.regime holds per-symbol HMM labels; cross-sectional regime labels
-        # live in market_regimes. JOIN on (asset_class, tf, ts=bar_ts) to filter by regime.
+        # live in market_regimes. JOIN on (regime_group, tf, ts=bar_ts) to filter by regime.
+        # regime_group hardcoded to 'equity': ensemble_trainer is not yet regime_group-aware
+        # (unlike ic_engine.py's Phase 144 routing) -- this stratum loop only ever trains
+        # on the equity universe today.
         # Safe: col_subset names come from information_schema, not user data
         col_list = ", ".join(f'fv."{c}"' for c in col_subset)
         fv_rows = await conn.fetch(
@@ -794,7 +797,7 @@ class EnsembleTrainer(BaseBatch):
             SELECT fv.symbol, {col_list}, fv.bar_ts
             FROM feature_vectors fv
             JOIN market_regimes mr
-              ON mr.asset_class = 'equity' AND mr.tf = fv.tf AND mr.ts = fv.bar_ts
+              ON mr.regime_group = 'equity' AND mr.tf = fv.tf AND mr.ts = fv.bar_ts
             WHERE fv.tf = $1 AND mr.regime_label = $2
             ORDER BY fv.bar_ts, fv.symbol
             """,

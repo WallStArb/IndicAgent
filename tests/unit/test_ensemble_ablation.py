@@ -304,8 +304,8 @@ def test_fetch_sql_statistical_invariants():
         assert f"fr.complete_{scale}" in sql
     assert 'fv."momentum_z_fast"' in sql and 'fv."obv_z"' in sql
     assert "ea.weight_version = $3" in sql
-    # trainer's exact stratum join: market_regimes on (asset_class, tf, ts)
-    assert "mr.asset_class = 'equity'" in sql
+    # trainer's exact stratum join: market_regimes on (regime_group, tf, ts)
+    assert "mr.regime_group = 'equity'" in sql
     assert "ORDER BY fv.bar_ts, fv.symbol" in sql
 
 

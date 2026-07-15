@@ -338,7 +338,7 @@ def build_stratum_fetch_sql(feature_names: list[str]) -> str:
     - feature_vectors JOIN market_regimes: the trainer's exact stratum join
       (ensemble_trainer.py lines 792-799) -- feature_vectors.regime holds
       per-symbol HMM labels; the cross-sectional stratum label lives in
-      market_regimes (asset_class='equity', tf, ts=bar_ts).
+      market_regimes (regime_group='equity', tf, ts=bar_ts).
     - JOIN forward_returns with the executable filter (Invariant 1) plus the four
       return_* AND complete_* columns for pre-pooling completeness gating.
     - LEFT JOIN ensemble_alpha scoped to this weight_version: stored baseline for
@@ -358,7 +358,7 @@ def build_stratum_fetch_sql(feature_names: list[str]) -> str:
                ea.alpha_score AS stored_alpha
         FROM feature_vectors fv
         JOIN market_regimes mr
-          ON mr.asset_class = 'equity' AND mr.tf = fv.tf AND mr.ts = fv.bar_ts
+          ON mr.regime_group = 'equity' AND mr.tf = fv.tf AND mr.ts = fv.bar_ts
         JOIN forward_returns fr
           ON fr.symbol = fv.symbol AND fr.tf = fv.tf AND fr.bar_ts = fv.bar_ts
           AND fr.return_type = 'executable_open_to_open'
