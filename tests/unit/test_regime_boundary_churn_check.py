@@ -270,3 +270,27 @@ async def test_load_equity_tiers_reads_the_live_equity_regime_apr_namespace():
         "alpha.equity_regime.breadth_bear",
         "alpha.equity_regime.breadth_bull",
     ]
+
+
+from scripts.analysis.regime_boundary_churn_check import allocate_sample_sizes
+
+
+def test_allocate_sample_sizes_proportional_to_boundary_counts():
+    counts = {"5m": 8_000, "15m": 1_500, "1h": 400, "1d": 100}
+    allocation = allocate_sample_sizes(counts, target_total=10_000, hard_cap=20_000)
+    total = sum(counts.values())
+    assert allocation["5m"] == round(10_000 * 8_000 / total)
+    assert allocation["1d"] == round(10_000 * 100 / total)
+    assert sum(allocation.values()) <= 10_000 + 4  # rounding slack, not a hard cap breach
+
+
+def test_allocate_sample_sizes_respects_hard_cap():
+    counts = {"5m": 100_000, "15m": 100, "1h": 100, "1d": 100}
+    allocation = allocate_sample_sizes(counts, target_total=50_000, hard_cap=20_000)
+    assert allocation["5m"] == 20_000
+
+
+def test_allocate_sample_sizes_never_exceeds_available_count():
+    counts = {"5m": 30, "15m": 1_500, "1h": 400, "1d": 100}
+    allocation = allocate_sample_sizes(counts, target_total=50_000, hard_cap=20_000)
+    assert allocation["5m"] == 30

@@ -356,3 +356,49 @@ def compute_cell_verdict(
         criterion_2_pass=criterion_2_pass,
         overall_pass=criterion_1_pass and criterion_2_pass,
     )
+
+
+def allocate_sample_sizes(
+    boundary_counts_by_tf: dict[str, int],
+    target_total: int = SAMPLE_SIZE_TARGET,
+    hard_cap: int = HARD_CAP_PER_TF,
+) -> dict[str, int]:
+    """Per-tf sample allocation, proportional to each tf's boundary-adjacent timestamp
+    count, capped so one large tf (5m) can't starve smaller ones (1d) of representation,
+    and never asking for more than a tf actually has available.
+    """
+    total = sum(boundary_counts_by_tf.values())
+    if total == 0:
+        return dict.fromkeys(boundary_counts_by_tf, 0)
+    allocation: dict[str, int] = {}
+    for tf, count in boundary_counts_by_tf.items():
+        proportional = round(target_total * count / total)
+        allocation[tf] = min(proportional, hard_cap, count)
+    return allocation
+
+
+async def fetch_sampled_feature_vectors(
+    conn: asyncpg.Connection,
+    tf: str,
+    timestamps: list,
+    feature_names: tuple[str, ...],
+    n: int,
+) -> list[asyncpg.Record]:
+    """Random sample of n (symbol, bar_ts) rows from feature_vectors at the given
+    boundary-adjacent timestamps. feature_names come from fetch_signed_weights_by_regime's
+    keys (information-schema-governed registry names, not user input -- safe to interpolate
+    into the column list, matching ensemble_trainer.py's own col_list convention).
+    """
+    col_list = ", ".join(f'"{c}"' for c in feature_names)
+    return await conn.fetch(
+        f"""
+        SELECT symbol, bar_ts, {col_list}
+        FROM feature_vectors
+        WHERE tf = $1 AND bar_ts = ANY($2::timestamptz[])
+        ORDER BY random()
+        LIMIT $3
+        """,
+        tf,
+        timestamps,
+        n,
+    )
