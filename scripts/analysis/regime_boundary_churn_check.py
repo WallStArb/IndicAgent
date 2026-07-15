@@ -24,6 +24,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from services.cross_sectional_regime_model import _bucket  # noqa: E402
+
 # Sample size target across all timeframes combined (~50k rows gives ample power for a
 # median-based effect-size comparison without pulling the full corpus).
 SAMPLE_SIZE_TARGET = 50_000
@@ -89,3 +91,60 @@ def derive_boundary_window(
         return 0.0
     steps = np.abs(np.diff(step_series))
     return float(np.median(steps)) * multiplier
+
+
+def _neighbors_across_axis(
+    value: float, tiers: list[tuple[str, float]], window: float
+) -> list[str]:
+    """Tier names reachable by crossing a boundary within `window` of `value`.
+
+    Loops every boundary (not just the two flanking value's own tier) so a narrow middle
+    tier with a wide window correctly reports both neighbors, not just one.
+    """
+    boundaries = [upper for _, upper in tiers[:-1]]
+    names = [name for name, _ in tiers]
+    neighbors: list[str] = []
+    for i, boundary in enumerate(boundaries):
+        if abs(value - boundary) <= window:
+            other_name = names[i + 1] if value < boundary else names[i]
+            neighbors.append(other_name)
+    return neighbors
+
+
+def classify_timestamp_adjacency(
+    sig1: float,
+    sig2: float,
+    tiers1: list[tuple[str, float]],
+    tiers2: list[tuple[str, float]],
+    window1: float,
+    window2: float,
+) -> BoundaryAdjacency:
+    """Classify one (regime_group, tf, ts) timestamp's boundary adjacency.
+
+    market_regimes is keyed (regime_group, tf, ts) with no symbol dimension -- this
+    classifies the timestamp itself, shared by every symbol's row at that ts. Uses the
+    production _bucket() function for the actual label so this can never silently drift
+    from what cross_sectional_regime_model.py assigns in production.
+    """
+    label1 = str(_bucket(np.array([sig1]), tiers1)[0])
+    label2 = str(_bucket(np.array([sig2]), tiers2)[0])
+    actual_label = f"{label1}_{label2}"
+
+    axis1_neighbors = _neighbors_across_axis(sig1, tiers1, window1)
+    axis2_neighbors = _neighbors_across_axis(sig2, tiers2, window2)
+
+    neighbor_labels: list[str] = []
+    for n1 in axis1_neighbors:
+        neighbor_labels.append(f"{n1}_{label2}")
+    for n2 in axis2_neighbors:
+        neighbor_labels.append(f"{label1}_{n2}")
+    for n1 in axis1_neighbors:
+        for n2 in axis2_neighbors:
+            neighbor_labels.append(f"{n1}_{n2}")
+
+    return BoundaryAdjacency(
+        axis1_adjacent=bool(axis1_neighbors),
+        axis2_adjacent=bool(axis2_neighbors),
+        actual_label=actual_label,
+        neighbor_labels=tuple(dict.fromkeys(neighbor_labels)),
+    )
