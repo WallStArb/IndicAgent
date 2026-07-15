@@ -425,3 +425,148 @@ async def fetch_sampled_feature_vectors(
         sampled_timestamps,
     )
     return rows[:n] if len(rows) > n else rows
+
+
+def score_sampled_bars(
+    sampled_rows: list[dict],
+    adjacency_by_ts: dict,
+    weights_by_regime: dict[str, dict[str, float]],
+) -> tuple[np.ndarray, int]:
+    """Score every sampled (symbol, ts) bar against its actual regime's weights and each
+    relevant neighbor regime's weights (per its BoundaryAdjacency.neighbor_labels), via
+    align_weight_vectors + score_bar. A bar whose actual OR neighbor regime never trained
+    (no entry in weights_by_regime) is excluded from effect_sizes and counted separately
+    -- never silently dropped without a trace.
+
+    Returns (effect_sizes, n_untrained_neighbor_bars). Pure / DB-free: sampled_rows and
+    adjacency_by_ts are already-fetched data, not live connections.
+    """
+    effect_sizes: list[float] = []
+    n_untrained = 0
+
+    for row in sampled_rows:
+        adjacency = adjacency_by_ts.get(row["bar_ts"])
+        if adjacency is None:
+            continue
+        actual_weights = weights_by_regime.get(adjacency.actual_label)
+        if actual_weights is None:
+            n_untrained += len(adjacency.neighbor_labels) or 1
+            continue
+
+        feature_values = {k: v for k, v in row.items() if k not in ("symbol", "bar_ts")}
+
+        for neighbor_label in adjacency.neighbor_labels:
+            neighbor_weights = weights_by_regime.get(neighbor_label)
+            if neighbor_weights is None:
+                n_untrained += 1
+                continue
+            aligned = align_weight_vectors(actual_weights, neighbor_weights)
+            actual_score = score_bar(
+                feature_values, aligned.feature_names, aligned.signed_weights_a
+            )
+            neighbor_score = score_bar(
+                feature_values, aligned.feature_names, aligned.signed_weights_b
+            )
+            effect_sizes.append(abs(actual_score - neighbor_score))
+
+    return np.array(effect_sizes, dtype=float), n_untrained
+
+
+async def run_diagnostic(
+    conn: asyncpg.Connection, cfg: Any, weight_version: str
+) -> list[CellVerdict]:
+    """Full pipeline for REGIME_GROUP, one CellVerdict per tf in TFS.
+
+    cfg is a caller-owned, already-initialized ConfigService (see load_equity_tiers'
+    docstring for why this uses cfg.get(), not cfg.get_sync()).
+
+    Two passes, deliberately: allocate_sample_sizes needs every tf's boundary-adjacent
+    count up front to share the ~50k sample budget proportionally (Task 7) -- calling it
+    per-tf inside a single loop would let each tf independently request up to its own
+    hard_cap (up to 4x hard_cap total), defeating the cross-tf sharing the budget exists
+    for.
+    """
+    from services.ensemble_trainer import _resolve_ic_input_column
+
+    tiers1, tiers2 = await load_equity_tiers(cfg)
+    # Default matches EnsembleConfig.from_apr's own default (ensemble_trainer.py:171) --
+    # not re-derived independently, so this can't silently diverge if the config_state row
+    # is ever missing.
+    ic_input = await cfg.get("alpha.ensemble.ic_input", "ic_sharpe_hac")
+    ic_input_column = _resolve_ic_input_column(ic_input)
+
+    # Pass 1: fetch each tf's regime series and classify boundary adjacency.
+    per_tf: dict[str, dict] = {}
+    for tf in TFS:
+        series = await fetch_regime_series(conn, tf)
+        if len(series) < 2:
+            continue
+
+        sig1_arr = np.array([r["sig1"] for r in series])
+        sig2_arr = np.array([r["sig2"] for r in series])
+        window1 = derive_boundary_window(sig1_arr)
+        window2 = derive_boundary_window(sig2_arr)
+
+        adjacency_by_ts = {}
+        for r in series:
+            adj = classify_timestamp_adjacency(
+                r["sig1"], r["sig2"], tiers1, tiers2, window1, window2
+            )
+            if adj.axis1_adjacent or adj.axis2_adjacent:
+                adjacency_by_ts[r["ts"]] = adj
+
+        per_tf[tf] = {
+            "adjacency_by_ts": adjacency_by_ts,
+            "n_total": len(series),
+        }
+
+    # Allocation computed once, across every tf's boundary-adjacent count together.
+    boundary_counts_by_tf = {tf: len(d["adjacency_by_ts"]) for tf, d in per_tf.items()}
+    allocation = allocate_sample_sizes(boundary_counts_by_tf)
+
+    # Pass 2: fetch weights/noise-floor/sample and score, per tf, using the shared allocation.
+    verdicts: list[CellVerdict] = []
+    for tf, d in per_tf.items():
+        adjacency_by_ts = d["adjacency_by_ts"]
+        n_boundary_adjacent = len(adjacency_by_ts)
+        n_total = d["n_total"]
+
+        weights_by_regime, n_skipped_null_sign = await fetch_signed_weights_by_regime(
+            conn, tf, weight_version, ic_input_column
+        )
+        if n_skipped_null_sign > 0:
+            # Anomalous per fetch_signed_weights_by_regime's docstring -- worth surfacing,
+            # not silently absorbing (this repo's "silent wrong answers are worse than loud
+            # crashes" principle).
+            print(f"WARNING: tf={tf} skipped {n_skipped_null_sign} features with null ic_sign")
+        clean_noise_floor = await fetch_clean_noise_floor(conn, tf, weight_version)
+
+        effect_sizes = np.array([], dtype=float)
+        n_untrained = 0
+        n_scored = 0
+        n_sample = allocation.get(tf, 0)
+        if n_sample > 0 and weights_by_regime:
+            all_feature_names = tuple(sorted({f for w in weights_by_regime.values() for f in w}))
+            sampled = await fetch_sampled_feature_vectors(
+                conn, tf, list(adjacency_by_ts.keys()), all_feature_names, n_sample
+            )
+            sampled_rows = [dict(r) for r in sampled]
+            effect_sizes, n_untrained = score_sampled_bars(
+                sampled_rows, adjacency_by_ts, weights_by_regime
+            )
+            n_scored = len(sampled_rows)
+
+        verdicts.append(
+            compute_cell_verdict(
+                regime_group=REGIME_GROUP,
+                tf=tf,
+                n_boundary_adjacent_timestamps=n_boundary_adjacent,
+                n_total_timestamps=n_total,
+                effect_sizes=effect_sizes,
+                clean_noise_floor=clean_noise_floor,
+                n_untrained_neighbor_bars=n_untrained,
+                n_scored_bars=n_scored,
+            )
+        )
+
+    return verdicts

@@ -345,3 +345,53 @@ async def test_fetch_sampled_feature_vectors_handles_empty_timestamps_and_zero_n
     conn = _FakeConnSampledFeatureVectors(n_symbols=5, rows=[])
     assert await fetch_sampled_feature_vectors(conn, "5m", [], ("momentum_z_fast",), 10) == []
     assert await fetch_sampled_feature_vectors(conn, "5m", _TS, ("momentum_z_fast",), 0) == []
+
+
+from scripts.analysis.regime_boundary_churn_check import score_sampled_bars
+
+
+def test_score_sampled_bars_scores_trained_pairs_and_counts_untrained():
+    # Two sampled bars at the same boundary-adjacent ts, different symbols.
+    sampled_rows = [
+        {"symbol": "SPY", "bar_ts": "t1", "momentum_z_fast": 2.0, "obv_z": -1.0},
+        {"symbol": "QQQ", "bar_ts": "t1", "momentum_z_fast": 1.0, "obv_z": 1.0},
+        {"symbol": "IWM", "bar_ts": "t2", "momentum_z_fast": 0.5, "obv_z": 0.5},
+    ]
+    adjacency_by_ts = {
+        "t1": type("A", (), {"actual_label": "mid_neutral", "neighbor_labels": ("low_neutral",)})(),
+        # t2's neighbor regime ("high_neutral") has no trained weights below.
+        "t2": type(
+            "A", (), {"actual_label": "mid_neutral", "neighbor_labels": ("high_neutral",)}
+        )(),
+    }
+    weights_by_regime = {
+        "mid_neutral": {"momentum_z_fast": 0.6, "obv_z": 0.4},
+        "low_neutral": {"momentum_z_fast": 0.3, "obv_z": 0.2},
+        # 'high_neutral' deliberately absent -- untrained neighbor for t2.
+    }
+
+    effect_sizes, n_untrained = score_sampled_bars(sampled_rows, adjacency_by_ts, weights_by_regime)
+
+    # t1 (2 symbols) scored against both mid_neutral and low_neutral weights; t2 excluded
+    # from effect_sizes (untrained neighbor) but counted.
+    assert len(effect_sizes) == 2
+    assert n_untrained == 1
+
+    spy_actual = 2.0 * 0.6 + -1.0 * 0.4
+    spy_neighbor = 2.0 * 0.3 + -1.0 * 0.2
+    expected_spy_effect = abs(spy_actual - spy_neighbor)
+    # Tolerance, not exact `in` membership: np.dot vs plain Python arithmetic
+    # aren't guaranteed bit-identical.
+    assert any(abs(e - expected_spy_effect) < 1e-9 for e in effect_sizes)
+
+
+def test_score_sampled_bars_excludes_bars_with_untrained_actual_regime_too():
+    sampled_rows = [{"symbol": "SPY", "bar_ts": "t1", "momentum_z_fast": 2.0}]
+    adjacency_by_ts = {
+        "t1": type("A", (), {"actual_label": "high_bull", "neighbor_labels": ("mid_bull",)})()
+    }
+    weights_by_regime = {"mid_bull": {"momentum_z_fast": 0.5}}  # 'high_bull' never trained
+
+    effect_sizes, n_untrained = score_sampled_bars(sampled_rows, adjacency_by_ts, weights_by_regime)
+    assert len(effect_sizes) == 0
+    assert n_untrained == 1
