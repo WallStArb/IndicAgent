@@ -573,3 +573,54 @@ async def run_diagnostic(
         )
 
     return verdicts
+
+
+def format_verdict_table(verdicts: list[CellVerdict]) -> str:
+    """Same reporting shape as ops_ensemble_ic_gate.py's verdict output."""
+    lines = [
+        f"{'regime_group':<12} {'tf':<5} {'boundary_frac':>13} {'median_effect':>13} "
+        f"{'noise_floor':>11} {'untrained':>9} {'verdict':>8}"
+    ]
+    for v in verdicts:
+        verdict_str = "PASS" if v.overall_pass else "FAIL"
+        lines.append(
+            f"{v.regime_group:<12} {v.tf:<5} {v.boundary_adjacent_fraction:>13.4f} "
+            f"{v.median_effect_size:>13.4f} {v.clean_noise_floor:>11.4f} "
+            f"{v.n_untrained_neighbor_bars:>9} {verdict_str:>8}"
+        )
+    return "\n".join(lines)
+
+
+def main() -> None:
+    import argparse
+    import asyncio
+
+    from src.config.config_service import ConfigService
+    from src.config.settings import Settings
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--weight-version", default=None, help="Overrides alpha.ensemble.weight_version."
+    )
+    args = parser.parse_args()
+
+    async def _run() -> None:
+        settings = Settings()
+        cfg = ConfigService(database_url=settings.database_url)
+        await cfg.initialize()
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            weight_version = args.weight_version or await cfg.get(
+                "alpha.ensemble.weight_version", "v1"
+            )
+            verdicts = await run_diagnostic(conn, cfg, weight_version)
+        finally:
+            await conn.close()
+            await cfg.close()
+        print(format_verdict_table(verdicts))
+
+    asyncio.run(_run())
+
+
+if __name__ == "__main__":
+    main()

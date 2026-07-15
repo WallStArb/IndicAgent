@@ -455,3 +455,16 @@ async def test_run_diagnostic_completes_and_returns_one_verdict_per_tf_with_data
     # against the current live DB, where ensemble_weights/ensemble_alpha are also empty).
     assert v.n_boundary_adjacent_timestamps == 0
     assert v.overall_pass is False
+
+
+from scripts.analysis.regime_boundary_churn_check import format_verdict_table
+
+
+def test_format_verdict_table_reports_pass_and_fail_verdicts():
+    verdicts = [
+        compute_cell_verdict("equity", "5m", 600, 10_000, np.array([0.35]), 0.20, 5, 595),
+        compute_cell_verdict("equity", "1d", 10, 10_000, np.array([0.5]), 0.10, 0, 10),
+    ]
+    table = format_verdict_table(verdicts)
+    assert "5m" in table and "PASS" in table
+    assert "1d" in table and "FAIL" in table
