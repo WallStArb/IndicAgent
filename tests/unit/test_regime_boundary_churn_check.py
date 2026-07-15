@@ -9,10 +9,11 @@ from scripts.analysis.regime_boundary_churn_check import (
 
 
 def test_derive_boundary_window_scales_with_median_step():
-    # Steps alternate 0.01, 0.03 -> median abs step = 0.02
+    # Diffs: [0.01, 0.03, 0.01, 0.03, 0.01] -> median of all 5 diffs = 0.01 (three 0.01s,
+    # two 0.03s) -> window = 2.0 * 0.01 = 0.02.
     series = np.array([0.10, 0.11, 0.14, 0.15, 0.18, 0.19])
     window = derive_boundary_window(series, multiplier=2.0)
-    assert window == 0.04
+    assert abs(window - 0.02) < 1e-9
 
 
 def test_derive_boundary_window_empty_or_singleton_is_zero():

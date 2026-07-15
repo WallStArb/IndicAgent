@@ -88,6 +88,4 @@ def derive_boundary_window(
     if len(step_series) < 2:
         return 0.0
     steps = np.abs(np.diff(step_series))
-    # Round to 10 decimals to handle floating-point precision before deduplication
-    unique_steps = np.unique(np.round(steps, 10))
-    return float(np.median(unique_steps)) * multiplier
+    return float(np.median(steps)) * multiplier
