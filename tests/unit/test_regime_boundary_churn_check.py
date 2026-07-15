@@ -180,13 +180,33 @@ def test_verdict_handles_no_boundary_adjacent_timestamps():
     assert verdict.overall_pass is False
 
 
-from scripts.analysis.regime_boundary_churn_check import _REGIME_SERIES_SQL, load_equity_tiers
+from scripts.analysis.regime_boundary_churn_check import (
+    _CLEAN_NOISE_FLOOR_SQL,
+    _REGIME_SERIES_SQL,
+    _SIGNED_WEIGHTS_SQL,
+    load_equity_tiers,
+)
 
 
 def test_regime_series_sql_scopes_to_equity_group_and_orders_by_ts():
     assert "regime_group = 'equity'" in _REGIME_SERIES_SQL
     assert "ORDER BY ts" in _REGIME_SERIES_SQL
     assert "regime_prob_vector" in _REGIME_SERIES_SQL
+
+
+def test_signed_weights_sql_joins_ic_sign_via_lateral_on_matching_lookahead():
+    assert "ensemble_weights" in _SIGNED_WEIGHTS_SQL
+    assert "LATERAL" in _SIGNED_WEIGHTS_SQL
+    assert "fic.lookahead_bars = ew.lookahead_bars" in _SIGNED_WEIGHTS_SQL
+    assert "symbol = 'UNIVERSE'" in _SIGNED_WEIGHTS_SQL
+
+
+def test_clean_noise_floor_sql_excludes_regime_transition_bars():
+    # The whole point: the noise floor must NOT include the churn effect it's the
+    # baseline for -- only consecutive same-symbol bars where regime_label held constant.
+    assert "regime_label = prev_regime_label" in _CLEAN_NOISE_FLOOR_SQL
+    assert "PARTITION BY" in _CLEAN_NOISE_FLOOR_SQL
+    assert "regime_group = 'equity'" in _CLEAN_NOISE_FLOOR_SQL
 
 
 class _FakeConfigService:

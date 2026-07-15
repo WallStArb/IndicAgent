@@ -61,10 +61,71 @@ _REGIME_SERIES_SQL = """
     ORDER BY ts
 """
 
+# Per-feature signed weight (weight * ic_sign) for every trained regime in one tf. ic_sign
+# lives only in feature_ic_scores, not ensemble_weights -- the LATERAL join picks the most
+# recent training_window_end for the exact (feature_name, lookahead_bars) ensemble_weights
+# already selected, matching ensemble_trainer.py's own selection exactly (one query, no N+1).
+_SIGNED_WEIGHTS_SQL = """
+    SELECT ew.regime, ew.feature_name, ew.weight, fic.ic_sign
+    FROM ensemble_weights ew
+    JOIN LATERAL (
+        SELECT ic_sign
+        FROM feature_ic_scores fic
+        WHERE fic.tf = ew.tf AND fic.regime = ew.regime
+          AND fic.feature_name = ew.feature_name AND fic.lookahead_bars = ew.lookahead_bars
+          AND fic.symbol = 'POOLED' AND fic.feature_status_at_eval = 'active'
+        ORDER BY fic.training_window_end DESC
+        LIMIT 1
+    ) fic ON true
+    WHERE ew.symbol = 'UNIVERSE' AND ew.tf = $1 AND ew.weight_version = $2
+"""
+
+# Bar-to-bar |delta alpha_score| for consecutive bars of the SAME symbol where the
+# cross-sectional regime_label did NOT change -- the clean noise floor, deliberately
+# excluding every transition bar so it can't be contaminated by the churn effect it's
+# meant to be the baseline for.
+_CLEAN_NOISE_FLOOR_SQL = """
+    WITH ordered AS (
+        SELECT
+            ea.symbol, ea.bar_ts, ea.alpha_score, mr.regime_label,
+            LAG(ea.alpha_score) OVER (PARTITION BY ea.symbol ORDER BY ea.bar_ts) AS prev_alpha_score,
+            LAG(mr.regime_label) OVER (PARTITION BY ea.symbol ORDER BY ea.bar_ts) AS prev_regime_label
+        FROM ensemble_alpha ea
+        JOIN market_regimes mr
+          ON mr.regime_group = 'equity' AND mr.tf = ea.tf AND mr.ts = ea.bar_ts
+        WHERE ea.tf = $1 AND ea.weight_version = $2
+    )
+    SELECT abs(alpha_score - prev_alpha_score) AS delta
+    FROM ordered
+    WHERE prev_alpha_score IS NOT NULL AND regime_label = prev_regime_label
+"""
+
 
 async def fetch_regime_series(conn: asyncpg.Connection, tf: str) -> list[asyncpg.Record]:
     """One row per (REGIME_GROUP, tf, ts): ts, regime_label, sig1, sig2. Ordered by ts."""
     return await conn.fetch(_REGIME_SERIES_SQL, PROB_KEYS[0], PROB_KEYS[1], tf)
+
+
+async def fetch_signed_weights_by_regime(
+    conn: asyncpg.Connection, tf: str, weight_version: str
+) -> dict[str, dict[str, float]]:
+    """{regime_label: {feature_name: weight * ic_sign}} for every trained regime in tf."""
+    rows = await conn.fetch(_SIGNED_WEIGHTS_SQL, tf, weight_version)
+    result: dict[str, dict[str, float]] = {}
+    for row in rows:
+        regime_dict = result.setdefault(row["regime"], {})
+        sign = row["ic_sign"] if row["ic_sign"] is not None else 1
+        regime_dict[row["feature_name"]] = float(row["weight"]) * float(sign)
+    return result
+
+
+async def fetch_clean_noise_floor(conn: asyncpg.Connection, tf: str, weight_version: str) -> float:
+    """Median |delta alpha_score| across same-symbol, same-regime-label consecutive bars."""
+    rows = await conn.fetch(_CLEAN_NOISE_FLOOR_SQL, tf, weight_version)
+    deltas = np.array([float(r["delta"]) for r in rows], dtype=float)
+    if len(deltas) == 0:
+        return 0.0
+    return float(np.median(deltas))
 
 
 async def load_equity_tiers(cfg: Any) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
