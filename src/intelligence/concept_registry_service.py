@@ -137,19 +137,19 @@ def decide_comparison_action(
     # trimmed). Accepted as cosmetic at this domain's eval cadence.
     new_metrics = state.promotion_eval_metrics + (float(eval_metric),)
 
-    if state.status == "candidate" and new_consecutive >= state.min_promotion_consecutive:
-        baseline = sum(new_metrics) / len(new_metrics)
-        return ComparisonDecision("promote", new_consecutive, new_metrics, baseline)
-
-    if (
-        state.status not in ("candidate", "active")
-        and new_consecutive >= state.min_promotion_consecutive
-    ):
-        # e.g. shadow_only crossing the floor: only 'candidate' can ever reach
-        # 'promote' above, so this status is stuck accumulating wins forever.
-        # Distinct action so the service layer can log it loudly instead of
-        # silently recording another win (Phase 160 review finding 2).
-        return ComparisonDecision("record_win_not_promotable", new_consecutive, new_metrics, None)
+    if new_consecutive >= state.min_promotion_consecutive:
+        if state.status == "candidate":
+            baseline = sum(new_metrics) / len(new_metrics)
+            return ComparisonDecision("promote", new_consecutive, new_metrics, baseline)
+        if state.status != "active":
+            # e.g. shadow_only (or any future non-candidate, non-active status):
+            # only 'candidate' can ever reach 'promote' above, so this status is
+            # stuck accumulating wins forever without this action. Distinct
+            # action so the service layer logs it loudly instead of silently
+            # recording another win (Phase 160 review finding 2).
+            return ComparisonDecision(
+                "record_win_not_promotable", new_consecutive, new_metrics, None
+            )
 
     return ComparisonDecision("record_win", new_consecutive, new_metrics, None)
 
@@ -173,11 +173,15 @@ _LOAD_CONCEPT_SQL = """
     FOR UPDATE
 """
 
-# Invariant 9: compare-and-swap. Zero rows updated means the status changed under
-# us (or a rerun raced). L-5 correction (Phase 160 cross-AI review): the CAS
-# matched zero rows, so no status change, transition, or gate update is executed -
-# the empty transaction commits harmlessly (it does NOT roll back/abort; returning
-# from inside `async with conn.transaction()` commits an empty transaction).
+# Invariant 9: compare-and-swap. _LOAD_CONCEPT_SQL's FOR UPDATE already makes a
+# zero-row match unreachable in normal operation (the row is locked from load
+# through this write in the same transaction) -- the `AND status = $3` predicate
+# is kept as defense-in-depth against any future caller that reads this row
+# without that lock. Zero rows updated means the status changed under us (or a
+# rerun raced). L-5 correction (Phase 160 cross-AI review): the CAS matched zero
+# rows, so no status change, transition, or gate update is executed - the empty
+# transaction commits harmlessly (it does NOT roll back/abort; returning from
+# inside `async with conn.transaction()` commits an empty transaction).
 _CAS_PROMOTE_SQL = """
     UPDATE concept_registry SET status = $1
     WHERE concept_id = $2 AND status = $3
@@ -318,6 +322,15 @@ class ConceptRegistryService:
             now = datetime.now(UTC)
             metrics_list = list(decision.new_promotion_eval_metrics)
 
+            async def _update_gate(sql: str, *args: Any, stage: str) -> None:
+                """Run a gate UPDATE and crash loudly if the row vanished mid-transaction."""
+                status = await conn.execute(sql, *args)
+                if _rowcount(status) != 1:
+                    raise RuntimeError(
+                        f"concept_gate row vanished {stage} for domain={domain!r} "
+                        f"name={name!r} concept_id={row['concept_id']!r}"
+                    )
+
             if decision.action == "promote":
                 cas_status = await conn.execute(
                     _CAS_PROMOTE_SQL, "active", row["concept_id"], "candidate"
@@ -349,7 +362,7 @@ class ConceptRegistryService:
                     now,
                     notes,
                 )
-                gate_status = await conn.execute(
+                await _update_gate(
                     _GATE_PROMOTE_UPDATE_SQL,
                     row["concept_id"],
                     eval_metric,
@@ -359,12 +372,8 @@ class ConceptRegistryService:
                     decision.new_promotion_consecutive,
                     metrics_list,
                     decision.baseline_metric,
+                    stage="mid-promote",
                 )
-                if _rowcount(gate_status) != 1:
-                    raise RuntimeError(
-                        f"concept_gate row vanished mid-promote for domain={domain!r} "
-                        f"name={name!r} concept_id={row['concept_id']!r}"
-                    )
                 _logger.info(
                     "concept_registry.promoted",
                     domain=domain,
@@ -376,7 +385,7 @@ class ConceptRegistryService:
 
             # record_win / record_win_not_promotable / record_loss: eval-cache
             # bookkeeping only.
-            gate_status = await conn.execute(
+            await _update_gate(
                 _GATE_CACHE_UPDATE_SQL,
                 row["concept_id"],
                 eval_metric,
@@ -385,12 +394,8 @@ class ConceptRegistryService:
                 corpus_build_ref,
                 decision.new_promotion_consecutive,
                 metrics_list,
+                stage="mid-update",
             )
-            if _rowcount(gate_status) != 1:
-                raise RuntimeError(
-                    f"concept_gate row vanished mid-update for domain={domain!r} "
-                    f"name={name!r} concept_id={row['concept_id']!r}"
-                )
             if decision.action == "record_win_not_promotable":
                 _logger.warning(
                     "concept_registry.win_not_promotable",
