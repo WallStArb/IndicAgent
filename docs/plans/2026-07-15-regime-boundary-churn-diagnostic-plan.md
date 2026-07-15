@@ -364,7 +364,10 @@ def test_score_bar_matches_manual_dot_product():
     feature_names = ("momentum_z_fast", "obv_z", "range_pct")
     signed_weights = np.array([0.6, 0.4, 0.0])
     score = score_bar(feature_values, feature_names, signed_weights)
-    assert score == 2.0 * 0.6 + -1.0 * 0.4 + 0.5 * 0.0
+    expected = 2.0 * 0.6 + -1.0 * 0.4 + 0.5 * 0.0
+    # Tolerance, not ==: np.dot and plain Python arithmetic aren't guaranteed
+    # bit-identical (e.g. FMA on some platforms).
+    assert abs(score - expected) < 1e-9
 
 
 def test_score_bar_treats_missing_and_non_finite_as_zero():
@@ -372,7 +375,8 @@ def test_score_bar_treats_missing_and_non_finite_as_zero():
     feature_names = ("momentum_z_fast", "obv_z", "range_pct")
     signed_weights = np.array([0.6, 0.4, -0.5])
     score = score_bar(feature_values, feature_names, signed_weights)
-    assert score == 0.0 * 0.6 + -1.0 * 0.4 + 0.0 * -0.5
+    expected = 0.0 * 0.6 + -1.0 * 0.4 + 0.0 * -0.5
+    assert abs(score - expected) < 1e-9
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -995,7 +999,10 @@ def test_score_sampled_bars_scores_trained_pairs_and_counts_untrained():
 
     spy_actual = 2.0 * 0.6 + -1.0 * 0.4
     spy_neighbor = 2.0 * 0.3 + -1.0 * 0.2
-    assert abs(spy_actual - spy_neighbor) in effect_sizes
+    expected_spy_effect = abs(spy_actual - spy_neighbor)
+    # Tolerance, not exact `in` membership: np.dot vs plain Python arithmetic
+    # aren't guaranteed bit-identical.
+    assert any(abs(e - expected_spy_effect) < 1e-9 for e in effect_sizes)
 
 
 def test_score_sampled_bars_excludes_bars_with_untrained_actual_regime_too():
