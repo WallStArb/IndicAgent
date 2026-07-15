@@ -201,11 +201,14 @@ def test_signed_weights_sql_joins_ic_sign_via_lateral_on_exact_selected_value():
     assert "LATERAL" in sql
     assert "fic.lookahead_bars = ew.lookahead_bars" in sql
     assert "symbol = 'UNIVERSE'" in sql
-    # The actual fix: match the exact stored value ensemble_trainer.py copied verbatim,
-    # not a training_window_end recency heuristic that doesn't match production's real
-    # selection criterion (highest quality_weight, not most recent).
+    # The actual fix: match the exact stored value ensemble_trainer.py copied verbatim --
+    # not select via training_window_end recency, since production's real selection
+    # criterion is highest quality_weight, not most recent. training_window_end DESC is
+    # still present, but only as a defensive tiebreak after the exact-match filter (in case
+    # two different training windows ever produce a bit-identical statistic by coincidence),
+    # never as the primary selection mechanism.
     assert "fic.ic_shrunk = ew.ic_sharpe" in sql
-    assert "training_window_end" not in sql
+    assert "ORDER BY fic.training_window_end DESC" in sql
 
 
 class _FakeConnSignedWeights:

@@ -75,9 +75,12 @@ _REGIME_SERIES_SQL = """
 # ic_sharpes[i] = selected[i]["ic_sharpe"] = the raw ic_input_column value) -- so joining on
 # fic.{ic_input_column} = ew.ic_sharpe (exact float equality, safe here since no computation
 # separates the two values) uniquely identifies the actual winning row, regardless of which
-# training_window_end it came from. ic_input_column is never user input -- it's resolved by
-# ensemble_trainer.py's own _resolve_ic_input_column() from a fixed 2-value enum
-# (_IC_INPUT_COLUMNS), safe to interpolate.
+# training_window_end it came from. The trailing ORDER BY training_window_end DESC is a
+# defensive tiebreak only (not the selection mechanism) -- for the extremely unlikely case
+# where two different training windows produce a bit-identical statistic by coincidence, this
+# guarantees a deterministic pick instead of an arbitrary one. ic_input_column is never user
+# input -- it's resolved by ensemble_trainer.py's own _resolve_ic_input_column() from a fixed
+# 2-value enum (_IC_INPUT_COLUMNS), safe to interpolate.
 _SIGNED_WEIGHTS_SQL_TEMPLATE = """
     SELECT ew.regime, ew.feature_name, ew.weight, fic.ic_sign
     FROM ensemble_weights ew
@@ -88,6 +91,7 @@ _SIGNED_WEIGHTS_SQL_TEMPLATE = """
           AND fic.feature_name = ew.feature_name AND fic.lookahead_bars = ew.lookahead_bars
           AND fic.symbol = 'POOLED' AND fic.feature_status_at_eval = 'active'
           AND fic.{ic_input_column} = ew.ic_sharpe
+        ORDER BY fic.training_window_end DESC
         LIMIT 1
     ) fic ON true
     WHERE ew.symbol = 'UNIVERSE' AND ew.tf = $1 AND ew.weight_version = $2

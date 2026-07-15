@@ -743,8 +743,14 @@ def test_signed_weights_sql_joins_ic_sign_via_lateral_on_exact_selected_value():
     assert "LATERAL" in sql
     assert "fic.lookahead_bars = ew.lookahead_bars" in sql
     assert "symbol = 'UNIVERSE'" in sql
+    # The actual fix: match the exact stored value ensemble_trainer.py copied verbatim --
+    # not select via training_window_end recency, since production's real selection
+    # criterion is highest quality_weight, not most recent. training_window_end DESC is
+    # still present, but only as a defensive tiebreak after the exact-match filter (in case
+    # two different training windows ever produce a bit-identical statistic by coincidence),
+    # never as the primary selection mechanism.
     assert "fic.ic_shrunk = ew.ic_sharpe" in sql
-    assert "training_window_end" not in sql
+    assert "ORDER BY fic.training_window_end DESC" in sql
 
 
 class _FakeConnSignedWeights:
@@ -802,9 +808,12 @@ Expected: FAIL with `ImportError`
 # ic_sharpes[i] = selected[i]["ic_sharpe"] = the raw ic_input_column value) -- so joining on
 # fic.{ic_input_column} = ew.ic_sharpe (exact float equality, safe here since no computation
 # separates the two values) uniquely identifies the actual winning row, regardless of which
-# training_window_end it came from. ic_input_column is never user input -- it's resolved by
-# ensemble_trainer.py's own _resolve_ic_input_column() from a fixed 2-value enum
-# (_IC_INPUT_COLUMNS), safe to interpolate.
+# training_window_end it came from. The trailing ORDER BY training_window_end DESC is a
+# defensive tiebreak only (not the selection mechanism) -- for the extremely unlikely case
+# where two different training windows produce a bit-identical statistic by coincidence, this
+# guarantees a deterministic pick instead of an arbitrary one. ic_input_column is never user
+# input -- it's resolved by ensemble_trainer.py's own _resolve_ic_input_column() from a fixed
+# 2-value enum (_IC_INPUT_COLUMNS), safe to interpolate.
 _SIGNED_WEIGHTS_SQL_TEMPLATE = """
     SELECT ew.regime, ew.feature_name, ew.weight, fic.ic_sign
     FROM ensemble_weights ew
@@ -815,6 +824,7 @@ _SIGNED_WEIGHTS_SQL_TEMPLATE = """
           AND fic.feature_name = ew.feature_name AND fic.lookahead_bars = ew.lookahead_bars
           AND fic.symbol = 'POOLED' AND fic.feature_status_at_eval = 'active'
           AND fic.{ic_input_column} = ew.ic_sharpe
+        ORDER BY fic.training_window_end DESC
         LIMIT 1
     ) fic ON true
     WHERE ew.symbol = 'UNIVERSE' AND ew.tf = $1 AND ew.weight_version = $2
@@ -1165,7 +1175,10 @@ async def run_diagnostic(
     from services.ensemble_trainer import _resolve_ic_input_column
 
     tiers1, tiers2 = await load_equity_tiers(cfg)
-    ic_input = await cfg.get("alpha.ensemble.ic_input", "ic_shrunk")
+    # Default matches EnsembleConfig.from_apr's own default (ensemble_trainer.py:171) --
+    # not re-derived independently, so this can't silently diverge if the config_state row
+    # is ever missing.
+    ic_input = await cfg.get("alpha.ensemble.ic_input", "ic_sharpe_hac")
     ic_input_column = _resolve_ic_input_column(ic_input)
 
     # Pass 1: fetch each tf's regime series and classify boundary adjacency.
