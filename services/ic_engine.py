@@ -60,7 +60,6 @@ import dataclasses
 import hashlib
 import json
 import pickle
-import subprocess
 import sys
 import time
 from collections import defaultdict
@@ -2110,31 +2109,53 @@ def _write_ic_results(
     return n_committed
 
 
-def _git_head_short() -> str:
-    """Short git HEAD SHA, used to key checkpoint directories.
+def _checkpoint_content_key() -> str:
+    """Content hash of every first-party module actually imported into this process.
 
-    A checkpoint computed under one commit is not safe to blindly reuse under
-    another -- 2026-07-12 found a corpus rerun computing 5h of results against
-    stale routing logic while a concurrent session merged Phase 144's
-    regime_group fix underneath it. Keying checkpoints to HEAD means a code
-    change automatically invalidates old checkpoints (they simply won't be
-    found under the new directory) instead of silently being replayed.
+    A checkpoint computed under one version of ic_engine's code is not safe to
+    blindly reuse under another -- 2026-07-12 found a corpus rerun computing 5h of
+    results against stale routing logic while a concurrent session merged Phase
+    144's regime_group fix underneath it. Keying checkpoints to a content hash
+    means a real code change automatically invalidates old checkpoints (they
+    simply won't be found under the new directory) instead of silently being
+    replayed.
+
+    Previously keyed on `git rev-parse --short HEAD`, which invalidates on *any*
+    commit landing anywhere in the repo -- 2026-07-15 lost ~31h of a multi-day
+    corpus run's checkpoints to an unrelated merge (a diagnostic-tooling branch
+    that never touched ic_engine.py or its dependencies) shifting HEAD's hash.
+    Hashing sys.modules instead of a hand-maintained import list means the
+    dependency set can't silently drift out of date as ic_engine's real imports
+    change -- it's derived from what Python actually loaded, including the full
+    transitive graph, not from a list a future edit could forget to update.
     """
-    try:
-        return subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=Path(__file__).resolve().parent.parent,
-        ).stdout.strip()
-    except Exception:
-        return "unknown"
+    repo_root = Path(__file__).resolve().parent.parent
+    # Allowlist first-party source roots (Ring 0/1/2 per naming-system.md) rather
+    # than blocklisting vendored paths -- a venv living somewhere unexpected
+    # inside repo_root would otherwise leak in silently.
+    first_party_roots = (repo_root / "src", repo_root / "services")
+    hasher = hashlib.sha256()
+    paths: set[Path] = set()
+    for module in list(sys.modules.values()):
+        module_file = getattr(module, "__file__", None)
+        if not module_file:
+            continue
+        path = Path(module_file).resolve()
+        if any(path.is_relative_to(root) for root in first_party_roots):
+            paths.add(path)
+    for path in sorted(paths):
+        try:
+            hasher.update(path.read_bytes())
+        except OSError:
+            continue
+    # 12 hex chars (48 bits) -- generous collision margin for a handful of
+    # concurrent checkpoint directories, short enough to stay readable in paths.
+    return hasher.hexdigest()[:12]
 
 
-def _checkpoint_dir(training_window_end: Any, git_head: str) -> Path:
+def _checkpoint_dir(training_window_end: Any, content_key: str) -> Path:
     safe_ts = str(training_window_end).replace(":", "").replace(" ", "T").replace("+", "_")
-    return Path("logs/ic_engine_checkpoints") / f"{safe_ts}_{git_head}"
+    return Path("logs/ic_engine_checkpoints") / f"{safe_ts}_{content_key}"
 
 
 def _load_checkpoint(checkpoint_dir: Path, symbol: str) -> dict | None:
@@ -3048,13 +3069,13 @@ def main() -> None:
             else:
                 # ----------------------------------------------------------
                 # Checkpoint resume: skip recompute for symbols already checkpointed
-                # under this exact git commit (see _git_head_short docstring -- a
-                # checkpoint from a different commit is never reused). Compute-phase
-                # resumability only; feature_ic_scores is still written exactly once,
-                # corpus-wide, after BH-FDR below.
+                # under this exact code content (see _checkpoint_content_key
+                # docstring -- a checkpoint from changed code is never reused).
+                # Compute-phase resumability only; feature_ic_scores is still
+                # written exactly once, corpus-wide, after BH-FDR below.
                 # ----------------------------------------------------------
-                git_head = _git_head_short()
-                checkpoint_dir = _checkpoint_dir(training_window_end, git_head)
+                content_key = _checkpoint_content_key()
+                checkpoint_dir = _checkpoint_dir(training_window_end, content_key)
                 n_resumed = 0
                 symbols_to_compute: list[str] = []
                 for symbol in symbols:
