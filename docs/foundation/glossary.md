@@ -158,7 +158,12 @@ Industry-standard term for the process that converts predictive scores into acti
 
 **Industry standard:** Every quant system has a signal generation boundary — prediction produces a continuous score; signal generation applies thresholds, confidence gates, and risk filters to emit discrete actionable events. This is where "predictive model" becomes "trade decision."
 
-**Our implementation:** `alpha emitter` filters `alpha_score` by magnitude and statistical confidence (`|alpha_score| > threshold[symbol][tf][regime] AND ci_lower > 0`) → `alpha_events` table.
+**Our implementation:** `alpha emitter` (`alpha_publisher.py`) applies a four-gate stack —
+`effective_n >= alpha.ensemble.effective_n_gate`, `|alpha_score| > alpha.quant.threshold.{tf}`
+(per-timeframe only, not per-symbol/regime — see todo 065's EM-CAL calibration proposal for
+whether per-regime granularity is ever earned), direction-aware CI + cost hurdle
+(`(alpha_score>0 AND ci_lower>cost_hurdle) OR (alpha_score<0 AND ci_upper<-cost_hurdle)`), and
+non-empty `top_features` — → `alpha_events` table.
 
 **See also:** `alpha emitter`, `signal` (core trading term), `alpha_events`
 
@@ -738,8 +743,10 @@ paths; `ensemble_weights` currently holds only `weight_version='v1'` rows — se
 ### `Stage 4` (Emission)
 
 AlphaEngine's fifth and final internal stage. Contract: a per-bar composite score in, a discrete
-timestamped tradeable event out, gated on magnitude and confidence. Current mechanism: threshold
-crossing — `|alpha_score| > threshold[symbol][tf][regime] AND ci_lower > 0` — writing `alpha_events`.
+timestamped tradeable event out, gated on magnitude and confidence. Current mechanism: a
+four-gate stack in `alpha_publisher.py` — `effective_n` floor, per-timeframe `|alpha_score| >
+alpha.quant.threshold.{tf}` (not per-symbol/regime), direction-aware CI + cost hurdle, and
+non-empty `top_features` — writing `alpha_events`.
 
 **Not:** a synonym for "alpha emitter" as a service name — Stage 4 is the contract; the Alpha
 Emitter component is one mechanism fulfilling it.
@@ -930,7 +937,7 @@ alpha_raw   = Σ sign(ic[f]) × centered_rank(feature[f]) × weight[f]
 alpha_score = (alpha_raw - rolling_mean) / rolling_std   # z-scored, ~N(0,1)
 ```
 
-Positive = composite features predict upward price movement. Negative = downward. Magnitude = strength relative to recent history. An `alpha_event` is emitted when `|alpha_score| > threshold[symbol][tf][regime]` AND `ci_lower > 0`.
+Positive = composite features predict upward price movement. Negative = downward. Magnitude = strength relative to recent history. An `alpha_event` is emitted when `alpha_score` clears `alpha_publisher.py`'s four-gate stack: `effective_n` floor, `|alpha_score| > alpha.quant.threshold.{tf}` (per-timeframe, not per-symbol/regime), direction-aware CI + cost hurdle, and non-empty `top_features`.
 
 **Not:** synonymous with `raw_confidence` (v2.x ICC, plugin-internal unsigned magnitude). Not the same as `counterfactual_pnl_r` (realized outcome). Not a per-feature score — `alpha_score` is the ensemble output, not any individual feature's contribution.
 **Banned:** "plugin score," "direction score," "conviction score" (use `alpha_score`)
@@ -1277,8 +1284,9 @@ the score crosses a threshold with sufficient statistical confidence. The bounda
 between Layer 1 (Prediction) and Layer 2 (Portfolio). Every emitted event is a
 hypothesis that a position should be opened.
 
-**Current implementation:** `alpha_score > threshold[symbol][tf][regime] AND
-ci_lower > 0` → `alpha_events` table
+**Current implementation:** `alpha_publisher.py`'s four-gate stack (`effective_n` floor,
+per-timeframe `|alpha_score| > alpha.quant.threshold.{tf}`, direction-aware CI + cost hurdle,
+non-empty `top_features`) → `alpha_events` table
 **Not:** a trading decision. The alpha emitter says "a score crossed threshold"; the
 Portfolio layer (Layer 2) decides whether and how much to trade.
 

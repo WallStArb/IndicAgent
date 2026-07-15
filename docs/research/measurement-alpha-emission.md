@@ -151,13 +151,23 @@ and the result that would kill it.
 
 **Mechanism:** sweep the effective emission threshold over the persisted conviction surface.
 For each (tf, regime) stratum: join `ensemble_alpha` × `forward_returns`
-(`return_type = 'executable_open_to_open'` only, OOS window only, per OOS-EVAL-PROTOCOL),
-compute net-of-cost mean executable forward return per event and event count N as a function
-of threshold, using todo-030-calibrated cost floors. Select the threshold maximizing net
-return per event subject to `N >= alpha.emission.min_events_per_stratum` (new APR key,
-`[initial_estimate]`; a stratum below the floor keeps its per-TF parent threshold rather than
-getting its own overfit one). Write results back to APR through the normal lifecycle
-(`seed → ml_learned`, `config_history` reason = sweep run ID).
+(`return_type = 'executable_open_to_open'` only, **in-sample/training window only —
+`bar_ts < alpha.validation.oos_start`**), compute net-of-cost mean executable forward return
+per event and event count N as a function of threshold, using todo-030-calibrated cost floors.
+Select the threshold maximizing net return per event subject to
+`N >= alpha.emission.min_events_per_stratum` (new APR key, `[initial_estimate]`; a stratum
+below the floor keeps its per-TF parent threshold rather than getting its own overfit one).
+Write results back to APR through the normal lifecycle (`seed → ml_learned`, `config_history`
+reason = sweep run ID).
+
+**Correction (2026-07-14):** this section originally said "OOS window only, per
+OOS-EVAL-PROTOCOL" — backwards. `docs/plans/OOS-EVAL-PROTOCOL.md` lists "Threshold tuning" by
+name among the uses the holdout window (`bar_ts >= alpha.validation.oos_start`) must **never**
+serve; that document is an explicit pre-commitment specifically written to prevent this class
+of after-the-fact reinterpretation. EM-CAL calibrates on the in-sample window, full stop — the
+holdout stays reserved entirely for the one authoritative `EnsembleICEngine` OOS gate (Phase
+144). Any post-hoc check of a calibrated threshold's OOS performance must go through that same
+single gate, not a separate ad hoc look at the holdout from this sweep.
 
 **Regime granularity is the sweep's question to answer, not this doc's:** per-(tf, regime)
 thresholds are admitted only where the sweep shows the optimal threshold differs across
@@ -176,7 +186,9 @@ rows only for strata that pass the granularity test; new `alpha.emission.min_eve
 (within bootstrap CI) to threshold across the plausible range in every stratum. That result
 would say threshold *value* doesn't matter given the CI/cost gates, the seeds stay, and the
 sweep script is retired to a one-time-audit artifact. Also falsified per-stratum if the swept
-optimum does not beat the seed OOS.
+optimum does not beat the seed in-sample (not OOS - see the 2026-07-14 correction above; no
+per-stratum ad hoc OOS check, the holdout is spent exactly once, by Phase 144's authoritative
+gate).
 
 ### EM-STAMP - Weight-age stamping (decay awareness, additive, near-zero cost)
 
