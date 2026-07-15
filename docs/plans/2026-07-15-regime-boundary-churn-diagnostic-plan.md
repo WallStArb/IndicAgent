@@ -364,7 +364,10 @@ def test_score_bar_matches_manual_dot_product():
     feature_names = ("momentum_z_fast", "obv_z", "range_pct")
     signed_weights = np.array([0.6, 0.4, 0.0])
     score = score_bar(feature_values, feature_names, signed_weights)
-    assert score == 2.0 * 0.6 + -1.0 * 0.4 + 0.5 * 0.0
+    expected = 2.0 * 0.6 + -1.0 * 0.4 + 0.5 * 0.0
+    # Tolerance, not ==: np.dot and plain Python arithmetic aren't guaranteed
+    # bit-identical (e.g. FMA on some platforms).
+    assert abs(score - expected) < 1e-9
 
 
 def test_score_bar_treats_missing_and_non_finite_as_zero():
@@ -372,7 +375,8 @@ def test_score_bar_treats_missing_and_non_finite_as_zero():
     feature_names = ("momentum_z_fast", "obv_z", "range_pct")
     signed_weights = np.array([0.6, 0.4, -0.5])
     score = score_bar(feature_values, feature_names, signed_weights)
-    assert score == 0.0 * 0.6 + -1.0 * 0.4 + 0.0 * -0.5
+    expected = 0.0 * 0.6 + -1.0 * 0.4 + 0.0 * -0.5
+    assert abs(score - expected) < 1e-9
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -651,16 +655,23 @@ async def fetch_regime_series(conn: asyncpg.Connection, tf: str) -> list[asyncpg
     return await conn.fetch(_REGIME_SERIES_SQL, PROB_KEYS[0], PROB_KEYS[1], tf)
 
 
-def load_equity_tiers(cfg: Any) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+async def load_equity_tiers(cfg: Any) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
     """Tier cut points for the equity group, via the exact production function --
     never retyped, so this can't silently drift from what cross_sectional_regime_model.py
-    actually applies. Params match breadth_vol.py's own defaults/APR keys.
+    actually applies. APR namespace is 'alpha.equity_regime' -- the equity group's
+    params_prefix in cross_sectional_regime_model.py's group config (migration 229 renamed
+    this from the pre-Phase-144 'alpha.regime.*' shape; confirmed live in config_state).
+
+    Uses ConfigService.get() (async, DB-backed on cache miss), not get_sync() -- get_sync()
+    only reads an already-warmed in-memory cache and silently returns the default on a cold
+    cache, which would defeat the point of reading live APR values here. This script is
+    async top-to-bottom with no hot-path constraint that would justify get_sync().
     """
     params = {
-        "vix_low_pct": cfg.get_sync("alpha.regime.equity.vix_low_pct", 0.33),
-        "vix_high_pct": cfg.get_sync("alpha.regime.equity.vix_high_pct", 0.67),
-        "breadth_bear": cfg.get_sync("alpha.regime.equity.breadth_bear", 0.40),
-        "breadth_bull": cfg.get_sync("alpha.regime.equity.breadth_bull", 0.60),
+        "vix_low_pct": await cfg.get("alpha.equity_regime.vix_low_pct", 0.33),
+        "vix_high_pct": await cfg.get("alpha.equity_regime.vix_high_pct", 0.67),
+        "breadth_bear": await cfg.get("alpha.equity_regime.breadth_bear", 0.40),
+        "breadth_bull": await cfg.get("alpha.equity_regime.breadth_bull", 0.60),
     }
     return build_tiers(params)
 ```
@@ -695,10 +706,25 @@ git commit -m "feat(analysis): add regime time-series fetch and tier cut-point l
 - Test: `tests/unit/test_regime_boundary_churn_check.py`
 
 **Interfaces:**
-- Produces: `async def fetch_signed_weights_by_regime(conn: asyncpg.Connection, tf: str, weight_version: str) -> dict[str, dict[str, float]]`
-  (outer key = `regime_label`, inner = `{feature_name: weight * ic_sign}`);
+- Produces: `async def fetch_signed_weights_by_regime(conn: asyncpg.Connection, tf: str, weight_version: str, ic_input_column: str) -> tuple[dict[str, dict[str, float]], int]`
+  (dict: outer key = `regime_label`, inner = `{feature_name: weight * ic_sign}`; int = count
+  of features skipped because no exact-match ic_sign was found -- see below for why this
+  should normally be 0. `ic_input_column` must be `ensemble_trainer.py`'s
+  `_resolve_ic_input_column(alpha.ensemble.ic_input)` result -- caller-resolved, not
+  re-derived here);
   `async def fetch_clean_noise_floor(conn: asyncpg.Connection, tf: str, weight_version: str) -> float`
   (median `|Δalpha_score|` over same-symbol, same-regime-label consecutive bar pairs).
+
+**Correctness note (found during Task 6's review, fixed before this text was written):** the
+LATERAL join reconstructing `ic_sign` must match the EXACT `feature_ic_scores` row
+`ensemble_trainer.py`'s `select_features_per_stratum` actually selected -- that's the row
+with the highest `quality_weight` across every `(lookahead_bars, training_window_end)`
+combination on record, NOT the most recent `training_window_end` (a feature's IC estimate,
+and even its sign, can differ across training windows). `ensemble_weights.ic_sharpe` is
+stored as exactly that winning row's `ic_input_column` value, copied verbatim with no
+arithmetic -- so joining on `fic.{ic_input_column} = ew.ic_sharpe` (exact float equality,
+safe here since no computation separates the two values) uniquely identifies the actual
+winning row regardless of which `training_window_end` it came from.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -706,15 +732,49 @@ git commit -m "feat(analysis): add regime time-series fetch and tier cut-point l
 # Append to tests/unit/test_regime_boundary_churn_check.py
 from scripts.analysis.regime_boundary_churn_check import (
     _CLEAN_NOISE_FLOOR_SQL,
-    _SIGNED_WEIGHTS_SQL,
+    _SIGNED_WEIGHTS_SQL_TEMPLATE,
+    fetch_signed_weights_by_regime,
 )
 
 
-def test_signed_weights_sql_joins_ic_sign_via_lateral_on_matching_lookahead():
-    assert "ensemble_weights" in _SIGNED_WEIGHTS_SQL
-    assert "LATERAL" in _SIGNED_WEIGHTS_SQL
-    assert "fic.lookahead_bars = ew.lookahead_bars" in _SIGNED_WEIGHTS_SQL
-    assert "symbol = 'UNIVERSE'" in _SIGNED_WEIGHTS_SQL
+def test_signed_weights_sql_joins_ic_sign_via_lateral_on_exact_selected_value():
+    sql = _SIGNED_WEIGHTS_SQL_TEMPLATE.format(ic_input_column="ic_shrunk")
+    assert "ensemble_weights" in sql
+    assert "LATERAL" in sql
+    assert "fic.lookahead_bars = ew.lookahead_bars" in sql
+    assert "symbol = 'UNIVERSE'" in sql
+    # The actual fix: match the exact stored value ensemble_trainer.py copied verbatim --
+    # not select via training_window_end recency, since production's real selection
+    # criterion is highest quality_weight, not most recent. training_window_end DESC is
+    # still present, but only as a defensive tiebreak after the exact-match filter (in case
+    # two different training windows ever produce a bit-identical statistic by coincidence),
+    # never as the primary selection mechanism.
+    assert "fic.ic_shrunk = ew.ic_sharpe" in sql
+    assert "ORDER BY fic.training_window_end DESC" in sql
+
+
+class _FakeConnSignedWeights:
+    """Fake asyncpg.Connection returning canned rows for fetch_signed_weights_by_regime."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def fetch(self, sql, *args):
+        return self._rows
+
+
+@pytest.mark.asyncio
+async def test_fetch_signed_weights_by_regime_skips_null_ic_sign_and_counts_it():
+    rows = [
+        {"regime": "mid_neutral", "feature_name": "momentum_z_fast", "weight": 0.6, "ic_sign": 1},
+        {"regime": "mid_neutral", "feature_name": "obv_z", "weight": 0.4, "ic_sign": None},
+    ]
+    conn = _FakeConnSignedWeights(rows)
+    weights_by_regime, n_skipped = await fetch_signed_weights_by_regime(
+        conn, "5m", "run_x", "ic_shrunk"
+    )
+    assert weights_by_regime == {"mid_neutral": {"momentum_z_fast": 0.6}}
+    assert n_skipped == 1
 
 
 def test_clean_noise_floor_sql_excludes_regime_transition_bars():
@@ -727,7 +787,7 @@ def test_clean_noise_floor_sql_excludes_regime_transition_bars():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k "signed_weights_sql or clean_noise_floor_sql"`
+Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k "signed_weights_sql or clean_noise_floor_sql or fetch_signed_weights"`
 Expected: FAIL with `ImportError`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -735,10 +795,26 @@ Expected: FAIL with `ImportError`
 ```python
 # Append to scripts/analysis/regime_boundary_churn_check.py
 # Per-feature signed weight (weight * ic_sign) for every trained regime in one tf. ic_sign
-# lives only in feature_ic_scores, not ensemble_weights -- the LATERAL join picks the most
-# recent training_window_end for the exact (feature_name, lookahead_bars) ensemble_weights
-# already selected, matching ensemble_trainer.py's own selection exactly (one query, no N+1).
-_SIGNED_WEIGHTS_SQL = """
+# lives only in feature_ic_scores, not ensemble_weights.
+#
+# {ic_input_column} is the ONE piece of production-selection logic this reconstructs: which
+# feature_ic_scores row ensemble_trainer.py actually used. select_features_per_stratum picks,
+# per feature, the row with the HIGHEST quality_weight across every (lookahead_bars,
+# training_window_end) combination on record -- not the most recent training_window_end (a
+# feature's IC estimate, and even its sign, can differ across training windows, and this is
+# exactly the marginal/weak-signal population this diagnostic exists to scrutinize). But
+# ensemble_weights.ic_sharpe is stored as EXACTLY that winning row's ic_input_column value,
+# copied verbatim with no arithmetic (ensemble_trainer.py: `float(ic_sharpes[i])` where
+# ic_sharpes[i] = selected[i]["ic_sharpe"] = the raw ic_input_column value) -- so joining on
+# fic.{ic_input_column} = ew.ic_sharpe (exact float equality, safe here since no computation
+# separates the two values) uniquely identifies the actual winning row, regardless of which
+# training_window_end it came from. The trailing ORDER BY training_window_end DESC is a
+# defensive tiebreak only (not the selection mechanism) -- for the extremely unlikely case
+# where two different training windows produce a bit-identical statistic by coincidence, this
+# guarantees a deterministic pick instead of an arbitrary one. ic_input_column is never user
+# input -- it's resolved by ensemble_trainer.py's own _resolve_ic_input_column() from a fixed
+# 2-value enum (_IC_INPUT_COLUMNS), safe to interpolate.
+_SIGNED_WEIGHTS_SQL_TEMPLATE = """
     SELECT ew.regime, ew.feature_name, ew.weight, fic.ic_sign
     FROM ensemble_weights ew
     JOIN LATERAL (
@@ -747,6 +823,7 @@ _SIGNED_WEIGHTS_SQL = """
         WHERE fic.tf = ew.tf AND fic.regime = ew.regime
           AND fic.feature_name = ew.feature_name AND fic.lookahead_bars = ew.lookahead_bars
           AND fic.symbol = 'POOLED' AND fic.feature_status_at_eval = 'active'
+          AND fic.{ic_input_column} = ew.ic_sharpe
         ORDER BY fic.training_window_end DESC
         LIMIT 1
     ) fic ON true
@@ -775,16 +852,26 @@ _CLEAN_NOISE_FLOOR_SQL = """
 
 
 async def fetch_signed_weights_by_regime(
-    conn: asyncpg.Connection, tf: str, weight_version: str
-) -> dict[str, dict[str, float]]:
-    """{regime_label: {feature_name: weight * ic_sign}} for every trained regime in tf."""
-    rows = await conn.fetch(_SIGNED_WEIGHTS_SQL, tf, weight_version)
+    conn: asyncpg.Connection, tf: str, weight_version: str, ic_input_column: str
+) -> tuple[dict[str, dict[str, float]], int]:
+    """{regime_label: {feature_name: weight * ic_sign}} for every trained regime in tf, plus
+    a count of features skipped because the exact-match join found no ic_sign. select_
+    features_per_stratum only ever selects rows with a non-null ic_sign, so a miss here is
+    an anomaly worth surfacing, not something to silently guess a sign for -- skip the
+    feature rather than default to +1 and risk treating a contrarian feature as
+    non-contrarian.
+    """
+    sql = _SIGNED_WEIGHTS_SQL_TEMPLATE.format(ic_input_column=ic_input_column)
+    rows = await conn.fetch(sql, tf, weight_version)
     result: dict[str, dict[str, float]] = {}
+    n_skipped_null_sign = 0
     for row in rows:
+        if row["ic_sign"] is None:
+            n_skipped_null_sign += 1
+            continue
         regime_dict = result.setdefault(row["regime"], {})
-        sign = row["ic_sign"] if row["ic_sign"] is not None else 1
-        regime_dict[row["feature_name"]] = float(row["weight"]) * float(sign)
-    return result
+        regime_dict[row["feature_name"]] = float(row["weight"]) * float(row["ic_sign"])
+    return result, n_skipped_null_sign
 
 
 async def fetch_clean_noise_floor(
@@ -809,21 +896,27 @@ Run:
 ```bash
 .venv/bin/python -c "
 import asyncio, asyncpg
-from scripts.analysis.regime_boundary_churn_check import _SIGNED_WEIGHTS_SQL, _CLEAN_NOISE_FLOOR_SQL
+from scripts.analysis.regime_boundary_churn_check import _SIGNED_WEIGHTS_SQL_TEMPLATE, _CLEAN_NOISE_FLOOR_SQL
 
 async def main():
     conn = await asyncpg.connect('postgresql://postgres:postgres@localhost:5432/indicagent')
-    r1 = await conn.fetch(_SIGNED_WEIGHTS_SQL, '5m', 'v1')
-    r2 = await conn.fetch(_CLEAN_NOISE_FLOOR_SQL, '5m', 'v1')
+    sql = _SIGNED_WEIGHTS_SQL_TEMPLATE.format(ic_input_column='ic_shrunk')
+    r1 = await conn.fetch(sql, '5m', 'run_2025122405150000')
+    r2 = await conn.fetch(_CLEAN_NOISE_FLOOR_SQL, '5m', 'run_2025122405150000')
     print('signed_weights rows:', len(r1), 'noise_floor rows:', len(r2))
     await conn.close()
 
 asyncio.run(main())
 "
 ```
-Expected: prints two counts, no error. (Counts may be 0 if `weight_version='v1'` isn't the
-live one — check `alpha.ensemble.weight_version` via `ConfigService` if so; 0 rows is not a
-failure of this step, an exception is.)
+Expected: prints two counts, no error. `'run_2025122405150000'` is the live
+`alpha.ensemble.weight_version` as of 2026-07-15 (verify with
+`PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "SELECT config_value FROM
+config_state WHERE config_key = 'alpha.ensemble.weight_version';"` if it may have changed).
+**0 rows for both is expected right now**, not a bug: `ensemble_weights`/`ensemble_alpha` are
+currently empty because the in-flight corpus pipeline hasn't reached its `ensemble_trainer`/
+`alpha_publisher` steps yet for this epoch. Only an exception (SQL error) is a failure of this
+step — a clean 0-row result confirms the query is valid against the live schema.
 
 - [ ] **Step 6: Commit**
 
@@ -871,14 +964,77 @@ def test_allocate_sample_sizes_never_exceeds_available_count():
     counts = {"5m": 30, "15m": 1_500, "1h": 400, "1d": 100}
     allocation = allocate_sample_sizes(counts, target_total=50_000, hard_cap=20_000)
     assert allocation["5m"] == 30
+
+
+from datetime import UTC, datetime
+
+from scripts.analysis.regime_boundary_churn_check import fetch_sampled_feature_vectors
+
+
+class _FakeConnSampledFeatureVectors:
+    """Fake asyncpg.Connection: fetchrow() returns a canned symbol count, fetch() returns
+    canned rows and records the SQL + timestamp list it was called with."""
+
+    def __init__(self, n_symbols: int, rows: list[dict]):
+        self._n_symbols = n_symbols
+        self._rows = rows
+        self.fetch_calls: list[tuple[str, tuple]] = []
+
+    async def fetchrow(self, sql, *args):
+        return {"n": self._n_symbols}
+
+    async def fetch(self, sql, *args):
+        self.fetch_calls.append((sql, args))
+        return self._rows
+
+
+_TS = [datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, 0, 5, tzinfo=UTC)]
+
+
+@pytest.mark.asyncio
+async def test_fetch_sampled_feature_vectors_avoids_order_by_random_in_sql():
+    # The whole point of the fix: no expensive full-relation sort in the actual query.
+    conn = _FakeConnSampledFeatureVectors(n_symbols=2, rows=[{"symbol": "SPY", "bar_ts": _TS[0]}])
+    await fetch_sampled_feature_vectors(conn, "5m", _TS, ("momentum_z_fast",), 10)
+    assert len(conn.fetch_calls) == 1
+    sql, args = conn.fetch_calls[0]
+    assert "ORDER BY random()" not in sql
+    assert "LIMIT" not in sql
+
+
+@pytest.mark.asyncio
+async def test_fetch_sampled_feature_vectors_truncates_to_n_in_python():
+    rows = [{"symbol": f"S{i}", "bar_ts": _TS[0]} for i in range(5)]
+    conn = _FakeConnSampledFeatureVectors(n_symbols=5, rows=rows)
+    result = await fetch_sampled_feature_vectors(conn, "5m", _TS, ("momentum_z_fast",), 3)
+    assert len(result) == 3
+
+
+@pytest.mark.asyncio
+async def test_fetch_sampled_feature_vectors_handles_empty_timestamps_and_zero_n():
+    conn = _FakeConnSampledFeatureVectors(n_symbols=5, rows=[])
+    assert await fetch_sampled_feature_vectors(conn, "5m", [], ("momentum_z_fast",), 10) == []
+    assert await fetch_sampled_feature_vectors(conn, "5m", _TS, ("momentum_z_fast",), 0) == []
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k allocate_sample_sizes`
+Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k "allocate_sample_sizes or fetch_sampled_feature_vectors"`
 Expected: FAIL with `ImportError`
 
 - [ ] **Step 3: Write minimal implementation**
+
+**Performance note (found during Task 7's review, fixed before this text was written):** the
+first version of `fetch_sampled_feature_vectors` used `ORDER BY random() LIMIT n` directly in
+SQL. Measured against realistic scale (5,000 timestamps, `n=20,000`): **~205 seconds** for one
+fetch. Root cause: `feature_vectors` is a large compressed TimescaleDB hypertable (~25M rows
+at 5m) — `ORDER BY random()` forces Postgres to decompress and materialize *every* matching
+row before it can sort and apply `LIMIT`, since there's no way to short-circuit a random sort
+against an indexed scan. This directly contradicted the module's own "cheap to re-run"
+premise. Fixed by pre-sampling the *timestamp* list in Python (cheap — no full-relation sort
+needed) before querying, then fetching only the rows at those pre-selected timestamps and
+truncating to `n` in Python if oversampled. Measured after the fix, same scale: **~0.12
+seconds** (~1700x faster).
 
 ```python
 # Append to scripts/analysis/regime_boundary_churn_check.py
@@ -908,30 +1064,51 @@ async def fetch_sampled_feature_vectors(
     feature_names: tuple[str, ...],
     n: int,
 ) -> list[asyncpg.Record]:
-    """Random sample of n (symbol, bar_ts) rows from feature_vectors at the given
+    """Random sample of up to n (symbol, bar_ts) rows from feature_vectors at the given
     boundary-adjacent timestamps. feature_names come from fetch_signed_weights_by_regime's
     keys (information-schema-governed registry names, not user input -- safe to interpolate
     into the column list, matching ensemble_trainer.py's own col_list convention).
+
+    Pre-samples the TIMESTAMP list in Python rather than pulling every matching row and
+    sorting by random() in SQL -- see this task's performance note above. Sampling
+    ~n/n_symbols timestamps first, then fetching only those, keeps the query a plain indexed
+    filter with no full-relation sort.
     """
+    if not timestamps or n <= 0:
+        return []
+
+    symbol_count_row = await conn.fetchrow(
+        "SELECT count(DISTINCT symbol) AS n FROM feature_vectors WHERE tf = $1", tf
+    )
+    n_symbols = max(1, symbol_count_row["n"])
+    n_timestamps_needed = max(1, math.ceil(n / n_symbols))
+
+    sampled_timestamps = (
+        random.sample(timestamps, n_timestamps_needed)
+        if n_timestamps_needed < len(timestamps)
+        else timestamps
+    )
+
     col_list = ", ".join(f'"{c}"' for c in feature_names)
-    return await conn.fetch(
+    rows = await conn.fetch(
         f"""
         SELECT symbol, bar_ts, {col_list}
         FROM feature_vectors
         WHERE tf = $1 AND bar_ts = ANY($2::timestamptz[])
-        ORDER BY random()
-        LIMIT $3
         """,
         tf,
-        timestamps,
-        n,
+        sampled_timestamps,
     )
+    return rows[:n] if len(rows) > n else rows
 ```
+
+Also add `import math` and `import random` to the module's top-level imports (alongside the
+existing `from dataclasses import dataclass` / `from typing import Any` block).
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k allocate_sample_sizes`
-Expected: PASS (3 tests)
+Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k "allocate_sample_sizes or fetch_sampled_feature_vectors"`
+Expected: PASS (6 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -953,7 +1130,9 @@ git commit -m "feat(analysis): add stratified sample allocation and feature_vect
 - Produces: `def score_sampled_bars(sampled_rows: list[dict], adjacency_by_ts: dict, weights_by_regime: dict[str, dict[str, float]]) -> tuple[np.ndarray, int]`
   (returns `(effect_sizes, n_untrained_neighbor_bars)` — the pure orchestration core, DB-free
   and directly testable with synthetic fixtures);
-  `async def run_diagnostic(conn: asyncpg.Connection, weight_version: str) -> list[CellVerdict]`
+  `async def run_diagnostic(conn: asyncpg.Connection, cfg: Any, weight_version: str) -> list[CellVerdict]`
+  (`cfg` is an initialized `ConfigService` -- caller-owned, matching how `conn` is already
+  caller-owned, rather than `run_diagnostic` constructing its own DB-backed service internally)
   (thin async wrapper calling the fetch layer then `score_sampled_bars` then `compute_cell_verdict`
   per tf).
 
@@ -995,7 +1174,10 @@ def test_score_sampled_bars_scores_trained_pairs_and_counts_untrained():
 
     spy_actual = 2.0 * 0.6 + -1.0 * 0.4
     spy_neighbor = 2.0 * 0.3 + -1.0 * 0.2
-    assert abs(spy_actual - spy_neighbor) in effect_sizes
+    expected_spy_effect = abs(spy_actual - spy_neighbor)
+    # Tolerance, not exact `in` membership: np.dot vs plain Python arithmetic
+    # aren't guaranteed bit-identical.
+    assert any(abs(e - expected_spy_effect) < 1e-9 for e in effect_sizes)
 
 
 def test_score_sampled_bars_excludes_bars_with_untrained_actual_regime_too():
@@ -1060,8 +1242,13 @@ def score_sampled_bars(
     return np.array(effect_sizes, dtype=float), n_untrained
 
 
-async def run_diagnostic(conn: asyncpg.Connection, weight_version: str) -> list[CellVerdict]:
+async def run_diagnostic(
+    conn: asyncpg.Connection, cfg: Any, weight_version: str
+) -> list[CellVerdict]:
     """Full pipeline for REGIME_GROUP, one CellVerdict per tf in TFS.
+
+    cfg is a caller-owned, already-initialized ConfigService (see load_equity_tiers'
+    docstring for why this uses cfg.get(), not cfg.get_sync()).
 
     Two passes, deliberately: allocate_sample_sizes needs every tf's boundary-adjacent
     count up front to share the ~50k sample budget proportionally (Task 7) -- calling it
@@ -1069,11 +1256,14 @@ async def run_diagnostic(conn: asyncpg.Connection, weight_version: str) -> list[
     hard_cap (up to 4x hard_cap total), defeating the cross-tf sharing the budget exists
     for.
     """
-    from src.config.settings import Settings
-    from src.core.config_service import ConfigService
+    from services.ensemble_trainer import _resolve_ic_input_column
 
-    cfg = ConfigService(Settings())
-    tiers1, tiers2 = load_equity_tiers(cfg)
+    tiers1, tiers2 = await load_equity_tiers(cfg)
+    # Default matches EnsembleConfig.from_apr's own default (ensemble_trainer.py:171) --
+    # not re-derived independently, so this can't silently diverge if the config_state row
+    # is ever missing.
+    ic_input = await cfg.get("alpha.ensemble.ic_input", "ic_sharpe_hac")
+    ic_input_column = _resolve_ic_input_column(ic_input)
 
     # Pass 1: fetch each tf's regime series and classify boundary adjacency.
     per_tf: dict[str, dict] = {}
@@ -1111,7 +1301,14 @@ async def run_diagnostic(conn: asyncpg.Connection, weight_version: str) -> list[
         n_boundary_adjacent = len(adjacency_by_ts)
         n_total = d["n_total"]
 
-        weights_by_regime = await fetch_signed_weights_by_regime(conn, tf, weight_version)
+        weights_by_regime, n_skipped_null_sign = await fetch_signed_weights_by_regime(
+            conn, tf, weight_version, ic_input_column
+        )
+        if n_skipped_null_sign > 0:
+            # Anomalous per fetch_signed_weights_by_regime's docstring -- worth surfacing,
+            # not silently absorbing (this repo's "silent wrong answers are worse than loud
+            # crashes" principle).
+            print(f"WARNING: tf={tf} skipped {n_skipped_null_sign} features with null ic_sign")
         clean_noise_floor = await fetch_clean_noise_floor(conn, tf, weight_version)
 
         effect_sizes = np.array([], dtype=float)
@@ -1221,8 +1418,8 @@ def main() -> None:
     import argparse
     import asyncio
 
+    from src.config.config_service import ConfigService
     from src.config.settings import Settings
-    from src.core.config_service import ConfigService
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--weight-version", default=None, help="Overrides alpha.ensemble.weight_version.")
@@ -1230,13 +1427,17 @@ def main() -> None:
 
     async def _run() -> None:
         settings = Settings()
-        cfg = ConfigService(settings)
-        weight_version = args.weight_version or cfg.get_sync("alpha.ensemble.weight_version", "v1")
+        cfg = ConfigService(database_url=settings.database_url)
+        await cfg.initialize()
         conn = await asyncpg.connect(settings.database_url)
         try:
-            verdicts = await run_diagnostic(conn, weight_version)
+            weight_version = args.weight_version or await cfg.get(
+                "alpha.ensemble.weight_version", "v1"
+            )
+            verdicts = await run_diagnostic(conn, cfg, weight_version)
         finally:
             await conn.close()
+            await cfg.close()
         print(format_verdict_table(verdicts))
 
     asyncio.run(_run())
