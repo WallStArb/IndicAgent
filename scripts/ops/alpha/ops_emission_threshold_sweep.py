@@ -48,6 +48,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 import asyncpg
 
+from services._batch_utils import cfg as _cfg
+from services._batch_utils import load_apr_dict_async as _load_apr
 from src.config.settings import Settings
 
 _KNOWN_TFS = ["5m", "15m", "1h", "1d"]
@@ -75,6 +77,7 @@ _SWEEP_SQL_TEMPLATE = """
       ON fr.symbol = ea.symbol AND fr.tf = ea.tf AND fr.bar_ts = ea.bar_ts
     WHERE ea.weight_version = $1
       AND ea.bar_ts < $2::timestamptz
+      AND ea.tf = ANY($3::text[])
       AND fr.return_type = 'executable_open_to_open'
       AND fr.{complete_col} = true
       AND fr.{return_col} IS NOT NULL
@@ -90,16 +93,18 @@ class _ThresholdResult:
     se_net_return: float | None
 
     @property
-    def ci_lower(self) -> float | None:
+    def _half_width(self) -> float | None:
         if self.mean_net_return is None or self.se_net_return is None:
             return None
-        return self.mean_net_return - 1.96 * self.se_net_return
+        return 1.96 * self.se_net_return
+
+    @property
+    def ci_lower(self) -> float | None:
+        return None if self._half_width is None else self.mean_net_return - self._half_width
 
     @property
     def ci_upper(self) -> float | None:
-        if self.mean_net_return is None or self.se_net_return is None:
-            return None
-        return self.mean_net_return + 1.96 * self.se_net_return
+        return None if self._half_width is None else self.mean_net_return + self._half_width
 
 
 def _passes_gate(
@@ -245,9 +250,9 @@ async def main() -> int:
     pool = await asyncpg.create_pool(dsn=dsn)
     try:
         async with pool.acquire() as conn:
-            oos_start = await conn.fetchval(
-                "SELECT config_value FROM config_state WHERE config_key = 'alpha.validation.oos_start'"
-            )
+            apr = await _load_apr(conn)
+
+            oos_start = apr.get("alpha.validation.oos_start")
             if not oos_start:
                 print(
                     "FAILED: alpha.validation.oos_start missing from config_state -- "
@@ -257,17 +262,8 @@ async def main() -> int:
                 )
                 return 1
 
-            cost_hurdles = {}
-            effective_n_gate_raw = await conn.fetchval(
-                "SELECT config_value FROM config_state WHERE config_key = 'alpha.ensemble.effective_n_gate'"
-            )
-            effective_n_gate = float(effective_n_gate_raw) if effective_n_gate_raw else 3.0
-            for tf in tfs:
-                hurdle = await conn.fetchval(
-                    "SELECT config_value FROM config_state WHERE config_key = $1",
-                    f"alpha.quant.cost_hurdle.{tf}",
-                )
-                cost_hurdles[tf] = float(hurdle) if hurdle is not None else 0.0
+            effective_n_gate = _cfg(apr, "alpha.ensemble.effective_n_gate", 3.0)
+            cost_hurdles = {tf: _cfg(apr, f"alpha.quant.cost_hurdle.{tf}", 0.0) for tf in tfs}
 
             print("## EM-CAL Emission Threshold Sweep (todo 065) -- PROVISIONAL, in-sample only")
             print()
@@ -281,10 +277,14 @@ async def main() -> int:
             print(f"threshold grid: {list(thresholds)}")
             print()
 
+            sql = _SWEEP_SQL_TEMPLATE.format(return_col=return_col, complete_col=complete_col)
+            rows = await conn.fetch(sql, args.weight_version, oos_start, tfs)
+            rows_by_tf: dict[str, list[dict]] = {tf: [] for tf in tfs}
+            for row in rows:
+                rows_by_tf[row["tf"]].append(row)
+
             for tf in tfs:
-                sql = _SWEEP_SQL_TEMPLATE.format(return_col=return_col, complete_col=complete_col)
-                rows = await conn.fetch(sql, args.weight_version, oos_start)
-                rows_for_tf = [r for r in rows if r["tf"] == tf]
+                rows_for_tf = rows_by_tf[tf]
 
                 if not rows_for_tf:
                     print(f"### {tf}: no in-sample rows -- skipping")
@@ -324,16 +324,19 @@ async def main() -> int:
                     print()
                     continue
 
-                regimes = sorted({r["regime"] for r in rows_for_tf if r["regime"]})
-                if regimes:
+                rows_by_regime: dict[str, list[dict]] = {}
+                for row in rows_for_tf:
+                    if row["regime"]:
+                        rows_by_regime.setdefault(row["regime"], []).append(row)
+
+                if rows_by_regime:
                     print(f"Per-regime granularity check ({tf}):")
                     print()
                     print(
                         "| regime | optimal_threshold | N | mean_net_return | granularity_earned |"
                     )
                     print("|---|---|---|---|---|")
-                    for regime in regimes:
-                        regime_rows = [r for r in rows_for_tf if r["regime"] == regime]
+                    for regime, regime_rows in sorted(rows_by_regime.items()):
                         regime_results = _sweep_stratum(
                             regime_rows, thresholds, cost_hurdles[tf], effective_n_gate
                         )
