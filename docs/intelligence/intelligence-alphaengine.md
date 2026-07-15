@@ -281,9 +281,22 @@ Phase A: Measurement Foundation (current)
   4. effective_n_scores — pairwise IC correlation → independence adjustment
 
 Phase B: Ensemble
-  5. ensemble_alpha — IC-weighted alpha score per bar
-  6. alpha_events emission — threshold crossing events
-  7. alpha_decay_monitor — rolling IC → APR alpha.weights.*
+  5. ic_shrinkage — empirical-Bayes IC shrinkage + out-of-fold acceptance gate (may flip
+     alpha.ensemble.ic_input to 'ic_shrunk'; live as of 2026-07-15)
+  6. ensemble_trainer — feature_ic_scores → ensemble_weights + ensemble_alpha (per-bar alpha score)
+  7. EnsembleICEngine — validates the ensemble's own composite output has real IC → alpha_ensemble_ic
+  8. alpha_events emission — threshold crossing events
+  9. alpha_decay_monitor — rolling IC → APR alpha.weights.* (designed, not yet built)
+
+  Full mechanics (shrinkage math, weight combination methods, the champion/challenger
+  promotion gate, and the `concept_registry` table that records which weighting recipe is
+  live) are in `intelligence-alphaengine-methodology.md` — not reproduced here.
+
+  Note: this differs slightly from the live nightly corpus pipeline's step order
+  (`scripts/ops/corpus/ops_corpus_pipeline_run.sh`, 8 steps: feature_factory →
+  regime_writer → forward_return_writer → cross_sectional_regime_model → ic_engine →
+  ic_shrinkage → ensemble_trainer → alpha_publisher) — that script is the operational
+  sequencing; this list is the conceptual build order.
 
 Phase C: Hot Path (after Phase B IC is validated)
   8. Ensemble in-process (replaces I7 aggregator)
@@ -302,8 +315,10 @@ Nothing in Phase C or beyond starts before IC is measured and positive. Shadow m
 
 ## See Also
 
-- **Architecture spec:** `docs/plans/2026-06-20-alphaengine-architecture.md` — full design with feature list
-- **IC methodology:** `docs/plans/2026-06-20-alphaengine-ic-spec.md` — Spearman, IC Sharpe, FDR, block bootstrap
+- **IC + ensemble methodology (canonical, current):** `docs/intelligence/intelligence-alphaengine-methodology.md` — IC estimation, IC shrinkage, weight combination methods, ensemble output validation, weighting recipe governance. Self-contained; no need to read `ensemble_trainer.py`/`ops_ic_shrinkage.py` or historical plan docs to understand how the live ensemble is computed.
+- **Live weighting recipe state:** `concept_registry` table, `domain='ensemble_strategy'` — query directly rather than trusting any doc's snapshot of "what's active."
+- **Architecture spec (historical):** `docs/plans/2026-06-20-alphaengine-architecture.md` — full design with feature list
+- **IC methodology (historical, superseded by the methodology doc above):** `docs/plans/2026-06-20-alphaengine-ic-spec.md`
 - **AnalogEngine:** `docs/plans/2026-06-20-analogengine-design.md` — deferred; pgvector similarity search
 - **Feature Factory foundation:** `src/intelligence/features/` (Phase A implementation)
 - **Prior art:** `docs/research/archive/renaissance-alpha-pipeline.md`
