@@ -65,3 +65,35 @@ def test_classify_narrow_middle_tier_double_adjacency_on_one_axis():
     assert result.actual_label == "mid_neutral"
     assert result.axis1_adjacent
     assert set(result.neighbor_labels) == {"low_neutral", "high_neutral"}
+
+
+from scripts.analysis.regime_boundary_churn_check import align_weight_vectors, score_bar
+
+
+def test_align_weight_vectors_unions_and_zero_pads():
+    a = {"momentum_z_fast": 0.6, "obv_z": 0.4}
+    b = {"momentum_z_fast": 0.5, "range_pct": -0.5}
+    aligned = align_weight_vectors(a, b)
+    assert aligned.feature_names == ("momentum_z_fast", "obv_z", "range_pct")
+    assert aligned.signed_weights_a.tolist() == [0.6, 0.4, 0.0]
+    assert aligned.signed_weights_b.tolist() == [0.5, 0.0, -0.5]
+
+
+def test_score_bar_matches_manual_dot_product():
+    feature_values = {"momentum_z_fast": 2.0, "obv_z": -1.0, "range_pct": 0.5}
+    feature_names = ("momentum_z_fast", "obv_z", "range_pct")
+    signed_weights = np.array([0.6, 0.4, 0.0])
+    score = score_bar(feature_values, feature_names, signed_weights)
+    expected = 2.0 * 0.6 + -1.0 * 0.4 + 0.5 * 0.0
+    # Tolerance, not ==: np.dot and plain Python arithmetic aren't guaranteed
+    # bit-identical (e.g. FMA on some platforms).
+    assert abs(score - expected) < 1e-9
+
+
+def test_score_bar_treats_missing_and_non_finite_as_zero():
+    feature_values = {"momentum_z_fast": float("nan"), "obv_z": -1.0}
+    feature_names = ("momentum_z_fast", "obv_z", "range_pct")
+    signed_weights = np.array([0.6, 0.4, -0.5])
+    score = score_bar(feature_values, feature_names, signed_weights)
+    expected = 0.0 * 0.6 + -1.0 * 0.4 + 0.0 * -0.5
+    assert abs(score - expected) < 1e-9

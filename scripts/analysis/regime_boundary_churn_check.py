@@ -148,3 +148,35 @@ def classify_timestamp_adjacency(
         actual_label=actual_label,
         neighbor_labels=tuple(dict.fromkeys(neighbor_labels)),
     )
+
+
+def align_weight_vectors(
+    signed_weights_a: dict[str, float], signed_weights_b: dict[str, float]
+) -> AlignedWeights:
+    """Zero-pad both weight dicts onto the union of their feature names.
+
+    Different regimes' ensemble_weights may cover different selected feature sets --
+    a feature present in one but absent in the other must contribute correctly rather
+    than being silently dropped or misaligned.
+    """
+    feature_names = tuple(sorted(set(signed_weights_a) | set(signed_weights_b)))
+    a = np.array([signed_weights_a.get(f, 0.0) for f in feature_names], dtype=float)
+    b = np.array([signed_weights_b.get(f, 0.0) for f in feature_names], dtype=float)
+    return AlignedWeights(feature_names=feature_names, signed_weights_a=a, signed_weights_b=b)
+
+
+def score_bar(
+    feature_values: dict[str, float],
+    feature_names: tuple[str, ...],
+    signed_weights: np.ndarray,
+) -> float:
+    """alpha_score = X[bar] @ signed_weights -- the exact ensemble_trainer.py Step 6 pattern.
+
+    signed_weights must already be weight * ic_sign (see the fetch layer, Task 6). Missing
+    or non-finite feature values are treated as 0, matching alpha_score.py's convention.
+    """
+    x = np.array(
+        [v if np.isfinite(v) else 0.0 for v in (feature_values.get(f, 0.0) for f in feature_names)],
+        dtype=float,
+    )
+    return float(np.dot(x, signed_weights))
