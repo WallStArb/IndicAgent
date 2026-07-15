@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from scripts.analysis.regime_boundary_churn_check import (
     WINDOW_STEP_MULTIPLIER,
@@ -179,10 +180,39 @@ def test_verdict_handles_no_boundary_adjacent_timestamps():
     assert verdict.overall_pass is False
 
 
-from scripts.analysis.regime_boundary_churn_check import _REGIME_SERIES_SQL
+from scripts.analysis.regime_boundary_churn_check import _REGIME_SERIES_SQL, load_equity_tiers
 
 
 def test_regime_series_sql_scopes_to_equity_group_and_orders_by_ts():
     assert "regime_group = 'equity'" in _REGIME_SERIES_SQL
     assert "ORDER BY ts" in _REGIME_SERIES_SQL
     assert "regime_prob_vector" in _REGIME_SERIES_SQL
+
+
+class _FakeConfigService:
+    """Records every key requested via get(), always returns the caller's default."""
+
+    def __init__(self):
+        self.requested_keys: list[str] = []
+
+    async def get(self, key: str, default):
+        self.requested_keys.append(key)
+        return default
+
+
+@pytest.mark.asyncio
+async def test_load_equity_tiers_reads_the_live_equity_regime_apr_namespace():
+    # Namespace is 'alpha.equity_regime' (the equity group's params_prefix in
+    # cross_sectional_regime_model.py's group config) -- NOT 'alpha.regime.equity', a
+    # namespace that doesn't exist in config_state at all (confirmed live 2026-07-15).
+    # Uses get() (async), not get_sync() -- get_sync() only reads an already-warmed cache
+    # and would silently return the default on a cold cache, masking the real bug this
+    # test guards against.
+    cfg = _FakeConfigService()
+    await load_equity_tiers(cfg)
+    assert cfg.requested_keys == [
+        "alpha.equity_regime.vix_low_pct",
+        "alpha.equity_regime.vix_high_pct",
+        "alpha.equity_regime.breadth_bear",
+        "alpha.equity_regime.breadth_bull",
+    ]
