@@ -18,6 +18,32 @@ pending-folder key), matching the pattern todo 009 already documented for itself
 **Priority: High — must exist before Phase 142 ships; shadow mode without monitoring is a log sink.**
 **Gate: Must be built as part of Phase 142, not deferred to Phase 143.**
 
+**Status check 2026-07-14 (corpus-rebuild idle window):** this file is stale relative to how far
+the project has moved since 2026-06-28 — "Phase 142" in the text below means what's now split
+across Phases 142A/142B/142B.1/143/147/148. Checked each of the 3 deliverables against live
+state:
+
+1. **`SHADOW-REVIEW.md` — DONE, already exists** at `docs/plans/SHADOW-REVIEW.md`, and is more
+   rigorous than this todo's own gate-criteria sketch (day-clustered block bootstrap, gross-vs-net
+   cost basis reasoning, two frozen edge-case resolutions, explicit no-post-hoc-negotiation
+   clause). This todo's "Promotion gate criteria" section above is superseded by that file — don't
+   treat it as the source of truth anymore.
+2. **Grafana panels — NOT done, real gap.** `production/grafana/dashboards/shadow-validation.json`
+   exists but is for the **archived v2.x `shadow_registry`/`shadow_validator.py` system**
+   ("Per-Setup Promotion Metrics," "N Accumulation Toward Gate (N=100)") — a different,
+   no-live-consumer shadow mechanism, not v3.0's `alpha_events`/`alpha_frames`. No dashboard
+   exists for the live system this todo actually means.
+3. **Telegram weekly alert — NOT done, real gap.** `services/alert_monitor.py` exists as a
+   pattern to extend, not yet built for this purpose.
+
+**Also stale:** several of the 7 specified panels below reference a portfolio-construction layer
+(VaR headroom, correlation cluster utilization, `minimum_notional` rejection reason) that v3.0
+never built this way — `alpha_publisher.py`'s actual gate stack is `effective_n` / per-TF
+threshold / direction-aware CI+cost-hurdle / non-empty `top_features` (see glossary.md, corrected
+2026-07-14). The panel list needs to be re-derived from the real gate stack and real
+`alpha_frames`/`counterfactual_pnl_r` schema before building, not built against this stale spec
+verbatim.
+
 ---
 
 ## Problem
