@@ -62,10 +62,23 @@ _REGIME_SERIES_SQL = """
 """
 
 # Per-feature signed weight (weight * ic_sign) for every trained regime in one tf. ic_sign
-# lives only in feature_ic_scores, not ensemble_weights -- the LATERAL join picks the most
-# recent training_window_end for the exact (feature_name, lookahead_bars) ensemble_weights
-# already selected, matching ensemble_trainer.py's own selection exactly (one query, no N+1).
-_SIGNED_WEIGHTS_SQL = """
+# lives only in feature_ic_scores, not ensemble_weights.
+#
+# {ic_input_column} is the ONE piece of production-selection logic this reconstructs: which
+# feature_ic_scores row ensemble_trainer.py actually used. select_features_per_stratum picks,
+# per feature, the row with the HIGHEST quality_weight across every (lookahead_bars,
+# training_window_end) combination on record -- not the most recent training_window_end (a
+# feature's IC estimate, and even its sign, can differ across training windows, and this is
+# exactly the marginal/weak-signal population this diagnostic exists to scrutinize). But
+# ensemble_weights.ic_sharpe is stored as EXACTLY that winning row's ic_input_column value,
+# copied verbatim with no arithmetic (ensemble_trainer.py: `float(ic_sharpes[i])` where
+# ic_sharpes[i] = selected[i]["ic_sharpe"] = the raw ic_input_column value) -- so joining on
+# fic.{ic_input_column} = ew.ic_sharpe (exact float equality, safe here since no computation
+# separates the two values) uniquely identifies the actual winning row, regardless of which
+# training_window_end it came from. ic_input_column is never user input -- it's resolved by
+# ensemble_trainer.py's own _resolve_ic_input_column() from a fixed 2-value enum
+# (_IC_INPUT_COLUMNS), safe to interpolate.
+_SIGNED_WEIGHTS_SQL_TEMPLATE = """
     SELECT ew.regime, ew.feature_name, ew.weight, fic.ic_sign
     FROM ensemble_weights ew
     JOIN LATERAL (
@@ -74,7 +87,7 @@ _SIGNED_WEIGHTS_SQL = """
         WHERE fic.tf = ew.tf AND fic.regime = ew.regime
           AND fic.feature_name = ew.feature_name AND fic.lookahead_bars = ew.lookahead_bars
           AND fic.symbol = 'POOLED' AND fic.feature_status_at_eval = 'active'
-        ORDER BY fic.training_window_end DESC
+          AND fic.{ic_input_column} = ew.ic_sharpe
         LIMIT 1
     ) fic ON true
     WHERE ew.symbol = 'UNIVERSE' AND ew.tf = $1 AND ew.weight_version = $2
@@ -107,16 +120,30 @@ async def fetch_regime_series(conn: asyncpg.Connection, tf: str) -> list[asyncpg
 
 
 async def fetch_signed_weights_by_regime(
-    conn: asyncpg.Connection, tf: str, weight_version: str
-) -> dict[str, dict[str, float]]:
-    """{regime_label: {feature_name: weight * ic_sign}} for every trained regime in tf."""
-    rows = await conn.fetch(_SIGNED_WEIGHTS_SQL, tf, weight_version)
+    conn: asyncpg.Connection, tf: str, weight_version: str, ic_input_column: str
+) -> tuple[dict[str, dict[str, float]], int]:
+    """{regime_label: {feature_name: weight * ic_sign}} for every trained regime in tf, plus
+    a count of features skipped because the exact-match join found no ic_sign (see
+    _SIGNED_WEIGHTS_SQL_TEMPLATE's docstring for why the join should normally always find
+    one). select_features_per_stratum only ever selects rows with a non-null ic_sign, so a
+    miss here is an anomaly worth surfacing, not something to silently guess a sign for --
+    skip the feature rather than default to +1 and risk treating a contrarian feature as
+    non-contrarian.
+
+    ic_input_column must be one of ensemble_trainer.py's _IC_INPUT_COLUMNS values
+    ("ic_sharpe_hac" or "ic_shrunk") -- never raw user input.
+    """
+    sql = _SIGNED_WEIGHTS_SQL_TEMPLATE.format(ic_input_column=ic_input_column)
+    rows = await conn.fetch(sql, tf, weight_version)
     result: dict[str, dict[str, float]] = {}
+    n_skipped_null_sign = 0
     for row in rows:
+        if row["ic_sign"] is None:
+            n_skipped_null_sign += 1
+            continue
         regime_dict = result.setdefault(row["regime"], {})
-        sign = row["ic_sign"] if row["ic_sign"] is not None else 1
-        regime_dict[row["feature_name"]] = float(row["weight"]) * float(sign)
-    return result
+        regime_dict[row["feature_name"]] = float(row["weight"]) * float(row["ic_sign"])
+    return result, n_skipped_null_sign
 
 
 async def fetch_clean_noise_floor(conn: asyncpg.Connection, tf: str, weight_version: str) -> float:

@@ -183,7 +183,8 @@ def test_verdict_handles_no_boundary_adjacent_timestamps():
 from scripts.analysis.regime_boundary_churn_check import (
     _CLEAN_NOISE_FLOOR_SQL,
     _REGIME_SERIES_SQL,
-    _SIGNED_WEIGHTS_SQL,
+    _SIGNED_WEIGHTS_SQL_TEMPLATE,
+    fetch_signed_weights_by_regime,
     load_equity_tiers,
 )
 
@@ -194,11 +195,41 @@ def test_regime_series_sql_scopes_to_equity_group_and_orders_by_ts():
     assert "regime_prob_vector" in _REGIME_SERIES_SQL
 
 
-def test_signed_weights_sql_joins_ic_sign_via_lateral_on_matching_lookahead():
-    assert "ensemble_weights" in _SIGNED_WEIGHTS_SQL
-    assert "LATERAL" in _SIGNED_WEIGHTS_SQL
-    assert "fic.lookahead_bars = ew.lookahead_bars" in _SIGNED_WEIGHTS_SQL
-    assert "symbol = 'UNIVERSE'" in _SIGNED_WEIGHTS_SQL
+def test_signed_weights_sql_joins_ic_sign_via_lateral_on_exact_selected_value():
+    sql = _SIGNED_WEIGHTS_SQL_TEMPLATE.format(ic_input_column="ic_shrunk")
+    assert "ensemble_weights" in sql
+    assert "LATERAL" in sql
+    assert "fic.lookahead_bars = ew.lookahead_bars" in sql
+    assert "symbol = 'UNIVERSE'" in sql
+    # The actual fix: match the exact stored value ensemble_trainer.py copied verbatim,
+    # not a training_window_end recency heuristic that doesn't match production's real
+    # selection criterion (highest quality_weight, not most recent).
+    assert "fic.ic_shrunk = ew.ic_sharpe" in sql
+    assert "training_window_end" not in sql
+
+
+class _FakeConnSignedWeights:
+    """Fake asyncpg.Connection returning canned rows for fetch_signed_weights_by_regime."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def fetch(self, sql, *args):
+        return self._rows
+
+
+@pytest.mark.asyncio
+async def test_fetch_signed_weights_by_regime_skips_null_ic_sign_and_counts_it():
+    rows = [
+        {"regime": "mid_neutral", "feature_name": "momentum_z_fast", "weight": 0.6, "ic_sign": 1},
+        {"regime": "mid_neutral", "feature_name": "obv_z", "weight": 0.4, "ic_sign": None},
+    ]
+    conn = _FakeConnSignedWeights(rows)
+    weights_by_regime, n_skipped = await fetch_signed_weights_by_regime(
+        conn, "5m", "run_x", "ic_shrunk"
+    )
+    assert weights_by_regime == {"mid_neutral": {"momentum_z_fast": 0.6}}
+    assert n_skipped == 1
 
 
 def test_clean_noise_floor_sql_excludes_regime_transition_bars():

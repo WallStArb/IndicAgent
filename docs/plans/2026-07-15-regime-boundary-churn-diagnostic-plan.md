@@ -706,10 +706,25 @@ git commit -m "feat(analysis): add regime time-series fetch and tier cut-point l
 - Test: `tests/unit/test_regime_boundary_churn_check.py`
 
 **Interfaces:**
-- Produces: `async def fetch_signed_weights_by_regime(conn: asyncpg.Connection, tf: str, weight_version: str) -> dict[str, dict[str, float]]`
-  (outer key = `regime_label`, inner = `{feature_name: weight * ic_sign}`);
+- Produces: `async def fetch_signed_weights_by_regime(conn: asyncpg.Connection, tf: str, weight_version: str, ic_input_column: str) -> tuple[dict[str, dict[str, float]], int]`
+  (dict: outer key = `regime_label`, inner = `{feature_name: weight * ic_sign}`; int = count
+  of features skipped because no exact-match ic_sign was found -- see below for why this
+  should normally be 0. `ic_input_column` must be `ensemble_trainer.py`'s
+  `_resolve_ic_input_column(alpha.ensemble.ic_input)` result -- caller-resolved, not
+  re-derived here);
   `async def fetch_clean_noise_floor(conn: asyncpg.Connection, tf: str, weight_version: str) -> float`
   (median `|Δalpha_score|` over same-symbol, same-regime-label consecutive bar pairs).
+
+**Correctness note (found during Task 6's review, fixed before this text was written):** the
+LATERAL join reconstructing `ic_sign` must match the EXACT `feature_ic_scores` row
+`ensemble_trainer.py`'s `select_features_per_stratum` actually selected -- that's the row
+with the highest `quality_weight` across every `(lookahead_bars, training_window_end)`
+combination on record, NOT the most recent `training_window_end` (a feature's IC estimate,
+and even its sign, can differ across training windows). `ensemble_weights.ic_sharpe` is
+stored as exactly that winning row's `ic_input_column` value, copied verbatim with no
+arithmetic -- so joining on `fic.{ic_input_column} = ew.ic_sharpe` (exact float equality,
+safe here since no computation separates the two values) uniquely identifies the actual
+winning row regardless of which `training_window_end` it came from.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -717,15 +732,43 @@ git commit -m "feat(analysis): add regime time-series fetch and tier cut-point l
 # Append to tests/unit/test_regime_boundary_churn_check.py
 from scripts.analysis.regime_boundary_churn_check import (
     _CLEAN_NOISE_FLOOR_SQL,
-    _SIGNED_WEIGHTS_SQL,
+    _SIGNED_WEIGHTS_SQL_TEMPLATE,
+    fetch_signed_weights_by_regime,
 )
 
 
-def test_signed_weights_sql_joins_ic_sign_via_lateral_on_matching_lookahead():
-    assert "ensemble_weights" in _SIGNED_WEIGHTS_SQL
-    assert "LATERAL" in _SIGNED_WEIGHTS_SQL
-    assert "fic.lookahead_bars = ew.lookahead_bars" in _SIGNED_WEIGHTS_SQL
-    assert "symbol = 'UNIVERSE'" in _SIGNED_WEIGHTS_SQL
+def test_signed_weights_sql_joins_ic_sign_via_lateral_on_exact_selected_value():
+    sql = _SIGNED_WEIGHTS_SQL_TEMPLATE.format(ic_input_column="ic_shrunk")
+    assert "ensemble_weights" in sql
+    assert "LATERAL" in sql
+    assert "fic.lookahead_bars = ew.lookahead_bars" in sql
+    assert "symbol = 'UNIVERSE'" in sql
+    assert "fic.ic_shrunk = ew.ic_sharpe" in sql
+    assert "training_window_end" not in sql
+
+
+class _FakeConnSignedWeights:
+    """Fake asyncpg.Connection returning canned rows for fetch_signed_weights_by_regime."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def fetch(self, sql, *args):
+        return self._rows
+
+
+@pytest.mark.asyncio
+async def test_fetch_signed_weights_by_regime_skips_null_ic_sign_and_counts_it():
+    rows = [
+        {"regime": "mid_neutral", "feature_name": "momentum_z_fast", "weight": 0.6, "ic_sign": 1},
+        {"regime": "mid_neutral", "feature_name": "obv_z", "weight": 0.4, "ic_sign": None},
+    ]
+    conn = _FakeConnSignedWeights(rows)
+    weights_by_regime, n_skipped = await fetch_signed_weights_by_regime(
+        conn, "5m", "run_x", "ic_shrunk"
+    )
+    assert weights_by_regime == {"mid_neutral": {"momentum_z_fast": 0.6}}
+    assert n_skipped == 1
 
 
 def test_clean_noise_floor_sql_excludes_regime_transition_bars():
@@ -738,7 +781,7 @@ def test_clean_noise_floor_sql_excludes_regime_transition_bars():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k "signed_weights_sql or clean_noise_floor_sql"`
+Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k "signed_weights_sql or clean_noise_floor_sql or fetch_signed_weights"`
 Expected: FAIL with `ImportError`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -746,10 +789,23 @@ Expected: FAIL with `ImportError`
 ```python
 # Append to scripts/analysis/regime_boundary_churn_check.py
 # Per-feature signed weight (weight * ic_sign) for every trained regime in one tf. ic_sign
-# lives only in feature_ic_scores, not ensemble_weights -- the LATERAL join picks the most
-# recent training_window_end for the exact (feature_name, lookahead_bars) ensemble_weights
-# already selected, matching ensemble_trainer.py's own selection exactly (one query, no N+1).
-_SIGNED_WEIGHTS_SQL = """
+# lives only in feature_ic_scores, not ensemble_weights.
+#
+# {ic_input_column} is the ONE piece of production-selection logic this reconstructs: which
+# feature_ic_scores row ensemble_trainer.py actually used. select_features_per_stratum picks,
+# per feature, the row with the HIGHEST quality_weight across every (lookahead_bars,
+# training_window_end) combination on record -- not the most recent training_window_end (a
+# feature's IC estimate, and even its sign, can differ across training windows, and this is
+# exactly the marginal/weak-signal population this diagnostic exists to scrutinize). But
+# ensemble_weights.ic_sharpe is stored as EXACTLY that winning row's ic_input_column value,
+# copied verbatim with no arithmetic (ensemble_trainer.py: `float(ic_sharpes[i])` where
+# ic_sharpes[i] = selected[i]["ic_sharpe"] = the raw ic_input_column value) -- so joining on
+# fic.{ic_input_column} = ew.ic_sharpe (exact float equality, safe here since no computation
+# separates the two values) uniquely identifies the actual winning row, regardless of which
+# training_window_end it came from. ic_input_column is never user input -- it's resolved by
+# ensemble_trainer.py's own _resolve_ic_input_column() from a fixed 2-value enum
+# (_IC_INPUT_COLUMNS), safe to interpolate.
+_SIGNED_WEIGHTS_SQL_TEMPLATE = """
     SELECT ew.regime, ew.feature_name, ew.weight, fic.ic_sign
     FROM ensemble_weights ew
     JOIN LATERAL (
@@ -758,7 +814,7 @@ _SIGNED_WEIGHTS_SQL = """
         WHERE fic.tf = ew.tf AND fic.regime = ew.regime
           AND fic.feature_name = ew.feature_name AND fic.lookahead_bars = ew.lookahead_bars
           AND fic.symbol = 'POOLED' AND fic.feature_status_at_eval = 'active'
-        ORDER BY fic.training_window_end DESC
+          AND fic.{ic_input_column} = ew.ic_sharpe
         LIMIT 1
     ) fic ON true
     WHERE ew.symbol = 'UNIVERSE' AND ew.tf = $1 AND ew.weight_version = $2
@@ -786,16 +842,26 @@ _CLEAN_NOISE_FLOOR_SQL = """
 
 
 async def fetch_signed_weights_by_regime(
-    conn: asyncpg.Connection, tf: str, weight_version: str
-) -> dict[str, dict[str, float]]:
-    """{regime_label: {feature_name: weight * ic_sign}} for every trained regime in tf."""
-    rows = await conn.fetch(_SIGNED_WEIGHTS_SQL, tf, weight_version)
+    conn: asyncpg.Connection, tf: str, weight_version: str, ic_input_column: str
+) -> tuple[dict[str, dict[str, float]], int]:
+    """{regime_label: {feature_name: weight * ic_sign}} for every trained regime in tf, plus
+    a count of features skipped because the exact-match join found no ic_sign. select_
+    features_per_stratum only ever selects rows with a non-null ic_sign, so a miss here is
+    an anomaly worth surfacing, not something to silently guess a sign for -- skip the
+    feature rather than default to +1 and risk treating a contrarian feature as
+    non-contrarian.
+    """
+    sql = _SIGNED_WEIGHTS_SQL_TEMPLATE.format(ic_input_column=ic_input_column)
+    rows = await conn.fetch(sql, tf, weight_version)
     result: dict[str, dict[str, float]] = {}
+    n_skipped_null_sign = 0
     for row in rows:
+        if row["ic_sign"] is None:
+            n_skipped_null_sign += 1
+            continue
         regime_dict = result.setdefault(row["regime"], {})
-        sign = row["ic_sign"] if row["ic_sign"] is not None else 1
-        regime_dict[row["feature_name"]] = float(row["weight"]) * float(sign)
-    return result
+        regime_dict[row["feature_name"]] = float(row["weight"]) * float(row["ic_sign"])
+    return result, n_skipped_null_sign
 
 
 async def fetch_clean_noise_floor(
@@ -820,11 +886,12 @@ Run:
 ```bash
 .venv/bin/python -c "
 import asyncio, asyncpg
-from scripts.analysis.regime_boundary_churn_check import _SIGNED_WEIGHTS_SQL, _CLEAN_NOISE_FLOOR_SQL
+from scripts.analysis.regime_boundary_churn_check import _SIGNED_WEIGHTS_SQL_TEMPLATE, _CLEAN_NOISE_FLOOR_SQL
 
 async def main():
     conn = await asyncpg.connect('postgresql://postgres:postgres@localhost:5432/indicagent')
-    r1 = await conn.fetch(_SIGNED_WEIGHTS_SQL, '5m', 'run_2025122405150000')
+    sql = _SIGNED_WEIGHTS_SQL_TEMPLATE.format(ic_input_column='ic_shrunk')
+    r1 = await conn.fetch(sql, '5m', 'run_2025122405150000')
     r2 = await conn.fetch(_CLEAN_NOISE_FLOOR_SQL, '5m', 'run_2025122405150000')
     print('signed_weights rows:', len(r1), 'noise_floor rows:', len(r2))
     await conn.close()
@@ -1095,7 +1162,11 @@ async def run_diagnostic(
     hard_cap (up to 4x hard_cap total), defeating the cross-tf sharing the budget exists
     for.
     """
+    from services.ensemble_trainer import _resolve_ic_input_column
+
     tiers1, tiers2 = await load_equity_tiers(cfg)
+    ic_input = await cfg.get("alpha.ensemble.ic_input", "ic_shrunk")
+    ic_input_column = _resolve_ic_input_column(ic_input)
 
     # Pass 1: fetch each tf's regime series and classify boundary adjacency.
     per_tf: dict[str, dict] = {}
@@ -1133,7 +1204,14 @@ async def run_diagnostic(
         n_boundary_adjacent = len(adjacency_by_ts)
         n_total = d["n_total"]
 
-        weights_by_regime = await fetch_signed_weights_by_regime(conn, tf, weight_version)
+        weights_by_regime, n_skipped_null_sign = await fetch_signed_weights_by_regime(
+            conn, tf, weight_version, ic_input_column
+        )
+        if n_skipped_null_sign > 0:
+            # Anomalous per fetch_signed_weights_by_regime's docstring -- worth surfacing,
+            # not silently absorbing (this repo's "silent wrong answers are worse than loud
+            # crashes" principle).
+            print(f"WARNING: tf={tf} skipped {n_skipped_null_sign} features with null ic_sign")
         clean_noise_floor = await fetch_clean_noise_floor(conn, tf, weight_version)
 
         effect_sizes = np.array([], dtype=float)
