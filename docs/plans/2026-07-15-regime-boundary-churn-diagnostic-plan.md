@@ -964,14 +964,77 @@ def test_allocate_sample_sizes_never_exceeds_available_count():
     counts = {"5m": 30, "15m": 1_500, "1h": 400, "1d": 100}
     allocation = allocate_sample_sizes(counts, target_total=50_000, hard_cap=20_000)
     assert allocation["5m"] == 30
+
+
+from datetime import UTC, datetime
+
+from scripts.analysis.regime_boundary_churn_check import fetch_sampled_feature_vectors
+
+
+class _FakeConnSampledFeatureVectors:
+    """Fake asyncpg.Connection: fetchrow() returns a canned symbol count, fetch() returns
+    canned rows and records the SQL + timestamp list it was called with."""
+
+    def __init__(self, n_symbols: int, rows: list[dict]):
+        self._n_symbols = n_symbols
+        self._rows = rows
+        self.fetch_calls: list[tuple[str, tuple]] = []
+
+    async def fetchrow(self, sql, *args):
+        return {"n": self._n_symbols}
+
+    async def fetch(self, sql, *args):
+        self.fetch_calls.append((sql, args))
+        return self._rows
+
+
+_TS = [datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, 0, 5, tzinfo=UTC)]
+
+
+@pytest.mark.asyncio
+async def test_fetch_sampled_feature_vectors_avoids_order_by_random_in_sql():
+    # The whole point of the fix: no expensive full-relation sort in the actual query.
+    conn = _FakeConnSampledFeatureVectors(n_symbols=2, rows=[{"symbol": "SPY", "bar_ts": _TS[0]}])
+    await fetch_sampled_feature_vectors(conn, "5m", _TS, ("momentum_z_fast",), 10)
+    assert len(conn.fetch_calls) == 1
+    sql, args = conn.fetch_calls[0]
+    assert "ORDER BY random()" not in sql
+    assert "LIMIT" not in sql
+
+
+@pytest.mark.asyncio
+async def test_fetch_sampled_feature_vectors_truncates_to_n_in_python():
+    rows = [{"symbol": f"S{i}", "bar_ts": _TS[0]} for i in range(5)]
+    conn = _FakeConnSampledFeatureVectors(n_symbols=5, rows=rows)
+    result = await fetch_sampled_feature_vectors(conn, "5m", _TS, ("momentum_z_fast",), 3)
+    assert len(result) == 3
+
+
+@pytest.mark.asyncio
+async def test_fetch_sampled_feature_vectors_handles_empty_timestamps_and_zero_n():
+    conn = _FakeConnSampledFeatureVectors(n_symbols=5, rows=[])
+    assert await fetch_sampled_feature_vectors(conn, "5m", [], ("momentum_z_fast",), 10) == []
+    assert await fetch_sampled_feature_vectors(conn, "5m", _TS, ("momentum_z_fast",), 0) == []
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k allocate_sample_sizes`
+Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k "allocate_sample_sizes or fetch_sampled_feature_vectors"`
 Expected: FAIL with `ImportError`
 
 - [ ] **Step 3: Write minimal implementation**
+
+**Performance note (found during Task 7's review, fixed before this text was written):** the
+first version of `fetch_sampled_feature_vectors` used `ORDER BY random() LIMIT n` directly in
+SQL. Measured against realistic scale (5,000 timestamps, `n=20,000`): **~205 seconds** for one
+fetch. Root cause: `feature_vectors` is a large compressed TimescaleDB hypertable (~25M rows
+at 5m) — `ORDER BY random()` forces Postgres to decompress and materialize *every* matching
+row before it can sort and apply `LIMIT`, since there's no way to short-circuit a random sort
+against an indexed scan. This directly contradicted the module's own "cheap to re-run"
+premise. Fixed by pre-sampling the *timestamp* list in Python (cheap — no full-relation sort
+needed) before querying, then fetching only the rows at those pre-selected timestamps and
+truncating to `n` in Python if oversampled. Measured after the fix, same scale: **~0.12
+seconds** (~1700x faster).
 
 ```python
 # Append to scripts/analysis/regime_boundary_churn_check.py
@@ -1001,30 +1064,51 @@ async def fetch_sampled_feature_vectors(
     feature_names: tuple[str, ...],
     n: int,
 ) -> list[asyncpg.Record]:
-    """Random sample of n (symbol, bar_ts) rows from feature_vectors at the given
+    """Random sample of up to n (symbol, bar_ts) rows from feature_vectors at the given
     boundary-adjacent timestamps. feature_names come from fetch_signed_weights_by_regime's
     keys (information-schema-governed registry names, not user input -- safe to interpolate
     into the column list, matching ensemble_trainer.py's own col_list convention).
+
+    Pre-samples the TIMESTAMP list in Python rather than pulling every matching row and
+    sorting by random() in SQL -- see this task's performance note above. Sampling
+    ~n/n_symbols timestamps first, then fetching only those, keeps the query a plain indexed
+    filter with no full-relation sort.
     """
+    if not timestamps or n <= 0:
+        return []
+
+    symbol_count_row = await conn.fetchrow(
+        "SELECT count(DISTINCT symbol) AS n FROM feature_vectors WHERE tf = $1", tf
+    )
+    n_symbols = max(1, symbol_count_row["n"])
+    n_timestamps_needed = max(1, math.ceil(n / n_symbols))
+
+    sampled_timestamps = (
+        random.sample(timestamps, n_timestamps_needed)
+        if n_timestamps_needed < len(timestamps)
+        else timestamps
+    )
+
     col_list = ", ".join(f'"{c}"' for c in feature_names)
-    return await conn.fetch(
+    rows = await conn.fetch(
         f"""
         SELECT symbol, bar_ts, {col_list}
         FROM feature_vectors
         WHERE tf = $1 AND bar_ts = ANY($2::timestamptz[])
-        ORDER BY random()
-        LIMIT $3
         """,
         tf,
-        timestamps,
-        n,
+        sampled_timestamps,
     )
+    return rows[:n] if len(rows) > n else rows
 ```
+
+Also add `import math` and `import random` to the module's top-level imports (alongside the
+existing `from dataclasses import dataclass` / `from typing import Any` block).
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k allocate_sample_sizes`
-Expected: PASS (3 tests)
+Run: `.venv/bin/pytest tests/unit/test_regime_boundary_churn_check.py -v -k "allocate_sample_sizes or fetch_sampled_feature_vectors"`
+Expected: PASS (6 tests)
 
 - [ ] **Step 5: Commit**
 

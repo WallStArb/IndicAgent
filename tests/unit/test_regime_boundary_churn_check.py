@@ -294,3 +294,54 @@ def test_allocate_sample_sizes_never_exceeds_available_count():
     counts = {"5m": 30, "15m": 1_500, "1h": 400, "1d": 100}
     allocation = allocate_sample_sizes(counts, target_total=50_000, hard_cap=20_000)
     assert allocation["5m"] == 30
+
+
+from datetime import UTC, datetime
+
+from scripts.analysis.regime_boundary_churn_check import fetch_sampled_feature_vectors
+
+
+class _FakeConnSampledFeatureVectors:
+    """Fake asyncpg.Connection: fetchrow() returns a canned symbol count, fetch() returns
+    canned rows and records the SQL + timestamp list it was called with."""
+
+    def __init__(self, n_symbols: int, rows: list[dict]):
+        self._n_symbols = n_symbols
+        self._rows = rows
+        self.fetch_calls: list[tuple[str, tuple]] = []
+
+    async def fetchrow(self, sql, *args):
+        return {"n": self._n_symbols}
+
+    async def fetch(self, sql, *args):
+        self.fetch_calls.append((sql, args))
+        return self._rows
+
+
+_TS = [datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, 0, 5, tzinfo=UTC)]
+
+
+@pytest.mark.asyncio
+async def test_fetch_sampled_feature_vectors_avoids_order_by_random_in_sql():
+    # The whole point of the fix: no expensive full-relation sort in the actual query.
+    conn = _FakeConnSampledFeatureVectors(n_symbols=2, rows=[{"symbol": "SPY", "bar_ts": _TS[0]}])
+    await fetch_sampled_feature_vectors(conn, "5m", _TS, ("momentum_z_fast",), 10)
+    assert len(conn.fetch_calls) == 1
+    sql, args = conn.fetch_calls[0]
+    assert "ORDER BY random()" not in sql
+    assert "LIMIT" not in sql
+
+
+@pytest.mark.asyncio
+async def test_fetch_sampled_feature_vectors_truncates_to_n_in_python():
+    rows = [{"symbol": f"S{i}", "bar_ts": _TS[0]} for i in range(5)]
+    conn = _FakeConnSampledFeatureVectors(n_symbols=5, rows=rows)
+    result = await fetch_sampled_feature_vectors(conn, "5m", _TS, ("momentum_z_fast",), 3)
+    assert len(result) == 3
+
+
+@pytest.mark.asyncio
+async def test_fetch_sampled_feature_vectors_handles_empty_timestamps_and_zero_n():
+    conn = _FakeConnSampledFeatureVectors(n_symbols=5, rows=[])
+    assert await fetch_sampled_feature_vectors(conn, "5m", [], ("momentum_z_fast",), 10) == []
+    assert await fetch_sampled_feature_vectors(conn, "5m", _TS, ("momentum_z_fast",), 0) == []

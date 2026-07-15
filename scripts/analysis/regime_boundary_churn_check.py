@@ -20,6 +20,8 @@ preliminary, cheap to re-run after any corpus refresh, not a permanent verdict.
 
 from __future__ import annotations
 
+import math
+import random
 from dataclasses import dataclass
 from typing import Any
 
@@ -384,21 +386,42 @@ async def fetch_sampled_feature_vectors(
     feature_names: tuple[str, ...],
     n: int,
 ) -> list[asyncpg.Record]:
-    """Random sample of n (symbol, bar_ts) rows from feature_vectors at the given
+    """Random sample of up to n (symbol, bar_ts) rows from feature_vectors at the given
     boundary-adjacent timestamps. feature_names come from fetch_signed_weights_by_regime's
     keys (information-schema-governed registry names, not user input -- safe to interpolate
     into the column list, matching ensemble_trainer.py's own col_list convention).
+
+    Pre-samples the TIMESTAMP list in Python rather than pulling every matching row and
+    sorting by random() in SQL: feature_vectors is a large compressed TimescaleDB hypertable
+    (~25M rows at 5m), and ORDER BY random() over the full matching set forces decompressing
+    and materializing every row before it can sort+limit (measured ~205s for one realistic
+    fetch during Task 7's review -- unacceptable for a script whose whole premise is being
+    cheap to re-run). Sampling ~n/n_symbols timestamps first, then fetching only those, keeps
+    the query a plain indexed filter with no full-relation sort.
     """
+    if not timestamps or n <= 0:
+        return []
+
+    symbol_count_row = await conn.fetchrow(
+        "SELECT count(DISTINCT symbol) AS n FROM feature_vectors WHERE tf = $1", tf
+    )
+    n_symbols = max(1, symbol_count_row["n"])
+    n_timestamps_needed = max(1, math.ceil(n / n_symbols))
+
+    sampled_timestamps = (
+        random.sample(timestamps, n_timestamps_needed)
+        if n_timestamps_needed < len(timestamps)
+        else timestamps
+    )
+
     col_list = ", ".join(f'"{c}"' for c in feature_names)
-    return await conn.fetch(
+    rows = await conn.fetch(
         f"""
         SELECT symbol, bar_ts, {col_list}
         FROM feature_vectors
         WHERE tf = $1 AND bar_ts = ANY($2::timestamptz[])
-        ORDER BY random()
-        LIMIT $3
         """,
         tf,
-        timestamps,
-        n,
+        sampled_timestamps,
     )
+    return rows[:n] if len(rows) > n else rows
