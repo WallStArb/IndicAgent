@@ -177,3 +177,12 @@ def test_verdict_handles_no_boundary_adjacent_timestamps():
     )
     assert verdict.median_effect_size == 0.0
     assert verdict.overall_pass is False
+
+
+from scripts.analysis.regime_boundary_churn_check import _REGIME_SERIES_SQL
+
+
+def test_regime_series_sql_scopes_to_equity_group_and_orders_by_ts():
+    assert "regime_group = 'equity'" in _REGIME_SERIES_SQL
+    assert "ORDER BY ts" in _REGIME_SERIES_SQL
+    assert "regime_prob_vector" in _REGIME_SERIES_SQL

@@ -21,10 +21,13 @@ preliminary, cheap to re-run after any corpus refresh, not a permanent verdict.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
+import asyncpg  # noqa: E402
 import numpy as np
 
 from services.cross_sectional_regime_model import _bucket  # noqa: E402
+from src.intelligence.regime_signals.breadth_vol import PROB_KEYS, build_tiers  # noqa: E402
 
 # Sample size target across all timeframes combined (~50k rows gives ample power for a
 # median-based effect-size comparison without pulling the full corpus).
@@ -45,6 +48,37 @@ EFFECT_SIZE_MULTIPLIER_GATE = 1.5
 
 TFS: tuple[str, ...] = ("5m", "15m", "1h", "1d")
 REGIME_GROUP = "equity"
+
+# Scoped to REGIME_GROUP (V1: 'equity' only, see module docstring). regime_prob_vector
+# stores the two raw continuous signal values that fed hard bucketing (NOT a posterior --
+# see design doc), keyed prob_keys[0]/prob_keys[1] == PROB_KEYS from breadth_vol.py.
+_REGIME_SERIES_SQL = """
+    SELECT ts, regime_label,
+           (regime_prob_vector->>$1)::double precision AS sig1,
+           (regime_prob_vector->>$2)::double precision AS sig2
+    FROM market_regimes
+    WHERE regime_group = 'equity' AND tf = $3
+    ORDER BY ts
+"""
+
+
+async def fetch_regime_series(conn: asyncpg.Connection, tf: str) -> list[asyncpg.Record]:
+    """One row per (REGIME_GROUP, tf, ts): ts, regime_label, sig1, sig2. Ordered by ts."""
+    return await conn.fetch(_REGIME_SERIES_SQL, PROB_KEYS[0], PROB_KEYS[1], tf)
+
+
+def load_equity_tiers(cfg: Any) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+    """Tier cut points for the equity group, via the exact production function --
+    never retyped, so this can't silently drift from what cross_sectional_regime_model.py
+    actually applies. Params match breadth_vol.py's own defaults/APR keys.
+    """
+    params = {
+        "vix_low_pct": cfg.get_sync("alpha.regime.equity.vix_low_pct", 0.33),
+        "vix_high_pct": cfg.get_sync("alpha.regime.equity.vix_high_pct", 0.67),
+        "breadth_bear": cfg.get_sync("alpha.regime.equity.breadth_bear", 0.40),
+        "breadth_bull": cfg.get_sync("alpha.regime.equity.breadth_bull", 0.60),
+    }
+    return build_tiers(params)
 
 
 @dataclass(frozen=True)
