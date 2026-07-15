@@ -98,6 +98,10 @@ _FUT_TICK_LIST = "233"
 #       at 30d/60d/90d/180d/365d/730d/1460d/1825d/2555d/3650d). The fetch loop in
 #       fetch_historical_bars() walks backwards in these chunk windows to cover any depth.
 #   1d: 20+ years available for liquid equities/ETFs.
+#
+# APR-overridable: scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py's
+# _load_ibkr_chunk_days_config() overlays infra.ibkr.chunk_days.{tf} (migration 197) onto
+# this dict in place at backfill startup. These hardcoded values are the fallback defaults.
 _MAX_CHUNK_DAYS: dict[str, int] = {
     "1m": 6,  # per-request limit: 7 days; retention: 10+ years (see above)
     "5m": 89,  # per-request limit: verified 90D succeeds (180D times out), 89D leaves margin.
@@ -147,7 +151,20 @@ _CONTRACT_DETAILS_TIMEOUT_SEC = 30.0
 # instrument's launch date. Require this many CONSECUTIVE empty chunks before treating
 # it as terminal, so one transient 162 can't silently truncate a multi-year backfill
 # (todo 049, 2026-07-02).
+#
+# APR-overridable (todo 050, migration 235): the backfill script's
+# _load_ibkr_retry_config() overlays infra.ibkr.no_data_confirmation_chunks onto this
+# constant in place at startup, same pattern as _MAX_CHUNK_DAYS above. This value is
+# the fallback default.
 _NO_DATA_CONFIRMATION_CHUNKS = 2
+
+# Retry attempts on an ambiguous (non-confirmed-no-data) empty historical-data result
+# before giving up on a chunk, and the base seconds for the exponential backoff between
+# attempts (base * 2**attempt: 65s then 130s at the defaults below). APR-overridable
+# the same way as _NO_DATA_CONFIRMATION_CHUNKS above (infra.ibkr.retry_count /
+# infra.ibkr.retry_backoff_base_s, migration 235).
+_RETRY_COUNT = 3
+_RETRY_BACKOFF_BASE_S = 65
 
 
 class _SlidingWindowRateLimiter:
@@ -735,7 +752,8 @@ class IBKRProvider:
                 else:
                     duration_str = f"{max(1, (chunk_end - chunk_start).days + 1)} D"
 
-                # Retry up to 3 times with exponential backoff on an empty result.
+                # Retry (infra.ibkr.retry_count, default 3) with exponential backoff
+                # (infra.ibkr.retry_backoff_base_s, default 65) on an empty result.
                 # reqId-based matching (not snapshot-diff — see migration 199 / F3
                 # 2026-07-05): BarDataList carries .reqId, so a no-data Error 162 can be
                 # attributed to exactly the request that caused it. Our own outer
@@ -746,7 +764,7 @@ class IBKRProvider:
                 # late 162 callback for an abandoned request to an unrelated later chunk).
                 ib_bars: list = []
                 hit_definitive_no_data = False
-                for attempt in range(3):
+                for attempt in range(_RETRY_COUNT):
                     outer_timed_out = False
                     try:
                         result = await asyncio.wait_for(
@@ -794,8 +812,8 @@ class IBKRProvider:
                         hit_definitive_no_data = True
                         break  # Definitive "no data" — don't retry
 
-                    if attempt < 2:
-                        backoff = 65 * (2**attempt)  # 65s then 130s
+                    if attempt < _RETRY_COUNT - 1:
+                        backoff = _RETRY_BACKOFF_BASE_S * (2**attempt)  # 65s then 130s (defaults)
                         logger.warning(
                             "ibkr.hist_chunk_retry",
                             extra={

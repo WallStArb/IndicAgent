@@ -265,6 +265,90 @@ class TestFetchAndStoreBars:
         mock_conn.commit.assert_called_once()
 
 
+class TestLoadIbkrRetryConfig:
+    """todo 050: _load_ibkr_retry_config() overlays infra.ibkr.retry_count /
+    retry_backoff_base_s / no_data_confirmation_chunks (migration 235) onto
+    ibkr's module-level constants in place, mirroring the existing
+    _load_ibkr_chunk_days_config/_load_ibkr_hist_timeout_config pattern.
+    """
+
+    def _restore_ibkr_defaults(self):
+        from src.providers import ibkr
+
+        ibkr._RETRY_COUNT = 3
+        ibkr._RETRY_BACKOFF_BASE_S = 65
+        ibkr._NO_DATA_CONFIRMATION_CHUNKS = 2
+
+    def test_overlays_all_three_keys_when_present(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_ibkr_retry_config,
+        )
+        from src.providers import ibkr
+
+        try:
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchall.return_value = [
+                ("infra.ibkr.retry_count", "5"),
+                ("infra.ibkr.retry_backoff_base_s", "90"),
+                ("infra.ibkr.no_data_confirmation_chunks", "3"),
+            ]
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                return_value=mock_conn,
+            ):
+                _load_ibkr_retry_config(MagicMock())
+
+            assert ibkr._RETRY_COUNT == 5
+            assert ibkr._RETRY_BACKOFF_BASE_S == 90
+            assert ibkr._NO_DATA_CONFIRMATION_CHUNKS == 3
+        finally:
+            self._restore_ibkr_defaults()
+
+    def test_missing_keys_keep_hardcoded_defaults(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_ibkr_retry_config,
+        )
+        from src.providers import ibkr
+
+        try:
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchall.return_value = []
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                return_value=mock_conn,
+            ):
+                _load_ibkr_retry_config(MagicMock())
+
+            assert ibkr._RETRY_COUNT == 3
+            assert ibkr._RETRY_BACKOFF_BASE_S == 65
+            assert ibkr._NO_DATA_CONFIRMATION_CHUNKS == 2
+        finally:
+            self._restore_ibkr_defaults()
+
+    def test_db_error_falls_back_to_hardcoded_defaults_without_raising(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_ibkr_retry_config,
+        )
+        from src.providers import ibkr
+
+        try:
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                side_effect=Exception("db unreachable"),
+            ):
+                _load_ibkr_retry_config(MagicMock())  # must not raise
+
+            assert ibkr._RETRY_COUNT == 3
+            assert ibkr._RETRY_BACKOFF_BASE_S == 65
+            assert ibkr._NO_DATA_CONFIRMATION_CHUNKS == 2
+        finally:
+            self._restore_ibkr_defaults()
+
+
 def _make_mock_conn(fetchall_result=None):
     mock_conn = MagicMock()
     mock_cursor = MagicMock()

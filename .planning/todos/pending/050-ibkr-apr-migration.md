@@ -2,29 +2,51 @@
 
 **Found:** 2026-07-02, while fixing todo 049 (Error 162 no-data heuristic hardening).
 
-`src/providers/ibkr.py` has zero existing `ConfigService`/APR integration — every tunable
-numeric value in the file is a hardcoded module constant: `_MAX_CHUNK_DAYS` (per-timeframe
-chunk sizing), `_IBKR_HIST_RATE_LIMIT` / `_IBKR_HIST_WINDOW_S` (rate limiter), the retry count
-(3) and backoff schedule (`65 * (2**attempt)`) in `fetch_historical_bars`, and the new
-`_NO_DATA_CONFIRMATION_CHUNKS` added by todo 049. Per CLAUDE.md's APR mandate these should
-all live in `config_state` under `infra.ibkr.*`.
+**Status check 2026-07-14 (corpus-rebuild idle window):** this todo's own premise ("zero
+existing ConfigService/APR integration") was already half-stale — migrations 197
+(`infra.ibkr.chunk_days.*`) and 199 (`infra.ibkr.historical_request_timeout_sec` /
+`infra.ibkr.contract_details_timeout_sec`) had already landed, overlaying APR values onto
+`ibkr._MAX_CHUNK_DAYS` / `_HIST_REQUEST_TIMEOUT_SEC` / `_CONTRACT_DETAILS_TIMEOUT_SEC` in place
+from `scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py`'s startup
+(`_load_ibkr_chunk_days_config()` / `_load_ibkr_hist_timeout_config()`) — discovered only by
+checking live `config_schema` before writing a new migration, which caught an in-progress
+duplicate-key mistake (see below). This todo's original "**Action**" section listing
+`infra.ibkr.max_chunk_days.<tf>` was wrong on two counts: the key already existed, just without
+the `max_` prefix, and inventing a second name would have created exactly the kind of
+two-trackers-for-one-concept mess this project has already had to clean up once (Concept
+Registry).
 
-Did not migrate `_NO_DATA_CONFIRMATION_CHUNKS` in isolation when adding it (todo 049): wiring
-one new constant through `ConfigService` while its five neighbors in the same function stay
-hardcoded would be a worse inconsistency than following the file's existing (non-compliant)
-local convention. This is a "migrate the whole file's constant set together" job, not a
-one-off.
+**Landed today (migration 235):** the 3 constants NOT covered by 197/199 — retry count (was a
+bare `3` literal), retry backoff base (was inline `65`), and `_NO_DATA_CONFIRMATION_CHUNKS` (was
+already a module constant, just unmigrated) — promoted to `_RETRY_COUNT` /
+`_RETRY_BACKOFF_BASE_S` module constants and wired into a new
+`_load_ibkr_retry_config()` in the backfill script, following the *exact* existing overlay
+pattern (not the constructor-injected-ConfigService design this todo originally proposed —
+that would have introduced a second, inconsistent mechanism alongside 197/199's established
+one). All 3 seeded to their exact pre-migration values; behavior byte-for-byte unchanged unless
+an operator explicitly changes the APR values. 3 tests added
+(`tests/unit/scripts/test_run_historical_pipeline.py::TestLoadIbkrRetryConfig`): overlay
+applies all 3 keys, missing keys keep hardcoded defaults, DB error falls back without raising.
 
-**Action:** Add a migration seeding `infra.ibkr.max_chunk_days.<tf>`,
-`infra.ibkr.hist_rate_limit`, `infra.ibkr.hist_window_s`, `infra.ibkr.retry_count`,
-`infra.ibkr.retry_backoff_base_s`, and `infra.ibkr.no_data_confirmation_chunks`. Since
-`ibkr.py` has no existing async DB/ConfigService wiring and is used both by the (currently
-inactive) real-time provider and the batch historical backfill script, work out the right
-loading pattern first — likely constructor-injected `ConfigService` on `IBKRProvider.__init__`
-rather than the module-level lazy-singleton pattern (that pattern's existing registration hook,
-`intelligence_pipeline._prewarm_threshold_config()`, is itself archived v2.x).
+**Remaining scope — deliberately NOT done today:** `_IBKR_HIST_RATE_LIMIT` /
+`_IBKR_HIST_WINDOW_S` (the sliding-window rate limiter). Unlike the other constants, that pair
+backs a module-level `_SlidingWindowRateLimiter` singleton constructed *eagerly at import time*
+— before any DB connection or overlay function could possibly run. The existing overlay
+pattern (mutate a module constant in place, read fresh on every use) works cleanly for
+`_MAX_CHUNK_DAYS`/timeouts/retry config because those are read at each call site, but the rate
+limiter reads its config only once, at `__init__`, to build its internal `deque`/`_max`/
+`_window` state — overlaying the raw constants after that point wouldn't reach the already-
+constructed instance. Fixing this needs either a lazy-construction redesign or a `reconfigure()`
+method on the singleton, either of which also has to account for `tests/unit/conftest.py`'s
+`_reset_ibkr_hist_rate_limiter` fixture (added 2026-07-14, todo 122) which currently assumes the
+singleton is always a valid, already-constructed object. Real, live-trading-critical component
+— correctly deserves its own focused pass, not a same-session bundle with the lower-risk
+constants above.
 
-**Blocked on:** nothing technical, but it's a real design decision (injection point, whether
-`fetch_historical_bars` can await a config lookup without regressing the sliding-window rate
-limiter's tight timing) — not a drop-in change. Low urgency: none of these values are wrong
-today, they're just not adaptive/tunable without a code change.
+Original problem statement, for context: `src/providers/ibkr.py` had zero existing
+`ConfigService`/APR integration for several tunable numeric values. Per CLAUDE.md's APR mandate
+these should live in `config_state` under `infra.ibkr.*`. Did not migrate
+`_NO_DATA_CONFIRMATION_CHUNKS` in isolation when adding it (todo 049): wiring one new constant
+through APR while its neighbors stayed hardcoded would have been a worse inconsistency than
+following the file's existing (at the time, believed non-compliant — actually partially
+compliant via 197/199) local convention.

@@ -461,6 +461,37 @@ def _load_ibkr_hist_timeout_config(settings: Settings) -> None:
         print(f"  (APR contract-details-timeout lookup failed, using hardcoded default: {error})")
 
 
+def _load_ibkr_retry_config(settings: Settings) -> None:
+    """Overlay the APR-configured retry/backoff/no-data-confirmation constants
+    (migration 235) onto ibkr._RETRY_COUNT / _RETRY_BACKOFF_BASE_S /
+    _NO_DATA_CONFIRMATION_CHUNKS in place. Same fallback contract as the loaders
+    above -- falls back to the hardcoded defaults if the APR keys aren't present
+    or the DB is unreachable.
+    """
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT config_key, config_value FROM config_state "
+                    "WHERE config_key IN ("
+                    "'infra.ibkr.retry_count', "
+                    "'infra.ibkr.retry_backoff_base_s', "
+                    "'infra.ibkr.no_data_confirmation_chunks')"
+                )
+                rows = dict(cur.fetchall())
+        finally:
+            conn.close()
+        if "infra.ibkr.retry_count" in rows:
+            ibkr._RETRY_COUNT = int(rows["infra.ibkr.retry_count"])
+        if "infra.ibkr.retry_backoff_base_s" in rows:
+            ibkr._RETRY_BACKOFF_BASE_S = int(rows["infra.ibkr.retry_backoff_base_s"])
+        if "infra.ibkr.no_data_confirmation_chunks" in rows:
+            ibkr._NO_DATA_CONFIRMATION_CHUNKS = int(rows["infra.ibkr.no_data_confirmation_chunks"])
+    except Exception as error:
+        print(f"  (APR retry-config lookup failed, using hardcoded defaults: {error})")
+
+
 def _reorder_contracts_by_gap(
     contracts: list[Any], settings: Settings, timeframes: list[str]
 ) -> list[Any]:
@@ -998,6 +1029,7 @@ def main() -> None:
     tf_fetch_config = _load_tf_fetch_config(settings)
     _load_ibkr_chunk_days_config(settings)
     _load_ibkr_hist_timeout_config(settings)
+    _load_ibkr_retry_config(settings)
 
     print("Historical Backfill Pipeline")
     print(f"  Contracts : {[c.symbol for c in contracts]}")
