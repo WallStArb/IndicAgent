@@ -8,7 +8,9 @@ OHLCV-proxy flow, and cross-asset proxies.
 from __future__ import annotations
 
 import math
+import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -22,6 +24,21 @@ from src.intelligence.feature_factory import (
     _rolling_zscore_series,
 )
 from src.intelligence.schemas import FeatureVector
+
+# ---------------------------------------------------------------------------
+# todo 086: structurally excludes the one deliberate, documented acausal
+# reference (_canary_acausal_placebo(), a positive-control canary -- see
+# feature_factory.py's own docstring on it) by stripping its function body,
+# rather than a line-number allowlist that would rot as the file grows.
+# ---------------------------------------------------------------------------
+
+_CANARY_DEF_PATTERN = re.compile(r"\ndef _canary_acausal_placebo\(.*?(?=\ndef |\Z)", re.DOTALL)
+
+
+def _source_without_acausal_canary(source: str) -> tuple[str, int]:
+    """Strip _canary_acausal_placebo's definition; returns (stripped, n_stripped)."""
+    return _CANARY_DEF_PATTERN.subn("\n", source, count=1)
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -428,18 +445,94 @@ class TestRegimePrimitives:
         assert math.isclose(fv.hma_slope_z, 1.5, abs_tol=1e-9)
 
     def test_no_smooth_or_backward_in_factory(self) -> None:
-        """No backward smoother reference in feature_factory.py regime path."""
-        import subprocess
+        """No accidental look-ahead in feature_factory.py (todo 086).
 
-        result = subprocess.run(
-            ["grep", "-nE", "_smooth|smoothed|backward", "src/intelligence/feature_factory.py"],
-            capture_output=True,
-            text=True,
-            cwd="/home/bg/dev/indicagent",
+        The original check grepped for the literal words "smooth"/"smoothed",
+        which false-positives on legitimately causal code: Phase 142.5's
+        Parkinson/Garman-Klass volatility estimators use a trailing rolling
+        mean (_rolling_mean_series) and call it "smoothed" in their own
+        docstrings without being acausal in any way (backward-looking in
+        *value* terms, i.e. noise-reduced via past-only averaging, is not the
+        same thing as *look-ahead*). Checking for "backward" alone is a
+        stronger signal -- production code has no legitimate reason to
+        describe itself as backward/look-ahead -- with one deliberate,
+        documented exception: _canary_acausal_placebo(), a positive-control
+        canary whose entire purpose is to prove the IC significance gate
+        detects real contamination when genuinely present (see its own
+        docstring). That function's body is stripped structurally before
+        scanning, not carved out by line number, so this stays correct as
+        the file grows around it.
+        """
+        factory_path = Path("/home/bg/dev/indicagent/src/intelligence/feature_factory.py")
+        source = factory_path.read_text()
+
+        source_without_canary, n_stripped = _source_without_acausal_canary(source)
+        assert n_stripped == 1, (
+            "_canary_acausal_placebo() not found where expected -- this test's "
+            "structural exclusion depends on it existing; update the test if the "
+            "canary was renamed or removed."
         )
-        assert (
-            result.returncode != 0 or result.stdout.strip() == ""
-        ), "Backward smoother reference found in feature_factory.py — forward only permitted"
+
+        assert "backward" not in source_without_canary.lower(), (
+            "Backward/look-ahead reference found in feature_factory.py outside "
+            "the documented _canary_acausal_placebo() positive control — forward "
+            "only permitted"
+        )
+
+
+class TestAcausalCanaryExclusionCheck:
+    """todo 086: the exclusion logic backing test_no_smooth_or_backward_in_factory
+    must both stay silent on the documented canary AND still catch a real
+    violation -- otherwise "tightening the check" could silently regress into a
+    vacuous check that never fails. No live FeatureFactory computation here,
+    pure string-processing coverage of the check's own logic.
+    """
+
+    def test_causal_smoothing_docstring_does_not_trip_the_word_check(self) -> None:
+        source = (
+            "def _parkinson_vol_z_series_full(...):\n"
+            '    """z-score of the rolling-averaged Parkinson variance proxy.\n'
+            "    `window` smooths the per-bar term via a rolling mean;\n"
+            '    normalizes the smoothed series against its own trailing history."""\n'
+            "    smoothed = _rolling_mean_series(terms, window)\n"
+            "    return smoothed\n"
+        )
+        stripped, _ = _source_without_acausal_canary(source)
+        assert "backward" not in stripped.lower()
+
+    def test_canary_own_backward_reference_is_excluded(self) -> None:
+        source = (
+            "\ndef _canary_acausal_placebo(closes, i, eps=1e-10):\n"
+            '    """Deliberate look-ahead leak (positive control): pairs bar i\n'
+            "    with the return realized 2 bars in the future, forward-shifted\n"
+            '    instead of backward-shifted."""\n'
+            "    return closes[i + 2]\n"
+            "\n\ndef _next_real_function(x):\n"
+            "    return x\n"
+        )
+        stripped, n_stripped = _source_without_acausal_canary(source)
+        assert n_stripped == 1
+        assert "backward" not in stripped.lower()
+        assert "_next_real_function" in stripped, "must not over-strip past the canary's own body"
+
+    def test_a_genuine_new_violation_elsewhere_is_still_caught(self) -> None:
+        """The actual regression this check exists to prevent: a NEW function,
+        unrelated to the documented canary, that describes itself as
+        backward-looking. Must NOT be silently excluded."""
+        source = (
+            "\ndef _canary_acausal_placebo(closes, i):\n"
+            '    """forward-shifted instead of backward-shifted."""\n'
+            "    return closes[i + 2]\n"
+            "\n\ndef _new_totally_unrelated_feature(closes, i):\n"
+            '    """Oops -- this one actually reads a backward-shifted future bar."""\n'
+            "    return closes[i + 1]\n"
+        )
+        stripped, n_stripped = _source_without_acausal_canary(source)
+        assert n_stripped == 1
+        assert "backward" in stripped.lower(), (
+            "a genuine new acausal reference outside the canary must still be "
+            "detectable -- the exclusion must not over-strip"
+        )
 
     def test_refresh_regime_updates_cache(self) -> None:
         """FeatureCache.refresh_regime updates regime fields in cache."""
