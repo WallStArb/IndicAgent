@@ -174,6 +174,28 @@ def test_win_on_already_active_concept_records_win_not_promote():
     assert decision.action == "record_win"
 
 
+def test_shadow_only_crossing_floor_is_not_promotable():
+    """Phase 160 review finding 2: shadow_only can never reach 'promote' (only
+    'candidate' can), so crossing the floor from shadow_only must be flagged
+    distinctly rather than silently recorded as an ordinary record_win."""
+    decision = decide_comparison_action(
+        _state(
+            status="shadow_only",
+            promotion_consecutive=1,
+            promotion_eval_metrics=(0.02,),
+            last_eval_corpus_build_ref="run_A",
+            last_eval_n=3000.0,
+        ),
+        won=True,
+        eval_metric=0.06,
+        eval_n=6000.0,
+        corpus_build_ref="run_B",
+    )
+    assert decision.action == "record_win_not_promotable"
+    assert decision.new_promotion_consecutive == 2
+    assert decision.new_promotion_eval_metrics == (0.02, 0.06)
+
+
 def test_won_requires_eval_metric():
     with pytest.raises(ValueError):
         decide_comparison_action(
@@ -221,9 +243,10 @@ class _FakeTransaction:
 class _FakeConn:
     """Minimal asyncpg-shaped stub: canned fetchrow row, recorded execute calls."""
 
-    def __init__(self, row, cas_result="UPDATE 1"):
+    def __init__(self, row, cas_result="UPDATE 1", gate_result="UPDATE 1"):
         self.row = row
         self.cas_result = cas_result
+        self.gate_result = gate_result
         self.executed: list[tuple[str, tuple]] = []
         self.tx_entered = 0
         self.tx_rolled_back = 0
@@ -238,6 +261,8 @@ class _FakeConn:
         self.executed.append((sql, args))
         if sql is _CAS_PROMOTE_SQL:
             return self.cas_result
+        if sql is _GATE_CACHE_UPDATE_SQL or sql is _GATE_PROMOTE_UPDATE_SQL:
+            return self.gate_result
         return "UPDATE 1"
 
 
@@ -382,6 +407,46 @@ async def test_record_loss_updates_gate_cache_only():
     assert decision.action == "record_loss"
     executed_sqls = [sql for sql, _ in conn.executed]
     assert executed_sqls == [_GATE_CACHE_UPDATE_SQL]
+
+
+@pytest.mark.asyncio
+async def test_shadow_only_win_still_updates_gate_cache():
+    """Phase 160 review finding 2: the eval cache write still happens for
+    record_win_not_promotable (only the log level differs from record_win)."""
+    service = ConceptRegistryService()
+    conn = _FakeConn(row=_row(status="shadow_only"))
+    decision = await service.record_comparison_outcome(
+        conn,
+        domain="ensemble_strategy",
+        name="e3_shadow_candidate",
+        won=True,
+        eval_metric=0.06,
+        eval_n=6000.0,
+        corpus_build_ref="run_B",
+        **_DEFAULTS,
+    )
+    assert decision.action == "record_win_not_promotable"
+    executed_sqls = [sql for sql, _ in conn.executed]
+    assert executed_sqls == [_GATE_CACHE_UPDATE_SQL]
+
+
+@pytest.mark.asyncio
+async def test_vanished_gate_row_raises_on_promote():
+    """Phase 160 review finding 4: a zero-row gate UPDATE mid-promote must
+    crash loudly, not commit a status flip with no matching gate update."""
+    service = ConceptRegistryService()
+    conn = _FakeConn(row=_row(), gate_result="UPDATE 0")
+    with pytest.raises(RuntimeError):
+        await service.record_comparison_outcome(
+            conn,
+            domain="ensemble_strategy",
+            name="e1_shrunk_ic",
+            won=True,
+            eval_metric=0.06,
+            eval_n=6000.0,
+            corpus_build_ref="run_B",
+            **_DEFAULTS,
+        )
 
 
 @pytest.mark.asyncio

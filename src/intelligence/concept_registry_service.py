@@ -8,9 +8,9 @@ deterministic win-decision gate (no LLM anywhere in the path). No other caller,
 human or AI, gets a code path that both writes annotation content and flips status.
 
 Structure: decide_comparison_action() is the pure invariant-enforcement core
-(unit-tested without DB); record_comparison_outcome() reads the registry+gate row,
-delegates the decision, and applies it transactionally with a compare-and-swap
-status write (invariant 9).
+(unit-tested without DB); record_comparison_outcome() reads the registry+gate row
+under FOR UPDATE inside one transaction, delegates the decision, and applies it
+with a compare-and-swap status write (invariant 9) before releasing the lock.
 """
 
 from __future__ import annotations
@@ -53,6 +53,9 @@ class ComparisonDecision:
     action vocabulary:
         'promote'                - CAS candidate -> active + transition log row
         'record_win'             - update eval cache, advance consecutive counter
+        'record_win_not_promotable' - like record_win, but the status can never
+                                     reach 'promote' (e.g. 'shadow_only'); service
+                                     logs a warning instead of info
         'record_loss'            - update eval cache, reset consecutive counter
         'blocked_same_corpus'    - invariant 2 precondition: corpus has not advanced
         'blocked_min_n'          - invariant 7: initial effective-N floor unmet
@@ -138,6 +141,16 @@ def decide_comparison_action(
         baseline = sum(new_metrics) / len(new_metrics)
         return ComparisonDecision("promote", new_consecutive, new_metrics, baseline)
 
+    if (
+        state.status not in ("candidate", "active")
+        and new_consecutive >= state.min_promotion_consecutive
+    ):
+        # e.g. shadow_only crossing the floor: only 'candidate' can ever reach
+        # 'promote' above, so this status is stuck accumulating wins forever.
+        # Distinct action so the service layer can log it loudly instead of
+        # silently recording another win (Phase 160 review finding 2).
+        return ComparisonDecision("record_win_not_promotable", new_consecutive, new_metrics, None)
+
     return ComparisonDecision("record_win", new_consecutive, new_metrics, None)
 
 
@@ -145,6 +158,10 @@ def decide_comparison_action(
 # Transactional apply (asyncpg)
 # ---------------------------------------------------------------------------
 
+# FOR UPDATE: locks both joined rows for the duration of the caller's
+# transaction, so a concurrent evaluator for the same concept blocks here
+# instead of reading a state this call is about to invalidate (Phase 160
+# review finding 1 -- see record_comparison_outcome).
 _LOAD_CONCEPT_SQL = """
     SELECT r.concept_id, r.status,
            g.promotion_consecutive, g.promotion_eval_metrics,
@@ -153,6 +170,7 @@ _LOAD_CONCEPT_SQL = """
     FROM concept_registry r
     JOIN concept_gate g USING (concept_id)
     WHERE r.domain = $1 AND r.name = $2
+    FOR UPDATE
 """
 
 # Invariant 9: compare-and-swap. Zero rows updated means the status changed under
@@ -172,12 +190,11 @@ _TRANSITION_INSERT_SQL = """
     VALUES ($1, $2, $3, $4, $5, 'promotion', $6, $7, $8, $9, $10, $11)
 """
 
-# L-2 (Phase 160 cross-AI review, accepted risk): this read-modify-write is NOT
-# compare-and-swapped - the gate row is loaded outside any transaction, so
-# concurrent evaluators can lose a gate-cache update. Accepted for this
-# near-static, manually triggered domain (fails conservative: at worst a stale
-# eval cache, never a wrong status flip). This MUST be CAS'd before the
-# domain='feature' hot path (ic_engine.py write pressure) inherits this pattern.
+# L-2 (Phase 160 cross-AI review, finding 1): this read-modify-write carries no
+# CAS of its own -- it is safe only because _LOAD_CONCEPT_SQL's FOR UPDATE holds
+# the gate row locked from load through this write inside record_comparison_outcome's
+# single transaction. Without that lock, a promote path racing a concurrent
+# record_loss could commit a wrong status flip, not just a stale cache.
 _GATE_CACHE_UPDATE_SQL = """
     UPDATE concept_gate
     SET last_eval_metric = $2, last_eval_n = $3, last_eval_at = $4,
@@ -241,60 +258,67 @@ class ConceptRegistryService:
         The default_* floors are APR-resolved by the caller
         (alpha.concept_registry.<domain>_* keys); a non-NULL concept_gate column
         overrides its default. Blocked/noop decisions write nothing.
+
+        The entire read-decide-write sequence runs inside one transaction, with
+        _LOAD_CONCEPT_SQL's FOR UPDATE row lock held throughout: a concurrent
+        evaluator for the same concept blocks on the lock instead of reading a
+        state this call is about to invalidate (Phase 160 review finding 1).
         """
-        row = await conn.fetchrow(_LOAD_CONCEPT_SQL, domain, name)
-        if row is None:
-            raise ConceptNotFoundError(
-                f"no concept_registry+concept_gate row for domain={domain!r} name={name!r}"
+        async with conn.transaction():
+            row = await conn.fetchrow(_LOAD_CONCEPT_SQL, domain, name)
+            if row is None:
+                raise ConceptNotFoundError(
+                    f"no concept_registry+concept_gate row for domain={domain!r} name={name!r}"
+                )
+
+            state = GateState(
+                status=row["status"],
+                promotion_consecutive=row["promotion_consecutive"],
+                promotion_eval_metrics=tuple(row["promotion_eval_metrics"] or ()),
+                last_eval_corpus_build_ref=row["last_eval_corpus_build_ref"],
+                last_eval_n=row["last_eval_n"],
+                min_promotion_consecutive=(
+                    row["min_promotion_consecutive"]
+                    if row["min_promotion_consecutive"] is not None
+                    else default_min_promotion_consecutive
+                ),
+                min_new_observations=(
+                    row["min_new_observations"]
+                    if row["min_new_observations"] is not None
+                    else default_min_new_observations
+                ),
+                min_gate_n=(
+                    row["min_gate_n"] if row["min_gate_n"] is not None else default_min_gate_n
+                ),
             )
 
-        state = GateState(
-            status=row["status"],
-            promotion_consecutive=row["promotion_consecutive"],
-            promotion_eval_metrics=tuple(row["promotion_eval_metrics"] or ()),
-            last_eval_corpus_build_ref=row["last_eval_corpus_build_ref"],
-            last_eval_n=row["last_eval_n"],
-            min_promotion_consecutive=(
-                row["min_promotion_consecutive"]
-                if row["min_promotion_consecutive"] is not None
-                else default_min_promotion_consecutive
-            ),
-            min_new_observations=(
-                row["min_new_observations"]
-                if row["min_new_observations"] is not None
-                else default_min_new_observations
-            ),
-            min_gate_n=(row["min_gate_n"] if row["min_gate_n"] is not None else default_min_gate_n),
-        )
-
-        decision = decide_comparison_action(
-            state,
-            won=won,
-            eval_metric=eval_metric,
-            eval_n=eval_n,
-            corpus_build_ref=corpus_build_ref,
-        )
-
-        if decision.action in (
-            "noop_deprecated",
-            "blocked_same_corpus",
-            "blocked_min_n",
-            "blocked_evidence_floor",
-        ):
-            _logger.info(
-                "concept_registry.comparison_blocked",
-                domain=domain,
-                name=name,
-                action=decision.action,
+            decision = decide_comparison_action(
+                state,
+                won=won,
+                eval_metric=eval_metric,
+                eval_n=eval_n,
                 corpus_build_ref=corpus_build_ref,
             )
-            return decision
 
-        now = datetime.now(UTC)
-        metrics_list = list(decision.new_promotion_eval_metrics)
+            if decision.action in (
+                "noop_deprecated",
+                "blocked_same_corpus",
+                "blocked_min_n",
+                "blocked_evidence_floor",
+            ):
+                _logger.info(
+                    "concept_registry.comparison_blocked",
+                    domain=domain,
+                    name=name,
+                    action=decision.action,
+                    corpus_build_ref=corpus_build_ref,
+                )
+                return decision
 
-        if decision.action == "promote":
-            async with conn.transaction():
+            now = datetime.now(UTC)
+            metrics_list = list(decision.new_promotion_eval_metrics)
+
+            if decision.action == "promote":
                 cas_status = await conn.execute(
                     _CAS_PROMOTE_SQL, "active", row["concept_id"], "candidate"
                 )
@@ -325,7 +349,7 @@ class ConceptRegistryService:
                     now,
                     notes,
                 )
-                await conn.execute(
+                gate_status = await conn.execute(
                     _GATE_PROMOTE_UPDATE_SQL,
                     row["concept_id"],
                     eval_metric,
@@ -336,31 +360,52 @@ class ConceptRegistryService:
                     metrics_list,
                     decision.baseline_metric,
                 )
-            _logger.info(
-                "concept_registry.promoted",
-                domain=domain,
-                name=name,
-                baseline_metric=decision.baseline_metric,
-                corpus_build_ref=corpus_build_ref,
-            )
-            return decision
+                if _rowcount(gate_status) != 1:
+                    raise RuntimeError(
+                        f"concept_gate row vanished mid-promote for domain={domain!r} "
+                        f"name={name!r} concept_id={row['concept_id']!r}"
+                    )
+                _logger.info(
+                    "concept_registry.promoted",
+                    domain=domain,
+                    name=name,
+                    baseline_metric=decision.baseline_metric,
+                    corpus_build_ref=corpus_build_ref,
+                )
+                return decision
 
-        # record_win / record_loss: eval-cache bookkeeping only.
-        await conn.execute(
-            _GATE_CACHE_UPDATE_SQL,
-            row["concept_id"],
-            eval_metric,
-            eval_n,
-            now,
-            corpus_build_ref,
-            decision.new_promotion_consecutive,
-            metrics_list,
-        )
-        _logger.info(
-            "concept_registry.comparison_recorded",
-            domain=domain,
-            name=name,
-            action=decision.action,
-            corpus_build_ref=corpus_build_ref,
-        )
-        return decision
+            # record_win / record_win_not_promotable / record_loss: eval-cache
+            # bookkeeping only.
+            gate_status = await conn.execute(
+                _GATE_CACHE_UPDATE_SQL,
+                row["concept_id"],
+                eval_metric,
+                eval_n,
+                now,
+                corpus_build_ref,
+                decision.new_promotion_consecutive,
+                metrics_list,
+            )
+            if _rowcount(gate_status) != 1:
+                raise RuntimeError(
+                    f"concept_gate row vanished mid-update for domain={domain!r} "
+                    f"name={name!r} concept_id={row['concept_id']!r}"
+                )
+            if decision.action == "record_win_not_promotable":
+                _logger.warning(
+                    "concept_registry.win_not_promotable",
+                    domain=domain,
+                    name=name,
+                    status=state.status,
+                    promotion_consecutive=decision.new_promotion_consecutive,
+                    corpus_build_ref=corpus_build_ref,
+                )
+            else:
+                _logger.info(
+                    "concept_registry.comparison_recorded",
+                    domain=domain,
+                    name=name,
+                    action=decision.action,
+                    corpus_build_ref=corpus_build_ref,
+                )
+            return decision

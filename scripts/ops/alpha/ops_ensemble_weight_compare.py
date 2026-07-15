@@ -194,7 +194,19 @@ def _registry_outcome(rows: list[dict]) -> tuple[bool, float | None, float, int,
                 win_only_n_sum += n_indep
 
     eval_n = float(eval_n_sum)
-    if not win_ci_lowers:
+    won = win_strata_count > 0
+    if won and not win_ci_lowers:
+        # Should be unreachable: a WIN verdict requires ic_ci_lower to have been
+        # non-None (the win rule itself consumes it upstream). If this ever
+        # fires, `won` and the recorded eval_metric would silently disagree
+        # with win_strata_count -- crash loudly instead (Phase 160 review
+        # finding 3).
+        raise ValueError(
+            f"won=True (win_strata_count={win_strata_count}) but no stratum "
+            "contributed a non-None ic_ci_lower -- win/loss bookkeeping is "
+            "inconsistent, refusing to record"
+        )
+    if not won:
         return False, None, eval_n, win_strata_count, float(win_only_n_sum)
     return (
         True,
