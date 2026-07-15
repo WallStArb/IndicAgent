@@ -1,5 +1,13 @@
 # 097 — Vol-normalized return target for POOLED-strata IC (split from todo 077's L3-1)
 
+**Status check 2026-07-14 (corpus-rebuild idle window):** the implementation half is done —
+`_cross_sectional_vol_normalized_target` (Component F) is live in `ic_engine.py`, with
+`scripts/ops/alpha/ops_vol_normalized_target_ab.py` as the A/B comparison harness. **Not closing
+this todo** — the actual deliverable is the "Validation design" section below (compare
+qualifying-feature rankings raw-vs-vol-normalized, decide keep-or-retire), which hasn't run yet
+and can't until Phase 143.1-07's corpus re-run completes (same corpus this A/B rides, per "Why
+this rides Phase 143.1" below). Code existing is not the same as the question being answered.
+
 **Split 2026-07-11:** todo 077 bundled three outcome-target refinements (L3-1, L3-2, L3-4) with
 different gates. L3-1 is unblocked today and directly sharpens the exact `ic_ci_lower`/
 `ic_ci_upper` mechanism Phase 143.1 is already correcting (Fisher-z CI, sign-symmetric

@@ -1,5 +1,19 @@
 # 092 — Empirical threshold calibration for `equity_regime_model.py`'s vix/breadth cuts (todo 026's P3, split out)
 
+**Status check 2026-07-14 (corpus-rebuild idle window):** this todo's target file is stale.
+`equity_regime_model.py` was deprecated at Phase 144 (2026-07-12), superseded by
+`services/cross_sectional_regime_model.py` (the generic multi-group dispatcher) — the corpus
+pipeline's step-4 slot now runs the new file, and it already completed for the in-progress
+143.1-07 rebuild. The underlying concern is still live: the same never-recalibrated
+`[initial_estimate]` guesses exist under the new `alpha.equity_regime.*` namespace
+(`vix_low_pct`/`vix_high_pct`/`breadth_bear`/`breadth_bull`, one description literally says "Same
+calibration as alpha.regime.vix_low_pct"). Retarget this todo's title/body to
+`cross_sectional_regime_model.py` / `alpha.equity_regime.*` before acting on it. Also note: this
+run's Step 4 already wrote `market_regimes` using the current guessed cuts — writing a
+recalibrated value now would desync from labels already on disk for this rebuild without
+re-running Step 4, so (same as todo 065/097) any real work here waits for the next corpus cycle,
+not this one.
+
 **Source:** Split out of todo 026 (HMM Regime Audit & Optimization, moved to `deferred/`
 2026-07-10 since most of its remaining scope — P1b/P2a/P2b/P2c — genuinely batches into Phase
 144's `ic_engine` re-run). This one sub-item, P3, is pulled back out as its own standalone
