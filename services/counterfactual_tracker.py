@@ -261,7 +261,7 @@ _IC_CI_LOWER_SQL = """
 # derivative). +1 row so the oldest row in the window has a prior close for its true range.
 _ATR_SEED_SQL = """
     SELECT open, high, low, close
-    FROM market_data_ohlcv
+    FROM market_data_ohlcv_tradeable
     WHERE symbol = %s AND timeframe = %s AND timestamp <= %s
     ORDER BY timestamp DESC
     LIMIT %s
@@ -274,7 +274,7 @@ _ATR_SEED_SQL = """
 # not a calendar-date one. Sessions/gaps on intraday TFs make timestamp-range math wrong.
 _BAR_SCAN_SQL = """
     SELECT timestamp, open, high, low, close
-    FROM market_data_ohlcv
+    FROM market_data_ohlcv_tradeable
     WHERE symbol = %s AND timeframe = %s AND timestamp > %s
     ORDER BY timestamp ASC
 """
