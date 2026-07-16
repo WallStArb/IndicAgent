@@ -40,7 +40,7 @@ _ALLOW_LIST: dict[str, str] = {
     ),
     "services/backfill_feature_factory.py": (
         "Already correctly filters with `volume > 0` (confirmed correct via empirical audit "
-        "2026-07-16, not migrated to the view yet -- Tier-2 follow-up, todo 123's sibling "
+        "2026-07-16, not migrated to the view yet -- Tier-2 follow-up, todo 124's sibling "
         "audit list)."
     ),
     "services/regime_writer.py": (

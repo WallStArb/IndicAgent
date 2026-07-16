@@ -56,5 +56,5 @@ to also catch `JOIN`, not just `FROM`), and added a CI-enforced allow-list test
 (`tests/unit/test_market_data_ohlcv_boundary.py`) so a future call site can't silently
 reintroduce it. `bar_auditor.py` and `debug_batch_agent_memory.py` were also found by the same
 regex-widening and correctly allow-listed (legitimate full-grid gap auditor; dead v2.x code).
-The 3 files already using `volume > 0` correctly, plus 10 not-yet-classified files, are follow-up
+The 3 files already using `volume > 0` correctly, plus 11 not-yet-classified files, are follow-up
 todo 124 — not fixed here.
