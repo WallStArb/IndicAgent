@@ -1,61 +1,77 @@
-# `market_data_ohlcv` Active-Bars Boundary: Design
+# `market_data_ohlcv` Tradeable-Bars Boundary: Design
 
 **Date:** 2026-07-16
-**Status:** Design — approved by project owner, not yet implemented
+**Status:** Design — approved by project owner, not yet implemented (revised after empirical
+recheck of the first draft's predicate assumption — see "What changed" below)
 **Scope:** Closes todo 035 (stale — its own file list predates Phase 144 and undercounted the
-affected sites) and the live bug found while scoping it. Supersedes 035's own two proposed
-options with a single decision.
+affected sites) and the live bug found while scoping it.
 **Author:** Sonnet, this session — synthesized from a live-DB audit of every `market_data_ohlcv`
 call site, done in response to discovering `cross_sectional_regime_model.py` (the live Phase 144
-cross-sectional regime writer) has zero active-bar filtering.
+cross-sectional regime writer) has zero tradeable-bar filtering.
 
 ---
+
+## What changed from the first draft
+
+The first draft proposed correcting the existing `volume > 0` filter to `source != 'synthetic_fill'`,
+reasoning that `volume > 0` was silently dropping 2.1M genuine bars. That reasoning was **not
+checked against the actual data** before being written down — an unverified assumption dressed
+as a fix. Sampling those 2.1M rows found **2,146,416 of 2,146,462 (99.998%) have
+`open = high = low = close`** — flat carry-forward bars IBKR itself returns when no trade occurs
+in a window, informationally identical to `synthetic_fill` placeholders despite the different
+`source` label. Only 46 rows (0.002%) show any sub-cent intrabar movement. `volume > 0` was
+already the correct, sufficient filter; the "predicate correction" is dropped entirely, and the
+fix is simpler for it — no `source` column, no nullable-column edge case, one plain `NOT NULL`
+integer comparison. Recheck detail in "Problem" below.
 
 ## Problem
 
 `market_data_ohlcv` is a continuous calendar grid: `bar_normalizer.py` inserts flat-OHLC,
 zero-volume, `source='synthetic_fill'` placeholder rows to fill weekend/holiday/gap slots so
-every `(symbol, timeframe)` has a complete timestamp sequence. Real bars carry
-`source='ibkr_named'`. Any compute/measurement consumer that reads raw bars without excluding
-`source='synthetic_fill'` is silently mixing fabricated flat prices into its input series.
+every `(symbol, timeframe)` has a complete timestamp sequence. Any compute/measurement consumer
+that reads raw bars without excluding these is silently mixing fabricated flat prices into its
+input series.
 
-This has now been independently discovered and patched three times, in three different files,
-over three weeks (2026-07-01, 2026-07-07, 2026-07-16 — this session) — each time by a different
-person/session finding it fresh, each time as a per-call-site patch rather than a structural fix.
-The recurrence is the actual finding here: leaving `market_data_ohlcv` as the default read target
-guarantees a 4th, 5th, 6th instance, because nothing about the table's name, schema, or any call
-site signals that raw reads are unsafe for compute.
+This has now been independently discovered and patched multiple times, in different files, over
+three weeks (2026-07-01, 2026-07-07, 2026-07-16 — this session) — each time by a different
+session finding it fresh, each time as a per-call-site patch rather than a structural fix. The
+recurrence is the actual finding here: leaving `market_data_ohlcv` as the default read target
+guarantees a next instance, because nothing about the table's name, schema, or any call site
+signals that raw reads are unsafe for compute.
 
 ### Full audit result (live DB + full-tree grep, this session)
 
-**Zero filtering at all (broken):**
+**Zero filtering at all — the real bug, fixed in this pass:**
 - `services/cross_sectional_regime_model.py` — live Phase 144 cross-sectional regime writer,
   feeds `market_regimes`, which `ic_engine` stratifies IC on. 82% intraday / 32% daily rows in
-  the live corpus are `synthetic_fill`.
+  the live corpus are `volume=0` (synthetic-fill or flat carry-forward).
 - `services/signal_probe_auditor.py` — forward PnL simulation from bars.
 - `services/signal_replay_auditor.py` — bar-by-bar signal replay.
 - `services/counterfactual_tracker.py` — **two sites**, `_ATR_SEED_SQL` and `_BAR_SCAN_SQL`,
   feeding `alpha_frames`' true-range/MFE/MAE/exit-determination (Phase 142B, capital-relevant).
-  A synthetic bar here means `high=low=close=prev_close` → zero true range and a fabricated flat
-  price feeding stop/target exit logic.
+  A flat bar here means zero true range and a fabricated flat price feeding stop/target exit
+  logic.
 
-**Filtered, but with the wrong predicate (`volume > 0` instead of `source != 'synthetic_fill'`):**
-- `services/regime_writer.py`
-- `services/forward_return_writer.py`
-- `services/backfill_feature_factory.py` — 3 query sites
+**Already correctly filtered — confirmed correct, not touched:**
+- `services/regime_writer.py`, `services/forward_return_writer.py`,
+  `services/backfill_feature_factory.py` (3 query sites) — all already use `volume > 0`.
+  Verified empirically (see below) that this is the right predicate; no change needed, no
+  historical-measurement impact, no methodology-change-ledger entry required for these.
 
-`volume > 0` is the wrong proxy: it also excludes **2,146,462 genuine `ibkr_named` rows** with
-real, legitimate zero volume (illiquid periods, no trades in that window) — silently dropping
-real data that could contain signal, the opposite of what these sites intended. Confirmed via
-live query:
+**Empirical check behind the predicate decision:**
 
 | source | total rows | volume=0 | volume>0 |
 |---|---|---|---|
 | `synthetic_fill` | 175,403,754 | 175,403,754 | 0 |
 | `ibkr_named` | 40,215,094 | 2,146,462 | 38,068,632 |
 
-`source` is nullable in the schema but has 0 NULL rows live today — not guaranteed to stay that
-way, so the corrected predicate must handle NULL defensively (see below).
+Of the 2,146,462 `ibkr_named`/`volume=0` rows, a random sample and then a full aggregate check
+found 2,146,416 (99.998%) are perfectly flat OHLC (`open=high=low=close`) — the remaining 46 show
+only sub-cent intrabar noise. `volume` is `NOT NULL` in the schema. Conclusion: `volume > 0`
+alone is a complete, simple, and empirically correct filter — it excludes both `synthetic_fill`
+rows (100% of which are `volume=0` by `bar_normalizer.py`'s own contract) and IBKR's own
+flat-carry-forward rows, with no dependency on the `source` column and no nullable-column
+handling needed.
 
 **Correctly left alone (raw grid is the right read for these):**
 - `services/equity_regime_model.py` — dead code, Phase 144 rollback path only, not live.
@@ -77,69 +93,70 @@ adopt.
 ## Decision 1 — Mechanism: a Postgres view, not a Python repository
 
 ```sql
-CREATE VIEW market_data_ohlcv_active AS
+CREATE VIEW market_data_ohlcv_tradeable AS
 SELECT * FROM market_data_ohlcv
-WHERE source IS DISTINCT FROM 'synthetic_fill';
+WHERE volume > 0;
 ```
 
-`IS DISTINCT FROM` rather than `!=`: `source` is nullable; `!=` against a future NULL evaluates
-to NULL (false) under three-valued logic and would silently *exclude* a real bar. Cheap
-insurance against a failure mode that costs nothing to prevent now.
+Named `_tradeable`, not `_active`: `active` is already a heavily-loaded lifecycle-status term in
+this codebase's own glossary (`feature_registry`/`concept_registry`/`trade_frames`: `candidate →
+active → shadow_only/expired → deprecated`). Reusing it here for "excludes placeholder bars"
+would be exactly the kind of naming collision CLAUDE.md's glossary discipline exists to prevent.
+`tradeable` is unused elsewhere and is the term todo 035 itself already reached for ("readers get
+one canonical 'tradeable bars' surface").
 
 **Why a view over a Python repository module:** ~22 files touch `market_data_ohlcv` directly,
 many outside clean Ring-architecture Python services — ops shell scripts, debug scripts,
 potential future Grafana/BI queries. A Python repository class (`fetch_bars()`) only protects
-Python callers that choose to use it; a DB view protects every SQL client uniformly, with zero
-extra runtime cost (Postgres inlines the view; the existing `idx_ohlcv_symbol_tf_time`
-`(symbol, timeframe, timestamp)` index is used identically either way, since neither the old nor
-new predicate is separately indexed — both are residual filters over the same index scan). A
-repository module on top of the view is not ruled out for future ergonomic DRY reasons, but is
-not part of this fix — building one now, before any Python call site has actually found the raw
-`WHERE` clause painful, would be speculative infrastructure for a problem the view already
-solves.
+Python callers that choose to use it; a DB view protects every SQL client uniformly. Verified,
+not assumed: `EXPLAIN (COSTS OFF)` on the view vs. the equivalent inline-filtered query against
+live SPY 5m data produced **identical plans** — same compressed-chunk index scan
+(`compress_hyper_*_chunk_symbol_timeframe__ts_meta_min_idx`), same vectorized columnar filter.
+Postgres inlines the view; there is no runtime cost difference. A repository module on top of the
+view is not ruled out for future ergonomic DRY reasons, but is not part of this fix — building one
+now, before any Python call site has found the raw `WHERE volume > 0` clause actually painful,
+would be speculative infrastructure for a problem the view already solves.
 
-## Decision 2 — Predicate correction is in scope, not deferred
+## Decision 2 — Scope for this pass
 
-The already-"fixed" sites (`regime_writer.py`, `forward_return_writer.py`,
-`backfill_feature_factory.py`) get their predicate corrected in the same pass, not left on
-`volume > 0`. Reasoning: leaving a known-wrong predicate in place while fixing only the
-zero-filter sites means shipping a "fix" that everyone will reasonably assume is now correct
-everywhere it's applied — a worse outcome than the current honestly-broken state, since it
-removes the visible signal (the file being on the audit's "broken" list) that would prompt a
-future re-check. Fix it once, correctly, now that the audit has already found and quantified it.
+Fix, with tests, in this pass: `cross_sectional_regime_model.py`, `signal_probe_auditor.py`,
+`signal_replay_auditor.py`, `counterfactual_tracker.py` (2 sites) — **4 files, 5 query sites**,
+all currently zero-filtered. Each switches `FROM market_data_ohlcv` to
+`FROM market_data_ohlcv_tradeable` with no added `WHERE` clause needed.
 
-This is a genuine methodology change to historical measurement inputs (2.1M bars re-admitted at
-sites that already fed live IC/regime computation) and requires a
-`docs/plans/methodology-change-ledger.md` entry, written at implementation time once the exact
-before/after row counts per affected `(symbol, tf, regime)` cell are known.
+`regime_writer.py`, `forward_return_writer.py`, `backfill_feature_factory.py` are **not touched**
+— their existing `volume > 0` is confirmed correct; migrating them to select from the view
+instead of inlining the same predicate is a pure style nicety, not a correctness fix, and is
+folded into the Tier-2 follow-up todo rather than done urgently here.
 
-## Decision 3 — Scope for this pass: Tier 1 only
+This is a straightforward bug fix (no filter → correct filter) for the 4 files touched, not a
+retroactive change to an existing predicate's definition — no methodology-change-ledger entry is
+needed for what didn't change (`regime_writer.py` et al.); the ledger only needs to note that
+`cross_sectional_regime_model.py`/`counterfactual_tracker.py`/the two auditors go from
+"unfiltered" to "filtered" as of this fix, for anyone diffing pre/post corpus-rebuild numbers.
 
-Fix, with tests, in this pass:
-`cross_sectional_regime_model.py`, `signal_probe_auditor.py`, `signal_replay_auditor.py`,
-`counterfactual_tracker.py` (2 sites), `regime_writer.py`, `forward_return_writer.py`,
-`backfill_feature_factory.py` (3 sites) — 7 files, 10 query sites total.
+File a new todo for the Tier-2 audit list (10 files, not classified, plus the 3
+already-correct-but-not-yet-view-based files above) as a fast-follow — the view already exists
+for them once each is reviewed.
 
-File a new todo for the Tier-2 audit list (10 files, not classified) as a fast-follow — the view
-already exists for them once each is reviewed.
+## Decision 3 — Prevention: make the wrong path structurally harder, not just documented
 
-## Decision 4 — Prevention: make the wrong path structurally harder, not just documented
-
-A view alone doesn't stop call site #8 — `SELECT * FROM market_data_ohlcv` is still shorter to
-type and still compiles. Three layers, cheapest first, no new infrastructure beyond what
-already exists in this codebase's own conventions:
+A view alone doesn't stop call site #6 — `SELECT * FROM market_data_ohlcv` is still shorter to
+type and still compiles. Three layers, cheapest first, no new infrastructure beyond what already
+exists in this codebase's own conventions:
 
 1. **CI-enforced allow-list test** — `tests/unit/test_market_data_ohlcv_boundary.py`: grep the
-   full tree for raw `FROM market_data_ohlcv\b` (excluding `_active`), assert the hit set exactly
-   matches a checked-in allow-list (the "correctly left alone" files above, each with a one-line
-   reason). Any new raw-table reference fails CI immediately unless the allow-list is also
-   edited — forcing the "why does this need raw access" justification into the diff itself,
-   at review time, rather than relying on someone remembering. Same shape of guard as todo 119's
-   migration-schema-drift CI check — this project already has the pattern, just apply it here.
+   full tree for raw `FROM market_data_ohlcv\b` (excluding `_tradeable`), assert the hit set
+   exactly matches a checked-in allow-list (the "correctly left alone" files above, plus the 3
+   already-correct-but-raw-table sites, each with a one-line reason). Any new raw-table reference
+   fails CI immediately unless the allow-list is also edited — forcing the "why does this need
+   raw access" justification into the diff itself, at review time, rather than relying on someone
+   remembering. Same shape of guard as todo 119's migration-schema-drift CI check — this project
+   already has the pattern, just apply it here.
 2. **One CLAUDE.md line**, same style as the existing `instruments.contract_details->>'asset_class'`
-   gotcha: "`market_data_ohlcv` reads for compute/measurement must use `market_data_ohlcv_active`;
-   raw access needs a `test_market_data_ohlcv_boundary.py` allow-list entry with a reason."
-   Discoverable before the CI check ever has to catch it.
+   gotcha: "`market_data_ohlcv` reads for compute/measurement must use
+   `market_data_ohlcv_tradeable`; raw access needs a `test_market_data_ohlcv_boundary.py`
+   allow-list entry with a reason." Discoverable before the CI check ever has to catch it.
 3. **Not doing (deliberately, avoid over-engineering):** no ORM layer, no repository-class
    enforcement, no runtime schema validator. A view + a grep-test + a doc line is the complete
    fix for what is fundamentally a one-predicate problem.
@@ -149,7 +166,7 @@ filtered view and the raw grid gets the marked name (e.g. `market_data_ohlcv_raw
 make the safe path the *unmarked default*, needing zero vigilance at all, which is the stronger
 structural fix. Not done now: renaming a 250-chunk hypertable with ~22 live call sites (writers
 included) is a materially bigger, separate migration with its own blast radius and risk profile.
-Worth reconsidering once `market_data_ohlcv_active` has been live and proven for a while.
+Worth reconsidering once `market_data_ohlcv_tradeable` has been live and proven for a while.
 
 ## Implementation notes
 
@@ -159,8 +176,9 @@ Worth reconsidering once `market_data_ohlcv_active` has been live and proven for
   run's regime labels, and doesn't need to; it lands cleanly for the next corpus rebuild. Editing
   these files now does not touch the currently-running `ic_engine` process (step 5) or its DB
   connections.
-- TDD per CLAUDE.md's Done-Coding SOP: test each corrected query against a fixture with both
-  `source` values before changing the query, confirm it fails on the bug, then fix.
+- TDD per CLAUDE.md's Done-Coding SOP: for each of the 4 files, write a test with a fixture
+  containing both a `volume>0` bar and a `volume=0` bar, confirm the test fails against current
+  code (proves the bug), then fix the query and confirm it passes.
 - After implementation: `/simplify` → `/review` → `tests/unit/` green → commit on a feature
   branch → ff-merge to `main`, per CLAUDE.md's SOP.
 
@@ -172,4 +190,5 @@ Worth reconsidering once `market_data_ohlcv_active` has been live and proven for
   convention
 - `.planning/todos/pending/119-migration-schema-drift-ci-check.md` — same CI-guard pattern
   precedent
-- `docs/plans/methodology-change-ledger.md` — entry required at implementation time
+- `docs/plans/methodology-change-ledger.md` — entry required at implementation time, scoped to
+  the 4 files whose filtering behavior actually changes
