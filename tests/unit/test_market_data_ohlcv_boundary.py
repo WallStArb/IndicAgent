@@ -13,6 +13,7 @@ CI-clean: no DB, no network -- pure filesystem grep.
 
 from __future__ import annotations
 
+import functools
 import re
 from pathlib import Path
 
@@ -25,92 +26,116 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 # the test.
 _ALLOW_LIST: dict[str, str] = {
     "services/signal_replay_auditor.py": (
-        "Dead v2.x Signal Ledger Architecture code (signal_ledger) -- CLAUDE.md documents "
-        "this tier as archived, no live consumer since 2026-07-02. Verified 2026-07-16: no "
-        "running systemd unit, signal_events/trade_frames have zero rows. Not fixed -- "
-        "v2.x's fate is todo 056's separate open question, not this guard's call."
+        "PERMANENT: Dead v2.x Signal Ledger Architecture code (signal_ledger) -- CLAUDE.md "
+        "documents this tier as archived, no live consumer since 2026-07-02. Verified "
+        "2026-07-16: no running systemd unit, signal_events/trade_frames have zero rows. Not "
+        "fixed -- v2.x's fate is todo 056's separate open question, not this guard's call."
     ),
     "services/signal_probe_auditor.py": (
-        "Dead v2.x Signal Ledger Architecture code (signal_events/trade_frames) -- same "
-        "verification as signal_replay_auditor.py above."
+        "PERMANENT: Dead v2.x Signal Ledger Architecture code (signal_events/trade_frames) -- "
+        "same verification as signal_replay_auditor.py above."
     ),
     "services/equity_regime_model.py": (
-        "Dead code -- Phase 144 rollback path only (services/cross_sectional_regime_model.py "
-        "is the live replacement), not currently invoked by the corpus pipeline."
+        "PERMANENT: Dead code -- Phase 144 rollback path only "
+        "(services/cross_sectional_regime_model.py is the live replacement), not currently "
+        "invoked by the corpus pipeline."
     ),
     "services/backfill_feature_factory.py": (
-        "Already correctly filters with `volume > 0` (confirmed correct via empirical audit "
-        "2026-07-16, not migrated to the view yet -- Tier-2 follow-up, todo 124's sibling "
-        "audit list)."
+        "PENDING (todo 124): Already correctly filters with `volume > 0` (confirmed correct "
+        "via empirical audit 2026-07-16, not migrated to the view yet -- Tier-2 follow-up, "
+        "todo 124's sibling audit list)."
     ),
     "services/regime_writer.py": (
-        "Already correctly filters with `volume > 0` -- same Tier-2 follow-up as above."
+        "PENDING (todo 124): Already correctly filters with `volume > 0` -- same Tier-2 "
+        "follow-up as above."
     ),
     "services/forward_return_writer.py": (
-        "Already correctly filters with `volume > 0` -- same Tier-2 follow-up as above."
+        "PENDING (todo 124): Already correctly filters with `volume > 0` -- same Tier-2 "
+        "follow-up as above."
     ),
     "services/bar_replay_provider.py": (
-        "Not yet classified -- Tier-2 audit follow-up (see design doc's 'not yet classified' "
-        "list, 2026-07-16)."
+        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up (see design doc's "
+        "'not yet classified' list, 2026-07-16)."
     ),
-    "scripts/ops/roll/ops_roll_batch.py": ("Not yet classified -- Tier-2 audit follow-up."),
+    "scripts/ops/roll/ops_roll_batch.py": (
+        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up."
+    ),
     "scripts/infrastructure/backfill/infrastructure_fetch_htf_bars.py": (
-        "Not yet classified -- Tier-2 audit follow-up."
+        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up."
     ),
     "src/providers/base_provider_agent.py": (
-        "Not yet classified -- likely wants the full calendar grid intentionally (backfill "
-        "completeness count against the calendar target), but not verified. Tier-2 follow-up."
+        "PENDING (todo 124): Not yet classified -- likely wants the full calendar grid "
+        "intentionally (backfill completeness count against the calendar target), but not "
+        "verified. Tier-2 follow-up."
     ),
     "src/intelligence/services/bar_history_seeder.py": (
-        "Not yet classified -- Tier-2 audit follow-up."
+        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up."
     ),
     "scripts/ops/pipeline/ops_pipeline_status.py": (
-        "Monitoring wants the full grid -- gaps are the signal here, not noise. Correctly "
-        "left alone (design doc's 'correctly left alone' list)."
+        "PERMANENT: Monitoring wants the full grid -- gaps are the signal here, not noise. "
+        "Correctly left alone (design doc's 'correctly left alone' list)."
     ),
     "scripts/infrastructure/backfill/infrastructure_context_features_writer.py": (
-        "Not yet classified -- Tier-2 audit follow-up."
+        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up."
     ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
-        "Backfill bookkeeping (min/max timestamp checks) against the full calendar grid -- "
-        "plausibly intentional, not verified. Tier-2 audit follow-up."
+        "PENDING (todo 124): Backfill bookkeeping (min/max timestamp checks) against the "
+        "full calendar grid -- plausibly intentional, not verified. Tier-2 audit follow-up."
     ),
-    "scripts/debug/analysis/debug_bic_k_selection.py": ("Debug tooling -- Tier-2 audit follow-up."),
-    "scripts/debug/replay/debug_lifecycle_replay.py": ("Debug tooling -- Tier-2 audit follow-up."),
+    "scripts/debug/analysis/debug_bic_k_selection.py": (
+        "PENDING (todo 124): Debug tooling -- Tier-2 audit follow-up."
+    ),
+    "scripts/debug/replay/debug_lifecycle_replay.py": (
+        "PENDING (todo 124): Debug tooling -- Tier-2 audit follow-up."
+    ),
     "scripts/analysis/crowding_proxy_regression.py": (
-        "Standing diagnostic script, not a live gate -- Tier-2 audit follow-up."
+        "PENDING (todo 124): Standing diagnostic script, not a live gate -- Tier-2 audit "
+        "follow-up."
     ),
     "src/persistence/repository/feature_snapshot_repository.py": (
-        "Not yet classified -- Tier-2 audit follow-up."
+        "PENDING (todo 124): Not yet classified -- Tier-2 audit follow-up."
     ),
     "src/api/routes/market_data.py": (
-        "Raw display/API surface, not a measurement input -- correctly left alone (design "
-        "doc's 'correctly left alone' list)."
+        "PERMANENT: Raw display/API surface, not a measurement input -- correctly left alone "
+        "(design doc's 'correctly left alone' list)."
     ),
     "services/bar_auditor.py": (
-        "Legitimate gap-detection auditor (registered live in service_auditor.py's DAG as "
-        "bar_auditor -> indicagent-bar-auditor) -- deliberately counts ALL rows including "
-        "synthetic-fill placeholders to detect actual calendar gaps and trigger backfill. "
-        "Filtering here would break its purpose."
+        "PERMANENT: Legitimate gap-detection auditor (registered live in service_auditor.py's "
+        "DAG as bar_auditor -> indicagent-bar-auditor) -- deliberately counts ALL rows "
+        "including synthetic-fill placeholders to detect actual calendar gaps and trigger "
+        "backfill. Filtering here would break its purpose."
     ),
     "scripts/debug/analysis/debug_batch_agent_memory.py": (
-        "Joins signal_ledger, confirmed zero rows in the live DB -- dead v2.x Signal Ledger "
-        "Architecture code, same bucket as signal_probe_auditor.py/signal_replay_auditor.py "
-        "already on this allow-list."
+        "PERMANENT: Joins signal_ledger, confirmed zero rows in the live DB -- dead v2.x "
+        "Signal Ledger Architecture code, same bucket as "
+        "signal_probe_auditor.py/signal_replay_auditor.py already on this allow-list."
+    ),
+    "scripts/infrastructure/backfill/infrastructure_backfill_progress_check.sh": (
+        "PERMANENT: Backfill progress monitor -- COUNT(*) GROUP BY timeframe against the full "
+        "calendar grid is the intended behavior (tracking calendar completeness, not "
+        "tradeable-bar count), same rationale as the already-allow-listed "
+        "ops_pipeline_status.py."
+    ),
+    "scripts/infrastructure/backfill/infrastructure_truncate_derived_tables.sh": (
+        "PERMANENT: Re-seeds backfill_status bookkeeping from the full calendar grid after a "
+        "truncate -- intentionally wants the complete grid (including placeholder bars) to "
+        "correctly mark what calendar coverage has been backfilled, not just tradeable bars."
     ),
 }
 
 
+@functools.lru_cache(maxsize=1)
 def _find_raw_table_references() -> dict[str, int]:
-    """Returns {relative_path: match_count} for every .py file under _SEARCH_DIRS that
+    """Returns {relative_path: match_count} for every .py/.sh file under _SEARCH_DIRS that
     references the raw market_data_ohlcv table (not the _tradeable view)."""
     hits: dict[str, int] = {}
     for search_dir in _SEARCH_DIRS:
-        for path in (_REPO_ROOT / search_dir).rglob("*.py"):
-            text = path.read_text(encoding="utf-8", errors="ignore")
-            count = len(_RAW_TABLE_PATTERN.findall(text))
-            if count:
-                hits[str(path.relative_to(_REPO_ROOT))] = count
+        for pattern in ("*.py", "*.sh"):
+            for path in (_REPO_ROOT / search_dir).rglob(pattern):
+                text = path.read_text(encoding="utf-8", errors="ignore")
+                count = len(_RAW_TABLE_PATTERN.findall(text))
+                if count:
+                    hits[str(path.relative_to(_REPO_ROOT))] = count
     return hits
 
 
