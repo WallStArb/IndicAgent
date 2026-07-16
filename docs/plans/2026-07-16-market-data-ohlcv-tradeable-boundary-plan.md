@@ -523,22 +523,29 @@ At the end of `docs/plans/methodology-change-ledger.md`, append:
 
 ```markdown
 
-## 2026-07-16 — `market_data_ohlcv` tradeable-bars filtering added to two zero-filter regime/counterfactual reads
+## 2026-07-16 — `market_data_ohlcv` tradeable-bars filtering added to three zero-filter regime/counterfactual/OOS-eval reads
 
 **What result was observed before the change?** `services/cross_sectional_regime_model.py`
 (the live Phase 144 cross-sectional regime writer, feeding `market_regimes`, which `ic_engine`
-stratifies IC on) and `services/counterfactual_tracker.py` (feeding `alpha_frames`'
-true-range/MFE/MAE/exit-determination, Phase 142B) both read `market_data_ohlcv` with zero
-filtering of placeholder bars. ~82% of intraday / ~32% of daily rows in the live corpus are
-`volume=0` (synthetic-fill or IBKR flat-carry-forward). Every regime label and every
-counterfactual PnL/MFE/MAE computed by these two files, for the entire corpus history to date,
-was computed over this contaminated input.
+stratifies IC on), `services/counterfactual_tracker.py` (feeding `alpha_frames`'
+true-range/MFE/MAE/exit-determination, Phase 142B), and `scripts/ops/corpus/ops_oos_holdout_eval.py`
+(a live diagnostic reading `m.open` for OOS feature-IC scoring, found via a CI-guard regex
+widening mid-implementation — its JOIN-based read was invisible to the guard's first draft,
+which only matched `FROM`) all read `market_data_ohlcv` with zero filtering of placeholder bars.
+~82% of intraday / ~32% of daily rows in the live corpus are `volume=0` (synthetic-fill or IBKR
+flat-carry-forward). Every regime label, every counterfactual PnL/MFE/MAE, and every OOS
+feature-IC score computed by these three files, for the entire corpus history to date, was
+computed over this contaminated input.
 
-**What changed?** Both files now read from a new `market_data_ohlcv_tradeable` view
+**What changed?** All three files now read from a new `market_data_ohlcv_tradeable` view
 (`WHERE volume > 0`, migration 236) instead of the raw table. No other files' filtering changed
 — `regime_writer.py`/`forward_return_writer.py`/`backfill_feature_factory.py` already used
 `volume > 0` inline and were confirmed correct by the same audit (see
 `docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md`), not touched.
+`services/bar_auditor.py` and `scripts/debug/analysis/debug_batch_agent_memory.py` also read the
+raw table via JOIN, found by the same regex-widening pass, but are correctly left unfiltered
+(gap-detection auditor that needs the full calendar grid; dead v2.x code respectively) — allow-listed,
+not changed.
 
 **What would the change have looked like if decided *before* seeing any data (pre-registered
 justification), and honestly, was it?** This is a straightforward bug fix (missing filter, not
@@ -554,7 +561,8 @@ underlying gap had existed, undetected, since each file's creation.
 `cross_sectional_regime_model.py` for its current cycle before this fix landed — its regime
 labels are pre-fix. This fix applies cleanly starting with the next corpus rebuild; no
 retroactive correction of the in-flight run's regime labels was attempted or is possible without
-re-running that step.
+re-running that step. `ops_oos_holdout_eval.py` is a manually-invoked diagnostic (not part of the
+automated corpus pipeline), so any future run of it will use the corrected view immediately.
 ```
 
 - [ ] **Step 3: Commit**
@@ -589,13 +597,16 @@ frontmatter), then move it with `git mv .planning/todos/pending/035-market-ohlcv
 
 Closed via `docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` +
 `docs/plans/2026-07-16-market-data-ohlcv-tradeable-boundary-plan.md`. Built the single-boundary
-view this todo asked for (`market_data_ohlcv_tradeable`, migration 236), fixed the 2 live
-call sites that had zero filtering (`cross_sectional_regime_model.py`,
-`counterfactual_tracker.py` — a bigger, previously-undiscovered instance of this exact gap,
-found while scoping this todo), and added a CI-enforced allow-list test
+view this todo asked for (`market_data_ohlcv_tradeable`, migration 236), fixed the 3 live
+call sites that had zero filtering (`cross_sectional_regime_model.py`, `counterfactual_tracker.py`
+— a bigger, previously-undiscovered instance of this exact gap, found while scoping this todo —
+plus `ops_oos_holdout_eval.py`, found mid-implementation when the CI guard's regex was widened
+to also catch `JOIN`, not just `FROM`), and added a CI-enforced allow-list test
 (`tests/unit/test_market_data_ohlcv_boundary.py`) so a future call site can't silently
-reintroduce it. The 3 files already using `volume > 0` correctly, plus 10 not-yet-classified
-files, are follow-up todo 124 — not fixed here.
+reintroduce it. `bar_auditor.py` and `debug_batch_agent_memory.py` were also found by the same
+regex-widening and correctly allow-listed (legitimate full-grid gap auditor; dead v2.x code).
+The 3 files already using `volume > 0` correctly, plus 10 not-yet-classified files, are follow-up
+todo 124 — not fixed here.
 ```
 
 - [ ] **Step 2: File the Tier-2 follow-up todo**
