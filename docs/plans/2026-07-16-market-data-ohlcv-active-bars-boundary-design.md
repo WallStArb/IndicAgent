@@ -16,13 +16,10 @@ cross-sectional regime writer) has zero tradeable-bar filtering.
 The first draft proposed correcting the existing `volume > 0` filter to `source != 'synthetic_fill'`,
 reasoning that `volume > 0` was silently dropping 2.1M genuine bars. That reasoning was **not
 checked against the actual data** before being written down — an unverified assumption dressed
-as a fix. Sampling those 2.1M rows found **2,146,416 of 2,146,462 (99.998%) have
-`open = high = low = close`** — flat carry-forward bars IBKR itself returns when no trade occurs
-in a window, informationally identical to `synthetic_fill` placeholders despite the different
-`source` label. Only 46 rows (0.002%) show any sub-cent intrabar movement. `volume > 0` was
-already the correct, sufficient filter; the "predicate correction" is dropped entirely, and the
-fix is simpler for it — no `source` column, no nullable-column edge case, one plain `NOT NULL`
-integer comparison. Recheck detail in "Problem" below.
+as a fix. `volume > 0` was already the correct, sufficient filter; the "predicate correction" is
+dropped entirely, and the fix is simpler for it — no `source` column, no nullable-column edge
+case, one plain `NOT NULL` integer comparison. Full empirical recheck (the actual row counts) is
+in "Empirical check behind the predicate decision" under Problem, below — not repeated here.
 
 ## Problem
 
@@ -92,12 +89,13 @@ handling needed.
 `base_provider_agent.py`, `bar_replay_provider.py`, `bar_history_seeder.py`,
 `ops_roll_batch.py`, `feature_snapshot_repository.py`, `crowding_proxy_regression.py`,
 `debug_bic_k_selection.py`, `debug_lifecycle_replay.py`,
-`infrastructure_context_features_writer.py`, `infrastructure_fetch_htf_bars.py`. Each needs a
-genuine per-file read (some plausibly want the full grid intentionally — e.g. backfill
-completeness checks counting against the calendar target). Rushing 10 judgment calls into this
-session risks getting some wrong under the same time pressure that caused the original problem;
-better to audit these properly as dedicated follow-up work once the boundary exists for them to
-adopt.
+`infrastructure_context_features_writer.py`, `infrastructure_fetch_htf_bars.py`,
+`infrastructure_run_historical_pipeline.py` (backfill min/max-timestamp bookkeeping against the
+full calendar grid — plausibly intentional, not verified). Each needs a genuine per-file read
+(some plausibly want the full grid intentionally — e.g. backfill completeness checks counting
+against the calendar target). Rushing 11 judgment calls into this session risks getting some
+wrong under the same time pressure that caused the original problem; better to audit these
+properly as dedicated follow-up work once the boundary exists for them to adopt.
 
 ## Decision 1 — Mechanism: a Postgres view, not a Python repository
 

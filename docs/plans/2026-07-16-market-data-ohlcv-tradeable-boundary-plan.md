@@ -1,5 +1,12 @@
 # `market_data_ohlcv` Tradeable-Bars Boundary Implementation Plan
 
+**Status:** COMPLETE — implemented and merged 2026-07-16 (`c7b99bc6..8aad6e5a`). Kept as the
+historical execution record (task breakdown, per-task review findings, the mid-flight scope
+expansion when a review found the guard's `JOIN` blind spot). Two sections below (Task 4's guard
+code, Task 5's ledger entry) originally embedded full copies of content that has since moved on;
+those are now pointers to their canonical, current source instead, so this record can't drift
+stale the way the embedded copies already had by the time this was cleaned up.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the confirmed data-integrity bug where `cross_sectional_regime_model.py` and
@@ -44,7 +51,7 @@ psycopg2 in `cross_sectional_regime_model.py`), pytest (`tests/unit/`, `tests/in
   `market_data_ohlcv` (`timestamp, symbol, timeframe, open, high, low, close, volume, source,
   base`), filtered to `volume > 0`. Tasks 2 and 3 select from this view by name.
 
-- [ ] **Step 1: Write the migration file**
+- [x] **Step 1: Write the migration file**
 
 ```sql
 -- Migration 236: market_data_ohlcv_tradeable view (todo 035)
@@ -80,7 +87,7 @@ WHERE volume > 0;
 COMMIT;
 ```
 
-- [ ] **Step 2: Apply the migration to the dev database**
+- [x] **Step 2: Apply the migration to the dev database**
 
 Run: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -f production/migrations/236_market_data_ohlcv_tradeable_view.sql`
 Expected: `BEGIN` / `CREATE VIEW` / `COMMIT` — no errors. (Safe to run against the live dev DB
@@ -88,7 +95,7 @@ while the 143.1-07 corpus rebuild is in progress: `CREATE VIEW` takes no lock on
 `market_data_ohlcv` beyond a brief `ACCESS SHARE`, and does not touch the currently-running
 `ic_engine` process or its connections.)
 
-- [ ] **Step 3: Write the failing integration test**
+- [x] **Step 3: Write the failing integration test**
 
 ```python
 """Integration test: market_data_ohlcv_tradeable view filters volume=0 bars correctly.
@@ -129,7 +136,7 @@ async def test_view_excludes_zero_volume_bars_and_includes_real_bars():
         await conn.close()
 ```
 
-- [ ] **Step 4: Run test to verify it fails before the migration is known-applied**
+- [x] **Step 4: Run test to verify it fails before the migration is known-applied**
 
 Run: `.venv/bin/pytest tests/integration/test_market_data_ohlcv_tradeable_view.py -v`
 Expected: the `migrated_test_database` session fixture (`tests/integration/conftest.py`) rebuilds
@@ -139,12 +146,12 @@ proving the fixture picked up the new migration correctly. If it instead fails w
 `relation "market_data_ohlcv_tradeable" does not exist`, the migration file wasn't saved before
 running the test — re-check Step 1.
 
-- [ ] **Step 5: Confirm test passes**
+- [x] **Step 5: Confirm test passes**
 
 Run: `.venv/bin/pytest tests/integration/test_market_data_ohlcv_tradeable_view.py -v`
 Expected: `1 passed`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add production/migrations/236_market_data_ohlcv_tradeable_view.sql tests/integration/test_market_data_ohlcv_tradeable_view.py
@@ -163,7 +170,7 @@ git commit -m "feat(db): add market_data_ohlcv_tradeable view (migration 236)"
 - Consumes: `market_data_ohlcv_tradeable` view from Task 1.
 - No signature change to `_fetch_group_bars(dsn: str, tf: str, symbols: list[str]) -> dict[str, pd.DataFrame]`.
 
-- [ ] **Step 1: Write the failing unit test**
+- [x] **Step 1: Write the failing unit test**
 
 Add to `tests/unit/test_cross_sectional_regime_model.py` (append a new test class; file already
 imports `sys`, `Path`, and inserts project root onto `sys.path` at the top, matching this test's
@@ -186,13 +193,13 @@ class TestFetchGroupBarsQueriesTradeableView:
         assert "FROM market_data_ohlcv " not in source
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/unit/test_cross_sectional_regime_model.py::TestFetchGroupBarsQueriesTradeableView -v`
 Expected: FAIL — `assert "market_data_ohlcv_tradeable" in source` fails, current source says
 `FROM market_data_ohlcv`.
 
-- [ ] **Step 3: Fix the query**
+- [x] **Step 3: Fix the query**
 
 In `services/cross_sectional_regime_model.py`, change:
 
@@ -216,13 +223,13 @@ to:
     """
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `.venv/bin/pytest tests/unit/test_cross_sectional_regime_model.py -v`
 Expected: all tests in the file `PASSED`, including the new
 `TestFetchGroupBarsQueriesTradeableView` class.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add services/cross_sectional_regime_model.py tests/unit/test_cross_sectional_regime_model.py
@@ -243,7 +250,7 @@ git commit -m "fix(regime): cross_sectional_regime_model reads market_data_ohlcv
 - No signature change to either SQL constant's call sites (`cur.execute(_ATR_SEED_SQL, ...)` at
   line 389, `cur.execute(_BAR_SCAN_SQL, ...)` at line 408).
 
-- [ ] **Step 1: Write the failing unit test**
+- [x] **Step 1: Write the failing unit test**
 
 Add to `tests/unit/test_counterfactual_tracker.py` (file already imports `inspect` at the top —
 same pattern as the existing `test_worker_source_uses_named_cursor_not_plain_cursor` test in
@@ -263,12 +270,12 @@ def test_atr_seed_and_bar_scan_sql_query_tradeable_view_not_raw_table():
     assert "FROM market_data_ohlcv\n" not in module._BAR_SCAN_SQL
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/unit/test_counterfactual_tracker.py::test_atr_seed_and_bar_scan_sql_query_tradeable_view_not_raw_table -v`
 Expected: FAIL — both assertions on `"market_data_ohlcv_tradeable" in ...` fail.
 
-- [ ] **Step 3: Fix both queries**
+- [x] **Step 3: Fix both queries**
 
 In `services/counterfactual_tracker.py`, change:
 
@@ -316,12 +323,12 @@ _BAR_SCAN_SQL = """
 """
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `.venv/bin/pytest tests/unit/test_counterfactual_tracker.py -v`
 Expected: all tests in the file `PASSED`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add services/counterfactual_tracker.py tests/unit/test_counterfactual_tracker.py
@@ -340,152 +347,26 @@ git commit -m "fix(counterfactual): ATR seed and bar-path scan read market_data_
   Tasks 1-3 beyond their file edits already having landed (the allow-list below assumes Tasks 2
   and 3 are already applied — the fixed files no longer match the raw-table pattern).
 
-- [ ] **Step 1: Write the test (this IS the deliverable — there's no "make it fail first"**
+- [x] **Step 1: Write the test (this IS the deliverable — there's no "make it fail first"**
   **step here since it's a repo-content assertion, not a behavior to implement; write it,**
   **run it, and it should pass immediately if Tasks 1-3 already landed)**
 
-```python
-"""CI guard: no new raw `market_data_ohlcv` reads outside this checked-in allow-list.
+This was written as the exact source to type at the time; that source has since evolved
+(the guard was widened past this version during the /simplify pass that followed implementation
+— it now also scans `.sh` files and matches `JOIN` in addition to `FROM`, and every allow-list
+entry carries a `PERMANENT`/`PENDING` tag). Keeping a stale second copy here would just be a
+second place for that content to drift from reality. The current, authoritative guard is
+`tests/unit/test_market_data_ohlcv_boundary.py` — read it directly rather than this plan for
+today's actual allow-list and regex.
 
-market_data_ohlcv is a continuous calendar grid containing synthetic-fill and IBKR
-flat-carry-forward placeholder bars (see docs/plans/2026-07-16-market-data-ohlcv-active-
-bars-boundary-design.md). Three separate files independently reintroduced this exact gap
-over three weeks before this guard existed. A new file reading the raw table now fails CI
-immediately unless this allow-list is also edited -- which forces a "why does this need
-raw access" justification into the diff itself, at review time, rather than relying on
-someone remembering to add `market_data_ohlcv_tradeable` to a FROM clause.
-
-CI-clean: no DB, no network -- pure filesystem grep.
-"""
-
-from __future__ import annotations
-
-import re
-from pathlib import Path
-
-_REPO_ROOT = Path(__file__).parent.parent.parent
-_RAW_TABLE_PATTERN = re.compile(r"FROM\s+market_data_ohlcv\b(?!_tradeable)")
-_SEARCH_DIRS = ("services", "src", "scripts")
-
-# (file, reason) -- every raw `market_data_ohlcv` reference in the tree must appear here.
-# Adding a new call site requires adding a row here with a real reason, not just silencing
-# the test.
-_ALLOW_LIST: dict[str, str] = {
-    "services/signal_replay_auditor.py": (
-        "Dead v2.x Signal Ledger Architecture code (signal_ledger) -- CLAUDE.md documents "
-        "this tier as archived, no live consumer since 2026-07-02. Verified 2026-07-16: no "
-        "running systemd unit, signal_events/trade_frames have zero rows. Not fixed -- "
-        "v2.x's fate is todo 056's separate open question, not this guard's call."
-    ),
-    "services/signal_probe_auditor.py": (
-        "Dead v2.x Signal Ledger Architecture code (signal_events/trade_frames) -- same "
-        "verification as signal_replay_auditor.py above."
-    ),
-    "services/equity_regime_model.py": (
-        "Dead code -- Phase 144 rollback path only (services/cross_sectional_regime_model.py "
-        "is the live replacement), not currently invoked by the corpus pipeline."
-    ),
-    "services/backfill_feature_factory.py": (
-        "Already correctly filters with `volume > 0` (confirmed correct via empirical audit "
-        "2026-07-16, not migrated to the view yet -- Tier-2 follow-up, todo 124's sibling "
-        "audit list)."
-    ),
-    "services/regime_writer.py": (
-        "Already correctly filters with `volume > 0` -- same Tier-2 follow-up as above."
-    ),
-    "services/forward_return_writer.py": (
-        "Already correctly filters with `volume > 0` -- same Tier-2 follow-up as above."
-    ),
-    "services/bar_replay_provider.py": (
-        "Not yet classified -- Tier-2 audit follow-up (see design doc's 'not yet classified' "
-        "list, 2026-07-16)."
-    ),
-    "scripts/ops/roll/ops_roll_batch.py": (
-        "Not yet classified -- Tier-2 audit follow-up."
-    ),
-    "scripts/infrastructure/backfill/infrastructure_fetch_htf_bars.py": (
-        "Not yet classified -- Tier-2 audit follow-up."
-    ),
-    "src/providers/base_provider_agent.py": (
-        "Not yet classified -- likely wants the full calendar grid intentionally (backfill "
-        "completeness count against the calendar target), but not verified. Tier-2 follow-up."
-    ),
-    "src/intelligence/services/bar_history_seeder.py": (
-        "Not yet classified -- Tier-2 audit follow-up."
-    ),
-    "scripts/ops/pipeline/ops_pipeline_status.py": (
-        "Monitoring wants the full grid -- gaps are the signal here, not noise. Correctly "
-        "left alone (design doc's 'correctly left alone' list)."
-    ),
-    "scripts/infrastructure/backfill/infrastructure_context_features_writer.py": (
-        "Not yet classified -- Tier-2 audit follow-up."
-    ),
-    "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
-        "Backfill bookkeeping (min/max timestamp checks) against the full calendar grid -- "
-        "plausibly intentional, not verified. Tier-2 audit follow-up."
-    ),
-    "scripts/debug/analysis/debug_bic_k_selection.py": (
-        "Debug tooling -- Tier-2 audit follow-up."
-    ),
-    "scripts/debug/replay/debug_lifecycle_replay.py": (
-        "Debug tooling -- Tier-2 audit follow-up."
-    ),
-    "scripts/analysis/crowding_proxy_regression.py": (
-        "Standing diagnostic script, not a live gate -- Tier-2 audit follow-up."
-    ),
-    "src/persistence/repository/feature_snapshot_repository.py": (
-        "Not yet classified -- Tier-2 audit follow-up."
-    ),
-    "src/api/routes/market_data.py": (
-        "Raw display/API surface, not a measurement input -- correctly left alone (design "
-        "doc's 'correctly left alone' list)."
-    ),
-}
-
-
-def _find_raw_table_references() -> dict[str, int]:
-    """Returns {relative_path: match_count} for every .py file under _SEARCH_DIRS that
-    references the raw market_data_ohlcv table (not the _tradeable view)."""
-    hits: dict[str, int] = {}
-    for search_dir in _SEARCH_DIRS:
-        for path in (_REPO_ROOT / search_dir).rglob("*.py"):
-            text = path.read_text(encoding="utf-8", errors="ignore")
-            count = len(_RAW_TABLE_PATTERN.findall(text))
-            if count:
-                hits[str(path.relative_to(_REPO_ROOT))] = count
-    return hits
-
-
-def test_every_raw_market_data_ohlcv_reference_is_on_the_allow_list():
-    hits = _find_raw_table_references()
-    unexpected = set(hits) - set(_ALLOW_LIST)
-    assert not unexpected, (
-        f"New raw `market_data_ohlcv` read(s) found, not on the allow-list: {unexpected}. "
-        "If this is a genuine new call site, either point it at "
-        "`market_data_ohlcv_tradeable` (preferred, if it needs tradeable bars only) or add "
-        "it to _ALLOW_LIST in this file with a one-line reason (if it genuinely needs the "
-        "full calendar grid)."
-    )
-
-
-def test_allow_list_has_no_stale_entries():
-    hits = _find_raw_table_references()
-    stale = set(_ALLOW_LIST) - set(hits)
-    assert not stale, (
-        f"Allow-list entries that no longer match any raw `market_data_ohlcv` reference: "
-        f"{stale}. Either the file was fixed (remove its entry here) or moved/renamed "
-        "(update the path)."
-    )
-```
-
-- [ ] **Step 2: Run the test**
+- [x] **Step 2: Run the test**
 
 Run: `.venv/bin/pytest tests/unit/test_market_data_ohlcv_boundary.py -v`
 Expected: `2 passed`. If `test_every_raw_market_data_ohlcv_reference_is_on_the_allow_list`
 fails listing `services/cross_sectional_regime_model.py` or `services/counterfactual_tracker.py`,
 Tasks 2/3 weren't actually applied yet — go back and confirm those commits landed first.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/unit/test_market_data_ohlcv_boundary.py
@@ -503,7 +384,7 @@ git commit -m "test: CI guard against new unfiltered market_data_ohlcv reads"
 
 **Interfaces:** None — documentation only.
 
-- [ ] **Step 1: Add the CLAUDE.md gotcha line**
+- [x] **Step 1: Add the CLAUDE.md gotcha line**
 
 In `CLAUDE.md`, in the `## Core Runtime Files` section, immediately after the existing line:
 
@@ -517,55 +398,15 @@ insert:
 - **`market_data_ohlcv` reads for compute/measurement:** use `market_data_ohlcv_tradeable` (a view, `WHERE volume > 0`), not the raw table — `market_data_ohlcv` is a continuous calendar grid containing synthetic-fill and IBKR flat-carry-forward placeholder bars (~82% of intraday rows). Raw-table access outside this needs a `tests/unit/test_market_data_ohlcv_boundary.py` allow-list entry with a reason; CI fails otherwise.
 ```
 
-- [ ] **Step 2: Append the methodology-change-ledger entry**
+- [x] **Step 2: Append the methodology-change-ledger entry**
 
-At the end of `docs/plans/methodology-change-ledger.md`, append:
+Appended to `docs/plans/methodology-change-ledger.md` — see that file's 2026-07-16 entry for the
+actual, current text, not reproduced here. (An earlier version of this plan embedded a full
+verbatim copy of that entry; it had already drifted from the real ledger's wording by the time
+this was cleaned up, which is exactly the failure mode duplicating a standing, append-only record
+produces. Point at it, don't copy it.)
 
-```markdown
-
-## 2026-07-16 — `market_data_ohlcv` tradeable-bars filtering added to three zero-filter regime/counterfactual/OOS-eval reads
-
-**What result was observed before the change?** `services/cross_sectional_regime_model.py`
-(the live Phase 144 cross-sectional regime writer, feeding `market_regimes`, which `ic_engine`
-stratifies IC on), `services/counterfactual_tracker.py` (feeding `alpha_frames`'
-true-range/MFE/MAE/exit-determination, Phase 142B), and `scripts/ops/corpus/ops_oos_holdout_eval.py`
-(a live diagnostic reading `m.open` for OOS feature-IC scoring, found via a CI-guard regex
-widening mid-implementation — its JOIN-based read was invisible to the guard's first draft,
-which only matched `FROM`) all read `market_data_ohlcv` with zero filtering of placeholder bars.
-~82% of intraday / ~32% of daily rows in the live corpus are `volume=0` (synthetic-fill or IBKR
-flat-carry-forward). Every regime label, every counterfactual PnL/MFE/MAE, and every OOS
-feature-IC score computed by these three files, for the entire corpus history to date, was
-computed over this contaminated input.
-
-**What changed?** All three files now read from a new `market_data_ohlcv_tradeable` view
-(`WHERE volume > 0`, migration 236) instead of the raw table. No other files' filtering changed
-— `regime_writer.py`/`forward_return_writer.py`/`backfill_feature_factory.py` already used
-`volume > 0` inline and were confirmed correct by the same audit (see
-`docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md`), not touched.
-`services/bar_auditor.py` and `scripts/debug/analysis/debug_batch_agent_memory.py` also read the
-raw table via JOIN, found by the same regex-widening pass, but are correctly left unfiltered
-(gap-detection auditor that needs the full calendar grid; dead v2.x code respectively) — allow-listed,
-not changed.
-
-**What would the change have looked like if decided *before* seeing any data (pre-registered
-justification), and honestly, was it?** This is a straightforward bug fix (missing filter, not
-a re-derived threshold or a re-fit gate) — the pre-registered justification is simply "readers
-must not see calendar-filler bars," a data-quality invariant this project already committed to
-elsewhere (`regime_writer.py`, `forward_return_writer.py`) before this fix existed. It was not
-decided in response to observing any specific IC/regime result; it was found by an unrelated
-scoping pass (todo 035) and confirmed via direct inspection of the two files' SQL, not by
-noticing an anomalous downstream number. Honestly pre-registered in that sense, though the
-underlying gap had existed, undetected, since each file's creation.
-
-**Consumer note:** the in-flight 143.1-07 corpus rebuild already executed
-`cross_sectional_regime_model.py` for its current cycle before this fix landed — its regime
-labels are pre-fix. This fix applies cleanly starting with the next corpus rebuild; no
-retroactive correction of the in-flight run's regime labels was attempted or is possible without
-re-running that step. `ops_oos_holdout_eval.py` is a manually-invoked diagnostic (not part of the
-automated corpus pipeline), so any future run of it will use the corrected view immediately.
-```
-
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add CLAUDE.md docs/plans/methodology-change-ledger.md
@@ -584,7 +425,7 @@ git commit -m "docs: record market_data_ohlcv_tradeable fix in methodology-chang
 
 **Interfaces:** None — planning-doc hygiene only.
 
-- [ ] **Step 1: Move todo 035 to completed, with a resolution note**
+- [x] **Step 1: Move todo 035 to completed, with a resolution note**
 
 Read `.planning/todos/pending/035-market-ohlcv-active-bars-view.md` first (for its exact current
 frontmatter), then move it with `git mv .planning/todos/pending/035-market-ohlcv-active-bars-view.md
@@ -609,7 +450,7 @@ The 3 files already using `volume > 0` correctly, plus 11 not-yet-classified fil
 todo 124 — not fixed here.
 ```
 
-- [ ] **Step 2: File the Tier-2 follow-up todo**
+- [x] **Step 2: File the Tier-2 follow-up todo**
 
 ```markdown
 ---
@@ -651,7 +492,7 @@ completeness checks may intentionally count against the full grid), migrate to
 
 Save as `.planning/todos/pending/124-market-ohlcv-tradeable-view-tier2-audit.md`.
 
-- [ ] **Step 3: Update PRIORITIES.md**
+- [x] **Step 3: Update PRIORITIES.md**
 
 In `.planning/todos/PRIORITIES.md`'s P3 table, replace the existing `035` row:
 
@@ -677,7 +518,7 @@ active-bars view — built as market_data_ohlcv_tradeable, migration 236; Tier-2
 to todo 124).
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add .planning/todos/completed/035-market-ohlcv-active-bars-view.md .planning/todos/pending/124-market-ohlcv-tradeable-view-tier2-audit.md .planning/todos/PRIORITIES.md
@@ -690,27 +531,27 @@ git commit -m "docs(todos): close 035, split Tier-2 remainder into todo 124"
 
 **Files:** None new — this is the Done-Coding SOP's mandatory closing gate (CLAUDE.md).
 
-- [ ] **Step 1: Run `/simplify` on the changed code**
+- [x] **Step 1: Run `/simplify` on the changed code**
 
 Invoke the `/simplify` skill over the diff from Tasks 1-4 (migration SQL, the two service-file
 query changes, the two new test files).
 
-- [ ] **Step 2: Run `/review` for a peer code review pass**
+- [x] **Step 2: Run `/review` for a peer code review pass**
 
 Invoke the `/code-review` skill over the same diff.
 
-- [ ] **Step 3: Run the full unit suite**
+- [x] **Step 3: Run the full unit suite**
 
 Run: `.venv/bin/pytest tests/unit/ -q`
 Expected: all tests pass, no new failures introduced (the pre-existing unrelated
 `test_no_smooth_or_backward_in_factory` failure, if still present, is not this plan's concern).
 
-- [ ] **Step 4: Run the integration suite**
+- [x] **Step 4: Run the integration suite**
 
 Run: `.venv/bin/pytest tests/integration/ -q`
 Expected: all tests pass, including the new `test_market_data_ohlcv_tradeable_view.py`.
 
-- [ ] **Step 5: Merge to main per CLAUDE.md's Done-Coding SOP**
+- [x] **Step 5: Merge to main per CLAUDE.md's Done-Coding SOP**
 
 ```bash
 git checkout main

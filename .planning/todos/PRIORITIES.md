@@ -51,12 +51,8 @@ you're not deleting enough"):**
   (2026-07-12, pre-dates this pass), correctly resolved, not re-litigated.
 - **Closed 2026-07-16** (were: candidates for actual deletion, cheap read-old-docs-decide-salvage-
   vs-archive tasks, run together as recommended): [059](completed/059-review-aegisagent-tradeagent-for-trade-construction-reuse.md)
-  (AegisAgent/TradeAgent reuse assessment written into `docs/research/trade-construction-layer.md`)
-  and [060](completed/060-review-cluster2-legacy-intelligence-backlog.md) (per-doc Cluster 2 review
-  against live Feature Factory, written into `docs/research/catalog.md`'s Cluster 2 section — also
-  resolved that section's 2026-07-07 "process conflict, unresolved" flag). One concrete gap
-  surfaced by 060's review filed as new todo [123](pending/123-momentum-velocity-and-macro-spread-features.md)
-  (momentum-oscillator velocity feature + two now-unblocked macro spreads, TIP/HYG/LQD).
+  and [060](completed/060-review-cluster2-legacy-intelligence-backlog.md) — see the "Closed
+  2026-07-16" note below (P0 section) for what each found and closed.
 
 **Step 3 — Simplify (reduce scope of what survives, don't build infrastructure for unproven
 ideas):**
@@ -133,7 +129,11 @@ for its 14 existing citations. Implementation plan remains valid and unexecuted
 (`docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`).
 
 **Closed 2026-07-16 (this table's links just hadn't caught up to `completed/` yet):** 059
-(AegisAgent/TradeAgent reuse review), 060 (Cluster 2 legacy intel docs review), 104
+(AegisAgent/TradeAgent reuse assessment written into `docs/research/trade-construction-layer.md`),
+060 (per-doc Cluster 2 review against live Feature Factory, written into `docs/research/catalog.md`'s
+Cluster 2 section — also resolved that section's 2026-07-07 "process conflict, unresolved" flag;
+one concrete gap surfaced by this review filed as new todo [123](pending/123-momentum-velocity-and-macro-spread-features.md),
+momentum-oscillator velocity feature + two now-unblocked macro spreads TIP/HYG/LQD), 104
 (quarterly-seasonality/OPEX Fable review, already closed 2026-07-13 as part of the Calendar
 Primitives doc), 035 (market_data_ohlcv active-bars view — built as market_data_ohlcv_tradeable,
 migration 236; Tier-2 remainder split to todo 124).
