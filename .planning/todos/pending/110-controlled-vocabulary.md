@@ -5,9 +5,11 @@ filed: 2026-07-13
 source: doc-organization session — Controlled Vocabulary had zero todo tracking it at all
 ---
 
-**Registered as ROADMAP Phase 160** (2026-07-13, supersedes orphaned Phase 135) — see
+**Registered as ROADMAP Phase 161** (2026-07-13, supersedes orphaned Phase 135; renumbered from
+160 to 161 when Phase 160 was claimed by Concept Registry MVP, since completed 2026-07-14) — see
 `.planning/ROADMAP.md` for the live phase entry. This todo stays as prioritization context;
-`/gsd-discuss-phase 160` is the next step, not yet run.
+`/gsd-discuss-phase 161` is the next step, not yet run. No dependency blocks it — safe to start
+regardless of the in-progress 143.1-07 corpus rerun (design/planning work, zero DB/CPU overlap).
 
 # Controlled Vocabulary
 
