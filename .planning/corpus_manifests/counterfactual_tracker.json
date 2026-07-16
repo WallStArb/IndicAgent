@@ -1,0 +1,15 @@
+{
+  "step_name": "counterfactual_tracker",
+  "step_version": "1.0",
+  "timestamp": "2026-07-15T19:59:47.234296+00:00",
+  "status": "success",
+  "inputs": {
+    "backfill": true,
+    "n_symbols": 0
+  },
+  "outputs": {},
+  "errors": [],
+  "warnings": [
+    "No outputs recorded"
+  ]
+}

@@ -81,21 +81,37 @@ assertion), last rewritten 2026-07-08. Read this first for "what's next," not th
 
 ---
 
-## Cluster 2 — Pre-v3.0 Intelligence Backlog (I1-I9 era) — ⚠️ process conflict, unresolved
+## Cluster 2 — Pre-v3.0 Intelligence Backlog (I1-I9 era) — process conflict resolved 2026-07-16
 
-**Audit finding (2026-07-07), not yet resolved — needs a human call, not a mechanical catalog fix.**
-All five docs previously listed here (`intel-01-momentum-acceleration.md`,
+**Background:** all five docs (`intel-01-momentum-acceleration.md`,
 `intel-02-second-derivative-indicators.md`, `intel-03-future-indicators.md`,
-`intel-06-regime-transition-detection.md`, `intel-08-macro-cross-asset.md`) are already sitting in
-`docs/research/archive/`. But `.planning/todos/pending/060-...md`, created 2026-07-05, explicitly asked
-for these five to be individually reviewed against the live Feature Factory before any archive
-decision — "these five are genuinely unresolved, not just stale-and-unreviewed... check before
-assuming dead." They were bulk-archived anyway the next day (`53871ec3`, 2026-07-06 10:30am) with a
-one-line blanket justification ("superseded by intel-10+") that shows no evidence the per-doc review
-todo 060 called for actually happened. Todo 060 is now stale in premise (it assumes these docs are
-still live and awaiting review) but its underlying question — was real, still-relevant content
-thrown away without the review that was explicitly requested — has not actually been answered either
-way. Left as an open flag rather than silently closing todo 060 or asserting the archival was fine.
+`intel-06-regime-transition-detection.md`, `intel-08-macro-cross-asset.md`) were bulk-archived
+2026-07-06 (`53871ec3`) with a one-line blanket justification, without the individual per-doc
+review todo 060 (filed 2026-07-05) explicitly asked for first. That was a real process gap, not
+a false alarm. Todo 060 was closed 2026-07-16 by actually doing the review that should have
+happened before the archive — reading each doc against the live `src/intelligence/feature_factory.py`
+(154 functions, 155 registered `FEATURE_VECTOR_DOMAIN` entries — the todo's ~61 estimate was stale)
+and Phase 151's current interaction-primitives scope (`.planning/ROADMAP.md`). Verdict: **the
+archival call itself was fine** — nothing load-bearing was lost — but it was fine by luck of
+outcome, not by process; the review below is the evidence that should have existed before, not
+after, the archive commit.
+
+| Doc | Verdict | Finding |
+|---|---|---|
+| [intel-01: Momentum Acceleration](archive/intel-01-momentum-acceleration.md) | Superseded, with one gap flagged | Its proposed I1/I2 plugins (`rsi_accel`, `macd_accel`, `inflection_flag`) shipped historically in the archived v2.x tier (per intel-02's own "Shipped Indicators" section) but that whole plugin runtime is dead (I1-I7, no live consumer). Not reimplemented in v3.0. Feature Factory's `momentum_z_fast/mid/slow` (multi-window z-scored returns) covers similar ground with a more IC-testable design, but produces no explicit inflection/curvature signal. See combined gap below. |
+| [intel-02: Second Derivative Indicators](archive/intel-02-second-derivative-indicators.md) | Mostly superseded | Feature Factory already ships `vol_of_vol`, `parkinson_vol_velocity`/`garman_klass_vol_velocity`/`yang_zhang_vol_velocity`, `vol_velocity_z`, `realized_var_ratio_fast/slow`, `variance_ratio_fast/slow` — covering the doc's #1 (ATR acceleration) and #7 (realized variance acceleration) ideas, arguably better (three separate volatility estimators, not one crude ATR delta). #2 (cross-TF acceleration confluence) is covered by todo 066's `ret_div_1m_5m`/etc. cross-TF divergence primitives, already scoped into Phase 151. #3 (jerk), #6 (divergence-adjusted exhaustion), #8 (intraday cycles), #9 (order-flow acceleration), #10 (triple-smoothed MACD) are self-rated low-value by the doc itself, reference dead I5 plugins, are blocked on unavailable IBKR L2 data, or are superseded by the more rigorous `signal-temporal-atomic-primitives.md` (todo 104). **Genuine gap:** no momentum-oscillator equivalent of the `_velocity` pattern already proven for 3 volatility estimators — a `momentum_z_velocity`/`rsi_velocity` feature (Δ of an existing multi-window oscillator, same naming convention as `parkinson_vol_velocity`) is a concrete, cheap Phase 151 atomic candidate. VWAP acceleration (Δ`vwap_dev_sigma`) is also genuinely missing and cheap. |
+| [intel-03: Future Indicators Backlog](archive/intel-03-future-indicators.md) | Superseded (was already self-archived 2026-03-22) | This doc marked itself "ARCHIVED, MOSTLY COMPLETED" over three months before the 2026-07-06 bulk-archive event — SuperTrend/GARCH/Kalman/patterns/Track A-C were already shipped in the old tier. Its remaining classic-TA additions (ADL, VWMA, Ultimate Oscillator, TSI, Force Index, VROC, Chaikin Oscillator) are functionally superseded by v3.0's existing volume family (`mfi_fast/slow`, `obv_z`, `vol_trend_ratio`, `up_vol_ratio_fast/slow`, `cmf`) and momentum family (`rsi_fast/mid/slow`, `cci_fast/mid/slow`) covering the same information more systematically. "Cross-Contract Momentum" is superseded by the existing cross-sectional rank features (`momentum_rank_z`, `volatility_rank_z`). "Monte Carlo VaR" is a portfolio-layer concept, not a feature, and is already scheduled in Phase 157's VaR design. "Hurst Exponent" — which this doc itself rated "not prioritized" — actually shipped (`hurst` is live in Feature Factory), a doc-internal miscategorization, not a gap. **Genuinely still open, low priority:** VX contango/backwardation (same gap as intel-08 below) and SMC-style named liquidity-zone detection (`LiquidityPools`/`SupplyDemandZones`) — a pattern-zoo paradigm that doesn't fit the atomic-feature design and has no current plan; not urgent. |
+| [intel-06: Regime Transition Detection](archive/intel-06-regime-transition-detection.md) | Superseded, and better | Its core proposal — a Shannon-entropy field over HMM state probabilities to catch the transition window a binary regime gate discards — already shipped. `services/regime_writer.py:631` computes `entropy_val = -np.sum(alpha * np.log(alpha))` (exact match to the doc's formula) and Feature Factory exposes it as `hmm_entropy`, a first-class IC-measured "regime" tier feature. v3.0 also abandoned binary regime-gating entirely in favor of continuous IC measurement across regime strata, which structurally solves the doc's stated problem (signals discarded during transitions) without needing the doc's proposed phase-threshold gate logic. Minor unshipped remainder: `hmm_regime_velocity` (rate of change of `hmm_regime_prob`) has no direct equivalent — low priority, since entropy already captures most of the same signal. |
+| [intel-08: Macro & Cross-Asset Intelligence](archive/intel-08-macro-cross-asset.md) | Mostly superseded, with two now-buildable gaps | Feature Factory already ships `vix_z`, `flight_quality`, `yield_slope_z` (macro tier, IC-measured), replacing the doc's proposed P1a/P1b/P2a/P2b wiring pipeline wholesale — there is no more "join into DB, then regime-slice, then shadow-gate" pipeline to build; IC measurement across strata replaces all four priorities at once. **Two genuine, now-unblocked gaps:** the doc deferred "real yields" (TIP/TLT) and "credit spread" (HYG/LQD) as blocked on data availability (2026-06-14) — verified `TIP`, `HYG`, `LQD` are all live in the 80-instrument universe today (the 58→80 ETF expansion, 2026-07-01, postdates this doc), so both are cheap, ready-to-build Feature Factory candidates using the identical pattern already proven for `flight_quality`. Stock-bond correlation (`sb_corr_30/60/z`) is also now buildable with existing `TLT`/`SPY` data, no new subscription needed. VX term structure (contango/backwardation) remains genuinely blocked — needs two VX contract months, unconfirmed whether the IBKR gateway currently provides that (VIX is tracked as a single `"VX"` symbol per CLAUDE.md). |
+
+**Net result:** one combined concrete gap worth a future todo — a `_velocity`/curvature feature
+for momentum oscillators (intel-01/02) plus the two now-unblocked macro spreads (intel-08,
+real-yield and credit-spread z-scores using already-subscribed `TIP`/`HYG`/`LQD`) — is a
+reasonable Phase 151 atomic-candidate batch, not urgent enough to justify a standalone phase.
+Everything else across the five docs is confirmed superseded, self-archived already, or blocked
+on data/architecture that hasn't changed. No code was written for this review; see
+`.planning/todos/completed/060-review-cluster2-legacy-intelligence-backlog.md` for the closing
+todo and full audit trail.
 
 ---
 

@@ -77,7 +77,7 @@ These are NOT equivalent:
 ### Structural additions (higher risk, require validation)
 
 **Cross-asset spread**
-- SPY/TLT ratio z-score or VIX proxy (SPY realized vol percentile, as used in equity_regime_model.py)
+- SPY/TLT ratio z-score or VIX proxy (SPY realized vol percentile, as used in cross_sectional_regime_model.py)
 - Per-symbol HMM would get a market-wide signal; useful if individual symbol regimes are dominated by macro
 - Risk: adds non-stationarity; macro regime changes on longer timescales than the HMM bar frequency
 
@@ -90,7 +90,7 @@ These are NOT equivalent:
 
 **Raw price levels, raw volume** -- not stationary. HMM Gaussians will fit to the level, not the regime.
 
-**Long-horizon features** (50+ bars) -- at 5m timeframe, 50 bars = 4+ hours. The HMM is meant to track microstate, not macro trend. Use equity_regime_model.py for that.
+**Long-horizon features** (50+ bars) -- at 5m timeframe, 50 bars = 4+ hours. The HMM is meant to track microstate, not macro trend. Use cross_sectional_regime_model.py for that.
 
 **Too many dimensions** -- with K=5 and `diag` covariance, each dim adds K parameters to the covariance. Going from 5D to 10D doubles the covariance parameter count and requires more data per symbol to converge. The BIC will catch this if dimensions are added one at a time and re-evaluated.
 

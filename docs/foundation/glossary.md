@@ -638,9 +638,15 @@ CFL closes Bias Layer 2: before CFL, ML models could only train on signals that 
 **Not:** a backtesting system (CFL measures forward outcomes on live price action, not historical fits). Not "counterfactual recording" (which names only the write step, not the full loop).
 
 **Banned:** "counterfactual recording," "counterfactual tracking," "paper pnl system"
-**Status:** planned (Phase 130)
+**Status:** archived — this v2.x SLA daemon never shipped past "planned" and the whole SLA
+(`signal_events`/`trade_frames`/`trade_executions`) has no live consumer as of 2026-07-02
+(see CLAUDE.md Architecture). The name `CounterfactualTracker` and the concept "measure the
+outcome of a hypothesis regardless of execution" were both reused for a live v3.0
+implementation over `alpha_frames` in Phase 142B+143 — see
+`docs/intelligence/intelligence-alpha-frames-and-feature-lifecycle.md`. Same idea, unrelated
+code; do not conflate the two when reading history.
 
-**Code surface:** `CounterfactualTracker` daemon; `counterfactual_pnl_r` column on `trade_frames`; `signal_ledger_full` / `signal_ledger` view (see SLA).
+**Code surface:** `CounterfactualTracker` daemon (archived); `counterfactual_pnl_r` column on `trade_frames` (archived); `signal_ledger_full` / `signal_ledger` view (see SLA). Live v3.0 equivalent: `alpha_frames.counterfactual_pnl_r`, written by `services/counterfactual_tracker.py`.
 
 ---
 
@@ -861,24 +867,45 @@ The gap between `counterfactual_pnl_r` (hypothesis layer) and `actual_pnl_r` (ex
 
 ### `counterfactual_pnl_r`
 
-The outcome that would have been realized if a trade frame hypothesis had been executed as specified, measured against actual subsequent price action. Computed by CounterfactualTracker for every `trade_frames` row regardless of execution status.
+**Overloaded across two unrelated implementations — check the table column, not just the name.**
+
+- **v2.x (archived):** on `trade_frames` — the outcome that would have been realized if a
+  trade frame hypothesis had been executed as specified. Computed by the archived
+  `CounterfactualTracker` daemon. No live consumer as of 2026-07-02 (see CLAUDE.md
+  Architecture; SLA is archived).
+- **v3.0 (live):** on `alpha_frames` — the realized R-multiple of a hypothetical trade design
+  (entry/stop/target/hold-horizon) against actual subsequent price action, computed by the
+  live `services/counterfactual_tracker.py` (`CounterfactualTracker(BaseBatch)`). Full
+  mechanics: `docs/intelligence/intelligence-alpha-frames-and-feature-lifecycle.md`. This is
+  the current meaning of the term going forward.
+
+Both share the same underlying idea (measure the outcome of every hypothesis, not just
+executed ones, to avoid survivorship bias) but are separate code paths on separate tables.
 
 This is the ML training target for SignalRanker and all downstream ML models. Training on `actual_pnl_r` introduces survivorship bias (only executed signals have outcomes). Training on `counterfactual_pnl_r` eliminates it — every signal hypothesis has a measured outcome.
 
 **Not:** a backtested result (which implies fitting to historical data). Counterfactual pnl_r is a forward measurement on live price action after signal emission.
 
 **Banned:** "paper pnl," "simulated pnl"
-**Status:** active (Phase 130+, populated by CounterfactualTracker)
+**Status:** v2.x (`trade_frames`) archived; v3.0 (`alpha_frames`) active (Phase 142B+143, live)
 
 ---
 
 ### `CounterfactualTracker`
 
-The daemon that measures `counterfactual_pnl_r` for every `trade_frames` row. Subscribes to `signal_events` Kafka topic. Maintains a per-symbol sliding window of price bars. For each signal event, registers the frame's entry/stop/target. On each new bar, checks all open counterfactual positions and closes them when stop hit, target hit, or TTL expired. Writes result to `trade_frames`.
+**Overloaded class name — two unrelated implementations across two milestones.**
 
-**Architecture:** fully in-memory state; checkpointed to file on shutdown. No DB reads in the hot path — purely event-driven.
+- **v2.x (archived):** a daemon that measured `counterfactual_pnl_r` for every `trade_frames`
+  row. Subscribed to the `signal_events` Kafka topic, held fully in-memory state
+  (checkpointed to file on shutdown), no DB reads in the hot path. Never shipped past
+  "planned" (Phase 130); the whole v2.x SLA it belonged to has no live consumer as of
+  2026-07-02.
+- **v3.0 (live):** `services/counterfactual_tracker.py`, a `BaseBatch` oneshot (not a daemon,
+  no Kafka) that fills `alpha_frames` entry/stop/target geometry at T+1 open and runs a
+  bar-by-bar exit state machine (stop/target/max-hold/IC-decay) to close frames and compute
+  realized R. Full mechanics: `docs/intelligence/intelligence-alpha-frames-and-feature-lifecycle.md`.
 
-**Status:** planned (Phase 130)
+**Status:** v2.x archived; v3.0 active (Phase 142B+143, live)
 
 ---
 

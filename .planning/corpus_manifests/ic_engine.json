@@ -1,8 +1,8 @@
 {
   "step_name": "ic_engine",
   "step_version": "1.0",
-  "timestamp": "2026-07-09T10:45:26.311639+00:00",
-  "status": "success",
+  "timestamp": "2026-07-14T13:08:13.019028+00:00",
+  "status": "failed",
   "inputs": {
     "training_window_end": "2025-12-24 05:15:00+00:00",
     "tfs": [
@@ -95,59 +95,11 @@
     ],
     "cross_sectional_only": false
   },
-  "outputs": {
-    "feature_ic_scores": {
-      "table": "feature_ic_scores",
-      "rows_total": 920649,
-      "rows_by_tf": {
-        "15m": 285750,
-        "1d": 120849,
-        "1h": 105300,
-        "5m": 408750
-      },
-      "rows_by_regime": {
-        "_pooled": 137349,
-        "high_bear": 107550,
-        "high_bull": 104700,
-        "high_neutral": 72750,
-        "low_bear": 58050,
-        "low_bull": 119850,
-        "low_neutral": 61050,
-        "mid_bear": 69450,
-        "mid_bull": 118800,
-        "mid_neutral": 71100
-      },
-      "columns_written": [
-        "feature_name",
-        "vector_domain",
-        "symbol",
-        "tf",
-        "regime",
-        "lookahead_bars",
-        "training_window_end",
-        "is_pooled",
-        "n_independent",
-        "reliable",
-        "ic_value",
-        "ic_sign",
-        "p_value",
-        "ic_ci_lower",
-        "ic_ci_upper",
-        "passes_ci_gate",
-        "bh_adjusted_p",
-        "passes_fdr",
-        "wf_fold_count",
-        "wf_pass_count",
-        "wf_ic_sharpe",
-        "passes_walkforward",
-        "ic_sharpe",
-        "ic_sharpe_n_windows",
-        "regime_label_source",
-        "is_decaying",
-        "decay_detected_at"
-      ]
-    }
-  },
-  "errors": [],
-  "warnings": []
+  "outputs": {},
+  "errors": [
+    "server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally\n\tbefore or while processing the request.\n"
+  ],
+  "warnings": [
+    "No outputs recorded"
+  ]
 }

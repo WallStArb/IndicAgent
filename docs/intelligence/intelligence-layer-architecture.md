@@ -73,8 +73,12 @@ of indicators, signals, and factor relationships (see the `regime` glossary entr
 - Per-symbol: `GaussianHMM` (`regime_writer.py`) — 5 states, forward-Viterbi
   decode, fit per (symbol, timeframe) from log-return/vol-of-vol/relative-volume
   observations.
-- Cross-sectional: `equity_regime_model.py` — 9 states from realized-vol
-  z-score percentile (VIX proxy) × breadth (fraction of universe above 200MA).
+- Cross-sectional: `cross_sectional_regime_model.py` (Phase 144, 2026-07-12) — 9 states from
+  realized-vol z-score percentile (VIX proxy) × breadth (fraction of universe above 200MA),
+  computed per group in APR key `alpha.regime.groups` (equity/rates/commodity/fx), writing
+  `market_regimes.regime_group`. Generalizes the retired single-group `equity_regime_model.py`,
+  which is kept only as an emergency rollback path and is no longer wired into the corpus
+  pipeline.
 
 **Could other mechanisms fill this slot?** Yes, and it's the layer where this
 question has already been asked for real: `docs/plans/archive/2026-07-01-regime-stratification-alternatives.md`
