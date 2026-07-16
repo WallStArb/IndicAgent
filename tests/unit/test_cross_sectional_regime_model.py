@@ -201,6 +201,22 @@ class TestBucket:
         assert result[0] == "mid"
 
 
+class TestFetchGroupBarsQueriesTradeableView:
+    """_fetch_group_bars must read from market_data_ohlcv_tradeable, not the raw table
+    (todo 035 / 2026-07-16 audit: the raw table is ~82% synthetic-fill/flat-carry-forward
+    placeholder rows at intraday timeframes, contaminating every downstream regime label)."""
+
+    def test_sql_references_tradeable_view_not_raw_table(self):
+        import inspect
+
+        import services.cross_sectional_regime_model as module
+
+        source = inspect.getsource(module._fetch_group_bars)
+        assert "market_data_ohlcv_tradeable" in source
+        assert "FROM market_data_ohlcv\n" not in source
+        assert "FROM market_data_ohlcv " not in source
+
+
 class TestAssignLabels:
     def test_basic_label_format(self):
         rows = _assign_labels(

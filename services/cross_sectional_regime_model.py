@@ -271,7 +271,7 @@ def _fetch_group_bars(dsn: str, tf: str, symbols: list[str]) -> dict[str, pd.Dat
     """
     sql = """
         SELECT symbol, timestamp, close
-        FROM market_data_ohlcv
+        FROM market_data_ohlcv_tradeable
         WHERE symbol = ANY(%s) AND timeframe = %s
         ORDER BY symbol, timestamp ASC
     """
