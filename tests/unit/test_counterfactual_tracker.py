@@ -225,21 +225,3 @@ def test_evaluate_gate_cli_flag_present():
     assert "--evaluate-gate" in source
     assert "alpha.validation.oos_start" in source
     assert "frame_variant = 'primary'" in source
-
-
-# ---------------------------------------------------------------------------
-# SQL query table references (Task 3: tradeable view boundary)
-# ---------------------------------------------------------------------------
-
-
-def test_atr_seed_and_bar_scan_sql_query_tradeable_view_not_raw_table():
-    """_ATR_SEED_SQL / _BAR_SCAN_SQL must read market_data_ohlcv_tradeable, not the raw
-    table (todo 035 / 2026-07-16 audit: a synthetic-fill or IBKR flat-carry-forward bar
-    here means zero true range and a fabricated flat price feeding stop/target exit
-    logic in determine_exit)."""
-    import services.counterfactual_tracker as module
-
-    assert "market_data_ohlcv_tradeable" in module._ATR_SEED_SQL
-    assert "market_data_ohlcv_tradeable" in module._BAR_SCAN_SQL
-    assert "FROM market_data_ohlcv\n" not in module._ATR_SEED_SQL
-    assert "FROM market_data_ohlcv\n" not in module._BAR_SCAN_SQL

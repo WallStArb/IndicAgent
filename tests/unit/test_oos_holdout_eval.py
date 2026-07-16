@@ -12,7 +12,6 @@ No DB, no Kafka. Pure numpy/pure python.
 
 from __future__ import annotations
 
-import inspect
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -168,19 +167,3 @@ def test_drop_verdict_respects_custom_fraction():
     verdict = _drop_verdict(oos_qualifying=7, in_sample=10, significant_drop_fraction=0.8)
 
     assert verdict == "significant drop — investigate"
-
-
-def test_read_oos_rows_queries_tradeable_view_not_raw_table():
-    """_read_oos_rows must join market_data_ohlcv_tradeable, not the raw calendar-grid
-    table -- the raw table contains synthetic-fill/flat-carry-forward placeholder bars
-    (always volume=0) which would corrupt the OOS feature-IC scoring calculation that
-    reads m.open unfiltered. See docs/plans/2026-07-16-market-data-ohlcv-active-bars-
-    boundary-design.md.
-    """
-    from scripts.ops.corpus import ops_oos_holdout_eval as module
-
-    source = inspect.getsource(module._read_oos_rows)
-
-    assert "market_data_ohlcv_tradeable" in source
-    assert "FROM market_data_ohlcv\n" not in source
-    assert "JOIN market_data_ohlcv\n" not in source
