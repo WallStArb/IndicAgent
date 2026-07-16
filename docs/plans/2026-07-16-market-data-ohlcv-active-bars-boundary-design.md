@@ -45,12 +45,21 @@ signals that raw reads are unsafe for compute.
 - `services/cross_sectional_regime_model.py` — live Phase 144 cross-sectional regime writer,
   feeds `market_regimes`, which `ic_engine` stratifies IC on. 82% intraday / 32% daily rows in
   the live corpus are `volume=0` (synthetic-fill or flat carry-forward).
-- `services/signal_probe_auditor.py` — forward PnL simulation from bars.
-- `services/signal_replay_auditor.py` — bar-by-bar signal replay.
 - `services/counterfactual_tracker.py` — **two sites**, `_ATR_SEED_SQL` and `_BAR_SCAN_SQL`,
   feeding `alpha_frames`' true-range/MFE/MAE/exit-determination (Phase 142B, capital-relevant).
   A flat bar here means zero true range and a fabricated flat price feeding stop/target exit
   logic.
+
+**Zero filtering, but dead code — not fixed, out of scope:**
+- `services/signal_probe_auditor.py`, `services/signal_replay_auditor.py` — both read
+  `market_data_ohlcv` unfiltered, but both are v2.x Signal Ledger Architecture code
+  (`signal_events`/`trade_frames`/`signal_ledger`), which CLAUDE.md already documents as
+  archived with no live consumer since 2026-07-02. Verified, not assumed: neither has a running
+  systemd unit (`systemctl list-units --all` returns nothing for either, despite unit files
+  existing in `production/systemd/`), and their actual data source — `signal_events` and
+  `trade_frames` — has **zero rows** in the live DB. Fixing their queries would be effort spent
+  on code with zero live execution path. Not deleted either — that's todo 056's separate,
+  already-open v2.x-retirement decision, not this fix's call to make.
 
 **Already correctly filtered — confirmed correct, not touched:**
 - `services/regime_writer.py`, `services/forward_return_writer.py`,
@@ -119,10 +128,10 @@ would be speculative infrastructure for a problem the view already solves.
 
 ## Decision 2 — Scope for this pass
 
-Fix, with tests, in this pass: `cross_sectional_regime_model.py`, `signal_probe_auditor.py`,
-`signal_replay_auditor.py`, `counterfactual_tracker.py` (2 sites) — **4 files, 5 query sites**,
-all currently zero-filtered. Each switches `FROM market_data_ohlcv` to
-`FROM market_data_ohlcv_tradeable` with no added `WHERE` clause needed.
+Fix, with tests, in this pass: `cross_sectional_regime_model.py`, `counterfactual_tracker.py`
+(2 sites) — **2 files, 3 query sites**, all currently zero-filtered and confirmed live. Each
+switches `FROM market_data_ohlcv` to `FROM market_data_ohlcv_tradeable` with no added `WHERE`
+clause needed.
 
 `regime_writer.py`, `forward_return_writer.py`, `backfill_feature_factory.py` are **not touched**
 — their existing `volume > 0` is confirmed correct; migrating them to select from the view
