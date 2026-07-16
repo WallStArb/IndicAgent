@@ -138,11 +138,23 @@ clause needed.
 instead of inlining the same predicate is a pure style nicety, not a correctness fix, and is
 folded into the Tier-2 follow-up todo rather than done urgently here.
 
-This is a straightforward bug fix (no filter → correct filter) for the 4 files touched, not a
+**Scope correction, found during Task 4's CI-guard implementation:** the guard test's first draft
+matched only `FROM market_data_ohlcv`, missing `JOIN market_data_ohlcv` — a completely normal SQL
+idiom. Widening the pattern to catch both surfaced a 3rd live, zero-filtered site of the exact
+same bug class: `scripts/ops/corpus/ops_oos_holdout_eval.py`'s `_read_oos_rows` (a live diagnostic
+reading `m.open` unfiltered for OOS feature-IC scoring, referenced from `OOS-EVAL-PROTOCOL.md`,
+`methodology-change-ledger.md`, and `ic_engine.py`) — fixed the same way. Two more JOIN-based hits
+were also found and correctly allow-listed rather than fixed: `services/bar_auditor.py` (a
+legitimate gap-detection auditor that deliberately needs the full raw grid) and
+`scripts/debug/analysis/debug_batch_agent_memory.py` (dead v2.x code, joins the zero-row
+`signal_ledger`). **Total scope is now 3 files, 4 query sites.**
+
+This is a straightforward bug fix (no filter → correct filter) for the 3 files touched, not a
 retroactive change to an existing predicate's definition — no methodology-change-ledger entry is
 needed for what didn't change (`regime_writer.py` et al.); the ledger only needs to note that
-`cross_sectional_regime_model.py`/`counterfactual_tracker.py`/the two auditors go from
-"unfiltered" to "filtered" as of this fix, for anyone diffing pre/post corpus-rebuild numbers.
+`cross_sectional_regime_model.py`/`counterfactual_tracker.py`/`ops_oos_holdout_eval.py` go from
+"unfiltered" to "filtered" as of this fix, for anyone diffing pre/post corpus-rebuild or
+OOS-eval numbers.
 
 File a new todo for the Tier-2 audit list (10 files, not classified, plus the 3
 already-correct-but-not-yet-view-based files above) as a fast-follow — the view already exists
