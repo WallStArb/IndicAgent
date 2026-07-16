@@ -493,8 +493,9 @@ justification), and honestly, was it?** This is a straightforward bug fix (missi
 a re-derived threshold or a re-fit gate) — the pre-registered justification is simply "readers
 must not see calendar-filler bars," a data-quality invariant this project already committed to
 elsewhere (`regime_writer.py`, `forward_return_writer.py`) before this fix existed. It was not
-decided in response to observing any specific IC/regime result; it was found by an unrelated
-scoping pass (todo 035) and confirmed via direct inspection of the two files' SQL, not by
+decided in response to observing any specific IC/regime result; the first two files were found by
+an unrelated scoping pass (todo 035) and confirmed via direct inspection of their SQL, the third
+(`ops_oos_holdout_eval.py`) by widening the CI guard's regex mid-implementation — neither found by
 noticing an anomalous downstream number. Honestly pre-registered in that sense, though the
 underlying gap had existed, undetected, since each file's creation.
 
