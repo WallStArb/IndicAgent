@@ -463,3 +463,44 @@ last month's weights is a silent methodology choice too.
   capital-allocation consumer, don't reason about the aggregate) and the mitigation
   pattern (name the exact cell, check its concrete outcome post-run, don't leave it
   silent).
+
+## 2026-07-16 — `market_data_ohlcv` tradeable-bars filtering added to three zero-filter regime/counterfactual/OOS-eval reads
+
+**What result was observed before the change?** `services/cross_sectional_regime_model.py`
+(the live Phase 144 cross-sectional regime writer, feeding `market_regimes`, which `ic_engine`
+stratifies IC on), `services/counterfactual_tracker.py` (feeding `alpha_frames`'
+true-range/MFE/MAE/exit-determination, Phase 142B), and `scripts/ops/corpus/ops_oos_holdout_eval.py`
+(a live diagnostic reading `m.open` for OOS feature-IC scoring, found via a CI-guard regex
+widening mid-implementation — its JOIN-based read was invisible to the guard's first draft,
+which only matched `FROM`) all read `market_data_ohlcv` with zero filtering of placeholder bars.
+~82% of intraday / ~32% of daily rows in the live corpus are `volume=0` (synthetic-fill or IBKR
+flat-carry-forward). Every regime label, every counterfactual PnL/MFE/MAE, and every OOS
+feature-IC score computed by these three files, for the entire corpus history to date, was
+computed over this contaminated input.
+
+**What changed?** All three files now read from a new `market_data_ohlcv_tradeable` view
+(`WHERE volume > 0`, migration 236) instead of the raw table. No other files' filtering changed
+— `regime_writer.py`/`forward_return_writer.py`/`backfill_feature_factory.py` already used
+`volume > 0` inline and were confirmed correct by the same audit (see
+`docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md`), not touched.
+`services/bar_auditor.py` and `scripts/debug/analysis/debug_batch_agent_memory.py` also read the
+raw table via JOIN, found by the same regex-widening pass, but are correctly left unfiltered
+(gap-detection auditor that needs the full calendar grid; dead v2.x code respectively) — allow-listed,
+not changed.
+
+**What would the change have looked like if decided *before* seeing any data (pre-registered
+justification), and honestly, was it?** This is a straightforward bug fix (missing filter, not
+a re-derived threshold or a re-fit gate) — the pre-registered justification is simply "readers
+must not see calendar-filler bars," a data-quality invariant this project already committed to
+elsewhere (`regime_writer.py`, `forward_return_writer.py`) before this fix existed. It was not
+decided in response to observing any specific IC/regime result; it was found by an unrelated
+scoping pass (todo 035) and confirmed via direct inspection of the two files' SQL, not by
+noticing an anomalous downstream number. Honestly pre-registered in that sense, though the
+underlying gap had existed, undetected, since each file's creation.
+
+**Consumer note:** the in-flight 143.1-07 corpus rebuild already executed
+`cross_sectional_regime_model.py` for its current cycle before this fix landed — its regime
+labels are pre-fix. This fix applies cleanly starting with the next corpus rebuild; no
+retroactive correction of the in-flight run's regime labels was attempted or is possible without
+re-running that step. `ops_oos_holdout_eval.py` is a manually-invoked diagnostic (not part of the
+automated corpus pipeline), so any future run of it will use the corrected view immediately.
