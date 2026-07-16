@@ -387,7 +387,7 @@ _ALLOW_LIST: dict[str, str] = {
     ),
     "services/backfill_feature_factory.py": (
         "Already correctly filters with `volume > 0` (confirmed correct via empirical audit "
-        "2026-07-16, not migrated to the view yet -- Tier-2 follow-up, todo 123's sibling "
+        "2026-07-16, not migrated to the view yet -- Tier-2 follow-up, todo 124's sibling "
         "audit list)."
     ),
     "services/regime_writer.py": (
@@ -605,7 +605,7 @@ to also catch `JOIN`, not just `FROM`), and added a CI-enforced allow-list test
 (`tests/unit/test_market_data_ohlcv_boundary.py`) so a future call site can't silently
 reintroduce it. `bar_auditor.py` and `debug_batch_agent_memory.py` were also found by the same
 regex-widening and correctly allow-listed (legitimate full-grid gap auditor; dead v2.x code).
-The 3 files already using `volume > 0` correctly, plus 10 not-yet-classified files, are follow-up
+The 3 files already using `volume > 0` correctly, plus 11 not-yet-classified files, are follow-up
 todo 124 — not fixed here.
 ```
 
@@ -623,18 +623,18 @@ source: split from todo 035's full-tree audit (docs/plans/2026-07-16-market-data
 
 ## Problem
 
-Todo 035 closed by fixing the 2 live call sites with zero placeholder-bar filtering
-(`cross_sectional_regime_model.py`, `counterfactual_tracker.py`) and building
-`market_data_ohlcv_tradeable` as the single boundary. 13 more files reference the raw table and
-were deliberately not touched in that pass (see the design doc's "not yet classified" and
-"already correctly filtered" lists) — each needs a genuine per-file judgment call on whether it
-should migrate to the view, and 3 of them (`regime_writer.py`, `forward_return_writer.py`,
+Todo 035 closed by fixing the 3 live call sites with zero placeholder-bar filtering
+(`cross_sectional_regime_model.py`, `counterfactual_tracker.py`, `ops_oos_holdout_eval.py`) and
+building `market_data_ohlcv_tradeable` as the single boundary. 14 more files reference the raw
+table and were deliberately not touched in that pass (see the design doc's "not yet classified"
+and "already correctly filtered" lists) — each needs a genuine per-file judgment call on whether
+it should migrate to the view, and 3 of them (`regime_writer.py`, `forward_return_writer.py`,
 `backfill_feature_factory.py`) are already filtering correctly with an inline `volume > 0` and
 would only gain a style/DRY benefit, not a correctness fix, from switching.
 
 ## Not yet done
 
-For each of the 13 files listed in `tests/unit/test_market_data_ohlcv_boundary.py`'s
+For each of the 14 files listed in `tests/unit/test_market_data_ohlcv_boundary.py`'s
 `_ALLOW_LIST` with a "Tier-2" or "not yet classified" reason: read the call site, determine
 whether it needs tradeable-only bars or genuinely wants the full calendar grid (e.g. backfill
 completeness checks may intentionally count against the full grid), migrate to
@@ -662,7 +662,7 @@ In `.planning/todos/PRIORITIES.md`'s P3 table, replace the existing `035` row:
 with:
 
 ```
-| [124](pending/124-market-ohlcv-tradeable-view-tier2-audit.md) | Tier-2 follow-up: 13 remaining `market_data_ohlcv` call sites to classify/migrate to `market_data_ohlcv_tradeable`, split from closed todo 035 |
+| [124](pending/124-market-ohlcv-tradeable-view-tier2-audit.md) | Tier-2 follow-up: 14 remaining `market_data_ohlcv` call sites to classify/migrate to `market_data_ohlcv_tradeable`, split from closed todo 035 |
 ```
 
 and add a line to the "Closed 2026-07-16" note (already present from the earlier 059/060/104
