@@ -3,7 +3,10 @@
 **Version:** 1.4
 **Status:** draft
 **Priority:** high
-**Milestone:** post-v2.8
+**Registered as ROADMAP Phase 146** (Empirical Instrument Tag Calibrator) — fully specced (TAG-01/02/03,
+3 plans), **Depends on: Nothing upstream of Phase 141** — unblocked, ready to plan now regardless
+of the in-progress 143.1-07 corpus rerun (TAG-01 runs OLS on `instruments`/`market_data_ohlcv`
+daily returns vs. factor series, not on `feature_vectors`).
 **Last Updated:** 2026-07-06 (Fable 5 first full review pass - see § Fable 5 Review at end)
 **Tags:** instruments, tags, empirical, calibration, renaissance, factor-model
 
