@@ -49,13 +49,14 @@ you're not deleting enough"):**
   (todo 058 vs. 112) — same fix applied here.
 - Todo [032](pending/032-ic-engine-pure-function-refactor.md) — already merged into 009
   (2026-07-12, pre-dates this pass), correctly resolved, not re-litigated.
-- **Candidate for actual deletion, not just low-priority parking:** [059](pending/059-review-aegisagent-tradeagent-for-trade-construction-reuse.md)
-  + [060](pending/060-review-cluster2-legacy-intelligence-backlog.md) are both "read old docs,
-  decide salvage-vs-archive" tasks — cheap (2-4h combined), already cross-referenced as the same
-  shape of work in 059's own text. Renaissance's "never drop data that could contain signal"
-  applies to measured data, not stale vision docs — there's no principled reason to keep carrying
-  two open todos whose entire job is deciding what to delete. Run both in one sitting; whatever
-  doesn't get salvaged gets archived same-session, not re-deferred.
+- **Closed 2026-07-16** (were: candidates for actual deletion, cheap read-old-docs-decide-salvage-
+  vs-archive tasks, run together as recommended): [059](completed/059-review-aegisagent-tradeagent-for-trade-construction-reuse.md)
+  (AegisAgent/TradeAgent reuse assessment written into `docs/research/trade-construction-layer.md`)
+  and [060](completed/060-review-cluster2-legacy-intelligence-backlog.md) (per-doc Cluster 2 review
+  against live Feature Factory, written into `docs/research/catalog.md`'s Cluster 2 section — also
+  resolved that section's 2026-07-07 "process conflict, unresolved" flag). One concrete gap
+  surfaced by 060's review filed as new todo [123](pending/123-momentum-velocity-and-macro-spread-features.md)
+  (momentum-oscillator velocity feature + two now-unblocked macro spreads, TIP/HYG/LQD).
 
 **Step 3 — Simplify (reduce scope of what survives, don't build infrastructure for unproven
 ideas):**
@@ -100,10 +101,10 @@ real value, not urgent. P3 = hygiene/docs/process, opportunistic.
 
 | Todo | Gap |
 |---|---|
-| [091](pending/091-fisher-z-ci-empirical-null-miscalibration.md) | Fisher-z analytic CI empirically miscalibrated — 38% SUSPECT rate across strata; this is the exact mechanism behind every BH-FDR/EIC-04 gate in the stack. Bootstrap fix shipped (143.1-01); the connection-lifecycle bug that was stalling the corpus-wide re-run is fixed and closed ([102](completed/102-ic-engine-idle-session-timeout-writes-zero-rows.md)). Re-run (143.1-07) is **in progress**, restarted 2026-07-13T13:13:58 UTC under the corrected todo-096 estimator too, ~9/80 symbols as of 15:19 UTC, projected complete ~2026-07-14T10:00 UTC + ~1-1.5h for steps 6-8. |
+| [091](pending/091-fisher-z-ci-empirical-null-miscalibration.md) | Fisher-z analytic CI empirically miscalibrated — 38% SUSPECT rate across strata; this is the exact mechanism behind every BH-FDR/EIC-04 gate in the stack. Bootstrap fix shipped (143.1-01); the connection-lifecycle bug that was stalling the corpus-wide re-run is fixed and closed ([102](completed/102-ic-engine-idle-session-timeout-writes-zero-rows.md)). Re-run (143.1-07) crashed at step 5 on 2026-07-15 ~15:59 EDT after 30h51m (`server closed the connection unexpectedly`, not the todo-102 bug — a transient dropped connection; no data was lost since `feature_ic_scores` had 0 rows at crash time). Resumed 2026-07-15 16:45 EDT via `--from-step 5`; this redoes the full 80-symbol pass from scratch (no intra-step checkpoint into `feature_ic_scores`, tracked as [todo 121](pending/121-ic-engine-coarse-resume-no-checkpoint.md)). **Verified live 2026-07-16 ~05:00 EDT: 46/80 symbols, no errors, ~9h left on the per-symbol pass, then the cross-sectional POOLED pass (uncertain duration, took ~9h for one regime group last attempt).** Check `logs/ic_engine.log` (`grep symbol_computed`) and `ps aux \| grep ic_engine` for current progress — don't cite this row's numbers without re-verifying live. |
 | [094](pending/094-alpha-events-long-short-imbalance.md) | **Root cause corrected 2026-07-11** (Fable review, verified against live DB): not a floor-formula issue — two sign-asymmetric gates (`ic_ci_lower > 0` eligibility filter, `fold_ic > 0` walk-forward criterion) exclude 100% of contrarian features before weighting ever runs. Confirmed: 1,527 eligible rows, zero at `ic_sign=-1`. Requires a full `ic_engine` re-run + eligibility/quality-weight/E2-sign-path redesign, not a small patch — effort raised M-L. Full strategy: `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md`. Sign-symmetric redesign shipped (143.1-04); mandatory shadow-mode champion/challenger validation (143.1-08) still pending, blocked on 143.1-07's corpus re-run (in progress, see 091 above). |
 | [099](pending/099-bootstrap-ci-staged-validation-gate-not-cleared-5m-residual.md) | Downgraded P1→P2 2026-07-11 (ledger E10): the bootstrap CI staged-validation gate's 6 SUSPECT cells traced to 5 diagnostic-only (`is_pooled=false`) breaches + 1 capital-relevant cell that independently clears its own bound — no longer blocks Plan 07. Underlying statistical question (why 5m autocorrelation/momentum features resist both Fisher-z and block-bootstrap) remains open as non-blocking follow-up. |
-| [096](pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md) | **Estimator fix IMPLEMENTED 2026-07-13** (Fable sign-off obtained, TDD'd, `tests/unit/` green): `_compute_ic_rolling_metrics` now uses a fixed subsampled-bar window (`alpha.ic.sharpe_window_size_subsampled=100`, migration 230) instead of raw-bars÷stride, removing the `sqrt(window_size_ratio)` deflation at long lookaheads. Mandatory threshold rescale shipped in the same migration (`alpha.ensemble_ic.decay_threshold` 0.1→0.05, `alpha.ensemble.sharpe_floor` 0.05→0.025, `alpha.feature_registry.min_ic_sharpe_default` 0.5→0.25). **Remaining, blocking:** corpus re-run to re-derive every historical `ic_sharpe`/`hold_max_bars` value is **in progress** (same 143.1-07 run as 091 above — one re-run serves both fixes). Still blocks 088 (locked sequencing, unchanged) until that re-run completes. Reproduce/verify: `python scripts/analysis/ic_sharpe_stride_bias_check.py`. |
+| [096](pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md) | **Estimator fix IMPLEMENTED 2026-07-13** (Fable sign-off obtained, TDD'd, `tests/unit/` green): `_compute_ic_rolling_metrics` now uses a fixed subsampled-bar window (`alpha.ic.sharpe_window_size_subsampled=100`, migration 230) instead of raw-bars÷stride, removing the `sqrt(window_size_ratio)` deflation at long lookaheads. Mandatory threshold rescale shipped in the same migration (`alpha.ensemble_ic.decay_threshold` 0.1→0.05, `alpha.ensemble.sharpe_floor` 0.05→0.025, `alpha.feature_registry.min_ic_sharpe_default` 0.5→0.25). **Remaining, blocking:** corpus re-run to re-derive every historical `ic_sharpe`/`hold_max_bars` value is **in progress** (same 143.1-07 run as 091 above, currently 46/80 symbols as of 2026-07-16 — see 091's row for the crash/resume detail — one re-run serves both fixes). Still blocks 088 (locked sequencing, unchanged) until that re-run completes. Reproduce/verify: `python scripts/analysis/ic_sharpe_stride_bias_check.py`. |
 | [119](pending/119-migration-schema-drift-ci-check.md) | **Filed 2026-07-14** (Phase 160 shipped-code review): committed migrations 233/234 had silently diverged from what was actually applied to the live DB — wrong column types, missing columns, wrong CHECK vocab, wrong APR namespace, a data typo. Root cause: worktree-executed migrations got regenerated-from-description instead of merged when folded into `main`. Fixed in commit `6f1b4257`; no automated check exists to catch a recurrence. **Merged with [064](completed/064-indicagent-test-db-schema-sync.md)** (indicagent_test has no schema) — one integration test replaying migrations against `indicagent_test` and diffing against production schema fixes both gaps at once. Project-wide migrations-pipeline gap, not Phase-160-specific. |
 
 **Closed 2026-07-10** (moved to `completed/`, see each file's resolution note): 051 (backfill
@@ -191,12 +192,15 @@ without re-confirming with the project owner.
 |---|---|
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | Phase 147/148 gate definitions stale (filename kept as-is) — needs an operator call (archive vs delete v2.x) before those phases are planned |
 | [035](pending/035-market-ohlcv-active-bars-view.md) | `market_data_ohlcv` active-bars filter belongs at one boundary, not 4 call sites |
-| [059](pending/059-review-aegisagent-tradeagent-for-trade-construction-reuse.md) | Review AegisAgent/TradeAgent for v4.0 trade-construction reuse |
-| [060](pending/060-review-cluster2-legacy-intelligence-backlog.md) | Review legacy intelligence backlog docs — salvage or clear |
+| [123](pending/123-momentum-velocity-and-macro-spread-features.md) | Momentum-oscillator velocity feature + VWAP acceleration + 2 now-unblocked macro spreads (TIP real-yield, HYG/LQD credit spread) — surfaced by closing todo 060, batch into a future Phase 151 pass |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
 | [110](pending/110-controlled-vocabulary.md) | Controlled Vocabulary — design complete, previously untracked by any todo. No dependency blocks it. **Registered as ROADMAP Phase 160** (supersedes orphaned Phase 135). |
 | [111](pending/111-stratification-classification.md) | Stratification & Classification Registries — StratificationDimension formalization revival blocked on Phase 144's D-05 verdict (currently `BLOCKED-ON-143.1-07`). **Registered as ROADMAP Phase 145.** |
-| [104](pending/104-quarterly-seasonality-opex-fable-review.md) | Fable rigor pass on the quarterly-seasonality/OPEX idea (`docs/ideas/signal-quarterly-seasonality-opex-risk-off.md`) before it's considered for Phase 151's scope — review-gating step, not itself a phase. |
+
+**Closed 2026-07-16:** 059 (AegisAgent/TradeAgent reuse review), 060 (Cluster 2 legacy intel docs
+review — also resolved catalog.md's process-conflict flag; one gap spun out as todo 123 above),
+104 (quarterly-seasonality/OPEX Fable review, already closed 2026-07-13 as part of the Calendar
+Primitives doc — this table just hadn't been updated to reflect it).
 
 ---
 
