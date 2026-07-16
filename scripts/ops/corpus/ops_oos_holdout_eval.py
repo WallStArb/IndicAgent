@@ -134,7 +134,7 @@ def _read_oos_start(conn: Any) -> datetime:
 def _read_oos_rows(
     conn: Any, symbol: str, tf: str, oos_start: datetime
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Read feature_vectors + market_data_ohlcv opens for bars in the OOS window.
+    """Read feature_vectors + market_data_ohlcv_tradeable opens for bars in the OOS window.
 
     Returns (bar_ts_arr, opens_arr, feature_matrix) sorted by bar_ts ascending.
     feature_matrix has shape [n_obs, n_features] (columns ordered by _FEATURE_NAMES).
@@ -144,7 +144,7 @@ def _read_oos_rows(
     query = f"""
         SELECT fv.bar_ts, m.open, {feature_cols_sql}
         FROM feature_vectors fv
-        JOIN market_data_ohlcv m
+        JOIN market_data_ohlcv_tradeable m
           ON m.symbol = fv.symbol AND m.timeframe = fv.tf AND m.timestamp = fv.bar_ts
         WHERE fv.symbol = %s AND fv.tf = %s AND fv.bar_ts >= %s
         ORDER BY fv.bar_ts ASC

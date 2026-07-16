@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_RAW_TABLE_PATTERN = re.compile(r"FROM\s+market_data_ohlcv\b(?!_tradeable)")
+_RAW_TABLE_PATTERN = re.compile(r"\b(?:FROM|JOIN)\s+market_data_ohlcv\b(?!_tradeable)")
 _SEARCH_DIRS = ("services", "src", "scripts")
 
 # (file, reason) -- every raw `market_data_ohlcv` reference in the tree must appear here.
@@ -86,6 +86,17 @@ _ALLOW_LIST: dict[str, str] = {
     "src/api/routes/market_data.py": (
         "Raw display/API surface, not a measurement input -- correctly left alone (design "
         "doc's 'correctly left alone' list)."
+    ),
+    "services/bar_auditor.py": (
+        "Legitimate gap-detection auditor (registered live in service_auditor.py's DAG as "
+        "bar_auditor -> indicagent-bar-auditor) -- deliberately counts ALL rows including "
+        "synthetic-fill placeholders to detect actual calendar gaps and trigger backfill. "
+        "Filtering here would break its purpose."
+    ),
+    "scripts/debug/analysis/debug_batch_agent_memory.py": (
+        "Joins signal_ledger, confirmed zero rows in the live DB -- dead v2.x Signal Ledger "
+        "Architecture code, same bucket as signal_probe_auditor.py/signal_replay_auditor.py "
+        "already on this allow-list."
     ),
 }
 
