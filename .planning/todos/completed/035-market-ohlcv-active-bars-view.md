@@ -1,3 +1,11 @@
+---
+status: completed
+priority: P3
+filed: 2026-07-01
+closed: 2026-07-16
+source: found during /simplify review of the volume>0 bar-filtering fix
+---
+
 # 035 — market_data_ohlcv "active bars" filter belongs at one boundary, not 4 call sites
 
 **Found:** 2026-07-01, during /simplify review of the volume>0 bar-filtering fix.
@@ -35,3 +43,18 @@ Raw table stays untouched either way (writers own the full calendar grid;
 readers get one canonical "tradeable bars" surface). Not urgent — current
 inline fix is correct and already validated against a live corpus rebuild;
 this is a maintainability follow-up, not a bug.
+
+## Resolution (2026-07-16)
+
+Closed via `docs/plans/2026-07-16-market-data-ohlcv-active-bars-boundary-design.md` +
+`docs/plans/2026-07-16-market-data-ohlcv-tradeable-boundary-plan.md`. Built the single-boundary
+view this todo asked for (`market_data_ohlcv_tradeable`, migration 236), fixed the 3 live
+call sites that had zero filtering (`cross_sectional_regime_model.py`, `counterfactual_tracker.py`
+— a bigger, previously-undiscovered instance of this exact gap, found while scoping this todo —
+plus `ops_oos_holdout_eval.py`, found mid-implementation when the CI guard's regex was widened
+to also catch `JOIN`, not just `FROM`), and added a CI-enforced allow-list test
+(`tests/unit/test_market_data_ohlcv_boundary.py`) so a future call site can't silently
+reintroduce it. `bar_auditor.py` and `debug_batch_agent_memory.py` were also found by the same
+regex-widening and correctly allow-listed (legitimate full-grid gap auditor; dead v2.x code).
+The 3 files already using `volume > 0` correctly, plus 10 not-yet-classified files, are follow-up
+todo 124 — not fixed here.

@@ -131,6 +131,12 @@ for the same scope. 112 is now the sole live tracking item; 058 stays as frozen 
 for its 14 existing citations. Implementation plan remains valid and unexecuted
 (`docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`).
 
+**Closed 2026-07-16 (this table's links just hadn't caught up to `completed/` yet):** 059
+(AegisAgent/TradeAgent reuse review), 060 (Cluster 2 legacy intel docs review), 104
+(quarterly-seasonality/OPEX Fable review, already closed 2026-07-13 as part of the Calendar
+Primitives doc), 035 (market_data_ohlcv active-bars view — built as market_data_ohlcv_tradeable,
+migration 236; Tier-2 remainder split to todo 124).
+
 **Explicit sequencing decision (2026-07-10, project owner confirmed; reaffirmed 2026-07-11 after
 094's root cause was corrected, and again 2026-07-11 to insert 097 — see
 `docs/plans/2026-07-11-ic-quality-and-sign-symmetry-strategy.md` for the full rationale):** 093
@@ -190,13 +196,10 @@ without re-confirming with the project owner.
 | Todo | What |
 |---|---|
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | Phase 147/148 gate definitions stale (filename kept as-is) — needs an operator call (archive vs delete v2.x) before those phases are planned |
-| [035](pending/035-market-ohlcv-active-bars-view.md) | `market_data_ohlcv` active-bars filter belongs at one boundary, not 4 call sites |
-| [059](pending/059-review-aegisagent-tradeagent-for-trade-construction-reuse.md) | Review AegisAgent/TradeAgent for v4.0 trade-construction reuse |
-| [060](pending/060-review-cluster2-legacy-intelligence-backlog.md) | Review legacy intelligence backlog docs — salvage or clear |
+| [124](pending/124-market-ohlcv-tradeable-view-tier2-audit.md) | Tier-2 follow-up: 13 remaining `market_data_ohlcv` call sites to classify/migrate to `market_data_ohlcv_tradeable`, split from closed todo 035 |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
 | [110](pending/110-controlled-vocabulary.md) | Controlled Vocabulary — design complete, previously untracked by any todo. No dependency blocks it. **Registered as ROADMAP Phase 160** (supersedes orphaned Phase 135). |
 | [111](pending/111-stratification-classification.md) | Stratification & Classification Registries — StratificationDimension formalization revival blocked on Phase 144's D-05 verdict (currently `BLOCKED-ON-143.1-07`). **Registered as ROADMAP Phase 145.** |
-| [104](pending/104-quarterly-seasonality-opex-fable-review.md) | Fable rigor pass on the quarterly-seasonality/OPEX idea (`docs/ideas/signal-quarterly-seasonality-opex-risk-off.md`) before it's considered for Phase 151's scope — review-gating step, not itself a phase. |
 
 ---
 
