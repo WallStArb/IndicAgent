@@ -339,6 +339,16 @@ A tier-0 atomic feature computed as a deterministic, stateless, O(1) function of
 
 ---
 
+### Tag category taxonomy (`exposure`, `sensitivity`, `factor_regime`, `cycle_position`, `signal_role`, `macro_driver`)
+
+**Note (Phase 146, T7):** `tag_vocabulary.category` is a display/organizational label only — it groups tags for narrative and dashboard purposes. The TagCalibrator (Phase 146's empirical calibration engine) never reads `category` for measurement logic; the measurement contract for a tag lives entirely in its `factor_series` and `measurement_type` columns. A tag's category does not determine whether or how it is measured.
+
+**Collision rule:** two tags must not share the same `factor_series` value. `factor_series` identifies the one measurable factor-loading concept a tag represents (per the "concept over specific proxy" principle — the registered thing is a factor loading, not a specific proxy ticker); if two tags pointed at the same `factor_series`, they would be redundant measurements of the same underlying quantity under different names (the exact defect `credit_cycle`/`credit_risk` had before their Phase 146 merge — see the banned-alias note after `macro_driver` below).
+
+The six categories below are the full CHECK-constrained set (migration 228, 2026-07's ETF expansion); the split from the original four (`exposure`, `regime`, `signal_role`, `macro_driver`) predates Phase 146 and is unaffected by this note.
+
+---
+
 ### `exposure`
 
 A tag category describing what an instrument fundamentally IS — its asset class and market segment. Definitional — never empirically validated because the classification does not change with market conditions. Examples: `eq_broad`, `fi_treasury`, `crypto`.
@@ -402,6 +412,15 @@ A tag category describing the primary macroeconomic force that drives an instrum
 
 **Banned:** (none)
 **Status:** active
+
+---
+
+### Banned aliases (tag taxonomy)
+
+Tags retired from `tag_vocabulary` because they duplicated or invalidated another tag's measurement. Reintroducing a banned alias re-creates the exact defect its removal fixed — check this list before naming a new tag.
+
+- **`credit_cycle`** — merged into `credit_risk` in Phase 146 (migration 237, 2026-07-17). Verified live: `HYG` and `LQD` each carried both tags at near-identical weights (HYG 0.9/1.0, LQD 0.8/0.8) — a genuine duplicate, not just a similarly-named tag, since both tags shared the same underlying `credit_risk` factor-loading concept. The other 6 `credit_cycle` holders (`IWM`, `PFF`, `XHB`, `XLF`, `XLY`, `XRT`) had their assignment migrated into a new `credit_risk` row at the same weight, not dropped. Do not reintroduce `credit_cycle` — use `credit_risk`.
+- **`housing_cycle`** — deleted in Phase 146 (migration 237, 2026-07-17), not merged. Its sole holder (`XHB`) was also its own factor series — a self-regression tautology (the "measurement" was `XHB` regressed against `XHB`), a broken-concept deletion distinct from the `credit_cycle` merge above. If housing-sector sensitivity is needed again, it must be re-derived against a real, non-self factor series (e.g. a rates/housing-starts proxy), not resurrected under the old name.
 
 ---
 
