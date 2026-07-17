@@ -960,7 +960,12 @@ F1 near-miss).
 - Priority context: `docs/research/intelligence-lifecycle-backlog-matrix.md` (MEDIUM
   tier — Effort M, Risk Low, Reward Low).
 
-**Plans:** TBD at `/gsd-plan-phase 161`.
+**Plans:** 4 plans (2 waves) — backend-only (schema/service/drift/API; no dashboard this phase).
+Plans:
+- [ ] 161-01-PLAN.md — Wave 1: 3-table schema (migration 237) + seed 6 namespaces & groups (migration 238)
+- [ ] 161-02-PLAN.md — Wave 1: VocabularyService (ConfigService-shaped cache) + three-way ENUM divergence check
+- [ ] 161-03-PLAN.md — Wave 2: column-backed drift audit module + oneshot CLI, chained into corpus pipeline
+- [ ] 161-04-PLAN.md — Wave 2: /api/vocabulary/{namespace} FastAPI route + main.py registration
 
 ### Phase 142.5: Renaissance Primitives ✅ COMPLETE (8/8 plans, 2026-07-07) (INSERTED)
 
