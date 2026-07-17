@@ -1445,10 +1445,10 @@ Initially PK is `(symbol, tag)`. Phase 2 extends to `(symbol, tag, regime)` — 
 **TAG-03 — Discovery gate:**
 Tags that are fully computable from the factor vector (all 8 OLS betas) must not exist as permanent human assertions. They are query-time threshold applications on the `instrument_tags` empirical table. Human-only tags (`definitional`, `classification`) remain — but must be annotated as measurement_type='definitional' with owner.
 
-**Plans:** 5 plans in 2 waves (revised per CONTEXT.md D-01 — Wave 0 cleanup inserted, migration reordered before service).
-- [ ] 146-01-PLAN.md — Wave 0 taxonomy cleanup: credit_cycle merge (D-03), housing_cycle delete (D-07), spread_leg evidence backfill + contract test (D-09), glossary T7 fix
-- [ ] 146-02-PLAN.md — Measurement-contract migration 238: revised schema + valid_from/valid_to (D-10), factor-series seeding (D-02/D-04/D-05/D-06/D-08), 7 APR keys
-- [ ] 146-03-PLAN.md — factor_math.py: standardized OLS loading + HAC SE, long-short constructor, vol proxy adapter (reuses ic_math + breadth_vol)
+**Plans:** 3/5 plans executed
+- [x] 146-01-PLAN.md — Wave 0 taxonomy cleanup: credit_cycle merge (D-03), housing_cycle delete (D-07), spread_leg evidence backfill + contract test (D-09), glossary T7 fix
+- [x] 146-02-PLAN.md — Measurement-contract migration 238: revised schema + valid_from/valid_to (D-10), factor-series seeding (D-02/D-04/D-05/D-06/D-08), 7 APR keys
+- [x] 146-03-PLAN.md — factor_math.py: standardized OLS loading + HAC SE, long-short constructor, vol proxy adapter (reuses ic_math + breadth_vol)
 - [ ] 146-04-PLAN.md — TagCalibrator(BaseBatch) generic 3-pass calibration engine + decision-logic tests (TAG-01)
 - [ ] 146-05-PLAN.md — Phase 2 regime-conditioning design doc (TAG-02, design-only)
 
