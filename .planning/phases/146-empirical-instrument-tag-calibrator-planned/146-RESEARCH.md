@@ -713,9 +713,9 @@ See "Architecture Patterns" → Pattern 4 above for the full reproduced example.
 | A3 | `TagCalibrator`'s `job_name` should be `"tag-calibrator"` (not `"tag-auditor"`) per F9's naming rationale, and the systemd unit should be `indicagent-tag-calibrator.timer`/`.service` | Recommended Project Structure | Low — this is Claude's Discretion per CONTEXT.md, not a locked decision; if the project owner prefers to keep "TagAuditor" as the concept name despite F9's argument, this is a one-line rename with no structural impact |
 | A4 | The 13 non-mechanically-recoverable `spread_leg` pairs' human-pass resolution (deferred per CONTEXT.md) will happen synchronously during Wave 0 execution rather than blocking Wave 0's merge | Live Schema State / D-09 | Medium — if the project owner is unavailable to make this call during Wave 0 execution, the plan needs a fallback (e.g., delete all 13 unrecoverable rows now, re-add with real evidence later) rather than blocking indefinitely |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should `TagCalibrator`'s systemd cadence be weekly (Sunday night) as the design doc specifies, or does the project's existing systemd-timer landscape (CLAUDE.md notes all timers are currently disabled as of 2026-07-02) mean this phase should not wire up a live timer at all, only the oneshot script?**
+1. **Should `TagCalibrator`'s systemd cadence be weekly (Sunday night) as the design doc specifies, or does the project's existing systemd-timer landscape (CLAUDE.md notes all timers are currently disabled as of 2026-07-02) mean this phase should not wire up a live timer at all, only the oneshot script?** *(RESOLVED — Plan 04 ships the manually-invoked oneshot only and does NOT wire up a live systemd timer, matching the project-wide disabled-timer status quo.)*
    - What we know: CLAUDE.md states "all systemd timers are confirmed disabled as of 2026-07-02" —
      this is a project-wide fact, not specific to this phase.
    - What's unclear: Whether Wave 1/2 should include enabling a new timer (going against the current
@@ -726,7 +726,7 @@ See "Architecture Patterns" → Pattern 4 above for the full reproduced example.
      choice independent of the calibration engine's correctness.
 
 2. **Does `factor_math.py` need its own duck-typed config Protocol (mirroring `ic_math.py`'s
-   `SharpeWindowConfig`), and if so what fields does it need beyond `hac_max_lag`?**
+   `SharpeWindowConfig`), and if so what fields does it need beyond `hac_max_lag`?** *(RESOLVED — Plan 04 uses a single frozen `TagCalibratorConfig` dataclass with a `.from_apr(cfg)` classmethod loading all 7 `alpha.tag_calibrator.*` keys once per run, per the `EnsembleICConfig` precedent; no duck-typed Protocol is introduced.)*
    - What we know: The design doc's APR key table specifies `fdr_alpha`, `expiry_consecutive_fails`,
      `discovery_oos_days`, `min_sample_n`, `hac_max_lag`, `half_life_min_days`, `half_life_max_days` —
      7 keys total, none of which map 1:1 onto `SharpeWindowConfig`'s 3 fields.
