@@ -2,7 +2,7 @@
 phase: 161
 slug: controlled-vocabulary-system-planned
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-07-16
 ---
@@ -46,7 +46,7 @@ planner should attach the matching automated command to whichever task implement
 | `VocabularyService` cache is populated at `initialize()`; no DB calls on subsequent reads | — | unit | `pytest tests/unit/test_vocabulary_service.py::test_no_db_calls_after_init -x` | ❌ W0 | ⬜ pending |
 | Column-backed drift audit filters `''`/empty placeholder values and scopes by `regime_group` per namespace | — | unit | `pytest tests/unit/test_vocabulary_drift_audit.py -x` | ❌ W0 | ⬜ pending |
 | Three-way ENUM divergence check (registry rows vs Python enum vs `pg_enum` catalog) | — | unit | `pytest tests/unit/test_vocabulary_service.py::test_enum_divergence_check -x` | ❌ W0 | ⬜ pending |
-| `/api/vocabulary/{namespace}` returns seeded namespaces correctly, 404/empty for unknown namespace | — | integration (requires_db) | `pytest tests/integration/test_vocabulary_api.py -x -m requires_db` | ❌ W0 | ⬜ pending |
+| `/api/vocabulary/{namespace}` returns seeded namespaces correctly, 404/empty for unknown namespace | — | unit (TestClient + `dependency_overrides`) | `pytest tests/unit/api/test_vocabulary_api.py -x` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -56,7 +56,7 @@ planner should attach the matching automated command to whichever task implement
 
 - [ ] `tests/unit/test_vocabulary_service.py` — cache behavior, `codes()`/`label()`/`group_codes()`, ENUM divergence logic. Model on `tests/unit/test_concept_registry_service.py`'s pure-Python, no-DB, dataclass-fixture (`_state(**overrides)`) style.
 - [ ] `tests/unit/test_vocabulary_drift_audit.py` — `''`-filter and per-namespace `regime_group`-scoping logic, isolated from the DB.
-- [ ] `tests/integration/test_vocabulary_api.py` — `/api/vocabulary/{namespace}` route against a real (test) DB; `requires_db` marker already exists in `pytest.ini`, no new marker/framework install needed.
+- [ ] `tests/unit/api/test_vocabulary_api.py` — `/api/vocabulary/{namespace}` route via FastAPI `TestClient` + `app.dependency_overrides` (no real DB), matching the live convention in `tests/unit/api/test_features_route.py`. `tests/integration/` has zero TestClient-based files, so the route test lives under `tests/unit/api/`, not `tests/integration/`.
 
 ---
 
@@ -68,11 +68,12 @@ planner should attach the matching automated command to whichever task implement
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved (contract aligned with 161-PATTERNS.md and Plan 161-04 — vocabulary API test is a unit TestClient test under `tests/unit/api/`)
+</content>

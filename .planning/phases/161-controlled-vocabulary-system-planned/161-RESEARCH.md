@@ -52,7 +52,7 @@ Open Questions for the recommended resolution.
 | `controlled_vocabulary`/`vocabulary_group`/`vocabulary_group_member` schema | Database / Storage | — | Migration-time, read-only-at-runtime metadata tables, same tier as `config_state`/`config_history` |
 | `VocabularyService` (cache, lookup API) | API / Backend (library, embedded) | — | Not a network service (D-05) — a library any process embeds locally, same tier as `ConfigService` |
 | Three-way ENUM divergence check | API / Backend | Database / Storage | Startup-time reconciliation of registry rows + Python enum + `pg_enum` catalog; runs once per process boot |
-| Column-backed drift audit | API / Backend (batch/auditor daemon) | Database / Storage | Periodic `SELECT DISTINCT` against a declared source column; hosted by an existing `BaseDaemon` auditor, not a new service |
+| Column-backed drift audit | API / Backend (importable module + oneshot CLI) | Database / Storage | Periodic `SELECT DISTINCT` against a declared source column; ships as `src/config/vocabulary_drift.py` + a oneshot CLI chained into `ops_corpus_pipeline_run.sh` — **not** an existing `BaseDaemon` auditor (revised per Fable review V3/V5, D-09: no auditor-family systemd unit is live on this host) |
 | `/api/vocabulary/{namespace}` endpoint | API / Backend | — | Plain FastAPI router under `src/api/routes/`, same tier as `drift.py`/`features.py` |
 | Dashboard regime-label consumer | Browser / Client | API / Backend | Reads the new endpoint instead of a hardcoded label list; out of this phase's build (design doc lists it as "first consumer," CONTEXT.md doesn't lock a dashboard task) |
 
@@ -419,9 +419,17 @@ WHERE ts > now() - interval '30 days'
 | A1 | `indicagent-ml-data-quality.timer` is currently disabled in production, per CLAUDE.md's general "all systemd timers are confirmed disabled as of 2026-07-02" statement | Structural Finding / Pitfall 3 | If actually enabled and running weekly, the drift audit could safely live there after all — but CLAUDE.md's own text is the only source for this claim (this dev sandbox has no indicagent systemd units to check directly), so it is flagged `[ASSUMED]` pending a direct `systemctl is-enabled` check on the production host (192.168.68.53) |
 | A2 | `bar_auditor.py` is a suitable secondary host if `data_quality_auditor.py`'s timer is confirmed dead | Open Questions | Adding an unrelated vocabulary-drift check to a bar-gap-detection daemon is a SoC stretch; if the timer turns out to be fine, this alternative is unnecessary |
 
-## Open Questions
+## Open Questions (RESOLVED — see docs/research/fable-2026-07-16-controlled-vocabulary-open-questions-review.md)
+
+> Both questions below are fully resolved by the second Fable review
+> (`docs/research/fable-2026-07-16-controlled-vocabulary-open-questions-review.md`); the
+> resolutions are reflected in 161-CONTEXT.md (D-04/D-09) and the Phase 161 plans. Retained
+> here for the reasoning trail — they are no longer live ambiguity.
 
 1. **Does `regime_cross_sectional` seed 9 codes (equity only) or all 14-15 (equity + rates)?**
+   - **RESOLVED (Fable V1/V2):** split into two `regime_group`-scoped namespaces —
+     `regime_cross_sectional_equity` (9) and `regime_cross_sectional_rates` (6); the drift audit
+     scopes each query by `regime_group` and guards for unknown groups. Reflected in D-04.
    - What we know: The live column has verifiably 14-15 distinct labels across two `regime_group`
      values (`equity`: 9, `rates`: 6). D-04 was written assuming a single 9-label taxonomy.
    - What's unclear: Whether the user wants `regime_cross_sectional` to cover both regime_groups
@@ -434,6 +442,9 @@ WHERE ts > now() - interval '30 days'
      `rates` regime_group module), not something research should silently resolve either way.
 
 2. **Should the drift audit live in `data_quality_auditor.py` (per CONTEXT.md's discretion) or `bar_auditor.py` (the only confirmed continuously-running, non-timer-gated auditor)?**
+   - **RESOLVED (Fable V3, D-09):** neither — every auditor-family systemd unit on this host is
+     verifiably dead, so the audit ships as a thin D-06 oneshot chained non-blockingly into
+     `ops_corpus_pipeline_run.sh`, not ridden on any daemon/timer. Supersedes Assumptions A1-A2.
    - What we know: `data_quality_auditor.py` is oneshot/timer-triggered with all-archived existing
      checks; `bar_auditor.py` runs continuously (every 5 min during market hours), is priority-3
      in the live DAG, and reads a genuinely live table (`market_data_ohlcv`).
@@ -465,11 +476,11 @@ test mapping instead:
 
 | Behavior | Test Type | Automated Command | File Exists? |
 |----------|-----------|-------------------|-------------|
-| `VocabularyService.codes()`/`.label()`/`.group_codes()` return correct values for all 5 seeded namespaces | unit | `pytest tests/unit/test_vocabulary_service.py -x` | ❌ Wave 0 |
+| `VocabularyService.codes()`/`.label()`/`.group_codes()` return correct values for all 6 seeded namespaces | unit | `pytest tests/unit/test_vocabulary_service.py -x` | ❌ Wave 0 |
 | `VocabularyService` cache is populated at `initialize()` and `get_sync()`-equivalent reads never touch the DB after that | unit | `pytest tests/unit/test_vocabulary_service.py::test_no_db_calls_after_init -x` | ❌ Wave 0 |
 | Column-backed drift audit correctly filters `''`/empty placeholder values and correctly scopes `regime_group` | unit | `pytest tests/unit/test_vocabulary_drift_audit.py -x` | ❌ Wave 0 |
-| Three-way ENUM divergence check (even if not exercised by any of the 5 live namespaces, the mechanism itself should be unit-tested against a fixture ENUM) | unit | `pytest tests/unit/test_vocabulary_service.py::test_enum_divergence_check -x` | ❌ Wave 0 |
-| `/api/vocabulary/{namespace}` returns 5 seeded namespaces correctly, 404/empty for unknown namespace | integration (requires_db) | `pytest tests/integration/test_vocabulary_api.py -x -m requires_db` | ❌ Wave 0 |
+| Three-way ENUM divergence check (even if not exercised by any of the 6 live namespaces, the mechanism itself should be unit-tested against a fixture ENUM) | unit | `pytest tests/unit/test_vocabulary_service.py::test_enum_divergence_check -x` | ❌ Wave 0 |
+| `/api/vocabulary/{namespace}` returns 6 seeded namespaces correctly, 404/empty for unknown namespace | unit (TestClient + `dependency_overrides`) | `pytest tests/unit/api/test_vocabulary_api.py -x` | ❌ Wave 0 |
 
 The closest live precedent for unit-test style is `tests/unit/test_concept_registry_service.py`
 (pure-Python, no-DB tests of the invariant-enforcement core, dataclass-fixture builder pattern via
@@ -484,8 +495,8 @@ drift-comparison logic) the same way: no DB, no Kafka, dataclass fixtures.
 ### Wave 0 Gaps
 - [ ] `tests/unit/test_vocabulary_service.py` — covers cache behavior, `codes()`/`label()`/`group_codes()`, ENUM divergence logic
 - [ ] `tests/unit/test_vocabulary_drift_audit.py` — covers the `''`-filter and `regime_group`-scoping logic in isolation from the DB
-- [ ] `tests/integration/test_vocabulary_api.py` — covers the `/api/vocabulary/{namespace}` route against a real (test) DB
-- [ ] No new pytest markers or framework install needed — `requires_db` marker already exists in `pytest.ini`
+- [ ] `tests/unit/api/test_vocabulary_api.py` — covers the `/api/vocabulary/{namespace}` route via FastAPI `TestClient` + `app.dependency_overrides` (no real DB), matching `tests/unit/api/test_features_route.py`
+- [ ] No new pytest markers or framework install needed
 
 ## Security Domain
 
