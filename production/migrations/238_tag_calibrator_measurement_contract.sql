@@ -126,3 +126,87 @@ UPDATE tag_vocabulary SET description = description || ' [Owner: project_owner]'
 -- D-12: no new stratification tags beyond equity_beta -- no tech_beta / GICS-sector rows.
 
 COMMIT;
+
+-- ── APR keys: alpha.tag_calibrator.* (7 total, F9 rename) ─────────────────────
+--
+-- 3-table seed pattern (config_schema / config_state / config_history), each
+-- ON CONFLICT DO NOTHING, following migration 235's exact pattern.
+
+BEGIN;
+
+INSERT INTO config_schema (config_key, value_type, default_value, min_value, max_value, description)
+VALUES
+(
+    'alpha.tag_calibrator.fdr_alpha',
+    'float',
+    '0.05',
+    0.001, 0.5,
+    '[conventional] Benjamini-Hochberg FDR alpha applied run-level across the full measured tag matrix. Statistical governance threshold, not an ML learning target.'
+),
+(
+    'alpha.tag_calibrator.expiry_consecutive_fails',
+    'int',
+    '3',
+    1, 10,
+    '[initial_estimate] Consecutive failing runs required before an empirical instrument_tags row is expired (valid_to set); prevents single-run FDR-flicker expiry under weekly re-runs with ~97% window overlap. Not an ML learning target.'
+),
+(
+    'alpha.tag_calibrator.discovery_oos_days',
+    'int',
+    '63',
+    5, 500,
+    '[initial_estimate] Out-of-sample days required before a newly discovered (gap-annotated) empirical tag is promoted to a live instrument_tags row. Not an ML learning target.'
+),
+(
+    'alpha.tag_calibrator.min_sample_n',
+    'int',
+    '60',
+    10, 5000,
+    '[initial_estimate] Minimum paired-return sample size required before a (symbol, factor_series) loading is measured at all. Not an ML learning target.'
+),
+(
+    'alpha.tag_calibrator.hac_max_lag',
+    'int',
+    '5',
+    1, 60,
+    '[conventional] Newey-West Bartlett-kernel max lag for the HAC-adjusted standard error on each measured loading. Not an ML learning target.'
+),
+(
+    'alpha.tag_calibrator.half_life_min_days',
+    'int',
+    '30',
+    1, 3650,
+    '[initial_estimate] Lower bound for a per-tag_vocabulary-row half_life_days value; guards against a pathologically fast decay being configured. Not an ML learning target.'
+),
+(
+    'alpha.tag_calibrator.half_life_max_days',
+    'int',
+    '365',
+    1, 3650,
+    '[initial_estimate] Upper bound for a per-tag_vocabulary-row half_life_days value; guards against a pathologically slow (effectively permanent) decay being configured. Not an ML learning target.'
+)
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_state (config_key, config_value, version)
+VALUES
+    ('alpha.tag_calibrator.fdr_alpha', '0.05', 1),
+    ('alpha.tag_calibrator.expiry_consecutive_fails', '3', 1),
+    ('alpha.tag_calibrator.discovery_oos_days', '63', 1),
+    ('alpha.tag_calibrator.min_sample_n', '60', 1),
+    ('alpha.tag_calibrator.hac_max_lag', '5', 1),
+    ('alpha.tag_calibrator.half_life_min_days', '30', 1),
+    ('alpha.tag_calibrator.half_life_max_days', '365', 1)
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
+VALUES
+    (NOW(), 'alpha.tag_calibrator.fdr_alpha', 1, '0.05', 'migration_238', 'Initial value: run-level BH-FDR alpha [conventional]'),
+    (NOW(), 'alpha.tag_calibrator.expiry_consecutive_fails', 1, '3', 'migration_238', 'Initial value: expiry hysteresis gate [initial_estimate]'),
+    (NOW(), 'alpha.tag_calibrator.discovery_oos_days', 1, '63', 'migration_238', 'Initial value: discovery-mode OOS gate [initial_estimate]'),
+    (NOW(), 'alpha.tag_calibrator.min_sample_n', 1, '60', 'migration_238', 'Initial value: minimum sample size for measurement [initial_estimate]'),
+    (NOW(), 'alpha.tag_calibrator.hac_max_lag', 1, '5', 'migration_238', 'Initial value: Newey-West HAC max lag [conventional]'),
+    (NOW(), 'alpha.tag_calibrator.half_life_min_days', 1, '30', 'migration_238', 'Initial value: half-life lower bound [initial_estimate]'),
+    (NOW(), 'alpha.tag_calibrator.half_life_max_days', 1, '365', 'migration_238', 'Initial value: half-life upper bound [initial_estimate]')
+ON CONFLICT DO NOTHING;
+
+COMMIT;
