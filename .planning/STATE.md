@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: ready_to_plan
-stopped_at: Phase 146 complete (5/5) — ready to discuss Phase 160
+status: Phase 143.1 (Measurement and Eligibility Integrity) in progress, corpus re-run running
+stopped_at: Phase 146 complete (5/5), live-verified
 last_updated: 2026-07-17T09:11:43.443Z
 progress:
   total_phases: 12
@@ -21,7 +21,7 @@ See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
 
-**Current focus:** Phase 160 — concept registry mvp planned
+**Current focus:** Phase 143.1 (Measurement and Eligibility Integrity) — corpus re-run in progress. Phase 146 (Empirical Instrument Tag Calibrator) completed 2026-07-17, live-verified, does not change 143.1's blocking status. Phase 160 (Concept Registry MVP) is already complete — the "next phase" heuristic incorrectly pointed here after Phase 146; correcting inline.
 
 **Next actions, in order:** (1) 143.1-07 finishes → 143.1-08 (shadow-mode sign-symmetric validation, E1-vs-E2 A/B re-run). (2) Phase 144's D-05 acceptance gate (`scripts/analysis/phase144_regime_separation_gate.py`) re-runs against the corrected corpus — no code changes needed, just the re-run. (3) FRAME-04 (`alpha_frames`/`CounterfactualTracker` gate) re-evaluates once 143.1-07 lands. (4) Phase 148 (Alpha Scoring System OOS Proof Gates) needs ≥60 trading days of closed `alpha_frames` plus the corrected 143.1 corpus before its gates can evaluate. (5) todo 092 (equity/cross-sectional regime-model threshold calibration) is the live-path IC-tail suspect worth prioritizing once the corpus clears.
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
@@ -49,6 +49,7 @@ See: .planning/PROJECT.md
 | 143 | Feature Lifecycle Routing (merged with 149B) | COMPLETE (3/3 plans) — `feature_registry` evidence-based promotion/demotion + `integrity_monitor` table live |
 | 143.1 | Measurement and Eligibility Integrity | IN PROGRESS (7/8 plans) — corpus re-run active, see "Current focus" above |
 | 144 | Cross-Sectional Regime Model (`regime_group`) | Code-complete (6/6 plans); header stays PLANNED until D-05's acceptance gate re-runs post-143.1 |
+| 146 | Empirical Instrument Tag Calibrator | COMPLETE (5/5 plans, 2026-07-17) — `TagCalibrator` live-verified: 11/12 measurable tags carry real `source='empirical'` rows |
 | 160 | Concept Registry MVP | COMPLETE (4/4 plans) — 4-table schema + `ConceptRegistryService`/`ConceptRegistryAPI`/`ConceptRegistryDashboard` live |
 | 161 | Controlled Vocabulary System | PLANNED, not started — fully unblocked, safe to plan now |
 
@@ -85,6 +86,6 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 ## Session
 
-**Last session:** 2026-07-17T00:27:03.044Z
-**Stopped At:** Phase 146 context gathered
-**Resume File:** .planning/phases/146-empirical-instrument-tag-calibrator-planned/146-CONTEXT.md
+**Last session:** 2026-07-17T09:11:43.443Z
+**Stopped At:** Phase 146 complete (5/5 plans), code-reviewed, live-verified (VERIFICATION.md: passed, 9/9)
+**Resume File:** none — phase closed; next active thread is 143.1's corpus re-run (see "Current focus" above)
