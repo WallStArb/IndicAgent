@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: Phase 143.1 (Measurement and Eligibility Integrity) in progress, corpus re-run running
-stopped_at: Phase 161 context gathered
-last_updated: "2026-07-16T23:31:54.182Z"
+stopped_at: Phase 146 context gathered
+last_updated: "2026-07-17T00:27:03.082Z"
 progress:
   total_phases: 12
   completed_phases: 6
@@ -85,6 +85,6 @@ ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 
 ## Session
 
-**Last session:** 2026-07-16T23:31:54.145Z
-**Stopped At:** Phase 161 context gathered
-**Resume File:** .planning/phases/161-controlled-vocabulary-system-planned/161-CONTEXT.md
+**Last session:** 2026-07-17T00:27:03.044Z
+**Stopped At:** Phase 146 context gathered
+**Resume File:** .planning/phases/146-empirical-instrument-tag-calibrator-planned/146-CONTEXT.md
