@@ -3253,7 +3253,7 @@ def main() -> None:
                         )
                         continue
 
-                    regime_list_conn = connect_db_from_url(settings.database_url)
+                    regime_list_conn = _connect_db(settings)
                     try:
                         with regime_list_conn.cursor() as cur:
                             cur.execute(
