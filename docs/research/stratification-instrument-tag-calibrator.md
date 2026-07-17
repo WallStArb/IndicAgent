@@ -726,3 +726,19 @@ alongside this calibrator's Phase 1 build — building the empirical machinery f
 confusion here into a real system rather than fixing it beforehand. Whatever this resolves to,
 update `docs/foundation/glossary.md` to match — the glossary isn't immutable; a category that
 fails scrutiny should be corrected there, not preserved because it's already documented.
+
+**Resolved 2026-07-16** (see `docs/research/fable-2026-07-16-tag-calibrator-taxonomy-review.md`,
+findings T2/T4/T5/T7, and `.planning/phases/146-empirical-instrument-tag-calibrator-planned/146-CONTEXT.md`):
+item 1 (`spread_leg`) is salvageable via a data migration + boundary test, not a new table (T5).
+Item 2 (`cycle_position`) closes via TAG-03's existing `measurement_type='definitional'`
+annotation rule — no further action. Item 3 (`macro_driver`/`sensitivity` redundancy) is real but
+confined to one pair: `credit_cycle`/`credit_risk` merge into `credit_risk` (T2); the categories
+otherwise stay separate labels over one shared measurement contract (T7). Item 4 (sector
+granularity) re-confirmed still absent and correctly out of this phase's scope. The review also
+found a bigger blocker this open question didn't anticipate — 3 of the original 8 factor series
+(VIX, USO, DXY) have zero usable live data — which forces a Wave 0 ahead of Phase 1's build; see
+the review and the 146-CONTEXT.md for the full factor-series resolution (concept-over-specific-
+proxy substitutions: UUP for dollar, FXI for china, HYG-IEF for credit, TIP-IEF for inflation,
+IEF-SHY for curve, the existing `breadth_vol.py` SPY-realized-vol proxy for `vol_beta` instead of
+VIX ingestion, and XLE-SPY long-short for `oil_beta` instead of the unavailable USO/CL — all 8
+original betas end up measurable, none need deferral).
