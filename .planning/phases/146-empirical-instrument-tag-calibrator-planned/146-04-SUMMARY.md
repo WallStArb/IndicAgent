@@ -98,3 +98,12 @@ None - no external service configuration required. Note: this plan does not wire
 ---
 *Phase: 146-empirical-instrument-tag-calibrator-planned*
 *Completed: 2026-07-17*
+
+## Self-Check: PASSED
+
+- FOUND: `services/tag_calibrator.py`
+- FOUND: `tests/unit/test_tag_calibrator.py`
+- FOUND: `.planning/phases/146-empirical-instrument-tag-calibrator-planned/146-04-SUMMARY.md`
+- FOUND commit: `cb0ffbb1` (Task 1: TagCalibrator feat commit)
+- FOUND commit: `6138681a` (Task 2: decision-logic tests commit)
+- FOUND commit: `72cb4b73` (this summary's docs commit)
