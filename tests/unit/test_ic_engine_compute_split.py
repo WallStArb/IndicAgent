@@ -20,7 +20,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.ic_engine import _compute_symbol_tf
+from services.ic_engine import _compute_cross_sectional_tf, _compute_symbol_tf
 
 
 def test_compute_symbol_tf_return_keys():
@@ -111,6 +111,56 @@ def test_write_ic_results_has_db_write_code():
 
     # commit() SHOULD be in _write_ic_results
     assert "conn.commit()" in source, "_write_ic_results must call conn.commit() for DB writes"
+
+
+def test_compute_cross_sectional_tf_takes_dsn_not_live_connection():
+    """_compute_cross_sectional_tf must take a dsn string, not a live connection
+    held across its whole call (todo 125, 2026-07-17).
+
+    Mirrors _compute_symbol_tf's todo-102 fix: the clustering + circular block
+    bootstrap resampling phase runs for hours with zero DB traffic. A connection
+    passed in and held open across that phase is architecturally the same defect
+    todo 102 fixed for the per-symbol path -- just never generalized to this
+    sibling function, which is why the 143.1-07 corpus re-run crashed twice at
+    the identical transition point (first cell finishes compute, next cell's
+    first query dies on the now-silently-dropped connection).
+    """
+    sig = inspect.signature(_compute_cross_sectional_tf)
+    params = list(sig.parameters.keys())
+    assert "dsn" in params, (
+        "_compute_cross_sectional_tf must accept 'dsn' (connection string) -- "
+        "not a live 'conn', which forces the caller to hold one connection open "
+        "across the entire multi-hour compute-only phase"
+    )
+    assert "conn" not in params, (
+        "_compute_cross_sectional_tf must not accept a live 'conn' parameter -- "
+        "it should open its own short-lived connection internally (todo 102 pattern)"
+    )
+
+
+def test_compute_cross_sectional_tf_closes_connection_before_clustering():
+    """The connection opened inside _compute_cross_sectional_tf must be closed
+    before the CPU-only clustering/bootstrap phase begins -- not held open across
+    it (todo 125, same pattern as _compute_symbol_tf's todo 102 fix).
+
+    Structural regression guard: fails if a future edit re-introduces a
+    long-held connection by moving the close() call after (or removing it
+    before) the first CPU-only compute call, _cluster_features(.
+    """
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    assert "conn.close()" in source, (
+        "_compute_cross_sectional_tf must close its own connection once the "
+        "fetch phase is done, before the clustering/bootstrap compute begins"
+    )
+
+    close_idx = source.index("conn.close()")
+    cluster_idx = source.index("_cluster_features(")
+    assert close_idx < cluster_idx, (
+        "conn.close() must appear before the first CPU-only compute call "
+        "(_cluster_features) -- the connection must not be held open across "
+        "the multi-hour clustering/bootstrap phase"
+    )
 
 
 def test_run_ic_worker_return_keys():

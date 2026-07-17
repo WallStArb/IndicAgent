@@ -1567,7 +1567,7 @@ def _cross_sectional_vol_normalized_target(
 
 
 def _compute_cross_sectional_tf(
-    conn: Any,
+    dsn: str,
     tf: str,
     regime_label: str,
     regime_group: str,
@@ -1597,6 +1597,18 @@ def _compute_cross_sectional_tf(
 
     No DB writes — returns (all_results, stats_dict). Writes happen serially in main
     process via _write_cross_sectional_results.
+
+    dsn: connection string, not a live connection (todo 125, 2026-07-17). This function
+    opens one short-lived connection internally for the e-value/regime-timestamp
+    prefetch and the chunked feature/return fetch, then closes it before the
+    clustering + circular block bootstrap resampling phase -- which routinely runs for
+    hours with zero DB traffic. Same defect and same fix as _compute_symbol_tf's
+    todo-102 fix (2026-07-12), just never generalized to this sibling function: the
+    143.1-07 corpus re-run crashed twice at the identical transition point (one cell
+    finishes its multi-hour compute, the next cell's first query dies on
+    "server closed the connection unexpectedly" -- the connection sat idle across the
+    whole compute phase and was silently killed at some point before the code returned
+    to use it again).
 
     The result is stored with symbol=_CROSS_SECTIONAL_SYMBOL ('POOLED'), is_pooled=True,
     regime=regime_label (actual label, not '_pooled' sentinel). regime_group is NOT
@@ -1641,6 +1653,18 @@ def _compute_cross_sectional_tf(
             n_cells=len(all_cells_for_regime),
         )
         return [], {"n_committed": 0, "n_skipped": len(all_cells_for_regime)}
+
+    # Short-lived fetch connection (todo 125, 2026-07-17) -- opened here, closed as
+    # soon as the chunked feature/return fetch below completes. It must not stay open
+    # across the clustering/bootstrap loop that follows (see dsn note in the
+    # docstring). Session tuning for the large cross-sectional join (disable parallel
+    # workers, raise work_mem) is per-connection, so it's applied fresh here rather
+    # than once on a long-lived caller connection as before.
+    conn = connect_db_from_url(dsn)
+    with conn.cursor() as tune_cur:
+        tune_cur.execute("SET max_parallel_workers_per_gather = 0")
+        tune_cur.execute("SET work_mem = '256MB'")
+    conn.commit()
 
     # e-value pilot (Component C, todo 079): tf=5m POOLED cross-sectional cells ONLY
     # (_e_value_pilot_active gate) -- fetch this cell's prior cumulative_e_value per
@@ -1703,6 +1727,7 @@ def _compute_cross_sectional_tf(
     conn.commit()
 
     if not regime_timestamps:
+        conn.close()
         _logger.info(
             "ic_engine.cross_sectional_no_data",
             tf=tf,
@@ -1784,6 +1809,11 @@ def _compute_cross_sectional_tf(
                 cmp_chunk[i, j] = bool(row[1 + n_features + n_scales + j])
         ret_chunks.append(ret_chunk)
         cmp_chunks.append(cmp_chunk)
+
+    # Fetch phase is done -- close this connection now rather than holding it idle
+    # across the clustering/bootstrap loop below (todo 125 fix; see dsn note in the
+    # docstring). No further DB access happens in this function after this point.
+    conn.close()
 
     X_raw = X_acc.finalize()
     if X_raw is None:
@@ -3205,69 +3235,67 @@ def main() -> None:
                     if g is not None:
                         symbols_by_group.setdefault(g, []).append(sym)
 
-                cs_conn = _connect_db(settings)
-                try:
-                    # Tune session for the large cross-sectional join:
-                    # disable parallel workers (they contend for shared memory segments)
-                    # and raise work_mem to reduce disk spill on the 54M-row hash join
-                    with cs_conn.cursor() as cur:
-                        cur.execute("SET max_parallel_workers_per_gather = 0")
-                        cur.execute("SET work_mem = '256MB'")
-                    cs_conn.commit()
+                # No long-lived connection here (todo 125, 2026-07-17): each cell in the
+                # loop below now opens its own short-lived connection inside
+                # _compute_cross_sectional_tf, closed before its multi-hour compute-only
+                # phase. Holding one connection open across this entire nested loop (as
+                # before) meant it sat idle for hours at a time and was silently killed
+                # mid-pass -- the exact cause of the 143.1-07 corpus re-run's repeated
+                # "server closed the connection unexpectedly" crash.
+                for group in enabled_groups:
+                    group_name = group["name"]
+                    group_symbols = symbols_by_group.get(group_name, [])
+                    if not group_symbols:
+                        _logger.info(
+                            "ic_engine.cross_sectional_group_skipped",
+                            regime_group=group_name,
+                            reason="no peer symbols in this run's symbol set",
+                        )
+                        continue
 
-                    for group in enabled_groups:
-                        group_name = group["name"]
-                        group_symbols = symbols_by_group.get(group_name, [])
-                        if not group_symbols:
-                            _logger.info(
-                                "ic_engine.cross_sectional_group_skipped",
-                                regime_group=group_name,
-                                reason="no peer symbols in this run's symbol set",
-                            )
-                            continue
-
-                        with cs_conn.cursor() as cur:
+                    regime_list_conn = connect_db_from_url(settings.database_url)
+                    try:
+                        with regime_list_conn.cursor() as cur:
                             cur.execute(
                                 "SELECT DISTINCT regime_label FROM market_regimes "
                                 "WHERE regime_group=%s AND tf=%s ORDER BY regime_label",
                                 (group_name, tfs[0]),
                             )
                             cs_regimes = [r[0] for r in cur.fetchall()]
-                        # Commit to exit idle-in-transaction state before the expensive queries
-                        cs_conn.commit()
+                        regime_list_conn.commit()
+                    finally:
+                        regime_list_conn.close()
 
-                        for tf in tfs:
-                            for regime_label in cs_regimes:
-                                cs_rows, cs_stats = _compute_cross_sectional_tf(
-                                    conn=cs_conn,
-                                    tf=tf,
-                                    regime_label=regime_label,
-                                    regime_group=group_name,
-                                    symbol_list=group_symbols,
-                                    training_window_end=training_window_end,
-                                    existing_keys=existing_keys_frozen,
-                                    config=config,
-                                    tracer=tracer,
-                                    run_ts=run_ts,
-                                    rng=cs_rng,
-                                    feature_status_map=feature_status_map,
-                                )
-                                # Accumulate with offset into corpus_cs_rows.
-                                offset = len(corpus_cs_rows)
-                                for idx in cs_stats.get("pval_result_idxs", []):
-                                    corpus_cs_pval_result_idxs.append(offset + idx)
-                                corpus_cs_pvals_flat.extend(cs_stats.get("pvals_flat", []))
-                                corpus_cs_rows.extend(cs_rows)
-                                total_skipped += cs_stats.get("n_skipped", 0)
-                                _logger.info(
-                                    "ic_engine.cross_sectional_computed",
-                                    regime_group=group_name,
-                                    tf=tf,
-                                    regime=regime_label,
-                                    n_rows=len(cs_rows),
-                                )
-                finally:
-                    cs_conn.close()
+                    for tf in tfs:
+                        for regime_label in cs_regimes:
+                            cs_rows, cs_stats = _compute_cross_sectional_tf(
+                                dsn=settings.database_url,
+                                tf=tf,
+                                regime_label=regime_label,
+                                regime_group=group_name,
+                                symbol_list=group_symbols,
+                                training_window_end=training_window_end,
+                                existing_keys=existing_keys_frozen,
+                                config=config,
+                                tracer=tracer,
+                                run_ts=run_ts,
+                                rng=cs_rng,
+                                feature_status_map=feature_status_map,
+                            )
+                            # Accumulate with offset into corpus_cs_rows.
+                            offset = len(corpus_cs_rows)
+                            for idx in cs_stats.get("pval_result_idxs", []):
+                                corpus_cs_pval_result_idxs.append(offset + idx)
+                            corpus_cs_pvals_flat.extend(cs_stats.get("pvals_flat", []))
+                            corpus_cs_rows.extend(cs_rows)
+                            total_skipped += cs_stats.get("n_skipped", 0)
+                            _logger.info(
+                                "ic_engine.cross_sectional_computed",
+                                regime_group=group_name,
+                                tf=tf,
+                                regime=regime_label,
+                                n_rows=len(cs_rows),
+                            )
 
             # ----------------------------------------------------------
             # Corpus-level BH-FDR (P2 fix).
