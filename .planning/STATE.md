@@ -4,7 +4,7 @@ milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: Phase 143.1 (Measurement and Eligibility Integrity) in progress, corpus re-run running
 stopped_at: Phase 146 context gathered
-last_updated: "2026-07-17T01:42:01.516Z"
+last_updated: "2026-07-17T02:38:42.868Z"
 progress:
   total_phases: 12
   completed_phases: 6
