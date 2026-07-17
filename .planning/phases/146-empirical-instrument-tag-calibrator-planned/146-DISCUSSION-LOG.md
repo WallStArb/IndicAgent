@@ -87,6 +87,27 @@ left disagreeing about the vol/oil resolution.
 
 ---
 
+## Tech/semi — engine-general vs. seed-specific
+
+**User's question:** "do we need to add more/different beta categories? tech/semi?"
+
+Checked: `semi_cycle` (SMH) already exists as a live, assigned macro_driver tag and was already
+in Phase 1's scope (D-05, "free" under the full-matrix loop) — nothing to add. A broader `tech_beta`
+was technically viable (QQQ 5,036 bars, XLK 5,034 bars, both solid) but recommended against
+adding: no live tag, no consumer trigger, and it would be the first of a GICS-sector-style
+expansion this project's Classification Hierarchy (deferred) is meant to eventually own, not
+Tag Calibrator.
+
+**User's clarification, restating the founding concept:** "the original concept was to have a way
+to calibrate the sensitivities to multiple stratifications of exposure" — confirming Tag
+Calibrator's actual mission is a general-purpose calibration *engine*, not a fixed list of ~10
+betas. This matches the design doc's existing F8 "Simons inversion" architecture exactly (unchanged
+by this discussion) — the initial primitives are a seed set the engine ships with, not its
+ceiling. Locked as D-12: the mechanism (`TagCalibrator`/`factor_math.py`) must be generic over
+`(symbol, factor_series, measurement_type)`, but this phase does not proactively seed
+stratifications beyond what's already live — a real future need (tech or otherwise) costs one
+`tag_vocabulary` row when it actually arrives, not anticipatory scaffolding now.
+
 ## Claude's Discretion
 
 - Exact migration numbers, `TagCalibrator`/`factor_math.py` method signatures, APR key names.

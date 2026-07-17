@@ -6,6 +6,20 @@
 <domain>
 ## Phase Boundary
 
+**The founding concept, restated explicitly (2026-07-16, confirmed by the project owner):** this
+phase is not "compute these 10 specific betas" — it is a **general-purpose calibration engine for
+measuring an instrument's sensitivity to multiple stratifications of exposure**, where the
+current ~10 factor primitives (equity, rate, curve, credit, gold, dollar, china, inflation, vol,
+oil, plus free-rider em_flows/semi_cycle/yen_carry) are the *initial seed set* the engine ships
+with, not its ceiling. This framing is not new scope — it is exactly what the design doc's F8
+"Simons inversion" (full-matrix OLS loop: measure every instrument against every registered
+`factor_series` value, derive tags from the results, never hand-pick which pairs get tested)
+already architects, unchanged by this discussion. The deliverable of Wave 1 is the engine plus its
+initial seed set, not a fixed list — adding a genuinely new stratification later (tech, a GICS
+sector, a factor style) costs one `tag_vocabulary` row with a `factor_series` value, zero new code
+or schema, the same namespace-keyed extensibility principle established in Phase 161's Controlled
+Vocabulary discussion. See D-12 below for what this does and does not license.
+
 Build the `TagAuditor`/`TagCalibrator` empirical calibration system that replaces manually-asserted
 instrument tags with measured OLS factor betas (nightly batch), per ROADMAP Phase 146's TAG-01/02/03
 requirements. This phase's design was already extensively reviewed (2026-07-06 Fable pass, F1-F9,
@@ -133,6 +147,21 @@ The 3-wave shape otherwise survives unchanged.
   `market_data_ohlcv_tradeable`, not raw `market_data_ohlcv` (this project's tradeable-boundary
   rule, which postdates the design doc). Real daily bars all have `volume > 0`, so this is safe
   without a boundary-test allow-list entry.
+
+### Engine-general, seed-specific — what "multiple stratifications of exposure" does and does not license
+- **D-12:** The phase's mission is a general calibration engine (D-domain-boundary above), which
+  means the *mechanism* must not hard-code assumptions specific to the ~10 initial primitives —
+  `TagCalibrator`/`factor_math.py` should take `(symbol, factor_series, measurement_type)` from
+  `tag_vocabulary` generically, the same loop regardless of what the tag represents. It does
+  **not** mean this phase should proactively seed additional stratifications (tech, GICS sectors,
+  factor styles) beyond what's already live today. Applied directly to the tech/semi question this
+  discussion raised: `semi_cycle` (SMH) stays in scope because it already exists as a real,
+  assigned tag; a broader `tech_beta` (viable data-wise via `XLK`-`SPY` long-short, same recipe as
+  `oil_beta`) is deliberately **not** added — no live tag, no consumer, no trigger, and adding it
+  would be the first of what should logically become one per GICS sector if applied consistently,
+  which is exactly the scope Classification Hierarchy (deferred, gated on the individual-equities
+  milestone) exists to eventually own. The engine supports it cheaply whenever a real need shows
+  up; this phase does not need to anticipate that need.
 
 ### Claude's Discretion
 - Exact migration numbers, `TagCalibrator`/`factor_math.py` method signatures, APR key names
