@@ -53,9 +53,11 @@ passed" removes a blocker, it doesn't promote the idea to HIGH value.
 1. **Phase 143.1** — *in progress* (143.1-07 re-run, ETA ~2026-07-14). Not in the matrix (it's a
    measurement-integrity fix, not a discretionary idea) but everything below either inherits its
    corrected evidence or is blocked on it directly.
+
 2. **Phase 144 (`regime_group`)** — matrix's only HIGH-tier phase, marked **Foundational**
    (Cross-Group Lead-Lag IC and PrecedentEngine both need the peer groups it produces). Code
    complete (6/6 plans); blocked only on 143.1's verdict script, not on further design work.
+
 3. **MEDIUM tier, in the matrix's own reward order** — tag taxonomy audit and HMM regime
    remainder (both batch into Phase 144, travel with it) → **Phase 148** (Reward: "High,
    eventual" — the actual OOS retirement gate, currently failing FRAME-04 16/17 cells pre-fix,
@@ -68,11 +70,13 @@ passed" removes a blocker, it doesn't promote the idea to HIGH value.
    unevaluated CORPUS-07 gate — not near-term actionable) → **Phase 161 Controlled Vocabulary**
    (Low reward, behind Concept Registry) → **Phases 152-153 IntegrityMonitor** (High long-run,
    low now — insurance; explicitly must not jump ahead of 144/148).
+
 4. **LOW tier — correctly parked:** **Phase 149-150 PrecedentEngine** (Speculative/XL/High-risk —
    needs its own cheap pilot step before any full build, regardless of what Phase 148's gates
    say) and **Phase 155 Alternative Data Vectors** (Med reward, "not actionable — no data source
    chosen"), alongside non-phase LOW items (session/skew/factor regime variants, HMM variant
    redesigns).
+
 5. **Phases 156-159 (v4.0 Execution Layer) — not in the matrix at all** (numbered 2026-07-12,
    after the matrix's 2026-07-08 writing date). Gap, not a verdict: file a todo to get these
    scored rather than assuming their hard v3.2 dependency gate also means low value — those are
@@ -81,23 +85,28 @@ passed" removes a blocker, it doesn't promote the idea to HIGH value.
 **Musk 5-Step + Renaissance framing (2026-07-13)** — applying CLAUDE.md's mandated design lens
 explicitly to this list, in order (full parallel pass for `pending/`/`deferred/` todos:
 `.planning/todos/PRIORITIES.md`):
+
 - **1. Requirements less dumb:** Phase 151 already went through this — its ≤50-cap,
   theory-motivated-hypothesis design was chosen specifically *over* the combinatorial
   Interaction Factory (deferred todo 019) because ~30K ungated candidates fails BH-FDR power
   at any threshold. That's the Renaissance "empirical over theoretical" test applied at design
   time, not bolted on after.
+
 - **2. Delete:** deferred todo 019 (Interaction Factory) and deferred todo 021 (AnalogEngine,
   closed 2026-07-13 as a Phase 149/150 duplicate) are the phase-adjacent deletions this pass
   found — both were superseded designs still sitting open instead of closed. No live phase
   itself is a delete candidate today; all planned phases trace to either a proof gate (147/148)
   or a named dependent (144→145/149).
+
 - **3. Simplify:** Phase 151's own ≤50-interaction cap *is* the simplify step already applied —
   worth naming explicitly since it's easy to mistake for a scope limitation rather than a
   deliberate rejection of a larger, statistically-invalid design.
+
 - **4. Accelerate:** the priority list above (143.1 → 144 → 148 → ...) already is this step —
   don't re-derive it; this framing pass doesn't change the ordering, it explains *why* 149-150
   correctly isn't at the top despite being the most narratively exciting phase (Renaissance:
   reward is scored against evidence, not the idea's own ambition).
+
 - **5. Automate:** not yet applicable at the phase level — nothing here is a proven-manual,
   repeated process yet. Revisit once Phase 148's gate-evaluation scripts (SCORE-02/03) have run
   enough times to show what's worth automating versus what still needs a human call.
@@ -904,25 +913,30 @@ Sits immediately after its own trigger phase; does not block or get blocked by a
 jump ahead of Phase 144/148.
 
 **Design:**
+
 - Full task-by-task implementation plan already written: `docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`.
 - Seed `ic_proportional` as the `active` incumbent, E1 (shrunk-IC)/E2 (mean-variance) as
   evaluated-mechanism `candidate` rows, E3/E4 as thesis-only `candidate` rows.
+
 - Names `ops_ensemble_weight_compare.py`'s win-decision gate as the sole deterministic
   status-flipper (invariant 1); `baseline_metric` stores the mean of `min_promotion_consecutive`
   evaluations as a winner's-curse guard; per-stratum status resolved as recipe-validity (status)
   vs. deployment-as-fact (`ensemble_weights`), `redundancy_group` displacement disabled for this
   domain.
+
 - Canonical doc: `docs/research/concept-unified-registry.md`. Priority context:
   `.planning/todos/pending/112-concept-registry.md`, `docs/research/intelligence-lifecycle-backlog-matrix.md`
   (MEDIUM tier — Effort M, Risk Low, Reward Low-now/Med-long-run).
 
 **Plans:** 4 plans in 3 waves (planned 2026-07-14 from `docs/plans/2026-07-13-concept-registry-mvp-implementation-plan.md`):
+
 - [x] 160-01-PLAN.md — migrations 233 (schema + APR gate keys) + 234 (seed domain='ensemble_strategy') [wave 1] ✅ COMPLETE
 - [x] 160-02-PLAN.md — ConceptRegistryService pure decision core + transactional CAS apply [wave 1] ✅ COMPLETE
 - [x] 160-03-PLAN.md — wire ops_ensemble_weight_compare.py win-decision gate to the service (invariant 1) [wave 2] ✅ COMPLETE
 - [x] 160-04-PLAN.md — design-doc sync, file domain='feature' follow-on todo, close todo 112, merge [wave 2] ✅ COMPLETE
 
 **Execution Summary:**
+
 - Wave 1 (migrations + service): Migration 233 built 4-table MVP schema (concept_registry/gate/transition_log/annotation) with APR gate keys; Migration 234 seeded ensemble_strategy domain with 5 E-variants (ic_proportional as active incumbent, E1-E4 as candidates). ConceptRegistryService implemented transactional CAS promotion with pure comparison-decision core.
 - Wave 2 (API + dashboard): ops_ensemble_weight_compare.py wired to ConceptRegistryService enforcing invariant 1 (sole deterministic status-flipper for ensemble_strategy domain). Documentation synchronized, invariant-6 ensemble_strategy exception recorded, todo 112 closed.
 - All 40 unit tests pass (20 ensemble_weight_compare + 20 concept_registry_service).
@@ -952,18 +966,26 @@ matrix: no incident has yet demonstrated the cost of not having this, unlike Con
 F1 near-miss).
 
 **Design:**
+
 - Canonical doc: `docs/research/concept-controlled-vocabulary.md`. First consumer: dashboard
   signal filter dropdowns (per Phase 135's original scope, unchanged).
+
 - Open question, not resolved here: whether `tag_vocabulary` (live, 71 tags, migrations 227/228)
   should be generalized/subsumed by this system or genuinely needs to stay separate — see
   `.planning/todos/pending/110-controlled-vocabulary.md`.
+
 - Priority context: `docs/research/intelligence-lifecycle-backlog-matrix.md` (MEDIUM
   tier — Effort M, Risk Low, Reward Low).
 
 **Plans:** 4 plans (2 waves) — backend-only (schema/service/drift/API; no dashboard this phase).
 Plans:
+**Wave 1**
+
 - [ ] 161-01-PLAN.md — Wave 1: 3-table schema (migration 237) + seed 6 namespaces & groups (migration 238)
 - [ ] 161-02-PLAN.md — Wave 1: VocabularyService (ConfigService-shaped cache) + three-way ENUM divergence check
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 161-03-PLAN.md — Wave 2: column-backed drift audit module + oneshot CLI, chained into corpus pipeline
 - [ ] 161-04-PLAN.md — Wave 2: /api/vocabulary/{namespace} FastAPI route + main.py registration
 
@@ -1215,6 +1237,7 @@ Related, not gated on this phase:
 **Plans:** 6/8 plans executed
 
 Plans:
+
 - [x] 143.1-01-PLAN.md — Component A: Fisher-z→circular-block-bootstrap CI (ic_math + 3 ic_engine call sites, APR reactivation, staged-validation gate) [Wave 1]
 - [x] 143.1-02-PLAN.md — Component D: canary predictors (real FeatureVector fields, migration, loud integrity assertion) [Wave 1]
 - [x] 143.1-03-PLAN.md — Component F: vol-normalized POOLED return target, explicit A/B [Wave 2]
@@ -1368,6 +1391,7 @@ unrelated in-flight corpus rebuild (todo 102). `144-06` shipped the gate script
 detected the block via a live query rather than assuming — no measurement ran, no falsifier
 verdict (keep/demote/challenger) recorded yet. Re-run the script once 143.1-07 completes; no
 further code changes needed. Header stays 📋 PLANNED until that verdict lands.
+
 - [x] 144-01-PLAN.md — Wave 1: migration 229 (asset_class→regime_group + APR seed) + glossary entry
 - [x] 144-02-PLAN.md — Wave 1: breadth_vol (causal-rank port) + curve_credit signal modules + _tf_window helper
 - [x] 144-03-PLAN.md — Wave 1: commodity_momentum_ts + fx_dollar_carry signal modules (ship disabled)
@@ -1392,8 +1416,10 @@ re-run in progress as of 2026-07-13). Do not plan this phase before that verdict
 informed by whether `regime_group` actually worked empirically, not planned blind ahead of it.
 
 **Design:**
+
 - Canonical doc: `docs/research/stratification-dimension-unification.md` ("Formalization revival
   note"). Umbrella: `docs/research/stratification-governance-registries.md`.
+
 - Priority context: `.planning/todos/pending/111-stratification-classification.md`,
   `docs/research/intelligence-lifecycle-backlog-matrix.md` (not independently
   scoreable yet — same gate every regime-candidate row on that page already respects).
@@ -1533,6 +1559,7 @@ prerequisite, not just a nice-to-have).
 - Feature Registry entry required at registration: `tier='1_interaction'`, `parent_features=[]`, hypothesis text in `formula_short`. Auto-deprecation if IC gate not passed within `alpha.feature_registry.demotion_periods` IC runs.
 
 **Calendar primitive candidates (Fable-reviewed 2026-07-13, todo 104 CLOSED, full doctrine, inventory, and test design: `docs/research/signal-temporal-atomic-primitives.md`):**
+
 - **Atomic candidates (tier 0, coordinates only):** `quarter_cycle_sin/cos` (first circular harmonic of `quarter_position`, supersedes the earlier "month-of-quarter sin/cos" idea, which was a coarser quantization of the same period; primary instrument for the within-quarter seasonality hypothesis, well-powered since every bar contributes within-quarter contrast across ~80 quarter-episodes), `tdom_sin/cos` (trading-day-of-month, turn-of-month anomaly, control against `day_of_month_sin/cos`), `minute_of_hour_sin/cos` (round-time execution clustering at 5m/15m).
 - **Tier-1 event-flag candidates (NOT atomic, since a binary flag selects a point in a cycle, which is a hypothesis, so it belongs in the interaction pool, not tier 0):** `opex_flag` (monthly, `dow==Friday AND week_of_month==3`, ~240 episodes, marginally powered) and `quad_witching_flag` (`opex_flag AND month mod 3==0`, ~80 episodes, underpowered ~2-5x for documented 5-20bps effect sizes at fixed-alpha; use the 143.1-06 e-process to accrue evidence across future episodes instead of re-testing annually). Splitting monthly from quarterly is the test design: `opex_flag` isolates expiration mechanics (fires every month, orthogonal to quarter phase); `quad_witching_flag` tests whether quarterly amplification adds anything beyond that.
 - **Interaction candidate (unchanged):** `quarter_position × <existing atomic>`, theses: dealer gamma-hedging unwind, quarter-end window dressing, earnings-season drift. Reuses todo 037's partial-IC methodology.
@@ -1572,6 +1599,7 @@ routing for these symbols is Phase 144's job, unaffected by this removal.
 **Requirements:**
 
 **ALTDATA-01 — Two-shape ingestion, chosen by cadence (updated 2026-07-12, todo 063; supersedes the original single `alt_feature_vectors` table design, rejected by the 2026-07-06 Fable review of `docs/research/data-alt-data-sources.md` — a single grab-bag table has no honest primary key across bar-cadence and event-cadence sources):**
+
 1. **Bar-cadence sources (flows):** dense sibling table per source family, keyed `(symbol, tf, bar_ts)` — e.g. `flow_vectors` — written by its own dedicated `BaseWriter` (one writer per table, DAG invariant 3), joined by `ic_engine` on the bar key exactly as `forward_returns` is today.
 2. **Sub-bar-cadence sources (fundamentals snapshots, Kalshi snapshots, materialized qualitative scores):** extend the live `context_features` pattern — long/narrow `(feature_date, feature_name, symbol)` key, `source` check constraint extended, effective-date contract (`published_at`/`received_at` → materialized `effective_ts` = first bar open strictly after both) enforced at write. Event-driven sources keep an immutable raw event table upstream as audit trail; the narrow table is the measurement surface.
 
@@ -1607,6 +1635,7 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-r
 **Depends on:** v3.2 complete (milestone hard prerequisite above); `alpha_events` schema frozen.
 
 **Design:**
+
 - `PortfolioStateWriter` (or similar — name per `docs/foundation/naming-system.md`'s role-noun conventions once this gets planned) is the sole writer to a `portfolio_state` table, updated on every fill (from Phase 158 once it exists) and on a regular tick otherwise (open positions don't change every bar, but unrealized P&L and correlation exposure do). Matches this project's existing DAG invariant pattern (`market_regimes`, `feature_registry`): one writer, many readers, compute ≠ persistence.
 - **State this entity must carry:** open positions (symbol, size, entry, unrealized P&L, entry regime label); aggregate exposure by correlation cluster (reuses whatever comes out of todo 072/076's crowding and correlation-regime work — a portfolio that's already concentrated in one correlation cluster needs to know that before sizing the next position in it, not after); capital utilization; realized drawdown-to-date; a rolling realized-return series per symbol (the input to Phase 157's covariance estimation, computed here since it's portfolio state, not a sizing-time calculation).
 - **Why this has to exist before Phase 157, not be inlined into it:** Phase 153's EnsembleHealthMonitor should gate on portfolio-level health (aggregate drawdown, concentration), not just per-ensemble IC health — it needs a `portfolio_state` to read, the same way it reads `alpha_ensemble_ic`. A kill switch that only sees per-symbol signals cannot detect "we're fine on every individual position but the whole book is one correlated bet" — that is precisely a portfolio-state fact, not a per-security one.
@@ -1621,6 +1650,7 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-r
 **Depends on:** Phase 156 (`portfolio_state` must exist and be populated).
 
 **Design:**
+
 - Portfolio Kelly using Ledoit-Wolf covariance on the realized daily return series `portfolio_state` maintains (NOT the EnsembleBuilder covariance). This distinction is load-bearing: EnsembleBuilder's LW covariance is estimated in feature-IC space to decorrelate ensemble feature weights. Portfolio Kelly requires covariance in return space. These are different matrices applied to different vectors; conflating them produces wrong position sizes with no error signal. A separate `ReturnCovarianceEstimator` applies LW shrinkage to `portfolio_state`'s return matrix (reusing the same LW machinery as EnsembleBuilder, but on a different input). `weights ∝ Sigma_return^-1 × mu` where `mu` is the vector of `net_expected_r` per open position.
 - Single-instrument Kelly (`kelly_fraction × E[R]_net / garch_vol`) applied independently to correlated positions overstates diversification — 58+ equity ETFs all load on common SPY/sector factors, and independent sizing treats them as uncorrelated when they are not. Portfolio Kelly, reading `portfolio_state`'s current correlation-cluster exposure, allocates less to positions that move together *and already have exposure sitting in the book* — a check that's impossible without Phase 156's persisted state. Use **fractional Kelly** (APR-configurable fraction, not full Kelly) — full Kelly is not robust to model uncertainty in the estimated edge, and this system's edge estimates carry real estimation error (see the 143.1 corpus-wide measurement bugs found and fixed this milestone).
 - Minimum position notional filter. Max portfolio VaR ceiling (95% historical simulation, computed against `portfolio_state`). Per-symbol drawdown limits. Regime-conditioned position caps (tighter sizing in regimes where `market_regimes`/HMM labels show historically higher realized vol or lower hit rate).
@@ -1635,6 +1665,7 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-r
 **Depends on:** Phase 157 (needs real position sizes to route).
 
 **Design:**
+
 - IBKR market order routing at T+1 open. Fill model: `expected_fill = open × (1 + slippage)`. No-fill handler (timeout → cancel + log). `trade_executions` table for actual fills — feeds Phase 156's `PortfolioStateWriter` on every fill.
 - **Broker connection resilience (added 2026-07-12 — not in the original prose, and there is no existing concept doc for this at all):** reconnect/resume logic that survives IBC's known 11:59pm nightly auto-restart (already documented as killing in-flight `ib_insync` connections during historical backfills — same failure mode will hit live order sessions unless explicitly handled) and general connection-loss recovery (partial-fill handling across a dropped/reconnected session, idempotent order-state reconciliation on reconnect so a retry can't double-submit). `src/providers/ibkr.py` is the sole `ib_insync` boundary per CLAUDE.md — this resilience layer belongs there, not duplicated per consumer.
 - Single point of failure today: this is the first phase in the whole system where a connectivity gap has a direct capital consequence (a missed exit, not just a stale measurement) — design and test the reconnect path before any live capital flows through it, not after an incident.
@@ -1648,6 +1679,7 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-r
 **Depends on:** Phase 158 (needs real fills to regress against).
 
 **Design:**
+
 - `ActualSlippageWriter` (daily oneshot) regresses realized slippage vs. expected per (symbol, TF, time_of_day). Updates `alpha.cost.slippage_r` APR key. Closes the loop against the v3-side cost artifacts: the calibrated `alpha.quant.cost_hurdle.*` keys (todo 030, closed in 141.1) and the shared cost kernel + net-of-cost reporting (Phase 142B, canonical-simulator binding rule) — this is where fill-calibrated costs finally replace the externally-calibrated estimates.
 - Execution scoring: compare `actual_pnl_r` vs. `counterfactual_pnl_r`. Execution quality measured independently of signal quality — a bad fill shouldn't be blamed on the signal, and a bad signal shouldn't be hidden by a lucky fill.
 - Emission thresholds (`alpha_score` floor where `E[R]_net > cost`) are set here, not in the intelligence engine. The intelligence engine emits all signals above a statistical significance gate; this phase decides what to act on based on net expected value after real, calibrated costs.
