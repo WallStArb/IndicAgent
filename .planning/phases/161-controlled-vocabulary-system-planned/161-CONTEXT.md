@@ -7,33 +7,48 @@
 ## Phase Boundary
 
 Build the three-table Controlled Vocabulary core infrastructure (`controlled_vocabulary` /
-`vocabulary_group` / `vocabulary_group_member`) and `VocabularyService`, seeding exactly the
-**five live namespaces** the canonical design doc's Staging section scopes as the core build:
-`regime_hmm`, `regime_cross_sectional`, `timeframe`, `asset_class`, `tier`. Wire the
-column-backed drift audit into an existing auditor daemon (not a new service) and ship a
-`/api/vocabulary/{namespace}` endpoint. Archived-SLA namespaces (`signal_outcome`, `entry_type`,
-`signal_status`, `session_type`) are explicitly deferred per the design doc's own "on demand
-later" staging — not part of this build.
+`vocabulary_group` / `vocabulary_group_member`) and `VocabularyService`, seeding **six live
+namespaces** (revised from five — see D-01/D-04, `regime_cross_sectional` splits into two):
+`regime_hmm`, `regime_cross_sectional_equity`, `regime_cross_sectional_rates`, `timeframe`,
+`asset_class`, `tier`. Ship the column-backed drift audit as an importable module + oneshot CLI
+(revised from "an existing auditor daemon" — see D-09, every candidate auditor is verifiably
+dead) and a `/api/vocabulary/{namespace}` endpoint. Archived-SLA namespaces (`signal_outcome`,
+`entry_type`, `signal_status`, `session_type`) are explicitly deferred per the design doc's own
+"on demand later" staging — not part of this build.
 
 This phase's design is fully decided going in: a 2026-07-06 Fable 5 review pass already
 inverted the staging order, redesigned the divergence check, and ran the doc through CLAUDE.md's
 four design-gate questions with a "build-ready" verdict. Discussion for this phase surfaced two
 scope questions the design doc leaves genuinely open (tag_vocabulary's relationship to this
-system, and the drift-audit's host daemon) plus a substantial architecture discussion about
-reuse/extensibility that resolved with strong support from existing research — none of it
-reopens the schema shape, staging order, or namespace list, which stay locked as designed.
+system, and the drift-audit's host daemon), a substantial architecture discussion about
+reuse/extensibility, and — during the plan-phase research pass — two further open questions a
+second Fable review resolved (`docs/research/fable-2026-07-16-controlled-vocabulary-open-questions-review.md`,
+findings V1-V5): the live `regime_cross_sectional` column actually carries two distinct taxonomies
+sharing one column (equity + rates), and no auditor-family systemd unit is currently running on
+this host, so the drift audit ships as a module + oneshot rather than riding a "live" daemon that
+turned out not to be live. None of this reopens the schema shape or staging order, which stay
+locked as designed.
 
 </domain>
 
 <decisions>
 ## Implementation Decisions
 
-### Scope: exactly the 5 live core namespaces, nothing archived
-- **D-01:** Seed only `regime_hmm`, `regime_cross_sectional`, `timeframe`, `asset_class`, `tier`
-  in this build, per the design doc's "Core infrastructure (one build)" staging section.
-  `signal_outcome`/`entry_type`/`signal_status` (archived SLA-adjacent PG ENUMs) and
-  `session_type` (no live column) stay "on demand later" — seeding archived vocabularies before
-  a live consumer exists is inventory nobody consumes.
+### Scope: exactly the 6 live core namespaces, nothing archived
+- **D-01 (revised 2026-07-16 per Fable review V1):** Seed `regime_hmm`,
+  `regime_cross_sectional_equity`, `regime_cross_sectional_rates`, `timeframe`, `asset_class`,
+  `tier` — six namespaces, not five. `regime_cross_sectional` splits into two: live verification
+  found `market_regimes.regime_label` actually carries 15 distinct values across two independent
+  `regime_group` taxonomies (`equity`: 9 labels, `rates`: 6 labels, a completely different
+  curve-shape × width shape) sharing one column. One 15-code namespace would violate this
+  project's Label Identity Invariant (a label is only meaningful paired with its dimension —
+  `stratification-dimension-unification.md`) and recreate the exact pre-141.1
+  `feature_ic_scores.regime` mixing bug inside the registry meant to prevent it. Prefer explicit
+  `_equity`/`_rates` suffixes over an implicit bare `regime_cross_sectional` = equity — renaming
+  is free today (zero consumers exist), expensive later. `signal_outcome`/`entry_type`/
+  `signal_status` (archived SLA-adjacent PG ENUMs) and `session_type` (no live column) stay "on
+  demand later" — seeding archived vocabularies before a live consumer exists is inventory nobody
+  consumes.
 
 ### tag_vocabulary: explicitly OUT of scope, decided not deferred
 - **D-02:** Do **not** fold `tag_vocabulary`/`instrument_tags` (live, 71 tags, migrations
@@ -67,14 +82,45 @@ reopens the schema shape, staging order, or namespace list, which stay locked as
   - `trending` = {trending_down, trending_up}, `transition` = {transition_down, transition_up}
   - `bullish_bias` = {transition_up, trending_up}, `bearish_bias` = {transition_down, trending_down}
   - `ranging` stays ungrouped (a group of one adds no query value)
-- **D-04:** `regime_cross_sectional`'s 9 labels (`{low,mid,high}_{bull,neutral,bear}`) are two
-  crossed facets, not a tree — seed both dimensions as independent groups so every label belongs
-  to exactly one vol-tier group AND one direction group:
+- **D-04 (re-scoped 2026-07-16 to `regime_cross_sectional_equity` per D-01/Fable review V1):**
+  This namespace's 9 labels (`{low,mid,high}_{bull,neutral,bear}`) are two crossed facets, not a
+  tree — seed both dimensions as independent groups so every label belongs to exactly one
+  vol-tier group AND one direction group:
   - Vol-tier: `low_vol`/`mid_vol`/`high_vol` (3 members each)
   - Direction: `bull`/`neutral`/`bear` (3 members each)
   - This is precisely the multi-membership case the design doc's "Is three tables the minimal
     shape?" section defends — collapsing to a single `parent_code` or `groups TEXT[]` column
     cannot represent a label belonging to two independent groupings at once.
+- **D-04b (new, `regime_cross_sectional_rates`):** This namespace's 6 labels
+  (`{flat,steep,inverted}_{tight,wide}`) apply the same crossed-facet pattern to a different
+  taxonomy shape — curve-shape groups `flat`/`steep`/`inverted` (2 members each) and width groups
+  `tight`/`wide` (3 members each). Verified live: 618k-19k rows per label, written through
+  2026-07-07 (batch-stale, consistent with the in-flight 143.1 corpus re-run, not a fault).
+- **D-09 (drift-audit host, revised from "existing auditor daemon"):** Ship the column-backed
+  drift audit as an importable module (`src/config/vocabulary_drift.py`, beside
+  `vocabulary_service.py`) plus a thin D-06 oneshot CLI entrypoint, persisting to
+  `integrity_monitor` (`monitor_type='vocabulary_drift'`) — not wired into any existing auditor
+  daemon. Verified live via `systemctl` on this host: every auditor-family unit
+  (`bar-auditor`, `ml-data-quality`+timer, `service-auditor`, `shadow-auditor`+timer,
+  `signal-auditor`) is `disabled`/`inactive dead`; only `ctx-writer`, `feature-vector-pipeline`,
+  and `lineage-writer` are `active running`. `data_quality_auditor.py`'s own 4 checks query
+  archived v2.x tables (dead subject matter on top of a dead unit); `bar_auditor.py`'s domain
+  (OHLCV gap detection) and `service_auditor.py`'s domain (service liveness, never table content)
+  are both SoC mismatches even setting liveness aside. Chain the oneshot into
+  `scripts/ops/corpus/ops_corpus_pipeline_run.sh` — the operator-invoked event that actually
+  produces new regime labels — and run it once at phase end as the seed migration's own
+  verification. This adds zero DAG nodes/daemons/units, preserving the design doc's "not a new
+  service" intent without pretending a dead daemon is a live host. Also add a `SELECT DISTINCT
+  regime_group` guard in the same audit, comparing against the namespace suffixes the registry
+  knows, so a future third `regime_group` (e.g. `credit`) can't drift past both D-04/D-04b queries
+  silently.
+- **Operator decision, explicitly NOT bundled into this phase's build (per Fable review V3c/V5):**
+  making the drift audit run on a schedule (rather than only when the corpus pipeline happens to
+  run) requires enabling a systemd unit/timer on this production host — every auditor unit and
+  all 10 timers are currently disabled. That is a production-operations sign-off for the project
+  owner, separate from this phase's code, and is not decided here. Separately flagged, also not
+  this phase's problem: `service_auditor` itself being dark means nothing currently watches the
+  three services that are running.
 
 ### Architecture: extensibility and reuse — interface-level, not schema-level
 - **D-05:** `VocabularyService` is a library any daemon embeds locally (same pattern as
