@@ -1,3 +1,20 @@
+---
+status: completed
+completed: 2026-07-15
+resolved_by: 53267bbd
+---
+
+## Resolution (2026-07-15)
+
+Shipped in commit `53267bbd` ("fix(alphaengine): key ic_engine checkpoint invalidation on code
+content, not git HEAD"). `_git_head_short` is gone from `services/ic_engine.py`; checkpoint
+directories are now keyed by `_checkpoint_content_key()`, a SHA-256 hash of every first-party
+module (`src/`, `services/`) actually imported into the process, derived from `sys.modules`
+rather than a hand-maintained list. Verified live in code as of 2026-07-17 during todo 130 work.
+Found sitting unclosed in `pending/` during a pre-reboot housekeeping pass — moving to
+`completed/` now. Note: todo 122 (checkpoint content-key blind to APR config drift) is a
+distinct, still-open gap in the same area and was NOT resolved by this fix.
+
 # 121 - ic_engine checkpoint invalidation keys on repo HEAD, not on its own dependencies
 
 **Found:** 2026-07-15, during a real incident. `ops_corpus_pipeline_run.sh --from-step 5` ran
