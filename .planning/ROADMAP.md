@@ -1428,7 +1428,7 @@ informed by whether `regime_group` actually worked empirically, not planned blin
 
 ---
 
-### Phase 146: Empirical Instrument Tag Calibrator 📋 PLANNED
+### Phase 146: Empirical Instrument Tag Calibrator ✅ COMPLETE 2026-07-17
 
 **Goal:** Replace manually-asserted instrument tags (e.g., `equity_beta`, `rate_sensitive`) with measured OLS factor betas computed nightly. Tags auto-expire when the statistical relationship stops holding. Renaissance demands falsifiable hypotheses.
 
