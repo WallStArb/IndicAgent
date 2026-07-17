@@ -20,6 +20,12 @@ Alpha must be demonstrated empirically before any ensemble weight is assigned. I
 
 (Shipped and verified in production)
 
+**v3.15 Phase 146 — Empirical Instrument Tag Calibrator (2026-07-17):**
+- ✓ TAG-01: `TagCalibrator` (`services/tag_calibrator.py`) — generic 3-pass measurement engine (measure → run-level BH-FDR → keep/expire/discover with hysteresis) replaces manually-asserted tags with measured OLS factor betas; live dry-run confirmed 11/12 measurable tags now carry real `source='empirical'` rows — v3.15
+- ✓ TAG-03: measurement-contract schema (migration 238: `factor_series`/`measurement_type`/`loading_threshold`/`half_life_days`) makes `tag_vocabulary` self-describing; `definitional` tags (owner-annotated) never entered the calibration loop — v3.15
+- ✓ TAG-02: Phase 2 regime-conditioning design doc (`docs/research/tag-calibrator-phase2-regime-conditioning.md`) — design-only, no code shipped this phase — v3.15
+- ✓ Taxonomy cleanup (migration 237): `credit_cycle` merged into `credit_risk`, `housing_cycle` retired, `spread_leg` evidence contract repaired and test-enforced — v3.15
+
 **v3.0 AlphaEngine — Feature Factory, IC Engine, Ensemble + Alpha Emission (2026-06-24):**
 - ✓ Feature Factory: 54 features per bar (momentum, microstructure, regime, volume, pattern) computed for 58 ETFs × 4 TFs into `feature_vectors` via `backfill_feature_factory.py` (batch) and live FeatureVectorWriter — v3.0
 - ✓ IC Engine: rolling IC (Spearman, 252-bar window) per feature × symbol × tf × regime; IC Sharpe gate (Sharpe≥0 over stride periods); walk-forward validation into `feature_ic_scores` — v3.0
@@ -367,4 +373,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-10 (Phase 142B complete: alpha_frames + AlphaFrameWriter + CounterfactualTracker)*
+*Last updated: 2026-07-17 (Phase 146 complete: TagCalibrator — empirical instrument tag calibration, live-verified)*
