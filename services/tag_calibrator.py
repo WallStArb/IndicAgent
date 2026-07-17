@@ -271,8 +271,7 @@ def _build_factor_return_series(
 
 
 def _measure_pair(
-    symbol_close: pd.Series,
-    tag_row: dict[str, Any],
+    instrument_ret: pd.Series | None,
     factor_ret: pd.Series | None,
     extra_fitted_params: int,
     config: TagCalibratorConfig,
@@ -280,22 +279,21 @@ def _measure_pair(
 ) -> dict[str, Any] | None:
     """Measure one (symbol, tag) pair's standardized loading + HAC p-value + sample_n.
 
-    Takes the tag's factor_series return series pre-built (via measure_matrix's
-    once-per-unique-factor_series cache, not rebuilt per symbol -- the factor_series
-    depends only on tag_row, never on symbol).
+    Takes both the tag's factor_series return series (via measure_matrix's
+    once-per-unique-factor_series cache) and the symbol's instrument return series
+    (via measure_matrix's once-per-(symbol, lookback_days) cache) pre-built --
+    neither depends on the other axis of the (symbol, tag) matrix, so rebuilding
+    either one inside this per-pair function would redundantly recompute the
+    identical series once per tag sharing a lookback_days (currently all 12
+    measurable tags share lookback_days=252, so every symbol's log-return series
+    would otherwise be rebuilt 12x).
 
-    Returns None when the pair cannot be measured: fewer than lookback_days bars,
-    missing factor-leg data (factor_ret is None), a degenerate/ill-conditioned pair
-    (factor_math's own NaN guards), or fewer than min_sample_n paired observations
-    after alignment.
+    Returns None when the pair cannot be measured: fewer than lookback_days bars
+    (instrument_ret is None), missing factor-leg data (factor_ret is None), a
+    degenerate/ill-conditioned pair (factor_math's own NaN guards), or fewer than
+    min_sample_n paired observations after alignment.
     """
-    lookback_days = tag_row["lookback_days"]
-    if len(symbol_close) < lookback_days:
-        return None
-    windowed_close = symbol_close.tail(lookback_days)
-    instrument_ret = _log_returns(windowed_close)
-
-    if factor_ret is None:
+    if instrument_ret is None or factor_ret is None:
         return None
 
     aligned = pd.concat(
@@ -352,19 +350,34 @@ def measure_matrix(
         for factor_series in unique_factor_series
     }
 
+    # A symbol's windowed log-return series depends only on (symbol, lookback_days),
+    # never on which tag is being measured -- build each unique combination exactly
+    # once per symbol rather than once per (symbol, tag) pair. Every measurable tag
+    # currently shares lookback_days=252, so without this cache every symbol's
+    # return series would be redundantly rebuilt once per tag (12x today).
+    unique_lookback_days = {tag_row["lookback_days"] for tag_row in measurable_rows}
+
     for symbol in active_symbols:
         symbol_close = price_cache.get(symbol)
         if symbol_close is None:
             n_insufficient += len(measurable_rows)
             continue
+        instrument_ret_cache: dict[int, pd.Series | None] = {
+            lookback_days: (
+                _log_returns(symbol_close.tail(lookback_days))
+                if len(symbol_close) >= lookback_days
+                else None
+            )
+            for lookback_days in unique_lookback_days
+        }
         for tag_row in measurable_rows:
             if _is_self_regression(symbol, tag_row["factor_series"]):
                 n_self_regression += 1
                 continue
             factor_ret, extra_fitted_params = factor_series_cache[tag_row["factor_series"]]
+            instrument_ret = instrument_ret_cache[tag_row["lookback_days"]]
             result = _measure_pair(
-                symbol_close,
-                tag_row,
+                instrument_ret,
                 factor_ret,
                 extra_fitted_params,
                 config,
@@ -631,17 +644,7 @@ class TagCalibrator(BaseBatch):
     job_name = _JOB
     compute_version = "1.0.0"
 
-    def __init__(self, db_dsn: str) -> None:
-        super().__init__(db_dsn)
-
     async def execute(self, pool: asyncpg.Pool) -> None:
-        try:
-            await self._execute_inner(pool)
-        except Exception as error:  # CLAUDE.md: exception variable name is `error`
-            self.logger.error("tag_calibrator.failed", error=str(error))
-            raise
-
-    async def _execute_inner(self, pool: asyncpg.Pool) -> None:
         run_ts = datetime.now(UTC)
         self.logger.info("tag_calibrator.run_ts_locked", run_ts=str(run_ts))
 

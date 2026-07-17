@@ -42,3 +42,18 @@ shapes which of options (a)/(b) above is cheaper. Add a test asserting a fresh d
 does NOT reach the same state as a `discovery_oos_days`-confirmed one until elapsed days
 actually clear the gate — none of the existing `test_tag_calibrator.py` tests cover this
 path.
+
+**Addendum (2026-07-17, `/simplify` altitude pass):** the same underlying gap shows up as
+a schema-depth issue, not just a missing-enforcement one. Migration 238 gives the *expiry*
+half of the lifecycle (`consecutive_fails`, `valid_from`, `valid_to`, `passes_fdr`) real
+typed columns with CHECK-able semantics, but the *discovery* half (`first_measured_at`,
+`discovery_state: pending_oos|confirmed`) is packed into the `evidence` JSONB blob instead
+(`_next_evidence`, `services/tag_calibrator.py`) — the code's own docstring says why ("no
+dedicated schema column for discovery state exists; JSONB carries it"), an acknowledged
+workaround, not an oversight. Whichever fix direction is chosen above, prefer promoting
+`first_measured_at timestamptz` and `discovery_state text CHECK (discovery_state IN
+('pending_oos','confirmed'))` to real `instrument_tags` columns in the same migration,
+rather than leaving the same state machine split across a typed-column half and an
+untyped-JSONB half — a future consumer needing `WHERE discovery_state = 'confirmed'`
+currently has no index or schema guarantee, only a JSONB string-match with no constraint
+stopping an invalid state from being written.
