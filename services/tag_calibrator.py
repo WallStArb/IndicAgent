@@ -136,32 +136,49 @@ class TagCalibratorConfig:
 # ---------------------------------------------------------------------------
 
 
+_IMPLEMENTED_MEASUREMENT_TYPE = "beta_regression"
+
+
 def filter_measurable_tag_rows(
     vocab_rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Pure split of tag_vocabulary rows into the measurable matrix vs. the
     null-factor_series data-integrity anomaly (Blocker-2 / T-146-11).
 
-    Measurable = measurement_type != 'definitional' AND factor_series IS NOT NULL --
-    the self-describing contract migration 238's Option A sweep guarantees. A row with
-    measurement_type != 'definitional' but factor_series IS NULL should never exist
-    post-238, but this loop defends against it anyway (defense-in-depth) rather than
-    trusting the schema invariant blindly.
+    Measurable = measurement_type == 'beta_regression' (the only measurement math this
+    engine implements) AND factor_series IS NOT NULL -- the self-describing contract
+    migration 238's Option A sweep guarantees. `measurement_type == 'definitional'` is
+    the expected, silent non-measurable case (owner-annotated seed priors, e.g.
+    fed_policy/geopolitical -- not a calibration target). Migration 238's CHECK
+    constraint also allows 3 not-yet-implemented values (correlation,
+    cross_correlation, mutual_information) for future owner-annotated tags; an
+    explicit allow-list here (rather than an implicit "!= definitional") stops a
+    future row using one of those from being silently measured with the wrong
+    (beta-regression) math -- a silent wrong answer is worse than a loud crash, so
+    unimplemented types are logged and skipped via the same anomaly path as a null
+    factor_series, never crashed on and never mismeasured.
 
-    Returns (measurable_rows, null_factor_series_tags) -- the caller logs exactly one
-    WARNING per tag in the second list (once per vocabulary row, never inside the
-    per-symbol hot loop).
+    A row with measurement_type == 'beta_regression' but factor_series IS NULL should
+    never exist post-238, but this loop defends against it anyway (defense-in-depth)
+    rather than trusting the schema invariant blindly.
+
+    Returns (measurable_rows, skipped_tags) -- the caller logs exactly one WARNING per
+    tag in the second list (once per vocabulary row, never inside the per-symbol hot
+    loop).
     """
     measurable: list[dict[str, Any]] = []
-    null_factor_tags: list[str] = []
+    skipped_tags: list[str] = []
     for row in vocab_rows:
         if row["measurement_type"] == "definitional":
             continue
+        if row["measurement_type"] != _IMPLEMENTED_MEASUREMENT_TYPE:
+            skipped_tags.append(row["tag"])
+            continue
         if row["factor_series"] is None:
-            null_factor_tags.append(row["tag"])
+            skipped_tags.append(row["tag"])
             continue
         measurable.append(row)
-    return measurable, null_factor_tags
+    return measurable, skipped_tags
 
 
 def _is_self_regression(symbol: str, factor_series: str) -> bool:
@@ -234,17 +251,21 @@ def _build_factor_return_series(
 def _measure_pair(
     symbol_close: pd.Series,
     tag_row: dict[str, Any],
-    price_cache: dict[str, pd.Series],
+    factor_ret: pd.Series | None,
+    extra_fitted_params: int,
     config: TagCalibratorConfig,
     condition_max: float,
-    realized_vol_window: int,
-    vix_z_window: int,
 ) -> dict[str, Any] | None:
     """Measure one (symbol, tag) pair's standardized loading + HAC p-value + sample_n.
 
+    Takes the tag's factor_series return series pre-built (via measure_matrix's
+    once-per-unique-factor_series cache, not rebuilt per symbol -- the factor_series
+    depends only on tag_row, never on symbol).
+
     Returns None when the pair cannot be measured: fewer than lookback_days bars,
-    missing factor-leg data, a degenerate/ill-conditioned pair (factor_math's own NaN
-    guards), or fewer than min_sample_n paired observations after alignment.
+    missing factor-leg data (factor_ret is None), a degenerate/ill-conditioned pair
+    (factor_math's own NaN guards), or fewer than min_sample_n paired observations
+    after alignment.
     """
     lookback_days = tag_row["lookback_days"]
     if len(symbol_close) < lookback_days:
@@ -252,9 +273,6 @@ def _measure_pair(
     windowed_close = symbol_close.tail(lookback_days)
     instrument_ret = np.log(windowed_close / windowed_close.shift(1)).dropna()
 
-    factor_ret, extra_fitted_params = _build_factor_return_series(
-        tag_row["factor_series"], price_cache, realized_vol_window, vix_z_window
-    )
     if factor_ret is None:
         return None
 
@@ -299,6 +317,19 @@ def measure_matrix(
     n_self_regression = 0
     n_insufficient = 0
 
+    # A factor_series' return series depends only on tag_row, never on symbol --
+    # build each unique one exactly once rather than once per (symbol, tag) pair.
+    # Otherwise every active symbol carrying a given tag (e.g. all ~58 equities for
+    # SPY_REALIZED_VOL) would redundantly rebuild the identical series, including
+    # breadth_vol's O(n^2) causal expanding-rank scan for the vol proxy.
+    unique_factor_series = {tag_row["factor_series"] for tag_row in measurable_rows}
+    factor_series_cache: dict[str, tuple[pd.Series | None, int]] = {
+        factor_series: _build_factor_return_series(
+            factor_series, price_cache, realized_vol_window, vix_z_window
+        )
+        for factor_series in unique_factor_series
+    }
+
     for symbol in active_symbols:
         symbol_close = price_cache.get(symbol)
         if symbol_close is None:
@@ -308,14 +339,14 @@ def measure_matrix(
             if _is_self_regression(symbol, tag_row["factor_series"]):
                 n_self_regression += 1
                 continue
+            factor_ret, extra_fitted_params = factor_series_cache[tag_row["factor_series"]]
             result = _measure_pair(
                 symbol_close,
                 tag_row,
-                price_cache,
+                factor_ret,
+                extra_fitted_params,
                 config,
                 condition_max,
-                realized_vol_window,
-                vix_z_window,
             )
             if result is None:
                 n_insufficient += 1
@@ -441,19 +472,7 @@ _UPSERT_EMPIRICAL_SQL = """
         valid_to = NULL
 """
 
-_UPDATE_FAILING_EMPIRICAL_SQL = """
-    UPDATE instrument_tags SET
-        consecutive_fails = $3,
-        loading = $4,
-        p_value = $5,
-        bh_adjusted_p = $6,
-        passes_fdr = $7,
-        sample_n = $8,
-        estimated_at = $9
-    WHERE symbol = $1 AND tag = $2
-"""
-
-_EXPIRE_EMPIRICAL_SQL = """
+_UPDATE_FAILING_OR_EXPIRE_EMPIRICAL_SQL = """
     UPDATE instrument_tags SET
         consecutive_fails = $3,
         loading = $4,
@@ -462,7 +481,7 @@ _EXPIRE_EMPIRICAL_SQL = """
         passes_fdr = $7,
         sample_n = $8,
         estimated_at = $9,
-        valid_to = now()
+        valid_to = CASE WHEN $10 THEN now() ELSE valid_to END
     WHERE symbol = $1 AND tag = $2
 """
 
@@ -521,9 +540,9 @@ async def _apply_decision(
                 ),
                 _JOB,
             )
-    elif action == "increment_fails":
+    elif action in ("increment_fails", "expire"):
         await conn.execute(
-            _UPDATE_FAILING_EMPIRICAL_SQL,
+            _UPDATE_FAILING_OR_EXPIRE_EMPIRICAL_SQL,
             symbol,
             tag,
             decision["consecutive_fails"],
@@ -533,32 +552,21 @@ async def _apply_decision(
             measurement["passes_fdr"],
             measurement["sample_n"],
             run_ts,
+            action == "expire",
         )
-    elif action == "expire":
-        await conn.execute(
-            _EXPIRE_EMPIRICAL_SQL,
-            symbol,
-            tag,
-            decision["consecutive_fails"],
-            measurement["loading"],
-            measurement["p_value"],
-            measurement["bh_adjusted_p"],
-            measurement["passes_fdr"],
-            measurement["sample_n"],
-            run_ts,
-        )
-        await conn.execute(
-            _INSERT_ANNOTATION_SQL,
-            symbol,
-            (
-                f"TagCalibrator expired empirical tag '{tag}' for {symbol}: "
-                f"{decision['consecutive_fails']} consecutive failing runs >= "
-                f"expiry_consecutive_fails={config.expiry_consecutive_fails}. Latest "
-                f"measurement: loading={measurement['loading']:.3f}, "
-                f"bh_adjusted_p={measurement['bh_adjusted_p']:.4f}."
-            ),
-            _JOB,
-        )
+        if action == "expire":
+            await conn.execute(
+                _INSERT_ANNOTATION_SQL,
+                symbol,
+                (
+                    f"TagCalibrator expired empirical tag '{tag}' for {symbol}: "
+                    f"{decision['consecutive_fails']} consecutive failing runs >= "
+                    f"expiry_consecutive_fails={config.expiry_consecutive_fails}. Latest "
+                    f"measurement: loading={measurement['loading']:.3f}, "
+                    f"bh_adjusted_p={measurement['bh_adjusted_p']:.4f}."
+                ),
+                _JOB,
+            )
     elif action == "annotate_contradiction":
         await conn.execute(
             _INSERT_ANNOTATION_SQL,
@@ -628,15 +636,17 @@ class TagCalibrator(BaseBatch):
                     "loading_threshold, half_life_days FROM tag_vocabulary"
                 )
             ]
-            measurable_rows, null_factor_tags = filter_measurable_tag_rows(vocab_rows)
-            for tag in null_factor_tags:
+            measurable_rows, skipped_tags = filter_measurable_tag_rows(vocab_rows)
+            for tag in skipped_tags:
                 self.logger.warning(
-                    "tag_calibrator.null_factor_series",
+                    "tag_calibrator.tag_not_measurable",
                     tag=tag,
                     note=(
-                        "measurement_type != 'definitional' but factor_series IS NULL "
-                        "-- migration 238's Option A sweep should make this impossible; "
-                        "data-integrity anomaly, skipping without measuring"
+                        "not measurable this run -- either measurement_type is not yet "
+                        "'beta_regression' (no dispatch implemented for it) or "
+                        "factor_series IS NULL despite a non-definitional "
+                        "measurement_type (migration 238's Option A sweep should make "
+                        "the latter impossible; data-integrity anomaly either way)"
                     ),
                 )
 
@@ -694,7 +704,7 @@ class TagCalibrator(BaseBatch):
             n_measured=len(measured),
             n_self_regression_skipped=n_self_regression,
             n_insufficient_data_skipped=n_insufficient,
-            n_null_factor_series_tags=len(null_factor_tags),
+            n_tags_not_measurable=len(skipped_tags),
             outcome_counts=outcome_counts,
         )
 

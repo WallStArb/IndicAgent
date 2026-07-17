@@ -44,35 +44,34 @@ def _normalize_pairs(evidence: dict | None) -> list[str]:
     return [pair]
 
 
-@functools.lru_cache(maxsize=1)
-def _fetch_spread_leg_rows() -> dict[str, dict | None] | None:
-    """Returns {symbol: evidence_dict_or_None} for every spread_leg row, or None if the
-    live DB is unreachable (callers must pytest.skip on None, not fail)."""
+def _fetch_live_rows(query: str) -> list[tuple] | None:
+    """Runs `query` against the live DB, returning raw rows, or None if unreachable
+    (shared connect/execute/finally boilerplate for the two cached fetchers below)."""
     try:
         conn = psycopg2.connect(_LIVE_DB_DSN)
     except Exception:
         return None
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT symbol, evidence FROM instrument_tags WHERE tag = 'spread_leg'")
-            return dict(cur.fetchall())
+            cur.execute(query)
+            return cur.fetchall()
     finally:
         conn.close()
+
+
+@functools.lru_cache(maxsize=1)
+def _fetch_spread_leg_rows() -> dict[str, dict | None] | None:
+    """Returns {symbol: evidence_dict_or_None} for every spread_leg row, or None if the
+    live DB is unreachable (callers must pytest.skip on None, not fail)."""
+    rows = _fetch_live_rows("SELECT symbol, evidence FROM instrument_tags WHERE tag = 'spread_leg'")
+    return None if rows is None else dict(rows)
 
 
 @functools.lru_cache(maxsize=1)
 def _fetch_valid_symbols() -> frozenset[str] | None:
     """Returns the full set of instruments.symbol values, or None if unreachable."""
-    try:
-        conn = psycopg2.connect(_LIVE_DB_DSN)
-    except Exception:
-        return None
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT symbol FROM instruments")
-            return frozenset(row[0] for row in cur.fetchall())
-    finally:
-        conn.close()
+    rows = _fetch_live_rows("SELECT symbol FROM instruments")
+    return None if rows is None else frozenset(row[0] for row in rows)
 
 
 def test_every_spread_leg_pair_resolves_to_a_valid_symbol():
