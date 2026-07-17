@@ -123,3 +123,10 @@ None - no external service configuration required.
 ---
 *Phase: 146-empirical-instrument-tag-calibrator*
 *Completed: 2026-07-17*
+
+## Self-Check: PASSED
+
+All claimed files exist (`production/migrations/237_tag_vocabulary_taxonomy_cleanup.sql`,
+`tests/unit/test_spread_leg_pair_validity.py`, `docs/foundation/glossary.md`, this SUMMARY.md)
+and all claimed commit hashes (`a77bf903`, `e2a8c114`, `657056df`, `c1e317db`) are present in
+`git log --oneline --all`.
