@@ -81,7 +81,6 @@ from opentelemetry.trace import StatusCode
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
 from scipy.stats import rankdata
-from statsmodels.stats.multitest import multipletests
 
 from observability.corpus_manifest import CorpusManifest
 
@@ -101,6 +100,7 @@ from src.intelligence.statistics.ic_math import (
     _nan_to_none,
     _p_values_from_ic,
     _vectorized_ic,
+    apply_bh_fdr,
     magnitude_conditional_ic,
     sign_hit_rate,
     update_cumulative_e_value,
@@ -2218,31 +2218,54 @@ def _save_checkpoint(checkpoint_dir: Path, symbol: str, result: dict) -> None:
     tmp_path.rename(path)
 
 
-def _accumulate_worker_result(
+def _write_symbol_results(
+    settings: Settings,
+    pooled_rows: list[dict],
+    regime_rows: list[dict],
+) -> int:
+    """Write one symbol's already-computed rows to feature_ic_scores immediately
+    (todo 130), in their own short-lived connection.
+
+    Prior behavior held every symbol's rows in memory for the whole corpus run
+    (30+ hours) and wrote them all in one call at the very end -- a crash at any
+    point before that final write (e.g. during the cross-sectional pass) lost the
+    entire run's compute, including this already-complete symbol. Writing here,
+    right after this symbol's compute finishes, means a later crash only costs
+    whatever hasn't been computed yet. bh_adjusted_p/passes_fdr are already final
+    for non-representative rows (False, set by the worker) and pending (NULL) for
+    cluster representatives -- _backfill_bh_fdr resolves those once the whole
+    corpus is done. Opens and closes its own connection rather than reusing one
+    held across the ProcessPoolExecutor loop, matching _compute_cross_sectional_tf's
+    todo-125 fix for the same class of idle-connection staleness bug.
+    """
+    if not pooled_rows and not regime_rows:
+        return 0
+    conn = _connect_db(settings)
+    try:
+        return _write_ic_results(conn, pooled_rows, regime_rows)
+    finally:
+        conn.close()
+
+
+def _record_symbol_result(
+    settings: Settings,
     result: dict,
-    corpus_all_results: list[dict],
-    corpus_pooled_rows: list[dict],
-    corpus_regime_rows: list[dict],
-    corpus_pvals_flat: list[float],
-    corpus_pval_result_idxs: list[int],
     per_symbol_results: list[tuple[str, list[dict]]],
 ) -> int:
-    """Accumulate one symbol's worker result into the corpus-level accumulators.
+    """Write one symbol's rows immediately and record them for later OTel gauge
+    emission (todo 130). Shared by the checkpoint-resume path and the fresh
+    ProcessPoolExecutor as_completed path in main() -- both hand this the same
+    worker-result shape (symbol, pooled_rows, regime_rows, all_results) and both
+    need the identical write-then-record sequence. n_skipped is not part of this
+    -- callers read result["n_skipped"] directly, since one caller (the error
+    branch of the as_completed loop) still needs it even though pooled_rows/
+    regime_rows there may be a partial, pre-failure subset.
 
-    Shared by the fresh-compute path (as_completed loop) and the checkpoint-resume
-    path so pval-index offsetting stays correct regardless of which path a symbol
-    came from -- BH-FDR only needs pvals_flat/pval_result_idxs mutually consistent,
-    not accumulated in any particular symbol order. Returns n_skipped for that symbol.
+    Returns n_committed.
     """
-    offset = len(corpus_all_results)
-    for idx in result.get("pval_result_idxs", []):
-        corpus_pval_result_idxs.append(offset + idx)
-    corpus_pvals_flat.extend(result.get("pvals_flat", []))
-    corpus_pooled_rows.extend(result["pooled_rows"])
-    corpus_regime_rows.extend(result["regime_rows"])
-    corpus_all_results.extend(result["all_results"])
+    n_committed = _write_symbol_results(settings, result["pooled_rows"], result["regime_rows"])
     per_symbol_results.append((result["symbol"], result["all_results"]))
-    return result["n_skipped"]
+    return n_committed
 
 
 def _write_cross_sectional_results(
@@ -2261,86 +2284,113 @@ def _write_cross_sectional_results(
     return len(all_results)
 
 
-def _persist_corpus_results(
-    settings: Settings,
-    cross_sectional_only: bool,
-    corpus_pooled_rows: list[dict],
-    corpus_regime_rows: list[dict],
-    equity_model_enabled: bool,
-    corpus_cs_rows: list[dict],
-    per_symbol_results: list[tuple[str, list[dict]]],
-    training_window_end: Any,
-) -> tuple[int, dict[str, int], dict[str, int], int]:
-    """Persist all corpus IC results end-to-end in one self-contained call.
-
-    Compute (the per-symbol ProcessPoolExecutor pass + the cross-sectional pass, both of
-    which can run 30-60+ minutes) is entirely separate from persistence: this is the only
-    place in the module that opens a write connection, and it opens it, uses it, and closes
-    it within this one call -- the caller (main's compute orchestration) never holds or
-    reasons about connection lifetime. That separation is the actual fix for the 2026-07-08
-    incident (a connection opened before ~53 minutes of compute, left idle that whole time,
-    dead by the time it was finally used for the write -- "server closed the connection
-    unexpectedly", 819,538 computed rows lost). Opening late (services/ic_engine.py's prior
-    fix within this same incident) treats the symptom; this treats the cause structurally.
-
-    Returns (total_committed, rows_by_tf, rows_by_regime, rows_total) for the manifest.
+def _write_cs_cell_results(settings: Settings, cs_rows: list[dict]) -> int:
+    """Write one cross-sectional cell's rows to feature_ic_scores immediately
+    (todo 130), in its own short-lived connection. See _write_symbol_results for
+    the crash-durability rationale; same pattern, cross-sectional pass.
     """
-    total_committed = 0
+    if not cs_rows:
+        return 0
     conn = _connect_db(settings)
     try:
-        if not cross_sectional_only:
-            n_written = _write_ic_results(conn, corpus_pooled_rows, corpus_regime_rows)
-            total_committed += n_written
-            # Emit OTel health gauges per (symbol, tf)
-            for sym, sym_results in per_symbol_results:
-                if sym_results:
-                    by_tf: dict[str, list] = {}
-                    for r in sym_results:
-                        tf_key = r.get("tf")
-                        if tf_key:
-                            by_tf.setdefault(tf_key, []).append(r)
-                    for tf_key, tf_results in by_tf.items():
-                        _emit_health_gauges(sym, tf_key, tf_results)
-                    _logger.info("ic_engine.symbol_done", symbol=sym, n_rows=len(sym_results))
-
-        if equity_model_enabled and corpus_cs_rows:
-            n_written = _write_cross_sectional_results(conn, corpus_cs_rows)
-            total_committed += n_written
-
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT tf, COUNT(*) as count
-                FROM feature_ic_scores
-                WHERE training_window_end = %s
-                GROUP BY tf
-                ORDER BY tf
-                """,
-                (training_window_end,),
-            )
-            rows_by_tf = {r[0]: r[1] for r in cur.fetchall()}
-
-            cur.execute(
-                """
-                SELECT regime, COUNT(*) as count
-                FROM feature_ic_scores
-                WHERE training_window_end = %s
-                GROUP BY regime
-                ORDER BY regime
-                """,
-                (training_window_end,),
-            )
-            rows_by_regime = {r[0]: r[1] for r in cur.fetchall()}
-
-            cur.execute(
-                "SELECT COUNT(*) FROM feature_ic_scores WHERE training_window_end = %s",
-                (training_window_end,),
-            )
-            rows_total = cur.fetchone()[0]
-
-        return total_committed, rows_by_tf, rows_by_regime, rows_total
+        return _write_cross_sectional_results(conn, cs_rows)
     finally:
         conn.close()
+
+
+def _backfill_bh_fdr(
+    conn: Any,
+    training_window_end: Any,
+    fdr_alpha: float,
+) -> list[dict]:
+    """Corpus-wide BH-FDR backfill: UPDATE-only pass over already-persisted rows
+    (todo 130).
+
+    The FDR correction is intentionally corpus-wide -- every row's pass/fail
+    determination statistically depends on ranking every cluster-representative
+    p-value from the entire run together (the P2 fix: per-cell FDR inflated the
+    effective false-discovery rate ~232x). That corpus-wide dependency applies
+    only to the p-values, not to the rows themselves, which are already durable
+    by the time this runs (_write_symbol_results / _write_cs_cell_results).
+
+    Queries the DB directly for whatever is currently pending -- rows with
+    passes_fdr IS NULL -- rather than relying on in-memory bookkeeping from this
+    process invocation. Non-representative and degenerate rows already have
+    their final passes_fdr=False set at compute time and are never touched here;
+    only cluster representatives are ever left pending. This makes the backfill
+    naturally resumable: if a prior run wrote rows and crashed before reaching
+    this step, a later invocation picks up exactly those pending rows regardless
+    of which process wrote them, and corrects the whole set together -- still one
+    multipletests() call spanning the true full corpus for this training window.
+
+    Returns the list of {feature_name, symbol, tf, regime, lookahead_bars,
+    bh_adjusted_p, passes_fdr} dicts written, so the caller can patch matching
+    in-memory result dicts before emitting OTel health gauges (which must reflect
+    final FDR state, not the pending-representative placeholder).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT feature_name, symbol, tf, regime, lookahead_bars, p_value
+            FROM feature_ic_scores
+            WHERE training_window_end = %s AND passes_fdr IS NULL
+            """,
+            (training_window_end,),
+        )
+        pending = cur.fetchall()
+
+    if not pending:
+        return []
+
+    pvals = [row[5] for row in pending]
+    reject, p_corr = apply_bh_fdr(pvals, alpha=fdr_alpha)
+
+    updates = [
+        {
+            "feature_name": row[0],
+            "symbol": row[1],
+            "tf": row[2],
+            "regime": row[3],
+            "lookahead_bars": row[4],
+            "bh_adjusted_p": float(p_corr[i]),
+            "passes_fdr": bool(reject[i]),
+        }
+        for i, row in enumerate(pending)
+    ]
+
+    with conn.cursor() as cur:
+        psycopg2.extras.execute_values(
+            cur,
+            """
+            UPDATE feature_ic_scores AS t
+            SET bh_adjusted_p = v.bh_adjusted_p, passes_fdr = v.passes_fdr
+            FROM (VALUES %s) AS v(
+                feature_name, symbol, tf, regime, lookahead_bars,
+                training_window_end, bh_adjusted_p, passes_fdr
+            )
+            WHERE t.feature_name = v.feature_name
+                AND t.symbol = v.symbol
+                AND t.tf = v.tf
+                AND t.regime = v.regime
+                AND t.lookahead_bars = v.lookahead_bars
+                AND t.training_window_end = v.training_window_end
+            """,
+            [
+                (
+                    u["feature_name"],
+                    u["symbol"],
+                    u["tf"],
+                    u["regime"],
+                    u["lookahead_bars"],
+                    training_window_end,
+                    u["bh_adjusted_p"],
+                    u["passes_fdr"],
+                )
+                for u in updates
+            ],
+        )
+    conn.commit()
+    return updates
 
 
 # ---------------------------------------------------------------------------
@@ -3075,20 +3125,16 @@ def main() -> None:
                         )
 
             # ----------------------------------------------------------
-            # Build worker args -- workers open their own read connections;
-            # persistence (total_committed) is owned entirely by
-            # _persist_corpus_results, called once after compute completes.
+            # Build worker args -- workers open their own read connections.
+            # Each symbol's rows are written to feature_ic_scores immediately
+            # once its compute finishes (todo 130) -- see _write_symbol_results.
+            # per_symbol_results retains the same row dicts purely so OTel health
+            # gauges (which need final passes_fdr) can be emitted once, after the
+            # corpus-wide FDR backfill below patches them in place.
             # ----------------------------------------------------------
             existing_keys_frozen = frozenset(existing_keys)
             total_skipped = 0
-
-            # Corpus-level BH-FDR accumulators (initialized before if/else to avoid NameError
-            # when cross_sectional_only=True skips the per-symbol block).
-            corpus_all_results: list[dict] = []
-            corpus_pooled_rows: list[dict] = []
-            corpus_regime_rows: list[dict] = []
-            corpus_pvals_flat: list[float] = []
-            corpus_pval_result_idxs: list[int] = []
+            total_committed = 0
             per_symbol_results: list[tuple[str, list[dict]]] = []
             checkpoint_dir: Path | None = None
 
@@ -3101,8 +3147,10 @@ def main() -> None:
                 # Checkpoint resume: skip recompute for symbols already checkpointed
                 # under this exact code content (see _checkpoint_content_key
                 # docstring -- a checkpoint from changed code is never reused).
-                # Compute-phase resumability only; feature_ic_scores is still
-                # written exactly once, corpus-wide, after BH-FDR below.
+                # Compute-phase resumability only; a resumed symbol's rows are
+                # (re-)written immediately below just like a freshly computed one --
+                # ON CONFLICT DO NOTHING makes this safe whether or not a prior
+                # crashed run already got as far as writing them.
                 # ----------------------------------------------------------
                 content_key = _checkpoint_content_key()
                 checkpoint_dir = _checkpoint_dir(training_window_end, content_key)
@@ -3111,15 +3159,10 @@ def main() -> None:
                 for symbol in symbols:
                     checkpointed = _load_checkpoint(checkpoint_dir, symbol)
                     if checkpointed is not None and not checkpointed.get("error"):
-                        total_skipped += _accumulate_worker_result(
-                            checkpointed,
-                            corpus_all_results,
-                            corpus_pooled_rows,
-                            corpus_regime_rows,
-                            corpus_pvals_flat,
-                            corpus_pval_result_idxs,
-                            per_symbol_results,
+                        total_committed += _record_symbol_result(
+                            settings, checkpointed, per_symbol_results
                         )
+                        total_skipped += checkpointed["n_skipped"]
                         n_resumed += 1
                         IC_ENGINE_SYMBOLS_COMPLETED_TOTAL.add(1, {"source": "checkpoint"})
                     else:
@@ -3168,9 +3211,12 @@ def main() -> None:
                 # behind a slower earlier-submitted one, which on 2026-07-12
                 # made 5 already-finished symbols invisible for ~2 hours behind
                 # one slow one. Each result is checkpointed immediately so a
-                # kill/restart only redoes symbols not yet reported here.
-                # Buffer all results; BH-FDR applied once after all workers
-                # complete (corpus-level FDR, P2 fix).
+                # kill/restart only redoes symbols not yet reported here, AND
+                # written to feature_ic_scores immediately (todo 130) so a crash
+                # anywhere in the rest of the run keeps this symbol's compute
+                # durable -- BH-FDR annotation is backfilled separately, after
+                # the whole corpus (including the cross-sectional pass below) is
+                # done, by _backfill_bh_fdr.
                 # ----------------------------------------------------------
                 n_done = n_resumed
                 if worker_args:
@@ -3187,17 +3233,20 @@ def main() -> None:
                                 )
                                 status = "failure"
                                 exit_code = 1
+                                # No checkpoint on error -- a retry recomputes this
+                                # symbol from scratch. But a per-tf error still
+                                # leaves any OTHER tf's already-computed rows in
+                                # result["pooled_rows"]/["regime_rows"] (each tf
+                                # is caught independently inside the worker) --
+                                # those still get written below, never dropped
+                                # (Renaissance: never discard data that could
+                                # contain signal).
                             else:
                                 _save_checkpoint(checkpoint_dir, symbol, result)
-                            total_skipped += _accumulate_worker_result(
-                                result,
-                                corpus_all_results,
-                                corpus_pooled_rows,
-                                corpus_regime_rows,
-                                corpus_pvals_flat,
-                                corpus_pval_result_idxs,
-                                per_symbol_results,
+                            total_committed += _record_symbol_result(
+                                settings, result, per_symbol_results
                             )
+                            total_skipped += result["n_skipped"]
                             n_done += 1
                             IC_ENGINE_SYMBOLS_COMPLETED_TOTAL.add(1, {"source": "fresh"})
                             _logger.info(
@@ -3213,12 +3262,10 @@ def main() -> None:
             # bool(enabled_groups)). Runs in main process after per-symbol workers
             # complete. Each enabled regime_group is pooled INDEPENDENTLY -- only
             # that group's own peer symbols (symbol_list, Phase 144 D-01 fix) --
-            # one cell per (regime_group, tf, regime_label).
+            # one cell per (regime_group, tf, regime_label). Each cell's rows are
+            # written immediately once computed (todo 130) -- see
+            # _write_cs_cell_results.
             # ----------------------------------------------------------
-            corpus_cs_rows: list[dict] = []
-            corpus_cs_pvals_flat: list[float] = []
-            corpus_cs_pval_result_idxs: list[int] = []
-
             if equity_model_enabled:
                 _logger.info("ic_engine.starting_cross_sectional_pass")
                 # Circular block bootstrap CI (Component A, todo 091): ONE deterministic
@@ -3282,12 +3329,7 @@ def main() -> None:
                                 rng=cs_rng,
                                 feature_status_map=feature_status_map,
                             )
-                            # Accumulate with offset into corpus_cs_rows.
-                            offset = len(corpus_cs_rows)
-                            for idx in cs_stats.get("pval_result_idxs", []):
-                                corpus_cs_pval_result_idxs.append(offset + idx)
-                            corpus_cs_pvals_flat.extend(cs_stats.get("pvals_flat", []))
-                            corpus_cs_rows.extend(cs_rows)
+                            total_committed += _write_cs_cell_results(settings, cs_rows)
                             total_skipped += cs_stats.get("n_skipped", 0)
                             _logger.info(
                                 "ic_engine.cross_sectional_computed",
@@ -3298,56 +3340,104 @@ def main() -> None:
                             )
 
             # ----------------------------------------------------------
-            # Corpus-level BH-FDR (P2 fix).
-            # Apply ONE multipletests call across ALL representative p-values
-            # from ALL per-symbol cells AND all cross-sectional cells.
-            # Effective FDR = fdr_alpha (5%) corpus-wide, not 232× inflated.
+            # Corpus-level BH-FDR backfill (P2 fix; todo 130). Every per-symbol
+            # and cross-sectional row is already durable in feature_ic_scores by
+            # this point (written immediately as each unit of compute finished
+            # above) -- this is a cheap, query-driven UPDATE-only pass, not a
+            # dependency the rest of the run's persistence waits on. Queries
+            # whatever is currently pending (passes_fdr IS NULL) for this
+            # training_window_end rather than in-memory bookkeeping, so it's
+            # safe to rerun after a crash regardless of which invocation wrote
+            # the pending rows. See _backfill_bh_fdr's docstring.
             # ----------------------------------------------------------
-            all_corpus_pvals = corpus_pvals_flat + corpus_cs_pvals_flat
+            backfill_conn = _connect_db(settings)
+            try:
+                fdr_updates = _backfill_bh_fdr(backfill_conn, training_window_end, config.fdr_alpha)
+            finally:
+                backfill_conn.close()
+            _logger.info("ic_engine.corpus_fdr_backfilled", n_updated=len(fdr_updates))
 
-            if all_corpus_pvals:
-                reject_all, p_corr_all, _, _ = multipletests(
-                    all_corpus_pvals, alpha=config.fdr_alpha, method="fdr_bh"
-                )
-                n_per = len(corpus_pvals_flat)
-                # Fill per-symbol results
-                for flat_idx, result_idx in enumerate(corpus_pval_result_idxs):
-                    corpus_all_results[result_idx]["bh_adjusted_p"] = float(p_corr_all[flat_idx])
-                    corpus_all_results[result_idx]["passes_fdr"] = bool(reject_all[flat_idx])
-                # Fill cross-sectional results
-                for flat_idx, result_idx in enumerate(corpus_cs_pval_result_idxs):
-                    global_flat_idx = n_per + flat_idx
-                    corpus_cs_rows[result_idx]["bh_adjusted_p"] = float(p_corr_all[global_flat_idx])
-                    corpus_cs_rows[result_idx]["passes_fdr"] = bool(reject_all[global_flat_idx])
-            _logger.info(
-                "ic_engine.corpus_fdr_applied",
-                n_total_representatives=len(all_corpus_pvals),
-                n_per_symbol=len(corpus_pvals_flat),
-                n_cross_sectional=len(corpus_cs_pvals_flat),
-            )
+            # Patch the matching in-memory per-symbol result dicts with their
+            # final FDR outcome, then emit OTel health gauges -- gauges must
+            # reflect final passes_fdr, not the pending-representative
+            # placeholder these dicts still carry from compute time.
+            fdr_by_key = {
+                (u["feature_name"], u["symbol"], u["tf"], u["regime"], u["lookahead_bars"]): u
+                for u in fdr_updates
+            }
+            for sym, sym_results in per_symbol_results:
+                if not sym_results:
+                    continue
+                by_tf: dict[str, list] = {}
+                for r in sym_results:
+                    # Only cluster representatives are ever left pending
+                    # (passes_fdr is None); non-representatives already got
+                    # their final False locked in at compute time and can
+                    # never be in fdr_by_key -- skip the lookup for them.
+                    if r["passes_fdr"] is None:
+                        match = fdr_by_key.get(
+                            (
+                                r["feature_name"],
+                                r["symbol"],
+                                r["tf"],
+                                r["regime"],
+                                r["lookahead_bars"],
+                            )
+                        )
+                        if match:
+                            r["bh_adjusted_p"] = match["bh_adjusted_p"]
+                            r["passes_fdr"] = match["passes_fdr"]
+                    tf_key = r.get("tf")
+                    if tf_key:
+                        by_tf.setdefault(tf_key, []).append(r)
+                for tf_key, tf_results in by_tf.items():
+                    _emit_health_gauges(sym, tf_key, tf_results)
+                _logger.info("ic_engine.symbol_done", symbol=sym, n_rows=len(sym_results))
 
             # ----------------------------------------------------------
-            # Persist everything through one self-contained call. Compute (above)
-            # and persistence (here) are fully decoupled -- main() never opens,
-            # holds, or closes a write connection itself; _persist_corpus_results
-            # owns that lifecycle start to finish. See its docstring for why.
+            # Manifest stats: own short-lived connection, opened and closed here
+            # only -- mirrors every other post-compute step in this function.
             # ----------------------------------------------------------
-            total_committed, rows_by_tf, rows_by_regime, rows_total = _persist_corpus_results(
-                settings=settings,
-                cross_sectional_only=args.cross_sectional_only,
-                corpus_pooled_rows=corpus_pooled_rows,
-                corpus_regime_rows=corpus_regime_rows,
-                equity_model_enabled=equity_model_enabled,
-                corpus_cs_rows=corpus_cs_rows,
-                per_symbol_results=per_symbol_results,
-                training_window_end=training_window_end,
-            )
+            stats_conn = _connect_db(settings)
+            try:
+                with stats_conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT tf, COUNT(*) as count
+                        FROM feature_ic_scores
+                        WHERE training_window_end = %s
+                        GROUP BY tf
+                        ORDER BY tf
+                        """,
+                        (training_window_end,),
+                    )
+                    rows_by_tf = {r[0]: r[1] for r in cur.fetchall()}
+
+                    cur.execute(
+                        """
+                        SELECT regime, COUNT(*) as count
+                        FROM feature_ic_scores
+                        WHERE training_window_end = %s
+                        GROUP BY regime
+                        ORDER BY regime
+                        """,
+                        (training_window_end,),
+                    )
+                    rows_by_regime = {r[0]: r[1] for r in cur.fetchall()}
+
+                    cur.execute(
+                        "SELECT COUNT(*) FROM feature_ic_scores WHERE training_window_end = %s",
+                        (training_window_end,),
+                    )
+                    rows_total = cur.fetchone()[0]
+            finally:
+                stats_conn.close()
 
             # ----------------------------------------------------------
             # Post-run lifecycle hook (Phase 143 Plan 03: LIFECYCLE-03/04/05).
-            # Runs after the primary write above is durable. Mirrors
-            # _persist_corpus_results' pattern -- main() holds no write connection
-            # of its own, so the hook opens, uses, and closes its own connection
+            # Runs after the FDR backfill above is durable. Same short-lived-
+            # connection pattern as every other post-compute step in this
+            # function -- the hook opens, uses, and closes its own connection
             # for this one call. Guarded: a hook failure logs loudly but must
             # never abort the run or discard the already-committed IC results.
             # ----------------------------------------------------------
@@ -3441,8 +3531,9 @@ def main() -> None:
     finally:
         if conn is not None:
             conn.close()
-        # No write_conn to close here -- _persist_corpus_results owns its own
-        # connection's full lifecycle (open/use/close) internally.
+        # No write_conn to close here -- every write (per-symbol, per-cell,
+        # FDR backfill, manifest stats) opens and closes its own connection
+        # internally (todo 130).
         JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": status})
         flush_and_shutdown_metrics()
 
