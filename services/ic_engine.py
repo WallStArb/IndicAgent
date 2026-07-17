@@ -376,6 +376,26 @@ def _connect_db(settings: Settings) -> Any:
     return connect_db_from_url(settings.database_url)
 
 
+@contextmanager
+def _short_lived_conn(settings: Settings):
+    """Open a connection scoped to one unit of work, guaranteeing it closes.
+
+    Main-process helper for the "own connection per unit of work" pattern used
+    throughout this module (todo 130) -- opened right before use and closed
+    right after, never held idle across a compute phase (the todo-125/143.1-07
+    incident: a connection opened before hours of compute, dead by the time it
+    was finally used). Worker-side connections (`connect_db_from_url(dsn)` in
+    `_compute_symbol_tf`/`_compute_cross_sectional_tf`) are a separate pattern --
+    they cross a ProcessPoolExecutor boundary and take a `dsn: str`, not a
+    `Settings`, so they don't fit this helper (todo 129).
+    """
+    conn = _connect_db(settings)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # APR compile-time binding
 # ---------------------------------------------------------------------------
@@ -2254,9 +2274,10 @@ def _write_symbol_results(
     settings: Settings,
     pooled_rows: list[dict],
     regime_rows: list[dict],
+    conn: Any | None = None,
 ) -> int:
     """Write one symbol's already-computed rows to feature_ic_scores immediately
-    (todo 130), in their own short-lived connection.
+    (todo 130).
 
     Prior behavior held every symbol's rows in memory for the whole corpus run
     (30+ hours) and wrote them all in one call at the very end -- a crash at any
@@ -2266,23 +2287,29 @@ def _write_symbol_results(
     whatever hasn't been computed yet. bh_adjusted_p/passes_fdr are already final
     for non-representative rows (False, set by the worker) and pending (NULL) for
     cluster representatives -- _backfill_bh_fdr resolves those once the whole
-    corpus is done. Opens and closes its own connection rather than reusing one
-    held across the ProcessPoolExecutor loop, matching _compute_cross_sectional_tf's
-    todo-125 fix for the same class of idle-connection staleness bug.
+    corpus is done.
+
+    If `conn` is given, writes on it and leaves it open (caller owns the
+    lifecycle -- the checkpoint-resume loop in main() shares one connection
+    across all resumed symbols, since that loop has no compute between
+    iterations to make an idle connection risky). Otherwise opens and closes
+    its own short-lived connection, matching _compute_cross_sectional_tf's
+    todo-125 fix for the ProcessPoolExecutor as_completed path, where real
+    compute (waiting on other workers) happens between iterations.
     """
     if not pooled_rows and not regime_rows:
         return 0
-    conn = _connect_db(settings)
-    try:
+    if conn is not None:
         return _write_ic_results(conn, pooled_rows, regime_rows)
-    finally:
-        conn.close()
+    with _short_lived_conn(settings) as owned_conn:
+        return _write_ic_results(owned_conn, pooled_rows, regime_rows)
 
 
 def _record_symbol_result(
     settings: Settings,
     result: dict,
     per_symbol_results: list[tuple[str, list[dict]]],
+    conn: Any | None = None,
 ) -> int:
     """Write one symbol's rows immediately and record them for later OTel gauge
     emission (todo 130). Shared by the checkpoint-resume path and the fresh
@@ -2293,9 +2320,15 @@ def _record_symbol_result(
     branch of the as_completed loop) still needs it even though pooled_rows/
     regime_rows there may be a partial, pre-failure subset.
 
+    `conn`: see _write_symbol_results -- pass a shared connection for the
+    resume loop, leave None for the as_completed loop (own connection per
+    symbol, opened right when a result arrives).
+
     Returns n_committed.
     """
-    n_committed = _write_symbol_results(settings, result["pooled_rows"], result["regime_rows"])
+    n_committed = _write_symbol_results(
+        settings, result["pooled_rows"], result["regime_rows"], conn=conn
+    )
     per_symbol_results.append((result["symbol"], result["all_results"]))
     return n_committed
 
@@ -2323,11 +2356,8 @@ def _write_cs_cell_results(settings: Settings, cs_rows: list[dict]) -> int:
     """
     if not cs_rows:
         return 0
-    conn = _connect_db(settings)
-    try:
+    with _short_lived_conn(settings) as conn:
         return _write_cross_sectional_results(conn, cs_rows)
-    finally:
-        conn.close()
 
 
 def _backfill_bh_fdr(
@@ -3186,19 +3216,29 @@ def main() -> None:
                 # ----------------------------------------------------------
                 content_key = _checkpoint_content_key()
                 checkpoint_dir = _checkpoint_dir(training_window_end, content_key)
-                n_resumed = 0
                 symbols_to_compute: list[str] = []
+                resumed_checkpoints: list[dict] = []
                 for symbol in symbols:
                     checkpointed = _load_checkpoint(checkpoint_dir, symbol)
                     if checkpointed is not None and not checkpointed.get("error"):
-                        total_committed += _record_symbol_result(
-                            settings, checkpointed, per_symbol_results
-                        )
-                        total_skipped += checkpointed["n_skipped"]
-                        n_resumed += 1
-                        IC_ENGINE_SYMBOLS_COMPLETED_TOTAL.add(1, {"source": "checkpoint"})
+                        resumed_checkpoints.append(checkpointed)
                     else:
                         symbols_to_compute.append(symbol)
+
+                # One shared connection for all resumed symbols' writes -- this
+                # loop is pure disk-checkpoint-read + DB-write with no compute
+                # between iterations, unlike the as_completed loop below (which
+                # waits on other workers between results), so there's no
+                # idle-connection risk in holding one connection across it.
+                n_resumed = len(resumed_checkpoints)
+                if resumed_checkpoints:
+                    with _short_lived_conn(settings) as resume_conn:
+                        for checkpointed in resumed_checkpoints:
+                            total_committed += _record_symbol_result(
+                                settings, checkpointed, per_symbol_results, conn=resume_conn
+                            )
+                            total_skipped += checkpointed["n_skipped"]
+                            IC_ENGINE_SYMBOLS_COMPLETED_TOTAL.add(1, {"source": "checkpoint"})
                 if n_resumed:
                     _logger.info(
                         "ic_engine.checkpoint_resumed",
@@ -3332,8 +3372,7 @@ def main() -> None:
                         )
                         continue
 
-                    regime_list_conn = _connect_db(settings)
-                    try:
+                    with _short_lived_conn(settings) as regime_list_conn:
                         with regime_list_conn.cursor() as cur:
                             cur.execute(
                                 "SELECT DISTINCT regime_label FROM market_regimes "
@@ -3342,8 +3381,6 @@ def main() -> None:
                             )
                             cs_regimes = [r[0] for r in cur.fetchall()]
                         regime_list_conn.commit()
-                    finally:
-                        regime_list_conn.close()
 
                     for tf in tfs:
                         for regime_label in cs_regimes:
@@ -3372,67 +3409,75 @@ def main() -> None:
                             )
 
             # ----------------------------------------------------------
-            # Corpus-level BH-FDR backfill (P2 fix; todo 130). Every per-symbol
-            # and cross-sectional row is already durable in feature_ic_scores by
-            # this point (written immediately as each unit of compute finished
-            # above) -- this is a cheap, query-driven UPDATE-only pass, not a
-            # dependency the rest of the run's persistence waits on. Queries
-            # whatever is currently pending (passes_fdr IS NULL) for this
-            # training_window_end rather than in-memory bookkeeping, so it's
-            # safe to rerun after a crash regardless of which invocation wrote
-            # the pending rows. See _backfill_bh_fdr's docstring.
+            # Corpus-level BH-FDR backfill (P2 fix; todo 130) through the
+            # post-run lifecycle hook: one shared connection for this whole
+            # block. Every step here is either a DB round-trip with no
+            # intervening compute, or pure in-memory Python (the gauge-patch
+            # loop below) -- none of it is the multi-hour compute phase the
+            # short-lived-per-step pattern exists to protect against, so
+            # there's no idle-connection risk in sharing one connection start
+            # to finish.
             # ----------------------------------------------------------
-            backfill_conn = _connect_db(settings)
-            try:
-                fdr_updates = _backfill_bh_fdr(backfill_conn, training_window_end, config.fdr_alpha)
-            finally:
-                backfill_conn.close()
-            _logger.info("ic_engine.corpus_fdr_backfilled", n_updated=len(fdr_updates))
+            with _short_lived_conn(settings) as post_compute_conn:
+                # BH-FDR backfill. Every per-symbol and cross-sectional row is
+                # already durable in feature_ic_scores by this point (written
+                # immediately as each unit of compute finished above) -- this
+                # is a cheap, query-driven UPDATE-only pass, not a dependency
+                # the rest of the run's persistence waits on. Queries whatever
+                # is currently pending (passes_fdr IS NULL) for this
+                # training_window_end rather than in-memory bookkeeping, so
+                # it's safe to rerun after a crash regardless of which
+                # invocation wrote the pending rows. See _backfill_bh_fdr's
+                # docstring.
+                fdr_updates = _backfill_bh_fdr(
+                    post_compute_conn, training_window_end, config.fdr_alpha
+                )
+                _logger.info("ic_engine.corpus_fdr_backfilled", n_updated=len(fdr_updates))
 
-            # Patch the matching in-memory per-symbol result dicts with their
-            # final FDR outcome, then emit OTel health gauges -- gauges must
-            # reflect final passes_fdr, not the pending-representative
-            # placeholder these dicts still carry from compute time.
-            fdr_by_key = {
-                (u["feature_name"], u["symbol"], u["tf"], u["regime"], u["lookahead_bars"]): u
-                for u in fdr_updates
-            }
-            for sym, sym_results in per_symbol_results:
-                if not sym_results:
-                    continue
-                by_tf: dict[str, list] = {}
-                for r in sym_results:
-                    # Only cluster representatives are ever left pending
-                    # (passes_fdr is None); non-representatives already got
-                    # their final False locked in at compute time and can
-                    # never be in fdr_by_key -- skip the lookup for them.
-                    if r["passes_fdr"] is None:
-                        match = fdr_by_key.get(
-                            (
-                                r["feature_name"],
-                                r["symbol"],
-                                r["tf"],
-                                r["regime"],
-                                r["lookahead_bars"],
+                # Patch the matching in-memory per-symbol result dicts with
+                # their final FDR outcome -- gauges must reflect final
+                # passes_fdr, not the pending-representative placeholder these
+                # dicts still carry from compute time.
+                fdr_by_key = {
+                    (u["feature_name"], u["symbol"], u["tf"], u["regime"], u["lookahead_bars"]): u
+                    for u in fdr_updates
+                }
+                for _sym, sym_results in per_symbol_results:
+                    for r in sym_results:
+                        # Only cluster representatives are ever left pending
+                        # (passes_fdr is None); non-representatives already
+                        # got their final False locked in at compute time and
+                        # can never be in fdr_by_key -- skip the lookup.
+                        if r["passes_fdr"] is None:
+                            match = fdr_by_key.get(
+                                (
+                                    r["feature_name"],
+                                    r["symbol"],
+                                    r["tf"],
+                                    r["regime"],
+                                    r["lookahead_bars"],
+                                )
                             )
-                        )
-                        if match:
-                            r["bh_adjusted_p"] = match["bh_adjusted_p"]
-                            r["passes_fdr"] = match["passes_fdr"]
-                    tf_key = r.get("tf")
-                    if tf_key:
-                        by_tf.setdefault(tf_key, []).append(r)
-                for tf_key, tf_results in by_tf.items():
-                    _emit_health_gauges(sym, tf_key, tf_results)
-                _logger.info("ic_engine.symbol_done", symbol=sym, n_rows=len(sym_results))
+                            if match:
+                                r["bh_adjusted_p"] = match["bh_adjusted_p"]
+                                r["passes_fdr"] = match["passes_fdr"]
 
-            # ----------------------------------------------------------
-            # Manifest stats: own short-lived connection, opened and closed here
-            # only -- mirrors every other post-compute step in this function.
-            # ----------------------------------------------------------
-            stats_conn = _connect_db(settings)
-            try:
-                with stats_conn.cursor() as cur:
+                # Emit OTel health gauges, grouped by tf, now that every
+                # row's FDR outcome is final.
+                for sym, sym_results in per_symbol_results:
+                    if not sym_results:
+                        continue
+                    by_tf: dict[str, list] = {}
+                    for r in sym_results:
+                        tf_key = r.get("tf")
+                        if tf_key:
+                            by_tf.setdefault(tf_key, []).append(r)
+                    for tf_key, tf_results in by_tf.items():
+                        _emit_health_gauges(sym, tf_key, tf_results)
+                    _logger.info("ic_engine.symbol_done", symbol=sym, n_rows=len(sym_results))
+
+                # Manifest stats.
+                with post_compute_conn.cursor() as cur:
                     cur.execute(
                         """
                         SELECT tf, COUNT(*) as count
@@ -3462,30 +3507,21 @@ def main() -> None:
                         (training_window_end,),
                     )
                     rows_total = cur.fetchone()[0]
-            finally:
-                stats_conn.close()
 
-            # ----------------------------------------------------------
-            # Post-run lifecycle hook (Phase 143 Plan 03: LIFECYCLE-03/04/05).
-            # Runs after the FDR backfill above is durable. Same short-lived-
-            # connection pattern as every other post-compute step in this
-            # function -- the hook opens, uses, and closes its own connection
-            # for this one call. Guarded: a hook failure logs loudly but must
-            # never abort the run or discard the already-committed IC results.
-            # ----------------------------------------------------------
-            lifecycle_conn = _connect_db(settings)
-            try:
-                _run_lifecycle_hook(
-                    lifecycle_conn,
-                    registry_svc,
-                    config,
-                    training_window_end,
-                    manifest,
-                )
-            except Exception as error:
-                _logger.error("ic_engine.lifecycle_hook_failed", error=str(error))
-            finally:
-                lifecycle_conn.close()
+                # Post-run lifecycle hook (Phase 143 Plan 03: LIFECYCLE-03/04/
+                # 05). Runs after the FDR backfill above is durable. Guarded:
+                # a hook failure logs loudly but must never abort the run or
+                # discard the already-committed IC results.
+                try:
+                    _run_lifecycle_hook(
+                        post_compute_conn,
+                        registry_svc,
+                        config,
+                        training_window_end,
+                        manifest,
+                    )
+                except Exception as error:
+                    _logger.error("ic_engine.lifecycle_hook_failed", error=str(error))
 
             elapsed = time.monotonic() - t0
             IC_ENGINE_RUN_LATENCY_SECONDS.record(elapsed)

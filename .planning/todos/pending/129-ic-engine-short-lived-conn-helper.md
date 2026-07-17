@@ -1,39 +1,49 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-07-17
 source: altitude finding from /simplify review of todo 128 (ic_engine cross-sectional
-  connection-lifecycle fix)
+  connection-lifecycle fix); narrowed 2026-07-17 after a /simplify pass on todo 130's
+  diff resolved the Settings-based half
 ---
 
-# `ic_engine.py` has 5 hand-rolled short-lived-connection blocks — extract a shared helper
+# `ic_engine.py`'s 3 dsn-based worker connections still hand-rolled — extract a shared helper
 
-## Problem
+## Problem (narrowed 2026-07-17 — main()-side half already fixed)
 
-Todo 128 fixed `_compute_cross_sectional_tf` by applying the same "open short-lived
-connection → fetch → close before compute" pattern already used in `_compute_symbol_tf`
-(todo 102). That's now 3 hand-written instances of the identical shape in this one file,
-plus 2 more one-off short-lived connections in `main()` (`regime_list_conn`,
-`lifecycle_conn`) — 5 total, each written by hand with slightly different try/finally
-discipline. None of the 3 fetch-phase blocks (`_compute_symbol_tf` x2, `_compute_cross_sectional_tf`
-x1) wrap the fetch in `try/finally` — an exception mid-fetch leaks the connection instead of
-closing it, in all three.
+Originally filed against 5 hand-rolled `open → use → close` connection blocks: 3 dsn-based
+ones inside worker functions (`_compute_symbol_tf` x2, `_compute_cross_sectional_tf` x1) plus
+2 Settings-based ones in `main()` (`regime_list_conn`, `lifecycle_conn`). Todo 130's diff (same
+day) added 4 more Settings-based instances of the same shape (`_write_symbol_results`,
+`_write_cs_cell_results`, `backfill_conn`, `stats_conn`), growing the main()-side count to 6.
 
-This is the second time the "don't hold a connection across compute-only phases" bug class has
-had to be hand-fixed in this file (todo 102 → 128). Nothing structurally prevents a third
-recurrence in a future function.
+A `/simplify` pass on that diff (2026-07-17) added `_short_lived_conn(settings)` — a
+`@contextmanager` right next to `_connect_db`, matching the file's existing `_observed_span`
+idiom — and migrated all 6 Settings-based call sites onto it (`_write_symbol_results`,
+`_write_cs_cell_results`, the checkpoint-resume loop, `regime_list_conn`,
+`backfill_conn`/`stats_conn`/`lifecycle_conn` merged into one shared connection since they run
+back-to-back with no intervening compute). That resolves the duplication and the
+missing-try/finally gap for the main-process side.
+
+**Still open:** the 3 dsn-based worker-side connections (`_compute_symbol_tf` x2,
+`_compute_cross_sectional_tf` x1) are untouched — deliberately, not an oversight. Those
+functions run inside a `ProcessPoolExecutor` worker (hence `dsn: str`, not `Settings`, since a
+live connection/Settings object can't cross the process boundary) and are the multi-hour
+compute-critical path a corpus run is actively executing against as of this same session —
+too high-blast-radius to touch outside a dedicated, tested change. None of the 3 wrap their
+fetch in `try/finally`, so an exception mid-fetch still leaks the connection in all three.
 
 ## Fix (not yet done)
 
-Extract a shared `@contextmanager def short_lived_conn(dsn: str, tune_sql: list[str] | None = None)`
-helper into `services/_batch_utils.py` (natural home — `connect_db_from_url` already lives
-there). Migrate all 5 call sites in `ic_engine.py` onto it. This closes both the duplication
-and the missing-try/finally gap structurally, rather than relying on the next person who
-touches this file to notice and hand-copy the pattern correctly a fourth time.
+Extract a shared `@contextmanager def short_lived_conn(dsn: str)` helper (natural home:
+`services/_batch_utils.py`, next to `connect_db_from_url`) and migrate the 3 remaining
+dsn-based call sites onto it, adding the missing `try/finally` in the process.
 
 ## References
 
 - `services/ic_engine.py` — `_compute_symbol_tf` (todo 102), `_compute_cross_sectional_tf`
-  (todo 128), `main()`'s `regime_list_conn`/`lifecycle_conn`
+  (todo 128), `_short_lived_conn` (the new Settings-based helper, for reference/naming
+  consistency)
 - `services/_batch_utils.py` — `connect_db_from_url`, natural home for the new helper
-- `.planning/todos/completed/102-...md`, `.planning/todos/completed/128-...md`
+- `.planning/todos/completed/102-...md`, `.planning/todos/completed/128-...md`,
+  `.planning/todos/completed/130-...md`
