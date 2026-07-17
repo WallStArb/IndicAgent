@@ -153,8 +153,16 @@ _SCALES: tuple[str, ...] = ("fast", "mid", "slow", "extended")
 # is_pooled=true + regime='_pooled' is the canonical pooled-row identity.
 _POOLED_REGIME_SENTINEL = "_pooled"
 
-# Default TFs if not passed via --tf
-_DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
+# Default TFs if not passed via --tf. Cheapest/most-reliable first (todo 132): the
+# cross-sectional pass (_compute_cross_sectional_tf) writes each cell's rows
+# immediately on completion, and per-cell cost scales with pooled row count -- 5m
+# cells (the most rows, e.g. ~361674 for a single (group, regime) cell) are the ones
+# that take ~1h+ each even after the todo-131 bootstrap-threading fix, while 1d/1h/15m
+# cells are minutes. Processing 5m FIRST (the pre-131 order) meant the run spent its
+# first many hours entirely in the tier most likely to hit an unrelated crash (OOM,
+# connection drop, host reboot) with zero rows banked. Cheapest-first means a crash
+# during the expensive 5m tail loses only the 5m tier's rows, not everything.
+_DEFAULT_TFS: list[str] = ["1d", "1h", "15m", "5m"]
 
 # Cross-sectional symbol sentinel: used when symbol='POOLED' (all 58 equity ETFs pooled).
 # feature_ic_scores.symbol is NOT NULL, so we use a string sentinel.
