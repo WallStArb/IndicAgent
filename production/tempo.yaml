@@ -23,5 +23,12 @@ storage:
     wal:
       path: /var/tempo/wal
 
-reporting:
-  enabled: false
+# [todo 125, 2026-07-17] todo 044's fix for this same crash loop was itself wrong: it
+# guessed `reporting: enabled: false` from the `-reporting.enabled` CLI flag name, but
+# Tempo's actual app.Config struct (confirmed via `strings` on the compiled binary,
+# grafana/tempo:3.0.0, revision d399842f5) tags this field `yaml:"usage_report,omitempty"`
+# with a nested `yaml:"reporting_enabled"` -- the flag namespace doesn't mirror the YAML
+# struct namespace here. Reproduced the parse failure standalone against the real binary
+# before changing this, and verified this exact form starts cleanly (same method).
+usage_report:
+  reporting_enabled: false
