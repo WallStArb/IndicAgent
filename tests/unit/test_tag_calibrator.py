@@ -56,9 +56,16 @@ def _synthetic_close(seed: int, n: int = 260, start: float = 100.0) -> pd.Series
 
 def test_skips_self_regression():
     """A pair with symbol == factor_series is excluded from the measured matrix, both
-    at the single-pair helper level and inside the full measure_matrix loop."""
+    at the single-pair helper level and inside the full measure_matrix loop. Also
+    covers the long-short leg-inclusion case (code review finding CR-01): a symbol
+    that is one leg of a hyphenated long-short factor series (e.g. HYG vs HYG-IEF)
+    must be excluded too, since the "factor" mathematically contains that symbol's
+    own return as an additive term -- a plain string-equality check misses this."""
     assert _is_self_regression("TLT", "TLT") is True
     assert _is_self_regression("TLT", "UUP") is False
+    assert _is_self_regression("HYG", "HYG-IEF") is True
+    assert _is_self_regression("IEF", "HYG-IEF") is True
+    assert _is_self_regression("TLT", "HYG-IEF") is False
 
     price_cache = {"TLT": _synthetic_close(seed=1)}
     measurable_rows = [
@@ -163,6 +170,22 @@ def test_expiry_hysteresis():
     decision_3 = decide_outcome(keep=False, existing_row=existing_row, expiry_consecutive_fails=3)
     assert decision_3["action"] == "expire"
     assert decision_3["consecutive_fails"] == 3
+
+
+def test_expired_row_does_not_re_expire_on_repeated_failure():
+    """Once a tag has expired (valid_to already set), a subsequent failing run must be
+    a no-op, not another 'expire' decision (code review finding WR-01) -- otherwise
+    every later failing run would re-execute the expire SQL and reset valid_to to that
+    run's own timestamp, corrupting the recorded "when did this actually expire" time
+    into "most recent calibration run" instead."""
+    existing_row = {
+        "source": "empirical",
+        "consecutive_fails": 5,
+        "valid_to": "2026-01-01T00:00:00+00:00",
+    }
+    decision = decide_outcome(keep=False, existing_row=existing_row, expiry_consecutive_fails=3)
+    assert decision["action"] == "no_op"
+    assert decision["consecutive_fails"] == 5
 
 
 def test_expiry_hysteresis_keep_resets_consecutive_fails():

@@ -82,6 +82,8 @@ across multiple.
 | [053](pending/053-oos-look-log-audit-trail.md) | OOS-look audit trail log |
 | [042](pending/042-15m-chunk-size-retest.md) | Re-test 15m backfill chunk size (likely too conservative) |
 | [024](pending/024-feature-decay-observatory.md) | Feature decay/crowding observatory dashboard |
+| [125](pending/125-tag-calibrator-discovery-oos-gate-not-enforced.md) | TagCalibrator's `discovery_oos_days` OOS-confirmation gate computed but never enforced — new discoveries go live immediately. Zero current blast radius (no live consumer reads the affected tags yet, see 126). |
+| [126](pending/126-instrument-tags-valid-to-no-consumer-contract.md) | No `instrument_tags` reader filters on `valid_to` — expiry has no observable effect yet, no contract established for future consumers. Resolve before/alongside 125. |
 
 ## P3 — Hygiene, docs, process (opportunistic)
 

@@ -92,7 +92,8 @@ UPDATE tag_vocabulary SET factor_series='SPY_REALIZED_VOL', measurement_type='be
 INSERT INTO tag_vocabulary (tag, category, description)
     VALUES ('equity_beta', 'sensitivity',
             'Sensitivity (OLS beta) of the instrument''s daily returns to the broad equity '
-            'market (SPY); general equity-market-beta, empirically measured.');
+            'market (SPY); general equity-market-beta, empirically measured.')
+    ON CONFLICT (tag) DO NOTHING;
 UPDATE tag_vocabulary SET factor_series='SPY', measurement_type='beta_regression',
     lookback_days=252, loading_threshold=0.2, half_life_days=180
     WHERE tag='equity_beta';

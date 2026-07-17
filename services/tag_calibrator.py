@@ -160,7 +160,11 @@ def filter_measurable_tag_rows(
 
     A row with measurement_type == 'beta_regression' but factor_series IS NULL should
     never exist post-238, but this loop defends against it anyway (defense-in-depth)
-    rather than trusting the schema invariant blindly.
+    rather than trusting the schema invariant blindly. Same defense-in-depth logic
+    applies to loading_threshold IS NULL: tag_vocabulary has no NOT NULL constraint on
+    that column, and the pass-3 keep gate (`abs(loading) >= loading_threshold`) would
+    raise TypeError against a future beta_regression row that omits it (code review
+    finding WR-04) -- caught here instead of crashing the whole run mid-loop.
 
     Returns (measurable_rows, skipped_tags) -- the caller logs exactly one WARNING per
     tag in the second list (once per vocabulary row, never inside the per-symbol hot
@@ -174,7 +178,7 @@ def filter_measurable_tag_rows(
         if row["measurement_type"] != _IMPLEMENTED_MEASUREMENT_TYPE:
             skipped_tags.append(row["tag"])
             continue
-        if row["factor_series"] is None:
+        if row["factor_series"] is None or row["loading_threshold"] is None:
             skipped_tags.append(row["tag"])
             continue
         measurable.append(row)
@@ -182,8 +186,17 @@ def filter_measurable_tag_rows(
 
 
 def _is_self_regression(symbol: str, factor_series: str) -> bool:
-    """F6.1: an instrument can never be regressed against itself."""
-    return symbol == factor_series
+    """F6.1: an instrument can never be regressed against a factor series it is itself
+    a component of -- single-symbol match (symbol == factor_series) OR one leg of a
+    long-short spread (e.g. symbol='HYG' vs factor_series='HYG-IEF'). Checking leg
+    membership via _factor_leg_symbols rather than raw string equality is required:
+    four of migration 238's Phase-1 tags (credit_risk/HYG-IEF, inflation/TIP-IEF,
+    yield_curve/IEF-SHY, oil_price/XLE-SPY) are long-short factor series whose value
+    never string-equals a bare symbol even when that symbol is one of the two legs --
+    a plain == check would let e.g. HYG get regressed against a "factor" containing
+    HYG's own return as an additive term, a tautologically inflated loading almost
+    certain to clear both FDR and loading_threshold (code review finding CR-01)."""
+    return symbol in _factor_leg_symbols(factor_series)
 
 
 def _factor_leg_symbols(factor_series: str) -> tuple[str, ...]:
@@ -201,6 +214,16 @@ def _factor_leg_symbols(factor_series: str) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------
 # Pass 1: factor-series construction + per-pair measurement (pure, DB-free)
 # ---------------------------------------------------------------------------
+
+
+def _log_returns(close: pd.Series) -> pd.Series:
+    """Daily log-return series from a close-price series, with +/-inf swept to NaN
+    before dropna(). np.log(close/close.shift(1)) produces -inf (not NaN) for any
+    zero-or-negative close in the ratio, which plain .dropna() does not remove --
+    an inf could otherwise flow into standardized_loading's std()/cov() and get
+    silently clipped to exactly +/-1.0 by np.clip rather than surfacing as the NaN
+    this module's guards are meant to guarantee (code review finding WR-05)."""
+    return np.log(close / close.shift(1)).replace([np.inf, -np.inf], np.nan).dropna()
 
 
 def _build_factor_return_series(
@@ -244,8 +267,7 @@ def _build_factor_return_series(
     factor_close = price_cache.get(factor_series)
     if factor_close is None:
         return None, 0
-    factor_ret = np.log(factor_close / factor_close.shift(1)).dropna()
-    return factor_ret, 0
+    return _log_returns(factor_close), 0
 
 
 def _measure_pair(
@@ -271,7 +293,7 @@ def _measure_pair(
     if len(symbol_close) < lookback_days:
         return None
     windowed_close = symbol_close.tail(lookback_days)
-    instrument_ret = np.log(windowed_close / windowed_close.shift(1)).dropna()
+    instrument_ret = _log_returns(windowed_close)
 
     if factor_ret is None:
         return None
@@ -399,7 +421,11 @@ def decide_outcome(
 
     Empirical rows follow F2 hysteresis: a fail only expires (valid_to = now()) once
     consecutive_fails >= expiry_consecutive_fails; a single failing run only increments
-    the counter.
+    the counter. Once expired, a repeated failing run is a no-op rather than
+    re-expiring -- without this guard, every subsequent failing run would re-execute
+    the expire SQL and reset valid_to to that run's timestamp, silently corrupting the
+    recorded expiry time into "most recent calibration run" rather than "the run this
+    tag actually became invalid" (code review finding WR-01).
 
     A keep with no existing row at all is a fresh discovery (no prior human assertion
     either, since existing_row is None) -- inserted and gap-annotated.
@@ -422,6 +448,9 @@ def decide_outcome(
 
     if existing_row is None:
         return {"action": "no_op", "consecutive_fails": 0}
+
+    if existing_row.get("valid_to") is not None:
+        return {"action": "no_op", "consecutive_fails": existing_row.get("consecutive_fails", 0)}
 
     new_fails = existing_row.get("consecutive_fails", 0) + 1
     if new_fails >= expiry_consecutive_fails:
@@ -642,11 +671,13 @@ class TagCalibrator(BaseBatch):
                     "tag_calibrator.tag_not_measurable",
                     tag=tag,
                     note=(
-                        "not measurable this run -- either measurement_type is not yet "
-                        "'beta_regression' (no dispatch implemented for it) or "
+                        "not measurable this run -- one of: measurement_type is not "
+                        "yet 'beta_regression' (no dispatch implemented for it); "
                         "factor_series IS NULL despite a non-definitional "
                         "measurement_type (migration 238's Option A sweep should make "
-                        "the latter impossible; data-integrity anomaly either way)"
+                        "this impossible); or loading_threshold IS NULL (no NOT NULL "
+                        "constraint on that column) -- data-integrity anomaly in all "
+                        "three cases"
                     ),
                 )
 
