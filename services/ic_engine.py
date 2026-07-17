@@ -429,6 +429,14 @@ class ICEngineConfig:
     bootstrap_block_size: dict[str, int] = dataclasses.field(
         default_factory=lambda: {"5m": 78, "15m": 26, "1h": 10, "1d": 10}
     )
+    # Todo 129 (2026-07-17): thread pool size for _circular_block_bootstrap_ic's
+    # re-rank+IC step, cross-sectional pass ONLY. Default 1 (serial, unchanged
+    # behavior) -- must NEVER be raised for the per-symbol path's call sites, which
+    # already run inside an n_workers-way ProcessPoolExecutor pool; threading on top
+    # of that oversubscribes cores instead of speeding anything up. Safe to raise here
+    # because the cross-sectional pass runs single-process, after the per-symbol pool
+    # has already shut down -- nothing else is contending for cores at that point.
+    cross_sectional_bootstrap_threads: int = 1
     # Phase 143.1-04 (Component E, todo 094): champion/challenger behavior switch shared
     # with ensemble_trainer.py's alpha.ensemble.sign_symmetric. Gates ONLY the
     # _run_lifecycle_hook demote/material/worst_cell predicates below -- defaulted to the
@@ -554,6 +562,9 @@ class ICEngineConfig:
             # drift between eligibility and the lifecycle hook's demote predicate.
             sign_symmetric=bool(cfg.get_sync("alpha.ensemble.sign_symmetric", False)),
             regime_groups_json=regime_groups_json,
+            cross_sectional_bootstrap_threads=int(
+                cfg.get_sync("infra.ic_engine.cross_sectional_bootstrap_threads", 1)
+            ),
         )
 
 
@@ -1049,6 +1060,12 @@ def _compute_symbol_tf(
                     config.bootstrap_block_size[tf],
                     config.bootstrap_resamples,
                     rng,
+                    # Explicit, not just the parameter default: this call already runs
+                    # inside main()'s ProcessPoolExecutor(max_workers=n_workers) pool
+                    # (_run_ic_worker) -- threading on top would oversubscribe cores,
+                    # not speed anything up. Never wire this to cross_sectional_
+                    # bootstrap_threads or any other >1 value (todo 131).
+                    max_workers=1,
                 )
 
                 ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
@@ -1320,6 +1337,12 @@ def _compute_symbol_tf(
                     config.bootstrap_block_size[tf],
                     config.bootstrap_resamples,
                     rng,
+                    # Explicit, not just the parameter default: this call already runs
+                    # inside main()'s ProcessPoolExecutor(max_workers=n_workers) pool
+                    # (_run_ic_worker) -- threading on top would oversubscribe cores,
+                    # not speed anything up. Never wire this to cross_sectional_
+                    # bootstrap_threads or any other >1 value (todo 131).
+                    max_workers=1,
                 )
                 ci_lower = float(ci_lower_arr[0])
                 ci_upper = float(ci_upper_arr[0])
@@ -1900,6 +1923,7 @@ def _compute_cross_sectional_tf(
             config.bootstrap_block_size[tf],
             config.bootstrap_resamples,
             rng,
+            max_workers=config.cross_sectional_bootstrap_threads,
         )
         ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
         ci_upper_full = _expand(ci_upper_nd, non_degenerate_mask, n_features)

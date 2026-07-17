@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
 import numpy as np
@@ -207,6 +208,7 @@ def _circular_block_bootstrap_ic(
     block_size: int,
     n_boot: int,
     rng: np.random.Generator,
+    max_workers: int = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Circular block bootstrap for IC confidence intervals -- the production CI,
     restoring the function removed in commit c6f5056b with its pre-ranking bug fixed.
@@ -241,6 +243,23 @@ def _circular_block_bootstrap_ic(
     OOM-killing the process under parallel execution. This loop form allocates
     ~3.75 MB per iteration.
 
+    Threading (todo 131, 2026-07-17): the RNG draw (`rng.integers`) that determines
+    each iteration's resampled block indices is cheap and MUST stay strictly serial --
+    it is the only stateful, order-dependent step, and correctness/reproducibility
+    depend on drawing in the same order regardless of max_workers. The expensive step
+    (re-rank + IC on the resampled (n, p) block) is pure and independent per iteration,
+    so it's dispatched to a bounded thread pool in max_workers-sized batches: draw a
+    batch of indices serially, hand the batch to the pool, write results back at their
+    absolute iteration index (never appended in completion order), repeat. Benchmarked
+    on this corpus's largest cross-sectional cell shape (n=361674, p=154): ~5x wall
+    time at max_workers=16 on a 24-core host -- numpy/scipy's sort releases the GIL
+    enough for real parallelism without ProcessPoolExecutor's per-worker array-copy
+    cost. Batching (not a single `executor.map` over all n_boot indices) bounds peak
+    memory to max_workers index arrays at a time, not n_boot of them (~3.75 MB x 2000
+    would be ~7.5 GB otherwise). max_workers=1 (the default) takes the plain serial
+    path -- bit-for-bit identical to the pre-threading implementation, so every
+    existing caller is unaffected unless it explicitly opts in.
+
     Args:
         X_raw: Shape [n_obs, n_features] -- RAW (unranked) feature matrix.
         Y_raw: Shape [n_obs] -- RAW (unranked) return vector.
@@ -251,6 +270,14 @@ def _circular_block_bootstrap_ic(
             for reproducibility across ic_engine invocations -- never an unseeded or
             module-global Generator (ProcessPoolExecutor workers must derive their own
             seed; see services/ic_engine.py's _derive_worker_rng_seed()).
+        max_workers: Thread pool size for the re-rank + IC step. 1 (default) runs
+            fully serial. Callers already running inside a ProcessPoolExecutor pool
+            (ic_engine.py's per-symbol path) must keep this at 1 -- the pool already
+            saturates available cores; threading on top would oversubscribe, not
+            speed up. Only safe to raise where nothing else is contending for cores
+            (ic_engine.py's cross-sectional path, which runs after the per-symbol
+            pool has already shut down). From APR:
+            infra.ic_engine.cross_sectional_bootstrap_threads.
 
     Returns:
         (ci_lower, ci_upper): Each shape [n_features]; 95% CI via percentile method.
@@ -260,12 +287,27 @@ def _circular_block_bootstrap_ic(
     boot_ics = np.zeros((n_boot, p))
     offsets = np.arange(block_size)
 
-    for b in range(n_boot):
+    def _draw_idx() -> np.ndarray:
         starts = rng.integers(0, n, size=n_blocks)
-        idx = (starts[:, None] + offsets).ravel()[:n] % n
+        return (starts[:, None] + offsets).ravel()[:n] % n
+
+    def _resample_ic(idx: np.ndarray) -> np.ndarray:
         ranks_X_boot = rankdata(X_raw[idx], axis=0)
         ranks_Y_boot = rankdata(Y_raw[idx])
-        boot_ics[b] = _vectorized_ic(ranks_X_boot, ranks_Y_boot)
+        return _vectorized_ic(ranks_X_boot, ranks_Y_boot)
+
+    if max_workers <= 1:
+        for b in range(n_boot):
+            boot_ics[b] = _resample_ic(_draw_idx())
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            for b in range(0, n_boot, max_workers):
+                batch_end = min(b + max_workers, n_boot)
+                # Serial draw, in order -- the only part that must never run
+                # concurrently (see docstring). pool.map() yields results in
+                # submission order (stdlib-guaranteed), not completion order.
+                batch_idx = [_draw_idx() for _ in range(b, batch_end)]
+                boot_ics[b:batch_end] = list(pool.map(_resample_ic, batch_idx))
 
     ci_lower = np.percentile(boot_ics, 2.5, axis=0)
     ci_upper = np.percentile(boot_ics, 97.5, axis=0)

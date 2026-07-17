@@ -149,6 +149,52 @@ def test_determinism_same_seed_identical_bounds():
     np.testing.assert_array_equal(ci_upper_a, ci_upper_b)
 
 
+def test_threaded_matches_serial_bit_for_bit():
+    """max_workers>1 must produce IDENTICAL CI bounds to max_workers=1 (the historical
+    default) given the same seed and inputs -- threading changes execution order only,
+    never the sequence of RNG draws or which draw feeds which output slot."""
+    n = 800
+    block_size = 10
+    n_boot = 137  # deliberately not a multiple of any worker count, to exercise the
+    # final partial batch
+    x_raw, y_raw = _ar1_fixture(n, seed=21)
+
+    rng_serial = np.random.default_rng(7)
+    ci_lower_serial, ci_upper_serial = _circular_block_bootstrap_ic(
+        x_raw.reshape(-1, 1), y_raw, block_size, n_boot, rng_serial, max_workers=1
+    )
+
+    rng_threaded = np.random.default_rng(7)
+    ci_lower_threaded, ci_upper_threaded = _circular_block_bootstrap_ic(
+        x_raw.reshape(-1, 1), y_raw, block_size, n_boot, rng_threaded, max_workers=8
+    )
+
+    np.testing.assert_array_equal(ci_lower_serial, ci_lower_threaded)
+    np.testing.assert_array_equal(ci_upper_serial, ci_upper_threaded)
+
+
+def test_threaded_determinism_same_seed_identical_bounds():
+    """Same seed must produce IDENTICAL bounds across two independent threaded calls --
+    threading must not introduce nondeterminism from thread-scheduling order."""
+    n = 800
+    block_size = 10
+    n_boot = 137
+    x_raw, y_raw = _ar1_fixture(n, seed=21)
+
+    rng_a = np.random.default_rng(55)
+    ci_lower_a, ci_upper_a = _circular_block_bootstrap_ic(
+        x_raw.reshape(-1, 1), y_raw, block_size, n_boot, rng_a, max_workers=8
+    )
+
+    rng_b = np.random.default_rng(55)
+    ci_lower_b, ci_upper_b = _circular_block_bootstrap_ic(
+        x_raw.reshape(-1, 1), y_raw, block_size, n_boot, rng_b, max_workers=8
+    )
+
+    np.testing.assert_array_equal(ci_lower_a, ci_lower_b)
+    np.testing.assert_array_equal(ci_upper_a, ci_upper_b)
+
+
 def test_circular_wrap_handles_boundary_without_raising():
     """Circular-wrap block indices must stay in-range (max index < n) and must not
     raise, even when block_size exceeds n (forces heavy wraparound)."""
@@ -160,6 +206,26 @@ def test_circular_wrap_handles_boundary_without_raising():
     rng = np.random.default_rng(5)
     ci_lower, ci_upper = _circular_block_bootstrap_ic(
         x_raw.reshape(-1, 1), y_raw, block_size, n_boot, rng
+    )
+
+    assert ci_lower.shape == (1,)
+    assert ci_upper.shape == (1,)
+    assert np.all(np.isfinite(ci_lower)), f"ci_lower contains non-finite: {ci_lower}"
+    assert np.all(np.isfinite(ci_upper)), f"ci_upper contains non-finite: {ci_upper}"
+
+
+def test_circular_wrap_handles_boundary_without_raising_threaded():
+    """Same heavy-wraparound boundary case as above, but through the max_workers>1
+    path -- the wraparound/index-safety guarantee must hold under threading too, not
+    just in the serial default."""
+    n = 5
+    block_size = 10
+    n_boot = 50
+    x_raw, y_raw = _ar1_fixture(n, seed=13)
+
+    rng = np.random.default_rng(5)
+    ci_lower, ci_upper = _circular_block_bootstrap_ic(
+        x_raw.reshape(-1, 1), y_raw, block_size, n_boot, rng, max_workers=8
     )
 
     assert ci_lower.shape == (1,)
