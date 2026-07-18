@@ -84,7 +84,6 @@ across multiple.
 | [024](pending/024-feature-decay-observatory.md) | Feature decay/crowding observatory dashboard |
 | [125](pending/125-tag-calibrator-discovery-oos-gate-not-enforced.md) | TagCalibrator's `discovery_oos_days` OOS-confirmation gate computed but never enforced — new discoveries go live immediately. Zero current blast radius (no live consumer reads the affected tags yet, see 126). |
 | [126](pending/126-instrument-tags-valid-to-no-consumer-contract.md) | No `instrument_tags` reader filters on `valid_to` — expiry has no observable effect yet, no contract established for future consumers. Resolve before/alongside 125. |
-| [130](pending/130-drift-api-route-broken-import.md) | `GET /api/drift` throws `ImportError` on every request — module-level `get_connection` import from `database_manager.py` doesn't exist there. Found incidentally building Phase 161's `/api/vocabulary` route (which correctly avoided copying the broken pattern). Small, one-file, zero DB/CPU overlap — good candidate to knock out while 143.1-07 runs. |
 | [135](pending/135-cross-sectional-regime-grid-shape-never-validated.md) | Cross-sectional regime grid shape (9 equity cells, 6 rates cells) has never been validated as a model-selection question — unlike HMM's K=5, which went through a real BIC study. Distinct from todo 092 (cut-point values within the existing shape). |
 | [078](pending/078-frame-outcome-labels-second-outcome-definition.md) | Register frame-outcome (barrier-hit sign) as a second outcome definition alongside forward-return IC, now that `alpha_frames` has real data. Gate cleared 2026-07-12 (todo 093 backfill ran); moved back to pending/ 2026-07-18. Diagnostic value, not a reason to touch 142B's frozen design. |
 | [082](pending/082-simulation-validation-lenses-post-142b.md) | Additional read-only simulation/validation lenses over `alpha_frames` (standing permutation nulls, etc.) — same gate-cleared status as 078. No new judgment surface, mechanical. |
@@ -107,6 +106,8 @@ across multiple.
 | [115](pending/115-days-to-month-end-exact-redundancy.md) | `days_to_month_end` is an exact affine complement of `month_position` (Pearson correlation -1) — perfectly collinear, remove one. |
 | [116](pending/116-above-wk-vwap-miscategorized-calendar-group.md) | `above_wk_vwap` is registered `group_name='calendar'` in `feature_registry` but is price-dependent/stateful, not a pure calendar primitive — miscategorized. |
 | [129](pending/129-ic-engine-short-lived-conn-helper.md) | `ic_engine.py`'s 3 dsn-based worker connections still hand-rolled (`open → use → close`) instead of a shared helper — narrowed 2026-07-17 after the `main()`-side half was already fixed via todo 130. |
+| [137](pending/137-api-routes-no-request-level-smoke-test.md) | No generic guard catches a broken function-local import in an API route (the exact bug class todo 130 fixed) — needs a parametrized smoke test hitting every registered route with mocked deps. |
+| [138](pending/138-drift-route-swallows-db-errors-as-healthy-empty.md) | `GET /api/drift` returns 200 + empty state on any DB failure, indistinguishable from genuine "no drift" — should distinguish degraded from empty, like `vocabulary.py` does. |
 
 ---
 
