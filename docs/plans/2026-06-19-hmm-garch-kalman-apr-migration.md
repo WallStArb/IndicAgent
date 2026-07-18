@@ -1,5 +1,11 @@
 # HMM / GARCH / Kalman APR Migration Plan
 
+**Status (verified 2026-07-18, docs reconciliation pass):** COMPLETE. Migration 153
+(`production/migrations/153_hmm_garch_kalman_apr.sql`) exists and matches this plan's intent
+exactly; `src/intelligence/services/hmm_trainer.py` uses the `_config_service`/`ConfigService`
+pattern described below. Never had a status line or ROADMAP/todo cross-reference, so it read as
+orphaned during an audit — it wasn't, just undocumented. No further action.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move all hardcoded numeric hyperparameters in `hmm_trainer.py`, `garch_volatility.py`, and `kalman_trend.py` into the Adaptive Parameter Registry so they surface in the `/config/parameters` dashboard and become ML learning targets.

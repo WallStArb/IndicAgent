@@ -1,9 +1,17 @@
 # AlphaEngine V1 — Methodology Hypotheses
 
 **Date:** 2026-06-30
-**Status:** Active — three hypotheses requiring empirical validation before any code is written
+**Status:** STALE TRACKING POINTER, hypotheses unresolved (corrected 2026-07-18, docs
+reconciliation pass) — todo 030 no longer exists as a file and did not, in the end, "cover all
+three" hypotheses as this doc originally assumed. It closed narrowly scoped to cost-hurdle
+calibration (`alpha.quant.cost_hurdle.*`, via Phase 141.1), which isn't one of the 3 hypotheses
+below. **Hypothesis 2** (emission thresholds) has a related but separate, still-**open** todo:
+[065](../../.planning/todos/pending/065-emission-layer-calibration-proposals.md). **Hypotheses 1
+and 3** (gap-observation contamination, IC-decay monitoring cadence) have no current tracking
+pointer at all — status unverified, re-check against current `ic_engine.py`/`ensemble_ic_engine.py`
+before treating either as resolved or still-open.
 **Methodology reference:** `docs/intelligence/intelligence-alphaengine-methodology.md`
-**Tracking:** todo 030 (post-corpus empirical calibration — covers all three)
+**Tracking:** ~~todo 030~~ (gone, scope didn't match). Hypothesis 2 → todo 065. Hypotheses 1/3 → untracked.
 
 These were framed as "correctness gaps" in the original draft. That framing was wrong.
 They are hypotheses derived from theoretical methodology. The corpus now exists. Measure
