@@ -36,7 +36,7 @@ distance-to-placing-a-real-trade-with-real-money, not general engineering value.
 **Weak / open:**
 - Two regime systems (per-symbol HMM, cross-sectional VIX×breadth) still unreconciled — no single stratification contract.
 - No proof the intelligence vectors (Quant/Macro/Flow/Qual) are actually statistically independent — orthogonality is asserted, not measured.
-- No vector orthogonalization/whitening step exists anywhere — correlated features go into the ensemble as-is.
+- No single unified orthogonalization/marginal-value gate exists — but the underlying discipline is real and distributed, not simply absent (corrected 2026-07-18, see `unified-orthogonalization-layer.md`'s superseded-note): feature-grain redundancy is already handled by `ensemble_trainer`'s live Ledoit-Wolf cluster deflation (decision D4); regime-grain substitution testing is specced in Phase 145; portfolio-grain effective-N/Kelly is specced in Phase 157 (not yet planned). The real gap is Phase 145 hasn't shipped and Phase 157 hasn't been planned, not that orthogonalization is unaddressed.
 - Edge measurement is Spearman-IC only — blind to real-but-nonmonotonic relationships.
 
 **Proposed:**

@@ -122,6 +122,13 @@ the `concept_registry` row-grain question (already fully specced as Option A/B i
 work), and scope which of the candidates above are worth planning next. Design/decision work,
 not a build task.
 
+**Independent convergence note (2026-07-18):** a separate, orphaned "Unified Orthogonalization
+Layer" proposal (`docs/research/unified-orthogonalization-layer.md`, dated 2026-07-14) specced a
+near-identical regime-level substitution-test/orthogonality-study protocol under its own Phase
+162.1 — found and marked superseded during a docs reconciliation pass. This doc's Gates 0-2
+already cover that ground in more detail (real APR keys, a real candidate list); nothing from
+that proposal needs folding in beyond confirming the convergence.
+
 **The proposal:** name the concept — a *stratification dimension* — unify it behind one
 provider contract, and make "which conditioning is true" an empirical, mechanical question
 answered by the same measurement machinery that already governs features. This is not a new

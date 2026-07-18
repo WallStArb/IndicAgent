@@ -1,10 +1,17 @@
 # Phase 162: Unified Orthogonalization Layer
 
-**Status:** PLANNED
+**Status:** SUPERSEDED (2026-07-18) — never registered in ROADMAP.md; its claimed phase number
+was independently reused by the unrelated "ic_engine Corpus Pipeline Throughput" phase. Full
+per-level disposition (feature level rejected by decision D4, regime level superseded by Phase
+145, portfolio level redundant with Phase 157, prediction level preserved as a gated future todo)
+is in the companion spec doc: `docs/research/unified-orthogonalization-layer.md`'s "Superseded
+2026-07-18" section — don't duplicate that breakdown here. This implementation-plan-level
+document (wave/task detail) is kept only as executable detail for Phase 157's eventual portfolio-
+level work (162.3 below), not as a live plan.
 **Priority:** HIGH (unblocks Phase 144 regime work and Phase 148 portfolio construction)
 **Estimated Effort:** 3-4 sessions (architecture + feature level), 2-3 sessions each for regime/prediction/portfolio levels
 **Dependencies:** Phase 143.1 COMPLETE (measurement foundation solid)
-**Blocks:** Phase 144 (regime unification) until 162.1 complete
+**Blocks:** ~~Phase 144 (regime unification) until 162.1 complete~~ — stale claim, Phase 144 shipped 2026-07-12 without this
 **Last Updated:** 2026-07-14
 
 ---

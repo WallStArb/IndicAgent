@@ -1662,7 +1662,7 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-r
 - Minimum position notional filter. Max portfolio VaR ceiling (95% historical simulation, computed against `portfolio_state`). Per-symbol drawdown limits. Regime-conditioned position caps (tighter sizing in regimes where `market_regimes`/HMM labels show historically higher realized vol or lower hit rate).
 - **Kill switch, designed here even though it triggers via Phase 153's EnsembleHealthMonitor once that lands:** a hard daily-loss circuit breaker (reads `portfolio_state`'s drawdown-to-date) and an anomaly-triggered halt (e.g., realized slippage or drawdown blowing through its calibrated distribution) must exist before any live order routing in Phase 158 — this is not optional infrastructure for a system trading real personal capital.
 
-**Plans:** TBD at `/gsd-plan-phase 157` — likely `ReturnCovarianceEstimator` service, Kelly sizing module, VaR/drawdown/regime-cap risk gates reading `portfolio_state`, kill-switch/circuit-breaker mechanism.
+**Plans:** TBD at `/gsd-plan-phase 157` — likely `ReturnCovarianceEstimator` service, Kelly sizing module, VaR/drawdown/regime-cap risk gates reading `portfolio_state`, kill-switch/circuit-breaker mechanism. **Implementation reference (2026-07-18):** `docs/research/unified-orthogonalization-layer.md`'s Phase 162.3 section (superseded as a phase, math kept as reference) has detailed Ledoit-Wolf effective-N (`N_eff = trace(Σ)/sum(Σ)`), concentration ratio (`λ_max/sum(λ)`), and Kelly-adjusted-for-N_eff (`f* = μ/(σ²·N_eff)`) formulas worth reading before designing this phase's covariance/sizing math from scratch.
 
 ### Phase 158: Live Execution Layer 📋 PLANNED
 
