@@ -134,7 +134,7 @@ _WINDOWED_NAMESPACE_QUERIES: dict[str, str] = {
         "WHERE ts > now() - ($1 || ' days')::interval AND regime_group = 'rates'"
     ),
     "timeframe": (
-        "SELECT DISTINCT timeframe FROM market_data_ohlcv "
+        "SELECT DISTINCT timeframe FROM market_data_ohlcv_tradeable "
         "WHERE timestamp > now() - ($1 || ' days')::interval"
     ),
 }
