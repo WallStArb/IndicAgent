@@ -33,11 +33,25 @@ compute-critical path a corpus run is actively executing against as of this same
 too high-blast-radius to touch outside a dedicated, tested change. None of the 3 wrap their
 fetch in `try/finally`, so an exception mid-fetch still leaks the connection in all three.
 
+## Update (2026-07-18) — the Settings-based half isn't actually unique to ic_engine.py either
+
+A `/simplify` pass on the ic_engine perf commits (28fe12ac/7c49593c/904c634d) found that
+`_short_lived_conn(settings)` (added by the prior `/simplify` pass referenced above) reimplements
+the same "psycopg2 connect → try/finally: conn.close()" shape independently duplicated in
+`services/regime_writer.py`, `services/equity_regime_model.py`,
+`services/backfill_feature_factory.py`, and `services/cross_sectional_regime_model.py` (each has
+its own inline connect + try/finally). Widens this todo's scope: the target shared helper in
+`services/_batch_utils.py` should cover both the DSN-based (worker-side) and Settings-based
+(main-process-side) variants, and all 4 sibling services are candidate adopters alongside
+`ic_engine.py`'s own remaining 3 dsn-based sites — not just an ic_engine-internal cleanup.
+
 ## Fix (not yet done)
 
 Extract a shared `@contextmanager def short_lived_conn(dsn: str)` helper (natural home:
 `services/_batch_utils.py`, next to `connect_db_from_url`) and migrate the 3 remaining
-dsn-based call sites onto it, adding the missing `try/finally` in the process.
+dsn-based call sites onto it, adding the missing `try/finally` in the process. Per the update
+above, also consider a Settings-based sibling helper there and migrating `ic_engine.py`'s
+`_short_lived_conn` plus the 4 other batch services' inline connect/close blocks onto it.
 
 ## References
 

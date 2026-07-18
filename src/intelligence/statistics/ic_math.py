@@ -314,6 +314,26 @@ def _circular_block_bootstrap_ic(
     return ci_lower, ci_upper
 
 
+def circular_block_bootstrap_ic_serial(
+    X_raw: np.ndarray,
+    Y_raw: np.ndarray,
+    block_size: int,
+    n_boot: int,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-symbol call sites' entry point -- always serial, no `max_workers` knob.
+
+    These call sites already run inside `main()`'s per-symbol `ProcessPoolExecutor`
+    pool; threading on top would oversubscribe cores, not speed anything up (todo
+    131). Previously enforced by a `max_workers=1` argument + comment repeated at
+    each call site -- structurally enforced here instead: this wrapper has no
+    `max_workers` parameter to accidentally raise, so a future edit that copies the
+    cross-sectional call site's `max_workers=config.cross_sectional_bootstrap_threads`
+    into a per-symbol call site can't compile against this signature.
+    """
+    return _circular_block_bootstrap_ic(X_raw, Y_raw, block_size, n_boot, rng, max_workers=1)
+
+
 def vol_normalized_return(
     return_x: np.ndarray, true_range_pct: np.ndarray, eps: float = 1e-10
 ) -> np.ndarray:

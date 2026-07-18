@@ -28,7 +28,11 @@ if str(_project_root) not in sys.path:
 
 from scipy.stats import rankdata
 
-from src.intelligence.statistics.ic_math import _circular_block_bootstrap_ic, _vectorized_ic
+from src.intelligence.statistics.ic_math import (
+    _circular_block_bootstrap_ic,
+    _vectorized_ic,
+    circular_block_bootstrap_ic_serial,
+)
 
 
 def _buggy_pre_ranked_bootstrap(
@@ -212,6 +216,29 @@ def test_circular_wrap_handles_boundary_without_raising():
     assert ci_upper.shape == (1,)
     assert np.all(np.isfinite(ci_lower)), f"ci_lower contains non-finite: {ci_lower}"
     assert np.all(np.isfinite(ci_upper)), f"ci_upper contains non-finite: {ci_upper}"
+
+
+def test_circular_block_bootstrap_ic_serial_matches_max_workers_1():
+    """The per-symbol call sites' wrapper (no max_workers knob) must produce bit-
+    identical output to calling the underlying function directly with max_workers=1 --
+    it's a thin delegator, not a reimplementation."""
+    n = 200
+    block_size = 10
+    n_boot = 50
+    x_raw, y_raw = _ar1_fixture(n, seed=7)
+
+    rng_direct = np.random.default_rng(3)
+    ci_lower_direct, ci_upper_direct = _circular_block_bootstrap_ic(
+        x_raw.reshape(-1, 1), y_raw, block_size, n_boot, rng_direct, max_workers=1
+    )
+
+    rng_wrapper = np.random.default_rng(3)
+    ci_lower_wrapper, ci_upper_wrapper = circular_block_bootstrap_ic_serial(
+        x_raw.reshape(-1, 1), y_raw, block_size, n_boot, rng_wrapper
+    )
+
+    np.testing.assert_array_equal(ci_lower_direct, ci_lower_wrapper)
+    np.testing.assert_array_equal(ci_upper_direct, ci_upper_wrapper)
 
 
 def test_circular_wrap_handles_boundary_without_raising_threaded():

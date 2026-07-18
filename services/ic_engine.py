@@ -101,6 +101,7 @@ from src.intelligence.statistics.ic_math import (
     _p_values_from_ic,
     _vectorized_ic,
     apply_bh_fdr,
+    circular_block_bootstrap_ic_serial,
     magnitude_conditional_ic,
     sign_hit_rate,
     update_cumulative_e_value,
@@ -1082,18 +1083,15 @@ def _compute_symbol_tf(
                 # Circular block bootstrap CI (Component A, todo 091 -- replaces
                 # _fisher_z_ci, empirically miscalibrated per the 2026-07-09 diagnostic)
                 # -------------------------------------------------------
-                ci_lower_nd, ci_upper_nd = _circular_block_bootstrap_ic(
+                # Per-symbol path -- always serial (todo 131); see
+                # circular_block_bootstrap_ic_serial's docstring for why this has no
+                # max_workers knob to accidentally raise.
+                ci_lower_nd, ci_upper_nd = circular_block_bootstrap_ic_serial(
                     X_raw_scale,
                     Y_scale,
                     config.bootstrap_block_size[tf],
                     config.bootstrap_resamples,
                     rng,
-                    # Explicit, not just the parameter default: this call already runs
-                    # inside main()'s ProcessPoolExecutor(max_workers=n_workers) pool
-                    # (_run_ic_worker) -- threading on top would oversubscribe cores,
-                    # not speed anything up. Never wire this to cross_sectional_
-                    # bootstrap_threads or any other >1 value (todo 131).
-                    max_workers=1,
                 )
 
                 ci_lower_full = _expand(ci_lower_nd, non_degenerate_mask, n_features)
@@ -1359,18 +1357,15 @@ def _compute_symbol_tf(
                 # are already RAW (unranked) -- the bootstrap re-ranks internally per
                 # iteration, so pass them directly rather than the pre-ranked arrays
                 # used for the point estimate above.
-                ci_lower_arr, ci_upper_arr = _circular_block_bootstrap_ic(
+                # Per-symbol path -- always serial (todo 131); see
+                # circular_block_bootstrap_ic_serial's docstring for why this has no
+                # max_workers knob to accidentally raise.
+                ci_lower_arr, ci_upper_arr = circular_block_bootstrap_ic_serial(
                     x_daily,
                     y_daily,
                     config.bootstrap_block_size[tf],
                     config.bootstrap_resamples,
                     rng,
-                    # Explicit, not just the parameter default: this call already runs
-                    # inside main()'s ProcessPoolExecutor(max_workers=n_workers) pool
-                    # (_run_ic_worker) -- threading on top would oversubscribe cores,
-                    # not speed anything up. Never wire this to cross_sectional_
-                    # bootstrap_threads or any other >1 value (todo 131).
-                    max_workers=1,
                 )
                 ci_lower = float(ci_lower_arr[0])
                 ci_upper = float(ci_upper_arr[0])
@@ -3217,28 +3212,33 @@ def main() -> None:
                 content_key = _checkpoint_content_key()
                 checkpoint_dir = _checkpoint_dir(training_window_end, content_key)
                 symbols_to_compute: list[str] = []
-                resumed_checkpoints: list[dict] = []
-                for symbol in symbols:
-                    checkpointed = _load_checkpoint(checkpoint_dir, symbol)
-                    if checkpointed is not None and not checkpointed.get("error"):
-                        resumed_checkpoints.append(checkpointed)
-                    else:
-                        symbols_to_compute.append(symbol)
+                n_resumed = 0
 
-                # One shared connection for all resumed symbols' writes -- this
-                # loop is pure disk-checkpoint-read + DB-write with no compute
-                # between iterations, unlike the as_completed loop below (which
-                # waits on other workers between results), so there's no
-                # idle-connection risk in holding one connection across it.
-                n_resumed = len(resumed_checkpoints)
-                if resumed_checkpoints:
-                    with _short_lived_conn(settings) as resume_conn:
-                        for checkpointed in resumed_checkpoints:
-                            total_committed += _record_symbol_result(
-                                settings, checkpointed, per_symbol_results, conn=resume_conn
-                            )
-                            total_skipped += checkpointed["n_skipped"]
-                            IC_ENGINE_SYMBOLS_COMPLETED_TOTAL.add(1, {"source": "checkpoint"})
+                # One shared connection for all resumed symbols' writes, opened
+                # lazily on the first resumed checkpoint (never opened at all if
+                # nothing resumes) -- this loop is pure disk-checkpoint-read +
+                # DB-write with no compute between iterations, unlike the
+                # as_completed loop below (which waits on other workers between
+                # results), so there's no idle-connection risk in holding one
+                # connection across it.
+                resume_conn = None
+                try:
+                    for symbol in symbols:
+                        checkpointed = _load_checkpoint(checkpoint_dir, symbol)
+                        if checkpointed is None or checkpointed.get("error"):
+                            symbols_to_compute.append(symbol)
+                            continue
+                        resume_conn = resume_conn or _connect_db(settings)
+                        total_committed += _record_symbol_result(
+                            settings, checkpointed, per_symbol_results, conn=resume_conn
+                        )
+                        total_skipped += checkpointed["n_skipped"]
+                        IC_ENGINE_SYMBOLS_COMPLETED_TOTAL.add(1, {"source": "checkpoint"})
+                        n_resumed += 1
+                finally:
+                    if resume_conn is not None:
+                        resume_conn.close()
+
                 if n_resumed:
                     _logger.info(
                         "ic_engine.checkpoint_resumed",
@@ -3434,15 +3434,19 @@ def main() -> None:
                 )
                 _logger.info("ic_engine.corpus_fdr_backfilled", n_updated=len(fdr_updates))
 
-                # Patch the matching in-memory per-symbol result dicts with
-                # their final FDR outcome -- gauges must reflect final
-                # passes_fdr, not the pending-representative placeholder these
-                # dicts still carry from compute time.
+                # Patch each symbol's in-memory result dicts with their final FDR
+                # outcome, group by tf, and emit OTel health gauges -- one pass per
+                # symbol. Gauges only ever need that symbol's own rows, so patching
+                # and grouping don't need a separate corpus-wide pass before
+                # emission starts.
                 fdr_by_key = {
                     (u["feature_name"], u["symbol"], u["tf"], u["regime"], u["lookahead_bars"]): u
                     for u in fdr_updates
                 }
-                for _sym, sym_results in per_symbol_results:
+                for sym, sym_results in per_symbol_results:
+                    if not sym_results:
+                        continue
+                    by_tf: dict[str, list] = {}
                     for r in sym_results:
                         # Only cluster representatives are ever left pending
                         # (passes_fdr is None); non-representatives already
@@ -3461,14 +3465,6 @@ def main() -> None:
                             if match:
                                 r["bh_adjusted_p"] = match["bh_adjusted_p"]
                                 r["passes_fdr"] = match["passes_fdr"]
-
-                # Emit OTel health gauges, grouped by tf, now that every
-                # row's FDR outcome is final.
-                for sym, sym_results in per_symbol_results:
-                    if not sym_results:
-                        continue
-                    by_tf: dict[str, list] = {}
-                    for r in sym_results:
                         tf_key = r.get("tf")
                         if tf_key:
                             by_tf.setdefault(tf_key, []).append(r)
