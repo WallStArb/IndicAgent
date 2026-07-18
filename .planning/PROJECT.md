@@ -373,4 +373,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-17 (Phase 146 complete: TagCalibrator — empirical instrument tag calibration, live-verified)*
+*Last updated: 2026-07-18 (Phase 161 complete: Controlled Vocabulary System — 3-table schema, `VocabularyService`, column-backed drift audit, `/api/vocabulary/{namespace}` route, live-verified. 143.1's corpus re-run remains the active blocker for 144/145/147/148 — Phase 161 was opportunistic/unblocked side work, not on that critical path.)*
