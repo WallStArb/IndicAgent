@@ -148,3 +148,8 @@ None — no external service configuration required. The `infra.vocabulary_drift
 ---
 *Phase: 161-controlled-vocabulary-system*
 *Completed: 2026-07-18*
+
+## Self-Check: PASSED
+
+All 6 claimed files verified present on disk; all 6 claimed commit hashes verified present
+in `git log --oneline --all` (74ac2682, 10ee0d64, 2e816646, f6891df8, 894f0daa, a5968f42).
