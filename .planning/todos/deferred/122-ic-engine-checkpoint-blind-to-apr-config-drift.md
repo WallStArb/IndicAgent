@@ -1,3 +1,16 @@
+---
+status: deferred
+moved_to_deferred: 2026-07-18
+---
+
+**Moved to deferred/ 2026-07-18 (priorities/matrix reconciliation pass):** already self-deferred
+in this file's own text to todo 134/ROADMAP **Phase 162** (plan 162-02 absorbs this fingerprint
+gap as a special case of the general cross-run staleness check). Grouped with siblings
+[133](133-cross-sectional-bootstrap-threads-not-per-tf.md) (162-01) and
+[134](134-ic-engine-incremental-recompute.md) (162-02 core) for consistency — all three are
+Phase 162 raw material, not independently pending/ items. Revive at `/gsd-plan-phase 162`, or
+standalone if an APR-drift incident forces the issue first (per this file's own text below).
+
 # 122 - ic_engine checkpoint content-key doesn't cover APR config drift mid-run
 
 **Found:** 2026-07-15, during /simplify review of the [todo 121](121-ic-engine-coarse-resume-no-checkpoint.md)
@@ -21,3 +34,8 @@ which `ConfigService.get()` calls in `services/ic_engine.py` are routing/computa
 **Priority:** not yet triaged into PRIORITIES.md -- low urgency, no known incident yet (unlike
 todo 121, which came from a real ~31h loss). Worth fixing before the next long ic_engine run if
 an APR change is planned to land during that window.
+
+**Gate:** superseded in scope by [134](134-ic-engine-incremental-recompute.md) (2026-07-18) --
+134's persisted code+APR fingerprint mechanism solves this cell's intra-run drift gap as a
+special case of the general cross-run staleness check. Fix inline here only if an APR change
+lands mid-run before 134's phase is discussed/planned; otherwise let 134 absorb it.

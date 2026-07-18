@@ -1,10 +1,19 @@
 ---
-status: pending
+status: deferred
 priority: P2
 filed: 2026-07-18
+moved_to_deferred: 2026-07-18
 source: /simplify pass (efficiency review) on the ic_engine cross-sectional bootstrap
   threading commits (28fe12ac, migration 239_ic_engine_cross_sectional_bootstrap_threads.sql)
 ---
+
+**Moved to deferred/ 2026-07-18 (priorities/matrix reconciliation pass):** registered as
+ROADMAP **Phase 162 "ic_engine Corpus Pipeline Throughput"**, plan 162-01 by name in that
+phase's Fable-refined breakdown. Grouped here with sibling todos [122](../pending/122-ic-engine-checkpoint-blind-to-apr-config-drift.md)
+(162-02, absorbed into 134) and [134](134-ic-engine-incremental-recompute.md) (162-02 core) for
+consistency — all three are Phase 162 raw material, not independently-actionable pending/ items,
+same treatment given to todo 026's P1-P3 items once Phase 144 absorbed them. Revive at
+`/gsd-plan-phase 162`.
 
 # `cross_sectional_bootstrap_threads` is a single scalar; every other per-tf cost knob in this file is a dict
 
