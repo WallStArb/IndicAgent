@@ -355,6 +355,15 @@ run_step 8 "alpha_publisher" \
     "$PYTHON" services/alpha_publisher.py \
     --weight-version "$WEIGHT_EPOCH"
 
+# Vocabulary Drift Audit (Phase 161, Controlled Vocabulary System) — observability-only
+# (D-09): writes a loud integrity_monitor row (monitor_type='vocabulary_drift') + OTel
+# counter + logger.error per namespace/guard carrying an unregistered live code. Never
+# gates the pipeline — not wrapped in run_step (halts on non-zero) and not modeled on
+# check_canary_integrity (a hard gate); `|| true` swallows a non-zero exit so a drift-
+# audit failure never blocks alpha_publisher's already-committed completion.
+"$PYTHON" -m src.config.vocabulary_drift \
+    2>&1 | tee -a "$LOG_DIR/vocabulary_drift_$(date +%Y%m%d_%H%M%S).log" || true
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
