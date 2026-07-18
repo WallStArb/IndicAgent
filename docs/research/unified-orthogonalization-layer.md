@@ -37,6 +37,22 @@ doc and one explicitly rejected by a later architectural decision:
 Nothing here needs a new phase number. Don't revive "Phase 162" for this — that number is
 correctly `ic_engine` throughput now.
 
+**This is not a rejection of unification, only of its timing.** The core insight — residualize,
+measure incremental value, threshold — genuinely is the same operation at every layer, and the
+project's own `.planning/IDEAS.md` already names this as a real future direction ("Generic
+orthogonality/redundancy gate" bullet, updated 2026-07-18 with the sharpened trigger below). What
+was premature was designing the *shared contract* before any second or third layer had a proven,
+shipped implementation to generalize from — same rule-of-three logic as CLAUDE.md's "3+
+`dict[str, X]` → consolidate" pattern. Once **Phase 145** (regime substitution test) **and**
+**Phase 157** (portfolio effective-N/Kelly) have both shipped real implementations alongside the
+already-live feature-level Ledoit-Wolf mechanism, extract the shared math — residualization,
+partial correlation, incremental R², effective-N-via-eigenvalues — into a Ring 0 module
+(`src/core/`, domain-agnostic per the naming rule), reusing this doc's math specs above rather
+than rederiving them. Keep it a shared *math library*, not a shared *service or governance
+contract*: the three layers' plumbing (bootstrap CI against `ic_engine`, `StratificationDimension`'s
+causal-basis contract, real-time Kelly integration) differs enough that forcing one contract over
+all three risks getting it wrong for all three.
+
 ---
 
 ## The Problem
