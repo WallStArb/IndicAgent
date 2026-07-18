@@ -110,7 +110,7 @@ class VocabularyService:
         }
         for row in member_rows:
             key = (row["namespace"], row["group_name"])
-            group_members.setdefault(key, set()).add(row["code"])
+            group_members[key].add(row["code"])
 
         self._entries = entries
         self._groups = {key: frozenset(codes) for key, codes in group_members.items()}
@@ -135,58 +135,3 @@ class VocabularyService:
     def namespace(self, namespace: str) -> list[VocabEntry]:
         """Return all VocabEntry rows for a namespace; [] if unknown."""
         return list(self._entries.get(namespace, {}).values())
-
-
-# ---------------------------------------------------------------------------
-# Three-way ENUM divergence check.
-#
-# None of the six seeded namespaces are ENUM-backed today — this mechanism exists and is
-# unit-tested for a future ENUM namespace addition (design doc "Source of truth" section).
-# It is deliberately not wired into initialize() for any live namespace.
-# ---------------------------------------------------------------------------
-
-
-def check_enum_divergence(
-    namespace: str,
-    registry_codes: set[str],
-    enum_members: set[str],
-    pg_enum_labels: set[str],
-) -> None:
-    """Raise if registry codes, Python enum members, and pg_enum catalog labels disagree.
-
-    Pure comparison — no DB I/O. Passes silently when all three sets are identical.
-    Raises ValueError naming the namespace and the differing members on any pairwise
-    mismatch, so a migration that adds an ENUM value in only one of the three places
-    (registry row, Python enum member, `ALTER TYPE ... ADD VALUE`) fails loudly at
-    startup instead of silently drifting.
-    """
-    pairs = (
-        ("registry_codes", registry_codes, "enum_members", enum_members),
-        ("registry_codes", registry_codes, "pg_enum_labels", pg_enum_labels),
-        ("enum_members", enum_members, "pg_enum_labels", pg_enum_labels),
-    )
-    problems: list[str] = []
-    for left_name, left_set, right_name, right_set in pairs:
-        if left_set != right_set:
-            diff = left_set.symmetric_difference(right_set)
-            problems.append(f"{left_name} vs {right_name} differ on: {sorted(diff)}")
-
-    if problems:
-        raise ValueError(
-            f"ENUM divergence detected for namespace {namespace!r}: " + "; ".join(problems)
-        )
-
-
-async def _fetch_pg_enum_labels(conn: asyncpg.Connection, type_name: str) -> set[str]:
-    """Fetch the live PG ENUM catalog labels for `type_name`.
-
-    Thin async caller kept separate from `check_enum_divergence` so the comparison logic
-    is unit-testable against literal sets with no DB connection.
-    """
-    rows = await conn.fetch(
-        "SELECT enumlabel FROM pg_enum "
-        "JOIN pg_type ON pg_enum.enumtypid = pg_type.oid "
-        "WHERE typname = $1",
-        type_name,
-    )
-    return {row["enumlabel"] for row in rows}

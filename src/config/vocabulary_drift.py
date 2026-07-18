@@ -32,6 +32,7 @@ import structlog
 from src.config.config_service import ConfigService
 from src.config.settings import Settings
 from src.config.vocabulary_service import VocabularyService
+from src.core.database_manager import create_pool
 from src.observability.metrics import counter, flush_and_shutdown_metrics
 
 logger = structlog.get_logger(__name__)
@@ -200,19 +201,18 @@ async def run_drift_audit(pool: asyncpg.Pool, vocab: VocabularyService, window_d
     window_param = str(window_days)
     drift_count = 0
 
+    # (namespace, sql, params) -- windowed queries bind window_param as $1, unwindowed
+    # queries (small non-hypertable dimension tables) take no params.
+    namespace_queries: list[tuple[str, str, tuple[str, ...]]] = [
+        (namespace, sql, (window_param,)) for namespace, sql in _WINDOWED_NAMESPACE_QUERIES.items()
+    ] + [(namespace, sql, ()) for namespace, sql in _UNWINDOWED_NAMESPACE_QUERIES.items()]
+
     async with pool.acquire() as conn:
-        for namespace, sql in _WINDOWED_NAMESPACE_QUERIES.items():
-            rows = await conn.fetch(sql, window_param)
+        for namespace, sql, params in namespace_queries:
+            rows = await conn.fetch(sql, *params)
             observed = [row[0] for row in rows if row[0] is not None]
             if namespace == "regime_hmm":
                 observed = extract_regime_hmm_codes(observed)
-            drift_count += await _evaluate_and_persist(
-                conn, namespace, observed, vocab.codes(namespace)
-            )
-
-        for namespace, sql in _UNWINDOWED_NAMESPACE_QUERIES.items():
-            rows = await conn.fetch(sql)
-            observed = [row[0] for row in rows if row[0] is not None]
             drift_count += await _evaluate_and_persist(
                 conn, namespace, observed, vocab.codes(namespace)
             )
@@ -243,13 +243,12 @@ async def run_drift_audit(pool: asyncpg.Pool, vocab: VocabularyService, window_d
 
 async def main() -> int:
     settings = Settings()
-    pool = await asyncpg.create_pool(dsn=settings.database_url)
+    pool = await create_pool(settings.database_url, pool_name="vocabulary_drift")
 
     config_service = ConfigService(database_url=settings.database_url, pool=pool)
     await config_service.initialize()
-    await config_service.get("infra.vocabulary_drift.window_days", _WINDOW_DEFAULT)
     window_days = int(
-        config_service.get_sync("infra.vocabulary_drift.window_days", _WINDOW_DEFAULT)
+        await config_service.get("infra.vocabulary_drift.window_days", _WINDOW_DEFAULT)
     )
 
     vocab = VocabularyService(settings.database_url, pool=pool)

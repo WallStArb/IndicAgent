@@ -13,6 +13,7 @@ argument ($1) and never string-interpolated into SQL.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import structlog
@@ -37,29 +38,42 @@ async def get_vocabulary(
     or an empty 200 — the design doc's "validate namespace against the known set"
     intent (T-161-07).
     """
-    try:
-        code_rows = await db_manager.fetch(
+    # Both queries are independent (neither depends on the other's result) -- fetch
+    # concurrently instead of paying two sequential round-trips.
+    code_result, group_result = await asyncio.gather(
+        db_manager.fetch(
             "SELECT code, label, description, sort_order, is_deprecated "
             "FROM controlled_vocabulary WHERE namespace = $1 ORDER BY sort_order, code",
             namespace,
-        )
-    except Exception as error:
-        logger.warning("vocabulary endpoint: DB query error", namespace=namespace, error=str(error))
-        raise HTTPException(status_code=404, detail=f"Unknown namespace: {namespace}") from error
+        ),
+        db_manager.fetch(
+            "SELECT group_name, code FROM vocabulary_group_member WHERE namespace = $1",
+            namespace,
+        ),
+        return_exceptions=True,
+    )
 
+    if isinstance(code_result, BaseException):
+        logger.warning(
+            "vocabulary endpoint: DB query error", namespace=namespace, error=str(code_result)
+        )
+        raise HTTPException(
+            status_code=404, detail=f"Unknown namespace: {namespace}"
+        ) from code_result
+
+    code_rows = code_result
     if not code_rows:
         raise HTTPException(status_code=404, detail=f"Unknown namespace: {namespace}")
 
-    try:
-        group_rows = await db_manager.fetch(
-            "SELECT group_name, code FROM vocabulary_group_member WHERE namespace = $1",
-            namespace,
-        )
-    except Exception as error:
+    if isinstance(group_result, BaseException):
         logger.warning(
-            "vocabulary endpoint: group DB query error", namespace=namespace, error=str(error)
+            "vocabulary endpoint: group DB query error",
+            namespace=namespace,
+            error=str(group_result),
         )
         group_rows = []
+    else:
+        group_rows = group_result
 
     codes = [
         {

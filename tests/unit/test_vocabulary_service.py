@@ -2,8 +2,7 @@
 
 Pure-Python, no-DB style (mirrors tests/unit/test_concept_registry_service.py): builds a
 VocabularyService, populates `_entries`/`_groups` caches directly (bypassing
-initialize()/DB entirely), and asserts the synchronous hot-path readers plus the pure
-three-way ENUM divergence comparison function.
+initialize()/DB entirely), and asserts the synchronous hot-path readers.
 """
 
 from __future__ import annotations
@@ -16,9 +15,7 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-import pytest
-
-from src.config.vocabulary_service import VocabEntry, VocabularyService, check_enum_divergence
+from src.config.vocabulary_service import VocabEntry, VocabularyService
 
 
 def _service_with_fixture() -> VocabularyService:
@@ -115,29 +112,3 @@ def test_no_db_calls_after_init():
     assert service.label("timeframe", "1m")
     assert service.group_codes("regime_hmm", "trending")
     assert service.namespace("timeframe")
-
-
-# ---------------------------------------------------------------------------
-# Three-way ENUM divergence check. Pure comparison — literal set fixtures, no DB.
-# None of the six seeded namespaces are ENUM-backed today; this mechanism is tested
-# against literal sets for a future ENUM namespace addition.
-# ---------------------------------------------------------------------------
-
-
-def test_enum_divergence_check_passes_when_sets_equal():
-    check_enum_divergence(
-        namespace="signal_status",
-        registry_codes={"pending", "active"},
-        enum_members={"pending", "active"},
-        pg_enum_labels={"pending", "active"},
-    )  # no raise, returns None
-
-
-def test_enum_divergence_check_raises_on_mismatch():
-    with pytest.raises((RuntimeError, ValueError), match="signal_status"):
-        check_enum_divergence(
-            namespace="signal_status",
-            registry_codes={"pending", "active"},
-            enum_members={"pending", "active", "expired"},
-            pg_enum_labels={"pending", "active"},
-        )

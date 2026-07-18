@@ -360,9 +360,11 @@ run_step 8 "alpha_publisher" \
 # counter + logger.error per namespace/guard carrying an unregistered live code. Never
 # gates the pipeline — not wrapped in run_step (halts on non-zero) and not modeled on
 # check_canary_integrity (a hard gate); `|| true` swallows a non-zero exit so a drift-
-# audit failure never blocks alpha_publisher's already-committed completion.
-"$PYTHON" -m src.config.vocabulary_drift \
-    2>&1 | tee -a "$LOG_DIR/vocabulary_drift_$(date +%Y%m%d_%H%M%S).log" || true
+# audit failure never blocks alpha_publisher's already-committed completion. Backgrounded
+# (subshell + &) since nothing downstream waits on it — no reason to hold the pipeline's
+# wall-clock completion on a step that can't fail it.
+( "$PYTHON" -m src.config.vocabulary_drift \
+    2>&1 | tee -a "$LOG_DIR/vocabulary_drift_$(date +%Y%m%d_%H%M%S).log" || true ) &
 
 # ---------------------------------------------------------------------------
 # Summary
