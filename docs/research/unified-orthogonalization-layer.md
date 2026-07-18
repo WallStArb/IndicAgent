@@ -660,14 +660,28 @@ INSERT INTO config_schema (config_key, config_value, description, domain, proven
 - **Model simplicity:** Number of active regime dimensions (goal: < 3)
 
 ### Prediction Level
-- **Combination value:** Incremental R² from combination vs best single method
+- **Combination value:** Incremental R² from combination vs best single method (target: > 0.001 if combination adopted)
 - **Retirement decisions:** Prediction methods retired due to redundancy
 - **Forecast quality:** Combined vs independent prediction OOS Sharpe
 
 ### Portfolio Level
-- **Diversification:** Mean N_eff / N_positions ratio
-- **Concentration:** Mean concentration ratio (lower = better)
+- **Diversification:** Mean N_eff / N_positions ratio (target: > 0.5)
+- **Concentration:** Mean concentration ratio (target: < 0.3, lower = better)
 - **Risk-adjusted returns:** Portfolio Sharpe with vs without orthogonalization gates
+
+### Risk mitigation notes (folded in 2026-07-18 from the deleted companion plan)
+
+Prediction- and portfolio-level only — feature- and regime-level risk notes in the original plan
+were specific to the mechanisms rejected/superseded above (D4, Phase 145) and weren't preserved.
+
+- **Prediction — combination weights unstable over time:** exponential smoothing of weight
+  history, minimum weight threshold before a method is dropped from the combination.
+- **Prediction — weekly cadence too slow for fast-moving markets:** see Open Question 3 below.
+- **Portfolio — effective-N calculation sensitive to estimation error:** use Ledoit-Wolf
+  shrinkage, enforce a minimum lookback, bootstrap CI on `N_eff` itself before trusting a point
+  estimate.
+- **Portfolio — diversification gates could reject valid trades:** launch gates as warnings, not
+  hard blocks, until thresholds are calibrated against real portfolio behavior.
 
 ---
 
