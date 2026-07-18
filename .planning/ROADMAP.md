@@ -977,12 +977,12 @@ F1 near-miss).
 - Priority context: `docs/research/intelligence-lifecycle-backlog-matrix.md` (MEDIUM
   tier — Effort M, Risk Low, Reward Low).
 
-**Plans:** 4 plans (2 waves) — backend-only (schema/service/drift/API; no dashboard this phase).
+**Plans:** 2/4 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 161-01-PLAN.md — Wave 1: 3-table schema (migration 237) + seed 6 namespaces & groups (migration 238)
-- [ ] 161-02-PLAN.md — Wave 1: VocabularyService (ConfigService-shaped cache) + three-way ENUM divergence check
+- [x] 161-01-PLAN.md — Wave 1: 3-table schema (migration 237) + seed 6 namespaces & groups (migration 238)
+- [x] 161-02-PLAN.md — Wave 1: VocabularyService (ConfigService-shaped cache) + three-way ENUM divergence check
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

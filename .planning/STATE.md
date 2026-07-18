@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
 status: Phase 143.1 (Measurement and Eligibility Integrity) in progress, corpus re-run running
-stopped_at: Phase 146 complete (5/5), live-verified
-last_updated: 2026-07-17T09:11:43.443Z
+stopped_at: "Phase 146 complete (5/5 plans), code-reviewed, live-verified (VERIFICATION.md: passed, 9/9)"
+last_updated: "2026-07-18T00:12:39.905Z"
 progress:
   total_phases: 12
   completed_phases: 6
   total_plans: 40
-  completed_plans: 45
+  completed_plans: 34
   percent: 50
 ---
 
@@ -21,7 +21,7 @@ See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
 
-**Current focus:** Phase 143.1 (Measurement and Eligibility Integrity) — corpus re-run in progress. Phase 146 (Empirical Instrument Tag Calibrator) completed 2026-07-17, live-verified, does not change 143.1's blocking status. Phase 160 (Concept Registry MVP) is already complete — the "next phase" heuristic incorrectly pointed here after Phase 146; correcting inline.
+**Current focus:** Phase 161 — controlled-vocabulary-system-planned
 
 **Next actions, in order:** (1) 143.1-07 finishes → 143.1-08 (shadow-mode sign-symmetric validation, E1-vs-E2 A/B re-run). (2) Phase 144's D-05 acceptance gate (`scripts/analysis/phase144_regime_separation_gate.py`) re-runs against the corrected corpus — no code changes needed, just the re-run. (3) FRAME-04 (`alpha_frames`/`CounterfactualTracker` gate) re-evaluates once 143.1-07 lands. (4) Phase 148 (Alpha Scoring System OOS Proof Gates) needs ≥60 trading days of closed `alpha_frames` plus the corrected 143.1 corpus before its gates can evaluate. (5) todo 092 (equity/cross-sectional regime-model threshold calibration) is the live-path IC-tail suspect worth prioritizing once the corpus clears.
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
