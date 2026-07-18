@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v3.1
 milestone_name: AlphaEngine Validation + Alpha Scoring
-status: milestone_complete
-stopped_at: Milestone complete (Phase 161 was final phase)
+status: Phase 143.1 (Measurement and Eligibility Integrity) in progress, corpus re-run running
+stopped_at: Phase 161 complete (4/4), live-verified
 last_updated: 2026-07-18T01:00:44.978Z
 progress:
   total_phases: 12
@@ -21,7 +21,7 @@ See: .planning/PROJECT.md
 
 **Core value:** Alpha must be demonstrated empirically before any ensemble weight is assigned.
 
-**Current focus:** Milestone complete
+**Current focus:** Phase 143.1 (Measurement and Eligibility Integrity) — corpus re-run in progress. Phase 161 (Controlled Vocabulary System) completed 2026-07-18, live-verified, does not change 143.1's blocking status. `gsd-sdk query phase.complete` incorrectly reported `is_last_phase: true`/`status: milestone_complete` after 161 closed — the same "next phase" heuristic false-positive already seen after Phase 146 (see git history); corrected inline. Milestone v3.1 is NOT complete: 143.1 is still active, and 144/145/147/148/149A/149B/150 remain ahead of it.
 
 **Next actions, in order:** (1) 143.1-07 finishes → 143.1-08 (shadow-mode sign-symmetric validation, E1-vs-E2 A/B re-run). (2) Phase 144's D-05 acceptance gate (`scripts/analysis/phase144_regime_separation_gate.py`) re-runs against the corrected corpus — no code changes needed, just the re-run. (3) FRAME-04 (`alpha_frames`/`CounterfactualTracker` gate) re-evaluates once 143.1-07 lands. (4) Phase 148 (Alpha Scoring System OOS Proof Gates) needs ≥60 trading days of closed `alpha_frames` plus the corrected 143.1 corpus before its gates can evaluate. (5) todo 092 (equity/cross-sectional regime-model threshold calibration) is the live-path IC-tail suspect worth prioritizing once the corpus clears.
 **Execution plan:** `docs/plans/2026-06-30-alphaengine-v1-execution-plan.md`
@@ -51,7 +51,7 @@ See: .planning/PROJECT.md
 | 144 | Cross-Sectional Regime Model (`regime_group`) | Code-complete (6/6 plans); header stays PLANNED until D-05's acceptance gate re-runs post-143.1 |
 | 146 | Empirical Instrument Tag Calibrator | COMPLETE (5/5 plans, 2026-07-17) — `TagCalibrator` live-verified: 11/12 measurable tags carry real `source='empirical'` rows |
 | 160 | Concept Registry MVP | COMPLETE (4/4 plans) — 4-table schema + `ConceptRegistryService`/`ConceptRegistryAPI`/`ConceptRegistryDashboard` live |
-| 161 | Controlled Vocabulary System | PLANNED, not started — fully unblocked, safe to plan now |
+| 161 | Controlled Vocabulary System | COMPLETE (4/4 plans, 2026-07-18) — schema + `VocabularyService` + `vocabulary_drift` audit + `/api/vocabulary/{namespace}` route, live-verified (VERIFICATION.md: passed, 23/24 truths, 1 accepted YAGNI override) |
 
 Current row counts and every downstream measurement number live in
 [Corpus pipeline state](project_corpus_pipeline_state.md) — that file is the single source of

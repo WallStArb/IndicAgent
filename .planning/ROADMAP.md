@@ -943,7 +943,7 @@ jump ahead of Phase 144/148.
 - Backward compatibility maintained (report-only path byte-identical).
 - Todo 118 filed for pre-live-use empirical validation (D-02 scope plus H-1/L-2/L-3/L-4 automation hardening).
 
-### Phase 161: Controlled Vocabulary System 📋 PLANNED
+### Phase 161: Controlled Vocabulary System ✅ COMPLETE 2026-07-18
 
 **Goal:** A central, reusable vocabulary and taxonomy registry — the APR equivalent for symbolic
 codes. Three DB tables (`controlled_vocabulary`, `vocabulary_group`, `vocabulary_group_member`),
