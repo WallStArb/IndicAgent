@@ -23,8 +23,9 @@ A vs. B, both fully specced in `concept-unified-registry.md`'s Domain Vetting se
 gated on Phase 144's D-05 empirical verdict, currently `BLOCKED-ON-143.1-07` (the corpus re-run
 in progress as of filing). See that doc's "Formalization revival note" for the full trigger.
 
-**New candidate dimensions** (correlation regime, liquidity regime, posterior-weighted soft
-stratification): specced in `stratification-dimension-unification.md`'s backlog paragraph.
+**New candidate dimensions** (correlation regime, liquidity regime, term structure regime,
+posterior-weighted soft stratification): specced in `stratification-dimension-unification.md`'s
+backlog paragraph.
 Enter through the same substitution-test + orthogonality gate as every other candidate once the
 contract above is real — not a bespoke build, and not gated separately from it.
 

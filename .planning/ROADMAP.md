@@ -1407,8 +1407,9 @@ further code changes needed. Header stays 📋 PLANNED until that verdict lands.
 real code, ratify the `concept_registry` row-grain decision (Option A: one row per dimension, vs.
 Option B: one row per `(dimension, regime_group)` — both fully specced in
 `concept-unified-registry.md`'s Domain Vetting section), and scope which candidate dimensions
-(correlation regime, liquidity regime, posterior-weighted soft stratification) are worth planning
-next. The natural conclusion of this v3.15 milestone, registered directly after its trigger phase.
+(correlation regime, liquidity regime, term structure regime, posterior-weighted soft
+stratification) are worth planning next. The natural conclusion of this v3.15 milestone,
+registered directly after its trigger phase.
 
 **Depends on:** Phase 144's D-05 empirical verdict — currently `BLOCKED-ON-143.1-07` (the corpus
 re-run in progress as of 2026-07-13). Do not plan this phase before that verdict lands; per
