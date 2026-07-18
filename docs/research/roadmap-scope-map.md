@@ -42,7 +42,7 @@ distance-to-placing-a-real-trade-with-real-money, not general engineering value.
 **Proposed:**
 - `intel-12` StratificationDimension — unifies the two regime systems behind one contract (v3.15, Phases 144/145).
 - Phase 142B.1 — four candidate ensemble-weighting mechanisms (E1-E4) being A/B judged.
-- AnalogEngine (`intel-13`) — non-parametric K-NN retrieval as an alternative predictor family, gated on the current pipeline's OOS proof holding up.
+- PrecedentEngine (`intel-precedent-engine.md`, renamed from AnalogEngine 2026-07-09 — corrected 2026-07-18) — non-parametric K-NN retrieval as an alternative predictor family, gated on the current pipeline's OOS proof holding up. Registered as ROADMAP Phase 150.
 - Mutual-information as a secondary edge-measurement statistic — flagged as a real open question, not yet scoped as a todo.
 
 ## 2. Governance / Concept Lifecycle
