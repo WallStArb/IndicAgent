@@ -14,13 +14,23 @@ existing phases rather than centralized here.
 ## Superseded 2026-07-18 — where each level actually landed
 
 Found orphaned during a docs/priorities reconciliation pass: this doc and its companion
-implementation plan (`docs/plans/2026-07-14-phase-162-unified-orthogonalization-layer.md`) claimed
-ROADMAP phase number 162, but were never actually registered in ROADMAP.md, the backlog matrix,
-or PRIORITIES.md. That number was independently reused by "Phase 162: ic_engine Corpus Pipeline
-Throughput" (registered 2026-07-18) — an unrelated compute-infra phase, not a scope collision, a
-pure numbering coincidence. Separately, this doc's own claimed hard blocker
-("Blocks: Phase 144 until 162.1 complete") turned out not to be real: Phase 144 shipped
-2026-07-12 without any of this ever being built.
+implementation plan (`docs/plans/2026-07-14-phase-162-unified-orthogonalization-layer.md`, a
+wave-by-wave breakdown of the same 4 levels) claimed ROADMAP phase number 162, but were never
+actually registered in ROADMAP.md, the backlog matrix, or PRIORITIES.md. That number was
+independently reused by "Phase 162: ic_engine Corpus Pipeline Throughput" (registered
+2026-07-18) — an unrelated compute-infra phase, not a scope collision, a pure numbering
+coincidence. Separately, this doc's own claimed hard blocker ("Blocks: Phase 144 until 162.1
+complete") turned out not to be real: Phase 144 shipped 2026-07-12 without any of this ever
+being built.
+
+**Companion plan doc deleted 2026-07-18** (not just marked superseded): once all 4 levels were
+confirmed rejected/superseded/deferred, its wave-by-wave detail turned out to add no surviving
+value — the Portfolio Level section (162.3), the one piece worth keeping, duplicated this doc's
+own "Level 4" and "Phase 4" sections almost line-for-line (same formulas, same APR keys, same
+3-wave structure), differing only in a SQL schema stub that Phase 157's real future planning
+would regenerate fresh anyway, not inherit from a 4-day-old superseded draft. Two source docs for
+one now-dead proposal was itself a small instance of the sprawl this whole pass exists to fix —
+one canonical doc, not two, going forward.
 
 Verdict: **not wanted as a single unified `OrthogonalizationEngine` service.** The validation
 principle (prove marginal contribution before admission, at every layer) is sound and Renaissance-
@@ -30,9 +40,9 @@ doc and one explicitly rejected by a later architectural decision:
 | Level | This doc proposed | Actual status |
 |---|---|---|
 | **162.0 Feature** (partial/residual IC promotion gate) | New parallel redundancy-control mechanism | **Rejected by D4** (`docs/research/intel-precedent-engine.md`, cited in ROADMAP.md's PRECEDENT-01 section) — feature/predictor-grain redundancy control is already `ensemble_trainer`'s live Ledoit-Wolf `\|corr\|` cluster deflation; a second implementation is precisely the failure mode D4 exists to avoid |
-| **162.1 Regime** (substitution test + orthogonality study) | New `substitution_math.py` + StratificationDimension extension | **Superseded by Phase 145** — `docs/research/stratification-dimension-unification.md`'s Gates 0-2 already spec the identical substitution-test/orthogonality-study protocol in more detail: real APR keys, a real candidate list (actively maintained — `term_structure` was added to it 2026-07-18), and the exact same "load existing regime alternatives as candidates" step this doc's Wave 3 proposed |
+| **162.1 Regime** (substitution test + orthogonality study) | New `substitution_math.py` + StratificationDimension extension | **Superseded by Phase 145** — `docs/research/stratification-dimension-unification.md`'s Gates 0-2 cover the same substitution-test/orthogonality-study *concept* in more detail, though not with identical math: that doc gates on partial-IC-Sharpe improvement (>10% in ≥1 joint cell, N>20,000) plus a separate Pearson/MI correlation gate, vs. this doc's `delta = mean(IC_combined) - mean(IC_incumbent)` decomposition. Same job, different specific test statistic — Phase 145's version is further along (real APR keys, a real candidate list actively maintained — `term_structure` was added 2026-07-18) and is the one to build against, not this doc's formula |
 | **162.2 Prediction** (AlphaEngine vs. AnalogEngine incremental-R² combination test) | New weekly batch + combination math | **Premature, not superseded** — AnalogEngine (Phase 149+) doesn't exist yet, so the dependency ("both prediction engines emitting") can't be met. The one piece with no current home; preserved as [todo 136](../../.planning/todos/deferred/136-prediction-combination-test-analog-engine.md), gated on AnalogEngine shipping |
-| **162.3 Portfolio** (Ledoit-Wolf position covariance, effective N, Kelly `f*=μ/(σ²·N_eff)`) | New portfolio math module | **Redundant with Phase 157** (Position Sizing & Risk Management) — already specs Portfolio Kelly with Ledoit-Wolf covariance on the return series. This doc's Wave 1-3 math detail (`effective_n_from_covariance`, concentration ratio, factor risk attribution) is genuinely useful *implementation* reference for whenever `/gsd-plan-phase 157` runs — kept for that, not lost |
+| **162.3 Portfolio** (Ledoit-Wolf position covariance, effective N, Kelly `f*=μ/(σ²·N_eff)`) | New portfolio math module | **Redundant with Phase 157** (Position Sizing & Risk Management) — already specs Portfolio Kelly with Ledoit-Wolf covariance on the return series. This doc's own "Level 4: Portfolio Orthogonalization" and "Phase 4: Portfolio Level" sections below (`effective_n_from_covariance`, concentration ratio, factor risk attribution) are genuinely useful *implementation* reference for whenever `/gsd-plan-phase 157` runs — kept for that, not lost |
 
 Nothing here needs a new phase number. Don't revive "Phase 162" for this — that number is
 correctly `ic_engine` throughput now.

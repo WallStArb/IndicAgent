@@ -17,6 +17,19 @@ important. A phase with zero dependencies but low scored reward doesn't outrank 
 high-reward phase just because it can start today — check the effort/risk/reward table
 (`docs/research/intelligence-lifecycle-backlog-matrix.md`), not just the dependency graph.
 
+**A plan doc claiming a phase number is not a registration.** Found 2026-07-18: a fully-specced,
+`Priority: HIGH` plan (`docs/research/unified-orthogonalization-layer.md`, dated 2026-07-14,
+self-declared "Phase 162") sat as a freestanding markdown file for 4 days — never entered in
+ROADMAP.md, the backlog matrix, or PRIORITIES.md — until an unrelated audit stumbled on it by
+accident. In that window its claimed number was independently reused by a real phase, and its
+claimed hard blocker on Phase 144 was silently never honored (144 shipped without it). No process
+caught either fact; only a broad manual sweep did. **Rule: writing a plan doc that names a
+ROADMAP phase number is not the same action as registering that phase — the ROADMAP.md entry (at
+minimum a stub with the doc's status) must land in the same commit as the plan doc, not "when
+someone gets to it."** A plan doc without a live ROADMAP/matrix/PRIORITIES pointer is
+indistinguishable from an abandoned draft — don't rely on a future audit to notice the
+difference.
+
 ## v4.0: why Portfolio State is its own phase (156), not folded into sizing (157)
 
 Portfolio Kelly, aggregate VaR, correlation-aware sizing, and a portfolio-level kill switch are
