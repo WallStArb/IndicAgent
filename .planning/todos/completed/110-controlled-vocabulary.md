@@ -1,15 +1,17 @@
 ---
-status: pending
+status: complete
 priority: P3
 filed: 2026-07-13
+closed: 2026-07-18
 source: doc-organization session — Controlled Vocabulary had zero todo tracking it at all
 ---
 
-**Registered as ROADMAP Phase 161** (2026-07-13, supersedes orphaned Phase 135; renumbered from
-160 to 161 when Phase 160 was claimed by Concept Registry MVP, since completed 2026-07-14) — see
-`.planning/ROADMAP.md` for the live phase entry. This todo stays as prioritization context;
-`/gsd-discuss-phase 161` is the next step, not yet run. No dependency blocks it — safe to start
-regardless of the in-progress 143.1-07 corpus rerun (design/planning work, zero DB/CPU overlap).
+**Closed 2026-07-18 — shipped as ROADMAP Phase 161** (4/4 plans, live-verified, VERIFICATION.md:
+passed 23/24 truths + 1 accepted YAGNI override). Three tables + `VocabularyService` + the
+column-backed `vocabulary_drift` audit + `/api/vocabulary/{namespace}` route are all live. The
+open question below (whether `tag_vocabulary` should be generalized/subsumed) is still genuinely
+open — not resolved by this closure — but is now its own separate consideration, not a blocker
+on anything.
 
 # Controlled Vocabulary
 
