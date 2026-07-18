@@ -108,3 +108,12 @@ None — no external service configuration required.
 ---
 *Phase: 161-controlled-vocabulary-system*
 *Completed: 2026-07-18*
+
+## Self-Check: PASSED
+
+- FOUND: src/api/routes/vocabulary.py
+- FOUND: tests/unit/api/test_vocabulary_api.py
+- FOUND: .planning/phases/161-controlled-vocabulary-system-planned/161-04-SUMMARY.md
+- FOUND: bbe8178b (Task 1 commit)
+- FOUND: d093ce3e (Task 2 commit)
+- FOUND: 08f04d10 (SUMMARY commit)
