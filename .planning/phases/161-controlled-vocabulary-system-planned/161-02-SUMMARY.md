@@ -110,3 +110,10 @@ None — no external service configuration required.
 ---
 *Phase: 161-controlled-vocabulary-system-planned*
 *Completed: 2026-07-17*
+
+## Self-Check: PASSED
+
+- FOUND: `src/config/vocabulary_service.py`
+- FOUND: `tests/unit/test_vocabulary_service.py`
+- FOUND: `.planning/phases/161-controlled-vocabulary-system-planned/161-02-SUMMARY.md`
+- FOUND commits: `c97d318f`, `782e582d`, `12d496f9`, `3769e238`, `3fcc9a9e`
