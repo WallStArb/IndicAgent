@@ -3,9 +3,13 @@ Unit tests for the Controlled Vocabulary API route.
 
 Tests cover:
 - GET /api/vocabulary/{namespace} — happy path returns codes/labels/groups for a
-  known seeded namespace
-- GET /api/vocabulary/{namespace} — unknown namespace returns 404, never a raw
+  known seeded namespace, including per-group label/description and empty-but-known
+  groups (LEFT JOIN)
+- GET /api/vocabulary/{namespace} — unknown namespace (zero code rows) returns 404;
+  a genuine backend failure on the codes query returns 503 instead, never a raw
   SQL error / 500
+- A group-query failure degrades to groups_available=false rather than silently
+  looking identical to "this namespace has no groups"
 - The namespace path parameter is passed to the DB fetch as a bound parameter,
   never string-interpolated into SQL (T-161-01)
 
@@ -54,10 +58,20 @@ REGIME_HMM_ROWS = [
 ]
 
 REGIME_HMM_GROUP_ROWS = [
-    {"group_name": "trending", "code": "trending_up"},
-    {"group_name": "trending", "code": "trending_down"},
-    {"group_name": "bullish_bias", "code": "trending_up"},
-    {"group_name": "bullish_bias", "code": "transition_up"},
+    {"group_name": "trending", "label": "Trending", "description": None, "code": "trending_up"},
+    {"group_name": "trending", "label": "Trending", "description": None, "code": "trending_down"},
+    {
+        "group_name": "bullish_bias",
+        "label": "Bullish Bias",
+        "description": "Upward-biased regimes",
+        "code": "trending_up",
+    },
+    {
+        "group_name": "bullish_bias",
+        "label": "Bullish Bias",
+        "description": "Upward-biased regimes",
+        "code": "transition_up",
+    },
 ]
 
 
@@ -109,8 +123,45 @@ class TestGetVocabularyHappyPath:
         assert response.status_code == 200
         data = response.json()
         assert "groups" in data
-        assert data["groups"]["trending"] == ["trending_up", "trending_down"]
-        assert data["groups"]["bullish_bias"] == ["trending_up", "transition_up"]
+        assert data["groups_available"] is True
+        assert data["groups"]["trending"] == {
+            "label": "Trending",
+            "description": None,
+            "codes": ["trending_up", "trending_down"],
+        }
+        assert data["groups"]["bullish_bias"] == {
+            "label": "Bullish Bias",
+            "description": "Upward-biased regimes",
+            "codes": ["trending_up", "transition_up"],
+        }
+
+    def test_group_with_no_members_still_appears_with_empty_codes(self, client, mock_db):
+        """A vocabulary_group row with zero members (LEFT JOIN -> NULL code) is a
+        real-but-empty group, distinguishable from an unknown one -- not silently
+        dropped from the response."""
+        empty_group_rows = [
+            {"group_name": "trending", "label": "Trending", "description": None, "code": None}
+        ]
+        mock_db.fetch = AsyncMock(side_effect=[REGIME_HMM_ROWS, empty_group_rows])
+
+        response = client.get("/api/vocabulary/regime_hmm")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["groups"]["trending"] == {"label": "Trending", "description": None, "codes": []}
+
+    def test_group_query_failure_sets_groups_available_false(self, client, mock_db):
+        """A group-query failure must not look identical to 'this namespace has no
+        groups' -- groups_available signals the partial failure to callers."""
+        mock_db.fetch = AsyncMock(side_effect=[REGIME_HMM_ROWS, RuntimeError("connection refused")])
+
+        response = client.get("/api/vocabulary/regime_hmm")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["groups"] == {}
+        assert data["groups_available"] is False
+        assert "connection refused" not in response.text
 
 
 class TestGetVocabularyUnknownNamespace:
@@ -124,13 +175,15 @@ class TestGetVocabularyUnknownNamespace:
         assert response.status_code == 404
         assert response.status_code != 500
 
-    def test_db_error_returns_404_not_500(self, client, mock_db):
-        """A DB query error is caught and surfaces as 404, never a raw SQL error/500."""
+    def test_codes_query_db_error_returns_503_not_404(self, client, mock_db):
+        """A backend failure on the primary codes query is a 503 (retry-worthy),
+        distinct from a genuinely unknown namespace (404, don't retry) -- and never
+        a raw SQL error / 500."""
         mock_db.fetch = AsyncMock(side_effect=RuntimeError("connection refused"))
 
         response = client.get("/api/vocabulary/regime_hmm")
 
-        assert response.status_code == 404
+        assert response.status_code == 503
         assert response.status_code != 500
         assert "connection refused" not in response.text
 

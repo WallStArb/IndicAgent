@@ -43,6 +43,16 @@ class VocabEntry:
     is_deprecated: bool
 
 
+@dataclass(frozen=True)
+class GroupEntry:
+    """One row of `vocabulary_group` — metadata for a named grouping within a namespace."""
+
+    group_name: str
+    label: str
+    description: str | None
+    sort_order: int
+
+
 class VocabularyService:
     """Cached, library-embedded projection over the Controlled Vocabulary tables.
 
@@ -59,6 +69,8 @@ class VocabularyService:
         self._entries: dict[str, dict[str, VocabEntry]] = {}
         # (namespace, group_name) -> frozenset of member codes
         self._groups: dict[tuple[str, str], frozenset[str]] = {}
+        # (namespace, group_name) -> group metadata (label/description/sort_order)
+        self._group_meta: dict[tuple[str, str], GroupEntry] = {}
 
     async def initialize(self) -> None:
         """Initialize the database pool (no-op if pool already provided) and prewarm
@@ -87,7 +99,10 @@ class VocabularyService:
                 "FROM controlled_vocabulary "
                 "ORDER BY namespace, sort_order, code"
             )
-            group_rows = await conn.fetch("SELECT namespace, group_name FROM vocabulary_group")
+            group_rows = await conn.fetch(
+                "SELECT namespace, group_name, label, description, sort_order "
+                "FROM vocabulary_group"
+            )
             member_rows = await conn.fetch(
                 "SELECT namespace, group_name, code FROM vocabulary_group_member"
             )
@@ -103,17 +118,30 @@ class VocabularyService:
                 is_deprecated=row["is_deprecated"],
             )
 
+        group_meta: dict[tuple[str, str], GroupEntry] = {}
         # Every registered group starts as an empty set so group_codes() returns
         # frozenset() for a real-but-empty group the same way it does for an unknown one.
-        group_members: dict[tuple[str, str], set[str]] = {
-            (row["namespace"], row["group_name"]): set() for row in group_rows
-        }
+        group_members: dict[tuple[str, str], set[str]] = {}
+        for row in group_rows:
+            key = (row["namespace"], row["group_name"])
+            group_members[key] = set()
+            group_meta[key] = GroupEntry(
+                group_name=row["group_name"],
+                label=row["label"],
+                description=row["description"],
+                sort_order=row["sort_order"],
+            )
         for row in member_rows:
             key = (row["namespace"], row["group_name"])
-            group_members[key].add(row["code"])
+            # Sequential reads on one connection, not one transactional snapshot -- a
+            # group inserted between the group_rows and member_rows fetches would be
+            # missing here. Convention (migration-time-only writes), not an FK/DB
+            # guarantee, so guard defensively rather than assume the key exists.
+            group_members.setdefault(key, set()).add(row["code"])
 
         self._entries = entries
         self._groups = {key: frozenset(codes) for key, codes in group_members.items()}
+        self._group_meta = group_meta
 
     # ------------------------------------------------------------------
     # Hot-path readers — synchronous, DB-free, cache-only.
@@ -123,6 +151,14 @@ class VocabularyService:
         """Return all codes for a namespace, in cached (sort_order, code) order."""
         return list(self._entries.get(namespace, {}).keys())
 
+    def active_codes(self, namespace: str) -> list[str]:
+        """Return non-deprecated codes for a namespace, in cached (sort_order, code) order."""
+        return [
+            entry.code
+            for entry in self._entries.get(namespace, {}).values()
+            if not entry.is_deprecated
+        ]
+
     def label(self, namespace: str, code: str) -> str:
         """Return the entry's label; falls back to the code itself if unknown."""
         entry = self._entries.get(namespace, {}).get(code)
@@ -131,6 +167,16 @@ class VocabularyService:
     def group_codes(self, namespace: str, group_name: str) -> frozenset[str]:
         """Return the frozenset of member codes for a group; frozenset() if unknown."""
         return self._groups.get((namespace, group_name), frozenset())
+
+    def group_label(self, namespace: str, group_name: str) -> str:
+        """Return the group's label; falls back to the group_name itself if unknown."""
+        entry = self._group_meta.get((namespace, group_name))
+        return entry.label if entry is not None else group_name
+
+    def group_description(self, namespace: str, group_name: str) -> str | None:
+        """Return the group's description; None if unknown."""
+        entry = self._group_meta.get((namespace, group_name))
+        return entry.description if entry is not None else None
 
     def namespace(self, namespace: str) -> list[VocabEntry]:
         """Return all VocabEntry rows for a namespace; [] if unknown."""
