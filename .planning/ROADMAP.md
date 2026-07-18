@@ -977,7 +977,7 @@ F1 near-miss).
 - Priority context: `docs/research/intelligence-lifecycle-backlog-matrix.md` (MEDIUM
   tier — Effort M, Risk Low, Reward Low).
 
-**Plans:** 2/4 plans executed
+**Plans:** 4/4 plans complete
 Plans:
 **Wave 1**
 
@@ -986,8 +986,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 161-03-PLAN.md — Wave 2: column-backed drift audit module + oneshot CLI, chained into corpus pipeline
-- [ ] 161-04-PLAN.md — Wave 2: /api/vocabulary/{namespace} FastAPI route + main.py registration
+- [x] 161-03-PLAN.md — Wave 2: column-backed drift audit module + oneshot CLI, chained into corpus pipeline
+- [x] 161-04-PLAN.md — Wave 2: /api/vocabulary/{namespace} FastAPI route + main.py registration
 
 ### Phase 142.5: Renaissance Primitives ✅ COMPLETE (8/8 plans, 2026-07-07) (INSERTED)
 

@@ -36,6 +36,26 @@ files across the full migration history in one pass is a much larger, higher-bla
 undertaking than todo 095's original 3-doc-correction scope. This needs its own deliberately
 scoped effort, not an improvised expansion of todo 095.
 
+## Update (2026-07-17): 14th group found — `239`
+
+Phase 161-01's executor renumbered its Controlled Vocabulary schema migration from the plan's
+target 237/238 to 239/240 (237/238 had been claimed same-day by Phase 146). It didn't know that
+`239_ic_engine_cross_sectional_bootstrap_threads.sql` (commit `28fe12ac`, already on `main` before
+that renumbering happened) had already claimed 239. Both files are applied and idempotent — no
+migration-tracking table exists in this project (confirmed via `\dt` — no `schema_migrations` or
+equivalent), so this is purely a filename-hygiene violation, not a functional conflict. Adds a
+14th group to the list above: `239 (2 files: 239_controlled_vocabulary_schema.sql /
+239_ic_engine_cross_sectional_bootstrap_threads.sql)`.
+
+161-03 independently hit the same problem and self-corrected by taking the next free number (241)
+for its own migration rather than colliding again — logged in that plan's own
+`deferred-items.md`.
+
+This confirms the recommended approach below should include a **pre-flight duplicate check as
+part of migration numbering itself** (e.g. a `find production/migrations -name "${N}_*"` check
+before an executor picks a number), not just a one-time retroactive sweep — the sweep will
+immediately regrow if nothing prevents new collisions going forward.
+
 ## Recommended approach
 
 1. For each of the 13 groups, confirm both/all files are genuinely independent (different
