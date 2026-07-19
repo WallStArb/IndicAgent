@@ -142,7 +142,7 @@ _FETCH_PER_SYMBOL_SQL_TMPL = """
     INNER JOIN forward_returns fr
         ON fr.symbol = fv.symbol AND fr.tf = fv.tf AND fr.bar_ts = fv.bar_ts
         AND fr.return_type = 'executable_open_to_open'
-    WHERE mr.asset_class = 'equity' AND mr.tf = $1 AND mr.regime_label = $2
+    WHERE mr.regime_group = 'equity' AND mr.tf = $1 AND mr.regime_label = $2
       AND fv.bar_ts <= $3 AND fv.symbol = $4
     ORDER BY fv.bar_ts
 """
@@ -155,7 +155,7 @@ _FETCH_POOLED_SQL_TMPL = """
     INNER JOIN forward_returns fr
         ON fr.symbol = fv.symbol AND fr.tf = fv.tf AND fr.bar_ts = fv.bar_ts
         AND fr.return_type = 'executable_open_to_open'
-    WHERE mr.asset_class = 'equity' AND mr.tf = $1 AND mr.regime_label = $2
+    WHERE mr.regime_group = 'equity' AND mr.tf = $1 AND mr.regime_label = $2
       AND fv.bar_ts <= $3
     ORDER BY fv.bar_ts, fv.symbol
 """

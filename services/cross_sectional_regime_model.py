@@ -4,7 +4,7 @@
 Generalizes services/equity_regime_model.py: instead of a single hardcoded 'equity'
 label, this dispatcher iterates every enabled group in APR key alpha.regime.groups
 (JSON array) and writes group-scoped regime labels to market_regimes.regime_group
-(migration 229 renamed asset_class -> regime_group).
+(migration 222 renamed asset_class -> regime_group).
 
 Groups are defined in APR key alpha.regime.groups (JSON array). Each group:
   - name: string key written to market_regimes.regime_group
@@ -75,7 +75,7 @@ _JOB = "cross-sectional-regime-model"
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 
 # Fallback default for cfg.get_sync("alpha.regime.groups", ...) — matches migration
-# 229's seeded config exactly. Only used if the APR key is somehow unset (should not
+# 222's seeded config exactly. Only used if the APR key is somehow unset (should not
 # happen post-migration; this is a defensive fallback, not the source of truth).
 _DEFAULT_GROUPS_JSON = json.dumps(
     [
@@ -130,7 +130,7 @@ _DEFAULT_GROUPS_JSON = json.dumps(
 
 # Window-param keys treated as DAILY-bar counts, pre-scaled to the target TF via
 # _tf_window() before being passed to a signal module's compute(). Every group's
-# window-denominated APR key (see migration 229's config_schema descriptions) is
+# window-denominated APR key (see migration 222's config_schema descriptions) is
 # named with a "_window" suffix by convention — this set enumerates the exact keys
 # accepted by each signal module today (breadth_vol/curve_credit/commodity_momentum_ts/
 # fx_dollar_carry all read one of these from `params`, per their compute() signatures).
@@ -217,7 +217,7 @@ def _assign_labels(
     """Vectorized label assignment. No DB, no pandas.
 
     Returns list of (regime_group, tf, ts, regime_label, prob_dict) — regime_group is
-    set on EVERY emitted row (column renamed from asset_class per migration 229).
+    set on EVERY emitted row (column renamed from asset_class per migration 222).
     regime_label = "{tier1}_{tier2}".
 
     LABEL-VOCABULARY-UNIQUENESS INVARIANT (RESEARCH.md Pitfall 4): feature_ic_scores
@@ -298,7 +298,7 @@ def _scale_window_params(params: dict[str, str], tf: str) -> dict[str, Any]:
     """Pre-scale every DAILY-bar-denominated window param to the target TF's bar count.
 
     RESEARCH.md Pattern 5: window params in alpha.*_regime.* APR keys are always
-    daily-bar counts (see migration 229's config_schema descriptions); every signal
+    daily-bar counts (see migration 222's config_schema descriptions); every signal
     module's compute() treats params it receives as ALREADY bar-scaled and stays
     TF-agnostic. This is the dispatcher's sole responsibility to apply — signal
     modules never call _tf_window() themselves.

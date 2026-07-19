@@ -96,3 +96,41 @@ owner, not resolved here.
 **Priority:** high — this bears directly on whether currently-passing gates (feature promotion,
 BH-FDR, EIC-04) are as reliable as their reported p-values claim. Not urgent to execute
 immediately, but should not sit indefinitely given what it touches.
+
+## Confirmation run, 2026-07-19 — post-bootstrap-fix, against the fresh 143.1-07 corpus
+
+`_circular_block_bootstrap_ic` (143.1-01) is unconditionally live in production
+(`ic_engine.py:1963`, no flag gate) — the 143.1-07 corpus re-run that finished 2026-07-19 already
+computed `feature_ic_scores` CIs via bootstrap, not Fisher-z. Re-ran
+`scripts/ops/alpha/ops_ic_null_calibration.py --ci-method bootstrap` against this fresh vintage
+(`training_window_end=2025-12-24 05:15:00+00:00`) to check whether the fix actually resolved the
+miscalibration. Note: the script had a schema-drift bug (`mr.asset_class` — a column that no
+longer exists since Phase 144's regime-model rewrite; fixed to `mr.regime_group`) blocking any run
+until today.
+
+**Result: 4/19 evaluated cells SUSPECT (21%), down from 11/29 (38%) pre-bootstrap.** Real
+improvement, not fully resolved. Sharper than the original diffuse finding: 3 of the 4 SUSPECT
+cells are the *same feature*, `ctf_momentum` (XLY/5m, EWJ/5m, QQQ/15m), plus one `flight_quality`
+cell (VWO/1h). All 4 are `is_pooled=False` (per-symbol, not the P6 cross-sectional effective-N
+mechanism). This looks like a feature-specific autocorrelation problem — `ctf_momentum`'s true
+decay structure may exceed the current `bootstrap_block_size` for its scale — rather than a
+general bootstrap-methodology failure across the corpus. Caveat: 49/68 sampled cells were skipped
+(insufficient N / stratum mismatch) this run, a higher skip rate than the original 37/66 —
+smaller effective evidence base than ideal; a stratified sample specifically targeting
+`ctf_momentum`/`flight_quality` cells would settle whether this generalizes to those features'
+other cells or is isolated to these three.
+
+**Resolved by Fable 5 review, 2026-07-19** (`docs/research/fable-2026-07-19-lookahead-and-target-calibration-review.md`,
+Q2): the mechanism is confirmed, not just hypothesized. Measured integrated autocorrelation time
+vs. each feature's tf bootstrap block size directly: `ctf_momentum` runs ~4x its block size
+consistently across tfs (structural — it's HTF-derived, not incidental) and `flight_quality`
+(a TLT/SPY macro-divergence feature) runs ~750x its block size at 1h (no feasible block size
+fixes this — a months-scale decorrelation has almost no independent observations at intraday
+tfs). Per this project's principles (proof before promotion, resist overfitting, instrument
+everything): **do not per-feature-tune block size** (overfitting one dial to one symptom, and it
+doesn't help `flight_quality` at all) — the correct close-out is standing instrumentation: a
+dependence-length diagnostic + lower-trust flag, filed as
+[145](145-bootstrap-dependence-length-flag.md). **091 stays open until that flag lands** — the
+21% residual is acceptable to carry forward only WITH the flag in place, not silently. When 145
+ships, close 091 and record the decision (this residual rate, the flag's existence, the
+deliberate non-fix of per-feature block sizes) in `docs/plans/methodology-change-ledger.md`.

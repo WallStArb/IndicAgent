@@ -1,0 +1,98 @@
+---
+status: pending
+priority: P1
+filed: 2026-07-19
+source: Component F (todo 097) definitive full-corpus A/B verdict
+  (docs/plans/methodology-change-ledger.md E8 addendum) -- a genuinely new finding not
+  visible in any smaller sample run this session or in Fable 5's own review
+---
+
+# Vol-normalized vs. raw-return POOLED IC diverges sharply and specifically in `low_bull`
+# regime strata -- not explained by low N, mechanism unknown
+
+## Problem
+
+097's definitive `--all-regimes` A/B (106 strata, post-143.1-07 corpus) found median rank
+correlation 0.7173 between raw-return and vol-normalized (`return_x / true_range_pct`)
+POOLED IC rankings -- real divergence, not near-identical, so the transform stays a live
+candidate rather than being retired.
+
+But the divergence is not uniform: `low_bull` regime strata (across multiple tfs) show a
+median rank correlation of 0.351 (n=12 strata) vs. 0.731 for every other regime (n=94
+strata) -- a 2x gap. Critically, this is NOT the "thin data reads as noise" pattern that
+explains the previously-known 1d/extended-horizon outliers (e.g. 1d/high_bull/60 at
+n=588). Several `low_bull` cells are among the best-powered strata in the ENTIRE 106-row
+run:
+
+| tf | regime | lookahead | n_independent | rank_corr |
+|---|---|---|---|---|
+| 1h | mid_bull | 1 | 50,079 | 0.0485 |
+| 15m | low_bull | 5 | 367,448 | 0.1101 |
+| 1h | low_bull | 1 | 81,018 | 0.1726 |
+| 15m | low_bull | 1 | 436,346 | 0.2349 |
+| 5m | low_bull | 20 | 253,384 | 0.2415 |
+
+Broader pattern: `bull`-family regimes overall lag `bear`/`neutral` (median rank_corr
+0.56 vs. 0.75/0.80), but `low_bull` specifically is the extreme driver, not the whole
+`bull` family uniformly.
+
+## Why this matters
+
+Component F's keep/retire decision for the vol-normalized target directly affects what
+the ensemble trains on (POOLED-strata IC feeds `ensemble_trainer.py`'s eligibility and
+weighting). A target whose behavior diverges sharply and specifically in one regime,
+for reasons nobody understands yet, is a real risk to promote uniformly -- either the
+raw or the vol-normalized ranking could be systematically wrong specifically in
+`low_bull` conditions, and right now there's no way to tell which.
+
+## Investigation (not yet started)
+
+Candidate mechanisms, none confirmed:
+
+1. **`true_range_pct` (the vol-normalization denominator) behaves unusually in
+   genuinely low-volatility bull conditions.** If the denominator is itself compressed
+   or noisy exactly when the regime label says volatility is low, dividing by it could
+   amplify noise disproportionately in `low_bull` specifically. Check: distribution of
+   `true_range_pct` within `low_bull` vs. other regimes: is it unusually small,
+   unusually noisy (high coefficient of variation), or bimodal?
+2. **A real economic difference in what predicts returns in `low_bull` regimes under
+   the two target definitions** -- not a measurement artifact but a genuine finding
+   that vol-normalization changes which features matter specifically in quiet bull
+   markets. Would need domain reasoning, not just a statistical check, to confirm.
+3. **Regime-boundary contamination** -- check whether `low_bull` bars are
+   disproportionately near regime transition boundaries (where the label itself may be
+   less reliable) compared to other regimes' bars in this corpus.
+
+## Fix / next step
+
+Not a fix yet -- this is a "measure before deciding" todo (per this project's own
+"measure, don't defer" convention). Cheapest first check: pull the `true_range_pct`
+distribution (mean, CV, skew) for `low_bull` vs. every other regime across the same tfs
+this A/B covered, using data already fetched by `ops_vol_normalized_target_ab.py`'s own
+POOLED array assembly (no new query shape needed, just a diagnostic report over data
+the script already pulls). If mechanism 1 confirms, the fix is regime-conditional (e.g.
+exclude `low_bull` from vol-normalized promotion, or find a better denominator there,
+not a global target choice). If it doesn't confirm, escalate to domain reasoning /
+Fable review before making any promotion call.
+
+**Blocks:** any decision to promote vol-normalized as a shadow `weight_version` variant
+should wait on this, or explicitly carve out `low_bull` from the promoted scope pending
+this investigation -- see the open decision recorded in 097 / the E8 ledger addendum.
+
+## Sizing
+
+Todo-sized. The `true_range_pct` distribution check is cheap (reuses existing data,
+half a day). Escalation to domain reasoning if the cheap check doesn't explain it is
+open-ended and would need its own scoping at that point.
+
+## References
+
+- `.planning/todos/pending/097-vol-normalized-return-target-pooled-ic.md` -- parent
+  A/B result this finding came out of
+- `docs/plans/methodology-change-ledger.md` E8 addendum, 2026-07-19 -- full numbers,
+  definitive verdict, and the open promotion decision this todo gates part of
+- `scripts/ops/alpha/ops_vol_normalized_target_ab.py` -- the A/B script; its
+  `_fetch_pooled_arrays` already pulls `true_range_pct` (via `_FEATURE_NAMES`) for
+  every evaluated stratum, reusable for the cheap first check above
+- `src/intelligence/statistics/ic_math.py` `vol_normalized_return` -- the transform
+  under investigation

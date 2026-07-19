@@ -29,6 +29,43 @@ below the ensemble's genuine capturable horizon corpus-wide, plausibly explainin
 higher-effort/higher-blast-radius, flagged below for explicit sign-off before implementing
 ---
 
+## Post-fix verification, 2026-07-19 — CONFIRMED the mechanical stride bias is gone
+
+`scripts/analysis/ic_sharpe_stride_bias_check.py` was stale (still testing the deprecated
+`sharpe_window_size` raw-bars-per-stride field, which no longer exists on
+`_compute_ic_rolling_metrics`'s `SharpeWindowConfig` Protocol since the fix shipped) — fixed to
+use `sharpe_window_size_subsampled` and to fetch live APR from `config_state` instead of a
+hardcoded 2026-07-12 snapshot (the docstring already claimed to do this; now it actually does).
+
+Re-ran against live APR (`sharpe_window_size_subsampled=100`, matching the shipped fix) at
+`N_RAW=400_000` (raised from the original 90_000, which left `extended`/stride=60 unable to
+clear `sharpe_min_windows=30`). Result: at every true rho tested (0.0/0.03/0.06/0.10), all four
+scales (fast/mid/slow/extended) report near-identical mean Sharpe — e.g. true_rho=0.10:
+0.9957/0.9957/0.9932/0.9906, under 0.5% spread. **This is the direct opposite of the pre-fix
+result** (v3 finding below documented a 2.02x fast/slow ratio and 3.39-3.59x fast/extended ratio
+at the same rho values, matching `sqrt(window_size_ratio)` almost exactly). The mechanical
+stride-driven deflation is gone; `ic_sharpe` is now comparable across lookahead scales as
+intended.
+
+**This confirms the fix's mechanism directly (synthetic data, isolates the estimator from any
+real corpus decay). It does NOT by itself confirm the historical `ic_sharpe`/`hold_max_bars`
+values in production have been re-derived under it — checked directly, and they have not.**
+`ic_engine`'s per-feature `ic_sharpe` values were refreshed by the 143.1-07 run (it calls
+`_compute_ic_rolling_metrics` directly), but the "Recalibration order" note in the 2026-07-13
+Decision section below requires THREE steps (`ic_engine` → `ensemble_trainer` reweight →
+`ensemble_ic_engine` decay walk), and only the first has run: `alpha_ensemble_ic` has zero rows
+(`scored_at` is NULL corpus-wide), `ensemble_weights` last updated 2026-07-10 — nine days before
+143.1-07 even started — and `logs/ensemble_trainer.log`/`logs/ensemble_ic_engine.log` are both
+empty since 2026-07-11. **143.1-07 was an `ic_engine`-only run, not the full 8-step pipeline**
+(per `ops_corpus_pipeline_run.sh`'s step list). Production `hold_max_bars` values in
+`config_state` are still whatever `ensemble_ic_engine` last computed against PRE-fix
+`ic_sharpe`/quality-weight numbers from 2026-07-10 or earlier.
+
+**096's diagnostic scope is done — the estimator fix is confirmed correct.** But it does NOT yet
+unblock 088: `ensemble_trainer` and `ensemble_ic_engine` both need to run against the
+143.1-07-refreshed `feature_ic_scores` before any current `hold_max_bars` value can be trusted as
+reflecting the corrected estimator. That's a real remaining step, not a formality.
+
 ## Finding v3 (2026-07-12) — CONFIRMED via Monte Carlo, not just plausible
 
 Built `scripts/analysis/ic_sharpe_stride_bias_check.py`, which imports the actual production

@@ -324,6 +324,64 @@ last month's weights is a silent methodology choice too.
   above was run after the design was locked and is explicitly labeled non-authoritative
   in this same entry, not presented as if it were the verdict.
 
+- **Addendum, 2026-07-19 — definitive full-corpus verdict (`--all-regimes`), against the
+  post-143.1-07 corpus (`training_window_end=2025-12-24 05:15:00+00`).** Two script fixes
+  landed first, both from an independent Fable 5 review
+  (`docs/research/fable-2026-07-19-lookahead-and-target-calibration-review.md` Q3a):
+  (1) the vol-normalized side's BH-FDR now pools p-values into ONE family across the
+  whole run, matching production's corpus-wide convention (was one family per stratum,
+  which inflated `vol_only` relative to `raw_only` as a correction-strength artifact, not
+  a signal difference); (2) the aggregate verdict is conditioned on a reliability floor
+  (`n_independent >= alpha.ic.min_reliable_n`, reused rather than a new invented
+  threshold) — strata below it stay visible in the per-stratum report but are excluded
+  from the median/count rollup.
+
+  **Result: 106 (tf, regime, lookahead) strata evaluated, ALL clearing the reliability
+  floor. Median rank correlation 0.7173.** Per the locked decision rule, this is
+  unambiguously NOT "materially identical to raw" (would need >0.95 with zero
+  raw_only/vol_only) — **retain the transform as a live candidate, do not retire it.**
+  Qualifying-feature counts (pooled family): raw_only=260, vol_only=4268, both=925 — read
+  qualitatively (vol-normalized surfaces many candidates raw doesn't and vice versa), not
+  as a precise "16x more real signal" claim; the two sides still differ in what CI method
+  backs `passes_fdr` (raw = production's bootstrap CI; vol-normalized = this diagnostic's
+  cheaper Fisher-z/BH-FDR only, no CI recompute, per the script's own documented scoping
+  simplification) — this is a feature-set discovery scan, not a rate comparable to a
+  promotion decision.
+
+  **New finding, not visible in any smaller sample this project has run: divergence is
+  regime-conditional, concentrated in `low_bull`, and NOT explained by low N.**
+  `low_bull` strata median rank correlation 0.351 (n=12 strata) vs. 0.731 for every other
+  regime (n=94 strata) — a 2x gap. Critically, several of the worst `low_bull` cells are
+  among the BEST-powered strata in the entire run, ruling out the "noise from small N"
+  explanation that accounts for the earlier-observed 1d/extended outliers:
+
+  | tf | regime | lookahead | n_independent | rank_corr |
+  |---|---|---|---|---|
+  | 1h | mid_bull | 1 | 50,079 | 0.0485 |
+  | 15m | low_bull | 5 | 367,448 | 0.1101 |
+  | 1h | low_bull | 1 | 81,018 | 0.1726 |
+  | 15m | low_bull | 1 | 436,346 | 0.2349 |
+  | 5m | low_bull | 20 | 253,384 | 0.2415 |
+
+  Broader regime-family pattern (bear/neutral/bull median rank_corr 0.75/0.80/0.56)
+  shows `bull` regimes generally lag, but `low_bull` specifically is the extreme driver.
+  Mechanism not investigated here — candidates include `true_range_pct` behaving
+  differently as a normalizer in genuinely low-volatility bull conditions (the
+  denominator itself may be compressed/noisy exactly when the regime label says
+  volatility is low), or a real economic difference in what predicts returns in that
+  regime under the two target definitions. **Flagging as a finding requiring its own
+  follow-up, not resolving the mechanism in this entry.**
+
+  Full per-stratum table: this session's run output, not persisted to a table (matches
+  this script's existing no-persistence design) — reproducible via `python
+  scripts/ops/alpha/ops_vol_normalized_target_ab.py --all-regimes` against the same
+  vintage.
+- **Not yet decided:** whether to (a) proceed with promoting vol-normalized as a shadow
+  `weight_version` variant globally, (b) promote it only outside `low_bull`-family
+  regimes pending the mechanism investigation, or (c) investigate the `low_bull`
+  divergence first before any promotion decision. Project owner's call — this addendum
+  records the evidence, not the decision.
+
 ### E9 — 2026-07-11: Sign-symmetric ensemble eligibility redesign, code-level (Component E, todo 094, Phase 143.1-04)
 - **Observed first:** a live-DB audit (143.1-CONTEXT.md, resolved before this plan's
   execution) found `alpha_events` 99.99% long-only (11.81M long vs. 1,479 short rows) —

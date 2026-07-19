@@ -1,12 +1,45 @@
+---
+status: completed
+priority: P1
+closed: 2026-07-19
+---
+
 # 097 — Vol-normalized return target for POOLED-strata IC (split from todo 077's L3-1)
 
-**Status check 2026-07-14 (corpus-rebuild idle window):** the implementation half is done —
-`_cross_sectional_vol_normalized_target` (Component F) is live in `ic_engine.py`, with
-`scripts/ops/alpha/ops_vol_normalized_target_ab.py` as the A/B comparison harness. **Not closing
-this todo** — the actual deliverable is the "Validation design" section below (compare
-qualifying-feature rankings raw-vs-vol-normalized, decide keep-or-retire), which hasn't run yet
-and can't until Phase 143.1-07's corpus re-run completes (same corpus this A/B rides, per "Why
-this rides Phase 143.1" below). Code existing is not the same as the question being answered.
+**Definitive verdict, 2026-07-19 — `--all-regimes` run against the post-143.1-07 corpus**
+(`training_window_end=2025-12-24 05:15:00+00`). Full record:
+`docs/plans/methodology-change-ledger.md` E8 addendum. Two script fixes landed first
+(pooled BH-FDR family instead of per-stratum, reliability-floor conditioning — both from a
+Fable 5 review, `docs/research/fable-2026-07-19-lookahead-and-target-calibration-review.md`
+Q3a).
+
+**106 strata evaluated, all reliable. Median rank correlation 0.7173 — NOT materially
+identical to raw (locked threshold was >0.95 with zero set differences). Verdict: retain
+the transform as a live candidate, do NOT retire it.**
+
+**New finding, not visible in any earlier smaller sample: divergence is regime-conditional,
+concentrated in `low_bull`, and not a low-N artifact.** `low_bull` strata median rank
+correlation 0.351 (n=12) vs. 0.731 everywhere else (n=94) — and several of the worst
+`low_bull` cells are among the best-powered strata in the whole run (15m/low_bull/lookahead=1
+at n=436,346 independent obs, rank_corr=0.2349; 15m/low_bull/lookahead=5 at n=367,448,
+rank_corr=0.1101). This rules out "just noise from thin data," the explanation that covers
+the earlier-known 1d/extended outliers. Mechanism not yet investigated — candidates include
+`true_range_pct` behaving unusually as a normalizer in genuinely low-volatility bull
+conditions, or a real regime-conditional difference in what predicts returns. **Not resolved
+here — flagged as a required follow-up before any promotion decision.**
+
+**Not yet decided (project owner's call, per the ledger addendum):** promote vol-normalized
+globally as a shadow `weight_version` variant, promote it only outside `low_bull`-family
+regimes pending the mechanism investigation, or investigate `low_bull` first before any
+promotion. This todo's own deliverable (the A/B comparison) is done; what happens next is a
+new decision, not this todo's remaining scope.
+
+---
+
+**Status check 2026-07-14 (corpus-rebuild idle window, superseded by the verdict above):** the
+implementation half is done — `_cross_sectional_vol_normalized_target` (Component F) is live in
+`ic_engine.py`, with `scripts/ops/alpha/ops_vol_normalized_target_ab.py` as the A/B comparison
+harness.
 
 **Split 2026-07-11:** todo 077 bundled three outcome-target refinements (L3-1, L3-2, L3-4) with
 different gates. L3-1 is unblocked today and directly sharpens the exact `ic_ci_lower`/
