@@ -1,10 +1,23 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-14
+closed: 2026-07-19
 source: found while finishing todo 011 (alpha_events.is_shadow wiring) during a
   corpus-rebuild idle window
 ---
+
+## Resolution
+
+Migration 236: `ALTER TABLE alpha_frames ADD COLUMN is_shadow BOOLEAN NOT NULL DEFAULT
+TRUE`. No backfill needed -- `alpha_frames` had 0 rows at migration time (truncated ahead
+of the in-flight 143.1-07 corpus rebuild; `AlphaFrameWriter` runs downstream of
+`alpha_publisher`, which hasn't run yet this rebuild cycle). Updated
+`AlphaFrameWriter._PENDING_SQL`/`_INSERT_SQL` to select and write `ae.is_shadow` from the
+joined `alpha_events` row at frame-creation time, not re-read from the
+`alpha.publisher.is_shadow` APR flag later (a frame's shadow status must not drift if the
+flag changes after the frame is written). Applied to the live DB. Regression test added to
+`tests/unit/test_alpha_frame_writer.py`.
 
 # `alpha_frames` has no `is_shadow` column — the actual Phase 144 promotion-gate
 # measurement surface can't distinguish shadow vs. live once promotion happens

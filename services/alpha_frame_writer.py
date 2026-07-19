@@ -179,13 +179,13 @@ class AlphaFrameWriter(BaseBatch):
             alpha_score, alpha_ci_lower, alpha_ci_upper,
             gross_expected_r, cost_r, net_expected_r,
             max_hold_bars, stop_atr_mult, target_r_multiple, status,
-            corpus_run_id, weight_epoch
+            corpus_run_id, weight_epoch, is_shadow
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8,
             $9, $10, $11,
             $12, $13, $14,
             $15, $16, $17, $18,
-            $19, $20
+            $19, $20, $21
         )
         ON CONFLICT (event_id, bar_ts, frame_variant) DO NOTHING
     """
@@ -195,7 +195,7 @@ class AlphaFrameWriter(BaseBatch):
     _PENDING_SQL = """
         SELECT ae.event_id, ae.bar_ts, ae.symbol, ae.tf, ae.regime, ae.direction,
                ae.alpha_score, ae.alpha_ci_lower, ae.alpha_ci_upper, ae.cost_hurdle,
-               ae.weight_version
+               ae.weight_version, ae.is_shadow
         FROM alpha_events ae
         LEFT JOIN alpha_frames af
             ON af.event_id = ae.event_id
@@ -348,6 +348,7 @@ class AlphaFrameWriter(BaseBatch):
                             "open",
                             corpus_run_id,
                             row["weight_version"],
+                            row["is_shadow"],
                         )
                     )
 

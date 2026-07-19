@@ -144,3 +144,15 @@ def test_pending_sql_is_parameterized_and_scoped_per_partition():
     """No f-string/%-format SQL interpolation of data values; scoped per (symbol, tf)."""
     src = _read_source()
     assert "ae.symbol = $1 AND ae.tf = $2" in src
+
+
+def test_is_shadow_propagated_from_alpha_events_not_re_derived(monkeypatch):
+    """todo 120: a frame's shadow status is fixed at its parent event's emission time,
+    read straight from the joined alpha_events row -- never re-read from the
+    alpha.publisher.is_shadow APR flag at frame-write time (which could have changed
+    since)."""
+    src = _read_source()
+    assert "ae.is_shadow" in src
+    assert 'row["is_shadow"]' in src
+    assert "is_shadow" in src[src.index("_INSERT_SQL") : src.index("_PENDING_SQL")]
+    assert "alpha.publisher.is_shadow" not in src
