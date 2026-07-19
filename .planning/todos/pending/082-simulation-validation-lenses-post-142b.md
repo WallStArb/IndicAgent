@@ -1,6 +1,8 @@
 # 082 — Additional simulation/validation lenses (post-142B)
 
-**Status (moved to deferred/, 2026-07-10):** Hard-blocked on `alpha_frames` actually holding data -- same gate as todo 078 (Phase 142B's machinery shipped 2026-07-10 but the backfill hasn't run, 0 rows as of 2026-07-10). Revive once alpha_frames has accumulated real closed frames.
+**Status (moved back to pending/, 2026-07-18):** Gate cleared -- same as todo 078, todo 093's
+backfill ran 2026-07-12, `alpha_frames` now holds 11,813,874 rows (2,639,074 closed/scored). No
+longer blocked.
 
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §10 (L7-1, L7-2, L7-4).

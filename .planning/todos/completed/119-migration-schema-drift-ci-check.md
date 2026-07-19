@@ -1,6 +1,6 @@
 ---
-status: pending
-priority: P0
+status: completed
+priority: P2
 filed: 2026-07-14
 source: Phase 160 shipped-code review (Sonnet + Fable second pass) — committed migrations
   233/234 had silently diverged from what was actually applied to the live DB; took a grep,
@@ -8,6 +8,28 @@ source: Phase 160 shipped-code review (Sonnet + Fable second pass) — committed
   to surface. Not repeatable as ad hoc review; needs an automated gate. Merged 2026-07-14 with
   todo 064 (indicagent_test has no schema) — 064's fix is this todo's prerequisite
   infrastructure, not a separate task. 064 moved to completed/ as superseded.
+status_check: 2026-07-18 — the integration test this todo asked for already exists
+  (`tests/integration/test_migration_schema_sync.py`, commit `1065ffcc`, replays every migration
+  against `indicagent_test` and diffs schema against live `indicagent`). Downgraded P0→P2, then
+  CLOSED. Wiring `-m integration` into `.github/workflows/ci.yml` is not viable: CI runs on
+  GitHub-hosted `ubuntu-latest` runners (confirmed 2026-07-18, no self-hosted runner registered
+  on this box) with no network path to this project's local production DB, so this test can
+  never run there regardless of the pytest marker — accepted as inherent, not a gap to close.
+  Also found and fixed the same day: this suite had been silently broken since migration 237
+  (now renumbered — see below) landed 2026-07-17 (a real FK violation replaying against the
+  then-current baseline cutoff) — nobody caught it because nothing runs `-m integration`
+  automatically. Fixed by bumping `tests/integration/conftest.py`'s `_BASELINE_MIGRATION_CUTOFF`
+  and regenerating the baseline fixtures from current production.
+
+  Same day, separately: `production/migrations/` had 14 duplicate leading-number collisions
+  (001 through 239, spanning the whole project history — concurrent worktree sessions repeatedly
+  picking the same "next" number independently) and was fully renumbered to a clean 001-234, no
+  gaps, no duplicates, dependency order preserved. `scripts/ops/db/ops_migration_schema_parity.sh`
+  (added earlier the same day by this same session before it disconnected) attempted a from-empty
+  replay and independently rediscovered the exact "signal_ledger/instruments predate this
+  directory" gap `conftest.py`'s docstring already documented from 2026-07-14 — deleted as
+  redundant with the already-working pytest mechanism rather than fixed, since it duplicated a
+  solved problem using the premise that mechanism had already proven broken.
 ---
 
 # 119 — No automated check that committed migrations match the live/applied schema

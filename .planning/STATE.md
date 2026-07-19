@@ -84,6 +84,10 @@ FROM market_data_ohlcv WHERE timeframe IN ('5m', '15m', '1h', '1d')
 ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true;
 ```
 
+## Roadmap Evolution
+
+- Phase 162 added (2026-07-18): ic_engine Corpus Pipeline Throughput — bundles todos 134/133/122. Not yet planned; hold `/gsd-discuss-phase 162` until the in-flight 143.1-07 corpus run finishes (resource contention).
+
 ## Session
 
 **Last session:** 2026-07-17T09:11:43.443Z

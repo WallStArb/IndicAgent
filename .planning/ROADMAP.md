@@ -786,30 +786,24 @@ Plans:
 
 **EIC-04 Verdict Log (machinery completion ≠ gate passage — track separately, per the intel-10/11 review's F10):**
 
-- **2026-07-03: FAIL.** `alpha_ensemble_ic` populated (429 rows, `scored_at` 2026-07-03 09:54-10:02). Gate: 0/50 qualifying cells (threshold 0.60). EIC-05 diagnosis run same day: all failing cells flagged **DATA STARVATION** (N as low as 100-275, below `alpha.ic.min_obs_per_regime`), concentrated in `5m`/`high_bear` — the only (tf, regime) combination populated in this run. Per EIC-05's own documented interpretation, this is "expect more cells to pass as alpha_events accumulates," not a signal-negative result — but it is the current, real verdict. **Phase 142B does not begin until a re-run shows PASS or an operator override is recorded here with reasoning.** Do not treat 142A's "COMPLETE" status (machinery shipped) as gate passage.
-- **2026-07-04: correction to the above — "data starvation, expect it to resolve with accumulation" was only partly right.** Live re-investigation (4 vintages checked, latest 2026-07-04 13:05, all four identical: 50 rows, 100% `tf='5m', regime='high_bear'`) found three distinct causes, not one:
-  1. **15m is at its ceiling, not starved.** Every 15m regime cell (max 2604 raw obs) sits under `min_obs_per_regime=3000`, and `alpha_events` 15m already spanned its *old* full backfill depth (2016→2026, ~10yr). No re-run of the existing pipeline could add a row — "wait for accumulation" is false for 15m specifically. Fixed by the depth-policy increase to 20yr now underway (see `/home/bg/.claude/plans/should-we-back-fill-nested-peacock.md`), not by patience.
-  2. **1h/1d were never trained at all — an unexercised pipeline path, not an IC problem.** `feature_ic_scores` already has qualifying POOLED strata for 1h (4 regimes) and 1d (1 regime) today; `ensemble_trainer.py`'s own stratum-discovery query would find them. But `ensemble_weights`/`ensemble_alpha`/`alpha_events` have zero 1h/1d rows — the only `ensemble_trainer` manifest on disk is dated 2026-07-01T18:05 and only ever produced 5m/15m weights. Nobody re-ran it since. This is the highest-leverage fix available and needs no code change.
-  3. **Where we do have power, one cell is a genuine null, not underpowered.** `POOLED`/`5m`/`high_bear` (the best-powered cell in the system, `n_independent`=2707 at the `fast` lookahead) measures `ic_value`=+0.0075, CI `[-0.030, 0.045]` — centered on zero. Not a near-miss.
-  4. **Separately, the gate's cell-counting is architecturally unweighted** — `ops_ensemble_ic_gate.py` counts `POOLED` and each of 49 per-symbol rows as one equal vote in a flat 50-cell fraction, conflating "no pooled signal" with "per-symbol slices too thin to individually resolve a real pooled effect." Worth deciding whether to weight/split this before trusting the next re-run's PASS/FAIL at face value.
-  
-  Remediation (backfill to 20yr depth for all 80 active equity instruments, full corpus re-run, then re-run EIC-04/EIC-05) is captured in `/home/bg/.claude/plans/should-we-back-fill-nested-peacock.md` — that plan is now in progress and is the active path to resolving this gate, not a parallel/optional track.
-
-- **2026-07-08: FAIL, but for a different and now cleanly-diagnosed reason.** 5th corpus rebuild completed (see Corpus pipeline state memory), then two real bugs found and fixed in the same session before re-measuring:
-  1. **`ensemble_trainer.py`'s meta-FDR eligibility gate pooled BH-FDR pass/fail across all 4 timeframes into one fraction per feature** (`GROUP BY feature_name` only), so a feature strong at 1d/1h but weak at 5m noise got vetoed everywhere. Empirically confirmed 18 feature×timeframe combinations flip eligible under per-timeframe scoping. Fixed: `GROUP BY feature_name, tf` + a new `alpha.ensemble.meta_fdr_min_cells` APR floor (seeded 3, matching EIC-03's fold convention) so a 1-cell 100% pass rate can't trivially qualify (migration 207, commit pending).
-  2. **A "full replace per weight_version" fix to prevent stale strata surviving a re-run** (added to guard against exactly the 5 stale pre-fix `1h/high_bear` rows this investigation found) itself had a critical bug: `DELETE ... RETURNING 1` against `ensemble_alpha` (30M+ rows) forced Postgres to materialize the entire deleted-row set, OOM-killed the backend, and **crashed the whole TimescaleDB instance** (required WAL recovery on restart; confirmed via `docker logs` — `terminated by signal 9: Killed`). No data loss (Postgres rolled back the incomplete transaction before the crash), but a serious near-miss. Fixed: `conn.execute()` command-tag count instead of `RETURNING`, matching the already-correct pattern in `alpha_publisher.py`.
-  Re-ran the full chain (`ensemble_trainer` → `alpha_publisher` → `EnsembleICEngine`) clean after both fixes. Gate result: **0/31 qualifying cells** (up from 0/3 — the prior "3" was itself measured against partially-stale data, not a real number). EIC-05 diagnosis on the clean data: every one of the 31 measurable cells is `low_bull` or `mid_bull` regime only (no other regime has enough in-sample `alpha_events` to even be measured), N = 101-147 per cell — roughly 20-30x below `alpha.ic.min_obs_per_regime=3000`. `alpha_events` regime distribution confirms this isn't a code bug: e.g. `15m/high_bear` has only 20 events total across all 77 symbols vs. `1d/mid_bull`'s 26,644 — the OOS-enforced training window (ends 2025-12-24) plus the still-uncalibrated `alpha.quant.threshold.{tf}` emission gate (todo 065/EM-CAL — seeded values "1.5/1.2/1.0/0.8" are admitted guesses) are jointly suppressing per-regime event volume well below the floor. Per EIC-05's own documented interpretation this is genuine data starvation, not a signal-negative result — but per this phase's own rule, **Phase 142B still does not begin until a re-run shows PASS or an operator override is recorded here with reasoning.**
-
-- **2026-07-08 (same day, continued): root cause of the N-starvation was a methodology error, not a data gap — fixed, gate FAILs cleanly now with a real, well-powered measurement.** `EnsembleICEngine` (EIC-01) was measuring IC on `alpha_events` — the population AFTER a threshold + directional-CI + cost-hurdle emission filter — not the raw `ensemble_alpha` scored-bar population. This conditions the correlation test on the very confidence gate being validated (post-selection bias) and is in direct tension with the phase's own stated design: "prove the ensemble OUTPUT has IC before testing any execution rules... no frame assumptions." The emission threshold IS a frame/execution assumption; it does not belong in signal validation. `alpha_events` was 0.17% of `ensemble_alpha`'s row count (54,846 vs. 32.9M), which is what collapsed per-cell N below the floor — not insufficient underlying data (40M+ raw bars exist). Traced to Phase 142A's original design: at planning time (2026-06-30) `alpha_events` had 12.47M rows, nearly as complete as the full scored population, so the distinction didn't matter then; it was never revisited as the emission gate tightened. **Fixed:** `EnsembleICEngine`'s worker fetch, pooled fetch, startup gate, and tf/symbol enumeration queries (6 SQL sites) now source from `ensemble_alpha` directly (commit pending; `tests/unit/test_ensemble_ic_measurement_population.py`, 6 new tests). Empirically validated before implementing: full-population query showed 96% of 5m cells and 90% of 15m cells clear N≥3000 (vs. 0% under the old population); 1d remains structurally underpowered regardless (too few daily bars ever) — expected, not a new problem. `alpha_events`/the emission threshold is still correct for Phase 142B (frame/execution-rule testing, a different and correctly-downstream question) — todo 065/EM-CAL was **not** actioned, since calibrating an execution threshold specifically to manufacture EIC-04 sample size would itself have been a p-hacking risk.
-  **Result after the fix, full clean re-run (2026-07-08 ~15:25-15:32 UTC, 240/240 symbol-tf pairs succeeded, 5191 rows in `alpha_ensemble_ic`):** EIC-04 **FAIL, 67/1425 qualifying cells (4.7%)** against the 60% threshold — but this is now a real, honestly-measured scientific result, not a measurement artifact. Coverage jumped 46x (31 → 1425 measurable cells); N is abundant almost everywhere except 1d and a handful of `extended`-lookahead corner cells (still ~100-110, expected — longer lookaheads lose usable windows near the OOS embargo boundary). EIC-05 diagnosis surfaces a live instance of the exact concern flagged-but-unresolved in the 2026-07-04 entry above ("the gate's cell-counting is architecturally unweighted"): multiple (tf, regime, lookahead) cells show `POOLED ci_lower` positive/near-zero while the per-symbol median is meaningfully more negative (flagged `REGIME GRANULARITY ISSUE` — cross-sectional label too coarse), meaning a real pooled cross-sectional signal may exist in cells the flat unweighted per-cell vote is counting as failures. Regime/TF breakdown also shows real heterogeneity, not uniform noise: 5m qualifies at ~17.7% (497/2810) vs 15m ~7.2% (160/2226); `high_bull`/`high_bear` regimes qualify at ~22%/~15% vs `low_bear` at ~5.5%.
-
-- **2026-07-08 (same day, superseding all verdicts above): the entire measurement chain above was computed against a corpus with 60% of its feature columns silently NULL. Every number in this section — the 4.7% ensemble qualifying rate, the feature-level comparison, the regime/TF heterogeneity — needs to be treated as provisional until a full corpus rebuild completes.** Root cause, found while investigating whether the weak per-symbol IC traced back to feature quality: `src/intelligence/features/feature_vector_persistence.py` — the single canonical `INSERT INTO feature_vectors` contract all three writers (`FeatureVectorWriter`, `backfill_feature_factory.py`, and by extension every corpus rebuild run today) import from — was never updated when Phase 142.5 added 91 new primitive fields to `FeatureVector` and the DB schema (migration 206). The compute logic was correct and unit-tested (`FeatureFactory.compute()`/`compute_batch()` both produce real values, verified by tracing `body_ratio_val` through both code paths and confirmed by 132/133 passing compute-layer tests); the values were computed correctly in memory, then silently discarded before ever reaching the database — the INSERT statement simply never listed those 91 columns. Confirmed empirically: 98 of 156 numeric `feature_vectors` columns were 100% NULL across all 36.7M rows (98 minus 4 legitimately-None VP/SR columns minus 3 documented "None until Phase 139" rank_z columns = exactly 91). This is not a new oversight — Phase 142.5's own persistence test (`test_feature_vector_writer_column_mapping.py`) explicitly built its sentinel fixture with a comment on every affected field group: *"not yet in the persisted tuple (migration 206 / writer wiring land in a later plan)."* That later plan never happened, and no todo tracked it as outstanding — Phase 142.5's completion summary said *"Corpus backfill and IC evaluation are explicitly deferred to a future corpus run,"* and today's 5th corpus rebuild was that future run, except nobody re-verified the wiring landed before running it.
-  **Fixed** (commit pending): `feature_vector_persistence.py`'s `FEATURE_VECTOR_INSERT_SQL` and `feature_vector_to_insert_params()` extended from 70 to 161 columns (91 new, generated programmatically from `dataclasses.fields(FeatureVector)` to eliminate hand-transcription risk across a change this consequential — a single positional mismatch would silently write a wrong value into a wrong column, worse than the prior all-NULL state). New systemic regression guard added: `tests/unit/test_feature_vector_persistence_completeness.py` asserts every `FeatureVector` field appears as an INSERT column, structurally — this exact failure mode is now impossible to ship silently again. 5 existing tests with stale hardcoded `70`-element assertions updated to `161`. 77/77 tests green on the full affected suite; 22 pre-existing/unrelated failures elsewhere unchanged (archived I1-I7 pipeline tests + the already-tracked smoothing-grep false positive, todo 086).
-  **What this means for every measurement above:** feature-level IC, ensemble-level IC, the cross-sectional-rank-IC recommendation, the pooled-vs-per-symbol weighting concern — all of it was computed on a corpus where 60% of features never had real values. **The entire corpus must be rebuilt from `services/backfill_feature_factory.py` (step 1) forward** — not just the downstream steps re-run today — before any of tonight's IC verdicts can be trusted. This is a substantially larger operation than anything run today (all of which started from an already-complete `feature_vectors`); step 1 alone recomputes features for 77 symbols × 4 timeframes × years of history. Not yet started — needs explicit scoping given today's DB crash precedent (see Corpus pipeline state memory) before kicking off.
-
-- **2026-07-09: corpus rebuild resumed (6th attempt, first since the persistence-fix batch `bc751979` landed), plus two more real bugs found and fixed mid-run.** Steps 1-3 (`backfill_feature_factory`, `regime_writer`, `forward_return_writer`) completed clean. Step 4 (`ic_engine`) failed immediately: `market_regimes` was completely empty across all 4 timeframes — `services/equity_regime_model.py` (populates the cross-sectional VIX×breadth regime table `ic_engine` requires when `equity_model_enabled=true`) was never included in `scripts/ops/corpus/ops_corpus_pipeline_run.sh`'s 7-step sequence, a genuine orchestration gap, not a new regression. Ran it manually (529,499 rows written across 5m/15m/1h/1d, all 9 regime labels present); the orchestrator script itself still needs a step added for this so the gap doesn't recur on the next rebuild. Separately in the same window (code-review pass on `tools/scan_binary_patterns.py` violations), `new_high_flag`/`new_low_flag` were found redundant with `dist_from_high`/`dist_from_low` and removed (migration 211 — see the Phase 142.5 section above for the proof). Timing mattered: the migration was applied while `ic_engine` was down (avoiding an `ACCESS EXCLUSIVE` lock collision with its long-running queries against the same 36.7M-row table) and specifically *before* resuming the pipeline, since the code change alone (dynamic `_REGISTRY_ROW_COUNT` now reading 150 from the dataclass) would have made `ic_engine` crash against the still-152-row `feature_registry` otherwise. Pipeline resumed from step 4 (`bash scripts/ops/corpus/ops_corpus_pipeline_run.sh --from-step 4`); completed clean end-to-end same day — this is the run the 35/1585=2.21% PASS verdict (Phase 142B "Depends on" line below) was measured against.
-
-- **2026-07-09/10: PASS reconfirmed on genuinely trustworthy data, after a Renaissance-council-style methodology audit found the 35/1585 PASS itself rested on an under-gated eligibility check.** Prompted by a "does our success bar match Renaissance rigor" review: `ensemble_trainer.py`'s 3 eligibility queries (feeding `ensemble_weights`/`ensemble_alpha`) and `ensemble_ic_engine.py`'s EIC-02 `hold_max_bars` decay-walk gate required `ic_ci_lower>0, passes_fdr=true, reliable=true` but never `passes_walkforward=true`/`walk_forward_stable=true` — 36% of the 972 corpus-wide "qualifying" `feature_ic_scores` rows had never been confirmed out-of-sample, and EIC-02 had drifted out of sync with EIC-04's own gate query, which already required all three conditions. (Separately investigated and ruled out as the cause: `regime_writer.py`'s per-symbol HMM full-history-fit look-ahead leak, confirmed real in code but confirmed **not live** — `feature_ic_scores` has zero `regime_scope='symbol_hmm'` rows; `equity_model_enabled=true` routes all measurement through the cross-sectional model instead. Full diagnosis: todo 026.) Fixed (commit `3c1b2649`): all eligibility sites now require walk-forward confirmation, extracted into shared `_ELIGIBILITY_WHERE`/`_QUALIFYING_FLAGS` constants so the criterion can't drift out of sync a third time. Regenerated the full chain under the corrected gate: `ensemble_trainer` → `alpha_publisher` (`ensemble_weights` 251→193 rows, `ensemble_alpha` 33.2M→32.9M, `alpha_events` 12.26M→11.81M) → `EnsembleICEngine` re-measured against the corrected `ensemble_alpha`. Found and reverted 6 `hold_max_bars` cells (2 rounds) that were stale from intermediate not-yet-fully-fixed states back to their `[initial_estimate]` seed — final state: 11/36 cells genuinely walk-forward-confirmed (down from the pre-fix 16/36, which included cells computed from zero-fold evidence), 25/36 correctly on the `[initial_estimate]` fallback. **Result: EIC-04 PASS, 54/1425 = 3.79% qualifying** (up from 35/1585 = 2.21% — both the numerator and denominator moved because the underlying `ensemble_alpha` population changed, not a discrepancy). This is the first EIC-04 verdict computed against a corpus where every layer — feature IC, ensemble combination, and the eligibility gates connecting them — is mutually consistent.
+Multiple false-start FAILs between 2026-07-03 and 2026-07-09, each traced to a real bug rather
+than true signal absence — data-starvation misdiagnosis (15m at backfill-depth ceiling, 1h/1d
+never trained, one genuine null cell), an unweighted meta-FDR grouping bug (`GROUP BY
+feature_name` collapsed per-timeframe eligibility; fixed to `GROUP BY feature_name, tf` +
+`alpha.ensemble.meta_fdr_min_cells` floor, migration 207), a `DELETE ... RETURNING` query that
+OOM-crashed TimescaleDB (fixed via `conn.execute()` command-tag count instead — same pattern
+`alpha_publisher.py` already used), IC being measured on the post-emission-filter `alpha_events`
+population instead of the raw `ensemble_alpha` scored population (post-selection bias — fixed by
+routing `EnsembleICEngine`'s 6 SQL sites to `ensemble_alpha` directly, `test_ensemble_ic_
+measurement_population.py`), a persistence bug where 91 of 152 `FeatureVector` columns were
+silently never written to the DB (fixed by generating `FEATURE_VECTOR_INSERT_SQL` programmatically
+from `dataclasses.fields()` instead of hand-transcribing, with a structural regression guard —
+`test_feature_vector_persistence_completeness.py` — making the failure mode unrepeatable), and a
+missing `equity_regime_model.py` step in the corpus orchestrator script (fixed, `market_regimes`
+now populated every rebuild). Final, trustworthy result (2026-07-10, commit `3c1b2649`, after
+also closing an eligibility-gate gap where `passes_walkforward`/`walk_forward_stable` wasn't
+required — consolidated into shared `_ELIGIBILITY_WHERE`/`_QUALIFYING_FLAGS` constants to prevent
+future drift): **EIC-04 PASS, 54/1425 = 3.79% qualifying cells.**
 
 ---
 
@@ -1691,6 +1685,114 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-r
 - Emission thresholds (`alpha_score` floor where `E[R]_net > cost`) are set here, not in the intelligence engine. The intelligence engine emits all signals above a statistical significance gate; this phase decides what to act on based on net expected value after real, calibrated costs.
 
 **Plans:** TBD at `/gsd-plan-phase 159` — likely `ActualSlippageWriter`, execution-vs-counterfactual scoring view, emission-threshold APR wiring.
+
+### Phase 162: ic_engine Corpus Pipeline Throughput
+
+**Refined 2026-07-18 (Fable design pass, pre-`/gsd-discuss-phase`):** below supersedes the
+original generic goal text. Source review: `.planning/todos/pending/134-ic-engine-incremental-recompute.md`
+(+ 133, 122 in the same directory) against live `services/ic_engine.py`.
+
+**Goal:** A re-run of the 80-symbol corpus whose inputs haven't changed completes in minutes, not
+25-30 hours. Every compute cell — (symbol × tf) in the per-symbol pass, (regime_group × tf) in
+the cross-sectional pass — carries a persisted fingerprint (first-party code content-key + a
+computation-affecting APR snapshot + upstream data watermarks) written alongside its
+`feature_ic_scores` rows; the compute loop skips fingerprint-valid cells and recomputes exactly
+the invalidated subset. A fingerprint mismatch must **replace** stale rows — the current
+`ON CONFLICT DO NOTHING` write path (`ic_engine.py:310,316,325`) would otherwise silently discard
+a recompute's output and leave stale rows in place. No statistical-methodology change: BH-FDR
+still runs over the complete current-window hypothesis family including skipped cells, and a
+skipped cell's rows must be provably identical to what recompute would produce. Secondarily,
+cross-sectional bootstrap threading stops paying 6-thread dispatch overhead on timeframes that
+finish in minutes serially (todo 133 — `ic_engine.py:1943-1949`). Absorbs todo 122 (checkpoint
+APR drift) as a special case of the fingerprint. Deliberately **not** part of Phase 143.1's
+measurement-correctness sequencing — different axis (throughput, not statistical validity) — see
+[[project_prove_edge_before_production_infra]]'s correction note for why this doesn't fall under
+the prove-edge-first gate either.
+
+**Recommended plan breakdown (3 plans, sequential waves — for `/gsd-plan-phase 162` to work from,
+not binding):**
+- **162-01 (todo 133):** benchmark 15m/1h/1d cross-sectional cells at `max_workers=1` vs `6`,
+  then per-tf dict (mirroring `bootstrap_block_size`) or an n-row gate, whichever the data
+  supports; migration + APR keys. Goes first — small, self-contained, and both this and 162-02
+  edit `ICEngineConfig`/`from_apr()` (`ic_engine.py:406-597`), so sequencing avoids merge
+  conflicts on the same 3,600-line file.
+- **162-02 (todo 134 core, absorbs 122):** new `ic_cell_fingerprints` table (one row per
+  (symbol|'POOLED', tf, pass_type, training_window_end) — not columns on `feature_ic_scores`,
+  which would duplicate the fingerprint ~150x per cell). Fingerprint = `_checkpoint_content_key()`
+  (`ic_engine.py:2189-2230`) + a hash of `ICEngineConfig`'s computation-affecting fields (needs an
+  explicit computational-vs-operational field classification with a crash-loud test so a future
+  field can't silently join neither list) + upstream data watermarks (`feature_vectors`,
+  `forward_returns`, `market_regimes` content, `instrument_tags`, feature-registry status — see
+  Risk 3 below). Validity check runs in `main()` before `worker_args` construction, **replacing**
+  (not layering on) the existing fingerprint-blind `existing_keys` skip (`ic_engine.py:3128-3140`)
+  — two competing skip mechanisms is a trap, not a feature. `--refresh` (force recompute) and
+  `--dry-run-validity` (report skip/compute partition) CLI flags.
+- **162-03 (depends on 162-02):** equivalence harness — run a ~5-symbol subset twice (fresh vs.
+  fingerprint-skip), assert identical `feature_ic_scores` output; this is the empirical proof the
+  fingerprint captures everything, i.e. the direct answer to the 2026-07-12 checkpoint-invalidation
+  failure class recurring cross-run instead of intra-run. Also runs the staleness/drift study
+  below and seeds its APR tolerance key.
+
+**Staleness threshold (134's flagged open question) — firm recommendation: a fingerprint-valid
+cell is never auto-stale.** Data-driven refresh is an explicit act, and the schema already has a
+name for it: a new `--training-window-end` (PK-included, required-arg, no-default OOS-holdout
+clamp at `ic_engine.py:2954-2961`). Wall-clock staleness is the wrong metric (no relationship to
+statistical information added; already covered by the separate `_evaluate_staleness()` **alert**,
+`alpha.ic.staleness_alert_days=5`, `ic_engine.py:2908-2924` — keep alerting as alerting, not as an
+auto-recompute trigger). The genuinely useful future behavior — carry a cell's prior result
+forward across a window-end bump when only a tiny fraction of bars are new (e.g. a week of new 5m
+bars is <0.5% of a ~469K-observation cell, IC movement from that is far inside the 2000-resample
+bootstrap CI width) — is a real lever but an **empirical question**: 162-03's drift study computes
+IC at T and T+{1,5,10,20} trading days across a stratified cell sample, plots |ΔIC| vs.
+fraction-of-new-bars, and sets `alpha.ic.refresh_min_new_fraction` where median |ΔIC| crosses
+~10% of the bootstrap CI half-width — **seeded via migration at 0 (disabled) until the study
+justifies a nonzero value**, provenance `[rca_analysis]`. Separately: non-bar data changes
+(HMM relabel, a `forward_returns` correction) invalidate via the fingerprint's watermarks
+regardless of bar-count — that's an input change, not an information-accrual tolerance; don't
+conflate the two.
+
+**Success criteria (measurable, for verification once planned):**
+1. No-op re-run (unchanged code/APR/data, same window end, full universe): 100% cells skipped,
+   wall clock <30min vs. 25-30h today.
+2. Surgical invalidation: perturbing 1 symbol recomputes only that symbol's cells, <4h.
+3. Drift detection is exact: computational APR key change invalidates all dependents; operational
+   key change invalidates zero; unclassified `ICEngineConfig` field fails the classification test
+   loudly. Mid-run APR change invalidates in-flight checkpoints (closes todo 122).
+4. Equivalence: skip-path run's `feature_ic_scores` content identical to forced `--refresh`
+   recompute (incl. post-backfill `bh_adjusted_p`/`passes_fdr`).
+5. Todo 133: 15m/1h/1d cross-sectional cells run within ~10% of measured serial wall time; 5m
+   keeps its threading speedup.
+
+**Risks / scope traps to hold the line on during planning:**
+1. **`ON CONFLICT DO NOTHING` silently discards recomputes** (confirmed live at 3 insert sites) —
+   the single most dangerous interaction in this phase; invalidation must DELETE-then-insert or
+   upsert atomically, never rely on the existing insert path.
+2. **BH-FDR family coherence** — `_backfill_bh_fdr` (`ic_engine.py:2358`) must run over all rows
+   at the current window end, skipped and fresh alike, or adjusted p-values/`passes_fdr` shift
+   under skipped cells' feet. Same check needed for the lifecycle hook and the e-value pilot.
+3. **Fingerprint completeness is the 2026-07-12 failure class, cross-run instead of intra-run** —
+   a "skip" that serves stale IC into `ensemble_trainer` → `alpha_publisher` is worse than the 25h
+   it saves. Defense in depth: watermarks + field-classification test + 162-03's equivalence
+   harness, not any single one alone.
+4. **Delete the `.pkl` checkpoint system if it's now redundant** — once cross-run skip +
+   immediate per-symbol DB writes (todo 130) both exist, evaluate whether `_load_checkpoint`/
+   `_save_checkpoint` still earns its keep (Musk step 2, delete before optimize).
+5. **Resource contention, not design dependency** — no benchmarking (162-01) or pilot corpus runs
+   (162-03) while any `ic_engine` corpus run is in flight; `ps aux | grep ic_engine` first.
+6. **Scope trap: do not build a scheduler.** Incremental recompute is the precondition for a
+   cadence, not the cadence itself. All project timers are deliberately disabled
+   (CLAUDE.md — verify current state before assuming); "don't automate what isn't proven" applies.
+   Also out of scope: 1000-symbol validation, any change to the bootstrap statistics themselves.
+
+**Requirements**: TBD at `/gsd-plan-phase 162` (above is design input, not a locked requirements list)
+**Depends on:** None as a phase dependency. Practical-only constraint: don't start
+`/gsd-discuss-phase 162` until the in-flight 143.1-07 corpus run finishes — same `ic_engine.py`
+file, same 8 workers, real resource contention, not a design dependency. Check `ps aux | grep
+ic_engine` / [Corpus pipeline state](project_corpus_pipeline_state.md) before starting.
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 162 to break down against the 162-01/02/03 breakdown above)
 
 ---
 

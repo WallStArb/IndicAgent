@@ -1,6 +1,7 @@
 # 078 — Frame-outcome labels as a second outcome definition (post-142B)
 
-**Status (moved to deferred/, 2026-07-10):** Hard-blocked on `alpha_frames` actually holding data -- Phase 142B shipped the writer/tracker machinery (2026-07-10) but the backfill run hasn't executed yet (0 rows as of 2026-07-10). Revive once alpha_frames has accumulated real closed frames.
+**Status (moved back to pending/, 2026-07-18):** Gate cleared -- todo 093's backfill ran
+2026-07-12, `alpha_frames` now holds 11,813,874 rows (2,639,074 closed/scored). No longer blocked.
 
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §6 (L3-3).
