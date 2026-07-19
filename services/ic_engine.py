@@ -1037,14 +1037,11 @@ def _compute_symbol_tf(
                 scale_stride = max(subsample_min_stride, lookahead_bars)
                 # Slice, not fancy-index (2026-07-19 OOM fix) -- see the identical
                 # fix + rationale in _compute_cross_sectional_tf.
-                X_sub_scale = X_regime[
-                    0:n_regime_raw:scale_stride
-                ]  # full features for _compute_ic_rolling_metrics
-                X_sub_nd = X_regime_nd[
-                    0:n_regime_raw:scale_stride
-                ]  # non-degen columns for rankdata
-                returns_sub = returns_regime[0:n_regime_raw:scale_stride]
-                complete_sub = complete_regime[0:n_regime_raw:scale_stride]
+                stride = slice(0, n_regime_raw, scale_stride)
+                X_sub_scale = X_regime[stride]  # full features for _compute_ic_rolling_metrics
+                X_sub_nd = X_regime_nd[stride]  # non-degen columns for rankdata
+                returns_sub = returns_regime[stride]
+                complete_sub = complete_regime[stride]
                 n_independent = len(X_sub_scale)
 
                 if n_independent < min_reliable_n:
@@ -1133,8 +1130,10 @@ def _compute_symbol_tf(
                     Y_test = ranks_Y[test_start:test_end]
                     if len(X_test) < 2:
                         continue
-                    rX_test = rankdata(X_test, axis=0)
-                    rY_test = rankdata(Y_test)
+                    # float32, not float64 (2026-07-19 OOM fix, same pattern as
+                    # ranks_X_scale/ranks_Y above).
+                    rX_test = rankdata(X_test, axis=0).astype(np.float32)
+                    rY_test = rankdata(Y_test).astype(np.float32)
                     fold_ics_list.append(_vectorized_ic(rX_test, rY_test))
 
                 wf_fold_count = len(fold_ics_list)
@@ -1991,7 +1990,14 @@ def _compute_cross_sectional_tf(
             Y_test = ranks_Y[test_start:test_end]
             if len(X_test) < 2:
                 continue
-            fold_ics_list.append(_vectorized_ic(rankdata(X_test, axis=0), rankdata(Y_test)))
+            # float32, not float64 (2026-07-19 OOM fix, same pattern as
+            # ranks_X_scale/ranks_Y above).
+            fold_ics_list.append(
+                _vectorized_ic(
+                    rankdata(X_test, axis=0).astype(np.float32),
+                    rankdata(Y_test).astype(np.float32),
+                )
+            )
 
         wf_fold_count = len(fold_ics_list)
         if wf_fold_count > 0:
