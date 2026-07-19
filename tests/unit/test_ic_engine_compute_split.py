@@ -163,6 +163,111 @@ def test_compute_cross_sectional_tf_closes_connection_before_clustering():
     )
 
 
+def test_cross_sectional_rankdata_output_is_float32_not_float64():
+    """rankdata()'s 2D per-scale output (ranks_X_scale) must be cast to float32
+    immediately, matching X_raw's own float32 optimization one line above it in
+    this same function (2026-07-19 OOM fix).
+
+    scipy.stats.rankdata ALWAYS returns float64 regardless of input dtype (verified
+    directly: rankdata(np.array(..., dtype=np.float32)).dtype == float64) -- so the
+    file's existing float32 comment ("Halves the memory of X_raw, X_nd, and every
+    per-scale subsample copy below") was never actually true for this specific
+    array. For the largest cross-sectional cells (5m/low_bull, ~581K-599K
+    timestamps), this 2D float64 array is the single largest live allocation in
+    the per-scale loop, alongside X_raw/X_nd/X_sub/X_sub_nd (four more float32
+    copies of comparable size all alive simultaneously at the least-subsampled
+    "fast" scale) -- confirmed root cause of the 2026-07-18 OOM kill
+    (anon-rss 20.5GB on a 29GB host, dmesg-confirmed). Casting to float32 does not
+    change any statistical result: rank order is exact in float32 for any n well
+    under 2**24 (~16.8M), and every downstream consumer (_vectorized_ic,
+    _p_values_from_ic, _circular_block_bootstrap_ic) only ever uses rank ORDER,
+    never rank magnitude precision.
+    """
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    rankdata_idx = source.index("ranks_X_scale = rankdata(X_sub_nd, axis=0)")
+    line_end = source.index("\n", rankdata_idx)
+    rankdata_line = source[rankdata_idx:line_end]
+
+    assert "astype(np.float32)" in rankdata_line, (
+        "ranks_X_scale = rankdata(X_sub_nd, axis=0)[valid_mask] must cast to "
+        "float32 (e.g. .astype(np.float32) on the rankdata(...) call) -- "
+        "rankdata() always returns float64 regardless of input dtype, so this "
+        "array silently defeats X_raw's float32 memory optimization one line "
+        "above and is the single largest live allocation for the biggest "
+        "cross-sectional cells"
+    )
+
+
+def test_per_symbol_rankdata_output_is_float32_not_float64():
+    """Same bug, same fix, sibling function: _compute_symbol_tf has the
+    identical rankdata()-defeats-float32 pattern at its own per-scale ranking step
+    (single-column and per-fold rankdata calls elsewhere in this function are small
+    and don't need this -- only the full [n_valid, n_features] one does). Per-symbol
+    cells are far smaller than pooled cross-sectional cells so this alone wasn't
+    what caused the 2026-07-18 OOM, but this codebase has already fixed the same
+    bug class in only one sibling before (todo 102's connection-lifecycle fix,
+    not generalized to _compute_cross_sectional_tf until todo 125, three months
+    later, after it caused two more crashes) -- fixing both together here instead
+    of waiting for this one to bite too.
+    """
+    source = inspect.getsource(_compute_symbol_tf)
+
+    rankdata_idx = source.index("ranks_X_scale = rankdata(X_sub_nd, axis=0)")
+    line_end = source.index("\n", rankdata_idx)
+    rankdata_line = source[rankdata_idx:line_end]
+
+    assert "astype(np.float32)" in rankdata_line, (
+        "_compute_symbol_tf's ranks_X_scale = rankdata(X_sub_nd, axis=0)[valid_mask] "
+        "must cast to float32 too -- same defect, same fix as "
+        "_compute_cross_sectional_tf's identical line"
+    )
+
+
+def test_cross_sectional_per_scale_subsample_uses_slice_not_fancy_index():
+    """The per-scale subsample (X_sub, X_sub_nd, returns_sub, complete_sub) must
+    use basic slicing, not `arr[np.arange(...)]` fancy indexing (2026-07-19 OOM
+    fix). Regular-stride subsampling is exactly expressible as a slice
+    (`arr[0:n:stride]`), which numpy returns as a VIEW sharing memory with the
+    source array -- fancy indexing with an explicit index array always allocates
+    a full copy, even when the selected elements are evenly strided. For the
+    largest cross-sectional cells this was 2 extra full-cell-sized float32
+    copies (X_sub, X_sub_nd) alive simultaneously alongside X_raw/X_nd at the
+    least-subsampled ("fast") scale -- on top of the rankdata float64 promotion
+    fixed separately, confirmed empirically to produce bit-identical downstream
+    results (view vs copy: identical rankdata output, identical boolean-mask
+    results, no aliasing risk since every later slice of the view still copies).
+    """
+    source = inspect.getsource(_compute_cross_sectional_tf)
+
+    assert "sub_idx = np.arange(" not in source, (
+        "_compute_cross_sectional_tf must not build an explicit sub_idx index "
+        "array for regular-stride subsampling -- arr[np.arange(0, n, stride)] "
+        "copies; arr[0:n:stride] is a view of the same elements"
+    )
+    assert "X_raw[sub_idx]" not in source and "X_nd[sub_idx]" not in source, (
+        "_compute_cross_sectional_tf must not fancy-index X_raw/X_nd with an "
+        "explicit index array -- use slice syntax (arr[0:n:stride]) so numpy "
+        "returns a view instead of a copy"
+    )
+
+
+def test_per_symbol_per_scale_subsample_uses_slice_not_fancy_index():
+    """Same fix, sibling function: _compute_symbol_tf's per-scale subsample
+    (X_sub_scale, X_sub_nd, returns_sub, complete_sub) must use slicing too."""
+    source = inspect.getsource(_compute_symbol_tf)
+
+    assert "sub_idx = np.arange(0, n_regime_raw" not in source, (
+        "_compute_symbol_tf must not build an explicit sub_idx index array for "
+        "regular-stride subsampling -- same fix as _compute_cross_sectional_tf"
+    )
+    assert "X_regime[sub_idx]" not in source and "X_regime_nd[sub_idx]" not in source, (
+        "_compute_symbol_tf must not fancy-index X_regime/X_regime_nd with an "
+        "explicit index array -- use slice syntax so numpy returns a view "
+        "instead of a copy"
+    )
+
+
 def test_run_ic_worker_return_keys():
     """_run_ic_worker must return rows for corpus-level BH-FDR and serial write."""
     import services.ic_engine as ic_module

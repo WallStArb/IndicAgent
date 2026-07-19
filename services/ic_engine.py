@@ -1035,12 +1035,17 @@ def _compute_symbol_tf(
                 # Extended scale (lookahead=60) uses stride=60, giving ~N/60 obs per regime.
                 # Previously all scales used stride=60, starving fast scale by 60x.
                 scale_stride = max(subsample_min_stride, lookahead_bars)
-                sub_idx = np.arange(0, n_regime_raw, scale_stride)
-                X_sub_scale = X_regime[sub_idx]  # full features for _compute_ic_rolling_metrics
-                X_sub_nd = X_regime_nd[sub_idx]  # non-degen columns for rankdata
-                returns_sub = returns_regime[sub_idx]
-                complete_sub = complete_regime[sub_idx]
-                n_independent = len(sub_idx)
+                # Slice, not fancy-index (2026-07-19 OOM fix) -- see the identical
+                # fix + rationale in _compute_cross_sectional_tf.
+                X_sub_scale = X_regime[
+                    0:n_regime_raw:scale_stride
+                ]  # full features for _compute_ic_rolling_metrics
+                X_sub_nd = X_regime_nd[
+                    0:n_regime_raw:scale_stride
+                ]  # non-degen columns for rankdata
+                returns_sub = returns_regime[0:n_regime_raw:scale_stride]
+                complete_sub = complete_regime[0:n_regime_raw:scale_stride]
+                n_independent = len(X_sub_scale)
 
                 if n_independent < min_reliable_n:
                     IC_ENGINE_CELLS_SKIPPED_TOTAL.add(
@@ -1065,9 +1070,11 @@ def _compute_symbol_tf(
                     continue
 
                 X_raw_scale = X_sub_nd[valid_mask]  # RAW (unranked) -- bootstrap CI needs this
-                ranks_X_scale = rankdata(X_sub_nd, axis=0)[valid_mask]
+                # float32, not float64 (2026-07-19 OOM fix) -- see the identical
+                # fix + rationale in _compute_cross_sectional_tf.
+                ranks_X_scale = rankdata(X_sub_nd, axis=0).astype(np.float32)[valid_mask]
                 Y_scale = returns_scale[valid_mask]
-                ranks_Y = rankdata(Y_scale)
+                ranks_Y = rankdata(Y_scale).astype(np.float32)
 
                 # -------------------------------------------------------
                 # IC point estimate + p-values
@@ -1906,12 +1913,17 @@ def _compute_cross_sectional_tf(
         # Scale-specific embargo: each scale purges only its own lookahead window (P3 fix).
         embargo_bars = lookahead_bars
         scale_stride = max(subsample_min_stride, lookahead_bars)
-        sub_idx = np.arange(0, n_raw, scale_stride)
-        X_sub = X_raw[sub_idx]
-        X_sub_nd = X_nd[sub_idx]
-        returns_sub = returns_mat[sub_idx]
-        complete_sub = complete_mat[sub_idx]
-        n_independent = len(sub_idx)
+        # Slice, not fancy-index (2026-07-19 OOM fix): regular-stride subsampling
+        # is exactly expressible as a basic slice, which numpy returns as a VIEW
+        # sharing memory with X_raw/X_nd -- arr[np.arange(0, n, stride)] would
+        # instead allocate a full copy. Eliminates 2 more full-cell-sized
+        # allocations from the peak (alongside the rankdata float32 cast below)
+        # for the largest cross-sectional cells.
+        X_sub = X_raw[0:n_raw:scale_stride]
+        X_sub_nd = X_nd[0:n_raw:scale_stride]
+        returns_sub = returns_mat[0:n_raw:scale_stride]
+        complete_sub = complete_mat[0:n_raw:scale_stride]
+        n_independent = len(X_sub)
 
         if n_independent < min_reliable_n:
             n_skipped += len(_FEATURE_NAMES)
@@ -1927,9 +1939,18 @@ def _compute_cross_sectional_tf(
             continue
 
         X_raw_scale = X_sub_nd[valid_mask]  # RAW (unranked) -- bootstrap CI needs this
-        ranks_X_scale = rankdata(X_sub_nd, axis=0)[valid_mask]
+        # float32, not float64 (2026-07-19 OOM fix): rankdata() always
+        # returns float64 regardless of input dtype, so without this cast
+        # ranks_X_scale silently defeats X_raw's float32 optimization above and
+        # becomes the single largest live allocation at the least-subsampled
+        # ("fast") scale for the biggest cross-sectional cells -- confirmed root
+        # cause of the 2026-07-18 OOM kill on the 5m/low_bull cell (~581K-599K
+        # timestamps, anon-rss 20.5GB). Rank order is exact in float32 for any n
+        # well under 2**24 (~16.8M); every downstream consumer only uses rank
+        # order, never magnitude precision.
+        ranks_X_scale = rankdata(X_sub_nd, axis=0).astype(np.float32)[valid_mask]
         Y_scale = returns_scale[valid_mask]
-        ranks_Y = rankdata(Y_scale)
+        ranks_Y = rankdata(Y_scale).astype(np.float32)
 
         ic_vector_nd = _vectorized_ic(ranks_X_scale, ranks_Y)
         p_vector_nd = _p_values_from_ic(ic_vector_nd, n_valid)
