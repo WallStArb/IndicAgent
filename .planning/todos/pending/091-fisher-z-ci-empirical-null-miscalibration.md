@@ -120,7 +120,17 @@ smaller effective evidence base than ideal; a stratified sample specifically tar
 `ctf_momentum`/`flight_quality` cells would settle whether this generalizes to those features'
 other cells or is isolated to these three.
 
-**Not yet decided:** whether this residual 21% SUSPECT rate is acceptable to leave as-is (with
-`flight_quality`/`ctf_momentum` flagged as lower-trust features pending deeper investigation), or
-whether block-size recalibration for autocorrelation-heavy features is warranted before treating
-091 as closed. Project owner's call per this todo's original framing — not resolved here.
+**Resolved by Fable 5 review, 2026-07-19** (`docs/research/fable-2026-07-19-lookahead-and-target-calibration-review.md`,
+Q2): the mechanism is confirmed, not just hypothesized. Measured integrated autocorrelation time
+vs. each feature's tf bootstrap block size directly: `ctf_momentum` runs ~4x its block size
+consistently across tfs (structural — it's HTF-derived, not incidental) and `flight_quality`
+(a TLT/SPY macro-divergence feature) runs ~750x its block size at 1h (no feasible block size
+fixes this — a months-scale decorrelation has almost no independent observations at intraday
+tfs). Per this project's principles (proof before promotion, resist overfitting, instrument
+everything): **do not per-feature-tune block size** (overfitting one dial to one symptom, and it
+doesn't help `flight_quality` at all) — the correct close-out is standing instrumentation: a
+dependence-length diagnostic + lower-trust flag, filed as
+[145](145-bootstrap-dependence-length-flag.md). **091 stays open until that flag lands** — the
+21% residual is acceptable to carry forward only WITH the flag in place, not silently. When 145
+ships, close 091 and record the decision (this residual rate, the flag's existence, the
+deliberate non-fix of per-feature block sizes) in `docs/plans/methodology-change-ledger.md`.

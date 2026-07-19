@@ -35,12 +35,16 @@ Qualifying-feature criterion:
     CI/gate machinery was live when that row was written -- this script does not
     recompute it).
   - vol-normalized: BH-FDR at --fdr-alpha (default 0.05) applied to THIS script's own
-    freshly-computed p-values, one family per (tf, regime, lookahead_bars) stratum (not
-    corpus-level, unlike production's single corpus-wide family -- a deliberate, stated
-    scoping simplification for a diagnostic; the CI/bootstrap gate itself is intentionally
-    NOT recomputed here, since a full bootstrap-CI recompute across every (tf, regime)
-    stratum's full feature set would turn this cheap diagnostic into a second corpus-wide
-    re-run, defeating its purpose of a fast pre-Plan-07 sanity check).
+    freshly-computed p-values, pooled into ONE family across every evaluated stratum in
+    the run -- mirroring production's single corpus-wide family, per Fable 5's 2026-07-19
+    review (docs/research/fable-2026-07-19-lookahead-and-target-calibration-review.md,
+    Q3a). Prior to that review this used one family per (tf, regime, lookahead_bars)
+    stratum, which inflated the vol-normalized qualifying count relative to raw by
+    weakening the correction -- not evidence of more real signal. The CI/bootstrap gate
+    itself is intentionally NOT recomputed here, since a full bootstrap-CI recompute
+    across every (tf, regime) stratum's full feature set would turn this cheap diagnostic
+    into a second corpus-wide re-run, defeating its purpose of a fast pre-Plan-07 sanity
+    check.
 
 Invariant 1 (executable returns only, CLAUDE.md): unaffected -- reads
 forward_returns.return_type = 'executable_open_to_open' only, same filter production
@@ -146,6 +150,16 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--fdr-alpha", type=float, default=_FDR_ALPHA_DEFAULT)
     parser.add_argument("--cs-chunk-ts", type=int, default=_CS_CHUNK_TS_DEFAULT)
+    parser.add_argument(
+        "--min-independent",
+        type=int,
+        default=None,
+        help="Reliability floor on n_independent for the aggregate verdict -- strata "
+        "below this are still printed but excluded from the summary median/counts "
+        "(Fable 5 Q3b: extended-horizon strata collapse effective N and read as noise, "
+        "not real target divergence). Default: alpha.ic.min_reliable_n (production's "
+        "own reliability floor, reused here rather than inventing a new threshold).",
+    )
     return parser.parse_args()
 
 
@@ -223,9 +237,8 @@ def _recompute_vol_normalized_ic(
     scale_idx: int,
     lookahead_bars: int,
     subsample_min_stride: int,
-    fdr_alpha: float,
 ) -> dict[str, dict] | None:
-    """Recompute vol-normalized POOLED IC for every feature at one scale.
+    """Recompute vol-normalized POOLED IC (and p-value) for every feature at one scale.
 
     Mirrors _compute_cross_sectional_tf's per-scale stride/valid_mask logic exactly
     (same stride = max(subsample_min_stride, lookahead_bars) convention), then swaps
@@ -233,6 +246,11 @@ def _recompute_vol_normalized_ic(
     the Task 1 helper -- before computing IC. Returns None if there is not enough
     valid data at this stride (mirrors production's min_reliable_n early-exit, using
     a floor of 4 -- the same n>=4 requirement _fisher_z_ci and _vectorized_ic assume).
+
+    Does NOT apply BH-FDR -- p-values are pooled across every evaluated stratum and
+    corrected once in main(), mirroring production's single corpus-wide family (see
+    module docstring, Q3a). Reporting passes_fdr per-stratum here would require a
+    second, incompatible correction; callers must use the p_value field.
     """
     n_raw = len(X_raw)
     if n_raw == 0:
@@ -262,16 +280,10 @@ def _recompute_vol_normalized_ic(
     ic_vec = _vectorized_ic(ranks_X, ranks_vol)
     p_vec = _p_values_from_ic(ic_vec, n_valid)
 
-    finite_mask = np.isfinite(p_vec)
-    reject = np.zeros(len(p_vec), dtype=bool)
-    if finite_mask.any():
-        reject_sub, _ = apply_bh_fdr(p_vec[finite_mask].tolist(), fdr_alpha)
-        reject[finite_mask] = reject_sub
-
     return {
         feat_name: {
             "ic_value": float(ic_vec[i]) if np.isfinite(ic_vec[i]) else None,
-            "passes_fdr": bool(reject[i]),
+            "p_value": float(p_vec[i]) if np.isfinite(p_vec[i]) else None,
             "n_valid": n_valid,
         }
         for i, feat_name in enumerate(_FEATURE_NAMES)
@@ -285,9 +297,13 @@ async def _evaluate_stratum(
     vintage,
     lookaheads: dict[str, int],
     subsample_min_stride: int,
-    fdr_alpha: float,
     cs_chunk_ts: int,
 ) -> list[dict]:
+    """Per-scale stratum results, WITHOUT a finalized vol-normalized qualifying set --
+    that requires the pooled BH-FDR pass across every stratum in the run, done once in
+    main(). Each result carries raw_qualifying (already final, from production's own
+    corpus-wide passes_fdr) plus per-feature vol p-values for main() to pool.
+    """
     baseline_rows = await pool.fetch(_BASELINE_SQL, _CROSS_SECTIONAL_SYMBOL, regime, tf, vintage)
     if not baseline_rows:
         return []
@@ -315,7 +331,6 @@ async def _evaluate_stratum(
             scale_idx,
             lookahead_bars,
             subsample_min_stride,
-            fdr_alpha,
         )
         if vol_by_feature is None:
             continue
@@ -323,20 +338,22 @@ async def _evaluate_stratum(
         raw_ic_vals: list[float] = []
         vol_ic_vals: list[float] = []
         raw_qualifying: set[str] = set()
-        vol_qualifying: set[str] = set()
+        vol_pvalues: dict[str, float] = {}
+        n_independent = 0
         for feat_name in _FEATURE_NAMES:
             base = baseline.get(feat_name)
             vol = vol_by_feature.get(feat_name)
             if base is None or vol is None:
                 continue
+            n_independent = vol["n_valid"]
             if base["ic_value"] is None or vol["ic_value"] is None:
                 continue
             raw_ic_vals.append(base["ic_value"])
             vol_ic_vals.append(vol["ic_value"])
             if base["passes_fdr"]:
                 raw_qualifying.add(feat_name)
-            if vol["passes_fdr"]:
-                vol_qualifying.add(feat_name)
+            if vol["p_value"] is not None:
+                vol_pvalues[feat_name] = vol["p_value"]
 
         if len(raw_ic_vals) < 3:
             continue
@@ -348,13 +365,42 @@ async def _evaluate_stratum(
                 "regime": regime,
                 "lookahead_bars": lookahead_bars,
                 "n_features_compared": len(raw_ic_vals),
+                "n_independent": n_independent,
                 "rank_correlation": float(rank_corr) if np.isfinite(rank_corr) else None,
-                "raw_only": sorted(raw_qualifying - vol_qualifying),
-                "vol_only": sorted(vol_qualifying - raw_qualifying),
-                "both": sorted(raw_qualifying & vol_qualifying),
+                "raw_qualifying": raw_qualifying,
+                "vol_pvalues": vol_pvalues,
             }
         )
     return results
+
+
+def _apply_pooled_vol_fdr(all_results: list[dict], fdr_alpha: float) -> None:
+    """Pool every stratum's vol-normalized p-values into ONE BH-FDR family and write
+    raw_only/vol_only/both back onto each result dict in place -- mirrors production's
+    single corpus-wide family instead of one family per stratum (Q3a fix).
+    """
+    pooled_keys: list[tuple[int, str]] = []
+    pooled_pvals: list[float] = []
+    for i, r in enumerate(all_results):
+        for feat_name, p in r["vol_pvalues"].items():
+            pooled_keys.append((i, feat_name))
+            pooled_pvals.append(p)
+
+    reject = [False] * len(pooled_pvals)
+    if pooled_pvals:
+        reject, _ = apply_bh_fdr(pooled_pvals, fdr_alpha)
+
+    vol_qualifying_by_stratum: list[set[str]] = [set() for _ in all_results]
+    for (i, feat_name), passed in zip(pooled_keys, reject):
+        if passed:
+            vol_qualifying_by_stratum[i].add(feat_name)
+
+    for i, r in enumerate(all_results):
+        raw_q = r["raw_qualifying"]
+        vol_q = vol_qualifying_by_stratum[i]
+        r["raw_only"] = sorted(raw_q - vol_q)
+        r["vol_only"] = sorted(vol_q - raw_q)
+        r["both"] = sorted(raw_q & vol_q)
 
 
 async def main() -> int:
@@ -375,6 +421,11 @@ async def main() -> int:
         }
         subsample_min_stride = await _load_config_int(
             pool, "alpha.ic.subsample_min_stride", _SUBSAMPLE_MIN_STRIDE_DEFAULT
+        )
+        min_independent = (
+            args.min_independent
+            if args.min_independent is not None
+            else await _load_config_int(pool, "alpha.ic.min_reliable_n", 100)
         )
 
         tfs = (args.tf,) if args.tf else _TFS
@@ -405,53 +456,79 @@ async def main() -> int:
                     vintage,
                     lookaheads,
                     subsample_min_stride,
-                    args.fdr_alpha,
                     args.cs_chunk_ts,
                 )
                 all_results.extend(stratum_results)
 
-        print("| tf | regime | lookahead | n_features | rank_corr | raw_only | vol_only | both |")
-        print("|---|---|---|---|---|---|---|---|")
+        _apply_pooled_vol_fdr(all_results, args.fdr_alpha)
+
+        print(
+            "| tf | regime | lookahead | n_features | n_independent | rank_corr | "
+            "raw_only | vol_only | both |"
+        )
+        print("|---|---|---|---|---|---|---|---|---|")
         for r in all_results:
             rc = f"{r['rank_correlation']:.4f}" if r["rank_correlation"] is not None else "n/a"
             print(
                 f"| {r['tf']} | {r['regime']} | {r['lookahead_bars']} | "
-                f"{r['n_features_compared']} | {rc} | {len(r['raw_only'])} | "
-                f"{len(r['vol_only'])} | {len(r['both'])} |"
+                f"{r['n_features_compared']} | {r['n_independent']} | {rc} | "
+                f"{len(r['raw_only'])} | {len(r['vol_only'])} | {len(r['both'])} |"
             )
 
         print("\n## Summary\n")
         if not all_results:
             print("No strata evaluated -- nothing to compare (empty corpus or no baseline rows).")
         else:
-            corrs = [
-                r["rank_correlation"] for r in all_results if r["rank_correlation"] is not None
-            ]
-            total_raw_only = sum(len(r["raw_only"]) for r in all_results)
-            total_vol_only = sum(len(r["vol_only"]) for r in all_results)
-            total_both = sum(len(r["both"]) for r in all_results)
-            median_corr = float(np.median(corrs)) if corrs else float("nan")
+            reliable = [r for r in all_results if r["n_independent"] >= min_independent]
+            low_reliability = [r for r in all_results if r["n_independent"] < min_independent]
             print(
-                f"Strata evaluated: {len(all_results)}, median rank correlation: "
-                f"{median_corr:.4f}\n"
+                f"Reliability floor: n_independent >= {min_independent} "
+                f"(alpha.ic.min_reliable_n unless --min-independent overrides). "
+                f"{len(low_reliability)}/{len(all_results)} evaluated strata fall below it "
+                f"and are EXCLUDED from the aggregate verdict below -- per Fable 5's 2026-07-19 "
+                f"review (Q3b), these are almost always extended-horizon strata where "
+                f"effective-N collapse makes a rank-correlation read indistinguishable from "
+                f"noise, not evidence the return target itself diverges. They remain visible "
+                f"in the per-stratum table above.\n"
             )
-            print(
-                f"Qualifying-feature set differences (raw passes_fdr vs. vol-normalized "
-                f"BH-FDR, this script's per-stratum family): raw_only={total_raw_only}, "
-                f"vol_only={total_vol_only}, both={total_both}\n"
-            )
-            if corrs and median_corr > 0.95 and total_raw_only == 0 and total_vol_only == 0:
+            if not reliable:
                 print(
-                    "**Preliminary signal: vol-normalized rankings look materially identical "
-                    "to raw on this sample -- per the locked contract, retire the transform "
-                    "unless Plan 07's full-corpus --all-regimes run shows otherwise.**"
+                    "**No strata cleared the reliability floor -- no aggregate verdict "
+                    "possible this run.**"
                 )
             else:
+                corrs = [
+                    r["rank_correlation"] for r in reliable if r["rank_correlation"] is not None
+                ]
+                total_raw_only = sum(len(r["raw_only"]) for r in reliable)
+                total_vol_only = sum(len(r["vol_only"]) for r in reliable)
+                total_both = sum(len(r["both"]) for r in reliable)
+                median_corr = float(np.median(corrs)) if corrs else float("nan")
                 print(
-                    "**Preliminary signal: vol-normalized rankings diverge from raw on this "
-                    "sample -- worth carrying into Plan 07's full-corpus --all-regimes run "
-                    "for the definitive verdict.**"
+                    f"Reliable strata: {len(reliable)}, median rank correlation: "
+                    f"{median_corr:.4f}\n"
                 )
+                print(
+                    f"Qualifying-feature set differences (raw passes_fdr, production's "
+                    f"corpus-wide family, vs. vol-normalized BH-FDR pooled into one family "
+                    f"across all {len(all_results)} evaluated strata this run, including "
+                    f"low-reliability ones -- FDR pooling should see the whole run's evidence "
+                    f"even though the aggregate verdict only counts reliable strata): "
+                    f"raw_only={total_raw_only}, vol_only={total_vol_only}, both={total_both}\n"
+                )
+                if corrs and median_corr > 0.95 and total_raw_only == 0 and total_vol_only == 0:
+                    print(
+                        "**Preliminary signal: vol-normalized rankings look materially "
+                        "identical to raw on this sample -- per the locked contract, retire "
+                        "the transform unless Plan 07's full-corpus --all-regimes run shows "
+                        "otherwise.**"
+                    )
+                else:
+                    print(
+                        "**Preliminary signal: vol-normalized rankings diverge from raw on "
+                        "this sample -- worth carrying into Plan 07's full-corpus "
+                        "--all-regimes run for the definitive verdict.**"
+                    )
         print(
             "\n---\nThis is a bounded diagnostic sample (see --max-regimes-per-tf). The "
             "definitive Component F A/B verdict is recorded in Plan 07 after the "
