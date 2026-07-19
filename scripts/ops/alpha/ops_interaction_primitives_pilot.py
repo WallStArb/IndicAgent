@@ -255,7 +255,7 @@ async def _fetch_tf_dataset(
             ON fr.symbol = fv.symbol AND fr.tf = fv.tf AND fr.bar_ts = fv.bar_ts
             AND fr.return_type = 'executable_open_to_open'
         INNER JOIN market_regimes mr
-            ON mr.tf = fv.tf AND mr.ts = fv.bar_ts AND mr.asset_class = 'equity'
+            ON mr.tf = fv.tf AND mr.ts = fv.bar_ts AND mr.regime_group = 'equity'
         WHERE fv.tf = $1 AND fv.bar_ts <= $2
         ORDER BY fv.symbol, fv.bar_ts
     """

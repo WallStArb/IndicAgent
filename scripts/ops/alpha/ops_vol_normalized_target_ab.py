@@ -120,7 +120,7 @@ _BASELINE_SQL = """
 
 _REGIME_TS_SQL = """
     SELECT ts FROM market_regimes
-    WHERE asset_class = 'equity' AND tf = $1 AND regime_label = $2
+    WHERE regime_group = 'equity' AND tf = $1 AND regime_label = $2
       AND ts <= $3
     ORDER BY ts
 """

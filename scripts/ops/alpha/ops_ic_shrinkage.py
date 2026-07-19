@@ -126,7 +126,7 @@ _STRATUM_FETCH_SQL_TEMPLATE = """
            AVG(fr.return_slow) AS return_slow, AVG(fr.return_extended) AS return_extended
     FROM feature_vectors fv
     JOIN market_regimes mr
-      ON mr.asset_class = 'equity' AND mr.tf = fv.tf AND mr.ts = fv.bar_ts
+      ON mr.regime_group = 'equity' AND mr.tf = fv.tf AND mr.ts = fv.bar_ts
     JOIN forward_returns fr
       ON fr.symbol = fv.symbol AND fr.tf = fv.tf AND fr.bar_ts = fv.bar_ts
       AND fr.return_type = 'executable_open_to_open'
