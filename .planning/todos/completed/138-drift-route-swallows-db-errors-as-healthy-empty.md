@@ -1,9 +1,19 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-18
+closed: 2026-07-19
 source: /simplify altitude review during todo 130's fix (drift.py broken import)
 ---
+
+## Resolution
+
+Went with option (a): added `degraded: bool` to the response, set `True` only in the
+`except` path, `False` otherwise (including the genuine-zero-rows case). Dashboard/monitor
+callers can now tell a DB failure apart from "no drift" without a status-code change, matching
+the todo's stated preference for not 5xx-ing a routine polling loop. No consumer of the old
+response shape existed outside tests (`grep -rl "api/drift"` — only `src/api/main.py`'s router
+registration), so this is a pure additive field, no breaking change.
 
 # `GET /api/drift` returns 200 + empty state on any DB failure, indistinguishable from "no drift"
 

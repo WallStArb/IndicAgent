@@ -107,7 +107,7 @@ across multiple.
 | [116](pending/116-above-wk-vwap-miscategorized-calendar-group.md) | `above_wk_vwap` is registered `group_name='calendar'` in `feature_registry` but is price-dependent/stateful, not a pure calendar primitive — miscategorized. |
 | [129](pending/129-ic-engine-short-lived-conn-helper.md) | `ic_engine.py`'s 3 dsn-based worker connections still hand-rolled (`open → use → close`) instead of a shared helper — narrowed 2026-07-17 after the `main()`-side half was already fixed via todo 130. |
 | [137](pending/137-api-routes-no-request-level-smoke-test.md) | No generic guard catches a broken function-local import in an API route (the exact bug class todo 130 fixed) — needs a parametrized smoke test hitting every registered route with mocked deps. |
-| [138](pending/138-drift-route-swallows-db-errors-as-healthy-empty.md) | `GET /api/drift` returns 200 + empty state on any DB failure, indistinguishable from genuine "no drift" — should distinguish degraded from empty, like `vocabulary.py` does. |
+| [141](pending/141-todo-directory-duplicate-number-sweep.md) | `.planning/todos/` has 8 duplicate-number groups across pending/completed/deferred — todo-system analog of todo 101's migration finding. Finding + recommended approach only. |
 
 ---
 

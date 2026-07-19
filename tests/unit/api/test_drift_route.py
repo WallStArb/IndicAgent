@@ -89,7 +89,8 @@ class TestGetDriftState:
 
     def test_db_error_returns_empty_state_not_500(self, client, mock_db):
         """Matches the route's existing contract: a query failure is logged and
-        degrades to empty ks/cusum lists, not a 500."""
+        degrades to empty ks/cusum lists, not a 500 -- but flagged via `degraded`
+        (todo 138) so a caller can tell this apart from a genuine "no drift" result."""
         mock_db.fetch = AsyncMock(side_effect=RuntimeError("connection refused"))
 
         response = client.get("/api/drift")
@@ -99,3 +100,17 @@ class TestGetDriftState:
         assert data["ks"] == []
         assert data["cusum"] == []
         assert data["last_updated"] is None
+        assert data["degraded"] is True
+
+    def test_genuine_empty_state_is_not_flagged_degraded(self, client, mock_db):
+        """A real query that simply returns zero rows (no drift_state data yet) must
+        not be indistinguishable from a DB failure -- degraded stays False."""
+        mock_db.fetch = AsyncMock(return_value=[])
+
+        response = client.get("/api/drift")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ks"] == []
+        assert data["cusum"] == []
+        assert data["degraded"] is False

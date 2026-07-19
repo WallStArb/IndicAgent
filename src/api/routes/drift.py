@@ -28,6 +28,7 @@ async def get_drift_state(
     ks_entries: list[dict[str, Any]] = []
     cusum_entries: list[dict[str, Any]] = []
     last_updated: str | None = None
+    degraded = False
 
     try:
         rows = await db_manager.fetch(
@@ -60,9 +61,11 @@ async def get_drift_state(
 
     except Exception as error:
         logger.warning("drift endpoint: DB query error", error=str(error))
+        degraded = True
 
     return {
         "ks": ks_entries,
         "cusum": cusum_entries,
         "last_updated": last_updated,
+        "degraded": degraded,
     }
