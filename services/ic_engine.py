@@ -2810,6 +2810,9 @@ def _run_lifecycle_hook(
     # flip a feature's status.
     active_cells = [c for c in cell_rows if c["feature_status_at_eval"] == "active"]
     any_hold = False
+    # Accumulated here, flushed as one executemany AFTER Step 4/5 (or the hold
+    # skip) below -- see the deferred-flush note preceding the single commit.
+    pending_guard_facts: list[tuple] = []
     if active_cells:
         with write_conn.cursor() as cur:
             cur.execute("SELECT DISTINCT regime_group, regime_label FROM market_regimes")
@@ -2849,34 +2852,31 @@ def _run_lifecycle_hook(
                 rail_hi=config.guard_fail_rate_max,
             )
 
-            # Always write a fact -- this is what builds calibration history.
+            # Always record a fact -- this is what builds calibration history.
             # threshold_value records whichever bound is nearer the current
             # fraction (the one a small drift would next violate); passed is
             # false for both guard tails, true for "ok" and "insufficient_cells"
             # (the latter made no claim to violate -- its rail-derived bounds are
             # informational only, never evaluated against this stratum).
             #
-            # NOTE: deliberately no commit() here. These inserts ride in the same
-            # transaction as Step 4/5 below (or, on a hold, the single commit at
-            # the end of this function) -- see the atomicity note above this block.
+            # Deferred, not executed here: registry_svc.record_transition_sync /
+            # advance_shadow_counters_sync (called from Step 4 below) each wrap
+            # their own SQL in `with conn:` on this SAME write_conn, which commits
+            # (or rolls back, on an optimistic-lock no-op) immediately on exit.
+            # Executing this INSERT eagerly here would let the first Step 4
+            # registry call silently commit/rollback it before the intended
+            # single commit point. Instead we only accumulate the row now and
+            # flush every stratum's fact together in one executemany right
+            # before that single commit -- see the note there.
             nearer_bound = (
                 verdict.band_hi
                 if abs(fail_fraction - verdict.band_hi) <= abs(fail_fraction - verdict.band_lo)
                 else verdict.band_lo
             )
             passed = verdict.status not in ("hold_high", "alert_low")
-            with write_conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO integrity_monitor
-                        (monitor_type, subject, metric_name, metric_value,
-                         threshold_value, passed, training_window_end)
-                    VALUES ('ic_lifecycle', %s, 'guard_fail_fraction', %s, %s, %s, %s)
-                    ON CONFLICT (monitor_type, training_window_end, metric_name,
-                                 COALESCE(subject, ''), evaluated_at) DO NOTHING
-                    """,
-                    (subject, fail_fraction, nearer_bound, passed, training_window_end),
-                )
+            pending_guard_facts.append(
+                (subject, fail_fraction, nearer_bound, passed, training_window_end)
+            )
 
             if verdict.status == "hold_high":
                 log.warning(
@@ -3009,9 +3009,33 @@ def _run_lifecycle_hook(
                 ),
             )
 
-    # Single commit point for the whole hook: guard facts (Step 3) + either Step
-    # 4/5's writes (non-hold) or nothing further (hold) -- atomic either way, no
-    # crash window where guard facts land without Step 4/5 having run.
+    # Flush Step 3's accumulated per-stratum guard facts now -- unconditionally,
+    # on both the hold and non-hold paths, and strictly after Step 4/5 have
+    # either run or been skipped by a hold. This is what keeps the facts out of
+    # registry_svc's `with conn:` commit/rollback windows above.
+    if pending_guard_facts:
+        with write_conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO integrity_monitor
+                    (monitor_type, subject, metric_name, metric_value,
+                     threshold_value, passed, training_window_end)
+                VALUES ('ic_lifecycle', %s, 'guard_fail_fraction', %s, %s, %s, %s)
+                ON CONFLICT (monitor_type, training_window_end, metric_name,
+                             COALESCE(subject, ''), evaluated_at) DO NOTHING
+                """,
+                pending_guard_facts,
+            )
+
+    # Single commit point for the whole hook: the deferred guard facts above +
+    # either Step 4/5's writes (non-hold) or nothing further (hold) all land
+    # together here. Step 4's individual registry transitions still self-commit
+    # one at a time via FeatureRegistryService's `with conn:` pattern (a
+    # pre-existing constraint of that shared Ring-1 service, not something this
+    # fix needs to solve) -- but each transition is individually rerun-safe via
+    # its own optimistic `WHERE status = %s` lock (from_status), so a crash
+    # mid-Step-4 leaves no integrity_monitor fact at all (nothing flushed yet)
+    # and the whole window is safely retriable from scratch on the next run.
     write_conn.commit()
 
     # Step 6: IC staleness gauge (LIFECYCLE-05). Runs exactly once, regardless of

@@ -48,6 +48,13 @@ class _FakeLifecycleCursor:
     def __exit__(self, *exc_info):
         return False
 
+    def executemany(self, sql: str, params_list: list[tuple]) -> None:
+        """Simulates psycopg2's executemany as a loop over execute() -- sufficient
+        for these tests, which only assert on the accumulated per-call params
+        (e.g. conn.guard_fact_inserts), not on batching/round-trip behavior."""
+        for params in params_list:
+            self.execute(sql, params)
+
     def execute(self, sql: str, params: tuple | None = None) -> None:
         params = params or ()
         self.conn.executed_sql.append(sql)
