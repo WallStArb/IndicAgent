@@ -100,6 +100,28 @@ class _FakeLifecycleCursor:
             self._description = [(c,) for c in cols]
             return
 
+        if "FROM market_regimes" in sql:
+            self._rows = [
+                (r["regime_group"], r["regime_label"]) for r in self.conn.market_regime_rows
+            ]
+            self._description = [("regime_group",), ("regime_label",)]
+            return
+
+        if "metric_name = 'guard_fail_fraction'" in sql:
+            subject, _limit = params
+            matching = [
+                r["metric_value"] for r in self.conn.guard_history_rows if r["subject"] == subject
+            ]
+            self._rows = [(v,) for v in matching]
+            self._description = [("metric_value",)]
+            return
+
+        if "INSERT INTO integrity_monitor" in sql and "guard_fail_fraction" in sql:
+            self.conn.guard_fact_inserts.append(params)
+            self._rows = []
+            self._description = None
+            return
+
         if "INSERT INTO integrity_monitor" in sql:
             self.conn.integrity_inserts.append(params)
             self._rows = []
@@ -139,11 +161,16 @@ class _FakeLifecycleConn:
         corpus_rows: list[dict],
         ensemble_weight_rows: list[dict] | None = None,
         existing_integrity_rows: list[dict] | None = None,
+        market_regime_rows: list[dict] | None = None,
+        guard_history_rows: list[dict] | None = None,
     ):
         self.corpus_rows = corpus_rows
         self.ensemble_weight_rows = ensemble_weight_rows or []
         self.existing_integrity_rows = existing_integrity_rows or []
+        self.market_regime_rows = market_regime_rows or []
+        self.guard_history_rows = guard_history_rows or []
         self.integrity_inserts: list[tuple] = []
+        self.guard_fact_inserts: list[tuple] = []
         self.executed_sql: list[str] = []
         self.executed_params: list[tuple] = []
         self.committed = False
@@ -253,7 +280,12 @@ def _make_config(**overrides) -> ICEngineConfig:
         symbol_fetch_chunk_rows=5000,
         n_workers=1,
         decay_materiality_threshold=0.005,
-        decay_regime_shift_fraction=0.60,
+        guard_fail_rate_max=0.995,
+        guard_fail_rate_min=0.85,
+        guard_band_z=3.0,
+        guard_min_cells=100,
+        guard_min_history=8,
+        guard_history_window=20,
         decay_recovery_min_observations=2000,
         decay_recovery_min_passes=2,
         meta_fdr_min_fraction=0.50,
@@ -276,7 +308,7 @@ def _make_manifest(tmp_path: Path) -> _FakeManifest:
 
 def test_demotion_triggers_on_materially_failing_active_feature(tmp_path):
     """6/10 material-fail cells (60% >= 50% floor) demotes; never 'deprecated'."""
-    config = _make_config(meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99)
+    config = _make_config(meta_fdr_min_fraction=0.50)
     cells = []
     for i in range(10):
         failing = i < 6
@@ -317,7 +349,7 @@ def test_demotion_triggers_on_materially_failing_active_feature(tmp_path):
 
 def test_demotion_boundary_below_threshold_not_demoted(tmp_path):
     """4/10 material-fail cells (40% < 50% floor) does NOT demote."""
-    config = _make_config(meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99)
+    config = _make_config(meta_fdr_min_fraction=0.50)
     cells = []
     for i in range(10):
         failing = i < 4
@@ -352,7 +384,7 @@ def test_demotion_boundary_below_threshold_not_demoted(tmp_path):
 
 def test_demotion_boundary_at_threshold_demoted(tmp_path):
     """5/10 material-fail cells (50% == 50% floor) DOES demote (>= is inclusive)."""
-    config = _make_config(meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99)
+    config = _make_config(meta_fdr_min_fraction=0.50)
     cells = []
     for i in range(10):
         failing = i < 5
@@ -388,7 +420,7 @@ def test_demotion_boundary_at_threshold_demoted(tmp_path):
 
 def test_zero_standing_weight_not_demoted(tmp_path):
     """8/10 cells fail, but standing_weight=0 for all -- zero material-fail cells, no demotion."""
-    config = _make_config(meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99)
+    config = _make_config(meta_fdr_min_fraction=0.50)
     cells = []
     for i in range(10):
         failing = i < 8
@@ -472,48 +504,227 @@ def test_no_promotion_when_ineligible(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Regime-shift guard
+# Regime-shift guard (todo 144: stratified, self-calibrating, two-sided)
 # ---------------------------------------------------------------------------
 
 
-def test_regime_shift_guard_holds_all_weights(tmp_path):
-    """>=60% of active cells fail simultaneously -> hold: zero transitions, one hold fact."""
-    config = _make_config(decay_regime_shift_fraction=0.60)
+def _stratum_cells(feature_name: str, tf: str, group_regimes: list[str], n_fail: int) -> list[dict]:
+    """n_fail failing + (len(group_regimes) - n_fail) passing cells, one per
+    regime label in group_regimes, all at the given tf, all feature_name."""
     cells = []
-    for i in range(10):
-        failing = i < 7  # 70% >= 60% threshold
+    for i, regime in enumerate(group_regimes):
+        failing = i < n_fail
         cells.append(
             _cell(
-                "featA",
-                "5m",
-                f"regime_{i}",
+                feature_name,
+                tf,
+                regime,
                 ic_ci_lower=-0.02 if failing else 0.03,
                 passes_fdr=not failing,
                 n_independent=1000,
                 status="active",
             )
         )
+    return cells
+
+
+def test_regime_shift_cold_start_within_seeded_rails_does_not_hold(tmp_path):
+    """Regression for the exact live incident (fraction=0.9618): 100 active cells
+    in one (tf, regime_group) stratum, 96 failing, NO history yet. 0.9618 sits
+    inside the seeded rails [0.85, 0.995] -- must NOT hold. This is the case the
+    old flat 0.60 threshold got wrong."""
+    regimes = [f"r{i}" for i in range(100)]
+    cells = _stratum_cells("featA", "5m", regimes, n_fail=96)
     ew = [
-        {
-            "tf": "5m",
-            "regime": f"regime_{i}",
-            "feature_name": "featA",
-            "weight_version": "v1",
-            "weight": 0.5,
-        }
-        for i in range(10)
+        {"tf": "5m", "regime": r, "feature_name": "featA", "weight_version": "v1", "weight": 0.5}
+        for r in regimes
     ]
-    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew)
+    market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew, market_regime_rows=market_regimes)
     registry = _FakeRegistryService({"featA": {"status": "active"}})
 
-    _run_lifecycle_hook(conn, registry, config, _T1, _make_manifest(tmp_path))
+    _run_lifecycle_hook(
+        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+    )
+
+    # Did not hold: Step 4 ran, so featA's material-fail fraction (96/100=96% >=
+    # 50% floor) demoted it -- proving the run proceeded past the guard, unlike
+    # the old code which would have held here.
+    assert len(registry.transition_calls) == 1
+    assert registry.transition_calls[0][:4] == ("featA", "active", "shadow_only", "ic_demotion")
+    # One guard fact was still written for calibration history.
+    assert len(conn.guard_fact_inserts) == 1
+    subject, fraction, threshold, passed, window = conn.guard_fact_inserts[0]
+    assert subject == "tf=5m|group=equity"
+    assert fraction == 0.96
+    assert passed is True
+
+
+def test_regime_shift_cold_start_above_rail_holds(tmp_path):
+    """100 active cells, all 100 failing (fraction=1.0, above the 0.995 rail) ->
+    hold_high -> zero transitions, Step 4/5 skipped."""
+    regimes = [f"r{i}" for i in range(100)]
+    cells = _stratum_cells("featA", "5m", regimes, n_fail=100)
+    ew = [
+        {"tf": "5m", "regime": r, "feature_name": "featA", "weight_version": "v1", "weight": 0.5}
+        for r in regimes
+    ]
+    market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew, market_regime_rows=market_regimes)
+    registry = _FakeRegistryService({"featA": {"status": "active"}})
+
+    _run_lifecycle_hook(
+        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+    )
 
     assert registry.transition_calls == []
-    assert len(conn.integrity_inserts) == 1
-    inserted_params = conn.integrity_inserts[0]
-    # (fraction, threshold, training_window_end)
-    assert inserted_params[1] == config.decay_regime_shift_fraction
-    assert inserted_params[2] == _T1
+    assert len(conn.guard_fact_inserts) == 1
+    _, fraction, _, passed, _ = conn.guard_fact_inserts[0]
+    assert fraction == 1.0
+    assert passed is False
+
+
+def test_regime_shift_small_stratum_never_hold_authoritative(tmp_path):
+    """10 active cells (below guard_min_cells=100), all failing -- must NOT hold
+    (insufficient_cells is never authoritative), even though the fraction (1.0)
+    would trip the rail if it were evaluated. Demotion still proceeds normally."""
+    regimes = [f"r{i}" for i in range(10)]
+    cells = _stratum_cells("featA", "5m", regimes, n_fail=10)
+    ew = [
+        {"tf": "5m", "regime": r, "feature_name": "featA", "weight_version": "v1", "weight": 0.5}
+        for r in regimes
+    ]
+    market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew, market_regime_rows=market_regimes)
+    registry = _FakeRegistryService({"featA": {"status": "active"}})
+
+    _run_lifecycle_hook(
+        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+    )
+
+    assert len(registry.transition_calls) == 1  # demotion proceeded, guard didn't block it
+    assert len(conn.guard_fact_inserts) == 1
+    _, _, _, passed, _ = conn.guard_fact_inserts[0]
+    assert passed is True  # insufficient_cells is not a violation
+
+
+def test_regime_shift_suspiciously_low_fail_rate_alerts_not_holds(tmp_path):
+    """100 active cells, only 10 failing (fraction=0.10, below the 0.85 rail) ->
+    alert_low -> a fact is written with passed=False, but transitions still
+    proceed normally (no hold on the low tail, per design)."""
+    regimes = [f"r{i}" for i in range(100)]
+    cells = _stratum_cells("featB", "15m", regimes, n_fail=10)
+    market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
+    conn = _FakeLifecycleConn(cells, market_regime_rows=market_regimes)
+    registry = _FakeRegistryService({"featB": {"status": "active"}})
+
+    _run_lifecycle_hook(
+        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+    )
+
+    assert len(conn.guard_fact_inserts) == 1
+    _, fraction, _, passed, _ = conn.guard_fact_inserts[0]
+    assert fraction == 0.10
+    assert passed is False
+    # Did not hold: Step 4 ran (90/100 = 90% pass, well below the 50% demote floor
+    # applied to the 10% material-fail fraction -- no demotion, but that's Step 4
+    # logic proceeding normally, not the guard blocking it).
+    assert registry.transition_calls == []
+
+
+def test_regime_shift_unmapped_regime_label_buckets_to_unmapped_stratum(tmp_path):
+    """A cell whose regime label isn't found in the market_regimes lookup (e.g.
+    market_regime_rows is empty, or genuinely missing that label) must bucket into
+    a ('<tf>', '_unmapped') stratum -- and that stratum must still be evaluated
+    (not silently dropped), just under the '_unmapped' group key. This is a real
+    code path (services/ic_engine.py's `.get(cell["regime"], "_unmapped")`
+    fallback) that every OTHER test in this file exercises incidentally (they all
+    pass empty or non-matching market_regime_rows unless testing the mapping
+    itself), so it needs its own explicit assertion rather than staying
+    accidentally-covered."""
+    regimes = [f"r{i}" for i in range(100)]
+    cells = _stratum_cells("featA", "5m", regimes, n_fail=100)
+    ew = [
+        {"tf": "5m", "regime": r, "feature_name": "featA", "weight_version": "v1", "weight": 0.5}
+        for r in regimes
+    ]
+    # No market_regime_rows at all -- every regime label fails the lookup.
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew, market_regime_rows=[])
+    registry = _FakeRegistryService({"featA": {"status": "active"}})
+
+    _run_lifecycle_hook(
+        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+    )
+
+    assert len(conn.guard_fact_inserts) == 1
+    subject = conn.guard_fact_inserts[0][0]
+    assert subject == "tf=5m|group=_unmapped"
+    # Still evaluated (100 cells >= min_cells=100, 100% fail >= 0.995 rail) -> held.
+    assert registry.transition_calls == []
+
+
+def test_regime_shift_two_independent_strata_only_failing_one_holds(tmp_path):
+    """(5m, equity) at 100% fail holds; (1h, equity) at 90% fail (within rails)
+    does not -- but ANY hold-authoritative stratum holding holds the ENTIRE run
+    (all transitions), proving strata are evaluated independently but the hold
+    decision is global."""
+    regimes = [f"r{i}" for i in range(100)]
+    hot_cells = _stratum_cells("featA", "5m", regimes, n_fail=100)
+    cold_cells = _stratum_cells("featB", "1h", regimes, n_fail=90)
+    market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
+    conn = _FakeLifecycleConn(
+        hot_cells + cold_cells,
+        ensemble_weight_rows=[
+            {
+                "tf": "5m",
+                "regime": r,
+                "feature_name": "featA",
+                "weight_version": "v1",
+                "weight": 0.5,
+            }
+            for r in regimes
+        ],
+        market_regime_rows=market_regimes,
+    )
+    registry = _FakeRegistryService({"featA": {"status": "active"}, "featB": {"status": "active"}})
+
+    _run_lifecycle_hook(
+        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+    )
+
+    assert registry.transition_calls == []  # global hold, even though only one stratum tripped
+    assert len(conn.guard_fact_inserts) == 2  # both strata still wrote calibration facts
+
+
+def test_regime_shift_empirical_band_takes_over_after_min_history(tmp_path):
+    """A stratum with 8 prior evaluations all near 0.96 develops a tight empirical
+    band; a new fraction of 0.994 (inside the seeded rail 0.995, but outside the
+    tightened empirical band) now holds -- proving the empirical layer, not just
+    the rails, is live."""
+    regimes = [f"r{i}" for i in range(100)]
+    cells = _stratum_cells("featA", "5m", regimes, n_fail=99)  # 0.99 fraction this run
+    ew = [
+        {"tf": "5m", "regime": r, "feature_name": "featA", "weight_version": "v1", "weight": 0.5}
+        for r in regimes
+    ]
+    market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
+    history_rows = [
+        {"subject": "tf=5m|group=equity", "metric_value": v}
+        for v in [0.960, 0.961, 0.960, 0.962, 0.959, 0.961, 0.960, 0.961]
+    ]
+    conn = _FakeLifecycleConn(
+        cells,
+        ensemble_weight_rows=ew,
+        market_regime_rows=market_regimes,
+        guard_history_rows=history_rows,
+    )
+    registry = _FakeRegistryService({"featA": {"status": "active"}})
+
+    _run_lifecycle_hook(
+        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+    )
+
+    assert registry.transition_calls == []  # held: 0.99 is far outside the tight empirical band
 
 
 # ---------------------------------------------------------------------------
@@ -586,7 +797,7 @@ def test_lookahead_pinning_uses_only_mid_lookahead_rows(tmp_path):
 def test_weight_version_pinning_to_champion(tmp_path):
     """Standing-weight lookup must resolve config.ensemble_weight_version ('v1'), not
     the most-recent-by-computed_at row (a newer 'v2_challenger' weight_version)."""
-    config = _make_config(ensemble_weight_version="v1", decay_regime_shift_fraction=0.99)
+    config = _make_config(ensemble_weight_version="v1")
     cells = [
         _cell(
             "featA",
@@ -715,9 +926,7 @@ def test_sign_symmetric_significant_contrarian_not_demoted(tmp_path):
     passes_fdr=true) with non-zero standing_weight must NOT be flagged failed/material
     -- this is the exact self-reverting failure mode BLOCKER 1 identified (every
     contrarian would otherwise be re-demoted one cycle after Component E lands)."""
-    config = _make_config(
-        meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99, sign_symmetric=True
-    )
+    config = _make_config(meta_fdr_min_fraction=0.50, sign_symmetric=True)
     cells = [
         _cell(
             "featC",
@@ -756,9 +965,7 @@ def test_sign_symmetric_ci_straddling_contrarian_is_demoted(tmp_path):
     """sign_symmetric=True: a contrarian whose CI straddles zero (ic_ci_upper >= 0,
     i.e. NOT significant on its own side) IS flagged failed/material and demoted --
     the sign-aware gate still catches genuinely non-significant contrarians."""
-    config = _make_config(
-        meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99, sign_symmetric=True
-    )
+    config = _make_config(meta_fdr_min_fraction=0.50, sign_symmetric=True)
     # 6/10 straddling (failed) + 4/10 significant (not failed) -- 60% material-fail
     # meets the 50% demote floor without tripping the 99% regime-shift guard.
     cells = []
@@ -800,9 +1007,7 @@ def test_sign_symmetric_positive_cell_still_demoted(tmp_path):
     """sign_symmetric=True: a positive cell (ic_sign=1, ic_ci_lower<=0) is still
     flagged failed/material -- the positive side of the predicate is unchanged by
     the flag, only the contrarian branch is new."""
-    config = _make_config(
-        meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99, sign_symmetric=True
-    )
+    config = _make_config(meta_fdr_min_fraction=0.50, sign_symmetric=True)
     # 6/10 failing + 4/10 passing -- 60% material-fail meets the 50% demote floor
     # without tripping the 99% regime-shift guard.
     cells = []
@@ -845,9 +1050,7 @@ def test_sign_symmetric_off_positive_cell_decision_is_byte_identical(tmp_path):
     failed/material decision for a positive cell is byte-identical to
     test_demotion_triggers_on_materially_failing_active_feature's outcome above --
     same cell shape, same result, flag OFF reproduces the pre-Component-E hook."""
-    config = _make_config(
-        meta_fdr_min_fraction=0.50, decay_regime_shift_fraction=0.99, sign_symmetric=False
-    )
+    config = _make_config(meta_fdr_min_fraction=0.50, sign_symmetric=False)
     cells = []
     for i in range(10):
         failing = i < 6
