@@ -72,6 +72,8 @@ async def get_market_data(
             "last_updated": bars[-1]["timestamp"] if bars else None,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching market data for {symbol} {timeframe}", error=str(e))
         raise HTTPException(status_code=500, detail=f"Error fetching market data: {str(e)}") from e
