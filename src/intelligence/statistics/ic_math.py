@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 import numpy as np
-from scipy.stats import norm, rankdata
+from scipy.stats import median_abs_deviation, norm, rankdata
 from scipy.stats import t as t_dist
 from statsmodels.stats.multitest import multipletests
 
@@ -963,10 +963,11 @@ def evaluate_guard_fraction(
 
     1. Seeded rails [rail_lo, rail_hi] -- always active, empirically grounded
        against this corpus's known base rate (not a guess).
-    2. Empirical band (median +/- band_z * 1.4826*MAD over `history`) -- only
-       once len(history) >= min_history. Falls back to the seeded rails if the
-       history is degenerate (MAD == 0), since a zero-width band would flag
-       almost any value.
+    2. Empirical band (median +/- band_z * robust-sigma over `history`, via
+       scipy's median_abs_deviation(scale="normal")) -- only once
+       len(history) >= min_history. Falls back to the seeded rails if the
+       history is degenerate (robust sigma == 0), since a zero-width band
+       would flag almost any value.
 
     A stratum with fewer than min_cells active cells is never hold-authoritative
     (status="insufficient_cells") -- its fraction is too noisy (small-N binomial
@@ -977,22 +978,21 @@ def evaluate_guard_fraction(
     way -- median and MAD are order-invariant statistics, so the empirical band
     above comes out identical regardless of the sequence's order.
     """
+    n_history = len(history)
     if n_cells < min_cells:
         return GuardVerdict(
             status="insufficient_cells",
             band_lo=rail_lo,
             band_hi=rail_hi,
             band_source="seeded",
-            n_history=len(history),
+            n_history=n_history,
         )
 
-    n_history = len(history)
     if n_history >= min_history:
         history_arr = np.asarray(history, dtype=np.float64)
         median = float(np.median(history_arr))
-        mad = float(np.median(np.abs(history_arr - median)))
-        if mad > 0.0:
-            robust_std = 1.4826 * mad
+        robust_std = float(median_abs_deviation(history_arr, scale="normal"))
+        if robust_std > 0.0:
             band_lo = max(median - band_z * robust_std, rail_lo)
             band_hi = min(median + band_z * robust_std, rail_hi)
             band_source: Literal["seeded", "empirical"] = "empirical"

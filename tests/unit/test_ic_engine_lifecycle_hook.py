@@ -19,7 +19,7 @@ if str(_project_root) not in sys.path:
 
 from datetime import UTC, datetime
 
-from services.ic_engine import ICEngineConfig, _run_lifecycle_hook
+from services.ic_engine import ICEngineConfig, _apply_feature_transitions, _run_lifecycle_hook
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -125,6 +125,7 @@ class _FakeLifecycleCursor:
 
         if "INSERT INTO integrity_monitor" in sql and "guard_fail_fraction" in sql:
             self.conn.guard_fact_inserts.append(params)
+            self.conn.event_log.append(("guard_insert", params[0]))
             self._rows = []
             self._description = None
             return
@@ -181,12 +182,21 @@ class _FakeLifecycleConn:
         self.executed_sql: list[str] = []
         self.executed_params: list[tuple] = []
         self.committed = False
+        # Ordered ("commit", n) / ("guard_insert", subject) events -- lets tests
+        # prove the deferred-flush ordering invariant (guard facts must not be
+        # written before a registry-triggered commit already happened), not just
+        # that the facts exist. See FeatureRegistryService's real `with conn:`
+        # commit-on-exit semantics, mirrored below by _FakeRegistryService.
+        self.event_log: list[tuple] = []
+        self.commit_count = 0
 
     def cursor(self):
         return _FakeLifecycleCursor(self)
 
     def commit(self):
         self.committed = True
+        self.commit_count += 1
+        self.event_log.append(("commit", self.commit_count))
 
 
 class _FakeRegistryService:
@@ -218,10 +228,16 @@ class _FakeRegistryService:
         )
         if self.transition_return_value:
             self._features[feature_name]["status"] = to_status
+        # Real FeatureRegistryService.record_transition_sync wraps its SQL in
+        # `with conn:`, which commits on clean exit -- mirrored here so tests can
+        # verify _run_lifecycle_hook's deferred guard-fact writes actually survive
+        # this commit rather than assuming it (todo 144 /simplify pass).
+        conn.commit()
         return self.transition_return_value
 
     def advance_shadow_counters_sync(self, conn, feature_name, passed, new_observations):
         self.advance_calls.append((feature_name, passed, new_observations))
+        conn.commit()
 
     def is_promotion_eligible(self, feature_name, recovery_min_observations, recovery_min_passes):
         return self._features.get(feature_name, {}).get("eligible", False)
@@ -703,6 +719,60 @@ def test_regime_shift_two_independent_strata_only_failing_one_holds(tmp_path):
     assert len(conn.guard_fact_inserts) == 2  # both strata still wrote calibration facts
 
 
+def test_guard_facts_deferred_past_registry_triggered_commit(tmp_path):
+    """Regression for the atomicity bug found in todo 144's final review:
+    FeatureRegistryService.record_transition_sync/advance_shadow_counters_sync
+    each wrap their own SQL in `with conn:` on the SAME write_conn, which commits
+    immediately on exit -- eagerly writing guard facts inside Step 3's loop (the
+    original, buggy shape) would let the FIRST such registry call silently
+    commit or roll back those facts before the hook's own intended single commit
+    point. The fix defers the guard-fact writes past Step 4/5 entirely.
+
+    This test's stratum (10 cells, below guard_min_cells=100) is never
+    hold-authoritative, so Step 4 runs and a genuine demotion fires
+    record_transition_sync -- triggering a REAL commit() call via the fake
+    registry's with-conn simulation (see _FakeRegistryService above) mid-run.
+    Asserts the ordering directly: the registry-triggered commit must appear in
+    the event log BEFORE the guard-fact INSERT, proving the write was deferred
+    past it rather than landing eagerly beforehand. A regression back to eager
+    per-stratum writes (todo 144's original defect) would reverse this order
+    and fail this assertion, even though every other test in this file (whose
+    fakes only check final state, not commit ordering) would still pass."""
+    regimes = [f"regime_{i}" for i in range(10)]
+    cells = _stratum_cells("featA", "5m", regimes, n_fail=6)  # 60% >= 50% demote floor
+    ew = [
+        {"tf": "5m", "regime": r, "feature_name": "featA", "weight_version": "v1", "weight": 0.5}
+        for r in regimes
+    ]
+    market_regimes = [{"regime_group": "equity", "regime_label": r} for r in regimes]
+    conn = _FakeLifecycleConn(cells, ensemble_weight_rows=ew, market_regime_rows=market_regimes)
+    registry = _FakeRegistryService({"featA": {"status": "active"}})
+
+    _run_lifecycle_hook(
+        conn, registry, _make_config(meta_fdr_min_fraction=0.50), _T1, _make_manifest(tmp_path)
+    )
+
+    # Demotion actually happened -- proves record_transition_sync ran and
+    # triggered its own commit() via the fake's with-conn simulation.
+    assert len(registry.transition_calls) == 1
+    assert registry.transition_calls[0][:4] == ("featA", "active", "shadow_only", "ic_demotion")
+
+    guard_insert_positions = [
+        i for i, event in enumerate(conn.event_log) if event[0] == "guard_insert"
+    ]
+    registry_commit_positions = [
+        i
+        for i, event in enumerate(conn.event_log)
+        if event[0] == "commit" and event[1] < conn.commit_count
+    ]
+    assert guard_insert_positions, "guard fact was never written"
+    assert registry_commit_positions, "registry-triggered commit never fired -- test setup invalid"
+    assert max(registry_commit_positions) < min(guard_insert_positions), (
+        "guard fact written before (or interleaved eagerly with) a registry-triggered "
+        "commit -- this is the exact atomicity defect todo 144's final review found"
+    )
+
+
 def test_regime_shift_empirical_band_takes_over_after_min_history(tmp_path):
     """A stratum with 8 prior evaluations all near 0.96 develops a tight empirical
     band; a new fraction of 0.994 (inside the seeded rail 0.995, but outside the
@@ -1098,19 +1168,26 @@ def test_sign_symmetric_off_positive_cell_decision_is_byte_identical(tmp_path):
 
 
 def test_hook_has_no_async_or_await():
-    source = inspect.getsource(_run_lifecycle_hook)
-    assert "await" not in source
-    assert "async def" not in source
+    # Covers both _run_lifecycle_hook and _apply_feature_transitions (Step 4/5,
+    # extracted out of the hook by the todo 144 /simplify pass) -- the sync
+    # invariant applies to the whole call chain, not just the outer function.
+    for fn in (_run_lifecycle_hook, _apply_feature_transitions):
+        source = inspect.getsource(fn)
+        assert "await" not in source
+        assert "async def" not in source
 
 
 def test_hook_never_writes_ensemble_weights_source():
-    source = inspect.getsource(_run_lifecycle_hook)
-    assert "INSERT INTO ensemble_weights" not in source
-    assert "UPDATE ensemble_weights" not in source
+    for fn in (_run_lifecycle_hook, _apply_feature_transitions):
+        source = inspect.getsource(fn)
+        assert "INSERT INTO ensemble_weights" not in source
+        assert "UPDATE ensemble_weights" not in source
 
 
 def test_hook_uses_meta_fdr_min_fraction_from_config():
-    source = inspect.getsource(_run_lifecycle_hook)
+    # meta_fdr_min_fraction lives in _apply_feature_transitions (Step 4/5),
+    # extracted out of _run_lifecycle_hook by the todo 144 /simplify pass.
+    source = inspect.getsource(_apply_feature_transitions)
     assert "meta_fdr_min_fraction" in source
 
 

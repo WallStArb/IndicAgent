@@ -51,6 +51,7 @@ import asyncpg
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async as _load_apr
 from src.config.settings import Settings
+from src.core.service_utils import parse_iso_ts
 
 _KNOWN_TFS = ["5m", "15m", "1h", "1d"]
 
@@ -252,8 +253,8 @@ async def main() -> int:
         async with pool.acquire() as conn:
             apr = await _load_apr(conn)
 
-            oos_start = apr.get("alpha.validation.oos_start")
-            if not oos_start:
+            oos_start_raw = apr.get("alpha.validation.oos_start")
+            if not oos_start_raw:
                 print(
                     "FAILED: alpha.validation.oos_start missing from config_state -- "
                     "cannot enforce the in-sample-only filter without it. Refusing to "
@@ -261,6 +262,9 @@ async def main() -> int:
                     "(see OOS-EVAL-PROTOCOL.md's degradation rules)."
                 )
                 return 1
+            # apr dict values are raw config_state strings; asyncpg needs a real
+            # datetime for a timestamptz bind param, not the ISO string itself.
+            oos_start = parse_iso_ts(oos_start_raw)
 
             effective_n_gate = _cfg(apr, "alpha.ensemble.effective_n_gate", 3.0)
             cost_hurdles = {tf: _cfg(apr, f"alpha.quant.cost_hurdle.{tf}", 0.0) for tf in tfs}
