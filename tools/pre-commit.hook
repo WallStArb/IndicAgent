@@ -43,11 +43,13 @@ check_plugin_class_naming() {
     # Exclude: schemas.py (canonical bus schemas — not plugin classes)
     # Exclude: swarm/ (IAlphaContributor classes use Agent/Contributor/Wrapper conventions)
     # Exclude: ai/ (BaseAIAgent subclasses use Agent suffix, not Plugin)
+    # Exclude: statistics/ (pure math utilities like ic_math.py — not plugin classes)
     PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | \
         grep -E '^src/intelligence/.*\.py$' | \
         grep -vE '(schemas|alpha_multiplier)\.py$' | \
         grep -vE '^src/intelligence/swarm/' | \
         grep -vE '^src/intelligence/ai/' | \
+        grep -vE '^src/intelligence/statistics/' | \
         grep -vE '^src/intelligence/services/' || true)
 
     if [ -z "$PYTHON_FILES" ]; then
@@ -60,7 +62,7 @@ check_plugin_class_naming() {
     for file in $PYTHON_FILES; do
         if [ -f "${REPO_ROOT}/${file}" ]; then
             FILE_VIOLATIONS=$(grep -n '^class [A-Z]' "${REPO_ROOT}/${file}" 2>/dev/null | \
-                grep -vE 'class.*((Plugin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Queue|Executor|Processor|Task|Snapshot|Shape|Mixin|Trainer|Analyzer|Validator|Auditor|Writer|Publisher|Report|Factory|Cache|Record|Vector|Decision))\b' || true)
+                grep -vE 'class.*((Plugin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Queue|Executor|Processor|Task|Snapshot|Shape|Mixin|Trainer|Analyzer|Validator|Auditor|Writer|Publisher|Report|Factory|Cache|Record|Vector|Decision|Verdict))\b' || true)
             if [ -n "$FILE_VIOLATIONS" ]; then
                 VIOLATIONS="${VIOLATIONS}  ${file}:"$'\n'"$(echo "$FILE_VIOLATIONS" | sed 's/^/    /')"$'\n'
             fi
