@@ -1,10 +1,25 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-14
+closed: 2026-07-19
 source: found while answering a promotion/demotion architecture question — checked
   src/intelligence/feature_registry_service.py directly rather than assuming
 ---
+
+## Resolution
+
+Built `scripts/ops/alpha/ops_feature_registry_override.py`: reads the feature's current
+status, calls `FeatureRegistryService.record_transition_sync(..., reason='operator_override')`
+-- the same optimistic-locked, transactional path automated transitions use -- and reports
+the result. `--feature-name`/`--to-status`/`--reason` CLI args.
+
+Noted but didn't fix (separate, pre-existing gap, same one todo 011 closed out on):
+`feature_transition_log.trigger_reason` is a CHECK-constrained enum
+(`ic_promotion`/`ic_demotion`/`parent_cascade`/`operator_override`) with no free-text
+column, so `--reason` is logged to stdout/structlog for the operator's own record but
+not persisted to the DB row. 4 unit tests, no live DB
+(`tests/unit/scripts/test_ops_feature_registry_override.py`).
 
 # 117 — `feature_registry` has no operator-override actuator
 
