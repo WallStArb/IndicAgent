@@ -96,3 +96,31 @@ owner, not resolved here.
 **Priority:** high — this bears directly on whether currently-passing gates (feature promotion,
 BH-FDR, EIC-04) are as reliable as their reported p-values claim. Not urgent to execute
 immediately, but should not sit indefinitely given what it touches.
+
+## Confirmation run, 2026-07-19 — post-bootstrap-fix, against the fresh 143.1-07 corpus
+
+`_circular_block_bootstrap_ic` (143.1-01) is unconditionally live in production
+(`ic_engine.py:1963`, no flag gate) — the 143.1-07 corpus re-run that finished 2026-07-19 already
+computed `feature_ic_scores` CIs via bootstrap, not Fisher-z. Re-ran
+`scripts/ops/alpha/ops_ic_null_calibration.py --ci-method bootstrap` against this fresh vintage
+(`training_window_end=2025-12-24 05:15:00+00:00`) to check whether the fix actually resolved the
+miscalibration. Note: the script had a schema-drift bug (`mr.asset_class` — a column that no
+longer exists since Phase 144's regime-model rewrite; fixed to `mr.regime_group`) blocking any run
+until today.
+
+**Result: 4/19 evaluated cells SUSPECT (21%), down from 11/29 (38%) pre-bootstrap.** Real
+improvement, not fully resolved. Sharper than the original diffuse finding: 3 of the 4 SUSPECT
+cells are the *same feature*, `ctf_momentum` (XLY/5m, EWJ/5m, QQQ/15m), plus one `flight_quality`
+cell (VWO/1h). All 4 are `is_pooled=False` (per-symbol, not the P6 cross-sectional effective-N
+mechanism). This looks like a feature-specific autocorrelation problem — `ctf_momentum`'s true
+decay structure may exceed the current `bootstrap_block_size` for its scale — rather than a
+general bootstrap-methodology failure across the corpus. Caveat: 49/68 sampled cells were skipped
+(insufficient N / stratum mismatch) this run, a higher skip rate than the original 37/66 —
+smaller effective evidence base than ideal; a stratified sample specifically targeting
+`ctf_momentum`/`flight_quality` cells would settle whether this generalizes to those features'
+other cells or is isolated to these three.
+
+**Not yet decided:** whether this residual 21% SUSPECT rate is acceptable to leave as-is (with
+`flight_quality`/`ctf_momentum` flagged as lower-trust features pending deeper investigation), or
+whether block-size recalibration for autocorrelation-heavy features is warranted before treating
+091 as closed. Project owner's call per this todo's original framing — not resolved here.
