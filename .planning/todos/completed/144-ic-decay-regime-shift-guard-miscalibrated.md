@@ -1,11 +1,13 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-07-19
 source: session RCA of the first-ever regime_shift_fraction firing (fraction=0.9618 at
   training_window_end=2025-12-24); verified against live feature_ic_scores distributions
   and config_state via psql
 ---
+
+**Closed 2026-07-19:** implemented per `docs/superpowers/plans/2026-07-19-ic-decay-guard-stratified-calibration.md`. Stratified per-(tf, regime_group), self-calibrating (seeded rails + empirical MAD band), two-sided (hold_high/alert_low). `evaluate_guard_fraction()` in `ic_math.py`; migration 237.
 
 # ic_engine regime-shift guard is miscalibrated below the domain's own base rate; it will hold lifecycle transitions on every run
 
