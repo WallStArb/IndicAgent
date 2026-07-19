@@ -437,7 +437,18 @@ class ICEngineConfig:
     # exercises the original 18 fields) don't break on this dataclass's field-count
     # growth (Rule 1 fix -- caught by the full tests/unit/ suite run).
     decay_materiality_threshold: float = 0.005
-    decay_regime_shift_fraction: float = 0.60
+    # Todo 144: stratified, self-calibrating regime-shift guard, replacing the flat
+    # decay_regime_shift_fraction (removed above). Rails are RCA-grounded against
+    # EIC-04's established 96-98% normal failure-rate base, not guesses -- see
+    # migration 237. Defaulted for the same reason as every other post-143 field:
+    # pre-existing direct ICEngineConfig(...) construction sites must not break on
+    # this dataclass's field-count growth.
+    guard_fail_rate_max: float = 0.995
+    guard_fail_rate_min: float = 0.85
+    guard_band_z: float = 3.0
+    guard_min_cells: int = 100
+    guard_min_history: int = 8
+    guard_history_window: int = 20
     decay_recovery_min_observations: int = 2000
     decay_recovery_min_passes: int = 2
     meta_fdr_min_fraction: float = 0.50
@@ -562,9 +573,13 @@ class ICEngineConfig:
             decay_materiality_threshold=float(
                 cfg.get_sync("alpha.decay.materiality_threshold", 0.005)
             ),
-            decay_regime_shift_fraction=float(
-                cfg.get_sync("alpha.decay.regime_shift_fraction", 0.60)
-            ),
+            # Todo 144: stratified regime-shift guard rails (migration 237).
+            guard_fail_rate_max=float(cfg.get_sync("alpha.decay.guard_fail_rate_max", 0.995)),
+            guard_fail_rate_min=float(cfg.get_sync("alpha.decay.guard_fail_rate_min", 0.85)),
+            guard_band_z=float(cfg.get_sync("alpha.decay.guard_band_z", 3.0)),
+            guard_min_cells=int(cfg.get_sync("alpha.decay.guard_min_cells", 100)),
+            guard_min_history=int(cfg.get_sync("alpha.decay.guard_min_history", 8)),
+            guard_history_window=int(cfg.get_sync("alpha.decay.guard_history_window", 20)),
             decay_recovery_min_observations=int(
                 cfg.get_sync("alpha.decay.recovery_min_observations", 2000)
             ),
