@@ -1692,6 +1692,50 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-r
 original generic goal text. Source review: `.planning/todos/pending/134-ic-engine-incremental-recompute.md`
 (+ 133, 122 in the same directory) against live `services/ic_engine.py`.
 
+**Folded in 2026-07-19 (todos 139/140, filed same day from a `/simplify` pass on `be74f4a1`,
+the cross-sectional OOM fix that landed the day before this phase was scoped):** both touch
+the exact same two functions 162-02 already plans to rework (`_compute_symbol_tf` /
+`_compute_cross_sectional_tf`), so they belong in the same planning pass rather than a
+separate later touch of the same 3,600-line file.
+- **Todo 140 (P2, stability, not just throughput):** peak memory in both functions is still
+  `O(cell_size x n_features x const)`, unbounded — `be74f4a1` and the 2026-07-08 float32 fix
+  before it each shrank the constant factor, neither changed the scaling law. A cell ~2x
+  today's largest (5m/low_bull, ~599K timestamps) reproduces the identical OOM as the corpus
+  grows. The DB fetch side already has the right pattern one stage upstream (`cs_chunk_ts`,
+  migration 183, bounds fetch to `O(chunk_rows)`) — that chunking invariant stops at
+  assembly; the per-scale rankdata/subsample/bootstrap-CI loop operates on the whole
+  assembled cell at once. Fix is either (a) extend chunking into the compute stage
+  (stream per-scale work over row-blocks) or (b) an APR-configured hard cap
+  (`alpha.ic.max_cell_size`) routing oversized cells through a chunked path. This is the
+  third-incident-shaped version of the same bug class — worth closing during 162-02 rather
+  than waiting for a fourth OOM as the corpus grows past the next threshold.
+- **Todo 139 (P3, maintainability, no known bug today):** the per-scale subsample+rank block
+  and the fold-loop rankdata block are now byte-identical in shape across both functions
+  (verified numerically identical outputs in `be74f4a1`'s own regression tests), linked only
+  by a "see the identical fix in..." comment. Extract shared helpers
+  (`_subsample_and_rank(...)`, a fold-loop rank helper) so a third hand-pasted occurrence of
+  this bug class can't slip into one sibling and not the other. Natural to do in the same
+  pass as 140's chunking rework, not before it — no reason to extract a helper for code
+  that's about to be restructured anyway.
+- **Todo 129 (P3, resource leak, same worker functions):** the 3 `dsn`-based connections
+  inside `_compute_symbol_tf` (x2) and `_compute_cross_sectional_tf` (x1) — the
+  `ProcessPoolExecutor`-worker-side connections, distinct from the 6 Settings-based
+  main-process connections already fixed via `_short_lived_conn` — are still hand-rolled
+  `open -> use` with no `try/finally`, so an exception mid-fetch leaks the connection.
+  Extract a shared `@contextmanager def short_lived_conn(dsn: str)` in
+  `services/_batch_utils.py` (next to `connect_db_from_url`) and migrate all 3 sites onto it.
+  Same functions 162-02 already reworks for fingerprint-check reads — do it in the same pass.
+- **Todo 009's Part E, remaining item only (`build_walk_forward_folds`):** the fixed-origin
+  expanding-window-with-embargo fold construction is still inline in `_compute_symbol_tf`
+  (and duplicated again in `ensemble_ic_engine.py`'s analogous path) — the other two
+  functions Part E originally proposed extracting (`compute_ic_for_window`,
+  `apply_corpus_fdr`) already shipped in `ic_math.py` via todo 048. Extract this one
+  remaining function alongside 139's rank-helper work, since both touch the same fold loop.
+  **Not** pulling in the rest of todo 009 (APR sweep across `regime_writer.py`/
+  `forward_return_writer.py`/`backfill_feature_factory.py`/`signal_auditor.py`, `BaseBatch`
+  promotion + renames for 4 unrelated batch scripts) — that's a separately-scoped
+  services-layer cleanup with no shared-file benefit here, not ic_engine throughput.
+
 **Goal:** A re-run of the 80-symbol corpus whose inputs haven't changed completes in minutes, not
 25-30 hours. Every compute cell — (symbol × tf) in the per-symbol pass, (regime_group × tf) in
 the cross-sectional pass — carries a persisted fingerprint (first-party code content-key + a
@@ -1762,6 +1806,9 @@ conflate the two.
    recompute (incl. post-backfill `bh_adjusted_p`/`passes_fdr`).
 5. Todo 133: 15m/1h/1d cross-sectional cells run within ~10% of measured serial wall time; 5m
    keeps its threading speedup.
+6. Todo 140: peak memory in `_compute_symbol_tf`/`_compute_cross_sectional_tf` no longer scales
+   unbounded with cell size — a cell ~2x today's largest (5m/low_bull, ~599K timestamps)
+   completes without OOM, verified by a synthetic oversized-cell test, not just headroom math.
 
 **Risks / scope traps to hold the line on during planning:**
 1. **`ON CONFLICT DO NOTHING` silently discards recomputes** (confirmed live at 3 insert sites) —

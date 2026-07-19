@@ -1,11 +1,22 @@
 ---
-status: pending
+status: deferred
 priority: P3
 filed: 2026-07-17
+moved_to_deferred: 2026-07-19
 source: altitude finding from /simplify review of todo 128 (ic_engine cross-sectional
   connection-lifecycle fix); narrowed 2026-07-17 after a /simplify pass on todo 130's
   diff resolved the Settings-based half
 ---
+
+**Moved to deferred/ 2026-07-19:** the still-open ic_engine.py-specific scope (the 3 dsn-based
+worker connections in `_compute_symbol_tf`/`_compute_cross_sectional_tf`) folded into ROADMAP
+**Phase 162 "ic_engine Corpus Pipeline Throughput"** -- same worker functions 162-02's
+fingerprint-check logic already touches. The 2026-07-18 update's wider scope (a Settings-based
+sibling helper migrating `regime_writer.py`/`equity_regime_model.py`/
+`backfill_feature_factory.py`/`cross_sectional_regime_model.py`'s own inline connect/close
+blocks too) is **not** part of Phase 162 -- cross-service cleanup, not ic_engine throughput.
+Revive the narrow scope at `/gsd-plan-phase 162`; the wider scope stays here if this file gets
+un-deferred separately later.
 
 # `ic_engine.py`'s 3 dsn-based worker connections still hand-rolled — extract a shared helper
 

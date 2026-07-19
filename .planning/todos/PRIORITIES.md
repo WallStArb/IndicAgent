@@ -99,7 +99,6 @@ across multiple.
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |
 | [111](pending/111-stratification-classification.md) | Stratification & Classification Registries — StratificationDimension formalization revival blocked on Phase 144's D-05 verdict (currently `BLOCKED-ON-143.1-07`). **Registered as ROADMAP Phase 145.** |
 | [115](pending/115-days-to-month-end-exact-redundancy.md) | `days_to_month_end` is an exact affine complement of `month_position` (Pearson correlation -1) — perfectly collinear, remove one. |
-| [129](pending/129-ic-engine-short-lived-conn-helper.md) | `ic_engine.py`'s 3 dsn-based worker connections still hand-rolled (`open → use → close`) instead of a shared helper — narrowed 2026-07-17 after the `main()`-side half was already fixed via todo 130. |
 | [141](pending/141-todo-directory-duplicate-number-sweep.md) | `.planning/todos/` has 8 duplicate-number groups across pending/completed/deferred — todo-system analog of todo 101's migration finding. Finding + recommended approach only. |
 | [142](pending/142-api-routes-http-exception-guard-not-generalized.md) | `except HTTPException: raise` guard hand-copied across 5 `src/api/routes/` files, no shared decorator/mechanism prevents a 6th route reintroducing the same bug. |
 | [143](pending/143-api-route-tests-no-shared-fake-db-fixture.md) | `tests/unit/api/` has 4 independent hand-rolled DB test doubles, no shared `conftest.py` fixture. |

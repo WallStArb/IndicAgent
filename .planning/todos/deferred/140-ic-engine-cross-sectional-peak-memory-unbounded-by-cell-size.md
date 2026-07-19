@@ -1,9 +1,15 @@
 ---
-status: pending
+status: deferred
 priority: P2
 filed: 2026-07-19
+moved_to_deferred: 2026-07-19
 source: /simplify altitude review of commit be74f4a1 (ic_engine cross-sectional OOM fix)
 ---
+
+**Moved to deferred/ 2026-07-19:** folded into ROADMAP **Phase 162 "ic_engine Corpus Pipeline
+Throughput"**, plan 162-02 (same functions the fingerprinting rework already touches) --
+listed as success criterion 6 in that phase's design. Not an independently-actionable
+pending/ item. Revive at `/gsd-plan-phase 162`.
 
 # `_compute_cross_sectional_tf`/`_compute_symbol_tf` peak memory still scales with cell size, unbounded
 

@@ -1,9 +1,14 @@
 ---
-status: pending
+status: deferred
 priority: P3
 filed: 2026-07-19
+moved_to_deferred: 2026-07-19
 source: /simplify reuse review of commit be74f4a1 (ic_engine cross-sectional OOM fix)
 ---
+
+**Moved to deferred/ 2026-07-19:** folded into ROADMAP **Phase 162 "ic_engine Corpus Pipeline
+Throughput"** alongside 140 (same functions, same pass) and 133/134/122 -- not an
+independently-actionable pending/ item. Revive at `/gsd-plan-phase 162`.
 
 # `_compute_symbol_tf` and `_compute_cross_sectional_tf` now share byte-identical subsample+rank logic
 
