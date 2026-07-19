@@ -94,6 +94,7 @@ from src.core.service_utils import setup_service_logging
 from src.intelligence.feature_registry_service import FeatureRegistryService
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.statistics.ic_math import (
+    GuardVerdict,
     _circular_block_bootstrap_ic,
     _compute_ic_rolling_metrics,
     _expand,
@@ -102,6 +103,7 @@ from src.intelligence.statistics.ic_math import (
     _vectorized_ic,
     apply_bh_fdr,
     circular_block_bootstrap_ic_serial,
+    evaluate_guard_fraction,
     magnitude_conditional_ic,
     sign_hit_rate,
     update_cumulative_e_value,
@@ -2691,7 +2693,7 @@ def _run_lifecycle_hook(
             SELECT 1 FROM integrity_monitor
             WHERE monitor_type = 'ic_lifecycle'
               AND training_window_end = %s
-              AND metric_name IN ('decay_cells_flagged', 'regime_shift_fraction')
+              AND metric_name IN ('decay_cells_flagged', 'guard_fail_fraction')
             LIMIT 1
             """,
             (training_window_end,),
@@ -2795,145 +2797,227 @@ def _run_lifecycle_hook(
                 },
             )
 
-    # Step 3: REGIME-SHIFT GUARD FIRST -- evaluated over cells with
-    # feature_status_at_eval='active' only. If >= decay_regime_shift_fraction of those
-    # cells failed simultaneously, hold ALL weights (zero transitions) rather than
-    # misread a market dislocation as mass feature decay (T-143-06).
+    # Step 3: REGIME-SHIFT GUARD (todo 144) -- stratified per (tf, regime_group),
+    # self-calibrating, two-sided. Evaluated over cells with
+    # feature_status_at_eval='active' only. A stratum's fraction is compared
+    # against seeded rails (empirically grounded, migration 237) that narrow
+    # toward a robust empirical band once enough history exists for that stratum.
+    # hold_high in ANY hold-authoritative stratum holds ALL transitions for this
+    # training_window_end (conservative: one dislocated market/horizon is enough
+    # reason to distrust the whole run's lifecycle decisions). alert_low never
+    # holds -- promotion is already multi-run-gated by recovery_min_observations/
+    # recovery_min_passes, so a single anomalously-high pass rate cannot itself
+    # flip a feature's status.
     active_cells = [c for c in cell_rows if c["feature_status_at_eval"] == "active"]
+    any_hold = False
     if active_cells:
-        failed_active_count = sum(1 for c in active_cells if c["_failed"])
-        regime_shift_fraction = failed_active_count / len(active_cells)
-        if regime_shift_fraction >= config.decay_regime_shift_fraction:
-            log.warning(
-                "ic_engine.regime_shift_hold",
-                fraction=regime_shift_fraction,
-                threshold=config.decay_regime_shift_fraction,
-                training_window_end=str(training_window_end),
+        with write_conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT regime_group, regime_label FROM market_regimes")
+            regime_label_to_group = {row[1]: row[0] for row in cur.fetchall()}
+
+        strata: dict[tuple[str, str], list[dict]] = defaultdict(list)
+        for cell in active_cells:
+            group = regime_label_to_group.get(cell["regime"], "_unmapped")
+            strata[(cell["tf"], group)].append(cell)
+
+        for (tf, group), stratum_cells in strata.items():
+            subject = f"tf={tf}|group={group}"
+            fail_fraction = sum(1 for c in stratum_cells if c["_failed"]) / len(stratum_cells)
+
+            with write_conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT metric_value FROM integrity_monitor
+                    WHERE monitor_type = 'ic_lifecycle'
+                      AND metric_name = 'guard_fail_fraction'
+                      AND subject = %s
+                    ORDER BY evaluated_at DESC
+                    LIMIT %s
+                    """,
+                    (subject, config.guard_history_window),
+                )
+                history = [row[0] for row in cur.fetchall()]
+
+            verdict: GuardVerdict = evaluate_guard_fraction(
+                fail_fraction,
+                len(stratum_cells),
+                history,
+                min_cells=config.guard_min_cells,
+                min_history=config.guard_min_history,
+                band_z=config.guard_band_z,
+                rail_lo=config.guard_fail_rate_min,
+                rail_hi=config.guard_fail_rate_max,
             )
+
+            # Always write a fact -- this is what builds calibration history.
+            # threshold_value records whichever bound is nearer the current
+            # fraction (the one a small drift would next violate); passed is
+            # false for both guard tails, true for "ok" and "insufficient_cells"
+            # (the latter made no claim to violate -- its rail-derived bounds are
+            # informational only, never evaluated against this stratum).
+            #
+            # NOTE: deliberately no commit() here. These inserts ride in the same
+            # transaction as Step 4/5 below (or, on a hold, the single commit at
+            # the end of this function) -- see the atomicity note above this block.
+            nearer_bound = (
+                verdict.band_hi
+                if abs(fail_fraction - verdict.band_hi) <= abs(fail_fraction - verdict.band_lo)
+                else verdict.band_lo
+            )
+            passed = verdict.status not in ("hold_high", "alert_low")
             with write_conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO integrity_monitor
                         (monitor_type, subject, metric_name, metric_value,
                          threshold_value, passed, training_window_end)
-                    VALUES ('ic_lifecycle', NULL, 'regime_shift_fraction', %s, %s, false, %s)
+                    VALUES ('ic_lifecycle', %s, 'guard_fail_fraction', %s, %s, %s, %s)
                     ON CONFLICT (monitor_type, training_window_end, metric_name,
                                  COALESCE(subject, ''), evaluated_at) DO NOTHING
                     """,
-                    (
-                        regime_shift_fraction,
-                        config.decay_regime_shift_fraction,
-                        training_window_end,
-                    ),
+                    (subject, fail_fraction, nearer_bound, passed, training_window_end),
                 )
-            write_conn.commit()
-            return
 
-    # Step 4: per-feature aggregation (GROUP BY feature_name) -- demotion/promotion.
-    cells_by_feature: dict[str, list[dict]] = defaultdict(list)
-    for cell in cell_rows:
-        cells_by_feature[cell["feature_name"]].append(cell)
-
-    demotion_fraction_floor = 1.0 - config.meta_fdr_min_fraction
-    registry_status_by_feature = {
-        f["feature_name"]: f["status"] for f in registry_svc.get_all_features()
-    }
-
-    for feature_name, cells in cells_by_feature.items():
-        status = registry_status_by_feature.get(feature_name)
-
-        if status == "active":
-            active_feature_cells = [c for c in cells if c["feature_status_at_eval"] == "active"]
-            if not active_feature_cells:
-                continue
-            material_fail_cells = [c for c in active_feature_cells if c["_material_fail"]]
-            demote_fraction = len(material_fail_cells) / len(active_feature_cells)
-            if demote_fraction >= demotion_fraction_floor:
-                # Representative aggregates for the ic_* audit fields (worst cell by
-                # ic_ci_lower, its own ic_sharpe_hac, summed n_independent).
-                #
-                # Sign-aware under the flag: `_signed_margin` (set in Step 2) is
-                # ic_ci_lower for ic_sign=1 and -ic_ci_upper for ic_sign=-1 -- the
-                # smallest value is always the worst cell on ITS OWN side, so one min()
-                # correctly ranks a feature's mixed-sign cells (e.g. contrarian in one
-                # regime, positive in another) without picking a positive feature's
-                # cell using a contrarian's raw ic_ci_lower (which is meaningless for
-                # a negative-full-sample-sign estimate). Flag OFF: `_signed_margin` ==
-                # `ic_ci_lower` unconditionally (equivalence property, tested).
-                worst_cell = min(
-                    active_feature_cells,
-                    key=lambda c: c["_signed_margin"] if c["_signed_margin"] is not None else 0.0,
+            if verdict.status == "hold_high":
+                log.warning(
+                    "ic_engine.regime_shift_hold",
+                    tf=tf,
+                    regime_group=group,
+                    fraction=fail_fraction,
+                    band_lo=verdict.band_lo,
+                    band_hi=verdict.band_hi,
+                    band_source=verdict.band_source,
+                    training_window_end=str(training_window_end),
                 )
-                ic_n = sum(c["n_independent"] for c in active_feature_cells)
-                # Sign-aware audit value: report ic_ci_upper (not ic_ci_lower) for a
-                # contrarian worst_cell under the flag -- ic_ci_lower on a persistently
-                # negative estimate is not the bound that determined "worst" here.
-                worst_cell_ic_value = (
-                    worst_cell["ic_ci_upper"]
-                    if config.sign_symmetric and worst_cell["ic_sign"] == -1
-                    else worst_cell["ic_ci_lower"]
+                any_hold = True
+            elif verdict.status == "alert_low":
+                log.warning(
+                    "ic_engine.guard_suspicious_pass_rate",
+                    tf=tf,
+                    regime_group=group,
+                    fraction=fail_fraction,
+                    band_lo=verdict.band_lo,
+                    band_hi=verdict.band_hi,
+                    band_source=verdict.band_source,
+                    training_window_end=str(training_window_end),
                 )
-                transitioned = registry_svc.record_transition_sync(
-                    write_conn,
+
+    if not any_hold:
+        # Step 4: per-feature aggregation (GROUP BY feature_name) -- demotion/promotion.
+        # Unchanged from the pre-todo-144 code, just gated behind `if not any_hold:`
+        # instead of being unreachable via early return.
+        cells_by_feature: dict[str, list[dict]] = defaultdict(list)
+        for cell in cell_rows:
+            cells_by_feature[cell["feature_name"]].append(cell)
+
+        demotion_fraction_floor = 1.0 - config.meta_fdr_min_fraction
+        registry_status_by_feature = {
+            f["feature_name"]: f["status"] for f in registry_svc.get_all_features()
+        }
+
+        for feature_name, cells in cells_by_feature.items():
+            status = registry_status_by_feature.get(feature_name)
+
+            if status == "active":
+                active_feature_cells = [c for c in cells if c["feature_status_at_eval"] == "active"]
+                if not active_feature_cells:
+                    continue
+                material_fail_cells = [c for c in active_feature_cells if c["_material_fail"]]
+                demote_fraction = len(material_fail_cells) / len(active_feature_cells)
+                if demote_fraction >= demotion_fraction_floor:
+                    # Representative aggregates for the ic_* audit fields (worst cell by
+                    # ic_ci_lower, its own ic_sharpe_hac, summed n_independent).
+                    #
+                    # Sign-aware under the flag: `_signed_margin` (set in Step 2) is
+                    # ic_ci_lower for ic_sign=1 and -ic_ci_upper for ic_sign=-1 -- the
+                    # smallest value is always the worst cell on ITS OWN side, so one min()
+                    # correctly ranks a feature's mixed-sign cells (e.g. contrarian in one
+                    # regime, positive in another) without picking a positive feature's
+                    # cell using a contrarian's raw ic_ci_lower (which is meaningless for
+                    # a negative-full-sample-sign estimate). Flag OFF: `_signed_margin` ==
+                    # `ic_ci_lower` unconditionally (equivalence property, tested).
+                    worst_cell = min(
+                        active_feature_cells,
+                        key=lambda c: (
+                            c["_signed_margin"] if c["_signed_margin"] is not None else 0.0
+                        ),
+                    )
+                    ic_n = sum(c["n_independent"] for c in active_feature_cells)
+                    # Sign-aware audit value: report ic_ci_upper (not ic_ci_lower) for a
+                    # contrarian worst_cell under the flag -- ic_ci_lower on a persistently
+                    # negative estimate is not the bound that determined "worst" here.
+                    worst_cell_ic_value = (
+                        worst_cell["ic_ci_upper"]
+                        if config.sign_symmetric and worst_cell["ic_sign"] == -1
+                        else worst_cell["ic_ci_lower"]
+                    )
+                    transitioned = registry_svc.record_transition_sync(
+                        write_conn,
+                        feature_name,
+                        "active",
+                        "shadow_only",
+                        "ic_demotion",
+                        ic_value=worst_cell_ic_value,
+                        ic_sharpe=worst_cell["ic_sharpe_hac"],
+                        ic_n=ic_n,
+                    )
+                    if transitioned:
+                        ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": feature_name})
+
+            elif status == "shadow_only":
+                passes_fdr_count = sum(1 for c in cells if c["passes_fdr"])
+                pass_fraction = passes_fdr_count / len(cells)
+                passed = pass_fraction >= config.meta_fdr_min_fraction
+                new_observations = sum(c["n_independent"] for c in cells)
+                registry_svc.advance_shadow_counters_sync(
+                    write_conn, feature_name, passed, new_observations
+                )
+                if registry_svc.is_promotion_eligible(
                     feature_name,
-                    "active",
-                    "shadow_only",
-                    "ic_demotion",
-                    ic_value=worst_cell_ic_value,
-                    ic_sharpe=worst_cell["ic_sharpe_hac"],
-                    ic_n=ic_n,
-                )
-                if transitioned:
-                    ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": feature_name})
+                    config.decay_recovery_min_observations,
+                    config.decay_recovery_min_passes,
+                ):
+                    # Promotion is the status flip alone -- ic_engine NEVER writes
+                    # ensemble_weights (sole-writer invariant, T-143-12); the next ic_engine
+                    # run stamps feature_status_at_eval='active' and the next
+                    # ensemble_trainer run naturally recomputes the weight from current IC.
+                    transitioned = registry_svc.record_transition_sync(
+                        write_conn,
+                        feature_name,
+                        "shadow_only",
+                        "active",
+                        "ic_promotion",
+                    )
+                    if transitioned:
+                        ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": feature_name})
 
-        elif status == "shadow_only":
-            passes_fdr_count = sum(1 for c in cells if c["passes_fdr"])
-            pass_fraction = passes_fdr_count / len(cells)
-            passed = pass_fraction >= config.meta_fdr_min_fraction
-            new_observations = sum(c["n_independent"] for c in cells)
-            registry_svc.advance_shadow_counters_sync(
-                write_conn, feature_name, passed, new_observations
+        # Step 5: one integrity_monitor gate-evaluation fact per (non-hold) run.
+        with write_conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO integrity_monitor
+                    (monitor_type, subject, metric_name, metric_value,
+                     threshold_value, passed, training_window_end)
+                VALUES ('ic_lifecycle', NULL, 'decay_cells_flagged', %s, %s, true, %s)
+                ON CONFLICT (monitor_type, training_window_end, metric_name,
+                             COALESCE(subject, ''), evaluated_at) DO NOTHING
+                """,
+                (
+                    float(material_fail_count),
+                    config.decay_materiality_threshold,
+                    training_window_end,
+                ),
             )
-            if registry_svc.is_promotion_eligible(
-                feature_name,
-                config.decay_recovery_min_observations,
-                config.decay_recovery_min_passes,
-            ):
-                # Promotion is the status flip alone -- ic_engine NEVER writes
-                # ensemble_weights (sole-writer invariant, T-143-12); the next ic_engine
-                # run stamps feature_status_at_eval='active' and the next
-                # ensemble_trainer run naturally recomputes the weight from current IC.
-                transitioned = registry_svc.record_transition_sync(
-                    write_conn,
-                    feature_name,
-                    "shadow_only",
-                    "active",
-                    "ic_promotion",
-                )
-                if transitioned:
-                    ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": feature_name})
 
-    # Step 5: one integrity_monitor gate-evaluation fact per (non-hold) run.
-    with write_conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO integrity_monitor
-                (monitor_type, subject, metric_name, metric_value,
-                 threshold_value, passed, training_window_end)
-            VALUES ('ic_lifecycle', NULL, 'decay_cells_flagged', %s, %s, true, %s)
-            ON CONFLICT (monitor_type, training_window_end, metric_name,
-                         COALESCE(subject, ''), evaluated_at) DO NOTHING
-            """,
-            (
-                float(material_fail_count),
-                config.decay_materiality_threshold,
-                training_window_end,
-            ),
-        )
+    # Single commit point for the whole hook: guard facts (Step 3) + either Step
+    # 4/5's writes (non-hold) or nothing further (hold) -- atomic either way, no
+    # crash window where guard facts land without Step 4/5 having run.
     write_conn.commit()
 
-    # Step 6: IC staleness gauge (LIFECYCLE-05). In-run diagnostic only (Fable N6) --
-    # evaluated at the start of the NEXT run, not while a gap is ongoing.
+    # Step 6: IC staleness gauge (LIFECYCLE-05). Runs exactly once, regardless of
+    # hold -- todo 144 fix: previously skipped entirely on hold (via early return),
+    # which was incidental, not intended -- the gauge is diagnostic-only and
+    # unrelated to whether lifecycle transitions ran this cycle.
     prior_completion = _get_prior_ic_engine_completion(write_conn, manifest, training_window_end)
     age_days, alert = _evaluate_staleness(
         prior_completion, datetime.now(UTC), config.ic_staleness_alert_days
