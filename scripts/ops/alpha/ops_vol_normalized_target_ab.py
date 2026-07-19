@@ -148,7 +148,15 @@ def _parse_args() -> argparse.Namespace:
         help="Recompute every (tf, regime) stratum -- the full comparison Plan 07 runs "
         "against the corpus-wide re-run. Corpus-scale runtime; not the default.",
     )
-    parser.add_argument("--fdr-alpha", type=float, default=_FDR_ALPHA_DEFAULT)
+    parser.add_argument(
+        "--fdr-alpha",
+        type=float,
+        default=None,
+        help="BH-FDR alpha for the vol-normalized side. Default: alpha.ic.fdr_alpha "
+        "(production's live value) -- was a hardcoded 0.05 default with no APR read at "
+        "all, unlike this script's lookahead/subsample_min_stride keys, which already "
+        "load live; fixed to match (2026-07-19 naming/APR audit).",
+    )
     parser.add_argument("--cs-chunk-ts", type=int, default=_CS_CHUNK_TS_DEFAULT)
     parser.add_argument(
         "--min-independent",
@@ -166,6 +174,11 @@ def _parse_args() -> argparse.Namespace:
 async def _load_config_int(pool: asyncpg.Pool, key: str, default: int) -> int:
     row = await pool.fetchval("SELECT config_value FROM config_state WHERE config_key = $1", key)
     return int(row) if row is not None else default
+
+
+async def _load_config_float(pool: asyncpg.Pool, key: str, default: float) -> float:
+    row = await pool.fetchval("SELECT config_value FROM config_state WHERE config_key = $1", key)
+    return float(row) if row is not None else default
 
 
 async def _fetch_regime_timestamps(pool: asyncpg.Pool, tf: str, regime: str, vintage) -> list:
@@ -422,6 +435,11 @@ async def main() -> int:
         subsample_min_stride = await _load_config_int(
             pool, "alpha.ic.subsample_min_stride", _SUBSAMPLE_MIN_STRIDE_DEFAULT
         )
+        fdr_alpha = (
+            args.fdr_alpha
+            if args.fdr_alpha is not None
+            else await _load_config_float(pool, "alpha.ic.fdr_alpha", _FDR_ALPHA_DEFAULT)
+        )
         min_independent = (
             args.min_independent
             if args.min_independent is not None
@@ -435,7 +453,7 @@ async def main() -> int:
         print(
             f"tfs={tfs}, max_regimes_per_tf="
             f"{'ALL' if args.all_regimes else args.max_regimes_per_tf}, "
-            f"fdr_alpha={args.fdr_alpha}\n"
+            f"fdr_alpha={fdr_alpha}\n"
         )
 
         all_results: list[dict] = []
@@ -460,7 +478,7 @@ async def main() -> int:
                 )
                 all_results.extend(stratum_results)
 
-        _apply_pooled_vol_fdr(all_results, args.fdr_alpha)
+        _apply_pooled_vol_fdr(all_results, fdr_alpha)
 
         print(
             "| tf | regime | lookahead | n_features | n_independent | rank_corr | "
