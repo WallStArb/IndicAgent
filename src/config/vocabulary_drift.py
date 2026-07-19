@@ -272,6 +272,12 @@ class VocabularyDriftAuditor(BaseBatch):
     compute_version = "1.0.0"
 
     async def execute(self, pool: asyncpg.Pool) -> None:
+        # Not services._batch_utils.load_apr_dict_async/cfg (the pattern every
+        # services/-resident BaseBatch sibling uses) -- this file lives in src/config/
+        # (Ring 1), and services/ is Ring 2; Ring 1 may only import Ring 0
+        # (naming-system.md's Ring rule). ConfigService lives in src/config/ itself
+        # (same ring), so it's the correct-altitude choice here despite the extra
+        # object-lifecycle ceremony for a single scalar read.
         config_service = ConfigService(database_url=self._db_dsn, pool=pool)
         await config_service.initialize()
         window_days = int(

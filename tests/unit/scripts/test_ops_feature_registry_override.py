@@ -6,20 +6,13 @@ No live DB: mocks connect_db_from_url and FeatureRegistryService.record_transiti
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-_project_root = Path(__file__).parent.parent.parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+from scripts.ops.alpha.ops_feature_registry_override import main
 
-_scripts_alpha_dir = _project_root / "scripts" / "ops" / "alpha"
-if str(_scripts_alpha_dir) not in sys.path:
-    sys.path.insert(0, str(_scripts_alpha_dir))
-
-from ops_feature_registry_override import main  # noqa: E402
+_MODULE = "scripts.ops.alpha.ops_feature_registry_override"
 
 
 def _mock_conn_with_status(status: str | None):
@@ -32,7 +25,7 @@ def _mock_conn_with_status(status: str | None):
 
 @pytest.fixture(autouse=True)
 def _mock_settings():
-    with patch("ops_feature_registry_override.Settings") as mock_settings_cls:
+    with patch(f"{_MODULE}.Settings") as mock_settings_cls:
         mock_settings_cls.return_value.database_url = "postgresql+asyncpg://x/y"
         yield
 
@@ -40,7 +33,7 @@ def _mock_settings():
 class TestOpsFeatureRegistryOverride:
     def test_feature_not_found_returns_1(self, monkeypatch):
         conn = _mock_conn_with_status(None)
-        monkeypatch.setattr("ops_feature_registry_override.connect_db_from_url", lambda dsn: conn)
+        monkeypatch.setattr(f"{_MODULE}.connect_db_from_url", lambda dsn: conn)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -52,7 +45,7 @@ class TestOpsFeatureRegistryOverride:
 
     def test_already_at_target_status_is_noop(self, monkeypatch):
         conn = _mock_conn_with_status("deprecated")
-        monkeypatch.setattr("ops_feature_registry_override.connect_db_from_url", lambda dsn: conn)
+        monkeypatch.setattr(f"{_MODULE}.connect_db_from_url", lambda dsn: conn)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -71,7 +64,7 @@ class TestOpsFeatureRegistryOverride:
 
     def test_successful_transition_calls_record_transition_sync(self, monkeypatch):
         conn = _mock_conn_with_status("active")
-        monkeypatch.setattr("ops_feature_registry_override.connect_db_from_url", lambda dsn: conn)
+        monkeypatch.setattr(f"{_MODULE}.connect_db_from_url", lambda dsn: conn)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -86,10 +79,7 @@ class TestOpsFeatureRegistryOverride:
             ],
         )
         mock_record = MagicMock(return_value=True)
-        monkeypatch.setattr(
-            "ops_feature_registry_override.FeatureRegistryService.record_transition_sync",
-            mock_record,
-        )
+        monkeypatch.setattr(f"{_MODULE}.FeatureRegistryService.record_transition_sync", mock_record)
 
         assert main() == 0
         mock_record.assert_called_once()
@@ -101,7 +91,7 @@ class TestOpsFeatureRegistryOverride:
 
     def test_optimistic_lock_miss_returns_1(self, monkeypatch):
         conn = _mock_conn_with_status("active")
-        monkeypatch.setattr("ops_feature_registry_override.connect_db_from_url", lambda dsn: conn)
+        monkeypatch.setattr(f"{_MODULE}.connect_db_from_url", lambda dsn: conn)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -116,7 +106,7 @@ class TestOpsFeatureRegistryOverride:
             ],
         )
         monkeypatch.setattr(
-            "ops_feature_registry_override.FeatureRegistryService.record_transition_sync",
+            f"{_MODULE}.FeatureRegistryService.record_transition_sync",
             MagicMock(return_value=False),
         )
 
