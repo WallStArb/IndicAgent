@@ -82,6 +82,7 @@ _TFS = ("5m", "15m", "1h", "1d")
 _DEFAULT_MAX_SYMBOLS = 30
 _MIN_RELIABLE_N_DEFAULT = 100
 _DEFAULT_MAX_BARS_PER_SYMBOL = 20_000
+_FV_CHUNK_TS = 2_000
 
 _LATEST_VINTAGE_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
 _SYMBOLS_SQL = """
@@ -263,16 +264,31 @@ async def main() -> int:
             # actually observed -- not an open-ended bar_ts<=vintage range, which
             # would re-pull full corpus history regardless of --max-bars-per-symbol
             # and was the actual cause of an earlier OOM kill.
-            fv_rows = await pool.fetch(
-                f"""
-                SELECT bar_ts, symbol, {feature_cols_sql}
-                FROM feature_vectors
-                WHERE tf = $1 AND bar_ts = ANY($2::timestamptz[]) AND symbol = ANY($3::text[])
-                """,
-                tf,
-                list(observed_bar_ts),
-                symbols,
-            )
+            #
+            # Chunked (not one bar_ts=ANY(...) over the whole set) -- an unchunked
+            # fetch hit asyncpg's ProgramLimitExceededError (1GB wire-protocol string
+            # buffer) on tf=1h despite a modest ~20K-element array and ~395K matching
+            # rows, similar order to tf=5m/15m's successful larger fetches; root cause
+            # not isolated, but chunking (matching this project's existing
+            # cs_chunk_ts convention in ops_vol_normalized_target_ab.py /
+            # _compute_cross_sectional_tf) sidesteps it regardless of cause.
+            bar_ts_list = list(observed_bar_ts)
+            fv_rows: list[asyncpg.Record] = []
+            for chunk_start in range(0, len(bar_ts_list), _FV_CHUNK_TS):
+                ts_chunk = bar_ts_list[chunk_start : chunk_start + _FV_CHUNK_TS]
+                fv_rows.extend(
+                    await pool.fetch(
+                        f"""
+                        SELECT bar_ts, symbol, {feature_cols_sql}
+                        FROM feature_vectors
+                        WHERE tf = $1 AND bar_ts = ANY($2::timestamptz[])
+                          AND symbol = ANY($3::text[])
+                        """,
+                        tf,
+                        ts_chunk,
+                        symbols,
+                    )
+                )
             fv_index: dict[tuple, int] = {}
             X_all = np.empty((len(fv_rows), len(_FEATURE_NAMES)), dtype=np.float64)
             for i, r in enumerate(fv_rows):
