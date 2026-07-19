@@ -139,6 +139,11 @@ def test_namespace_unknown_returns_empty_list():
     assert service.namespace("no_such_namespace") == []
 
 
+def test_known_namespaces_returns_frozenset_of_loaded_namespaces():
+    service = _service_with_fixture()
+    assert service.known_namespaces() == frozenset({"timeframe", "regime_hmm"})
+
+
 def test_no_db_calls_after_init():
     """All hot-path readers are synchronous and touch no DB pool after caches are
     populated — hot-path reads must be zero-I/O per D-05."""

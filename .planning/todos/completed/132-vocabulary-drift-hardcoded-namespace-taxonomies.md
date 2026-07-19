@@ -1,9 +1,25 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-07-17
+closed: 2026-07-19
 source: phase 161 execution, /simplify pass (altitude review) — flagged but out of scope for a cleanup pass
 ---
+
+## Resolution
+
+Fixed (2): added `VocabularyService.known_namespaces()` (returns the frozenset of
+namespaces it actually loaded codes for) and `assert_namespace_coverage()` in
+vocabulary_drift.py, called at the top of `execute()` -- raises loud if
+`_WINDOWED_NAMESPACE_QUERIES`/`_UNWINDOWED_NAMESPACE_QUERIES`'s keys aren't a subset of
+what the registry knows, instead of silently querying a namespace with no registered
+codes (which would misread every observed code as "unregistered," a false-positive
+drift alert).
+
+Left (1) (`_REGISTERED_REGIME_GROUPS` hardcoded frozenset) as-is, per the todo's own
+conditional framing -- there's no registered-namespace equivalent to assert against
+until `regime_group` is promoted to its own `controlled_vocabulary` namespace, which
+the todo explicitly defers to "once there's a second real consumer beyond this guard."
 
 # `vocabulary_drift.py` hardcodes the taxonomies it exists to govern
 

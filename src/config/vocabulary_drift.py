@@ -22,7 +22,6 @@ Not wired into any systemd daemon/timer (D-09) -- chained as a non-blocking step
 from __future__ import annotations
 
 import asyncio
-import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
@@ -32,8 +31,9 @@ import structlog
 from src.config.config_service import ConfigService
 from src.config.settings import Settings
 from src.config.vocabulary_service import VocabularyService
-from src.core.database_manager import create_pool
-from src.observability.metrics import counter, flush_and_shutdown_metrics
+from src.core.agent.base_batch import BaseBatch
+from src.observability.metrics import counter
+from src.observability.otel import OTelInitError, init_otel_providers
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +93,29 @@ class NamespaceDriftResult:
 
     idle: bool
     unregistered: frozenset[str]
+
+
+def assert_namespace_coverage(
+    queried_namespaces: Iterable[str], known_namespaces: Iterable[str]
+) -> None:
+    """Fail loud, not silently, if this module's hardcoded namespace-query dicts
+    (_WINDOWED_NAMESPACE_QUERIES / _UNWINDOWED_NAMESPACE_QUERIES) drift out of sync
+    with the controlled_vocabulary registry VocabularyService actually loaded (todo 132).
+
+    Without this, a namespace renamed or retired in the DB would silently stop being
+    checked (or -- the sharper failure -- keep querying a namespace whose registered
+    codes VocabularyService no longer has cached, so every observed code reads as
+    "unregistered," a false-positive drift alert) with no signal that the two have
+    diverged.
+    """
+    unknown = set(queried_namespaces) - set(known_namespaces)
+    if unknown:
+        raise RuntimeError(
+            f"vocabulary_drift.py queries namespace(s) {sorted(unknown)} that "
+            "VocabularyService has no registered codes for -- this module's "
+            "namespace-query dicts have drifted out of sync with the "
+            "controlled_vocabulary registry (todo 132)"
+        )
 
 
 def classify_namespace_drift(
@@ -233,55 +256,54 @@ async def run_drift_audit(pool: asyncpg.Pool, vocab: VocabularyService, window_d
 
 
 # ---------------------------------------------------------------------------
-# Thin D-06 oneshot CLI entrypoint.
-#
-# Observability-only: never a hard gate (see 161-PATTERNS.md) -- returns non-zero only
-# on an actual runtime error, never on detected drift (drift is reported via
-# integrity_monitor + the loud alert above, not via exit code).
+# BaseBatch oneshot (todo 131). Observability-only (see 161-PATTERNS.md): a detected
+# drift is reported via integrity_monitor + the loud alert in _evaluate_and_persist,
+# never via a failing exit code -- only an actual runtime error propagates (BaseBatch's
+# own D-06 contract: an uncaught exception in execute() re-raises after recording the
+# failure, same as every other batch oneshot in this codebase).
 # ---------------------------------------------------------------------------
 
 
-async def main() -> int:
-    settings = Settings()
-    pool = await create_pool(settings.database_url, pool_name="vocabulary_drift")
+class VocabularyDriftAuditor(BaseBatch):
+    """Column-backed vocabulary drift audit, run as a chained step in
+    scripts/ops/corpus/ops_corpus_pipeline_run.sh (not a systemd timer, D-09)."""
 
-    config_service = ConfigService(database_url=settings.database_url, pool=pool)
-    await config_service.initialize()
-    window_days = int(
-        await config_service.get("infra.vocabulary_drift.window_days", _WINDOW_DEFAULT)
-    )
+    job_name = _JOB_LABEL
+    compute_version = "1.0.0"
 
-    vocab = VocabularyService(settings.database_url, pool=pool)
-    await vocab.initialize()
-
-    try:
-        drift_count = await run_drift_audit(pool, vocab, window_days)
-        print("# Vocabulary Drift Audit Report\n")
-        print(f"Recent window: {window_days} days (infra.vocabulary_drift.window_days)")
-        print(f"Namespaces/guards flagged with unregistered codes: {drift_count}")
-        print("\nPASS -- audit complete (observability-only, never a hard gate).")
-        return 0
-    except Exception as error:  # noqa: BLE001 -- oneshot boundary, must log+exit cleanly
-        logger.error("vocabulary_drift.run_failed", error=str(error))
-        print(f"\nFATAL: vocabulary drift audit failed -- {error}", file=sys.stderr)
-        return 1
-    finally:
-        await vocab.close()
-        await pool.close()
-
-
-def _run() -> int:
-    try:
-        exit_code = asyncio.run(main())
-        from src.observability.metrics import JOB_COMPLETED_TOTAL  # noqa: PLC0415
-
-        JOB_COMPLETED_TOTAL.add(
-            1, {"job": _JOB_LABEL, "status": "success" if exit_code == 0 else "failure"}
+    async def execute(self, pool: asyncpg.Pool) -> None:
+        config_service = ConfigService(database_url=self._db_dsn, pool=pool)
+        await config_service.initialize()
+        window_days = int(
+            await config_service.get("infra.vocabulary_drift.window_days", _WINDOW_DEFAULT)
         )
-        return exit_code
-    finally:
-        flush_and_shutdown_metrics()
+
+        vocab = VocabularyService(self._db_dsn, pool=pool)
+        await vocab.initialize()
+        try:
+            queried = set(_WINDOWED_NAMESPACE_QUERIES) | set(_UNWINDOWED_NAMESPACE_QUERIES)
+            assert_namespace_coverage(queried, vocab.known_namespaces())
+
+            drift_count = await run_drift_audit(pool, vocab, window_days)
+            self.logger.info(
+                "vocabulary_drift.report",
+                window_days=window_days,
+                drift_count=drift_count,
+            )
+            print("# Vocabulary Drift Audit Report\n")
+            print(f"Recent window: {window_days} days (infra.vocabulary_drift.window_days)")
+            print(f"Namespaces/guards flagged with unregistered codes: {drift_count}")
+            print("\nPASS -- audit complete (observability-only, never a hard gate).")
+        finally:
+            await vocab.close()
 
 
 if __name__ == "__main__":
-    sys.exit(_run())
+    try:
+        init_otel_providers("indicagent-vocabulary-drift-audit")
+    except OTelInitError as error:
+        logger.warning("vocabulary_drift.otel_init_failed", error=str(error))
+
+    settings = Settings()
+    db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    asyncio.run(VocabularyDriftAuditor(db_dsn=db_dsn).run())

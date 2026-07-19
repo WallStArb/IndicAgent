@@ -181,3 +181,12 @@ class VocabularyService:
     def namespace(self, namespace: str) -> list[VocabEntry]:
         """Return all VocabEntry rows for a namespace; [] if unknown."""
         return list(self._entries.get(namespace, {}).values())
+
+    def known_namespaces(self) -> frozenset[str]:
+        """Return every namespace this service loaded at least one code for.
+
+        Lets a consumer (e.g. vocabulary_drift.py, todo 132) assert its own hardcoded
+        namespace list stays a subset of the registry's actual known namespaces,
+        instead of silently drifting out of sync.
+        """
+        return frozenset(self._entries.keys())

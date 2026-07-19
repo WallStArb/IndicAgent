@@ -15,8 +15,11 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+import pytest
+
 from src.config.vocabulary_drift import (
     NamespaceDriftResult,
+    assert_namespace_coverage,
     classify_namespace_drift,
     extract_regime_hmm_codes,
     unregistered_codes,
@@ -119,3 +122,24 @@ def test_classify_namespace_drift_uses_regime_group_diff_fn():
 
     assert result.idle is False
     assert result.unregistered == frozenset({"commodity"})
+
+
+# ---------------------------------------------------------------------------
+# Behavior 5: assert_namespace_coverage (todo 132) -- this module's hardcoded
+# namespace-query dicts must stay a subset of what VocabularyService actually knows.
+# ---------------------------------------------------------------------------
+
+
+def test_assert_namespace_coverage_passes_when_all_queried_namespaces_known():
+    assert_namespace_coverage(
+        queried_namespaces=["timeframe", "asset_class"],
+        known_namespaces={"timeframe", "asset_class", "regime_hmm"},
+    )
+
+
+def test_assert_namespace_coverage_raises_on_unknown_namespace():
+    with pytest.raises(RuntimeError, match="stale_namespace"):
+        assert_namespace_coverage(
+            queried_namespaces=["timeframe", "stale_namespace"],
+            known_namespaces={"timeframe"},
+        )

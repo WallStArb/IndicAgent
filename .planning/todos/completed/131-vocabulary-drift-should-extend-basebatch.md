@@ -1,9 +1,23 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-07-17
+closed: 2026-07-19
 source: phase 161 execution, /simplify pass (reuse review) — flagged but out of scope for a cleanup pass
 ---
+
+## Resolution
+
+Converted the hand-rolled `main()`/`_run()` D-06 lifecycle to `VocabularyDriftAuditor(BaseBatch)`,
+following `tag_calibrator.py`'s pattern (no manifest, plain `execute(pool)`). Report printing and
+the `integrity_monitor`/OTel-counter side effects are unchanged; the main behavior difference is
+that a genuine runtime error now propagates as an uncaught exception (BaseBatch's `run()`
+re-raises after recording the D-06 failure metric) instead of a caught `return 1` -- matches
+every other batch oneshot's convention. No behavior change for the caller:
+`ops_corpus_pipeline_run.sh` already wraps the invocation in `|| true`, so a clean `return 1`
+and a crash-induced nonzero exit were already indistinguishable to it. Also picked up file
+logging (`logs/vocabulary_drift_audit.log`) for free via `BaseBatch.__init__`, which the old
+hand-rolled version never had.
 
 # `vocabulary_drift.py`'s oneshot entrypoint should extend `BaseBatch`
 
