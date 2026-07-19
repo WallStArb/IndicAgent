@@ -1,3 +1,9 @@
+---
+status: completed
+priority: P1
+closed: 2026-07-19
+---
+
 # 097 — Vol-normalized return target for POOLED-strata IC (split from todo 077's L3-1)
 
 **Definitive verdict, 2026-07-19 — `--all-regimes` run against the post-143.1-07 corpus**

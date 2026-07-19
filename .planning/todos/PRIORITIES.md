@@ -39,15 +39,15 @@ integrity gap, an unproven claim masquerading as settled) outranks one that's me
 | [096](pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md) | Estimator fix implemented: `_compute_ic_rolling_metrics` now uses a fixed subsampled-bar window (`alpha.ic.sharpe_window_size_subsampled=100`, migration 230) instead of raw-bars÷stride, removing the `sqrt(window_size_ratio)` deflation at long lookaheads. Threshold rescale shipped in the same migration. **Now unblocked:** corpus re-run (143.1-07) that re-derives every historical `ic_sharpe`/`hold_max_bars` value finished 2026-07-19. Reproduce/verify: `python scripts/analysis/ic_sharpe_stride_bias_check.py`. Still blocks 088 until that verification runs. |
 
 **Locked sequencing decision (project owner confirmed, do not reorder without re-confirming):**
-093 (`alpha_frames` backfill, done) → **091** → **097** (vol-normalized return target, explicit
-A/B against the raw-return baseline) → **094** (E2 sign-path fix + mandatory shadow-mode
-validation before promotion) → re-run the E1-vs-E2 A/B judgment (the prior 20/20 result was
-all-long vs all-long, doesn't carry forward) → **096** → **088** (deliberately last, informed by
-096's finding). Rationale: 091, 097, and 094 all read or directly affect
-`ic_ci_lower`/`ic_ci_upper`, and 094 independently requires a full `ic_engine` re-run —
-sequencing 091 and 097 first means one corpus re-run serves all three fixes instead of splitting
-across multiple. **Status 2026-07-19: the shared corpus re-run (143.1-07) they were all waiting
-on has completed** — 091's confirmation check is next in the chain, unblocked.
+093 (`alpha_frames` backfill, done) → 091 → **097 (done 2026-07-19, moved to `completed/`)** →
+**094** (E2 sign-path fix + mandatory shadow-mode validation before promotion) → re-run the
+E1-vs-E2 A/B judgment (the prior 20/20 result was all-long vs all-long, doesn't carry forward) →
+**096** → **088** (deliberately last, informed by 096's finding). Rationale: 091, 097, and 094 all
+read or directly affect `ic_ci_lower`/`ic_ci_upper`, and 094 independently requires a full
+`ic_engine` re-run — sequencing 091 and 097 first meant one corpus re-run served all three fixes
+instead of splitting across multiple. **Status 2026-07-19: the shared corpus re-run (143.1-07)
+completed; 091's mechanism is confirmed (stays open on todo 145) and 097 is fully closed. Next in
+the chain: 094's shadow-mode validation (143.1-08).**
 
 ## P1 — High value, quick, fully unblocked
 
@@ -56,8 +56,7 @@ on has completed** — 091's confirmation check is next in the chain, unblocked.
 | [065](pending/065-emission-layer-calibration-proposals.md) | EM-CAL threshold calibration — both prerequisite gates (rebuild, EIC-04) cleared 2026-07-09 |
 | [079](pending/079-anytime-valid-e-values-corpus-reruns.md) | Anytime-valid inference pilot (one tf) — new statistical primitive, deliberately staged small |
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |
-| [097](pending/097-vol-normalized-return-target-pooled-ic.md) | **Definitive verdict landed 2026-07-19** (full `--all-regimes` run, 106 strata, median rank correlation 0.7173): real divergence from raw, retain as a live candidate, do not retire. Todo's own deliverable (the A/B) is done — see [147](pending/147-vol-normalized-target-low-bull-divergence.md) for the new open question this surfaced before any promotion decision. |
-| [147](pending/147-vol-normalized-target-low-bull-divergence.md) | New 2026-07-19, direct fallout of 097's full-corpus run: vol-normalized vs. raw IC diverges sharply in `low_bull` regime strata specifically (median rank corr 0.35 vs. 0.73 elsewhere) — NOT a low-N artifact, some of the worst cells have 250K-436K independent obs, among the best-powered in the whole run. Mechanism unknown. Blocks any global promotion decision on 097's transform until investigated (or `low_bull` is explicitly carved out). Half a day for the cheap first check. |
+| [147](pending/147-vol-normalized-target-low-bull-divergence.md) | New 2026-07-19, direct fallout of 097's full-corpus verdict (097 closed, see `completed/`): vol-normalized vs. raw IC diverges sharply in `low_bull` regime strata specifically (median rank corr 0.35 vs. 0.73 elsewhere) — NOT a low-N artifact, some of the worst cells have 250K-436K independent obs, among the best-powered in the whole run. Mechanism unknown. Blocks any global promotion decision on 097's transform until investigated (or `low_bull` is explicitly carved out). Half a day for the cheap first check. |
 | [144](pending/144-ic-decay-regime-shift-guard-miscalibrated.md) | New 2026-07-19, direct fallout of the 143.1-07 run completing: `ic_engine`'s regime-shift guard (`alpha.decay.regime_shift_fraction=0.60`) fired for the first time ever at fraction=0.9618 and HELD all lifecycle promotion/demotion transitions — confirmed NOT a measurement bug (verified against `integrity_monitor`/`config_state`), the 0.60 threshold sits ~35 points below this corpus's normal fail rate. Fully designed fix in the todo file. ~1 day. Filed P1 by its own frontmatter — arguably P0-severity (freezes lifecycle promotion on every future run) but leaving the tier call to you. Coordination note: touches `ic_engine.py`'s lifecycle-hook path only, zero overlap with Phase 162's compute-path scope, but avoid two concurrent branches editing the file. Already being actively built in a separate worktree (`worktree-todo-144-ic-decay-guard`) as of 2026-07-19 — don't duplicate. |
 | [145](pending/145-bootstrap-dependence-length-flag.md) | New 2026-07-19, closes out 091: standing `integrity_monitor` flag for features whose autocorrelation decay exceeds their bootstrap block size (mechanism confirmed by Fable 5 — `ctf_momentum` ~4x, `flight_quality` ~750x). Half a day to a day, mostly the diagnostic-placement decision. 091 stays open until this lands. |
 | [146](pending/146-lookahead-grid-per-tf-recalibration.md) | New 2026-07-19: `alpha.ic.lookahead.*`'s uniform 1/5/20/60-bar grid empirically confirmed broken on intraday tfs — new diagnostic (`ops_lookahead_horizon_response.py`) measured 1h slow/extended and 15m extended at literal zero coverage, 5m extended at ~12% (morning-only). 1d's grid is fine as-is (IC genuinely peaks near 60). Candidate per-tf grids in the todo; 1h has no room for a slow/extended tier at all — a real open design question. Step 1-2 (diagnostic + candidate grids) done; Step 3 (apply to production APR) deliberately rides the next corpus rebuild, not now. |
@@ -76,7 +75,6 @@ on has completed** — 091's confirmation check is next in the chain, unblocked.
 | [038](pending/038-cross-sectional-collinearity-diagnostic.md) | Cross-sectional feature collinearity diagnostic vs IC |
 | [039](pending/039-tag-stratified-ic-population-check.md) | Population-count check before tag-stratified cross-sectional IC |
 | [081](pending/081-emission-meta-labeling-and-conviction-cross-ref.md) | Emission meta-labeling gate — check overlap with 065/EM-HYST before building |
-| [086](pending/086-hmm-test-coverage-gaps.md) | HMM regime-writer test coverage gaps (occupation gate, smooth-check false positive) |
 | [088](pending/088-hold-max-bars-censoring-not-tracked.md) | `hold_max_bars` calibration doesn't distinguish confirmed decay from censored data. Locked as a separately-sequenced step (093→091→097→094→A/B re-run→096→088) — see the P0 sequencing decision above. |
 | [089](pending/089-ensemble-ic-engine-recurring-cadence.md) | No recurring `ensemble_ic_engine` schedule exists — IC-decay trigger input can go stale |
 | [009](pending/009-service-utils-ic-engine-cleanup.md) | Phase B infra cleanup batch — APR compliance sweep, `BaseBatch` promotion, naming vocab, shared-utility DRY fixes, `ic_engine.py` pure-function extraction |
