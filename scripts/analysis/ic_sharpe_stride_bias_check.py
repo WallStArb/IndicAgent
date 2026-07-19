@@ -8,9 +8,18 @@ known Spearman rank correlation, i.i.d. across "time" (no real regime structure,
 no real decay). If ic_sharpe still comes out systematically lower at longer strides,
 that's estimator bias, not signal decay, by construction.
 
-Uses live APR values (fetched from config_state) for lookaheads / subsample_min_stride /
-sharpe_window_size / sharpe_min_windows / hac_max_lag / decay_threshold so the strides
-tested exactly match what services/ic_engine.py and ensemble_ic_engine.py use in production.
+Fetches live APR values from config_state (lookaheads / subsample_min_stride /
+sharpe_window_size_subsampled / sharpe_min_windows / hac_max_lag) so the strides
+tested exactly match what services/ic_engine.py and ensemble_ic_engine.py use in
+production. Re-run this after any of those APR values change -- a stale hardcoded
+snapshot silently tests the wrong config, which is exactly what happened to this
+script's own first version (it hardcoded sharpe_window_size=2000, the pre-todo-096
+raw-bars-per-stride semantics, deprecated when the actual fix shipped
+sharpe_window_size_subsampled -- see SharpeWindowConfig's docstring in ic_math.py).
+
+2026-07-19: fixed to use sharpe_window_size_subsampled (the shipped fix's field
+name, todo 096) instead of the deprecated sharpe_window_size, and to fetch APR
+live instead of a hardcoded snapshot that had silently drifted stale.
 """
 
 from __future__ import annotations
@@ -20,35 +29,59 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import psycopg2
 
 _project_root = Path(__file__).resolve().parents[0]
 sys.path.insert(0, "/home/bg/dev/indicagent")
 
+from src.config.settings import Settings  # noqa: E402
 from src.intelligence.statistics.ic_math import _compute_ic_rolling_metrics  # noqa: E402
 
-# ---------------------------------------------------------------------------
-# Live APR values (matched to production, pulled 2026-07-12 via psql)
-# ---------------------------------------------------------------------------
-LOOKAHEADS = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
-SUBSAMPLE_MIN_STRIDE = 5
-SHARPE_WINDOW_SIZE_RAW = 2000
-SHARPE_MIN_WINDOWS = 30
-HAC_MAX_LAG = 3
-DECAY_THRESHOLD = 0.1
+
+def _fetch_apr(cur, key: str, default):
+    cur.execute("SELECT config_value FROM config_state WHERE config_key = %s", (key,))
+    row = cur.fetchone()
+    return type(default)(row[0]) if row else default
+
+
+_settings = Settings()
+_dsn = _settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+with psycopg2.connect(_dsn) as _conn, _conn.cursor() as _cur:
+    LOOKAHEADS = {
+        "fast": _fetch_apr(_cur, "alpha.ic.lookahead.fast", 1),
+        "mid": _fetch_apr(_cur, "alpha.ic.lookahead.mid", 5),
+        "slow": _fetch_apr(_cur, "alpha.ic.lookahead.slow", 20),
+        "extended": _fetch_apr(_cur, "alpha.ic.lookahead.extended", 60),
+    }
+    SUBSAMPLE_MIN_STRIDE = _fetch_apr(_cur, "alpha.ic.subsample_min_stride", 5)
+    SHARPE_WINDOW_SIZE_SUBSAMPLED = _fetch_apr(_cur, "alpha.ic.sharpe_window_size_subsampled", 100)
+    SHARPE_MIN_WINDOWS = _fetch_apr(_cur, "alpha.ic.sharpe_min_windows", 30)
+    HAC_MAX_LAG = _fetch_apr(_cur, "alpha.ic.hac_max_lag", 3)
+DECAY_THRESHOLD = 0.1  # script-local Monte Carlo reporting cutoff, not an APR key
 
 STRIDES = {scale: max(SUBSAMPLE_MIN_STRIDE, lookahead) for scale, lookahead in LOOKAHEADS.items()}
+print(
+    "Live APR values used:",
+    {
+        "lookaheads": LOOKAHEADS,
+        "subsample_min_stride": SUBSAMPLE_MIN_STRIDE,
+        "sharpe_window_size_subsampled": SHARPE_WINDOW_SIZE_SUBSAMPLED,
+        "sharpe_min_windows": SHARPE_MIN_WINDOWS,
+        "hac_max_lag": HAC_MAX_LAG,
+    },
+)
 print("Strides derived from live APR (scale: stride):", STRIDES)
 
 
 @dataclass
 class _Cfg:
-    sharpe_window_size: int
+    sharpe_window_size_subsampled: int
     sharpe_min_windows: int
     hac_max_lag: int
 
 
 CONFIG = _Cfg(
-    sharpe_window_size=SHARPE_WINDOW_SIZE_RAW,
+    sharpe_window_size_subsampled=SHARPE_WINDOW_SIZE_SUBSAMPLED,
     sharpe_min_windows=SHARPE_MIN_WINDOWS,
     hac_max_lag=HAC_MAX_LAG,
 )
@@ -117,7 +150,10 @@ def run(true_rho: float, n_raw: int, n_reps: int, seed: int) -> None:
     )
     for scale, stride in STRIDES.items():
         vals = np.array(results[scale])
-        window_sz = max(1, SHARPE_WINDOW_SIZE_RAW // stride)
+        # Fixed subsampled-bar window (todo 096's fix): constant across every stride
+        # by construction, not raw_bars // stride -- printed per-scale only so the
+        # table's column is easy to read against n_windows, not because it varies.
+        window_sz = CONFIG.sharpe_window_size_subsampled
         avg_nw = np.mean(n_windows_by_scale[scale])
         if len(vals) == 0:
             print(
@@ -133,7 +169,11 @@ def run(true_rho: float, n_raw: int, n_reps: int, seed: int) -> None:
 
 
 if __name__ == "__main__":
-    N_RAW = 90_000
+    # 90_000 (this script's original value) left `extended` (stride=60) unable to
+    # clear the sharpe_min_windows=30 reliability gate: 90_000/60=1500 subsampled
+    # obs / window_size=100 = 15 windows, below the 30 floor -- a Monte Carlo
+    # sample-size artifact, not a fix problem. Raised so all four scales report.
+    N_RAW = 400_000
     N_REPS = 150
     SEED = 42
 
