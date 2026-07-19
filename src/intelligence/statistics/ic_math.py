@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import math
 import warnings
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Literal, Protocol
 
 import numpy as np
 from scipy.stats import norm, rankdata
@@ -917,4 +919,98 @@ def _compute_ic_rolling_metrics(
         _expand(sortino_nd, non_degenerate_mask, n),
         _expand(win_rate_nd, non_degenerate_mask, n),
         n_windows,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stratified regime-shift guard (todo 144): pure decision, no DB/clock/config.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GuardVerdict:
+    """Verdict for one (tf, regime_group) stratum's fail-fraction this run.
+
+    band_source distinguishes a cold-start decision (seeded rails only, no
+    history yet) from a calibrated one (empirical median/MAD band, intersected
+    with the rails) -- callers can log/alert differently on "seeded" verdicts
+    to signal the guard hasn't self-calibrated yet for that stratum.
+    """
+
+    status: Literal["ok", "hold_high", "alert_low", "insufficient_cells"]
+    band_lo: float
+    band_hi: float
+    band_source: Literal["seeded", "empirical"]
+    n_history: int
+
+
+def evaluate_guard_fraction(
+    fail_fraction: float,
+    n_cells: int,
+    history: Sequence[float],
+    *,
+    min_cells: int,
+    min_history: int,
+    band_z: float,
+    rail_lo: float,
+    rail_hi: float,
+) -> GuardVerdict:
+    """Decide whether one stratum's fail-fraction is ordinary or anomalous.
+
+    Two layers, always intersected so the empirical layer can only TIGHTEN the
+    seeded rails, never widen past them (a slowly-drifting baseline cannot
+    self-normalize an emerging problem into "ok"):
+
+    1. Seeded rails [rail_lo, rail_hi] -- always active, empirically grounded
+       against this corpus's known base rate (not a guess).
+    2. Empirical band (median +/- band_z * 1.4826*MAD over `history`) -- only
+       once len(history) >= min_history. Falls back to the seeded rails if the
+       history is degenerate (MAD == 0), since a zero-width band would flag
+       almost any value.
+
+    A stratum with fewer than min_cells active cells is never hold-authoritative
+    (status="insufficient_cells") -- its fraction is too noisy (small-N binomial
+    variance) to trust either as a hold trigger or as history for other strata.
+    """
+    if n_cells < min_cells:
+        return GuardVerdict(
+            status="insufficient_cells",
+            band_lo=rail_lo,
+            band_hi=rail_hi,
+            band_source="seeded",
+            n_history=len(history),
+        )
+
+    n_history = len(history)
+    if n_history >= min_history:
+        history_arr = np.asarray(history, dtype=np.float64)
+        median = float(np.median(history_arr))
+        mad = float(np.median(np.abs(history_arr - median)))
+        if mad > 0.0:
+            robust_std = 1.4826 * mad
+            band_lo = max(median - band_z * robust_std, rail_lo)
+            band_hi = min(median + band_z * robust_std, rail_hi)
+            band_source: Literal["seeded", "empirical"] = "empirical"
+        else:
+            # Degenerate history (zero spread) -- fall back to the rails rather
+            # than collapse to a single point.
+            band_lo, band_hi = rail_lo, rail_hi
+            band_source = "seeded"
+    else:
+        band_lo, band_hi = rail_lo, rail_hi
+        band_source = "seeded"
+
+    if fail_fraction > band_hi:
+        status: Literal["ok", "hold_high", "alert_low"] = "hold_high"
+    elif fail_fraction < band_lo:
+        status = "alert_low"
+    else:
+        status = "ok"
+
+    return GuardVerdict(
+        status=status,
+        band_lo=band_lo,
+        band_hi=band_hi,
+        band_source=band_source,
+        n_history=n_history,
     )
