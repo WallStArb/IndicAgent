@@ -1,9 +1,21 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-07-13
+closed: 2026-07-19
 source: Fable review of todo 104 (calendar/OPEX primitives), `docs/research/signal-temporal-atomic-primitives.md`
 ---
+
+## Resolution
+
+Migration 235: `UPDATE feature_registry SET group_name = 'structure' WHERE feature_name =
+'above_wk_vwap'`. Chose `structure` over `volatility` -- it's the closest existing category
+by computation class (price position relative to a reference level, same shape as
+`range_position`/`bar_close_pos`/`gap_z`/`high_52w_dist`, all already `structure`). Applied
+to the live DB. No test pinned the old `calendar` value. `feature_factory.py`'s
+`FEATURE_VECTOR_DOMAIN` dict (a separate, coarser taxonomy used elsewhere, not read by
+`feature_registry` or `ic_engine.py`) was left untouched -- out of scope, different
+vocabulary (`quant`/`structural`/`regime` vs. `feature_registry`'s CHECK-constrained set).
 
 # `above_wk_vwap` is mis-grouped as `calendar` in `feature_registry`
 
