@@ -971,6 +971,11 @@ def evaluate_guard_fraction(
     A stratum with fewer than min_cells active cells is never hold-authoritative
     (status="insufficient_cells") -- its fraction is too noisy (small-N binomial
     variance) to trust either as a hold trigger or as history for other strata.
+
+    `history` order: the production caller (ic_engine.py's `_run_lifecycle_hook`)
+    passes rows `ORDER BY evaluated_at DESC` (newest-first). This is fine either
+    way -- median and MAD are order-invariant statistics, so the empirical band
+    above comes out identical regardless of the sequence's order.
     """
     if n_cells < min_cells:
         return GuardVerdict(

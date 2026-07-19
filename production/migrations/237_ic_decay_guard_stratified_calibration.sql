@@ -26,8 +26,8 @@ VALUES
     '[rca_analysis] Upper rail for the per-(tf, regime_group) lifecycle regime-shift '
     'guard (todo 144). Above this fraction of active cells failing simultaneously, '
     'even historical survivors are dying together -- hold all lifecycle transitions. '
-    'Grounded in the 2026-07-19 RCA against EIC-04''s established 96-98%% normal '
-    'failure-rate base (35/1585=2.21%%, 54/1425=3.79%% pass rates). Not an ML '
+    'Grounded in the 2026-07-19 RCA against EIC-04''s established 96-98% normal '
+    'failure-rate base (35/1585=2.21%, 54/1425=3.79% pass rates). Not an ML '
     'learning target.'
 ),
 (
@@ -37,7 +37,7 @@ VALUES
     0.0, 0.99,
     '[rca_analysis] Lower rail for the per-(tf, regime_group) lifecycle regime-shift '
     'guard (todo 144). Below this fraction failing (i.e. a suspiciously HIGH pass '
-    'rate, 4-7x the known ~2-4%% base), alert (do not hold) -- likely CI '
+    'rate, 4-7x the known ~2-4% base), alert (do not hold) -- likely CI '
     'overconfidence (see todo 091, _fisher_z_ci may be too narrow) or a measurement '
     'bug, not genuine mass recovery. Not an ML learning target.'
 ),
@@ -114,7 +114,7 @@ SET description = '[SUPERSEDED by todo 144, migration 237 -- see alpha.decay.gua
     'keys] Was: fraction of (feature, symbol, tf) cells simultaneously showing decay '
     'that classifies an event as a market regime shift. No longer read by '
     'ic_engine.py as of migration 237 -- the flat 0.60 threshold sat ~35 points '
-    'below this corpus''s known-normal 96-98%% failure rate and tripped on '
+    'below this corpus''s known-normal 96-98% failure rate and tripped on '
     'effectively every run.'
 WHERE config_key = 'alpha.decay.regime_shift_fraction';
 
