@@ -175,7 +175,7 @@ def topic_alpha_events(env_name: str) -> str:
     crosses the per-TF emission threshold (alpha.quant.threshold.{tf} APR key) and
     the effective_N gate is met (alpha.ensemble.effective_n_gate).
 
-    Payload schema: see alpha_events DB table (production/migrations/168_ensemble_tables.sql).
+    Payload schema: see alpha_events DB table (production/migrations/164_ensemble_tables.sql).
     topic pattern: <env>.alpha.events (dots only, via stream_keys.py).
     """
     return f"{env_prefix(env_name)}alpha.events"
@@ -545,4 +545,4 @@ def system_events(env_prefix: str) -> str:
 # Pattern helpers (ticks_pattern, market_pattern, etc.) removed in Phase 30.
 # No remaining callers in services/ or src/api/.
 # drift_ks and drift_cusum removed in Phase 30 — replaced by drift_state DB table.
-# See production/migrations/030_drift_state.sql.
+# See production/migrations/028_drift_state.sql.

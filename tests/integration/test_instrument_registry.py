@@ -56,7 +56,7 @@ async def test_trigger_installed():
         names = {row["trigger_name"] for row in trigger_names}
         assert "trg_instruments_notify" in names, (
             f"trg_instruments_notify trigger not found. Installed triggers: {names}. "
-            "Apply production/migrations/220_instruments_notify_trigger.sql."
+            "Apply production/migrations/213_instruments_notify_trigger.sql."
         )
     finally:
         await conn.close()

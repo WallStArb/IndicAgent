@@ -135,7 +135,7 @@ _DAG_ORDER: dict[str, int] = {
 # ServiceAuditor._load_lag_thresholds() at startup and hot-reloaded via
 # _on_config_message_received when alert.lag.* Kafka updates arrive.
 # The original 21 entries were seeded into config_schema and config_state
-# by production/migrations/109_config_foundation.sql (Phase 109 Plan 05 Task 3).
+# by production/migrations/103_config_foundation.sql (Phase 109 Plan 05 Task 3).
 
 # Maps persistence_consumer_lag agent_id label -> systemd unit name.
 # Keys MUST match the auto-derived agent_id from BaseDaemon._to_snake_case(ClassName)

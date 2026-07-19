@@ -271,7 +271,7 @@ def test_lag_thresholds_cover_consumers():
     config_state rows (alert.lag.*). This test verifies the migration contains
     the expected keys for the consumers that previously had entries.
     """
-    migration_path = "production/migrations/109_config_foundation.sql"
+    migration_path = "production/migrations/103_config_foundation.sql"
     with open(migration_path) as f:
         migration_sql = f.read()
 

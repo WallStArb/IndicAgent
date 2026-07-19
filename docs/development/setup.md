@@ -208,7 +208,7 @@ sudo systemctl restart indicagent-ibkr-provider
 | Full infrastructure stack | `production/docker-compose.yml` |
 | Prometheus config | `production/prometheus.yml` |
 | Grafana provisioning | `production/grafana/` |
-| DB migrations | `production/migrations/0*.sql` |
+| DB migrations | `production/migrations/*.sql` |
 | Apply migrations | `scripts/infrastructure/setup/infrastructure_db_setup.sh` |
 | Verify schema | `scripts/debug/validate/debug_db_verify.sh` |
 | Init Redpanda topics | `scripts/infrastructure/setup/infrastructure_init_kafka_topics.py` |

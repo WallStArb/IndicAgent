@@ -20,6 +20,32 @@ is exactly the class of drift (Phase 160's migrations 233/234) this check exists
 
 Deliberately a directory-level conftest.py (not folded into tests/conftest.py) so the
 rebuild cost is only paid for the tests/integration/ suite, never the unit test loop.
+
+2026-07-18: bumped baseline from 2026-07-14 (cutoff 234) to 2026-07-18 (cutoff 241,
+later renumbered to 234 - see below). The pre-bump migration numbered 237 (landed
+2026-07-17, after the old cutoff) did pure DML - UPDATE/INSERT/DELETE on
+`instrument_tags` keyed by rows only an earlier pre-cutoff migration (schema-only in
+the baseline) had inserted - so replaying it against the old baseline's empty
+`instrument_tags`/`tag_vocabulary` tables threw a real FK violation
+(`instrument_tags_tag_fkey`, tag='spread_leg' not in tag_vocabulary). This had been
+silently broken since that migration landed; nothing caught it because this suite only
+runs under `pytest -m integration`, never in CI (no GitHub-hosted runner has a path to
+the local production DB this test needs). Bumping the cutoff to the latest migration
+and regenerating the baseline from current production is the fix the module docstring
+above already prescribes ("bump this... periodically, or whenever this drifts far
+enough to be annoying") - there is no way to reconstruct the exact 2026-07-14 data
+state now that production has moved past it, so this resets the goalposts to today
+rather than guessing at history.
+
+2026-07-18 (later same day): production/migrations/ was renumbered to close 14
+duplicate leading-number collisions accumulated across the project's history
+(001 through 239 - concurrent worktree sessions repeatedly picking the same "next"
+number independently). The renumbering only changes filenames, never file content, so
+the baseline dump above (a snapshot of production's actual live schema, independent of
+migration filenames) needed no changes - only _BASELINE_MIGRATION_CUTOFF below, which
+is a pure filename-number comparison. Old range was 001-241 with gaps and duplicates;
+new range is a clean 001-234 with none, so the cutoff drops from 241 to 234 (still
+"every migration that exists today," just counted correctly).
 """
 
 from __future__ import annotations
@@ -38,9 +64,9 @@ _TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
 _TEST_DB_NAME = "indicagent_test"
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
-_BASELINE_SCHEMA_SQL = _FIXTURES_DIR / "schema_baseline_2026-07-14.sql"
-_BASELINE_HYPERTABLES_SQL = _FIXTURES_DIR / "schema_baseline_2026-07-14_hypertables.sql"
-_SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-07-14.sql"
+_BASELINE_SCHEMA_SQL = _FIXTURES_DIR / "schema_baseline_2026-07-18.sql"
+_BASELINE_HYPERTABLES_SQL = _FIXTURES_DIR / "schema_baseline_2026-07-18_hypertables.sql"
+_SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-07-18.sql"
 
 # Highest migration number folded into the baseline snapshot above. Only migrations
 # numbered above this need to be replayed on top - everything <= this is already

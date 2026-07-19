@@ -15,7 +15,7 @@ pip install -r requirements.txt
 cd production && docker compose up -d redpanda
 
 # Database schema
-for f in production/migrations/0*.sql; do psql -U postgres -d indicagent -f "$f"; done
+for f in production/migrations/*.sql; do psql -U postgres -d indicagent -f "$f"; done
 ```
 
 ## System Operations

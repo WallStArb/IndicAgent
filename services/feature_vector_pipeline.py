@@ -250,7 +250,7 @@ class FeatureVectorPipeline(BaseDaemon):
         if not await self._db.instruments_trigger_exists():
             raise RuntimeError(
                 "instruments pg_notify trigger (trg_instruments_notify) is missing — "
-                "apply production/migrations/220_instruments_notify_trigger.sql before "
+                "apply production/migrations/213_instruments_notify_trigger.sql before "
                 "starting FeatureVectorPipeline"
             )
         listener_task = self._cache_mgr.start_instruments_listener()

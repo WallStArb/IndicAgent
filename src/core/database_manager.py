@@ -150,7 +150,7 @@ class DatabaseManager:
         """Check whether the instruments pg_notify trigger is installed.
 
         Read-only — the trigger itself is schema bootstrap, installed via migration
-        220 (`production/migrations/220_instruments_notify_trigger.sql`), not created
+        213 (`production/migrations/213_instruments_notify_trigger.sql`), not created
         here. Compute daemons (e.g. FeatureVectorPipeline) call this at startup and
         fail loudly if it returns False rather than silently degrading to a listener
         that will never receive a notification (DAG Invariants 2/3).

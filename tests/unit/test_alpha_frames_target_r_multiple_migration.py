@@ -1,4 +1,4 @@
-"""Unit tests: migration 215 (alpha_frames.target_r_multiple + bootstrap seed) DDL assertions.
+"""Unit tests: migration 207 (alpha_frames.target_r_multiple + bootstrap seed) DDL assertions.
 
 No DB. Reads the migration SQL text and asserts structural properties (code-review CR-02/WR-01).
 """
@@ -11,7 +11,7 @@ _MIGRATION_PATH = (
     Path(__file__).parent.parent.parent
     / "production"
     / "migrations"
-    / "215_alpha_frames_target_r_multiple.sql"
+    / "207_alpha_frames_target_r_multiple.sql"
 )
 
 
@@ -19,7 +19,7 @@ def _read_migration() -> str:
     return _MIGRATION_PATH.read_text()
 
 
-def test_migration_215_file_exists():
+def test_migration_207_file_exists():
     assert _MIGRATION_PATH.exists()
 
 

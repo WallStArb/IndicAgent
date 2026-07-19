@@ -1,4 +1,4 @@
-"""Unit tests: migration 214 (alpha_frames schema) DDL assertions.
+"""Unit tests: migration 205 (alpha_frames schema) DDL assertions.
 
 No DB. Reads the migration SQL text and asserts structural properties, mirroring
 test_ensemble_ic_config.py's schema-assertion style applied to raw SQL text.
@@ -12,7 +12,7 @@ _MIGRATION_PATH = (
     Path(__file__).parent.parent.parent
     / "production"
     / "migrations"
-    / "214_alpha_frames_schema.sql"
+    / "205_alpha_frames_schema.sql"
 )
 
 
