@@ -81,6 +81,7 @@ _HORIZON_GRIDS: dict[str, tuple[int, ...]] = {
 _TFS = ("5m", "15m", "1h", "1d")
 _DEFAULT_MAX_SYMBOLS = 30
 _MIN_RELIABLE_N_DEFAULT = 100
+_DEFAULT_MAX_BARS_PER_SYMBOL = 20_000
 
 _LATEST_VINTAGE_SQL = "SELECT max(training_window_end) FROM feature_ic_scores"
 _SYMBOLS_SQL = """
@@ -95,14 +96,20 @@ def _build_horizon_response_sql(horizons: tuple[int, ...], tf: str) -> str:
     grid. Same ROWS BETWEEN explicit frame (avoids default range-frame tie semantics,
     RESEARCH.md F8), same same-ET-session completeness gate for intraday tfs, no
     session gate for 1d. Column names are h{n} (n = raw bar count), not scale names.
+
+    Bounded to the most recent $4 bars per symbol (via `recent`), not the full
+    corpus history -- an early unbounded version of this script (full history x up
+    to 30 symbols on 5m, ~78 bars/session over years) got OOM-killed. This is a
+    diagnostic, not a corpus measurement; a bounded recent window is plenty of power
+    for a completeness/IC-decay curve and keeps this cheap by construction.
     """
     max_n = max(horizons)
     frame_size = max_n + 1
     is_intraday = tf in ("5m", "15m", "1h")
 
-    lead_col_list = [f"LEAD(m.open, {n + 1}) OVER w AS open_h{n}" for n in horizons]
+    lead_col_list = [f"LEAD(open, {n + 1}) OVER w AS open_h{n}" for n in horizons]
     lead_cols = ",\n        ".join(lead_col_list)
-    lead_t1 = "LEAD(m.open, 1) OVER w AS open_entry"
+    lead_t1 = "LEAD(open, 1) OVER w AS open_entry"
 
     return_col_list = [
         f"CASE WHEN open_entry > 0 AND open_h{n} > 0 "
@@ -112,7 +119,7 @@ def _build_horizon_response_sql(horizons: tuple[int, ...], tf: str) -> str:
     return_cols = ",\n    ".join(return_col_list)
 
     if is_intraday:
-        fwd_ts_col_list = [f"LEAD(m.timestamp, {n + 1}) OVER w AS fwd_ts_h{n}" for n in horizons]
+        fwd_ts_col_list = [f"LEAD(timestamp, {n + 1}) OVER w AS fwd_ts_h{n}" for n in horizons]
         fwd_ts_cols = ",\n        ".join(fwd_ts_col_list)
         fwd_ts_select = f",\n        {fwd_ts_cols}"
         complete_col_list = [
@@ -129,19 +136,25 @@ def _build_horizon_response_sql(horizons: tuple[int, ...], tf: str) -> str:
     complete_cols = ",\n    ".join(complete_col_list)
 
     return f"""
-WITH windowed AS (
-    SELECT
-        m.timestamp                            AS bar_ts,
-        m.symbol,
-        {lead_t1},
-        {lead_cols}{fwd_ts_select}
+WITH recent AS (
+    SELECT m.timestamp, m.symbol, m.open
     FROM market_data_ohlcv_tradeable m
     WHERE m.symbol    = $1
       AND m.timeframe  = $2
       AND m.timestamp <= $3
+    ORDER BY m.timestamp DESC
+    LIMIT $4
+),
+windowed AS (
+    SELECT
+        timestamp                              AS bar_ts,
+        symbol,
+        {lead_t1},
+        {lead_cols}{fwd_ts_select}
+    FROM recent
     WINDOW w AS (
-        PARTITION BY m.symbol
-        ORDER BY m.timestamp
+        PARTITION BY symbol
+        ORDER BY timestamp
         ROWS BETWEEN CURRENT ROW AND {frame_size} FOLLOWING
     )
 )
@@ -158,6 +171,13 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-symbols", type=int, default=_DEFAULT_MAX_SYMBOLS)
     parser.add_argument("--min-reliable-n", type=int, default=None)
+    parser.add_argument(
+        "--max-bars-per-symbol",
+        type=int,
+        default=_DEFAULT_MAX_BARS_PER_SYMBOL,
+        help="Most recent N bars per (symbol, tf) to pull -- bounds cost; see "
+        "_build_horizon_response_sql docstring.",
+    )
     return parser.parse_args()
 
 
@@ -167,10 +187,15 @@ async def _load_config_int(pool: asyncpg.Pool, key: str, default: int) -> int:
 
 
 async def _fetch_horizon_response_rows(
-    pool: asyncpg.Pool, tf: str, symbol: str, vintage, horizons: tuple[int, ...]
+    pool: asyncpg.Pool,
+    tf: str,
+    symbol: str,
+    vintage,
+    horizons: tuple[int, ...],
+    max_bars_per_symbol: int,
 ) -> list[asyncpg.Record]:
     sql = _build_horizon_response_sql(horizons, tf)
-    return await pool.fetch(sql, symbol, tf, vintage)
+    return await pool.fetch(sql, symbol, tf, vintage, max_bars_per_symbol)
 
 
 async def main() -> int:
@@ -219,27 +244,33 @@ async def main() -> int:
             per_horizon_keys: dict[int, list[tuple]] = {n: [] for n in horizons}
             n_bars_total = 0
 
+            observed_bar_ts: set = set()
             for symbol in symbols:
-                rows = await _fetch_horizon_response_rows(pool, tf, symbol, vintage, horizons)
+                rows = await _fetch_horizon_response_rows(
+                    pool, tf, symbol, vintage, horizons, args.max_bars_per_symbol
+                )
                 n_bars_total += len(rows)
                 for r in rows:
+                    observed_bar_ts.add(r["bar_ts"])
                     for n in horizons:
                         per_horizon_returns[n].append(r[f"return_h{n}"])
                         per_horizon_complete[n].append(r[f"complete_h{n}"])
                         per_horizon_keys[n].append((r["bar_ts"], symbol))
 
-            # Fetch feature_vectors ONCE per tf (not once per horizon -- the prior
-            # version re-fetched and re-parsed up to 8x per tf, dominating runtime) and
-            # build one X matrix + (bar_ts, symbol) -> row-index map, reused by every
-            # horizon below.
+            # Fetch feature_vectors ONCE per tf (not once per horizon -- an earlier
+            # version re-fetched and re-parsed up to 8x per tf, dominating runtime),
+            # restricted to the exact bar_ts set the bounded raw-return fetch above
+            # actually observed -- not an open-ended bar_ts<=vintage range, which
+            # would re-pull full corpus history regardless of --max-bars-per-symbol
+            # and was the actual cause of an earlier OOM kill.
             fv_rows = await pool.fetch(
                 f"""
                 SELECT bar_ts, symbol, {feature_cols_sql}
                 FROM feature_vectors
-                WHERE tf = $1 AND bar_ts <= $2 AND symbol = ANY($3::text[])
+                WHERE tf = $1 AND bar_ts = ANY($2::timestamptz[]) AND symbol = ANY($3::text[])
                 """,
                 tf,
-                vintage,
+                list(observed_bar_ts),
                 symbols,
             )
             fv_index: dict[tuple, int] = {}
