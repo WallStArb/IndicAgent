@@ -1,25 +1,33 @@
 ---
 **Created:** 2026-06-28
+**Closed:** 2026-07-19 — REJECTED/SUPERSEDED, not built
 **Area:** intelligence
 **Type:** new_feature
 **Priority:** P3
-**Effort:** 7-10 days for the full generator — NOT the next step, see Trigger below
+**Effort:** 7-10 days for the full generator — moot, see closure note below
 **Benefit:** Automatic generation of compound primitives (e.g., momentum_rank_z × volatility_rank_z), IF the pilot proves the premise
 **Risk:** medium (combinatorial explosion needs capping; also see statistical risks below)
-**Gate:** Pilot IC test (037) shows real incremental IC — NOT merely "primitives expansion complete"
+**Gate:** N/A — closed. The evidence gate (todo 037) fired 2026-07-10, but the specific
+combinatorial mechanism this todo describes was independently rejected by Phase 151 on a
+statistical-power ground unrelated to evidence, so no future evidence reopens it. See below.
 ---
 
 # 019 — Interaction Factory
 
-**Status:** Evidence gate fired (todo 037 PASSED, 2026-07-10) but remains correctly deferred —
-Phase 151 (`ROADMAP.md`) already rejected this todo's specific combinatorial mechanism on an
-independent ground (BH-FDR loses meaningful power at ~30K simultaneous candidates, a problem
-orthogonal to whether the atomics are IC-saturated) and committed instead to a curated ≤50-
-feature Theory-Motivated Interaction Layer. 037's PASS confirms interaction effects are real
-and worth pursuing (validating Phase 151's direction), but does not revive this todo's
-specific full-generator design — that would require separately revisiting Phase 151's own
-BH-FDR-power rejection, not just re-citing 037.
-**Priority:** Deferred (superseded in practice by Phase 151's implementation choice; would
+**Status: CLOSED — REJECTED/SUPERSEDED (2026-07-19).** Evidence gate fired (todo 037 PASSED,
+2026-07-10), but this todo's specific combinatorial mechanism was already independently
+rejected by Phase 151 (`ROADMAP.md`) on a separate ground: BH-FDR loses meaningful power at
+~30K simultaneous candidates (~1,500 expected false discoveries regardless of pre-screening),
+a problem orthogonal to whether the atomics are IC-saturated. Phase 151 committed instead to a
+curated ≤50-feature Theory-Motivated Interaction Layer, which is the live path for pursuing
+interaction effects. 037's PASS confirms interaction effects are real and worth pursuing
+(validating Phase 151's direction), but does not revive this todo's full-generator design —
+that would require separately overturning Phase 151's BH-FDR-power rejection, a design
+decision, not an evidence threshold, so it cannot be re-triggered by citing 037 again. Moved
+from `deferred/` to `completed/` (closed-as-rejected, not done) so it stops being read as
+gated-and-pending. Concept preserved for reference in
+`docs/research/intel-feature-interaction-factory.md`, itself already marked superseded.
+**Priority:** Closed (superseded in practice by Phase 151's implementation choice; would
 need a deliberate future decision to re-open)
 **Depends on:** 008-feature-registry (metadata required, implemented), primitives expansion
 landed (89 Renaissance primitives live, 2026-07-09), IC engine stable on full 80-symbol
