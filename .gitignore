@@ -322,5 +322,8 @@ COPILOT.md
 # Playwright MCP working directory (screenshots, YAMLs, console logs)
 .playwright-mcp/
 
+# superpowers subagent-driven-development progress ledger — ephemeral, per-worktree scratch
+.superpowers/
+
 # Project root memory directory (local session artifacts)
 memory/
