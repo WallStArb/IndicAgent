@@ -1196,8 +1196,12 @@ statement about one slot, not two different things.
 
 ```
 feature measurement  →  feature synthesis  →  regime classifier  →  predictive measurement
-       →  ensemble optimizer  →  alpha scorer  →  alpha emitter
+       →  ensemble optimizer  →  alpha scorer  →  predictive measurement (ensemble grain)  →  alpha emitter
 ```
+
+`predictive measurement` recurs a second time after `alpha scorer` -- same slot, same
+operation (does this predictor predict returns), different input (the ensemble's combined
+`alpha_score` instead of a single feature column) and different grain. Not a second slot.
 
 ---
 
@@ -1273,26 +1277,32 @@ process; `regime` is the result.
 
 ### `predictive measurement`
 
-The functional slot that measures whether each feature in the FeatureVector predicts
-forward returns, across regimes, timeframes, and lookahead windows. Produces a scored
-record per (feature, symbol, tf, regime, lookahead) that quantifies predictive strength
-and statistical confidence.
+The functional slot that measures whether a predictor column predicts forward returns,
+across regimes, timeframes, and lookahead windows. Produces a scored record per
+(predictor, symbol, tf, regime, lookahead) that quantifies predictive strength and
+statistical confidence.
 
 Multiple predictive measurement methods can coexist, each capturing a different aspect
-of the feature-return relationship.
+of the predictor-return relationship. The slot also recurs at two pipeline positions on
+different grains, not just once:
 
-**Current implementation:** Spearman IC (`ic_engine.py`) → `feature_ic_scores`
+- **Feature grain** (pre-weighting, between `regime classifier` and `ensemble optimizer`):
+  measures whether each individual feature in the `FeatureVector` predicts forward returns.
+  **Current implementation:** Spearman IC (`ic_engine.py`) → `feature_ic_scores`
+- **Ensemble grain** (post-scoring, after `alpha scorer`): the same operation applied to
+  the ensemble's own combined `alpha_score` instead of a single feature column -- does the
+  *ensemble's* prediction predict returns, not just its inputs.
+  **Current implementation:** Phase 142A's EIC, `ensemble_ic_engine.py` → `alpha_ensemble_ic`
+
+Both recurrences are the same slot doing the same job at a different point in the
+pipeline -- not two separate slots each needing their own name (see todo 114, which
+corrected this entry's original feature-grain-only wording).
+
 **Planned additions:** Mutual Information (`feature_mi_scores`), R²_OOS (column on
 `feature_ic_scores`), IC decay curve (`feature_decay_profiles`) -- see todo 029
 **Not:** a synonym for IC. IC is one predictive measurement method; the slot can hold
 others. Say "the predictive measurement layer" when the statement applies regardless
-of which method is used.
-
-**Gap found 2026-07-13 (`MeasurementEngine` entry above):** this slot is scoped to
-feature-level IC only. Ensemble-level measurement (Phase 142A's EIC, `ensemble_ic_engine.py`
--> `alpha_ensemble_ic`) does the same functional job one level up -- "does this predictor
-predict returns" -- but has no named slot in this vocabulary at all. Not filed as a todo yet;
-flag here so the gap isn't silently lost.
+of which method or grain is used.
 
 ---
 

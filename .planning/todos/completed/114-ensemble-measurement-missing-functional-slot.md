@@ -1,10 +1,20 @@
 ---
-status: pending
+status: completed
 priority: P3
 filed: 2026-07-13
+closed: 2026-07-19
 source: naming-convention rigor pass (PrecedentEngine rename + ICEngine/MeasurementEngine
   discussion) — found while cross-checking glossary.md's Functional Layer Vocabulary
 ---
+
+## Resolution
+
+Edited `docs/foundation/glossary.md`'s `predictive measurement` entry to state the two
+pipeline positions explicitly (feature grain via `ic_engine.py`, ensemble grain via
+`ensemble_ic_engine.py`) instead of only describing the feature-grain case. Updated the
+7-slot pipeline diagram to show the recurrence as a second `predictive measurement`
+node after `alpha scorer` rather than a new box, and removed the "gap found, not yet
+filed" note since this todo was the fix. Docs-only, no code/schema change.
 
 # Broaden `predictive measurement`'s definition to cover its ensemble-level recurrence
 
