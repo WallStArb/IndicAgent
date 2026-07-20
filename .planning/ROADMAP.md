@@ -1241,63 +1241,86 @@ Plans:
 - [ ] 143.1-07-PLAN.md — Single full-pipeline corpus re-run from Step 1 + A/B/C/D/F validation [Wave 6]
 - [ ] 143.1-08-PLAN.md — Component E shadow-mode validation + E1-vs-E2 A/B re-run [Wave 7]
 
-### Phase 147: I7 Alpha Scorer Transition 📋 PLANNED (Conditional on CORPUS-07)
+### Phase 147: I7 CORPUS-07 Evaluation 📋 PLANNED
 
-**Conditional gate:** Phase 147 does not begin until Phase 141 CORPUS-07 is complete and evaluated. CORPUS-07 maps each I7 plugin to its constituent `feature_vectors` dimensions and determines whether the plugin introduces information not captured in the 54 atomic features. If CORPUS-07 shows ≥ 80% of plugins are fully captured (no marginal IC beyond existing features), Phase 147 scope collapses to retirement-only — no conversion infrastructure is built. Only build the alpha-scorer conversion layer if CORPUS-07 reveals material uncaptured information that justifies the added complexity.
+**Rewritten 2026-07-19 per todo 056** (`.planning/todos/pending/056-phase146-147-v2x-retirement-stale.md`,
+tracking `docs/research/fable-2026-07-03-roadmap-reconciliation.md` F3): the old "conditional
+gate" language cited a CORPUS-07 analysis that had never been run under any phase's requirement
+list — the gate could never fire as written. Collapsed to what F3's sketch recommends: run
+CORPUS-07 itself as this phase's one deliverable, default outcome is retirement per topdown D7,
+survivors become ordinary predictors — no adapter contract, no conversion infrastructure built
+speculatively.
 
-**Default path is retirement, not conversion.** The 54 features were designed to capture I7 signals. Conversion is the exception; retirement is the rule.
+**Default path is retirement, not conversion.** The 54 `feature_vectors` features were designed
+to capture I7 signals. Conversion is the exception; retirement is the rule.
 
-**Goal:** For plugins with confirmed marginal IC beyond feature_vectors, convert from binary emitters to continuous alpha scorers (`alpha_score = raw_confidence × direction` every bar, no fire/no-fire decision). This is the structural prerequisite for Phase 148's retirement gate: a binary v2.x signal vs. a continuous v3.0 alpha score cannot be compared on outcome quality — the comparison surface requires both systems to produce continuous scores.
+**Goal:** For each active I7 plugin, determine via CORPUS-07 (map plugin → constituent
+`feature_vectors` dimensions + Phase 141 CORPUS-04 IC results) whether it introduces information
+not captured in the 54 atomic features. Apply one of three outcomes:
 
-**Depends on:** Phase 141 CORPUS-07 evaluated (see Conditional gate above). No dependency on Phase 143.
+- **Retire (default):** dimensions fully captured in `feature_vectors` OR no constituent feature
+  has confirmed IC. Mark `status='deprecated'` in `shadow_registry`, add retirement reason to
+  `config_history`. Expected outcome for the majority of plugins.
+- **Register as ordinary predictor (rare survivor):** plugin has confirmed IC on dimensions NOT
+  present in `feature_vectors`. Its continuous output becomes a candidate **feature**, measured by
+  `ic_engine` like any other feature (per intel-15's grain rule) — not a second scoring system, no
+  `alpha.i7.mixing_weight_*` keys, no separate ensemble-ingestion path. One model, one book.
+- **Direct IC measurement (ambiguous):** plugin logic is ambiguous (>5 constituent features or
+  cross-cutting logic). Measure its continuous output's IC directly before deciding retire vs.
+  register.
 
-**Design doc:** `docs/plans/2026-06-20-i7-alpha-scorer-transition.md` — **broken link, doc does not exist** (checked 2026-07-12, not in `docs/plans/` or its archive). Closest existing artifact: `.planning/todos/completed/016-i7-alpha-scorer-transition.md`. Whoever plans Phase 147 needs to either locate/reconstruct this doc or confirm todo 016 already covers the design.
+**Depends on:** nothing — CORPUS-07 is this phase's own first deliverable, not a prerequisite
+run elsewhere. No dependency on Phase 143.
+
+**Design doc:** `docs/plans/2026-06-20-i7-alpha-scorer-transition.md` — broken link, doc does not
+exist (checked 2026-07-12). Closest existing artifact: `.planning/todos/completed/016-i7-alpha-scorer-transition.md`.
+Superseded in spirit by this rewrite (no conversion apparatus to design against).
 
 **Requirements:**
 
-**I7-01 — Plugin emission layer removal + IC-informed retirement decisions:**
-For each active I7 plugin, analyze which dimensions in `feature_vectors` encode the same information (by inspecting plugin code directly during this phase) and combine with IC discovery results from Phase 141 CORPUS-04. For each plugin apply one of three outcomes:
+**I7-01 — CORPUS-07 analysis + retirement/registration decisions:** the full plugin-capture
+mapping and per-plugin outcome above. Deliverable: analysis report + `shadow_registry`
+deprecation rows + any survivor's feature registration.
 
-- **Retire (default):** Plugin's constituent dimensions are fully captured in `feature_vectors` OR no constituent feature has confirmed IC. Mark `status='deprecated'` in `shadow_registry`, add retirement reason to `config_history`. This should be the outcome for the majority of plugins.
-- **Convert to alpha scorer (exception):** Plugin has confirmed IC on dimensions NOT present in `feature_vectors` — plugin introduces genuinely new information. Replace `if confidence > threshold: emit` with `alpha_score = confidence × direction` computed every bar. No emission decision in the plugin — emission is solely the ensemble's responsibility.
-- **Direct IC measurement (ambiguous):** Plugin logic is ambiguous (>5 constituent features or cross-cutting logic). Treat the plugin's continuous output as a candidate feature and measure its IC directly via the IC engine before deciding. Default to alpha scorer mode during evaluation.
+Deleted as requirements (were conversion-apparatus scope, moot under retirement-by-default):
+~~I7-02 (`signal_events.alpha_score` column)~~, ~~I7-03 (ensemble mixing-weight ingestion)~~,
+~~I7-04 (conversion-progress observability gauges)~~.
 
-Only plugins in the second or third category justify conversion infrastructure. If all fall in the first, Phase 147 is retirement-only — no adapter, no mixing weights, no I7 emission layer changes beyond flagging deprecated.
+**I7-05 — Retirement eligibility gate:** simplifies to "CORPUS-07 evaluated + survivors
+registered" — no `i7_conversion_complete` gauge, since there is no conversion process to track.
 
-**I7-02 — signal_events enrichment:**
-Add `alpha_score float` column to `signal_events`. Populated prospectively as plugins convert. Legacy rows have `NULL`. This column is the comparison surface for todo 007 dual-pipeline shadow comparison.
-
-**I7-03 — Ensemble score ingestion:**
-`AlphaEmitter` ingests I7 continuous scores as supplementary evidence alongside IC-weighted feature scores. Mixing weights are APR-backed (`alpha.i7.mixing_weight_<plugin_name>`). Default = 0.0 until IC evidence for the continuous score is established.
-
-**I7-04 — Observability during migration:**
-
-- `i7_plugin_mode` gauge per plugin: 1=alpha scorer, 0=legacy emitter
-- `i7_plugin_alpha_score_null_total` counter: detects incomplete conversions at runtime
-- `i7_conversion_complete` gauge: 1 when all plugins converted
-
-**I7-05 — Retirement eligibility gate:**
-Phase 148 LIVE-04 (v2.x retirement) requires all active I7 plugins to be in alpha-scorer mode. `i7_conversion_complete = 1` is a hard prerequisite for the retirement script — enforced at Phase 148 startup, not as a soft check.
-
-**Plans:** 3 plans (Wave 1: plugin adapter contract + first 10 plugins; Wave 2: remaining ~25 plugins; Wave 3: ensemble ingestion + mixing weights + observability)
+**Plans:** 1 plan (CORPUS-07 analysis + retirement/registration execution).
 
 ---
 
-### Phase 148: Alpha Scoring System + v2.x Retirement Gate 📋 PLANNED
+### Phase 148: Alpha Scoring System + v2.x Decommission 📋 PLANNED
 
-**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_strategy_scores` table + `alpha.scoring.*` APR keys. Full two-gate retirement logic in "Phase Sequencing" section.
+**Schema design:** `docs/plans/2026-06-25-v30-alpha-lifecycle-schema.md` — `alpha_strategy_scores` table + `alpha.scoring.*` APR keys. Full two-gate promotion logic in "Phase Sequencing" section.
 
-**Goal:** Build the scoring system and run the two independent OOS gates that prove the intelligence engine works. Retire v2.x only after both pass. No live execution — that is v4.0.
+**Rewritten 2026-07-19 per todo 056 / reconciliation doc F3 + Open Q2:** v2.x is dead in fact
+(`intelligence-pipeline.service` failed since the D-09 cutover, `signal_events`/`trade_frames`
+frozen since 2026-06-22) — the old SCORE-04 "v3 vs v2.x counterfactual comparison" has no
+comparable v2.x population and never will, and SCORE-05's "retirement" was describing shutting
+down a unit that's already failed-dead. **Operator call made 2026-07-19: archive v2.x (not
+delete), and decouple its decommission from this phase's proof gates** — cheap cleanup doesn't
+need to wait on a statistical gate it has no bearing on. The decommission-in-fact work itself
+(archive `src/intelligence/` I1-I7 tree, disable the already-failed systemd unit, archive/rename
+the frozen `signal_events`/`trade_frames`/`trade_executions`/`signal_ledger` tables) is tracked
+as its own ready-to-execute item, not gated behind Phase 148 — see
+`.planning/todos/pending/056-phase146-147-v2x-retirement-stale.md` for the execution scope.
 
-**Depends on:** Phase 147 complete (`i7_conversion_complete = 1`) + Phase 142A OOS ensemble IC data available + Phase 142B production `alpha_frames` accumulating ≥ 60 trading days of closed rows.
+**Goal:** Build the scoring system and run the two independent OOS gates that prove the
+intelligence engine works. No live execution — that is v4.0.
 
-**Two-gate retirement model (non-negotiable):**
+**Depends on:** Phase 147 complete (CORPUS-07 evaluated, survivors registered) + Phase 142A OOS ensemble IC data available + Phase 142B production `alpha_frames` accumulating ≥ 60 trading days of closed rows.
+
+**Two-gate promotion model (non-negotiable):**
 Gate 1 and Gate 2 are independent. Failure modes are different. Never conflate.
 
 - **Gate 1 — Signal proof (from Phase 142A):** `alpha_ensemble_ic.ic_ci_lower > 0` at 95% CI on OOS holdout. IC Sharpe stable (walk_forward_stable = true). If Gate 1 fails: signal problem — diagnose ensemble, feature decay, regime labels. Do not look at P&L.
 - **Gate 2 — Execution proof (from Phase 142B):** `mean(counterfactual_pnl_r) > 0` at 95% CI on OOS `alpha_frames` (primary variant), per SHADOW-REVIEW.md criteria pre-committed at Phase 142B launch. `corr(alpha_score_decile, mean_pnl_r)` is computed as a diagnostic column in SCORE-01 but is not a gate — it informs whether score decile monotonically tracks P&L. If Gate 2 fails but Gate 1 passes: frame problem — recalibrate stop/target/hold against IC decay curve, not the ensemble.
 
-Both gates must pass before SCORE-04 (v2.x retirement) executes. Gate 1 passing without Gate 2 = real signal, bad execution rules. Gate 2 passing without Gate 1 = overfitted frame on noise. Neither alone is sufficient.
+Both gates are the milestone exit. Gate 1 passing without Gate 2 = real signal, bad execution rules. Gate 2 passing without Gate 1 = overfitted frame on noise. Neither alone is sufficient.
 
 **Requirements:**
 
@@ -1308,15 +1331,13 @@ Aggregates closed primary `alpha_frames` into `alpha_strategy_scores` by (symbol
 Queries `alpha_ensemble_ic` for OOS window (bar_ts >= `alpha.validation.oos_start`). Reports: ic_ci_lower, walk_forward_stable, regime coverage. Binary pass/fail written to a `gate_evaluations` audit log with timestamp, gate_id, result, and evidence JSON.
 
 **SCORE-03 — OOS Gate 2 evaluation (execution proof):**
-Queries `alpha_strategy_scores` for OOS `alpha_frames`. Reports: mean_pnl_r CI, ic_alpha_score_corr, Sharpe, max drawdown. Binary pass/fail written to `gate_evaluations`. Gate 2 evaluation runs regardless of Gate 1 result — the data is informative even if retirement is blocked.
+Queries `alpha_strategy_scores` for OOS `alpha_frames`. Reports: mean_pnl_r CI, ic_alpha_score_corr, Sharpe, max drawdown. Binary pass/fail written to `gate_evaluations`. Gate 2 evaluation runs regardless of Gate 1 result — the data is informative even if promotion is blocked.
 
-**SCORE-04 — v2.x comparison:**
-v3.0 mean `counterfactual_pnl_r` > v2.x mean `trade_frames.counterfactual_pnl_r` at 80% CI on same symbols/period (todo 007 dual-pipeline data). This is a supplementary check, not a third gate — but must be documented in the retirement decision record.
+**SCORE-04 — v2.x comparison (documentation only):** no live comparison is possible — record in
+the promotion decision record why no v2.x comparison population exists (pipeline dead since
+2026-06-22, see above). Not a gate.
 
-**SCORE-05 — v2.x retirement:**
-Executes only when Gate 1 + Gate 2 both pass AND `i7_conversion_complete = 1`. Retirement = disable `intelligence_pipeline` systemd unit, archive I7 plugin dispatch, migrate all SSE/dashboard feeds to `alpha_events`. Requires explicit operator migration script with pre-flight check of all three conditions — not a flag flip.
-
-**Plans:** 2 plans (Wave 1: AlphaScorer + gate evaluation scripts; Wave 2: OOS gate runs + v2.x comparison + retirement script)
+**Plans:** 2 plans (Wave 1: AlphaScorer + gate evaluation scripts; Wave 2: OOS gate runs + promotion decision record)
 
 ---
 
@@ -1736,6 +1757,62 @@ separate later touch of the same 3,600-line file.
   promotion + renames for 4 unrelated batch scripts) — that's a separately-scoped
   services-layer cleanup with no shared-file benefit here, not ic_engine throughput.
 
+**Reconciled 2026-07-19 (second Fable pass, folding in todos 139/140/129/009E):** the four
+fold-ins above are now placed into the plan breakdown below, which supersedes the placement
+suggestions inside the fold-in bullets themselves ("during 162-02"). Three resolutions, plus a
+scope check:
+
+- **Todo 140 fork resolved: neither (a) nor (b) as written; chunk along the feature axis, not
+  the time axis, in one code path.** The crux is that `rankdata` is relative to the whole
+  strided series: ranking a row-block is a *different statistic* than ranking the cell, and an
+  exact out-of-core rank (external sort with cross-chunk tie averaging) is new statistical
+  machinery with a silent-bias surface, plus chunked variants of every `ic_math.py` pure
+  function; option (a) is rejected. Option (b)'s "route oversized cells through a chunked
+  path" is rejected in its two-code-path form for the same reason todo 139 exists: two paths
+  computing the same statistic is the divergence trap, and the oversized path would be the
+  rarely-exercised one. What IS output-invariant is the feature axis: `rankdata(X, axis=0)`
+  ranks each feature column independently (verified live, `ic_engine.py:1072`/`1950`), and
+  `_vectorized_ic`, the bootstrap CI, and the fold-loop re-rank are per-feature independent
+  too. So the fix: the shared helper todo 139 extracts computes rank/IC/CI/fold work in
+  feature blocks (`alpha.ic.feature_block_columns`, `[initial_estimate]`), writing into a
+  preallocated float32 output. That caps the dominant transient (the float64 `rankdata`
+  intermediate, confirmed root cause of the 2026-07-18 OOM per the inline comment at
+  `ic_engine.py:1941-1949`) at `O(n_sub × block)` instead of `O(n_sub × n_features)`,
+  bit-identical by construction. One RNG trap: bootstrap resample block-start indices must be
+  drawn once per scale and reused across feature blocks; drawing inside the block loop would
+  reorder RNG consumption and change CI draws. Precompute the index matrix (tiny:
+  resamples × n_valid/block_size ints) and the statistic is exactly today's. The remaining
+  `O(cell × F)` terms are the float32 base arrays (`X_raw`/`X_nd`, assembly at
+  `ic_engine.py:884`/`1870-1893`), ~1.4GB at a 2x cell; linear with a small constant, and the
+  view-based strided subsampling already avoids copies. If the synthetic oversized-cell test
+  shows base assembly itself breaching budget, the second lever is memmap-backed assembly to
+  scratch disk (basic-slice subsampling returns views on a memmap unchanged); contingent,
+  measured first, not built preemptively. Finally `alpha.ic.max_cell_rows` (`[rca_analysis]`)
+  is a crash-loud ceiling, not a router: an oversized cell fails loudly (error row in the run
+  summary, nonzero job status, run continues), never silently switches algorithms.
+- **Sequencing resolved: structural work goes first, as a new 162-01, before both the
+  benchmark and the fingerprint.** The fingerprint hashes `_checkpoint_content_key()` (source
+  bytes): any refactor landing after the fingerprint ships invalidates every fingerprint and
+  buys a full 25-30h recompute as the phase's parting gift. Landing 129/139/140/009E before
+  the fingerprint exists means the content key is computed once, against final code, with
+  zero invalidation events. This confirms todo 139's own note (extract helpers during 140's
+  rework, not before it; the memory-bounded implementation lands once inside the shared
+  helper and both siblings inherit it) while refuting the fold-in placement "during 162-02":
+  structural first, fingerprint after. The todo 133 benchmark also moves after the structural
+  pass, so it measures the loop the fingerprint will describe rather than code about to be
+  restructured.
+- **Todo 129 vs the fingerprint validity check: complementary, no conflict.** The validity
+  check runs in `main()` before `worker_args` construction, so a skipped cell never spawns a
+  worker and never opens a dsn connection at all; `short_lived_conn(dsn)` governs only cells
+  that actually compute (the leak surface shrinks with the skip rate). Fingerprint/watermark
+  reads happen main-process via the existing Settings-based `_short_lived_conn`
+  (`ic_engine.py:381`), adding zero worker-side connections; the worker read-only/main
+  writes-serially invariant is untouched.
+- **Scope check:** none of the four fold-ins breach the locked non-goals. 129/139/009E are
+  pure structure; 140 is memory layout only, held to bit-identical output by Risk 8 and
+  criterion 7; the moment a chunking approach would change rank or bootstrap statistics it is
+  out of scope by definition. No scheduler, no 1000-symbol validation.
+
 **Goal:** A re-run of the 80-symbol corpus whose inputs haven't changed completes in minutes, not
 25-30 hours. Every compute cell — (symbol × tf) in the per-symbol pass, (regime_group × tf) in
 the cross-sectional pass — carries a persisted fingerprint (first-party code content-key + a
@@ -1753,25 +1830,46 @@ measurement-correctness sequencing — different axis (throughput, not statistic
 [[project_prove_edge_before_production_infra]]'s correction note for why this doesn't fall under
 the prove-edge-first gate either.
 
-**Recommended plan breakdown (3 plans, sequential waves — for `/gsd-plan-phase 162` to work from,
-not binding):**
-- **162-01 (todo 133):** benchmark 15m/1h/1d cross-sectional cells at `max_workers=1` vs `6`,
-  then per-tf dict (mirroring `bootstrap_block_size`) or an n-row gate, whichever the data
-  supports; migration + APR keys. Goes first — small, self-contained, and both this and 162-02
-  edit `ICEngineConfig`/`from_apr()` (`ic_engine.py:406-597`), so sequencing avoids merge
-  conflicts on the same 3,600-line file.
-- **162-02 (todo 134 core, absorbs 122):** new `ic_cell_fingerprints` table (one row per
-  (symbol|'POOLED', tf, pass_type, training_window_end) — not columns on `feature_ic_scores`,
-  which would duplicate the fingerprint ~150x per cell). Fingerprint = `_checkpoint_content_key()`
-  (`ic_engine.py:2189-2230`) + a hash of `ICEngineConfig`'s computation-affecting fields (needs an
-  explicit computational-vs-operational field classification with a crash-loud test so a future
-  field can't silently join neither list) + upstream data watermarks (`feature_vectors`,
-  `forward_returns`, `market_regimes` content, `instrument_tags`, feature-registry status — see
-  Risk 3 below). Validity check runs in `main()` before `worker_args` construction, **replacing**
-  (not layering on) the existing fingerprint-blind `existing_keys` skip (`ic_engine.py:3128-3140`)
-  — two competing skip mechanisms is a trap, not a feature. `--refresh` (force recompute) and
-  `--dry-run-validity` (report skip/compute partition) CLI flags.
-- **162-03 (depends on 162-02):** equivalence harness — run a ~5-symbol subset twice (fresh vs.
+**Recommended plan breakdown (4 plans, sequential waves — for `/gsd-plan-phase 162` to work from,
+not binding; supersedes the 2026-07-18 pass's 3-plan breakdown):**
+- **162-01 (structural pass: todos 129 + 009E + 139/140):** one refactor wave over the two
+  worker functions, internally ordered mechanical-to-structural, each step gated on
+  bit-identical `feature_ic_scores` output against the `be74f4a1` regression fixture before
+  the next starts: (1) todo 129, `@contextmanager short_lived_conn(dsn)` in
+  `services/_batch_utils.py` next to `connect_db_from_url`, migrating the 3 worker-side sites
+  (`ic_engine.py` ~821, ~1265, ~1715); (2) todo 009 Part E, `build_walk_forward_folds(n_obs,
+  n_folds, embargo_bars)` into `ic_math.py` beside its todo-048 siblings, replacing the 3
+  inline copies (~1119, ~1396, ~1979) plus `ensemble_ic_engine.py`'s duplicate, with direct
+  unit tests on synthetic fold boundaries; (3) todos 139+140 as one change, extracting
+  `_subsample_and_rank(...)` and the fold-loop rank helper with the feature-blocked
+  memory-bounded implementation (per the 140 resolution above) inside the shared helper, so
+  the fix exists once and both call sites inherit it. Closes with the synthetic
+  oversized-cell memory test (criterion 6). APR keys: `alpha.ic.feature_block_columns`,
+  `alpha.ic.max_cell_rows`.
+- **162-02 (todo 133):** benchmark 15m/1h/1d cross-sectional cells at `max_workers=1` vs `6`
+  against the post-162-01 loop, then per-tf dict (mirroring `bootstrap_block_size`) or an
+  n-row gate, whichever the data supports; migration + APR keys. Runs after 162-01 so it
+  measures the code the fingerprint will describe; both plans edit
+  `ICEngineConfig`/`from_apr()` (`ic_engine.py:406-597`), so sequencing still avoids merge
+  conflicts on the same 3,600-line file. `max_workers` lands as an operational field in
+  162-03's classification: thread count must not change output, which 162-01's precomputed
+  resample-index matrix makes explicit rather than incidental.
+- **162-03 (todo 134 core, absorbs 122; depends on 162-01):** new `ic_cell_fingerprints` table
+  (one row per (symbol|'POOLED', tf, pass_type, training_window_end) — not columns on
+  `feature_ic_scores`, which would duplicate the fingerprint ~150x per cell). Fingerprint =
+  `_checkpoint_content_key()` (`ic_engine.py:2189-2230`) + a hash of `ICEngineConfig`'s
+  computation-affecting fields (needs an explicit computational-vs-operational field
+  classification with a crash-loud test so a future field can't silently join neither list) +
+  upstream data watermarks (`feature_vectors`, `forward_returns`, `market_regimes` content,
+  `instrument_tags`, feature-registry status — see Risk 3 below). Validity check runs in
+  `main()` before `worker_args` construction, **replacing** (not layering on) the existing
+  fingerprint-blind `existing_keys` skip (`ic_engine.py:3128-3140`) — two competing skip
+  mechanisms is a trap, not a feature. `--refresh` (force recompute) and `--dry-run-validity`
+  (report skip/compute partition) CLI flags. One new planning decision: because 162-01 is
+  equivalence-gated bit-identical, initial fingerprints MAY be seeded against existing
+  `feature_ic_scores` rows instead of forcing a full stamp recompute; justified only by that
+  gate, and verified by 162-04's harness before the seed is trusted.
+- **162-04 (depends on 162-03):** equivalence harness — run a ~5-symbol subset twice (fresh vs.
   fingerprint-skip), assert identical `feature_ic_scores` output; this is the empirical proof the
   fingerprint captures everything, i.e. the direct answer to the 2026-07-12 checkpoint-invalidation
   failure class recurring cross-run instead of intra-run. Also runs the staleness/drift study
@@ -1786,7 +1884,7 @@ statistical information added; already covered by the separate `_evaluate_stalen
 auto-recompute trigger). The genuinely useful future behavior — carry a cell's prior result
 forward across a window-end bump when only a tiny fraction of bars are new (e.g. a week of new 5m
 bars is <0.5% of a ~469K-observation cell, IC movement from that is far inside the 2000-resample
-bootstrap CI width) — is a real lever but an **empirical question**: 162-03's drift study computes
+bootstrap CI width) — is a real lever but an **empirical question**: 162-04's drift study computes
 IC at T and T+{1,5,10,20} trading days across a stratified cell sample, plots |ΔIC| vs.
 fraction-of-new-bars, and sets `alpha.ic.refresh_min_new_fraction` where median |ΔIC| crosses
 ~10% of the bootstrap CI half-width — **seeded via migration at 0 (disabled) until the study
@@ -1806,9 +1904,16 @@ conflate the two.
    recompute (incl. post-backfill `bh_adjusted_p`/`passes_fdr`).
 5. Todo 133: 15m/1h/1d cross-sectional cells run within ~10% of measured serial wall time; 5m
    keeps its threading speedup.
-6. Todo 140: peak memory in `_compute_symbol_tf`/`_compute_cross_sectional_tf` no longer scales
-   unbounded with cell size — a cell ~2x today's largest (5m/low_bull, ~599K timestamps)
-   completes without OOM, verified by a synthetic oversized-cell test, not just headroom math.
+6. Todo 140: peak transient memory in `_compute_symbol_tf`/`_compute_cross_sectional_tf` no
+   longer scales with `n_features` (feature-blocked rank/IC/CI/fold work) — a synthetic cell
+   ~2x today's largest (5m/low_bull, ~599K timestamps) completes within a measured
+   resident-memory budget, verified by a synthetic oversized-cell test, not just headroom
+   math, AND produces bit-identical output to the unblocked path on a reference cell. A cell
+   above `alpha.ic.max_cell_rows` fails loudly, never routes to an alternate algorithm.
+7. Structural-pass equivalence (162-01): post-refactor `feature_ic_scores` bit-identical to
+   pre-refactor on the regression fixture after each of the three internal steps;
+   `build_walk_forward_folds` unit-tested against the inline copies' boundaries; an injected
+   worker exception no longer leaks a connection (todo 129, tested, not eyeballed).
 
 **Risks / scope traps to hold the line on during planning:**
 1. **`ON CONFLICT DO NOTHING` silently discards recomputes** (confirmed live at 3 insert sites) —
@@ -1819,17 +1924,32 @@ conflate the two.
    under skipped cells' feet. Same check needed for the lifecycle hook and the e-value pilot.
 3. **Fingerprint completeness is the 2026-07-12 failure class, cross-run instead of intra-run** —
    a "skip" that serves stale IC into `ensemble_trainer` → `alpha_publisher` is worse than the 25h
-   it saves. Defense in depth: watermarks + field-classification test + 162-03's equivalence
+   it saves. Defense in depth: watermarks + field-classification test + 162-04's equivalence
    harness, not any single one alone.
 4. **Delete the `.pkl` checkpoint system if it's now redundant** — once cross-run skip +
    immediate per-symbol DB writes (todo 130) both exist, evaluate whether `_load_checkpoint`/
    `_save_checkpoint` still earns its keep (Musk step 2, delete before optimize).
-5. **Resource contention, not design dependency** — no benchmarking (162-01) or pilot corpus runs
-   (162-03) while any `ic_engine` corpus run is in flight; `ps aux | grep ic_engine` first.
+5. **Resource contention, not design dependency** — no benchmarking (162-02), no synthetic
+   oversized-cell memory runs (162-01's closing gate deliberately allocates multi-GB and can
+   OOM a live run), and no pilot corpus runs (162-04) while any `ic_engine` corpus run is in
+   flight; `ps aux | grep ic_engine` first. Pure code edits and ordinary unit tests are exempt.
 6. **Scope trap: do not build a scheduler.** Incremental recompute is the precondition for a
    cadence, not the cadence itself. All project timers are deliberately disabled
    (CLAUDE.md — verify current state before assuming); "don't automate what isn't proven" applies.
    Also out of scope: 1000-symbol validation, any change to the bootstrap statistics themselves.
+7. **Refactor stack-up on the two hottest functions** — four todos land on
+   `_compute_symbol_tf`/`_compute_cross_sectional_tf` in one plan. Mitigation is 162-01's
+   internal ordering (mechanical → pure-function extraction → helper + memory rework), the
+   bit-identical regression gate after each step, and never mixing a behavioral change into a
+   structural commit; a step that can't prove bit-identity stops the wave, it doesn't proceed
+   on "looks right."
+8. **Time-axis chunked ranking is a statistics change, full stop** — ranks are relative to the
+   whole strided series, so `rankdata` over a row-block is a different estimator than
+   `rankdata` over the cell. Any chunking must be along the feature axis (output-invariant),
+   with bootstrap resample block-start indices precomputed once per scale so RNG consumption
+   order is unchanged across feature blocks. Anything else silently violates this phase's own
+   "no statistical-methodology change" line — the exact hidden-bias failure this project's
+   design questions exist to catch.
 
 **Requirements**: TBD at `/gsd-plan-phase 162` (above is design input, not a locked requirements list)
 **Depends on:** None as a phase dependency. Practical-only constraint: don't start
@@ -1839,7 +1959,7 @@ ic_engine` / [Corpus pipeline state](project_corpus_pipeline_state.md) before st
 **Plans:** 0 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 162 to break down against the 162-01/02/03 breakdown above)
+- [ ] TBD (run /gsd-plan-phase 162 to break down against the 162-01/02/03/04 breakdown above)
 
 ---
 

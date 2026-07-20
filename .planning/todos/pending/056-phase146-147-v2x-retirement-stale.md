@@ -1,3 +1,46 @@
+**Operator call made 2026-07-19: archive v2.x (not delete), decouple decommission from Phase 148's
+proof gates (execute independently, not gated behind it).** ROADMAP.md's Phase 147/148 sections
+rewritten same day per the sketch below (147 collapsed to one-wave CORPUS-07 evaluation, 148's
+Depends-on/SCORE-04/05 reframed). Remaining scope on **this** todo is now just the actual
+decommission-in-fact execution, tracked below — not blocked on anything, ready whenever picked up:
+
+**Correction 2026-07-19 — checked actual state before writing this plan, it's more done than
+expected:** `src/intelligence/archive/` already exists (`i5_patterns/`, `smc_context/`,
+`confluence/`) and `register_plugins.py` already imports I5 (patterns) and I6 (SMC/confluence)
+entirely from there — that slice of the "archive the plugin tree" work is done, not remaining
+scope. What's actually still live: `src/intelligence/trading/` (I7, ~54 files: both plugins and
+the shared utilities `src/intelligence/CLAUDE.md` documents as load-bearing —
+`plugin_utils.py`/`signal_schema.py`/`trade_framer.py`/`lifecycle_tracker.py` etc.).
+`archive/trading_i7/` also already exists with a near-identical 48-file listing — looks like a
+copy taken at some point, not a completed `git mv` cutover (register_plugins.py still imports
+`volume_zscore` live from `src.intelligence.trading`, not from the archive copy). This needs a
+real diff between `trading/` and `archive/trading_i7/` before touching anything — determine
+whether the archive copy is current, stale, or was a false start, and untangle which files in
+live `trading/` are genuinely dead plugins vs. still-referenced shared utilities before any
+`git mv`. Do not treat this as a fresh archival task; treat it as *finishing* an already-started,
+partially-abandoned one.
+
+**Remaining action items (revised):**
+1. Diff `src/intelligence/trading/` against `src/intelligence/archive/trading_i7/` to establish
+   ground truth on what's already covered vs. still needs moving.
+2. Complete the I7 plugin cutover to archive (or confirm the existing archive copy is current and
+   just needs `register_plugins.py`'s imports switched over + the live copies deleted).
+3. Disable (not just leave failed) `indicagent-intelligence-pipeline.service` and
+   `indicagent-feature-writer.service` — both already dead, but explicit disable/mask documents
+   intent instead of leaving an ambiguous "failed" state.
+4. Archive (rename with a legacy prefix, do not `DROP`) `signal_events`, `trade_frames`,
+   `trade_executions`, `signal_ledger` (the view) — frozen since 2026-06-22, but rename preserves
+   the data untouched in case of dispute or later reference.
+5. Update CLAUDE.md's Architecture section once done to describe an actually-archived system
+   (path, not just "failed" status).
+
+**Sizing:** smaller than it first looked (most of I5/I6 already archived) but item 1-2 (untangling
+a partially-completed, possibly-abandoned prior cutover attempt) needs real investigation before
+any file is moved or deleted — don't assume the live `trading/` copy is safe to delete without
+confirming the archive copy is actually a faithful, current superset first.
+
+---
+
 # Phase 147 gate dangles on unrun work; Phase 148's v2.x retirement half describes retiring an already-dead system
 
 **Filename says "146/147"; current numbers are 147/148** (I7 Alpha Scorer Transition / Alpha

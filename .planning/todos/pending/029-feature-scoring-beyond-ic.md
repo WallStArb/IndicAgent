@@ -20,11 +20,11 @@ formula, Brier/reliability calibration) not reproduced in intel-15.
 IC (Spearman rank correlation) is the discovery layer but answers only one question:
 does rank order predict rank order? Five complementary methods fill the gaps.
 
-## Summary (updated 2026-07-01 — plan doc v2 council pass)
+## Summary (updated 2026-07-01 — plan doc v2 council pass; shrinkage row corrected 2026-07-19)
 
 | Priority | Method | Gap IC Misses | Output | Effort |
 |---|---|---|---|---|
-| Near 1st | **Shrinkage (0b)** | Selection bias in every raw estimate; weighter over-allocates to lucky cells | `ic_shrunk` + `shrinkage_weight` columns | 1 session |
+| ~~Near 1st~~ **DONE** | ~~Shrinkage (0b)~~ | Selection bias in every raw estimate; weighter over-allocates to lucky cells | `ic_shrunk` + `shrinkage_weight` columns | shipped Phase 142B.1 — `src/intelligence/ensemble/shrinkage.py`, migration 191, live in `ensemble_trainer.py` (E1 champion vs E2, E1 won 2026-07-09) |
 | Near | IC decay curve | Temporal structure; shape classification first, tau fit only for decaying archetype (4-point fit is under-determined) | `feature_decay_profiles` | 1 session |
 | Near | Effective-breadth consistency | Breadth (Fundamental Law) — must use N_eff from correlation matrix, NOT symbol count (58 ETFs ≈ 8-15 independent bets) | derived + corr matrix (reuse ANALOG-07 math) | 1 session |
 | Medium | **Marginal contribution (0a)** | Standalone IC ≠ value added to existing ensemble; promotion should read partial IC | `partial_ic` column | 1 session |
@@ -32,6 +32,19 @@ does rank order predict rank order? Five complementary methods fill the gaps.
 | Medium | Mutual Information | Non-linear relationships — REQUIRES permutation null (MI is positively biased, non-negative) + corpus BH-FDR | `feature_mi_scores` | 2 sessions |
 | 142A | **Calibration (0c)** | Whether persisted magnitudes are honest enough to size on; also fastest decay signal | ensemble-level first | with 142A |
 | Long | PnL attribution loop | Realized alpha vs statistical proxy | via `trade_frames` | own phase |
+
+**Correction 2026-07-19:** the shrinkage row above was still listed as pending as of this todo's
+last edit, but `alpha_ensemble_ic`'s E1-vs-E2 champion/challenger judgment (Phase 142B.1,
+completed 2026-07-04, E1 confirmed champion 2026-07-09) already shipped exactly this. Don't
+re-plan it.
+
+**Scope note:** this todo spans effort levels from "1 session" to "own phase" across 7 remaining
+methods — that's phase-level breadth, not the single-session scope `pending/` is defined for
+(see `PRIORITIES.md`'s header). Recommend splitting: promote the "Near" tier (decay curve,
+effective-breadth, marginal contribution — all cite todo 038/039's related effective-breadth
+work) into a scoped ROADMAP phase or `deferred/` entry, and leave only whichever single item the
+project owner wants tackled next as a standalone pending todo. Not resolving the split myself —
+that's a scope call, not a code-vs-code judgment.
 
 ## How they coexist
 

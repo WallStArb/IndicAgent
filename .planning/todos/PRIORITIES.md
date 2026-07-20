@@ -70,8 +70,7 @@ completed; 091 is fully closed (standing dependence-length flag landed via todo 
 | [101](pending/101-migration-duplicate-number-sweep.md) | `production/migrations/` has 13 duplicate-number groups (001, 031, 038, 050-052, 064, 138, 152, 168, 178, 214-215). Finding + recommended approach only; deliberately not executed given live-DB rename risk. |
 | [108](pending/108-hmm-multi-seed-restart-best-likelihood.md) | `regime_writer.py`'s HMM fit uses a single seed with a same-seed convergence retry, not multi-seed-restart-and-keep-best-log-likelihood. Robustness gap, not a proven bug. |
 | [103](pending/103-momentum-apr-keys-inert-prewarm-mismatch.md) | `feature.momentum.window_fast/mid/slow` APR keys are silently inert (prewarm list loads nonexistent `_short`/`_long` keys instead); `volatility_rank_z`/`momentum_rank_z`/`volume_rank_z` are unimplemented (always NULL). Touches live hot-path pipeline code. |
-| [005](pending/005-ic-regime-transition-purge.md) | Purge regime-transition label noise from IC measurement |
-| [033](pending/033-zero-ic-feature-refinement.md) | Refine remaining zero-IC features (rerun gate now cleared) |
+| [005](pending/005-ic-regime-transition-purge.md) | Purge regime-transition label noise from IC measurement — re-scoped 2026-07-19, held for 143.1 sequencing (see file) |
 | [038](pending/038-cross-sectional-collinearity-diagnostic.md) | Cross-sectional feature collinearity diagnostic vs IC |
 | [039](pending/039-tag-stratified-ic-population-check.md) | Population-count check before tag-stratified cross-sectional IC |
 | [081](pending/081-emission-meta-labeling-and-conviction-cross-ref.md) | Emission meta-labeling gate — check overlap with 065/EM-HYST before building |
@@ -81,8 +80,7 @@ completed; 091 is fully closed (standing dependence-length flag landed via todo 
 | [029](pending/029-feature-scoring-beyond-ic.md) | Feature scoring beyond IC (near-term derived metrics) |
 | [050](pending/050-ibkr-apr-migration.md) | Migrate `ibkr.py` hardcoded constants to APR |
 | [052](pending/052-adversarial-data-error-hunt.md) | Adversarial data-error hunt batch job |
-| [053](pending/053-oos-look-log-audit-trail.md) | OOS-look audit trail log |
-| [042](pending/042-15m-chunk-size-retest.md) | Re-test 15m backfill chunk size (likely too conservative) |
+| [042](pending/042-15m-chunk-size-retest.md) | Re-test 15m backfill chunk size (likely too conservative) — gate reconfirmed clear 2026-07-19, live probe not yet run (see file) |
 | [024](pending/024-feature-decay-observatory.md) | Feature decay/crowding observatory dashboard |
 | [125](pending/125-tag-calibrator-discovery-oos-gate-not-enforced.md) | TagCalibrator's `discovery_oos_days` OOS-confirmation gate computed but never enforced — new discoveries go live immediately. Zero current blast radius (no live consumer reads the affected tags yet, see 126). |
 | [126](pending/126-instrument-tags-valid-to-no-consumer-contract.md) | No `instrument_tags` reader filters on `valid_to` — expiry has no observable effect yet, no contract established for future consumers. Resolve before/alongside 125. |
@@ -92,12 +90,13 @@ completed; 091 is fully closed (standing dependence-length flag landed via todo 
 | [118](pending/118-migrate-feature-domain-into-concept-registry.md) | Migrate `feature_registry` (`domain='feature'`) into the Concept Registry MVP (shipped 2026-07-13 with only `domain='ensemble_strategy'` seeded). Sequencing blocker resolved (Phase 143 already shipped against `feature_registry` directly, so this is now a plain fold-in, not a race). Touches the live feature lifecycle path — do after 117 proves the actuator pattern. |
 | [149](pending/149-bar-ingestion-price-sanity-guard.md) | No price-plausibility check at bar ingestion (`ProviderMerger`) - todo 148's `forward_returns.return_{scale}_suspect` guard protects the measurement layer, but every other OHLCV consumer still inherits corrupt IBKR prints unguarded. Deeper generalization of 148, larger scope (touches the sole `market.bars` writer). |
 | [151](pending/151-known-corrupt-ohlcv-print-cleanup.md) | 148's Fix item 3 (verify/correct/tombstone the ~27 known corrupt OHLCV prints) was never done — confirmed still live in `market_data_ohlcv` at 148's closeout (2026-07-19). Backward-looking cleanup, distinct from 149's forward-looking ingestion guard. Tooling built and dry-run verified 2026-07-19 (`ops_known_corrupt_print_cleanup.py`); **`--apply` step BLOCKED on [152](pending/152-price-sanity-guard-flags-real-crisis-events.md)** — the current CONFIRMED_CORRUPT list is contaminated with real Flash Crash data (`CWB`/`RSP`/`VTV`/`VYM`), and `RSP` mixes a genuine bad print with Flash Crash rows in the same symbol, so a safe apply needs 152's cross-symbol check to re-classify first. |
+| [153](pending/153-vp-sr-features-null-in-batch-corpus.md) | New 2026-07-19, found while re-verifying todo 033 (closed), corrected same day: `poc_dist_atr`/`va_position`/`sr_support_dist`/`sr_resist_dist` are stuck at `FeatureCache` dataclass defaults in **both live and batch** — nothing in v3 ever wires a mutator for them (the real computation lives only in the archived v2.x `i3_structure` plugin, never connected to v3's `FeatureCache`). `feature_ic_scores`' `ic_value=0` is a constant-input artifact. No current blast radius, but needs an operator call: implement for real (port the archived plugin's math into `FeatureCache`) or delete the stub fields entirely. |
 
 ## P3 — Hygiene, docs, process (opportunistic)
 
 | Todo | What |
 |---|---|
-| [056](pending/056-phase146-147-v2x-retirement-stale.md) | Phase 147/148 gate definitions stale (filename kept as-is) — needs an operator call (archive vs delete v2.x) before those phases are planned |
+| [056](pending/056-phase146-147-v2x-retirement-stale.md) | ROADMAP Phase 147/148 text rewritten 2026-07-19 (operator call resolved: archive not delete, decouple from proof gates). Remaining scope: the actual decommission-in-fact execution (git mv v2.x code to archive/, disable dead systemd units, rename-not-drop the frozen v2.x tables) — real multi-file operation, do with a clean git state. |
 | [124](pending/124-market-ohlcv-tradeable-view-tier2-audit.md) | Tier-2 follow-up: 14 remaining `market_data_ohlcv` call sites to classify/migrate to `market_data_ohlcv_tradeable`, split from closed todo 035 |
 | [123](pending/123-momentum-velocity-and-macro-spread-features.md) | Momentum-oscillator velocity feature + VWAP acceleration + 2 now-unblocked macro spreads (TIP real-yield, HYG/LQD credit spread) — surfaced by closing todo 060, batch into a future Phase 151 pass |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |

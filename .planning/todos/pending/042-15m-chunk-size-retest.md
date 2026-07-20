@@ -19,3 +19,12 @@ to avoid disrupting it (a stray client-id >50 during this same investigation tri
 unplanned IB Gateway restart).
 
 **Blocked on:** nothing — safe to do anytime IBKR/TWS is up and no other backfill is mid-run.
+
+**Status check 2026-07-19:** gate reconfirmed clear — `ib-gateway` container up 2 days,
+`indicagent-ibkr-provider` inactive, no `historical_pipeline`/backfill process running. Did not
+execute the live probe in this session: the existing `fetch_historical_bars()` auto-chunks
+through `_MAX_CHUNK_DAYS` internally, so testing a specific `durationStr` requires either a new
+public probe method on `IBKRProvider` or reaching into its private `_ib` handle — a real,
+live-broker-connectivity action worth a deliberate go-ahead rather than folding into a backlog
+triage pass, especially given this same todo's own note about a prior stray-client-id gateway
+restart. Still fully unblocked and quick (one session) whenever picked up.

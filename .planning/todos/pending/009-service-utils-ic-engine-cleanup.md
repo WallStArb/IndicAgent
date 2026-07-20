@@ -11,6 +11,18 @@
 
 # 009 — Phase B infra cleanup batch (merged 012, 032)
 
+**Held back 2026-07-19:** picked this up for execution (Parts A/D/E looked like safe, mechanical,
+gate-cleared wins) but stopped before editing any code. Live check showed the 143.1 shadow-mode
+sequencing chain (todo 094's 143.1-08 validation) is actively in progress in a concurrent session
+right now — `.planning/corpus_manifests/*.json` are mid-edit and PRIORITIES.md's P0 section is
+being updated live. Parts A, D, and E all touch the exact files that chain reads/writes
+(`ic_engine.py`, `forward_return_writer.py`, `ensemble_trainer.py`, `ic_math.py`,
+`ensemble_ic_engine.py`) — and Part E's own text already says not to do this refactor
+"simultaneously with active correctness fixes... that doubles the diff and makes regression
+analysis impossible." That constraint applies literally right now. Re-pick this up once the
+094→096→088 chain (see PRIORITIES.md P0) clears, not before — should still take the mechanical
+parts (A/D/E) in one sitting once it's safe, they remain fully scoped below.
+
 **Numbering note (2026-07-01):** this file previously carried three different numbers — filename
 009, an inner YAML frontmatter `id: "006"`, and a heading "# 015" — from being renumbered across
 sessions without the inline copies being updated. Normalized to 009 (the filename / pending-folder

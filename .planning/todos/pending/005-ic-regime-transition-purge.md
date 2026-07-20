@@ -9,6 +9,35 @@
 **Gate:** Phase 141 complete (OPEN) — do after Phase B corpus re-run to measure effect against corrected baseline. **Note (2026-07-01): also gated on todo 034 landing** — the current Phase B corpus re-run's regime labels are still contaminated by the non-causal HMM fit todo 034 describes; "corrected baseline" isn't corrected for regime-stratified purposes until 034 ships. **Re-gated 2026-07-12 (housekeeping audit):** this todo's fix targets `feature_vectors.regime` (per-symbol HMM labels), but `services/ic_engine.py`'s live measurement path runs with `alpha.regime.equity_model_enabled=true` by default, meaning `_compute_symbol_tf` stratifies on cross-sectional `market_regimes` labels, not `feature_vectors.regime` — confirmed via `.planning/todos/deferred/026-hmm-regime-audit-optimization.md`'s finding that `feature_ic_scores` has zero `regime_scope='symbol_hmm'` rows in the current corpus. This todo's transition-boundary-noise concern may still be real, but it needs to be re-scoped against `market_regimes`' own transition behavior (if any) before being actioned as written — applying a purge mask to a label sequence that isn't the one driving live IC stratification wouldn't change anything measured today.
 ---
 
+**Re-scoped 2026-07-19 (correction, not just re-gating):** verified `services/equity_regime_model.py`
+directly — `_compute_tf_regimes()` (the live `market_regimes` label source, since
+`equity_model_enabled` defaults true) does **pure per-bar VIX-percentile × breadth-fraction
+threshold bucketing with zero hysteresis** (`np.where(vix_np < vix_low_pct, "low", ...)`,
+recomputed independently every bar). By contrast `services/regime_writer.py` (the per-symbol HMM
+path this todo's code sample actually targets, `feature_vectors.regime`) already has a
+`_smooth_states()` minimum-holding-period smoother — it does not need this fix. So the 2026-07-12
+note was right that the fix targets the wrong table, but the underlying concern is *more* live
+than that note implied: the actual live stratification source (`market_regimes`) has **no
+transition guard of any kind**, not even the existing HMM path's protection. A bar right at a VIX
+threshold crossing can flip `market_regimes.regime_label` on literally the next tick with nothing
+smoothing it.
+
+**Corrected fix target:** rewrite the purge-window logic below against `market_regimes` labels in
+`ic_engine.py`'s `_compute_symbol_tf`/`_compute_cross_sectional_tf` (both read `mr_dict`/join
+`market_regimes` when `equity_model_enabled=true`), not `feature_vectors.regime`. Equivalently,
+consider adding a hysteresis/min-hold-bars smoother directly in `equity_regime_model.py`'s
+`_compute_tf_regimes()` (mirroring `regime_writer.py`'s existing pattern) instead of a
+downstream purge mask in `ic_engine.py` — that would fix the label quality at the source for
+every consumer of `market_regimes`, not just IC measurement, and is arguably the more Renaissance-
+grade fix (don't patch a symptom in the measurement layer when the generating process is the
+actual defect). Worth deciding between the two approaches before implementing.
+
+**Do not implement yet:** this todo's fix target overlaps directly with the files the active
+143.1 sequencing chain (todo 094 → 096 → 088, see PRIORITIES.md P0) is currently validating
+(`ic_engine.py`'s regime-stratification path). Land after that chain clears, per the same
+reasoning as todo 009's Part E deferral — don't double the diff on code someone else is mid-way
+through re-validating.
+
 # 005 — IC Engine: Regime Transition Purge Window
 
 **Priority: Medium — correctness improvement, not a blocker**

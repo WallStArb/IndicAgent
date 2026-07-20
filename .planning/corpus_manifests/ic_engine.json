@@ -1,15 +1,12 @@
 {
   "step_name": "ic_engine",
   "step_version": "1.0",
-  "timestamp": "2026-07-14T13:08:13.019028+00:00",
-  "status": "failed",
+  "timestamp": "2026-07-19T01:20:48.899667+00:00",
+  "status": "success",
   "inputs": {
     "training_window_end": "2025-12-24 05:15:00+00:00",
     "tfs": [
-      "5m",
-      "15m",
-      "1h",
-      "1d"
+      "5m"
     ],
     "symbols": [
       "AGG",
@@ -93,13 +90,71 @@
       "XOP",
       "XRT"
     ],
-    "cross_sectional_only": false
+    "cross_sectional_only": true
   },
-  "outputs": {},
-  "errors": [
-    "server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally\n\tbefore or while processing the request.\n"
-  ],
-  "warnings": [
-    "No outputs recorded"
-  ]
+  "outputs": {
+    "feature_ic_scores": {
+      "table": "feature_ic_scores",
+      "rows_total": 854299,
+      "rows_by_tf": {
+        "15m": 255595,
+        "1d": 125024,
+        "1h": 110050,
+        "5m": 363630
+      },
+      "rows_by_regime": {
+        "_pooled": 141919,
+        "flat_tight": 11780,
+        "flat_wide": 11780,
+        "high_bear": 72695,
+        "high_bull": 68665,
+        "high_neutral": 46810,
+        "inverted_tight": 20460,
+        "inverted_wide": 11780,
+        "low_bear": 44795,
+        "low_bull": 77810,
+        "low_neutral": 45260,
+        "mid_bear": 53940,
+        "mid_bull": 76880,
+        "mid_neutral": 47430,
+        "ranging": 19065,
+        "steep_tight": 11780,
+        "steep_wide": 20460,
+        "transition_down": 17825,
+        "transition_up": 18445,
+        "trending_down": 16430,
+        "trending_up": 18290
+      },
+      "columns_written": [
+        "feature_name",
+        "vector_domain",
+        "symbol",
+        "tf",
+        "regime",
+        "lookahead_bars",
+        "training_window_end",
+        "is_pooled",
+        "n_independent",
+        "reliable",
+        "ic_value",
+        "ic_sign",
+        "p_value",
+        "ic_ci_lower",
+        "ic_ci_upper",
+        "passes_ci_gate",
+        "bh_adjusted_p",
+        "passes_fdr",
+        "wf_fold_count",
+        "wf_pass_count",
+        "wf_ic_sharpe",
+        "passes_walkforward",
+        "ic_sharpe",
+        "ic_sharpe_n_windows",
+        "regime_label_source",
+        "cumulative_e_value"
+      ]
+    }
+  },
+  "errors": [],
+  "warnings": []
 }
