@@ -26,6 +26,15 @@ fast/mid/slow/extended forward_returns schema -- this script needs an arbitrary
 per-tf grid of raw bar counts). Reads from market_data_ohlcv_tradeable (the
 CLAUDE.md-mandated volume>0 view for measurement reads), not the raw table.
 
+Stride-corrected (2026-07-20, Fable 5 review of the todo-146 full-corpus run): per-symbol
+observations are subsampled at stride = max(min_stride, horizon_bars) before ranking/CI,
+mirroring ic_engine.py's production `scale_stride = max(subsample_min_stride,
+lookahead_bars)` discipline. Without this, consecutive forward returns at a long horizon
+overlap by (horizon-1) bars and are serially dependent, so an unstrided Fisher-z CI is
+computed on effective N << n_valid and understates its own half-width -- the flat CI
+half-width across 1d's whole grid in the original (unstrided) run was this artifact, not
+real. min-stride defaults to alpha.ic.subsample_min_stride's production default (5).
+
 Deliberately NOT regime-stratified (a difference from Fable's suggested design):
 horizon-response is a property of the return-generating process and the session-
 completeness gate at a given tf, not a regime-conditional question -- pooling every
@@ -81,6 +90,7 @@ _HORIZON_GRIDS: dict[str, tuple[int, ...]] = {
 _TFS = ("5m", "15m", "1h", "1d")
 _DEFAULT_MAX_SYMBOLS = 30
 _MIN_RELIABLE_N_DEFAULT = 100
+_MIN_STRIDE_DEFAULT = 5
 _DEFAULT_MAX_BARS_PER_SYMBOL = 20_000
 _FV_CHUNK_TS = 2_000
 
@@ -165,6 +175,13 @@ ORDER BY bar_ts
 """
 
 
+def _stride_for_horizon(min_stride: int, horizon_bars: int) -> int:
+    """Per-horizon subsample stride, mirroring ic_engine.py's production
+    `scale_stride = max(subsample_min_stride, lookahead_bars)` discipline (2026-07-20 fix,
+    Fable 5 review of the todo-146 full-corpus run)."""
+    return max(min_stride, horizon_bars)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -172,6 +189,14 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-symbols", type=int, default=_DEFAULT_MAX_SYMBOLS)
     parser.add_argument("--min-reliable-n", type=int, default=None)
+    parser.add_argument(
+        "--min-stride",
+        type=int,
+        default=None,
+        help="Per-symbol subsample stride floor, mirroring ic_engine.py's "
+        "alpha.ic.subsample_min_stride (default: load from config_state, fallback 5). "
+        "Actual stride per horizon is max(min_stride, horizon_bars), same as production.",
+    )
     parser.add_argument(
         "--max-bars-per-symbol",
         type=int,
@@ -213,13 +238,16 @@ async def main() -> int:
         min_reliable_n = args.min_reliable_n or await _load_config_int(
             pool, "alpha.ic.min_reliable_n", _MIN_RELIABLE_N_DEFAULT
         )
+        min_stride = args.min_stride or await _load_config_int(
+            pool, "alpha.ic.subsample_min_stride", _MIN_STRIDE_DEFAULT
+        )
 
         tfs = (args.tf,) if args.tf else _TFS
 
         print("# Lookahead Horizon-Response Diagnostic\n")
         print(
             f"vintage: {vintage}, max_symbols={args.max_symbols}, "
-            f"min_reliable_n={min_reliable_n}\n"
+            f"min_reliable_n={min_reliable_n}, min_stride={min_stride}\n"
         )
         print(
             "Pooled across ALL regimes (not regime-stratified -- see module docstring). "
@@ -227,7 +255,10 @@ async def main() -> int:
             "that horizon. median_abs_ic / median_ci_halfwidth are medians across all "
             f"{len(_FEATURE_NAMES)} features -- read them together, not the magnitude "
             "alone: a rising median_abs_ic with a widening CI is consistent with pure "
-            "noise, not real signal growth.\n"
+            "noise, not real signal growth. Observations are stride-subsampled per "
+            "horizon (stride = max(min_stride, horizon_bars), mirroring ic_engine.py's "
+            "production discipline) before CI computation, so n_valid/median_ci_halfwidth "
+            "reflect effective independent N, not raw overlapping-window count.\n"
         )
 
         feature_cols_sql = ", ".join(f'"{f}"' for f in _FEATURE_NAMES)
@@ -251,9 +282,15 @@ async def main() -> int:
                     pool, tf, symbol, vintage, horizons, args.max_bars_per_symbol
                 )
                 n_bars_total += len(rows)
-                for r in rows:
-                    observed_bar_ts.add(r["bar_ts"])
-                    for n in horizons:
+                for n in horizons:
+                    # Per-horizon stride subsample (not a shared stride across horizons):
+                    # consecutive forward returns at horizon n overlap by n-1 bars and are
+                    # serially dependent, so Fisher-z CI needs effective independent N, not
+                    # raw row count. Mirrors ic_engine.py's per-scale
+                    # scale_stride = max(subsample_min_stride, lookahead_bars).
+                    stride = _stride_for_horizon(min_stride, n)
+                    for r in rows[::stride]:
+                        observed_bar_ts.add(r["bar_ts"])
                         per_horizon_returns[n].append(r[f"return_h{n}"])
                         per_horizon_complete[n].append(r[f"complete_h{n}"])
                         per_horizon_keys[n].append((r["bar_ts"], symbol))

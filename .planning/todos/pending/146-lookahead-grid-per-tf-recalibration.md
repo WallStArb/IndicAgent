@@ -124,6 +124,60 @@ Todo-sized for Steps 1-2 (diagnostic exists, full-scale re-run is cheap -- same 
 ride the next corpus rebuild, not a standalone effort -- no new sizing needed beyond
 what that rebuild already costs.
 
+## Steps 1-2: DONE (2026-07-20), Step 3 still deferred to Phase 162
+
+Ran the full-corpus re-run this todo called for (`--max-symbols 80`, all 4 tfs). Two
+findings beyond the 20-symbol pilot's scope:
+
+**Memory:** the naive `--max-symbols 200` full-run OOM'd the shared machine (14GB+ RSS,
+system down to 480MB free while another session's live corpus work was running) -- 5m's
+default `--max-bars-per-symbol=20000` at full symbol count generates ~1.6M rows x 7
+horizons of pure-Python tuple/list overhead in `per_horizon_keys`. Re-ran per-tf as
+separate process invocations with `--max-bars-per-symbol 5000` (1h/15m) / `3000` (5m) and
+an active memory-guard kill switch; all four completed cleanly. `--max-bars-per-symbol`'s
+docstring already warned about this failure mode for an *unbounded* run; it under-warns
+for a bounded-but-large one. Worth a note if this script gets a fourth run: don't pass
+`--max-symbols` beyond the actual universe size (80) and keep intraday
+`--max-bars-per-symbol` at a few thousand, not the 20K default.
+
+**Instrument defect found and fixed:** Fable 5's review of the full-corpus results (see
+`docs/research/fable-2026-07-19-lookahead-and-target-calibration-review.md`'s "Q1
+addendum, 2026-07-20") caught that the diagnostic's Fisher-z CI was computed on raw
+overlapping-window observations with no stride correction -- effective independent N at
+long horizons is n_valid/horizon, not n_valid, so the CI understated its own half-width
+(this is why 1d's CI looked artificially flat across the whole grid in the first
+full-corpus run). Fixed in `ops_lookahead_horizon_response.py`
+(`_stride_for_horizon(min_stride, horizon_bars) = max(min_stride, horizon_bars)`,
+mirroring `ic_engine.py`'s production `scale_stride` exactly) and re-ran 1d
+stride-corrected. Unit tests: `tests/unit/scripts/test_ops_lookahead_horizon_response.py`.
+
+**Result: 1d's candidate grid changes, the other three tfs' candidates are confirmed
+unchanged.** Stride-corrected 1d shows every horizon >=20 with CI half-width exceeding the
+IC point estimate itself (not distinguishable from noise at 1-sigma) -- the pilot's
+"extended=60 near-optimal" claim was read off the artificially-flat pre-fix curve and is
+withdrawn. This isn't a diagnostic-only finding: production `ic_engine` uses the identical
+stride discipline, so it's what production actually measures at 1d/60 today, consistent
+with the original review's independent evidence for that cell (`n_independent` ~372-451,
+FDR pass 0.83%, Component F's `1d/high_bull/extended` collapse).
+
+**Final confirmed Step 2 grid (all 4 rows, pre-register at Phase 162 rebuild):**
+
+| tf | fast | mid | slow | extended |
+|---|---|---|---|---|
+| 5m | 1 | 6 | 12 | 39 |
+| 15m | 1 | 2 | 5 | 10 |
+| 1h | 1 | 2 | -- | -- |
+| 1d | 1 | 2 | 5 | 10 |
+
+1h has no slow/extended tier by design (Q1(c)'s decision (a), confirmed): the
+ensemble/eligibility layer needs to encode per-tf tier availability explicitly rather than
+via silently empty cells -- that's a Step 3 implementation detail, not a new open question.
+
+**Step 3 is still NOT done and still correctly deferred** -- do not change
+`alpha.ic.lookahead.*` now; this would invalidate every fingerprint/checkpoint mid-corpus.
+Apply only at the next scheduled rebuild window (rides Phase 162), pre-registered per
+`docs/plans/methodology-change-ledger.md`.
+
 ## References
 
 - `docs/research/fable-2026-07-19-lookahead-and-target-calibration-review.md` Q1 --

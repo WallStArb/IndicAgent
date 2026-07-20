@@ -249,3 +249,79 @@ ignoring the coupling entirely would repeat the silent-population mistake Q1 doc
 Nothing here proposes new machinery beyond one diagnostic script, one report fix, and one
 standing flag - the grid change itself is an APR value change the gradient-naming design
 explicitly reserved the right to make.
+
+---
+
+## Q1 addendum (full-corpus confirmation, 2026-07-20) - Author: Fable 5
+
+Full-corpus run (80 symbols) of the Step 1 diagnostic reviewed against the 20-symbol pilot.
+One instrument defect found, verified in code, and it governs the answers below.
+
+**Instrument caveat (verified, `ops_lookahead_horizon_response.py`, pre-fix lines
+326-336):** the script computed `_fisher_z_ci(ic_vec, n_valid)` on all valid observations
+with no stride. Consecutive forward returns at horizon h overlap by h-1 bars, so
+observations are serially dependent and effective independent N is on the order of
+n_valid/h. Production avoids this (`actual_stride = max(min_stride, lookahead_bars)`); the
+diagnostic did not. The "flat CI half-width" at 1d in the original run was this artifact,
+not real.
+
+**Fix applied (same day):** `_stride_for_horizon(min_stride, horizon_bars)` = `max(5,
+horizon_bars)`, applied per-symbol before ranking/CI - identical discipline to
+`ic_engine.py`'s `scale_stride`. 1d was re-run stride-corrected; the other three tfs'
+verdicts below rest on completeness/population reasoning, not the flawed CI, so they carry
+over unchanged.
+
+**1. 1d - REVISED after strided re-read.** Stride-corrected full-corpus 1d:
+
+| horizon_bars | n_valid | median_abs_ic | median_ci_halfwidth | IC/CI |
+|---|---|---|---|---|
+| 1 | 64049 | 0.0079 | 0.0077 | 1.03 |
+| 2 | 64039 | 0.0106 | 0.0077 | 1.38 |
+| 5 | 63982 | 0.0131 | 0.0077 | 1.70 |
+| 10 | 31936 | 0.0152 | 0.0110 | 1.38 |
+| 20 | 15954 | 0.0076 | 0.0155 | 0.49 |
+| 40 | 7913 | 0.0101 | 0.0220 | 0.46 |
+| 60 | 5230 | 0.0175 | 0.0271 | 0.65 |
+| 90 | 3506 | 0.0194 | 0.0331 | 0.59 |
+
+Every horizon >=20 has IC/CI < 1: the median IC point estimate no longer exceeds its own
+Fisher-z half-width, i.e. not distinguishable from the noise floor at 1-sigma. h=60's
+apparent "rise" (0.0175 against a 0.0271 CI) is noise-floor inflation, not recovered
+signal - the same pattern the unstrided run's flat-CI illusion masked. This is not a
+diagnostic-only artifact: production `ic_engine` uses the identical stride discipline, so
+this is what production actually measures at 1d/60 today, and it matches the original
+review's independent evidence for the same cell (`n_independent` ~372-451, FDR pass 0.83%,
+Component F's `1d/high_bull/extended` collapse). The pilot's "peaks at 60" claim is
+withdrawn - it was read off the unstrided (artificially flat-CI) curve. **Verdict: keeping
+extended=60 keeps a tier the corpus cannot reliably measure. Compress 1d to its measurable
+region**, same logic Q1(c) already applied to 1h's missing slow/extended tier.
+
+**2. 5m - confirmed extended=39, exclude 66.** The exclusion does not rest on the CI ratio
+(which the pre-fix instrument caveat muddies for 5m too, not just 1d) but on population:
+h=66 admits only the first ~12 bars of the session, so its rise measures "open-adjacent
+entries held toward the close" - a different trade population, structurally in the same
+class as 15m's excluded h=22 (11.0% completeness) and 1h's structurally-zero h=6. The
+monotone rise across five grid points to 39 is a robust shape; 39's own first-half-of-session
+bias (45.8% completeness) is the consciously accepted cost of Step 2 decision (i) - document
+it in the pre-registration.
+
+**3. 1h - confirmed (a): fast=1, mid=2, no slow/extended tier.** h=4 is rejected decisively:
+the curve is flat (0.0065/0.0050/0.0063), so there is zero IC gain to pay for a
+22.5%-completeness, first-3-bars-of-session population. (b) follows as a consequence - the
+ensemble/eligibility layer must encode per-tf tier availability explicitly, so 1h is absent
+from slow/extended families by design rather than via silently empty cells. Nothing economic
+is lost: the horizon a 1h slow tier would target is already occupied by 1d fast/mid (1 day
+~= 7 1h bars) - the per-tf grids should be read as one joint session-feasible design.
+
+**Confirmed Step 2 candidate grid (pre-register at Phase 162 rebuild, no APR change now):**
+
+| tf | fast | mid | slow | extended |
+|---|---|---|---|---|
+| 5m | 1 | 6 | 12 | 39 |
+| 15m | 1 | 2 | 5 | 10 |
+| 1h | 1 | 2 | - | - |
+| 1d | 1 | 2 | 5 | 10 |
+
+All four rows final - no cell remains provisional. 1d's compression from
+1/5/20/60 to 1/2/5/10 is the one revision from the original Step 2 table; 5m/15m/1h are
+unchanged from the pilot's candidates, now confirmed at full-corpus scale.
