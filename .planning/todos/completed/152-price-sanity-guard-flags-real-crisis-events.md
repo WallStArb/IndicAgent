@@ -1,12 +1,41 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-07-19
+completed: 2026-07-20
 source: user question "why are the OHLCV prints corrupt, should we fix them" prompted a
   per-row investigation of todo 148's flagged rows against actual market history --
   found the guard cannot distinguish genuine data corruption from real, documented
   crisis events, and is currently misclassifying the latter as "suspect."
 ---
+
+## Disposition (2026-07-20)
+
+Shipped option (1) as recommended: cross-symbol corroboration in
+`services/forward_return_writer.py` (`_build_corroborated_windows_temp_table_sql` +
+`_apply_cross_symbol_corroboration`, new `--reclassify-suspect-only` CLI mode), gated by
+two new APR keys (`alpha.quant.cross_symbol_corroboration.min_symbols=4`,
+`.window_minutes=60`, migrations 240/241). Ran the corrective pass against the live
+corpus: the confirmed May 6 2010 Flash Crash cluster (CWB/ITA/RSP/VTV/VUG/VYM,
+18:20-18:55 UTC) is fully cleared; the genuine isolated corruption (UUP/XRT/VWO, 38 rows)
+is untouched. 5m suspect count dropped 50→34 exactly as previewed against live data
+before the fix was finalized.
+
+**Design detour, worth knowing if this pattern recurs elsewhere:** the first two
+implementations both failed live-data verification before the third one worked --
+(1) an exact-`bar_ts`+same-scale match design never fired because a real event's
+suspect flags stagger across bars and scales per symbol (fixed by pooling all 4 scales
++ matching within a `window_minutes` range instead of exact equality); (2) that fix ran
+4 sequential per-scale `UPDATE`s in one transaction, each recomputing its own pooling
+query from live (partially-mutated) table state -- a same-transaction read-skew that
+wrote 11 wrong rows to production before being caught by re-verification and fixed by
+freezing the pooling determination into a temp table computed once, upfront. Both bugs
+were only found because each design change was verified against real production data,
+not just unit tests, before being trusted.
+
+Unblocked [151](151-known-corrupt-ohlcv-print-cleanup.md)'s `--apply` step (still
+pending human review, not run). Also unblocked `ops_known_corrupt_print_cleanup.py`'s
+`MARKET_EVENT` verdict (same corroboration signal, applied to raw-OHLCV classification).
 
 # `return_{scale}_suspect` guard (todo 148) flags real historical crisis events as corrupt -- magnitude-only ceiling can't distinguish them from genuine bad prints
 
