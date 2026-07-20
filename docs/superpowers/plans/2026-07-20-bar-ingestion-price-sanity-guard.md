@@ -177,9 +177,22 @@ WHERE volume > 0
 -- market_data_ohlcv WHERE volume=0 -- volume=0 also matches every synthetic-fill/
 -- flat-carry-forward placeholder bar in the ENTIRE table (~82% of intraday rows,
 -- tens of millions of rows), and a per-row correlated EXISTS subquery driven from
--- that population is a catastrophic, unbounded full-table operation. Extracting
--- symbol/tf/ts from integrity_monitor's own subject string and joining directly on
--- market_data_ohlcv's primary-key columns bounds this to exactly 18 index lookups.
+-- that population is a catastrophic, unbounded full-table operation.
+--
+-- Second cost fix, found empirically during Task 1's execution: joining on the
+-- primary-key columns alone is NOT enough to get cheap index lookups here, because
+-- 248 of market_data_ohlcv's 250 hypertable chunks are TimescaleDB-compressed, and
+-- the join's right-hand values come from a subquery (not literal constants) -- so
+-- Postgres cannot statically exclude chunks by time range and instead decompresses
+-- and scans broadly (confirmed via EXPLAIN: a Parallel Append/ColumnarScan across
+-- most of the table's 250 chunks, ~27M rows planned, to find 18 matches). The
+-- explicit `m.timestamp BETWEEN` bound below is a LITERAL, compile-time-knowable
+-- range (not derived from the subquery), which lets the planner statically prune to
+-- only the handful of chunks covering this specific, already-known, closed
+-- historical population (all 18 rows fall between 2007-03-02 and 2008-09-19 --
+-- verified against the actual integrity_monitor data before this bound was chosen).
+-- This is a historical FACT about this one-time reconciliation's fixed row set, not
+-- a tunable algorithm parameter -- it does not go through APR.
 UPDATE market_data_ohlcv m
 SET price_sanity_status = 'confirmed_corrupt'
 FROM (
@@ -192,7 +205,8 @@ FROM (
 ) corrected
 WHERE m.symbol = corrected.symbol
   AND m.timeframe = corrected.tf
-  AND m.timestamp = corrected.ts;
+  AND m.timestamp = corrected.ts
+  AND m.timestamp BETWEEN '2007-01-01' AND '2009-01-01';
 
 INSERT INTO config_schema (config_key, value_type, default_value, min_value, max_value, description)
 VALUES
