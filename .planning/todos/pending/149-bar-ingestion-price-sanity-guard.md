@@ -1,11 +1,37 @@
 ---
-status: pending
+status: in_progress
 priority: P2
 filed: 2026-07-19
+started: 2026-07-20
 source: /simplify altitude review of todo 148 (services/forward_return_writer.py's
   return_{scale}_suspect guard) -- the review agent flagged that the fix landed two
   layers downstream of where the defect actually enters the system.
 ---
+
+## Progress (2026-07-20)
+
+Design + plan done (Fable 5 architectural review folded in): `docs/superpowers/specs/2026-07-20-bar-ingestion-price-sanity-guard-design.md`,
+`docs/superpowers/plans/2026-07-20-bar-ingestion-price-sanity-guard.md` (6 tasks). Executing
+via superpowers subagent-driven-development in worktree `.worktrees/todo-149-price-sanity-guard`
+(branch `todo-149-price-sanity-guard`).
+
+**Task 1/6 complete** (commit `25135ba3` on the feature branch): `price_sanity_status` tri-state
+column, NULL-safe view predicate (`IS DISTINCT FROM 'confirmed_corrupt'`), partial index, 3 APR
+keys, and the 18-row reconciliation from todo 151's earlier `--apply` -- all live-applied and
+verified on the database. Two real TimescaleDB compressed-hypertable cost incidents found and
+fixed via live execution (not visible from review alone) -- worth knowing before any future
+migration mutates `market_data_ohlcv`: (1) a reconciliation UPDATE driven from
+`WHERE volume=0` scanned the whole ~215M-row table instead of 18 known rows; (2) even joined
+correctly on primary-key columns, the write was still slow because 248/250 chunks are
+TimescaleDB-compressed -- mutating a compressed chunk forces decompression first, and a
+read-only SELECT test was misleadingly fast (doesn't exercise the write path). See the
+migration file's own comments and commit `25135ba3` for the full fix.
+
+**Remaining:** Task 2 (promote `classify_candidate_bar` to `src/intelligence/statistics/price_sanity.py`),
+Task 3 (batched cross-symbol corroboration primitive), Task 4 (unify `ops_known_corrupt_print_cleanup.py`'s
+`--apply` onto `price_sanity_status`), Task 5 (`BarAuditor` wiring), Task 6 (live pilot). Resume
+by dispatching Task 2 from the plan in the existing worktree -- nothing uncommitted, ledger at
+`.worktrees/todo-149-price-sanity-guard/.superpowers/sdd/progress.md` has full detail.
 
 # Corrupt IBKR prints have no plausibility guard at bar ingestion -- every OHLCV
 # consumer inherits them, not just `forward_returns`
