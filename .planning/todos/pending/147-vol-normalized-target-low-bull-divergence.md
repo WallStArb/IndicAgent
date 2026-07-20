@@ -155,6 +155,28 @@ spirit (denominator-side corruption), mechanism 2 (real economic effect) and mec
 (regime-boundary contamination) both ruled out** -- no domain-reasoning/Fable escalation
 needed, this was a data-integrity question, not a methodology ambiguity.
 
+## A/B rank-correlation re-run (2026-07-20, post-151/154 corrections)
+
+Ran `ops_vol_normalized_target_ab.py --all-regimes` after both 151's backfill correction and
+154's DIA/KRE cleanup landed. Result: 106 reliable strata, median rank_corr 0.7087.
+
+`low_bull`'s previously-extreme cells are still on the low end (5m/low_bull lookahead=20/60 at
+0.0041/0.0009; 15m/low_bull across lookaheads at 0.17-0.29; 1h/low_bull/1 at 0.2526), but critically
+**comparable or worse values now show up in OTHER regimes too** — e.g. 1h/mid_bull/1 at **-0.0182**
+(worse than any `low_bull` cell at that timeframe), 1d/mid_bull lookahead=20/60 at 0.0146/0.0293
+(same order as `low_bull`'s worst 1d cell), 15m/mid_bull/20 at 0.2132. This is the pattern this
+todo's own root-cause section predicted would happen if the fix worked: the previously-singular
+"`low_bull` is uniquely 2x worse than everything else" signature is gone — what's left looks like
+the ordinary "thin data / long lookahead reads as noise" pattern this todo explicitly said was
+NOT what was happening before (see "Problem" section above, the `n_independent` counterexamples).
+
+**Not yet closed.** This A/B rank-correlation re-run is one of the two checks this todo's "Fix /
+next step" section asked for. The other — re-pulling `true_range_pct`'s per-(tf, regime) CV
+directly (the actual metric that diagnosed the 10-100x low_bull outlier in the first place,
+not a proxy for it) — has NOT been re-run. Do not close this todo until that CV number is
+confirmed back at parity with other regimes; the rank-correlation improvement is consistent with
+resolution but is not the same measurement as the original diagnostic.
+
 ## References
 
 - `.planning/todos/pending/097-vol-normalized-return-target-pooled-ic.md` -- parent
