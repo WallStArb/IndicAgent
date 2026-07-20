@@ -340,6 +340,69 @@ ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 
 
 # ---------------------------------------------------------------------------
+# Cross-symbol corroboration (todo 152)
+# ---------------------------------------------------------------------------
+
+
+def _build_corroboration_sql(scale: str) -> str:
+    """UPDATE clearing return_{scale}_suspect where >= min_symbols distinct symbols are
+    ALSO flagged suspect at the identical (tf, bar_ts) -- corruption doesn't hit N
+    unrelated symbols at the same historical minute; a real market-wide event (the May
+    6 2010 Flash Crash hit 6 unrelated ETFs in the same 40-minute window) does.
+
+    Bounded to already-suspect rows only (self-join CTE grouped by (tf, bar_ts), never
+    a full-corpus scan) -- cheap enough to run unconditionally on every invocation,
+    which is what re-flags rows written by PRIOR runs too (todo 152's sizing note: "a
+    corrective UPDATE, not a new migration").
+    """
+    col = f"return_{scale}_suspect"
+    return f"""
+WITH corroborated_windows AS (
+    SELECT tf, bar_ts
+    FROM forward_returns
+    WHERE return_type = 'executable_open_to_open'
+      AND {col} = true
+    GROUP BY tf, bar_ts
+    HAVING count(DISTINCT symbol) >= %(min_symbols)s
+)
+UPDATE forward_returns fr
+SET {col} = false
+FROM corroborated_windows cw
+WHERE fr.tf = cw.tf
+  AND fr.bar_ts = cw.bar_ts
+  AND fr.return_type = 'executable_open_to_open'
+  AND fr.{col} = true
+"""
+
+
+def _apply_cross_symbol_corroboration(
+    conn: Any, scales: tuple[str, ...], min_symbols: int, tracer: Any
+) -> dict[str, int]:
+    """Clear return_{scale}_suspect for rows corroborated by >= min_symbols distinct
+    symbols at the identical (tf, bar_ts) -- todo 152. Runs once per invocation, after
+    the full symbol/tf loop, over the WHOLE forward_returns table (not scoped to this
+    run's --symbols) so historical suspect rows from prior runs get corrected too.
+
+    Returns {scale: n_rows_cleared} -- logged once as an aggregate, never per-row
+    (CLAUDE.md: never log per-row inside a corpus-scale loop).
+    """
+    with observed_span("forward_return_writer.cross_symbol_corroboration", tracer):
+        cleared: dict[str, int] = {}
+        for scale in scales:
+            sql = _build_corroboration_sql(scale)
+            with conn.cursor() as cur:
+                cur.execute(sql, {"min_symbols": min_symbols})
+                cleared[scale] = cur.rowcount
+        conn.commit()
+        _logger.info(
+            "forward_return_writer.cross_symbol_corroboration_applied",
+            min_symbols=min_symbols,
+            cleared=cleared,
+        )
+        return cleared
+
+
+# ---------------------------------------------------------------------------
 # Symbol discovery
 # ---------------------------------------------------------------------------
 
@@ -550,13 +613,24 @@ def main() -> None:
     parser.add_argument(
         "--training-window-end",
         default=None,
-        required=True,
-        help="REQUIRED. Explicit training window end (ISO 8601, timezone-aware/UTC) -- "
-        "the OOS holdout clamp (LEAST(MAX(bar_ts), alpha.validation.oos_start)). "
-        "No default: a bare MAX(bar_ts) fallback would silently consume the OOS "
-        "holdout window (Phase 141.1 CR-01/IN-02). See docs/plans/OOS-EVAL-PROTOCOL.md.",
+        required=False,
+        help="Explicit training window end (ISO 8601, timezone-aware/UTC) -- the OOS "
+        "holdout clamp (LEAST(MAX(bar_ts), alpha.validation.oos_start)). No default: a "
+        "bare MAX(bar_ts) fallback would silently consume the OOS holdout window "
+        "(Phase 141.1 CR-01/IN-02). See docs/plans/OOS-EVAL-PROTOCOL.md. REQUIRED unless "
+        "--reclassify-suspect-only is set.",
+    )
+    parser.add_argument(
+        "--reclassify-suspect-only",
+        action="store_true",
+        default=False,
+        help="Skip the full forward-return computation loop; only run the cross-symbol "
+        "corroboration corrective pass (todo 152) against existing forward_returns "
+        "rows. Does not require --training-window-end.",
     )
     args = parser.parse_args()
+    if not args.reclassify_suspect_only and args.training_window_end is None:
+        parser.error("--training-window-end is required unless --reclassify-suspect-only is set.")
 
     try:
         init_otel_providers(service_name=_JOB)
@@ -577,6 +651,21 @@ def main() -> None:
             )
             try:
                 cfg = _load_config_service(conn)
+
+                min_corroborating_symbols = int(
+                    cfg.get_sync("alpha.quant.cross_symbol_corroboration.min_symbols", 4)
+                )
+
+                if args.reclassify_suspect_only:
+                    cleared = _apply_cross_symbol_corroboration(
+                        conn, _SCALES, min_corroborating_symbols, tracer
+                    )
+                    _logger.info(
+                        "forward_return_writer.reclassify_suspect_only_complete",
+                        cleared=cleared,
+                    )
+                    return
+
                 batch_size = int(
                     cfg.get_sync("alpha.ic.insert_batch_size", _INSERT_BATCH_SIZE_DEFAULT)
                 )
@@ -692,11 +781,16 @@ def main() -> None:
                 _emit_coverage(conn, symbols, tfs, _SCALES)
                 _emit_price_sanity_fact(conn, total_suspect, training_window_end)
 
+                cleared = _apply_cross_symbol_corroboration(
+                    conn, _SCALES, min_corroborating_symbols, tracer
+                )
+
                 _logger.info(
                     "forward_return_writer.run_complete",
                     total_inserted=total_inserted,
                     total_suspect=total_suspect,
                     failed_cells=failures,
+                    cleared=cleared,
                     elapsed_s=round(elapsed_s, 2),
                 )
 

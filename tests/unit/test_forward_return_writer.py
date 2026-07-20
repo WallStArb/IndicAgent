@@ -23,6 +23,9 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from services.forward_return_writer import (
+    _SCALES,
+    _apply_cross_symbol_corroboration,
+    _build_corroboration_sql,
     _build_forward_return_sql,
     _build_insert_sql,
     _emit_price_sanity_fact,
@@ -220,6 +223,69 @@ def test_insert_sql_includes_suspect_columns_and_params():
     for scale in _LOOKAHEADS:
         assert f"return_{scale}_suspect" in sql
         assert f"%(return_{scale}_suspect)s" in sql
+
+
+def test_corroboration_sql_targets_correct_suspect_column():
+    """Each scale's corroboration UPDATE must target its OWN return_{scale}_suspect
+    column -- a corroboration event on return_fast must not accidentally clear
+    return_slow_suspect for the same row (the two scales can have independent
+    plausibility verdicts, same as todo 148's original per-scale design)."""
+    for scale in ("fast", "mid", "slow", "extended"):
+        sql = _build_corroboration_sql(scale)
+        assert sql.count(f"return_{scale}_suspect") >= 3  # HAVING gate, SET, WHERE
+        for other in ("fast", "mid", "slow", "extended"):
+            if other != scale:
+                assert f"return_{other}_suspect" not in sql
+
+
+def test_corroboration_sql_groups_by_tf_and_bar_ts():
+    """Corroboration is per (tf, bar_ts) -- a 5m bar and a 1h bar at an overlapping
+    wall-clock instant must not cross-contaminate each other's symbol count."""
+    sql = _build_corroboration_sql("fast")
+    assert "GROUP BY tf, bar_ts" in sql
+    assert "count(DISTINCT symbol)" in sql
+
+
+def test_corroboration_sql_scoped_to_executable_return_type():
+    sql = _build_corroboration_sql("fast")
+    assert sql.count("executable_open_to_open") >= 2  # CTE filter + UPDATE filter
+
+
+def _mock_conn_for_corroboration(rowcounts: dict[str, int]) -> MagicMock:
+    """A conn whose cursor.rowcount cycles through rowcounts[scale] in call order."""
+    cur = MagicMock()
+    cur.__enter__.return_value = cur
+    cur.__exit__.return_value = False
+    rowcount_iter = iter(rowcounts.values())
+
+    def _execute(*_args, **_kwargs):
+        cur.rowcount = next(rowcount_iter)
+
+    cur.execute.side_effect = _execute
+    conn = MagicMock()
+    conn.cursor.return_value = cur
+    return conn
+
+
+def test_apply_cross_symbol_corroboration_returns_cleared_counts_per_scale():
+    conn = _mock_conn_for_corroboration({"fast": 0, "mid": 2, "slow": 4, "extended": 0})
+    tracer = MagicMock()
+
+    cleared = _apply_cross_symbol_corroboration(conn, _SCALES, min_symbols=4, tracer=tracer)
+
+    assert cleared == {"fast": 0, "mid": 2, "slow": 4, "extended": 0}
+    conn.commit.assert_called_once()
+
+
+def test_apply_cross_symbol_corroboration_passes_min_symbols_param():
+    conn = _mock_conn_for_corroboration({"fast": 0, "mid": 0, "slow": 0, "extended": 0})
+    tracer = MagicMock()
+
+    _apply_cross_symbol_corroboration(conn, _SCALES, min_symbols=7, tracer=tracer)
+
+    for call in conn.cursor.return_value.execute.call_args_list:
+        params = call.args[1]
+        assert params["min_symbols"] == 7
 
 
 def _mock_conn_with_precheck_result(already_ran: bool) -> MagicMock:
