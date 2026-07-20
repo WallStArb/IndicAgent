@@ -155,8 +155,8 @@ Two independent sub-features:
   - `nearest_hvn_above_dist_atr = (nearest_hvn_above - close) / atr` (compute internally from the
     raw value, only persist the distance) — same for `nearest_hvn_below_dist_atr`,
     `nearest_lvn_above_dist_atr`, `nearest_lvn_below_dist_atr`.
-  - `price_in_value_area` (flag), `va_width_atr`, `distance_to_vah_atr`, `distance_to_val_atr` —
-    already correctly ATR-normalized/bounded in the source, keep as-is.
+  - `price_in_value_area` (flag), `in_lvn` (flag), `va_width_atr`, `distance_to_vah_atr`,
+    `distance_to_val_atr` — already correctly ATR-normalized/bounded in the source, keep as-is.
   - `poc_price`, `vah`, `val`, `poc_price_rolling`, `vah_rolling`, `val_rolling`,
     `nearest_hvn_level`, `nearest_lvn_level` — **do NOT add these as `FeatureVector` columns.**
     They are intermediate values only. `poc_dist_atr`/`va_position` already derive from the
@@ -166,12 +166,44 @@ Two independent sub-features:
     ATR-distance directional fields above — the legacy `nearest_hvn_dist_atr` (already
     ATR-normalized in the source) is the one exception worth keeping as-is.
 
-  **Corrected new `FeatureCache`/`FeatureVector` fields beyond the original 4:**
-  `nearest_hvn_above_dist_atr`, `nearest_hvn_below_dist_atr`, `nearest_lvn_above_dist_atr`,
-  `nearest_lvn_below_dist_atr`, `price_in_value_area`, `va_width_atr`, `distance_to_vah_atr`,
-  `distance_to_val_atr`, `nearest_hvn_dist_atr` — 9 new columns (not 14), all new entries needed
-  in `FEATURE_VECTOR_DOMAIN` (tag `"structural"`) and a migration for the new `feature_vectors`
-  columns (unlike the original 4, which already existed).
+### D-17 (correction, same session, per Fable 5's independent review): field-list errors in D-16
+  Fable's review of the corrected D-16 scope (dispatched to independently verify D-13 through
+  D-16 before execution, since none of the post-original-dispatch work had a second opinion)
+  found two real issues, verified directly against `context/volume_profile.py`:
+
+  1. **`in_lvn` was silently dropped.** RESEARCH.md Section 2's own prose lists `in_lvn` (line
+     235: `1.0 if s_vol_hist[cur_bucket] <= vol_threshold_low else 0.0`, a bounded flag, not a raw
+     price) alongside the other correctly-normalized fields, but D-16's final column list omitted
+     it with no stated reason — an accidental drop, not a deliberate exclusion. `in_lvn` measures
+     something genuinely distinct from `price_in_value_area` (local current-bucket volume
+     thinness / liquidity-void detection vs. value-area membership) — added back above.
+
+  2. **`va_width_atr` is exact algebraic collinearity, not just conceptual overlap.** From
+     `volume_profile.py:249-253`: `distance_to_vah_atr + distance_to_val_atr =
+     ((vah-close)+(close-val))/atr = (vah-val)/atr = va_width_atr`, identically, for every row
+     where all three are non-null (same guard conditions). This is perfect linear dependency
+     within this phase's own proposed columns — stronger than the cross-family conceptual overlap
+     D-07 already screens for. **Decision: keep `va_width_atr` as a persisted column anyway** — it
+     has a legitimate standalone interpretation (day-type / balance-vs-trend indicator, a
+     recognized market-profile concept in its own right, not merely a byproduct), and known linear
+     dependencies are exactly what todo 038's collinearity diagnostic and the standard IC/ensemble
+     pipeline are built to handle. The point of this correction is that the redundancy is now
+     **documented, not silently present** — do not treat this as new information distinct from the
+     other two distance fields when interpreting IC results across this trio.
+
+  **Final, corrected new `FeatureCache`/`FeatureVector` fields beyond the original 4 (10 columns,
+  not 9, not 14):** `nearest_hvn_above_dist_atr`, `nearest_hvn_below_dist_atr`,
+  `nearest_lvn_above_dist_atr`, `nearest_lvn_below_dist_atr`, `price_in_value_area`, `in_lvn`,
+  `va_width_atr`, `distance_to_vah_atr`, `distance_to_val_atr`, `nearest_hvn_dist_atr` — all new
+  entries needed in `FEATURE_VECTOR_DOMAIN` (tag `"structural"`) and a migration for the new
+  `feature_vectors` columns (unlike the original 4, which already existed).
+
+  Fable's review also confirmed D-14 (S/R deferral) and D-15 (Phase 164 split) both hold as
+  written, with one correction: the round-number candidate logic (`_round_candidates`) actually
+  lives in `sr_consensus.py:78-90` itself, not in `zone_engine.py` — self-contained, but still not
+  worth bolting onto Phase 163 now (a third "distance to level" concept adds to D-07's collinearity
+  concern without resolving the actual blocking dependency chain). See Phase 164's ROADMAP.md entry
+  for the SMC raw-price-trap warning this review also produced (D-18 note there).
 
 ### S/R stays narrow — ctx_SRConsensus explicitly deferred, not silently adopted
 - **D-14:** `src/intelligence/context/sr_consensus.py` (`ctx_SRConsensus`, Phase 116) is a

@@ -2042,6 +2042,22 @@ once planned):
 distance-to-level feature family once these exist (todo 038-style), not per-feature isolated
 evaluation — the redundancy risk compounds with each additional "distance to X" column.
 
+**Raw-price warning (Fable 5's 2026-07-20 review of Phase 163, applies here too):** every one of
+these SMC plugins pairs a raw price/level field with an already-computed ATR-distance or
+percentage companion in the same output set — e.g. `order_blocks.py`'s `ob_top`/`ob_bottom` (raw)
+alongside nothing normalized directly, but `liquidity_pools.py`'s `bsl_level`/`ssl_level` (raw)
+alongside `bsl_dist_atr`/`ssl_dist_atr` (normalized), `supply_demand_zones.py`'s
+`nearest_demand_high/low`/`nearest_supply_high/low` (raw) alongside `demand_dist_atr`/
+`supply_dist_atr` (normalized), `breaker_blocks.py`'s `breaker_block_top`/`bottom` (raw) alongside
+`breaker_dist_atr` (normalized), `bos_choch.py`'s `bos_level` (raw, no normalized companion —
+needs one derived), `fair_value_gap.py`'s `fvg_top`/`fvg_bottom`/`fvg_midpoint` (raw, `fvg_size_pct`
+needs ATR conversion same as S/R's `_dist_pct` fields did in Phase 163). **Only the ATR-distance/
+percentage companion is ever a valid `FeatureVector` column — never persist `_top`/`_bottom`/
+`_level` fields directly**, the same mistake Phase 163's original VP scoping made and had to
+correct (see that phase's CONTEXT.md D-16/D-17). The candidate list above already reflects this
+(it lists `ob_dist_atr` not `ob_top`/`ob_bottom`, etc.) — this note exists so the pattern is
+explicit before `/gsd-plan-phase 164` runs, not rediscovered from scratch mid-implementation.
+
 **Depends on:** Phase 163 (VP/SR Structural Primitives) for shared conventions (ATR-distance
 normalization pattern, APR namespace precedent, incremental-IC promotion methodology) — not a
 hard code dependency, sequencing preference only.
