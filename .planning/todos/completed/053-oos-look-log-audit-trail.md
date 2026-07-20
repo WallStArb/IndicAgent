@@ -40,3 +40,14 @@ an APR parameter changed suspiciously close to an OOS look.
 - `docs/plans/OOS-EVAL-PROTOCOL.md` — the protocol this closes a gap in
 - `scripts/ops/corpus/ops_oos_holdout_eval.py` — the scorer to instrument
 - `.planning/phases/141.1-measurement-and-decision-integrity-foundation-make-everythin/141.1-REVIEW.md` — CR-02 for full reasoning
+
+## Disposition (2026-07-19)
+
+Shipped. `_append_look_log()` in `ops_oos_holdout_eval.py` writes one JSONL entry per run to
+`.planning/oos_look_log.jsonl` (path overridable via `--look-log-path`, for tests): `run_ts`,
+`symbols`, `tfs`, `report_path`, `report_sha256`. Called from `main()` right after
+`_write_report()`, so the log entry's hash always matches the report actually produced by that
+run. Unit tests in `tests/unit/test_oos_holdout_eval.py` cover field correctness and
+append-only behavior (two runs → two lines, distinct hashes). Non-gating per the todo's own
+scope — a write failure here would raise, same as any other step in `main()`, but nothing reads
+this log to block a run.
