@@ -109,8 +109,12 @@ _ALLOW_LIST: dict[str, str] = {
         "(`price_sanity_status IS NULL`), gated by a dedicated partial index "
         "(idx_market_data_ohlcv_price_sanity_unaudited, migration 242) for deterministic "
         "query-plan usage on a query that runs every 5-minute audit cycle, rather than "
-        "relying on the tradeable view's inlining behavior for a hot path. Its LATERAL "
-        "prev/next neighbor joins DO read market_data_ohlcv_tradeable, not the raw table."
+        "relying on the tradeable view's inlining behavior for a hot path. The subsequent "
+        "`JOIN market_data_ohlcv o` fetching the candidate's own OHLC fields is the same "
+        "deliberate raw-table read for the same watermark reason (it must see the exact "
+        "row the CTE just selected, including its NULL price_sanity_status, not the "
+        "tradeable view's filtered subset). Its LATERAL prev/next neighbor joins DO read "
+        "market_data_ohlcv_tradeable, not the raw table."
     ),
     "scripts/debug/analysis/debug_batch_agent_memory.py": (
         "PERMANENT: Joins signal_ledger, confirmed zero rows in the live DB -- dead v2.x "

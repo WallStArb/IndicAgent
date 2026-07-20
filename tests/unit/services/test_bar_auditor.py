@@ -300,6 +300,7 @@ class TestPriceSanityAudit:
         agent.logger = MagicMock()
         agent.logger.info = MagicMock()
         agent.logger.error = MagicMock()
+        agent._agent_attrs = {"agent": "bar_auditor_agent"}
 
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=candidate_rows)

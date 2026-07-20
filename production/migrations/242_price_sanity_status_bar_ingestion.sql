@@ -112,6 +112,9 @@ WHERE volume > 0
 -- that population is a catastrophic, unbounded full-table operation. Extracting
 -- symbol/tf/ts from integrity_monitor's own subject string and joining directly on
 -- market_data_ohlcv's primary-key columns bounds this to exactly 18 index lookups.
+-- Disaster-recovery note: on a fresh-database replay, if the 2007-2009 chunks this
+-- UPDATE touches happen to be compressed, run the commented-out decompression block
+-- above first -- this UPDATE will be extremely slow (or need to be killed) otherwise.
 UPDATE market_data_ohlcv m
 SET price_sanity_status = 'confirmed_corrupt'
 FROM (

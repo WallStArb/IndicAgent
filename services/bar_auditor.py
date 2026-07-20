@@ -152,6 +152,18 @@ _CANONICAL_COMPLETENESS = _ba_meter.create_up_down_counter(
     "bar_auditor_canonical_completeness_pct",
     description="Fraction of expected 1m bars present (0.0–1.0)",
 )
+_PRICE_SANITY_ROWS_CLASSIFIED = _ba_meter.create_counter(
+    "bar_auditor_price_sanity_rows_classified_total",
+    description="Bars classified by the price-sanity audit, labeled by status",
+)
+_PRICE_SANITY_AUDIT_ERRORS = _ba_meter.create_counter(
+    "bar_auditor_price_sanity_audit_errors_total",
+    description="Exceptions during price-sanity audit cycles",
+)
+_PRICE_SANITY_AUDIT_DURATION = _ba_meter.create_histogram(
+    "bar_auditor_price_sanity_audit_duration_seconds",
+    description="Wall-clock time for a full price-sanity audit cycle",
+)
 
 
 class BarAuditor(BaseDaemon):
@@ -199,6 +211,11 @@ class BarAuditor(BaseDaemon):
         # the price-sanity pass has a different, unproven resource shape (a
         # classification-plus-write pass over up to 215M+ rows on first run vs.
         # gap-detection's cheap O(days) bulk query) and must not starve it (todo 149).
+        # max_size=2 is an exact-fit sizing: one connection held via acquire() for the
+        # whole _run_price_sanity_audit() body, plus one implicit acquire inside
+        # count_corroborating_symbols_batch's own pool.fetch() call. Zero headroom --
+        # any future change adding a second concurrent borrow in this call path needs
+        # to revisit this constant.
         self._price_sanity_pool = await create_db_pool(
             self.settings.database_url, min_size=1, max_size=2
         )
@@ -486,6 +503,7 @@ class BarAuditor(BaseDaemon):
         A failure here must never crash the gap-detection cycle it runs alongside
         (mirrors _run_audit's own try/except-and-continue contract).
         """
+        _ps_t0 = _time.monotonic()
         try:
             async with self._price_sanity_pool.acquire() as conn:
                 apr = await load_apr_dict_async(conn)
@@ -549,17 +567,25 @@ class BarAuditor(BaseDaemon):
                         )
                         status_counts[status] = status_counts.get(status, 0) + 1
 
+                for status, count in status_counts.items():
+                    _PRICE_SANITY_ROWS_CLASSIFIED.add(
+                        count, {**self._agent_attrs, "status": status}
+                    )
+
                 self.logger.info(
                     "bar_auditor.price_sanity_audit_complete",
                     n_classified=len(verdicts),
                     status_counts=status_counts,
                 )
         except Exception as error:
+            _PRICE_SANITY_AUDIT_ERRORS.add(1, self._agent_attrs)
             self.logger.error(
                 "bar_auditor.price_sanity_audit_error",
                 error=str(error),
             )
             # Do not re-raise -- must not crash the gap-detection cycle running alongside
+        finally:
+            _PRICE_SANITY_AUDIT_DURATION.record(_time.monotonic() - _ps_t0, self._agent_attrs)
 
     # -- market_data_gaps write path -------------------------------------------
 
