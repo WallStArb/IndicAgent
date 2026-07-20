@@ -344,45 +344,37 @@ ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 # ---------------------------------------------------------------------------
 
 
-def _build_corroboration_sql(scale: str) -> str:
-    """UPDATE clearing return_{scale}_suspect where >= min_symbols distinct symbols
-    show a suspect flag on ANY scale within +/- window_minutes of this row's bar_ts --
-    corruption doesn't hit N unrelated symbols in the same time window; a real
-    market-wide event (the May 6 2010 Flash Crash) does.
-
-    Pools all four scales as one per-symbol "was this symbol suspect near this time"
-    signal (any_suspect CTE) and matches on a time RANGE rather than exact bar_ts
-    equality -- empirically required: the live Flash Crash cluster
-    (CWB/ITA/VTV/VUG/VYM) staggers its suspect rows across bar_ts 18:20-18:55 and
-    across all four scales, never sharing one exact (tf, bar_ts, scale) triple. An
-    exact-match join finds zero corroboration on this real cluster (verified live,
-    see migration 241). The final UPDATE still only clears THIS scale's column --
-    pooling is for candidate discovery only, never for which flag gets cleared.
-
-    Bounded to already-suspect rows only (any_suspect CTE), never a full-corpus scan
-    -- cheap enough to run unconditionally on every invocation.
-    """
-    col = f"return_{scale}_suspect"
-    return f"""
+_CORROBORATED_WINDOWS_TEMP_TABLE_SQL = """
+CREATE TEMP TABLE corroborated_windows_tmp ON COMMIT DROP AS
 WITH any_suspect AS (
     SELECT DISTINCT symbol, tf, bar_ts
     FROM forward_returns
     WHERE return_type = 'executable_open_to_open'
       AND (return_fast_suspect OR return_mid_suspect OR return_slow_suspect OR return_extended_suspect)
-),
-corroborated_windows AS (
-    SELECT a.tf, a.bar_ts
-    FROM any_suspect a
-    JOIN any_suspect b
-      ON b.tf = a.tf
-     AND b.bar_ts BETWEEN a.bar_ts - (%(window_minutes)s || ' minutes')::interval
-                       AND a.bar_ts + (%(window_minutes)s || ' minutes')::interval
-    GROUP BY a.tf, a.bar_ts
-    HAVING count(DISTINCT b.symbol) >= %(min_symbols)s
 )
+SELECT a.tf, a.bar_ts
+FROM any_suspect a
+JOIN any_suspect b
+  ON b.tf = a.tf
+ AND b.bar_ts BETWEEN a.bar_ts - (%(window_minutes)s || ' minutes')::interval
+                   AND a.bar_ts + (%(window_minutes)s || ' minutes')::interval
+GROUP BY a.tf, a.bar_ts
+HAVING count(DISTINCT b.symbol) >= %(min_symbols)s
+"""
+
+
+def _build_corroboration_update_sql(scale: str) -> str:
+    """UPDATE clearing return_{scale}_suspect for rows whose (tf, bar_ts) is in the
+    ALREADY-FROZEN corroborated_windows_tmp temp table (see
+    _CORROBORATED_WINDOWS_TEMP_TABLE_SQL) -- never recomputes the pooling CTE itself,
+    so 4 sequential per-scale calls all see the identical, pre-mutation determination
+    (todo 152's second bug: recomputing per-scale let earlier scales' clears shrink
+    the pool for later scales within the same transaction)."""
+    col = f"return_{scale}_suspect"
+    return f"""
 UPDATE forward_returns fr
 SET {col} = false
-FROM corroborated_windows cw
+FROM corroborated_windows_tmp cw
 WHERE fr.tf = cw.tf
   AND fr.bar_ts = cw.bar_ts
   AND fr.return_type = 'executable_open_to_open'
@@ -394,20 +386,31 @@ def _apply_cross_symbol_corroboration(
     conn: Any, scales: tuple[str, ...], min_symbols: int, window_minutes: int, tracer: Any
 ) -> dict[str, int]:
     """Clear return_{scale}_suspect for rows corroborated by >= min_symbols distinct
-    symbols (any scale) within +/- window_minutes -- todo 152. Runs once per
-    invocation, after the full symbol/tf loop, over the WHOLE forward_returns table
-    (not scoped to this run's --symbols) so historical suspect rows from prior runs
-    get corrected too.
+    symbols (any scale) within +/- window_minutes -- todo 152. Freezes the
+    corroboration determination ONCE into a temp table before applying any per-scale
+    UPDATE, so all 4 scales share the identical pre-mutation view (see
+    _build_corroboration_update_sql's docstring for why this is required, not
+    optional -- verified live against the 2010-05-06 Flash Crash cluster, where
+    recomputing per scale silently dropped 2 symbols' worth of evidence mid-run).
+
+    Runs once per invocation, after the full symbol/tf loop, over the WHOLE
+    forward_returns table (not scoped to this run's --symbols) so historical suspect
+    rows from prior runs get corrected too.
 
     Returns {scale: n_rows_cleared} -- logged once as an aggregate, never per-row
     (CLAUDE.md: never log per-row inside a corpus-scale loop).
     """
     with observed_span("forward_return_writer.cross_symbol_corroboration", tracer):
+        with conn.cursor() as cur:
+            cur.execute(
+                _CORROBORATED_WINDOWS_TEMP_TABLE_SQL,
+                {"min_symbols": min_symbols, "window_minutes": window_minutes},
+            )
         cleared: dict[str, int] = {}
         for scale in scales:
-            sql = _build_corroboration_sql(scale)
+            sql = _build_corroboration_update_sql(scale)
             with conn.cursor() as cur:
-                cur.execute(sql, {"min_symbols": min_symbols, "window_minutes": window_minutes})
+                cur.execute(sql)
                 cleared[scale] = cur.rowcount
         conn.commit()
         _logger.info(
