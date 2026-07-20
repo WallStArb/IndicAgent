@@ -649,3 +649,15 @@ that would produce a result are invoked; the commit timestamp is the pre-registr
 The follow-up entry (E12, appended after the runs complete) records the actual measured
 result and verdict, and per this ledger's own convention, will not alter the rule stated
 here.
+
+**Correction (same day, still before any training/scoring command executed):**
+`SHADOW-VALIDATION.md` Section 3a records that criterion 5 (trailing-20-trading-day vs.
+full-shadow-period IC Sharpe cliff) is not measurable against a one-shot historical
+backtest — it requires a recurring `EnsembleICEngine` cadence over calendar time, which
+does not exist (`counterfactual_tracker.py`'s own docstring: "out of scope for this phase,
+D-09, follow-on todo 089"). The promote rule is corrected to depend on criteria 1-4 and 6
+plus the criterion-7 short-side-sanity check; criterion 5 stays a frozen, unmodified
+requirement of Phase 147's actual live promotion gate, deferred (not dropped) to when a
+real trailing-vs-full-period split exists. This is a measurability-gap correction, not a
+threshold renegotiation after seeing a result — no training or scoring command had run
+when this was found.
