@@ -36,12 +36,20 @@ from src.intelligence.statistics.price_sanity import (
 class TestCorrectionSqlShape:
     def test_correction_update_sql_shape(self) -> None:
         assert "UPDATE market_data_ohlcv" in _CORRECTION_UPDATE_SQL
-        assert "SET volume = 0" in _CORRECTION_UPDATE_SQL
+        assert "SET price_sanity_status = 'confirmed_corrupt'" in _CORRECTION_UPDATE_SQL
         assert "$1" in _CORRECTION_UPDATE_SQL
         assert "$2" in _CORRECTION_UPDATE_SQL
         assert "$3" in _CORRECTION_UPDATE_SQL
-        # Never touch price columns -- Renaissance retention, only volume corrects.
+        # Never touch price columns -- Renaissance retention, never modify OHLC.
         assert "open" not in _CORRECTION_UPDATE_SQL.lower().split("where")[0]
+
+    def test_correction_update_sql_targets_price_sanity_status_not_volume(self) -> None:
+        """Todo 149's reconciliation migration unified corrupt-bar marking onto
+        price_sanity_status -- this correction tool must not reintroduce a second,
+        competing signal (volume=0) for the same job going forward."""
+        assert "price_sanity_status" in _CORRECTION_UPDATE_SQL
+        assert "= 'confirmed_corrupt'" in _CORRECTION_UPDATE_SQL
+        assert "volume" not in _CORRECTION_UPDATE_SQL
 
     def test_audit_insert_sql_shape(self) -> None:
         assert "INSERT INTO integrity_monitor" in _AUDIT_INSERT_SQL

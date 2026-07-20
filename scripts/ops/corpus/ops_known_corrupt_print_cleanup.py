@@ -32,13 +32,12 @@ Design (see .planning/todos/pending/151-known-corrupt-ohlcv-print-cleanup.md and
    When the bar is implausible but the neighbors themselves disagree by more than the
    agreement threshold (untrustworthy reference -- could be a genuine continuation of
    an already-volatile move), classified AMBIGUOUS rather than forcing a call.
-3. Correction (--apply only): for CONFIRMED_CORRUPT rows, set volume=0. This reuses
-   `market_data_ohlcv_tradeable`'s EXISTING `WHERE volume > 0` filter to exclude the
-   row from every downstream consumer with zero code changes elsewhere -- no new
-   schema, no new table. Per Renaissance data-retention principle, the row itself is
-   NEVER deleted and price columns are NEVER modified -- only volume, and only after
-   an `integrity_monitor` audit record captures the original volume plus full OHLC
-   logged via structlog.
+3. Correction (--apply only): for CONFIRMED_CORRUPT rows, set price_sanity_status='confirmed_corrupt'.
+   Per Renaissance data-retention principle, the row itself is NEVER deleted and price
+   columns are NEVER modified. The price_sanity_status column (added in todo 149's
+   migration) provides the single, unified signal for "known bad bar," replacing the
+   prior volume=0 mechanism, and only after an `integrity_monitor` audit record
+   captures the original volume plus full OHLC logged via structlog.
 
 Safety (non-negotiable): defaults to --dry-run behavior (report only, zero DB writes).
 Mutating a row or writing an integrity_monitor record REQUIRES the explicit --apply
@@ -111,15 +110,15 @@ class CandidateRow:
     verdict: CandidateVerdict
 
 
-# Only volume corrects (Renaissance retention: never touch price columns, never
-# delete the row). Reads market_data_ohlcv_tradeable for candidate discovery (the
-# corrupt rows all have volume > 0 so they already pass that filter), but writes the
-# raw table directly -- an UPDATE that flips volume to 0 must not go through the
-# `WHERE volume > 0` view (a plain view still supports it, but the base table is the
-# unambiguous, explicit target).
+# Stamps price_sanity_status directly (todo 149) -- price columns are NEVER modified
+# (Renaissance retention: never delete the row, never touch price data) and volume is
+# no longer touched either as of todo 149's unification: a corrected row now carries
+# exactly one signal (price_sanity_status), the same one BarAuditor's live audit task
+# writes, so there is one query surface for "which bars are known bad" rather than two
+# independent, divergence-prone mechanisms for the same fact.
 _CORRECTION_UPDATE_SQL = """
 UPDATE market_data_ohlcv
-SET volume = 0
+SET price_sanity_status = 'confirmed_corrupt'
 WHERE symbol = $1 AND timeframe = $2 AND timestamp = $3
 """
 
@@ -409,7 +408,7 @@ async def _scan_and_classify(
 
 
 async def _apply_correction(conn: asyncpg.Connection, row: CandidateRow, bar_ts) -> None:
-    """Write the integrity_monitor audit record BEFORE mutating, then zero volume.
+    """Write the integrity_monitor audit record BEFORE mutating, then mark price_sanity_status.
 
     Full original OHLC logged via structlog (metric_value only fits one number --
     the audit trail's human-readable detail lives in the log line, not the column).
@@ -465,7 +464,7 @@ def _parse_args() -> argparse.Namespace:
         "--apply",
         action="store_true",
         default=False,
-        help="Mutate CONFIRMED_CORRUPT rows (volume=0) and write integrity_monitor audit "
+        help="Mutate CONFIRMED_CORRUPT rows (price_sanity_status='confirmed_corrupt') and write integrity_monitor audit "
         "records. DEFAULT IS DRY-RUN (report only, zero DB writes). A human must review "
         "the dry-run's CONFIRMED_CORRUPT table before ever passing this flag.",
     )
@@ -577,7 +576,9 @@ async def _run(args: argparse.Namespace) -> int:
                         n_corrected += 1
 
         _logger.info("known_corrupt_print_cleanup.apply_complete", n_corrected=n_corrected)
-        print(f"\nAPPLIED: {n_corrected} row(s) corrected (volume set to 0).")  # noqa: T201
+        print(
+            f"\nAPPLIED: {n_corrected} row(s) corrected (price_sanity_status set to 'confirmed_corrupt')."
+        )  # noqa: T201
         print(render_followup_commands(confirmed, twe_str))  # noqa: T201
         return 0
     finally:
