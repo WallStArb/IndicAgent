@@ -878,6 +878,7 @@ git commit -m "feat(todo-149): unify correction tool onto price_sanity_status"
 **Files:**
 - Modify: `services/bar_auditor.py`
 - Modify: `tests/unit/services/test_bar_auditor.py`
+- Modify: `tests/unit/test_market_data_ohlcv_boundary.py`
 
 **Interfaces:**
 - Consumes: `classify_candidate_bar`, `apply_cross_symbol_downgrade`,
@@ -886,6 +887,17 @@ git commit -m "feat(todo-149): unify correction tool onto price_sanity_status"
   a new, small, independent `asyncpg.Pool` (`self._price_sanity_pool`) separate from
   `self._db_pool` (gap-detection's existing pool) — per the design doc, these must not compete
   for the same 3 connections.
+
+**Note before starting:** this project has a CI-enforced allow-list
+(`tests/unit/test_market_data_ohlcv_boundary.py`) that fails the build on any new raw
+`FROM market_data_ohlcv`/`JOIN market_data_ohlcv` reference in `services/`, `src/`, or `scripts/`
+not registered there with a reason. `_PRICE_SANITY_CANDIDATES_SQL` below (Step 3) deliberately
+reads the raw table for its `candidates` CTE — this is the Global Constraints' stated exception
+(candidate discovery is the watermark itself; it must see rows regardless of the view's own
+`volume > 0`/`price_sanity_status` filtering, and relies on the partial index from Task 1 for
+deterministic query-plan usage rather than depending on unverified view-inlining behavior for a
+query that runs every 5-minute audit cycle). Step 3 includes registering this in the allow-list;
+skipping it will pass local pytest but fail CI.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1162,20 +1174,37 @@ prevents gap-detection's own `_AUDITS_RUN.add(1, ...)`/logging from completing:
         except Exception as error:
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Register the raw-table allow-list entry**
 
-Run: `.venv/bin/pytest tests/unit/services/test_bar_auditor.py -v`
-Expected: all pass (existing gap-detection tests + 2 new price-sanity tests).
+In `tests/unit/test_market_data_ohlcv_boundary.py`, add an entry to `_ALLOW_LIST`:
 
-- [ ] **Step 5: Run the full test suite**
+```python
+    "services/bar_auditor.py": (
+        "PERMANENT (todo 149): _PRICE_SANITY_CANDIDATES_SQL's `candidates` CTE reads the "
+        "raw table deliberately -- this query IS the price-sanity audit watermark "
+        "(`price_sanity_status IS NULL`), gated by a dedicated partial index "
+        "(idx_market_data_ohlcv_price_sanity_unaudited, migration 242) for deterministic "
+        "query-plan usage on a query that runs every 5-minute audit cycle, rather than "
+        "relying on the tradeable view's inlining behavior for a hot path. Its LATERAL "
+        "prev/next neighbor joins DO read market_data_ohlcv_tradeable, not the raw table."
+    ),
+```
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+Run: `.venv/bin/pytest tests/unit/services/test_bar_auditor.py tests/unit/test_market_data_ohlcv_boundary.py -v`
+Expected: all pass (existing gap-detection tests + 2 new price-sanity tests + the boundary
+guard now passing with the new allow-list entry).
+
+- [ ] **Step 6: Run the full test suite**
 
 Run: `.venv/bin/pytest tests/unit/ -q`
 Expected: all pass, same pre-existing skip count as before this plan started.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add services/bar_auditor.py tests/unit/services/test_bar_auditor.py
+git add services/bar_auditor.py tests/unit/services/test_bar_auditor.py tests/unit/test_market_data_ohlcv_boundary.py
 git commit -m "feat(todo-149): BarAuditor price-sanity audit task"
 ```
 
