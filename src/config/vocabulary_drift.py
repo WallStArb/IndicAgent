@@ -32,6 +32,7 @@ from src.config.config_service import ConfigService
 from src.config.settings import Settings
 from src.config.vocabulary_service import VocabularyService
 from src.core.agent.base_batch import BaseBatch
+from src.core.integrity_monitor import emit_integrity_fact_async
 from src.observability.metrics import counter
 from src.observability.otel import OTelInitError, init_otel_providers
 
@@ -177,13 +178,6 @@ _REGIME_GROUP_GUARD_SQL = (
     "SELECT DISTINCT regime_group FROM market_regimes WHERE ts > now() - ($1 || ' days')::interval"
 )
 
-_INSERT_SQL = """
-    INSERT INTO integrity_monitor
-        (monitor_type, subject, metric_name, metric_value, threshold_value, passed, training_window_end)
-    VALUES ('vocabulary_drift', $1, 'unregistered_code_count', $2, 0, $3, NULL)
-    ON CONFLICT (monitor_type, training_window_end, metric_name, COALESCE(subject, ''), evaluated_at) DO NOTHING
-"""
-
 
 async def _evaluate_and_persist(
     conn: asyncpg.Connection,
@@ -195,6 +189,12 @@ async def _evaluate_and_persist(
     """Classify one namespace/guard's drift, persist an `integrity_monitor` row when
     the observed set is non-idle, and emit a loud alert on any data-superset.
 
+    Uses the shared emit_integrity_fact_async helper (todo 150). No
+    idempotency_check: unlike ic_engine.py's ic_lifecycle facts, this audit
+    intentionally records one fact per run for calibration history rather than
+    being idempotent per training_window_end (training_window_end is always NULL
+    here -- this isn't scoped to a corpus training window at all).
+
     Returns 1 if drift was flagged this run, 0 otherwise (idle or clean).
     """
     result = classify_namespace_drift(observed, registered, diff_fn=diff_fn)
@@ -204,7 +204,16 @@ async def _evaluate_and_persist(
 
     unregistered = result.unregistered
     passed = len(unregistered) == 0
-    await conn.execute(_INSERT_SQL, subject, float(len(unregistered)), passed)
+    await emit_integrity_fact_async(
+        conn,
+        "vocabulary_drift",
+        subject,
+        "unregistered_code_count",
+        float(len(unregistered)),
+        0.0,
+        passed,
+        None,
+    )
 
     if passed:
         return 0

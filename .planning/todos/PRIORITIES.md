@@ -98,7 +98,6 @@ completed; 091 is fully closed (standing dependence-length flag landed via todo 
 | Todo | What |
 |---|---|
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | Phase 147/148 gate definitions stale (filename kept as-is) — needs an operator call (archive vs delete v2.x) before those phases are planned |
-| [150](pending/150-integrity-monitor-shared-insert-helper.md) | `integrity_monitor` INSERT (with its fiddly composite `ON CONFLICT`) hand-copied at 4 independent call sites across `ic_engine.py`, `vocabulary_drift.py`, `forward_return_writer.py` - extract a shared helper. |
 | [124](pending/124-market-ohlcv-tradeable-view-tier2-audit.md) | Tier-2 follow-up: 14 remaining `market_data_ohlcv` call sites to classify/migrate to `market_data_ohlcv_tradeable`, split from closed todo 035 |
 | [123](pending/123-momentum-velocity-and-macro-spread-features.md) | Momentum-oscillator velocity feature + VWAP acceleration + 2 now-unblocked macro spreads (TIP real-yield, HYG/LQD credit spread) — surfaced by closing todo 060, batch into a future Phase 151 pass |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |

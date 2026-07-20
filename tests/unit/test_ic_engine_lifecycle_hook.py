@@ -123,15 +123,19 @@ class _FakeLifecycleCursor:
             self._description = [("metric_value",)]
             return
 
-        if "INSERT INTO integrity_monitor" in sql and "guard_fail_fraction" in sql:
-            self.conn.guard_fact_inserts.append(params)
-            self.conn.event_log.append(("guard_insert", params[0]))
-            self._rows = []
-            self._description = None
-            return
-
         if "INSERT INTO integrity_monitor" in sql:
-            self.conn.integrity_inserts.append(params)
+            # Both integrity_monitor call sites (decay_cells_flagged single-row via
+            # emit_integrity_fact_sync, guard_fail_fraction batch via executemany)
+            # now share the exact same parametrized SQL text (todo 150) -- dispatch
+            # on params[2] (metric_name), the 3rd field of the shared 7-tuple
+            # (monitor_type, subject, metric_name, metric_value, threshold_value,
+            # passed, training_window_end), not on SQL text.
+            metric_name = params[2] if len(params) > 2 else None
+            if metric_name == "guard_fail_fraction":
+                self.conn.guard_fact_inserts.append(params)
+                self.conn.event_log.append(("guard_insert", params[1]))
+            else:
+                self.conn.integrity_inserts.append(params)
             self._rows = []
             self._description = None
             return
@@ -577,7 +581,9 @@ def test_regime_shift_cold_start_within_seeded_rails_does_not_hold(tmp_path):
     assert registry.transition_calls[0][:4] == ("featA", "active", "shadow_only", "ic_demotion")
     # One guard fact was still written for calibration history.
     assert len(conn.guard_fact_inserts) == 1
-    subject, fraction, threshold, passed, window = conn.guard_fact_inserts[0]
+    # 7-tuple: (monitor_type, subject, metric_name, metric_value, threshold_value,
+    # passed, training_window_end) -- todo 150 shared-helper shape.
+    _, subject, _, fraction, threshold, passed, window = conn.guard_fact_inserts[0]
     assert subject == "tf=5m|group=equity"
     assert fraction == 0.96
     assert passed is True
@@ -602,7 +608,7 @@ def test_regime_shift_cold_start_above_rail_holds(tmp_path):
 
     assert registry.transition_calls == []
     assert len(conn.guard_fact_inserts) == 1
-    _, fraction, _, passed, _ = conn.guard_fact_inserts[0]
+    _, _, _, fraction, _, passed, _ = conn.guard_fact_inserts[0]
     assert fraction == 1.0
     assert passed is False
 
@@ -627,7 +633,7 @@ def test_regime_shift_small_stratum_never_hold_authoritative(tmp_path):
 
     assert len(registry.transition_calls) == 1  # demotion proceeded, guard didn't block it
     assert len(conn.guard_fact_inserts) == 1
-    _, _, _, passed, _ = conn.guard_fact_inserts[0]
+    _, _, _, _, _, passed, _ = conn.guard_fact_inserts[0]
     assert passed is True  # insufficient_cells is not a violation
 
 
@@ -646,7 +652,7 @@ def test_regime_shift_suspiciously_low_fail_rate_alerts_not_holds(tmp_path):
     )
 
     assert len(conn.guard_fact_inserts) == 1
-    _, fraction, _, passed, _ = conn.guard_fact_inserts[0]
+    _, _, _, fraction, _, passed, _ = conn.guard_fact_inserts[0]
     assert fraction == 0.10
     assert passed is False
     # Did not hold: Step 4 ran (90/100 = 90% pass, well below the 50% demote floor
@@ -680,7 +686,7 @@ def test_regime_shift_unmapped_regime_label_buckets_to_unmapped_stratum(tmp_path
     )
 
     assert len(conn.guard_fact_inserts) == 1
-    subject = conn.guard_fact_inserts[0][0]
+    subject = conn.guard_fact_inserts[0][1]
     assert subject == "tf=5m|group=_unmapped"
     # Still evaluated (100 cells >= min_cells=100, 100% fail >= 0.995 rail) -> held.
     assert registry.transition_calls == []

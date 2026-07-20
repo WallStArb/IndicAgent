@@ -90,6 +90,7 @@ sys.path.insert(0, str(project_root))
 from services._batch_utils import Float32ChunkAccumulator, connect_db_from_url
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
+from src.core.integrity_monitor import INTEGRITY_MONITOR_INSERT_SQL, emit_integrity_fact_sync
 from src.core.service_utils import setup_service_logging
 from src.intelligence.feature_registry_service import FeatureRegistryService
 from src.intelligence.schemas import FeatureVector
@@ -2766,23 +2767,25 @@ def _apply_feature_transitions(
                 if transitioned:
                     ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": feature_name})
 
-    # Step 5: one integrity_monitor gate-evaluation fact per (non-hold) run.
-    with write_conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO integrity_monitor
-                (monitor_type, subject, metric_name, metric_value,
-                 threshold_value, passed, training_window_end)
-            VALUES ('ic_lifecycle', NULL, 'decay_cells_flagged', %s, %s, true, %s)
-            ON CONFLICT (monitor_type, training_window_end, metric_name,
-                         COALESCE(subject, ''), evaluated_at) DO NOTHING
-            """,
-            (
-                float(material_fail_count),
-                config.decay_materiality_threshold,
-                training_window_end,
-            ),
-        )
+    # Step 5: one integrity_monitor gate-evaluation fact per (non-hold) run. Uses the
+    # shared emit_integrity_fact_sync helper (todo 150) with commit=False and
+    # idempotency_check=False -- both intentional here: commit is deferred to the
+    # single commit point at the end of _run_lifecycle_hook (this fact must land in
+    # the same transaction as Step 3's guard facts below, not commit on its own),
+    # and Step 0 at the top of _run_lifecycle_hook already pre-checks this exact
+    # (monitor_type, training_window_end) pair before either of this hook's two
+    # integrity_monitor call sites can be reached -- a second pre-check here would
+    # be redundant, not wrong.
+    emit_integrity_fact_sync(
+        write_conn,
+        "ic_lifecycle",
+        None,
+        "decay_cells_flagged",
+        float(material_fail_count),
+        config.decay_materiality_threshold,
+        True,
+        training_window_end,
+    )
 
 
 def _run_lifecycle_hook(
@@ -3007,8 +3010,22 @@ def _run_lifecycle_hook(
                 else verdict.band_lo
             )
             passed = verdict.status not in ("hold_high", "alert_low")
+            # Full 7-field shape matching INTEGRITY_MONITOR_INSERT_SQL's placeholder
+            # order (todo 150) -- not routed through emit_integrity_fact_sync itself
+            # (that helper is single-row and would commit/guard each stratum
+            # independently, defeating the one-executemany-then-one-commit design
+            # this whole block exists for), but reuses the SAME shared SQL constant
+            # so the ON CONFLICT clause is defined in exactly one place either way.
             pending_guard_facts.append(
-                (subject, fail_fraction, nearer_bound, passed, training_window_end)
+                (
+                    "ic_lifecycle",
+                    subject,
+                    "guard_fail_fraction",
+                    fail_fraction,
+                    nearer_bound,
+                    passed,
+                    training_window_end,
+                )
             )
 
             if verdict.status in ("hold_high", "alert_low"):
@@ -3045,17 +3062,14 @@ def _run_lifecycle_hook(
     # registry_svc's `with conn:` commit/rollback windows above.
     if pending_guard_facts:
         with write_conn.cursor() as cur:
-            cur.executemany(
-                """
-                INSERT INTO integrity_monitor
-                    (monitor_type, subject, metric_name, metric_value,
-                     threshold_value, passed, training_window_end)
-                VALUES ('ic_lifecycle', %s, 'guard_fail_fraction', %s, %s, %s, %s)
-                ON CONFLICT (monitor_type, training_window_end, metric_name,
-                             COALESCE(subject, ''), evaluated_at) DO NOTHING
-                """,
-                pending_guard_facts,
-            )
+            # Reuses the same INTEGRITY_MONITOR_INSERT_SQL constant emit_integrity_fact_sync
+            # uses (todo 150) -- deliberately NOT emit_integrity_fact_sync itself, since
+            # this is an N-row executemany flushed together at one deferred commit
+            # point (see the comment above), not N independent guarded single-row
+            # emits. Letting a failure here raise (rather than being swallowed
+            # per-row) is correct: it must abort this whole deferred transaction,
+            # exactly as it would have before this extraction.
+            cur.executemany(INTEGRITY_MONITOR_INSERT_SQL, pending_guard_facts)
 
     # Single commit point for the whole hook: the deferred guard facts above +
     # either Step 4/5's writes (non-hold) or nothing further (hold) all land

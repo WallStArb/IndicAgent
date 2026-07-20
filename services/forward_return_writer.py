@@ -53,6 +53,7 @@ sys.path.insert(0, str(project_root))
 
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
+from src.core.integrity_monitor import emit_integrity_fact_sync
 from src.core.service_utils import setup_service_logging
 from src.intelligence.statistics.ic_math import scale_max_abs_return
 from src.observability.metrics import (
@@ -505,59 +506,34 @@ def _emit_coverage(conn: Any, symbols: list[str], tfs: list[str], scales: tuple[
 
 def _emit_price_sanity_fact(conn: Any, total_suspect: int, training_window_end: Any) -> None:
     """One integrity_monitor row per training_window_end recording how many rows that
-    run flagged as price-sanity suspect (todo 148). Mirrors ic_engine.py's
-    _run_lifecycle_hook pattern: observability only, guarded so a failure here logs
-    loudly but never corrupts the already-committed forward_returns write.
+    run flagged as price-sanity suspect (todo 148). Delegates to the shared
+    emit_integrity_fact_sync helper (todo 150) for the actual INSERT, its guard
+    (log-and-continue on failure -- never corrupts the already-committed
+    forward_returns write), and idempotency pre-check.
 
-    Explicit pre-check (not just the table's ON CONFLICT) because evaluated_at
-    defaults to now() and is part of that composite unique key -- ON CONFLICT alone
-    only catches an exact-instant duplicate insert, not a rerun of this same
-    training_window_end minutes/hours later (a retry, or an overlapping scheduled
-    invocation), which would otherwise insert a second audit row instead of being
-    deduplicated -- same idempotency gap ic_engine.py's Step 0 pre-check exists to close.
+    idempotency_check=True: unlike ic_engine.py's two integrity_monitor call sites,
+    nothing upstream of this function already checks "did this training_window_end
+    run before" -- evaluated_at defaults to now() and is part of the table's
+    composite unique key, so ON CONFLICT alone only catches an exact-instant
+    duplicate insert, not a rerun of this same training_window_end minutes/hours
+    later (a retry, or an overlapping scheduled invocation).
+
+    No single scalar threshold applies (ceilings are per-tf via
+    alpha.quant.max_abs_return.{tf}) -- threshold_value is NULL, metric_value is the
+    raw count this run flagged.
     """
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT 1 FROM integrity_monitor
-                WHERE monitor_type = 'price_sanity'
-                  AND training_window_end = %s
-                  AND metric_name = 'rows_flagged_suspect'
-                LIMIT 1
-                """,
-                (training_window_end,),
-            )
-            already_ran = cur.fetchone() is not None
-        if already_ran:
-            _logger.info(
-                "forward_return_writer.price_sanity_fact_already_ran",
-                training_window_end=str(training_window_end),
-            )
-            return
-
-        # No single scalar threshold applies (ceilings are per-tf via
-        # alpha.quant.max_abs_return.{tf}) -- threshold_value is NULL, metric_value
-        # is the raw count this run flagged.
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO integrity_monitor
-                    (monitor_type, subject, metric_name, metric_value,
-                     threshold_value, passed, training_window_end)
-                VALUES ('price_sanity', NULL, 'rows_flagged_suspect', %s, NULL, true, %s)
-                ON CONFLICT (monitor_type, training_window_end, metric_name,
-                             COALESCE(subject, ''), evaluated_at) DO NOTHING
-                """,
-                (float(total_suspect), training_window_end),
-            )
-        conn.commit()
-    except Exception as error:
-        _logger.warning(
-            "forward_return_writer.price_sanity_fact_error",
-            error=str(error),
-            total_suspect=total_suspect,
-        )
+    emit_integrity_fact_sync(
+        conn,
+        "price_sanity",
+        None,
+        "rows_flagged_suspect",
+        float(total_suspect),
+        None,
+        True,
+        training_window_end,
+        idempotency_check=True,
+        commit=True,
+    )
 
 
 # ---------------------------------------------------------------------------
