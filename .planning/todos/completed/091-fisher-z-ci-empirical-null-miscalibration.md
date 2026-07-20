@@ -1,5 +1,18 @@
 # 091 — Fisher-z analytic CI is empirically miscalibrated: 38% SUSPECT rate across most strata
 
+**Closed 2026-07-19:** the circular block bootstrap fix (143.1-01) cut the empirical-null
+SUSPECT rate from 38% (11/29) to 21% (4/19). Fable 5's review confirmed the residual mechanism:
+every remaining SUSPECT cell is a feature whose autocorrelation dependence length exceeds its
+tf's bootstrap block size (`ctf_momentum` ~4x, structural; `flight_quality` ~750x, unfixable by
+any block size). Per this project's principles (resist overfitting), the close-out is standing
+instrumentation, not per-feature block tuning: `scripts/ops/alpha/ops_dependence_length_diagnostic.py`
+(todo 145) measures a 1/e-decorrelation-lag proxy per (feature, tf) and writes a lower-trust
+flag to `integrity_monitor` (`monitor_type='ic_bootstrap'`) when the ratio exceeds
+`alpha.ic.dependence_length_flag_ratio` (migration 239, seed 2.0). 145 also added
+`--feature-filter` to `ops_ic_null_calibration.py` for a future stratified confirmation run
+targeting `ctf_momentum`/`flight_quality` specifically. Decision recorded in
+`docs/plans/methodology-change-ledger.md`. See `.planning/todos/completed/145-bootstrap-dependence-length-flag.md`.
+
 **Source:** L4-2 empirical null calibration diagnostic, run 2026-07-09. Supersedes the L4-2 scope
 of todo 071 (see `docs/research/measurement-ic-engine.md`'s Measurement Gaps table, new row dated
 2026-07-09, for the durable record). Evidence trail: `scripts/ops/alpha/ops_ic_null_calibration.py`,

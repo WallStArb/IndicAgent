@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-07-19
 source: Fable 5 review of todo 091's residual SUSPECT cells
@@ -7,6 +7,18 @@ source: Fable 5 review of todo 091's residual SUSPECT cells
   spawned to give 091 a concrete close condition rather than accepting a residual
   SUSPECT rate unflagged.
 ---
+
+**Closed 2026-07-19:** implemented as a standalone diagnostic,
+`scripts/ops/alpha/ops_dependence_length_diagnostic.py` -- computes a 1/e-decorrelation-lag
+proxy for integrated autocorrelation time per (feature, tf) from `feature_vectors`, aggregates
+across sampled symbols via the median, and writes one `integrity_monitor` row per (feature, tf)
+per run (`monitor_type='ic_bootstrap'`, `subject='feature=<name>|tf=<tf>'`,
+`metric_name='dependence_length_ratio'`, `passed = ratio <= alpha.ic.dependence_length_flag_ratio`).
+New APR key `alpha.ic.dependence_length_flag_ratio` (migration 239, seed 2.0, `[conventional]`),
+applied live. `--feature-filter` added to `ops_ic_null_calibration.py` for a future stratified
+confirmation run targeting `ctf_momentum`/`flight_quality` (not executed this session --
+operational follow-up). Closes out todo 091. Decision recorded in
+`docs/plans/methodology-change-ledger.md`.
 
 # `_circular_block_bootstrap_ic` has no standing instrumentation for features whose
 # dependence length exceeds their tf's block size -- add one, close out 091's residual

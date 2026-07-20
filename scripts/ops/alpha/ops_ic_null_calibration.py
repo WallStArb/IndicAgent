@@ -108,6 +108,7 @@ _BOUNDARY_CELLS_SQL = """
     WHERE tf = $1 AND is_pooled = $2 AND training_window_end = $3
       AND passes_fdr = true AND reliable = true AND ic_ci_lower IS NOT NULL
       AND regime != '_pooled'
+      AND ($5::text[] IS NULL OR feature_name = ANY($5::text[]))
     ORDER BY abs(ic_ci_lower) ASC
     LIMIT $4
 """
@@ -119,6 +120,7 @@ _NULL_CELLS_SQL = """
     WHERE tf = $1 AND is_pooled = $2 AND training_window_end = $3
       AND passes_fdr = false AND reliable = true AND ic_value IS NOT NULL
       AND regime != '_pooled'
+      AND ($5::text[] IS NULL OR feature_name = ANY($5::text[]))
     ORDER BY abs(ic_value) ASC
     LIMIT $4
 """
@@ -130,6 +132,7 @@ _STRONG_CELLS_SQL = """
     WHERE tf = $1 AND is_pooled = $2 AND training_window_end = $3
       AND reliable = true AND ic_sharpe_hac IS NOT NULL
       AND regime != '_pooled'
+      AND ($5::text[] IS NULL OR feature_name = ANY($5::text[]))
     ORDER BY ic_sharpe_hac DESC
     LIMIT $4
 """
@@ -184,7 +187,27 @@ def _parse_args() -> argparse.Namespace:
         "representative per-symbol cell and one POOLED cell at the live APR resample/"
         "block-size values (Task 4, Phase 143.1-01 corpus-scale runtime budget).",
     )
+    parser.add_argument(
+        "--feature-filter",
+        type=str,
+        default=None,
+        help="Comma-separated feature_name list to stratify cell sampling toward "
+        "(todo 145) -- e.g. --feature-filter ctf_momentum,flight_quality. Default: no "
+        "filter, existing boundary-nearest sampling across all features.",
+    )
     return parser.parse_args()
+
+
+def _parse_feature_filter(raw: str | None) -> list[str] | None:
+    """Parses --feature-filter's comma-separated value into a list of feature names,
+    or None if absent/empty (matches the existing no-filter sampling behavior).
+    Whitespace around each name is stripped; empty entries (e.g. a trailing comma)
+    are dropped."""
+    if not raw:
+        return None
+    names = [name.strip() for name in raw.split(",")]
+    names = [name for name in names if name]
+    return names or None
 
 
 async def _load_config_int(pool: asyncpg.Pool, key: str, default: int) -> int:
@@ -192,7 +215,9 @@ async def _load_config_int(pool: asyncpg.Pool, key: str, default: int) -> int:
     return int(row) if row is not None else default
 
 
-async def _sample_cells(pool: asyncpg.Pool, vintage) -> list[dict]:
+async def _sample_cells(
+    pool: asyncpg.Pool, vintage, feature_filter: list[str] | None = None
+) -> list[dict]:
     cells: list[dict] = []
     for tf in _TFS:
         for is_pooled in (False, True):
@@ -201,7 +226,7 @@ async def _sample_cells(pool: asyncpg.Pool, vintage) -> list[dict]:
                 (_NULL_CELLS_SQL, _N_NULL_CELLS),
                 (_STRONG_CELLS_SQL, _N_STRONG_CELLS),
             ):
-                rows = await pool.fetch(sql, tf, is_pooled, vintage, limit)
+                rows = await pool.fetch(sql, tf, is_pooled, vintage, limit, feature_filter)
                 if len(rows) < limit:
                     print(
                         f"WARNING: stratum tf={tf} is_pooled={is_pooled} query="
@@ -424,7 +449,11 @@ async def main() -> int:
                 "(loaded from APR -- same values production ic_engine.py uses)\n"
             )
 
-        cells = await _sample_cells(pool, vintage)
+        feature_filter = _parse_feature_filter(args.feature_filter)
+        if feature_filter is not None:
+            print(f"feature_filter={feature_filter} (todo 145 stratified sample)\n")
+
+        cells = await _sample_cells(pool, vintage, feature_filter)
         print(f"Sampled {len(cells)} cells.\n")
 
         rng = np.random.default_rng(args.seed)

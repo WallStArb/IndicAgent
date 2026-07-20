@@ -563,3 +563,55 @@ labels are pre-fix. This fix applies cleanly starting with the next corpus rebui
 retroactive correction of the in-flight run's regime labels was attempted or is possible without
 re-running that step. `ops_oos_holdout_eval.py` is a manually-invoked diagnostic (not part of the
 automated corpus pipeline), so any future run of it will use the corrected view immediately.
+
+---
+
+## 2026-07-19 — Bootstrap-CI residual SUSPECT rate (todo 091) closed via standing dependence-length flag, not per-feature block-size tuning (todo 145)
+
+**What result was observed before the change?** Todo 091's 2026-07-19 confirmation run (fresh
+143.1-07 corpus, `--ci-method bootstrap`) found the circular block bootstrap fix (143.1-01) cut
+the empirical-null SUSPECT rate from 38% (11/29 evaluated cells) to 21% (4/19) — real
+improvement, not full resolution. 3 of the 4 residual SUSPECT cells were the same feature,
+`ctf_momentum` (XLY/5m, EWJ/5m, QQQ/15m); the fourth was `flight_quality` (VWO/1h). Fable 5's
+2026-07-19 review measured the mechanism directly: integrated autocorrelation time vs. each
+feature's tf bootstrap block size (`alpha.ic.bootstrap_block_size.{5m,15m,1h,1d}` = 78/26/10/10
+bars). `ctf_momentum` runs ~4x its block size consistently across tfs (structural — it's
+HTF-derived, not incidental). `flight_quality` (a TLT/SPY macro-divergence feature that
+decorrelates on a months scale) runs ~750x its block size at 1h — no feasible block size fixes
+this; ~4 independent blocks of ~7,454 bars exist in ~30k observations, nowhere near enough for a
+stable CI.
+
+**What changed?** Per this project's principles (proof before promotion, resist overfitting,
+instrument everything), block size was deliberately NOT tuned per feature — that would overfit
+one dial to one symptom, and does nothing for `flight_quality` regardless. Instead, standing
+instrumentation was added: `scripts/ops/alpha/ops_dependence_length_diagnostic.py` computes a
+1/e-decorrelation-lag proxy for integrated autocorrelation time per (feature, tf) directly from
+`feature_vectors` (O(n) per series, "sufficient for a flag, not a publication-grade estimate" —
+not a rigorous IAT estimator), aggregates across sampled symbols via the median, and writes one
+`integrity_monitor` row per (feature, tf) per run (`monitor_type='ic_bootstrap'`,
+`subject='feature=<name>|tf=<tf>'`, `metric_name='dependence_length_ratio'`, `passed = ratio <=
+alpha.ic.dependence_length_flag_ratio`). New APR key `alpha.ic.dependence_length_flag_ratio`
+(migration 239, seed 2.0, `[conventional]`) — a factor-of-2 overshoot as first trigger, well
+clear of the measured ~4x/~750x cases so the threshold isn't tuned to squeak either known case
+through. Standalone script, not a change inside `services/ic_engine.py` (3,600+ lines, Phase 162
+already restructuring its compute functions — avoids a fifth concern in the same file
+mid-refactor). `--feature-filter` was also added to `ops_ic_null_calibration.py` so a future
+confirmation run can stratify sampling toward `ctf_momentum`/`flight_quality` specifically
+instead of the existing boundary-nearest sampling; not executed this session (operational
+follow-up). Todo 091 is now closed carrying forward a 21% residual SUSPECT rate, WITH this flag
+in place — not silently.
+
+**What would the change have looked like if decided *before* seeing any data (pre-registered
+justification), and honestly, was it?** No — this is a textbook post-hoc methodology decision:
+the flag's existence, its ratio formula, and its 2.0 threshold were all chosen after observing
+the specific `ctf_momentum`/`flight_quality` SUSPECT pattern. There is no pre-registered
+dependence-length gate this project committed to before todo 091 surfaced the miscalibration.
+What partially mitigates the selection pressure: the flag is a measurement/instrumentation
+addition (a new observability signal, gating nothing on its own yet — "wiring an actual
+[downstream] consumer is a separate, later decision," per todo 145), not a threshold change to
+any existing gate (BH-FDR, EIC-04, walk-forward) — those gates' pass/fail behavior is unchanged
+by this entry. The one number chosen with a stated rationale independent of the exact observed
+cases (2.0, "a factor-of-2 overshoot is a reasonable first trigger," deliberately not fit to
+land just above 4x or 750x) is the closest this entry comes to a pre-registered-style
+justification, and it is honestly disclosed as `[conventional]`, not `[rca_analysis]`, for
+exactly that reason.

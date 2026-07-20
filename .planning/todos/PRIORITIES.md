@@ -33,22 +33,23 @@ integrity gap, an unproven claim masquerading as settled) outranks one that's me
 
 | Todo | Gap |
 |---|---|
-| [091](pending/091-fisher-z-ci-empirical-null-miscalibration.md) | **Mechanism confirmed by Fable 5 review 2026-07-19: every residual SUSPECT cell's dependence length exceeds its bootstrap block size** (`ctf_momentum` ~4x, structural; `flight_quality` ~750x, unfixable by any block size). Per-feature block tuning rejected (overfitting). **Stays open until [145](pending/145-bootstrap-dependence-length-flag.md) (standing dependence-length flag) lands** — 21% residual is acceptable to carry only with that flag in place, not silently. |
 | [152](pending/152-price-sanity-guard-flags-real-crisis-events.md) | New 2026-07-19, found via per-row investigation of todo 148's shipped guard: `return_{scale}_suspect`'s magnitude-only ceiling cannot distinguish genuine corrupt prints (UUP/XRT/VWO — confirmed no economic basis) from real, documented crisis events it is currently ALSO flagging and silently excluding from mean-based consumers — confirmed the May 6 2010 Flash Crash (6 ETFs, same 40-min window), the Aug 24 2015 ETF flash crash, and 2008-09-18 Lehman-aftermath volatility in `KRE`. Live-path integrity gap in already-shipped code (`EnsembleICEngine`'s production alpha-scoring path reads this flag). Fix direction specified in the todo (cross-symbol corroboration check, primary recommendation). |
 | [094](pending/094-alpha-events-long-short-imbalance.md) | Two sign-asymmetric gates (`ic_ci_lower > 0` eligibility filter, `fold_ic > 0` walk-forward criterion) excluded 100% of contrarian features before weighting ever ran. Sign-symmetric redesign shipped (143.1-04, verified live in `ic_engine.py`/`ensemble_trainer.py`). **Now unblocked:** mandatory shadow-mode champion/challenger validation (143.1-08) can proceed — 143.1-07's corpus re-run finished 2026-07-19. |
 | [099](pending/099-bootstrap-ci-staged-validation-gate-not-cleared-5m-residual.md) | P2 — the bootstrap CI staged-validation gate's 6 SUSPECT cells trace to 5 diagnostic-only (`is_pooled=false`) breaches + 1 capital-relevant cell that independently clears its own bound — no longer blocks Plan 07. Underlying statistical question (why 5m autocorrelation/momentum features resist both Fisher-z and block-bootstrap) remains open as non-blocking follow-up. |
 | [096](pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md) | **Estimator fix CONFIRMED 2026-07-19** — re-ran the (previously stale/crashing) Monte Carlo verification script against live post-fix APR: all four lookahead scales now report near-identical `ic_sharpe` at every true-correlation level (e.g. 0.9957/0.9957/0.9932/0.9906 at rho=0.10), vs. the old bug's documented 2-3.6x deflation at long horizons. **096's own diagnostic scope is done, but this does NOT unblock 088 yet** — checked directly: `ensemble_trainer`/`ensemble_ic_engine` have not run since 2026-07-10 (`alpha_ensemble_ic` has zero rows, both logs empty since 07-11), so production `hold_max_bars` still reflects PRE-fix weights. 143.1-07 only refreshed `ic_engine`'s feature-level values, not the full pipeline. |
 
 **Locked sequencing decision (project owner confirmed, do not reorder without re-confirming):**
-093 (`alpha_frames` backfill, done) → 091 → **097 (done 2026-07-19, moved to `completed/`)** →
+093 (`alpha_frames` backfill, done) → **091 (done 2026-07-19, moved to `completed/`)** →
+**097 (done 2026-07-19, moved to `completed/`)** →
 **094** (E2 sign-path fix + mandatory shadow-mode validation before promotion) → re-run the
 E1-vs-E2 A/B judgment (the prior 20/20 result was all-long vs all-long, doesn't carry forward) →
 **096** → **088** (deliberately last, informed by 096's finding). Rationale: 091, 097, and 094 all
 read or directly affect `ic_ci_lower`/`ic_ci_upper`, and 094 independently requires a full
 `ic_engine` re-run — sequencing 091 and 097 first meant one corpus re-run served all three fixes
 instead of splitting across multiple. **Status 2026-07-19: the shared corpus re-run (143.1-07)
-completed; 091's mechanism is confirmed (stays open on todo 145) and 097 is fully closed. Next in
-the chain: 094's shadow-mode validation (143.1-08).**
+completed; 091 is fully closed (standing dependence-length flag landed via todo 145, see
+`completed/`) and 097 is fully closed. Next in the chain: 094's shadow-mode validation
+(143.1-08).**
 
 ## P1 — High value, quick, fully unblocked
 
@@ -58,7 +59,6 @@ the chain: 094's shadow-mode validation (143.1-08).**
 | [079](pending/079-anytime-valid-e-values-corpus-reruns.md) | Anytime-valid inference pilot (one tf) — new statistical primitive, deliberately staged small |
 | [080](pending/080-ensemble-combination-e-candidates-queue.md) | Posterior-blended weighting (L5-1) — testable now via existing A/B judge, zero new data |
 | [147](pending/147-vol-normalized-target-low-bull-divergence.md) | New 2026-07-19, direct fallout of 097's full-corpus verdict (097 closed, see `completed/`): vol-normalized vs. raw IC diverges sharply in `low_bull` regime strata specifically (median rank corr 0.35 vs. 0.73 elsewhere) — NOT a low-N artifact, some of the worst cells have 250K-436K independent obs, among the best-powered in the whole run. Mechanism unknown. Blocks any global promotion decision on 097's transform until investigated (or `low_bull` is explicitly carved out). Half a day for the cheap first check. |
-| [145](pending/145-bootstrap-dependence-length-flag.md) | New 2026-07-19, closes out 091: standing `integrity_monitor` flag for features whose autocorrelation decay exceeds their bootstrap block size (mechanism confirmed by Fable 5 — `ctf_momentum` ~4x, `flight_quality` ~750x). Half a day to a day, mostly the diagnostic-placement decision. 091 stays open until this lands. |
 | [146](pending/146-lookahead-grid-per-tf-recalibration.md) | New 2026-07-19: `alpha.ic.lookahead.*`'s uniform 1/5/20/60-bar grid empirically confirmed broken on intraday tfs — new diagnostic (`ops_lookahead_horizon_response.py`) measured 1h slow/extended and 15m extended at literal zero coverage, 5m extended at ~12% (morning-only). 1d's grid is fine as-is (IC genuinely peaks near 60). Candidate per-tf grids in the todo; 1h has no room for a slow/extended tier at all — a real open design question. Step 1-2 (diagnostic + candidate grids) done; Step 3 (apply to production APR) deliberately rides the next corpus rebuild, not now. |
 | [092](pending/092-equity-regime-model-threshold-calibration.md) | Empirical threshold calibration for cross-sectional regime-model vix/breadth cuts — live-path suspect behind extreme regime-conditional IC values on the current leaderboard |
 | [054](pending/054-shadow-alpha-events-monitoring.md) | Shadow alpha_events monitoring — prevents delayed detection of feature decay/threshold bugs |
