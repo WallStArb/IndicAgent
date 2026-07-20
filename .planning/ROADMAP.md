@@ -1961,6 +1961,94 @@ ic_engine` / [Corpus pipeline state](project_corpus_pipeline_state.md) before st
 Plans:
 - [ ] TBD (run /gsd-plan-phase 162 to break down against the 162-01/02/03/04 breakdown above)
 
+### Phase 163: VP/SR Structural Primitives 📋 PLANNED
+
+**Goal:** Implement real computation for the 4 permanently-null structural features
+(`poc_dist_atr`, `va_position`, `sr_support_dist`, `sr_resist_dist`) — closes todo 153. Session-
+anchored volume-weighted POC/value-area (new `FeatureCache.update_session_vp()` mutator,
+mirroring `update_wk_vwap()`'s session-boundary-reset pattern) + rolling-window
+pivot-clustering support/resistance (stateless, inline in `compute()`/`compute_batch()`, reusing
+the already-live `find_peaks`/`find_troughs` utils). New `feature.session_vp.*` / `feature.sr.*`
+APR keys per migrate-as-you-go.
+
+**Do NOT literally port** the archived `i3_structure/market_profile.py` (unbounded-accumulator
+bug in its incremental path, uses TPO touch-count instead of real traded volume) or
+`support_resistance.py` as-is — reimplement per Fable's 2026-07-20 analysis (full findings:
+this phase's discussion context / conversation history). The "requires I3 intraday injection"
+comments in `feature_factory.py`/`schemas.py` blocking batch computation are themselves wrong —
+neither archived plugin needs anything beyond OHLCV, already available via
+`market_data_ohlcv_tradeable` in both live and backfill paths.
+
+**Promotion bar:** run through the todo 037/038-style incremental-IC lens (partial IC
+controlling for parent atomics), not just standalone IC>0 — `vwap_dev_sigma`,
+`bb_pct_b_fast/slow`, `price_percentile_fast/slow`, and `dist_from_high/low_fast/slow` already
+occupy this feature's conceptual neighborhood (distance-to-level / position-in-band), so the
+open question is specifically incremental contribution, not novelty from scratch.
+
+**Depends on:** Feature Registry (todo 008, COMPLETE). No dependency on Phase 149/147/162 —
+sibling atomic-expansion item to Phase 151's atomic scope (todo 066, todo 104), not folded into
+151's interaction-layer waves.
+**Requirements**: TBD at `/gsd-plan-phase 163`
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 163 to break down)
+
+### Phase 164: SMC Institutional Footprint Primitives 📋 PLANNED
+
+**Goal:** Port the archived v2.x Smart Money Concepts (SMC) plugins
+(`src/intelligence/archive/smc_context/`) into v3 as atomic distance/strength/duration/count
+primitives — the "institutional accumulation/distribution" family: order blocks, fair value
+gaps, liquidity sweeps, liquidity pools (buy-side/sell-side), supply/demand zones, AMD
+(accumulation-manipulation-distribution) cycle, breaker/mitigation blocks, BOS/CHoCH structural
+shifts. All ~10 plugins are self-contained (OHLCV + ATR only), built on the same already-live
+shared utilities (`find_peaks`/`find_troughs`, `clamp`, `linear_ramp`, `freshness_decay` in
+`src/intelligence/utils.py`) — no cross-plugin dependency chain, ~2,484 lines total across
+90-280 line files. Comparable in scope to one Phase 142.5-style multi-plan wave.
+
+**Candidate atomic primitives per concept** (full detail: this phase's RESEARCH.md/CONTEXT.md
+once planned):
+- Order Blocks: `ob_dist_atr` (directional, nearest bullish/bearish), `ob_strength`,
+  `ob_mitigated` flag
+- Fair Value Gap: `fvg_dist_atr`, `fvg_size_atr`, `fvg_open_count`
+- Liquidity Sweeps: `sweep_strength`, `reclaim_velocity`, bars-since-last-sweep
+- Liquidity Pools: `bsl_dist_atr`/`ssl_dist_atr`, `bsl_touches`/`ssl_touches` (touch-count =
+  level significance), `pool_count`
+- Supply/Demand Zones: `demand_dist_atr`/`supply_dist_atr`, `demand_freshness`/`supply_freshness`
+  (zone age/decay — a genuinely new dimension beyond plain distance), zone-active counts
+- AMD Cycle: `amd_phase` (ordinal-encode), `manip_strength`, `amd_manipulation_detected` flag
+- Breaker/Mitigation Blocks: `breaker_dist_atr`, `breaker_block_active`, `ob_mitigation_pct`
+  (level erosion, distinct from distance)
+- BOS/CHoCH: `bos_strength`/`choch_strength` (already ATR-normalized break magnitude),
+  direction flags, bars-since-last-shift
+
+**Explicitly excluded:**
+- `premium_discount` — likely redundant with existing `va_position`/`bb_pct_b`/
+  `price_percentile` position-in-band features (same overlap concern as Phase 163's D-07); test
+  for redundancy before investing, if ever.
+- `archive/smc_context/hmm_regime.py` — v3 already has its own live per-symbol HMM regime system;
+  this archived one is a v2.x duplicate, not a gap.
+- `ict_killzones` — already ported; v3's `in_london_kz`/`in_overlap`/`power_hour` (calendar
+  domain) are the same concept under different names.
+- `bocpd_changepoint.py` (Bayesian online change-point detection) — a real, separate statistical
+  primitive, but not an "institutional accumulation/distribution" concept; out of this phase's
+  scope, worth its own consideration later if wanted.
+
+**Promotion-bar risk (carries forward from Phase 163's D-07):** this phase adds ~15-20 more
+"distance to a level" columns on top of the breakout-distance/VWAP-dev/BB%B family and Phase
+163's POC/S-R work. Run one shared collinearity/incremental-IC sweep across the whole
+distance-to-level feature family once these exist (todo 038-style), not per-feature isolated
+evaluation — the redundancy risk compounds with each additional "distance to X" column.
+
+**Depends on:** Phase 163 (VP/SR Structural Primitives) for shared conventions (ATR-distance
+normalization pattern, APR namespace precedent, incremental-IC promotion methodology) — not a
+hard code dependency, sequencing preference only.
+**Requirements**: TBD at `/gsd-plan-phase 164`
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 164 to break down)
+
 ---
 
 **Correction (2026-07-12, same day as the note above was first written):** this section previously said Phases 152/153 should be **prioritized now**, ahead of the intelligence-layer work. That was wrong and contradicted the milestone bullet above's own existing, correct caution ("Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher"). Monitoring decay of alpha that hasn't been proven to exist yet is monitoring a null: Phase 148's OOS gates (EIC-04 + FRAME-04) have not passed on corrected data — **FRAME-04 currently fails 16/17 cells** on the pre-143.1-fix baseline, so there is no proven capturable edge for 152/153 to watch decay in yet. **Corrected sequencing:** finish 143.1 (091→097→094→E1-vs-E2 re-run→096→088) → re-run EIC-04/FRAME-04 honestly on corrected data → only then decide between (a) building 152/153's decay/health monitoring or (b) expanding discovery (Phase 151/PrecedentEngine) based on what that gate actually says. Phase 157's kill-switch design above still correctly notes its dependency on Phase 153 eventually existing — that dependency is real, it's just not a reason to build 153 before Phase 148 resolves.
