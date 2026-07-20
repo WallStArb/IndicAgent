@@ -344,13 +344,24 @@ ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 # ---------------------------------------------------------------------------
 
 
-_CORROBORATED_WINDOWS_TEMP_TABLE_SQL = """
+def _build_corroborated_windows_temp_table_sql(scales: tuple[str, ...]) -> str:
+    """Build the temp-table CREATE that pools ALL scales' suspect flags as one
+    per-symbol "was this symbol suspect near this time" signal (todo 152).
+
+    Derives the any_suspect CTE's OR clause from `scales` (mirroring
+    _build_insert_sql's column-list derivation from the same tuple) rather than a
+    hardcoded 4-way OR -- if _SCALES ever gains or loses a scale, this CTE picks up
+    the change automatically instead of silently excluding a scale from
+    corroboration (a scale missing here would never contribute to, or benefit from,
+    cross-symbol corroboration, with no crash and no test failure to catch it)."""
+    suspect_or_clause = " OR ".join(f"return_{s}_suspect" for s in scales)
+    return f"""
 CREATE TEMP TABLE corroborated_windows_tmp ON COMMIT DROP AS
 WITH any_suspect AS (
     SELECT DISTINCT symbol, tf, bar_ts
     FROM forward_returns
     WHERE return_type = 'executable_open_to_open'
-      AND (return_fast_suspect OR return_mid_suspect OR return_slow_suspect OR return_extended_suspect)
+      AND ({suspect_or_clause})
 )
 SELECT a.tf, a.bar_ts
 FROM any_suspect a
@@ -403,7 +414,7 @@ def _apply_cross_symbol_corroboration(
     with observed_span("forward_return_writer.cross_symbol_corroboration", tracer):
         with conn.cursor() as cur:
             cur.execute(
-                _CORROBORATED_WINDOWS_TEMP_TABLE_SQL,
+                _build_corroborated_windows_temp_table_sql(scales),
                 {"min_symbols": min_symbols, "window_minutes": window_minutes},
             )
         cleared: dict[str, int] = {}

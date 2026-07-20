@@ -13,10 +13,15 @@
 -- A magnitude-only ceiling structurally cannot make this distinction: a real Flash
 -- Crash return and a fabricated $1000-print return can share the same magnitude. The
 -- distinguishing signal is cross-symbol simultaneity -- corruption doesn't hit N
--- unrelated symbols at the identical historical minute; a market-wide liquidity vacuum
+-- unrelated symbols in the same narrow time window; a market-wide liquidity vacuum
 -- does. This key is the minimum distinct-symbol count (INCLUDING the subject symbol
--- itself) required at an identical (tf, bar_ts) to treat a flagged move as a
--- corroborated market event rather than a corrupt print.
+-- itself) required near the same (tf, bar_ts) to treat a flagged move as a
+-- corroborated market event rather than a corrupt print. "Near" is consumer-specific:
+-- ops_known_corrupt_print_cleanup.py matches at the identical timestamp (raw OHLCV
+-- bars -- the Flash Crash's collapse landed on the same bar across symbols);
+-- forward_return_writer.py matches within migration 241's window_minutes (derived
+-- forward-return suspect flags stagger across bars by scale -- see 241's header for
+-- why an identical-bar_ts match was tried first and empirically failed).
 --
 -- Seed 4 is [initial_estimate]: the confirmed Flash Crash cluster hit 6 unrelated ETFs
 -- simultaneously (well clear of this floor); the confirmed isolated corrupt prints
@@ -38,11 +43,13 @@ VALUES
     '4',
     2, 20,
     '[initial_estimate] Minimum distinct symbols (including the subject itself) showing '
-    'an implausible move at the identical (tf, bar_ts) to treat a price-sanity-flagged '
+    'an implausible move near the same (tf, bar_ts) to treat a price-sanity-flagged '
     'return as a corroborated real market event (Flash Crash, ETF flash crash) rather '
-    'than a corrupt print (todo 152). Used by services/forward_return_writer.py (clears '
-    'return_{scale}_suspect) and scripts/ops/corpus/ops_known_corrupt_print_cleanup.py '
-    '(downgrades CONFIRMED_CORRUPT to MARKET_EVENT). Not an ML learning target.'
+    'than a corrupt print (todo 152). "Near" is consumer-specific: '
+    'ops_known_corrupt_print_cleanup.py matches at the identical timestamp; '
+    'services/forward_return_writer.py matches within alpha.quant.cross_symbol_'
+    'corroboration.window_minutes (migration 241) -- an identical-timestamp match was '
+    'tried there first and empirically failed (see 241). Not an ML learning target.'
 )
 ON CONFLICT (config_key) DO NOTHING;
 

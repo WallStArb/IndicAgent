@@ -23,9 +23,9 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from services.forward_return_writer import (
-    _CORROBORATED_WINDOWS_TEMP_TABLE_SQL,
     _SCALES,
     _apply_cross_symbol_corroboration,
+    _build_corroborated_windows_temp_table_sql,
     _build_corroboration_update_sql,
     _build_forward_return_sql,
     _build_insert_sql,
@@ -245,22 +245,29 @@ def test_corroboration_update_sql_scoped_to_executable_return_type():
 def test_corroborated_windows_temp_table_sql_pools_all_scales():
     """The frozen temp-table computation must consider ANY scale suspect (not just
     one) as a symbol's participation signal -- the live Flash Crash cluster flags
-    different symbols on different scales at nearby-but-not-identical bar_ts."""
-    for scale in ("fast", "mid", "slow", "extended"):
-        assert f"return_{scale}_suspect" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
+    different symbols on different scales at nearby-but-not-identical bar_ts.
+
+    Iterates _SCALES itself (not a hardcoded tuple) so this test fails loudly if
+    _build_corroborated_windows_temp_table_sql's OR clause and _SCALES ever
+    diverge -- the exact silent-under-correction risk a hardcoded copy here would
+    otherwise mask."""
+    sql = _build_corroborated_windows_temp_table_sql(_SCALES)
+    for scale in _SCALES:
+        assert f"return_{scale}_suspect" in sql
 
 
 def test_corroborated_windows_temp_table_sql_uses_time_window():
-    assert "BETWEEN" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
-    assert "%(window_minutes)s" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
-    assert "GROUP BY a.tf, a.bar_ts" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
-    assert "count(DISTINCT b.symbol)" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
+    sql = _build_corroborated_windows_temp_table_sql(_SCALES)
+    assert "BETWEEN" in sql
+    assert "%(window_minutes)s" in sql
+    assert "GROUP BY a.tf, a.bar_ts" in sql
+    assert "count(DISTINCT b.symbol)" in sql
 
 
 def test_corroborated_windows_temp_table_sql_on_commit_drop():
     """Must be session/transaction-scoped and self-cleaning -- a leaked temp table
     would silently accumulate across every forward_return_writer invocation."""
-    assert "ON COMMIT DROP" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
+    assert "ON COMMIT DROP" in _build_corroborated_windows_temp_table_sql(_SCALES)
 
 
 def _mock_conn_for_corroboration(rowcounts: dict[str, int]) -> MagicMock:

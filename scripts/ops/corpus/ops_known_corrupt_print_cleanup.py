@@ -56,7 +56,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -196,11 +196,9 @@ def apply_cross_symbol_downgrade(
     total_symbols = n_corroborating_symbols + 1
     if total_symbols < min_symbols:
         return verdict
-    return CandidateVerdict(
+    return replace(
+        verdict,
         verdict="MARKET_EVENT",
-        implausible_fields=verdict.implausible_fields,
-        max_ratio=verdict.max_ratio,
-        neighbor_ratio=verdict.neighbor_ratio,
         reason=f"cross_symbol_corroborated_n={total_symbols}",
     )
 
@@ -597,12 +595,15 @@ async def _run(args: argparse.Namespace) -> int:
     pool = await asyncpg.create_pool(dsn=dsn)
 
     try:
-        apr = await load_apr_dict_async(pool)
+        # apr and pairs have no data dependency on each other -- fetch concurrently
+        # rather than back-to-back round trips.
+        apr, pairs = await asyncio.gather(
+            load_apr_dict_async(pool),
+            _fetch_candidate_tf_pairs(pool, args.symbols, args.tf),
+        )
         min_corroborating_symbols = int(
             _cfg(apr, "alpha.quant.cross_symbol_corroboration.min_symbols", 4)
         )
-
-        pairs = await _fetch_candidate_tf_pairs(pool, args.symbols, args.tf)
         _logger.info("known_corrupt_print_cleanup.candidate_pairs", n_pairs=len(pairs), pairs=pairs)
 
         all_rows: list[CandidateRow] = []
