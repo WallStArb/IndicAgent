@@ -173,16 +173,26 @@ FROM market_data_ohlcv
 WHERE volume > 0
   AND price_sanity_status IS DISTINCT FROM 'confirmed_corrupt';
 
-UPDATE market_data_ohlcv
+-- Drives from integrity_monitor (18 rows for this monitor_type), NOT from
+-- market_data_ohlcv WHERE volume=0 -- volume=0 also matches every synthetic-fill/
+-- flat-carry-forward placeholder bar in the ENTIRE table (~82% of intraday rows,
+-- tens of millions of rows), and a per-row correlated EXISTS subquery driven from
+-- that population is a catastrophic, unbounded full-table operation. Extracting
+-- symbol/tf/ts from integrity_monitor's own subject string and joining directly on
+-- market_data_ohlcv's primary-key columns bounds this to exactly 18 index lookups.
+UPDATE market_data_ohlcv m
 SET price_sanity_status = 'confirmed_corrupt'
-WHERE volume = 0
-  AND EXISTS (
-      SELECT 1 FROM integrity_monitor im
-      WHERE im.monitor_type = 'price_sanity_ohlcv_correction'
-        AND im.subject = 'symbol=' || market_data_ohlcv.symbol
-                        || '|tf=' || market_data_ohlcv.timeframe
-                        || '|ts=' || to_char(market_data_ohlcv.timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-  );
+FROM (
+    SELECT
+        substring(subject FROM 'symbol=([^|]+)') AS symbol,
+        substring(subject FROM 'tf=([^|]+)') AS tf,
+        substring(subject FROM 'ts=(.+)$')::timestamptz AS ts
+    FROM integrity_monitor
+    WHERE monitor_type = 'price_sanity_ohlcv_correction'
+) corrected
+WHERE m.symbol = corrected.symbol
+  AND m.timeframe = corrected.tf
+  AND m.timestamp = corrected.ts;
 
 INSERT INTO config_schema (config_key, value_type, default_value, min_value, max_value, description)
 VALUES
