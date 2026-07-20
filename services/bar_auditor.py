@@ -24,12 +24,14 @@ from __future__ import annotations
 import asyncio
 import time as _time
 from datetime import UTC, date, datetime, timedelta
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 from opentelemetry import metrics as _otel_metrics
 
+from services._batch_utils import cfg as _cfg
+from services._batch_utils import load_apr_dict_async
 from src.config.settings import get_active_contracts, invalidate_active_contracts_cache
 from src.core.agent.base import BaseDaemon
 from src.core.bar_accumulator import _TF_MINUTES
@@ -40,6 +42,12 @@ from src.core.stream_keys import (
     topic_contract_updates,
     topic_gap_fill_dlq,
     topic_gap_requests,
+)
+from src.intelligence.statistics.price_sanity import (
+    CandidateVerdict,
+    apply_cross_symbol_downgrade,
+    classify_candidate_bar,
+    count_corroborating_symbols_batch,
 )
 from src.observability.metrics import BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
 
@@ -64,6 +72,54 @@ _ALL_AUDIT_TFS: list[str] = ["1m"] + _HTF_TF_NAMES_LIST
 _RETRY_BACKOFFS_SECS: tuple[int, ...] = (300, 1800)
 MAX_GAP_RETRIES: int = 3
 _POST_ROLL_SUPPRESS_SECS: int = 7200  # 2 hours
+
+_PRICE_SANITY_CANDIDATES_SQL = """
+WITH candidates AS (
+    SELECT symbol, timeframe, timestamp
+    FROM market_data_ohlcv
+    WHERE price_sanity_status IS NULL
+      AND volume > 0
+    ORDER BY timestamp
+    LIMIT $1
+)
+SELECT
+    c.symbol, c.timeframe AS tf, c.timestamp AS bar_ts,
+    o.open, o.high, o.low, o.close,
+    prev.close AS prev_close,
+    next.open AS next_open
+FROM candidates c
+JOIN market_data_ohlcv o
+  ON o.symbol = c.symbol AND o.timeframe = c.timeframe AND o.timestamp = c.timestamp
+LEFT JOIN LATERAL (
+    SELECT close FROM market_data_ohlcv_tradeable p
+    WHERE p.symbol = c.symbol AND p.timeframe = c.timeframe AND p.timestamp < c.timestamp
+    ORDER BY p.timestamp DESC LIMIT 1
+) prev ON true
+LEFT JOIN LATERAL (
+    SELECT open FROM market_data_ohlcv_tradeable nx
+    WHERE nx.symbol = c.symbol AND nx.timeframe = c.timeframe AND nx.timestamp > c.timestamp
+    ORDER BY nx.timestamp ASC LIMIT 1
+) next ON true
+WHERE next.open IS NOT NULL
+"""
+# next.open IS NOT NULL: a candidate whose NEXT bar hasn't landed yet can't be
+# classified (the strongest signal, spike-and-revert, is causally impossible without
+# it) -- it stays NULL and is picked up next cycle once its next bar exists. This is
+# the audit-lag mechanism, not a bug: ~1 bar-interval + one audit cycle, matching
+# BarAuditor's existing 5-minute cadence.
+
+_PRICE_SANITY_STATUS_UPDATE_SQL = """
+UPDATE market_data_ohlcv
+SET price_sanity_status = $4
+WHERE symbol = $1 AND timeframe = $2 AND timestamp = $3
+"""
+
+_VERDICT_TO_STATUS: dict[str, str] = {
+    "PLAUSIBLE": "plausible",
+    "CONFIRMED_CORRUPT": "confirmed_corrupt",
+    "MARKET_EVENT": "market_event",
+    "AMBIGUOUS": "ambiguous",
+}
 
 
 class _AuditWindow(NamedTuple):
@@ -113,6 +169,7 @@ class BarAuditor(BaseDaemon):
         super().__init__(max_idle_seconds=300)
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
+        self._price_sanity_pool: asyncpg.Pool | None = None
         self._contract_consumer: KafkaConsumerClient | None = None
         # old_contract -> roll_detection_ts: suppress gap requests for 2h post-roll
         self._post_roll_suppression: dict[str, datetime] = {}
@@ -138,6 +195,13 @@ class BarAuditor(BaseDaemon):
     async def _setup(self) -> None:
         """Connect asyncpg pool, Kafka producer, and contract update consumer."""
         self._db_pool = await create_db_pool(self.settings.database_url, min_size=1, max_size=3)
+        # Own small pool, separate from gap-detection's self._db_pool (3 connections) --
+        # the price-sanity pass has a different, unproven resource shape (a
+        # classification-plus-write pass over up to 215M+ rows on first run vs.
+        # gap-detection's cheap O(days) bulk query) and must not starve it (todo 149).
+        self._price_sanity_pool = await create_db_pool(
+            self.settings.database_url, min_size=1, max_size=2
+        )
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
@@ -163,6 +227,8 @@ class BarAuditor(BaseDaemon):
             await self._kafka_producer.stop()
         if self._db_pool is not None:
             await self._db_pool.close()
+        if self._price_sanity_pool is not None:
+            await self._price_sanity_pool.close()
 
     async def _run(self) -> None:
         """Main loop: audit on startup, then every _AUDIT_INTERVAL seconds.
@@ -399,6 +465,8 @@ class BarAuditor(BaseDaemon):
                 gap_requests_published=len(gap_requests),
             )
 
+            await self._run_price_sanity_audit()
+
         except Exception as error:
             _AUDIT_ERRORS.add(1, self._agent_attrs)
             self.logger.error(
@@ -406,6 +474,92 @@ class BarAuditor(BaseDaemon):
                 error=str(error),
             )
             # Do not re-raise — audit loop must continue on transient failures
+
+    async def _run_price_sanity_audit(self) -> None:
+        """Bar-level price-sanity audit task (todo 149) -- classifies unaudited bars
+        (price_sanity_status IS NULL) whose next bar has landed, corroborates
+        cross-symbol, and writes the verdict back. Bounded to one APR-governed batch
+        per call; a large backlog (e.g. after a bulk historical backfill) drains over
+        multiple audit cycles rather than blocking one.
+
+        Isolated from gap-detection: uses self._price_sanity_pool, not self._db_pool.
+        A failure here must never crash the gap-detection cycle it runs alongside
+        (mirrors _run_audit's own try/except-and-continue contract).
+        """
+        try:
+            async with self._price_sanity_pool.acquire() as conn:
+                apr = await load_apr_dict_async(conn)
+                batch_size = int(_cfg(apr, "infra.bar_auditor.price_sanity_batch_size", 500))
+                magnitude_threshold = float(
+                    _cfg(apr, "alpha.quant.price_sanity.magnitude_threshold", 10.0)
+                )
+                neighbor_agreement_threshold = float(
+                    _cfg(apr, "alpha.quant.price_sanity.neighbor_agreement_threshold", 2.0)
+                )
+                min_corroborating_symbols = int(
+                    _cfg(apr, "alpha.quant.cross_symbol_corroboration.min_symbols", 4)
+                )
+
+                candidates = await conn.fetch(_PRICE_SANITY_CANDIDATES_SQL, batch_size)
+                if not candidates:
+                    return
+
+                verdicts: dict[tuple[str, str, Any], CandidateVerdict] = {}
+                for row in candidates:
+                    key = (row["symbol"], row["tf"], row["bar_ts"])
+                    verdicts[key] = classify_candidate_bar(
+                        open_=float(row["open"]),
+                        high=float(row["high"]),
+                        low=float(row["low"]),
+                        close=float(row["close"]),
+                        prev_close=(
+                            float(row["prev_close"]) if row["prev_close"] is not None else None
+                        ),
+                        next_open=(
+                            float(row["next_open"]) if row["next_open"] is not None else None
+                        ),
+                        magnitude_threshold=magnitude_threshold,
+                        neighbor_agreement_threshold=neighbor_agreement_threshold,
+                    )
+
+                corroboration_candidates = [
+                    key for key, v in verdicts.items() if v.verdict == "CONFIRMED_CORRUPT"
+                ]
+                if corroboration_candidates:
+                    n_corroborating = await count_corroborating_symbols_batch(
+                        self._price_sanity_pool,
+                        candidates=corroboration_candidates,
+                        match_mode="exact",
+                        magnitude_threshold=magnitude_threshold,
+                        neighbor_agreement_threshold=neighbor_agreement_threshold,
+                    )
+                    for key in corroboration_candidates:
+                        verdicts[key] = apply_cross_symbol_downgrade(
+                            verdicts[key],
+                            n_corroborating_symbols=n_corroborating[key],
+                            min_symbols=min_corroborating_symbols,
+                        )
+
+                status_counts: dict[str, int] = {}
+                async with conn.transaction():
+                    for (symbol, tf, bar_ts), verdict in verdicts.items():
+                        status = _VERDICT_TO_STATUS[verdict.verdict]
+                        await conn.execute(
+                            _PRICE_SANITY_STATUS_UPDATE_SQL, symbol, tf, bar_ts, status
+                        )
+                        status_counts[status] = status_counts.get(status, 0) + 1
+
+                self.logger.info(
+                    "bar_auditor.price_sanity_audit_complete",
+                    n_classified=len(verdicts),
+                    status_counts=status_counts,
+                )
+        except Exception as error:
+            self.logger.error(
+                "bar_auditor.price_sanity_audit_error",
+                error=str(error),
+            )
+            # Do not re-raise -- must not crash the gap-detection cycle running alongside
 
     # -- market_data_gaps write path -------------------------------------------
 

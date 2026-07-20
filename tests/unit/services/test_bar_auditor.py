@@ -11,6 +11,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -288,3 +289,76 @@ def test_topics_consumed_includes_contract_updates():
     topics = BarAuditor.topics_consumed.fget(agent)
     expected_topic = topic_contract_updates("")
     assert expected_topic in topics
+
+
+class TestPriceSanityAudit:
+    def _make_agent_with_price_sanity_pool(self, candidate_rows, corroboration_result=None):
+        from services.bar_auditor import BarAuditor
+
+        agent = BarAuditor.__new__(BarAuditor)
+        agent.settings = MagicMock(env_name="development")
+        agent.logger = MagicMock()
+        agent.logger.info = MagicMock()
+        agent.logger.error = MagicMock()
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=candidate_rows)
+        mock_conn.execute = AsyncMock()
+        # conn.transaction() is used as `async with conn.transaction():` in the real
+        # implementation -- a bare AsyncMock().transaction() returns a coroutine, which
+        # does NOT support the async context manager protocol (confirmed empirically:
+        # `TypeError: 'coroutine' object does not support the asynchronous context
+        # manager protocol`). Must be wired the same way mock_pool.acquire is below.
+        mock_conn.transaction = MagicMock()
+        mock_conn.transaction.return_value.__aenter__ = AsyncMock(return_value=None)
+        mock_conn.transaction.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock()
+        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+        agent._price_sanity_pool = mock_pool
+        return agent, mock_conn
+
+    def test_price_sanity_audit_empty_candidates_is_noop(self):
+        agent, mock_conn = self._make_agent_with_price_sanity_pool(candidate_rows=[])
+
+        with patch(
+            "services.bar_auditor.load_apr_dict_async",
+            new=AsyncMock(return_value={}),
+        ):
+            asyncio.run(agent._run_price_sanity_audit())
+
+        mock_conn.execute.assert_not_called()
+
+    def test_price_sanity_audit_writes_confirmed_corrupt_status(self):
+        candidate_rows = [
+            {
+                "symbol": "UUP",
+                "tf": "5m",
+                "bar_ts": "2007-06-20T19:05:00+00:00",
+                "open": 1000.0,
+                "high": 1000.0,
+                "low": 1000.0,
+                "close": 1000.0,
+                "prev_close": 28.97,
+                "next_open": 24.08,
+            }
+        ]
+        agent, mock_conn = self._make_agent_with_price_sanity_pool(candidate_rows)
+
+        with (
+            patch(
+                "services.bar_auditor.load_apr_dict_async",
+                new=AsyncMock(return_value={}),
+            ),
+            patch(
+                "services.bar_auditor.count_corroborating_symbols_batch",
+                new=AsyncMock(return_value={("UUP", "5m", "2007-06-20T19:05:00+00:00"): 0}),
+            ),
+        ):
+            asyncio.run(agent._run_price_sanity_audit())
+
+        # One UPDATE call writing the classified status back
+        assert mock_conn.execute.call_count == 1
+        call_args = mock_conn.execute.call_args
+        assert "confirmed_corrupt" in str(call_args)

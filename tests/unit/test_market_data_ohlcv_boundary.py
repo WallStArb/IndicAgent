@@ -103,7 +103,14 @@ _ALLOW_LIST: dict[str, str] = {
         "PERMANENT: Legitimate gap-detection auditor (registered live in service_auditor.py's "
         "DAG as bar_auditor -> indicagent-bar-auditor) -- deliberately counts ALL rows "
         "including synthetic-fill placeholders to detect actual calendar gaps and trigger "
-        "backfill. Filtering here would break its purpose."
+        "backfill. Filtering here would break its purpose.\n"
+        "PERMANENT (todo 149): _PRICE_SANITY_CANDIDATES_SQL's `candidates` CTE reads the "
+        "raw table deliberately -- this query IS the price-sanity audit watermark "
+        "(`price_sanity_status IS NULL`), gated by a dedicated partial index "
+        "(idx_market_data_ohlcv_price_sanity_unaudited, migration 242) for deterministic "
+        "query-plan usage on a query that runs every 5-minute audit cycle, rather than "
+        "relying on the tradeable view's inlining behavior for a hot path. Its LATERAL "
+        "prev/next neighbor joins DO read market_data_ohlcv_tradeable, not the raw table."
     ),
     "scripts/debug/analysis/debug_batch_agent_memory.py": (
         "PERMANENT: Joins signal_ledger, confirmed zero rows in the live DB -- dead v2.x "
