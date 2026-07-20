@@ -24,6 +24,7 @@ from scripts.ops.corpus.ops_known_corrupt_print_cleanup import (
     CandidateRow,
     CandidateVerdict,
     _apply_correction,
+    apply_cross_symbol_downgrade,
     build_subject_key,
     classify_candidate_bar,
     render_dry_run_report,
@@ -145,6 +146,48 @@ class TestClassifyCandidateBar:
             magnitude_threshold=20.0,
         )
         assert verdict_loose.verdict == "PLAUSIBLE"
+
+
+def test_apply_cross_symbol_downgrade_leaves_non_confirmed_verdicts_unchanged():
+    ambiguous = CandidateVerdict(
+        verdict="AMBIGUOUS",
+        implausible_fields=("open",),
+        max_ratio=15.0,
+        neighbor_ratio=3.0,
+        reason="implausible_but_neighbors_disagree",
+    )
+    result = apply_cross_symbol_downgrade(ambiguous, n_corroborating_symbols=10, min_symbols=4)
+    assert result is ambiguous
+
+
+def test_apply_cross_symbol_downgrade_below_threshold_stays_confirmed_corrupt():
+    confirmed = CandidateVerdict(
+        verdict="CONFIRMED_CORRUPT",
+        implausible_fields=("open", "high"),
+        max_ratio=40.0,
+        neighbor_ratio=1.02,
+        reason="isolated_spike_neighbors_agree",
+    )
+    # n_corroborating_symbols=2 other symbols + self = 3, min_symbols=4 -> not enough
+    result = apply_cross_symbol_downgrade(confirmed, n_corroborating_symbols=2, min_symbols=4)
+    assert result.verdict == "CONFIRMED_CORRUPT"
+    assert result is confirmed
+
+
+def test_apply_cross_symbol_downgrade_at_threshold_becomes_market_event():
+    confirmed = CandidateVerdict(
+        verdict="CONFIRMED_CORRUPT",
+        implausible_fields=("open", "high", "low", "close"),
+        max_ratio=142.0,
+        neighbor_ratio=1.01,
+        reason="isolated_spike_neighbors_agree",
+    )
+    # n_corroborating_symbols=3 other symbols + self = 4, min_symbols=4 -> corroborated
+    result = apply_cross_symbol_downgrade(confirmed, n_corroborating_symbols=3, min_symbols=4)
+    assert result.verdict == "MARKET_EVENT"
+    assert result.implausible_fields == confirmed.implausible_fields
+    assert result.max_ratio == confirmed.max_ratio
+    assert "cross_symbol_corroborated_n=4" in result.reason
 
 
 class TestBuildSubjectKey:

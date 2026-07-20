@@ -23,6 +23,10 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from services.forward_return_writer import (
+    _CORROBORATED_WINDOWS_TEMP_TABLE_SQL,
+    _SCALES,
+    _apply_cross_symbol_corroboration,
+    _build_corroboration_update_sql,
     _build_forward_return_sql,
     _build_insert_sql,
     _emit_price_sanity_fact,
@@ -220,6 +224,94 @@ def test_insert_sql_includes_suspect_columns_and_params():
     for scale in _LOOKAHEADS:
         assert f"return_{scale}_suspect" in sql
         assert f"%(return_{scale}_suspect)s" in sql
+
+
+def test_corroboration_update_sql_sets_only_the_target_scale_column():
+    """The per-scale UPDATE must only clear the scale it was built for -- pooling now
+    happens entirely in the separate temp-table SQL, not in this function."""
+    sql = _build_corroboration_update_sql("fast")
+    assert "SET return_fast_suspect = false" in sql
+    assert "SET return_mid_suspect" not in sql
+    assert "SET return_slow_suspect" not in sql
+    assert "SET return_extended_suspect" not in sql
+    assert "corroborated_windows_tmp" in sql
+
+
+def test_corroboration_update_sql_scoped_to_executable_return_type():
+    sql = _build_corroboration_update_sql("fast")
+    assert "executable_open_to_open" in sql
+
+
+def test_corroborated_windows_temp_table_sql_pools_all_scales():
+    """The frozen temp-table computation must consider ANY scale suspect (not just
+    one) as a symbol's participation signal -- the live Flash Crash cluster flags
+    different symbols on different scales at nearby-but-not-identical bar_ts."""
+    for scale in ("fast", "mid", "slow", "extended"):
+        assert f"return_{scale}_suspect" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
+
+
+def test_corroborated_windows_temp_table_sql_uses_time_window():
+    assert "BETWEEN" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
+    assert "%(window_minutes)s" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
+    assert "GROUP BY a.tf, a.bar_ts" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
+    assert "count(DISTINCT b.symbol)" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
+
+
+def test_corroborated_windows_temp_table_sql_on_commit_drop():
+    """Must be session/transaction-scoped and self-cleaning -- a leaked temp table
+    would silently accumulate across every forward_return_writer invocation."""
+    assert "ON COMMIT DROP" in _CORROBORATED_WINDOWS_TEMP_TABLE_SQL
+
+
+def _mock_conn_for_corroboration(rowcounts: dict[str, int]) -> MagicMock:
+    """A conn whose cursor.rowcount cycles through rowcounts[scale] in call order,
+    after a leading value consumed by the temp-table CREATE call (whose rowcount is
+    never read)."""
+    cur = MagicMock()
+    cur.__enter__.return_value = cur
+    cur.__exit__.return_value = False
+    rowcount_iter = iter([None, *rowcounts.values()])
+
+    def _execute(*_args, **_kwargs):
+        cur.rowcount = next(rowcount_iter)
+
+    cur.execute.side_effect = _execute
+    conn = MagicMock()
+    conn.cursor.return_value = cur
+    return conn
+
+
+def test_apply_cross_symbol_corroboration_returns_cleared_counts_per_scale():
+    conn = _mock_conn_for_corroboration({"fast": 0, "mid": 2, "slow": 4, "extended": 0})
+    tracer = MagicMock()
+
+    cleared = _apply_cross_symbol_corroboration(
+        conn, _SCALES, min_symbols=4, window_minutes=60, tracer=tracer
+    )
+
+    assert cleared == {"fast": 0, "mid": 2, "slow": 4, "extended": 0}
+    # 1 temp-table create + 4 per-scale updates.
+    assert conn.cursor.return_value.execute.call_count == 5
+    conn.commit.assert_called_once()
+
+
+def test_apply_cross_symbol_corroboration_passes_min_symbols_param():
+    conn = _mock_conn_for_corroboration({"fast": 0, "mid": 0, "slow": 0, "extended": 0})
+    tracer = MagicMock()
+
+    _apply_cross_symbol_corroboration(
+        conn, _SCALES, min_symbols=7, window_minutes=60, tracer=tracer
+    )
+
+    calls = conn.cursor.return_value.execute.call_args_list
+    assert len(calls) == 5
+    # Only the leading temp-table create call carries the params dict.
+    temp_table_params = calls[0].args[1]
+    assert temp_table_params["min_symbols"] == 7
+    assert temp_table_params["window_minutes"] == 60
+    # The 4 per-scale UPDATEs reference the frozen temp table and take no params.
+    for call in calls[1:]:
+        assert len(call.args) == 1
 
 
 def _mock_conn_with_precheck_result(already_ran: bool) -> MagicMock:
