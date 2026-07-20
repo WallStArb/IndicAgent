@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-07-19
 source: Fable 5 emission-threshold verdict review
@@ -7,6 +7,19 @@ source: Fable 5 emission-threshold verdict review
   corrupt $1000 print on a $25 ETF produced the largest number in the first EM-CAL sweep
   report and single-handedly fabricated a 1.05% mean-return stratum.
 ---
+
+**Closed 2026-07-19 (`6b7bf5a7`):** Fix item 1 (source-side guard) shipped in full --
+`return_{fast,mid,slow,extended}_suspect` columns on `forward_returns` (migration 238),
+sqrt(lookahead_bars)-scaled per-tf ceilings (`alpha.quant.max_abs_return.{tf}`,
+`ic_math.scale_max_abs_return`), backfilled (76 rows flagged across scales) and wired
+into every live mean-based consumer including `EnsembleICEngine`'s production alpha-
+scoring path (a real bug -- KeyError crash on the pooled cross-sectional path -- was
+caught and fixed by code review before landing). Fix item 2 (bar-level OHLCV detection)
+generalized into **[149](../pending/149-bar-ingestion-price-sanity-guard.md)** (forward-
+looking ingestion guard) rather than done here. **Fix item 3 (verify/correct/tombstone
+the ~27 known corrupt prints) was NOT done** -- confirmed still live in
+`market_data_ohlcv` at closeout, filed as
+**[151](../pending/151-known-corrupt-ohlcv-print-cleanup.md)**.
 
 # Corrupt price prints pass the tradeable filter and poison mean-return analyses -- add a price-sanity guard
 
