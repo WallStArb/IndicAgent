@@ -127,8 +127,13 @@ Two independent sub-features:
   (only needs OHLCV + ATR, no cross-plugin fusion), **non-incremental by design**
   (`compute_next` just calls `compute_full` again — sidesteps D-01's unbounded-accumulator bug
   entirely rather than needing a fix), uses real volume-weighted histograms (not TPO
-  touch-count), and computes BOTH a session track (reset at 09:30 ET) and a rolling 480-bar
-  track in the same pass. Its 18 outputs (`poc_price`, `vah`, `val`, `poc_price_rolling`,
+  touch-count), and computes BOTH a session track (reset at 09:30 ET) and a rolling track
+  in the same pass. **Correction (D-18, third Fable review):** the rolling track is documented as
+  "480 bars" (`_ROLLING_WINDOW = 480`, line 30) but the plugin's own `InputSpec(lookback=390)`
+  (line 70) caps `len(df)` at 390 in practice, so `roll_n = min(480, len(df))` (line 258) always
+  resolves to ≤390 bars — the 480-bar window is currently unreachable; it's really a ≤390-bar
+  window, the same size as the session cap. The underlying two-window mechanism (and the reason it
+  was chosen as the port source) still holds; only the "480-bar" figure was inaccurate. Its 18 outputs (`poc_price`, `vah`, `val`, `poc_price_rolling`,
   `vah_rolling`, `val_rolling`, `nearest_hvn_above/below`, `nearest_lvn_above/below`,
   `price_in_value_area`, `va_width_atr`, `distance_to_vah_atr`, `distance_to_val_atr`,
   `nearest_hvn_level`, `nearest_hvn_dist_atr`, `nearest_lvn_level`, `in_lvn`) map cleanly onto
@@ -203,7 +208,47 @@ Two independent sub-features:
   lives in `sr_consensus.py:78-90` itself, not in `zone_engine.py` — self-contained, but still not
   worth bolting onto Phase 163 now (a third "distance to level" concept adds to D-07's collinearity
   concern without resolving the actual blocking dependency chain). See Phase 164's ROADMAP.md entry
-  for the SMC raw-price-trap warning this review also produced (D-18 note there).
+  for the SMC raw-price-trap warning this review also produced.
+
+### D-18 (addition, same session, per a third Fable review): rolling-track POC primitives
+  The project owner asked "didn't we have more than 10 atomic primitives for 163" — a real gap:
+  D-13's rationale for choosing `ctx_VolumeProfile` explicitly cited its rolling-track
+  computation as a strength, but the corrected 10-column list only derived features from the
+  session track, leaving the rolling track's already-computed output (`poc_price_rolling`,
+  `vah_rolling`, `val_rolling`) completely unused. A third independent Fable review assessed
+  which rolling-track derivatives are legitimate additions vs. scope creep, verifying directly
+  against `volume_profile.py` rather than trusting the task framing (and caught that the
+  framing's claim "no rolling VA is computed" was itself wrong — `vah_rolling`/`val_rolling`
+  already exist at zero extra computation cost, same call as `poc_price_rolling`).
+
+  **Add exactly 2 new columns:**
+  - `poc_rolling_dist_atr = (close - poc_price_rolling) / atr` — the rolling-track equivalent of
+    `poc_dist_atr`. Not collinear with it in general: early in a session, `session_df` has few
+    bars (since today's 09:30 open) while `roll_df` is a fixed trailing ≤390-bar slice dominated
+    by prior-session bars — the two POCs only converge near session close. A structural,
+    time-of-day-dependent reason to expect real divergence, not window-size noise.
+  - `poc_session_rolling_divergence_atr = (poc_price - poc_price_rolling) / atr` — the most
+    conceptually distinct candidate: session dislocation from the multi-day value anchor, an
+    open-drive/trend-day vs. balance-day signal (first-order auction-market-theory concept, not
+    just another "distance to X" restatement). **Exact algebraic identity, same treatment as
+    `va_width_atr` (D-17):** `poc_session_rolling_divergence_atr = poc_rolling_dist_atr −
+    poc_dist_atr`, identically, once both exist. Keep anyway — genuine standalone economic
+    meaning, known linear dependency documented rather than silently present, let todo 038's
+    collinearity diagnostic and D-07's incremental-IC bar do their job.
+
+  **Explicitly rejected, not on cost grounds (both are cheap — `vah_rolling`/`val_rolling`
+  already exist) but on scope/collinearity-family-size discipline:**
+  - `va_position_rolling`, `distance_to_vah_rolling_atr`, `distance_to_val_rolling_atr`,
+    `va_width_rolling_atr` — would parallel-duplicate the entire session-VA family without a
+    distinct new hypothesis the way `poc_session_rolling_divergence_atr` has one. D-17's
+    dispensation for keeping one collinear feature (`va_width_atr`) doesn't stretch to a whole
+    second VA family speculatively. Revisit only if the two accepted fields show real incremental
+    IC once measured.
+  - Rolling-track directional HVN/LVN (`nearest_hvn_above_rolling_dist_atr`, etc.) — would need
+    genuinely new code (a second `_compute_directional_nodes()` call), same rejection logic as
+    above with a stronger cost argument on top.
+
+  **Final new-column count for Phase 163: 12, not 10** (the 10 from D-16/D-17 plus these 2).
 
 ### S/R stays narrow — ctx_SRConsensus explicitly deferred, not silently adopted
 - **D-14:** `src/intelligence/context/sr_consensus.py` (`ctx_SRConsensus`, Phase 116) is a
