@@ -1,13 +1,47 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-19
+completed: 2026-07-20
 source: todo 148 closeout -- its Fix item 3 ("enumerate the ~27 known rows, verify
   each underlying print, correct or tombstone") was never done. 148 shipped the
   measurement-layer guard (forward_returns.return_{scale}_suspect) and flagged the
   ~76 derived rows it produced, but the raw corrupt OHLCV prints themselves are
   still live in market_data_ohlcv, unverified and uncorrected.
 ---
+
+## Disposition (2026-07-20)
+
+`--apply` run against the live database: 18 CONFIRMED_CORRUPT rows corrected (volume
+set to 0 on the raw print; price columns untouched per Renaissance retention
+principle -- the row is never deleted). All 18 audited in `integrity_monitor`
+(`monitor_type='price_sanity_ohlcv_correction'`, 18 rows confirmed).
+
+Because `forward_return_writer.py` has no historical-gap-fill mode (purely
+incremental off `MAX(bar_ts)`), closing the exposure this todo names ("z-score
+features computed directly from these bars are contaminated... 148's guard does
+nothing for that") required a full recompute of the 4 affected symbols' entire
+history, not just a window around the corrected bars -- `forward_return_writer`'s
+`ON CONFLICT DO NOTHING` insert means a bare re-run silently skips any bar_ts that
+already has a (now-stale) row. Full pipeline for RSP/UUP/VWO/XRT (all 4 tfs, full
+~20-year history): `backfill_status` reset to `pending` for these (symbol, tf) pairs
+first (`fetch_complete` preserved -- `market_data_ohlcv`/source data was never
+touched, no IBKR re-fetch needed) -- required, or `--compute-only` silently no-ops
+on any (symbol, tf) already marked `status='complete'` (a known gotcha, same class
+as the memory-tracked `--compute-only` empty-`backfill_status` no-op). Timed
+empirically:
+`backfill_feature_factory.py --compute-only` ~12.5 min (16/16 symbol/tf pairs, 0
+below 80% coverage threshold), `forward_return_writer.py` (full history, all 4 tfs)
+~4.5 min. ~17 min total for 4 symbols' full recompute -- useful reference point for
+sizing any future similar full-symbol backfill.
+
+Verified: the previously-created gap (UUP/5m 2007-06-19 to 2007-06-21, 0 rows) is
+now filled (19 rows). Post-recompute row counts match or slightly exceed pre-delete
+counts (small positive deltas exactly where a corrected bar's neighborhood now
+computes a valid return it couldn't before). 17 residual `return_*_suspect` rows
+remain across these 4 symbols' full history -- expected: the guard correctly
+flagging rows outside this todo's 18-row scope, not touched, not investigated here
+(a future finding if anyone re-runs `ops_known_corrupt_print_cleanup.py` again).
 
 **Progress 2026-07-19:** tooling built --
 `scripts/ops/corpus/ops_known_corrupt_print_cleanup.py`, dry-run-default, candidate
