@@ -79,13 +79,18 @@ names but is not the only, or best, prior art):
   (307 lines) — no bugs found, logic is straightforward (50-bucket histogram, 70%
   cumulative-volume value-area rule, `np.quantile`-based HVN/LVN thresholds at 80th/20th
   percentile).
-- Its 18 outputs are a strict superset of what the original 4-field scope needed: `poc_price`,
-  `vah`, `val` (session track), `poc_price_rolling`, `vah_rolling`, `val_rolling` (480-bar
-  rolling track), `nearest_hvn_above`/`nearest_hvn_below`, `nearest_lvn_above`/
-  `nearest_lvn_below` (directional nodes relative to close), `price_in_value_area` (flag),
-  `va_width_atr` ((vah-val)/atr — day-type/balance-vs-trend indicator), `distance_to_vah_atr`,
-  `distance_to_val_atr`, plus 4 legacy-compat fields (`nearest_hvn_level`,
-  `nearest_hvn_dist_atr`, `nearest_lvn_level`, `in_lvn`).
+- Its 18 raw outputs cover the original 4-field scope's needs, but **not all 18 are valid
+  FeatureVector columns** — a correction caught later in this same session (CONTEXT.md D-16):
+  `poc_price`, `vah`, `val` (session track), `poc_price_rolling`, `vah_rolling`, `val_rolling`
+  (480-bar rolling track), `nearest_hvn_above`/`nearest_hvn_below`, `nearest_lvn_above`/
+  `nearest_lvn_below`, `nearest_hvn_level`, `nearest_lvn_level` are ALL raw price levels (e.g.
+  `nearest_hvn_above = float(hvn_above.min())`), not ATR-normalized — non-stationary,
+  non-comparable across symbols, not valid ML/IC features. Only `price_in_value_area` (flag),
+  `va_width_atr` ((vah-val)/atr), `distance_to_vah_atr`, `distance_to_val_atr`, and the legacy
+  `nearest_hvn_dist_atr`/`in_lvn` are correctly normalized/bounded in the source as-is. The
+  directional HVN/LVN fields need converting to ATR-distance (`nearest_hvn_above_dist_atr =
+  (nearest_hvn_above - close) / atr`, etc.) before being persisted — see D-16 for the corrected
+  9-column field list this phase actually adds.
 - `src/intelligence/context/sr_consensus.py` (`ctx_SRConsensus`, Phase 116) is also more
   sophisticated than `i3_structure/support_resistance.py` — verified via full file read (94
   lines) — but it is NOT self-contained: `compute_full()` reads `frames.get("i1")`,

@@ -20,12 +20,13 @@ Two independent sub-features:
    control (POC) = highest-volume bucket; value area (VA) = bucket range expanded until it holds
    a configurable fraction (default 70%) of total volume. Feeds `poc_dist_atr` (distance from
    close to POC, ATR-normalized) and `va_position` (bounded [0,1] position within the VA band).
-   **Scope widened same session (D-13 below):** port the richer, already-working
+   **Scope widened same session (D-13/D-16 below):** port the richer, already-working
    `ctx_VolumeProfile` (I4) plugin instead of the thinner `i3_structure/market_profile.py`
-   originally identified — adds session+rolling POC/VAH/VAL, directional HVN/LVN, `va_width_atr`,
-   `distance_to_vah_atr`/`distance_to_val_atr`, `price_in_value_area` (~18 fields total) at the
-   same computation/porting cost, since it's the same underlying histogram with more outputs
-   read off it.
+   originally identified — adds ATR-normalized directional HVN/LVN distances, `va_width_atr`,
+   `distance_to_vah_atr`/`distance_to_val_atr`, `price_in_value_area` (9 new columns beyond the
+   original 4, per D-16's correction — raw price levels like `poc_price`/`vah`/`val` are
+   intermediate values, not persisted as ML features) at the same computation/porting cost, since
+   it's the same underlying histogram with more outputs read off it.
 2. **Support/resistance** — rolling-window local-pivot clustering. Feeds `sr_support_dist`/
    `sr_resist_dist` (distance from close to nearest support/resistance cluster, ATR-normalized).
    Deliberately staying with the simple self-contained approach, not `ctx_SRConsensus`'s
@@ -136,11 +137,40 @@ Two independent sub-features:
   atomic `FeatureCache`/`FeatureVector` fields at the same porting cost — it's the same histogram
   computation, just reading more values off it. Confirmed no known bugs (unlike D-01's finding on
   the older plugin) and no cross-plugin dependency (unlike `ctx_SRConsensus`, see D-14).
-  New `FeatureCache` fields needed beyond the original 4: `poc_price`, `vah`, `val`,
-  `poc_price_rolling`, `vah_rolling`, `val_rolling`, `nearest_hvn_above`, `nearest_hvn_below`,
-  `nearest_lvn_above`, `nearest_lvn_below`, `price_in_value_area`, `va_width_atr`,
-  `distance_to_vah_atr`, `distance_to_val_atr` — all new entries needed in
-  `FEATURE_VECTOR_DOMAIN` (tag `"structural"`) and a migration for the new `feature_vectors`
+
+### D-16 (correction, same session): raw price levels are NOT valid FeatureVector columns
+  Verified directly in `context/volume_profile.py` (lines 152-166, 279-300): `ctx_VolumeProfile`'s
+  `poc_price`/`vah`/`val`/`poc_price_rolling`/`vah_rolling`/`val_rolling`/`nearest_hvn_above`/
+  `nearest_hvn_below`/`nearest_lvn_above`/`nearest_lvn_below`/`nearest_hvn_level`/
+  `nearest_lvn_level` are ALL raw price levels (e.g. `nearest_hvn_above = float(hvn_above.min())`
+  — an actual bucket price), not ATR-normalized distances. Raw price is not a valid ML/IC feature
+  in v3: it's non-stationary across time and non-comparable across symbols (a $400 SPY POC and a
+  $30 ETF POC are not the same scale), which breaks cross-sectional IC measurement. This was fine
+  in v2.x because these fields fed I7 trading plugins that computed their own ATR-normalization
+  at consumption time (e.g. `poc_rejection.py`'s `abs(close - poc_price) / atr_14`) — v3's
+  `FeatureFactory` has no such consumer; it only feeds `ic_engine`/ensemble training directly.
+
+  **Corrected field list — every new `FeatureCache`/`FeatureVector` column must be ATR-distance
+  or a bounded flag/position, never a raw price:**
+  - `nearest_hvn_above_dist_atr = (nearest_hvn_above - close) / atr` (compute internally from the
+    raw value, only persist the distance) — same for `nearest_hvn_below_dist_atr`,
+    `nearest_lvn_above_dist_atr`, `nearest_lvn_below_dist_atr`.
+  - `price_in_value_area` (flag), `va_width_atr`, `distance_to_vah_atr`, `distance_to_val_atr` —
+    already correctly ATR-normalized/bounded in the source, keep as-is.
+  - `poc_price`, `vah`, `val`, `poc_price_rolling`, `vah_rolling`, `val_rolling`,
+    `nearest_hvn_level`, `nearest_lvn_level` — **do NOT add these as `FeatureVector` columns.**
+    They are intermediate values only. `poc_dist_atr`/`va_position` already derive from the
+    session-track POC/VAH/VAL; a rolling-vs-session divergence is available if wanted as
+    `poc_rolling_vs_session_dist_atr = (poc_price_rolling - poc_price) / atr`, but do not persist
+    the raw levels themselves. `nearest_hvn_level`/`nearest_lvn_level` are fully superseded by the
+    ATR-distance directional fields above — the legacy `nearest_hvn_dist_atr` (already
+    ATR-normalized in the source) is the one exception worth keeping as-is.
+
+  **Corrected new `FeatureCache`/`FeatureVector` fields beyond the original 4:**
+  `nearest_hvn_above_dist_atr`, `nearest_hvn_below_dist_atr`, `nearest_lvn_above_dist_atr`,
+  `nearest_lvn_below_dist_atr`, `price_in_value_area`, `va_width_atr`, `distance_to_vah_atr`,
+  `distance_to_val_atr`, `nearest_hvn_dist_atr` — 9 new columns (not 14), all new entries needed
+  in `FEATURE_VECTOR_DOMAIN` (tag `"structural"`) and a migration for the new `feature_vectors`
   columns (unlike the original 4, which already existed).
 
 ### S/R stays narrow — ctx_SRConsensus explicitly deferred, not silently adopted
