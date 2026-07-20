@@ -103,6 +103,18 @@ class TestExpectedBarsForDate:
         assert session.expected_bars_for_date(saturday) == 0
 
 
+def _wire_pool_acquire(conn) -> AsyncMock:
+    """Return an AsyncMock pool whose `async with pool.acquire() as conn:` yields
+    `conn` — a bare AsyncMock().acquire() returns a coroutine, which does NOT support
+    the async context manager protocol, so `.acquire` must be a MagicMock with
+    `__aenter__`/`__aexit__` wired explicitly on its return value."""
+    mock_pool = AsyncMock()
+    mock_pool.acquire = MagicMock()
+    mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=conn)
+    mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+    return mock_pool
+
+
 def _make_agent_stub(env_name="development"):
     """Create a BarAuditor via __new__ with minimal attributes for unit tests."""
     from services.bar_auditor import BarAuditor
@@ -149,11 +161,7 @@ class TestDetectGaps:
         mock_conn.fetch = AsyncMock(return_value=[])
         mock_conn.fetchrow = AsyncMock(return_value=None)
         mock_conn.execute = AsyncMock()
-        mock_pool = AsyncMock()
-        mock_pool.acquire = MagicMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-        agent._db_pool = mock_pool
+        agent._db_pool = _wire_pool_acquire(mock_conn)
 
         gaps = await agent._detect_gaps(instruments=[mock_instrument], lookback_days=1)
 
@@ -182,11 +190,7 @@ class TestDetectGaps:
 
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=0)
-        mock_pool = AsyncMock()
-        mock_pool.acquire = MagicMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-        agent._db_pool = mock_pool
+        agent._db_pool = _wire_pool_acquire(mock_conn)
 
         _date = "services.bar_auditor.date"
         with patch(_date) as mock_date:
@@ -305,19 +309,7 @@ class TestPriceSanityAudit:
         mock_conn = AsyncMock()
         mock_conn.fetch = AsyncMock(return_value=candidate_rows)
         mock_conn.execute = AsyncMock()
-        # conn.transaction() is used as `async with conn.transaction():` in the real
-        # implementation -- a bare AsyncMock().transaction() returns a coroutine, which
-        # does NOT support the async context manager protocol (confirmed empirically:
-        # `TypeError: 'coroutine' object does not support the asynchronous context
-        # manager protocol`). Must be wired the same way mock_pool.acquire is below.
-        mock_conn.transaction = MagicMock()
-        mock_conn.transaction.return_value.__aenter__ = AsyncMock(return_value=None)
-        mock_conn.transaction.return_value.__aexit__ = AsyncMock(return_value=False)
-        mock_pool = AsyncMock()
-        mock_pool.acquire = MagicMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-        agent._price_sanity_pool = mock_pool
+        agent._price_sanity_pool = _wire_pool_acquire(mock_conn)
         return agent, mock_conn
 
     def test_price_sanity_audit_empty_candidates_is_noop(self):
@@ -363,3 +355,51 @@ class TestPriceSanityAudit:
         assert mock_conn.execute.call_count == 1
         call_args = mock_conn.execute.call_args
         assert "confirmed_corrupt" in str(call_args)
+
+    def test_price_sanity_audit_batches_multiple_rows_into_single_update(self):
+        """Multiple classified rows must be written via ONE batched UPDATE (UNNEST),
+        not one execute() call per row — the per-row loop this replaces would
+        issue N round trips for N candidates."""
+        candidate_rows = [
+            {
+                "symbol": "UUP",
+                "tf": "5m",
+                "bar_ts": "2007-06-20T19:05:00+00:00",
+                "open": 1000.0,
+                "high": 1000.0,
+                "low": 1000.0,
+                "close": 1000.0,
+                "prev_close": 28.97,
+                "next_open": 24.08,
+            },
+            {
+                "symbol": "XRT",
+                "tf": "5m",
+                "bar_ts": "2007-06-20T19:10:00+00:00",
+                "open": 1.0,
+                "high": 1.05,
+                "low": 0.99,
+                "close": 1.02,
+                "prev_close": 1.0,
+                "next_open": 1.01,
+            },
+        ]
+        agent, mock_conn = self._make_agent_with_price_sanity_pool(candidate_rows)
+
+        with (
+            patch(
+                "services.bar_auditor.load_apr_dict_async",
+                new=AsyncMock(return_value={}),
+            ),
+            patch(
+                "services.bar_auditor.count_corroborating_symbols_batch",
+                new=AsyncMock(return_value={("UUP", "5m", "2007-06-20T19:05:00+00:00"): 0}),
+            ),
+        ):
+            asyncio.run(agent._run_price_sanity_audit())
+
+        assert mock_conn.execute.call_count == 1
+        call_args = mock_conn.execute.call_args
+        _, symbols, tfs, bar_tss, statuses = call_args[0]
+        assert set(symbols) == {"UUP", "XRT"}
+        assert len(symbols) == len(tfs) == len(bar_tss) == len(statuses) == 2

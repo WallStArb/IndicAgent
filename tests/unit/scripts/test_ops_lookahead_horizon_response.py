@@ -9,9 +9,17 @@ lookahead_bars)` discipline. No DB, no asyncio -- pure function + CLI parsing te
 
 from __future__ import annotations
 
+import asyncio
 import sys
+from unittest.mock import patch
 
-from scripts.ops.alpha.ops_lookahead_horizon_response import _parse_args, _stride_for_horizon
+import pytest
+
+from scripts.ops.alpha.ops_lookahead_horizon_response import (
+    _fetch_all_symbols_horizon_rows,
+    _parse_args,
+    _stride_for_horizon,
+)
 
 
 class TestStrideForHorizon:
@@ -38,3 +46,38 @@ class TestMinStrideCliFlag:
         monkeypatch.setattr(sys, "argv", ["prog", "--min-stride", "10"])
         args = _parse_args()
         assert args.min_stride == 10
+
+
+class TestFetchAllSymbolsHorizonRowsConcurrency:
+    @pytest.mark.asyncio
+    async def test_fetches_all_symbols_concurrently(self):
+        """Per-symbol fetches must overlap in time (asyncio.gather), not run one
+        after another -- and pairing (symbol, rows) must survive gather's ordering
+        guarantee (results ordered by input, not completion order)."""
+        concurrent = 0
+        max_concurrent = 0
+
+        async def fake_fetch(pool, tf, symbol, vintage, horizons, max_bars_per_symbol):
+            nonlocal concurrent, max_concurrent
+            concurrent += 1
+            max_concurrent = max(max_concurrent, concurrent)
+            await asyncio.sleep(0.01)
+            concurrent -= 1
+            return [{"symbol": symbol}]
+
+        with patch(
+            "scripts.ops.alpha.ops_lookahead_horizon_response._fetch_horizon_response_rows",
+            new=fake_fetch,
+        ):
+            result = await _fetch_all_symbols_horizon_rows(
+                pool=None,
+                tf="1h",
+                symbols=["A", "B", "C"],
+                vintage=None,
+                horizons=(1, 2),
+                max_bars_per_symbol=100,
+            )
+
+        assert max_concurrent > 1, "fetches ran sequentially, not concurrently"
+        assert [symbol for symbol, _ in result] == ["A", "B", "C"]
+        assert result[1][1] == [{"symbol": "B"}]

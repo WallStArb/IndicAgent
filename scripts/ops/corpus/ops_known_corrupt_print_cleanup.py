@@ -55,7 +55,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +75,7 @@ from src.intelligence.statistics.price_sanity import (
     apply_cross_symbol_downgrade,
     build_subject_key,
     classify_candidate_bar,
+    count_corroborating_symbols_batch,
 )
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
@@ -99,6 +100,7 @@ _ALL_TFS = ("5m", "15m", "1h", "1d")
 class CandidateRow:
     symbol: str
     tf: str
+    bar_ts: Any  # raw DB timestamp -- WHERE-clause use (corroboration key, UPDATE)
     timestamp: str  # ISO string (format_iso_ts) -- display + subject-key use only
     open: float
     high: float
@@ -281,87 +283,22 @@ async def _fetch_candidate_tf_pairs(
     return pairs
 
 
-_CROSS_SYMBOL_NEIGHBOR_SQL = """
-    WITH neighbors AS (
-        SELECT
-            symbol, timestamp, open, high, low, close,
-            LAG(close) OVER w AS prev_close,
-            LEAD(open) OVER w AS next_open
-        FROM market_data_ohlcv_tradeable
-        WHERE timeframe = $1
-          AND symbol != $2
-          AND timestamp BETWEEN $3::timestamptz - INTERVAL '7 days'
-                             AND $3::timestamptz + INTERVAL '7 days'
-        WINDOW w AS (PARTITION BY symbol ORDER BY timestamp)
-    )
-    SELECT symbol, open, high, low, close, prev_close, next_open
-    FROM neighbors
-    -- Exact timestamp match, deliberately -- NOT a +/- window like
-    -- forward_return_writer.py's corroboration fix (todo 152). Raw OHLCV bars are the
-    -- event itself: the confirmed Flash Crash cluster's collapse landed on the SAME
-    -- 5m bar across CWB/ITA/RSP/VTV/VUG/VYM (a coincident-collapse, textbook
-    -- stub-quote signature per the original investigation), unlike forward_returns'
-    -- DERIVED, LEAD()-computed suspect flags, which staggered across bars because
-    -- each scale's exit price anchors at a different lookahead. Residual risk: a
-    -- market-wide event whose raw prints straddle two adjacent bars would
-    -- under-corroborate here and stay CONFIRMED_CORRUPT -- bounded, since this script
-    -- is dry-run-only and --apply is human-gated (a human reviewing the report is the
-    -- backstop, not this function alone).
-    WHERE timestamp = $3
-"""
-
-
-async def count_corroborating_symbols(
-    pool: asyncpg.Pool,
-    tf: str,
-    subject_symbol: str,
-    timestamp: Any,
-    magnitude_threshold: float,
-    neighbor_agreement_threshold: float,
-) -> int:
-    """Count OTHER symbols with an implausible bar (per classify_candidate_bar, same
-    thresholds) at the exact same (tf, timestamp) as a CONFIRMED_CORRUPT candidate --
-    todo 152's signal, reused here so a genuine market-wide event isn't misclassified.
-    Each neighbor symbol is classified against ITS OWN prev/next reference, exactly as
-    the subject row was -- symmetric reuse of classify_candidate_bar, no new
-    classification logic. The +/-7 day window is generous slack for LAG/LEAD accuracy
-    across weekends/holidays on 1d bars; cheap since this only runs per CONFIRMED_CORRUPT
-    candidate (~27 total), not per-row over the corpus.
-
-    A neighbor counts as corroborating whenever its OWN verdict is NOT "PLAUSIBLE" --
-    AMBIGUOUS counts too, deliberately: a real event's OTHER affected symbols often
-    land AMBIGUOUS themselves (a V-shaped recovery need not fully revert within one
-    bar, and ITA/VUG's own Flash Crash rows classify AMBIGUOUS under
-    classify_candidate_bar for exactly that reason). Tightening this to
-    `== "CONFIRMED_CORRUPT"` only would silently weaken corroboration for the exact
-    cluster this function exists to catch.
-    """
-    rows = await pool.fetch(_CROSS_SYMBOL_NEIGHBOR_SQL, tf, subject_symbol, timestamp)
-    n_corroborating = 0
-    for r in rows:
-        neighbor_verdict = classify_candidate_bar(
-            open_=float(r["open"]),
-            high=float(r["high"]),
-            low=float(r["low"]),
-            close=float(r["close"]),
-            prev_close=float(r["prev_close"]) if r["prev_close"] is not None else None,
-            next_open=float(r["next_open"]) if r["next_open"] is not None else None,
-            magnitude_threshold=magnitude_threshold,
-            neighbor_agreement_threshold=neighbor_agreement_threshold,
-        )
-        if neighbor_verdict.verdict != "PLAUSIBLE":
-            n_corroborating += 1
-    return n_corroborating
-
-
 async def _scan_and_classify(
     pool: asyncpg.Pool,
     symbol: str,
     tf: str,
     magnitude_threshold: float,
     neighbor_agreement_threshold: float,
-    min_corroborating_symbols: int,
 ) -> list[CandidateRow]:
+    """Single-symbol neighbor-agreement classification only -- cross-symbol
+    corroboration for any CONFIRMED_CORRUPT rows this produces is applied afterward,
+    batched across ALL scanned pairs in one call (see _run), via the same
+    count_corroborating_symbols_batch primitive services/bar_auditor.py's live audit
+    task uses. This function used to also corroborate per-candidate here via a second,
+    hand-rolled query+classify implementation -- exactly the divergence-prone
+    duplication price_sanity.py's own docstring warns against -- removed in favor of
+    the shared batched primitive.
+    """
     rows = await pool.fetch(_NEIGHBOR_SCAN_SQL, symbol, tf)
     results: list[CandidateRow] = []
     for r in rows:
@@ -375,24 +312,13 @@ async def _scan_and_classify(
             magnitude_threshold=magnitude_threshold,
             neighbor_agreement_threshold=neighbor_agreement_threshold,
         )
-        if verdict.verdict == "CONFIRMED_CORRUPT":
-            n_corroborating = await count_corroborating_symbols(
-                pool,
-                tf,
-                symbol,
-                r["timestamp"],
-                magnitude_threshold,
-                neighbor_agreement_threshold,
-            )
-            verdict = apply_cross_symbol_downgrade(
-                verdict, n_corroborating, min_corroborating_symbols
-            )
         if verdict.verdict == "PLAUSIBLE":
             continue
         results.append(
             CandidateRow(
                 symbol=symbol,
                 tf=tf,
+                bar_ts=r["timestamp"],
                 timestamp=format_iso_ts(r["timestamp"]),
                 open=float(r["open"]),
                 high=float(r["high"]),
@@ -405,6 +331,27 @@ async def _scan_and_classify(
             )
         )
     return results
+
+
+async def _scan_and_classify_all_pairs(
+    pool: asyncpg.Pool,
+    pairs: list[tuple[str, str]],
+    magnitude_threshold: float,
+    neighbor_agreement_threshold: float,
+) -> list[CandidateRow]:
+    """Scan+classify every (symbol, tf) pair concurrently (asyncio.gather) -- each
+    pair's neighbor-scan query is independent, and this is a one-shot diagnostic/
+    cleanup script, not a hot production path, so no throttling/semaphore is applied."""
+    results = await asyncio.gather(
+        *[
+            _scan_and_classify(pool, symbol, tf, magnitude_threshold, neighbor_agreement_threshold)
+            for symbol, tf in pairs
+        ]
+    )
+    all_rows: list[CandidateRow] = []
+    for rows in results:
+        all_rows.extend(rows)
+    return all_rows
 
 
 async def _apply_correction(conn: asyncpg.Connection, row: CandidateRow, bar_ts) -> None:
@@ -510,17 +457,39 @@ async def _run(args: argparse.Namespace) -> int:
         )
         _logger.info("known_corrupt_print_cleanup.candidate_pairs", n_pairs=len(pairs), pairs=pairs)
 
-        all_rows: list[CandidateRow] = []
-        for symbol, tf in pairs:
-            rows = await _scan_and_classify(
+        all_rows = await _scan_and_classify_all_pairs(
+            pool, pairs, magnitude_threshold, neighbor_agreement_threshold
+        )
+
+        # Cross-symbol corroboration for every CONFIRMED_CORRUPT row found across ALL
+        # scanned pairs, batched into ONE query (not one per candidate, not one per
+        # pair) via the same primitive services/bar_auditor.py's live audit task uses.
+        confirmed_keys = [
+            (r.symbol, r.tf, r.bar_ts) for r in all_rows if r.verdict.verdict == "CONFIRMED_CORRUPT"
+        ]
+        if confirmed_keys:
+            n_corroborating = await count_corroborating_symbols_batch(
                 pool,
-                symbol,
-                tf,
-                magnitude_threshold,
-                neighbor_agreement_threshold,
-                min_corroborating_symbols,
+                candidates=confirmed_keys,
+                match_mode="exact",
+                magnitude_threshold=magnitude_threshold,
+                neighbor_agreement_threshold=neighbor_agreement_threshold,
             )
-            all_rows.extend(rows)
+            all_rows = [
+                (
+                    replace(
+                        row,
+                        verdict=apply_cross_symbol_downgrade(
+                            row.verdict,
+                            n_corroborating[(row.symbol, row.tf, row.bar_ts)],
+                            min_corroborating_symbols,
+                        ),
+                    )
+                    if row.verdict.verdict == "CONFIRMED_CORRUPT"
+                    else row
+                )
+                for row in all_rows
+            ]
 
         report = render_dry_run_report(all_rows)
         print(report)  # noqa: T201
@@ -545,35 +514,12 @@ async def _run(args: argparse.Namespace) -> int:
             )  # noqa: T201
             return 0
 
-        # Need the raw timestamp (not the display ISO string) for the UPDATE's
-        # WHERE clause -- re-fetch alongside the scan would duplicate the query;
-        # simplest is to re-resolve per (symbol, tf) pair scoped to confirmed rows.
         n_corrected = 0
         async with pool.acquire() as conn:
             async with conn.transaction():
-                for symbol, tf in pairs:
-                    tf_confirmed = [r for r in confirmed if r.symbol == symbol and r.tf == tf]
-                    if not tf_confirmed:
-                        continue
-                    bar_rows = await conn.fetch(
-                        "SELECT timestamp FROM market_data_ohlcv_tradeable "
-                        "WHERE symbol = $1 AND timeframe = $2",
-                        symbol,
-                        tf,
-                    )
-                    ts_by_iso = {format_iso_ts(r["timestamp"]): r["timestamp"] for r in bar_rows}
-                    for row in tf_confirmed:
-                        bar_ts = ts_by_iso.get(row.timestamp)
-                        if bar_ts is None:
-                            _logger.error(
-                                "known_corrupt_print_cleanup.bar_ts_resolve_failed",
-                                symbol=symbol,
-                                tf=tf,
-                                timestamp=row.timestamp,
-                            )
-                            continue
-                        await _apply_correction(conn, row, bar_ts)
-                        n_corrected += 1
+                for row in confirmed:
+                    await _apply_correction(conn, row, row.bar_ts)
+                    n_corrected += 1
 
         _logger.info("known_corrupt_print_cleanup.apply_complete", n_corrected=n_corrected)
         print(

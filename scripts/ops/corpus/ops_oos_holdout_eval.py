@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import sys
@@ -33,9 +34,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import asyncpg
 import numpy as np
-import psycopg2
-import psycopg2.extras
 import structlog
 from scipy.stats import rankdata
 from statsmodels.stats.multitest import multipletests
@@ -43,7 +43,8 @@ from statsmodels.stats.multitest import multipletests
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from services._batch_utils import load_config_service_sync as _load_config_service
+from services._batch_utils import cfg as _cfg
+from services._batch_utils import load_apr_dict_async
 from services.forward_return_writer import forward_log_return
 from services.ic_engine import _FEATURE_NAMES
 from src.config.settings import Settings, get_active_contracts
@@ -54,13 +55,10 @@ from src.intelligence.statistics.ic_math import (
     _p_values_from_ic,
     _vectorized_ic,
 )
-from src.observability.otel import OTelInitError, init_otel_providers
 
 setup_service_logging("logs/oos_holdout_eval.log")
 
 _logger = structlog.get_logger(__name__)
-
-_JOB = "oos-holdout-eval"
 
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 _DEFAULT_REPORT_PATH = "docs/analysis/oos-holdout-eval.md"
@@ -113,14 +111,12 @@ def _count_qualifying(ci_lower_arr: np.ndarray, passes_fdr_arr: np.ndarray) -> i
 # ---------------------------------------------------------------------------
 
 
-def _read_oos_start(conn: Any) -> datetime:
+async def _read_oos_start(pool: asyncpg.Pool) -> datetime:
     """Read alpha.validation.oos_start from config_state. Raises if unset."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT NULLIF(config_value, '') FROM config_state "
-            "WHERE config_key = 'alpha.validation.oos_start'"
-        )
-        row = cur.fetchone()
+    row = await pool.fetchrow(
+        "SELECT NULLIF(config_value, '') FROM config_state "
+        "WHERE config_key = 'alpha.validation.oos_start'"
+    )
     if row is None or row[0] is None:
         raise RuntimeError(
             "OOS boundary unset — nothing to evaluate. "
@@ -134,8 +130,8 @@ def _read_oos_start(conn: Any) -> datetime:
     return oos_start.astimezone(UTC)
 
 
-def _read_oos_rows(
-    conn: Any, symbol: str, tf: str, oos_start: datetime
+async def _read_oos_rows(
+    pool: asyncpg.Pool, symbol: str, tf: str, oos_start: datetime
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Read feature_vectors + market_data_ohlcv_tradeable opens for bars in the OOS window.
 
@@ -149,12 +145,10 @@ def _read_oos_rows(
         FROM feature_vectors fv
         JOIN market_data_ohlcv_tradeable m
           ON m.symbol = fv.symbol AND m.timeframe = fv.tf AND m.timestamp = fv.bar_ts
-        WHERE fv.symbol = %s AND fv.tf = %s AND fv.bar_ts >= %s
+        WHERE fv.symbol = $1 AND fv.tf = $2 AND fv.bar_ts >= $3
         ORDER BY fv.bar_ts ASC
     """
-    with conn.cursor() as cur:
-        cur.execute(query, (symbol, tf, oos_start))
-        rows = cur.fetchall()
+    rows = await pool.fetch(query, symbol, tf, oos_start)
 
     if not rows:
         return (
@@ -163,12 +157,24 @@ def _read_oos_rows(
             np.zeros((0, len(_FEATURE_NAMES))),
         )
 
-    bar_ts_arr = np.array([r[0] for r in rows], dtype=object)
-    opens_arr = np.array([r[1] for r in rows], dtype=float)
+    bar_ts_arr = np.array([r["bar_ts"] for r in rows], dtype=object)
+    opens_arr = np.array([r["open"] for r in rows], dtype=float)
     feature_matrix = np.array(
-        [[np.nan if v is None else float(v) for v in r[2:]] for r in rows], dtype=float
+        [[np.nan if r[name] is None else float(r[name]) for name in _FEATURE_NAMES] for r in rows],
+        dtype=float,
     )
     return bar_ts_arr, opens_arr, feature_matrix
+
+
+async def _fetch_all_symbols_oos_rows(
+    pool: asyncpg.Pool, symbols: list[str], tf: str, oos_start: datetime
+) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Fetch OOS rows for every symbol concurrently (asyncio.gather) -- each symbol's
+    query is independent and this is a one-shot diagnostic script, not a hot production
+    path, so no throttling/semaphore is applied. gather preserves input order."""
+    return list(
+        await asyncio.gather(*[_read_oos_rows(pool, symbol, tf, oos_start) for symbol in symbols])
+    )
 
 
 def _score_symbol_tf(
@@ -244,19 +250,17 @@ def _apply_corpus_fdr(results: list[dict[str, Any]], fdr_alpha: float) -> None:
         r["passes_fdr"] = bool(reject[i])
 
 
-def _read_in_sample_qualifying_count(conn: Any, tf: str) -> int:
+async def _read_in_sample_qualifying_count(pool: asyncpg.Pool, tf: str) -> int:
     """Query existing feature_ic_scores for the in-sample qualifying-cell count.
 
     Qualifying definition matches the OOS harness: ic_ci_lower > 0 AND passes_fdr = true.
     READ-ONLY.
     """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT count(*) FROM feature_ic_scores "
-            "WHERE tf = %s AND ic_ci_lower > 0 AND passes_fdr = true",
-            (tf,),
-        )
-        row = cur.fetchone()
+    row = await pool.fetchrow(
+        "SELECT count(*) FROM feature_ic_scores "
+        "WHERE tf = $1 AND ic_ci_lower > 0 AND passes_fdr = true",
+        tf,
+    )
     return int(row[0]) if row else 0
 
 
@@ -348,7 +352,7 @@ def _append_look_log(
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+async def main() -> None:
     parser = argparse.ArgumentParser(
         description="Read-only OOS holdout IC scorer — diagnostic only, never a promotion gate."
     )
@@ -358,30 +362,22 @@ def main() -> None:
     parser.add_argument("--look-log-path", default=_DEFAULT_LOOK_LOG_PATH)
     args = parser.parse_args()
 
-    try:
-        init_otel_providers(service_name=_JOB)
-    except OTelInitError as error:
-        _logger.warning("oos_holdout_eval.otel_init_failed", error=str(error))
-
     t0 = time.monotonic()
     settings = Settings()
-    psycopg2.extras.register_uuid()
-    conn = psycopg2.connect(
-        settings.database_url,
-        options="-c idle_in_transaction_session_timeout=0",
-    )
+    dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    pool = await asyncpg.create_pool(dsn=dsn)
     try:
-        cfg = _load_config_service(conn)
-        fdr_alpha = float(cfg.get_sync("alpha.ic.fdr_alpha", 0.05))
+        apr = await load_apr_dict_async(pool)
+        fdr_alpha = float(_cfg(apr, "alpha.ic.fdr_alpha", 0.05))
         significant_drop_fraction = float(
-            cfg.get_sync("alpha.validation.oos_significant_drop_fraction", 0.5)
+            _cfg(apr, "alpha.validation.oos_significant_drop_fraction", 0.5)
         )
         lookaheads = {
-            scale: int(cfg.get_sync(f"alpha.ic.lookahead.{scale}", fb))
+            scale: int(_cfg(apr, f"alpha.ic.lookahead.{scale}", fb))
             for scale, fb in _SCALE_FALLBACKS.items()
         }
 
-        oos_start = _read_oos_start(conn)
+        oos_start = await _read_oos_start(pool)
         _logger.info("oos_holdout_eval.oos_start", value=str(oos_start))
 
         if args.symbols:
@@ -401,9 +397,9 @@ def main() -> None:
         in_sample_counts: dict[str, int] = {}
 
         for tf in tfs:
-            in_sample_counts[tf] = _read_in_sample_qualifying_count(conn, tf)
-            for symbol in symbols:
-                bar_ts_arr, opens_arr, feature_matrix = _read_oos_rows(conn, symbol, tf, oos_start)
+            in_sample_counts[tf] = await _read_in_sample_qualifying_count(pool, tf)
+            all_symbol_rows = await _fetch_all_symbols_oos_rows(pool, symbols, tf, oos_start)
+            for bar_ts_arr, opens_arr, feature_matrix in all_symbol_rows:
                 if len(bar_ts_arr) == 0:
                     continue
                 results = _score_symbol_tf(bar_ts_arr, opens_arr, feature_matrix, lookaheads)
@@ -428,8 +424,8 @@ def main() -> None:
             elapsed_s=round(time.monotonic() - t0, 2),
         )
     finally:
-        conn.close()
+        await pool.close()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

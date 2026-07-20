@@ -38,6 +38,7 @@ from src.core.bar_accumulator import _TF_MINUTES
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.market_events import BarGapRequest
+from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import (
     topic_contract_updates,
     topic_gap_fill_dlq,
@@ -109,9 +110,11 @@ WHERE next.open IS NOT NULL
 # BarAuditor's existing 5-minute cadence.
 
 _PRICE_SANITY_STATUS_UPDATE_SQL = """
-UPDATE market_data_ohlcv
-SET price_sanity_status = $4
-WHERE symbol = $1 AND timeframe = $2 AND timestamp = $3
+UPDATE market_data_ohlcv AS m
+SET price_sanity_status = u.status
+FROM UNNEST($1::text[], $2::text[], $3::timestamptz[], $4::text[])
+    AS u(symbol, tf, bar_ts, status)
+WHERE m.symbol = u.symbol AND m.timeframe = u.tf AND m.timestamp = u.bar_ts
 """
 
 _VERDICT_TO_STATUS: dict[str, str] = {
@@ -559,13 +562,19 @@ class BarAuditor(BaseDaemon):
                         )
 
                 status_counts: dict[str, int] = {}
-                async with conn.transaction():
-                    for (symbol, tf, bar_ts), verdict in verdicts.items():
-                        status = _VERDICT_TO_STATUS[verdict.verdict]
-                        await conn.execute(
-                            _PRICE_SANITY_STATUS_UPDATE_SQL, symbol, tf, bar_ts, status
-                        )
-                        status_counts[status] = status_counts.get(status, 0) + 1
+                symbols: list[str] = []
+                tfs: list[str] = []
+                bar_tss: list[Any] = []
+                statuses: list[str] = []
+                for (symbol, tf, bar_ts), verdict in verdicts.items():
+                    status = _VERDICT_TO_STATUS[verdict.verdict]
+                    symbols.append(symbol)
+                    tfs.append(tf)
+                    bar_tss.append(bar_ts)
+                    statuses.append(status)
+                    status_counts[status] = status_counts.get(status, 0) + 1
+
+                await conn.execute(_PRICE_SANITY_STATUS_UPDATE_SQL, symbols, tfs, bar_tss, statuses)
 
                 for status, count in status_counts.items():
                     _PRICE_SANITY_ROWS_CLASSIFIED.add(
@@ -746,8 +755,8 @@ class BarAuditor(BaseDaemon):
         payload = {
             "symbol": symbol,
             "tf": tf,
-            "start_ts": start_ts.isoformat(),
-            "end_ts": end_ts.isoformat(),
+            "start_ts": format_iso_ts(start_ts),
+            "end_ts": format_iso_ts(end_ts),
             "retry_count": retry_count,
             "error": error,
         }

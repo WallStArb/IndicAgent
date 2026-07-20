@@ -16,7 +16,9 @@ sync/psycopg2 case.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from scripts.ops.corpus.ops_known_corrupt_print_cleanup import (
     _AUDIT_INSERT_SQL,
@@ -25,6 +27,7 @@ from scripts.ops.corpus.ops_known_corrupt_print_cleanup import (
     _MONITOR_TYPE,
     CandidateRow,
     _apply_correction,
+    _scan_and_classify_all_pairs,
     render_dry_run_report,
     render_followup_commands,
 )
@@ -69,6 +72,7 @@ def _make_row(symbol: str, tf: str, verdict: CandidateVerdict) -> CandidateRow:
     return CandidateRow(
         symbol=symbol,
         tf=tf,
+        bar_ts="2007-06-20T19:00:00+00:00",
         timestamp="2007-06-20T19:00:00Z",
         open=1000.0,
         high=1000.0,
@@ -173,6 +177,7 @@ class TestApplyCorrectionMockedConnection:
         row = CandidateRow(
             symbol="UUP",
             tf="5m",
+            bar_ts="2007-06-20T19:00:00+00:00",
             timestamp="2007-06-20T19:00:00Z",
             open=1000.0,
             high=1000.0,
@@ -206,3 +211,35 @@ class TestApplyCorrectionMockedConnection:
         # display ISO string -- bar_ts is the raw DB timestamp value).
         assert update_call.args[0] == _CORRECTION_UPDATE_SQL
         assert update_call.args[1:] == ("UUP", "5m", bar_ts)
+
+
+class TestScanAndClassifyAllPairsConcurrency:
+    """The (symbol, tf) pair scan must run concurrently (asyncio.gather), not one
+    pair after another -- each pair's neighbor-scan query is independent."""
+
+    @pytest.mark.asyncio
+    async def test_scans_all_pairs_concurrently(self) -> None:
+        concurrent = 0
+        max_concurrent = 0
+
+        async def fake_scan(pool, symbol, tf, magnitude_threshold, neighbor_agreement_threshold):
+            nonlocal concurrent, max_concurrent
+            concurrent += 1
+            max_concurrent = max(max_concurrent, concurrent)
+            await asyncio.sleep(0.01)
+            concurrent -= 1
+            return [f"{symbol}:{tf}"]
+
+        with patch(
+            "scripts.ops.corpus.ops_known_corrupt_print_cleanup._scan_and_classify",
+            new=fake_scan,
+        ):
+            all_rows = await _scan_and_classify_all_pairs(
+                pool=None,
+                pairs=[("UUP", "5m"), ("XRT", "15m"), ("DIA", "1h")],
+                magnitude_threshold=10.0,
+                neighbor_agreement_threshold=2.0,
+            )
+
+        assert max_concurrent > 1, "pairs scanned sequentially, not concurrently"
+        assert all_rows == ["UUP:5m", "XRT:15m", "DIA:1h"]

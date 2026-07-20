@@ -73,6 +73,8 @@ import asyncpg
 import numpy as np
 from scipy.stats import rankdata
 
+from services._batch_utils import cfg as _cfg
+from services._batch_utils import load_apr_dict_async
 from services.ic_engine import _FEATURE_NAMES
 from src.config.settings import Settings
 from src.intelligence.statistics.ic_math import _fisher_z_ci, _vectorized_ic
@@ -207,11 +209,6 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def _load_config_int(pool: asyncpg.Pool, key: str, default: int) -> int:
-    row = await pool.fetchval("SELECT config_value FROM config_state WHERE config_key = $1", key)
-    return int(row) if row is not None else default
-
-
 async def _fetch_horizon_response_rows(
     pool: asyncpg.Pool,
     tf: str,
@@ -222,6 +219,27 @@ async def _fetch_horizon_response_rows(
 ) -> list[asyncpg.Record]:
     sql = _build_horizon_response_sql(horizons, tf)
     return await pool.fetch(sql, symbol, tf, vintage, max_bars_per_symbol)
+
+
+async def _fetch_all_symbols_horizon_rows(
+    pool: asyncpg.Pool,
+    tf: str,
+    symbols: list[str],
+    vintage,
+    horizons: tuple[int, ...],
+    max_bars_per_symbol: int,
+) -> list[tuple[str, list[asyncpg.Record]]]:
+    """Fetch horizon-response rows for every symbol concurrently (asyncio.gather) --
+    each symbol's query is independent and this is a one-shot diagnostic script, not
+    a hot production path, so no throttling/semaphore is applied. gather preserves
+    input order, so the (symbol, rows) pairing survives regardless of completion order."""
+    all_rows = await asyncio.gather(
+        *[
+            _fetch_horizon_response_rows(pool, tf, symbol, vintage, horizons, max_bars_per_symbol)
+            for symbol in symbols
+        ]
+    )
+    return list(zip(symbols, all_rows))
 
 
 async def main() -> int:
@@ -235,11 +253,12 @@ async def main() -> int:
         if vintage is None:
             print("ERROR: feature_ic_scores is empty -- no vintage to anchor the sample.")
             return 0
-        min_reliable_n = args.min_reliable_n or await _load_config_int(
-            pool, "alpha.ic.min_reliable_n", _MIN_RELIABLE_N_DEFAULT
+        apr = await load_apr_dict_async(pool)
+        min_reliable_n = args.min_reliable_n or int(
+            _cfg(apr, "alpha.ic.min_reliable_n", _MIN_RELIABLE_N_DEFAULT)
         )
-        min_stride = args.min_stride or await _load_config_int(
-            pool, "alpha.ic.subsample_min_stride", _MIN_STRIDE_DEFAULT
+        min_stride = args.min_stride or int(
+            _cfg(apr, "alpha.ic.subsample_min_stride", _MIN_STRIDE_DEFAULT)
         )
 
         tfs = (args.tf,) if args.tf else _TFS
@@ -277,10 +296,10 @@ async def main() -> int:
             n_bars_total = 0
 
             observed_bar_ts: set = set()
-            for symbol in symbols:
-                rows = await _fetch_horizon_response_rows(
-                    pool, tf, symbol, vintage, horizons, args.max_bars_per_symbol
-                )
+            symbol_rows_pairs = await _fetch_all_symbols_horizon_rows(
+                pool, tf, symbols, vintage, horizons, args.max_bars_per_symbol
+            )
+            for symbol, rows in symbol_rows_pairs:
                 n_bars_total += len(rows)
                 for n in horizons:
                     # Per-horizon stride subsample (not a shared stride across horizons):

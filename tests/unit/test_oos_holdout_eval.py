@@ -17,14 +17,17 @@ import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import numpy as np
+import pytest
 
 _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from services.forward_return_writer import forward_log_return
+from services.ic_engine import _FEATURE_NAMES
 
 
 def test_forward_log_return_matches_executable_formula():
@@ -209,3 +212,113 @@ def test_append_look_log_is_append_only(tmp_path):
     assert first["symbols"] == ["SPY"]
     assert second["symbols"] == ["TLT"]
     assert first["report_sha256"] != second["report_sha256"]
+
+
+class TestReadOosStartAsync:
+    """_read_oos_start converted from psycopg2 to asyncpg (todo cleanup) so the whole
+    harness can run on one connection idiom shared with the rest of the batch scripts."""
+
+    @pytest.mark.asyncio
+    async def test_parses_naive_config_value_as_utc(self):
+        from scripts.ops.corpus.ops_oos_holdout_eval import _read_oos_start
+
+        mock_pool = AsyncMock()
+        mock_pool.fetchrow = AsyncMock(return_value=("2025-12-24 05:15:00",))
+
+        result = await _read_oos_start(mock_pool)
+
+        assert result == datetime(2025, 12, 24, 5, 15, 0, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_raises_when_unset(self):
+        from scripts.ops.corpus.ops_oos_holdout_eval import _read_oos_start
+
+        mock_pool = AsyncMock()
+        mock_pool.fetchrow = AsyncMock(return_value=None)
+
+        with pytest.raises(RuntimeError):
+            await _read_oos_start(mock_pool)
+
+
+class TestReadInSampleQualifyingCountAsync:
+    @pytest.mark.asyncio
+    async def test_returns_int_from_mocked_pool(self):
+        from scripts.ops.corpus.ops_oos_holdout_eval import _read_in_sample_qualifying_count
+
+        mock_pool = AsyncMock()
+        mock_pool.fetchrow = AsyncMock(return_value=(42,))
+
+        count = await _read_in_sample_qualifying_count(mock_pool, "5m")
+
+        assert count == 42
+
+
+class TestReadOosRowsAsync:
+    @pytest.mark.asyncio
+    async def test_maps_columns_from_asyncpg_records(self):
+        from scripts.ops.corpus.ops_oos_holdout_eval import _read_oos_rows
+
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
+        fake_row = {"bar_ts": ts, "open": 100.0, **dict.fromkeys(_FEATURE_NAMES, 1.0)}
+
+        mock_pool = AsyncMock()
+        mock_pool.fetch = AsyncMock(return_value=[fake_row])
+
+        bar_ts_arr, opens_arr, feature_matrix = await _read_oos_rows(mock_pool, "SPY", "5m", ts)
+
+        assert bar_ts_arr[0] == ts
+        assert opens_arr[0] == 100.0
+        assert feature_matrix.shape == (1, len(_FEATURE_NAMES))
+
+    @pytest.mark.asyncio
+    async def test_empty_result_returns_empty_arrays(self):
+        from scripts.ops.corpus.ops_oos_holdout_eval import _read_oos_rows
+
+        mock_pool = AsyncMock()
+        mock_pool.fetch = AsyncMock(return_value=[])
+
+        bar_ts_arr, opens_arr, feature_matrix = await _read_oos_rows(
+            mock_pool, "SPY", "5m", datetime(2026, 1, 1, tzinfo=UTC)
+        )
+
+        assert bar_ts_arr.shape == (0,)
+        assert opens_arr.shape == (0,)
+        assert feature_matrix.shape == (0, len(_FEATURE_NAMES))
+
+
+class TestFetchAllSymbolsOosRowsConcurrency:
+    """Per-symbol OOS reads must run concurrently (asyncio.gather), not sequentially --
+    each symbol's query is independent and this is a one-shot diagnostic script."""
+
+    @pytest.mark.asyncio
+    async def test_fetches_all_symbols_concurrently(self):
+        import asyncio
+
+        from scripts.ops.corpus.ops_oos_holdout_eval import _fetch_all_symbols_oos_rows
+
+        concurrent = 0
+        max_concurrent = 0
+
+        async def fake_read_oos_rows(pool, symbol, tf, oos_start):
+            nonlocal concurrent, max_concurrent
+            concurrent += 1
+            max_concurrent = max(max_concurrent, concurrent)
+            await asyncio.sleep(0.01)
+            concurrent -= 1
+            return (
+                np.array([symbol], dtype=object),
+                np.array([1.0]),
+                np.zeros((1, 1)),
+            )
+
+        with patch(
+            "scripts.ops.corpus.ops_oos_holdout_eval._read_oos_rows",
+            new=fake_read_oos_rows,
+        ):
+            result = await _fetch_all_symbols_oos_rows(
+                pool=None, symbols=["SPY", "TLT", "GLD"], tf="5m", oos_start=None
+            )
+
+        assert max_concurrent > 1, "per-symbol OOS reads ran sequentially, not concurrently"
+        assert len(result) == 3
+        assert result[1][0][0] == "TLT"
