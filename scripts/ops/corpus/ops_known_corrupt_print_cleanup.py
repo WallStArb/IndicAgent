@@ -58,12 +58,15 @@ import asyncio
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 import asyncpg
 import structlog
 
+from services._batch_utils import cfg as _cfg
+from services._batch_utils import load_apr_dict_async
 from src.config.settings import Settings
 from src.core.service_utils import format_iso_ts, setup_service_logging
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
@@ -90,7 +93,7 @@ _ALL_TFS = ("5m", "15m", "1h", "1d")
 
 @dataclass(frozen=True)
 class CandidateVerdict:
-    verdict: str  # "CONFIRMED_CORRUPT" | "AMBIGUOUS" | "PLAUSIBLE"
+    verdict: str  # "CONFIRMED_CORRUPT" | "AMBIGUOUS" | "PLAUSIBLE" | "MARKET_EVENT"
     implausible_fields: tuple[str, ...]
     max_ratio: float
     neighbor_ratio: float | None
@@ -172,6 +175,33 @@ def classify_candidate_bar(
         max_ratio=max_ratio,
         neighbor_ratio=neighbor_ratio,
         reason="implausible_but_neighbors_disagree",
+    )
+
+
+def apply_cross_symbol_downgrade(
+    verdict: CandidateVerdict, n_corroborating_symbols: int, min_symbols: int
+) -> CandidateVerdict:
+    """Downgrade CONFIRMED_CORRUPT -> MARKET_EVENT when the subject symbol plus
+    n_corroborating_symbols OTHER symbols (total >= min_symbols) show a similarly
+    implausible move at the identical (tf, timestamp) -- todo 152's cross-symbol
+    corroboration signal applied to todo 151's classification. classify_candidate_bar's
+    single-symbol neighbor-agreement check cannot distinguish a genuine V-shaped
+    flash-crash recovery from an isolated bad print (both show "isolated spike,
+    neighbors agree"); this is the missing signal. Only CONFIRMED_CORRUPT is checked --
+    AMBIGUOUS/PLAUSIBLE never reach --apply regardless, so spending a corroboration
+    query on them has no effect on the outcome.
+    """
+    if verdict.verdict != "CONFIRMED_CORRUPT":
+        return verdict
+    total_symbols = n_corroborating_symbols + 1
+    if total_symbols < min_symbols:
+        return verdict
+    return CandidateVerdict(
+        verdict="MARKET_EVENT",
+        implausible_fields=verdict.implausible_fields,
+        max_ratio=verdict.max_ratio,
+        neighbor_ratio=verdict.neighbor_ratio,
+        reason=f"cross_symbol_corroborated_n={total_symbols}",
     )
 
 
@@ -260,6 +290,7 @@ def render_dry_run_report(rows: list[CandidateRow]) -> str:
     confirmed = [r for r in rows if r.verdict.verdict == "CONFIRMED_CORRUPT"]
     ambiguous = [r for r in rows if r.verdict.verdict == "AMBIGUOUS"]
     plausible = [r for r in rows if r.verdict.verdict == "PLAUSIBLE"]
+    market_event = [r for r in rows if r.verdict.verdict == "MARKET_EVENT"]
 
     lines = [
         "# Known Corrupt OHLCV Print Cleanup -- Dry-Run Report (todo 151)",
@@ -267,6 +298,7 @@ def render_dry_run_report(rows: list[CandidateRow]) -> str:
         f"Candidates scanned: {len(rows)}",
         f"CONFIRMED_CORRUPT: {len(confirmed)}",
         f"AMBIGUOUS: {len(ambiguous)}",
+        f"MARKET_EVENT (real crisis event, cross-symbol corroborated -- excluded from apply): {len(market_event)}",
         f"PLAUSIBLE (ruled out by neighbor cross-check): {len(plausible)}",
         "",
     ]
@@ -277,7 +309,11 @@ def render_dry_run_report(rows: list[CandidateRow]) -> str:
     )
     divider = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
 
-    for group_name, group in (("CONFIRMED_CORRUPT", confirmed), ("AMBIGUOUS", ambiguous)):
+    for group_name, group in (
+        ("CONFIRMED_CORRUPT", confirmed),
+        ("AMBIGUOUS", ambiguous),
+        ("MARKET_EVENT", market_event),
+    ):
         lines.append(f"## {group_name} ({len(group)})")
         lines.append("")
         if group:
@@ -365,12 +401,67 @@ async def _fetch_candidate_tf_pairs(
     return pairs
 
 
+_CROSS_SYMBOL_NEIGHBOR_SQL = """
+    WITH neighbors AS (
+        SELECT
+            symbol, timestamp, open, high, low, close,
+            LAG(close) OVER w AS prev_close,
+            LEAD(open) OVER w AS next_open
+        FROM market_data_ohlcv_tradeable
+        WHERE timeframe = $1
+          AND symbol != $2
+          AND timestamp BETWEEN $3::timestamptz - INTERVAL '7 days'
+                             AND $3::timestamptz + INTERVAL '7 days'
+        WINDOW w AS (PARTITION BY symbol ORDER BY timestamp)
+    )
+    SELECT symbol, open, high, low, close, prev_close, next_open
+    FROM neighbors
+    WHERE timestamp = $3
+"""
+
+
+async def count_corroborating_symbols(
+    pool: asyncpg.Pool,
+    tf: str,
+    subject_symbol: str,
+    timestamp: Any,
+    magnitude_threshold: float,
+    neighbor_agreement_threshold: float,
+) -> int:
+    """Count OTHER symbols with an implausible bar (per classify_candidate_bar, same
+    thresholds) at the exact same (tf, timestamp) as a CONFIRMED_CORRUPT candidate --
+    todo 152's signal, reused here so a genuine market-wide event isn't misclassified.
+    Each neighbor symbol is classified against ITS OWN prev/next reference, exactly as
+    the subject row was -- symmetric reuse of classify_candidate_bar, no new
+    classification logic. The +/-7 day window is generous slack for LAG/LEAD accuracy
+    across weekends/holidays on 1d bars; cheap since this only runs per CONFIRMED_CORRUPT
+    candidate (~27 total), not per-row over the corpus.
+    """
+    rows = await pool.fetch(_CROSS_SYMBOL_NEIGHBOR_SQL, tf, subject_symbol, timestamp)
+    n_corroborating = 0
+    for r in rows:
+        neighbor_verdict = classify_candidate_bar(
+            open_=float(r["open"]),
+            high=float(r["high"]),
+            low=float(r["low"]),
+            close=float(r["close"]),
+            prev_close=float(r["prev_close"]) if r["prev_close"] is not None else None,
+            next_open=float(r["next_open"]) if r["next_open"] is not None else None,
+            magnitude_threshold=magnitude_threshold,
+            neighbor_agreement_threshold=neighbor_agreement_threshold,
+        )
+        if neighbor_verdict.verdict != "PLAUSIBLE":
+            n_corroborating += 1
+    return n_corroborating
+
+
 async def _scan_and_classify(
     pool: asyncpg.Pool,
     symbol: str,
     tf: str,
     magnitude_threshold: float,
     neighbor_agreement_threshold: float,
+    min_corroborating_symbols: int,
 ) -> list[CandidateRow]:
     rows = await pool.fetch(_NEIGHBOR_SCAN_SQL, symbol, tf)
     results: list[CandidateRow] = []
@@ -385,6 +476,18 @@ async def _scan_and_classify(
             magnitude_threshold=magnitude_threshold,
             neighbor_agreement_threshold=neighbor_agreement_threshold,
         )
+        if verdict.verdict == "CONFIRMED_CORRUPT":
+            n_corroborating = await count_corroborating_symbols(
+                pool,
+                tf,
+                symbol,
+                r["timestamp"],
+                magnitude_threshold,
+                neighbor_agreement_threshold,
+            )
+            verdict = apply_cross_symbol_downgrade(
+                verdict, n_corroborating, min_corroborating_symbols
+            )
         if verdict.verdict == "PLAUSIBLE":
             continue
         results.append(
@@ -475,13 +578,23 @@ async def _run(args: argparse.Namespace) -> int:
     pool = await asyncpg.create_pool(dsn=dsn)
 
     try:
+        apr = await load_apr_dict_async(pool)
+        min_corroborating_symbols = int(
+            _cfg(apr, "alpha.quant.cross_symbol_corroboration.min_symbols", 4)
+        )
+
         pairs = await _fetch_candidate_tf_pairs(pool, args.symbols, args.tf)
         _logger.info("known_corrupt_print_cleanup.candidate_pairs", n_pairs=len(pairs), pairs=pairs)
 
         all_rows: list[CandidateRow] = []
         for symbol, tf in pairs:
             rows = await _scan_and_classify(
-                pool, symbol, tf, args.magnitude_threshold, args.neighbor_agreement_threshold
+                pool,
+                symbol,
+                tf,
+                args.magnitude_threshold,
+                args.neighbor_agreement_threshold,
+                min_corroborating_symbols,
             )
             all_rows.extend(rows)
 
