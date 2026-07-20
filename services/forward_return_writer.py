@@ -345,25 +345,40 @@ ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 
 
 def _build_corroboration_sql(scale: str) -> str:
-    """UPDATE clearing return_{scale}_suspect where >= min_symbols distinct symbols are
-    ALSO flagged suspect at the identical (tf, bar_ts) -- corruption doesn't hit N
-    unrelated symbols at the same historical minute; a real market-wide event (the May
-    6 2010 Flash Crash hit 6 unrelated ETFs in the same 40-minute window) does.
+    """UPDATE clearing return_{scale}_suspect where >= min_symbols distinct symbols
+    show a suspect flag on ANY scale within +/- window_minutes of this row's bar_ts --
+    corruption doesn't hit N unrelated symbols in the same time window; a real
+    market-wide event (the May 6 2010 Flash Crash) does.
 
-    Bounded to already-suspect rows only (self-join CTE grouped by (tf, bar_ts), never
-    a full-corpus scan) -- cheap enough to run unconditionally on every invocation,
-    which is what re-flags rows written by PRIOR runs too (todo 152's sizing note: "a
-    corrective UPDATE, not a new migration").
+    Pools all four scales as one per-symbol "was this symbol suspect near this time"
+    signal (any_suspect CTE) and matches on a time RANGE rather than exact bar_ts
+    equality -- empirically required: the live Flash Crash cluster
+    (CWB/ITA/VTV/VUG/VYM) staggers its suspect rows across bar_ts 18:20-18:55 and
+    across all four scales, never sharing one exact (tf, bar_ts, scale) triple. An
+    exact-match join finds zero corroboration on this real cluster (verified live,
+    see migration 241). The final UPDATE still only clears THIS scale's column --
+    pooling is for candidate discovery only, never for which flag gets cleared.
+
+    Bounded to already-suspect rows only (any_suspect CTE), never a full-corpus scan
+    -- cheap enough to run unconditionally on every invocation.
     """
     col = f"return_{scale}_suspect"
     return f"""
-WITH corroborated_windows AS (
-    SELECT tf, bar_ts
+WITH any_suspect AS (
+    SELECT DISTINCT symbol, tf, bar_ts
     FROM forward_returns
     WHERE return_type = 'executable_open_to_open'
-      AND {col} = true
-    GROUP BY tf, bar_ts
-    HAVING count(DISTINCT symbol) >= %(min_symbols)s
+      AND (return_fast_suspect OR return_mid_suspect OR return_slow_suspect OR return_extended_suspect)
+),
+corroborated_windows AS (
+    SELECT a.tf, a.bar_ts
+    FROM any_suspect a
+    JOIN any_suspect b
+      ON b.tf = a.tf
+     AND b.bar_ts BETWEEN a.bar_ts - (%(window_minutes)s || ' minutes')::interval
+                       AND a.bar_ts + (%(window_minutes)s || ' minutes')::interval
+    GROUP BY a.tf, a.bar_ts
+    HAVING count(DISTINCT b.symbol) >= %(min_symbols)s
 )
 UPDATE forward_returns fr
 SET {col} = false
@@ -376,12 +391,13 @@ WHERE fr.tf = cw.tf
 
 
 def _apply_cross_symbol_corroboration(
-    conn: Any, scales: tuple[str, ...], min_symbols: int, tracer: Any
+    conn: Any, scales: tuple[str, ...], min_symbols: int, window_minutes: int, tracer: Any
 ) -> dict[str, int]:
     """Clear return_{scale}_suspect for rows corroborated by >= min_symbols distinct
-    symbols at the identical (tf, bar_ts) -- todo 152. Runs once per invocation, after
-    the full symbol/tf loop, over the WHOLE forward_returns table (not scoped to this
-    run's --symbols) so historical suspect rows from prior runs get corrected too.
+    symbols (any scale) within +/- window_minutes -- todo 152. Runs once per
+    invocation, after the full symbol/tf loop, over the WHOLE forward_returns table
+    (not scoped to this run's --symbols) so historical suspect rows from prior runs
+    get corrected too.
 
     Returns {scale: n_rows_cleared} -- logged once as an aggregate, never per-row
     (CLAUDE.md: never log per-row inside a corpus-scale loop).
@@ -391,12 +407,13 @@ def _apply_cross_symbol_corroboration(
         for scale in scales:
             sql = _build_corroboration_sql(scale)
             with conn.cursor() as cur:
-                cur.execute(sql, {"min_symbols": min_symbols})
+                cur.execute(sql, {"min_symbols": min_symbols, "window_minutes": window_minutes})
                 cleared[scale] = cur.rowcount
         conn.commit()
         _logger.info(
             "forward_return_writer.cross_symbol_corroboration_applied",
             min_symbols=min_symbols,
+            window_minutes=window_minutes,
             cleared=cleared,
         )
         return cleared
@@ -655,10 +672,17 @@ def main() -> None:
                 min_corroborating_symbols = int(
                     cfg.get_sync("alpha.quant.cross_symbol_corroboration.min_symbols", 4)
                 )
+                corroboration_window_minutes = int(
+                    cfg.get_sync("alpha.quant.cross_symbol_corroboration.window_minutes", 60)
+                )
 
                 if args.reclassify_suspect_only:
                     cleared = _apply_cross_symbol_corroboration(
-                        conn, _SCALES, min_corroborating_symbols, tracer
+                        conn,
+                        _SCALES,
+                        min_corroborating_symbols,
+                        corroboration_window_minutes,
+                        tracer,
                     )
                     _logger.info(
                         "forward_return_writer.reclassify_suspect_only_complete",
@@ -782,7 +806,7 @@ def main() -> None:
                 _emit_price_sanity_fact(conn, total_suspect, training_window_end)
 
                 cleared = _apply_cross_symbol_corroboration(
-                    conn, _SCALES, min_corroborating_symbols, tracer
+                    conn, _SCALES, min_corroborating_symbols, corroboration_window_minutes, tracer
                 )
 
                 _logger.info(
