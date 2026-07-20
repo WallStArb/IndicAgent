@@ -1988,11 +1988,13 @@ open question is specifically incremental contribution, not novelty from scratch
 **Depends on:** Feature Registry (todo 008, COMPLETE). No dependency on Phase 149/147/162 —
 sibling atomic-expansion item to Phase 151's atomic scope (todo 066, todo 104), not folded into
 151's interaction-layer waves.
-**Requirements**: TBD at `/gsd-plan-phase 163`
-**Plans:** 0 plans
+**Requirements**: Closes todo 153 (no formal REQUIREMENTS.md IDs); governed by decisions D-01..D-16 in 163-CONTEXT.md.
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 163 to break down)
+- [ ] 163-01-PLAN.md — VP data contract (migration 243: 9 ATR-normalized columns + feature_registry rows + APR keys) + FeatureCache.update_session_vp() mutator
+- [ ] 163-02-PLAN.md — Wire session-VP into live+batch compute paths, derive 11 ATR-normalized VP outputs, remove stale I3 None-branch, regression test
+- [ ] 163-03-PLAN.md — Stateless inline pivot-clustering S/R (ATR-unit sr_support_dist/sr_resist_dist), D-05 docstring cleanup, regression test
 
 ### Phase 164: SMC Institutional Footprint Primitives 📋 PLANNED
 
