@@ -9,6 +9,29 @@ source: todo 148 closeout -- its Fix item 3 ("enumerate the ~27 known rows, veri
   still live in market_data_ohlcv, unverified and uncorrected.
 ---
 
+**Progress 2026-07-19:** tooling built --
+`scripts/ops/corpus/ops_known_corrupt_print_cleanup.py`, dry-run-default, candidate
+discovery via 148's `return_{scale}_suspect` flags, verification via neighbor-agreement
+classification (`CONFIRMED_CORRUPT` requires an implausible field AND agreeing
+neighbors -- see the script's own docstring). Live dry-run: 91 candidates -> 27
+CONFIRMED_CORRUPT, 64 AMBIGUOUS. **BLOCKED on [152](152-price-sanity-guard-flags-real-crisis-events.md)
+before any `--apply`:** manually cross-checked the 27-row CONFIRMED_CORRUPT list against
+every other symbol trading at the same timestamps and found it's contaminated with real
+May 6 2010 Flash Crash data -- `CWB`, `RSP`, `VTV`, `VYM` all show 5+ OTHER unrelated ETFs
+(`ITA`, `VUG`, and dozens more) trading normally except for a coincident collapse at the
+exact same 5-minute bar, the textbook stub-quote signature, not corruption. The
+neighbor-agreement heuristic cannot distinguish a genuine V-shaped flash-crash recovery
+from actual corruption -- both produce an "isolated spike, neighbors agree" signature.
+`RSP` specifically has BOTH a genuine bad print (2007-08-01, `high=499.99`, confirmed
+isolated -- zero other symbols affected at that timestamp) AND Flash Crash rows
+(2010-05-06) in the SAME symbol's CONFIRMED_CORRUPT bucket, so a symbol-level `--apply`
+cannot safely separate them. The other 23 rows (`UUP` x11 across dates, `VWO` x4, `XRT`
+x1, `RSP`'s 2007-08-01 row) were manually verified isolated -- zero other symbols
+affected at their exact timestamps -- and are safe to apply once 152's cross-symbol
+check lands and produces a clean re-classification (expected to move the 4 contaminated
+rows to AMBIGUOUS/PLAUSIBLE automatically, no manual row-picking needed). Do not run
+`--apply` before 152 lands.
+
 # ~27 known corrupt OHLCV prints are still live in `market_data_ohlcv` -- verify and correct/tombstone
 
 ## Problem
