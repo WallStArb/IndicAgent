@@ -6,11 +6,17 @@ apply_cross_symbol_downgrade, and build_subject_key -- no DB, no asyncpg connect
 
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock
+
+import pytest
+
 from src.intelligence.statistics.price_sanity import (
     CandidateVerdict,
     apply_cross_symbol_downgrade,
     build_subject_key,
     classify_candidate_bar,
+    count_corroborating_symbols_batch,
 )
 
 
@@ -176,3 +182,104 @@ class TestBuildSubjectKey:
     def test_format(self) -> None:
         key = build_subject_key("UUP", "5m", "2007-06-20T19:00:00Z")
         assert key == "symbol=UUP|tf=5m|ts=2007-06-20T19:00:00Z"
+
+
+def _mock_pool_with_rows(rows: list[dict]) -> AsyncMock:
+    pool = AsyncMock()
+    pool.fetch = AsyncMock(return_value=rows)
+    return pool
+
+
+def test_count_corroborating_symbols_batch_window_mode_not_implemented():
+    """match_mode is a required, explicit parameter with no default -- 'window' is not
+    implemented in this plan (forward_return_writer.py's existing window-mode
+    corroboration pass is not refactored onto this primitive here, see the plan's
+    Global Constraints). Calling with 'window' must fail loudly, not silently no-op
+    or silently fall back to 'exact' -- a silent mode substitution is exactly how
+    both prior corroboration bugs happened."""
+    pool = _mock_pool_with_rows([])
+    with pytest.raises(NotImplementedError, match="window"):
+        asyncio.run(
+            count_corroborating_symbols_batch(
+                pool,
+                candidates=[("UUP", "5m", "2007-06-20T19:05:00+00:00")],
+                match_mode="window",
+                magnitude_threshold=10.0,
+                neighbor_agreement_threshold=2.0,
+                window_minutes=60,
+            )
+        )
+
+
+def test_count_corroborating_symbols_batch_flash_crash_cluster():
+    """Reproduces the live 2010-05-06 Flash Crash cluster shape (6 symbols, exact
+    shared timestamp for raw bars -- todo 151's own established precedent for why
+    raw-bar corroboration uses exact match, unlike forward_returns' derived,
+    staggered scales) -- all 6 must corroborate each other, batched in ONE query
+    regardless of candidate count."""
+    ts = "2010-05-06T18:45:00+00:00"
+    crash_symbols = ["CWB", "ITA", "RSP", "VTV", "VUG", "VYM"]
+    rows = [
+        {
+            "symbol": s,
+            "tf": "5m",
+            "bar_ts": ts,
+            "open": 10.0,
+            "high": 10.5,
+            "low": 0.05,  # implausible low on every symbol -- the crash's shape
+            "close": 10.2,
+            "prev_close": 10.3,
+            "next_open": 10.25,
+        }
+        for s in crash_symbols
+    ]
+    pool = _mock_pool_with_rows(rows)
+    candidates = [(s, "5m", ts) for s in crash_symbols]
+
+    result = asyncio.run(
+        count_corroborating_symbols_batch(
+            pool,
+            candidates=candidates,
+            match_mode="exact",
+            magnitude_threshold=10.0,
+            neighbor_agreement_threshold=2.0,
+        )
+    )
+
+    assert pool.fetch.call_count == 1  # one batched query, not one per candidate
+    for symbol in crash_symbols:
+        # 6 symbols total, each corroborated by the OTHER 5 (excludes itself)
+        assert result[(symbol, "5m", ts)] == 5
+
+
+def test_count_corroborating_symbols_batch_isolated_corruption_excludes_self():
+    """A single isolated corrupt print (no other symbol implausible nearby) must
+    corroborate to 0, not 1 -- the subject's own row must be excluded from its own
+    count."""
+    ts = "2007-06-20T19:05:00+00:00"
+    rows = [
+        {
+            "symbol": "UUP",
+            "tf": "5m",
+            "bar_ts": ts,
+            "open": 1000.0,
+            "high": 1000.0,
+            "low": 1000.0,
+            "close": 1000.0,
+            "prev_close": 28.97,
+            "next_open": 24.08,
+        }
+    ]
+    pool = _mock_pool_with_rows(rows)
+
+    result = asyncio.run(
+        count_corroborating_symbols_batch(
+            pool,
+            candidates=[("UUP", "5m", ts)],
+            match_mode="exact",
+            magnitude_threshold=10.0,
+            neighbor_agreement_threshold=2.0,
+        )
+    )
+
+    assert result[("UUP", "5m", ts)] == 0
