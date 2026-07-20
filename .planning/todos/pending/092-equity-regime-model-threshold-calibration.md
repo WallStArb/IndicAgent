@@ -58,3 +58,52 @@ points (e.g. percentile-based on the trailing distribution vs the current fixed 
 established for other APR threshold calibrations in this codebase.
 
 Full context/history: `.planning/todos/deferred/026-hmm-regime-audit-optimization.md`.
+
+## Cheapest-first-check result (2026-07-20) -- population imbalance CONFIRMED, root cause isolated
+
+Ran the population-balance half of the calibration study (pure read-only SQL over
+`market_regimes.regime_label` + its `regime_prob_vector` JSONB, which stores the raw
+`vix_pct`/`breadth_frac` signal values pre-bucketing -- no new corpus computation, no
+overlap with the two other active sessions' work). Result is decisive on its own, before
+even getting to the (still-open, more expensive) IC-separation half of this study:
+
+**The 9 regime cells are severely imbalanced, consistently across all 4 tfs** -- `low_bull`
+is 12-17x more populated than `low_bear` (5m: 16.6x, 15m: 14.5x, 1h: 12.2x, 1d: 13.9x), and
+the full population rank-order is nearly identical across tfs (`low_bull` > `mid_bull` >
+`high_bear` > `high_bull` > `mid_bear` > `{high_neutral, mid_neutral}` > `low_neutral` >
+`low_bear`). Not a subtle artifact -- `low_bull` alone accounts for 28-31% of every tf's
+bars; `low_bear` for under 2.5%.
+
+**Root cause isolated to the breadth cut specifically, not VIX.** `vix_pct` is already a
+causal percentile RANK in [0,1] (`breadth_vol.py`'s `_compute_vix_pct_rank`), so cutting at
+0.33/0.67 is close to tertile-balanced by construction. `breadth_frac`, by contrast, is an
+absolute fraction (share of symbols above their MA) cut at fixed 0.40/0.60 -- never checked
+against its own empirical distribution. Measured directly:
+
+| tf | mean breadth_frac | p25 | p50 (median) | p75 |
+|---|---|---|---|---|
+| 5m/15m/1h | 0.60-0.61 | 0.33 | **0.70** | 0.88 |
+| 1d | 0.65 | 0.45 | **0.76** | 0.90 |
+
+The median `breadth_frac` (0.70-0.76) sits well ABOVE the current "bull" cutoff of 0.60 --
+more than half of all bars already classify as bull breadth before the regime logic even
+runs. That's the entire mechanism: the fixed 0.40/0.60 guessed cuts were never calibrated
+against this universe's actual breadth distribution, and the true distribution is heavily
+right-skewed relative to them.
+
+**Candidate population-balanced breadth cuts** (tertile split of the measured distribution,
+mirroring what VIX already does): p33/p67 ≈ **0.49 / 0.83** for 5m/15m/1h, ≈ **0.59 / 0.86**
+for 1d -- vs. today's fixed 0.40/0.60. A large shift, especially the upper cut.
+
+**What this does NOT yet establish:** whether population-balancing the buckets actually
+improves regime-conditional IC separation (the deeper question this todo originally posed),
+or whether the current imbalance is economically real and harmless (calm+bullish genuinely
+is more common than calm+bearish in this sample, so *some* imbalance is expected --
+the open question is whether 12-17x is "expected market structure" or "cut points
+mis-specified to the point of wasting statistical power in the rare cells"). That
+comparison is the next real step and is corpus-scale work (needs the full
+`_compute_cross_sectional_tf`-equivalent IC recomputation under both cut schemes) -- proper
+next-session scope, not something to rush alongside two other active corpus-writing
+sessions. This session's contribution is confirming the population-imbalance finding is
+real and pinpointing its mechanism, which de-risks and focuses that next study
+(test the 0.49/0.83-style tertile candidate specifically, not an open-ended search).
