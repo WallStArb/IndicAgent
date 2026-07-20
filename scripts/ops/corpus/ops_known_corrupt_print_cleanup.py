@@ -416,6 +416,17 @@ _CROSS_SYMBOL_NEIGHBOR_SQL = """
     )
     SELECT symbol, open, high, low, close, prev_close, next_open
     FROM neighbors
+    -- Exact timestamp match, deliberately -- NOT a +/- window like
+    -- forward_return_writer.py's corroboration fix (todo 152). Raw OHLCV bars are the
+    -- event itself: the confirmed Flash Crash cluster's collapse landed on the SAME
+    -- 5m bar across CWB/ITA/RSP/VTV/VUG/VYM (a coincident-collapse, textbook
+    -- stub-quote signature per the original investigation), unlike forward_returns'
+    -- DERIVED, LEAD()-computed suspect flags, which staggered across bars because
+    -- each scale's exit price anchors at a different lookahead. Residual risk: a
+    -- market-wide event whose raw prints straddle two adjacent bars would
+    -- under-corroborate here and stay CONFIRMED_CORRUPT -- bounded, since this script
+    -- is dry-run-only and --apply is human-gated (a human reviewing the report is the
+    -- backstop, not this function alone).
     WHERE timestamp = $3
 """
 
@@ -436,6 +447,14 @@ async def count_corroborating_symbols(
     classification logic. The +/-7 day window is generous slack for LAG/LEAD accuracy
     across weekends/holidays on 1d bars; cheap since this only runs per CONFIRMED_CORRUPT
     candidate (~27 total), not per-row over the corpus.
+
+    A neighbor counts as corroborating whenever its OWN verdict is NOT "PLAUSIBLE" --
+    AMBIGUOUS counts too, deliberately: a real event's OTHER affected symbols often
+    land AMBIGUOUS themselves (a V-shaped recovery need not fully revert within one
+    bar, and ITA/VUG's own Flash Crash rows classify AMBIGUOUS under
+    classify_candidate_bar for exactly that reason). Tightening this to
+    `== "CONFIRMED_CORRUPT"` only would silently weaken corroboration for the exact
+    cluster this function exists to catch.
     """
     rows = await pool.fetch(_CROSS_SYMBOL_NEIGHBOR_SQL, tf, subject_symbol, timestamp)
     n_corroborating = 0
