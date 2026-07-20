@@ -70,6 +70,8 @@ from services._batch_utils import load_apr_dict_async
 from src.config.settings import Settings
 from src.core.service_utils import format_iso_ts, setup_service_logging
 from src.intelligence.statistics.price_sanity import (
+    _MAGNITUDE_THRESHOLD_DEFAULT,
+    _NEIGHBOR_AGREEMENT_THRESHOLD_DEFAULT,
     CandidateVerdict,
     apply_cross_symbol_downgrade,
     build_subject_key,
@@ -82,10 +84,6 @@ setup_service_logging("logs/known_corrupt_print_cleanup.log")
 _logger = structlog.get_logger(__name__)
 
 _JOB = "known-corrupt-print-cleanup"
-
-# Fallback defaults (matches migration 242's seed, keep in sync)
-_MAGNITUDE_THRESHOLD_DEFAULT = 10.0
-_NEIGHBOR_AGREEMENT_THRESHOLD_DEFAULT = 2.0
 
 _MONITOR_TYPE = "price_sanity_ohlcv_correction"
 _METRIC_NAME = "original_volume"
