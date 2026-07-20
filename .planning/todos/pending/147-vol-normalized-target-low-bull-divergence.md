@@ -1,10 +1,13 @@
 ---
-status: pending
+status: root-cause-confirmed-blocked-on-149-151
 priority: P1
 filed: 2026-07-19
 source: Component F (todo 097) definitive full-corpus A/B verdict
   (docs/plans/methodology-change-ledger.md E8 addendum) -- a genuinely new finding not
   visible in any smaller sample run this session or in Fable 5's own review
+resolved: 2026-07-20 -- root cause is corrupt-print contamination of true_range_pct
+  (same class as todos 148/149/151/152); no separate fix needed here, blocks on 149/151
+  landing, then re-check
 ---
 
 # Vol-normalized vs. raw-return POOLED IC diverges sharply and specifically in `low_bull`
@@ -84,6 +87,73 @@ this investigation -- see the open decision recorded in 097 / the E8 ledger adde
 Todo-sized. The `true_range_pct` distribution check is cheap (reuses existing data,
 half a day). Escalation to domain reasoning if the cheap check doesn't explain it is
 open-ended and would need its own scoping at that point.
+
+## Root cause CONFIRMED (2026-07-20) -- mechanism 1, but not as originally framed
+
+Ran the cheap first check this todo specified: `true_range_pct` distribution (mean, stddev,
+CV) per (tf, regime), pure SQL aggregate over `feature_vectors JOIN market_regimes`, no new
+query shape, no data pulled into Python. Result was decisive, not the "compressed
+denominator amplifies noise generally" story mechanism 1 originally hypothesized:
+
+| tf | regime | n | mean_trp | cv |
+|---|---|---|---|---|
+| 5m | low_bull | 7,150,792 | 0.0017 | **582.9** |
+| 5m | mid_bull | 5,062,464 | 0.0012 | 31.7 |
+| 15m | low_bull | 2,427,948 | 0.0036 | **469.4** |
+| 1d | low_bull | 103,023 | 0.0240 | **148.6** |
+| 1h | low_bull | 614,948 | 0.0040 | 1.13 (normal) |
+
+`low_bull`'s **mean** `true_range_pct` is unremarkable (comparable to neighboring regimes)
+-- it's the **stddev/CV that's 10-100x every other regime's**, and only in specific
+tf x regime cells (1h/low_bull is completely normal; 1h/mid_bull, not low_bull, is the
+outlier there instead). A genuine "quiet bull market compresses the vol-normalization
+denominator" effect would show a smooth pattern tied to `mean_trp` magnitude across all
+cells. This doesn't -- it's the signature of a small number of extreme-outlier bars, not a
+regime-wide statistical property.
+
+Pulled the actual outlier rows (`true_range_pct > 0.5`, i.e. >50% implied range) within
+`low_bull` cells and cross-checked against raw `market_data_ohlcv`:
+
+| symbol | tf | bar_ts | open | high | true_range_pct |
+|---|---|---|---|---|---|
+| VWO | 5m | 2007-05-02 15:40 | 41.79 | **99999.99** | 2390.77 |
+| DIA | 1d | 2009-06-02 | 87.14 | **100000** | 1143.43 |
+| KRE | 5m | 2007-09-18 18:15 | 44.43 | **400** | 7.86 |
+| XRT | 15m | 2007-09-18 18:15 | 19.64 | **231.54** | 10.68 |
+| UUP | 15m | 2007-06-19 19:00 | 25.07 | 25.07 (flat) | 38.89 (zero-range degenerate print, vol=100) |
+
+**These are the exact same corrupt IBKR prints already identified by the parallel
+148/149/151/152 price-sanity investigation** -- `VWO`/`UUP`/`XRT` are named verbatim in
+todo 152's "confirmed no economic basis" list. `99999.99`/`100000` are textbook
+fabricated/sentinel-overflow ticks, not real prices; nothing here is an ambiguous
+crisis-event case like 152's Flash Crash rows. Two instances are new to that investigation
+and worth flagging for it directly (not acting on here, per the other session's active
+ownership of that work): **DIA 2009-06-02** (not previously named) and **KRE 2007-09-18**
+(a full year before the already-known 2008-09-18 KRE Lehman-aftermath event -- a distinct
+occurrence, same symbol).
+
+**Why this specifically corrupts `low_bull`'s feature ranking (not just inflates variance):**
+the A/B script's `rank_correlation` compares, across all 155 features, each feature's
+raw-target IC vs. vol-normalized-target IC for a stratum. Because `vol_normalized_return`
+divides every feature's shared target column by the same `true_range_pct` value per row, a
+handful of corrupt bars with grotesquely inflated `true_range_pct` inject a *shared,
+correlated* perturbation into every feature's vol-IC estimate simultaneously at those rows
+-- not independent per-feature noise. That's enough to measurably decorrelate the
+vol-normalized feature ranking from the raw ranking in exactly the well-powered cells this
+todo's evidence table showed (367K-436K obs cells aren't "thin data reads as noise" --
+they're "a few outlier rows share-corrupt every feature's target in the same direction").
+
+**Resolution: no separate fix needed from this todo.** This is squarely 149's scope (bar
+ingestion price-sanity guard, upstream of `market_data_ohlcv` -- `true_range_pct` is
+computed downstream from raw OHLC, so it inherits whatever 149 catches at the source) and
+151's scope (backward cleanup of known corrupt prints, which should add DIA/KRE-2007-09-18
+to its list). Once those land, re-run this todo's `true_range_pct` CV check and
+`ops_vol_normalized_target_ab.py --all-regimes` -- if `low_bull`'s CV drops to the same
+order as every other regime, the divergence resolves as a side effect and Component F's
+promotion decision can proceed without a `low_bull` carve-out. **Mechanism 1 confirmed in
+spirit (denominator-side corruption), mechanism 2 (real economic effect) and mechanism 3
+(regime-boundary contamination) both ruled out** -- no domain-reasoning/Fable escalation
+needed, this was a data-integrity question, not a methodology ambiguity.
 
 ## References
 
