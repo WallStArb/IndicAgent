@@ -12,6 +12,8 @@ No DB, no Kafka. Pure numpy/pure python.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -167,3 +169,43 @@ def test_drop_verdict_respects_custom_fraction():
     verdict = _drop_verdict(oos_qualifying=7, in_sample=10, significant_drop_fraction=0.8)
 
     assert verdict == "significant drop — investigate"
+
+
+def test_append_look_log_writes_expected_fields(tmp_path):
+    from scripts.ops.corpus.ops_oos_holdout_eval import _append_look_log
+
+    report_path = tmp_path / "report.md"
+    report_path.write_text("# report\n")
+    look_log_path = tmp_path / "oos_look_log.jsonl"
+    run_ts = datetime(2026, 7, 19, 12, 0, 0, tzinfo=UTC)
+
+    _append_look_log(look_log_path, run_ts, ["SPY", "TLT"], ["5m", "1h"], report_path)
+
+    lines = look_log_path.read_text().splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    assert entry["symbols"] == ["SPY", "TLT"]
+    assert entry["tfs"] == ["5m", "1h"]
+    assert entry["report_path"] == str(report_path)
+    assert entry["report_sha256"] == hashlib.sha256(report_path.read_bytes()).hexdigest()
+    assert entry["run_ts"] == "2026-07-19T12:00:00Z"
+
+
+def test_append_look_log_is_append_only(tmp_path):
+    from scripts.ops.corpus.ops_oos_holdout_eval import _append_look_log
+
+    report_path = tmp_path / "report.md"
+    report_path.write_text("# report v1\n")
+    look_log_path = tmp_path / "oos_look_log.jsonl"
+    run_ts = datetime(2026, 7, 19, 12, 0, 0, tzinfo=UTC)
+
+    _append_look_log(look_log_path, run_ts, ["SPY"], ["5m"], report_path)
+    report_path.write_text("# report v2\n")
+    _append_look_log(look_log_path, run_ts, ["TLT"], ["1h"], report_path)
+
+    lines = look_log_path.read_text().splitlines()
+    assert len(lines) == 2
+    first, second = (json.loads(line) for line in lines)
+    assert first["symbols"] == ["SPY"]
+    assert second["symbols"] == ["TLT"]
+    assert first["report_sha256"] != second["report_sha256"]

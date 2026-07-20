@@ -25,6 +25,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import sys
 import time
 from datetime import UTC, datetime
@@ -45,7 +47,7 @@ from services._batch_utils import load_config_service_sync as _load_config_servi
 from services.forward_return_writer import forward_log_return
 from services.ic_engine import _FEATURE_NAMES
 from src.config.settings import Settings, get_active_contracts
-from src.core.service_utils import setup_service_logging
+from src.core.service_utils import format_iso_ts, setup_service_logging
 from src.intelligence.statistics.ic_math import (
     _fisher_z_ci,
     _nan_to_none,
@@ -62,6 +64,7 @@ _JOB = "oos-holdout-eval"
 
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 _DEFAULT_REPORT_PATH = "docs/analysis/oos-holdout-eval.md"
+_DEFAULT_LOOK_LOG_PATH = ".planning/oos_look_log.jsonl"
 
 # Gradient scale fallback lookaheads (mirrors forward_return_writer._SCALE_FALLBACKS).
 _SCALE_FALLBACKS: dict[str, int] = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
@@ -313,6 +316,33 @@ def _write_report(
     report_path.write_text("\n".join(lines) + "\n")
 
 
+def _append_look_log(
+    look_log_path: Path,
+    run_ts: datetime,
+    symbols: list[str],
+    tfs: list[str],
+    report_path: Path,
+) -> None:
+    """Append one entry to the append-only OOS look log (todo 053).
+
+    Turns the OOS-EVAL-PROTOCOL.md "never tune on this" rule into an auditable trail: a
+    reviewer can grep this log against config_history timestamps to check whether an APR
+    parameter changed suspiciously close to an OOS look. Non-gating — write failures here
+    must never block the diagnostic scorer itself.
+    """
+    report_hash = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    entry = {
+        "run_ts": format_iso_ts(run_ts),
+        "symbols": symbols,
+        "tfs": tfs,
+        "report_path": str(report_path),
+        "report_sha256": report_hash,
+    }
+    look_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with look_log_path.open("a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -325,6 +355,7 @@ def main() -> None:
     parser.add_argument("--symbols", nargs="*", default=None)
     parser.add_argument("--tf", nargs="*", default=_DEFAULT_TFS)
     parser.add_argument("--report-path", default=_DEFAULT_REPORT_PATH)
+    parser.add_argument("--look-log-path", default=_DEFAULT_LOOK_LOG_PATH)
     args = parser.parse_args()
 
     try:
@@ -389,6 +420,7 @@ def main() -> None:
             fdr_alpha,
             significant_drop_fraction,
         )
+        _append_look_log(Path(args.look_log_path), datetime.now(UTC), symbols, tfs, report_path)
 
         _logger.info(
             "oos_holdout_eval.complete",
