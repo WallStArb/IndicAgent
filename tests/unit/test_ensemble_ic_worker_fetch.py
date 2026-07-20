@@ -19,7 +19,30 @@ from unittest.mock import MagicMock, patch
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from services.ensemble_ic_engine import EnsembleICConfig, _run_ensemble_ic_worker
+from services.ensemble_ic_engine import (
+    _POOLED_WORKER_FETCH_SQL,
+    _WORKER_FETCH_SQL,
+    EnsembleICConfig,
+    _run_ensemble_ic_worker,
+)
+
+
+def test_worker_fetch_sql_masks_suspect_returns_to_null():
+    """todo 148 price-sanity guard: both fetch paths must mask each scale's
+    return_{scale} to NULL in SQL when its own return_{scale}_suspect flag is set
+    (a CASE WHEN ... THEN NULL expression) rather than fetching the raw value +
+    flag and branching in Python -- fetched rows must NOT carry a separate
+    return_{scale}_suspect key (downstream code treats NULL as "exclude" via a
+    plain None-check; see the KeyError regression this guards against: an earlier
+    version fetched raw value + flag, but _aggregate_pooled_series's reduced
+    output never propagated the flag, so the per-symbol worker's shared
+    returns_by_scale construction crashed with KeyError on any real pooled-path
+    row)."""
+    for scale in ("fast", "mid", "slow", "extended"):
+        assert f"return_{scale}_suspect" in _WORKER_FETCH_SQL
+        assert f"return_{scale}_suspect" in _POOLED_WORKER_FETCH_SQL
+        assert "CASE WHEN" in _WORKER_FETCH_SQL
+        assert "CASE WHEN" in _POOLED_WORKER_FETCH_SQL
 
 
 def _make_config(**overrides) -> EnsembleICConfig:
@@ -58,6 +81,9 @@ def _mock_cursor(rows: list[dict]) -> MagicMock:
 
 
 def _fetched_rows(n: int = 20) -> list[dict]:
+    """Mirrors what _WORKER_FETCH_SQL/_POOLED_WORKER_FETCH_SQL actually return post
+    todo 148: suspect returns are already NULL-masked in SQL, so fetched rows carry
+    only the (possibly-None) return_{scale} value -- no separate *_suspect key."""
     return [
         {
             "alpha_score": float(i % 5) - 2.0,
@@ -181,3 +207,53 @@ class TestWorkerFetch:
             )
 
         assert result["is_pooled"] is True
+
+    def test_pooled_symbol_with_real_rows_does_not_crash(self):
+        """Regression guard: an earlier version of the todo 148 price-sanity guard
+        fetched raw return_{scale} + a separate return_{scale}_suspect flag, but
+        _aggregate_pooled_series's reduced output never propagated the suspect keys
+        -- the per-symbol worker's shared returns_by_scale construction then did
+        r[_SUSPECT_COL_FOR_RETURN_COL[col]] unconditionally and crashed with KeyError
+        on the very first non-empty pooled result. test_pooled_symbol_sets_is_pooled_true
+        above didn't catch this because it mocks an EMPTY cursor, so the buggy
+        code path was never exercised. This test uses non-empty rows (the pooled
+        cursor is iterated directly by _aggregate_pooled_series, not .fetchall()'d)
+        to prove the worker completes and produces pooled IC rows."""
+        raw_rows = [
+            {
+                "symbol": symbol,
+                "bar_ts": datetime(2026, 1, 1, i, tzinfo=UTC),
+                "alpha_score": float(i % 5) - 2.0,
+                "return_fast": float(i % 5) * 0.001,
+                "return_mid": float(i % 5) * 0.002,
+                "return_slow": float(i % 5) * 0.003,
+                "return_extended": float(i % 5) * 0.004,
+                "regime_label": "bull",
+            }
+            for i in range(20)
+            for symbol in ("AAA", "BBB")
+        ]
+        mock_cursor = MagicMock()
+        mock_cursor.__enter__.return_value = mock_cursor
+        mock_cursor.__exit__.return_value = False
+        mock_cursor.__iter__.return_value = iter(raw_rows)
+
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("services.ensemble_ic_engine.connect_db_from_url", return_value=mock_conn):
+            result = _run_ensemble_ic_worker(
+                (
+                    "POOLED",
+                    ["5m"],
+                    "postgresql://fake",
+                    datetime(2026, 1, 1, tzinfo=UTC),
+                    _make_config(),
+                    datetime.now(UTC),
+                    "v1",
+                )
+            )
+
+        assert result["errors"] == []
+        assert result["is_pooled"] is True
+        assert len(result["rows"]) > 0

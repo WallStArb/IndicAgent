@@ -91,12 +91,14 @@ the chain: 094's shadow-mode validation (143.1-08).**
 | [078](pending/078-frame-outcome-labels-second-outcome-definition.md) | Register frame-outcome (barrier-hit sign) as a second outcome definition alongside forward-return IC, now that `alpha_frames` has real data. Gate cleared 2026-07-12 (todo 093 backfill ran); moved back to pending/ 2026-07-18. Diagnostic value, not a reason to touch 142B's frozen design. |
 | [082](pending/082-simulation-validation-lenses-post-142b.md) | Additional read-only simulation/validation lenses over `alpha_frames` (standing permutation nulls, etc.) — same gate-cleared status as 078. No new judgment surface, mechanical. |
 | [118](pending/118-migrate-feature-domain-into-concept-registry.md) | Migrate `feature_registry` (`domain='feature'`) into the Concept Registry MVP (shipped 2026-07-13 with only `domain='ensemble_strategy'` seeded). Sequencing blocker resolved (Phase 143 already shipped against `feature_registry` directly, so this is now a plain fold-in, not a race). Touches the live feature lifecycle path — do after 117 proves the actuator pattern. |
+| [149](pending/149-bar-ingestion-price-sanity-guard.md) | No price-plausibility check at bar ingestion (`ProviderMerger`) - todo 148's `forward_returns.return_{scale}_suspect` guard protects the measurement layer, but every other OHLCV consumer still inherits corrupt IBKR prints unguarded. Deeper generalization of 148, larger scope (touches the sole `market.bars` writer). |
 
 ## P3 — Hygiene, docs, process (opportunistic)
 
 | Todo | What |
 |---|---|
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | Phase 147/148 gate definitions stale (filename kept as-is) — needs an operator call (archive vs delete v2.x) before those phases are planned |
+| [150](pending/150-integrity-monitor-shared-insert-helper.md) | `integrity_monitor` INSERT (with its fiddly composite `ON CONFLICT`) hand-copied at 4 independent call sites across `ic_engine.py`, `vocabulary_drift.py`, `forward_return_writer.py` - extract a shared helper. |
 | [124](pending/124-market-ohlcv-tradeable-view-tier2-audit.md) | Tier-2 follow-up: 14 remaining `market_data_ohlcv` call sites to classify/migrate to `market_data_ohlcv_tradeable`, split from closed todo 035 |
 | [123](pending/123-momentum-velocity-and-macro-spread-features.md) | Momentum-oscillator velocity feature + VWAP acceleration + 2 now-unblocked macro spreads (TIP real-yield, HYG/LQD credit spread) — surfaced by closing todo 060, batch into a future Phase 151 pass |
 | [022](pending/022-bi-superset.md) | Self-service BI (Superset) for ad-hoc analytics |

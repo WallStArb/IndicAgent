@@ -43,11 +43,16 @@ def _row(
     bar_ts: datetime,
     regime_label: str,
     alpha_score: float,
-    return_fast: float = 0.001,
-    return_mid: float = 0.002,
-    return_slow: float = 0.003,
-    return_extended: float = 0.004,
+    return_fast: float | None = 0.001,
+    return_mid: float | None = 0.002,
+    return_slow: float | None = 0.003,
+    return_extended: float | None = 0.004,
 ) -> dict:
+    """A raw per-(symbol, bar_ts) row as _POOLED_WORKER_FETCH_SQL actually returns it
+    (todo 148): suspect returns are already NULL-masked by that query's CASE
+    expression before _aggregate_pooled_series ever sees the row -- there is no
+    separate return_{scale}_suspect key here, only a possibly-None value. Pass
+    return_fast=None (etc.) to simulate a suspect-flagged row for that scale."""
     return {
         "symbol": symbol,
         "bar_ts": bar_ts,
@@ -90,6 +95,52 @@ class TestAggregatePooledSeries:
         assert len(pooled) == 1
         assert pooled[0]["alpha_score"] == pytest.approx(0.2)
         assert pooled[0]["return_fast"] == pytest.approx(0.02)
+
+    def test_null_masked_return_excluded_from_its_own_column_mean_only(self):
+        """todo 148 price-sanity guard: _POOLED_WORKER_FETCH_SQL's CASE expression
+        already masks a suspect-flagged return to NULL before this function sees the
+        row (a corrupt IBKR print poisons a raw cross-sectional mean by an unbounded
+        amount, unlike a bounded rank-IC swap). _aggregate_pooled_series's existing
+        `if value is not None` skip must exclude that NULL from its column's mean --
+        but the row's OTHER scales (return_mid here) and alpha_score, which weren't
+        masked, must still contribute normally. A corrupt exit price for one scale
+        doesn't imply the other scales (different exit bars) are corrupt too."""
+        rows = [
+            _row("AAA", _T1, "mid_bull", alpha_score=0.1, return_fast=None, return_mid=0.02),
+            _row("BBB", _T1, "mid_bull", alpha_score=0.3, return_fast=0.03, return_mid=0.04),
+        ]
+
+        pooled = _aggregate_pooled_series(rows, tf="5m")
+
+        assert len(pooled) == 1
+        # return_fast mean is BBB-only (0.03) -- AAA's NULL is excluded, not averaged in.
+        assert pooled[0]["return_fast"] == pytest.approx(0.03)
+        # return_mid and alpha_score are unaffected -- both symbols' values still pool.
+        assert pooled[0]["return_mid"] == pytest.approx(0.03)
+        assert pooled[0]["alpha_score"] == pytest.approx(0.2)
+
+    def test_all_scales_null_masked_drops_symbol_from_every_return_mean(self):
+        """If every scale is NULL-masked for one symbol's row, that symbol contributes
+        to no return column's mean but still contributes to alpha_score (alpha_score
+        has no suspect flag -- it isn't return-derived, so SQL never masks it)."""
+        rows = [
+            _row(
+                "AAA",
+                _T1,
+                "mid_bull",
+                alpha_score=0.1,
+                return_fast=None,
+                return_mid=None,
+                return_slow=None,
+                return_extended=None,
+            ),
+            _row("BBB", _T1, "mid_bull", alpha_score=0.3, return_fast=0.03),
+        ]
+
+        pooled = _aggregate_pooled_series(rows, tf="5m")
+
+        assert pooled[0]["return_fast"] == pytest.approx(0.03)
+        assert pooled[0]["alpha_score"] == pytest.approx(0.2)
 
     def test_different_regime_labels_at_same_bar_ts_are_not_mixed(self):
         """Regression guard (RESEARCH.md Pitfall 5): if two rows share a bar_ts but

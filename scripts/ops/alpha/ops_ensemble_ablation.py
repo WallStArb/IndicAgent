@@ -340,7 +340,13 @@ def build_stratum_fetch_sql(feature_names: list[str]) -> str:
       per-symbol HMM labels; the cross-sectional stratum label lives in
       market_regimes (regime_group='equity', tf, ts=bar_ts).
     - JOIN forward_returns with the executable filter (Invariant 1) plus the four
-      return_* AND complete_* columns for pre-pooling completeness gating.
+      return_* AND complete_* columns for pre-pooling completeness gating. return_*
+      is NULL-masked in SQL when its own return_{scale}_suspect flag is set (todo 148
+      price-sanity guard) -- same CASE-in-SQL pattern as ensemble_ic_engine.py's
+      _WORKER_FETCH_SQL/_POOLED_WORKER_FETCH_SQL, required to keep this harness's
+      pool_means_by_bar an honest replica of production's _aggregate_pooled_series
+      (pinned by test_pool_means_by_bar_matches_aggregate_pooled_series) now that the
+      production function excludes suspect values from its cross-symbol mean.
     - LEFT JOIN ensemble_alpha scoped to this weight_version: stored baseline for
       the replication check only (LEFT: missing stored rows are a skipped check,
       not lost measurement bars).
@@ -351,7 +357,11 @@ def build_stratum_fetch_sql(feature_names: list[str]) -> str:
     rows, not user input (same trust argument as the trainer's col_list f-string).
     """
     col_list = ", ".join(f'fv."{c}"' for c in feature_names)
-    return_cols = ", ".join(f"fr.{_SCALE_RETURN_COLUMNS[s]}" for s in _SCALES)
+    return_cols = ", ".join(
+        f"CASE WHEN fr.{_SCALE_RETURN_COLUMNS[s]}_suspect THEN NULL "
+        f"ELSE fr.{_SCALE_RETURN_COLUMNS[s]} END AS {_SCALE_RETURN_COLUMNS[s]}"
+        for s in _SCALES
+    )
     complete_cols = ", ".join(f"fr.complete_{s}" for s in _SCALES)
     return f"""
         SELECT fv.symbol, fv.bar_ts, {col_list}, {return_cols}, {complete_cols},

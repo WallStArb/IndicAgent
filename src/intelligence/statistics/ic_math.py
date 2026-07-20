@@ -383,6 +383,43 @@ def vol_normalized_return(
     return out
 
 
+def scale_max_abs_return(base_ceiling: float, lookaheads: dict[str, int]) -> dict[str, float]:
+    """Scale a tf's 1-bar plausibility ceiling to each scale by sqrt(lookahead_bars).
+
+    Price-sanity guard (todo 148, `forward_returns.return_{scale}_suspect`): corrupt
+    IBKR prints (e.g. a $1000 print on a $25 ETF, passing `market_data_ohlcv_tradeable`
+    because it carries real volume) fabricate huge forward returns that poison
+    mean-based consumers by an unbounded amount. Rank-based IC (Spearman) is immune to
+    the outlier's *magnitude* -- but not to its presence: a corrupted return can still
+    seize an artificial extreme rank at a bar where the true rank should have been
+    mid-pack, perturbing that one pairing. Bounded to a single rank displacement rather
+    than unbounded like a raw mean, but not zero -- ensemble_ic_engine.py masks suspect
+    values out of both its mean and rank-IC paths for that reason.
+
+    Random-walk volatility scales with sqrt(time): a flat ceiling applied uniformly
+    across scales false-flags genuine multi-month moves at slow/extended horizons (e.g.
+    real 60-bar 1d EWZ/XOP/OIH moves during 2008/2020/2022 commonly exceed 50%, dwarfing
+    a ceiling tuned for single-bar plausibility). Verified live: the flat form flagged
+    2,102 real 1d-extended rows as false positives before this fix, vs. 16 true
+    positives isolating the known UUP-2007-06/ITA-2010-05 corrupt-print cluster after
+    sqrt-scaling.
+
+    Baseline is the 'fast' scale itself (lookaheads['fast'] bars, normally 1).
+
+    Args:
+        base_ceiling: the tf's APR-seeded 1-bar ceiling (alpha.quant.max_abs_return.{tf}).
+        lookaheads: scale name -> lookahead period in bars, e.g. {"fast": 1, "mid": 5,
+            "slow": 20, "extended": 60}. Must include "fast".
+
+    Returns:
+        scale name -> ceiling, scaled by sqrt(lookaheads[scale] / lookaheads["fast"]).
+    """
+    fast_bars = lookaheads["fast"]
+    return {
+        scale: base_ceiling * (n_bars / fast_bars) ** 0.5 for scale, n_bars in lookaheads.items()
+    }
+
+
 def compute_ic_vectorized(X: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Compute vectorized Spearman IC between each column of X and y.
 

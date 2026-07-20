@@ -35,7 +35,7 @@ import hashlib
 import sys
 import time
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -54,6 +54,7 @@ sys.path.insert(0, str(project_root))
 from services._batch_utils import load_config_service_sync as _load_config_service
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
+from src.intelligence.statistics.ic_math import scale_max_abs_return
 from src.observability.metrics import (
     FORWARD_RETURN_WRITER_ROWS_WRITTEN_TOTAL,
     FORWARD_RETURN_WRITER_RUN_LATENCY_SECONDS,
@@ -85,6 +86,19 @@ _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
 
 # Fallback only — actual value read from APR at runtime via cfg.get_sync()
 _INSERT_BATCH_SIZE_DEFAULT = 500
+
+# Fallback only — actual per-tf ceiling read from APR at runtime via cfg.get_sync().
+# alpha.quant.max_abs_return.{tf} (todo 148): the 1-bar (fast) plausibility ceiling.
+# |return_{scale}| above this ceiling, sqrt(lookahead_bars)-scaled per scale via
+# ic_math.scale_max_abs_return(), is flagged return_{scale}_suspect rather than dropped
+# (Renaissance data-retention principle).
+_MAX_ABS_RETURN_FALLBACKS: dict[str, float] = {"5m": 0.25, "15m": 0.30, "1h": 0.40, "1d": 0.50}
+
+
+def _suspect_col_names(scales: Iterable[str]) -> list[str]:
+    """return_{scale}_suspect column names for the given scales (todo 148) — the single
+    source the SQL builders and the Python-side suspect counter all derive from."""
+    return [f"return_{scale}_suspect" for scale in scales]
 
 
 def _make_forward_return_id(
@@ -185,6 +199,15 @@ def _build_forward_return_sql(lookaheads: dict[str, int], tf: str) -> str:
     open across the overnight gap).
 
     For daily (1d), no session-boundary check is applied — gaps are the expected signal.
+
+    return_{scale}_suspect (todo 148) flags |return_{scale}| > %(max_abs_return_{scale})s — a
+    per-(tf, scale) plausibility ceiling catching corrupt IBKR prints (e.g. a $1000 print on a
+    $25 ETF) that pass market_data_ohlcv_tradeable because they carry real volume. Ceiling
+    values are sqrt(lookahead_bars)-scaled per scale by the caller — see
+    ic_math.scale_max_abs_return() for the full rationale. Suspect flags are computed in a
+    second SELECT layer (the `returns` CTE) because a CASE expression can't reference a
+    sibling SELECT-list alias in the same query level — it needs the already-materialized
+    return_{scale} value, not a re-derivation from open_entry/open_{scale}.
     """
     max_n = max(lookaheads.values())
     frame_size = max_n + 1
@@ -232,6 +255,15 @@ def _build_forward_return_sql(lookaheads: dict[str, int], tf: str) -> str:
 
     complete_cols = ",\n    ".join(complete_col_list)
 
+    suspect_col_list = [
+        f"(return_{scale} IS NOT NULL AND abs(return_{scale}) > %(max_abs_return_{scale})s) "
+        f"AS {name}"
+        for scale, name in zip(lookaheads, _suspect_col_names(lookaheads), strict=True)
+    ]
+    suspect_cols = ",\n    ".join(suspect_col_list)
+    return_names = ", ".join(f"return_{scale}" for scale in lookaheads)
+    complete_names = ", ".join(f"complete_{scale}" for scale in lookaheads)
+
     return f"""
 WITH windowed AS (
     SELECT
@@ -255,36 +287,52 @@ WITH windowed AS (
         ORDER BY m.timestamp
         ROWS BETWEEN CURRENT ROW AND {frame_size} FOLLOWING
     )
+),
+returns AS (
+    SELECT
+        bar_ts,
+        symbol,
+        tf,
+        pipeline_version,
+        {return_cols},
+        {complete_cols}
+    FROM windowed
+    WHERE bar_ts > %(hwm)s
 )
 SELECT
     bar_ts,
     symbol,
     tf,
     pipeline_version,
-    {return_cols},
-    {complete_cols}
-FROM windowed
-WHERE bar_ts > %(hwm)s
+    {return_names},
+    {complete_names},
+    {suspect_cols}
+FROM returns
 ORDER BY bar_ts
 """
 
 
 def _build_insert_sql(scales: tuple[str, ...]) -> str:
     """Build INSERT SQL for gradient-named return columns."""
+    suspect_col_names = _suspect_col_names(scales)
     return_cols = ", ".join(f"return_{s}" for s in scales)
     complete_cols = ", ".join(f"complete_{s}" for s in scales)
+    suspect_cols = ", ".join(suspect_col_names)
     return_vals = ", ".join(f"%(return_{s})s" for s in scales)
     complete_vals = ", ".join(f"%(complete_{s})s" for s in scales)
+    suspect_vals = ", ".join(f"%({name})s" for name in suspect_col_names)
     return f"""
 INSERT INTO forward_returns (
     forward_return_id, symbol, tf, bar_ts, pipeline_version, return_type,
     {return_cols},
-    {complete_cols}
+    {complete_cols},
+    {suspect_cols}
 )
 VALUES (
     %(forward_return_id)s, %(symbol)s, %(tf)s, %(bar_ts)s, %(pipeline_version)s, %(return_type)s,
     {return_vals},
-    {complete_vals}
+    {complete_vals},
+    {suspect_vals}
 )
 ON CONFLICT (symbol, tf, bar_ts) DO NOTHING
 """
@@ -313,11 +361,24 @@ def _label_symbol_tf(
     training_window_end: Any,
     tracer: Any,
     lookaheads: dict[str, int],
+    max_abs_return_by_scale: dict[str, float],
+    forward_return_sql: str,
+    insert_sql: str,
     batch_size: int = _INSERT_BATCH_SIZE_DEFAULT,
-) -> int:
+) -> tuple[int, int]:
     """Compute and insert forward returns for one (symbol, tf) cell.
 
-    Returns number of rows inserted.
+    forward_return_sql/insert_sql are built once per run by the caller (they depend
+    only on lookaheads/tf and the fixed _SCALES tuple, both invariant across the whole
+    symbol loop) rather than rebuilt on every cell.
+
+    max_abs_return_by_scale is pre-scaled per scale (see scale_max_abs_return() —
+    sqrt(lookahead_bars) scaling from the tf's 1-bar baseline, todo 148).
+
+    Returns (n_inserted, n_suspect) — n_suspect counts rows where at least one
+    return_{scale}_suspect flag is true. Counted here and reported once by the
+    caller rather than logged per-row (CLAUDE.md: never log per-row inside a
+    corpus-scale loop).
     """
     with observed_span(
         "forward_return_writer.label_symbol_tf", tracer, symbol=symbol, tf=tf
@@ -346,14 +407,15 @@ def _label_symbol_tf(
                 )
                 hwm = cur.fetchone()[0]
 
-        forward_return_sql = _build_forward_return_sql(lookaheads, tf)
-        insert_sql = _build_insert_sql(_SCALES)
-
         params = {
             "symbol": symbol,
             "tf": tf,
             "training_window_end": training_window_end,
             "hwm": hwm,
+            **{
+                f"max_abs_return_{scale}": ceiling
+                for scale, ceiling in max_abs_return_by_scale.items()
+            },
         }
 
         with conn.cursor() as cur:
@@ -362,14 +424,18 @@ def _label_symbol_tf(
             col_names = [d[0] for d in cur.description]
 
         if not rows:
-            return 0
+            return 0, 0
 
         insert_rows = [dict(zip(col_names, r)) for r in rows]
+        suspect_cols = _suspect_col_names(lookaheads)
+        n_suspect = 0
         for row in insert_rows:
             row["forward_return_id"] = _make_forward_return_id(
                 row["symbol"], row["tf"], row["bar_ts"], row["pipeline_version"]
             )
             row["return_type"] = "executable_open_to_open"
+            if any(row[col] for col in suspect_cols):
+                n_suspect += 1
 
         with conn.cursor() as cur:
             psycopg2.extras.execute_batch(
@@ -388,10 +454,12 @@ def _label_symbol_tf(
             symbol=symbol,
             tf=tf,
             n_inserted=n_inserted,
+            n_suspect=n_suspect,
             training_window_end=str(training_window_end),
         )
         span.set_attribute("n_inserted", n_inserted)
-        return n_inserted
+        span.set_attribute("n_suspect", n_suspect)
+        return n_inserted, n_suspect
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +499,68 @@ def _emit_coverage(conn: Any, symbols: list[str], tfs: list[str], scales: tuple[
 
 
 # ---------------------------------------------------------------------------
+# Price-sanity integrity fact (todo 148)
+# ---------------------------------------------------------------------------
+
+
+def _emit_price_sanity_fact(conn: Any, total_suspect: int, training_window_end: Any) -> None:
+    """One integrity_monitor row per training_window_end recording how many rows that
+    run flagged as price-sanity suspect (todo 148). Mirrors ic_engine.py's
+    _run_lifecycle_hook pattern: observability only, guarded so a failure here logs
+    loudly but never corrupts the already-committed forward_returns write.
+
+    Explicit pre-check (not just the table's ON CONFLICT) because evaluated_at
+    defaults to now() and is part of that composite unique key -- ON CONFLICT alone
+    only catches an exact-instant duplicate insert, not a rerun of this same
+    training_window_end minutes/hours later (a retry, or an overlapping scheduled
+    invocation), which would otherwise insert a second audit row instead of being
+    deduplicated -- same idempotency gap ic_engine.py's Step 0 pre-check exists to close.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1 FROM integrity_monitor
+                WHERE monitor_type = 'price_sanity'
+                  AND training_window_end = %s
+                  AND metric_name = 'rows_flagged_suspect'
+                LIMIT 1
+                """,
+                (training_window_end,),
+            )
+            already_ran = cur.fetchone() is not None
+        if already_ran:
+            _logger.info(
+                "forward_return_writer.price_sanity_fact_already_ran",
+                training_window_end=str(training_window_end),
+            )
+            return
+
+        # No single scalar threshold applies (ceilings are per-tf via
+        # alpha.quant.max_abs_return.{tf}) -- threshold_value is NULL, metric_value
+        # is the raw count this run flagged.
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO integrity_monitor
+                    (monitor_type, subject, metric_name, metric_value,
+                     threshold_value, passed, training_window_end)
+                VALUES ('price_sanity', NULL, 'rows_flagged_suspect', %s, NULL, true, %s)
+                ON CONFLICT (monitor_type, training_window_end, metric_name,
+                             COALESCE(subject, ''), evaluated_at) DO NOTHING
+                """,
+                (float(total_suspect), training_window_end),
+            )
+        conn.commit()
+    except Exception as error:
+        _logger.warning(
+            "forward_return_writer.price_sanity_fact_error",
+            error=str(error),
+            total_suspect=total_suspect,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -440,7 +570,7 @@ def main() -> None:
         description="Populate forward_returns with causal forward log returns"
     )
     parser.add_argument("--symbols", nargs="*", default=None)
-    parser.add_argument("--tf", nargs="*", default=_DEFAULT_TFS)
+    parser.add_argument("--tf", nargs="*", choices=_DEFAULT_TFS, default=_DEFAULT_TFS)
     parser.add_argument(
         "--training-window-end",
         default=None,
@@ -512,22 +642,54 @@ def main() -> None:
                     TRAINING_WINDOW_END=str(training_window_end),
                 )
 
+                # Per-(tf, scale) price-sanity ceilings (alpha.quant.max_abs_return.{tf},
+                # todo 148) — APR holds the tf's 1-bar baseline; scale_max_abs_return()
+                # sqrt-scales it per scale. Scoped to the requested tfs only (not the full
+                # 4-tf fallback set) so an APR lookup isn't wasted on a tf this run excludes.
+                max_abs_return_by_tf_scale = {
+                    tf: scale_max_abs_return(
+                        float(
+                            cfg.get_sync(
+                                f"alpha.quant.max_abs_return.{tf}", _MAX_ABS_RETURN_FALLBACKS[tf]
+                            )
+                        ),
+                        lookaheads,
+                    )
+                    for tf in tfs
+                }
+                _logger.info(
+                    "forward_return_writer.max_abs_return_by_tf_scale",
+                    max_abs_return_by_tf_scale=max_abs_return_by_tf_scale,
+                )
+
+                # Built once per run, not once per (symbol, tf) cell — both depend only on
+                # lookaheads/tf and the fixed _SCALES tuple, invariant across the symbol loop.
+                forward_return_sql_by_tf = {
+                    tf: _build_forward_return_sql(lookaheads, tf) for tf in tfs
+                }
+                insert_sql = _build_insert_sql(_SCALES)
+
                 total_inserted = 0
+                total_suspect = 0
                 failures: list[str] = []
 
                 for symbol in symbols:
                     for tf in tfs:
                         try:
-                            n = _label_symbol_tf(
+                            n, n_suspect = _label_symbol_tf(
                                 conn=conn,
                                 symbol=symbol,
                                 tf=tf,
                                 training_window_end=training_window_end,
                                 tracer=tracer,
                                 lookaheads=lookaheads,
+                                max_abs_return_by_scale=max_abs_return_by_tf_scale[tf],
+                                forward_return_sql=forward_return_sql_by_tf[tf],
+                                insert_sql=insert_sql,
                                 batch_size=batch_size,
                             )
                             total_inserted += n
+                            total_suspect += n_suspect
                         except Exception as error:
                             cell = f"{symbol}/{tf}"
                             _logger.error(
@@ -552,10 +714,12 @@ def main() -> None:
                 FORWARD_RETURN_WRITER_RUN_LATENCY_SECONDS.record(elapsed_s)
 
                 _emit_coverage(conn, symbols, tfs, _SCALES)
+                _emit_price_sanity_fact(conn, total_suspect, training_window_end)
 
                 _logger.info(
                     "forward_return_writer.run_complete",
                     total_inserted=total_inserted,
+                    total_suspect=total_suspect,
                     failed_cells=failures,
                     elapsed_s=round(elapsed_s, 2),
                 )

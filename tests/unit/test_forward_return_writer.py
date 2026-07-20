@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -21,7 +22,13 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.forward_return_writer import forward_log_return
+from services.forward_return_writer import (
+    _build_forward_return_sql,
+    _build_insert_sql,
+    _emit_price_sanity_fact,
+    forward_log_return,
+)
+from src.intelligence.statistics.ic_math import scale_max_abs_return
 
 
 def _make_opens(n: int = 100, seed: int = 42) -> np.ndarray:
@@ -156,3 +163,94 @@ def test_forward_log_return_not_same_bar_ratio():
     assert (
         abs(result[T] - wrong_formula) > 1e-10
     ), "Result matches WRONG formula ln(opens[T+N]/opens[T]) -- check implementation"
+
+
+# ---------------------------------------------------------------------------
+# Price-sanity guard SQL structure (todo 148)
+# ---------------------------------------------------------------------------
+
+_LOOKAHEADS = {"fast": 1, "mid": 5, "slow": 20, "extended": 60}
+
+
+def test_forward_return_sql_emits_suspect_flag_per_scale():
+    """Every scale gets its own return_{scale}_suspect column, gated on its own
+    %(max_abs_return_{scale})s param -- not a single row-level flag (a corrupt exit
+    price for one scale must not mark other scales' returns, which use a different
+    exit bar, as suspect) and not a single shared ceiling (see
+    test_scale_max_abs_return_* below for why a flat ceiling is wrong)."""
+    sql = _build_forward_return_sql(_LOOKAHEADS, "5m")
+    for scale in _LOOKAHEADS:
+        assert f"return_{scale}_suspect" in sql
+        assert f"abs(return_{scale}) > %(max_abs_return_{scale})s" in sql
+
+
+def test_scale_max_abs_return_fast_baseline_unchanged():
+    """The fast scale (1 bar, the APR-seeded baseline) must scale to itself."""
+    scaled = scale_max_abs_return(0.25, _LOOKAHEADS)
+    assert scaled["fast"] == 0.25
+
+
+def test_scale_max_abs_return_grows_with_horizon():
+    """Longer lookaheads get a wider ceiling (sqrt(n) volatility scaling) -- a flat
+    ceiling applied uniformly false-flags real multi-month ETF moves at slow/extended
+    horizons (verified live: 2,102 false positives on EWZ/XOP/OIH/GDX/AMLP 1d-extended
+    rows before this fix, vs. 16 true positives isolating the known UUP/ITA corrupt-
+    print cluster after it)."""
+    scaled = scale_max_abs_return(0.25, _LOOKAHEADS)
+    assert scaled["fast"] < scaled["mid"] < scaled["slow"] < scaled["extended"]
+
+
+def test_scale_max_abs_return_matches_sqrt_law():
+    scaled = scale_max_abs_return(0.25, _LOOKAHEADS)
+    assert abs(scaled["extended"] - 0.25 * (60**0.5)) < 1e-9
+
+
+def test_forward_return_sql_suspect_flag_references_materialized_return():
+    """Suspect flags must read the `returns` CTE's already-computed return_{scale}
+    column, not re-derive from open_entry/open_{scale} -- Postgres SELECT-list
+    aliases aren't visible to sibling expressions at the same query level, so the
+    suspect predicate has to live in the outer SELECT over the `returns` CTE."""
+    sql = _build_forward_return_sql(_LOOKAHEADS, "1d")
+    assert "returns AS (" in sql
+    assert sql.index("FROM returns") > sql.index("return_fast_suspect")
+
+
+def test_insert_sql_includes_suspect_columns_and_params():
+    sql = _build_insert_sql(("fast", "mid", "slow", "extended"))
+    for scale in _LOOKAHEADS:
+        assert f"return_{scale}_suspect" in sql
+        assert f"%(return_{scale}_suspect)s" in sql
+
+
+def _mock_conn_with_precheck_result(already_ran: bool) -> MagicMock:
+    cur = MagicMock()
+    cur.fetchone.return_value = (1,) if already_ran else None
+    cur.__enter__.return_value = cur
+    cur.__exit__.return_value = False
+    conn = MagicMock()
+    conn.cursor.return_value = cur
+    return conn
+
+
+def test_emit_price_sanity_fact_skips_insert_when_already_ran():
+    """Idempotency pre-check (mirrors ic_engine.py's _run_lifecycle_hook Step 0):
+    evaluated_at defaults to now() and is part of the table's composite unique key,
+    so ON CONFLICT alone doesn't dedupe a rerun of the same training_window_end
+    minutes/hours later -- an explicit pre-check is required, same as ic_lifecycle."""
+    conn = _mock_conn_with_precheck_result(already_ran=True)
+
+    _emit_price_sanity_fact(conn, total_suspect=5, training_window_end="2026-01-01T00:00:00+00:00")
+
+    # Only the pre-check SELECT ran (one cursor use) -- no INSERT, no commit.
+    assert conn.cursor.call_count == 1
+    conn.commit.assert_not_called()
+
+
+def test_emit_price_sanity_fact_inserts_when_not_already_ran():
+    conn = _mock_conn_with_precheck_result(already_ran=False)
+
+    _emit_price_sanity_fact(conn, total_suspect=5, training_window_end="2026-01-01T00:00:00+00:00")
+
+    # Pre-check SELECT + INSERT -- two cursor uses -- and the insert is committed.
+    assert conn.cursor.call_count == 2
+    conn.commit.assert_called_once()

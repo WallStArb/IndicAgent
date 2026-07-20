@@ -508,9 +508,19 @@ async def _assert_prerequisites(
 # ensemble_alpha rows that happen to share (symbol, tf, bar_ts) -- migration 196 Section 3.
 # Sources from ensemble_alpha (every scored bar), NOT alpha_events (the emission-gated
 # execution subset) -- see module docstring's measurement-population invariant.
+# return_{scale} is masked to NULL when its own return_{scale}_suspect flag is set
+# (todo 148 price-sanity guard) -- masked once here in SQL rather than fetching the raw
+# value + suspect flag and branching in Python per row. The existing None-check in
+# returns_by_scale construction (`np.nan if r[col] is None else float(r[col])`) already
+# treats NULL as "exclude," so no downstream code needs a separate suspect-flag lookup.
 _WORKER_FETCH_SQL = """
-    SELECT ea.alpha_score, fr.return_fast, fr.return_mid,
-           fr.return_slow, fr.return_extended, mr.regime_label
+    SELECT ea.alpha_score,
+           CASE WHEN fr.return_fast_suspect THEN NULL ELSE fr.return_fast END AS return_fast,
+           CASE WHEN fr.return_mid_suspect THEN NULL ELSE fr.return_mid END AS return_mid,
+           CASE WHEN fr.return_slow_suspect THEN NULL ELSE fr.return_slow END AS return_slow,
+           CASE WHEN fr.return_extended_suspect THEN NULL ELSE fr.return_extended END
+               AS return_extended,
+           mr.regime_label
     FROM ensemble_alpha ea
     JOIN forward_returns fr
       ON fr.symbol = ea.symbol AND fr.tf = ea.tf AND fr.bar_ts = ea.bar_ts
@@ -534,9 +544,18 @@ _WORKER_FETCH_SQL = """
 # symbol at a given (tf, bar_ts) shares exactly one regime_label by construction --
 # grouping by (regime_label, bar_ts) within a fixed tf is therefore equivalent to
 # grouping by the full (tf, regime, bar_ts) triple.
+# Same NULL-masking as _WORKER_FETCH_SQL (todo 148) -- masking here, before
+# _aggregate_pooled_series runs, means the pooled reducer's existing `if value is not
+# None` skip (see _RunningMean usage below) already excludes suspect values from each
+# column's cross-symbol mean with no extra suspect-flag plumbing needed.
 _POOLED_WORKER_FETCH_SQL = """
-    SELECT ea.symbol, ea.bar_ts, ea.alpha_score, fr.return_fast, fr.return_mid,
-           fr.return_slow, fr.return_extended, mr.regime_label
+    SELECT ea.symbol, ea.bar_ts, ea.alpha_score,
+           CASE WHEN fr.return_fast_suspect THEN NULL ELSE fr.return_fast END AS return_fast,
+           CASE WHEN fr.return_mid_suspect THEN NULL ELSE fr.return_mid END AS return_mid,
+           CASE WHEN fr.return_slow_suspect THEN NULL ELSE fr.return_slow END AS return_slow,
+           CASE WHEN fr.return_extended_suspect THEN NULL ELSE fr.return_extended END
+               AS return_extended,
+           mr.regime_label
     FROM ensemble_alpha ea
     JOIN forward_returns fr
       ON fr.symbol = ea.symbol AND fr.tf = ea.tf AND fr.bar_ts = ea.bar_ts
@@ -602,7 +621,11 @@ def _aggregate_pooled_series(
     Args:
         fetched_rows: raw per-(symbol, bar_ts) dicts from _POOLED_WORKER_FETCH_SQL
             (or equivalent), each with keys: bar_ts, regime_label, alpha_score,
-            return_fast, return_mid, return_slow, return_extended.
+            return_fast, return_mid, return_slow, return_extended. Each return_{scale}
+            is already NULL-masked by _POOLED_WORKER_FETCH_SQL's CASE expression when
+            its own return_{scale}_suspect flag is set (todo 148 price-sanity guard) --
+            this function treats that NULL the same as any other missing value, no
+            separate suspect-flag check needed.
         tf: the timeframe this fetch was scoped to (constant across all input rows --
             included in the group key for an explicit (tf, regime, bar_ts) grain
             rather than relying on caller discipline).
@@ -745,7 +768,7 @@ def _run_ensemble_ic_worker(args: tuple) -> dict[str, Any]:
 
             alpha_scores = np.array([float(r["alpha_score"]) for r in fetched])
             returns_by_scale = {
-                scale: np.array([float(r[col]) if r[col] is not None else np.nan for r in fetched])
+                scale: np.array([np.nan if r[col] is None else float(r[col]) for r in fetched])
                 for scale, col in _SCALE_RETURN_COLUMNS.items()
             }
             regime_labels = np.array([r["regime_label"] for r in fetched], dtype=object)

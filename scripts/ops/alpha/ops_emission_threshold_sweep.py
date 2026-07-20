@@ -82,6 +82,7 @@ _SWEEP_SQL_TEMPLATE = """
       AND fr.return_type = 'executable_open_to_open'
       AND fr.{complete_col} = true
       AND fr.{return_col} IS NOT NULL
+      AND fr.{suspect_col} = false
       AND ea.effective_n IS NOT NULL
 """
 
@@ -245,6 +246,7 @@ async def main() -> int:
     tfs = [args.tf] if args.tf else _KNOWN_TFS
     return_col = f"return_{args.lookahead}"
     complete_col = f"complete_{args.lookahead}"
+    suspect_col = f"return_{args.lookahead}_suspect"
 
     settings = Settings()
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
@@ -281,7 +283,9 @@ async def main() -> int:
             print(f"threshold grid: {list(thresholds)}")
             print()
 
-            sql = _SWEEP_SQL_TEMPLATE.format(return_col=return_col, complete_col=complete_col)
+            sql = _SWEEP_SQL_TEMPLATE.format(
+                return_col=return_col, complete_col=complete_col, suspect_col=suspect_col
+            )
             rows = await conn.fetch(sql, args.weight_version, oos_start, tfs)
             rows_by_tf: dict[str, list[dict]] = {tf: [] for tf in tfs}
             for row in rows:

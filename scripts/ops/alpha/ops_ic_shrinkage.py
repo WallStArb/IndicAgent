@@ -122,8 +122,10 @@ _SCALE_RETURN_COLUMNS: dict[str, str] = {
 # _aggregate_pooled_series step ensemble_ic_engine.py uses for its own unit-testability.
 _STRATUM_FETCH_SQL_TEMPLATE = """
     SELECT fv.bar_ts, {col_list},
-           AVG(fr.return_fast) AS return_fast, AVG(fr.return_mid) AS return_mid,
-           AVG(fr.return_slow) AS return_slow, AVG(fr.return_extended) AS return_extended
+           AVG(fr.return_fast) FILTER (WHERE NOT fr.return_fast_suspect) AS return_fast,
+           AVG(fr.return_mid) FILTER (WHERE NOT fr.return_mid_suspect) AS return_mid,
+           AVG(fr.return_slow) FILTER (WHERE NOT fr.return_slow_suspect) AS return_slow,
+           AVG(fr.return_extended) FILTER (WHERE NOT fr.return_extended_suspect) AS return_extended
     FROM feature_vectors fv
     JOIN market_regimes mr
       ON mr.regime_group = 'equity' AND mr.tf = fv.tf AND mr.ts = fv.bar_ts

@@ -240,8 +240,8 @@ async def _step3_gap_contamination(
         SELECT
             has_gap_before_entry,
             count(*) AS n,
-            avg(return_fast) AS mean_return_fast,
-            stddev(return_fast) AS std_return_fast
+            avg(return_fast) FILTER (WHERE NOT return_fast_suspect) AS mean_return_fast,
+            stddev(return_fast) FILTER (WHERE NOT return_fast_suspect) AS std_return_fast
         FROM forward_returns
         GROUP BY has_gap_before_entry
         """)
