@@ -6,11 +6,8 @@ at startup, or simply prior bars appended earlier in the process). above_wk_vwap
 from its dataclass default instead of reflecting the true week-to-date volume-weighted
 price, silently wrong for up to ~7 days per restart (until the next ISO week boundary).
 
-hmm_duration is deliberately NOT warmed the same way (see _get_cache()'s docstring) --
-replaying its unconditional += 1.0 across buffered history would fabricate a plausibly-large
-duration instead of a real bars-since-last-regime-change count, which isn't recoverable
-without re-running HMM classification retroactively. It stays cold (0.0), matching the
-already-documented, self-correcting-at-next-regime-change behavior.
+hmm_duration is deliberately NOT warmed the same way -- see the rationale in
+services/feature_vector_pipeline.py's _get_cache() docstring, the source of truth.
 """
 
 from datetime import UTC, datetime
@@ -56,11 +53,13 @@ def test_get_cache_warms_above_wk_vwap_from_seeded_history():
     cache = agent._get_cache("SPY", "1m")
 
     # Warmed from bar1 + bar2 only (bar3 excluded -- it's the bar currently being
-    # processed and gets its own advance_bar() call elsewhere). above_wk_vwap is set on
-    # the LAST warm-up call (bar2): cumulative wk_vwap after bar1+bar2 is
-    # (98.833*1000 + 99.833*1000) / 2000 = 99.333, and bar2's own close (99.5) > that,
-    # so above_wk_vwap ends warm-up at 1.0. bar3's close (104.9) plays no part here.
-    assert cache.above_wk_vwap == 1.0, (
+    # processed and gets its own advance_bar() call elsewhere). Compute the expected
+    # cumulative VWAP the same way the cache does, rather than hand-computing a constant
+    # that would silently drift out of sync if the fixture values above ever change.
+    typical1 = (bar1.high + bar1.low + bar1.close) / 3.0
+    typical2 = (bar2.high + bar2.low + bar2.close) / 3.0
+    expected_vwap = (typical1 * bar1.volume + typical2 * bar2.volume) / (bar1.volume + bar2.volume)
+    assert cache.above_wk_vwap == float(bar2.close > expected_vwap), (
         "above_wk_vwap must reflect the seeded bar1/bar2 history immediately on cache "
         "creation, not the dataclass default (todo 159) -- got the cold-cache value, "
         "meaning warm-up did not run"
@@ -68,7 +67,7 @@ def test_get_cache_warms_above_wk_vwap_from_seeded_history():
 
 
 def test_get_cache_does_not_warm_hmm_duration():
-    """hmm_duration must stay cold (0.0) -- see module docstring for why."""
+    """hmm_duration must stay cold (0.0) -- see _get_cache()'s docstring for why."""
     agent = make_agent()
 
     ts1 = datetime(2026, 3, 23, 14, 30, 0, tzinfo=UTC)
